@@ -2824,6 +2824,24 @@ export default function Home() {
                 </button>
               )}
 
+              {/* Invalid & Unmatched Calls Report */}
+              {(currentUser?.role === "admin" || !Array.isArray(currentRolePermissions) || currentRolePermissions.includes("reports_invalid_calls:access") || currentRolePermissions.includes("reports:access")) && (
+                <button
+                  onClick={() => setActiveTab("reports-invalid-calls")}
+                  title="Raporlar: Hatalı & Eşleşmeyen Çağrı Raporu"
+                  className={`w-full flex items-center ${
+                    isSidebarCollapsed ? "justify-center px-0 py-2.5" : "gap-3 px-3 py-2"
+                  } rounded-xl text-xs font-semibold tracking-wide transition-all duration-200 border ${
+                    activeTab === "reports-invalid-calls"
+                      ? `${lightBg} ${text} ${borderLight} shadow-sm`
+                      : "text-slate-500 dark:text-slate-400 border-transparent hover:text-slate-900 dark:hover:text-white hover:bg-slate-50 dark:hover:bg-slate-800/40"
+                  }`}
+                >
+                  <AlertTriangle size={16} className={`shrink-0 ${activeTab === "reports-invalid-calls" ? text : ""}`} />
+                  <span className={`whitespace-nowrap overflow-hidden transition-all duration-300 truncate ${isSidebarCollapsed ? "max-w-0 opacity-0" : "max-w-[180px] opacity-100"}`}>Hatalı & Eşleşmeyen Çağrı</span>
+                </button>
+              )}
+
               {/* IVR Drop-Off */}
               <button
                 onClick={() => setActiveTab("reports-ivr-drop")}
@@ -3380,7 +3398,7 @@ export default function Home() {
         )}
 
         {/* Dynamic View Panel */}
-        <div key={activeTenantId} className={`flex-1 overflow-y-auto flex ${isEditingCallFlow ? "p-0 justify-center w-full h-full bg-white dark:bg-slate-950" : activeTab === "call-center" ? "p-3 justify-start items-start w-full h-full" : ["wallboard", "settings", "rag-kb", "rule-editor", "calendar", "system-status", "dialer", "call-flow", "ai-agents", "changelog", "reports-pano", "reports-cdr", "reports-audio", "reports-transcripts", "reports-sentiment", "reports-intent", "reports-qa", "reports-notes", "reports-perf", "reports-queue", "reports-survey", "reports-sentiment-heat", "reports-wordcloud", "reports-fcr", "reports-roi", "reports-missed", "reports-agent-status-timeline", "reports-traffic-load", "reports-trunk", "reports-did", "reports-trunk-minutes", "reports-ivr-drop", "reports-transfer-hold", "reports-ab-testing", "reports-friction", "reports-compliance", "reports-silence", "reports-ceo-summary", "users", "trunks", "blacklist", "announcements", "acd-queues", "auto-provision", "outbound-rules", "inbound-rules", "call-pickup-groups", "subscriber-groups", "conferences", "speed-dial", "event-logs", "sip-debugger"].includes(activeTab) ? "p-8 justify-start items-start w-full" : "p-8 justify-center"}`}>
+        <div key={activeTenantId} className={`flex-1 overflow-y-auto flex ${isEditingCallFlow ? "p-0 justify-center w-full h-full bg-white dark:bg-slate-950" : activeTab === "call-center" ? "p-3 justify-start items-start w-full h-full" : ["wallboard", "settings", "rag-kb", "rule-editor", "calendar", "system-status", "dialer", "call-flow", "ai-agents", "changelog", "reports-pano", "reports-cdr", "reports-audio", "reports-transcripts", "reports-sentiment", "reports-intent", "reports-qa", "reports-notes", "reports-perf", "reports-queue", "reports-survey", "reports-sentiment-heat", "reports-wordcloud", "reports-fcr", "reports-roi", "reports-missed", "reports-agent-status-timeline", "reports-traffic-load", "reports-trunk", "reports-did", "reports-trunk-minutes", "reports-invalid-calls", "reports-ivr-drop", "reports-transfer-hold", "reports-ab-testing", "reports-friction", "reports-compliance", "reports-silence", "reports-ceo-summary", "users", "trunks", "blacklist", "announcements", "acd-queues", "auto-provision", "outbound-rules", "inbound-rules", "call-pickup-groups", "subscriber-groups", "conferences", "speed-dial", "event-logs", "sip-debugger"].includes(activeTab) ? "p-8 justify-start items-start w-full" : "p-8 justify-center"}`}>
           <div className={activeTab === "call-center" ? "w-full h-full flex" : "hidden"}>
             <AgentPanel 
               backendHost={backendHost} 
@@ -3547,6 +3565,10 @@ export default function Home() {
 
           {activeTab === "reports-trunk-minutes" && (currentUser?.role === "admin" || !Array.isArray(currentRolePermissions) || currentRolePermissions.includes("reports_trunk_minutes:access") || currentRolePermissions.includes("reports:access")) && (
             <ReportsPanel backendHost={backendHost} viewMode="trunk-minutes" />
+          )}
+
+          {activeTab === "reports-invalid-calls" && (currentUser?.role === "admin" || !Array.isArray(currentRolePermissions) || currentRolePermissions.includes("reports_invalid_calls:access") || currentRolePermissions.includes("reports:access")) && (
+            <ReportsPanel backendHost={backendHost} viewMode="invalid-calls" />
           )}
 
           {activeTab === "reports-ivr-drop" && (

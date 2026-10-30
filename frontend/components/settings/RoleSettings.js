@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { Plus, Trash2, Edit2, X, Shield, Search, Check, CheckCircle, Smartphone, Server, Coffee, User, Users, Terminal, HardDrive, Lock, Unlock, Eye, Edit3, Trash, GitBranch, Bot, MessageSquare, BookOpen, FileText, Cable, Fingerprint, Volume2, ArrowUpRight, PhoneCall, Network, Mail, RotateCcw, Activity, Monitor, Database, Sliders, Calendar, Clock, MapPin, Hash, Shuffle, Languages, Heart, Sparkles, Headphones, Mic } from "lucide-react";
+import { Plus, Trash2, Edit2, X, Shield, Search, Check, CheckCircle, Smartphone, Server, Coffee, User, Users, Terminal, HardDrive, Lock, Unlock, Eye, Edit3, Trash, GitBranch, Bot, MessageSquare, BookOpen, FileText, Cable, Fingerprint, Volume2, ArrowUpRight, PhoneCall, Network, Mail, RotateCcw, Activity, Monitor, Database, Sliders, Calendar, Clock, MapPin, Hash, Shuffle, Languages, Heart, Sparkles, Headphones, Mic, AlertTriangle } from "lucide-react";
 import ConfirmDeleteModal from "../dashboard/ConfirmDeleteModal";
 import { useTheme } from "../../utils/theme";
 
@@ -98,6 +98,7 @@ export const REPORT_FEATURE_IDS = [
   "reports_trunk",
   "reports_did",
   "reports_trunk_minutes",
+  "reports_invalid_calls",
   "reports_ivr_drop",
   "reports_transfer_hold",
   "reports_ab_testing",
@@ -166,6 +167,7 @@ const SYSTEM_FEATURES = [
   { id: "reports_trunk", name: "Hat Kapasite Raporu", icon: Server, type: "access", color: "emerald" },
   { id: "reports_did", name: "DID Raporu", icon: Hash, type: "access", color: "emerald" },
   { id: "reports_trunk_minutes", name: "Operatör Dakika & Paket Raporu", icon: Clock, type: "access", color: "emerald" },
+  { id: "reports_invalid_calls", name: "Hatalı & Eşleşmeyen Çağrı Raporu", icon: AlertTriangle, type: "access", color: "rose" },
   { id: "reports_ivr_drop", name: "IVR Terk Oranı", icon: Shuffle, type: "access", color: "emerald" },
   { id: "reports_transfer_hold", name: "Aktarma & Bekletme", icon: PhoneCall, type: "access", color: "emerald" },
   { id: "reports_ab_testing", name: "Verimlilik Karşılaştırması", icon: Activity, type: "access", color: "emerald" },

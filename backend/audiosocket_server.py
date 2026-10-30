@@ -867,6 +867,26 @@ async def run_interactive_callflow_menus(
         ami_task.cancel()
 
 
+def _did_pattern_matches_as(did_val: str, pat_val: str) -> bool:
+    d_raw = str(did_val or "").strip()
+    p_raw = str(pat_val or "").strip()
+    if not d_raw or not p_raw:
+        return False
+    if p_raw.lower() in ("*", "all"):
+        return True
+    d = re.sub(r"[^\d+]", "", d_raw).lstrip("+")
+    p = re.sub(r"[^\d+*xX]", "", p_raw).lstrip("+")
+    if not d or not p:
+        return False
+    if d == p or (d.lstrip("0") and d.lstrip("0") == p.lstrip("0")):
+        return True
+    d_dig = re.sub(r"\D", "", d)
+    p_dig = re.sub(r"\D", "", p)
+    if len(d_dig) >= 10 and len(p_dig) >= 10 and d_dig[-10:] == p_dig[-10:]:
+        return True
+    return False
+
+
 def evaluate_call_flow_action(did: str) -> dict:
     """
     Evaluates Inbound Rules and Visual CallFlow workflows for the given DID.
@@ -882,26 +902,40 @@ def evaluate_call_flow_action(did: str) -> dict:
     settings = load_settings()
     inbound_rules = settings.get("inbound_rules", [])
     workflows = settings.get("workflows", [])
+    trunks = settings.get("trunks", [])
     
-    # 1. Match Inbound Rule
-    matched_rule = None
-    for rule in inbound_rules:
+    # 1. Match Inbound Rule (specific rules take precedence over catch-all 'all' rules)
+    active_inbound_rules = [r for r in inbound_rules if r.get("active") is not False and r.get("enabled") is not False]
+    matched_specific = None
+    matched_catchall = None
+    for rule in active_inbound_rules:
         match_mode = rule.get("did_match_mode", "all")
         if match_mode == "all":
-            matched_rule = rule
+            if not matched_catchall:
+                matched_catchall = rule
         elif match_mode == "specific":
             patterns = rule.get("did_patterns", [])
             for p in patterns:
-                if p and (p == did or did in p or p.strip('0') == did.strip('0') or p.endswith(did) or did.endswith(p)):
-                    matched_rule = rule
+                if _did_pattern_matches_as(did, p):
+                    matched_specific = rule
                     break
-            if matched_rule and match_mode == "specific":
+            if matched_specific:
                 break
 
-    if not matched_rule and inbound_rules:
-        matched_rule = inbound_rules[0]
+    matched_rule = matched_specific or matched_catchall
 
-    # If no inbound rule matched, check active workflows whose DID node matches the dialed DID
+    # Check if DID matches any configured trunk DID when no inbound rules exist
+    trunk_dids = []
+    for t in trunks:
+        if t.get("enabled") is False or str(t.get("status") or "").lower() == "disabled":
+            continue
+        for k in ("did_number", "username"):
+            tv = str(t.get(k) or "").strip()
+            if tv and re.search(r"\d{7,}", tv):
+                trunk_dids.append(tv)
+    did_matches_trunk = any(_did_pattern_matches_as(did, td) for td in trunk_dids) if trunk_dids else False
+
+    # If no inbound rule matched, check active workflows whose DID node explicitly matches the dialed DID
     if not matched_rule and workflows:
         for wf in workflows:
             if wf.get("status") == "draft":
@@ -911,12 +945,22 @@ def evaluate_call_flow_action(did: str) -> dict:
                 ef = did_node.get("extra_fields") if isinstance(did_node.get("extra_fields"), dict) else {}
                 is_wc = ef.get("is_wildcard", True) is not False
                 d_nums = [str(x).strip() for x in (ef.get("did_numbers") or []) if x]
-                if is_wc or any(p == did or did.endswith(p) or p.endswith(did) for p in d_nums):
+                explicit_wf_match = any(_did_pattern_matches_as(did, p) for p in d_nums)
+                wildcard_allowed = is_wc and not active_inbound_rules and (did == "s" or not trunk_dids or did_matches_trunk)
+                if explicit_wf_match or wildcard_allowed:
                     wf_res = _evaluate_workflow_object(wf, settings)
                     if wf_res:
                         return wf_res
 
     if not matched_rule:
+        # Unmapped inbound DID -> must NOT fall back to first rule or AI agent; terminate call immediately
+        if active_inbound_rules or (trunk_dids and did != "s" and not did_matches_trunk) or did == "s":
+            if did != "s" or active_inbound_rules:
+                return {
+                    "action": "hangup",
+                    "unmapped_did": True,
+                    "reason": f"Gelen DID numarası ({did}) sistemde tanımlı değil",
+                }
         ai_agents = settings.get("ai_agents", [])
         active_agent = next((a for a in ai_agents if a.get("status") != "disabled"), ai_agents[0] if ai_agents else None)
         return {"action": "ai", "agent": active_agent, "agent_id": active_agent.get("id") if active_agent else None}
@@ -1705,7 +1749,22 @@ async def handle_audiosocket_connection(reader: asyncio.StreamReader, writer: as
             return
 
         elif route_action == "hangup":
-            print(f"[Call Flow Route] DID: {did} -> Call Hangup Requested")
+            print(f"[Call Flow Route] DID: {did} -> Call Hangup Requested (unmapped_did={bool(call_eval.get('unmapped_did'))})")
+            if call_eval.get("unmapped_did"):
+                try:
+                    async with AsyncSessionLocal() as session:
+                        db_call = await session.get(Call, call_id)
+                        if db_call:
+                            reason_txt = str(call_eval.get("reason") or f"Gelen DID numarası ({did}) sistemde tanımlı değil")
+                            db_call.status = "failed"
+                            db_call.ended_by = "system"
+                            db_call.talk_duration = 0
+                            db_call.answered_at = None
+                            db_call.end_time = datetime.datetime.utcnow()
+                            db_call.hangup_source = f"call_error:unmapped_did:inbound:{reason_txt}"
+                            await session.commit()
+                except Exception as unm_err:
+                    print(f"[Unmapped DID DB Update Warning]: {unm_err}")
             from backend.services.ami_manager import hangup_call
             await hangup_call(call_id)
             writer.close()

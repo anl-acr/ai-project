@@ -530,6 +530,12 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
   const [filterTrunkPackageStatus, setFilterTrunkPackageStatus] = useState("all");
   const [trunkMinutesSortConfig, setTrunkMinutesSortConfig] = useState({ key: "periodOutboundBilledSec", dir: "desc" });
 
+  // Hatalı & Eşleşmeyen Çağrı Raporu Filter & Sort States
+  const [filterInvalidCategory, setFilterInvalidCategory] = useState("all");
+  const [filterInvalidDirection, setFilterInvalidDirection] = useState("all");
+  const [filterInvalidSearch, setFilterInvalidSearch] = useState("");
+  const [invalidCallsSortConfig, setInvalidCallsSortConfig] = useState({ key: "startTime", dir: "desc" });
+
   // Aggregate & deduplicate ALL defined DID numbers across Trunks, Inbound Rules, Call Flows, Outbound Rules, and Users
   const definedDidInventory = React.useMemo(() => {
     const map = new Map();
@@ -1615,6 +1621,16 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
       cycleRemainingMin: "Kalan / Aşım Dakikası",
       packageProgress: "Paket Doluluk Oranı",
       resetInfo: "Yenilenme Günü"
+    },
+    "invalid-calls": {
+      startTime: "Tarih / Saat",
+      direction: "Çağrı Yönü",
+      caller: "Arayan (Dahili / Numara)",
+      callee: "Aranan Numara / DID",
+      errorCategory: "Hata Kategorisi",
+      errorReason: "Hata Detayı / Sebep",
+      trunkName: "İlgili Hat (Trunk)",
+      actionStatus: "Sistem Aksiyonu"
     }
   };
 
@@ -2666,6 +2682,42 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
       return;
     }
 
+    if (viewMode === "invalid-calls") {
+      const headers = [];
+      if (visibleColumns.startTime) headers.push("Tarih / Saat");
+      if (visibleColumns.direction) headers.push("Çağrı Yönü");
+      if (visibleColumns.caller) headers.push("Arayan (Dahili / Numara)");
+      if (visibleColumns.callee) headers.push("Aranan Numara / DID");
+      if (visibleColumns.errorCategory) headers.push("Hata Kategorisi");
+      if (visibleColumns.errorReason) headers.push("Hata Detayı / Sebep");
+      if (visibleColumns.trunkName) headers.push("İlgili Hat (Trunk)");
+      if (visibleColumns.actionStatus) headers.push("Sistem Aksiyonu");
+      csvContent += headers.join(";") + "\n";
+
+      (invalidCallsReportData?.rows || []).forEach((r) => {
+        const row = [];
+        if (visibleColumns.startTime) row.push(r.startTimeFormatted);
+        if (visibleColumns.direction) row.push(r.directionLabel);
+        if (visibleColumns.caller) row.push(r.callerDisplay);
+        if (visibleColumns.callee) row.push(r.calleeDisplay);
+        if (visibleColumns.errorCategory) row.push(r.categoryLabel);
+        if (visibleColumns.errorReason) row.push(r.errorReason);
+        if (visibleColumns.trunkName) row.push(r.trunkName || "-");
+        if (visibleColumns.actionStatus) row.push(r.actionLabel);
+        csvContent += row.map((v) => `"${String(v ?? "").replace(/"/g, '""')}"`).join(";") + "\n";
+      });
+
+      const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.setAttribute("href", url);
+      link.setAttribute("download", `hatali_eslesmeyen_cagri_raporu_${filterEndDate || filterStartDate || new Date().toISOString().slice(0, 10)}.csv`);
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      return;
+    }
+
     // Header row
     const headers = [
       "Tarih/Saat",
@@ -2866,7 +2918,7 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
       if (filterEndDate) params.append("end_date", filterEndDate);
       if (filterStartTime && filterStartTime !== "00:00") params.append("start_time", filterStartTime);
       if (filterEndTime && filterEndTime !== "23:59") params.append("end_time", filterEndTime);
-      if (viewMode !== "perf" && viewMode !== "queue" && viewMode !== "sentiment-heat" && viewMode !== "wordcloud" && viewMode !== "roi" && viewMode !== "timeline" && viewMode !== "traffic" && viewMode !== "trunk" && viewMode !== "ivr-drop" && viewMode !== "efficiency" && viewMode !== "ceo-summary" && viewMode !== "did" && viewMode !== "trunk-minutes") {
+      if (viewMode !== "perf" && viewMode !== "queue" && viewMode !== "sentiment-heat" && viewMode !== "wordcloud" && viewMode !== "roi" && viewMode !== "timeline" && viewMode !== "traffic" && viewMode !== "trunk" && viewMode !== "ivr-drop" && viewMode !== "efficiency" && viewMode !== "ceo-summary" && viewMode !== "did" && viewMode !== "trunk-minutes" && viewMode !== "invalid-calls") {
         if (filterCallerNumber) params.append("caller_number", filterCallerNumber);
         if (viewMode !== "fcr" && viewMode !== "missed" && viewMode !== "friction" && filterCallId) params.append("call_id", filterCallId);
       }
@@ -2901,7 +2953,7 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
     if (viewMode === "trunk-minutes") {
       fetchTrunkPackageUsage();
       fetchUsersAndAiAgents();
-    } else if (viewMode === "did") {
+    } else if (viewMode === "did" || viewMode === "invalid-calls") {
       fetchUsersAndAiAgents();
     }
   }, [viewMode]);
@@ -2966,7 +3018,7 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
     if (filterEndDate) params.append("end_date", filterEndDate);
     if (filterStartTime && filterStartTime !== "00:00") params.append("start_time", filterStartTime);
     if (filterEndTime && filterEndTime !== "23:59") params.append("end_time", filterEndTime);
-    if (viewMode !== "perf" && viewMode !== "queue" && viewMode !== "sentiment-heat" && viewMode !== "wordcloud" && viewMode !== "roi" && viewMode !== "timeline" && viewMode !== "traffic" && viewMode !== "trunk" && viewMode !== "ivr-drop" && viewMode !== "efficiency" && viewMode !== "ceo-summary" && viewMode !== "did" && viewMode !== "trunk-minutes") {
+    if (viewMode !== "perf" && viewMode !== "queue" && viewMode !== "sentiment-heat" && viewMode !== "wordcloud" && viewMode !== "roi" && viewMode !== "timeline" && viewMode !== "traffic" && viewMode !== "trunk" && viewMode !== "ivr-drop" && viewMode !== "efficiency" && viewMode !== "ceo-summary" && viewMode !== "did" && viewMode !== "trunk-minutes" && viewMode !== "invalid-calls") {
       if (filterCallerNumber) params.append("caller_number", filterCallerNumber);
       if (viewMode !== "fcr" && viewMode !== "missed" && viewMode !== "friction" && filterCallId) params.append("call_id", filterCallId);
     }
@@ -3032,6 +3084,9 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
     setFilterDidMinOutDur("");
     setFilterDidMaxOutDur("");
     setFilterTrunkPackageStatus("all");
+    setFilterInvalidCategory("all");
+    setFilterInvalidDirection("all");
+    setFilterInvalidSearch("");
     setSelectedTimelineAgent("All");
 
     if (typeof window !== "undefined") {
@@ -4965,8 +5020,8 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
         const matchedKey = matchedT ? String(matchedT.id ?? matchedT.trunk_name) : "";
         if (!matchedKey || !filterTrunksSelected.includes(matchedKey)) return false;
       }
-    } else if (viewMode === "did" || viewMode === "ivr-drop") {
-      // Handled by dedicated DID / IVR sub-filters and unified Date+Time check below
+    } else if (viewMode === "did" || viewMode === "ivr-drop" || viewMode === "invalid-calls") {
+      // Handled by dedicated DID / IVR / Invalid-Calls sub-filters and unified Date+Time check below
     } else if (viewMode !== "perf" && viewMode !== "queue" && viewMode !== "sentiment-heat" && viewMode !== "wordcloud" && viewMode !== "roi" && viewMode !== "timeline" && viewMode !== "ivr-drop" && viewMode !== "efficiency" && viewMode !== "ceo-summary") {
       // 1. Caller Number Filter
       if (filterCallerNumber && !getCustomerNumber(c)?.toLowerCase().includes(filterCallerNumber.toLowerCase())) {
@@ -5001,13 +5056,13 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
     }
 
     // 5. Conversant / Agent Filter across applicable report modes
-    if (viewMode !== "queue" && viewMode !== "roi" && viewMode !== "missed" && viewMode !== "traffic" && viewMode !== "trunk" && viewMode !== "trunk-minutes" && viewMode !== "did" && viewMode !== "ivr-drop" && viewMode !== "efficiency" && viewMode !== "friction" && viewMode !== "ceo-summary" && (filterAgentsSelected.length > 0 || filterConversant !== "All")) {
+    if (viewMode !== "queue" && viewMode !== "roi" && viewMode !== "missed" && viewMode !== "traffic" && viewMode !== "trunk" && viewMode !== "trunk-minutes" && viewMode !== "did" && viewMode !== "invalid-calls" && viewMode !== "ivr-drop" && viewMode !== "efficiency" && viewMode !== "friction" && viewMode !== "ceo-summary" && (filterAgentsSelected.length > 0 || filterConversant !== "All")) {
       const conversant = getConversant(c);
       if (!matchesSelectedAgent(conversant)) return false;
     }
 
     // 5b. Supervisor Managed Users Filter
-    if (supManagedUsers.length > 0 && users.length > 0) {
+    if (viewMode !== "invalid-calls" && supManagedUsers.length > 0 && users.length > 0) {
       const conversantNorm = normalizeAgentName(getConversant(c));
       const calleeStr = String(c.callee_number || "").trim();
       const callerStr = String(c.caller_number || "").trim();
@@ -5025,7 +5080,7 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
     }
 
     // 5c. Supervisor Managed Queues Filter
-    if (supManagedQueues.length > 0) {
+    if (viewMode !== "invalid-calls" && supManagedQueues.length > 0) {
       const qInfo = resolveCallQueueInfo(c);
       const qMatch =
         supManagedQueues.includes(String(qInfo.queueId)) ||
@@ -5797,11 +5852,174 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
     trunkMinutesSortConfig,
   ]);
 
+  // Hatalı & Eşleşmeyen Çağrı Raporu computation
+  const invalidCallsReportData = React.useMemo(() => {
+    const categoryMeta = {
+      invalid_extension: {
+        label: "Tanımsız Dahili",
+        shortLabel: "Tanımsız Dahili",
+        actionLabel: "Reddedildi (Tanımsız Dahili)",
+      },
+      invalid_dialplan: {
+        label: "Arama Planı / Tuşlama Hatası",
+        shortLabel: "Tuşlama / Plan Hatası",
+        actionLabel: "Reddedildi (Plan Uyumsuz)",
+      },
+      unmapped_did: {
+        label: "Tanımsız Gelen DID",
+        shortLabel: "Tanımsız DID",
+        actionLabel: "Anında Kapatıldı (Hangup)",
+      },
+      unauthorized: {
+        label: "Yetkisiz Arama Denemesi",
+        shortLabel: "Yetkisiz Arama",
+        actionLabel: "Engellendi (ACL / Güvenlik)",
+      },
+    };
+
+    const userExtMap = new Map();
+    (Array.isArray(users) ? users : []).forEach((u) => {
+      const ext = String(u.extension || "").trim();
+      const fullName = String(u.full_name || u.name || u.username || "").trim();
+      if (ext && fullName) {
+        userExtMap.set(ext, fullName);
+      }
+    });
+
+    const allErrorRows = [];
+    filteredCalls.forEach((c) => {
+      let errCat = String(c.error_category || "").trim();
+      let errDir = String(c.error_direction || "").trim();
+      let errReason = String(c.error_reason || "").trim();
+      const rawHsrc = String(c.hangup_source || "").trim();
+
+      if (!errCat && rawHsrc.startsWith("call_error:")) {
+        const parts = rawHsrc.split(":");
+        errCat = parts[1] || "invalid_dialplan";
+        errDir = parts[2] || "";
+        errReason = parts.slice(3).join(":") || "Hatalı veya eşleşmeyen çağrı";
+      } else if (!errCat && rawHsrc.startsWith("blacklist:")) {
+        errCat = "unauthorized";
+        errDir = getCallDirection(c) === "Gelen" ? "inbound" : "outbound";
+        errReason = `Kara liste engeli (${rawHsrc.slice("blacklist:".length) || "Engelli Numara"})`;
+      }
+
+      if (!errCat) return;
+      if (!categoryMeta[errCat]) {
+        errCat = "invalid_dialplan";
+      }
+
+      if (!errDir) {
+        const uiDir = getCallDirection(c);
+        if (uiDir === "Dahili") errDir = "internal";
+        else if (uiDir === "Gelen") errDir = "inbound";
+        else errDir = "outbound";
+      }
+
+      const directionLabel =
+        errDir === "internal"
+          ? "Dahili"
+          : errDir === "inbound"
+          ? "Gelen"
+          : "Giden";
+
+      const rawCaller = String(c.caller_number || "").trim() || "-";
+      const rawCallee = String(c.callee_number || "").trim() || "-";
+      const callerUserName = userExtMap.get(rawCaller) || String(c.contact_name || "").trim();
+      const callerDisplay =
+        callerUserName && !rawCaller.includes(callerUserName)
+          ? `${rawCaller} (${callerUserName})`
+          : rawCaller;
+      const calleeDisplay = rawCallee === "s" ? "Belirtilmemiş (s)" : rawCallee;
+
+      const matchedTrunk = matchCallToTrunkObj(c);
+      const trunkName =
+        errDir === "internal"
+          ? "Dahili Santral"
+          : String(c.resolved_trunk_name || matchedTrunk?.trunk_name || "").trim() || "-";
+
+      const parsedStart = parseCallDateObj(c.start_time);
+      const startMs = parsedStart ? parsedStart.getTime() : 0;
+      const meta = categoryMeta[errCat];
+
+      allErrorRows.push({
+        id: c.id || `${rawCaller}-${rawCallee}-${startMs}`,
+        call: c,
+        startMs,
+        startTimeFormatted: c.start_time ? formatDate(c.start_time) : "-",
+        directionKey: errDir,
+        directionLabel,
+        rawCaller,
+        callerUserName,
+        callerDisplay,
+        rawCallee,
+        calleeDisplay,
+        errorCategory: errCat,
+        categoryLabel: meta.label,
+        errorReason: errReason || meta.label,
+        trunkName,
+        actionLabel: meta.actionLabel,
+      });
+    });
+
+    // Apply direction and search filters first so KPI badges stay contextual
+    const baseFiltered = allErrorRows.filter((row) => {
+      if (filterInvalidDirection !== "all" && row.directionKey !== filterInvalidDirection) {
+        return false;
+      }
+      if (filterInvalidSearch.trim()) {
+        const q = normalizeTrKeyword(filterInvalidSearch);
+        const hay = normalizeTrKeyword(
+          `${row.callerDisplay} ${row.calleeDisplay} ${row.categoryLabel} ${row.errorReason} ${row.trunkName} ${row.directionLabel}`
+        );
+        if (!hay.includes(q)) return false;
+      }
+      return true;
+    });
+
+    const kpis = {
+      total: baseFiltered.length,
+      invalid_extension: baseFiltered.filter((r) => r.errorCategory === "invalid_extension").length,
+      invalid_dialplan: baseFiltered.filter((r) => r.errorCategory === "invalid_dialplan").length,
+      unmapped_did: baseFiltered.filter((r) => r.errorCategory === "unmapped_did").length,
+      unauthorized: baseFiltered.filter((r) => r.errorCategory === "unauthorized").length,
+    };
+
+    const categoryFiltered =
+      filterInvalidCategory === "all"
+        ? baseFiltered
+        : baseFiltered.filter((r) => r.errorCategory === filterInvalidCategory);
+
+    const sortedRows = [...categoryFiltered].sort((a, b) => {
+      const { key, dir } = invalidCallsSortConfig;
+      const mult = dir === "asc" ? 1 : -1;
+      if (key === "startTime") return (a.startMs - b.startMs) * mult;
+      if (key === "direction") return a.directionLabel.localeCompare(b.directionLabel, "tr") * mult;
+      if (key === "caller") return a.callerDisplay.localeCompare(b.callerDisplay, "tr") * mult;
+      if (key === "callee") return a.calleeDisplay.localeCompare(b.calleeDisplay, "tr") * mult;
+      if (key === "errorCategory") return a.categoryLabel.localeCompare(b.categoryLabel, "tr") * mult;
+      if (key === "errorReason") return a.errorReason.localeCompare(b.errorReason, "tr") * mult;
+      if (key === "trunkName") return a.trunkName.localeCompare(b.trunkName, "tr") * mult;
+      return (a.startMs - b.startMs) * mult;
+    });
+
+    return { rows: sortedRows, allErrorRows, kpis };
+  }, [
+    filteredCalls,
+    users,
+    trunks,
+    filterInvalidCategory,
+    filterInvalidDirection,
+    filterInvalidSearch,
+    invalidCallsSortConfig,
+  ]);
+
   const isCeoSummaryMode = viewMode === "ceo-summary";
   const isIntentMode = viewMode === "intent";
   const isDidMode = viewMode === "did";
   const isTrunkMinutesMode = viewMode === "trunk-minutes";
-  const isFullWidthMode = isCdrMode || isNotesMode || isAudioMode || isTranscriptsMode || isSentimentMode || isQAMode || isPanoMode || isPerfMode || isQueueMode || isSentimentHeatMode || isWordcloudMode || isFcrMode || isRoiMode || isMissedMode || isTimelineMode || isTrafficMode || isTrunkMode || isIvrDropMode || isTransferHoldMode || isEfficiencyMode || isFrictionMode || isComplianceMode || isSilenceMode || isCeoSummaryMode || isIntentMode || isDidMode || isTrunkMinutesMode;
+  const isInvalidCallsMode = viewMode === "invalid-calls";
+  const isFullWidthMode = isCdrMode || isNotesMode || isAudioMode || isTranscriptsMode || isSentimentMode || isQAMode || isPanoMode || isPerfMode || isQueueMode || isSentimentHeatMode || isWordcloudMode || isFcrMode || isRoiMode || isMissedMode || isTimelineMode || isTrafficMode || isTrunkMode || isIvrDropMode || isTransferHoldMode || isEfficiencyMode || isFrictionMode || isComplianceMode || isSilenceMode || isCeoSummaryMode || isIntentMode || isDidMode || isTrunkMinutesMode || isInvalidCallsMode;
 
   return (
     <div className="w-full h-[calc(100vh-12rem)] flex gap-6 text-slate-800 dark:text-slate-100">
@@ -5837,7 +6055,8 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                viewMode === "ceo-summary" ? "Yönetim (CEO) Özet Raporu" :
                viewMode === "intent" ? "Müşteri Niyet Analizi Raporu" :
                viewMode === "did" ? "DID Raporu" :
-               viewMode === "trunk-minutes" ? "Operatör Dakika & Paket Kullanım Raporu" : "Çağrı Raporları"}
+               viewMode === "trunk-minutes" ? "Operatör Dakika & Paket Kullanım Raporu" :
+               viewMode === "invalid-calls" ? "Hatalı & Eşleşmeyen Çağrı Raporu" : "Çağrı Raporları"}
             </h3>
             <div className="flex items-center gap-2 relative">
               {/* Charts Toggle Button (Only for CDR table view) */}
@@ -5965,6 +6184,8 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                     ? Boolean(filterStartDate || filterEndDate || hasCustomTimeFilter || filterTrunksSelected.length > 0)
                     : viewMode === "trunk-minutes"
                     ? Boolean(filterStartDate || filterEndDate || hasCustomTimeFilter || filterTrunksSelected.length > 0 || filterTrunkPackageStatus !== "all")
+                    : viewMode === "invalid-calls"
+                    ? Boolean(filterStartDate || filterEndDate || hasCustomTimeFilter || filterInvalidCategory !== "all" || filterInvalidDirection !== "all" || filterInvalidSearch.trim())
                     : viewMode === "did"
                     ? Boolean(filterStartDate || filterEndDate || hasCustomTimeFilter || filterDidNumbersSelected.length > 0 || filterDidTrafficStatus !== "all" || filterDidMinInbound !== "" || filterDidMaxInbound !== "" || filterDidMinOutbound !== "" || filterDidMaxOutbound !== "" || filterDidMinInDur !== "" || filterDidMaxInDur !== "" || filterDidMinOutDur !== "" || filterDidMaxOutDur !== "")
                     : viewMode === "ivr-drop"
@@ -6688,7 +6909,7 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
               </div>
 
               {/* Modal Body */}
-              <div className={viewMode === "queue" || viewMode === "perf" || viewMode === "sentiment-heat" || viewMode === "wordcloud" || viewMode === "fcr" || viewMode === "roi" || viewMode === "efficiency" || viewMode === "ceo-summary" || viewMode === "missed" || viewMode === "timeline" || viewMode === "traffic" || viewMode === "trunk" || viewMode === "did" || viewMode === "trunk-minutes" || viewMode === "ivr-drop" || viewMode === "friction" ? "flex flex-col gap-4" : "grid grid-cols-2 gap-4"}>
+              <div className={viewMode === "queue" || viewMode === "perf" || viewMode === "sentiment-heat" || viewMode === "wordcloud" || viewMode === "fcr" || viewMode === "roi" || viewMode === "efficiency" || viewMode === "ceo-summary" || viewMode === "missed" || viewMode === "timeline" || viewMode === "traffic" || viewMode === "trunk" || viewMode === "did" || viewMode === "trunk-minutes" || viewMode === "invalid-calls" || viewMode === "ivr-drop" || viewMode === "friction" ? "flex flex-col gap-4" : "grid grid-cols-2 gap-4"}>
                 {/* Unified Date & Time Range across all reports */}
                 <div
                   className={
@@ -6706,6 +6927,7 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                     viewMode === "trunk" ||
                     viewMode === "did" ||
                     viewMode === "trunk-minutes" ||
+                    viewMode === "invalid-calls" ||
                     viewMode === "ivr-drop" ||
                     viewMode === "friction"
                       ? "grid grid-cols-1 sm:grid-cols-2 gap-3 bg-slate-50/50 dark:bg-slate-955/20 p-3 rounded-2xl border border-slate-100 dark:border-slate-800/50"
@@ -7267,6 +7489,73 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                       </select>
                     </div>
                   </>
+                ) : viewMode === "invalid-calls" ? (
+                  <div className="flex flex-col gap-3">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <div className="flex flex-col gap-1">
+                        <label className="text-[10px] font-bold text-slate-400 dark:text-slate-555 uppercase tracking-wider">
+                          Hata Kategorisi
+                        </label>
+                        <select
+                          value={filterInvalidCategory}
+                          onChange={(e) => setFilterInvalidCategory(e.target.value)}
+                          className="w-full bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-slate-800 dark:text-slate-100 rounded-xl px-2.5 py-2 text-xs focus:outline-none focus:border-primary font-bold"
+                        >
+                          <option value="all">Tümü (Tüm Hatalı &amp; Eşleşmeyen Çağrılar)</option>
+                          <option value="invalid_extension">Tanımsız Dahili Aramaları</option>
+                          <option value="invalid_dialplan">Arama Planı / Tuşlama Hatası</option>
+                          <option value="unmapped_did">Tanımsız Gelen DID Çağrıları</option>
+                          <option value="unauthorized">Yetkisiz Arama &amp; Güvenlik Engelleri</option>
+                        </select>
+                      </div>
+                      <div className="flex flex-col gap-1">
+                        <label className="text-[10px] font-bold text-slate-400 dark:text-slate-555 uppercase tracking-wider">
+                          Çağrı Yönü
+                        </label>
+                        <select
+                          value={filterInvalidDirection}
+                          onChange={(e) => setFilterInvalidDirection(e.target.value)}
+                          className="w-full bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-slate-800 dark:text-slate-100 rounded-xl px-2.5 py-2 text-xs focus:outline-none focus:border-primary font-bold"
+                        >
+                          <option value="all">Tümü (Dahili, Giden, Gelen)</option>
+                          <option value="internal">Dahili (İç Hat Aramaları)</option>
+                          <option value="outbound">Giden (Dış Hat Aramaları)</option>
+                          <option value="inbound">Gelen (Dış Hat / DID Aramaları)</option>
+                        </select>
+                      </div>
+                    </div>
+                    <div className="flex flex-col gap-1">
+                      <label className="text-[10px] font-bold text-slate-400 dark:text-slate-555 uppercase tracking-wider">
+                        Numara / Dahili / DID veya Hata Sebebi Ara
+                      </label>
+                      <div className="relative">
+                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={14} />
+                        <input
+                          type="text"
+                          placeholder="Örn: 1099, 0850..., Tanımsız DID, Yetkisiz..."
+                          value={filterInvalidSearch}
+                          onChange={(e) => setFilterInvalidSearch(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") {
+                              fetchCalls(true);
+                              setIsFilterOpen(false);
+                            }
+                          }}
+                          className="w-full bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-slate-800 dark:text-slate-100 rounded-xl pl-9 pr-8 py-2 text-xs focus:outline-none focus:border-primary font-semibold"
+                        />
+                        {filterInvalidSearch && (
+                          <button
+                            type="button"
+                            onClick={() => setFilterInvalidSearch("")}
+                            title="Aramayı temizle"
+                            className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 cursor-pointer"
+                          >
+                            <X size={13} />
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  </div>
                 ) : (
                   <>
                     {/* Call Direction */}
@@ -7619,7 +7908,7 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
               <div className="text-center py-12 text-xs text-slate-400 dark:text-slate-500 animate-pulse font-semibold">
                 Arama kayıtları yükleniyor...
               </div>
-            ) : (filteredCalls.length === 0 && !isPanoMode && !isTimelineMode && !isIntentMode && !isTrafficMode && !isTrunkMode && !isIvrDropMode && !isEfficiencyMode && !isFrictionMode && !isCeoSummaryMode && !isDidMode && !isTrunkMinutesMode) ? (
+            ) : (filteredCalls.length === 0 && !isPanoMode && !isTimelineMode && !isIntentMode && !isTrafficMode && !isTrunkMode && !isIvrDropMode && !isEfficiencyMode && !isFrictionMode && !isCeoSummaryMode && !isDidMode && !isTrunkMinutesMode && !isInvalidCallsMode) ? (
               <div className="text-center py-12 text-xs text-slate-400 dark:text-slate-550 font-semibold">
                 Kayıt bulunamadı.
               </div>
@@ -13199,6 +13488,324 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                                       Sıfırlamaya {row.daysUntilReset} gün ({row.nextResetDate})
                                     </span>
                                   </div>
+                                </td>
+                              )}
+                            </tr>
+                          );
+                        })
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            ) : isInvalidCallsMode ? (
+              /* Hatalı & Eşleşmeyen Çağrı Raporu */
+              <div className="p-6 overflow-y-auto flex-1 flex flex-col gap-6 scrollbar-thin bg-slate-50/30 dark:bg-slate-900/10 animate-in fade-in duration-200">
+                {/* 5 KPI Summary Cards (Clickable Quick Category Filter) */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3.5">
+                  {[
+                    {
+                      id: "all",
+                      title: "Toplam Hatalı Çağrı",
+                      count: invalidCallsReportData.kpis.total,
+                      subtitle: "Seçili aralıktaki tüm kayıtlar",
+                      Icon: AlertTriangle,
+                      iconTone: `${lightBg} ${text}`,
+                    },
+                    {
+                      id: "invalid_extension",
+                      title: "Tanımsız Dahili",
+                      count: invalidCallsReportData.kpis.invalid_extension,
+                      subtitle: "Olmayan iç hat numarası",
+                      Icon: Hash,
+                      iconTone: "bg-amber-50 dark:bg-amber-950/30 text-amber-600 dark:text-amber-400",
+                    },
+                    {
+                      id: "invalid_dialplan",
+                      title: "Tuşlama / Plan Hatası",
+                      count: invalidCallsReportData.kpis.invalid_dialplan,
+                      subtitle: "Arama planına uymayan numara",
+                      Icon: PhoneOff,
+                      iconTone: "bg-orange-50 dark:bg-orange-950/30 text-orange-600 dark:text-orange-400",
+                    },
+                    {
+                      id: "unmapped_did",
+                      title: "Tanımsız Gelen DID",
+                      count: invalidCallsReportData.kpis.unmapped_did,
+                      subtitle: "Eşleşmeyen DID (Anında Hangup)",
+                      Icon: Server,
+                      iconTone: "bg-purple-50 dark:bg-purple-950/30 text-purple-600 dark:text-purple-400",
+                    },
+                    {
+                      id: "unauthorized",
+                      title: "Yetkisiz Arama",
+                      count: invalidCallsReportData.kpis.unauthorized,
+                      subtitle: "ACL / Kara liste / Güvenlik engeli",
+                      Icon: ShieldAlert,
+                      iconTone: "bg-rose-50 dark:bg-rose-950/30 text-rose-600 dark:text-rose-400",
+                    },
+                  ].map((card) => {
+                    const isActiveCard = filterInvalidCategory === card.id;
+                    const CardIcon = card.Icon;
+                    return (
+                      <button
+                        key={card.id}
+                        type="button"
+                        onClick={() =>
+                          setFilterInvalidCategory((prev) =>
+                            prev === card.id && card.id !== "all" ? "all" : card.id
+                          )
+                        }
+                        className={`text-left p-4 rounded-2xl border transition-all duration-200 cursor-pointer flex flex-col gap-2 ${
+                          isActiveCard
+                            ? `bg-white dark:bg-slate-900 ${border} ring-2 ${ring} shadow-md`
+                            : "bg-white dark:bg-slate-900 border-slate-200/70 dark:border-slate-800 hover:border-primary/50 shadow-sm"
+                        }`}
+                      >
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="text-[10px] font-extrabold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                            {card.title}
+                          </span>
+                          <div className={`w-7 h-7 rounded-xl flex items-center justify-center shrink-0 ${card.iconTone}`}>
+                            <CardIcon size={14} />
+                          </div>
+                        </div>
+                        <div className="flex items-baseline gap-2">
+                          <span className="text-2xl font-black text-slate-800 dark:text-slate-100">
+                            {card.count}
+                          </span>
+                          <span className="text-[10px] font-bold text-slate-400">çağrı</span>
+                        </div>
+                        <span className="text-[10px] font-medium text-slate-400 dark:text-slate-500 truncate">
+                          {card.subtitle}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+
+                {/* Quick Filter & Search Toolbar */}
+                <div className="bg-white dark:bg-slate-900 border border-slate-200/70 dark:border-slate-800 rounded-2xl p-3.5 flex flex-wrap items-center justify-between gap-3 shadow-sm">
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    {[
+                      { id: "all", label: "Tüm Yönler" },
+                      { id: "internal", label: "Dahili" },
+                      { id: "outbound", label: "Giden" },
+                      { id: "inbound", label: "Gelen (DID)" },
+                    ].map((dirOpt) => {
+                      const active = filterInvalidDirection === dirOpt.id;
+                      return (
+                        <button
+                          key={dirOpt.id}
+                          type="button"
+                          onClick={() => setFilterInvalidDirection(dirOpt.id)}
+                          className={`px-3 py-1.5 rounded-xl text-[11px] font-bold border transition cursor-pointer ${
+                            active
+                              ? `${bg} ${hover} text-white ${border} shadow-sm`
+                              : "bg-slate-50 dark:bg-slate-800/70 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:border-primary"
+                          }`}
+                        >
+                          {dirOpt.label}
+                        </button>
+                      );
+                    })}
+
+                    {(filterInvalidCategory !== "all" ||
+                      filterInvalidDirection !== "all" ||
+                      filterInvalidSearch.trim()) && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setFilterInvalidCategory("all");
+                          setFilterInvalidDirection("all");
+                          setFilterInvalidSearch("");
+                        }}
+                        className={`ml-1 px-2.5 py-1.5 rounded-xl text-[11px] font-bold border transition cursor-pointer ${lightBg} ${text} ${borderLight}`}
+                      >
+                        Alt Filtreleri Sıfırla
+                      </button>
+                    )}
+                  </div>
+
+                  <div className="relative w-full sm:w-72">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={13} />
+                    <input
+                      type="text"
+                      value={filterInvalidSearch}
+                      onChange={(e) => setFilterInvalidSearch(e.target.value)}
+                      placeholder="Numara, dahili, DID veya sebep ara..."
+                      className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl pl-8 pr-7 py-1.5 text-xs font-semibold text-slate-800 dark:text-slate-100 focus:outline-none focus:border-primary"
+                    />
+                    {filterInvalidSearch && (
+                      <button
+                        type="button"
+                        onClick={() => setFilterInvalidSearch("")}
+                        className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 cursor-pointer"
+                      >
+                        <X size={12} />
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                {/* Sortable Invalid & Unmatched Calls Table */}
+                <div className="bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-2xl overflow-x-auto shadow-sm">
+                  <table className="w-full text-left border-collapse min-w-[960px]">
+                    <thead>
+                      <tr className="border-b border-slate-100 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-950/40">
+                        {[
+                          { key: "startTime", label: "Tarih / Saat", show: visibleColumns.startTime },
+                          { key: "direction", label: "Çağrı Yönü", show: visibleColumns.direction },
+                          { key: "caller", label: "Arayan (Dahili / Numara)", show: visibleColumns.caller },
+                          { key: "callee", label: "Aranan Numara / DID", show: visibleColumns.callee },
+                          { key: "errorCategory", label: "Hata Kategorisi", show: visibleColumns.errorCategory },
+                          { key: "errorReason", label: "Hata Detayı / Sebep", show: visibleColumns.errorReason },
+                          { key: "trunkName", label: "İlgili Hat (Trunk)", show: visibleColumns.trunkName },
+                          { key: "actionStatus", label: "Sistem Aksiyonu", show: visibleColumns.actionStatus, sortable: false },
+                        ]
+                          .filter((col) => col.show)
+                          .map((col) => {
+                            const isSorted = invalidCallsSortConfig.key === col.key;
+                            const isSortable = col.sortable !== false;
+                            return (
+                              <th
+                                key={col.key}
+                                onClick={() => {
+                                  if (!isSortable) return;
+                                  setInvalidCallsSortConfig((prev) => ({
+                                    key: col.key,
+                                    dir: prev.key === col.key && prev.dir === "desc" ? "asc" : "desc",
+                                  }));
+                                }}
+                                className={`p-3.5 text-[11px] font-extrabold uppercase tracking-wider text-slate-500 dark:text-slate-400 select-none ${
+                                  isSortable ? "cursor-pointer hover:text-slate-800 dark:hover:text-slate-200" : ""
+                                }`}
+                              >
+                                <div className="inline-flex items-center gap-1">
+                                  <span>{col.label}</span>
+                                  {isSortable && isSorted && (
+                                    invalidCallsSortConfig.dir === "asc" ? (
+                                      <ArrowUp size={11} className={text} />
+                                    ) : (
+                                      <ArrowDown size={11} className={text} />
+                                    )
+                                  )}
+                                </div>
+                              </th>
+                            );
+                          })}
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100 dark:divide-slate-800/70">
+                      {invalidCallsReportData.rows.length === 0 ? (
+                        <tr>
+                          <td
+                            colSpan={Math.max(1, Object.values(visibleColumns).filter(Boolean).length)}
+                            className="py-14 px-6 text-center"
+                          >
+                            <div className="flex flex-col items-center gap-2">
+                              <div className={`w-10 h-10 rounded-2xl flex items-center justify-center ${lightBg} ${text}`}>
+                                <CheckCircle size={20} />
+                              </div>
+                              <p className="text-xs font-extrabold text-slate-700 dark:text-slate-200">
+                                Seçili tarih ve filtre aralığında hatalı veya eşleşmeyen çağrı bulunamadı
+                              </p>
+                              <p className="text-[11px] text-slate-400 dark:text-slate-500 max-w-md">
+                                Tanımsız dahili aramaları, arama planına uymayan tuşlamalar, tanımsız gelen DID çağrıları ve yetkisiz arama denemeleri gerçekleştiğinde anlık olarak bu tabloda listelenir.
+                              </p>
+                            </div>
+                          </td>
+                        </tr>
+                      ) : (
+                        invalidCallsReportData.rows.map((row) => {
+                          const catBadgeStyle =
+                            row.errorCategory === "unauthorized"
+                              ? "bg-rose-50 dark:bg-rose-950/30 text-rose-600 dark:text-rose-400 border-rose-200 dark:border-rose-800/50"
+                              : row.errorCategory === "unmapped_did"
+                              ? "bg-purple-50 dark:bg-purple-950/30 text-purple-600 dark:text-purple-400 border-purple-200 dark:border-purple-800/50"
+                              : row.errorCategory === "invalid_extension"
+                              ? "bg-amber-50 dark:bg-amber-950/30 text-amber-700 dark:text-amber-400 border-amber-200 dark:border-amber-800/50"
+                              : "bg-orange-50 dark:bg-orange-950/30 text-orange-700 dark:text-orange-400 border-orange-200 dark:border-orange-800/50";
+
+                          const dirBadgeStyle =
+                            row.directionKey === "inbound"
+                              ? `${lightBg} ${text} ${borderLight}`
+                              : row.directionKey === "internal"
+                              ? "bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700"
+                              : "bg-sky-50 dark:bg-sky-950/30 text-sky-700 dark:text-sky-400 border-sky-200 dark:border-sky-800/50";
+
+                          return (
+                            <tr
+                              key={row.id}
+                              className="hover:bg-slate-50/80 dark:hover:bg-slate-800/40 transition-colors"
+                            >
+                              {visibleColumns.startTime && (
+                                <td className="p-3.5 text-xs font-bold text-slate-700 dark:text-slate-200 whitespace-nowrap">
+                                  {row.startTimeFormatted}
+                                </td>
+                              )}
+
+                              {visibleColumns.direction && (
+                                <td className="p-3.5 text-xs whitespace-nowrap">
+                                  <span className={`inline-flex items-center px-2.5 py-0.5 rounded-lg text-[10px] font-extrabold border ${dirBadgeStyle}`}>
+                                    {row.directionLabel}
+                                  </span>
+                                </td>
+                              )}
+
+                              {visibleColumns.caller && (
+                                <td className="p-3.5 text-xs">
+                                  <div className="flex flex-col gap-0.5">
+                                    <span className="font-mono font-extrabold text-slate-800 dark:text-slate-100">
+                                      {row.rawCaller}
+                                    </span>
+                                    {row.callerUserName && (
+                                      <span className="text-[10px] font-semibold text-slate-400 dark:text-slate-500">
+                                        {row.callerUserName}
+                                      </span>
+                                    )}
+                                  </div>
+                                </td>
+                              )}
+
+                              {visibleColumns.callee && (
+                                <td className="p-3.5 text-xs whitespace-nowrap">
+                                  <span className="font-mono font-black text-rose-600 dark:text-rose-400 bg-rose-50/70 dark:bg-rose-950/20 px-2 py-0.5 rounded-lg border border-rose-100 dark:border-rose-900/40">
+                                    {row.calleeDisplay}
+                                  </span>
+                                </td>
+                              )}
+
+                              {visibleColumns.errorCategory && (
+                                <td className="p-3.5 text-xs whitespace-nowrap">
+                                  <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl text-[10px] font-extrabold border ${catBadgeStyle}`}>
+                                    {row.categoryLabel}
+                                  </span>
+                                </td>
+                              )}
+
+                              {visibleColumns.errorReason && (
+                                <td className="p-3.5 text-xs max-w-[340px]">
+                                  <span className="font-semibold text-slate-700 dark:text-slate-200 leading-relaxed">
+                                    {row.errorReason}
+                                  </span>
+                                </td>
+                              )}
+
+                              {visibleColumns.trunkName && (
+                                <td className="p-3.5 text-xs whitespace-nowrap">
+                                  <span className="font-semibold text-slate-600 dark:text-slate-300">
+                                    {row.trunkName}
+                                  </span>
+                                </td>
+                              )}
+
+                              {visibleColumns.actionStatus && (
+                                <td className="p-3.5 text-xs whitespace-nowrap">
+                                  <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-xl text-[10px] font-extrabold bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700">
+                                    <PhoneOff size={11} className="text-rose-500 shrink-0" />
+                                    {row.actionLabel}
+                                  </span>
                                 </td>
                               )}
                             </tr>
