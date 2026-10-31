@@ -544,13 +544,16 @@ async def _gather_pbx_context(tenant_id: str) -> Dict[str, Any]:
             for rl in rl_rows[:40]:
                 ai_rules_summary.append({"id": rl.id, "rule_type": rl.rule_type, "keyword": rl.trigger_keyword or ""})
 
-            src_stmt = select(DocumentChunk.filename).distinct()
-            if not _is_global_tenant(tenant_id):
-                if _is_default_tenant(tenant_id):
-                    src_stmt = src_stmt.where(or_(DocumentChunk.tenant_id.in_(["tenant-default", "default"]), DocumentChunk.tenant_id.is_(None)))
-                else:
-                    src_stmt = src_stmt.where(DocumentChunk.tenant_id == tenant_id)
-            rag_sources = [str(r) for r in (await db.execute(src_stmt)).scalars().all() if r][:40]
+            try:
+                src_stmt = select(DocumentChunk.filename).distinct()
+                if not _is_global_tenant(tenant_id):
+                    if _is_default_tenant(tenant_id):
+                        src_stmt = src_stmt.where(or_(DocumentChunk.tenant_id.in_(["tenant-default", "default"]), DocumentChunk.tenant_id.is_(None)))
+                    else:
+                        src_stmt = src_stmt.where(DocumentChunk.tenant_id == tenant_id)
+                rag_sources = [str(r) for r in (await db.execute(src_stmt)).scalars().all() if r][:40]
+            except Exception:
+                rag_sources = []
 
             s_roles = (await db.execute(select(SystemRole))).scalars().all()
             for sr in s_roles:
@@ -2223,13 +2226,13 @@ def _validate_and_enrich_plan_actions(
 @ai_config_assistant_router.post("/api/ai-config-assistant/plan")
 async def plan_ai_configuration_changes(request: Request, payload: Dict[str, Any] = Body(...)):
     """Parses natural language Turkish PBX/AI instructions into a Dry-Run execution plan across 26 modules."""
-    from backend.services.ai_task_router import execute_routed_text_generation
+    from backend.services.ai_task_router import generate_routed_text
 
     prompt = str(payload.get("prompt") or "").strip()
     if not prompt:
         raise HTTPException(status_code=400, detail="Lütfen gerçekleştirmek istediğiniz yapılandırma komutunu yazın.")
 
-    tenant_id = _extract_tenant_id(request, payload)
+    tenant_id = _extract_tenant_id(request)
     _user_label, _role_code, _is_admin, user_perms = await _resolve_request_user_permissions(request, tenant_id)
     ctx = await _gather_pbx_context(tenant_id)
 
@@ -2327,25 +2330,22 @@ async def plan_ai_configuration_changes(request: Request, payload: Dict[str, Any
     used_engine = "semantic_parser"
 
     try:
-        gen_res = await execute_routed_text_generation(
-            task_key="config_assistant",
-            tenant_id=tenant_id,
+        gen_res = await generate_routed_text(
+            task_id="pbx_config_assistant",
             prompt=prompt,
             system_instruction=system_instruction,
-            temperature=0.1,
             json_mode=True,
+            tenant_id=tenant_id,
+            interactive=True,
         )
-        if gen_res.get("ok") and gen_res.get("text"):
-            raw_txt = str(gen_res["text"]).strip()
-            raw_txt = re.sub(r"^```(?:json)?\s*", "", raw_txt)
-            raw_txt = re.sub(r"\s*```$", "", raw_txt)
-            parsed_json = json.loads(raw_txt)
+        if isinstance(gen_res, dict) and gen_res.get("text"):
+            parsed_json = _extract_json_dict(str(gen_res["text"]))
             if isinstance(parsed_json, dict) and isinstance(parsed_json.get("actions"), list) and len(parsed_json["actions"]) > 0:
                 llm_actions = parsed_json["actions"]
                 llm_explanation = str(parsed_json.get("explanation") or "").strip()
                 if isinstance(parsed_json.get("warnings"), list):
                     llm_warnings = [str(w) for w in parsed_json["warnings"] if w]
-                used_engine = f"{gen_res.get('provider')}:{gen_res.get('model')}"
+                used_engine = f"{gen_res.get('provider_used') or 'gemini'}:{gen_res.get('model_used') or ''}"
     except Exception as e:
         print(f"[AI Config Assistant LLM Fallback]: {e}")
 
@@ -2628,7 +2628,7 @@ async def apply_ai_configuration_plan(request: Request, payload: Dict[str, Any] 
     if not isinstance(raw_actions, list) or not raw_actions:
         raise HTTPException(status_code=400, detail="Uygulanacak yapılandırma adımı bulunamadı.")
 
-    tenant_id = _extract_tenant_id(request, payload)
+    tenant_id = _extract_tenant_id(request)
     norm_tenant = "tenant-default" if _is_default_tenant(tenant_id) else tenant_id
     user_label, _role_code, _is_admin, user_perms = await _resolve_request_user_permissions(request, tenant_id)
     ctx = await _gather_pbx_context(tenant_id)
@@ -2722,40 +2722,84 @@ async def apply_ai_configuration_plan(request: Request, payload: Dict[str, Any] 
                 out_perm = bool(p.get("outbound_permission", True))
                 mob = str(p.get("mobile_phone") or "").strip()
 
-                new_u = SystemUser(
-                    tenant_id=norm_tenant,
-                    full_name=full_name,
-                    email=email,
-                    password_hash=pwd,
-                    extension=ext,
-                    sip_secret=sip_secret,
-                    role=role,
-                    status="active",
-                    call_recording=rec_on,
-                    voicemail_enabled=vm_on,
-                    outbound_permission=out_perm,
-                    mobile_phone=mob or None,
-                )
-                db.add(new_u)
-                await db.flush()
-                created_db_records["users"].append(new_u.id)
-                batch_ext_to_user_id[ext] = new_u.id
+                existing_ext_u = (await db.execute(select(SystemUser).where(SystemUser.extension == ext))).scalars().first()
+                if existing_ext_u:
+                    modified_db_records["users"].append({
+                        "id": existing_ext_u.id,
+                        "tenant_id": existing_ext_u.tenant_id,
+                        "full_name": existing_ext_u.full_name,
+                        "email": existing_ext_u.email,
+                        "password": existing_ext_u.password,
+                        "sip_username": existing_ext_u.sip_username,
+                        "sip_password": existing_ext_u.sip_password,
+                        "role": existing_ext_u.role,
+                        "is_active": existing_ext_u.is_active,
+                        "recording_active": existing_ext_u.recording_active,
+                        "voicemail_active": existing_ext_u.voicemail_active,
+                        "gsm_number": existing_ext_u.gsm_number,
+                    })
+                    existing_ext_u.tenant_id = norm_tenant
+                    existing_ext_u.full_name = full_name
+                    existing_ext_u.email = email
+                    existing_ext_u.password = pwd
+                    existing_ext_u.sip_username = ext
+                    existing_ext_u.sip_password = sip_secret
+                    existing_ext_u.role = role
+                    existing_ext_u.is_active = True
+                    existing_ext_u.recording_active = rec_on
+                    existing_ext_u.voicemail_active = vm_on
+                    existing_ext_u.gsm_number = mob or None
+                    await db.flush()
+                    user_db_id = existing_ext_u.id
+                else:
+                    new_u = SystemUser(
+                        tenant_id=norm_tenant,
+                        full_name=full_name,
+                        email=email,
+                        password=pwd,
+                        extension=ext,
+                        sip_username=ext,
+                        sip_password=sip_secret,
+                        role=role,
+                        is_active=True,
+                        recording_active=rec_on,
+                        voicemail_active=vm_on,
+                        gsm_number=mob or None,
+                        department_id=dept or None,
+                        location_id=loc or None,
+                    )
+                    db.add(new_u)
+                    await db.flush()
+                    created_db_records["users"].append(new_u.id)
+                    user_db_id = new_u.id
 
+                batch_ext_to_user_id[ext] = user_db_id
+
+                settings_db["users"] = [
+                    u for u in (settings_db.get("users", []) or [])
+                    if not (isinstance(u, dict) and str(u.get("extension") or "") == ext and _match_dict_tenant(u, tenant_id))
+                ]
                 settings_db.setdefault("users", []).append({
-                    "id": new_u.id,
+                    "id": user_db_id,
                     "tenant_id": norm_tenant,
                     "full_name": full_name,
                     "name": full_name,
                     "email": email,
                     "password": pwd,
                     "extension": ext,
+                    "sip_username": ext,
+                    "sip_password": sip_secret,
                     "sip_secret": sip_secret,
                     "role": role,
                     "department": dept,
                     "location": loc,
+                    "gsm_number": mob,
                     "mobile_phone": mob,
+                    "is_active": True,
                     "status": "active",
+                    "recording_active": rec_on,
                     "call_recording": rec_on,
+                    "voicemail_active": vm_on,
                     "voicemail_enabled": vm_on,
                     "outbound_permission": out_perm,
                 })
@@ -2781,10 +2825,12 @@ async def apply_ai_configuration_plan(request: Request, payload: Dict[str, Any] 
                         "full_name": matched_u.full_name,
                         "role": matched_u.role,
                         "email": matched_u.email,
-                        "mobile_phone": matched_u.mobile_phone,
-                        "call_recording": matched_u.call_recording,
-                        "voicemail_enabled": matched_u.voicemail_enabled,
-                        "outbound_permission": matched_u.outbound_permission,
+                        "password": matched_u.password,
+                        "gsm_number": matched_u.gsm_number,
+                        "recording_active": matched_u.recording_active,
+                        "voicemail_active": matched_u.voicemail_active,
+                        "department_id": matched_u.department_id,
+                        "location_id": matched_u.location_id,
                     })
                     if p.get("new_name"):
                         matched_u.full_name = str(p["new_name"]).strip()
@@ -2793,15 +2839,17 @@ async def apply_ai_configuration_plan(request: Request, payload: Dict[str, Any] 
                     if p.get("email"):
                         matched_u.email = str(p["email"]).strip()
                     if p.get("password"):
-                        matched_u.password_hash = str(p["password"]).strip()
+                        matched_u.password = str(p["password"]).strip()
+                    if p.get("department"):
+                        matched_u.department_id = str(p["department"]).strip()
+                    if p.get("location"):
+                        matched_u.location_id = str(p["location"]).strip()
                     if p.get("mobile_phone") is not None and str(p.get("mobile_phone")).strip():
-                        matched_u.mobile_phone = str(p["mobile_phone"]).strip()
+                        matched_u.gsm_number = str(p["mobile_phone"]).strip()
                     if "call_recording" in p and p["call_recording"] is not None:
-                        matched_u.call_recording = bool(p["call_recording"])
+                        matched_u.recording_active = bool(p["call_recording"])
                     if "voicemail_enabled" in p and p["voicemail_enabled"] is not None:
-                        matched_u.voicemail_enabled = bool(p["voicemail_enabled"])
-                    if "outbound_permission" in p and p["outbound_permission"] is not None:
-                        matched_u.outbound_permission = bool(p["outbound_permission"])
+                        matched_u.voicemail_active = bool(p["voicemail_enabled"])
                     updated_any = True
 
                 for u_dict in settings_db.get("users", []) or []:
@@ -2825,10 +2873,13 @@ async def apply_ai_configuration_plan(request: Request, payload: Dict[str, Any] 
                             u_dict["location"] = str(p["location"]).strip()
                         if p.get("mobile_phone"):
                             u_dict["mobile_phone"] = str(p["mobile_phone"]).strip()
+                            u_dict["gsm_number"] = str(p["mobile_phone"]).strip()
                         if "call_recording" in p and p["call_recording"] is not None:
                             u_dict["call_recording"] = bool(p["call_recording"])
+                            u_dict["recording_active"] = bool(p["call_recording"])
                         if "voicemail_enabled" in p and p["voicemail_enabled"] is not None:
                             u_dict["voicemail_enabled"] = bool(p["voicemail_enabled"])
+                            u_dict["voicemail_active"] = bool(p["voicemail_enabled"])
                         if "outbound_permission" in p and p["outbound_permission"] is not None:
                             u_dict["outbound_permission"] = bool(p["outbound_permission"])
                         updated_any = True
@@ -2852,11 +2903,15 @@ async def apply_ai_configuration_plan(request: Request, payload: Dict[str, Any] 
                         "tenant_id": matched_u.tenant_id,
                         "full_name": matched_u.full_name,
                         "email": matched_u.email,
-                        "password_hash": matched_u.password_hash,
+                        "password": matched_u.password,
                         "extension": matched_u.extension,
-                        "sip_secret": matched_u.sip_secret,
+                        "sip_username": matched_u.sip_username,
+                        "sip_password": matched_u.sip_password,
                         "role": matched_u.role,
-                        "status": matched_u.status,
+                        "is_active": matched_u.is_active,
+                        "recording_active": matched_u.recording_active,
+                        "voicemail_active": matched_u.voicemail_active,
+                        "gsm_number": matched_u.gsm_number,
                     })
                     await db.delete(matched_u)
                 before_cnt = len(settings_db.get("users", []) or [])
@@ -2920,11 +2975,13 @@ async def apply_ai_configuration_plan(request: Request, payload: Dict[str, Any] 
                     extension=q_ext,
                     strategy=strat,
                     timeout=timeout_s,
+                    ring_time=timeout_s,
                     max_wait_time=max_wait,
-                    wrapup_time=wrapup,
+                    wrapuptime=wrapup,
+                    acw_time=wrapup,
                     queueMembers=members,
-                    post_call_survey_enabled=survey_on,
-                    callback_enabled=cb_on,
+                    survey_enabled=survey_on,
+                    smart_callback_enabled=cb_on,
                 )
                 db.add(new_q)
                 await db.flush()
@@ -2939,11 +2996,15 @@ async def apply_ai_configuration_plan(request: Request, payload: Dict[str, Any] 
                     "extension": q_ext,
                     "strategy": strat,
                     "timeout": timeout_s,
+                    "ring_time": timeout_s,
                     "max_wait_time": max_wait,
+                    "wrapuptime": wrapup,
                     "wrapup_time": wrapup,
                     "queueMembers": members,
                     "members": members,
+                    "survey_enabled": survey_on,
                     "post_call_survey_enabled": survey_on,
+                    "smart_callback_enabled": cb_on,
                     "callback_enabled": cb_on,
                 })
                 applied_summaries.append(f"ACD Kuyruğu '{q_name}' ({q_ext}) oluşturuldu (Üyeler: {', '.join(members) or 'Yok'}).")
@@ -2962,8 +3023,8 @@ async def apply_ai_configuration_plan(request: Request, payload: Dict[str, Any] 
                         "strategy": mq.strategy,
                         "timeout": mq.timeout,
                         "max_wait_time": mq.max_wait_time,
-                        "post_call_survey_enabled": mq.post_call_survey_enabled,
-                        "callback_enabled": mq.callback_enabled,
+                        "survey_enabled": mq.survey_enabled,
+                        "smart_callback_enabled": mq.smart_callback_enabled,
                     })
                     if p.get("new_name"):
                         mq.name = str(p["new_name"]).strip()
@@ -2971,12 +3032,13 @@ async def apply_ai_configuration_plan(request: Request, payload: Dict[str, Any] 
                         mq.strategy = str(p["strategy"]).strip()
                     if p.get("timeout"):
                         mq.timeout = int(p["timeout"])
+                        mq.ring_time = int(p["timeout"])
                     if p.get("max_wait_time"):
                         mq.max_wait_time = int(p["max_wait_time"])
                     if "post_call_survey_enabled" in p and p["post_call_survey_enabled"] is not None:
-                        mq.post_call_survey_enabled = bool(p["post_call_survey_enabled"])
+                        mq.survey_enabled = bool(p["post_call_survey_enabled"])
                     if "callback_enabled" in p and p["callback_enabled"] is not None:
-                        mq.callback_enabled = bool(p["callback_enabled"])
+                        mq.smart_callback_enabled = bool(p["callback_enabled"])
                     updated_q = True
 
                 for qd in settings_db.get("queues", []) or []:
@@ -2989,12 +3051,15 @@ async def apply_ai_configuration_plan(request: Request, payload: Dict[str, Any] 
                             qd["strategy"] = str(p["strategy"]).strip()
                         if p.get("timeout"):
                             qd["timeout"] = int(p["timeout"])
+                            qd["ring_time"] = int(p["timeout"])
                         if p.get("max_wait_time"):
                             qd["max_wait_time"] = int(p["max_wait_time"])
                         if "post_call_survey_enabled" in p and p["post_call_survey_enabled"] is not None:
                             qd["post_call_survey_enabled"] = bool(p["post_call_survey_enabled"])
+                            qd["survey_enabled"] = bool(p["post_call_survey_enabled"])
                         if "callback_enabled" in p and p["callback_enabled"] is not None:
                             qd["callback_enabled"] = bool(p["callback_enabled"])
+                            qd["smart_callback_enabled"] = bool(p["callback_enabled"])
                         updated_q = True
                 if updated_q:
                     applied_summaries.append(f"ACD Kuyruğu '{target}' güncellendi.")
@@ -3052,8 +3117,10 @@ async def apply_ai_configuration_plan(request: Request, payload: Dict[str, Any] 
                         "strategy": mq.strategy,
                         "timeout": mq.timeout,
                         "max_wait_time": mq.max_wait_time,
-                        "wrapup_time": mq.wrapup_time,
+                        "wrapuptime": mq.wrapuptime,
                         "queueMembers": list(mq.queueMembers or []),
+                        "survey_enabled": mq.survey_enabled,
+                        "smart_callback_enabled": mq.smart_callback_enabled,
                     })
                     await db.delete(mq)
                 settings_db["queues"] = [
@@ -3215,11 +3282,7 @@ async def apply_ai_configuration_plan(request: Request, payload: Dict[str, Any] 
 
                 new_bt = BreakType(
                     name=b_name,
-                    max_duration_minutes=max_dur,
-                    daily_quota_minutes=quota,
                     color=col,
-                    icon="Coffee",
-                    is_active=True,
                 )
                 db.add(new_bt)
                 await db.flush()
@@ -3247,16 +3310,10 @@ async def apply_ai_configuration_plan(request: Request, payload: Dict[str, Any] 
                     modified_db_records["breaks"].append({
                         "id": mb.id,
                         "name": mb.name,
-                        "max_duration_minutes": mb.max_duration_minutes,
-                        "daily_quota_minutes": mb.daily_quota_minutes,
                         "color": mb.color,
                     })
                     if p.get("new_name"):
                         mb.name = str(p["new_name"]).strip()
-                    if p.get("max_duration_minutes"):
-                        mb.max_duration_minutes = int(p["max_duration_minutes"])
-                    if p.get("daily_quota_minutes"):
-                        mb.daily_quota_minutes = int(p["daily_quota_minutes"])
                     if p.get("color"):
                         rc = str(p["color"]).strip()
                         mb.color = BREAK_COLOR_MAP.get(_tr_norm(rc), rc if rc.startswith("#") else mb.color)
@@ -3281,8 +3338,6 @@ async def apply_ai_configuration_plan(request: Request, payload: Dict[str, Any] 
                 if mb:
                     deleted_db_records["breaks"].append({
                         "name": mb.name,
-                        "max_duration_minutes": mb.max_duration_minutes,
-                        "daily_quota_minutes": mb.daily_quota_minutes,
                         "color": mb.color,
                     })
                     await db.delete(mb)
@@ -3460,11 +3515,11 @@ async def apply_ai_configuration_plan(request: Request, payload: Dict[str, Any] 
                 pwd = str(p.get("password") or "").strip()
                 port = int(p.get("port") or 5060)
                 did = str(p.get("did_number") or "").strip()
-                proto = str(p.get("protocol") or "UDP").upper()
+                proto = str(p.get("protocol") or "udp").lower()
 
                 new_tr = Trunk(
                     tenant_id=norm_tenant,
-                    trunk_type="SIP",
+                    trunk_type="register" if uname else "peer",
                     trunk_name=t_name,
                     host=host,
                     username=uname,
@@ -3472,6 +3527,7 @@ async def apply_ai_configuration_plan(request: Request, payload: Dict[str, Any] 
                     port=port,
                     did_number=did,
                     protocol=proto,
+                    is_active=True,
                 )
                 db.add(new_tr)
                 await db.flush()
@@ -3480,7 +3536,7 @@ async def apply_ai_configuration_plan(request: Request, payload: Dict[str, Any] 
                 settings_db.setdefault("trunks", []).append({
                     "id": new_tr.id,
                     "tenant_id": norm_tenant,
-                    "trunk_type": "SIP",
+                    "trunk_type": "register" if uname else "peer",
                     "trunk_name": t_name,
                     "name": t_name,
                     "host": host,
@@ -3489,6 +3545,7 @@ async def apply_ai_configuration_plan(request: Request, payload: Dict[str, Any] 
                     "port": port,
                     "did_number": did,
                     "protocol": proto,
+                    "is_active": True,
                 })
                 applied_summaries.append(f"SIP Dış Hat (Trunk) '{t_name}' ({host}) oluşturuldu.")
                 need_asterisk_sync = True
@@ -3864,27 +3921,51 @@ async def apply_ai_configuration_plan(request: Request, payload: Dict[str, Any] 
                 notes = str(p.get("notes") or "").strip()
                 vip = bool(p.get("is_vip", False))
 
-                new_c = Contact(
-                    tenant_id=norm_tenant,
-                    first_name=fn,
-                    last_name=ln,
-                    phone_number=ph,
-                    email=em or None,
-                    company=comp or None,
-                    notes=notes or None,
-                    is_vip=vip,
-                )
-                db.add(new_c)
-                await db.flush()
-                created_db_records["contacts"].append(new_c.id)
+                existing_c = (await db.execute(select(Contact).where(Contact.phone_number == ph))).scalars().first()
+                if not existing_c and em:
+                    existing_c = (await db.execute(select(Contact).where(Contact.email == em))).scalars().first()
+
+                if existing_c:
+                    modified_db_records["contacts"].append({
+                        "id": existing_c.id,
+                        "first_name": existing_c.first_name,
+                        "last_name": existing_c.last_name,
+                        "phone_number": existing_c.phone_number,
+                        "email": existing_c.email,
+                    })
+                    existing_c.first_name = fn or existing_c.first_name
+                    existing_c.last_name = ln
+                    if ph:
+                        existing_c.phone_number = ph
+                    if em:
+                        existing_c.email = em
+                    await db.flush()
+                    c_id = existing_c.id
+                else:
+                    new_c = Contact(
+                        first_name=fn,
+                        last_name=ln,
+                        phone_number=ph,
+                        email=em or None,
+                    )
+                    db.add(new_c)
+                    await db.flush()
+                    created_db_records["contacts"].append(new_c.id)
+                    c_id = new_c.id
+
+                settings_db["contacts"] = [
+                    cd for cd in (settings_db.get("contacts", []) or [])
+                    if not (isinstance(cd, dict) and str(cd.get("phone_number") or "") == ph)
+                ]
                 settings_db.setdefault("contacts", []).append({
-                    "id": new_c.id,
+                    "id": c_id,
                     "tenant_id": norm_tenant,
                     "first_name": fn,
                     "last_name": ln,
                     "phone_number": ph,
                     "email": em,
                     "company": comp,
+                    "notes": notes,
                     "is_vip": vip,
                 })
                 applied_summaries.append(f"Kurumsal rehbere '{fn} {ln}' ({ph}) kaydedildi.")
@@ -3894,13 +3975,16 @@ async def apply_ai_configuration_plan(request: Request, payload: Dict[str, Any] 
                 nt = _tr_norm(target)
                 c_rows = (await db.execute(select(Contact))).scalars().all()
                 mc = next(
-                    (c for c in c_rows if _tr_norm(f"{c.first_name or ''} {c.last_name or ''}") == nt or _tr_norm(c.phone_number) == nt or str(c.id) == target),
+                    (c for c in c_rows if _tr_norm(f"{c.first_name or ''} {c.last_name or ''}".strip()) == nt or _tr_norm(c.phone_number) == nt or str(c.id) == target),
                     None,
                 )
                 if mc:
                     modified_db_records["contacts"].append({
-                        "id": mc.id, "first_name": mc.first_name, "last_name": mc.last_name,
-                        "phone_number": mc.phone_number, "company": mc.company, "is_vip": mc.is_vip,
+                        "id": mc.id,
+                        "first_name": mc.first_name,
+                        "last_name": mc.last_name,
+                        "phone_number": mc.phone_number,
+                        "email": mc.email,
                     })
                     if p.get("new_name"):
                         pts = str(p["new_name"]).strip().split(None, 1)
@@ -3912,10 +3996,28 @@ async def apply_ai_configuration_plan(request: Request, payload: Dict[str, Any] 
                         mc.last_name = str(p["last_name"]).strip()
                     if p.get("phone_number"):
                         mc.phone_number = str(p["phone_number"]).strip()
-                    if p.get("company"):
-                        mc.company = str(p["company"]).strip()
-                    if "is_vip" in p and p["is_vip"] is not None:
-                        mc.is_vip = bool(p["is_vip"])
+                    if p.get("email"):
+                        mc.email = str(p["email"]).strip()
+                for cd in settings_db.get("contacts", []) or []:
+                    if isinstance(cd, dict) and (
+                        (mc and cd.get("id") == mc.id)
+                        or _tr_norm(f"{cd.get('first_name') or ''} {cd.get('last_name') or ''}".strip()) == nt
+                        or _tr_norm(cd.get("phone_number")) == nt
+                    ):
+                        if p.get("new_name"):
+                            pts = str(p["new_name"]).strip().split(None, 1)
+                            cd["first_name"] = pts[0]
+                            cd["last_name"] = pts[1] if len(pts) > 1 else ""
+                        if p.get("first_name"):
+                            cd["first_name"] = str(p["first_name"]).strip()
+                        if p.get("last_name"):
+                            cd["last_name"] = str(p["last_name"]).strip()
+                        if p.get("phone_number"):
+                            cd["phone_number"] = str(p["phone_number"]).strip()
+                        if p.get("company"):
+                            cd["company"] = str(p["company"]).strip()
+                        if "is_vip" in p and p["is_vip"] is not None:
+                            cd["is_vip"] = bool(p["is_vip"])
                 applied_summaries.append(f"Rehber kişisi '{target}' güncellendi.")
 
             elif a_type == "delete_contact":
@@ -3923,15 +4025,24 @@ async def apply_ai_configuration_plan(request: Request, payload: Dict[str, Any] 
                 nt = _tr_norm(target)
                 c_rows = (await db.execute(select(Contact))).scalars().all()
                 mc = next(
-                    (c for c in c_rows if _tr_norm(f"{c.first_name or ''} {c.last_name or ''}") == nt or _tr_norm(c.phone_number) == nt or str(c.id) == target),
+                    (c for c in c_rows if _tr_norm(f"{c.first_name or ''} {c.last_name or ''}".strip()) == nt or _tr_norm(c.phone_number) == nt or str(c.id) == target),
                     None,
                 )
                 if mc:
                     deleted_db_records["contacts"].append({
-                        "tenant_id": mc.tenant_id, "first_name": mc.first_name, "last_name": mc.last_name,
-                        "phone_number": mc.phone_number, "email": mc.email, "company": mc.company, "is_vip": mc.is_vip,
+                        "first_name": mc.first_name,
+                        "last_name": mc.last_name,
+                        "phone_number": mc.phone_number,
+                        "email": mc.email,
                     })
                     await db.delete(mc)
+                settings_db["contacts"] = [
+                    cd for cd in (settings_db.get("contacts", []) or [])
+                    if not (
+                        isinstance(cd, dict)
+                        and (_tr_norm(f"{cd.get('first_name') or ''} {cd.get('last_name') or ''}".strip()) == nt or _tr_norm(cd.get("phone_number")) == nt or (mc and cd.get("id") == mc.id))
+                    )
+                ]
                 applied_summaries.append(f"Rehberden '{target}' silindi.")
 
             # ==============================================================
@@ -3941,10 +4052,29 @@ async def apply_ai_configuration_plan(request: Request, payload: Dict[str, Any] 
                 sc = str(p.get("shortcut") or "bilgi").strip().lstrip("/").lower()
                 title = str(p.get("title") or sc.capitalize()).strip()
                 content = str(p.get("content") or "").strip()
-                new_cr = CannedResponse(shortcut=sc, title=title, content=content, category=str(p.get("category") or "Genel"))
-                db.add(new_cr)
-                await db.flush()
-                created_db_records["canned_responses"].append(new_cr.id)
+                cat = str(p.get("category") or "Genel")
+                existing_cr = (await db.execute(select(CannedResponse).where(CannedResponse.shortcut == sc))).scalars().first()
+                if existing_cr:
+                    modified_db_records["canned_responses"].append({
+                        "id": existing_cr.id, "shortcut": existing_cr.shortcut, "title": existing_cr.title, "content": existing_cr.content
+                    })
+                    existing_cr.title = title
+                    existing_cr.content = content
+                    await db.flush()
+                    cr_id = existing_cr.id
+                else:
+                    new_cr = CannedResponse(shortcut=sc, title=title, content=content)
+                    db.add(new_cr)
+                    await db.flush()
+                    created_db_records["canned_responses"].append(new_cr.id)
+                    cr_id = new_cr.id
+                settings_db["canned_responses"] = [
+                    c for c in (settings_db.get("canned_responses", []) or [])
+                    if not (isinstance(c, dict) and str(c.get("shortcut") or "").lower() == sc)
+                ]
+                settings_db.setdefault("canned_responses", []).append({
+                    "id": cr_id, "tenant_id": norm_tenant, "shortcut": sc, "title": title, "content": content, "category": cat,
+                })
                 applied_summaries.append(f"Hızlı cevap şablonu '/{sc}' ('{title}') oluşturuldu.")
 
             elif a_type == "update_canned_response":
@@ -3966,8 +4096,12 @@ async def apply_ai_configuration_plan(request: Request, payload: Dict[str, Any] 
                 crs = (await db.execute(select(CannedResponse))).scalars().all()
                 mcr = next((c for c in crs if _tr_norm(c.shortcut) == nt or _tr_norm(c.title) == nt or str(c.id) == target), None)
                 if mcr:
-                    deleted_db_records["canned_responses"].append({"shortcut": mcr.shortcut, "title": mcr.title, "content": mcr.content, "category": mcr.category})
+                    deleted_db_records["canned_responses"].append({"shortcut": mcr.shortcut, "title": mcr.title, "content": mcr.content})
                     await db.delete(mcr)
+                settings_db["canned_responses"] = [
+                    c for c in (settings_db.get("canned_responses", []) or [])
+                    if not (isinstance(c, dict) and (_tr_norm(c.get("shortcut")) == nt or _tr_norm(c.get("title")) == nt))
+                ]
                 applied_summaries.append(f"Hızlı cevap şablonu '/{target}' silindi.")
 
             # ==============================================================
@@ -3976,12 +4110,21 @@ async def apply_ai_configuration_plan(request: Request, payload: Dict[str, Any] 
             elif a_type == "add_blacklist":
                 val = str(p.get("value") or p.get("target") or "").strip()
                 reason = str(p.get("reason") or "AI Konfigürasyon Asistanı ile engellendi").strip()
-                new_bl = BlacklistItem(value=val, type="email" if "@" in val else "phone", reason=reason)
-                db.add(new_bl)
-                await db.flush()
-                created_db_records["blacklist"].append(new_bl.id)
+                existing_bl = (await db.execute(select(BlacklistItem).where(BlacklistItem.value == val))).scalars().first()
+                if existing_bl:
+                    bl_id = existing_bl.id
+                else:
+                    new_bl = BlacklistItem(value=val, type="email" if "@" in val else "phone", reason=reason)
+                    db.add(new_bl)
+                    await db.flush()
+                    created_db_records["blacklist"].append(new_bl.id)
+                    bl_id = new_bl.id
+                settings_db["blacklist"] = [
+                    x for x in (settings_db.get("blacklist", []) or [])
+                    if not (isinstance(x, dict) and str(x.get("value") or "").strip() == val)
+                ]
                 settings_db.setdefault("blacklist", []).append({
-                    "id": new_bl.id, "tenant_id": norm_tenant, "value": val, "reason": reason,
+                    "id": bl_id, "tenant_id": norm_tenant, "value": val, "reason": reason,
                 })
                 applied_summaries.append(f"Kara listeye '{val}' eklendi.")
 
@@ -4001,11 +4144,20 @@ async def apply_ai_configuration_plan(request: Request, payload: Dict[str, Any] 
             elif a_type == "add_block_word":
                 w = str(p.get("word") or p.get("target") or "").strip().lower()
                 cat = str(p.get("category") or "profanity").strip()
-                new_bw = BlockWord(word=w, category=cat)
-                db.add(new_bw)
-                await db.flush()
-                created_db_records["block_words"].append(new_bw.id)
-                settings_db.setdefault("block_words", []).append({"id": new_bw.id, "tenant_id": norm_tenant, "word": w, "category": cat})
+                existing_bw = (await db.execute(select(BlockWord).where(BlockWord.word == w))).scalars().first()
+                if existing_bw:
+                    bw_id = existing_bw.id
+                else:
+                    new_bw = BlockWord(word=w)
+                    db.add(new_bw)
+                    await db.flush()
+                    created_db_records["block_words"].append(new_bw.id)
+                    bw_id = new_bw.id
+                settings_db["block_words"] = [
+                    x for x in (settings_db.get("block_words", []) or [])
+                    if not (isinstance(x, dict) and str(x.get("word") or "").lower() == w)
+                ]
+                settings_db.setdefault("block_words", []).append({"id": bw_id, "tenant_id": norm_tenant, "word": w, "category": cat})
                 applied_summaries.append(f"Yasaklı kelime filtresine '{w}' eklendi.")
 
             elif a_type == "remove_block_word":
@@ -4013,7 +4165,7 @@ async def apply_ai_configuration_plan(request: Request, payload: Dict[str, Any] 
                 bws = (await db.execute(select(BlockWord))).scalars().all()
                 for bw in bws:
                     if str(bw.word or "").lower() == w:
-                        deleted_db_records["block_words"].append({"word": bw.word, "category": bw.category})
+                        deleted_db_records["block_words"].append({"word": bw.word})
                         await db.delete(bw)
                 settings_db["block_words"] = [
                     x for x in (settings_db.get("block_words", []) or [])
@@ -4028,25 +4180,31 @@ async def apply_ai_configuration_plan(request: Request, payload: Dict[str, Any] 
                 title = str(p.get("title") or "Kurumsal Bilgi Notu").strip()
                 content = str(p.get("content") or "").strip()
                 if content:
-                    res_kb = await index_manual_text(db, title, content, tenant_id=norm_tenant)
-                    src_name = f"Manuel Giriş: {title}"
-                    created_db_records["rag_sources"].append(src_name)
-                    applied_summaries.append(f"Bilgi Bankasına '{title}' ({res_kb.get('chunks_added', 1)} parça) öğretildi.")
+                    src_name = f"Manuel: {title}"
+                    try:
+                        await index_manual_text(title=title, text=content, tenant_id=norm_tenant)
+                        created_db_records["rag_sources"].append(src_name)
+                        applied_summaries.append(f"Bilgi Bankasına '{title}' metni öğretildi.")
+                    except Exception as kb_err:
+                        skipped_warnings.append(f"Bilgi Bankası indeksleme uyarısı ({title}): {kb_err}")
 
             elif a_type == "crawl_kb_url":
                 url_val = str(p.get("url") or "").strip()
                 if url_val:
-                    res_url = await index_website_url(db, url_val, tenant_id=norm_tenant)
-                    if res_url.get("status") == "success":
+                    try:
+                        await index_website_url(url=url_val, tenant_id=norm_tenant)
                         created_db_records["rag_sources"].append(url_val)
                         applied_summaries.append(f"Web adresi '{url_val}' taranarak Bilgi Bankasına eklendi.")
-                    else:
-                        skipped_warnings.append(f"URL taranamadı ({url_val}): {res_url.get('message')}")
+                    except Exception as url_err:
+                        skipped_warnings.append(f"URL taranamadı ({url_val}): {url_err}")
 
             elif a_type == "delete_kb_source":
                 target = str(p.get("target") or "").strip()
-                await delete_indexed_source(db, target, tenant_id=norm_tenant)
-                applied_summaries.append(f"Bilgi Bankası kaynağı '{target}' silindi.")
+                try:
+                    await delete_indexed_source(target)
+                    applied_summaries.append(f"Bilgi Bankası kaynağı '{target}' silindi.")
+                except Exception as del_kb_err:
+                    skipped_warnings.append(f"Bilgi Bankası kaynağı silinemedi ({target}): {del_kb_err}")
 
             elif a_type == "create_ai_rule":
                 r_type = str(p.get("rule_type") or "faq").lower()
@@ -4215,7 +4373,7 @@ async def apply_ai_configuration_plan(request: Request, payload: Dict[str, Any] 
                     tenant_id=norm_tenant,
                     customer_name=c_nm,
                     customer_phone=c_ph,
-                    appointment_date=ap_dt,
+                    appointment_time=ap_dt,
                     notes=str(p.get("notes") or ""),
                     status="confirmed",
                 )
@@ -4254,12 +4412,27 @@ async def apply_ai_configuration_plan(request: Request, payload: Dict[str, Any] 
                 r_name = str(p.get("name") or "Özel Rol").strip()
                 r_code = str(p.get("role_code") or re.sub(r"[^a-z0-9_]", "_", _tr_norm(r_name))).strip("_") or f"role_{uuid.uuid4().hex[:4]}"
                 base_perms = list(p.get("add_permissions") or ["dashboard:access", "call_logs:access"])
-                new_sr = SystemRole(role_code=r_code, name=r_name, permissions=base_perms, is_system=False)
-                db.add(new_sr)
-                await db.flush()
-                created_db_records["roles"].append(new_sr.id)
+                existing_sr = (await db.execute(select(SystemRole).where(SystemRole.role_code == r_code))).scalars().first()
+                if existing_sr:
+                    modified_db_records["roles"].append({
+                        "id": existing_sr.id, "name": existing_sr.name, "permissions": copy.deepcopy(list(existing_sr.permissions or []))
+                    })
+                    existing_sr.name = r_name
+                    existing_sr.permissions = base_perms
+                    await db.flush()
+                    sr_id = existing_sr.id
+                else:
+                    new_sr = SystemRole(role_code=r_code, name=r_name, permissions=base_perms)
+                    db.add(new_sr)
+                    await db.flush()
+                    created_db_records["roles"].append(new_sr.id)
+                    sr_id = new_sr.id
+                settings_db["roles"] = [
+                    r for r in (settings_db.get("roles", []) or [])
+                    if not (isinstance(r, dict) and str(r.get("role_code") or "") == r_code)
+                ]
                 settings_db.setdefault("roles", []).append({
-                    "id": new_sr.id, "role_code": r_code, "name": r_name, "permissions": base_perms, "is_system": False,
+                    "id": sr_id, "role_code": r_code, "name": r_name, "permissions": base_perms, "is_system": False,
                 })
                 applied_summaries.append(f"Yetki rolü '{r_name}' ({r_code}) oluşturuldu.")
 
@@ -4279,19 +4452,30 @@ async def apply_ai_configuration_plan(request: Request, payload: Dict[str, Any] 
                     for rp_c in p.get("remove_permissions") or []:
                         cur_p = [x for x in cur_p if x != rp_c]
                     msr.permissions = cur_p
+                for rd in settings_db.get("roles", []) or []:
+                    if isinstance(rd, dict) and (_tr_norm(rd.get("role_code")) == nt or _tr_norm(rd.get("name")) == nt):
+                        if p.get("new_name"):
+                            rd["name"] = str(p["new_name"]).strip()
+                        cur_rp = list(rd.get("permissions") or [])
+                        for ap_c in p.get("add_permissions") or []:
+                            if ap_c not in cur_rp:
+                                cur_rp.append(ap_c)
+                        for rp_c in p.get("remove_permissions") or []:
+                            cur_rp = [x for x in cur_rp if x != rp_c]
+                        rd["permissions"] = cur_rp
                 applied_summaries.append(f"Rol '{target}' yetkileri güncellendi.")
 
             elif a_type == "delete_role":
                 target = str(p.get("target") or "").strip()
                 nt = _tr_norm(target)
                 srs = (await db.execute(select(SystemRole))).scalars().all()
-                msr = next((r for r in srs if (_tr_norm(r.role_code) == nt or _tr_norm(r.name) == nt) and not r.is_system), None)
+                msr = next((r for r in srs if (_tr_norm(r.role_code) == nt or _tr_norm(r.name) == nt) and r.role_code not in ("admin", "supervisor", "agent")), None)
                 if msr:
                     deleted_db_records["roles"].append({"role_code": msr.role_code, "name": msr.name, "permissions": list(msr.permissions or [])})
                     await db.delete(msr)
                 settings_db["roles"] = [
                     r for r in (settings_db.get("roles", []) or [])
-                    if not (isinstance(r, dict) and (_tr_norm(r.get("role_code")) == nt or _tr_norm(r.get("name")) == nt) and not r.get("is_system"))
+                    if not (isinstance(r, dict) and (_tr_norm(r.get("role_code")) == nt or _tr_norm(r.get("name")) == nt) and r.get("role_code") not in ("admin", "supervisor", "agent") and not r.get("is_system"))
                 ]
                 applied_summaries.append(f"Rol '{target}' silindi.")
 
@@ -4416,8 +4600,14 @@ async def apply_ai_configuration_plan(request: Request, payload: Dict[str, Any] 
                 st = "ready" if str(p.get("status") or "").lower() in ("ready", "available", "online") else "paused"
                 reason = str(p.get("reason") or ("Müsait" if st == "ready" else "Kısa Mola")).strip()
                 try:
-                    from backend.services.agent_presence import update_agent_state
-                    update_agent_state(ext, state=st, reason=reason if st == "paused" else "")
+                    from backend.services.agent_presence import sync_asterisk_queue_pause, update_agent_state
+                    update_agent_state(
+                        is_logged_in=True,
+                        status="online" if st == "ready" else "break",
+                        current_break=None if st == "ready" else {"id": 0, "name": reason, "color": "#f59e0b"},
+                        extension=ext,
+                    )
+                    await sync_asterisk_queue_pause(extension=ext, paused=(st != "ready"), reason=reason)
                 except Exception:
                     pass
                 applied_summaries.append(f"Temsilci {ext} canlı durumu '{st}' ({reason}) olarak güncellendi.")
@@ -4570,7 +4760,7 @@ async def undo_ai_configuration_snapshot(snapshot_id: str, request: Request):
 
         for rag_src in created_db.get("rag_sources") or []:
             try:
-                await delete_indexed_source(db, rag_src, tenant_id=norm_tenant)
+                await delete_indexed_source(rag_src)
             except Exception:
                 pass
 
@@ -4587,7 +4777,9 @@ async def undo_ai_configuration_snapshot(snapshot_id: str, request: Request):
 
         for key, mdl in model_map:
             for d_row in deleted_db.get(key) or []:
-                db.add(mdl(**d_row))
+                valid_cols = {k: v for k, v in d_row.items() if hasattr(mdl, k)}
+                if valid_cols:
+                    db.add(mdl(**valid_cols))
 
         if created_db.get("rules") or modified_db.get("rules") or deleted_db.get("rules"):
             await db.flush()
