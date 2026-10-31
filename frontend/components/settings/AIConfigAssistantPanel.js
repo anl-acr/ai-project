@@ -23,7 +23,19 @@ import {
   Bot,
   Building2,
   MapPin,
-  Cable
+  Cable,
+  Volume2,
+  GitBranch,
+  BookOpen,
+  ClipboardCheck,
+  Megaphone,
+  MessageSquare,
+  Contact2,
+  ShieldCheck,
+  DatabaseBackup,
+  Hash,
+  KeyRound,
+  Activity
 } from "lucide-react";
 import { useTheme } from "../../utils/theme";
 import { getApiBaseUrl, tenantFetch } from "../../utils/apiHost";
@@ -31,32 +43,28 @@ import DictationButton from "../common/DictationButton";
 
 const PRESET_COMMANDS = [
   {
-    label: "Ekip & Kuyruk Kurulumu",
-    prompt: "Ahmet Yılmaz ve Ayşe Demir için 2 yeni dahili aç, Satış Kuyruğu oluştur ve ikisini bu kuyruğa ekle"
+    label: "Uçtan Uca Ekip + Kuyruk + DID",
+    prompt: "Selin Kaya ve Burak Aydın için 2 yeni dahili aç, 'Kurumsal Satış' kuyruğu oluşturup ikisini kuyruğa ata ve 08503607390 numarasını bu kuyruğa yönlendir"
   },
   {
-    label: "İsim & Bilgi Güncelleme",
-    prompt: "1001 dahilisinin adını Mehmet Kaya olarak değiştir"
+    label: "AI Sesli Anons (TTS) & IVR Akışı",
+    prompt: "'Karşılama Anonsu' adıyla 'Şirketimize hoş geldiniz, satış için 1, teknik destek için 2 tuşlayınız' metnini seslendir; ardından 1'e basınca Satış, 2'ye basınca Destek kuyruğuna giden 'Ana IVR Akışı' oluştur"
   },
   {
-    label: "Şifreli Konferans Odası",
-    prompt: "Yönetim Toplantı Odası adında PIN şifresi 1453 olan yeni bir konferans odası oluştur"
+    label: "Bilgi Bankası (RAG) & QA Kriteri",
+    prompt: "Bilgi bankasına 'İade Politikası' başlığıyla 'Ürünlerimizde 14 gün koşulsuz ücretsiz iade hakkı bulunmaktadır' bilgisini öğret ve kalite kontrolüne 25 puanlık 'Temsilci KVKK aydınlatmasını eksiksiz yaptı mı?' sorusu ekle"
   },
   {
-    label: "GSM Çağrı Yönlendirme",
-    prompt: "1001 dahilisinin cevapsız çağrılarını 05324445566 cep telefonuna yönlendir"
+    label: "Rehber, Hızlı Cevap & WhatsApp",
+    prompt: "Rehbere 'Zeynep Acar' kişisini +905324445566 numarasıyla VIP olarak ekle; /kargo kısayoluyla 'Siparişiniz bugün kargoya teslim edilmiştir' hızlı cevabı oluştur ve WhatsApp mesai saatlerini 09:00-18:30 yap"
   },
   {
-    label: "Gelen Arama (DID) Rotası",
-    prompt: "08503607390 numaralı dış hattı 2000 numaralı kuyruğa bağlayan gelen arama kuralı oluştur"
+    label: "Dış Arama Kampanyası & Mola",
+    prompt: "15 dakikalık turuncu renkli 'Eğitim Molası' tanımla ve 'Yenileme Kampanyası' adında 3 eş zamanlı kanallı dış arama kampanyası oluştur"
   },
   {
-    label: "Spam Kara Liste Engelleme",
-    prompt: "05551112233 numarasını spam arama nedeniyle kara listeye ekle"
-  },
-  {
-    label: "Otomatik Sabah Raporu",
-    prompt: "Her sabah 09:00'da dünün çağrı raporunu yonetim@firma.com adresine gönderecek zamanlanmış rapor oluştur"
+    label: "Yedek Noktası & Güvenlik Kalkanı",
+    prompt: "'Haftalık Santral Yedeği' başlıklı geri yükleme noktası oluştur ve 185.122.40.15 IP adresini güvenlik kalkanı güvenli listesine ekle"
   }
 ];
 
@@ -72,6 +80,7 @@ const ACTION_ICONS = {
   delete_queue: Trash2,
   create_ai_agent: Bot,
   update_ai_agent: Bot,
+  generate_ai_agent_scenario: GitBranch,
   delete_ai_agent: Trash2,
   create_conference: PhoneCall,
   update_conference: Edit3,
@@ -87,18 +96,66 @@ const ACTION_ICONS = {
   delete_location: Trash2,
   create_subscriber_group: Users,
   update_subscriber_group: Edit3,
+  delete_subscriber_group: Trash2,
   create_pickup_group: Users,
   update_pickup_group: Edit3,
+  delete_pickup_group: Trash2,
   create_speed_dial: PhoneCall,
   update_speed_dial: Edit3,
+  delete_speed_dial: Trash2,
+  create_trunk: Cable,
   update_trunk: Cable,
+  delete_trunk: Trash2,
   create_inbound_rule: PhoneCall,
   update_inbound_rule: Edit3,
   delete_inbound_rule: Trash2,
+  create_outbound_rule: Shuffle,
+  update_outbound_rule: Edit3,
+  delete_outbound_rule: Trash2,
+  create_call_flow: GitBranch,
+  update_call_flow: GitBranch,
+  delete_call_flow: Trash2,
+  create_tts_announcement: Volume2,
+  update_announcement: Volume2,
+  delete_announcement: Trash2,
+  update_numbering_plan: Hash,
+  create_contact: Contact2,
+  update_contact: Contact2,
+  delete_contact: Trash2,
+  create_canned_response: MessageSquare,
+  update_canned_response: MessageSquare,
+  delete_canned_response: Trash2,
   add_blacklist: ShieldAlert,
   remove_blacklist: Trash2,
+  add_block_word: ShieldAlert,
+  remove_block_word: Trash2,
+  add_kb_text: BookOpen,
+  crawl_kb_url: BookOpen,
+  delete_kb_source: Trash2,
+  create_ai_rule: Sparkles,
+  update_ai_rule: Edit3,
+  delete_ai_rule: Trash2,
+  create_qa_question: ClipboardCheck,
+  update_qa_question: ClipboardCheck,
+  delete_qa_question: Trash2,
+  create_dialer_campaign: Megaphone,
+  update_dialer_campaign: Megaphone,
+  delete_dialer_campaign: Trash2,
+  create_appointment: Calendar,
+  update_appointment: Calendar,
+  cancel_appointment: Trash2,
+  create_role: KeyRound,
+  update_role: KeyRound,
+  delete_role: Trash2,
   create_scheduled_report: Calendar,
-  update_scheduled_report: Edit3
+  update_scheduled_report: Edit3,
+  delete_scheduled_report: Trash2,
+  update_whatsapp_settings: MessageSquare,
+  update_pbx_ai_features: Sparkles,
+  add_security_whitelist: ShieldCheck,
+  remove_security_whitelist: Trash2,
+  create_restore_point: DatabaseBackup,
+  set_agent_live_status: Activity
 };
 
 export default function AIConfigAssistantPanel({ userPermissions = null, onNavigateTab = null }) {
@@ -293,9 +350,19 @@ export default function AIConfigAssistantPanel({ userPermissions = null, onNavig
             <div className={`w-9 h-9 rounded-xl flex items-center justify-center ${lightBg} ${text} border ${borderLight}`}>
               <Sparkles size={18} />
             </div>
-            <h2 className="text-base font-bold text-slate-900 dark:text-white">
-              AI Konfigürasyon Asistanı
-            </h2>
+            <div>
+              <div className="flex items-center gap-2 flex-wrap">
+                <h2 className="text-base font-bold text-slate-900 dark:text-white">
+                  AI Konfigürasyon Asistanı
+                </h2>
+                <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${lightBg} ${lightText} border ${borderLight}`}>
+                  26 Modül • 78 Eylem
+                </span>
+              </div>
+              <p className="text-xs text-slate-500 dark:text-slate-400">
+                Dahili, ACD kuyruk, IVR akışı, TTS sesli anons, giden/gelen arama, bilgi bankası (RAG), QA, kampanya ve tüm santral ayarlarını tek komutla yönetin.
+              </p>
+            </div>
           </div>
 
           <button
@@ -491,6 +558,16 @@ export default function AIConfigAssistantPanel({ userPermissions = null, onNavig
                 <li key={idx}>{it.summary}</li>
               ))}
             </ul>
+            {Array.isArray(applyOutcome.warnings) && applyOutcome.warnings.length > 0 && (
+              <div className="mt-2 pt-2 border-t border-emerald-200/70 dark:border-emerald-800/60 text-xs text-amber-700 dark:text-amber-300 space-y-0.5">
+                {applyOutcome.warnings.map((w, wIdx) => (
+                  <div key={wIdx} className="flex items-center gap-1.5">
+                    <AlertTriangle size={13} className="shrink-0" />
+                    <span>{w}</span>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
           {applyOutcome.snapshot_id && historyList.length > 0 && !historyList[0]?.reverted && (
             <button
