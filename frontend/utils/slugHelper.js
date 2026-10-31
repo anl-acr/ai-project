@@ -48,6 +48,8 @@ export const TAB_TURKISH_SLUGS = {
   "reports-ai-appointments-rag": "ai-randevu-ve-rag-raporu",
   "reports-voicemail": "sesli-posta-voicemail-raporu",
   "reports-conferences": "konferans-odasi-kullanim-raporu",
+  "reports-custom-builder": "ozel-rapor-tasarimcisi",
+  "ai-config-assistant": "ai-konfigurasyon-asistani",
   "settings": "ayarlar",
   "system-status": "sistem-durumu"
 };

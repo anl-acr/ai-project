@@ -26,6 +26,8 @@ import {
   ChevronUp,
   Zap,
   PhoneCall,
+  BarChart3,
+  Sliders,
 } from "lucide-react";
 import { useTheme } from "../../utils/theme";
 
@@ -186,6 +188,48 @@ const TASK_CATALOG = [
       ollama: ["qwen2.5:1.5b", "qwen2.5:3b"],
       gemini: ["gemini-2.5-flash"],
       openai: ["gpt-4o-mini"],
+      groq: ["llama-3.3-70b-versatile"],
+      anthropic: ["claude-3-5-haiku-latest"],
+    },
+  },
+  {
+    id: "custom_report_generator",
+    title: "Özel Rapor Üretici (NLP → Rapor)",
+    desc: "Doğal dilde veya sesli dikte ile tarif edilen analiz isteğini özel rapor sorgusuna ve grafiğe dönüştürür.",
+    savingBadge: "Yerel / Cloud Seçilebilir",
+    icon: BarChart3,
+    providers: [
+      { value: "gemini", label: "Google Gemini (Önerilen)" },
+      { value: "ollama", label: "Yerel / Harici LLM (Ollama - Sıfır Token)" },
+      { value: "openai", label: "OpenAI" },
+      { value: "groq", label: "Groq Cloud" },
+      { value: "anthropic", label: "Anthropic Claude" },
+    ],
+    defaultModelsByProvider: {
+      gemini: ["gemini-2.5-flash", "gemini-2.0-flash"],
+      ollama: ["qwen2.5:3b", "qwen2.5:1.5b", "llama3.2:3b"],
+      openai: ["gpt-4o-mini", "gpt-4o"],
+      groq: ["llama-3.3-70b-versatile"],
+      anthropic: ["claude-3-5-haiku-latest"],
+    },
+  },
+  {
+    id: "pbx_config_assistant",
+    title: "AI Konfigürasyon Asistanı",
+    desc: "Doğal dil ve sesli dikte komutlarıyla dahili, kuyruk, konferans, yönlendirme ve kural taslak planı hazırlar.",
+    savingBadge: "Yerel / Cloud Seçilebilir",
+    icon: Sliders,
+    providers: [
+      { value: "gemini", label: "Google Gemini (Karmaşık Planlama İçin Önerilen)" },
+      { value: "ollama", label: "Yerel / Harici LLM (Ollama - Sıfır Token)" },
+      { value: "openai", label: "OpenAI" },
+      { value: "groq", label: "Groq Cloud" },
+      { value: "anthropic", label: "Anthropic Claude" },
+    ],
+    defaultModelsByProvider: {
+      gemini: ["gemini-2.5-flash", "gemini-2.0-flash"],
+      ollama: ["qwen2.5:3b", "qwen2.5:1.5b", "llama3.2:3b"],
+      openai: ["gpt-4o-mini", "gpt-4o"],
       groq: ["llama-3.3-70b-versatile"],
       anthropic: ["claude-3-5-haiku-latest"],
     },

@@ -86,7 +86,7 @@ function normalizeReportTypes(rawList, validMap = DEFAULT_REPORT_MODULES) {
     const raw = String(k || "").trim();
     if (!raw) return;
     const mapped = LEGACY_REPORT_KEY_MAP[raw] || raw;
-    if (validMap[mapped] && !out.includes(mapped)) {
+    if ((validMap[mapped] || mapped.startsWith("custom:")) && !out.includes(mapped)) {
       out.push(mapped);
     }
   });

@@ -2744,7 +2744,7 @@ def _normalize_schedule_report_types(raw_types: Optional[List[str]]) -> List[str
         if not raw_k:
             continue
         mapped = LEGACY_SCHEDULE_REPORT_KEY_MAP.get(raw_k, raw_k)
-        if mapped in SCHEDULE_REPORT_TYPES_LABELS and mapped not in out:
+        if (mapped in SCHEDULE_REPORT_TYPES_LABELS or mapped.startswith("custom:")) and mapped not in out:
             out.append(mapped)
     return out or ["reports_cdr"]
 
@@ -3306,6 +3306,34 @@ async def _build_scheduled_report_bundle(
                 f"Konferans Katılımcı Bağlantısı: {conf_legs} çağrı bacağı",
                 f"Konferans Katılımcı Bağlantısı: <b>{conf_legs}</b> çağrı bacağı",
             )
+        elif code.startswith("custom:"):
+            try:
+                from backend.main import settings_db as _sdb
+                from backend.services.ai_copilot_and_reports_service import execute_custom_report_definition
+
+                cid = code.split("custom:", 1)[1]
+                saved_rep = next(
+                    (r for r in (_sdb.get("custom_reports", []) or []) if isinstance(r, dict) and str(r.get("id")) == cid),
+                    None,
+                )
+                if saved_rep:
+                    crep_res = await execute_custom_report_definition(
+                        raw_definition=saved_rep.get("definition") or {},
+                        tenant_id=tenant_id,
+                        start_date=s_str,
+                        end_date=e_str,
+                    )
+                    c_title = f"Özel Rapor: {saved_rep.get('title') or cid}"
+                    cards = crep_res.get("summary_cards") or []
+                    plain_parts = [f"{c['label']}: {c['value']} {c.get('unit','')}".strip() for c in cards]
+                    html_parts = [f"{c['label']}: <b>{c['value']} {c.get('unit','')}</b>".strip() for c in cards]
+                    sections_plain.append(f"• {c_title}: {' | '.join(plain_parts)}")
+                    html_rows.append(
+                        f"<tr><td style='padding:8px 10px;border:1px solid #e2e8f0;'><b>{c_title}</b></td>"
+                        f"<td style='padding:8px 10px;border:1px solid #e2e8f0;'>{' | '.join(html_parts)}</td></tr>"
+                    )
+            except Exception as _ce:
+                print(f"[Scheduled Custom Report Warning]: {_ce}")
 
     plain_body = "\n".join(sections_plain)
     html_body = f"""
@@ -3505,10 +3533,15 @@ async def list_scheduled_reports(request: Request):
         if isinstance(h, dict) and _match_dict_tenant(h, tenant_id)
     ]
     users_list = await _fetch_tenant_users_for_schedules(tenant_id)
+    merged_report_types = dict(SCHEDULE_REPORT_TYPES_LABELS)
+    for crep in (settings_db.get("custom_reports", []) or []):
+        if isinstance(crep, dict) and _match_dict_tenant(crep, tenant_id) and crep.get("id"):
+            merged_report_types[f"custom:{crep['id']}"] = f"Özel Rapor: {crep.get('title') or crep['id']}"
+
     return {
         "schedules": all_scheds,
         "history": all_hist[:30],
-        "report_types": SCHEDULE_REPORT_TYPES_LABELS,
+        "report_types": merged_report_types,
         "users": users_list,
     }
 

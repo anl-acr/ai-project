@@ -136,7 +136,9 @@ import GlobalSearchBar from "../components/common/GlobalSearchBar";
 import APIBudgetSettings from "../components/settings/APIBudgetSettings";
 import QueueSurveyReportPanel from "../components/reports/QueueSurveyReportPanel";
 import EnterpriseReportsPanel from "../components/reports/EnterpriseReportsPanel";
+import CustomReportBuilderPanel from "../components/reports/CustomReportBuilderPanel";
 import ScheduledReportsPanel from "../components/settings/ScheduledReportsPanel";
+import AIConfigAssistantPanel from "../components/settings/AIConfigAssistantPanel";
 
 const SUPER_ADMIN = {
   id: 9999,
@@ -2161,7 +2163,7 @@ export default function Home() {
           </div>
 
           {/* Group 2: Yapay Zeka & Bilgi */}
-          {(currentUser?.role === "admin" || (Array.isArray(currentRolePermissions) && currentRolePermissions.some(p => p.startsWith("ai_agents:") || p.startsWith("rag:") || p.startsWith("knowledge_base:") || p.startsWith("rules:")))) && (
+          {(currentUser?.role === "admin" || (Array.isArray(currentRolePermissions) && currentRolePermissions.some(p => p.startsWith("ai_agents:") || p.startsWith("ai_config_assistant:") || p.startsWith("rag:") || p.startsWith("knowledge_base:") || p.startsWith("rules:")))) && (
           <div className="flex flex-col gap-1">
             {!isSidebarCollapsed ? (
               <button
@@ -2185,6 +2187,23 @@ export default function Home() {
                 isSidebarCollapsed || openCategories.ai ? "max-h-[500px] opacity-100" : "max-h-0 opacity-0 pointer-events-none"
               }`}
             >
+              {(currentUser?.role === "admin" || (Array.isArray(currentRolePermissions) && currentRolePermissions.some(p => p.startsWith("ai_config_assistant:")))) && (
+                <button
+                  onClick={() => setActiveTab("ai-config-assistant")}
+                  title="AI Konfigürasyon Asistanı"
+                  className={`w-full flex items-center ${
+                    isSidebarCollapsed ? "justify-center px-0 py-2.5" : "gap-3 px-3 py-2"
+                  } rounded-xl text-xs font-semibold tracking-wide transition-all duration-200 border ${
+                    activeTab === "ai-config-assistant"
+                      ? "bg-indigo-50 dark:bg-indigo-950/20 text-primary dark:text-indigo-400 border-indigo-100/80 dark:border-indigo-900/30 shadow-sm"
+                      : "text-slate-500 dark:text-slate-400 border-transparent hover:text-slate-900 dark:hover:text-white hover:bg-slate-50 dark:hover:bg-slate-800/40"
+                  }`}
+                >
+                  <Sparkles size={16} className={`shrink-0 ${activeTab === "ai-config-assistant" ? "text-primary" : ""}`} />
+                  <span className={`whitespace-nowrap overflow-hidden transition-all duration-300 ${isSidebarCollapsed ? "max-w-0 opacity-0" : "max-w-[180px] opacity-100"}`}>AI Konfigürasyon Asistanı</span>
+                </button>
+              )}
+
               {(currentUser?.role === "admin" || (Array.isArray(currentRolePermissions) && currentRolePermissions.some(p => p.startsWith("ai_agents:")))) && (
                 <button
                   onClick={() => setActiveTab("ai-agents")}
@@ -2599,6 +2618,23 @@ export default function Home() {
                 isSidebarCollapsed || openCategories.reportsGroup ? "max-h-[300px] opacity-100" : "max-h-0 opacity-0 pointer-events-none"
               }`}
             >
+              {(currentUser?.role === "admin" || !Array.isArray(currentRolePermissions) || currentRolePermissions.some(p => p.startsWith("reports_custom_builder:") || p === "reports:access")) && (
+                <button
+                  onClick={() => setActiveTab("reports-custom-builder")}
+                  title="Raporlar: Özel Rapor Tasarımcısı & AI Rapor Üretici"
+                  className={`w-full flex items-center ${
+                    isSidebarCollapsed ? "justify-center px-0 py-2.5" : "gap-3 px-3 py-2"
+                  } rounded-xl text-xs font-semibold tracking-wide transition-all duration-200 border ${
+                    activeTab === "reports-custom-builder"
+                      ? "bg-purple-50 dark:bg-purple-950/20 text-primary dark:text-purple-400 border-purple-100/80 dark:border-purple-900/30 shadow-sm"
+                      : "text-slate-500 dark:text-slate-400 border-transparent hover:text-slate-900 dark:hover:text-white hover:bg-slate-50 dark:hover:bg-slate-800/40"
+                  }`}
+                >
+                  <Sparkles size={16} className={`shrink-0 ${activeTab === "reports-custom-builder" ? "text-primary" : ""}`} />
+                  <span className={`whitespace-nowrap overflow-hidden transition-all duration-300 ${isSidebarCollapsed ? "max-w-0 opacity-0" : "max-w-[180px] opacity-100"}`}>Özel Rapor Tasarımcısı</span>
+                </button>
+              )}
+
               <button
                 onClick={() => setActiveTab("reports-pano")}
                 title="Raporlar: Pano"
@@ -3343,6 +3379,21 @@ export default function Home() {
           )}
 
           <div className="flex items-center gap-3 text-xs font-semibold text-slate-600 dark:text-slate-400 shrink-0">
+            {!isAgentOnlyUser && !isWallboardOnlyUser && (currentUser?.role === "admin" || (Array.isArray(currentRolePermissions) && currentRolePermissions.some(p => p.startsWith("ai_config_assistant:")))) && (
+              <button
+                type="button"
+                onClick={() => setActiveTab("ai-config-assistant")}
+                title="AI Konfigürasyon Asistanı (Doğal Dil & Sesli Dikte)"
+                className={`hidden md:inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-bold transition-all ${
+                  activeTab === "ai-config-assistant"
+                    ? `${bg} text-white border-transparent shadow-sm`
+                    : `${lightBg} ${text} ${borderLight} hover:opacity-90`
+                }`}
+              >
+                <Sparkles size={14} />
+                <span>AI Konfigürasyon Asistanı</span>
+              </button>
+            )}
             {currentUser?.role === 'admin' && hasPendingChanges && (
               <div className="flex items-center gap-2 relative">
                 <button
@@ -3546,7 +3597,7 @@ export default function Home() {
         )}
 
         {/* Dynamic View Panel */}
-        <div key={activeTenantId} className={`flex-1 overflow-y-auto flex ${isEditingCallFlow ? "p-0 justify-center w-full h-full bg-white dark:bg-slate-950" : activeTab === "call-center" ? "p-3 justify-start items-start w-full h-full" : ["wallboard", "settings", "rag-kb", "rule-editor", "calendar", "system-status", "dialer", "call-flow", "ai-agents", "changelog", "reports-pano", "reports-cdr", "reports-audio", "reports-transcripts", "reports-sentiment", "reports-intent", "reports-qa", "reports-notes", "reports-perf", "reports-queue", "reports-survey", "reports-sentiment-heat", "reports-wordcloud", "reports-fcr", "reports-roi", "reports-missed", "reports-agent-status-timeline", "reports-traffic-load", "reports-trunk", "reports-did", "reports-trunk-minutes", "reports-invalid-calls", "reports-ivr-drop", "reports-transfer-hold", "reports-ab-testing", "reports-friction", "reports-compliance", "reports-silence", "reports-ceo-summary", "reports-breaks-attendance", "reports-omnichannel", "reports-disposition", "reports-dialer-callback", "reports-queue-sla", "reports-repeat-callers", "reports-dept-pickup", "reports-voip-quality", "reports-forwarding-gsm", "reports-supervisor-audit", "reports-blacklist-security", "reports-ai-appointments-rag", "reports-voicemail", "reports-conferences", "users", "trunks", "blacklist", "scheduled-reports", "announcements", "acd-queues", "auto-provision", "outbound-rules", "inbound-rules", "call-pickup-groups", "subscriber-groups", "conferences", "speed-dial", "event-logs", "sip-debugger"].includes(activeTab) ? "p-8 justify-start items-start w-full" : "p-8 justify-center"}`}>
+        <div key={activeTenantId} className={`flex-1 overflow-y-auto flex ${isEditingCallFlow ? "p-0 justify-center w-full h-full bg-white dark:bg-slate-950" : activeTab === "call-center" ? "p-3 justify-start items-start w-full h-full" : ["wallboard", "settings", "rag-kb", "rule-editor", "calendar", "system-status", "dialer", "call-flow", "ai-agents", "ai-config-assistant", "changelog", "reports-custom-builder", "reports-pano", "reports-cdr", "reports-audio", "reports-transcripts", "reports-sentiment", "reports-intent", "reports-qa", "reports-notes", "reports-perf", "reports-queue", "reports-survey", "reports-sentiment-heat", "reports-wordcloud", "reports-fcr", "reports-roi", "reports-missed", "reports-agent-status-timeline", "reports-traffic-load", "reports-trunk", "reports-did", "reports-trunk-minutes", "reports-invalid-calls", "reports-ivr-drop", "reports-transfer-hold", "reports-ab-testing", "reports-friction", "reports-compliance", "reports-silence", "reports-ceo-summary", "reports-breaks-attendance", "reports-omnichannel", "reports-disposition", "reports-dialer-callback", "reports-queue-sla", "reports-repeat-callers", "reports-dept-pickup", "reports-voip-quality", "reports-forwarding-gsm", "reports-supervisor-audit", "reports-blacklist-security", "reports-ai-appointments-rag", "reports-voicemail", "reports-conferences", "users", "trunks", "blacklist", "scheduled-reports", "announcements", "acd-queues", "auto-provision", "outbound-rules", "inbound-rules", "call-pickup-groups", "subscriber-groups", "conferences", "speed-dial", "event-logs", "sip-debugger"].includes(activeTab) ? "p-8 justify-start items-start w-full" : "p-8 justify-center"}`}>
           <div className={activeTab === "call-center" ? "w-full h-full flex" : "hidden"}>
             <AgentPanel 
               backendHost={backendHost} 
@@ -3796,6 +3847,30 @@ export default function Home() {
 
           {activeTab === "call-flow" && (
             <CallFlowEditor backendHost={backendHost} onEditStateChange={setIsEditingCallFlow} />
+          )}
+
+          {activeTab === "reports-custom-builder" && (
+            <div className="w-full">
+              <CustomReportBuilderPanel
+                userPermissions={currentUser?.role === "admin" ? ["*"] : currentRolePermissions}
+              />
+            </div>
+          )}
+
+          {activeTab === "ai-config-assistant" && (
+            <div className="w-full">
+              <AIConfigAssistantPanel
+                userPermissions={currentUser?.role === "admin" ? ["*"] : currentRolePermissions}
+                onNavigateTab={(mainTab, subTab) => {
+                  setActiveTab(mainTab);
+                  if (subTab && typeof window !== "undefined") {
+                    setTimeout(() => {
+                      window.dispatchEvent(new CustomEvent("SWITCH_SETTINGS_SUBTAB", { detail: { subTab } }));
+                    }, 50);
+                  }
+                }}
+              />
+            </div>
           )}
 
           {activeTab === "ai-agents" && (

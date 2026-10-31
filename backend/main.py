@@ -1279,6 +1279,8 @@ DEFAULT_SETTINGS = {
                 "reports_dept_pickup:access", "reports_voip_quality:access",
                 "reports_forwarding_gsm:access", "reports_supervisor_audit:access", "reports_blacklist_security:access",
                 "reports_ai_appointments_rag:access", "reports_voicemail:access", "reports_conferences:access",
+                "reports_custom_builder:read", "reports_custom_builder:write", "reports_custom_builder:delete",
+                "ai_config_assistant:read", "ai_config_assistant:write",
                 "roi_settings:read", "roi_settings:write", "roi_settings:delete",
                 # İletişim Kanalları
                 "channels:read", "channels:write",
@@ -1355,6 +1357,8 @@ DEFAULT_SETTINGS = {
                 "reports_dept_pickup:access", "reports_voip_quality:access",
                 "reports_forwarding_gsm:access", "reports_supervisor_audit:access", "reports_blacklist_security:access",
                 "reports_ai_appointments_rag:access", "reports_voicemail:access", "reports_conferences:access",
+                "reports_custom_builder:read", "reports_custom_builder:write",
+                "ai_config_assistant:read", "ai_config_assistant:write",
                 "channels:read", "channels:write",
                 "canned_responses:read", "canned_responses:write", "canned_responses:delete",
                 "breaks:read", "breaks:write",
@@ -1527,6 +1531,8 @@ DEFAULT_SETTINGS = {
             "rag_knowledge_synthesis": {"provider": "gemini", "model": "gemini-2.5-flash", "enabled": True},
             "scenario_generator": {"provider": "gemini", "model": "gemini-2.5-flash", "enabled": True},
             "api_wizard_assistant": {"provider": "gemini", "model": "gemini-2.5-flash", "enabled": True},
+            "custom_report_generator": {"provider": "gemini", "model": "gemini-2.5-flash", "enabled": True},
+            "pbx_config_assistant": {"provider": "gemini", "model": "gemini-2.5-flash", "enabled": True},
             "announcement_tts": {"provider": "edge_tts", "model": "tr-TR-EmelNeural", "enabled": True}
         }
     }
@@ -1751,10 +1757,14 @@ def load_settings():
                     "reports_dialer_callback:access", "reports_queue_sla:access", "reports_repeat_callers:access",
                     "reports_dept_pickup:access", "reports_voip_quality:access",
                     "reports_forwarding_gsm:access", "reports_supervisor_audit:access", "reports_blacklist_security:access",
-                    "reports_ai_appointments_rag:access", "reports_voicemail:access", "reports_conferences:access"
+                    "reports_ai_appointments_rag:access", "reports_voicemail:access", "reports_conferences:access",
+                    "reports_custom_builder:read", "reports_custom_builder:write",
+                    "ai_config_assistant:read", "ai_config_assistant:write"
                 ]:
                     if rep_perm not in new_perms:
                         new_perms.append(rep_perm)
+                if r.get("role_code") == "admin" and "reports_custom_builder:delete" not in new_perms:
+                    new_perms.append("reports_custom_builder:delete")
                 for sr_perm in ["scheduled_reports:read", "scheduled_reports:write"]:
                     if sr_perm not in new_perms:
                         new_perms.append(sr_perm)
@@ -1767,7 +1777,8 @@ def load_settings():
                     "reports_dialer_callback:access", "reports_queue_sla:access", "reports_repeat_callers:access",
                     "reports_dept_pickup:access", "reports_voip_quality:access",
                     "reports_forwarding_gsm:access", "reports_supervisor_audit:access", "reports_blacklist_security:access",
-                    "reports_ai_appointments_rag:access", "reports_voicemail:access", "reports_conferences:access"
+                    "reports_ai_appointments_rag:access", "reports_voicemail:access", "reports_conferences:access",
+                    "reports_custom_builder:read", "reports_custom_builder:write"
                 ]:
                     if rep_perm not in new_perms:
                         new_perms.append(rep_perm)
@@ -10638,8 +10649,9 @@ async def test_ai_task_routing_endpoint(payload: dict, user_info: dict = Depends
         res = await generate_routed_text(
             task_id=task_id,
             prompt="Müşteri: Faturamı ödemek istiyorum. Temsilci: Hemen yardımcı oluyorum, işleminiz tamamlandı. Müşteri: Çok teşekkürler!\nKısa özet ve duygu analizi JSON üret: {\"summary\": \"...\", \"sentiment\": \"Memnun\"}",
-            json_mode=(task_id in ("call_summary_sentiment", "call_qa_scoring", "chat_qa_scoring", "scenario_generator")),
+            json_mode=(task_id in ("call_summary_sentiment", "call_qa_scoring", "chat_qa_scoring", "scenario_generator", "custom_report_generator", "pbx_config_assistant")),
             tenant_id=target_tenant,
+            interactive=True,
         )
         ms = int((time.time() - t0) * 1000)
         return {
@@ -27545,6 +27557,9 @@ async def on_startup_restore_points_worker():
 # ==============================================================================
 from backend.services.advanced_reports_service import advanced_reports_router, scheduled_reports_worker
 app.include_router(advanced_reports_router)
+
+from backend.services.ai_copilot_and_reports_service import ai_copilot_router
+app.include_router(ai_copilot_router)
 
 @app.on_event("startup")
 async def on_startup_scheduled_reports_worker():

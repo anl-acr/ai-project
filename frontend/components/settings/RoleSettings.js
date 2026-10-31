@@ -78,6 +78,7 @@ export const DEFAULT_CALL_PANEL_SUB_PERMS = CALL_PANEL_SUB_GROUPS.flatMap(g =>
 );
 
 export const REPORT_FEATURE_IDS = [
+  "reports_custom_builder",
   "reports_pano",
   "reports_cdr",
   "reports_audio",
@@ -137,6 +138,7 @@ const SYSTEM_FEATURES = [
 
   // 2. Yapay Zeka & Bilgi
   { id: "ai_agents", name: "AI Temsilcileri", icon: Bot, type: "crud", color: "purple" },
+  { id: "ai_config_assistant", name: "AI Konfigürasyon Asistanı (Doğal Dil & Sesli Dikte ile Santral Yönetimi)", icon: Sparkles, type: "crud_partial", color: "indigo" },
   { id: "rag_kb", name: "Bilgi Bankası (RAG)", icon: Database, type: "crud", color: "blue" },
   { id: "rule_editor", name: "Kural & Senaryo Editörü", icon: Sliders, type: "crud", color: "indigo" },
 
@@ -162,6 +164,7 @@ const SYSTEM_FEATURES = [
   { id: "calendar", name: "Randevu Takvimi", icon: Calendar, type: "crud", color: "amber" },
 
   // 5. Çağrı Raporları & Analiz
+  { id: "reports_custom_builder", name: "Özel Rapor Tasarımcısı & AI Rapor Üretici", icon: Sparkles, type: "crud", color: "purple" },
   { id: "reports_pano", name: "Pano", icon: Monitor, type: "access", color: "purple" },
   { id: "reports_cdr", name: "CDR", icon: FileText, type: "access", color: "emerald" },
   { id: "reports_audio", name: "Ses Kayıtları", icon: Volume2, type: "access", color: "emerald" },

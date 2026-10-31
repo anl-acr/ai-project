@@ -82,6 +82,16 @@ DEFAULT_AI_TASK_ROUTING = {
             "model": "gemini-2.5-flash",
             "enabled": True,
         },
+        "custom_report_generator": {
+            "provider": "gemini",
+            "model": "gemini-2.5-flash",
+            "enabled": True,
+        },
+        "pbx_config_assistant": {
+            "provider": "gemini",
+            "model": "gemini-2.5-flash",
+            "enabled": True,
+        },
         "announcement_tts": {
             "provider": "edge_tts",
             "model": "tr-TR-EmelNeural",
@@ -429,6 +439,7 @@ async def generate_routed_text(
     json_mode: bool = False,
     history: Optional[List[Dict[str, str]]] = None,
     tenant_id: str = "tenant-default",
+    interactive: bool = False,
 ) -> Dict[str, Any]:
     """
     Executes an LLM task using the administrator's selected AI provider & model for `task_id`.
@@ -449,7 +460,8 @@ async def generate_routed_text(
                     AI_ROUTER_STATS["queue_waiting"] = max(0, AI_ROUTER_STATS["queue_waiting"] - 1)
                     AI_ROUTER_STATS["active_task"] = task_id
                     AI_ROUTER_STATS["active_since"] = time.time()
-                    await _wait_for_pbx_idle_if_needed(cfg, cfg.get("ollama_base_url", ""))
+                    if not interactive:
+                        await _wait_for_pbx_idle_if_needed(cfg, cfg.get("ollama_base_url", ""))
                     text_out = await _call_ollama_chat(
                         cfg=cfg,
                         model_name=model_name or "qwen2.5:1.5b",
@@ -462,7 +474,8 @@ async def generate_routed_text(
                 AI_ROUTER_STATS["queue_waiting"] = max(0, AI_ROUTER_STATS["queue_waiting"] - 1)
                 AI_ROUTER_STATS["active_task"] = task_id
                 AI_ROUTER_STATS["active_since"] = time.time()
-                await _wait_for_pbx_idle_if_needed(cfg, cfg.get("ollama_base_url", ""))
+                if not interactive:
+                    await _wait_for_pbx_idle_if_needed(cfg, cfg.get("ollama_base_url", ""))
                 text_out = await _call_ollama_chat(
                     cfg=cfg,
                     model_name=model_name or "qwen2.5:1.5b",

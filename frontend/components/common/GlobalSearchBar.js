@@ -351,6 +351,16 @@ export default function GlobalSearchBar({
 
       // --- YAPAY ZEKA & OTOMASYON ---
       {
+        id: "menu-ai-config-assistant",
+        category: "menu",
+        groupLabel: "Yapay Zeka & Otomasyon",
+        title: "AI Konfigürasyon Asistanı (Doğal Dil & Sesli Dikte)",
+        subtitle: "Dahili, kuyruk, konferans, yönlendirme ve kuralları doğal dilde veya mikrofonla yapılandırın",
+        keywords: "ai konfigürasyon asistanı kurulum sesli dikte dahili kuyruk santral ayar yapay zeka",
+        icon: Sparkles,
+        run: () => navigateTo("ai-config-assistant")
+      },
+      {
         id: "menu-ai-agents",
         category: "menu",
         groupLabel: "Yapay Zeka & Otomasyon",
@@ -645,6 +655,16 @@ export default function GlobalSearchBar({
         keywords: "konferans odası toplantı katılımcı kullanım raporu",
         icon: Users,
         run: () => navigateTo("reports-conferences")
+      },
+      {
+        id: "menu-reports-custom-builder",
+        category: "menu",
+        groupLabel: "Raporlar & Analitik",
+        title: "Özel Rapor Tasarımcısı & AI Rapor Üretici",
+        subtitle: "Kendi özel raporunuzu tasarlayın veya doğal dil / sesli dikte ile AI'a ürettirin",
+        keywords: "özel rapor tasarımcısı kendi raporumu oluştur ai rapor üretici sesli dikte grafik excel",
+        icon: Sparkles,
+        run: () => navigateTo("reports-custom-builder")
       },
 
       // --- SİSTEM AYARLARI & GÜVENLİK ---
