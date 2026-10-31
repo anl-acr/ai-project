@@ -196,8 +196,17 @@ export default function AIConfigAssistantPanel({ userPermissions = null, onNavig
   const [undoLoading, setUndoLoading] = useState(false);
   const [toast, setToast] = useState(null);
 
+  const formatErrDetail = (detail, fallback) => {
+    if (!detail) return fallback;
+    if (Array.isArray(detail)) {
+      return detail.map((d) => (typeof d === "string" ? d : d?.msg || JSON.stringify(d))).join(" | ");
+    }
+    if (typeof detail === "object") return detail.msg || JSON.stringify(detail);
+    return String(detail);
+  };
+
   const showToast = (msg, type = "success") => {
-    setToast({ msg, type });
+    setToast({ msg: String(msg || ""), type });
     setTimeout(() => setToast(null), 4200);
   };
 
@@ -234,7 +243,7 @@ export default function AIConfigAssistantPanel({ userPermissions = null, onNavig
         body: JSON.stringify({ prompt: finalPrompt })
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data?.detail || "Taslak plan oluşturulamadı.");
+      if (!res.ok) throw new Error(formatErrDetail(data?.detail, "Taslak plan oluşturulamadı."));
 
       setPlanResult(data);
       const allowedIds = (data.actions || []).filter((a) => a.allowed).map((a) => a.action_id);
@@ -276,7 +285,7 @@ export default function AIConfigAssistantPanel({ userPermissions = null, onNavig
         })
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data?.detail || "İşlemler uygulanamadı.");
+      if (!res.ok) throw new Error(formatErrDetail(data?.detail, "İşlemler uygulanamadı."));
 
       setApplyOutcome(data);
       setPlanResult(null);

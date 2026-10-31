@@ -2498,23 +2498,22 @@ def _build_visual_call_flow_graph(
     menu_routes: Dict[str, Dict[str, Any]],
     after_hours_ann_id: str = "",
 ) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
-    """Builds a valid CallFlowEditor.js compatible visual workflow graph (`nodes` + `connections`)."""
+    """Builds a valid CallFlowEditor.js & WorkflowSchema compatible visual workflow graph (`nodes` + `connections`)."""
     nodes: List[Dict[str, Any]] = []
     conns: List[Dict[str, Any]] = []
 
+    did_val = did_number or "x."
     did_node_id = f"node-did-{uuid.uuid4().hex[:6]}"
     nodes.append({
         "id": did_node_id,
         "type": "did",
-        "title": f"DID Giriş ({did_number or 'Tümü'})",
+        "title": f"Gelen DID ({did_number or 'Tümü'})",
         "x": 80,
-        "y": 200,
-        "config": {
-            "number": did_number or "*",
-            "extra_fields": {
-                "did_numbers": [did_number] if did_number else [],
-                "is_wildcard": not bool(did_number),
-            },
+        "y": 180,
+        "value": did_val,
+        "extra_fields": {
+            "did_numbers": did_val,
+            "is_wildcard": not bool(did_number),
         },
     })
 
@@ -2524,14 +2523,22 @@ def _build_visual_call_flow_graph(
         "type": "timerule",
         "title": f"Mesai Kontrolü ({work_start}-{work_end})",
         "x": 360,
-        "y": 200,
-        "config": {
-            "work_days": ["Mon", "Tue", "Wed", "Thu", "Fri"],
+        "y": 180,
+        "value": work_start or "09:00",
+        "options": ["active", "inactive"],
+        "extra_fields": {
             "start_time": work_start or "09:00",
             "end_time": work_end or "18:00",
+            "days": ["Mon", "Tue", "Wed", "Thu", "Fri"],
         },
     })
-    conns.append({"id": f"c-{uuid.uuid4().hex[:6]}", "from": did_node_id, "fromPort": "output", "to": tr_node_id, "toPort": "input"})
+    conns.append({
+        "id": f"c-{uuid.uuid4().hex[:6]}",
+        "fromNode": did_node_id,
+        "fromPort": "output",
+        "toNode": tr_node_id,
+        "toPort": "input",
+    })
 
     prev_active_id = tr_node_id
     prev_active_port = "active"
@@ -2545,9 +2552,19 @@ def _build_visual_call_flow_graph(
             "title": welcome_ann_name or "Karşılama Anonsu",
             "x": cur_x,
             "y": 140,
-            "config": {"announcement_id": welcome_ann_id, "file": welcome_ann_name},
+            "value": welcome_ann_id or welcome_ann_name or "Anons1",
+            "extra_fields": {
+                "announcement_id": welcome_ann_id,
+                "announcement_name": welcome_ann_name,
+            },
         })
-        conns.append({"id": f"c-{uuid.uuid4().hex[:6]}", "from": prev_active_id, "fromPort": prev_active_port, "to": play_id, "toPort": "input"})
+        conns.append({
+            "id": f"c-{uuid.uuid4().hex[:6]}",
+            "fromNode": prev_active_id,
+            "fromPort": prev_active_port,
+            "toNode": play_id,
+            "toPort": "input",
+        })
         prev_active_id = play_id
         prev_active_port = "output"
         cur_x += 280
@@ -2563,26 +2580,41 @@ def _build_visual_call_flow_graph(
             "title": f"{name} IVR Menüsü",
             "x": cur_x,
             "y": 140,
+            "value": "",
             "options": opts,
-            "config": {"timeout": 8, "max_retries": 2},
+            "extra_fields": {"timeout": 8, "max_retries": 2},
         })
-        conns.append({"id": f"c-{uuid.uuid4().hex[:6]}", "from": prev_active_id, "fromPort": prev_active_port, "to": menu_id, "toPort": "input"})
+        conns.append({
+            "id": f"c-{uuid.uuid4().hex[:6]}",
+            "fromNode": prev_active_id,
+            "fromPort": prev_active_port,
+            "toNode": menu_id,
+            "toPort": "input",
+        })
         cur_x += 300
         for r_idx, (digit, dest_meta) in enumerate(menu_routes.items()):
             tf_id = f"node-xfer-{digit}-{uuid.uuid4().hex[:5]}"
+            t_ext = str(dest_meta.get("extension") or dest_meta.get("target") or "")
+            is_q = (dest_meta.get("type") or "queue") == "queue"
             nodes.append({
                 "id": tf_id,
                 "type": "transfer",
-                "title": f"Tuş {digit} -> {dest_meta.get('label') or dest_meta.get('target')}",
+                "title": f"Tuş {digit} -> {dest_meta.get('label') or t_ext}",
                 "x": cur_x,
                 "y": 60 + r_idx * 130,
-                "config": {
-                    "target_type": dest_meta.get("type") or "queue",
-                    "target": str(dest_meta.get("target") or ""),
-                    "extension": str(dest_meta.get("extension") or dest_meta.get("target") or ""),
+                "value": t_ext,
+                "extra_fields": {
+                    "transfer_type": "kuyruk" if is_q else "dahili",
+                    "destination": t_ext,
                 },
             })
-            conns.append({"id": f"c-{uuid.uuid4().hex[:6]}", "from": menu_id, "fromPort": str(digit), "to": tf_id, "toPort": "input"})
+            conns.append({
+                "id": f"c-{uuid.uuid4().hex[:6]}",
+                "fromNode": menu_id,
+                "fromPort": str(digit),
+                "toNode": tf_id,
+                "toPort": "input",
+            })
 
     # After-hours hangup / announcement node
     ah_id = f"node-hangup-{uuid.uuid4().hex[:6]}"
@@ -2594,14 +2626,47 @@ def _build_visual_call_flow_graph(
             "title": "Mesai Dışı Anons",
             "x": 660,
             "y": 360,
-            "config": {"announcement_id": after_hours_ann_id},
+            "value": after_hours_ann_id,
+            "extra_fields": {"announcement_id": after_hours_ann_id},
         })
-        conns.append({"id": f"c-{uuid.uuid4().hex[:6]}", "from": tr_node_id, "fromPort": "inactive", "to": ah_play, "toPort": "input"})
-        nodes.append({"id": ah_id, "type": "hangup", "title": "Çağrıyı Sonlandır", "x": 940, "y": 360, "config": {}})
-        conns.append({"id": f"c-{uuid.uuid4().hex[:6]}", "from": ah_play, "fromPort": "output", "to": ah_id, "toPort": "input"})
+        conns.append({
+            "id": f"c-{uuid.uuid4().hex[:6]}",
+            "fromNode": tr_node_id,
+            "fromPort": "inactive",
+            "toNode": ah_play,
+            "toPort": "input",
+        })
+        nodes.append({
+            "id": ah_id,
+            "type": "hangup",
+            "title": "Çağrıyı Sonlandır",
+            "x": 940,
+            "y": 360,
+            "value": "Aramayı Sonlandır",
+        })
+        conns.append({
+            "id": f"c-{uuid.uuid4().hex[:6]}",
+            "fromNode": ah_play,
+            "fromPort": "output",
+            "toNode": ah_id,
+            "toPort": "input",
+        })
     else:
-        nodes.append({"id": ah_id, "type": "hangup", "title": "Mesai Dışı Kapat", "x": 660, "y": 360, "config": {}})
-        conns.append({"id": f"c-{uuid.uuid4().hex[:6]}", "from": tr_node_id, "fromPort": "inactive", "to": ah_id, "toPort": "input"})
+        nodes.append({
+            "id": ah_id,
+            "type": "hangup",
+            "title": "Mesai Dışı Kapat",
+            "x": 660,
+            "y": 360,
+            "value": "Aramayı Sonlandır",
+        })
+        conns.append({
+            "id": f"c-{uuid.uuid4().hex[:6]}",
+            "fromNode": tr_node_id,
+            "fromPort": "inactive",
+            "toNode": ah_id,
+            "toPort": "input",
+        })
 
     return nodes, conns
 
@@ -2756,6 +2821,7 @@ async def apply_ai_configuration_plan(request: Request, payload: Dict[str, Any] 
                         tenant_id=norm_tenant,
                         full_name=full_name,
                         email=email,
+                        avatar="",
                         password=pwd,
                         extension=ext,
                         sip_username=ext,
@@ -2785,6 +2851,7 @@ async def apply_ai_configuration_plan(request: Request, payload: Dict[str, Any] 
                     "full_name": full_name,
                     "name": full_name,
                     "email": email,
+                    "avatar": "",
                     "password": pwd,
                     "extension": ext,
                     "sip_username": ext,
@@ -3143,15 +3210,26 @@ async def apply_ai_configuration_plan(request: Request, payload: Dict[str, Any] 
                     "id": ag_id,
                     "tenant_id": norm_tenant,
                     "name": ag_name,
+                    "role_title": "Müşteri Temsilcisi",
                     "voice": voice,
+                    "tone": "kibar",
+                    "speaking_rate": 1.0,
                     "language": str(p.get("language") or "tr-TR"),
+                    "model": "gemini-2.5-flash",
+                    "temperature": 0.7,
+                    "max_tokens": 300,
                     "greeting": greeting,
+                    "greeting_prompt": greeting,
+                    "farewell_prompt": "İyi günler dilerim.",
                     "system_prompt": sys_prompt,
+                    "system_instruction": sys_prompt,
                     "provider": "google",
                     "llm_provider": "google",
                     "stt_provider": "google",
                     "tts_provider": "google",
+                    "status": "active",
                     "active": True,
+                    "transfer_target": "1000",
                 }
                 if p.get("scenario_prompt"):
                     flow = parse_scenario_semantically(str(p["scenario_prompt"]))
@@ -3172,8 +3250,10 @@ async def apply_ai_configuration_plan(request: Request, payload: Dict[str, Any] 
                             ag["voice"] = str(p["voice"]).strip()
                         if p.get("greeting"):
                             ag["greeting"] = str(p["greeting"]).strip()
+                            ag["greeting_prompt"] = str(p["greeting"]).strip()
                         if p.get("system_prompt"):
                             ag["system_prompt"] = str(p["system_prompt"]).strip()
+                            ag["system_instruction"] = str(p["system_prompt"]).strip()
                         found_ag = True
                 if found_ag:
                     applied_summaries.append(f"AI Asistan '{target}' güncellendi.")
@@ -3857,7 +3937,7 @@ async def apply_ai_configuration_plan(request: Request, payload: Dict[str, Any] 
                     welcome_ann_name=w_ann_ref or "Karşılama Anonsu",
                     menu_routes=resolved_routes,
                 )
-                trunk_id_default = ctx["trunks"][0]["id"] if ctx.get("trunks") else None
+                trunk_id_default = int(ctx["trunks"][0]["id"]) if (ctx.get("trunks") and str(ctx["trunks"][0].get("id", "")).isdigit()) else 1
                 settings_db.setdefault("workflows", []).append({
                     "id": wf_id,
                     "tenant_id": norm_tenant,

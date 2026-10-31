@@ -656,9 +656,9 @@ class UserSchema(BaseModel):
     id: Optional[int] = None
     tenant_id: Optional[str] = "tenant-default"
     full_name: str
-    email: str
+    email: Optional[str] = ""
     extension: str
-    avatar: str
+    avatar: Optional[str] = ""
     role: str = "agent"
     is_active: bool = True
     gsm_number: Optional[str] = None
@@ -810,7 +810,7 @@ class CallFlowGraphSchema(BaseModel):
 class WorkflowSchema(BaseModel):
     id: str
     name: str
-    trunk_id: int
+    trunk_id: Optional[int] = 1
     status: str # active, draft
     nodes: List[GraphNodeSchema]
     connections: List[GraphConnectionSchema]
@@ -22478,6 +22478,8 @@ async def new_get_users_endpoint(request: Request, user_info: dict = Depends(get
             )
             if isinstance(fb_wb, dict) and fb_wb:
                 u["wallboard_layout"] = fb_wb
+        u["avatar"] = u.get("avatar") or ""
+        u["email"] = u.get("email") or ""
         u["theme_mode"] = u.get("theme_mode") or "light"
         u["sip_password"] = resolve_secure_sip_password(ext, u.get("sip_password") or "")
         ensure_user_profiles(u)

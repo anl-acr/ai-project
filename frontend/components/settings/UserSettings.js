@@ -577,7 +577,13 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
         return true;
       } else {
         const errData = await res.json().catch(() => ({ detail: res.statusText }));
-        setError(errData.detail || "Kullanıcı kaydedilirken bir hata oluştu.");
+        const rawDetail = errData?.detail;
+        const errMsg = Array.isArray(rawDetail)
+          ? rawDetail.map((d) => (typeof d === "string" ? d : d?.msg || JSON.stringify(d))).join(" | ")
+          : typeof rawDetail === "object" && rawDetail !== null
+          ? rawDetail.msg || JSON.stringify(rawDetail)
+          : rawDetail || "Kullanıcı kaydedilirken bir hata oluştu.";
+        setError(String(errMsg));
         return false;
       }
     } catch (err) {
