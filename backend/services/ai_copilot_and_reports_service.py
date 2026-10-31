@@ -753,6 +753,9 @@ def _parse_custom_report_prompt_semantically(prompt: str) -> Dict[str, Any]:
             if dur_match.group(2) in ("dakika", "dk"):
                 val_num *= 60
             filters.append({"field": "talk_sec", "op": "gt", "value": val_num})
+        ext_match = re.search(r"\b(1\d{2,3})\b", p)
+        if ext_match and any(k in p for k in ("dahili", "nolu", "numaralı", "temsilci")):
+            filters.append({"field": "agent", "op": "contains", "value": ext_match.group(1)})
 
     if "pasta" in p or "dağılım" in p:
         chart_type = "pie"
@@ -778,9 +781,9 @@ def _parse_custom_report_prompt_semantically(prompt: str) -> Dict[str, Any]:
 
 def _detect_prompt_date_period(prompt: str) -> Optional[str]:
     p = (prompt or "").lower()
-    if "son 30" in p or "bu ay" in p or "aylık" in p:
+    if any(k in p for k in ("son 30", "bir ay", "1 ay", "bu ay", "aylık", "geçen ay")):
         return "last_30_days"
-    if "son 7" in p or "bu hafta" in p or "haftalık" in p or "geçen hafta" in p:
+    if any(k in p for k in ("son 7", "bir hafta", "1 hafta", "bu hafta", "haftalık", "geçen hafta")):
         return "last_7_days"
     if "dün" in p:
         return "yesterday"

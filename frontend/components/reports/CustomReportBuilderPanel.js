@@ -13,15 +13,12 @@ import {
   Table as TableIcon,
   Filter,
   FolderOpen,
-  Cpu,
-  Cloud,
   RefreshCw,
   CheckCircle2,
   AlertTriangle,
   X,
   Calendar,
-  Sliders,
-  Clock
+  Sliders
 } from "lucide-react";
 import * as XLSX from "xlsx";
 import { useTheme } from "../../utils/theme";
@@ -30,12 +27,30 @@ import DictationButton from "../common/DictationButton";
 import ConfirmDeleteModal from "../dashboard/ConfirmDeleteModal";
 
 const EXAMPLE_PROMPTS = [
-  "Son 7 günde temsilci bazlı toplam çağrı, cevaplanan, kaçan çağrı ve ortalama konuşma süresini sütun grafikle göster",
-  "Günlük tarih bazlı çağrı trendini ve cevaplanma oranını çizgi grafik olarak çıkar",
-  "Temsilcilerin toplam mola adedi ve mola sürelerini büyükten küçüğe listele",
-  "Omnichannel kanallarına göre toplam sohbet ve AI karşılama oranlarını pasta dağılım olarak getir",
-  "Müşteri duygu durumuna göre çağrı dağılımını ve ortalama kalite puanını göster",
-  "VoIP ses kalitesi MOS skorlarını ve paket kaybı oranlarını dahili bazlı analiz et"
+  {
+    label: "Temsilci Performansı",
+    prompt: "Son 7 günde temsilci bazlı toplam çağrı, cevaplanan, kaçan çağrı ve ortalama konuşma süresini sütun grafikle göster"
+  },
+  {
+    label: "Günlük Çağrı Trendi",
+    prompt: "Günlük tarih bazlı çağrı trendini ve cevaplanma oranını çizgi grafik olarak çıkar"
+  },
+  {
+    label: "Mola Süreleri",
+    prompt: "Temsilcilerin toplam mola adedi ve mola sürelerini büyükten küçüğe listele"
+  },
+  {
+    label: "Omnichannel Dağılımı",
+    prompt: "Omnichannel kanallarına göre toplam sohbet ve AI karşılama oranlarını pasta dağılım olarak getir"
+  },
+  {
+    label: "Duygu & Kalite",
+    prompt: "Müşteri duygu durumuna göre çağrı dağılımını ve ortalama kalite puanını göster"
+  },
+  {
+    label: "VoIP Ses Kalitesi",
+    prompt: "VoIP ses kalitesi MOS skorlarını ve paket kaybı oranlarını dahili bazlı analiz et"
+  }
 ];
 
 const FILTER_OPS = [
@@ -84,7 +99,6 @@ export default function CustomReportBuilderPanel({ userPermissions = null }) {
   const canDelete = resolvedPerms.includes("*") || resolvedPerms.includes("reports_custom_builder:delete");
 
   const [datasets, setDatasets] = useState([]);
-  const [aiRoutingInfo, setAiRoutingInfo] = useState({ provider: "gemini", model: "gemini-2.5-flash" });
   const [savedReports, setSavedReports] = useState([]);
 
   // Designer state
@@ -114,7 +128,6 @@ export default function CustomReportBuilderPanel({ userPermissions = null }) {
   // AI Prompt state
   const [aiPrompt, setAiPrompt] = useState("");
   const [aiLoading, setAiLoading] = useState(false);
-  const [lastAiMeta, setLastAiMeta] = useState(null);
 
   // Execution result state
   const [running, setRunning] = useState(false);
@@ -146,7 +159,6 @@ export default function CustomReportBuilderPanel({ userPermissions = null }) {
       if (metaRes.ok) {
         const metaJson = await metaRes.json();
         if (Array.isArray(metaJson.datasets)) setDatasets(metaJson.datasets);
-        if (metaJson.ai_routing) setAiRoutingInfo(metaJson.ai_routing);
       }
       if (savedRes.ok) {
         const savedJson = await savedRes.json();
@@ -296,14 +308,9 @@ export default function CustomReportBuilderPanel({ userPermissions = null }) {
       }
 
       setResultData(data);
-      setLastAiMeta({
-        provider: data.provider_used,
-        model: data.model_used,
-        fallback: data.fallback_used
-      });
-      showToast("AI rapor tasarımını oluşturdu ve verileri getirdi.");
+      showToast("Rapor oluşturuldu.");
     } catch (err) {
-      showToast(err.message || "AI rapor oluşturma hatası.", "error");
+      showToast(err.message || "Rapor oluşturma hatası.", "error");
     } finally {
       setAiLoading(false);
     }
@@ -314,10 +321,8 @@ export default function CustomReportBuilderPanel({ userPermissions = null }) {
     setReportTitle("Yeni Özel Rapor");
     setReportDesc("");
     setAiPrompt("");
-    setLastAiMeta(null);
     handleDatasetChange("calls");
     setChartType("bar");
-    showToast("Yeni rapor tasarım alanı sıfırlandı.");
   };
 
   const handleLoadSavedReport = (rep) => {
@@ -451,62 +456,32 @@ export default function CustomReportBuilderPanel({ userPermissions = null }) {
         </div>
       )}
 
-      {/* Üst Başlık & Yeni Tasarım (+) */}
-      <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-5 shadow-sm">
-        <div className="flex flex-wrap items-center justify-between gap-4">
-          <div className="flex items-center gap-3.5">
-            <div className={`w-11 h-11 rounded-2xl flex items-center justify-center ${lightBg} ${text} border ${borderLight}`}>
-              <Sparkles size={22} />
+      {/* Üst Başlık & AI Rapor Komut Alanı */}
+      <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-4 shadow-sm space-y-3.5">
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <div className={`w-9 h-9 rounded-xl flex items-center justify-center ${lightBg} ${text} border ${borderLight}`}>
+              <Sparkles size={18} />
             </div>
-            <div>
-              <div className="flex items-center gap-2.5 flex-wrap">
-                <h2 className="text-lg font-bold text-slate-900 dark:text-white">
-                  Özel Rapor Tasarımcısı & AI Rapor Üretici
-                </h2>
-                <span
-                  className={`inline-flex items-center gap-1.5 text-[11px] font-semibold px-2.5 py-0.5 rounded-full border ${lightBg} ${lightText} ${borderLight}`}
-                >
-                  {aiRoutingInfo.provider === "ollama" ? <Cpu size={12} /> : <Cloud size={12} />}
-                  {aiRoutingInfo.provider === "ollama"
-                    ? `Yerel LLM (${aiRoutingInfo.model})`
-                    : `Cloud AI (${aiRoutingInfo.provider.toUpperCase()} • ${aiRoutingInfo.model})`}
-                </span>
-              </div>
-              <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-                İster doğal dilde yazarak veya sesli dikte ile AI&apos;a tarif edin, isterseniz veri kaynağı ve metrikleri seçerek kendi raporunuzu oluşturup kaydedin.
-              </p>
-            </div>
+            <h2 className="text-base font-bold text-slate-900 dark:text-white">
+              Özel Rapor Tasarımcısı
+            </h2>
           </div>
 
-          <div className="flex items-center gap-2.5">
-            {canWrite && (
-              <button
-                type="button"
-                onClick={handleResetNewReport}
-                title="Yeni Özel Rapor Tasarla"
-                className="bg-rose-600 hover:bg-rose-500 text-white rounded-xl h-8 w-8 flex items-center justify-center shrink-0 shadow-sm transition-colors"
-              >
-                <Plus size={16} />
-              </button>
-            )}
-          </div>
+          {canWrite && (
+            <button
+              type="button"
+              onClick={handleResetNewReport}
+              title="Yeni Özel Rapor Tasarla"
+              className="bg-rose-600 hover:bg-rose-500 text-white rounded-xl h-8 w-8 flex items-center justify-center shrink-0 shadow-sm transition-colors"
+            >
+              <Plus size={16} />
+            </button>
+          )}
         </div>
 
-        {/* AI Doğal Dil & Sesli Dikte Prompt Alanı */}
         {canWrite && (
-          <div className={`mt-4 p-4 rounded-2xl border ${borderLight} bg-slate-50/70 dark:bg-slate-950/50`}>
-            <div className="flex items-center justify-between gap-2 mb-2">
-              <label className="text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
-                <Sparkles size={14} className={text} />
-                Yapay Zeka ile Doğal Dilde / Sesli Dikte ile Rapor Üret
-              </label>
-              {lastAiMeta && (
-                <span className="text-[11px] text-slate-500 dark:text-slate-400">
-                  Son üretim: <b className="text-slate-700 dark:text-slate-200">{lastAiMeta.provider}</b> ({lastAiMeta.model})
-                </span>
-              )}
-            </div>
-
+          <div className="space-y-2.5">
             <div className="flex flex-col md:flex-row items-stretch md:items-center gap-2.5">
               <div className="relative flex-1 flex items-center">
                 <input
@@ -519,8 +494,8 @@ export default function CustomReportBuilderPanel({ userPermissions = null }) {
                       handleAiGenerate();
                     }
                   }}
-                  placeholder="Örn: Son 7 günde temsilcilerin cevapladığı ve kaçırdığı çağrıları sütun grafikle karşılaştır..."
-                  className={`w-full pl-3.5 pr-12 py-2.5 text-sm rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white focus:outline-none focus:ring-2 ${ring}`}
+                  placeholder="Oluşturmak istediğiniz raporu yazın veya dikte edin..."
+                  className={`w-full pl-3.5 pr-12 py-2.5 text-sm rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50/70 dark:bg-slate-950/60 text-slate-900 dark:text-white focus:outline-none focus:ring-2 ${ring}`}
                 />
                 <div className="absolute right-2 flex items-center">
                   <DictationButton
@@ -539,26 +514,24 @@ export default function CustomReportBuilderPanel({ userPermissions = null }) {
                 disabled={aiLoading}
                 className={`px-4 py-2.5 rounded-xl text-white text-sm font-semibold flex items-center justify-center gap-2 shrink-0 shadow-sm transition-all ${bg} ${hover} disabled:opacity-50`}
               >
-                {aiLoading ? <RefreshCw size={16} className="animate-spin" /> : <Sparkles size={16} />}
-                <span>{aiLoading ? "AI Hazırlıyor..." : "AI ile Rapor Üret"}</span>
+                {aiLoading ? <RefreshCw size={15} className="animate-spin" /> : <Sparkles size={15} />}
+                <span>{aiLoading ? "Hazırlanıyor..." : "Rapor Üret"}</span>
               </button>
             </div>
 
-            {/* Hızlı Örnek Çipler */}
-            <div className="flex flex-wrap items-center gap-1.5 mt-2.5">
-              <span className="text-[11px] font-semibold text-slate-400 mr-1">Örnekler:</span>
+            <div className="flex flex-wrap items-center gap-1.5">
               {EXAMPLE_PROMPTS.map((ex, i) => (
                 <button
                   key={i}
                   type="button"
                   onClick={() => {
-                    setAiPrompt(ex);
-                    handleAiGenerate(ex);
+                    setAiPrompt(ex.prompt);
+                    handleAiGenerate(ex.prompt);
                   }}
-                  className="text-[11px] px-2.5 py-1 rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:border-slate-400 dark:hover:border-slate-500 transition-colors truncate max-w-[300px]"
-                  title={ex}
+                  className="text-[11px] font-medium px-2.5 py-1 rounded-lg bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700/80 text-slate-600 dark:text-slate-300 hover:border-slate-400 dark:hover:border-slate-500 transition-colors"
+                  title={ex.prompt}
                 >
-                  {ex}
+                  {ex.label}
                 </button>
               ))}
             </div>
@@ -571,11 +544,11 @@ export default function CustomReportBuilderPanel({ userPermissions = null }) {
         {/* SOL KOLON: Görsel Tasarımcı + Kayıtlı Özel Raporlar */}
         <div className="xl:col-span-4 space-y-5">
           {/* Görsel Rapor Tasarım Parametreleri */}
-          <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-4 shadow-sm space-y-4">
+          <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-4 shadow-sm space-y-3.5">
             <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
               <div className="flex items-center gap-2">
                 <Sliders size={16} className={text} />
-                <h3 className="text-sm font-bold text-slate-800 dark:text-white">Rapor Tasarım Parametreleri</h3>
+                <h3 className="text-sm font-bold text-slate-800 dark:text-white">Rapor Ayarları</h3>
               </div>
               <button
                 type="button"
@@ -601,7 +574,7 @@ export default function CustomReportBuilderPanel({ userPermissions = null }) {
 
             {/* Veri Kaynağı */}
             <div>
-              <label className="block text-xs font-semibold text-slate-600 dark:text-slate-400 mb-1">1. Veri Kaynağı (Modül)</label>
+              <label className="block text-xs font-semibold text-slate-600 dark:text-slate-400 mb-1">Veri Kaynağı</label>
               <select
                 value={datasetId}
                 onChange={(e) => handleDatasetChange(e.target.value)}
@@ -618,7 +591,7 @@ export default function CustomReportBuilderPanel({ userPermissions = null }) {
             {/* Gruplama Boyutu */}
             <div>
               <label className="block text-xs font-semibold text-slate-600 dark:text-slate-400 mb-1">
-                2. Kırılım / Gruplama Boyutu (Satırlar)
+                Gruplama
               </label>
               <select
                 value={groupBy}
@@ -637,7 +610,7 @@ export default function CustomReportBuilderPanel({ userPermissions = null }) {
             <div>
               <div className="flex items-center justify-between mb-1.5">
                 <label className="text-xs font-semibold text-slate-600 dark:text-slate-400">
-                  3. Hesaplanacak Sütunlar ({selectedMetrics.length} Seçili)
+                  Metrikler ({selectedMetrics.length})
                 </label>
               </div>
               <div className="max-h-44 overflow-y-auto space-y-1 p-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50/60 dark:bg-slate-950/40">
@@ -672,20 +645,18 @@ export default function CustomReportBuilderPanel({ userPermissions = null }) {
             <div>
               <div className="flex items-center justify-between mb-1.5">
                 <label className="text-xs font-semibold text-slate-600 dark:text-slate-400 flex items-center gap-1">
-                  <Filter size={12} /> 4. Özel Filtre Koşulları
+                  <Filter size={12} /> Filtreler
                 </label>
                 <button
                   type="button"
                   onClick={addFilterRow}
                   className={`text-[11px] font-semibold ${text} hover:underline`}
                 >
-                  + Koşul Ekle
+                  + Ekle
                 </button>
               </div>
 
-              {filters.length === 0 ? (
-                <p className="text-[11px] text-slate-400 italic">Ek filtre yok (tüm kayıtlar dahil edilir).</p>
-              ) : (
+              {filters.length > 0 && (
                 <div className="space-y-2">
                   {filters.map((flt, idx) => (
                     <div key={idx} className="flex items-center gap-1.5">
@@ -738,18 +709,14 @@ export default function CustomReportBuilderPanel({ userPermissions = null }) {
               <div className="flex items-center gap-2">
                 <FolderOpen size={16} className={text} />
                 <h3 className="text-sm font-bold text-slate-800 dark:text-white">
-                  Kayıtlı Özel Raporlar ({savedReports.length})
+                  Kayıtlı Raporlar ({savedReports.length})
                 </h3>
               </div>
             </div>
-            <p className="text-[11px] text-slate-500 dark:text-slate-400 mb-3 flex items-center gap-1">
-              <Clock size={12} className="shrink-0" />
-              Kaydettiğiniz raporlar <b>Zamanlanmış Raporlar</b> ekranına da otomatik eklenir.
-            </p>
 
             {savedReports.length === 0 ? (
-              <div className="text-center py-6 text-xs text-slate-400 border border-dashed border-slate-200 dark:border-slate-800 rounded-xl">
-                Henüz kaydedilmiş özel raporunuz bulunmuyor.
+              <div className="text-center py-5 text-xs text-slate-400 border border-dashed border-slate-200 dark:border-slate-800 rounded-xl">
+                Kayıtlı özel rapor bulunmuyor.
               </div>
             ) : (
               <div className="space-y-2 max-h-64 overflow-y-auto pr-1">

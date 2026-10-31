@@ -3,12 +3,9 @@ import { createPortal } from "react-dom";
 import {
   Sparkles,
   Plus,
-  ShieldCheck,
   CheckCircle2,
   AlertTriangle,
   RotateCcw,
-  Cpu,
-  Cloud,
   RefreshCw,
   UserPlus,
   UserCheck,
@@ -20,7 +17,6 @@ import {
   Shuffle,
   Lock,
   History,
-  X,
   Check,
   Edit3,
   Trash2,
@@ -138,7 +134,6 @@ export default function AIConfigAssistantPanel({ userPermissions = null, onNavig
   const [selectedActionIds, setSelectedActionIds] = useState([]);
   const [applyOutcome, setApplyOutcome] = useState(null);
 
-  const [aiRoutingTask, setAiRoutingTask] = useState({ provider: "gemini", model: "gemini-2.5-flash" });
   const [historyList, setHistoryList] = useState([]);
   const [undoTarget, setUndoTarget] = useState(null);
   const [undoLoading, setUndoLoading] = useState(false);
@@ -151,15 +146,7 @@ export default function AIConfigAssistantPanel({ userPermissions = null, onNavig
 
   const fetchAssistantMetaAndHistory = async () => {
     try {
-      const [routeRes, histRes] = await Promise.all([
-        tenantFetch(`${API_BASE}/api/settings/ai-task-routing`).catch(() => null),
-        tenantFetch(`${API_BASE}/api/ai-config-assistant/history`).catch(() => null)
-      ]);
-      if (routeRes && routeRes.ok) {
-        const rJson = await routeRes.json();
-        const tCfg = rJson?.tasks?.pbx_config_assistant;
-        if (tCfg) setAiRoutingTask(tCfg);
-      }
+      const histRes = await tenantFetch(`${API_BASE}/api/ai-config-assistant/history`).catch(() => null);
       if (histRes && histRes.ok) {
         const hJson = await histRes.json();
         setHistoryList(Array.isArray(hJson.history) ? hJson.history : []);
@@ -299,76 +286,36 @@ export default function AIConfigAssistantPanel({ userPermissions = null, onNavig
         </div>
       )}
 
-      {/* Üst Başlık & Aktif AI Motoru Bilgisi */}
-      <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-5 shadow-sm">
-        <div className="flex flex-wrap items-center justify-between gap-4">
-          <div className="flex items-center gap-3.5">
-            <div className={`w-11 h-11 rounded-2xl flex items-center justify-center ${lightBg} ${text} border ${borderLight}`}>
-              <Sparkles size={22} />
+      {/* Üst Başlık & Komut Giriş Alanı */}
+      <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-4 shadow-sm space-y-3.5">
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <div className={`w-9 h-9 rounded-xl flex items-center justify-center ${lightBg} ${text} border ${borderLight}`}>
+              <Sparkles size={18} />
             </div>
-            <div>
-              <div className="flex items-center gap-2.5 flex-wrap">
-                <h2 className="text-lg font-bold text-slate-900 dark:text-white">
-                  AI Konfigürasyon Asistanı
-                </h2>
-                <span
-                  className={`inline-flex items-center gap-1.5 text-[11px] font-semibold px-2.5 py-0.5 rounded-full border ${lightBg} ${lightText} ${borderLight}`}
-                >
-                  {aiRoutingTask.provider === "ollama" ? <Cpu size={12} /> : <Cloud size={12} />}
-                  {aiRoutingTask.provider === "ollama"
-                    ? `Yerel LLM (${aiRoutingTask.model})`
-                    : `Cloud AI (${String(aiRoutingTask.provider || "gemini").toUpperCase()} • ${aiRoutingTask.model})`}
-                </span>
-                <span className="inline-flex items-center gap-1 text-[11px] font-semibold px-2.5 py-0.5 rounded-full bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800/60">
-                  <ShieldCheck size={12} />
-                  Taslak Önizleme & Tek Tıkla Geri Alma Korumalı
-                </span>
-              </div>
-              <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-                Dahili, kuyruk, konferans odası, yönlendirme, kara liste ve zamanlanmış rapor ayarlarını Türkçe yazarak veya mikrofonla dikte ederek saniyeler içinde yapılandırın.
-              </p>
-            </div>
+            <h2 className="text-base font-bold text-slate-900 dark:text-white">
+              AI Konfigürasyon Asistanı
+            </h2>
           </div>
 
-          <div className="flex items-center gap-2">
-            {onNavigateTab && (
-              <button
-                type="button"
-                onClick={() => onNavigateTab("settings", "ai-task-routing")}
-                className="px-3 py-1.5 rounded-xl text-xs font-semibold border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800"
-              >
-                Model Değiştir (Yerel / Cloud)
-              </button>
-            )}
-            <button
-              type="button"
-              onClick={handleReset}
-              title="Yeni Konfigürasyon Komutu Başlat"
-              className="bg-rose-600 hover:bg-rose-500 text-white rounded-xl h-8 w-8 flex items-center justify-center shrink-0 shadow-sm transition-colors"
-            >
-              <Plus size={16} />
-            </button>
-          </div>
+          <button
+            type="button"
+            onClick={handleReset}
+            title="Yeni Konfigürasyon Komutu Başlat"
+            className="bg-rose-600 hover:bg-rose-500 text-white rounded-xl h-8 w-8 flex items-center justify-center shrink-0 shadow-sm transition-colors"
+          >
+            <Plus size={16} />
+          </button>
         </div>
 
-        {/* Komut & Sesli Dikte Alanı */}
-        <div className={`mt-5 p-4 rounded-2xl border ${borderLight} bg-slate-50/70 dark:bg-slate-950/50`}>
-          <div className="flex items-center justify-between mb-2">
-            <label className="text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300">
-              Santral Konfigürasyon Komutunuz (Yazın veya Sesli Dikte Edin)
-            </label>
-            <span className="text-[11px] text-slate-400">
-              Hiçbir ayar onayınız olmadan doğrudan uygulanmaz
-            </span>
-          </div>
-
+        <div className="space-y-2.5">
           <div className="relative">
             <textarea
-              rows={3}
+              rows={2}
               value={prompt}
               onChange={(e) => setPrompt(e.target.value)}
-              placeholder="Örn: Ahmet Yılmaz ve Ayşe Demir için 2 yeni dahili aç, Satış Kuyruğu oluştur ve ikisini bu kuyruğa ekle..."
-              className={`w-full p-3.5 pr-14 text-sm rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white focus:outline-none focus:ring-2 ${ring}`}
+              placeholder="Yapmak istediğiniz santral işlemini yazın veya dikte edin..."
+              className={`w-full p-3.5 pr-14 text-sm rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50/70 dark:bg-slate-950/60 text-slate-900 dark:text-white focus:outline-none focus:ring-2 ${ring}`}
             />
             <div className="absolute right-3 top-3">
               <DictationButton
@@ -381,9 +328,8 @@ export default function AIConfigAssistantPanel({ userPermissions = null, onNavig
             </div>
           </div>
 
-          <div className="flex flex-wrap items-center justify-between gap-3 mt-3">
+          <div className="flex flex-wrap items-center justify-between gap-3">
             <div className="flex flex-wrap items-center gap-1.5">
-              <span className="text-[11px] font-semibold text-slate-400 mr-1">Hazır Şablonlar:</span>
               {PRESET_COMMANDS.map((item, idx) => (
                 <button
                   key={idx}
@@ -392,7 +338,8 @@ export default function AIConfigAssistantPanel({ userPermissions = null, onNavig
                     setPrompt(item.prompt);
                     handleGeneratePlan(item.prompt);
                   }}
-                  className="text-[11px] font-medium px-2.5 py-1 rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:border-slate-400 transition-colors"
+                  title={item.prompt}
+                  className="text-[11px] font-medium px-2.5 py-1 rounded-lg bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700/80 text-slate-600 dark:text-slate-300 hover:border-slate-400 transition-colors"
                 >
                   {item.label}
                 </button>
@@ -403,29 +350,24 @@ export default function AIConfigAssistantPanel({ userPermissions = null, onNavig
               type="button"
               onClick={() => handleGeneratePlan()}
               disabled={planning || applying}
-              className={`px-5 py-2.5 rounded-xl text-sm font-semibold text-white flex items-center gap-2 shadow-sm transition-all ${bg} ${hover} disabled:opacity-50`}
+              className={`px-4 py-2.5 rounded-xl text-sm font-semibold text-white flex items-center gap-2 shadow-sm transition-all ${bg} ${hover} disabled:opacity-50`}
             >
-              {planning ? <RefreshCw size={16} className="animate-spin" /> : <Sparkles size={16} />}
-              <span>{planning ? "Taslak Plan Hazırlanıyor..." : "Taslak Plan Oluştur (Önizle)"}</span>
+              {planning ? <RefreshCw size={15} className="animate-spin" /> : <Sparkles size={15} />}
+              <span>{planning ? "Hazırlanıyor..." : "Plan Oluştur"}</span>
             </button>
           </div>
         </div>
       </div>
 
-      {/* TASLAK PLAN & GÜVENLİK ÖNİZLEME KARTI (DRY-RUN) */}
+      {/* TASLAK PLAN ÖNİZLEME KARTI (DRY-RUN) */}
       {planResult && (
-        <div className={`bg-white dark:bg-slate-900 rounded-2xl border-2 ${border} p-5 shadow-md space-y-4`}>
-          <div className="flex flex-wrap items-start justify-between gap-3 border-b border-slate-100 dark:border-slate-800 pb-4">
-            <div>
-              <div className="flex items-center gap-2">
-                <span className={`px-2.5 py-0.5 rounded-full text-[11px] font-bold ${lightBg} ${lightText}`}>
-                  TASLAK PLAN ÖNİZLEMESİ
-                </span>
-                <span className="text-xs text-slate-400">
-                  Motor: {planResult.provider_used} ({planResult.model_used})
-                </span>
-              </div>
-              <h3 className="text-base font-bold text-slate-900 dark:text-white mt-1.5">
+        <div className={`bg-white dark:bg-slate-900 rounded-2xl border-2 ${border} p-4 shadow-md space-y-4`}>
+          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 dark:border-slate-800 pb-3.5">
+            <div className="flex items-center gap-2.5 flex-wrap">
+              <span className={`px-2.5 py-0.5 rounded-full text-[11px] font-bold ${lightBg} ${lightText}`}>
+                Önizleme
+              </span>
+              <h3 className="text-sm font-bold text-slate-900 dark:text-white">
                 {planResult.explanation}
               </h3>
             </div>
@@ -436,7 +378,7 @@ export default function AIConfigAssistantPanel({ userPermissions = null, onNavig
                 onClick={() => setPlanResult(null)}
                 className="px-3.5 py-2 rounded-xl text-xs font-semibold border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300"
               >
-                İptal Et
+                Vazgeç
               </button>
               {canWrite && (
                 <button
@@ -448,8 +390,8 @@ export default function AIConfigAssistantPanel({ userPermissions = null, onNavig
                   {applying ? <RefreshCw size={14} className="animate-spin" /> : <Check size={15} />}
                   <span>
                     {applying
-                      ? "Santrale Uygulanıyor..."
-                      : `Seçili Adımları Onayla ve Uygula (${selectedActionIds.length})`}
+                      ? "Uygulanıyor..."
+                      : `Onayla ve Uygula (${selectedActionIds.length})`}
                   </span>
                 </button>
               )}
@@ -458,30 +400,30 @@ export default function AIConfigAssistantPanel({ userPermissions = null, onNavig
 
           {/* Çakışma Uyarıları */}
           {Array.isArray(planResult.warnings) && planResult.warnings.length > 0 && (
-            <div className="p-3.5 rounded-xl bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800/60 text-xs text-amber-800 dark:text-amber-200 space-y-1">
-              <div className="font-bold flex items-center gap-1.5">
-                <AlertTriangle size={14} /> Otomatik Çakışma Çözümü Bilgilendirmesi:
-              </div>
+            <div className="p-3 rounded-xl bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800/60 text-xs text-amber-800 dark:text-amber-200 space-y-1">
               {planResult.warnings.map((w, i) => (
-                <div key={i}>• {w}</div>
+                <div key={i} className="flex items-center gap-1.5">
+                  <AlertTriangle size={14} className="shrink-0" />
+                  <span>{w}</span>
+                </div>
               ))}
             </div>
           )}
 
           {/* Yetki Engelleri */}
           {Array.isArray(planResult.permission_blocks) && planResult.permission_blocks.length > 0 && (
-            <div className="p-3.5 rounded-xl bg-rose-50 dark:bg-rose-950/30 border border-rose-200 dark:border-rose-800/60 text-xs text-rose-700 dark:text-rose-300 space-y-1">
-              <div className="font-bold flex items-center gap-1.5">
-                <Lock size={14} /> Rol Yetkisi Kısıtlaması:
-              </div>
+            <div className="p-3 rounded-xl bg-rose-50 dark:bg-rose-950/30 border border-rose-200 dark:border-rose-800/60 text-xs text-rose-700 dark:text-rose-300 space-y-1">
               {planResult.permission_blocks.map((b, i) => (
-                <div key={i}>• {b}</div>
+                <div key={i} className="flex items-center gap-1.5">
+                  <Lock size={14} className="shrink-0" />
+                  <span>{b}</span>
+                </div>
               ))}
             </div>
           )}
 
           {/* Aksiyon Listesi */}
-          <div className="space-y-2.5">
+          <div className="space-y-2">
             {(planResult.actions || []).map((act) => {
               const ActIcon = ACTION_ICONS[act.type] || Sparkles;
               const checked = selectedActionIds.includes(act.action_id);
@@ -489,7 +431,7 @@ export default function AIConfigAssistantPanel({ userPermissions = null, onNavig
                 <div
                   key={act.action_id}
                   onClick={() => act.allowed && toggleActionSelection(act.action_id)}
-                  className={`flex items-start justify-between gap-3 p-3.5 rounded-xl border transition-all ${
+                  className={`flex items-start justify-between gap-3 p-3 rounded-xl border transition-all ${
                     !act.allowed
                       ? "opacity-60 bg-slate-50 dark:bg-slate-900 border-slate-200 dark:border-slate-800 cursor-not-allowed"
                       : checked
@@ -513,17 +455,13 @@ export default function AIConfigAssistantPanel({ userPermissions = null, onNavig
                         <span className="text-xs font-bold text-slate-900 dark:text-white">
                           {act.type_label}
                         </span>
-                        <span
-                          className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${
-                            act.allowed
-                              ? "bg-emerald-100 dark:bg-emerald-950/50 text-emerald-700 dark:text-emerald-300"
-                              : "bg-rose-100 dark:bg-rose-950/50 text-rose-700 dark:text-rose-300"
-                          }`}
-                        >
-                          {act.allowed ? `Yetki Onaylı (${act.required_permission})` : `Yetki Eksik (${act.required_permission})`}
-                        </span>
+                        {!act.allowed && (
+                          <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-rose-100 dark:bg-rose-950/50 text-rose-700 dark:text-rose-300">
+                            Yetki Eksik
+                          </span>
+                        )}
                       </div>
-                      <p className="text-xs text-slate-700 dark:text-slate-200 mt-1 font-medium">
+                      <p className="text-xs text-slate-700 dark:text-slate-200 mt-0.5 font-medium">
                         {act.summary}
                       </p>
                       {act.conflict_note && (
@@ -546,7 +484,7 @@ export default function AIConfigAssistantPanel({ userPermissions = null, onNavig
           <div className="space-y-1">
             <div className="text-sm font-bold text-emerald-800 dark:text-emerald-200 flex items-center gap-2">
               <CheckCircle2 size={18} />
-              Konfigürasyon Başarıyla Uygulandı!
+              İşlem Uygulandı
             </div>
             <ul className="text-xs text-emerald-700 dark:text-emerald-300 space-y-0.5 pl-6 list-disc">
               {(applyOutcome.applied || []).map((it, idx) => (
@@ -561,27 +499,29 @@ export default function AIConfigAssistantPanel({ userPermissions = null, onNavig
               className="px-3.5 py-2 rounded-xl text-xs font-bold bg-white dark:bg-slate-900 text-rose-600 border border-rose-200 dark:border-rose-800 hover:bg-rose-50 flex items-center gap-1.5 shadow-sm"
             >
               <RotateCcw size={14} />
-              Bu Paketi Geri Al
+              Geri Al
             </button>
           )}
         </div>
       )}
 
-      {/* İŞLEM GEÇMİŞİ VE TEK TIKLA GERİ ALMA (UNDO SNAPSHOTS) */}
-      <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-5 shadow-sm">
-        <div className="flex items-center justify-between mb-4">
+      {/* İŞLEM GEÇMİŞİ */}
+      <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-4 shadow-sm">
+        <div className="flex items-center justify-between mb-3">
           <div className="flex items-center gap-2">
-            <History size={18} className={text} />
+            <History size={16} className={text} />
             <h3 className="text-sm font-bold text-slate-900 dark:text-white">
-              Uygulanan AI Konfigürasyon Geçmişi & Geri Alma Noktaları
+              İşlem Geçmişi
             </h3>
           </div>
-          <span className="text-xs text-slate-400">Son {historyList.length} işlem paketi</span>
+          {historyList.length > 0 && (
+            <span className="text-xs text-slate-400">{historyList.length} kayıt</span>
+          )}
         </div>
 
         {historyList.length === 0 ? (
-          <div className="py-8 text-center text-xs text-slate-400 border border-dashed border-slate-200 dark:border-slate-800 rounded-xl">
-            Henüz AI Konfigürasyon Asistanı üzerinden uygulanmış bir işlem bulunmuyor.
+          <div className="py-6 text-center text-xs text-slate-400 border border-dashed border-slate-200 dark:border-slate-800 rounded-xl">
+            Henüz uygulanmış bir işlem bulunmuyor.
           </div>
         ) : (
           <div className="space-y-3">
