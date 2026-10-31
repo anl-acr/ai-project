@@ -2990,6 +2990,8 @@ async def _build_scheduled_report_bundle(
         "",
     ]
     html_rows: List[str] = []
+    custom_html_blocks: List[str] = []
+    custom_csv_blocks: List[Tuple[str, List[Dict[str, Any]], List[Dict[str, Any]], Optional[Dict[str, Any]]]] = []
 
     normalized_selected = _normalize_schedule_report_types(report_types)
 
@@ -3308,6 +3310,7 @@ async def _build_scheduled_report_bundle(
             )
         elif code.startswith("custom:"):
             try:
+                import html as _html
                 from backend.main import settings_db as _sdb
                 from backend.services.ai_copilot_and_reports_service import execute_custom_report_definition
 
@@ -3317,21 +3320,65 @@ async def _build_scheduled_report_bundle(
                     None,
                 )
                 if saved_rep:
+                    saved_def = saved_rep.get("definition") or {}
                     crep_res = await execute_custom_report_definition(
-                        raw_definition=saved_rep.get("definition") or {},
+                        raw_definition=saved_def,
                         tenant_id=tenant_id,
                         start_date=s_str,
                         end_date=e_str,
+                        start_time=str(saved_def.get("start_time") or "00:00"),
+                        end_time=str(saved_def.get("end_time") or "23:59"),
                     )
                     c_title = f"Özel Rapor: {saved_rep.get('title') or cid}"
                     cards = crep_res.get("summary_cards") or []
                     plain_parts = [f"{c['label']}: {c['value']} {c.get('unit','')}".strip() for c in cards]
-                    html_parts = [f"{c['label']}: <b>{c['value']} {c.get('unit','')}</b>".strip() for c in cards]
+                    html_parts = [f"{_html.escape(str(c['label']))}: <b>{_html.escape(str(c['value']))} {_html.escape(str(c.get('unit','')))}</b>".strip() for c in cards]
                     sections_plain.append(f"• {c_title}: {' | '.join(plain_parts)}")
                     html_rows.append(
-                        f"<tr><td style='padding:8px 10px;border:1px solid #e2e8f0;'><b>{c_title}</b></td>"
+                        f"<tr><td style='padding:8px 10px;border:1px solid #e2e8f0;'><b>{_html.escape(c_title)}</b></td>"
                         f"<td style='padding:8px 10px;border:1px solid #e2e8f0;'>{' | '.join(html_parts)}</td></tr>"
                     )
+
+                    crep_cols = crep_res.get("columns") or []
+                    crep_rows = crep_res.get("rows") or []
+                    crep_totals = crep_res.get("totals_row")
+                    if crep_cols and crep_rows:
+                        custom_csv_blocks.append((c_title, crep_cols, crep_rows, crep_totals))
+                        for r_item in crep_rows[:5]:
+                            first_val = r_item.get(crep_cols[0]["key"], "-")
+                            rest_vals = ", ".join(
+                                f"{col['label']}: {r_item.get(col['key'], 0)}{'%' if col.get('unit') == '%' else ''}"
+                                for col in crep_cols[1:4]
+                            )
+                            sections_plain.append(f"   - {first_val}: {rest_vals}")
+
+                        th_html = "".join(
+                            f"<th style='padding:6px 8px;border:1px solid #e2e8f0;background:#f8fafc;text-align:left;'>{_html.escape(str(col.get('label', col.get('key'))))}</th>"
+                            for col in crep_cols
+                        )
+                        tr_list = []
+                        for r_item in crep_rows[:15]:
+                            tds = "".join(
+                                f"<td style='padding:6px 8px;border:1px solid #e2e8f0;'>{_html.escape(str(r_item.get(col['key'], '')))}{'%' if idx > 0 and col.get('unit') == '%' else ''}</td>"
+                                for idx, col in enumerate(crep_cols)
+                            )
+                            tr_list.append(f"<tr>{tds}</tr>")
+                        tfoot_html = ""
+                        if isinstance(crep_totals, dict):
+                            tf_tds = "".join(
+                                f"<td style='padding:6px 8px;border:1px solid #e2e8f0;background:#f1f5f9;font-weight:bold;'>{_html.escape(str(crep_totals.get(col['key'], '')))}{'%' if idx > 0 and col.get('unit') == '%' else ''}</td>"
+                                for idx, col in enumerate(crep_cols)
+                            )
+                            tfoot_html = f"<tfoot><tr>{tf_tds}</tr></tfoot>"
+                        custom_html_blocks.append(
+                            f"<div style='margin-top:16px;'>"
+                            f"<h3 style='margin:0 0 8px;font-size:13px;color:#0f172a;'>{_html.escape(c_title)} (İlk {min(15, len(crep_rows))} Satır)</h3>"
+                            f"<table style='width:100%;border-collapse:collapse;font-size:12px;'>"
+                            f"<thead><tr>{th_html}</tr></thead>"
+                            f"<tbody>{''.join(tr_list)}</tbody>"
+                            f"{tfoot_html}"
+                            f"</table></div>"
+                        )
             except Exception as _ce:
                 print(f"[Scheduled Custom Report Warning]: {_ce}")
 
@@ -3356,8 +3403,9 @@ async def _build_scheduled_report_bundle(
                 {''.join(html_rows)}
               </tbody>
             </table>
+            {''.join(custom_html_blocks)}
             <p style="font-size: 12px; color: #64748b; margin-top: 16px;">
-              Detaylı çağrı dökümü (CSV/Excel uyumlu) bu e-postanın ekinde yer almaktadır.
+              Detaylı rapor ve çağrı dökümü (CSV/Excel uyumlu) bu e-postanın ekinde yer almaktadır.
             </p>
           </div>
         </div>
@@ -3368,6 +3416,16 @@ async def _build_scheduled_report_bundle(
     # Build UTF-8 BOM CSV attachment for Excel compatibility
     csv_buf = io.StringIO()
     writer = csv.writer(csv_buf)
+    for c_title, crep_cols, crep_rows, crep_totals in custom_csv_blocks:
+        writer.writerow([f"=== {c_title} ({range_label}) ==="])
+        writer.writerow([col.get("label", col.get("key")) for col in crep_cols])
+        for r_item in crep_rows:
+            writer.writerow([r_item.get(col["key"], "") for col in crep_cols])
+        if isinstance(crep_totals, dict):
+            writer.writerow([crep_totals.get(col["key"], "") for col in crep_cols])
+        writer.writerow([])
+
+    writer.writerow(["=== HAM CAGRI DOKUMU (CDR) ==="])
     writer.writerow(["Tarih/Saat (TR)", "Arayan", "Aranan", "Durum", "Temsilci", "Konusma (sn)", "Sonuc Kodu", "Duygu"])
     for c in calls[:2000]:
         writer.writerow([

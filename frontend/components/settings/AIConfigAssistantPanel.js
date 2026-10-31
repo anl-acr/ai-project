@@ -195,6 +195,7 @@ export default function AIConfigAssistantPanel({ userPermissions = null, onNavig
   const [undoTarget, setUndoTarget] = useState(null);
   const [undoLoading, setUndoLoading] = useState(false);
   const [toast, setToast] = useState(null);
+  const [alertPopup, setAlertPopup] = useState(null);
 
   const formatErrDetail = (detail, fallback) => {
     if (!detail) return fallback;
@@ -205,8 +206,13 @@ export default function AIConfigAssistantPanel({ userPermissions = null, onNavig
     return String(detail);
   };
 
-  const showToast = (msg, type = "success") => {
-    setToast({ msg: String(msg || ""), type });
+  const showToast = (msg, type = "success", customTitle = "Uyarı") => {
+    const cleanMsg = String(msg || "");
+    if (type === "error") {
+      setAlertPopup({ title: customTitle, msg: cleanMsg });
+      return;
+    }
+    setToast({ msg: cleanMsg, type });
     setTimeout(() => setToast(null), 4200);
   };
 
@@ -245,12 +251,18 @@ export default function AIConfigAssistantPanel({ userPermissions = null, onNavig
       const data = await res.json();
       if (!res.ok) throw new Error(formatErrDetail(data?.detail, "Taslak plan oluşturulamadı."));
 
+      if (!data.actions || data.actions.length === 0) {
+        showToast(
+          "Komutta uygulanabilir bir santral işlemi tespit edilemedi. Lütfen daha net tarif edin.",
+          "error",
+          "İşlem Tespit Edilemedi"
+        );
+        return;
+      }
+
       setPlanResult(data);
       const allowedIds = (data.actions || []).filter((a) => a.allowed).map((a) => a.action_id);
       setSelectedActionIds(allowedIds);
-      if (!data.actions || data.actions.length === 0) {
-        showToast("Komutta uygulanabilir bir santral işlemi tespit edilemedi. Lütfen daha net tarif edin.", "error");
-      }
     } catch (err) {
       showToast(err.message || "Plan oluşturma hatası.", "error");
     } finally {
@@ -338,16 +350,12 @@ export default function AIConfigAssistantPanel({ userPermissions = null, onNavig
 
   return (
     <div className="space-y-5">
-      {/* Toast */}
+      {/* Başarı Bildirimi (Üst Sağ — Web Telefon Balonuyla Çakışmaz) */}
       {toast && (
         <div
-          className={`fixed bottom-5 right-5 z-50 flex items-center gap-2.5 px-4 py-3 rounded-xl shadow-lg border text-sm font-medium ${
-            toast.type === "error"
-              ? "bg-rose-600 text-white border-rose-500"
-              : "bg-slate-900 dark:bg-slate-800 text-white border-slate-700"
-          }`}
+          className="fixed top-5 right-5 z-50 flex items-center gap-2.5 px-4 py-3 rounded-xl shadow-lg border text-sm font-medium bg-slate-900 dark:bg-slate-800 text-white border-slate-700"
         >
-          {toast.type === "error" ? <AlertTriangle size={16} /> : <CheckCircle2 size={16} className="text-emerald-400" />}
+          <CheckCircle2 size={16} className="text-emerald-400" />
           <span>{toast.msg}</span>
         </div>
       )}
@@ -698,6 +706,46 @@ export default function AIConfigAssistantPanel({ userPermissions = null, onNavig
                   className="px-4 py-2 rounded-xl text-xs font-semibold bg-rose-600 hover:bg-rose-500 text-white"
                 >
                   {undoLoading ? "Geri Alınıyor..." : "Evet, Geri Al"}
+                </button>
+              </div>
+            </div>
+          </div>,
+          document.body
+        )}
+
+      {/* Ortada Açılan Uyarı / Hata Popup Modalı */}
+      {alertPopup &&
+        typeof document !== "undefined" &&
+        createPortal(
+          <div
+            onClick={() => setAlertPopup(null)}
+            className="fixed inset-0 bg-slate-950/60 backdrop-blur-sm flex items-center justify-center z-[9999] p-4 transition-all duration-300 overscroll-contain"
+          >
+            <div
+              onClick={(e) => e.stopPropagation()}
+              className="w-full max-w-md bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-200"
+            >
+              <div className="p-6 flex flex-col items-center text-center space-y-4">
+                <div className="p-3.5 bg-rose-50 dark:bg-rose-950/30 text-rose-500 rounded-2xl animate-pulse">
+                  <AlertTriangle size={28} />
+                </div>
+                <div className="space-y-1.5">
+                  <h3 className="text-sm font-bold text-slate-900 dark:text-white">
+                    {alertPopup.title || "Uyarı"}
+                  </h3>
+                  <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed">
+                    {alertPopup.msg}
+                  </p>
+                </div>
+              </div>
+              <div className="px-6 pb-6 pt-1 flex justify-center">
+                <button
+                  type="button"
+                  autoFocus
+                  onClick={() => setAlertPopup(null)}
+                  className={`w-full py-2.5 rounded-xl text-xs font-bold text-white shadow-sm transition-all ${bg} ${hover}`}
+                >
+                  Tamam
                 </button>
               </div>
             </div>
