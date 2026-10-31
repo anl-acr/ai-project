@@ -3379,21 +3379,6 @@ export default function Home() {
           )}
 
           <div className="flex items-center gap-3 text-xs font-semibold text-slate-600 dark:text-slate-400 shrink-0">
-            {!isAgentOnlyUser && !isWallboardOnlyUser && (currentUser?.role === "admin" || (Array.isArray(currentRolePermissions) && currentRolePermissions.some(p => p.startsWith("ai_config_assistant:")))) && (
-              <button
-                type="button"
-                onClick={() => setActiveTab("ai-config-assistant")}
-                title="AI Konfigürasyon Asistanı (Doğal Dil & Sesli Dikte)"
-                className={`hidden md:inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-bold transition-all ${
-                  activeTab === "ai-config-assistant"
-                    ? `${bg} text-white border-transparent shadow-sm`
-                    : `${lightBg} ${text} ${borderLight} hover:opacity-90`
-                }`}
-              >
-                <Sparkles size={14} />
-                <span>AI Konfigürasyon Asistanı</span>
-              </button>
-            )}
             {currentUser?.role === 'admin' && hasPendingChanges && (
               <div className="flex items-center gap-2 relative">
                 <button
@@ -3433,6 +3418,21 @@ export default function Home() {
               >
                 <ShieldAlert size={15} className="text-rose-500" />
                 <span className="text-rose-600 dark:text-rose-400 font-extrabold">⚠️ LİSANS DOLDU</span>
+              </button>
+            )}
+
+            {!isAgentOnlyUser && !isWallboardOnlyUser && (currentUser?.role === "admin" || (Array.isArray(currentRolePermissions) && currentRolePermissions.some(p => p.startsWith("ai_config_assistant:")))) && (
+              <button
+                type="button"
+                onClick={() => setActiveTab("ai-config-assistant")}
+                title="AI Konfigürasyon Asistanı"
+                className={`p-2 rounded-xl border transition-colors shadow-sm cursor-pointer ${
+                  activeTab === "ai-config-assistant"
+                    ? `${bg} text-white border-transparent`
+                    : "border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 hover:bg-slate-50 dark:hover:bg-slate-800"
+                }`}
+              >
+                <Sparkles size={14} className={activeTab === "ai-config-assistant" ? "text-white" : text} />
               </button>
             )}
 

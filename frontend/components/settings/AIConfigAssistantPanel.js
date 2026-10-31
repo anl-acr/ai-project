@@ -11,6 +11,7 @@ import {
   Cloud,
   RefreshCw,
   UserPlus,
+  UserCheck,
   Users,
   PhoneCall,
   ShieldAlert,
@@ -20,7 +21,13 @@ import {
   Lock,
   History,
   X,
-  Check
+  Check,
+  Edit3,
+  Trash2,
+  Bot,
+  Building2,
+  MapPin,
+  Cable
 } from "lucide-react";
 import { useTheme } from "../../utils/theme";
 import { getApiBaseUrl, tenantFetch } from "../../utils/apiHost";
@@ -30,6 +37,10 @@ const PRESET_COMMANDS = [
   {
     label: "Ekip & Kuyruk Kurulumu",
     prompt: "Ahmet Yılmaz ve Ayşe Demir için 2 yeni dahili aç, Satış Kuyruğu oluştur ve ikisini bu kuyruğa ekle"
+  },
+  {
+    label: "İsim & Bilgi Güncelleme",
+    prompt: "1001 dahilisinin adını Mehmet Kaya olarak değiştir"
   },
   {
     label: "Şifreli Konferans Odası",
@@ -55,14 +66,43 @@ const PRESET_COMMANDS = [
 
 const ACTION_ICONS = {
   create_user: UserPlus,
-  create_queue: Users,
-  add_queue_members: Users,
-  create_conference: PhoneCall,
-  add_blacklist: ShieldAlert,
-  create_inbound_rule: PhoneCall,
+  update_user: UserCheck,
+  delete_user: Trash2,
   update_user_forwarding: Shuffle,
+  create_queue: Users,
+  update_queue: Edit3,
+  add_queue_members: Users,
+  remove_queue_members: Users,
+  delete_queue: Trash2,
+  create_ai_agent: Bot,
+  update_ai_agent: Bot,
+  delete_ai_agent: Trash2,
+  create_conference: PhoneCall,
+  update_conference: Edit3,
+  delete_conference: Trash2,
+  create_break_type: Coffee,
+  update_break_type: Coffee,
+  delete_break_type: Trash2,
+  create_department: Building2,
+  update_department: Building2,
+  delete_department: Trash2,
+  create_location: MapPin,
+  update_location: MapPin,
+  delete_location: Trash2,
+  create_subscriber_group: Users,
+  update_subscriber_group: Edit3,
+  create_pickup_group: Users,
+  update_pickup_group: Edit3,
+  create_speed_dial: PhoneCall,
+  update_speed_dial: Edit3,
+  update_trunk: Cable,
+  create_inbound_rule: PhoneCall,
+  update_inbound_rule: Edit3,
+  delete_inbound_rule: Trash2,
+  add_blacklist: ShieldAlert,
+  remove_blacklist: Trash2,
   create_scheduled_report: Calendar,
-  create_break_type: Coffee
+  update_scheduled_report: Edit3
 };
 
 export default function AIConfigAssistantPanel({ userPermissions = null, onNavigateTab = null }) {
