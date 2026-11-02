@@ -294,7 +294,7 @@ export function CallPanelAgentsAppearanceSettings({
 
               <div className="flex items-center justify-between gap-1.5 pt-1.5 border-t border-slate-200/50 dark:border-slate-800/50">
                 <div className="flex flex-wrap items-center gap-1">
-                  {COLOR_SWATCHES.slice(0, 6).map((sw) => (
+                  {COLOR_SWATCHES.slice(0, 7).map((sw) => (
                     <button
                       key={sw.hex}
                       type="button"
@@ -315,9 +315,17 @@ export function CallPanelAgentsAppearanceSettings({
                 </div>
 
                 <label
-                  title="Özel Renk Seç"
-                  className="flex items-center gap-1 px-1.5 py-0.5 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 cursor-pointer shrink-0"
+                  title={`Renk Paletinden Özel Renk Seç (${currentHex})`}
+                  className="relative inline-flex items-center gap-1 px-2 py-1 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 hover:border-primary/60 cursor-pointer shrink-0 shadow-sm transition-all"
                 >
+                  <Palette size={11} className={text} />
+                  <span
+                    className="w-2.5 h-2.5 rounded-full border border-black/15 shrink-0"
+                    style={{ backgroundColor: currentHex }}
+                  />
+                  <span className="text-[8px] font-extrabold text-slate-700 dark:text-slate-200">
+                    Palet
+                  </span>
                   <input
                     type="color"
                     value={currentHex}
@@ -326,11 +334,8 @@ export function CallPanelAgentsAppearanceSettings({
                       setStatusColors(next);
                       syncAppearance({ statusColors: next });
                     }}
-                    className="w-3.5 h-3.5 rounded border-0 p-0 bg-transparent cursor-pointer"
+                    className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
                   />
-                  <span className="text-[8px] font-mono font-bold text-slate-600 dark:text-slate-300 uppercase">
-                    {currentHex}
-                  </span>
                 </label>
               </div>
             </div>
@@ -380,7 +385,7 @@ export function CallPanelAgentsAppearanceSettings({
                     </span>
                   </div>
                   <div className="flex items-center gap-1.5 shrink-0">
-                    {COLOR_SWATCHES.slice(0, 5).map((sw) => (
+                    {COLOR_SWATCHES.slice(0, 6).map((sw) => (
                       <button
                         key={sw.hex}
                         type="button"
@@ -394,12 +399,25 @@ export function CallPanelAgentsAppearanceSettings({
                         }`}
                       />
                     ))}
-                    <input
-                      type="color"
-                      value={effectiveHex}
-                      onChange={(e) => handleSetBreakColor(e.target.value)}
-                      className="w-4 h-4 rounded border-0 p-0 bg-transparent cursor-pointer"
-                    />
+                    <label
+                      title={`${b.name} için renk paletinden özel renk seç (${effectiveHex})`}
+                      className="relative inline-flex items-center gap-1 px-2 py-0.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 hover:border-primary/60 cursor-pointer shrink-0 shadow-sm transition-all"
+                    >
+                      <Palette size={11} className={text} />
+                      <span
+                        className="w-2.5 h-2.5 rounded-full border border-black/15 shrink-0"
+                        style={{ backgroundColor: effectiveHex }}
+                      />
+                      <span className="text-[8px] font-extrabold text-slate-700 dark:text-slate-200">
+                        Palet
+                      </span>
+                      <input
+                        type="color"
+                        value={effectiveHex}
+                        onChange={(e) => handleSetBreakColor(e.target.value)}
+                        className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                      />
+                    </label>
                   </div>
                 </div>
               );

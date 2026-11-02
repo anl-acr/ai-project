@@ -23,6 +23,7 @@ export const TAB_TURKISH_SLUGS = {
   "blacklist": "karaliste",
   "scheduled-reports": "zamanlanmis-raporlar",
   "call-flow": "arama-akislari",
+  "work-hours": "mesai-ve-tatiller",
   "dialer": "dis-arama-dialer",
   "calendar": "takvim",
   "reports-pano": "raporlar-pano",
@@ -50,6 +51,8 @@ export const TAB_TURKISH_SLUGS = {
   "reports-conferences": "konferans-odasi-kullanim-raporu",
   "reports-custom-builder": "ozel-rapor-tasarimcisi",
   "ai-config-assistant": "ai-konfigurasyon-asistani",
+  "sip-debugger": "sorun-inceleme",
+  "troubleshooting": "sorun-inceleme",
   "settings": "ayarlar",
   "system-status": "sistem-durumu"
 };
@@ -73,6 +76,7 @@ export const SUBTAB_TURKISH_SLUGS = {
   "trunks": "dis-hatlar",
   "channels": "kanal-ayarlari",
   "breaks": "mola-tanimlari",
+  "work-hours": "mesai-ve-tatiller",
   "users": "kullanici-yonetimi",
   "roles": "rol-ve-yetkiler",
   "tenants": "musteri-lisanslari",

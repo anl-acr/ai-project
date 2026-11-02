@@ -385,10 +385,78 @@ export default function GlobalSearchBar({
         category: "menu",
         groupLabel: "Yapay Zeka & Otomasyon",
         title: "Bilgi Bankası (RAG & Doküman Eğitimi)",
-        subtitle: "Web sitesi tarama, PDF/doküman yükleme ve AI bilgi havuzu",
-        keywords: "bilgi bankası rag doküman pdf web sitesi eğitim",
+        subtitle: "Veri kaynakları, Web/PDF/SSS ekleme, AI medya kütüphanesi ve vektör arama sekmeleri",
+        keywords: "bilgi bankası rag doküman pdf web sitesi eğitim kaynaklar",
         icon: Database,
         run: () => navigateTo("rag-kb")
+      },
+      {
+        id: "menu-rag-kb-ingest",
+        category: "menu",
+        groupLabel: "Yapay Zeka & Otomasyon",
+        title: "Bilgi Bankası > Veri Ekleme (Web / PDF / SSS)",
+        subtitle: "Web sitesi URL tarama, PDF yükleme ve manuel SSS bilgi öğretme",
+        keywords: "bilgi bankası veri ekle pdf yükle web tarama url sss öğret",
+        icon: BookOpen,
+        run: () => {
+          navigateTo("rag-kb");
+          if (typeof window !== "undefined") {
+            setTimeout(() => {
+              window.dispatchEvent(new CustomEvent("SWITCH_KB_SUBTAB", { detail: { subTab: "ingest" } }));
+            }, 60);
+          }
+        }
+      },
+      {
+        id: "menu-rag-kb-media",
+        category: "menu",
+        groupLabel: "Yapay Zeka & Otomasyon",
+        title: "Bilgi Bankası > AI Medya & Katalog Kütüphanesi",
+        subtitle: "WhatsApp, Telegram ve E-Posta üzerinden otomatik katalog/dosya gönderimi",
+        keywords: "ai medya katalog broşür fiyat listesi otomatik dosya gönderimi whatsapp",
+        icon: Layers,
+        run: () => {
+          navigateTo("rag-kb");
+          if (typeof window !== "undefined") {
+            setTimeout(() => {
+              window.dispatchEvent(new CustomEvent("SWITCH_KB_SUBTAB", { detail: { subTab: "media" } }));
+            }, 60);
+          }
+        }
+      },
+      {
+        id: "menu-rag-kb-search",
+        category: "menu",
+        groupLabel: "Yapay Zeka & Otomasyon",
+        title: "Bilgi Bankası > Vektör Arama Testi",
+        subtitle: "Anlamsal benzerlik (chunk) sorgu ve eşleşme simülatörü",
+        keywords: "vektör arama testi rag chunk benzerlik simülatör",
+        icon: Search,
+        run: () => {
+          navigateTo("rag-kb");
+          if (typeof window !== "undefined") {
+            setTimeout(() => {
+              window.dispatchEvent(new CustomEvent("SWITCH_KB_SUBTAB", { detail: { subTab: "search_test" } }));
+            }, 60);
+          }
+        }
+      },
+      {
+        id: "menu-rag-kb-tuning",
+        category: "menu",
+        groupLabel: "Yapay Zeka & Otomasyon",
+        title: "Bilgi Bankası > RAG Motoru & Parametreler",
+        subtitle: "Chunk size, overlap, Top-K ve asgari benzerlik eşiği ayarları",
+        keywords: "rag parametre tuning chunk size overlap top k benzerlik eşiği",
+        icon: Sliders,
+        run: () => {
+          navigateTo("rag-kb");
+          if (typeof window !== "undefined") {
+            setTimeout(() => {
+              window.dispatchEvent(new CustomEvent("SWITCH_KB_SUBTAB", { detail: { subTab: "tuning" } }));
+            }, 60);
+          }
+        }
       },
       {
         id: "menu-rule-editor",
@@ -446,11 +514,41 @@ export default function GlobalSearchBar({
         id: "menu-announcements",
         category: "menu",
         groupLabel: "Santral & Abone Yönetimi",
-        title: "Karşılama Anonsları & Ses Dosyaları",
-        subtitle: "Santral ses kayıtları, IVR anonsları ve TTS seslendirme",
-        keywords: "anonslar karşılama ses dosyaları müzik",
+        title: "Anons Yönetimi (Sistem / Müzik / Özel Anonslar)",
+        subtitle: "Sistem anonsları, bekleme müzikleri (MoH), özel IVR anonsları ve TTS",
+        keywords: "anonslar karşılama ses dosyaları müzik moh sistem anonsları özel anonslar",
         icon: Volume2,
         run: () => navigateTo("announcements")
+      },
+      {
+        id: "menu-announcements-system",
+        category: "menu",
+        groupLabel: "Anons Yönetimi",
+        title: "Sistem Anonsları",
+        subtitle: "Meşgul, ulaşılamıyor, aktarım, sesli mesaj ve anket sistem sesleri",
+        keywords: "sistem anonsları meşgul ulaşılamıyor aktarım sesli mesaj varsayılan ses",
+        icon: Volume2,
+        run: () => navigateTo("announcements", "sistem-anonslari")
+      },
+      {
+        id: "menu-announcements-moh",
+        category: "menu",
+        groupLabel: "Anons Yönetimi",
+        title: "Bekleme Müzikleri (MoH)",
+        subtitle: "Çağrı kuyrukları ve bekletme sırasında çalacak müzik dosyaları",
+        keywords: "bekleme müzikleri moh music on hold kuyruk müziği bekletme",
+        icon: Volume2,
+        run: () => navigateTo("announcements", "bekleme-muzikleri")
+      },
+      {
+        id: "menu-announcements-custom",
+        category: "menu",
+        groupLabel: "Anons Yönetimi",
+        title: "Özel Anonslar",
+        subtitle: "Şirket karşılama, IVR menü ve yapay zeka TTS özel anonsları",
+        keywords: "özel anonslar karşılama ivr tts özel ses kaydı",
+        icon: Volume2,
+        run: () => navigateTo("announcements", "ozel-anonslar")
       },
       {
         id: "menu-conferences",
@@ -523,6 +621,16 @@ export default function GlobalSearchBar({
         keywords: "giden arama kuralları outbound dış arama",
         icon: PhoneCall,
         run: () => navigateTo("outbound-rules")
+      },
+      {
+        id: "menu-work-hours",
+        category: "menu",
+        groupLabel: "Hatlar & Yönlendirme",
+        title: "Mesai Saatleri & Resmi Tatiller",
+        subtitle: "Haftalık çalışma takvimi, öğle molası, resmi ve dini tatil günleri yapılandırması",
+        keywords: "mesai saatleri çalışma saatleri resmi tatil bayram arife açık kapalı takvim",
+        icon: Clock,
+        run: () => navigateTo("work-hours")
       },
 
       // --- RAPORLAR & ANALİTİK ---
@@ -769,14 +877,33 @@ export default function GlobalSearchBar({
         run: () => navigateTo("settings", { settingsSubTab: "email-notifications" })
       },
       {
-        id: "menu-sip-debugger",
+        id: "menu-troubleshooting",
         category: "menu",
         groupLabel: "Sistem & Güvenlik",
-        title: "SIP Trafik İnceleme (Web sngrep & PCAP)",
-        subtitle: "Canlı SIP paket akışı, sinyal diyagramı ve Wireshark PCAP indirme",
-        keywords: "sip trafik sngrep pcap wireshark paket inceleme",
+        title: "Sorun İnceleme (Ping, Traceroute, SIP Capture & sngrep)",
+        subtitle: "Ağ gecikmesi, rota analizi, canlı SIP paket yakalama (PCAP) ve sngrep akış diyagramı",
+        keywords: "sorun inceleme ping traceroute sip capture yakalama sngrep pcap wireshark paket",
+        icon: Activity,
+        run: () => navigateTo("troubleshooting")
+      },
+      {
+        id: "menu-troubleshooting-sngrep",
+        category: "menu",
+        groupLabel: "Sistem & Güvenlik",
+        title: "Sorun İnceleme > sngrep Çağrı Akış Diyagramı",
+        subtitle: "Call-ID bazlı SIP merdiven diyagramı ve PCAP indirme",
+        keywords: "sngrep sip trafik ladder diyagram pcap",
         icon: Terminal,
-        run: () => navigateTo("sip-debugger")
+        run: () => {
+          navigateTo("troubleshooting");
+          if (typeof window !== "undefined") {
+            setTimeout(() => {
+              window.dispatchEvent(
+                new CustomEvent("SWITCH_TROUBLESHOOTING_SUBTAB", { detail: { subTab: "sngrep" } })
+              );
+            }, 40);
+          }
+        }
       },
       {
         id: "menu-security",
@@ -824,9 +951,9 @@ export default function GlobalSearchBar({
         id: "action-profile-theme",
         category: "action",
         groupLabel: "Hızlı İşlemler & Profil Ayarları",
-        title: "Profil & Tema Rengi Ayarlarını Aç",
-        subtitle: "Avatar, GSM numarası, zil sesi ve arayüz tema rengini değiştir",
-        keywords: "profil ayarları tema rengi avatar zil sesi değiştir",
+        title: "Avatar & Tema Rengi Ayarlarını Aç",
+        subtitle: "Avatar ve arayüz sistem tema rengini özelleştir",
+        keywords: "profil ayarları tema rengi avatar renk paleti değiştir",
         icon: Settings,
         run: () => {
           onOpenProfileModal?.("profile");

@@ -160,6 +160,7 @@ const SYSTEM_FEATURES = [
 
   // 4. Çağrı & Yönlendirme
   { id: "call_flow", name: "Arama Akış Yönetimi", icon: GitBranch, type: "crud", color: "indigo" },
+  { id: "work_hours", name: "Mesai Saatleri & Resmi Tatiller", icon: Clock, type: "crud", color: "amber" },
   { id: "dialer", name: "Dış Arama (Dialer)", icon: PhoneCall, type: "crud", color: "blue" },
   { id: "calendar", name: "Randevu Takvimi", icon: Calendar, type: "crud", color: "amber" },
 
@@ -212,7 +213,7 @@ const SYSTEM_FEATURES = [
   // 6. Yönetim & Ayarlar
   { id: "system_status", name: "Sistem Panosu & Sağlık", icon: Server, type: "access", color: "cyan" },
   { id: "logs", name: "Olay Günlükleri", icon: FileText, type: "access", color: "rose" },
-  { id: "sip_debugger", name: "SIP Trafik (sngrep)", icon: Terminal, type: "access", color: "indigo" },
+  { id: "troubleshooting", name: "Sorun İnceleme", icon: Terminal, type: "access", color: "indigo" },
   { id: "security", name: "Güvenlik Kalkanı", icon: Shield, type: "crud", color: "rose" },
 
   // 7. Sistem Ayarları
@@ -282,6 +283,28 @@ export const normalizeRolePermissionsList = (rawPerms = []) => {
     if (perms.includes("tenant_license:read")) perms.push("tenants:read");
     if (perms.includes("tenant_license:write")) perms.push("tenants:write");
     if (perms.includes("tenant_license:delete")) perms.push("tenants:delete");
+  }
+
+  // Troubleshooting permission fallback from legacy sip_debugger
+  if (
+    !perms.includes("troubleshooting:access") &&
+    (perms.includes("sip_debugger:access") || perms.includes("sip_debugger"))
+  ) {
+    perms.push("troubleshooting:access");
+  }
+
+  // Work Hours & Holidays permission fallback from pbx / call_flow
+  const hasWorkHoursPerm = perms.some((p) => p.startsWith("work_hours:"));
+  if (!hasWorkHoursPerm) {
+    if (perms.includes("pbx:read") || perms.includes("call_flow:read")) {
+      perms.push("work_hours:read");
+    }
+    if (perms.includes("pbx:write") || perms.includes("call_flow:write")) {
+      perms.push("work_hours:write");
+    }
+    if (perms.includes("pbx:delete") || perms.includes("call_flow:delete")) {
+      perms.push("work_hours:delete");
+    }
   }
 
   return Array.from(new Set(perms));
@@ -386,6 +409,7 @@ export default function RoleSettings({ backendHost = "localhost:8000" }) {
 
     CALL_PANEL_SUB_GROUPS.forEach((group) => {
       group.items.forEach((subItem) => {
+        if (subItem.isRestriction) return;
         if (SYSTEM_FEATURES.some((f) => f.id === subItem.id)) return;
         total += 1;
         if (perms.includes(subItem.id)) granted += 1;
@@ -459,7 +483,7 @@ export default function RoleSettings({ backendHost = "localhost:8000" }) {
       id: "ai",
       name: "Yapay Zeka & Bilgi",
       icon: Bot,
-      items: ["ai_agents", "rag_kb", "rule_editor", "ai_task_routing"]
+      items: ["ai_agents", "ai_config_assistant", "rag_kb", "rule_editor", "ai_task_routing"]
     },
     {
       id: "pbx_menu",
@@ -499,7 +523,7 @@ export default function RoleSettings({ backendHost = "localhost:8000" }) {
       id: "management",
       name: "Yönetim & Ayarlar",
       icon: Terminal,
-      items: ["system_status", "logs", "sip_debugger", "security"]
+      items: ["system_status", "logs", "troubleshooting", "security"]
     },
     {
       id: "system_settings",
@@ -1498,6 +1522,11 @@ export default function RoleSettings({ backendHost = "localhost:8000" }) {
                                                   {isSubSelected && <Check size={9} strokeWidth={3} />}
                                                 </div>
                                                 <span>{subItem.name}</span>
+                                                {subItem.isRestriction && (
+                                                  <span className="px-1.5 py-0.5 rounded-md text-[8px] font-extrabold uppercase bg-amber-500/15 text-amber-700 dark:text-amber-400 border border-amber-500/30">
+                                                    Kısıtlama
+                                                  </span>
+                                                )}
                                               </button>
                                             );
                                           })}

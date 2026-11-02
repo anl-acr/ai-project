@@ -2,6 +2,7 @@ import '../styles/globals.css'
 import { useEffect } from 'react'
 import { getSafeThemeColor } from '../utils/theme'
 import { ErrorBoundary } from '../components/ErrorBoundary'
+import SystemInfoHintManager from '../components/common/SystemInfoHintManager'
 
 function MyApp({ Component, pageProps }) {
   useEffect(() => {
@@ -70,6 +71,7 @@ function MyApp({ Component, pageProps }) {
   return (
     <ErrorBoundary>
       <Component {...pageProps} />
+      <SystemInfoHintManager />
     </ErrorBoundary>
   );
 }

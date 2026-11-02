@@ -1192,6 +1192,32 @@ DEFAULT_SETTINGS = {
         {"id": 3, "name": "Toplantı", "color": "#10b981"},
         {"id": 4, "name": "Özel İhtiyaç", "color": "#ec4899"}
     ],
+    "work_hours": {
+        "enabled": True,
+        "timezone": "Europe/Istanbul",
+        "lunch_break_enabled": False,
+        "lunch_start": "12:30",
+        "lunch_end": "13:30",
+        "weekly_schedule": {
+            "monday": {"enabled": True, "start": "09:00", "end": "18:00"},
+            "tuesday": {"enabled": True, "start": "09:00", "end": "18:00"},
+            "wednesday": {"enabled": True, "start": "09:00", "end": "18:00"},
+            "thursday": {"enabled": True, "start": "09:00", "end": "18:00"},
+            "friday": {"enabled": True, "start": "09:00", "end": "18:00"},
+            "saturday": {"enabled": False, "start": "09:00", "end": "13:00"},
+            "sunday": {"enabled": False, "start": "09:00", "end": "18:00"}
+        },
+        "holidays": [
+            {"id": "tr-01-01", "name": "Yılbaşı", "recurring": True, "month_day": "01-01", "start_date": "", "end_date": "", "mode": "closed", "custom_start": "09:00", "custom_end": "13:00", "active": True},
+            {"id": "tr-04-23", "name": "23 Nisan Ulusal Egemenlik ve Çocuk Bayramı", "recurring": True, "month_day": "04-23", "start_date": "", "end_date": "", "mode": "closed", "custom_start": "09:00", "custom_end": "13:00", "active": True},
+            {"id": "tr-05-01", "name": "1 Mayıs Emek ve Dayanışma Günü", "recurring": True, "month_day": "05-01", "start_date": "", "end_date": "", "mode": "closed", "custom_start": "09:00", "custom_end": "13:00", "active": True},
+            {"id": "tr-05-19", "name": "19 Mayıs Atatürk'ü Anma, Gençlik ve Spor Bayramı", "recurring": True, "month_day": "05-19", "start_date": "", "end_date": "", "mode": "closed", "custom_start": "09:00", "custom_end": "13:00", "active": True},
+            {"id": "tr-07-15", "name": "15 Temmuz Demokrasi ve Milli Birlik Günü", "recurring": True, "month_day": "07-15", "start_date": "", "end_date": "", "mode": "closed", "custom_start": "09:00", "custom_end": "13:00", "active": True},
+            {"id": "tr-08-30", "name": "30 Ağustos Zafer Bayramı", "recurring": True, "month_day": "08-30", "start_date": "", "end_date": "", "mode": "closed", "custom_start": "09:00", "custom_end": "13:00", "active": True},
+            {"id": "tr-10-28", "name": "28 Ekim Cumhuriyet Bayramı Arifesi (Yarım Gün)", "recurring": True, "month_day": "10-28", "start_date": "", "end_date": "", "mode": "custom_hours", "custom_start": "09:00", "custom_end": "13:00", "active": True},
+            {"id": "tr-10-29", "name": "29 Ekim Cumhuriyet Bayramı", "recurring": True, "month_day": "10-29", "start_date": "", "end_date": "", "mode": "closed", "custom_start": "09:00", "custom_end": "13:00", "active": True}
+        ]
+    },
     "announcements": [],
     "users": [
         {
@@ -1228,6 +1254,7 @@ DEFAULT_SETTINGS = {
                 "call_panel:tab_dashboard", "call_panel:tab_webphone", "call_panel:tab_deskphone", "call_panel:tab_agents", "call_panel:tab_speeddial",
                 "call_panel:tab_missed", "call_panel:tab_directory", "call_panel:tab_history", "call_panel:tab_voicemail", "call_panel:tab_chat",
                 "call_panel:webphone_save_contact", "call_panel:webphone_transfer", "call_panel:webphone_conference", "call_panel:webphone_reject",
+                "call_panel:cti_screen_pop", "cti_integration:read", "cti_integration:write",
                 "call_panel:agents_status", "call_panel:agents_duration", "call_panel:agents_call_counts", "call_panel:agents_login_logout",
                 # Yapay Zeka & Bilgi
                 "ai_agents:read", "ai_agents:write", "ai_agents:delete", "ai_agents:access",
@@ -1260,6 +1287,7 @@ DEFAULT_SETTINGS = {
                 "call_flow:read", "call_flow:write", "call_flow:delete", "call_flow:access",
                 "dialer:read", "dialer:write", "dialer:delete", "dialer:access",
                 "calendar:read", "calendar:write", "calendar:delete",
+                "work_hours:read", "work_hours:write", "work_hours:delete",
                 "follow_me:read", "follow_me:write",
                 "mobile_transfer:read", "mobile_transfer:write",
                 "smart_callback:read", "smart_callback:write",
@@ -1300,7 +1328,7 @@ DEFAULT_SETTINGS = {
                 "tenants:read", "tenants:write", "tenant_license:read", "tenant_license:write", "tenant_license:delete", "tenants:delete",
                 "email_notifications:read", "email_notifications:write", "email_notifications:delete",
                 "restore_points:read", "restore_points:write", "restore_points:delete",
-                "system_status:access", "logs:access", "sip_debugger:access",
+                "system_status:access", "logs:access", "sip_debugger:access", "troubleshooting:access",
                 "security:read", "security:write", "security:delete",
                 "system_version:access"
             ],
@@ -1319,6 +1347,7 @@ DEFAULT_SETTINGS = {
                 "call_panel:tab_dashboard", "call_panel:tab_webphone", "call_panel:tab_deskphone", "call_panel:tab_agents", "call_panel:tab_speeddial",
                 "call_panel:tab_missed", "call_panel:tab_directory", "call_panel:tab_history", "call_panel:tab_voicemail", "call_panel:tab_chat",
                 "call_panel:webphone_save_contact", "call_panel:webphone_transfer", "call_panel:webphone_conference", "call_panel:webphone_reject",
+                "call_panel:cti_screen_pop", "cti_integration:read", "cti_integration:write",
                 "call_panel:agents_status", "call_panel:agents_duration", "call_panel:agents_call_counts", "call_panel:agents_login_logout",
                 "ai_agents:read", "ai_agents:write", "ai_agent_scenarios:read", "ai_agent_scenarios:write",
                 "rag_kb:read", "rag_kb:write", "rule_editor:read", "rule_editor:write",
@@ -1340,6 +1369,7 @@ DEFAULT_SETTINGS = {
                 "call_flow:read", "call_flow:write", "call_flow:access",
                 "dialer:read", "dialer:write", "dialer:access",
                 "calendar:read", "calendar:write", "calendar:delete",
+                "work_hours:read", "work_hours:write", "work_hours:delete",
                 "follow_me:read", "follow_me:write",
                 "mobile_transfer:read", "mobile_transfer:write",
                 "smart_callback:read", "smart_callback:write",
@@ -1364,7 +1394,7 @@ DEFAULT_SETTINGS = {
                 "breaks:read", "breaks:write",
                 "locations:read", "locations:write",
                 "recording_retention:read", "recording_retention:write", "recording_retention:delete",
-                "storage:access", "logs:access", "sip_debugger:access",
+                "storage:access", "logs:access", "sip_debugger:access", "troubleshooting:access",
                 "security:read", "security:write", "security:delete",
                 "email_notifications:read", "email_notifications:write",
                 "restore_points:read", "restore_points:write",
@@ -1697,10 +1727,12 @@ def load_settings():
                     new_perms.append("call_pickup_groups:read")
                 if "subscriber_groups:read" not in new_perms:
                     new_perms.append("subscriber_groups:read")
+                if "work_hours:read" not in new_perms:
+                    new_perms.append("work_hours:read")
                     
             if "pbx:write" in new_perms:
                 # Yazma yetkisi varsa Write ve Delete izinlerini de ver
-                for feat in ["announcements", "autoprovision", "autoprovision_templates", "outbound_rules", "speed_dials", "conferences", "acd_queues", "trunks", "inbound_rules", "call_pickup_groups", "subscriber_groups"]:
+                for feat in ["announcements", "autoprovision", "autoprovision_templates", "outbound_rules", "speed_dials", "conferences", "acd_queues", "trunks", "inbound_rules", "call_pickup_groups", "subscriber_groups", "work_hours"]:
                     if f"{feat}:write" not in new_perms:
                         new_perms.append(f"{feat}:write")
                     if f"{feat}:delete" not in new_perms:
@@ -1715,6 +1747,9 @@ def load_settings():
                         "call_panel:tab_deskphone"
                     ]:
                         new_perms.append(def_tab)
+
+            if "sip_debugger:access" in new_perms and "troubleshooting:access" not in new_perms:
+                new_perms.append("troubleshooting:access")
 
             # Auto assign wallboard, dialer, call_flow, and call_monitor to admin and supervisor if missing
             if r.get("role_code") in ["admin", "supervisor"]:
@@ -1741,6 +1776,8 @@ def load_settings():
                     new_perms.append("call_monitor:barge")
                 if "sip_debugger:access" not in new_perms:
                     new_perms.append("sip_debugger:access")
+                if "troubleshooting:access" not in new_perms:
+                    new_perms.append("troubleshooting:access")
                 for tr_perm in ["live_translator:access", "call_panel:live_translation", "call_panel:voice_interpreter"]:
                     if tr_perm not in new_perms:
                         new_perms.append(tr_perm)
@@ -2087,6 +2124,18 @@ def load_settings():
     # Ensure intent_rules config exists
     if "intent_rules" not in db or not isinstance(db.get("intent_rules"), list):
         db["intent_rules"] = [r.copy() for r in DEFAULT_SETTINGS["intent_rules"]]
+
+    # Ensure work_hours config exists
+    if "work_hours" not in db or not isinstance(db.get("work_hours"), dict):
+        import copy
+        db["work_hours"] = copy.deepcopy(DEFAULT_SETTINGS["work_hours"])
+    else:
+        import copy
+        for _wk, _wv in DEFAULT_SETTINGS["work_hours"].items():
+            if _wk not in db["work_hours"]:
+                db["work_hours"][_wk] = copy.deepcopy(_wv)
+    if "work_hours_by_tenant" not in db or not isinstance(db.get("work_hours_by_tenant"), dict):
+        db["work_hours_by_tenant"] = {}
 
     for u in db.get("users", []):
         ensure_user_profiles(u)
@@ -6288,6 +6337,271 @@ async def save_breaks_endpoint(payload: Union[List[BreakSchema], BreakSchema]):
     save_settings(settings_db)
     return {"status": "success", "breaks": settings_db["breaks"]}
 
+
+def _parse_hhmm_to_minutes(val_str: str, fallback_min: int = 540) -> int:
+    try:
+        parts = str(val_str or "").strip().split(":")
+        h = max(0, min(23, int(parts[0])))
+        m = max(0, min(59, int(parts[1]) if len(parts) > 1 else 0))
+        return h * 60 + m
+    except Exception:
+        return fallback_min
+
+
+def get_tenant_work_hours_config(settings_dict: dict, tenant_id: str = "tenant-default") -> dict:
+    import copy
+    default_cfg = copy.deepcopy(DEFAULT_SETTINGS["work_hours"])
+    t_id = str(tenant_id or "tenant-default").strip()
+    if t_id not in ("", "tenant-default", "default", "all", "global"):
+        by_tenant = settings_dict.get("work_hours_by_tenant") or {}
+        if isinstance(by_tenant, dict) and isinstance(by_tenant.get(t_id), dict):
+            merged = copy.deepcopy(default_cfg)
+            merged.update(copy.deepcopy(by_tenant[t_id]))
+            return merged
+        return default_cfg
+    raw_cfg = settings_dict.get("work_hours")
+    if isinstance(raw_cfg, dict):
+        merged = copy.deepcopy(default_cfg)
+        merged.update(copy.deepcopy(raw_cfg))
+        return merged
+    return default_cfg
+
+
+def evaluate_system_work_hours(settings_dict: dict, tenant_id: str = "tenant-default", now_dt=None) -> dict:
+    """
+    Evaluates the configured weekly business hours, lunch break, and official holidays
+    in the tenant's IANA time zone (default: Europe/Istanbul).
+    """
+    cfg = get_tenant_work_hours_config(settings_dict, tenant_id)
+    tz_name = str(cfg.get("timezone") or "Europe/Istanbul").strip()
+    try:
+        from zoneinfo import ZoneInfo
+        tz_obj = ZoneInfo(tz_name)
+    except Exception:
+        tz_obj = datetime.timezone(datetime.timedelta(hours=3))
+        tz_name = "Europe/Istanbul"
+
+    local_now = now_dt.astimezone(tz_obj) if now_dt is not None else datetime.datetime.now(tz_obj)
+    today_iso = local_now.strftime("%Y-%m-%d")
+    today_mm_dd = local_now.strftime("%m-%d")
+    cur_minutes = local_now.hour * 60 + local_now.minute
+    cur_hhmm = local_now.strftime("%H:%M")
+
+    day_keys = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]
+    day_labels_tr = ["Pazartesi", "Salı", "Çarşamba", "Perşembe", "Cuma", "Cumartesi", "Pazar"]
+    w_idx = local_now.weekday()
+    today_key = day_keys[w_idx]
+    today_label_tr = day_labels_tr[w_idx]
+
+    if not cfg.get("enabled", True):
+        return {
+            "enabled": False,
+            "is_open": True,
+            "is_holiday": False,
+            "state": "disabled_always_open",
+            "port": "active",
+            "reason": "Mesai kontrolü devre dışı (7/24 Açık)",
+            "timezone": tz_name,
+            "local_date": today_iso,
+            "local_time": cur_hhmm,
+            "day_label": today_label_tr,
+        }
+
+    # 1. Official / Custom Holiday Check
+    for h in (cfg.get("holidays") or []):
+        if not isinstance(h, dict) or h.get("active") is False:
+            continue
+        is_match = False
+        if h.get("recurring"):
+            md = str(h.get("month_day") or "").strip()
+            if md == today_mm_dd:
+                is_match = True
+        else:
+            s_date = str(h.get("start_date") or "").strip()
+            e_date = str(h.get("end_date") or s_date).strip()
+            if s_date and s_date <= today_iso <= (e_date or s_date):
+                is_match = True
+
+        if is_match:
+            h_name = str(h.get("name") or "Resmi Tatil").strip()
+            h_mode = str(h.get("mode") or "closed").strip()
+            if h_mode == "custom_hours":
+                c_start = str(h.get("custom_start") or "09:00").strip()
+                c_end = str(h.get("custom_end") or "13:00").strip()
+                cs_min = _parse_hhmm_to_minutes(c_start, 540)
+                ce_min = _parse_hhmm_to_minutes(c_end, 780)
+                if cs_min <= cur_minutes < ce_min:
+                    return {
+                        "enabled": True,
+                        "is_open": True,
+                        "is_holiday": True,
+                        "holiday_name": h_name,
+                        "state": "holiday_open_custom",
+                        "port": "active",
+                        "reason": f"{h_name} • Özel Mesai Açık ({c_start} - {c_end})",
+                        "timezone": tz_name,
+                        "local_date": today_iso,
+                        "local_time": cur_hhmm,
+                        "day_label": today_label_tr,
+                    }
+                return {
+                    "enabled": True,
+                    "is_open": False,
+                    "is_holiday": True,
+                    "holiday_name": h_name,
+                    "state": "holiday",
+                    "port": "holiday",
+                    "reason": f"Resmi Tatil / Yarım Gün Mesai Dışı: {h_name} ({c_start} - {c_end})",
+                    "timezone": tz_name,
+                    "local_date": today_iso,
+                    "local_time": cur_hhmm,
+                    "day_label": today_label_tr,
+                }
+            return {
+                "enabled": True,
+                "is_open": False,
+                "is_holiday": True,
+                "holiday_name": h_name,
+                "state": "holiday",
+                "port": "holiday",
+                "reason": f"Resmi Tatil: {h_name}",
+                "timezone": tz_name,
+                "local_date": today_iso,
+                "local_time": cur_hhmm,
+                "day_label": today_label_tr,
+            }
+
+    # 2. Weekly Schedule Check
+    weekly = cfg.get("weekly_schedule") or {}
+    day_cfg = weekly.get(today_key) or {"enabled": w_idx < 5, "start": "09:00", "end": "18:00"}
+    if not day_cfg.get("enabled", False):
+        return {
+            "enabled": True,
+            "is_open": False,
+            "is_holiday": False,
+            "state": "closed_day",
+            "port": "inactive",
+            "reason": f"{today_label_tr} (Haftalık Tatil Günü)",
+            "timezone": tz_name,
+            "local_date": today_iso,
+            "local_time": cur_hhmm,
+            "day_label": today_label_tr,
+        }
+
+    s_str = str(day_cfg.get("start") or "09:00").strip()
+    e_str = str(day_cfg.get("end") or "18:00").strip()
+    s_min = _parse_hhmm_to_minutes(s_str, 540)
+    e_min = _parse_hhmm_to_minutes(e_str, 1080)
+
+    # Optional Lunch Break Check
+    if cfg.get("lunch_break_enabled", False):
+        l_start_str = str(cfg.get("lunch_start") or "12:30").strip()
+        l_end_str = str(cfg.get("lunch_end") or "13:30").strip()
+        ls_min = _parse_hhmm_to_minutes(l_start_str, 750)
+        le_min = _parse_hhmm_to_minutes(l_end_str, 810)
+        if ls_min <= cur_minutes < le_min:
+            return {
+                "enabled": True,
+                "is_open": False,
+                "is_holiday": False,
+                "state": "lunch",
+                "port": "inactive",
+                "reason": f"Öğle Arası ({l_start_str} - {l_end_str})",
+                "timezone": tz_name,
+                "local_date": today_iso,
+                "local_time": cur_hhmm,
+                "day_label": today_label_tr,
+            }
+
+    if s_min <= e_min:
+        in_window = s_min <= cur_minutes < e_min
+    else:
+        # Overnight shift (e.g. 22:00 - 06:00)
+        in_window = cur_minutes >= s_min or cur_minutes < e_min
+
+    if in_window:
+        return {
+            "enabled": True,
+            "is_open": True,
+            "is_holiday": False,
+            "state": "open",
+            "port": "active",
+            "reason": f"Mesai İçi ({today_label_tr} {s_str} - {e_str})",
+            "timezone": tz_name,
+            "local_date": today_iso,
+            "local_time": cur_hhmm,
+            "day_label": today_label_tr,
+        }
+
+    return {
+        "enabled": True,
+        "is_open": False,
+        "is_holiday": False,
+        "state": "closed_hours",
+        "port": "inactive",
+        "reason": f"Mesai Saatleri Dışında ({today_label_tr} {s_str} - {e_str})",
+        "timezone": tz_name,
+        "local_date": today_iso,
+        "local_time": cur_hhmm,
+        "day_label": today_label_tr,
+    }
+
+
+@app.get("/api/settings/work-hours")
+@app.get("/settings/work-hours")
+@app.get("/api/settings/holidays")
+async def get_work_hours_endpoint(user_info: dict = Depends(get_user_info)):
+    target_tenant = user_info.get("tenant_id") or "tenant-default"
+    cfg = get_tenant_work_hours_config(settings_db, target_tenant)
+    live_status = evaluate_system_work_hours(settings_db, target_tenant)
+    return {
+        "status": "success",
+        "work_hours": cfg,
+        "live_status": live_status,
+    }
+
+
+@app.post("/api/settings/work-hours")
+@app.post("/settings/work-hours")
+@app.post("/api/settings/holidays")
+async def save_work_hours_endpoint(payload: dict, user_info: dict = Depends(get_user_info)):
+    import copy
+    target_tenant = str(user_info.get("tenant_id") or "tenant-default").strip()
+    incoming = payload.get("work_hours") if isinstance(payload.get("work_hours"), dict) else payload
+
+    base_cfg = get_tenant_work_hours_config(settings_db, target_tenant)
+    updated_cfg = copy.deepcopy(base_cfg)
+    for k in ("enabled", "timezone", "lunch_break_enabled", "lunch_start", "lunch_end", "weekly_schedule", "holidays"):
+        if k in incoming:
+            updated_cfg[k] = incoming[k]
+
+    # Normalize holiday IDs
+    norm_holidays = []
+    for idx, h in enumerate(updated_cfg.get("holidays") or []):
+        if not isinstance(h, dict):
+            continue
+        item = dict(h)
+        if not item.get("id"):
+            item["id"] = f"hol-{uuid.uuid4().hex[:8]}"
+        if "active" not in item:
+            item["active"] = True
+        norm_holidays.append(item)
+    updated_cfg["holidays"] = norm_holidays
+
+    if target_tenant in ("", "tenant-default", "default", "all", "global"):
+        settings_db["work_hours"] = updated_cfg
+    else:
+        by_tenant = settings_db.setdefault("work_hours_by_tenant", {})
+        by_tenant[target_tenant] = updated_cfg
+
+    save_settings(settings_db)
+    live_status = evaluate_system_work_hours(settings_db, target_tenant)
+    return {
+        "status": "success",
+        "work_hours": updated_cfg,
+        "live_status": live_status,
+    }
+
 import uuid
 
 @app.get("/api/settings/locations")
@@ -7857,7 +8171,15 @@ def _convert_and_sync_announcement_wav(src_filepath: str, ann_id: str) -> str:
 
     # Sync 8kHz WAV to Asterisk playback directories
     if os.path.exists(asterisk_src) and _is_valid_audio_file(asterisk_src):
-        target_dirs = [os.path.join(ASTERISK_CONFIG_DIR, "sounds_tr"), "recordings"]
+        sounds_tr_dir_path = os.path.join(ASTERISK_CONFIG_DIR, "sounds_tr")
+        orig_builtin_wav = os.path.join(sounds_tr_dir_path, wav_filename)
+        factory_backup_wav = os.path.join(sounds_tr_dir_path, f"{ann_id}.factory.wav")
+        if ann_id.startswith("tr_") and os.path.exists(orig_builtin_wav) and not os.path.exists(factory_backup_wav):
+            try:
+                shutil.copy2(orig_builtin_wav, factory_backup_wav)
+            except Exception:
+                pass
+        target_dirs = [sounds_tr_dir_path, "recordings"]
         if os.path.exists("/var/spool/asterisk") or os.path.exists("/etc/asterisk"):
             target_dirs.append("/var/spool/asterisk/monitor")
         for d in target_dirs:
@@ -7885,6 +8207,109 @@ def _convert_and_sync_announcement_wav(src_filepath: str, ann_id: str) -> str:
     return wav_filepath
 
 
+BUILTIN_SYSTEM_ANNOUNCEMENTS = [
+    {
+        "id": "tr_abone_mesgul",
+        "name": "Aradığınız Abone Meşgul",
+        "filename": "tr_abone_mesgul.wav",
+        "original_filename": "tr_abone_mesgul.wav",
+        "type": "system",
+        "system_key": "busy",
+        "description": "Dahili abone görüşmedeyken arayana dinletilen varsayılan sistem anonsu.",
+        "is_builtin": True,
+    },
+    {
+        "id": "tr_abone_ulasilamiyor",
+        "name": "Aradığınız Aboneye Ulaşılamıyor",
+        "filename": "tr_abone_ulasilamiyor.wav",
+        "original_filename": "tr_abone_ulasilamiyor.wav",
+        "type": "system",
+        "system_key": "unavailable",
+        "description": "Dahili çevrimdışı veya cevapsız olduğunda dinletilen varsayılan sistem anonsu.",
+        "is_builtin": True,
+    },
+    {
+        "id": "tr_aktariliyor",
+        "name": "Çağrınız Aktarılıyor",
+        "filename": "tr_aktariliyor.wav",
+        "original_filename": "tr_aktariliyor.wav",
+        "type": "system",
+        "system_key": "transfer",
+        "description": "Çağrı dahiliye veya kuyruğa aktarılmadan önce dinletilen sistem anonsu.",
+        "is_builtin": True,
+    },
+    {
+        "id": "tr_sesli_mesaj",
+        "name": "Sesli Mesaj (Voicemail) Karşılama",
+        "filename": "tr_sesli_mesaj.wav",
+        "original_filename": "tr_sesli_mesaj.wav",
+        "type": "system",
+        "system_key": "voicemail",
+        "description": "Sesli posta kutusuna yönlenen çağrılarda dinletilen varsayılan anons.",
+        "is_builtin": True,
+    },
+    {
+        "id": "tr_yetkisiz_arama",
+        "name": "Yetkisiz Arama Uyarısı",
+        "filename": "tr_yetkisiz_arama.wav",
+        "original_filename": "tr_yetkisiz_arama.wav",
+        "type": "system",
+        "system_key": "unauthorized",
+        "description": "Arama yetkisi bulunmayan numaralar tuşlandığında dinletilen sistem uyarısı.",
+        "is_builtin": True,
+    },
+    {
+        "id": "tr_yonlendirme_aktif",
+        "name": "Çağrı Yönlendirme Aktif Onayı",
+        "filename": "tr_yonlendirme_aktif.wav",
+        "original_filename": "tr_yonlendirme_aktif.wav",
+        "type": "system",
+        "system_key": "forward_on",
+        "description": "Tuş kodu ile çağrı yönlendirme açıldığında dinletilen onay anonsu.",
+        "is_builtin": True,
+    },
+    {
+        "id": "tr_yonlendirme_iptal",
+        "name": "Çağrı Yönlendirme İptal Onayı",
+        "filename": "tr_yonlendirme_iptal.wav",
+        "original_filename": "tr_yonlendirme_iptal.wav",
+        "type": "system",
+        "system_key": "forward_off",
+        "description": "Tuş kodu ile çağrı yönlendirme kapatıldığında dinletilen onay anonsu.",
+        "is_builtin": True,
+    },
+    {
+        "id": "tr_anket_soru",
+        "name": "Memnuniyet Anketi Sorusu (Varsayılan)",
+        "filename": "tr_anket_soru.wav",
+        "original_filename": "tr_anket_soru.wav",
+        "type": "system",
+        "system_key": "survey_question",
+        "description": "Görüşme sonu müşteri memnuniyet anketinde dinletilen varsayılan soru anonsu.",
+        "is_builtin": True,
+    },
+    {
+        "id": "tr_anket_tesekkur",
+        "name": "Memnuniyet Anketi Teşekkür (Varsayılan)",
+        "filename": "tr_anket_tesekkur.wav",
+        "original_filename": "tr_anket_tesekkur.wav",
+        "type": "system",
+        "system_key": "survey_thankyou",
+        "description": "Memnuniyet anketi tuşlaması sonrasında dinletilen varsayılan kapanış anonsu.",
+        "is_builtin": True,
+    },
+]
+
+
+def _normalize_announcement_type(raw_type: Optional[str]) -> str:
+    val = str(raw_type or "").strip().lower()
+    if val in ["moh", "music", "hold_music", "bekleme_muzigi"]:
+        return "moh"
+    if val in ["system", "sistem", "system_announcement"]:
+        return "system"
+    return "announcement"
+
+
 def _ensure_announcement_audio_valid(ann: dict) -> str:
     """Ensures announcement audio file exists and is valid on disk; auto-heals corrupt 28-byte TTS files."""
     if not isinstance(ann, dict):
@@ -7897,9 +8322,13 @@ def _ensure_announcement_audio_valid(ann: dict) -> str:
     if _is_valid_audio_file(filepath):
         return filepath
 
-    # Check if a valid wav/mp3 sibling exists
-    for ext in [".wav", ".mp3"]:
-        cand = os.path.join("uploads/announcements", f"{ann_id}{ext}")
+    # Check if a valid wav/mp3 sibling or built-in Asterisk sounds_tr file exists
+    for cand in [
+        os.path.join("uploads/announcements", f"{ann_id}.wav"),
+        os.path.join("uploads/announcements", f"{ann_id}.mp3"),
+        os.path.join(ASTERISK_CONFIG_DIR, "sounds_tr", fname),
+        os.path.join(ASTERISK_CONFIG_DIR, "sounds_tr", f"{ann_id}.wav"),
+    ]:
         if _is_valid_audio_file(cand):
             return cand
 
@@ -7923,7 +8352,7 @@ def _ensure_announcement_audio_valid(ann: dict) -> str:
 
 
 @app.get("/api/settings/announcements")
-async def get_announcements(user_info: dict = Depends(get_user_info)):
+async def get_announcements(category: Optional[str] = None, type: Optional[str] = None, user_info: dict = Depends(get_user_info)):
     target_tenant = user_info.get("tenant_id") or "tenant-default"
     all_announcements = settings_db.get("announcements", [])
     if is_global_tenant(target_tenant):
@@ -7931,6 +8360,8 @@ async def get_announcements(user_info: dict = Depends(get_user_info)):
     else:
         filtered = [a for a in all_announcements if not a.get("tenant_id") or a.get("tenant_id") in [target_tenant, "tenant-default", "default"]]
 
+    builtin_by_id = {b["id"]: b for b in BUILTIN_SYSTEM_ANNOUNCEMENTS}
+    seen_builtin_ids = set()
     normalized = []
     dirty_settings = False
     for a in filtered:
@@ -7977,14 +8408,24 @@ async def get_announcements(user_info: dict = Depends(get_user_info)):
                 print(f"[Announcement TTS v2 Auto-Upgrade Warning]: {upg_err}")
 
         item = dict(a)
+        item_id = str(item.get("id") or "").strip()
+        builtin_meta = builtin_by_id.get(item_id)
+        if builtin_meta:
+            seen_builtin_ids.add(item_id)
+            item["type"] = "system"
+            item["is_builtin"] = True
+            item["is_customized"] = True
+            item.setdefault("system_key", builtin_meta.get("system_key"))
+            item.setdefault("description", builtin_meta.get("description"))
+        else:
+            item["type"] = _normalize_announcement_type(item.get("type"))
+
         if not item.get("name"):
             item["name"] = item.get("original_filename") or item.get("filename") or "Anons"
         orig_fn = str(item.get("original_filename") or "")
         if not orig_fn or re.match(r"^tts_[0-9a-f]{6,}\.(mp3|wav)$", orig_fn, re.IGNORECASE):
             ext = os.path.splitext(str(item.get("filename") or ".mp3"))[1] or ".mp3"
             item["original_filename"] = f"{item['name']}{ext}"
-        if not item.get("type") or item.get("type") in ["custom", "tts"]:
-            item["type"] = "announcement"
 
         valid_fp = _ensure_announcement_audio_valid(item)
         dur_sec = _calc_audio_duration_seconds(valid_fp) if valid_fp else 0.0
@@ -7992,8 +8433,32 @@ async def get_announcements(user_info: dict = Depends(get_user_info)):
         item["duration_formatted"] = _format_duration_mmss(dur_sec)
         normalized.append(item)
 
+    # Include built-in Turkish PBX system announcements that have not been overridden
+    for builtin in BUILTIN_SYSTEM_ANNOUNCEMENTS:
+        if builtin["id"] in seen_builtin_ids:
+            continue
+        b_item = dict(builtin)
+        b_item["is_customized"] = False
+        valid_fp = _ensure_announcement_audio_valid(b_item)
+        if not valid_fp:
+            continue
+        dur_sec = _calc_audio_duration_seconds(valid_fp)
+        try:
+            b_item["created_at"] = os.path.getmtime(valid_fp)
+        except Exception:
+            b_item["created_at"] = None
+        b_item["duration"] = dur_sec
+        b_item["duration_formatted"] = _format_duration_mmss(dur_sec)
+        normalized.append(b_item)
+
     if dirty_settings:
         save_settings(settings_db)
+
+    filter_cat = str(category or type or "").strip().lower()
+    if filter_cat and filter_cat not in ["all", "tumu"]:
+        norm_cat = _normalize_announcement_type(filter_cat)
+        return [x for x in normalized if x.get("type") == norm_cat]
+
     return normalized
 
 
@@ -8013,14 +8478,20 @@ async def create_announcement(
         settings_db["announcements"] = []
 
     clean_name = name.strip() or "Anons"
-    resolved_type = type if type in ["announcement", "moh"] else (announcement_type if announcement_type in ["announcement", "moh"] else "announcement")
+    resolved_type = _normalize_announcement_type(type if type else announcement_type)
     now_ts = datetime.datetime.now().timestamp()
 
     existing_ann = None
-    if announcement_id:
-        existing_ann = next((a for a in settings_db["announcements"] if str(a.get("id")) == str(announcement_id).strip()), None)
+    builtin_match = None
+    clean_ann_id = str(announcement_id or "").strip()
+    if clean_ann_id:
+        existing_ann = next((a for a in settings_db["announcements"] if str(a.get("id")) == clean_ann_id), None)
+        builtin_match = next((b for b in BUILTIN_SYSTEM_ANNOUNCEMENTS if b["id"] == clean_ann_id), None)
 
-    ann_id = existing_ann["id"] if existing_ann else str(uuid.uuid4())
+    if builtin_match:
+        resolved_type = "system"
+
+    ann_id = existing_ann["id"] if existing_ann else (builtin_match["id"] if builtin_match else str(uuid.uuid4()))
 
     if file and file.filename:
         orig_fname = file.filename
@@ -8034,6 +8505,10 @@ async def create_announcement(
         filename = existing_ann.get("filename") or f"{ann_id}.wav"
         orig_fname = existing_ann.get("original_filename") or f"{clean_name}.wav"
         filepath = os.path.join("uploads/announcements", filename)
+    elif builtin_match:
+        filename = builtin_match["filename"]
+        orig_fname = builtin_match["original_filename"]
+        filepath = _ensure_announcement_audio_valid(builtin_match)
     else:
         orig_fname = f"{clean_name}.wav"
         filename = f"{ann_id}.wav"
@@ -8046,6 +8521,12 @@ async def create_announcement(
         existing_ann["filename"] = filename
         existing_ann["original_filename"] = orig_fname
         existing_ann["type"] = resolved_type
+        if file and file.filename:
+            existing_ann.pop("text", None)
+        if builtin_match:
+            existing_ann["is_builtin"] = True
+            existing_ann["is_customized"] = True
+            existing_ann["description"] = builtin_match.get("description")
         existing_ann["duration"] = dur_sec
         existing_ann["duration_formatted"] = _format_duration_mmss(dur_sec)
         existing_ann["updated_at"] = now_ts
@@ -8063,6 +8544,10 @@ async def create_announcement(
             "created_at": now_ts,
             "updated_at": now_ts
         }
+        if builtin_match:
+            ann["is_builtin"] = True
+            ann["is_customized"] = True
+            ann["description"] = builtin_match.get("description")
         settings_db["announcements"].append(ann)
 
     save_settings(settings_db)
@@ -8361,7 +8846,7 @@ async def create_tts_announcement(payload: dict, user_info: dict = Depends(get_u
 
     text = str(payload.get("text") or "").strip()
     name = str(payload.get("name") or "TTS Anons").strip() or "TTS Anons"
-    ann_type = payload.get("type") if payload.get("type") in ["announcement", "moh"] else "announcement"
+    ann_type = _normalize_announcement_type(payload.get("type"))
     raw_prov = str(payload.get("tts_provider") or "").strip().lower()
     if not raw_prov or raw_prov == "auto":
         if default_tts_prov == "edge_tts":
@@ -8395,10 +8880,15 @@ async def create_tts_announcement(payload: dict, user_info: dict = Depends(get_u
         settings_db["announcements"] = []
 
     existing_ann = None
+    builtin_match = None
     if existing_id:
         existing_ann = next((a for a in settings_db["announcements"] if str(a.get("id")) == existing_id), None)
+        builtin_match = next((b for b in BUILTIN_SYSTEM_ANNOUNCEMENTS if b["id"] == existing_id), None)
 
-    ann_id = existing_ann["id"] if existing_ann else str(uuid.uuid4())
+    if builtin_match:
+        ann_type = "system"
+
+    ann_id = existing_ann["id"] if existing_ann else (builtin_match["id"] if builtin_match else str(uuid.uuid4()))
 
     audio_bytes = await _synthesize_announcement_tts_async(
         text=text,
@@ -8457,6 +8947,11 @@ async def create_tts_announcement(payload: dict, user_info: dict = Depends(get_u
         "duration_formatted": _format_duration_mmss(dur_sec),
         "updated_at": now_ts
     }
+    if builtin_match:
+        meta_fields["is_builtin"] = True
+        meta_fields["is_customized"] = True
+        meta_fields["description"] = builtin_match.get("description")
+
     if existing_ann:
         existing_ann.update(meta_fields)
         ann = existing_ann
@@ -8478,14 +8973,26 @@ async def update_announcement(announcement_id: str, payload: dict, user_info: di
     import os
     target_tenant = user_info.get("tenant_id") or "tenant-default"
     if "announcements" not in settings_db:
-        raise HTTPException(status_code=404, detail="Anons bulunamadı.")
+        settings_db["announcements"] = []
 
-    target = next((a for a in settings_db["announcements"] if str(a.get("id")) == str(announcement_id).strip()), None)
+    clean_ann_id = str(announcement_id).strip()
+    target = next((a for a in settings_db["announcements"] if str(a.get("id")) == clean_ann_id), None)
+    builtin_match = next((b for b in BUILTIN_SYSTEM_ANNOUNCEMENTS if b["id"] == clean_ann_id), None)
+
+    if not target and builtin_match:
+        target = dict(builtin_match)
+        target["tenant_id"] = target_tenant
+        target["is_customized"] = True
+        target["created_at"] = datetime.datetime.now().timestamp()
+        settings_db["announcements"].append(target)
+
     if not target:
         raise HTTPException(status_code=404, detail="Anons bulunamadı.")
 
     new_name = str(payload.get("name") or target.get("name") or "Anons").strip() or "Anons"
-    new_type = payload.get("type") if payload.get("type") in ["announcement", "moh"] else (target.get("type") or "announcement")
+    new_type = "system" if builtin_match else (
+        _normalize_announcement_type(payload.get("type")) if payload.get("type") else _normalize_announcement_type(target.get("type"))
+    )
     new_text = str(payload.get("text") if payload.get("text") is not None else (target.get("text") or "")).strip()
     voice = str(payload.get("voice") or target.get("voice") or "Aoede (Dişi - Türkçe / İngilizce)").strip()
     tts_provider = str(payload.get("tts_provider") or target.get("tts_provider") or "google").strip().lower()
@@ -8501,6 +9008,10 @@ async def update_announcement(announcement_id: str, payload: dict, user_info: di
     target["name"] = new_name
     target["type"] = new_type
     target["updated_at"] = now_ts
+    if builtin_match:
+        target["is_builtin"] = True
+        target["is_customized"] = True
+        target["description"] = builtin_match.get("description")
 
     orig_fn = str(target.get("original_filename") or "")
     if not orig_fn or re.match(r"^tts_[0-9a-f]{6,}\.(mp3|wav)$", orig_fn, re.IGNORECASE) or new_text:
@@ -8563,11 +9074,15 @@ async def update_announcement(announcement_id: str, payload: dict, user_info: di
 @app.delete("/api/settings/announcements/{announcement_id}")
 async def delete_announcement(announcement_id: str):
     import os
+    import shutil
     if "announcements" not in settings_db:
         return {"status": "error", "message": "Not found"}
 
-    for ann in settings_db["announcements"]:
-        if ann["id"] == announcement_id:
+    clean_ann_id = str(announcement_id).strip()
+    builtin_match = next((b for b in BUILTIN_SYSTEM_ANNOUNCEMENTS if b["id"] == clean_ann_id), None)
+
+    for ann in list(settings_db["announcements"]):
+        if str(ann.get("id")) == clean_ann_id:
             for ext in ["", ".wav", ".mp3"]:
                 fname = ann["filename"] if not ext else f"{ann['id']}{ext}"
                 filepath = os.path.join("uploads/announcements", fname)
@@ -8576,9 +9091,20 @@ async def delete_announcement(announcement_id: str):
                         os.remove(filepath)
                     except Exception:
                         pass
+            if builtin_match:
+                sounds_tr_dir_path = os.path.join(ASTERISK_CONFIG_DIR, "sounds_tr")
+                factory_backup = os.path.join(sounds_tr_dir_path, f"{clean_ann_id}.factory.wav")
+                active_wav = os.path.join(sounds_tr_dir_path, f"{clean_ann_id}.wav")
+                if os.path.exists(factory_backup):
+                    try:
+                        shutil.copy2(factory_backup, active_wav)
+                        if os.path.exists("/var/spool/asterisk/monitor"):
+                            shutil.copy2(factory_backup, os.path.join("/var/spool/asterisk/monitor", f"{clean_ann_id}.wav"))
+                    except Exception:
+                        pass
             settings_db["announcements"].remove(ann)
             save_settings(settings_db)
-            return {"status": "success"}
+            return {"status": "success", "restored_builtin": bool(builtin_match)}
 
     return {"status": "error", "message": "Not found"}
 
@@ -24822,18 +25348,45 @@ async def get_system_version_info():
         pass
 
     return {
-        "version": "v2.6.9",
+        "version": "v2.7.0",
         "commit_hash": live_commit,
-        "release_date": "27 Ekim 2026",
+        "release_date": "3 Kasım 2026",
         "status": "Güncel / Canlı Sürüm",
         "environment": "Production (On-Premise)",
         "changelog": [
             {
-                "version": "v2.6.9",
+                "version": "v2.7.0",
                 "commit_hash": live_commit,
-                "release_date": "27 Ekim 2026",
+                "release_date": "3 Kasım 2026",
                 "badge": "Canlı Sürüm (Güncel)",
                 "badge_type": "current",
+                "title": "Mesai Saatleri & Resmi Tatiller, Sorun İnceleme Merkezi, Sekmeli Ayar/RAG/Anons Mimarisi ve Arayüz İyileştirmeleri",
+                "summary": "Merkezi Mesai Saatleri & Resmi Tatiller yapılandırması, Ping/Traceroute/PCAP/sngrep içeren Sorun İnceleme Merkezi, 5 kategorili Sistem Ayarları, sekmeli Bilgi Bankası (RAG) ve Anons Yönetimi, global 'i' bilgi ipucu sistemi, telifsiz sinema karakteri avatarları, kuyruk mantığında Rapor & Yönetim Filtresi ve rol yetki sayacı düzeltmesi yayınlandı.",
+                "features": [
+                    {
+                        "title": "🕒 Merkezi Mesai Saatleri & Resmi Tatiller Yönetimi",
+                        "desc": "Gün bazlı haftalık mesai saatleri, öğle molası, IANA zaman dilimi ve resmi/dini tatil günleri (Türkiye 2026-2027 hazır şablonu, yarım gün Arife desteği) eklendi; Arama Akışı (timerule) ve Omnichannel/WhatsApp mesai dışı motoruna entegre edildi."
+                    },
+                    {
+                        "title": "🩺 Sorun İnceleme Merkezi & Canlı sngrep Yakalama",
+                        "desc": "Ping, Traceroute, SIP Capture (.pcap) ve Canlı sngrep sekmelerini tek çatı altında toplayan Sorun İnceleme modülü eklendi; AMI PJSIP logger ile şifreli WebRTC (8089 TLS) ve SIP trafiğinin anlık yakalanması sağlandı."
+                    },
+                    {
+                        "title": "🗂️ Kategorili Sistem Ayarları, Sekmeli Bilgi Bankası (RAG) & Anons Yönetimi",
+                        "desc": "Sistem Ayarları 5 üst kategoriye ayrıldı; Bilgi Bankası 5 alt sekmeye bölündü; Anons Yönetimi Sistem Anonsları, Bekleme Müzikleri ve Özel Anonslar sekmelerine ayrılarak sistemdeki tüm anons seçicileri doğru kategoriye bağlandı."
+                    },
+                    {
+                        "title": "ℹ️ Sadeleştirilmiş Başlıklar ('i' İpucu), Sinema Avatarları & Çift Listeli Yönetim Filtresi",
+                        "desc": "Ekranlardaki açıklama notları başlık yanındaki 'i' bilgi butonlarına taşındı; telifsiz sinema/efsane karakter avatarları eklendi; Kullanıcı Rapor & Yönetim Filtresi kuyruk üye ekleme (dual-list) yapısına geçirildi ve Roller ekranındaki eksik yetki sayacı giderildi."
+                    }
+                ]
+            },
+            {
+                "version": "v2.6.9",
+                "commit_hash": "21ddf18",
+                "release_date": "27 Ekim 2026",
+                "badge": "Önceki Sürüm",
+                "badge_type": "previous",
                 "title": "Canlı İzleme Paneli Minimal Arama İkonu & Temsilci Durum Filtresinin Profil Ayarlarına Taşınması",
                 "summary": "Temsilci & AI Çağrı Meşguliyet Durumları başlığındaki Mini/Normal/Detay seçicisi kaldırıldı, Tümü/Görüşmede/Müsait/Molada/Çevrimdışı filtresi Profil Ayarları > Canlı İzleme Paneli sekmesine taşındı ve arama alanı sağ üstte büyüteç ikonuna dönüştürüldü.",
                 "features": [

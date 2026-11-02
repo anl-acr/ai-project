@@ -1,17 +1,44 @@
-import React, { useState, useEffect } from "react";
-import { Server, Smartphone, Settings, Coffee, User, Shield, Cable, Shuffle, PhoneCall, Languages, Heart, Bot, FileText, ShieldAlert, Fingerprint, Palette, Hash, ArrowUpRight, MapPin, Lock, HardDrive, Database, Building2, Network, GitCommit, Mail, RotateCcw, Cpu } from "lucide-react";
+import React, { useState, useEffect, useMemo, useRef } from "react";
+import {
+  Server,
+  Smartphone,
+  Settings,
+  Coffee,
+  Shield,
+  Cable,
+  Languages,
+  Heart,
+  Bot,
+  FileText,
+  ShieldAlert,
+  Fingerprint,
+  Hash,
+  MapPin,
+  Lock,
+  HardDrive,
+  Database,
+  Building2,
+  Network,
+  GitCommit,
+  Mail,
+  RotateCcw,
+  Cpu,
+  KeyRound,
+  Sparkles,
+  TrendingUp,
+  ChevronRight,
+  Clock
+} from "lucide-react";
 import PBXSettings from "./PBXSettings";
 import NATSettings from "./NATSettings";
 import NumberingPlanPanel from "./NumberingPlanPanel";
 import ChannelSettings from "./ChannelSettings";
 import BreakDefinitions from "./BreakDefinitions";
-import UserSettings from "./UserSettings";
 import RoleSettings from "./RoleSettings";
 import LanguageDetectionSettings from "./LanguageDetectionSettings";
 import EmotionManagementSettings from "./EmotionManagementSettings";
 import WhisperSettings from "./WhisperSettings";
 import CannedResponsesSettings from "./CannedResponsesSettings";
-import BlacklistSettings from "./BlacklistSettings";
 import QASettings from "./QASettings";
 import UniversalAPISettings from "./UniversalAPISettings";
 import VoiceBiometricsSettings from "./VoiceBiometricsSettings";
@@ -28,25 +55,37 @@ import LicenseSettingsPanel from "./LicenseSettingsPanel";
 import ChangelogPanel from "./ChangelogPanel";
 import EmailNotificationsPanel from "./EmailNotificationsPanel";
 import RestorePointsPanel from "./RestorePointsPanel";
+import WorkHoursSettingsPanel from "./WorkHoursSettingsPanel";
 import { getTurkishSlugForSubtab, getSubtabFromTurkishSlug } from "../../utils/slugHelper";
+import { useTheme } from "../../utils/theme";
+import InfoTooltip from "../common/InfoTooltip";
+
+const normalizeSubTab = (subTab) => {
+  if (!subTab) return "pbx";
+  if (subTab === "ai_providers") return "ai-providers";
+  return subTab;
+};
 
 export default function SettingsPanel({ backendHost = "localhost:8000" }) {
-  const [activeSubTab, setActiveSubTab] = useState("pbx"); // pbx, trunks, channels
+  const { bg, text, lightBg, borderLight } = useTheme();
+  const [activeSubTab, setActiveSubTab] = useState("pbx");
+  const [activeCategory, setActiveCategory] = useState("pbx_network");
+  const categoryTabRefs = useRef({});
 
-  // Read URL subtab query parameter on initial mount
+  // Read URL subtab query parameter on initial mount & listen for global navigation events
   useEffect(() => {
     if (typeof window !== "undefined") {
       const urlParams = new URLSearchParams(window.location.search);
       const subtabFromUrl = urlParams.get("subtab");
       if (subtabFromUrl) {
-        const resolvedSubtab = getSubtabFromTurkishSlug(subtabFromUrl);
+        const resolvedSubtab = normalizeSubTab(getSubtabFromTurkishSlug(subtabFromUrl));
         setActiveSubTab(resolvedSubtab);
       }
     }
 
     const handleSwitchSettingsSubTab = (e) => {
       if (e?.detail?.subTab) {
-        setActiveSubTab(e.detail.subTab);
+        setActiveSubTab(normalizeSubTab(e.detail.subTab));
       }
     };
     window.addEventListener("SWITCH_SETTINGS_SUBTAB", handleSwitchSettingsSubTab);
@@ -67,7 +106,6 @@ export default function SettingsPanel({ backendHost = "localhost:8000" }) {
     }
   }, [activeSubTab]);
 
-
   const [hasCannedPermission, setHasCannedPermission] = useState(false);
   const [hasBlacklistPermission, setHasBlacklistPermission] = useState(false);
   const [hasQAPermission, setHasQAPermission] = useState(false);
@@ -80,15 +118,19 @@ export default function SettingsPanel({ backendHost = "localhost:8000" }) {
   const [hasRecordingRetentionPermission, setHasRecordingRetentionPermission] = useState(false);
   const [hasApiBudgetsPermission, setHasApiBudgetsPermission] = useState(true);
   const [hasAiTaskRoutingPermission, setHasAiTaskRoutingPermission] = useState(true);
-  const [debugPerms, setDebugPerms] = useState("");
+  const [hasWorkHoursPermission, setHasWorkHoursPermission] = useState(true);
 
   useEffect(() => {
     const checkPermissions = async () => {
       try {
-        const savedAuth = localStorage.getItem('is_logged_in') === 'true' || sessionStorage.getItem('is_logged_in') === 'true';
-        const savedUserId = localStorage.getItem('current_user_id') || sessionStorage.getItem('current_user_id');
+        const savedAuth =
+          localStorage.getItem("is_logged_in") === "true" ||
+          sessionStorage.getItem("is_logged_in") === "true";
+        const savedUserId =
+          localStorage.getItem("current_user_id") ||
+          sessionStorage.getItem("current_user_id");
 
-        if (!savedAuth || savedUserId === 'admin') {
+        if (!savedAuth || savedUserId === "admin") {
           setHasCannedPermission(true);
           setHasBlacklistPermission(true);
           setHasQAPermission(true);
@@ -107,8 +149,10 @@ export default function SettingsPanel({ backendHost = "localhost:8000" }) {
         const protocol = window.location.protocol === "https:" ? "https:" : "http:";
         const resUsers = await fetch(`${protocol}//${backendHost}/api/settings/users?t=${Date.now()}`);
         const usersData = await resUsers.json();
-        const currentUser = usersData.find(u => String(u.id) === String(savedUserId) || u.extension === savedUserId);
-        
+        const currentUser = usersData.find(
+          (u) => String(u.id) === String(savedUserId) || u.extension === savedUserId
+        );
+
         if (!currentUser || currentUser.role === "admin" || currentUser.id === "admin") {
           setHasCannedPermission(true);
           setHasBlacklistPermission(true);
@@ -127,7 +171,7 @@ export default function SettingsPanel({ backendHost = "localhost:8000" }) {
 
         const resRoles = await fetch(`${protocol}//${backendHost}/api/settings/roles?t=${Date.now()}`);
         const rolesData = await resRoles.json();
-        const currentRole = rolesData.find(r => r.role_code === currentUser.role);
+        const currentRole = rolesData.find((r) => r.role_code === currentUser.role);
 
         if (!currentRole || currentRole.role_code === "admin" || currentRole.role_code === "superadmin") {
           setHasCannedPermission(true);
@@ -155,11 +199,20 @@ export default function SettingsPanel({ backendHost = "localhost:8000" }) {
         setHasSSLPermission(currentRole.permissions.includes("ssl:read"));
         setHasBackupPermission(currentRole.permissions.includes("backup_restore:read"));
         setHasRecordingRetentionPermission(currentRole.permissions.includes("recording_retention:read"));
-        setHasApiBudgetsPermission(currentRole.permissions.includes("api_budgets:read") || currentRole.permissions.includes("api_budgets:write"));
-        setHasAiTaskRoutingPermission(currentRole.permissions.includes("ai_task_routing:read") || currentRole.permissions.includes("ai_task_routing:write"));
-        setDebugPerms(JSON.stringify(currentRole.permissions));
+        setHasApiBudgetsPermission(
+          currentRole.permissions.includes("api_budgets:read") ||
+            currentRole.permissions.includes("api_budgets:write")
+        );
+        setHasAiTaskRoutingPermission(
+          currentRole.permissions.includes("ai_task_routing:read") ||
+            currentRole.permissions.includes("ai_task_routing:write")
+        );
+        setHasWorkHoursPermission(
+          currentRole.permissions.includes("work_hours:read") ||
+            currentRole.permissions.includes("pbx:read")
+        );
       } catch (err) {
-        console.error("Canned/Blacklist permission check error:", err);
+        console.error("Settings permission check error:", err);
         setHasCannedPermission(true);
         setHasBlacklistPermission(true);
         setHasQAPermission(true);
@@ -177,397 +230,532 @@ export default function SettingsPanel({ backendHost = "localhost:8000" }) {
     checkPermissions();
   }, [backendHost]);
 
+  const categories = useMemo(() => {
+    const rawCategories = [
+      {
+        id: "pbx_network",
+        label: "Santral & Ağ",
+        description: "Asterisk santral bağlantısı, NAT/IP yapılandırması, numara planı, otoprovizyon ve SSL sertifikaları.",
+        icon: Server,
+        items: [
+          {
+            id: "pbx",
+            label: "Santral Entegrasyonu",
+            subtitle: "Asterisk & AMI bağlantısı",
+            icon: Server,
+            visible: true
+          },
+          {
+            id: "nat",
+            label: "NAT ve Dış IP Ayarları",
+            subtitle: "Genel IP ve yerel ağlar",
+            icon: Network,
+            visible: true
+          },
+          {
+            id: "numbering-plan",
+            label: "Numara Planı",
+            subtitle: "Dahili ve yönlendirme kodları",
+            icon: Hash,
+            visible: true
+          },
+          {
+            id: "autoprovision-templates",
+            label: "Otoprovizyon Şablonları",
+            subtitle: "IP telefon kurulum şablonları",
+            icon: FileText,
+            visible: hasAutoprovTemplatesPermission
+          },
+          {
+            id: "ssl",
+            label: "SSL Sertifikaları",
+            subtitle: "HTTPS & WSS TLS güvenliği",
+            icon: Lock,
+            visible: hasSSLPermission
+          }
+        ]
+      },
+      {
+        id: "organization",
+        label: "Organizasyon & Lisans",
+        description: "Rol bazlı erişim yetkileri, şube/departman yapısı, mola türleri, çoklu müşteri ve lisans yönetimi.",
+        icon: Shield,
+        items: [
+          {
+            id: "roles",
+            label: "Roller",
+            subtitle: "Yetki profilleri ve erişim matrisi",
+            icon: Shield,
+            visible: true
+          },
+          {
+            id: "locations",
+            label: "Lokasyon ve Departmanlar",
+            subtitle: "Şube ve birim tanımları",
+            icon: MapPin,
+            visible: true
+          },
+          {
+            id: "breaks",
+            label: "Mola Tanımları",
+            subtitle: "Temsilci mola türleri ve süreleri",
+            icon: Coffee,
+            visible: true
+          },
+          {
+            id: "work-hours",
+            label: "Mesai & Resmi Tatiller",
+            subtitle: "Haftalık çalışma saatleri ve resmi tatiller",
+            icon: Clock,
+            visible: hasWorkHoursPermission
+          },
+          {
+            id: "tenants",
+            label: "Müşteri (Tenant) Yönetimi",
+            subtitle: "Çoklu müşteri izolasyonu",
+            icon: Building2,
+            visible: true
+          },
+          {
+            id: "license",
+            label: "Lisans & Key Yönetimi",
+            subtitle: "Donanım kilidi ve abonelik anahtarı",
+            icon: KeyRound,
+            visible: true
+          }
+        ]
+      },
+      {
+        id: "ai_quality",
+        label: "Yapay Zeka & Analiz",
+        description: "LLM sağlayıcıları, görev yönlendirme, kalite değerlendirme, dil/duygu algılama ve biyometrik analiz.",
+        icon: Bot,
+        items: [
+          {
+            id: "ai-providers",
+            label: "Yapay Zeka API Ayarları",
+            subtitle: "Gemini, OpenAI ve LLM anahtarları",
+            icon: Bot,
+            visible: true
+          },
+          {
+            id: "ai-task-routing",
+            label: "AI Görev & Model Yönlendirme",
+            subtitle: "Görev bazlı aktif model seçimi",
+            icon: Cpu,
+            visible: hasAiTaskRoutingPermission
+          },
+          {
+            id: "qa",
+            label: "Çağrı Kalite Kontrol",
+            subtitle: "Otomatik değerlendirme kriterleri",
+            icon: ShieldAlert,
+            visible: true
+          },
+          {
+            id: "lang-detect",
+            label: "Otomatik Dil Algılama",
+            subtitle: "Çok dilli karşılama ve algılama",
+            icon: Languages,
+            visible: true
+          },
+          {
+            id: "emotion-management",
+            label: "Dinamik Duygu Yönetimi",
+            subtitle: "Müşteri duygu tonu analizi",
+            icon: Heart,
+            visible: true
+          },
+          {
+            id: "whisper-management",
+            label: "AI Fısıldama Yönetimi",
+            subtitle: "Canlı temsilci koçluğu",
+            icon: Sparkles,
+            visible: true
+          },
+          {
+            id: "voice-biometrics",
+            label: "Biyometrik Ses Analizi",
+            subtitle: "Ses izi ile kimlik doğrulama",
+            icon: Fingerprint,
+            visible: hasBioPermission
+          },
+          {
+            id: "roi-settings",
+            label: "ROI Rapor Ayarları",
+            subtitle: "Maliyet ve kazanım parametreleri",
+            icon: TrendingUp,
+            visible: hasRoiSettingsPermission
+          }
+        ]
+      },
+      {
+        id: "channels_api",
+        label: "Kanallar & Entegrasyon",
+        description: "WhatsApp, sosyal medya kanalları, hazır yanıt şablonları, harici CRM API bağlantıları ve bildirimler.",
+        icon: Cable,
+        items: [
+          {
+            id: "channels",
+            label: "Kanal Entegrasyonları",
+            subtitle: "WhatsApp, Telegram, Meta ve E-Posta",
+            icon: Smartphone,
+            visible: true
+          },
+          {
+            id: "canned-responses",
+            label: "Hızlı Cevaplar",
+            subtitle: "Hazır mesaj ve yanıt şablonları",
+            icon: FileText,
+            visible: hasCannedPermission
+          },
+          {
+            id: "universal-api",
+            label: "Evrensel API Sihirbazı",
+            subtitle: "Harici CRM & Webhook bağlantıları",
+            icon: Cable,
+            visible: hasAPIPermission
+          },
+          {
+            id: "email-notifications",
+            label: "E-Mail Bildirimleri",
+            subtitle: "SMTP uyarı ve sistem bildirimleri",
+            icon: Mail,
+            visible: true
+          }
+        ]
+      },
+      {
+        id: "maintenance",
+        label: "Bakım & Sistem",
+        description: "Sistem yedekleme, anlık geri yükleme noktaları, ses kaydı saklama politikaları ve versiyon geçmişi.",
+        icon: HardDrive,
+        items: [
+          {
+            id: "backup",
+            label: "Sistem Yedekleme",
+            subtitle: "Tam sistem ve veritabanı yedeği",
+            icon: HardDrive,
+            visible: hasBackupPermission
+          },
+          {
+            id: "restore-points",
+            label: "Geri Yükleme Noktası",
+            subtitle: "Anlık yapılandırma geri dönüşü",
+            icon: RotateCcw,
+            visible: true
+          },
+          {
+            id: "recording-retention",
+            label: "Kayıt & Saklama Sistemi",
+            subtitle: "Ses kaydı arşiv ve saklama süresi",
+            icon: Database,
+            visible: hasRecordingRetentionPermission
+          },
+          {
+            id: "version",
+            label: "Sistem Versiyonu & Günlük",
+            subtitle: "Sürüm bilgisi ve değişiklik günlüğü",
+            icon: GitCommit,
+            visible: true
+          }
+        ]
+      }
+    ];
+
+    return rawCategories
+      .map((cat) => ({
+        ...cat,
+        items: cat.items.filter((item) => item.visible)
+      }))
+      .filter((cat) => cat.items.length > 0);
+  }, [
+    hasAutoprovTemplatesPermission,
+    hasSSLPermission,
+    hasAiTaskRoutingPermission,
+    hasBioPermission,
+    hasRoiSettingsPermission,
+    hasCannedPermission,
+    hasAPIPermission,
+    hasBackupPermission,
+    hasRecordingRetentionPermission
+  ]);
+
+  // Keep activeCategory synchronized whenever activeSubTab changes (e.g., via URL slug or GlobalSearchBar)
+  useEffect(() => {
+    const matchedCat = categories.find((cat) =>
+      cat.items.some((item) => item.id === activeSubTab)
+    );
+    if (matchedCat && matchedCat.id !== activeCategory) {
+      setActiveCategory(matchedCat.id);
+    }
+  }, [activeSubTab, categories]);
+
+  const handleCategorySelect = (categoryId) => {
+    setActiveCategory(categoryId);
+    const targetCat = categories.find((c) => c.id === categoryId);
+    if (targetCat && targetCat.items.length > 0) {
+      const hasCurrentSubTab = targetCat.items.some((item) => item.id === activeSubTab);
+      if (!hasCurrentSubTab) {
+        setActiveSubTab(targetCat.items[0].id);
+      }
+    }
+  };
+
+  // WAI-ARIA Tabs keyboard navigation (ArrowRight, ArrowLeft, Home, End)
+  const handleCategoryKeyDown = (e, index) => {
+    if (!categories.length) return;
+    let nextIndex = null;
+    if (e.key === "ArrowRight") {
+      nextIndex = (index + 1) % categories.length;
+    } else if (e.key === "ArrowLeft") {
+      nextIndex = (index - 1 + categories.length) % categories.length;
+    } else if (e.key === "Home") {
+      nextIndex = 0;
+    } else if (e.key === "End") {
+      nextIndex = categories.length - 1;
+    }
+
+    if (nextIndex !== null) {
+      e.preventDefault();
+      const nextCategory = categories[nextIndex];
+      handleCategorySelect(nextCategory.id);
+      categoryTabRefs.current[nextCategory.id]?.focus();
+    }
+  };
+
+  const currentCategory =
+    categories.find((c) => c.id === activeCategory) || categories[0] || null;
+  const activeItemMeta = currentCategory?.items.find((i) => i.id === activeSubTab);
+
   return (
-    <div className="w-full space-y-6">
-      {/* Page Title & Status Header */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-200/85 dark:border-slate-800/80 pb-5">
-        <div>
+    <div className="w-full space-y-5">
+      {/* Page Title & Active Category Summary Header */}
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <div className="flex items-center gap-1.5">
           <h2 className="text-xl font-bold tracking-tight bg-gradient-to-r from-slate-900 to-slate-700 dark:from-white dark:to-slate-300 bg-clip-text text-transparent flex items-center gap-2">
-            <Settings size={22} className="text-slate-500 dark:text-slate-400" />
-            Sistem Ayarları
+            <Settings size={22} aria-hidden="true" className={text} />
+            <span>Sistem Ayarları</span>
           </h2>
-          <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-            Asterisk santral, Gemini entegrasyonu, SIP trunk hatları ve sosyal mesajlaşma kanalları yapılandırması.
-          </p>
+          <InfoTooltip
+            title={currentCategory ? currentCategory.label : "Sistem Ayarları"}
+            text={
+              currentCategory
+                ? currentCategory.description
+                : "Asterisk santral, yapay zeka entegrasyonu, çoklu kanal ve sistem bakım yapılandırmaları."
+            }
+          />
         </div>
+
+        {/* Breadcrumb Pill showing Current Category -> Active Module */}
+        {currentCategory && activeItemMeta && (
+          <div className="hidden lg:inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800/80 text-[11px] font-medium text-slate-500 dark:text-slate-400 shadow-sm shrink-0">
+            <span>{currentCategory.label}</span>
+            <ChevronRight size={13} aria-hidden="true" className="text-slate-400" />
+            <span className={"font-bold " + text}>{activeItemMeta.label}</span>
+          </div>
+        )}
       </div>
 
-      {/* Side-by-Side Settings Layout */}
-      <div className="flex flex-col md:flex-row gap-6 items-start w-full">
-        
-        {/* Left Side Sub-Tab Menu (Vertical Stack) */}
-        <div className="w-full md:w-64 lg:w-72 shrink-0 p-2 bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800/80 rounded-2xl shadow-sm space-y-1">
-          <button
-            onClick={() => setActiveSubTab("pbx")}
-            className={`w-full flex items-center gap-2.5 px-4 py-3 rounded-xl text-xs font-bold transition-all duration-200 border text-left ${
-              activeSubTab === "pbx"
-                ? "bg-rose-50/50 dark:bg-rose-950/20 text-primary dark:text-rose-450 border-rose-100/50 dark:border-rose-900/30 shadow-sm"
-                : "text-slate-500 dark:text-slate-400 border-transparent hover:text-slate-800 dark:hover:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800/40"
-            }`}
-          >
-            <Server size={14} className={activeSubTab === "pbx" ? "text-primary" : ""} />
-            <span>Santral Entegrasyonu</span>
-          </button>
-          <button
-            onClick={() => setActiveSubTab("nat")}
-            className={`w-full flex items-center gap-2.5 px-4 py-3 rounded-xl text-xs font-bold transition-all duration-200 border text-left ${
-              activeSubTab === "nat"
-                ? "bg-rose-50/50 dark:bg-rose-950/20 text-primary dark:text-rose-450 border-rose-100/50 dark:border-rose-900/30 shadow-sm"
-                : "text-slate-500 dark:text-slate-400 border-transparent hover:text-slate-800 dark:hover:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800/40"
-            }`}
-          >
-            <Network size={14} className={activeSubTab === "nat" ? "text-primary" : ""} />
-            <span>NAT ve Dış IP Ayarları</span>
-          </button>
-          <button
-            onClick={() => setActiveSubTab("qa")}
-            className={`w-full flex items-center gap-2.5 px-4 py-3 rounded-xl text-xs font-bold transition-all duration-200 border text-left ${
-              activeSubTab === "qa"
-                ? "bg-slate-100/50 dark:bg-slate-800/50 text-slate-800 dark:text-white border-slate-200 dark:border-slate-700 shadow-sm"
-                : "text-slate-500 dark:text-slate-400 border-transparent hover:text-slate-800 dark:hover:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800/40"
-            }`}
-          >
-            <ShieldAlert size={14} className={activeSubTab === "qa" ? "text-slate-800 dark:text-white" : ""} />
-            <span>Çağrı Kalite Kontrol</span>
-          </button>
-
-          <button
-            onClick={() => setActiveSubTab("locations")}
-            className={`w-full flex items-center gap-2.5 px-4 py-3 rounded-xl text-xs font-bold transition-all duration-200 border text-left ${
-              activeSubTab === "locations"
-                ? "bg-rose-50/50 dark:bg-rose-950/20 text-rose-600 dark:text-rose-450 border-rose-100/50 dark:border-rose-900/30 shadow-sm"
-                : "text-slate-500 dark:text-slate-400 border-transparent hover:text-slate-800 dark:hover:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800/40"
-            }`}
-          >
-            <MapPin size={14} className={activeSubTab === "locations" ? "text-rose-600 dark:text-rose-450" : ""} />
-            <span>Lokasyon ve Departmanlar</span>
-          </button>
-          <button
-            onClick={() => setActiveSubTab("numbering-plan")}
-            className={`w-full flex items-center gap-2.5 px-4 py-3 rounded-xl text-xs font-bold transition-all duration-200 border text-left ${
-              activeSubTab === "numbering-plan"
-                ? "bg-slate-100/50 dark:bg-slate-800/50 text-slate-800 dark:text-white border-slate-200 dark:border-slate-700 shadow-sm"
-                : "text-slate-500 dark:text-slate-400 border-transparent hover:text-slate-800 dark:hover:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800/40"
-            }`}
-          >
-            <Hash size={14} className={activeSubTab === "numbering-plan" ? "text-slate-800 dark:text-white" : ""} />
-            <span>Numara Planı</span>
-          </button>
-
-          <button
-            onClick={() => setActiveSubTab("lang-detect")}
-            className={`w-full flex items-center gap-2.5 px-4 py-3 rounded-xl text-xs font-bold transition-all duration-200 border text-left ${
-              activeSubTab === "lang-detect"
-                ? "bg-rose-50/50 dark:bg-rose-950/20 text-primary dark:text-rose-450 border-rose-100/50 dark:border-rose-900/30 shadow-sm"
-                : "text-slate-500 dark:text-slate-400 border-transparent hover:text-slate-800 dark:hover:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800/40"
-            }`}
-          >
-            <Languages size={14} className={activeSubTab === "lang-detect" ? "text-primary" : ""} />
-            <span>Otomatik Dil Algılama</span>
-          </button>
-
-          <button
-            onClick={() => setActiveSubTab("emotion-management")}
-            className={`w-full flex items-center gap-2.5 px-4 py-3 rounded-xl text-xs font-bold transition-all duration-200 border text-left ${
-              activeSubTab === "emotion-management"
-                ? "bg-rose-50/50 dark:bg-rose-950/20 text-primary dark:text-rose-450 border-rose-100/50 dark:border-rose-900/30 shadow-sm"
-                : "text-slate-500 dark:text-slate-400 border-transparent hover:text-slate-800 dark:hover:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800/40"
-            }`}
-          >
-            <Heart size={14} className={activeSubTab === "emotion-management" ? "text-primary fill-rose-500" : ""} />
-            <span>Dinamik Duygu Yönetimi</span>
-          </button>
-          
-          <button
-            onClick={() => setActiveSubTab("whisper-management")}
-            className={`w-full flex items-center gap-2.5 px-4 py-3 rounded-xl text-xs font-bold transition-all duration-200 border text-left ${
-              activeSubTab === "whisper-management"
-                ? "bg-amber-50/50 dark:bg-amber-950/20 text-primary dark:text-amber-450 border-amber-100/50 dark:border-amber-900/30 shadow-sm"
-                : "text-slate-500 dark:text-slate-400 border-transparent hover:text-slate-800 dark:hover:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800/40"
-            }`}
-          >
-            <Bot size={14} className={activeSubTab === "whisper-management" ? "text-primary" : ""} />
-            <span>AI Fısıldama Yönetimi</span>
-          </button>
-
-          {hasBioPermission && (
+      {/* Top Horizontal Category Tab Bar */}
+      <div
+        role="tablist"
+        aria-label="Sistem ayar kategorileri"
+        className={
+          "w-full p-1.5 bg-white dark:bg-slate-900 border rounded-2xl shadow-sm flex items-center gap-1.5 overflow-x-auto no-scrollbar " +
+          borderLight
+        }
+      >
+        {categories.map((cat, idx) => {
+          const CatIcon = cat.icon;
+          const isSelected = currentCategory?.id === cat.id;
+          return (
             <button
-              onClick={() => setActiveSubTab("voice-biometrics")}
-              className={`w-full flex items-center gap-2.5 px-4 py-3 rounded-xl text-xs font-bold transition-all duration-200 border text-left ${
-                activeSubTab === "voice-biometrics"
-                  ? "bg-indigo-50/50 dark:bg-indigo-950/20 text-primary dark:text-indigo-455 border-indigo-100/50 dark:border-indigo-900/30 shadow-sm"
-                  : "text-slate-500 dark:text-slate-400 border-transparent hover:text-slate-800 dark:hover:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800/40"
-              }`}
+              key={cat.id}
+              ref={(el) => {
+                categoryTabRefs.current[cat.id] = el;
+              }}
+              type="button"
+              role="tab"
+              id={`settings-cat-tab-${cat.id}`}
+              aria-selected={isSelected}
+              aria-controls={`settings-cat-panel-${cat.id}`}
+              tabIndex={isSelected ? 0 : -1}
+              onClick={() => handleCategorySelect(cat.id)}
+              onKeyDown={(e) => handleCategoryKeyDown(e, idx)}
+              className={
+                "flex-1 min-w-fit flex items-center justify-center gap-2.5 px-4 py-2.5 rounded-xl text-xs font-bold transition-all duration-200 whitespace-nowrap focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary " +
+                (isSelected
+                  ? `${bg} text-white shadow-sm`
+                  : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100 hover:bg-slate-100/80 dark:hover:bg-slate-800/60")
+              }
             >
-              <Fingerprint size={14} className={activeSubTab === "voice-biometrics" ? "text-primary" : ""} />
-              <span>Biyometrik Ses Analizi</span>
+              <CatIcon
+                size={15}
+                aria-hidden="true"
+                className={isSelected ? "text-white" : "text-slate-400 dark:text-slate-500"}
+              />
+              <span>{cat.label}</span>
+              <span
+                className={
+                  "px-1.5 py-0.5 rounded-md text-[10px] font-extrabold leading-none transition-colors " +
+                  (isSelected
+                    ? "bg-white/20 text-white"
+                    : "bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400")
+                }
+              >
+                {cat.items.length}
+              </span>
             </button>
-          )}
-
-          <button
-            onClick={() => setActiveSubTab("channels")}
-            className={`w-full flex items-center gap-2.5 px-4 py-3 rounded-xl text-xs font-bold transition-all duration-200 border text-left ${
-              activeSubTab === "channels"
-                ? "bg-pink-50/50 dark:bg-pink-950/20 text-pink-650 dark:text-pink-400 border-pink-100/50 dark:border-pink-900/30 shadow-sm"
-                : "text-slate-500 dark:text-slate-400 border-transparent hover:text-slate-800 dark:hover:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800/40"
-            }`}
-          >
-            <Smartphone size={14} className={activeSubTab === "channels" ? "text-pink-500" : ""} />
-            <span>Kanal Entegrasyonları</span>
-          </button>
-          <button
-            onClick={() => setActiveSubTab("breaks")}
-            className={`w-full flex items-center gap-2.5 px-4 py-3 rounded-xl text-xs font-bold transition-all duration-200 border text-left ${
-              activeSubTab === "breaks"
-                ? "bg-amber-50/50 dark:bg-amber-950/20 text-primary dark:text-amber-400 border-amber-100/50 dark:border-amber-900/30 shadow-sm"
-                : "text-slate-500 dark:text-slate-400 border-transparent hover:text-slate-800 dark:hover:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800/40"
-            }`}
-          >
-            <Coffee size={14} className={activeSubTab === "breaks" ? "text-primary" : ""} />
-            <span>Mola Tanımları</span>
-          </button>
-          <button
-            onClick={() => setActiveSubTab("roles")}
-            className={`w-full flex items-center gap-2.5 px-4 py-3 rounded-xl text-xs font-bold transition-all duration-200 border text-left ${
-              activeSubTab === "roles"
-                ? "bg-purple-50/50 dark:bg-purple-950/20 text-primary dark:text-purple-400 border-purple-100/50 dark:border-purple-900/30 shadow-sm"
-                : "text-slate-500 dark:text-slate-400 border-transparent hover:text-slate-800 dark:hover:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800/40"
-            }`}
-          >
-            <Shield size={14} className={activeSubTab === "roles" ? "text-primary" : ""} />
-            <span>Roller</span>
-          </button>
-
-          {hasCannedPermission && (
-            <button
-              onClick={() => setActiveSubTab("canned-responses")}
-              className={`w-full flex items-center gap-2.5 px-4 py-3 rounded-xl text-xs font-bold transition-all duration-200 border text-left ${
-                activeSubTab === "canned-responses"
-                  ? "bg-pink-50/50 dark:bg-pink-950/20 text-pink-650 dark:text-pink-400 border-pink-100/50 dark:border-pink-900/30 shadow-sm"
-                  : "text-slate-500 dark:text-slate-400 border-transparent hover:text-slate-800 dark:hover:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800/40"
-              }`}
-            >
-              <FileText size={14} className={activeSubTab === "canned-responses" ? "text-pink-500" : ""} />
-              <span>Hızlı Cevaplar</span>
-            </button>
-          )}
-
-          {hasAPIPermission && (
-            <button
-              onClick={() => setActiveSubTab("universal-api")}
-              className={`w-full flex items-center gap-2.5 px-4 py-3 rounded-xl text-xs font-bold transition-all duration-200 border text-left ${
-                activeSubTab === "universal-api"
-                  ? "bg-indigo-50/50 dark:bg-indigo-950/20 text-primary dark:text-primary border-indigo-100/50 dark:border-indigo-900/30 shadow-sm"
-                  : "text-slate-500 dark:text-slate-400 border-transparent hover:text-slate-800 dark:hover:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800/40"
-              }`}
-            >
-              <Cable size={14} className={activeSubTab === "universal-api" ? "text-primary" : ""} />
-              <span>Evrensel API Sihirbazı</span>
-            </button>
-          )}
-
-          {hasAutoprovTemplatesPermission && (
-            <button
-              onClick={() => setActiveSubTab("autoprovision-templates")}
-              className={`w-full flex items-center gap-2.5 px-4 py-3 rounded-xl text-xs font-bold transition-all duration-200 border text-left ${
-                activeSubTab === "autoprovision-templates"
-                  ? "bg-amber-50/50 dark:bg-amber-950/20 text-primary dark:text-amber-400 border-amber-100/50 dark:border-amber-900/30 shadow-sm"
-                  : "text-slate-500 dark:text-slate-400 border-transparent hover:text-slate-800 dark:hover:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800/40"
-              }`}
-            >
-              <FileText size={14} className={activeSubTab === "autoprovision-templates" ? "text-primary" : ""} />
-              <span>Otoprovizyon Şablonları</span>
-            </button>
-          )}
-
-          {hasRoiSettingsPermission && (
-            <button
-              onClick={() => setActiveSubTab("roi-settings")}
-              className={`w-full flex items-center gap-2.5 px-4 py-3 rounded-xl text-xs font-bold transition-all duration-200 border text-left ${
-                activeSubTab === "roi-settings"
-                  ? "bg-amber-50/50 dark:bg-amber-950/20 text-primary dark:text-amber-400 border-amber-100/50 dark:border-amber-900/30 shadow-sm"
-                  : "text-slate-500 dark:text-slate-400 border-transparent hover:text-slate-800 dark:hover:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800/40"
-              }`}
-            >
-              <FileText size={14} className={activeSubTab === "roi-settings" ? "text-primary" : ""} />
-              <span>ROI Rapor Ayarları</span>
-            </button>
-          )}
-
-          {hasSSLPermission && (
-            <button
-              onClick={() => setActiveSubTab("ssl")}
-              className={`w-full flex items-center gap-2.5 px-4 py-3 rounded-xl text-xs font-bold transition-all duration-200 border text-left ${
-                activeSubTab === "ssl"
-                  ? "bg-slate-100/50 dark:bg-slate-800/50 text-slate-800 dark:text-white border-slate-200 dark:border-slate-700 shadow-sm"
-                  : "text-slate-500 dark:text-slate-400 border-transparent hover:text-slate-800 dark:hover:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800/40"
-              }`}
-            >
-              <Lock size={14} className={activeSubTab === "ssl" ? "text-slate-800 dark:text-white" : ""} />
-              <span>SSL Sertifikaları</span>
-            </button>
-          )}
-
-          {hasBackupPermission && (
-            <button
-              onClick={() => setActiveSubTab("backup")}
-              className={`w-full flex items-center gap-2.5 px-4 py-3 rounded-xl text-xs font-bold transition-all duration-200 border text-left ${
-                activeSubTab === "backup"
-                  ? "bg-rose-50/50 dark:bg-rose-950/20 text-rose-600 dark:text-rose-450 border-rose-100/50 dark:border-rose-900/30 shadow-sm"
-                  : "text-slate-500 dark:text-slate-400 border-transparent hover:text-slate-800 dark:hover:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800/40"
-              }`}
-            >
-              <HardDrive size={14} className={activeSubTab === "backup" ? "text-rose-600 dark:text-rose-450" : ""} />
-              <span>Sistem Yedekleme</span>
-            </button>
-          )}
-
-          {hasRecordingRetentionPermission && (
-            <button
-              onClick={() => setActiveSubTab("recording-retention")}
-              className={`w-full flex items-center gap-2.5 px-4 py-3 rounded-xl text-xs font-bold transition-all duration-200 border text-left ${
-                activeSubTab === "recording-retention"
-                  ? "bg-slate-100/50 dark:bg-slate-800/50 text-slate-800 dark:text-white border-slate-200 dark:border-slate-700 shadow-sm"
-                  : "text-slate-500 dark:text-slate-400 border-transparent hover:text-slate-800 dark:hover:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800/40"
-              }`}
-            >
-              <HardDrive size={14} className={activeSubTab === "recording-retention" ? "text-slate-800 dark:text-white" : ""} />
-              <span>Kayıt & Saklama Sistemi</span>
-            </button>
-          )}
-          <button
-            onClick={() => setActiveSubTab("ai-providers")}
-            className={`w-full flex items-center gap-2.5 px-4 py-3 rounded-xl text-xs font-bold transition-all duration-200 border text-left ${
-              activeSubTab === "ai-providers"
-                ? "bg-purple-50/50 dark:bg-purple-950/20 text-purple-600 dark:text-purple-400 border-purple-100/50 dark:border-purple-900/30 shadow-sm"
-                : "text-slate-500 dark:text-slate-400 border-transparent hover:text-slate-800 dark:hover:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800/40"
-            }`}
-          >
-            <Bot size={14} className={activeSubTab === "ai-providers" ? "text-purple-600 dark:text-purple-400" : ""} />
-            <span>Yapay Zeka API Ayarları</span>
-          </button>
-
-          {hasAiTaskRoutingPermission && (
-            <button
-              onClick={() => setActiveSubTab("ai-task-routing")}
-              className={`w-full flex items-center gap-2.5 px-4 py-3 rounded-xl text-xs font-bold transition-all duration-200 border text-left ${
-                activeSubTab === "ai-task-routing"
-                  ? "bg-primary/5 dark:bg-primary/10 text-primary border-primary/20 shadow-sm"
-                  : "text-slate-500 dark:text-slate-400 border-transparent hover:text-slate-800 dark:hover:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800/40"
-              }`}
-            >
-              <Cpu size={14} className={activeSubTab === "ai-task-routing" ? "text-primary" : ""} />
-              <span>AI Görev & Model Yönlendirme</span>
-            </button>
-          )}
-
-          <button
-            onClick={() => setActiveSubTab("tenants")}
-            className={`w-full flex items-center gap-2.5 px-4 py-3 rounded-xl text-xs font-bold transition-all duration-200 border text-left ${
-              activeSubTab === "tenants"
-                ? "bg-rose-50/50 dark:bg-rose-950/20 text-rose-600 dark:text-rose-400 border-rose-100/50 dark:border-rose-900/30 shadow-sm"
-                : "text-slate-500 dark:text-slate-400 border-transparent hover:text-slate-800 dark:hover:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800/40"
-            }`}
-          >
-            <Building2 size={14} className={activeSubTab === "tenants" ? "text-rose-600 dark:text-rose-400" : ""} />
-            <span>Müşteri (Tenant) Yönetimi</span>
-          </button>
-
-          <button
-            onClick={() => setActiveSubTab("license")}
-            className={`w-full flex items-center gap-2.5 px-4 py-3 rounded-xl text-xs font-bold transition-all duration-200 border text-left ${
-              activeSubTab === "license"
-                ? "bg-rose-50/50 dark:bg-rose-950/20 text-rose-600 dark:text-rose-400 border-rose-100/50 dark:border-rose-900/30 shadow-sm"
-                : "text-slate-500 dark:text-slate-400 border-transparent hover:text-slate-800 dark:hover:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800/40"
-            }`}
-          >
-            <Lock size={14} className={activeSubTab === "license" ? "text-rose-600 dark:text-rose-400" : ""} />
-            <span>🔑 Lisans & Key Yönetimi</span>
-          </button>
-
-          <button
-            onClick={() => setActiveSubTab("email-notifications")}
-            className={`w-full flex items-center gap-2.5 px-4 py-3 rounded-xl text-xs font-bold transition-all duration-200 border text-left ${
-              activeSubTab === "email-notifications"
-                ? "bg-blue-50/50 dark:bg-blue-950/20 text-blue-600 dark:text-blue-400 border-blue-100/50 dark:border-blue-900/30 shadow-sm"
-                : "text-slate-500 dark:text-slate-400 border-transparent hover:text-slate-800 dark:hover:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800/40"
-            }`}
-          >
-            <Mail size={14} className={activeSubTab === "email-notifications" ? "text-blue-600 dark:text-blue-400" : ""} />
-            <span>E-Mail Bildirimleri</span>
-          </button>
-
-          <button
-            onClick={() => setActiveSubTab("restore-points")}
-            className={`w-full flex items-center gap-2.5 px-4 py-3 rounded-xl text-xs font-bold transition-all duration-200 border text-left ${
-              activeSubTab === "restore-points"
-                ? "bg-emerald-50/50 dark:bg-emerald-950/20 text-emerald-600 dark:text-emerald-400 border-emerald-100/50 dark:border-emerald-900/30 shadow-sm"
-                : "text-slate-500 dark:text-slate-400 border-transparent hover:text-slate-800 dark:hover:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800/40"
-            }`}
-          >
-            <RotateCcw size={14} className={activeSubTab === "restore-points" ? "text-emerald-600 dark:text-emerald-400" : ""} />
-            <span>Geri Yükleme Noktası</span>
-          </button>
-
-          <button
-            onClick={() => setActiveSubTab("version")}
-            className={`w-full flex items-center gap-2.5 px-4 py-3 rounded-xl text-xs font-bold transition-all duration-200 border text-left ${
-              activeSubTab === "version"
-                ? "bg-indigo-50/50 dark:bg-indigo-950/20 text-indigo-600 dark:text-indigo-400 border-indigo-100/50 dark:border-indigo-900/30 shadow-sm"
-                : "text-slate-500 dark:text-slate-400 border-transparent hover:text-slate-800 dark:hover:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800/40"
-            }`}
-          >
-            <GitCommit size={14} className={activeSubTab === "version" ? "text-indigo-600 dark:text-indigo-400" : ""} />
-            <span>Sistem Versiyonu & Günlük</span>
-          </button>
-        </div>
-
-        {/* Right Side Settings Panel Area */}
-        <div className="flex-1 min-w-0 w-full flex flex-col gap-6 animate-in fade-in slide-in-from-right-4 duration-300">
-          {activeSubTab === "pbx" && <PBXSettings backendHost={backendHost} />}
-          {activeSubTab === "nat" && <NATSettings backendHost={backendHost} />}
-          {activeSubTab === "numbering-plan" && <NumberingPlanPanel backendHost={backendHost} />}
-          {activeSubTab === "lang-detect" && <LanguageDetectionSettings backendHost={backendHost} />}
-          {activeSubTab === "emotion-management" && <EmotionManagementSettings backendHost={backendHost} />}
-          {activeSubTab === "whisper-management" && <WhisperSettings backendHost={backendHost} />}
-          {activeSubTab === "channels" && <ChannelSettings backendHost={backendHost} />}
-          {activeSubTab === "breaks" && <BreakDefinitions backendHost={backendHost} />}
-          {activeSubTab === "roles" && <RoleSettings backendHost={backendHost} />}
-          {activeSubTab === "canned-responses" && <CannedResponsesSettings backendHost={backendHost} />}
-          {activeSubTab === "qa" && <QASettings backendHost={backendHost} />}
-          {activeSubTab === "universal-api" && <UniversalAPISettings backendHost={backendHost} />}
-          {activeSubTab === "voice-biometrics" && <VoiceBiometricsSettings backendHost={backendHost} />}
-          {activeSubTab === "autoprovision-templates" && <AutoprovisionTemplatesPanel backendHost={backendHost} />}
-          {activeSubTab === "locations" && <LocationsDepartmentsPanel backendHost={backendHost} />}
-          {activeSubTab === "roi-settings" && <RoiSettings backendHost={backendHost} />}
-          {activeSubTab === "ssl" && <SSLSettings backendHost={backendHost} />}
-          {activeSubTab === "backup" && <BackupRestorePanel backendHost={backendHost} />}
-          {activeSubTab === "recording-retention" && (
-            <RecordingRetentionSettings backendHost={backendHost} />
-          )}
-          {activeSubTab === "ai-providers" && (
-            <AIProvidersSettings backendHost={backendHost} />
-          )}
-          {activeSubTab === "ai-task-routing" && (
-            <AITaskRoutingSettings backendHost={backendHost} />
-          )}
-          {activeSubTab === "tenants" && (
-            <TenantManagementPanel backendHost={backendHost} />
-          )}
-          {activeSubTab === "license" && (
-            <LicenseSettingsPanel backendHost={backendHost} />
-          )}
-          {activeSubTab === "email-notifications" && (
-            <EmailNotificationsPanel backendHost={backendHost} />
-          )}
-          {activeSubTab === "restore-points" && (
-            <RestorePointsPanel backendHost={backendHost} />
-          )}
-          {activeSubTab === "version" && (
-            <ChangelogPanel backendHost={backendHost} />
-          )}
-        </div>
+          );
+        })}
       </div>
+
+      {/* Category Content Area: Scoped Left Sub-Navigation + Right Setting Module */}
+      {currentCategory && (
+        <div
+          role="tabpanel"
+          id={`settings-cat-panel-${currentCategory.id}`}
+          aria-labelledby={`settings-cat-tab-${currentCategory.id}`}
+          className="flex flex-col md:flex-row gap-6 items-start w-full"
+        >
+          {/* Left Side Scoped Sub-Tab Menu */}
+          <nav
+            aria-label={`${currentCategory.label} modülleri`}
+            className={
+              "w-full md:w-64 lg:w-72 shrink-0 p-2.5 bg-white dark:bg-slate-900 border rounded-2xl shadow-sm space-y-1.5 " +
+              borderLight
+            }
+          >
+            <div className="px-3 py-2 border-b border-slate-100 dark:border-slate-800/80 mb-1">
+              <div className="flex items-center gap-2">
+                {(() => {
+                  const HeaderIcon = currentCategory.icon;
+                  return <HeaderIcon size={14} aria-hidden="true" className={text} />;
+                })()}
+                <span className="text-[11px] font-extrabold uppercase tracking-wider text-slate-700 dark:text-slate-200">
+                  {currentCategory.label}
+                </span>
+              </div>
+            </div>
+
+            {currentCategory.items.map((item) => {
+              const ItemIcon = item.icon;
+              const isActive = activeSubTab === item.id;
+              return (
+                <div
+                  key={item.id}
+                  className={
+                    "w-full flex items-center gap-2 pr-2.5 rounded-xl transition-all duration-200 border " +
+                    (isActive
+                      ? `${lightBg} ${text} border-primary/25 shadow-sm`
+                      : "text-slate-600 dark:text-slate-400 border-transparent hover:text-slate-900 dark:hover:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800/50")
+                  }
+                >
+                  <button
+                    type="button"
+                    aria-current={isActive ? "page" : undefined}
+                    onClick={() => setActiveSubTab(item.id)}
+                    className="flex-1 min-w-0 flex items-center gap-3 pl-3 pr-1 py-2 rounded-xl text-left focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
+                  >
+                    <div
+                      className={
+                        "w-7 h-7 rounded-lg flex items-center justify-center shrink-0 transition-colors " +
+                        (isActive
+                          ? `${bg} text-white shadow-sm`
+                          : "bg-slate-100 dark:bg-slate-800/80 text-slate-500 dark:text-slate-400")
+                      }
+                    >
+                      <ItemIcon size={14} aria-hidden="true" />
+                    </div>
+                    <span
+                      className={
+                        "text-xs font-bold truncate " +
+                        (isActive ? text : "text-slate-700 dark:text-slate-200")
+                      }
+                    >
+                      {item.label}
+                    </span>
+                  </button>
+                  {item.subtitle && (
+                    <InfoTooltip
+                      title={item.label}
+                      text={item.subtitle}
+                      className="ml-0"
+                    />
+                  )}
+                </div>
+              );
+            })}
+          </nav>
+
+          {/* Right Side Settings Panel Area */}
+          <div
+            key={activeSubTab}
+            className="flex-1 min-w-0 w-full flex flex-col gap-6 animate-in fade-in slide-in-from-right-2 duration-200"
+          >
+            {activeSubTab === "pbx" && <PBXSettings backendHost={backendHost} />}
+            {activeSubTab === "nat" && <NATSettings backendHost={backendHost} />}
+            {activeSubTab === "numbering-plan" && (
+              <NumberingPlanPanel backendHost={backendHost} />
+            )}
+            {activeSubTab === "lang-detect" && (
+              <LanguageDetectionSettings backendHost={backendHost} />
+            )}
+            {activeSubTab === "emotion-management" && (
+              <EmotionManagementSettings backendHost={backendHost} />
+            )}
+            {activeSubTab === "whisper-management" && (
+              <WhisperSettings backendHost={backendHost} />
+            )}
+            {activeSubTab === "channels" && <ChannelSettings backendHost={backendHost} />}
+            {activeSubTab === "breaks" && <BreakDefinitions backendHost={backendHost} />}
+            {activeSubTab === "work-hours" && <WorkHoursSettingsPanel backendHost={backendHost} />}
+            {activeSubTab === "roles" && <RoleSettings backendHost={backendHost} />}
+            {activeSubTab === "canned-responses" && (
+              <CannedResponsesSettings backendHost={backendHost} />
+            )}
+            {activeSubTab === "qa" && <QASettings backendHost={backendHost} />}
+            {activeSubTab === "universal-api" && (
+              <UniversalAPISettings backendHost={backendHost} />
+            )}
+            {activeSubTab === "voice-biometrics" && (
+              <VoiceBiometricsSettings backendHost={backendHost} />
+            )}
+            {activeSubTab === "autoprovision-templates" && (
+              <AutoprovisionTemplatesPanel backendHost={backendHost} />
+            )}
+            {activeSubTab === "locations" && (
+              <LocationsDepartmentsPanel backendHost={backendHost} />
+            )}
+            {activeSubTab === "roi-settings" && <RoiSettings backendHost={backendHost} />}
+            {activeSubTab === "ssl" && <SSLSettings backendHost={backendHost} />}
+            {activeSubTab === "backup" && <BackupRestorePanel backendHost={backendHost} />}
+            {activeSubTab === "recording-retention" && (
+              <RecordingRetentionSettings backendHost={backendHost} />
+            )}
+            {activeSubTab === "ai-providers" && (
+              <AIProvidersSettings backendHost={backendHost} />
+            )}
+            {activeSubTab === "ai-task-routing" && (
+              <AITaskRoutingSettings backendHost={backendHost} />
+            )}
+            {activeSubTab === "tenants" && (
+              <TenantManagementPanel backendHost={backendHost} />
+            )}
+            {activeSubTab === "license" && (
+              <LicenseSettingsPanel backendHost={backendHost} />
+            )}
+            {activeSubTab === "email-notifications" && (
+              <EmailNotificationsPanel backendHost={backendHost} />
+            )}
+            {activeSubTab === "restore-points" && (
+              <RestorePointsPanel backendHost={backendHost} />
+            )}
+            {activeSubTab === "version" && <ChangelogPanel backendHost={backendHost} />}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

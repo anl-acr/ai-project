@@ -435,28 +435,49 @@ async def handle_inbound_chat_message(channel: str, sender_info: str, text: str,
                 }
                 persona_instruction = persona_prompts.get(persona_key, persona_prompts["samimi"])
                 
-                # After-hours Work Hours Check (Turkey UTC+3)
+                # After-hours & Official Holiday Work Hours Check
                 after_hours_instruction = ""
                 if channel.lower() == "whatsapp" and ch_settings.get("whatsapp_after_hours_enabled", True):
-                    turkey_tz = datetime.timezone(datetime.timedelta(hours=3))
-                    now_turkey = datetime.datetime.now(turkey_tz)
-                    is_weekend = now_turkey.weekday() >= 5
-                    
-                    start_str = ch_settings.get("whatsapp_work_hours_start", "09:00")
-                    end_str = ch_settings.get("whatsapp_work_hours_end", "18:00")
-                    
                     try:
-                        start_hour, start_min = map(int, start_str.split(":"))
-                        end_hour, end_min = map(int, end_str.split(":"))
+                        from backend.main import evaluate_system_work_hours
+                        sess_tenant_id = getattr(chat_session, "tenant_id", None) or "tenant-default"
+                        wh_eval = evaluate_system_work_hours(settings_data, sess_tenant_id)
+                        if wh_eval.get("enabled") and wh_eval.get("is_holiday") and not wh_eval.get("is_open"):
+                            hol_name = wh_eval.get("holiday_name") or "Resmi Tatil"
+                            after_hours_instruction = (
+                                f"\n[RESMİ TATİL & MESAİ DIŞI BİLGİLENDİRMESİ]\n"
+                                f"Bugün resmi tatil / özel gün nedeniyle kapalıyız ({hol_name}). "
+                                f"Müşteriye yanıt verirken bugün {hol_name} dolayısıyla mesai dışında olduğumuzu, mesajının kayda alındığını ve ilk mesai gününde temsilcilerimizin dönüş yapacağını nazikçe belirt.\n"
+                            )
+                        elif wh_eval.get("enabled") and not wh_eval.get("is_open"):
+                            after_hours_instruction = (
+                                f"\n[MESAİ DIŞI BİLGİLENDİRMESİ]\n"
+                                f"Şu an mesai saatleri dışındayız ({wh_eval.get('reason')}). "
+                                f"Müşteriye yanıt verirken mesai saatleri dışında olduğumuzu, mesajının kayda alındığını ve ilk mesai saatinde temsilcilerimizin de inceleyeceğini nazikçe hatırlat.\n"
+                            )
+                    except Exception:
+                        pass
+
+                    if not after_hours_instruction:
+                        turkey_tz = datetime.timezone(datetime.timedelta(hours=3))
+                        now_turkey = datetime.datetime.now(turkey_tz)
+                        is_weekend = now_turkey.weekday() >= 5
                         
-                        current_time_minutes = now_turkey.hour * 60 + now_turkey.minute
-                        start_time_minutes = start_hour * 60 + start_min
-                        end_time_minutes = end_hour * 60 + end_min
+                        start_str = ch_settings.get("whatsapp_work_hours_start", "09:00")
+                        end_str = ch_settings.get("whatsapp_work_hours_end", "18:00")
                         
-                        if is_weekend or current_time_minutes < start_time_minutes or current_time_minutes >= end_time_minutes:
-                            after_hours_instruction = f"\n[MESAİ DIŞI BİLGİLENDİRMESİ]\nŞu an mesai saatleri dışındayız (Mesai saatlerimiz: {start_str} - {end_str}, Hafta içi). Müşteriye yanıt verirken mesai saatleri dışında olduğumuzu, mesajının kayda alındığını ve ilk mesai gününde temsilcilerimizin de inceleyeceğini nazikçe hatırlat.\n"
-                    except Exception as e:
-                        print(f"[Chat Service] Work hours parse error: {e}")
+                        try:
+                            start_hour, start_min = map(int, start_str.split(":"))
+                            end_hour, end_min = map(int, end_str.split(":"))
+                            
+                            current_time_minutes = now_turkey.hour * 60 + now_turkey.minute
+                            start_time_minutes = start_hour * 60 + start_min
+                            end_time_minutes = end_hour * 60 + end_min
+                            
+                            if is_weekend or current_time_minutes < start_time_minutes or current_time_minutes >= end_time_minutes:
+                                after_hours_instruction = f"\n[MESAİ DIŞI BİLGİLENDİRMESİ]\nŞu an mesai saatleri dışındayız (Mesai saatlerimiz: {start_str} - {end_str}, Hafta içi). Müşteriye yanıt verirken mesai saatleri dışında olduğumuzu, mesajının kayda alındığını ve ilk mesai gününde temsilcilerimizin de inceleyeceğini nazikçe hatırlat.\n"
+                        except Exception as e:
+                            print(f"[Chat Service] Work hours parse error: {e}")
 
                 # Gemini client prompt
                 prompt = f"""

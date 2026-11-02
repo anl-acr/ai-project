@@ -85,9 +85,71 @@ def _record_first_hangup(uniqueid: str, linkedid: str, channel: str, caller: str
         first_hangup_by_id[uid_s] = info
 
 
+def _resolve_sip_peer_to_ext(peer_name: str) -> str:
+    """
+    Maps a PJSIP endpoint / AOR name (either numeric extension '1001' or user's SIP hardware username 'Ab8kP2x9')
+    to the subscriber's canonical extension ('1001'). Returns '' if peer is a trunk or unknown.
+    """
+    p = str(peer_name or "").strip()
+    if not p:
+        return ""
+    if p.isdigit() and len(p) <= 6:
+        return p
+    try:
+        from backend.main import settings_db
+        from backend.services.autoprovision_service import resolve_user_sip_username
+        p_low = p.lower()
+        for u in settings_db.get("users", []) or []:
+            if not isinstance(u, dict):
+                continue
+            u_ext = str(u.get("extension") or "").strip()
+            if not u_ext:
+                continue
+            u_sip = resolve_user_sip_username(u_ext, u.get("sip_username") or "")
+            if u_sip.lower() == p_low or str(u.get("sip_username") or "").strip().lower() == p_low:
+                return u_ext
+        for d in settings_db.get("autoprovision", []) or []:
+            if isinstance(d, dict) and str(d.get("sip_username") or "").strip().lower() == p_low:
+                d_ext = str(d.get("extension") or "").strip()
+                if d_ext:
+                    return d_ext
+    except Exception:
+        pass
+    return ""
+
+
+def _extract_ext_from_channel(chan_name: str) -> str:
+    import re
+    ch = str(chan_name or "").strip()
+    m = re.match(r"^(?:PJSIP|SIP|IAX2)/([^-\;@/]+)", ch, re.IGNORECASE)
+    if not m:
+        return ""
+    return _resolve_sip_peer_to_ext(m.group(1).strip())
+
+
+def _get_ext_channel_prefixes(ext_s: str) -> list:
+    prefixes = [f"pjsip/{ext_s.lower()}-", f"sip/{ext_s.lower()}-"]
+    try:
+        from backend.main import settings_db
+        from backend.services.autoprovision_service import resolve_user_sip_username
+        for u in settings_db.get("users", []) or []:
+            if isinstance(u, dict) and str(u.get("extension") or "").strip() == ext_s:
+                u_sip = resolve_user_sip_username(ext_s, u.get("sip_username") or "")
+                if u_sip:
+                    prefixes.append(f"pjsip/{u_sip.lower()}-")
+                    prefixes.append(f"sip/{u_sip.lower()}-")
+                raw_sip = str(u.get("sip_username") or "").strip()
+                if raw_sip and raw_sip.lower() != u_sip.lower():
+                    prefixes.append(f"pjsip/{raw_sip.lower()}-")
+                break
+    except Exception:
+        pass
+    return prefixes
+
+
 def classify_hangup_channel(chan_name: str, caller_num: str = "", callee_num: str = "") -> str:
     """
-    Classifies an Asterisk channel string (e.g. 'PJSIP/1000-0000001a' or 'PJSIP/Operator_Trunk-0000001b')
+    Classifies an Asterisk channel string (e.g. 'PJSIP/1000-0000001a', 'PJSIP/Ab8kP2x9-0000001a', or 'PJSIP/Operator_Trunk-0000001b')
     into an ended_by identifier:
       - 'ext:<ext>' for internal SIP/PJSIP subscriber extensions (e.g. 'ext:1000')
       - 'ai' for AudioSocket / AI channels
@@ -108,9 +170,9 @@ def classify_hangup_channel(chan_name: str, caller_num: str = "", callee_num: st
         return ""
     if peer.lower() == "ai":
         return "ai"
-    # Short numeric peer (e.g. 100, 1000, 1001) is an internal extension
-    if peer.isdigit() and len(peer) <= 6:
-        return f"ext:{peer}"
+    mapped_ext = _resolve_sip_peer_to_ext(peer)
+    if mapped_ext:
+        return f"ext:{mapped_ext}"
     # Otherwise peer is a SIP Trunk name or DID (e.g. Operator_Trunk, 908503607390, Ikon_Trunk) -> remote/customer side hung up
     return "customer"
 
@@ -155,14 +217,13 @@ def get_extension_call_state(ext: str):
     if not ext_s:
         return None
     found_ringing = False
-    pjsip_prefix = f"pjsip/{ext_s.lower()}-"
-    sip_prefix = f"sip/{ext_s.lower()}-"
+    prefixes = tuple(_get_ext_channel_prefixes(ext_s))
     for uid, info in list(channel_states.items()):
         ch_lower = str(info.get("channel") or "").lower()
         caller_s = str(info.get("caller") or "").strip()
         exten_s = str(info.get("exten") or "").strip()
         st = info.get("state") or "ringing"
-        if ch_lower.startswith(pjsip_prefix) or ch_lower.startswith(sip_prefix) or caller_s == ext_s or exten_s == ext_s:
+        if ch_lower.startswith(prefixes) or caller_s == ext_s or exten_s == ext_s:
             if st == "busy":
                 return "busy"
             # If this extension is the caller initiating an outbound/internal call, its state is busy
@@ -173,7 +234,7 @@ def get_extension_call_state(ext: str):
         return "ringing"
     for uid, ch in list(active_channels.items()):
         ch_lower = str(ch or "").lower()
-        if ch_lower.startswith(pjsip_prefix) or ch_lower.startswith(sip_prefix):
+        if ch_lower.startswith(prefixes):
             return "busy"
     return None
 
@@ -183,8 +244,7 @@ def get_extension_ringing_info(ext: str):
     ext_s = str(ext or "").strip()
     if not ext_s:
         return None
-    pjsip_prefix = f"pjsip/{ext_s.lower()}-"
-    sip_prefix = f"sip/{ext_s.lower()}-"
+    prefixes = tuple(_get_ext_channel_prefixes(ext_s))
     ringing_match = None
     for uid, info in list(channel_states.items()):
         ch = str(info.get("channel") or "")
@@ -192,7 +252,7 @@ def get_extension_ringing_info(ext: str):
         caller_s = str(info.get("caller") or "").strip()
         exten_s = str(info.get("exten") or "").strip()
         st = info.get("state") or "ringing"
-        if ch_lower.startswith(pjsip_prefix) or ch_lower.startswith(sip_prefix) or exten_s == ext_s:
+        if ch_lower.startswith(prefixes) or exten_s == ext_s:
             if st == "busy":
                 return None
             if caller_s != ext_s:
@@ -209,12 +269,11 @@ async def find_ringing_channel_for_extension(target_ext: str) -> str:
     ext_s = str(target_ext or "").strip()
     if not ext_s:
         return ""
-    pjsip_prefix = f"pjsip/{ext_s.lower()}-"
-    sip_prefix = f"sip/{ext_s.lower()}-"
+    prefixes = tuple(_get_ext_channel_prefixes(ext_s))
 
     for uid, info in list(channel_states.items()):
         ch = str(info.get("channel") or "").strip()
-        if ch and (ch.lower().startswith(pjsip_prefix) or ch.lower().startswith(sip_prefix)):
+        if ch and ch.lower().startswith(prefixes):
             if info.get("state") != "busy":
                 return ch
 
@@ -227,7 +286,7 @@ async def find_ringing_channel_for_extension(target_ext: str) -> str:
                     continue
                 ch = str(r.get("Channel") or "").strip()
                 st_desc = str(r.get("ChannelStateDesc") or "").strip().lower()
-                if ch and (ch.lower().startswith(pjsip_prefix) or ch.lower().startswith(sip_prefix)):
+                if ch and ch.lower().startswith(prefixes):
                     if st_desc in ("ringing", "ring", "down", "rsrvd"):
                         return ch
         except Exception as e:
@@ -362,21 +421,19 @@ def register_event_handlers(manager: Manager):
                 "state": mapped
             }
             try:
-                import re
                 from backend.main import set_live_extension_call_state
                 ch_s = str(channel_states[uniqueid].get("channel") or "")
-                m_ext = re.search(r"(?:PJSIP|SIP)/(\d+)-", ch_s, re.IGNORECASE)
-                ch_ext = m_ext.group(1) if m_ext else ""
+                ch_ext = _extract_ext_from_channel(ch_s)
                 if mapped == "busy":
                     if ch_ext:
                         set_live_extension_call_state(ch_ext, "busy")
                         from backend.services.agent_presence import reset_agent_missed_calls
                         reset_agent_missed_calls(ch_ext)
-                    c_num = channel_states[uniqueid].get("caller") or ""
-                    e_num = channel_states[uniqueid].get("exten") or ""
-                    if c_num and c_num.isdigit() and len(c_num) <= 5:
+                    c_num = _resolve_sip_peer_to_ext(channel_states[uniqueid].get("caller") or "")
+                    e_num = _resolve_sip_peer_to_ext(channel_states[uniqueid].get("exten") or "")
+                    if c_num and c_num.isdigit() and len(c_num) <= 6:
                         set_live_extension_call_state(c_num, "busy")
-                    if e_num and e_num.isdigit() and len(e_num) <= 5:
+                    if e_num and e_num.isdigit() and len(e_num) <= 6:
                         set_live_extension_call_state(e_num, "busy")
                 elif state_desc == "ringing" or state_code == "5":
                     if ch_ext:
@@ -400,15 +457,14 @@ def register_event_handlers(manager: Manager):
         if old_ch:
             print(f"[AMI] Kanal Silindi (Hangup): {uniqueid} ({old_ch})")
         try:
-            import re
             from backend.main import set_live_extension_call_state
             candidates = set()
-            m_ext = re.search(r"(?:PJSIP|SIP)/(\d+)-", str(old_ch), re.IGNORECASE)
-            if m_ext:
-                candidates.add(m_ext.group(1))
+            ch_ext = _extract_ext_from_channel(str(old_ch))
+            if ch_ext:
+                candidates.add(ch_ext)
             for k in ("caller", "exten"):
-                v = str(old_info.get(k) or "").strip()
-                if v.isdigit() and len(v) <= 5:
+                v = _resolve_sip_peer_to_ext(str(old_info.get(k) or "").strip())
+                if v and v.isdigit() and len(v) <= 6:
                     candidates.add(v)
             for ext_cand in candidates:
                 if get_extension_call_state(ext_cand) is None:
@@ -425,22 +481,41 @@ def register_event_handlers(manager: Manager):
         ip_match = re.search(r'\b(?:\d{1,3}\.){3}\d{1,3}\b', uri)
         extracted_ip = ip_match.group(0) if ip_match else ""
         if aor:
+            aor_str = str(aor).strip()
+            mapped_ext = _resolve_sip_peer_to_ext(aor_str)
             if status in ["Reachable", "Created", "Registered"]:
-                registered_endpoints.add(aor, extracted_ip)
-                print(f"[AMI] Endpoint Kaydedildi: {aor} (IP: {extracted_ip})")
+                registered_endpoints.add(aor_str, extracted_ip)
+                print(f"[AMI] Endpoint Kaydedildi: {aor_str} (Dahili: {mapped_ext or aor_str}, IP: {extracted_ip})")
                 try:
                     from backend.services.agent_presence import handle_agent_reconnect_auto_pause
-                    asyncio.create_task(handle_agent_reconnect_auto_pause(str(aor)))
+                    asyncio.create_task(handle_agent_reconnect_auto_pause(mapped_ext or aor_str))
                 except Exception as e_rec:
                     print(f"[AMI AutoPause Reconnect Hook Error]: {e_rec}")
             elif status in ["Removed", "Unreachable", "Unknown"]:
-                registered_endpoints.discard(aor)
-                print(f"[AMI] Endpoint Koptu: {aor}")
-                try:
-                    from backend.services.agent_presence import schedule_agent_disconnect_auto_pause
-                    asyncio.create_task(schedule_agent_disconnect_auto_pause(str(aor)))
-                except Exception as e_dc:
-                    print(f"[AMI AutoPause Disconnect Hook Error]: {e_dc}")
+                registered_endpoints.discard(aor_str)
+                print(f"[AMI] Endpoint Koptu: {aor_str} (Dahili: {mapped_ext or aor_str})")
+                # Only trigger disconnect auto-pause if NEITHER WebRTC ext NOR SIP hardware username remains registered
+                still_online = False
+                if mapped_ext and mapped_ext in registered_endpoints:
+                    still_online = True
+                if not still_online and mapped_ext:
+                    try:
+                        from backend.main import settings_db
+                        from backend.services.autoprovision_service import resolve_user_sip_username
+                        for u in settings_db.get("users", []) or []:
+                            if isinstance(u, dict) and str(u.get("extension") or "").strip() == mapped_ext:
+                                u_sip = resolve_user_sip_username(mapped_ext, u.get("sip_username") or "")
+                                if u_sip and u_sip in registered_endpoints:
+                                    still_online = True
+                                break
+                    except Exception:
+                        pass
+                if not still_online:
+                    try:
+                        from backend.services.agent_presence import schedule_agent_disconnect_auto_pause
+                        asyncio.create_task(schedule_agent_disconnect_auto_pause(mapped_ext or aor_str))
+                    except Exception as e_dc:
+                        print(f"[AMI AutoPause Disconnect Hook Error]: {e_dc}")
 
     @manager.register_event('DTMFEnd')
     def handle_dtmf_end(m, event):
@@ -491,10 +566,11 @@ def register_event_handlers(manager: Manager):
         q_name = str(event.get('Queue') or "").strip()
         caller_num = str(event.get('CallerIDNum') or "").strip()
         uniqueid = str(event.get('Uniqueid') or "").strip()
-        m_ext = re.search(r"(?:PJSIP|SIP)/(\d+)", iface, re.IGNORECASE)
-        ext_val = m_ext.group(1) if m_ext else iface
+        m_peer = re.search(r"(?:PJSIP|SIP|IAX2)/([^-\;@/\s]+)", iface, re.IGNORECASE)
+        peer_raw = m_peer.group(1) if m_peer else iface
+        ext_val = _resolve_sip_peer_to_ext(peer_raw) or peer_raw
         if ext_val:
-            print(f"[AMI] AgentRingNoAnswer: {ext_val} (Queue: {q_name})")
+            print(f"[AMI] AgentRingNoAnswer: {ext_val} (Peer: {peer_raw}, Queue: {q_name})")
             try:
                 from backend.services.agent_presence import handle_agent_missed_call_for_auto_pause
                 asyncio.create_task(handle_agent_missed_call_for_auto_pause(ext_val, queue_ext=q_name))
@@ -516,8 +592,9 @@ def register_event_handlers(manager: Manager):
         uniqueid = str(event.get('Uniqueid') or "").strip()
         linkedid = str(event.get('Linkedid') or "").strip()
         _record_call_answered(uniqueid=uniqueid, linkedid=linkedid, overwrite=True)
-        m_ext = re.search(r"(?:PJSIP|SIP)/(\d+)", iface, re.IGNORECASE)
-        ext_val = m_ext.group(1) if m_ext else iface
+        m_peer = re.search(r"(?:PJSIP|SIP|IAX2)/([^-\;@/\s]+)", iface, re.IGNORECASE)
+        peer_raw = m_peer.group(1) if m_peer else iface
+        ext_val = _resolve_sip_peer_to_ext(peer_raw) or peer_raw
         if ext_val:
             try:
                 from backend.services.agent_presence import reset_agent_missed_calls
@@ -668,6 +745,11 @@ async def get_ami_manager() -> Manager:
         )
         await asyncio.wait_for(mgr.connect(), timeout=2.0)
         register_event_handlers(mgr)
+        try:
+            from backend.services.sip_trapper import sip_trapper
+            sip_trapper.register_ami_hooks(mgr)
+        except Exception as _sip_err:
+            print(f"[AMI] SipTrapper hook warning: {_sip_err}")
         manager_instance = mgr
         print("[AMI] Connected successfully and event handlers registered!")
 

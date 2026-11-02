@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from "react";
-import { getApiBaseUrl } from "../../utils/apiHost";
+import { getApiBaseUrl, tenantFetch } from "../../utils/apiHost";
 import { 
   GitBranch, 
   Save, 
@@ -33,7 +33,7 @@ import {
 import ConfirmDeleteModal from "../dashboard/ConfirmDeleteModal";
 import { useTheme } from "../../utils/theme";
 
-export default function CallFlowEditor({ backendHost = "localhost:8000", onEditStateChange }) {
+export default function CallFlowEditor({ backendHost = "localhost:8000", onEditStateChange, onOpenWorkHours }) {
   const { bg, hover, text, border, ring, lightBg, lightText, borderLight, colorCode } = useTheme();
   const [viewMode, setViewMode] = useState("list"); // list, edit
   const [workflows, setWorkflows] = useState([]);
@@ -143,7 +143,7 @@ export default function CallFlowEditor({ backendHost = "localhost:8000", onEditS
       .catch((err) => console.error("[CallFlow] Queues load error:", err));
 
     // Fetch Announcements
-    fetch(`${API_BASE}/api/settings/announcements`)
+    tenantFetch(`${API_BASE}/api/settings/announcements`)
       .then((res) => res.json())
       .then((data) => {
         if (Array.isArray(data)) setAnnouncements(data);
@@ -1741,9 +1741,20 @@ export default function CallFlowEditor({ backendHost = "localhost:8000", onEditS
 
               {/* Play Node parameter */}
               {node.type === "play" && (() => {
-                const announcementsList = announcements.length > 0
-                  ? announcements.map((a) => ({ id: a.filename || a.id, name: a.name || a.title || a.filename || "Anons" }))
-                  : [{ id: "default_announcement.wav", name: "Varsayılan Anons" }];
+                const normCat = (a) => {
+                  const v = String(a?.type || "").trim().toLowerCase();
+                  if (v === "moh" || v === "music" || v === "hold_music") return "moh";
+                  if (v === "system" || v === "sistem") return "system";
+                  return "announcement";
+                };
+                const customList = announcements
+                  .filter((a) => normCat(a) === "announcement")
+                  .map((a) => ({ id: a.filename || a.id, name: a.name || a.title || a.filename || "Anons" }));
+                const systemList = announcements
+                  .filter((a) => normCat(a) === "system")
+                  .map((a) => ({ id: a.filename || a.id, name: a.name || a.title || a.filename || "Sistem Anonsu" }));
+                const combinedSpeech = [...customList, ...systemList];
+                const defaultRecordedId = customList[0]?.id || systemList[0]?.id || "";
 
                 const announcementType = node.extra_fields?.announcement_type || "recorded";
 
@@ -1767,8 +1778,7 @@ export default function CallFlowEditor({ backendHost = "localhost:8000", onEditS
                                 type="button"
                                 onClick={() => {
                                   handleUpdateNodeExtraField("announcement_type", t.id);
-                                  // Reset main node value
-                                  const defVal = t.id === "recorded" ? announcementsList[0].id : "";
+                                  const defVal = t.id === "recorded" ? defaultRecordedId : "";
                                   handleUpdateNodeField("value", defVal);
                                 }}
                                 className={`flex-1 py-1.5 rounded-lg border text-center text-xs font-bold transition cursor-pointer ${
@@ -1798,16 +1808,30 @@ export default function CallFlowEditor({ backendHost = "localhost:8000", onEditS
                         </div>
                       ) : (
                         <div className="flex flex-col gap-1">
-                          <span className="text-[9px] text-slate-455 dark:text-slate-555 font-bold">Anons Dosyası Seçin</span>
+                          <span className="text-[9px] text-slate-455 dark:text-slate-555 font-bold">Anons Dosyası Seçin (Özel / Sistem Anonsları)</span>
                           <select
                             value={node.value || ""}
                             onChange={(e) => handleUpdateNodeField("value", e.target.value)}
                             className="px-3 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl text-xs font-bold text-slate-850 dark:text-white focus:outline-none"
                           >
                             <option value="">-- Anons Dosyası Seçin --</option>
-                            {announcementsList.map((a) => (
-                              <option key={a.id} value={a.id}>{a.name} ({a.id})</option>
-                            ))}
+                            {node.value && !combinedSpeech.some((a) => String(a.id) === String(node.value)) && (
+                              <option value={node.value}>{node.value} (Kayıtlı Anons)</option>
+                            )}
+                            {customList.length > 0 && (
+                              <optgroup label="Özel Anonslar">
+                                {customList.map((a) => (
+                                  <option key={a.id} value={a.id}>{a.name} ({a.id})</option>
+                                ))}
+                              </optgroup>
+                            )}
+                            {systemList.length > 0 && (
+                              <optgroup label="Sistem Anonsları">
+                                {systemList.map((a) => (
+                                  <option key={a.id} value={a.id}>{a.name} ({a.id})</option>
+                                ))}
+                              </optgroup>
+                            )}
                           </select>
                         </div>
                       )}
@@ -1818,8 +1842,14 @@ export default function CallFlowEditor({ backendHost = "localhost:8000", onEditS
 
               {/* Menu Node parameter */}
               {node.type === "menu" && (() => {
-                const announcementsList = announcements.length > 0
-                  ? announcements.map((a) => ({ id: a.filename || a.id, name: a.name || a.title || a.filename || "Anons" }))
+                const customMenuList = announcements
+                  .filter((a) => {
+                    const v = String(a?.type || "").trim().toLowerCase();
+                    return v !== "moh" && v !== "music" && v !== "hold_music" && v !== "system" && v !== "sistem";
+                  })
+                  .map((a) => ({ id: a.filename || a.id, name: a.name || a.title || a.filename || "Anons" }));
+                const announcementsList = customMenuList.length > 0
+                  ? customMenuList
                   : [{ id: "default_announcement.wav", name: "Varsayılan Anons" }];
 
                 const announcementType = node.extra_fields?.announcement_type || "recorded";
@@ -1879,13 +1909,16 @@ export default function CallFlowEditor({ backendHost = "localhost:8000", onEditS
                         </div>
                       ) : (
                         <div className="flex flex-col gap-1">
-                          <span className="text-[9px] text-slate-455 dark:text-slate-555 font-bold">Anons Dosyası Seçin</span>
+                          <span className="text-[9px] text-slate-455 dark:text-slate-555 font-bold">Özel Anons Dosyası Seçin</span>
                           <select
                             value={node.value || ""}
                             onChange={(e) => handleUpdateNodeField("value", e.target.value)}
                             className="px-3 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl text-xs font-bold text-slate-850 dark:text-white focus:outline-none"
                           >
-                            <option value="">-- Anons Dosyası Seçin --</option>
+                            <option value="">-- Özel Anonslar&apos;dan Seçin --</option>
+                            {node.value && !announcementsList.some((a) => String(a.id) === String(node.value)) && (
+                              <option value={node.value}>{node.value} (Kayıtlı Anons)</option>
+                            )}
                             {announcementsList.map((a) => (
                               <option key={a.id} value={a.id}>{a.name} ({a.id})</option>
                             ))}
@@ -1985,12 +2018,25 @@ export default function CallFlowEditor({ backendHost = "localhost:8000", onEditS
                     }))
                   : [{ id: "1", name: "Operator_Trunk (İkon Telekom)", username: "908503607390" }];
 
-                const announcementsList = announcements.length > 0
-                  ? announcements.map((a) => ({
-                      id: a.filename || a.id,
-                      name: a.name || a.title || a.filename || "Anons"
-                    }))
-                  : [{ id: "default_announcement.wav", name: "Varsayılan Anons" }];
+                const transferSystemAnns = announcements
+                  .filter((a) => {
+                    const v = String(a?.type || "").trim().toLowerCase();
+                    return v === "system" || v === "sistem";
+                  })
+                  .map((a) => ({
+                    id: a.filename || a.id,
+                    name: a.name || a.title || a.filename || "Sistem Anonsu"
+                  }));
+                const transferCustomAnns = announcements
+                  .filter((a) => {
+                    const v = String(a?.type || "").trim().toLowerCase();
+                    return v !== "moh" && v !== "music" && v !== "hold_music" && v !== "system" && v !== "sistem";
+                  })
+                  .map((a) => ({
+                    id: a.filename || a.id,
+                    name: a.name || a.title || a.filename || "Özel Anons"
+                  }));
+                const announcementsList = [...transferSystemAnns, ...transferCustomAnns];
 
                 const currentType = node.extra_fields?.transfer_type || "dahili";
                 const playAnnouncement = node.extra_fields?.play_announcement || false;
@@ -2168,16 +2214,33 @@ export default function CallFlowEditor({ backendHost = "localhost:8000", onEditS
                             </div>
                           ) : (
                             <div className="flex flex-col gap-1">
-                              <span className="text-[9px] text-slate-455 dark:text-slate-555 font-bold">Anons Dosyası Seçin</span>
+                              <span className="text-[9px] text-slate-455 dark:text-slate-555 font-bold">Transfer Anonsu Seçin (Sistem / Özel Anonslar)</span>
                               <select
                                 value={node.extra_fields?.announcement_recorded || ""}
                                 onChange={(e) => handleUpdateNodeExtraField("announcement_recorded", e.target.value)}
                                 className="px-3 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl text-xs font-bold text-slate-850 dark:text-white focus:outline-none"
                               >
-                                <option value="">-- Anons Dosyası Seçin --</option>
-                                {announcementsList.map((a) => (
-                                  <option key={a.id} value={a.id}>{a.name} ({a.id})</option>
-                                ))}
+                                <option value="">-- Anons Seçin --</option>
+                                {node.extra_fields?.announcement_recorded &&
+                                  !announcementsList.some((a) => String(a.id) === String(node.extra_fields?.announcement_recorded)) && (
+                                    <option value={node.extra_fields.announcement_recorded}>
+                                      {node.extra_fields.announcement_recorded} (Kayıtlı Anons)
+                                    </option>
+                                  )}
+                                {transferSystemAnns.length > 0 && (
+                                  <optgroup label="Sistem Anonsları">
+                                    {transferSystemAnns.map((a) => (
+                                      <option key={a.id} value={a.id}>{a.name} ({a.id})</option>
+                                    ))}
+                                  </optgroup>
+                                )}
+                                {transferCustomAnns.length > 0 && (
+                                  <optgroup label="Özel Anonslar">
+                                    {transferCustomAnns.map((a) => (
+                                      <option key={a.id} value={a.id}>{a.name} ({a.id})</option>
+                                    ))}
+                                  </optgroup>
+                                )}
                               </select>
                             </div>
                           )}
@@ -2261,6 +2324,48 @@ export default function CallFlowEditor({ backendHost = "localhost:8000", onEditS
               {/* Timerule Node parameters */}
               {node.type === "timerule" && (
                 <div className="flex flex-col gap-3">
+                  <div className={`p-3 rounded-xl border ${borderLight} ${lightBg} flex flex-col gap-2`}>
+                    <label className="flex items-center justify-between gap-2 cursor-pointer">
+                      <span className="text-[11px] font-bold text-slate-800 dark:text-slate-100 flex items-center gap-1.5">
+                        <Clock size={13} className={text} />
+                        Merkezi Mesai & Resmi Tatil Takvimini Kullan
+                      </span>
+                      <input
+                        type="checkbox"
+                        checked={node.extra_fields?.use_system_work_hours !== false}
+                        onChange={(e) => {
+                          const checked = e.target.checked;
+                          setNodes((prev) =>
+                            prev.map((n) =>
+                              n.id === node.id
+                                ? {
+                                    ...n,
+                                    extra_fields: {
+                                      ...n.extra_fields,
+                                      use_system_work_hours: checked
+                                    }
+                                  }
+                                : n
+                            )
+                          );
+                        }}
+                        className="h-4 w-4 rounded accent-primary cursor-pointer"
+                      />
+                    </label>
+                    <p className="text-[10px] text-slate-500 dark:text-slate-400 leading-relaxed">
+                      Aktif olduğunda sistem genelindeki haftalık çalışma saatleri, öğle molası ve resmi/dini tatil günleri otomatik değerlendirilir.
+                    </p>
+                    {onOpenWorkHours && (
+                      <button
+                        type="button"
+                        onClick={onOpenWorkHours}
+                        className={`self-start text-[10px] font-bold ${text} hover:underline flex items-center gap-1`}
+                      >
+                        Mesai & Resmi Tatil Ayarlarını Aç <ArrowRight size={11} />
+                      </button>
+                    )}
+                  </div>
+
                   <div className="grid grid-cols-2 gap-2 text-left">
                     <div className="flex flex-col gap-1">
                       <label className="text-[10px] text-slate-400 dark:text-slate-500 font-bold uppercase tracking-wider">Başlangıç Saati</label>

@@ -1,9 +1,52 @@
 import React, { useState, useEffect, useRef } from "react";
-import { Plus, Trash2, Search, Volume2, Info, X, Check, FileAudio, PlayCircle, StopCircle, Download, Play, Square, Edit2, Bot, Sparkles } from "lucide-react";
+import { Plus, Trash2, Search, Volume2, Info, X, Check, FileAudio, PlayCircle, StopCircle, Download, Play, Square, Edit2, Bot, Sparkles, Music, ShieldCheck, RotateCcw } from "lucide-react";
 import ConfirmDeleteModal from "../dashboard/ConfirmDeleteModal";
 import { useTheme } from "../../utils/theme";
 import { getApiBaseUrl, tenantFetch } from "../../utils/apiHost";
 import { createPortal } from "react-dom";
+
+const ANNOUNCEMENT_CATEGORIES = [
+  {
+    id: "system",
+    urlSlug: "sistem-anonslari",
+    label: "Sistem Anonsları",
+    shortBadge: "Sistem Anonsu",
+    icon: ShieldCheck,
+    addTitle: "Yeni Sistem Anonsu Ekle",
+    searchPlaceholder: "Sistem anonsu ara...",
+    emptyTitle: "Kayıtlı sistem anonsu bulunamadı.",
+    emptyDesc: "Santral durum, meşgul, aktarım ve anket sistem seslerini buradan yönetebilirsiniz."
+  },
+  {
+    id: "moh",
+    urlSlug: "bekleme-muzikleri",
+    label: "Bekleme Müzikleri",
+    shortBadge: "Bekleme Müziği",
+    icon: Music,
+    addTitle: "Yeni Bekleme Müziği Ekle",
+    searchPlaceholder: "Bekleme müziği ara...",
+    emptyTitle: "Özel bekleme müziği yüklenmedi.",
+    emptyDesc: "Kuyruklarda varsayılan sistem bekleme müziği (default) çalmaktadır. Kendi bekletme müziğinizi yüklemek için sağ üstteki '+' butonunu kullanın."
+  },
+  {
+    id: "announcement",
+    urlSlug: "ozel-anonslar",
+    label: "Özel Anonslar",
+    shortBadge: "Özel Anons",
+    icon: Sparkles,
+    addTitle: "Yeni Özel Anons Ekle",
+    searchPlaceholder: "Özel anons ara...",
+    emptyTitle: "Kayıtlı özel anons bulunamadı.",
+    emptyDesc: "IVR menü, karşılama ve kuyruk bilgilendirme anonsları eklemek için sağ üstteki '+' butonunu kullanın."
+  }
+];
+
+const normalizeCategoryType = (rawType) => {
+  const v = String(rawType || "").trim().toLowerCase();
+  if (v === "moh" || v === "music" || v === "hold_music") return "moh";
+  if (v === "system" || v === "sistem") return "system";
+  return "announcement";
+};
 
 const GEMINI_VOICE_OPTIONS = [
   "Aoede (Dişi - Türkçe / İngilizce)",
@@ -30,11 +73,15 @@ const DEFAULT_ELEVENLABS_VOICES = [
   { voice_id: "JBFqnCBsd6RMkjVDRZzb", name: "George (Male - Warm & Friendly)" }
 ];
 
-export default function AnnouncementsPanel({ backendHost = "localhost:8000" }) {
+export default function AnnouncementsPanel({ backendHost = "localhost:8000", userPermissions }) {
   const { bg, hover, text, border, ring, lightBg, lightText, borderLight } = useTheme();
+  const canWrite = !Array.isArray(userPermissions) || userPermissions.includes("announcements:write");
+  const canDelete = !Array.isArray(userPermissions) || userPermissions.includes("announcements:delete");
   
   const [announcements, setAnnouncements] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [categoryTab, setCategoryTab] = useState("system");
+  const categoryTabRefs = useRef([]);
   
   const [searchQuery, setSearchQuery] = useState("");
   
@@ -42,10 +89,10 @@ export default function AnnouncementsPanel({ backendHost = "localhost:8000" }) {
   const [editingAnn, setEditingAnn] = useState(null);
   const [isUploading, setIsUploading] = useState(false);
   const [newAnnName, setNewAnnName] = useState("");
-  const [annType, setAnnType] = useState("announcement"); // announcement | moh
+  const [annType, setAnnType] = useState("announcement"); // system | moh | announcement
   const [selectedFile, setSelectedFile] = useState(null);
   
-  const [deleteTargetId, setDeleteTargetId] = useState(null);
+  const [deleteTarget, setDeleteTarget] = useState(null);
   const [playingId, setPlayingId] = useState(null);
   const [currentTime, setCurrentTime] = useState(0);
   const [durations, setDurations] = useState({});
@@ -86,6 +133,16 @@ export default function AnnouncementsPanel({ backendHost = "localhost:8000" }) {
   };
 
   useEffect(() => {
+    if (typeof window !== "undefined") {
+      const params = new URLSearchParams(window.location.search);
+      const sub = params.get("subtab");
+      if (sub) {
+        const matched = ANNOUNCEMENT_CATEGORIES.find(
+          (c) => c.urlSlug === sub || c.id === sub
+        );
+        if (matched) setCategoryTab(matched.id);
+      }
+    }
     fetchAnnouncements();
     fetchAiAgentsAndVoices();
     const handleTenantChange = () => {
@@ -101,6 +158,42 @@ export default function AnnouncementsPanel({ backendHost = "localhost:8000" }) {
       stopPreviewAudio();
     };
   }, []);
+
+  const selectCategoryTab = (catId, focusIdx = null) => {
+    setCategoryTab(catId);
+    if (typeof window !== "undefined") {
+      try {
+        const catObj = ANNOUNCEMENT_CATEGORIES.find((c) => c.id === catId);
+        const url = new URL(window.location.href);
+        if (catObj?.urlSlug) {
+          url.searchParams.set("subtab", catObj.urlSlug);
+          window.history.replaceState({}, "", url.toString());
+        }
+      } catch (e) {}
+    }
+    if (focusIdx !== null && categoryTabRefs.current[focusIdx]) {
+      categoryTabRefs.current[focusIdx].focus();
+    }
+  };
+
+  const handleCategoryTabKeyDown = (e, idx) => {
+    const total = ANNOUNCEMENT_CATEGORIES.length;
+    if (e.key === "ArrowRight") {
+      e.preventDefault();
+      const next = (idx + 1) % total;
+      selectCategoryTab(ANNOUNCEMENT_CATEGORIES[next].id, next);
+    } else if (e.key === "ArrowLeft") {
+      e.preventDefault();
+      const prev = (idx - 1 + total) % total;
+      selectCategoryTab(ANNOUNCEMENT_CATEGORIES[prev].id, prev);
+    } else if (e.key === "Home") {
+      e.preventDefault();
+      selectCategoryTab(ANNOUNCEMENT_CATEGORIES[0].id, 0);
+    } else if (e.key === "End") {
+      e.preventDefault();
+      selectCategoryTab(ANNOUNCEMENT_CATEGORIES[total - 1].id, total - 1);
+    }
+  };
 
   const fetchAiAgentsAndVoices = async () => {
     try {
@@ -268,10 +361,12 @@ export default function AnnouncementsPanel({ backendHost = "localhost:8000" }) {
   };
 
   const openCreateModal = () => {
+    if (!canWrite) return;
     stopPreviewAudio();
     setEditingAnn(null);
     setNewAnnName("");
-    setAnnType("announcement");
+    const initialCat = normalizeCategoryType(categoryTab);
+    setAnnType(initialCat);
     setSelectedFile(null);
     setTtsText("");
     setSelectedAgentId("");
@@ -289,6 +384,7 @@ export default function AnnouncementsPanel({ backendHost = "localhost:8000" }) {
   };
 
   const openEditModal = (ann) => {
+    if (!canWrite) return;
     stopPreviewAudio();
     if (playingId === ann.id) {
       if (audioRef.current) {
@@ -300,7 +396,7 @@ export default function AnnouncementsPanel({ backendHost = "localhost:8000" }) {
     }
     setEditingAnn(ann);
     setNewAnnName(ann.name || ann.original_filename || "");
-    setAnnType(ann.type || "announcement");
+    setAnnType(ann.is_builtin ? "system" : normalizeCategoryType(ann.type));
     setSelectedFile(null);
     setTtsText(ann.text || "");
     setSelectedAgentId(ann.agent_id || "");
@@ -360,6 +456,7 @@ export default function AnnouncementsPanel({ backendHost = "localhost:8000" }) {
       }
       
       if (res.ok) {
+        selectCategoryTab(normalizeCategoryType(annType));
         resetModal();
         fetchAnnouncements();
       } else {
@@ -415,6 +512,7 @@ export default function AnnouncementsPanel({ backendHost = "localhost:8000" }) {
             [savedData.announcement.id]: savedData.announcement.duration
           }));
         }
+        selectCategoryTab(normalizeCategoryType(annType));
         resetModal();
         fetchAnnouncements();
       } else {
@@ -430,14 +528,14 @@ export default function AnnouncementsPanel({ backendHost = "localhost:8000" }) {
   };
 
   const confirmDelete = async () => {
-    if (!deleteTargetId) return;
+    if (!deleteTarget?.id) return;
     try {
-      const res = await tenantFetch(`${API_BASE}/api/settings/announcements/${deleteTargetId}`, {
+      const res = await tenantFetch(`${API_BASE}/api/settings/announcements/${deleteTarget.id}`, {
         method: "DELETE"
       });
       if (res.ok) {
-        setAnnouncements(prev => prev.filter(a => a.id !== deleteTargetId));
-        setDeleteTargetId(null);
+        setDeleteTarget(null);
+        fetchAnnouncements();
       }
     } catch (err) {
       console.error("Silme hatası", err);
@@ -512,12 +610,27 @@ export default function AnnouncementsPanel({ backendHost = "localhost:8000" }) {
     }
   };
 
-  const filteredAnnouncements = (announcements || []).filter(a => 
-    String(a?.name || "").toLowerCase().includes(searchQuery.toLowerCase()) || 
-    String(a?.text || "").toLowerCase().includes(searchQuery.toLowerCase()) || 
-    String(a?.original_filename || "").toLowerCase().includes(searchQuery.toLowerCase()) ||
-    String(a?.filename || "").toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  const countsByCategory = {
+    system: (announcements || []).filter((a) => normalizeCategoryType(a?.type) === "system").length,
+    moh: (announcements || []).filter((a) => normalizeCategoryType(a?.type) === "moh").length,
+    announcement: (announcements || []).filter((a) => normalizeCategoryType(a?.type) === "announcement").length
+  };
+
+  const activeCategoryMeta =
+    ANNOUNCEMENT_CATEGORIES.find((c) => c.id === categoryTab) || ANNOUNCEMENT_CATEGORIES[0];
+
+  const filteredAnnouncements = (announcements || []).filter((a) => {
+    if (normalizeCategoryType(a?.type) !== categoryTab) return false;
+    if (!searchQuery.trim()) return true;
+    const q = searchQuery.toLowerCase();
+    return (
+      String(a?.name || "").toLowerCase().includes(q) ||
+      String(a?.description || "").toLowerCase().includes(q) ||
+      String(a?.text || "").toLowerCase().includes(q) ||
+      String(a?.original_filename || "").toLowerCase().includes(q) ||
+      String(a?.filename || "").toLowerCase().includes(q)
+    );
+  });
 
   const formatCreatedAt = (val) => {
     if (!val) return "";
@@ -532,72 +645,137 @@ export default function AnnouncementsPanel({ backendHost = "localhost:8000" }) {
   const waveformBars = [2,4,3,6,5,8,4,3,7,9,5,4,8,10,7,5,4,6,8,5,4,3,2,4,5,7,4,3,5,6,4,3,2,1,2,1,3,4,6,5,8,4,3,5,6,7,5,4,3,5,2,4,3,6];
 
   return (
-    <div className="w-full space-y-6">
+    <div className="w-full space-y-5">
       <audio ref={audioRef} className="hidden" preload="none" />
-      {/* Header and Search & Add Action */}
-      <div className="p-5 bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800/80 rounded-2xl shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div className="flex items-center gap-3">
-          <div className={`p-2.5 ${lightBg} ${text} rounded-xl`}>
-            <Volume2 size={20} />
-          </div>
-          <div>
-            <h3 className="font-bold text-sm text-slate-850 dark:text-white uppercase tracking-wider">Medya Yönetimi</h3>
-            <p className="text-[10px] text-slate-505 dark:text-slate-400 mt-0.5 font-medium">
-              PBX karşılama anonsları ve Bekletme Müziklerini (MoH) yönetin.
-            </p>
-          </div>
-        </div>
-
-        <div className="flex items-center gap-3">
-          <div className="relative">
-            <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-              <Search size={14} className="text-slate-400" />
+      {/* Header, Category Tabs, Search & Add Action */}
+      <div className="p-5 bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800/80 rounded-2xl shadow-sm space-y-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <div className={`p-2.5 ${lightBg} ${text} rounded-xl`}>
+              <Volume2 size={20} aria-hidden="true" />
             </div>
-            <input
-              type="text"
-              placeholder="Anons Ara..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full sm:w-64 pl-9 pr-4 py-2 text-xs rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950/50 text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-slate-200 dark:focus:ring-slate-800 transition-all"
-            />
-            {searchQuery && (
-              <button 
-                onClick={() => setSearchQuery("")}
-                className="absolute inset-y-0 right-0 pr-3 flex items-center text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
+            <div>
+              <h3 className="font-bold text-sm text-slate-850 dark:text-white uppercase tracking-wider">Anons &amp; Medya Yönetimi</h3>
+              <p className="text-[10px] text-slate-505 dark:text-slate-400 mt-0.5 font-medium">
+                Santral sistem anonslarını, bekleme müziklerini (MoH) ve özel IVR karşılama anonslarını sekmelerden yönetin.
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-3">
+            <div className="relative flex-1 sm:flex-initial">
+              <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                <Search size={14} className="text-slate-400" aria-hidden="true" />
+              </div>
+              <input
+                type="text"
+                aria-label={activeCategoryMeta.searchPlaceholder}
+                placeholder={activeCategoryMeta.searchPlaceholder}
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className={`w-full sm:w-64 pl-9 pr-8 py-2 text-xs rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950/50 text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 ${ring} transition-all`}
+              />
+              {searchQuery && (
+                <button
+                  type="button"
+                  onClick={() => setSearchQuery("")}
+                  aria-label="Aramayı temizle"
+                  className="absolute inset-y-0 right-0 pr-3 flex items-center text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
+                >
+                  <X size={12} />
+                </button>
+              )}
+            </div>
+
+            {canWrite && (
+              <button
+                type="button"
+                onClick={openCreateModal}
+                title={activeCategoryMeta.addTitle}
+                aria-label={activeCategoryMeta.addTitle}
+                className="rounded-xl h-8 w-8 flex items-center justify-center shrink-0 bg-rose-600 hover:bg-rose-500 text-white transition-colors cursor-pointer"
               >
-                <X size={12} />
+                <Plus size={16} />
               </button>
             )}
           </div>
-          
-          <button
-            onClick={openCreateModal}
-            title="Yeni Anons Ekle"
-            className="rounded-xl h-8 w-8 flex items-center justify-center shrink-0 bg-rose-600 hover:bg-rose-500 text-white transition-colors"
-          >
-            <Plus size={16} />
-          </button>
+        </div>
+
+        {/* Category Tabs: Sistem Anonsları | Bekleme Müzikleri | Özel Anonslar */}
+        <div
+          role="tablist"
+          aria-label="Anons Kategorileri"
+          className="flex flex-wrap items-center gap-2 pt-3 border-t border-slate-100 dark:border-slate-800/80"
+        >
+          {ANNOUNCEMENT_CATEGORIES.map((cat, idx) => {
+            const IconComp = cat.icon;
+            const isSelected = categoryTab === cat.id;
+            const count = countsByCategory[cat.id] || 0;
+            return (
+              <button
+                key={cat.id}
+                ref={(el) => {
+                  categoryTabRefs.current[idx] = el;
+                }}
+                id={`ann-tab-${cat.id}`}
+                type="button"
+                role="tab"
+                aria-selected={isSelected}
+                aria-controls={`ann-panel-${cat.id}`}
+                tabIndex={isSelected ? 0 : -1}
+                onClick={() => selectCategoryTab(cat.id)}
+                onKeyDown={(e) => handleCategoryTabKeyDown(e, idx)}
+                className={
+                  "flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer border focus-visible:outline-none focus-visible:ring-2 " +
+                  ring +
+                  " " +
+                  (isSelected
+                    ? `${bg} text-white border-transparent shadow-sm`
+                    : "bg-slate-50/80 dark:bg-slate-950/50 text-slate-600 dark:text-slate-300 border-slate-200/80 dark:border-slate-800 hover:bg-slate-100 dark:hover:bg-slate-800/80")
+                }
+              >
+                <IconComp size={14} aria-hidden="true" />
+                <span>{cat.label}</span>
+                <span
+                  className={
+                    "px-2 py-0.5 rounded-full text-[10px] font-extrabold " +
+                    (isSelected
+                      ? "bg-white/20 text-white"
+                      : `${lightBg} ${text}`)
+                  }
+                >
+                  {count}
+                </span>
+              </button>
+            );
+          })}
         </div>
       </div>
 
       {/* Announcements List */}
-      <div className="min-h-[400px]">
+      <div
+        id={`ann-panel-${categoryTab}`}
+        role="tabpanel"
+        aria-labelledby={`ann-tab-${categoryTab}`}
+        className="min-h-[400px]"
+      >
         {loading ? (
           <div className="flex flex-col items-center justify-center h-64 bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800/80 rounded-2xl shadow-sm">
             <div className={`w-8 h-8 rounded-full border-2 ${border} border-t-transparent animate-spin`} />
             <p className="text-xs text-slate-500 mt-4 font-medium animate-pulse">Anonslar yükleniyor...</p>
           </div>
         ) : filteredAnnouncements.length === 0 ? (
-          <div className="flex flex-col items-center justify-center h-64 text-slate-500 dark:text-slate-400 space-y-3 bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800/80 rounded-2xl shadow-sm">
+          <div className="flex flex-col items-center justify-center h-64 px-6 text-center text-slate-500 dark:text-slate-400 space-y-3 bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800/80 rounded-2xl shadow-sm">
             <div className={`p-4 rounded-full ${lightBg} ${text}`}>
-              <Volume2 size={32} />
+              {categoryTab === "moh" ? <Music size={32} /> : categoryTab === "system" ? <ShieldCheck size={32} /> : <Volume2 size={32} />}
             </div>
-            <p className="text-sm font-bold">Kayıtlı anons bulunamadı.</p>
-            <p className="text-[10px] text-slate-400">Yeni bir anons eklemek için sağ üstteki '+' butonunu kullanın.</p>
+            <p className="text-sm font-bold text-slate-700 dark:text-slate-200">{activeCategoryMeta.emptyTitle}</p>
+            <p className="text-[11px] text-slate-400 max-w-md">{activeCategoryMeta.emptyDesc}</p>
           </div>
         ) : (
           <div className="space-y-3">
             {filteredAnnouncements.map((ann) => {
+              const normType = normalizeCategoryType(ann.type);
               const displayName = ann.name || ann.original_filename || ann.filename;
               const isTtsItem = Boolean(ann.text || ann.source === "tts" || /^tts_[0-9a-f]{6,}/i.test(ann.original_filename || ""));
               const subFileLabel = !isTtsItem && ann.original_filename && ann.original_filename !== displayName ? ann.original_filename : "";
@@ -605,53 +783,79 @@ export default function AnnouncementsPanel({ backendHost = "localhost:8000" }) {
               const isPlayingThis = playingId === ann.id;
               const progressRatio = isPlayingThis && totalDur > 0 ? Math.min(1, currentTime / totalDur) : 0;
               const shortVoiceLabel = ann.voice ? String(ann.voice).split("(")[0].trim() : "";
+              const RowIcon = normType === "moh" ? Music : normType === "system" ? ShieldCheck : FileAudio;
+              const typeBadgeLabel =
+                normType === "moh"
+                  ? "Bekleme Müziği"
+                  : normType === "system"
+                  ? ann.is_builtin
+                    ? ann.is_customized
+                      ? "Özelleştirilmiş Sistem Sesi"
+                      : "Varsayılan Sistem Sesi"
+                    : "Sistem Anonsu"
+                  : "Özel Anons";
 
               return (
               <div key={ann.id} className="bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-800/80 rounded-[24px] p-4 flex flex-col sm:flex-row sm:items-center gap-4 hover:shadow-md transition-all shadow-sm">
                 
-                <div className="flex items-center gap-4 min-w-0 sm:w-[38%] shrink-0">
+                <div className="flex items-center gap-4 min-w-0 sm:w-[40%] shrink-0">
                   <div className={`w-14 h-14 rounded-[18px] ${lightBg} flex items-center justify-center shrink-0`}>
-                    <FileAudio size={26} className={text} />
+                    <RowIcon size={25} className={text} aria-hidden="true" />
                   </div>
                   <div className="flex flex-col min-w-0 pr-2">
                     <h4 className="font-bold text-[14px] text-slate-800 dark:text-white truncate" title={displayName}>
                       {displayName}
                     </h4>
-                    {ann.text && (
+                    {ann.text ? (
                       <p className="text-[11px] text-slate-500 dark:text-slate-400 truncate mt-0.5 italic" title={ann.text}>
                         &ldquo;{ann.text}&rdquo;
                       </p>
-                    )}
+                    ) : ann.description ? (
+                      <p className="text-[11px] text-slate-500 dark:text-slate-400 truncate mt-0.5" title={ann.description}>
+                        {ann.description}
+                      </p>
+                    ) : null}
                     <div className="flex items-center gap-2 mt-1 flex-wrap">
-                      <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold ${ann.type === 'moh' ? 'bg-amber-100 text-amber-700' : 'bg-blue-100 text-blue-700'}`}>
-                        {ann.type === 'moh' ? 'Bekletme Müziği' : 'Anons'}
+                      <span
+                        className={
+                          "text-[10px] px-2 py-0.5 rounded-full font-bold border " +
+                          (normType === "moh"
+                            ? "bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-400 border-amber-200/70 dark:border-amber-800/60"
+                            : `${lightBg} ${text} ${borderLight}`)
+                        }
+                      >
+                        {typeBadgeLabel}
                       </span>
                       {isTtsItem && (
-                        <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold ${lightBg} ${text}`}>
+                        <span className="text-[10px] px-2 py-0.5 rounded-full font-bold bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300">
                           TTS{shortVoiceLabel ? ` • ${shortVoiceLabel}` : ""}
                         </span>
                       )}
                       {subFileLabel && (
                         <>
-                          <span className={`text-[11px] font-bold ${text} truncate max-w-[120px]`} title={subFileLabel}>{subFileLabel}</span>
-                          <span className="text-slate-300 dark:text-slate-700 shrink-0">•</span>
+                          <span className={`text-[11px] font-bold ${text} truncate max-w-[140px]`} title={subFileLabel}>{subFileLabel}</span>
+                          {ann.created_at ? <span className="text-slate-300 dark:text-slate-700 shrink-0">•</span> : null}
                         </>
                       )}
-                      <span className="text-[11px] text-slate-500 font-medium tracking-wide shrink-0">{formatCreatedAt(ann.created_at)}</span>
+                      {ann.created_at ? (
+                        <span className="text-[11px] text-slate-500 font-medium tracking-wide shrink-0">{formatCreatedAt(ann.created_at)}</span>
+                      ) : null}
                     </div>
                   </div>
                 </div>
                 
                 <div className="flex items-center gap-4 flex-1 min-w-0 pb-2 sm:pb-0">
-                  <button 
+                  <button
+                    type="button"
                     onClick={() => playAudio(ann)}
-                    className={`w-[42px] h-[42px] rounded-full flex items-center justify-center shrink-0 shadow-md transition-transform active:scale-95 ${bg} text-white`}
-                    title={isPlayingThis ? "Durdur" : "Anonsu Dinle"}
+                    aria-label={isPlayingThis ? `${displayName} durdur` : `${displayName} dinle`}
+                    className={`w-[42px] h-[42px] rounded-full flex items-center justify-center shrink-0 shadow-md transition-transform active:scale-95 cursor-pointer ${bg} text-white`}
+                    title={isPlayingThis ? "Durdur" : "Dinle"}
                   >
                     {isPlayingThis ? <Square size={16} fill="currentColor" /> : <Play size={18} fill="currentColor" className="ml-1" />}
                   </button>
                   
-                  <div className="hidden sm:flex items-center justify-between h-8 flex-1 min-w-0 mx-2">
+                  <div className="hidden sm:flex items-center justify-between h-8 flex-1 min-w-0 mx-2" aria-hidden="true">
                     {waveformBars.map((h, i) => {
                       const barRatio = i / waveformBars.length;
                       const isActiveBar = isPlayingThis && (totalDur <= 0 || barRatio <= progressRatio);
@@ -671,32 +875,42 @@ export default function AnnouncementsPanel({ backendHost = "localhost:8000" }) {
                         ? `${formatDuration(currentTime)} / ${totalDur > 0 ? formatDuration(totalDur) : (ann.duration_formatted || "00:00")}`
                         : (totalDur > 0 ? formatDuration(totalDur) : (ann.duration_formatted || "00:00"))}
                     </span>
-                    <Volume2 size={16} className={`${text} opacity-80`} />
+                    <Volume2 size={16} className={`${text} opacity-80`} aria-hidden="true" />
                   </div>
                 </div>
                 
                 <div className="flex items-center gap-1 sm:border-l border-slate-100 dark:border-slate-800 sm:pl-4 shrink-0 justify-end">
+                  {canWrite && (
+                    <button
+                      type="button"
+                      onClick={() => openEditModal(ann)}
+                      aria-label={`${displayName} düzenle`}
+                      className={`p-2.5 text-slate-400 hover:${text} hover:${lightBg} rounded-xl transition-colors cursor-pointer`}
+                      title={ann.is_builtin ? "Sistem Sesini Özelleştir / Düzenle" : "Düzenle"}
+                    >
+                      <Edit2 size={18} />
+                    </button>
+                  )}
                   <button
-                    onClick={() => openEditModal(ann)}
-                    className={`p-2.5 text-slate-400 hover:${text} hover:${lightBg} rounded-xl transition-colors`}
-                    title="Anonsu Düzenle"
-                  >
-                    <Edit2 size={18} />
-                  </button>
-                  <button
+                    type="button"
                     onClick={() => handleDownload(ann)}
-                    className={`p-2.5 text-slate-400 hover:${text} hover:${lightBg} rounded-xl transition-colors`}
-                    title="Anonsu İndir"
+                    aria-label={`${displayName} indir`}
+                    className={`p-2.5 text-slate-400 hover:${text} hover:${lightBg} rounded-xl transition-colors cursor-pointer`}
+                    title="Ses Dosyasını İndir"
                   >
                     <Download size={18} />
                   </button>
-                  <button
-                    onClick={() => setDeleteTargetId(ann.id)}
-                    className="p-2.5 text-rose-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/20 rounded-xl transition-colors"
-                    title="Anonsu Sil"
-                  >
-                    <Trash2 size={18} />
-                  </button>
+                  {canDelete && (!ann.is_builtin || ann.is_customized) && (
+                    <button
+                      type="button"
+                      onClick={() => setDeleteTarget(ann)}
+                      aria-label={ann.is_builtin ? `${displayName} varsayılana sıfırla` : `${displayName} sil`}
+                      className="p-2.5 text-rose-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/20 rounded-xl transition-colors cursor-pointer"
+                      title={ann.is_builtin ? "Varsayılan Sistem Sesine Sıfırla" : "Sil"}
+                    >
+                      {ann.is_builtin ? <RotateCcw size={18} /> : <Trash2 size={18} />}
+                    </button>
+                  )}
                 </div>
 
               </div>
@@ -708,21 +922,27 @@ export default function AnnouncementsPanel({ backendHost = "localhost:8000" }) {
 
       {/* Upload / Edit Modal (Spacious max-w-4xl Layout) */}
       {showModal && typeof document !== "undefined" && createPortal(
-        <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-sm z-[200] flex items-center justify-center p-4">
+        <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-sm z-[200] flex items-center justify-center p-4" role="dialog" aria-modal="true" aria-labelledby="ann-modal-title">
           <div className="w-full max-w-4xl max-h-[88vh] flex flex-col bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-3xl shadow-2xl overflow-hidden animate-in zoom-in-95 duration-150">
             {/* Header */}
             <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 dark:border-slate-800 bg-white dark:bg-slate-900 shrink-0">
               <div>
-                <h3 className="text-base font-black text-slate-800 dark:text-white flex items-center gap-2">
+                <h3 id="ann-modal-title" className="text-base font-black text-slate-800 dark:text-white flex items-center gap-2">
                   {editingAnn ? <Edit2 size={18} className={text} /> : <Volume2 size={18} className={text} />}
-                  {editingAnn ? "Anonsu Düzenle" : "Yeni Medya / Anons Oluştur"}
+                  {editingAnn
+                    ? editingAnn.is_builtin
+                      ? "Sistem Anonsunu Özelleştir"
+                      : "Kaydı Düzenle"
+                    : activeCategoryMeta.addTitle}
                 </h3>
                 <p className="text-xs text-slate-500 font-medium mt-0.5">
                   Ses dosyası yükleyin veya Yapay Zeka Temsilcisi sesleriyle doğal Türkçe anons oluşturun.
                 </p>
               </div>
               <button
+                type="button"
                 onClick={resetModal}
+                aria-label="Pencereyi kapat"
                 className="p-2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
               >
                 <X size={18} />
@@ -733,24 +953,26 @@ export default function AnnouncementsPanel({ backendHost = "localhost:8000" }) {
             <div className="flex flex-1 overflow-hidden">
               {/* Left Sidebar */}
               <div className="w-60 bg-slate-50/50 dark:bg-slate-950/30 border-r border-slate-100 dark:border-slate-800/60 p-4 shrink-0 overflow-y-auto">
-                <nav className="space-y-1.5">
+                <nav className="space-y-1.5" aria-label="Ekleme Yöntemi">
                   <button
                     type="button"
                     onClick={() => {
                       stopPreviewAudio();
                       setActiveTab("upload");
                     }}
-                    className={"w-full flex items-center gap-3 px-3.5 py-3 rounded-xl text-xs font-bold transition-all " + (activeTab === 'upload' ? ("bg-white dark:bg-slate-800 " + text + " shadow-sm border border-slate-200 dark:border-slate-700") : "text-slate-500 hover:bg-white/50 dark:hover:bg-slate-800/50 hover:text-slate-700 dark:hover:text-slate-300 border border-transparent")}
+                    className={"w-full flex items-center gap-3 px-3.5 py-3 rounded-xl text-xs font-bold transition-all cursor-pointer " + (activeTab === 'upload' ? ("bg-white dark:bg-slate-800 " + text + " shadow-sm border border-slate-200 dark:border-slate-700") : "text-slate-500 hover:bg-white/50 dark:hover:bg-slate-800/50 hover:text-slate-700 dark:hover:text-slate-300 border border-transparent")}
                   >
                     <Volume2 size={16} /> Dosya Yükle
                   </button>
-                  <button
-                    type="button"
-                    onClick={() => setActiveTab("tts")}
-                    className={"w-full flex items-center gap-3 px-3.5 py-3 rounded-xl text-xs font-bold transition-all " + (activeTab === 'tts' ? ("bg-white dark:bg-slate-800 " + text + " shadow-sm border border-slate-200 dark:border-slate-700") : "text-slate-500 hover:bg-white/50 dark:hover:bg-slate-800/50 hover:text-slate-700 dark:hover:text-slate-300 border border-transparent")}
-                  >
-                    <Bot size={16} /> Yapay Zeka Seslendirme (TTS)
-                  </button>
+                  {annType !== "moh" && (
+                    <button
+                      type="button"
+                      onClick={() => setActiveTab("tts")}
+                      className={"w-full flex items-center gap-3 px-3.5 py-3 rounded-xl text-xs font-bold transition-all cursor-pointer " + (activeTab === 'tts' ? ("bg-white dark:bg-slate-800 " + text + " shadow-sm border border-slate-200 dark:border-slate-700") : "text-slate-500 hover:bg-white/50 dark:hover:bg-slate-800/50 hover:text-slate-700 dark:hover:text-slate-300 border border-transparent")}
+                    >
+                      <Bot size={16} /> Yapay Zeka Seslendirme (TTS)
+                    </button>
+                  )}
                 </nav>
               </div>
 
@@ -759,38 +981,65 @@ export default function AnnouncementsPanel({ backendHost = "localhost:8000" }) {
                 <form onSubmit={activeTab === "upload" ? handleUpload : handleTTSUpload} className="p-6 sm:p-7 space-y-6">
               
                   {modalError && (
-                    <div className="p-3.5 rounded-xl bg-rose-50 dark:bg-rose-950/30 border border-rose-200 dark:border-rose-800 text-rose-600 dark:text-rose-400 text-xs font-bold">
+                    <div role="alert" className="p-3.5 rounded-xl bg-rose-50 dark:bg-rose-950/30 border border-rose-200 dark:border-rose-800 text-rose-600 dark:text-rose-400 text-xs font-bold">
                       {modalError}
                     </div>
                   )}
 
-                  {/* Ortak Alan: Medya Adı & Medya Tipi */}
-                  <div className="p-5 rounded-2xl border border-slate-200/80 dark:border-slate-800 bg-slate-50/40 dark:bg-slate-900/40 grid grid-cols-1 sm:grid-cols-3 gap-5 items-center">
-                    <div className="sm:col-span-2">
-                      <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">Medya / Anons Adı</label>
+                  {/* Ortak Alan: Medya Adı & Kategori Sekmesi */}
+                  <div className="p-5 rounded-2xl border border-slate-200/80 dark:border-slate-800 bg-slate-50/40 dark:bg-slate-900/40 grid grid-cols-1 sm:grid-cols-5 gap-5 items-start">
+                    <div className="sm:col-span-3">
+                      <label htmlFor="ann-name-input" className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">
+                        Medya / Anons Adı
+                      </label>
                       <input
+                        id="ann-name-input"
+                        name="name"
                         type="text"
                         required
-                        placeholder="Örn: Karşılama Anonsu, Mesai Dışı Bilgilendirme..."
+                        placeholder={
+                          annType === "moh"
+                            ? "Örn: Kurumsal Bekleme Müziği, Klasik Piyano..."
+                            : annType === "system"
+                            ? "Örn: Mesai Dışı Sistem Uyarısı, Hatalı Tuşlama..."
+                            : "Örn: Karşılama Anonsu, Kampanya Bilgilendirme..."
+                        }
                         value={newAnnName}
                         onChange={(e) => setNewAnnName(e.target.value)}
                         className={`w-full text-sm px-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 ${ring} transition-all`}
                       />
                     </div>
 
-                    <div>
-                      <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-2">Medya Tipi</label>
-                      <div className="flex flex-col gap-2">
-                        <label className="flex items-center gap-2 cursor-pointer">
-                          <input type="radio" value="announcement" checked={annType === "announcement"} onChange={(e) => setAnnType(e.target.value)} className="accent-rose-600" />
-                          <span className="text-xs text-slate-700 dark:text-slate-300 font-bold">Anons</span>
-                        </label>
-                        <label className="flex items-center gap-2 cursor-pointer">
-                          <input type="radio" value="moh" checked={annType === "moh"} onChange={(e) => setAnnType(e.target.value)} className="accent-rose-600" />
-                          <span className="text-xs text-slate-700 dark:text-slate-300 font-bold">Bekletme Müziği (MoH)</span>
-                        </label>
+                    <fieldset className="sm:col-span-2" disabled={Boolean(editingAnn?.is_builtin)}>
+                      <legend className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-2">
+                        Anons Sekmesi / Kategori
+                      </legend>
+                      <div className="flex flex-col gap-1.5">
+                        {ANNOUNCEMENT_CATEGORIES.map((opt) => (
+                          <label
+                            key={opt.id}
+                            className={`flex items-center gap-2 ${editingAnn?.is_builtin ? "opacity-60 cursor-not-allowed" : "cursor-pointer"}`}
+                          >
+                            <input
+                              type="radio"
+                              name="announcement_category"
+                              value={opt.id}
+                              checked={annType === opt.id}
+                              onChange={(e) => {
+                                const nextType = e.target.value;
+                                setAnnType(nextType);
+                                if (nextType === "moh" && activeTab === "tts") {
+                                  stopPreviewAudio();
+                                  setActiveTab("upload");
+                                }
+                              }}
+                              className="accent-primary"
+                            />
+                            <span className="text-xs text-slate-700 dark:text-slate-300 font-bold">{opt.shortBadge}</span>
+                          </label>
+                        ))}
                       </div>
-                    </div>
+                    </fieldset>
                   </div>
 
                   {activeTab === "upload" ? (
@@ -1107,13 +1356,17 @@ export default function AnnouncementsPanel({ backendHost = "localhost:8000" }) {
         document.body
       )}
 
-      {/* Delete Confirmation Modal */}
+      {/* Delete / Factory Reset Confirmation Modal */}
       <ConfirmDeleteModal
-        isOpen={deleteTargetId !== null}
-        onClose={() => setDeleteTargetId(null)}
+        isOpen={deleteTarget !== null}
+        onClose={() => setDeleteTarget(null)}
         onConfirm={confirmDelete}
-        title="Anonsu Sil"
-        message="Bu anons dosyasını kalıcı olarak silmek istediğinize emin misiniz? Eğer bu anons şu anda bir PBX kuralında kullanılıyorsa çağrılar boşluğa düşebilir!"
+        title={deleteTarget?.is_builtin ? "Varsayılan Sistem Sesine Sıfırla" : "Kaydı Sil"}
+        message={
+          deleteTarget?.is_builtin
+            ? `"${deleteTarget?.name || ""}" için yüklediğiniz özelleştirmeyi kaldırıp fabrika çıkışlı varsayılan Türkçe sistem anonsuna dönmek istediğinize emin misiniz?`
+            : "Bu ses kaydını kalıcı olarak silmek istediğinize emin misiniz? Eğer bu kayıt aktif bir kuyruk veya çağrı akışında kullanılıyorsa ilgili kural varsayılan sese dönebilir."
+        }
       />
     </div>
   );

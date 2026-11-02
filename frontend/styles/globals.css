@@ -32,3 +32,115 @@ body {
   margin-right: 0 !important;
   overscroll-behavior: contain;
 }
+
+/* Collapse inline feature helper notes once migrated to "i" hover tooltips */
+[data-aida-hint-collapsed="true"] {
+  display: none !important;
+}
+
+/* Universal "i" feature info button (WCAG 2.5.8 24x24px hit area via ::after) */
+.aida-info-btn {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  margin-left: 6px;
+  border-radius: 9999px;
+  background-color: rgba(var(--color-primary), 0.12);
+  color: rgb(var(--color-primary));
+  border: 1px solid rgba(var(--color-primary), 0.28);
+  vertical-align: middle;
+  flex-shrink: 0;
+  cursor: pointer;
+  user-select: none;
+  transition: background-color 150ms ease, color 150ms ease, border-color 150ms ease, transform 150ms ease;
+}
+
+.aida-info-btn::after {
+  content: "";
+  position: absolute;
+  inset: -4px;
+}
+
+.aida-info-btn:hover,
+.aida-info-btn:is(:focus-visible, :interest-source, .interest-source) {
+  background-color: rgb(var(--color-primary));
+  color: #ffffff;
+  border-color: rgb(var(--color-primary));
+  transform: scale(1.06);
+}
+
+.aida-info-btn:focus-visible {
+  outline: 2px solid rgb(var(--color-primary));
+  outline-offset: 2px;
+}
+
+.aida-info-glyph {
+  font-family: Georgia, "Times New Roman", ui-serif, serif;
+  font-size: 10.5px;
+  font-weight: 800;
+  font-style: italic;
+  line-height: 1;
+  text-transform: lowercase;
+  letter-spacing: 0;
+  pointer-events: none;
+}
+
+/* Interest invoker timing & Top-Layer Popover rules */
+[interestfor] {
+  --interest-delay-start: 0.14s;
+  interest-delay-start: var(--interest-delay-start);
+  --interest-delay-end: 0.12s;
+  interest-delay-end: var(--interest-delay-end);
+}
+
+[popover].aida-info-popover:is(:popover-open, .\:popover-open) {
+  display: block;
+}
+
+@supports (position-area: top) {
+  .aida-native-hint-popover[popover] {
+    inset: auto;
+    margin: unset;
+    position: fixed;
+    position-area: block-start;
+    position-try-fallbacks: flip-block, flip-inline;
+    margin-block-end: 8px;
+  }
+}
+
+@supports (container-type: anchored) {
+  .aida-native-hint-popover[popover] {
+    container-type: anchored;
+  }
+
+  .aida-native-hint-inner::before {
+    content: "";
+    position: absolute;
+    inset-block-end: -5px;
+    inset-inline-start: 50%;
+    transform: translateX(-50%) rotate(45deg);
+    width: 10px;
+    height: 10px;
+    background: rgba(15, 23, 42, 0.95);
+    border-right: 1px solid rgba(51, 65, 85, 0.8);
+    border-bottom: 1px solid rgba(51, 65, 85, 0.8);
+  }
+
+  @container anchored(fallback: flip-block) {
+    .aida-native-hint-inner {
+      margin-block-start: 8px;
+    }
+
+    .aida-native-hint-inner::before {
+      inset-block-start: -5px;
+      inset-block-end: auto;
+      border-right: 0;
+      border-bottom: 0;
+      border-left: 1px solid rgba(51, 65, 85, 0.8);
+      border-top: 1px solid rgba(51, 65, 85, 0.8);
+    }
+  }
+}

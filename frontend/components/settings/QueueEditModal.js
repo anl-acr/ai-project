@@ -454,12 +454,35 @@ export default function QueueEditModal({ isOpen, onClose, onSave, queueData = nu
     }
   };
 
+  const normalizeAnnCategory = (a) => {
+    const t = String(a?.type || "").trim().toLowerCase();
+    if (t === "moh" || t === "music" || t === "hold_music") return "moh";
+    if (t === "system" || t === "sistem") return "system";
+    return "announcement";
+  };
+
+  const customAnnouncementsList = (announcementsList || []).filter(
+    (a) => normalizeAnnCategory(a) === "announcement"
+  );
+  const mohAnnouncementsList = (announcementsList || []).filter(
+    (a) => normalizeAnnCategory(a) === "moh"
+  );
+  const systemAnnouncementsList = (announcementsList || []).filter(
+    (a) => normalizeAnnCategory(a) === "system"
+  );
+
   const formatAnnouncementLabel = (a) => {
     if (!a) return "";
     const nameStr = String(a.name || "").trim();
     const rawOrigStr = String(a.original_filename || a.filename || "").trim();
     const origStr = /^tts_[0-9a-f]{6,}/i.test(rawOrigStr) ? "" : rawOrigStr;
-    const typeTag = a.type === "moh" ? "🎵 Bekletme Müziği" : "🔊 Anons";
+    const cat = normalizeAnnCategory(a);
+    const typeTag =
+      cat === "moh"
+        ? "🎵 Bekleme Müziği"
+        : cat === "system"
+        ? "🛡️ Sistem Anonsu"
+        : "🔊 Özel Anons";
     if (nameStr && origStr && nameStr.toLowerCase() !== origStr.toLowerCase() && `${nameStr}.wav`.toLowerCase() !== origStr.toLowerCase() && `${nameStr}.mp3`.toLowerCase() !== origStr.toLowerCase()) {
       return `${nameStr} (${origStr}) • ${typeTag}`;
     }
@@ -489,7 +512,7 @@ export default function QueueEditModal({ isOpen, onClose, onSave, queueData = nu
     } else if (type === "ai_agent") {
       return (aiAgentsList || []).map(a => ({ id: String(a.id), label: `🤖 ${a.name} (${a.model || 'AI'})` }));
     } else if (type === "announcement") {
-      return (announcementsList || []).map(a => ({
+      return [...customAnnouncementsList, ...systemAnnouncementsList].map(a => ({
         id: String(a.id || a.filename || a.name),
         label: formatAnnouncementLabel(a)
       }));
@@ -1043,11 +1066,16 @@ export default function QueueEditModal({ isOpen, onClose, onSave, queueData = nu
                 onChange={handleChange} 
                 className={`w-full text-xs px-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 focus:outline-none focus:ring-2 ${ring} text-slate-800 dark:text-white transition-all font-medium`}
               >
-                <option value="">Anons Yönetimi'nden Seçin...</option>
-                {formData.join_announcement && !announcementsList.some(a => String(a.id) === String(resolveAnnouncementVal(formData.join_announcement))) && (
-                  <option value={formData.join_announcement}>{formData.join_announcement} (Kayıtlı Anons)</option>
+                <option value="">Özel Anonslar&apos;dan Seçin...</option>
+                {formData.join_announcement && !customAnnouncementsList.some(a => String(a.id) === String(resolveAnnouncementVal(formData.join_announcement))) && (
+                  <option value={resolveAnnouncementVal(formData.join_announcement)}>
+                    {(() => {
+                      const legacy = announcementsList.find(x => String(x.id) === String(resolveAnnouncementVal(formData.join_announcement)));
+                      return legacy ? formatAnnouncementLabel(legacy) : `${formData.join_announcement} (Kayıtlı Anons)`;
+                    })()}
+                  </option>
                 )}
-                {announcementsList.map(a => (
+                {customAnnouncementsList.map(a => (
                   <option key={a.id || a.filename || a.name} value={a.id}>{formatAnnouncementLabel(a)}</option>
                 ))}
               </select>
@@ -1055,12 +1083,12 @@ export default function QueueEditModal({ isOpen, onClose, onSave, queueData = nu
           )}
         </div>
 
-        {/* Bekleme Müziği (Anons Yönetimi / Medya Yönetimi Entegreli) */}
+        {/* Bekleme Müziği (Anons Yönetimi > Bekleme Müzikleri Sekmesi Entegreli) */}
         <div className="p-4 bg-slate-50/50 dark:bg-slate-800/20 rounded-2xl border border-slate-100 dark:border-slate-800/60">
           <h4 className="text-xs font-bold text-slate-800 dark:text-white mb-1 flex items-center gap-1.5">
-            <Music size={14} className={text} /> Bekleme Müziği / Medya Seçimi
+            <Music size={14} className={text} /> Bekleme Müziği Seçimi
           </h4>
-          <p className="text-[10px] text-slate-500 mb-3">Müşteri beklerken Anons Yönetimi'ndeki ses veya bekletme müziklerinden çalacak medya.</p>
+          <p className="text-[10px] text-slate-500 mb-3">Müşteri kuyrukta beklerken Anons Yönetimi &gt; Bekleme Müzikleri sekmesinden çalacak müzik.</p>
           <select
             name="hold_music_class"
             value={resolveAnnouncementVal(formData.hold_music_class) || "default"}
@@ -1068,10 +1096,15 @@ export default function QueueEditModal({ isOpen, onClose, onSave, queueData = nu
             className={`w-full text-xs px-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 focus:outline-none focus:ring-2 ${ring} text-slate-800 dark:text-white transition-all font-medium`}
           >
             <option value="default">Varsayılan Sistem Bekleme Müziği (default)</option>
-            {formData.hold_music_class && formData.hold_music_class !== "default" && !announcementsList.some(a => String(a.id) === String(resolveAnnouncementVal(formData.hold_music_class))) && (
-              <option value={formData.hold_music_class}>{formData.hold_music_class}</option>
+            {formData.hold_music_class && formData.hold_music_class !== "default" && !mohAnnouncementsList.some(a => String(a.id) === String(resolveAnnouncementVal(formData.hold_music_class))) && (
+              <option value={resolveAnnouncementVal(formData.hold_music_class)}>
+                {(() => {
+                  const legacy = announcementsList.find(x => String(x.id) === String(resolveAnnouncementVal(formData.hold_music_class)));
+                  return legacy ? formatAnnouncementLabel(legacy) : formData.hold_music_class;
+                })()}
+              </option>
             )}
-            {announcementsList.map(a => (
+            {mohAnnouncementsList.map(a => (
               <option key={a.id || a.filename || a.name} value={a.id}>
                 {formatAnnouncementLabel(a)}
               </option>
@@ -1239,18 +1272,23 @@ export default function QueueEditModal({ isOpen, onClose, onSave, queueData = nu
           
           {formData.periodic_announcement_enabled && (
             <div className="pt-3 border-t border-slate-200/60 dark:border-slate-800/60">
-              <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">Periyodik Anons Ses Kaydı</label>
+              <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">Periyodik Anons Ses Kaydı (Özel Anonslar)</label>
               <select 
                 name="periodic_announcement" 
                 value={resolveAnnouncementVal(formData.periodic_announcement)} 
                 onChange={handleChange} 
                 className={`w-full text-xs px-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 focus:outline-none focus:ring-2 ${ring} text-slate-800 dark:text-white transition-all font-medium`}
               >
-                <option value="">Anons Yönetimi'nden Seçin...</option>
-                {formData.periodic_announcement && !announcementsList.some(a => String(a.id) === String(resolveAnnouncementVal(formData.periodic_announcement))) && (
-                  <option value={formData.periodic_announcement}>{formData.periodic_announcement} (Kayıtlı Anons)</option>
+                <option value="">Özel Anonslar&apos;dan Seçin...</option>
+                {formData.periodic_announcement && !customAnnouncementsList.some(a => String(a.id) === String(resolveAnnouncementVal(formData.periodic_announcement))) && (
+                  <option value={resolveAnnouncementVal(formData.periodic_announcement)}>
+                    {(() => {
+                      const legacy = announcementsList.find(x => String(x.id) === String(resolveAnnouncementVal(formData.periodic_announcement)));
+                      return legacy ? formatAnnouncementLabel(legacy) : `${formData.periodic_announcement} (Kayıtlı Anons)`;
+                    })()}
+                  </option>
                 )}
-                {announcementsList.map(a => (
+                {customAnnouncementsList.map(a => (
                   <option key={a.id || a.filename || a.name} value={a.id}>{formatAnnouncementLabel(a)}</option>
                 ))}
               </select>
@@ -1331,8 +1369,17 @@ export default function QueueEditModal({ isOpen, onClose, onSave, queueData = nu
                         onChange={(e) => handleIvrChange(digit, 'target', e.target.value)}
                         className={`w-full text-xs px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 focus:outline-none focus:ring-1 ${ring} text-slate-800 dark:text-white transition-all`}
                       >
-                        <option value="">Anons Seçin...</option>
-                        {announcementsList.map(a => <option key={a.id || a.filename || a.name} value={a.id}>{formatAnnouncementLabel(a)}</option>)}
+                        <option value="">Özel Anons Seçin...</option>
+                        {customAnnouncementsList.length > 0 && (
+                          <optgroup label="Özel Anonslar">
+                            {customAnnouncementsList.map(a => <option key={a.id || a.filename || a.name} value={a.id}>{formatAnnouncementLabel(a)}</option>)}
+                          </optgroup>
+                        )}
+                        {systemAnnouncementsList.length > 0 && (
+                          <optgroup label="Sistem Anonsları">
+                            {systemAnnouncementsList.map(a => <option key={a.id || a.filename || a.name} value={a.id}>{formatAnnouncementLabel(a)}</option>)}
+                          </optgroup>
+                        )}
                       </select>
                     )}
 
@@ -1789,7 +1836,7 @@ export default function QueueEditModal({ isOpen, onClose, onSave, queueData = nu
     } else if (type === "ai_agent") {
       targets = (aiAgentsList || []).map(a => ({ id: String(a.id), label: `🤖 ${a.name} (${a.model || 'AI'})` }));
     } else if (type === "announcement") {
-      targets = (announcementsList || []).map(a => ({
+      targets = [...systemAnnouncementsList, ...customAnnouncementsList].map(a => ({
         id: String(a.id || a.filename || a.name),
         label: formatAnnouncementLabel(a)
       }));
@@ -2568,12 +2615,25 @@ export default function QueueEditModal({ isOpen, onClose, onSave, queueData = nu
                             onChange={(e) => handleUpdateSurveyQuestion(idx, "announcement_id", e.target.value)}
                             className={`flex-1 px-3.5 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl text-xs font-semibold text-slate-800 dark:text-white focus:outline-none focus:ring-2 ${ring}`}
                           >
-                            <option value="">Varsayılan Türkçe Anket Sorusu (1'den 5'e Puanlayın)</option>
-                            {announcementsList.map(a => (
-                              <option key={a.id || a.filename || a.name} value={a.id}>
-                                {formatAnnouncementLabel(a)}
-                              </option>
-                            ))}
+                            <option value="">Varsayılan Sistem Anonsu (tr_anket_soru)</option>
+                            {systemAnnouncementsList.length > 0 && (
+                              <optgroup label="Sistem Anonsları">
+                                {systemAnnouncementsList.map(a => (
+                                  <option key={a.id || a.filename || a.name} value={a.id}>
+                                    {formatAnnouncementLabel(a)}
+                                  </option>
+                                ))}
+                              </optgroup>
+                            )}
+                            {customAnnouncementsList.length > 0 && (
+                              <optgroup label="Özel Anonslar">
+                                {customAnnouncementsList.map(a => (
+                                  <option key={a.id || a.filename || a.name} value={a.id}>
+                                    {formatAnnouncementLabel(a)}
+                                  </option>
+                                ))}
+                              </optgroup>
+                            )}
                           </select>
 
                           {resolvedAnnId && (
@@ -2717,12 +2777,25 @@ export default function QueueEditModal({ isOpen, onClose, onSave, queueData = nu
                   disabled={!isEnabled}
                   className={"flex-1 px-3.5 py-2.5 bg-slate-50/50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl text-xs font-semibold text-slate-800 dark:text-white focus:outline-none focus:ring-2 " + ring}
                 >
-                  <option value="">Varsayılan Türkçe Teşekkür Anonsu</option>
-                  {announcementsList.map(a => (
-                    <option key={a.id || a.filename || a.name} value={a.id}>
-                      {formatAnnouncementLabel(a)}
-                    </option>
-                  ))}
+                  <option value="">Varsayılan Sistem Anonsu (tr_anket_tesekkur)</option>
+                  {systemAnnouncementsList.length > 0 && (
+                    <optgroup label="Sistem Anonsları">
+                      {systemAnnouncementsList.map(a => (
+                        <option key={a.id || a.filename || a.name} value={a.id}>
+                          {formatAnnouncementLabel(a)}
+                        </option>
+                      ))}
+                    </optgroup>
+                  )}
+                  {customAnnouncementsList.length > 0 && (
+                    <optgroup label="Özel Anonslar">
+                      {customAnnouncementsList.map(a => (
+                        <option key={a.id || a.filename || a.name} value={a.id}>
+                          {formatAnnouncementLabel(a)}
+                        </option>
+                      ))}
+                    </optgroup>
+                  )}
                 </select>
                 {resolveAnnouncementVal(formData.survey_thank_you_announcement) && (
                   <button

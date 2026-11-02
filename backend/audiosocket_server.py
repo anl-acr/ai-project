@@ -454,10 +454,54 @@ def _advance_workflow_from_node(workflow: dict, start_node: dict, settings: dict
 
         chosen_conn = None
         if ntype == "timerule":
+            ef = cur.get("extra_fields") if isinstance(cur.get("extra_fields"), dict) else {}
+            use_central = ef.get("use_system_work_hours", True) is not False
+            pref_port = "active"
+            try:
+                from backend.main import evaluate_system_work_hours
+                sys_eval = evaluate_system_work_hours(settings)
+            except Exception:
+                sys_eval = None
+
             now_tr = datetime.datetime.utcnow() + datetime.timedelta(hours=3)
-            is_work_time = (now_tr.weekday() < 5) and (9 <= now_tr.hour < 18)
-            pref_port = "active" if is_work_time else "inactive"
-            chosen_conn = next((c for c in out_conns if c.get("fromPort") == pref_port), out_conns[0])
+            # Check node-specific holidays (e.g. "29.10 - Cumhuriyet Bayramı" or "15.07.2026")
+            node_holidays = ef.get("holidays") or []
+            matched_node_holiday = False
+            today_dd_mm = now_tr.strftime("%d.%m")
+            today_dd_mm_yyyy = now_tr.strftime("%d.%m.%Y")
+            for nh in node_holidays:
+                nh_str = str(nh or "").strip()
+                if nh_str.startswith(today_dd_mm_yyyy) or nh_str.startswith(today_dd_mm):
+                    matched_node_holiday = True
+                    break
+
+            if matched_node_holiday or (use_central and sys_eval and sys_eval.get("is_holiday") and not sys_eval.get("is_open")):
+                pref_port = "holiday"
+            elif ef.get("use_system_work_hours") is True and sys_eval:
+                pref_port = sys_eval.get("port") or ("active" if sys_eval.get("is_open") else "inactive")
+            elif ef.get("start_time") or ef.get("end_time") or ef.get("days"):
+                day_map = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+                cur_day_code = day_map[now_tr.weekday()]
+                allowed_days = ef.get("days") or ["Mon", "Tue", "Wed", "Thu", "Fri"]
+                s_parts = str(ef.get("start_time") or "09:00").split(":")
+                e_parts = str(ef.get("end_time") or "18:00").split(":")
+                s_m = int(s_parts[0]) * 60 + (int(s_parts[1]) if len(s_parts) > 1 else 0)
+                e_m = int(e_parts[0]) * 60 + (int(e_parts[1]) if len(e_parts) > 1 else 0)
+                now_m = now_tr.hour * 60 + now_tr.minute
+                in_hours = (s_m <= now_m < e_m) if s_m <= e_m else (now_m >= s_m or now_m < e_m)
+                is_work_time = (cur_day_code in allowed_days) and in_hours
+                pref_port = "active" if is_work_time else "inactive"
+            elif sys_eval:
+                pref_port = sys_eval.get("port") or ("active" if sys_eval.get("is_open") else "inactive")
+            else:
+                is_work_time = (now_tr.weekday() < 5) and (9 <= now_tr.hour < 18)
+                pref_port = "active" if is_work_time else "inactive"
+
+            chosen_conn = (
+                next((c for c in out_conns if c.get("fromPort") == pref_port), None)
+                or (next((c for c in out_conns if c.get("fromPort") == "inactive"), None) if pref_port == "holiday" else None)
+                or out_conns[0]
+            )
         else:
             chosen_conn = next((c for c in out_conns if c.get("fromPort") in ("output", None, "")), out_conns[0])
 

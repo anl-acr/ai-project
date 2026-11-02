@@ -1,17 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { Save, CheckCircle, HelpCircle, Shuffle, Clock, Repeat, BarChart2 } from "lucide-react";
-
-const InfoTooltip = ({ text }) => {
-  return (
-    <div className="group relative inline-block ml-1 cursor-help text-slate-400 dark:text-slate-500 hover:text-primary dark:hover:text-indigo-400 transition-colors">
-      <HelpCircle size={12} className="inline-block align-middle" />
-      <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 hidden group-hover:block w-52 p-2.5 bg-slate-950/95 dark:bg-slate-900 border border-slate-800 dark:border-slate-800 rounded-xl shadow-2xl text-[10px] text-slate-200 dark:text-slate-300 font-semibold normal-case leading-relaxed text-center z-50 transition-all duration-200">
-        {text}
-        <div className="absolute top-full left-1/2 transform -translate-x-1/2 border-4 border-transparent border-t-slate-950/95 dark:border-t-slate-900"></div>
-      </div>
-    </div>
-  );
-};
+import InfoTooltip from "../common/InfoTooltip";
 
 export default function SmartCallbackSettings({ backendHost = "localhost:8000" }) {
   const [config, setConfig] = useState({

@@ -467,9 +467,44 @@ class WebphoneManager {
     const ua = new SIP.UserAgent(userAgentOptions);
     this.userAgent = ua;
 
+    const relaySipFrameToDebugger = (rawSip, direction) => {
+      try {
+        if (typeof window === "undefined" || typeof rawSip !== "string") return;
+        const trimmed = rawSip.trim();
+        if (trimmed.length < 24 || (!trimmed.includes("SIP/2.0") && !trimmed.includes("Call-ID"))) {
+          return;
+        }
+        const proto = window.location.protocol === "https:" ? "https:" : "http:";
+        const bHost = this.state.backendHost || window.location.host;
+        fetch(`${proto}//${bHost}/api/sip-debugger/ingest`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            raw: rawSip,
+            direction,
+            pbx_host: hostOnly || "",
+            pbx_port: 8089,
+            ext: String(agentExtension || "")
+          }),
+          keepalive: true
+        }).catch(() => {});
+      } catch (_err) {
+        // non-blocking telemetry relay
+      }
+    };
+
     if (ua.transport) {
+      if (typeof ua.transport.send === "function") {
+        const originalSend = ua.transport.send.bind(ua.transport);
+        ua.transport.send = (outMsg) => {
+          relaySipFrameToDebugger(outMsg, "outbound");
+          return originalSend(outMsg);
+        };
+      }
+
       const originalOnMessage = ua.transport.onMessage;
       ua.transport.onMessage = (message) => {
+        relaySipFrameToDebugger(message, "inbound");
         if (typeof message === "string" && message.includes("SIP/2.0 200 OK") && message.includes("REGISTER")) {
           this._reconnectAttempt = 0;
           if (this.reconnectTimer) {

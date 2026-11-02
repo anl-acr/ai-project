@@ -73,9 +73,10 @@ import {
   Building2,
   Wifi,
   PhoneOutgoing,
+  Palette,
   X
 } from "lucide-react";
-import { getSafeThemeColor } from "../utils/theme";
+import { getSafeThemeColor, SYSTEM_THEME_PRESETS, rgbStringToHex } from "../utils/theme";
 import { playRingtoneSound, stopRingtoneSound, resolveAudioDeviceId } from "../utils/audioHelper";
 import {
   getSavedNoiseSuppressionMode,
@@ -86,6 +87,7 @@ import { useTheme, setThemeColor } from "../utils/theme";
 import { getBackendHost } from "../utils/apiHost";
 import { getTurkishSlugForTab, getTabFromTurkishSlug } from "../utils/slugHelper";
 import useClickOutside from "../utils/useClickOutside";
+import { AVATAR_CATEGORIES, ALL_AVATAR_ITEMS } from "../utils/avatarPresets";
 
 
 
@@ -126,9 +128,10 @@ import CallPickupGroupsPanel from "../components/settings/CallPickupGroupsPanel"
 import SubscriberGroupsPanel from "../components/settings/SubscriberGroupsPanel";
 import SpeedDialsPanel from "../components/settings/SpeedDialsPanel";
 import ConferencesPanel from "../components/settings/ConferencesPanel";
+import WorkHoursSettingsPanel from "../components/settings/WorkHoursSettingsPanel";
 import EventLogsPanel from "../components/settings/EventLogsPanel";
 import SecurityPanel from "../components/security/SecurityPanel";
-import SipDebuggerPanel from "../components/dashboard/SipDebuggerPanel";
+import TroubleshootingPanel from "../components/dashboard/TroubleshootingPanel";
 import Login from "../components/auth/Login";
 import TenantSwitcher from "../components/TenantSwitcher";
 import LicenseModal from "../components/modals/LicenseModal";
@@ -244,6 +247,7 @@ export default function Home() {
   const [hasConferencesPermission, setHasConferencesPermission] = useState(false);
   const [hasSpeedDialPermission, setHasSpeedDialPermission] = useState(false);
   const [hasScheduledReportsPermission, setHasScheduledReportsPermission] = useState(false);
+  const [hasWorkHoursPermission, setHasWorkHoursPermission] = useState(true);
   const [gsmNumber, setGsmNumber] = useState("");
   const [mobileTransferEnabled, setMobileTransferEnabled] = useState(false);
   const [tempThemeColor, setTempThemeColor] = useState("99, 102, 241");
@@ -592,6 +596,7 @@ export default function Home() {
   const [settingsModalOpen, setSettingsModalOpen] = useState(false);
   const [systemUsers, setSystemUsers] = useState([]);
   const [agentAvatar, setAgentAvatar] = useState("https://api.dicebear.com/7.x/avataaars/svg?seed=Felix");
+  const [profileAvatarCategory, setProfileAvatarCategory] = useState("all");
   
   const [fwdAlwaysActive, setFwdAlwaysActive] = useState(false);
   const [fwdAlwaysType, setFwdAlwaysType] = useState("internal");
@@ -1008,7 +1013,7 @@ export default function Home() {
   useEffect(() => {
     if (currentUser && currentUser.role !== "admin") {
       const adminOnlyTabs = [
-        "settings", "system-status", "event-logs", "sip-debugger", "security", "tenant-management"
+        "settings", "system-status", "event-logs", "troubleshooting", "sip-debugger", "security", "tenant-management"
       ];
       if (adminOnlyTabs.includes(activeTab)) {
         console.warn(`[SECURITY] User role '${currentUser.role}' is not authorized to access '${activeTab}'. Redirecting to call-center.`);
@@ -1349,6 +1354,7 @@ export default function Home() {
         setHasConferencesPermission(true);
         setHasSpeedDialPermission(true);
         setHasScheduledReportsPermission(true);
+        setHasWorkHoursPermission(true);
         setIsAgentOnlyUser(false);
         setIsWallboardOnlyUser(false);
         setIsAgentFullScreenMode(false);
@@ -1373,6 +1379,7 @@ export default function Home() {
         setHasConferencesPermission(false);
         setHasSpeedDialPermission(false);
         setHasScheduledReportsPermission(false);
+        setHasWorkHoursPermission(false);
         setIsWallboardOnlyUser(false);
         setIsAgentOnlyUser(true);
         setIsAgentFullScreenMode(true);
@@ -1395,6 +1402,7 @@ export default function Home() {
         const canConfs = hasPerm('conferences');
         const canSpeedDial = hasPerm('speed_dials');
         const canScheduledReports = hasPerm('scheduled_reports');
+        const canWorkHours = hasPerm('work_hours') || hasPerm('pbx') || hasPerm('call_flow');
 
         setHasOmnichannelPermission(canOmni);
         setHasContactsPermission(canContacts);
@@ -1413,6 +1421,7 @@ export default function Home() {
         setHasConferencesPermission(canConfs);
         setHasSpeedDialPermission(canSpeedDial);
         setHasScheduledReportsPermission(canScheduledReports);
+        setHasWorkHoursPermission(canWorkHours);
 
         const canDashboard = hasPerm('dashboard');
         const canWallboard = hasPerm('wallboard');
@@ -1432,6 +1441,7 @@ export default function Home() {
           canConfs ||
           canSpeedDial ||
           canScheduledReports ||
+          canWorkHours ||
           hasPerm('call_flow') ||
           hasPerm('dialer') ||
           canContacts ||
@@ -1442,6 +1452,7 @@ export default function Home() {
           hasPerm('channels') ||
           hasPerm('logs') ||
           hasPerm('storage') ||
+          hasPerm('troubleshooting') ||
           hasPerm('sip_debugger') ||
           hasPerm('security');
 
@@ -1508,6 +1519,7 @@ export default function Home() {
           setHasConferencesPermission(true);
           setHasSpeedDialPermission(true);
           setHasScheduledReportsPermission(true);
+          setHasWorkHoursPermission(true);
         }
         setCurrentUser(currentUserData);
         setIsLoggedIn(true);
@@ -1751,7 +1763,8 @@ export default function Home() {
       "blacklist": "Kara Liste & Engellenenler",
       "tenants": "Müşteri (Tenant) Yönetimi",
       "system-logs": "Olay Günlükleri (Denetim Kayıtları)",
-      "sip-debugger": "SIP / WebRTC Paket Analizi",
+      "troubleshooting": "Sorun İnceleme (Ping, Traceroute, SIP Capture & sngrep)",
+      "sip-debugger": "Sorun İnceleme (Ping, Traceroute, SIP Capture & sngrep)",
       "pbx-settings": "Santral (PBX) Ayarları",
       "settings": "Sistem Ayarları"
     };
@@ -2561,6 +2574,23 @@ export default function Home() {
                 <span className={`whitespace-nowrap overflow-hidden transition-all duration-300 ${isSidebarCollapsed ? "max-w-0 opacity-0" : "max-w-[180px] opacity-100"}`}>Arama Akış Yönetimi</span>
               </button>
 
+              {hasWorkHoursPermission && (
+                <button
+                  onClick={() => setActiveTab("work-hours")}
+                  title="Mesai Saatleri & Resmi Tatiller"
+                  className={`w-full flex items-center ${
+                    isSidebarCollapsed ? "justify-center px-0 py-2.5" : "gap-3 px-3 py-2"
+                  } rounded-xl text-xs font-semibold tracking-wide transition-all duration-200 border ${
+                    activeTab === "work-hours"
+                      ? `${lightBg} ${text} ${borderLight} shadow-sm`
+                      : "text-slate-500 dark:text-slate-400 border-transparent hover:text-slate-900 dark:hover:text-white hover:bg-slate-50 dark:hover:bg-slate-800/40"
+                  }`}
+                >
+                  <Clock size={16} className={`shrink-0 ${activeTab === "work-hours" ? "text-primary" : ""}`} />
+                  <span className={`whitespace-nowrap overflow-hidden transition-all duration-300 ${isSidebarCollapsed ? "max-w-0 opacity-0" : "max-w-[180px] opacity-100"}`}>Mesai & Resmi Tatiller</span>
+                </button>
+              )}
+
               <button
                 onClick={() => setActiveTab("dialer")}
                 title="Dış Arama (Dialer)"
@@ -3212,18 +3242,26 @@ export default function Home() {
               </button>
 
               <button
-                onClick={() => setActiveTab("sip-debugger")}
-                title="SIP Trafik (sngrep)"
+                onClick={() => setActiveTab("troubleshooting")}
+                title="Sorun İnceleme"
                 className={`w-full flex items-center ${
                   isSidebarCollapsed ? "justify-center px-0 py-2.5" : "gap-3 px-3 py-2"
                 } rounded-xl text-xs font-semibold tracking-wide transition-all duration-200 border ${
-                  activeTab === "sip-debugger"
-                    ? "bg-indigo-50 dark:bg-indigo-955/20 text-indigo-600 dark:text-indigo-400 border-indigo-100/80 dark:border-indigo-900/30 shadow-sm"
+                  activeTab === "troubleshooting" || activeTab === "sip-debugger"
+                    ? "bg-primary/5 dark:bg-primary/10 text-primary border-primary/25 shadow-sm"
                     : "text-slate-500 dark:text-slate-400 border-transparent hover:text-slate-900 dark:hover:text-white hover:bg-slate-50 dark:hover:bg-slate-800/40"
                 }`}
               >
-                <Terminal size={16} className={`shrink-0 ${activeTab === "sip-debugger" ? "text-indigo-500" : ""}`} />
-                <span className={`whitespace-nowrap overflow-hidden transition-all duration-300 ${isSidebarCollapsed ? "max-w-0 opacity-0" : "max-w-[180px] opacity-100"}`}>SIP Trafik (sngrep)</span>
+                <Activity
+                  size={16}
+                  aria-hidden="true"
+                  className={`shrink-0 ${
+                    activeTab === "troubleshooting" || activeTab === "sip-debugger"
+                      ? "text-primary"
+                      : ""
+                  }`}
+                />
+                <span className={`whitespace-nowrap overflow-hidden transition-all duration-300 ${isSidebarCollapsed ? "max-w-0 opacity-0" : "max-w-[180px] opacity-100"}`}>Sorun İnceleme</span>
               </button>
 
               <button
@@ -3260,10 +3298,10 @@ export default function Home() {
           </p>
           <button
             onClick={() => setActiveTab("changelog")}
-            title="Sistem Versiyonu ve Değişiklik Günlüğü (v2.6.9 On-Premise)"
-            className="flex items-center gap-1 text-[10px] font-bold text-slate-500 dark:text-slate-400 hover:text-primary dark:hover:text-indigo-400 hover:underline transition cursor-pointer bg-transparent border-0 p-0 outline-none"
+            title="Sistem Versiyonu ve Değişiklik Günlüğü (v2.7.0 On-Premise)"
+            className="flex items-center gap-1 text-[10px] font-bold text-slate-500 dark:text-slate-400 hover:text-primary dark:hover:text-indigo-400 hover:underline transition cursor-pointer bg-transparent border-0 p-0 outline-none focus-visible:ring-2 focus-visible:ring-primary/50 rounded"
           >
-            <span>{isSidebarCollapsed ? "v2.6.9" : "v2.6.9 (On-Premise)"}</span>
+            <span>{isSidebarCollapsed ? "v2.7.0" : "v2.7.0 (On-Premise)"}</span>
           </button>
         </div>
       </aside>
@@ -3597,7 +3635,7 @@ export default function Home() {
         )}
 
         {/* Dynamic View Panel */}
-        <div key={activeTenantId} className={`flex-1 overflow-y-auto flex ${isEditingCallFlow ? "p-0 justify-center w-full h-full bg-white dark:bg-slate-950" : activeTab === "call-center" ? "p-3 justify-start items-start w-full h-full" : ["wallboard", "settings", "rag-kb", "rule-editor", "calendar", "system-status", "dialer", "call-flow", "ai-agents", "ai-config-assistant", "changelog", "reports-custom-builder", "reports-pano", "reports-cdr", "reports-audio", "reports-transcripts", "reports-sentiment", "reports-intent", "reports-qa", "reports-notes", "reports-perf", "reports-queue", "reports-survey", "reports-sentiment-heat", "reports-wordcloud", "reports-fcr", "reports-roi", "reports-missed", "reports-agent-status-timeline", "reports-traffic-load", "reports-trunk", "reports-did", "reports-trunk-minutes", "reports-invalid-calls", "reports-ivr-drop", "reports-transfer-hold", "reports-ab-testing", "reports-friction", "reports-compliance", "reports-silence", "reports-ceo-summary", "reports-breaks-attendance", "reports-omnichannel", "reports-disposition", "reports-dialer-callback", "reports-queue-sla", "reports-repeat-callers", "reports-dept-pickup", "reports-voip-quality", "reports-forwarding-gsm", "reports-supervisor-audit", "reports-blacklist-security", "reports-ai-appointments-rag", "reports-voicemail", "reports-conferences", "users", "trunks", "blacklist", "scheduled-reports", "announcements", "acd-queues", "auto-provision", "outbound-rules", "inbound-rules", "call-pickup-groups", "subscriber-groups", "conferences", "speed-dial", "event-logs", "sip-debugger"].includes(activeTab) ? "p-8 justify-start items-start w-full" : "p-8 justify-center"}`}>
+        <div key={activeTenantId} className={`flex-1 overflow-y-auto flex ${isEditingCallFlow ? "p-0 justify-center w-full h-full bg-white dark:bg-slate-950" : activeTab === "call-center" ? "p-3 justify-start items-start w-full h-full" : ["wallboard", "settings", "rag-kb", "rule-editor", "calendar", "system-status", "dialer", "call-flow", "work-hours", "ai-agents", "ai-config-assistant", "changelog", "reports-custom-builder", "reports-pano", "reports-cdr", "reports-audio", "reports-transcripts", "reports-sentiment", "reports-intent", "reports-qa", "reports-notes", "reports-perf", "reports-queue", "reports-survey", "reports-sentiment-heat", "reports-wordcloud", "reports-fcr", "reports-roi", "reports-missed", "reports-agent-status-timeline", "reports-traffic-load", "reports-trunk", "reports-did", "reports-trunk-minutes", "reports-invalid-calls", "reports-ivr-drop", "reports-transfer-hold", "reports-ab-testing", "reports-friction", "reports-compliance", "reports-silence", "reports-ceo-summary", "reports-breaks-attendance", "reports-omnichannel", "reports-disposition", "reports-dialer-callback", "reports-queue-sla", "reports-repeat-callers", "reports-dept-pickup", "reports-voip-quality", "reports-forwarding-gsm", "reports-supervisor-audit", "reports-blacklist-security", "reports-ai-appointments-rag", "reports-voicemail", "reports-conferences", "users", "trunks", "blacklist", "scheduled-reports", "announcements", "acd-queues", "auto-provision", "outbound-rules", "inbound-rules", "call-pickup-groups", "subscriber-groups", "conferences", "speed-dial", "event-logs", "troubleshooting", "sip-debugger"].includes(activeTab) ? "p-8 justify-start items-start w-full" : "p-8 justify-center"}`}>
           <div className={activeTab === "call-center" ? "w-full h-full flex" : "hidden"}>
             <AgentPanel 
               backendHost={backendHost} 
@@ -3616,8 +3654,8 @@ export default function Home() {
             <SecurityPanel backendHost={backendHost} />
           )}
 
-          {activeTab === "sip-debugger" && (
-            <SipDebuggerPanel backendHost={backendHost} />
+          {(activeTab === "troubleshooting" || activeTab === "sip-debugger") && (
+            <TroubleshootingPanel backendHost={backendHost} />
           )}
 
           {activeTab === "users" && (
@@ -3649,7 +3687,10 @@ export default function Home() {
           )}
 
           {activeTab === "announcements" && (
-            <AnnouncementsPanel backendHost={backendHost} />
+            <AnnouncementsPanel
+              backendHost={backendHost}
+              userPermissions={currentUser?.role === "admin" ? undefined : currentRolePermissions}
+            />
           )}
 
           {activeTab === "acd-queues" && (
@@ -3689,7 +3730,10 @@ export default function Home() {
           )}
 
           {activeTab === "rag-kb" && (
-            <KnowledgeBase backendHost={backendHost} />
+            <KnowledgeBase
+              backendHost={backendHost}
+              userPermissions={currentUser?.role === "admin" ? ["*"] : currentRolePermissions}
+            />
           )}
 
           {activeTab === "rule-editor" && (
@@ -3846,7 +3890,18 @@ export default function Home() {
           )}
 
           {activeTab === "call-flow" && (
-            <CallFlowEditor backendHost={backendHost} onEditStateChange={setIsEditingCallFlow} />
+            <CallFlowEditor
+              backendHost={backendHost}
+              onEditStateChange={setIsEditingCallFlow}
+              onOpenWorkHours={() => {
+                setIsEditingCallFlow(false);
+                setActiveTab("work-hours");
+              }}
+            />
+          )}
+
+          {activeTab === "work-hours" && hasWorkHoursPermission && (
+            <WorkHoursSettingsPanel backendHost={backendHost} />
           )}
 
           {activeTab === "reports-custom-builder" && (
@@ -3918,7 +3973,7 @@ export default function Home() {
               {/* Modal Header */}
               <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 dark:border-slate-800/60 bg-slate-50/50 dark:bg-slate-950/20 shrink-0">
                 <div className="flex items-center gap-3">
-                  <div className="p-2 bg-violet-50 dark:bg-violet-950/20 text-violet-500 rounded-xl">
+                  <div className={`p-2 ${lightBg} ${text} rounded-xl`}>
                     <Settings size={16} />
                   </div>
                   <div>
@@ -3948,8 +4003,8 @@ export default function Home() {
                       onClick={() => setActiveModalTab("profile")}
                       className={"w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-bold transition-all " + (activeModalTab === "profile" ? ("bg-white dark:bg-slate-800 " + text + " shadow-sm border border-slate-200 dark:border-slate-700") : "text-slate-500 hover:bg-white/50 dark:hover:bg-slate-800/50 hover:text-slate-700 dark:hover:text-slate-300 border border-transparent")}
                     >
-                      <User size={16} />
-                      Profil & Tema
+                      <Palette size={16} />
+                      Avatar & Tema
                     </button>
                     <button
                       type="button"
@@ -3965,7 +4020,7 @@ export default function Home() {
                       className={"w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-bold transition-all " + (activeModalTab === "hardware" ? ("bg-white dark:bg-slate-800 " + text + " shadow-sm border border-slate-200 dark:border-slate-700") : "text-slate-500 hover:bg-white/50 dark:hover:bg-slate-800/50 hover:text-slate-700 dark:hover:text-slate-300 border border-transparent")}
                     >
                       <Volume2 size={16} />
-                      Donanım & Santral
+                      Donanım
                     </button>
                     <button
                       type="button"
@@ -4696,7 +4751,7 @@ export default function Home() {
                           Profil Avatarı Seçin veya Yükleyin
                         </span>
                         <span className="text-[9px] text-slate-400 dark:text-slate-500">
-                          24 hazır avatardan seçin veya kendi görselinizi yükleyin
+                          {ALL_AVATAR_ITEMS.length} hazır avatardan (telifsiz sinema karakterleri dahil) seçin veya görsel yükleyin
                         </span>
                       </div>
                     </div>
@@ -4750,46 +4805,60 @@ export default function Home() {
                     </label>
                   </div>
 
-                  <div className="grid grid-cols-6 gap-2 max-h-44 overflow-y-auto p-1">
-                    {[
-                      "https://api.dicebear.com/7.x/avataaars/svg?seed=Anil",
-                      "https://api.dicebear.com/7.x/avataaars/svg?seed=Can",
-                      "https://api.dicebear.com/7.x/avataaars/svg?seed=Sara",
-                      "https://api.dicebear.com/7.x/avataaars/svg?seed=Adrian",
-                      "https://api.dicebear.com/7.x/avataaars/svg?seed=Jack",
-                      "https://api.dicebear.com/7.x/avataaars/svg?seed=Felix",
-                      "https://api.dicebear.com/7.x/avataaars/svg?seed=Elif",
-                      "https://api.dicebear.com/7.x/avataaars/svg?seed=Zeynep",
-                      "https://api.dicebear.com/7.x/avataaars/svg?seed=Murat",
-                      "https://api.dicebear.com/7.x/avataaars/svg?seed=Selin",
-                      "https://api.dicebear.com/7.x/avataaars/svg?seed=Burak",
-                      "https://api.dicebear.com/7.x/avataaars/svg?seed=Deniz",
-                      "https://api.dicebear.com/7.x/adventurer/svg?seed=Emre",
-                      "https://api.dicebear.com/7.x/adventurer/svg?seed=Ayse",
-                      "https://api.dicebear.com/7.x/adventurer/svg?seed=Kaan",
-                      "https://api.dicebear.com/7.x/adventurer/svg?seed=Defne",
-                      "https://api.dicebear.com/7.x/lorelei/svg?seed=Merve",
-                      "https://api.dicebear.com/7.x/lorelei/svg?seed=Kerem",
-                      "https://api.dicebear.com/7.x/micah/svg?seed=Cem",
-                      "https://api.dicebear.com/7.x/micah/svg?seed=Ece",
-                      "https://api.dicebear.com/7.x/notionists/svg?seed=Bora",
-                      "https://api.dicebear.com/7.x/notionists/svg?seed=Pelin",
-                      "https://api.dicebear.com/7.x/bottts/svg?seed=AgentAlpha",
-                      "https://api.dicebear.com/7.x/bottts/svg?seed=AgentNova"
-                    ].map((av, idx) => {
-                      const isSelected = av === agentAvatar;
+                  <div className="flex flex-wrap items-center gap-1.5" role="group" aria-label="Avatar kategori filtresi">
+                    {AVATAR_CATEGORIES.map((cat) => {
+                      const isActiveCat = profileAvatarCategory === cat.id;
+                      const catCount = cat.id === "all"
+                        ? ALL_AVATAR_ITEMS.length
+                        : ALL_AVATAR_ITEMS.filter((a) => a.category === cat.id).length;
                       return (
                         <button
-                          key={idx}
+                          key={cat.id}
                           type="button"
-                          onClick={() => setAgentAvatar(av)}
-                          className={`p-0.5 rounded-xl border-2 transition-all hover:scale-105 focus:outline-none bg-slate-50 dark:bg-slate-950 ${
+                          aria-pressed={isActiveCat}
+                          onClick={() => setProfileAvatarCategory(cat.id)}
+                          className={`px-2 py-1 rounded-lg text-[10px] font-bold transition-all border focus-visible:outline-none focus-visible:ring-2 ${ring} ${
+                            isActiveCat
+                              ? `${bg} text-white border-transparent shadow-sm`
+                              : "bg-slate-50 dark:bg-slate-900 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-800 hover:bg-slate-100 dark:hover:bg-slate-800"
+                          }`}
+                        >
+                          {cat.label} ({catCount})
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  <div className="grid grid-cols-5 sm:grid-cols-6 gap-2 max-h-52 overflow-y-auto p-1">
+                    {ALL_AVATAR_ITEMS.filter((item) => profileAvatarCategory === "all" || item.category === profileAvatarCategory).map((item) => {
+                      const isSelected = item.url === agentAvatar;
+                      const shortLabel = item.label.split(" (")[0];
+                      return (
+                        <button
+                          key={item.id}
+                          type="button"
+                          aria-label={item.label}
+                          aria-pressed={isSelected}
+                          title={item.label}
+                          onClick={() => setAgentAvatar(item.url)}
+                          className={`flex flex-col items-center gap-1 p-1.5 rounded-xl border-2 transition-all hover:scale-105 focus-visible:outline-none focus-visible:ring-2 ${ring} bg-slate-50 dark:bg-slate-950 ${
                             isSelected 
-                              ? "border-violet-500 bg-violet-50 dark:bg-violet-950/20" 
+                              ? `${border} ${lightBg}` 
                               : "border-transparent hover:border-slate-200 dark:hover:border-slate-800"
                           }`}
                         >
-                          <img src={av} alt="Avatar option" className="w-full h-full rounded-lg object-contain aspect-square" />
+                          <img
+                            src={item.url}
+                            alt=""
+                            loading="lazy"
+                            fetchpriority="low"
+                            className="w-10 h-10 rounded-lg object-contain aspect-square shrink-0"
+                          />
+                          <span className={`text-[9px] font-semibold leading-tight truncate w-full text-center ${
+                            isSelected ? text : "text-slate-600 dark:text-slate-400"
+                          }`}>
+                            {shortLabel}
+                          </span>
                         </button>
                       );
                     })}
@@ -4797,52 +4866,114 @@ export default function Home() {
                 </div>
 
                 {/* System Theme Color Selection */}
-                <div className={`space-y-2 ${activeModalTab === "profile" ? "block" : "hidden"}`}>
-                  <label className="text-[9px] font-extrabold text-slate-455 dark:text-slate-550 uppercase tracking-widest block">Sistem Tema Rengi</label>
-                  <div className="grid grid-cols-4 sm:grid-cols-8 gap-2">
-                    {[
-                      { name: "İndigo", value: "99, 102, 241", hex: "#6366f1" },
-                      { name: "Okyanus", value: "59, 130, 246", hex: "#3b82f6" },
-                      { name: "Zümrüt", value: "16, 185, 129", hex: "#10b981" },
-                      { name: "Gül", value: "225, 29, 72", hex: "#e11d48" },
-                      { name: "Ametist", value: "168, 85, 247", hex: "#a855f7" },
-                      { name: "Gece", value: "15, 23, 42", hex: "#0f172a" },
-                      { name: "Güneş", value: "245, 158, 11", hex: "#f59e0b" },
-                      { name: "Kızılcık", value: "220, 38, 38", hex: "#dc2626" },
-                      { name: "Turkuaz", value: "6, 182, 212", hex: "#06b6d4" },
-                      { name: "Deniz", value: "14, 165, 233", hex: "#0ea5e9" },
-                      { name: "Lavanta", value: "139, 92, 246", hex: "#8b5cf6" },
-                      { name: "Vişne", value: "190, 18, 60", hex: "#be123c" },
-                      { name: "Turuncu", value: "234, 88, 12", hex: "#ea580c" },
-                      { name: "Orman", value: "21, 128, 61", hex: "#15803d" },
-                      { name: "Çikolata", value: "120, 53, 15", hex: "#78350f" },
-                      { name: "Siyah", value: "63, 63, 70", hex: "#3f3f46" },
-                    ].map((t) => (
-                      <button
-                        key={t.value}
-                        type="button"
-                        onClick={() => {
-                          const safeColor = getSafeThemeColor(t.value);
-                          setTempThemeColor(safeColor);
-                          document.documentElement.style.setProperty("--color-primary", safeColor);
-                          localStorage.setItem("theme_primary_color", safeColor);
-                          persistUserVisualPatch({ theme_color: safeColor });
-                        }}
-                        className={`p-2 rounded-xl border flex flex-col items-center gap-1.5 transition-all ${
-                          tempThemeColor === t.value
-                            ? "border-slate-800 dark:border-white ring-2 ring-slate-800/10 dark:ring-white/10"
-                            : "border-slate-100 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700"
-                        }`}
-                        title={t.name}
-                      >
-                        <span 
-                          className="w-5 h-5 rounded-full shrink-0 shadow-sm"
-                          style={{ backgroundColor: t.hex }}
-                        />
-                        <span className="text-[8px] font-bold text-slate-600 dark:text-slate-300 truncate w-full text-center">{t.name}</span>
-                      </button>
-                    ))}
-                  </div>
+                <div className={`space-y-3 ${activeModalTab === "profile" ? "block" : "hidden"}`}>
+                  {(() => {
+                    const currentThemeHex = rgbStringToHex(tempThemeColor);
+                    const isCustomTheme = !SYSTEM_THEME_PRESETS.some((p) => p.value === tempThemeColor);
+                    const applyThemeColorLive = (rawColor) => {
+                      const safeColor = getSafeThemeColor(rawColor);
+                      setTempThemeColor(safeColor);
+                      document.documentElement.style.setProperty("--color-primary", safeColor);
+                      localStorage.setItem("theme_primary_color", safeColor);
+                      persistUserVisualPatch({ theme_color: safeColor });
+                    };
+
+                    return (
+                      <>
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <div>
+                            <label className="text-[10px] font-extrabold text-slate-700 dark:text-slate-200 uppercase tracking-widest block">
+                              Sistem Tema Rengi
+                            </label>
+                            <span className="text-[9px] text-slate-400 dark:text-slate-500">
+                              Genişletilmiş hazır renklerden seçin veya renk paletinden özel renginizi belirleyin
+                            </span>
+                          </div>
+
+                          <label
+                            title="Renk Paletinden Özel Sistem Rengi Seç"
+                            className={`relative inline-flex items-center gap-2 px-3 py-1.5 rounded-xl border cursor-pointer transition-all shadow-sm ${
+                              isCustomTheme
+                                ? `${border} ${lightBg}`
+                                : "bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-700 hover:border-primary/60"
+                            }`}
+                          >
+                            <Palette size={13} className={text} />
+                            <span
+                              className="w-3.5 h-3.5 rounded-full border border-black/15 shadow-sm shrink-0"
+                              style={{ backgroundColor: currentThemeHex }}
+                            />
+                            <span className="text-[10px] font-extrabold text-slate-700 dark:text-slate-200">
+                              Renk Paleti
+                            </span>
+                            <span className="text-[9px] font-mono font-bold text-slate-500 dark:text-slate-400 uppercase">
+                              {currentThemeHex}
+                            </span>
+                            <input
+                              type="color"
+                              value={currentThemeHex}
+                              onChange={(e) => applyThemeColorLive(e.target.value)}
+                              className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                            />
+                          </label>
+                        </div>
+
+                        <div className="grid grid-cols-4 sm:grid-cols-7 md:grid-cols-9 gap-2">
+                          {SYSTEM_THEME_PRESETS.map((t) => (
+                            <button
+                              key={t.value}
+                              type="button"
+                              onClick={() => applyThemeColorLive(t.value)}
+                              className={`p-2 rounded-xl border flex flex-col items-center gap-1.5 transition-all cursor-pointer ${
+                                tempThemeColor === t.value
+                                  ? "border-slate-800 dark:border-white ring-2 ring-slate-800/10 dark:ring-white/10 bg-slate-50/80 dark:bg-slate-800/60"
+                                  : "border-slate-100 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700"
+                              }`}
+                              title={`${t.name} (${t.hex.toUpperCase()})`}
+                            >
+                              <span
+                                className="w-5 h-5 rounded-full shrink-0 shadow-sm border border-black/10"
+                                style={{ backgroundColor: t.hex }}
+                              />
+                              <span className="text-[8px] font-bold text-slate-600 dark:text-slate-300 truncate w-full text-center">
+                                {t.name}
+                              </span>
+                            </button>
+                          ))}
+
+                          {/* Özel Palet Kartı */}
+                          <label
+                            title="Renk Paletinden İstediğiniz Rengi Seçin"
+                            className={`relative p-2 rounded-xl border flex flex-col items-center gap-1.5 transition-all cursor-pointer ${
+                              isCustomTheme
+                                ? "border-slate-800 dark:border-white ring-2 ring-slate-800/10 dark:ring-white/10 bg-slate-50/80 dark:bg-slate-800/60"
+                                : "border-dashed border-slate-300 dark:border-slate-700 hover:border-primary/60"
+                            }`}
+                          >
+                            <span
+                              className="w-5 h-5 rounded-full shrink-0 shadow-sm border border-black/15 flex items-center justify-center"
+                              style={{
+                                background: isCustomTheme
+                                  ? currentThemeHex
+                                  : "conic-gradient(from 0deg, #ef4444, #f59e0b, #10b981, #06b6d4, #3b82f6, #a855f7, #ec4899, #ef4444)"
+                              }}
+                            >
+                              <Palette size={10} className="text-white drop-shadow" />
+                            </span>
+                            <span className="text-[8px] font-extrabold text-slate-700 dark:text-slate-200 truncate w-full text-center">
+                              {isCustomTheme ? currentThemeHex.toUpperCase() : "Özel Seç"}
+                            </span>
+                            <input
+                              type="color"
+                              value={currentThemeHex}
+                              onChange={(e) => applyThemeColorLive(e.target.value)}
+                              className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                            />
+                          </label>
+                        </div>
+                      </>
+                    );
+                  })()}
                 </div>
 
                 {/* Ringtone Selection */}
@@ -5138,50 +5269,6 @@ export default function Home() {
                   </select>
                 </div>
                 
-                {/* Mobile Transfer */}
-                <div className={`p-4 bg-slate-50/80 dark:bg-slate-900/80 border border-slate-200/80 dark:border-slate-800 rounded-2xl space-y-3 ${activeModalTab === "hardware" ? "block" : "hidden"}`}>
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <Smartphone size={15} className="text-violet-500" />
-                      <span className="text-[10px] font-extrabold text-slate-800 dark:text-slate-100 uppercase tracking-wide">Akıllı Mobil Aktarım (AI GSM)</span>
-                    </div>
-                    {hasMobileTransferPermission ? (
-                      <button
-                        type="button"
-                        onClick={() => setMobileTransferEnabled(!mobileTransferEnabled)}
-                        className={`w-9 h-5 rounded-full p-0.5 transition-all duration-200 focus:outline-none flex items-center ${
-                          mobileTransferEnabled ? "bg-violet-500 justify-end" : "bg-slate-200 dark:bg-slate-800 justify-start"
-                        }`}
-                      >
-                        <span className="w-4 h-4 rounded-full bg-white shadow-sm" />
-                      </button>
-                    ) : (
-                      <span className="text-[9px] font-extrabold text-rose-600 dark:text-rose-400 bg-rose-50 dark:bg-rose-950/40 border border-rose-200/60 dark:border-rose-800/60 px-2.5 py-0.5 rounded-lg">Yetkisiz</span>
-                    )}
-                  </div>
-                  
-                  {hasMobileTransferPermission ? (
-                    <div className="space-y-1.5">
-                      <label className="text-[9px] font-extrabold text-slate-500 dark:text-slate-400 uppercase tracking-widest block">GSM Numarası</label>
-                      <input
-                        type="tel"
-                        placeholder="Örn: +905553332211"
-                        value={gsmNumber}
-                        onChange={(e) => setGsmNumber(e.target.value)}
-                        disabled={!mobileTransferEnabled}
-                        className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 text-xs font-semibold text-slate-800 dark:text-white focus:outline-none focus:border-violet-500 disabled:opacity-50"
-                      />
-                      <p className="text-[9px] text-slate-500 dark:text-slate-400 font-medium">
-                        Web Telefon kapalıyken mesai saatlerinde gelen çağrılar bu numaraya aktarılır ve yapay zeka size çağrı özetini fısıldar.
-                      </p>
-                    </div>
-                  ) : (
-                    <p className="text-[9.5px] text-slate-500 dark:text-slate-400 font-medium italic">
-                      Mobil yönlendirme özelliğini yönetmek için &quot;mobile_transfer:write&quot; yetkisine sahip olmalısınız.
-                    </p>
-                  )}
-                </div>
-
               </div>
 
               {/* Forwarding Selection */}
@@ -5205,6 +5292,56 @@ export default function Home() {
                     {renderForwardingRow("Her Zaman (Koşulsuz)", fwdAlwaysActive, setFwdAlwaysActive, fwdAlwaysType, setFwdAlwaysType, fwdAlwaysTarget, setFwdAlwaysTarget, null, null)}
                     {renderForwardingRow("Meşgul Durumda", fwdBusyActive, setFwdBusyActive, fwdBusyType, setFwdBusyType, fwdBusyTarget, setFwdBusyTarget, null, null)}
                     {renderForwardingRow("Zaman Aşımında (Cevapsız)", fwdNoAnswerActive, setFwdNoAnswerActive, fwdNoAnswerType, setFwdNoAnswerType, fwdNoAnswerTarget, setFwdNoAnswerTarget, fwdNoAnswerTimeout, setFwdNoAnswerTimeout)}
+
+                    {/* Akıllı Mobil Aktarım (AI GSM) */}
+                    <div className="p-4 bg-slate-50/80 dark:bg-slate-900/80 border border-slate-200/80 dark:border-slate-800 rounded-2xl space-y-3">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <Smartphone size={15} className={text} />
+                          <span className="text-[10px] font-extrabold text-slate-800 dark:text-slate-100 uppercase tracking-wide">
+                            Akıllı Mobil Aktarım (AI GSM)
+                          </span>
+                        </div>
+                        {hasMobileTransferPermission ? (
+                          <button
+                            type="button"
+                            onClick={() => setMobileTransferEnabled(!mobileTransferEnabled)}
+                            className={`w-9 h-5 rounded-full p-0.5 transition-all duration-200 focus:outline-none flex items-center ${
+                              mobileTransferEnabled ? `${bg} justify-end` : "bg-slate-200 dark:bg-slate-800 justify-start"
+                            }`}
+                          >
+                            <span className="w-4 h-4 rounded-full bg-white shadow-sm" />
+                          </button>
+                        ) : (
+                          <span className="text-[9px] font-extrabold text-rose-600 dark:text-rose-400 bg-rose-50 dark:bg-rose-950/40 border border-rose-200/60 dark:border-rose-800/60 px-2.5 py-0.5 rounded-lg">
+                            Yetkisiz
+                          </span>
+                        )}
+                      </div>
+
+                      {hasMobileTransferPermission ? (
+                        <div className="space-y-1.5">
+                          <label className="text-[9px] font-extrabold text-slate-500 dark:text-slate-400 uppercase tracking-widest block">
+                            GSM Numarası
+                          </label>
+                          <input
+                            type="tel"
+                            placeholder="Örn: +905553332211"
+                            value={gsmNumber}
+                            onChange={(e) => setGsmNumber(e.target.value)}
+                            disabled={!mobileTransferEnabled}
+                            className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 text-xs font-semibold text-slate-800 dark:text-white focus:outline-none focus:border-primary disabled:opacity-50"
+                          />
+                          <p className="text-[9px] text-slate-500 dark:text-slate-400 font-medium">
+                            Web Telefon kapalıyken mesai saatlerinde gelen çağrılar bu numaraya aktarılır ve yapay zeka size çağrı özetini fısıldar.
+                          </p>
+                        </div>
+                      ) : (
+                        <p className="text-[9.5px] text-slate-500 dark:text-slate-400 font-medium italic">
+                          Mobil yönlendirme özelliğini yönetmek için &quot;mobile_transfer:write&quot; yetkisine sahip olmalısınız.
+                        </p>
+                      )}
+                    </div>
                 </div>
               </div>
 

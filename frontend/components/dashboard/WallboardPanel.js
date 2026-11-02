@@ -47,20 +47,18 @@ export const DEFAULT_STATUS_COLORS = {
 };
 
 export const COLOR_SWATCHES = [
-  { hex: "#334155", label: "Antrasit" },
-  { hex: "#0f172a", label: "Siyah" },
   { hex: "#10b981", label: "Yeşil" },
-  { hex: "#22c55e", label: "Zümrüt" },
-  { hex: "#eab308", label: "Sarı" },
-  { hex: "#f59e0b", label: "Kehribar" },
-  { hex: "#f97316", label: "Turuncu" },
   { hex: "#ef4444", label: "Kırmızı" },
-  { hex: "#e11d48", label: "Gül" },
+  { hex: "#eab308", label: "Sarı" },
+  { hex: "#f97316", label: "Turuncu" },
   { hex: "#3b82f6", label: "Mavi" },
-  { hex: "#6366f1", label: "İndigo" },
   { hex: "#a855f7", label: "Mor" },
+  { hex: "#334155", label: "Antrasit" },
   { hex: "#06b6d4", label: "Turkuaz" },
-  { hex: "#64748b", label: "Gri" }
+  { hex: "#e11d48", label: "Gül" },
+  { hex: "#6366f1", label: "İndigo" },
+  { hex: "#ec4899", label: "Pembe" },
+  { hex: "#0f172a", label: "Siyah" }
 ];
 
 export function isAutoBreakState(state) {
@@ -728,9 +726,17 @@ export function WallboardStudioSettings({ backendHost = "localhost:8000", curren
                       </div>
 
                       <label
-                        title="Özel Renk Seç"
-                        className="flex items-center gap-1.5 px-2 py-1 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 cursor-pointer shrink-0"
+                        title={`Renk Paletinden Özel Renk Seç (${currentHex})`}
+                        className="relative inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 hover:border-primary/60 cursor-pointer shrink-0 shadow-sm transition-all"
                       >
+                        <Palette size={12} className={text} />
+                        <span
+                          className="w-3 h-3 rounded-full border border-black/15 shrink-0"
+                          style={{ backgroundColor: currentHex }}
+                        />
+                        <span className="text-[9px] font-extrabold text-slate-700 dark:text-slate-200">
+                          Palet
+                        </span>
                         <input
                           type="color"
                           value={currentHex}
@@ -739,11 +745,8 @@ export function WallboardStudioSettings({ backendHost = "localhost:8000", curren
                             setStatusColors(next);
                             syncLayout({ statusColors: next });
                           }}
-                          className="w-4 h-4 rounded border-0 p-0 bg-transparent cursor-pointer"
+                          className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
                         />
-                        <span className="text-[9px] font-mono font-bold text-slate-600 dark:text-slate-300 uppercase">
-                          {currentHex}
-                        </span>
                       </label>
                     </div>
                   </div>
@@ -856,18 +859,23 @@ export function WallboardStudioSettings({ backendHost = "localhost:8000", curren
                         </div>
 
                         <label
-                          title={`${b.name} için özel renk seç`}
-                          className="flex items-center gap-1 px-2 py-0.5 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 cursor-pointer shrink-0"
+                          title={`${b.name} için renk paletinden özel renk seç (${effectiveHex})`}
+                          className="relative inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 hover:border-primary/60 cursor-pointer shrink-0 shadow-sm transition-all"
                         >
+                          <Palette size={12} className={text} />
+                          <span
+                            className="w-3 h-3 rounded-full border border-black/15 shrink-0"
+                            style={{ backgroundColor: effectiveHex }}
+                          />
+                          <span className="text-[9px] font-extrabold text-slate-700 dark:text-slate-200">
+                            Palet
+                          </span>
                           <input
                             type="color"
                             value={effectiveHex}
                             onChange={(e) => handleSetBreakColor(e.target.value)}
-                            className="w-3.5 h-3.5 rounded border-0 p-0 bg-transparent cursor-pointer"
+                            className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
                           />
-                          <span className="text-[9px] font-mono font-bold text-slate-600 dark:text-slate-300 uppercase">
-                            {effectiveHex}
-                          </span>
                         </label>
                       </div>
                     </div>

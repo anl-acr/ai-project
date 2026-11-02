@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
-import { Plus, Trash2, Edit2, X, User, Mail, Phone, Shield, Check, CheckCircle, ToggleLeft, ToggleRight, Search, Copy, RefreshCw, KeyRound, PhoneCall, Settings, Image as ImageIcon, Monitor, Smartphone, AlertTriangle, PhoneOutgoing, Users, Forward, Mic, MicOff, Download, Upload, Building2, Eye, EyeOff, Cable, ExternalLink, Database, Play } from "lucide-react";
+import { Plus, Trash2, Edit2, X, User, Mail, Phone, Shield, Check, CheckCircle, ToggleLeft, ToggleRight, Search, Copy, RefreshCw, KeyRound, PhoneCall, Settings, Image as ImageIcon, Monitor, Smartphone, AlertTriangle, PhoneOutgoing, Users, Forward, Mic, MicOff, Download, Upload, Building2, Eye, EyeOff, Cable, ExternalLink, Database, Play, LayoutGrid, ChevronRight } from "lucide-react";
 import * as XLSX from "xlsx";
 import ConfirmDeleteModal from "../dashboard/ConfirmDeleteModal";
 import { useTheme } from "../../utils/theme";
@@ -8,41 +8,12 @@ import SearchableSelect from "../ui/SearchableSelect";
 
 import { getApiBaseUrl, tenantFetch } from "../../utils/apiHost";
 import useClickOutside from "../../utils/useClickOutside";
+import { PRESET_AVATARS, AVATAR_CATEGORIES, ALL_AVATAR_ITEMS } from "../../utils/avatarPresets";
 
 const DEFAULT_TENANT_LIST = [
   { id: "tenant-default", name: "Ana Müşteri (Varsayılan)" },
   { id: "tenant-test-teknoloji", name: "Test Teknoloji" },
   { id: "tenant-nolto", name: "Nolto" }
-];
-
-const PRESET_AVATARS = [
-  // Klasik & Kurumsal Temsilciler (Avataaars)
-  "https://api.dicebear.com/7.x/avataaars/svg?seed=Anil",
-  "https://api.dicebear.com/7.x/avataaars/svg?seed=Can",
-  "https://api.dicebear.com/7.x/avataaars/svg?seed=Sara",
-  "https://api.dicebear.com/7.x/avataaars/svg?seed=Adrian",
-  "https://api.dicebear.com/7.x/avataaars/svg?seed=Jack",
-  "https://api.dicebear.com/7.x/avataaars/svg?seed=Felix",
-  "https://api.dicebear.com/7.x/avataaars/svg?seed=Elif",
-  "https://api.dicebear.com/7.x/avataaars/svg?seed=Zeynep",
-  "https://api.dicebear.com/7.x/avataaars/svg?seed=Murat",
-  "https://api.dicebear.com/7.x/avataaars/svg?seed=Selin",
-  "https://api.dicebear.com/7.x/avataaars/svg?seed=Burak",
-  "https://api.dicebear.com/7.x/avataaars/svg?seed=Deniz",
-  // Modern İllüstrasyon (Adventurer & Lorelei)
-  "https://api.dicebear.com/7.x/adventurer/svg?seed=Emre",
-  "https://api.dicebear.com/7.x/adventurer/svg?seed=Ayse",
-  "https://api.dicebear.com/7.x/adventurer/svg?seed=Kaan",
-  "https://api.dicebear.com/7.x/adventurer/svg?seed=Defne",
-  "https://api.dicebear.com/7.x/lorelei/svg?seed=Merve",
-  "https://api.dicebear.com/7.x/lorelei/svg?seed=Kerem",
-  // Minimalist & Notion Tarzı / Robotik
-  "https://api.dicebear.com/7.x/micah/svg?seed=Cem",
-  "https://api.dicebear.com/7.x/micah/svg?seed=Ece",
-  "https://api.dicebear.com/7.x/notionists/svg?seed=Bora",
-  "https://api.dicebear.com/7.x/notionists/svg?seed=Pelin",
-  "https://api.dicebear.com/7.x/bottts/svg?seed=AgentAlpha",
-  "https://api.dicebear.com/7.x/bottts/svg?seed=AgentNova"
 ];
 
 const ANNOUNCEMENTS = [
@@ -209,12 +180,14 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
   const [showModal, setShowModal] = useState(false);
   const [editingUser, setEditingUser] = useState(null);
   const [activeTab, setActiveTab] = useState("general");
+  const [announcementsList, setAnnouncementsList] = useState([]);
 
   // Basic Form Fields
   const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
   const [extension, setExtension] = useState("");
   const [avatar, setAvatar] = useState(PRESET_AVATARS[0]);
+  const [avatarCategoryFilter, setAvatarCategoryFilter] = useState("all");
   const [role, setRole] = useState("agent");
   const [isActive, setIsActive] = useState(true);
   const [password, setPassword] = useState("");
@@ -292,6 +265,8 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
   // Supervisor Management Filter Fields
   const [managedUsers, setManagedUsers] = useState([]);
   const [managedQueues, setManagedQueues] = useState([]);
+  const [supFilterView, setSupFilterView] = useState("users"); // 'users' | 'queues'
+  const [subscriberGroupsList, setSubscriberGroupsList] = useState([]);
   const [supUserSearch, setSupUserSearch] = useState("");
   const [supQueueSearch, setSupQueueSearch] = useState("");
 
@@ -388,6 +363,14 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
       } catch (e) {}
 
       try {
+        const resSubGroups = await safeFetch(`/api/settings/subscriber_groups`);
+        if (resSubGroups.ok) {
+          const dataSubGroups = await resSubGroups.json();
+          setSubscriberGroupsList(Array.isArray(dataSubGroups) ? dataSubGroups : (dataSubGroups?.subscriber_groups || []));
+        }
+      } catch (e) {}
+
+      try {
         const resLocs = await safeFetch(`/api/settings/locations`);
         if (resLocs.ok) {
           const dataLocs = await resLocs.json();
@@ -416,6 +399,14 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
         if (resAgents.ok) {
           const dataAgents = await resAgents.json();
           setAiAgentsList(Array.isArray(dataAgents) ? dataAgents : (dataAgents?.ai_agents || []));
+        }
+      } catch (e) {}
+
+      try {
+        const resAnns = await safeFetch(`/api/settings/announcements`);
+        if (resAnns.ok) {
+          const dataAnns = await resAnns.json();
+          setAnnouncementsList(Array.isArray(dataAnns) ? dataAnns : (dataAnns?.announcements || []));
         }
       } catch (e) {}
 
@@ -883,6 +874,7 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
     setSelectedProfileTab("available");
     setManagedUsers([]);
     setManagedQueues([]);
+    setSupFilterView("users");
     setSupUserSearch("");
     setSupQueueSearch("");
     setCtiConfig(DEFAULT_CTI_CONFIG);
@@ -1847,6 +1839,14 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
                             <Settings size={16} />
                             Özellikler
                         </button>
+                        <button
+                            type="button"
+                            onClick={() => setActiveTab("applications")}
+                            className={"w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-bold transition-all " + (activeTab === 'applications' ? ("bg-white dark:bg-slate-800 " + text + " shadow-sm border border-slate-200 dark:border-slate-700") : "text-slate-500 hover:bg-white/50 dark:hover:bg-slate-800/50 hover:text-slate-700 dark:hover:text-slate-300 border border-transparent")}
+                        >
+                            <LayoutGrid size={16} />
+                            Uygulamalar
+                        </button>
                         {canViewCtiTab && (
                             <button
                                 type="button"
@@ -2436,7 +2436,40 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
                                             <div>
                                                 <label className="block text-[10px] font-bold text-slate-500 dark:text-slate-400 mb-1.5">Voicemail Anonsu</label>
                                                 <select value={voicemailAnnouncement} onChange={(e) => setVoicemailAnnouncement(e.target.value)} className="w-full text-xs px-3 py-2.5 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 focus:outline-none">
-                                                    {ANNOUNCEMENTS.map(a => <option key={a} value={a}>{a}</option>)}
+                                                    <option value="Varsayılan Anons">Varsayılan Sistem Sesi (Sesli Mesaj Karşılama)</option>
+                                                    {(() => {
+                                                        const sysVoicemailAnns = (announcementsList || []).filter(a => String(a?.type || "").toLowerCase() === "system");
+                                                        const customVoicemailAnns = (announcementsList || []).filter(a => {
+                                                            const t = String(a?.type || "").toLowerCase();
+                                                            return t !== "moh" && t !== "music" && t !== "hold_music" && t !== "system" && t !== "sistem";
+                                                        });
+                                                        const allValidIds = new Set([
+                                                            "Varsayılan Anons",
+                                                            ...sysVoicemailAnns.map(a => String(a.id)),
+                                                            ...customVoicemailAnns.map(a => String(a.id))
+                                                        ]);
+                                                        return (
+                                                            <>
+                                                                {voicemailAnnouncement && !allValidIds.has(String(voicemailAnnouncement)) && (
+                                                                    <option value={voicemailAnnouncement}>{voicemailAnnouncement}</option>
+                                                                )}
+                                                                {sysVoicemailAnns.length > 0 && (
+                                                                    <optgroup label="Sistem Anonsları">
+                                                                        {sysVoicemailAnns.map(a => (
+                                                                            <option key={a.id} value={a.id}>{a.name}</option>
+                                                                        ))}
+                                                                    </optgroup>
+                                                                )}
+                                                                {customVoicemailAnns.length > 0 && (
+                                                                    <optgroup label="Özel Anonslar">
+                                                                        {customVoicemailAnns.map(a => (
+                                                                            <option key={a.id} value={a.id}>{a.name}</option>
+                                                                        ))}
+                                                                    </optgroup>
+                                                                )}
+                                                            </>
+                                                        );
+                                                    })()}
                                                 </select>
                                             </div>
                                             <div>
@@ -3041,26 +3074,74 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
 
                                 {/* Preset Avatars Grid */}
                                 <div>
-                                    <div className="flex items-center justify-between mb-3">
-                                        <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider">
-                                            Hazır Avatar Koleksiyonu ({PRESET_AVATARS.length} Seçenek)
-                                        </label>
+                                    <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
+                                        <div>
+                                            <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider">
+                                                Hazır Avatar Koleksiyonu ({ALL_AVATAR_ITEMS.length} Seçenek)
+                                            </label>
+                                            <span className="text-[11px] text-slate-400 dark:text-slate-500">
+                                                Telifsiz kamu malı efsaneler ve özgün sinema karakterleri dahildir
+                                            </span>
+                                        </div>
+                                        <div className="flex flex-wrap items-center gap-1.5" role="group" aria-label="Avatar kategori filtresi">
+                                            {AVATAR_CATEGORIES.map((cat) => {
+                                                const isActiveCat = avatarCategoryFilter === cat.id;
+                                                const catCount = cat.id === "all"
+                                                    ? ALL_AVATAR_ITEMS.length
+                                                    : ALL_AVATAR_ITEMS.filter((a) => a.category === cat.id).length;
+                                                return (
+                                                    <button
+                                                        key={cat.id}
+                                                        type="button"
+                                                        aria-pressed={isActiveCat}
+                                                        onClick={() => setAvatarCategoryFilter(cat.id)}
+                                                        className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition-all border focus-visible:outline-none focus-visible:ring-2 ${ring} ${
+                                                            isActiveCat
+                                                                ? `${bg} text-white border-transparent shadow-sm`
+                                                                : "bg-slate-50 dark:bg-slate-900 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-800 hover:bg-slate-100 dark:hover:bg-slate-800"
+                                                        }`}
+                                                    >
+                                                        {cat.label} ({catCount})
+                                                    </button>
+                                                );
+                                            })}
+                                        </div>
                                     </div>
-                                    <div className="grid grid-cols-4 sm:grid-cols-6 gap-3 max-h-[320px] overflow-y-auto p-1">
-                                        {PRESET_AVATARS.map((av) => (
-                                            <button
-                                                key={av}
-                                                type="button"
-                                                onClick={() => setAvatar(av)}
-                                                className={`aspect-square rounded-2xl border-2 transition-all p-2 bg-slate-50 dark:bg-slate-950 ${
-                                                avatar === av
-                                                    ? (border + " shadow-md scale-105")
-                                                    : "border-transparent hover:border-slate-200 dark:hover:border-slate-800"
-                                                }`}
-                                            >
-                                                <img src={av} alt="Avatar" className="w-full h-full object-contain" />
-                                            </button>
-                                        ))}
+                                    <div className="grid grid-cols-4 sm:grid-cols-5 md:grid-cols-6 gap-2.5 max-h-[340px] overflow-y-auto p-1">
+                                        {ALL_AVATAR_ITEMS.filter((item) => avatarCategoryFilter === "all" || item.category === avatarCategoryFilter).map((item) => {
+                                            const isSelected = avatar === item.url;
+                                            const shortLabel = item.label.split(" (")[0];
+                                            return (
+                                                <button
+                                                    key={item.id}
+                                                    type="button"
+                                                    aria-label={item.label}
+                                                    aria-pressed={isSelected}
+                                                    title={item.label}
+                                                    onClick={() => setAvatar(item.url)}
+                                                    className={`flex flex-col items-center gap-1.5 rounded-2xl border-2 transition-all p-2 bg-slate-50 dark:bg-slate-950 focus-visible:outline-none focus-visible:ring-2 ${ring} ${
+                                                        isSelected
+                                                            ? `${border} ${lightBg} shadow-md scale-[1.03]`
+                                                            : "border-transparent hover:border-slate-200 dark:hover:border-slate-800"
+                                                    }`}
+                                                >
+                                                    <div className="w-12 h-12 rounded-xl overflow-hidden flex items-center justify-center shrink-0">
+                                                        <img
+                                                            src={item.url}
+                                                            alt=""
+                                                            loading="lazy"
+                                                            fetchpriority="low"
+                                                            className="w-full h-full object-contain"
+                                                        />
+                                                    </div>
+                                                    <span className={`text-[10px] font-semibold leading-tight truncate w-full text-center ${
+                                                        isSelected ? text : "text-slate-600 dark:text-slate-400"
+                                                    }`}>
+                                                        {shortLabel}
+                                                    </span>
+                                                </button>
+                                            );
+                                        })}
                                     </div>
                                 </div>
                             </div>
@@ -3107,213 +3188,538 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
                         )}
 
                         {/* TAB: RAPOR & YÖNETİM FİLTRESİ (SUPERVIZOR) */}
-                        {activeTab === "supervisor_filter" && hasSupervisorPerm && (
-                            <div className="space-y-6 animate-in fade-in duration-300">
-                                <div className="pb-3 border-b border-slate-100 dark:border-slate-800/60">
-                                    <h5 className="text-xs font-bold text-slate-700 dark:text-white flex items-center gap-2">
-                                        <Shield size={16} className={text} />
-                                        Supervizor Rapor & Yönetim Filtresi
-                                    </h5>
-                                    <p className="text-[11px] text-slate-400 mt-1">
-                                        Bu supervizor kullanıcısının Canlı İzleme Panelinde müdahale edebileceği ve Raporlarda görüntüleyebileceği temsilcileri ve kuyrukları seçin.
-                                    </p>
-                                </div>
+                        {activeTab === "supervisor_filter" && hasSupervisorPerm && (() => {
+                            const safeUsers = Array.isArray(users) ? users : [];
+                            const safeQueues = Array.isArray(queuesList) ? queuesList : [];
+                            const safeSubGroups = Array.isArray(subscriberGroupsList) ? subscriberGroupsList : [];
 
-                                {/* 1. Yönetebileceği Temsilciler */}
-                                <div className="p-4 bg-slate-50/70 dark:bg-slate-900/50 rounded-2xl border border-slate-200/70 dark:border-slate-800 space-y-3">
-                                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                                        <div>
-                                            <h6 className="text-xs font-bold text-slate-800 dark:text-white flex items-center gap-2">
-                                                <Users size={14} className={text} />
-                                                Yönetebileceği Kullanıcılar / Temsilciler
-                                                <span className={`px-2 py-0.5 text-[10px] rounded-full ${lightBg} ${text} font-extrabold`}>
-                                                    {managedUsers.length} Seçili
-                                                </span>
-                                            </h6>
-                                            <p className="text-[10px] text-slate-400 mt-0.5">
-                                                Seçim yapıldığında supervizor yalnızca seçili temsilcileri izler, yönetir ve raporlarını görür.
-                                            </p>
-                                        </div>
-                                        <div className="flex items-center gap-1.5 shrink-0">
-                                            <button
-                                                type="button"
-                                                onClick={() => setManagedUsers((Array.isArray(users) ? users : []).map(u => String(u.id)))}
-                                                className="px-2.5 py-1 text-[10px] font-bold rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-100 transition-colors"
-                                            >
-                                                Tümünü Seç
-                                            </button>
-                                            <button
-                                                type="button"
-                                                onClick={() => setManagedUsers([])}
-                                                className="px-2.5 py-1 text-[10px] font-bold rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-500 hover:text-rose-600 transition-colors"
-                                            >
-                                                Temizle
-                                            </button>
-                                        </div>
+                            const getUserDisplayName = (u) =>
+                                u?.full_name || u?.name || u?.username || u?.email || `Kullanıcı #${u?.id}`;
+
+                            const getRoleDisplayName = (roleCode) => {
+                                const foundRole = (systemRoles || []).find((r) => r.role_code === roleCode);
+                                return foundRole ? foundRole.name : (roleCode || "Temsilci");
+                            };
+
+                            const isUserManaged = (u) => {
+                                const uid = String(u.id);
+                                const uext = u.extension ? String(u.extension) : null;
+                                return managedUsers.includes(uid) || (uext ? managedUsers.includes(uext) : false);
+                            };
+
+                            const addManagedUser = (u) => {
+                                const uid = String(u.id);
+                                setManagedUsers((prev) => (prev.includes(uid) ? prev : [...prev, uid]));
+                            };
+
+                            const removeManagedUser = (u) => {
+                                const uid = String(u.id);
+                                const uext = u.extension ? String(u.extension) : null;
+                                setManagedUsers((prev) =>
+                                    prev.filter((x) => String(x) !== uid && (!uext || String(x) !== uext))
+                                );
+                            };
+
+                            const getSubGroupMemberIds = (grp) => {
+                                const rawExts = grp?.extensions || grp?.members || [];
+                                const matchedIds = [];
+                                rawExts.forEach((val) => {
+                                    const found = safeUsers.find(
+                                        (usr) =>
+                                            usr.id === val ||
+                                            String(usr.id) === String(val) ||
+                                            String(usr.extension) === String(val)
+                                    );
+                                    if (found && !matchedIds.includes(String(found.id))) {
+                                        matchedIds.push(String(found.id));
+                                    }
+                                });
+                                return matchedIds;
+                            };
+
+                            const selectedUsersList = safeUsers.filter(isUserManaged);
+                            const selectedUserIdSet = new Set(selectedUsersList.map((u) => String(u.id)));
+                            const unassignedUsersList = safeUsers.filter((u) => !isUserManaged(u));
+
+                            const enrichedSubGroups = safeSubGroups
+                                .map((grp) => {
+                                    const memberIds = getSubGroupMemberIds(grp);
+                                    const allSelected =
+                                        memberIds.length > 0 && memberIds.every((id) => selectedUserIdSet.has(id));
+                                    return {
+                                        ...grp,
+                                        memberIds,
+                                        allSelected
+                                    };
+                                })
+                                .filter((grp) => grp.memberIds.length > 0);
+
+                            const unassignedSubGroups = enrichedSubGroups.filter((grp) => !grp.allSelected);
+                            const selectedSubGroups = enrichedSubGroups.filter((grp) => grp.allSelected);
+
+                            const userQuery = supUserSearch.trim().toLowerCase();
+                            const filteredUnassignedSubGroups = unassignedSubGroups.filter(
+                                (grp) => !userQuery || String(grp.name || "").toLowerCase().includes(userQuery)
+                            );
+                            const filteredUnassignedUsers = unassignedUsersList.filter((u) => {
+                                if (!userQuery) return true;
+                                return (
+                                    String(getUserDisplayName(u)).toLowerCase().includes(userQuery) ||
+                                    String(u.extension || "").toLowerCase().includes(userQuery) ||
+                                    String(u.email || "").toLowerCase().includes(userQuery)
+                                );
+                            });
+
+                            const handleAddSubGroup = (grp) => {
+                                setManagedUsers((prev) => {
+                                    const next = [...prev];
+                                    grp.memberIds.forEach((uid) => {
+                                        if (!next.includes(uid)) next.push(uid);
+                                    });
+                                    return next;
+                                });
+                            };
+
+                            const handleRemoveSubGroup = (grp) => {
+                                const protectedIds = new Set();
+                                selectedSubGroups.forEach((other) => {
+                                    if (String(other.id) !== String(grp.id)) {
+                                        other.memberIds.forEach((uid) => protectedIds.add(uid));
+                                    }
+                                });
+                                const removeExts = new Set(
+                                    safeUsers
+                                        .filter((u) => grp.memberIds.includes(String(u.id)) && !protectedIds.has(String(u.id)))
+                                        .flatMap((u) => [String(u.id), u.extension ? String(u.extension) : null])
+                                        .filter(Boolean)
+                                );
+                                setManagedUsers((prev) => prev.filter((x) => !removeExts.has(String(x))));
+                            };
+
+                            const getQueueKey = (q) => String(q.id || q.name || q.queue_name);
+                            const getQueueDisplayName = (q) => q.name || q.queue_name || getQueueKey(q);
+                            const isQueueManaged = (q) => {
+                                const keys = [q.id, q.name, q.queue_name, q.extension].filter(Boolean).map(String);
+                                return keys.some((k) => managedQueues.includes(k));
+                            };
+
+                            const addManagedQueue = (q) => {
+                                const qKey = getQueueKey(q);
+                                setManagedQueues((prev) => (prev.includes(qKey) ? prev : [...prev, qKey]));
+                            };
+
+                            const removeManagedQueue = (q) => {
+                                const keysToRemove = new Set(
+                                    [q.id, q.name, q.queue_name, q.extension].filter(Boolean).map(String)
+                                );
+                                setManagedQueues((prev) => prev.filter((x) => !keysToRemove.has(String(x))));
+                            };
+
+                            const selectedQueuesList = safeQueues.filter(isQueueManaged);
+                            const unassignedQueuesList = safeQueues.filter((q) => !isQueueManaged(q));
+                            const queueQuery = supQueueSearch.trim().toLowerCase();
+                            const filteredUnassignedQueues = unassignedQueuesList.filter((q) => {
+                                if (!queueQuery) return true;
+                                return (
+                                    String(getQueueDisplayName(q)).toLowerCase().includes(queueQuery) ||
+                                    String(q.extension || "").toLowerCase().includes(queueQuery)
+                                );
+                            });
+
+                            return (
+                                <div className="space-y-4 animate-in fade-in duration-300">
+                                    <div className="pb-3 border-b border-slate-100 dark:border-slate-800/60">
+                                        <h5 className="text-xs font-bold text-slate-700 dark:text-white flex items-center gap-2">
+                                            <Shield size={16} className={text} />
+                                            Supervizor Rapor & Yönetim Filtresi
+                                        </h5>
+                                        <p className="text-[11px] text-slate-400 mt-1">
+                                            Bu supervizor kullanıcısının Canlı İzleme Panelinde müdahale edebileceği ve Raporlarda görüntüleyebileceği temsilcileri ve çağrı kuyruklarını sol listeden seçerek sağ listeye aktarın.
+                                        </p>
                                     </div>
 
-                                    <div className="relative">
-                                        <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-                                        <input
-                                            type="text"
-                                            placeholder="İsim veya dahili numara ile filtrele..."
-                                            value={supUserSearch}
-                                            onChange={(e) => setSupUserSearch(e.target.value)}
-                                            className="w-full text-xs pl-8 pr-3 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 text-slate-800 dark:text-slate-100 focus:outline-none"
-                                        />
+                                    {/* Kuyruk Üye Ekleme Tarzı Alt Sekmeler (Sub-Tabs) */}
+                                    <div
+                                        className="flex flex-wrap items-center gap-2 p-2.5 bg-slate-50/70 dark:bg-slate-900/50 border border-slate-200/70 dark:border-slate-800 rounded-2xl"
+                                        role="group"
+                                        aria-label="Rapor ve yönetim filtresi seçim türü"
+                                    >
+                                        <button
+                                            type="button"
+                                            aria-pressed={supFilterView === "users"}
+                                            onClick={() => setSupFilterView("users")}
+                                            className={`px-4 py-1.5 text-xs font-bold rounded-full transition-all flex items-center gap-2 focus-visible:outline-none focus-visible:ring-2 ${ring} ${
+                                                supFilterView === "users"
+                                                    ? `${bg} text-white shadow-sm`
+                                                    : "bg-slate-200/80 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-300/80 dark:hover:bg-slate-700"
+                                            }`}
+                                        >
+                                            <Users size={13} />
+                                            <span>Yönetebileceği Temsilciler ({selectedUsersList.length})</span>
+                                        </button>
+                                        <button
+                                            type="button"
+                                            aria-pressed={supFilterView === "queues"}
+                                            onClick={() => setSupFilterView("queues")}
+                                            className={`px-4 py-1.5 text-xs font-bold rounded-full transition-all flex items-center gap-2 focus-visible:outline-none focus-visible:ring-2 ${ring} ${
+                                                supFilterView === "queues"
+                                                    ? `${bg} text-white shadow-sm`
+                                                    : "bg-slate-200/80 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-300/80 dark:hover:bg-slate-700"
+                                            }`}
+                                        >
+                                            <PhoneCall size={13} />
+                                            <span>Yönetebileceği Çağrı Kuyrukları ({selectedQueuesList.length})</span>
+                                        </button>
                                     </div>
 
-                                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2 max-h-52 overflow-y-auto pr-1">
-                                        {(Array.isArray(users) ? users : [])
-                                            .filter(u => {
-                                                if (!supUserSearch.trim()) return true;
-                                                const q = supUserSearch.toLowerCase();
-                                                return (
-                                                    String(u.name || "").toLowerCase().includes(q) ||
-                                                    String(u.extension || "").toLowerCase().includes(q) ||
-                                                    String(u.email || "").toLowerCase().includes(q)
-                                                );
-                                            })
-                                            .map(u => {
-                                                const uid = String(u.id);
-                                                const isChecked = managedUsers.includes(uid);
-                                                return (
-                                                    <label
-                                                        key={uid}
-                                                        onClick={() => {
-                                                            setManagedUsers(prev =>
-                                                                prev.includes(uid) ? prev.filter(x => x !== uid) : [...prev, uid]
-                                                            );
-                                                        }}
-                                                        className={`flex items-center justify-between p-2.5 rounded-xl border cursor-pointer select-none transition-all ${
-                                                            isChecked
-                                                                ? `${lightBg} ${border} shadow-sm`
-                                                                : "bg-white dark:bg-slate-950 border-slate-200/80 dark:border-slate-800 hover:border-slate-300"
-                                                        }`}
-                                                    >
-                                                        <div className="flex items-center gap-2.5 min-w-0">
-                                                            <div className={`w-4 h-4 rounded flex items-center justify-center border shrink-0 ${
-                                                                isChecked ? `${bg} border-transparent text-white` : "border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900"
-                                                            }`}>
-                                                                {isChecked && <Check size={11} strokeWidth={3} />}
-                                                            </div>
-                                                            <div className="min-w-0">
-                                                                <div className="text-xs font-bold text-slate-800 dark:text-slate-100 truncate">
-                                                                    {u.name}
-                                                                </div>
-                                                                <div className="text-[10px] text-slate-400 font-medium truncate">
-                                                                    Dahili: {u.extension || "-"} • {u.role || "agent"}
-                                                                </div>
-                                                            </div>
-                                                        </div>
-                                                    </label>
-                                                );
-                                            })}
-                                    </div>
-                                </div>
+                                    {/* GÖRÜNÜM 1: YÖNETEBİLECEĞİ TEMSİLCİLER (ÇİFT SÜTUN AKTARIM) */}
+                                    {supFilterView === "users" && (
+                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 h-[420px]">
+                                            {/* Sol: Atanabilecek Kullanıcılar & Abone Grupları */}
+                                            <div className="flex flex-col border border-slate-200 dark:border-slate-800 rounded-2xl overflow-hidden bg-slate-50/50 dark:bg-slate-900/50">
+                                                <div className="p-3 border-b border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/80 flex flex-col gap-2">
+                                                    <div className="flex items-center justify-between gap-2">
+                                                        <h6 className="text-xs font-bold text-slate-800 dark:text-white">
+                                                            Kullanıcılar & Abone Grupları
+                                                        </h6>
+                                                        {unassignedUsersList.length > 0 && (
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => setManagedUsers(safeUsers.map((u) => String(u.id)))}
+                                                                className={`px-2 py-0.5 text-[10px] font-bold rounded-lg ${lightBg} ${text} border ${borderLight} transition-all focus-visible:outline-none focus-visible:ring-2 ${ring}`}
+                                                            >
+                                                                Tümünü Ekle
+                                                            </button>
+                                                        )}
+                                                    </div>
+                                                    <div className="relative">
+                                                        <Search size={13} className="absolute left-2.5 top-2.5 text-slate-400" />
+                                                        <input
+                                                            type="text"
+                                                            placeholder="Temsilci, dahili veya abone grubu ara..."
+                                                            aria-label="Atanabilecek temsilci veya abone grubu ara"
+                                                            value={supUserSearch}
+                                                            onChange={(e) => setSupUserSearch(e.target.value)}
+                                                            className={`w-full pl-8 pr-3 py-1.5 text-[11px] bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-1 ${ring}`}
+                                                        />
+                                                    </div>
+                                                </div>
 
-                                {/* 2. Yönetebileceği Kuyruklar */}
-                                <div className="p-4 bg-slate-50/70 dark:bg-slate-900/50 rounded-2xl border border-slate-200/70 dark:border-slate-800 space-y-3">
-                                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                                        <div>
-                                            <h6 className="text-xs font-bold text-slate-800 dark:text-white flex items-center gap-2">
-                                                <PhoneCall size={14} className={text} />
-                                                Yönetebileceği Çağrı Kuyrukları (ACD)
-                                                <span className={`px-2 py-0.5 text-[10px] rounded-full ${lightBg} ${text} font-extrabold`}>
-                                                    {managedQueues.length} Seçili
-                                                </span>
-                                            </h6>
-                                            <p className="text-[10px] text-slate-400 mt-0.5">
-                                                Seçim yapıldığında Canlı İzleme kuyruk kartları ve Raporlardaki kuyruk verileri bu seçimle filtrelenir.
-                                            </p>
-                                        </div>
-                                        <div className="flex items-center gap-1.5 shrink-0">
-                                            <button
-                                                type="button"
-                                                onClick={() => setManagedQueues((Array.isArray(queuesList) ? queuesList : []).map(q => String(q.id || q.name || q.queue_name)))}
-                                                className="px-2.5 py-1 text-[10px] font-bold rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-100 transition-colors"
-                                            >
-                                                Tümünü Seç
-                                            </button>
-                                            <button
-                                                type="button"
-                                                onClick={() => setManagedQueues([])}
-                                                className="px-2.5 py-1 text-[10px] font-bold rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-500 hover:text-rose-600 transition-colors"
-                                            >
-                                                Temizle
-                                            </button>
-                                        </div>
-                                    </div>
-
-                                    <div className="relative">
-                                        <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-                                        <input
-                                            type="text"
-                                            placeholder="Kuyruk adı veya numarası ile filtrele..."
-                                            value={supQueueSearch}
-                                            onChange={(e) => setSupQueueSearch(e.target.value)}
-                                            className="w-full text-xs pl-8 pr-3 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 text-slate-800 dark:text-slate-100 focus:outline-none"
-                                        />
-                                    </div>
-
-                                    {(Array.isArray(queuesList) ? queuesList : []).length === 0 ? (
-                                        <div className="p-4 text-center text-xs text-slate-400 border border-dashed border-slate-200 dark:border-slate-800 rounded-xl">
-                                            Sistemde tanımlı çağrı kuyruğu bulunamadı.
-                                        </div>
-                                    ) : (
-                                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2 max-h-48 overflow-y-auto pr-1">
-                                            {(Array.isArray(queuesList) ? queuesList : [])
-                                                .filter(q => {
-                                                    if (!supQueueSearch.trim()) return true;
-                                                    const s = supQueueSearch.toLowerCase();
-                                                    return (
-                                                        String(q.name || q.queue_name || "").toLowerCase().includes(s) ||
-                                                        String(q.extension || "").toLowerCase().includes(s)
-                                                    );
-                                                })
-                                                .map(q => {
-                                                    const qKey = String(q.id || q.name || q.queue_name);
-                                                    const qName = q.name || q.queue_name || qKey;
-                                                    const isChecked = managedQueues.includes(qKey) || managedQueues.includes(String(qName));
-                                                    return (
-                                                        <label
-                                                            key={qKey}
-                                                            onClick={() => {
-                                                                setManagedQueues(prev =>
-                                                                    prev.includes(qKey)
-                                                                        ? prev.filter(x => x !== qKey && x !== String(qName))
-                                                                        : [...prev, qKey]
-                                                                );
-                                                            }}
-                                                            className={`flex items-center justify-between p-2.5 rounded-xl border cursor-pointer select-none transition-all ${
-                                                                isChecked
-                                                                    ? `${lightBg} ${border} shadow-sm`
-                                                                    : "bg-white dark:bg-slate-950 border-slate-200/80 dark:border-slate-800 hover:border-slate-300"
-                                                            }`}
+                                                <div className="flex-1 overflow-y-auto p-2 space-y-1 custom-scrollbar">
+                                                    {filteredUnassignedSubGroups.map((grp) => (
+                                                        <button
+                                                            key={`subgrp_${grp.id}`}
+                                                            type="button"
+                                                            onClick={() => handleAddSubGroup(grp)}
+                                                            className={`w-full text-left flex items-center gap-3 p-2 rounded-xl cursor-pointer transition-all border ${lightBg} ${borderLight} hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 ${ring}`}
                                                         >
-                                                            <div className="flex items-center gap-2.5 min-w-0">
-                                                                <div className={`w-4 h-4 rounded flex items-center justify-center border shrink-0 ${
-                                                                    isChecked ? `${bg} border-transparent text-white` : "border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900"
-                                                                }`}>
-                                                                    {isChecked && <Check size={11} strokeWidth={3} />}
+                                                            <div className={`w-8 h-8 rounded-lg ${lightBg} ${text} flex items-center justify-center shrink-0 border ${borderLight}`}>
+                                                                <Users size={16} />
+                                                            </div>
+                                                            <div className="flex-1 min-w-0">
+                                                                <div className="flex items-center gap-1.5">
+                                                                    <p className="text-xs font-bold text-slate-700 dark:text-slate-200 truncate">
+                                                                        {grp.name}
+                                                                    </p>
+                                                                    <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold ${lightBg} ${text} border ${borderLight}`}>
+                                                                        Abone Grubu
+                                                                    </span>
+                                                                </div>
+                                                                <p className="text-[10px] text-slate-400 truncate">
+                                                                    {grp.memberIds.length} Abone
+                                                                </p>
+                                                            </div>
+                                                            <ChevronRight size={14} className="text-slate-400 shrink-0" />
+                                                        </button>
+                                                    ))}
+
+                                                    {filteredUnassignedUsers.map((u) => {
+                                                        const uName = getUserDisplayName(u);
+                                                        return (
+                                                            <button
+                                                                key={u.id}
+                                                                type="button"
+                                                                onClick={() => addManagedUser(u)}
+                                                                className={`w-full text-left flex items-center gap-3 p-2 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer transition-all border border-transparent hover:border-slate-200 dark:hover:border-slate-700 focus-visible:outline-none focus-visible:ring-2 ${ring}`}
+                                                            >
+                                                                <img
+                                                                    src={u.avatar || `https://ui-avatars.com/api/?name=${encodeURIComponent(uName)}&background=random`}
+                                                                    alt=""
+                                                                    loading="lazy"
+                                                                    fetchpriority="low"
+                                                                    className="w-8 h-8 rounded-lg bg-slate-200 dark:bg-slate-800 object-contain shrink-0"
+                                                                />
+                                                                <div className="flex-1 min-w-0">
+                                                                    <p className="text-xs font-bold text-slate-700 dark:text-slate-200 truncate">
+                                                                        {uName}
+                                                                    </p>
+                                                                    <p className="text-[10px] text-slate-400 truncate">
+                                                                        {getRoleDisplayName(u.role)} • Dahili: {u.extension || "-"}
+                                                                    </p>
+                                                                </div>
+                                                                <ChevronRight size={14} className="text-slate-300 shrink-0" />
+                                                            </button>
+                                                        );
+                                                    })}
+
+                                                    {filteredUnassignedSubGroups.length === 0 && filteredUnassignedUsers.length === 0 && (
+                                                        <div className="p-4 text-center text-xs text-slate-400">
+                                                            Atanabilecek temsilci bulunamadı.
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            </div>
+
+                                            {/* Sağ: Seçili Temsilciler */}
+                                            <div className="flex flex-col border border-slate-200 dark:border-slate-800 rounded-2xl overflow-hidden bg-slate-50/50 dark:bg-slate-900/50">
+                                                <div className="p-3 border-b border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/80 flex items-center justify-between gap-2">
+                                                    <h6 className="text-xs font-bold text-slate-800 dark:text-white">
+                                                        Seçili Temsilciler
+                                                    </h6>
+                                                    <div className="flex items-center gap-1.5">
+                                                        <span className={`px-2 py-0.5 rounded-lg ${lightBg} ${text} text-[10px] font-bold`}>
+                                                            {selectedUsersList.length} Seçili
+                                                        </span>
+                                                        {selectedUsersList.length > 0 && (
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => setManagedUsers([])}
+                                                                className={`px-2 py-0.5 text-[10px] font-bold rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-500 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/30 transition-colors focus-visible:outline-none focus-visible:ring-2 ${ring}`}
+                                                            >
+                                                                Temizle
+                                                            </button>
+                                                        )}
+                                                    </div>
+                                                </div>
+
+                                                <div className="flex-1 overflow-y-auto p-2 space-y-1.5 custom-scrollbar">
+                                                    {selectedSubGroups.map((grp) => (
+                                                        <div
+                                                            key={`sel_subgrp_${grp.id}`}
+                                                            className={`flex items-center justify-between gap-2 p-2.5 rounded-xl border shadow-sm ${lightBg} ${borderLight}`}
+                                                        >
+                                                            <div className="flex items-center gap-2 min-w-0">
+                                                                <div className={`w-7 h-7 rounded-lg ${lightBg} ${text} border ${borderLight} flex items-center justify-center shrink-0`}>
+                                                                    <Users size={15} />
                                                                 </div>
                                                                 <div className="min-w-0">
-                                                                    <div className="text-xs font-bold text-slate-800 dark:text-slate-100 truncate">
-                                                                        {qName}
+                                                                    <div className="flex items-center gap-1.5">
+                                                                        <p className="text-xs font-bold text-slate-800 dark:text-white truncate">
+                                                                            {grp.name}
+                                                                        </p>
+                                                                        <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold ${lightBg} ${text} border ${borderLight}`}>
+                                                                            Abone Grubu
+                                                                        </span>
                                                                     </div>
-                                                                    <div className="text-[10px] text-slate-400 font-medium truncate">
-                                                                        Kuyruk No: {q.extension || "-"}
-                                                                    </div>
+                                                                    <span className="text-[10px] text-slate-400">
+                                                                        {grp.memberIds.length} Abone (Grup çıkarıldığında üyeleri de çıkarılır)
+                                                                    </span>
                                                                 </div>
                                                             </div>
-                                                        </label>
-                                                    );
-                                                })}
+                                                            <button
+                                                                type="button"
+                                                                aria-label={`${grp.name} abone grubunu ve üyelerini çıkar`}
+                                                                title="Abone Grubunu ve Üyelerini Çıkar"
+                                                                onClick={() => handleRemoveSubGroup(grp)}
+                                                                className={`w-6 h-6 rounded-md hover:bg-rose-50 hover:text-rose-500 dark:hover:bg-rose-950/40 text-slate-400 flex items-center justify-center transition-all shrink-0 focus-visible:outline-none focus-visible:ring-2 ${ring}`}
+                                                            >
+                                                                <X size={13} />
+                                                            </button>
+                                                        </div>
+                                                    ))}
+
+                                                    {selectedUsersList.map((u) => {
+                                                        const uName = getUserDisplayName(u);
+                                                        return (
+                                                            <div
+                                                                key={u.id}
+                                                                className="flex items-center justify-between gap-2 p-2 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 shadow-sm transition-all"
+                                                            >
+                                                                <div className="flex items-center gap-2.5 min-w-0">
+                                                                    <img
+                                                                        src={u.avatar || `https://ui-avatars.com/api/?name=${encodeURIComponent(uName)}&background=random`}
+                                                                        alt=""
+                                                                        loading="lazy"
+                                                                        fetchpriority="low"
+                                                                        className="w-7 h-7 rounded-lg bg-slate-200 dark:bg-slate-800 object-contain shrink-0"
+                                                                    />
+                                                                    <div className="min-w-0">
+                                                                        <p className="text-xs font-bold text-slate-800 dark:text-white truncate">
+                                                                            {uName}
+                                                                        </p>
+                                                                        <p className="text-[10px] text-slate-400 truncate">
+                                                                            {getRoleDisplayName(u.role)} • Dahili: {u.extension || "-"}
+                                                                        </p>
+                                                                    </div>
+                                                                </div>
+                                                                <button
+                                                                    type="button"
+                                                                    aria-label={`${uName} temsilcisini çıkar`}
+                                                                    title="Çıkar"
+                                                                    onClick={() => removeManagedUser(u)}
+                                                                    className={`w-6 h-6 rounded-md hover:bg-rose-50 hover:text-rose-500 dark:hover:bg-rose-950/40 text-slate-300 flex items-center justify-center transition-all shrink-0 focus-visible:outline-none focus-visible:ring-2 ${ring}`}
+                                                                >
+                                                                    <X size={13} />
+                                                                </button>
+                                                            </div>
+                                                        );
+                                                    })}
+
+                                                    {selectedUsersList.length === 0 && (
+                                                        <div className="p-4 text-center text-xs text-slate-400">
+                                                            Henüz temsilci seçilmedi (Seçim yapılmazsa tüm temsilciler görünür).
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    {/* GÖRÜNÜM 2: YÖNETEBİLECEĞİ ÇAĞRI KUYRUKLARI (ÇİFT SÜTUN AKTARIM) */}
+                                    {supFilterView === "queues" && (
+                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 h-[420px]">
+                                            {/* Sol: Atanabilecek Çağrı Kuyrukları */}
+                                            <div className="flex flex-col border border-slate-200 dark:border-slate-800 rounded-2xl overflow-hidden bg-slate-50/50 dark:bg-slate-900/50">
+                                                <div className="p-3 border-b border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/80 flex flex-col gap-2">
+                                                    <div className="flex items-center justify-between gap-2">
+                                                        <h6 className="text-xs font-bold text-slate-800 dark:text-white">
+                                                            Çağrı Kuyrukları (ACD)
+                                                        </h6>
+                                                        {unassignedQueuesList.length > 0 && (
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => setManagedQueues(safeQueues.map(getQueueKey))}
+                                                                className={`px-2 py-0.5 text-[10px] font-bold rounded-lg ${lightBg} ${text} border ${borderLight} transition-all focus-visible:outline-none focus-visible:ring-2 ${ring}`}
+                                                            >
+                                                                Tümünü Ekle
+                                                            </button>
+                                                        )}
+                                                    </div>
+                                                    <div className="relative">
+                                                        <Search size={13} className="absolute left-2.5 top-2.5 text-slate-400" />
+                                                        <input
+                                                            type="text"
+                                                            placeholder="Kuyruk adı veya numarası ara..."
+                                                            aria-label="Atanabilecek çağrı kuyruğu ara"
+                                                            value={supQueueSearch}
+                                                            onChange={(e) => setSupQueueSearch(e.target.value)}
+                                                            className={`w-full pl-8 pr-3 py-1.5 text-[11px] bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-1 ${ring}`}
+                                                        />
+                                                    </div>
+                                                </div>
+
+                                                <div className="flex-1 overflow-y-auto p-2 space-y-1 custom-scrollbar">
+                                                    {filteredUnassignedQueues.map((q) => {
+                                                        const qKey = getQueueKey(q);
+                                                        const qName = getQueueDisplayName(q);
+                                                        const memberCount = Array.isArray(q.queueMembers)
+                                                            ? q.queueMembers.length
+                                                            : Array.isArray(q.members)
+                                                            ? q.members.length
+                                                            : null;
+                                                        return (
+                                                            <button
+                                                                key={qKey}
+                                                                type="button"
+                                                                onClick={() => addManagedQueue(q)}
+                                                                className={`w-full text-left flex items-center gap-3 p-2 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer transition-all border border-transparent hover:border-slate-200 dark:hover:border-slate-700 focus-visible:outline-none focus-visible:ring-2 ${ring}`}
+                                                            >
+                                                                <div className={`w-8 h-8 rounded-lg ${lightBg} ${text} border ${borderLight} flex items-center justify-center shrink-0`}>
+                                                                    <PhoneCall size={15} />
+                                                                </div>
+                                                                <div className="flex-1 min-w-0">
+                                                                    <p className="text-xs font-bold text-slate-700 dark:text-slate-200 truncate">
+                                                                        {qName}
+                                                                    </p>
+                                                                    <p className="text-[10px] text-slate-400 truncate">
+                                                                        Kuyruk No: {q.extension || "-"}
+                                                                        {memberCount !== null ? ` • ${memberCount} Üye` : ""}
+                                                                    </p>
+                                                                </div>
+                                                                <ChevronRight size={14} className="text-slate-300 shrink-0" />
+                                                            </button>
+                                                        );
+                                                    })}
+
+                                                    {filteredUnassignedQueues.length === 0 && (
+                                                        <div className="p-4 text-center text-xs text-slate-400">
+                                                            {safeQueues.length === 0
+                                                                ? "Sistemde tanımlı çağrı kuyruğu bulunamadı."
+                                                                : "Atanabilecek çağrı kuyruğu bulunamadı."}
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            </div>
+
+                                            {/* Sağ: Seçili Çağrı Kuyrukları */}
+                                            <div className="flex flex-col border border-slate-200 dark:border-slate-800 rounded-2xl overflow-hidden bg-slate-50/50 dark:bg-slate-900/50">
+                                                <div className="p-3 border-b border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/80 flex items-center justify-between gap-2">
+                                                    <h6 className="text-xs font-bold text-slate-800 dark:text-white">
+                                                        Seçili Çağrı Kuyrukları
+                                                    </h6>
+                                                    <div className="flex items-center gap-1.5">
+                                                        <span className={`px-2 py-0.5 rounded-lg ${lightBg} ${text} text-[10px] font-bold`}>
+                                                            {selectedQueuesList.length} Seçili
+                                                        </span>
+                                                        {selectedQueuesList.length > 0 && (
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => setManagedQueues([])}
+                                                                className={`px-2 py-0.5 text-[10px] font-bold rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-500 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/30 transition-colors focus-visible:outline-none focus-visible:ring-2 ${ring}`}
+                                                            >
+                                                                Temizle
+                                                            </button>
+                                                        )}
+                                                    </div>
+                                                </div>
+
+                                                <div className="flex-1 overflow-y-auto p-2 space-y-1.5 custom-scrollbar">
+                                                    {selectedQueuesList.map((q) => {
+                                                        const qKey = getQueueKey(q);
+                                                        const qName = getQueueDisplayName(q);
+                                                        return (
+                                                            <div
+                                                                key={qKey}
+                                                                className="flex items-center justify-between gap-2 p-2.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 shadow-sm transition-all"
+                                                            >
+                                                                <div className="flex items-center gap-2.5 min-w-0">
+                                                                    <div className={`w-7 h-7 rounded-lg ${lightBg} ${text} border ${borderLight} flex items-center justify-center shrink-0`}>
+                                                                        <PhoneCall size={14} />
+                                                                    </div>
+                                                                    <div className="min-w-0">
+                                                                        <p className="text-xs font-bold text-slate-800 dark:text-white truncate">
+                                                                            {qName}
+                                                                        </p>
+                                                                        <p className="text-[10px] text-slate-400 truncate">
+                                                                            Kuyruk No: {q.extension || "-"}
+                                                                        </p>
+                                                                    </div>
+                                                                </div>
+                                                                <button
+                                                                    type="button"
+                                                                    aria-label={`${qName} kuyruğunu çıkar`}
+                                                                    title="Çıkar"
+                                                                    onClick={() => removeManagedQueue(q)}
+                                                                    className={`w-6 h-6 rounded-md hover:bg-rose-50 hover:text-rose-500 dark:hover:bg-rose-950/40 text-slate-300 flex items-center justify-center transition-all shrink-0 focus-visible:outline-none focus-visible:ring-2 ${ring}`}
+                                                                >
+                                                                    <X size={13} />
+                                                                </button>
+                                                            </div>
+                                                        );
+                                                    })}
+
+                                                    {selectedQueuesList.length === 0 && (
+                                                        <div className="p-4 text-center text-xs text-slate-400">
+                                                            Henüz kuyruk seçilmedi (Seçim yapılmazsa tüm kuyruklar görünür).
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            </div>
                                         </div>
                                     )}
                                 </div>
-                            </div>
-                        )}
+                            );
+                        })()}
 
                         {/* TAB: CTI & CRM ENTEGRASYONU */}
                         {activeTab === "cti" && (
@@ -3688,6 +4094,49 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
                                             )}
                                         </div>
                                     )}
+                                </div>
+                            </div>
+                        )}
+
+                        {/* TAB: UYGULAMALAR */}
+                        {activeTab === "applications" && (
+                            <div className="space-y-6 animate-in fade-in duration-300">
+                                <div className="pb-3 border-b border-slate-100 dark:border-slate-800/60">
+                                    <h4 className="text-sm font-extrabold text-slate-800 dark:text-white uppercase tracking-wider flex items-center gap-2">
+                                        <LayoutGrid size={16} className={text} />
+                                        Uygulamalar
+                                    </h4>
+                                    <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+                                        Kullanıcının mobil, masaüstü ve web uygulama giriş yetkilerini, aktif oturumlarını ve cihaz izinlerini buradan yönetin.
+                                    </p>
+                                </div>
+
+                                <div className={"p-8 rounded-2xl border " + borderLight + " " + lightBg + " flex flex-col items-center justify-center text-center space-y-4 my-4"}>
+                                    <div className={"w-14 h-14 rounded-2xl border " + border + " bg-white dark:bg-slate-900 flex items-center justify-center shadow-sm " + text}>
+                                        <AlertTriangle size={26} />
+                                    </div>
+                                    <div className="space-y-1.5 max-w-md">
+                                        <h5 className="text-sm font-extrabold text-slate-800 dark:text-white">
+                                            Bu ekran geliştirme aşamasındadır
+                                        </h5>
+                                        <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed">
+                                            Uygulama girişi, mobil ve masaüstü istemci yetkilendirmeleri ile bağlı uygulama oturumu ayarları yakında bu sekme üzerinden yapılandırılabilecektir.
+                                        </p>
+                                    </div>
+                                    <div className="flex flex-wrap items-center justify-center gap-2 pt-2">
+                                        <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-[11px] font-bold bg-white/80 dark:bg-slate-900/80 border border-slate-200/80 dark:border-slate-800 text-slate-600 dark:text-slate-300">
+                                            <Smartphone size={13} className={text} />
+                                            Mobil Uygulama Girişi
+                                        </span>
+                                        <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-[11px] font-bold bg-white/80 dark:bg-slate-900/80 border border-slate-200/80 dark:border-slate-800 text-slate-600 dark:text-slate-300">
+                                            <Monitor size={13} className={text} />
+                                            Masaüstü Uygulama Girişi
+                                        </span>
+                                        <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-[11px] font-bold bg-white/80 dark:bg-slate-900/80 border border-slate-200/80 dark:border-slate-800 text-slate-600 dark:text-slate-300">
+                                            <KeyRound size={13} className={text} />
+                                            Oturum & Erişim Kontrolü
+                                        </span>
+                                    </div>
                                 </div>
                             </div>
                         )}

@@ -2803,11 +2803,13 @@ async def apply_ai_configuration_plan(request: Request, payload: Dict[str, Any] 
                         "voicemail_active": existing_ext_u.voicemail_active,
                         "gsm_number": existing_ext_u.gsm_number,
                     })
+                    from backend.services.autoprovision_service import resolve_user_sip_username
+                    resolved_sip_user = resolve_user_sip_username(ext, existing_ext_u.sip_username or "")
                     existing_ext_u.tenant_id = norm_tenant
                     existing_ext_u.full_name = full_name
                     existing_ext_u.email = email
                     existing_ext_u.password = pwd
-                    existing_ext_u.sip_username = ext
+                    existing_ext_u.sip_username = resolved_sip_user
                     existing_ext_u.sip_password = sip_secret
                     existing_ext_u.role = role
                     existing_ext_u.is_active = True
@@ -2817,6 +2819,8 @@ async def apply_ai_configuration_plan(request: Request, payload: Dict[str, Any] 
                     await db.flush()
                     user_db_id = existing_ext_u.id
                 else:
+                    from backend.services.autoprovision_service import resolve_user_sip_username
+                    resolved_sip_user = resolve_user_sip_username(ext, "")
                     new_u = SystemUser(
                         tenant_id=norm_tenant,
                         full_name=full_name,
@@ -2824,7 +2828,7 @@ async def apply_ai_configuration_plan(request: Request, payload: Dict[str, Any] 
                         avatar="",
                         password=pwd,
                         extension=ext,
-                        sip_username=ext,
+                        sip_username=resolved_sip_user,
                         sip_password=sip_secret,
                         role=role,
                         is_active=True,
@@ -2854,7 +2858,7 @@ async def apply_ai_configuration_plan(request: Request, payload: Dict[str, Any] 
                     "avatar": "",
                     "password": pwd,
                     "extension": ext,
-                    "sip_username": ext,
+                    "sip_username": resolved_sip_user,
                     "sip_password": sip_secret,
                     "sip_secret": sip_secret,
                     "role": role,
@@ -3878,7 +3882,7 @@ async def apply_ai_configuration_plan(request: Request, payload: Dict[str, Any] 
                     if isinstance(a, dict) and _match_dict_tenant(a, tenant_id) and (_tr_norm(a.get("name")) == nt or str(a.get("id")) == target):
                         if p.get("new_name"):
                             a["name"] = str(p["new_name"]).strip()
-                        if p.get("type") in ("announcement", "moh"):
+                        if p.get("type") in ("announcement", "moh", "system"):
                             a["type"] = p["type"]
                 applied_summaries.append(f"Sesli anons '{target}' güncellendi.")
 
