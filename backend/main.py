@@ -25376,8 +25376,8 @@ async def get_system_version_info():
                         "desc": "Sistem Ayarları 5 üst kategoriye ayrıldı; Bilgi Bankası 5 alt sekmeye bölündü; Anons Yönetimi Sistem Anonsları, Bekleme Müzikleri ve Özel Anonslar sekmelerine ayrılarak sistemdeki tüm anons seçicileri doğru kategoriye bağlandı."
                     },
                     {
-                        "title": "ℹ️ Sadeleştirilmiş Başlıklar ('i' İpucu), Sinema Avatarları & Çift Listeli Yönetim Filtresi",
-                        "desc": "Ekranlardaki açıklama notları başlık yanındaki 'i' bilgi butonlarına taşındı; telifsiz sinema/efsane karakter avatarları eklendi; Kullanıcı Rapor & Yönetim Filtresi kuyruk üye ekleme (dual-list) yapısına geçirildi ve Roller ekranındaki eksik yetki sayacı giderildi."
+                        "title": "ℹ️ Sadeleştirilmiş Başlıklar ('i' İpucu), Akıllı Temsilci Rehberi, Sinema Avatarları & Çift Listeli Yönetim Filtresi",
+                        "desc": "Temsilci Çağrı Paneli Rehber sekmesine Favoriler, Son 5 İşlem/Arama ve öncelikli ilk 12 kayıt görünümü eklendi; ekran açıklamaları 'i' bilgi butonlarına taşındı; sinema avatarları, çift listeli Rapor & Yönetim Filtresi ve rol yetki sayacı düzeltmesi tamamlandı."
                     }
                 ]
             },
