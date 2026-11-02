@@ -448,6 +448,22 @@ def _advance_workflow_from_node(workflow: dict, start_node: dict, settings: dict
         if ntype in ("announcement", "play", "playback"):
             pre_announcements.append(cur)
 
+        if ntype == "stargate_in":
+            portal_val = str(cur.get("value") or "").strip()
+            if portal_val:
+                portal_out = next(
+                    (
+                        n for n in nodes
+                        if str(n.get("type") or "").lower() == "stargate_out"
+                        and str(n.get("value") or "").strip() == portal_val
+                    ),
+                    None,
+                )
+                if portal_out and portal_out.get("id") not in visited:
+                    cur = portal_out
+                    continue
+            break
+
         out_conns = [c for c in conns if c.get("fromNode") == cur.get("id")]
         if not out_conns:
             break
@@ -516,7 +532,7 @@ def _evaluate_workflow_object(workflow: dict, settings: dict) -> dict:
     if conns and nodes:
         incoming_ids = {c.get("toNode") for c in conns if c.get("toNode")}
         start_node = (
-            next((n for n in nodes if str(n.get("type") or "").lower() in ("did", "start", "inbound")), None)
+            next((n for n in nodes if str(n.get("type") or "").lower() in ("start", "did", "inbound")), None)
             or next((n for n in nodes if n.get("id") not in incoming_ids), None)
             or nodes[0]
         )
@@ -1015,25 +1031,8 @@ def evaluate_call_flow_action(did: str) -> dict:
                 trunk_dids.append(tv)
     did_matches_trunk = any(_did_pattern_matches_as(did, td) for td in trunk_dids) if trunk_dids else False
 
-    # If no inbound rule matched, check active workflows whose DID node explicitly matches the dialed DID
-    if not matched_rule and workflows:
-        for wf in workflows:
-            if wf.get("status") == "draft":
-                continue
-            did_node = next((n for n in (wf.get("nodes") or []) if str(n.get("type") or "").lower() == "did"), None)
-            if did_node:
-                ef = did_node.get("extra_fields") if isinstance(did_node.get("extra_fields"), dict) else {}
-                is_wc = ef.get("is_wildcard", True) is not False
-                d_nums = [str(x).strip() for x in (ef.get("did_numbers") or []) if x]
-                explicit_wf_match = any(_did_pattern_matches_as(did, p) for p in d_nums)
-                wildcard_allowed = is_wc and not active_inbound_rules and (did == "s" or not trunk_dids or did_matches_trunk)
-                if explicit_wf_match or wildcard_allowed:
-                    wf_res = _evaluate_workflow_object(wf, settings)
-                    if wf_res:
-                        return wf_res
-
     if not matched_rule:
-        # Unmapped inbound DID -> must NOT fall back to first rule or AI agent; terminate call immediately
+        # Unmapped inbound DID -> Inbound Rules are the single source of truth; terminate unmapped DID calls
         if active_inbound_rules or (trunk_dids and did != "s" and not did_matches_trunk) or did == "s":
             if did != "s" or active_inbound_rules:
                 return {

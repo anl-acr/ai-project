@@ -1131,16 +1131,18 @@ DEFAULT_SETTINGS = {
             "trunk_id": 1,
             "status": "active",
             "nodes": [
-                { "id": "node-1", "type": "play", "x": 80, "y": 80, "title": "PLAY Node", "value": "Anons1" },
-                { "id": "node-2", "type": "menu", "x": 80, "y": 180, "title": "MENU Node", "options": ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "*", "#", "timeout", "error"] },
-                { "id": "node-3", "type": "setvalue", "x": 350, "y": 50, "title": "SETVALUE Node", "value": "SR_DENE = 0" },
-                { "id": "node-4", "type": "transfer", "x": 350, "y": 150, "title": "TRANSFER Node", "value": "110201" },
-                { "id": "node-5", "type": "tts", "x": 350, "y": 250, "title": "TTS Node", "value": "Sayın ${CUSTOMER_NAME}, Son ödeme tarihi ${LAST_DATE} olan ${CUSTOMER_BALANCE} türk lirası ödenmemiş borcunuz bulunmaktadır." },
-                { "id": "node-6", "type": "sr", "x": 350, "y": 420, "title": "SR Node", "value": "evethayir", "options": ["90", "75", "50", "none"], "extra_fields": {"variable_name": "ILADI"} },
-                { "id": "node-7", "type": "compare", "x": 650, "y": 50, "title": "COMPARE Node", "value": "Karşılaştırma", "options": ["true", "false"] },
-                { "id": "node-8", "type": "transfer", "x": 650, "y": 180, "title": "TRANSFER Node", "value": "200" }
+                { "id": "node-start", "type": "start", "x": 40, "y": 140, "title": "Akış Başlangıcı", "value": "Çağrı Girişi" },
+                { "id": "node-1", "type": "play", "x": 250, "y": 80, "title": "PLAY Node", "value": "Anons1" },
+                { "id": "node-2", "type": "menu", "x": 250, "y": 190, "title": "MENU Node", "options": ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "*", "#", "timeout", "error"] },
+                { "id": "node-3", "type": "setvalue", "x": 500, "y": 50, "title": "SETVALUE Node", "value": "SR_DENE = 0" },
+                { "id": "node-4", "type": "transfer", "x": 500, "y": 150, "title": "TRANSFER Node", "value": "110201" },
+                { "id": "node-5", "type": "tts", "x": 500, "y": 250, "title": "TTS Node", "value": "Sayın ${CUSTOMER_NAME}, Son ödeme tarihi ${LAST_DATE} olan ${CUSTOMER_BALANCE} türk lirası ödenmemiş borcunuz bulunmaktadır." },
+                { "id": "node-6", "type": "sr", "x": 500, "y": 420, "title": "SR Node", "value": "evethayir", "options": ["90", "75", "50", "none"], "extra_fields": {"variable_name": "ILADI"} },
+                { "id": "node-7", "type": "compare", "x": 780, "y": 50, "title": "COMPARE Node", "value": "Karşılaştırma", "options": ["true", "false"] },
+                { "id": "node-8", "type": "transfer", "x": 780, "y": 180, "title": "TRANSFER Node", "value": "200" }
             ],
             "connections": [
+                { "id": "conn-start", "fromNode": "node-start", "fromPort": "output", "toNode": "node-2", "toPort": "input" },
                 { "id": "conn-1", "fromNode": "node-1", "fromPort": "output", "toNode": "node-3", "toPort": "input" },
                 { "id": "conn-2", "fromNode": "node-2", "fromPort": "0", "toNode": "node-3", "toPort": "input" },
                 { "id": "conn-3", "fromNode": "node-2", "fromPort": "1", "toNode": "node-4", "toPort": "input" },
@@ -1154,11 +1156,11 @@ DEFAULT_SETTINGS = {
         },
         {
             "id": "wf-2",
-            "name": "DID ve Yapay Zeka Akış Şablonu",
+            "name": "Mesai ve Yapay Zeka Akış Şablonu",
             "trunk_id": 1,
             "status": "draft",
             "nodes": [
-                { "id": "node-did", "type": "did", "x": 60, "y": 180, "title": "Gelen DID Eşleme", "value": "x.", "extra_fields": {"did_numbers": "x.", "is_wildcard": True} },
+                { "id": "node-did", "type": "start", "x": 60, "y": 180, "title": "Akış Başlangıcı", "value": "Çağrı Girişi" },
                 { "id": "node-time", "type": "timerule", "x": 280, "y": 150, "title": "Çalışma Saatleri Kontrolü", "value": "09:00", "options": ["active", "inactive"], "extra_fields": {"start_time": "09:00", "end_time": "18:00", "days": ["Mon", "Tue", "Wed", "Thu", "Fri"]} },
                 { "id": "node-ai", "type": "ai_agent", "x": 520, "y": 90, "title": "Müşteri Temsilcisi AI", "value": "agent-sales" },
                 { "id": "node-ann", "type": "play", "x": 520, "y": 250, "title": "Mesai Dışı Anonsu", "value": "MesaiDisiAnons" }
@@ -2038,6 +2040,10 @@ def load_settings():
     if "smart_callback" not in db:
         db["smart_callback"] = DEFAULT_SETTINGS["smart_callback"].copy()
 
+    # Migrate legacy DID nodes in workflows to permanent 'start' ("Akış Başlangıcı") entry node
+    if isinstance(db.get("workflows"), list):
+        db["workflows"] = [_normalize_workflow_start_node(w) for w in db["workflows"] if isinstance(w, dict)]
+
     # Ensure dialer config exists (migration)
     if "dialer" not in db:
         db["dialer"] = DEFAULT_SETTINGS["dialer"].copy()
@@ -2399,6 +2405,94 @@ def is_suspicious_or_fraud_outbound_number(callee: str, allow_international: boo
     return True, f"INVALID_DIALPLAN_FORMAT ({len(num)} hane)"
 
 
+def _normalize_workflow_start_node(wf: dict) -> dict:
+    """
+    Ensures every Call Flow workflow has a single, clean 'start' ("Akış Başlangıcı") entry node
+    and migrates any legacy 'did' / 'trunk_start' nodes seamlessly while preserving node IDs and connections.
+    """
+    if not isinstance(wf, dict):
+        return wf
+    raw_nodes = wf.get("nodes") if isinstance(wf.get("nodes"), list) else []
+    raw_conns = wf.get("connections") if isinstance(wf.get("connections"), list) else []
+
+    primary_start = None
+    duplicate_start_ids = set()
+    normalized_nodes = []
+
+    for n in raw_nodes:
+        if not isinstance(n, dict):
+            continue
+        nc = dict(n)
+        ntype = str(nc.get("type") or "").strip().lower()
+        if ntype in ("start", "did", "trunk_start", "inbound"):
+            nc["type"] = "start"
+            old_title = str(nc.get("title") or "").strip()
+            if not old_title or "did" in old_title.lower() or old_title.lower() in ("trunk_start", "start"):
+                nc["title"] = "Akış Başlangıcı"
+            nc["value"] = "Çağrı Girişi"
+            ef = dict(nc.get("extra_fields")) if isinstance(nc.get("extra_fields"), dict) else {}
+            ef.pop("did_numbers", None)
+            ef.pop("is_wildcard", None)
+            nc["extra_fields"] = ef or None
+            if primary_start is None:
+                primary_start = nc
+                normalized_nodes.append(nc)
+            else:
+                if nc.get("id"):
+                    duplicate_start_ids.add(nc["id"])
+        else:
+            normalized_nodes.append(nc)
+
+    normalized_conns = []
+    for c in raw_conns:
+        if not isinstance(c, dict):
+            continue
+        cc = dict(c)
+        if primary_start and cc.get("fromNode") in duplicate_start_ids:
+            cc["fromNode"] = primary_start["id"]
+            cc["fromPort"] = "output"
+        if cc.get("toNode") in duplicate_start_ids or (primary_start and cc.get("toNode") == primary_start["id"]):
+            continue
+        normalized_conns.append(cc)
+
+    if primary_start is None:
+        start_id = "node-start"
+        existing_ids = {n.get("id") for n in normalized_nodes}
+        idx_s = 1
+        while start_id in existing_ids:
+            start_id = f"node-start-{idx_s}"
+            idx_s += 1
+        primary_start = {
+            "id": start_id,
+            "type": "start",
+            "x": 80,
+            "y": 150,
+            "title": "Akış Başlangıcı",
+            "value": "Çağrı Girişi",
+            "options": None,
+            "extra_fields": None,
+        }
+        incoming_ids = {c.get("toNode") for c in normalized_conns if c.get("toNode")}
+        first_root = next(
+            (n for n in normalized_nodes if n.get("id") not in incoming_ids and n.get("type") != "stargate_out"),
+            normalized_nodes[0] if normalized_nodes else None,
+        )
+        normalized_nodes.insert(0, primary_start)
+        if first_root and first_root.get("id"):
+            normalized_conns.insert(0, {
+                "id": f"conn-{start_id}-auto",
+                "fromNode": start_id,
+                "fromPort": "output",
+                "toNode": first_root["id"],
+                "toPort": "input",
+            })
+
+    out_wf = dict(wf)
+    out_wf["nodes"] = normalized_nodes
+    out_wf["connections"] = normalized_conns
+    return out_wf
+
+
 def _did_pattern_matches_main(did_val: str, pat_val: str) -> bool:
     d_raw = str(did_val or "").strip()
     p_raw = str(pat_val or "").strip()
@@ -2474,19 +2568,6 @@ def is_defined_inbound_did(did_val: str, trunks_list: list = None) -> tuple:
         patterns = rule.get("did_patterns") or []
         for p in patterns:
             if _did_pattern_matches_main(did_s, p):
-                return True, "OK"
-
-    for wf in workflows:
-        if wf.get("status") == "draft":
-            continue
-        did_node = next((n for n in (wf.get("nodes") or []) if str(n.get("type") or "").lower() == "did"), None)
-        if did_node:
-            ef = did_node.get("extra_fields") if isinstance(did_node.get("extra_fields"), dict) else {}
-            is_wc = ef.get("is_wildcard", True) is not False
-            d_nums = [str(x).strip() for x in (ef.get("did_numbers") or []) if x]
-            if any(_did_pattern_matches_main(did_s, p) for p in d_nums):
-                return True, "OK"
-            if is_wc and not active_rules and did_s == "s":
                 return True, "OK"
 
     if active_rules:
@@ -6471,7 +6552,7 @@ async def save_call_flow_settings(payload: CallFlowSettingsSchema, user_info: di
 @app.get("/settings/call-flow/workflows")
 async def get_workflows(user_info: dict = Depends(get_user_info)):
     target_tenant = user_info.get("tenant_id") or "tenant-default"
-    all_wfs = settings_db.get("workflows", [])
+    all_wfs = [_normalize_workflow_start_node(w) for w in settings_db.get("workflows", []) if isinstance(w, dict)]
     if target_tenant in ["all", "global"]:
         return all_wfs
     return [w for w in all_wfs if w.get("tenant_id") == target_tenant or (not w.get("tenant_id") and target_tenant == "tenant-default")]
@@ -6483,9 +6564,20 @@ async def save_workflow(payload: WorkflowSchema, user_info: dict = Depends(get_u
     check_name_uniqueness(payload.name, "workflows", payload.id, label="Arama Akışı", name_field="name")
     wfs = settings_db.get("workflows", [])
 
-    updated = False
-    new_wf = payload.model_dump()
+    new_wf = _normalize_workflow_start_node(payload.model_dump())
     new_wf["tenant_id"] = target_tenant
+
+    if str(new_wf.get("status") or "").lower() == "active":
+        start_node = next((n for n in (new_wf.get("nodes") or []) if str(n.get("type") or "").lower() == "start"), None)
+        conns_list = new_wf.get("connections") or []
+        has_start_conn = bool(start_node and any(c.get("fromNode") == start_node.get("id") for c in conns_list))
+        if not has_start_conn:
+            raise HTTPException(
+                status_code=400,
+                detail="Akışı 'Aktif' duruma alabilmek için 'Akış Başlangıcı' kutusunun çıkış portunu en az bir adıma bağlamalısınız."
+            )
+
+    updated = False
     for idx, w in enumerate(wfs):
         if str(w.get("id")) == str(new_wf["id"]):
             wfs[idx] = new_wf
@@ -26574,18 +26666,37 @@ async def get_system_version_info():
         pass
 
     return {
-        "version": "v2.7.3",
+        "version": "v2.7.4",
         "commit_hash": live_commit,
         "release_date": "3 Kasım 2026",
         "status": "Güncel / Canlı Sürüm",
         "environment": "Production (On-Premise)",
         "changelog": [
             {
-                "version": "v2.7.3",
+                "version": "v2.7.4",
                 "commit_hash": live_commit,
                 "release_date": "3 Kasım 2026",
                 "badge": "Canlı Sürüm (Güncel)",
                 "badge_type": "current",
+                "title": "Arama Akış Yönetiminden DID Kaldırılması & Sabit Akış Başlangıcı (Entry Node) Mimarisi",
+                "summary": "Dış hat / DID yönlendirmesinde tek yetkili katman olarak Gelen Arama Kuralları belirlenerek Arama Akış Yönetimi (CallFlow) içerisinden mükerrer DID tanımlama kutusu kaldırıldı; her akışa silinemez sabit 'Akış Başlangıcı' (start) düğümü, tetikleyen giriş noktaları görünümü ve eski DID düğümleri için kesintisiz otomatik dönüşüm eklendi.",
+                "features": [
+                    {
+                        "title": "▶️ Sabit (Silinemez) 'Akış Başlangıcı' Düğümü & Aktif Akış Doğrulaması",
+                        "desc": "Yeni oluşturulan ve düzenlenen tüm arama akışlarında tuvalin solunda kilitli olarak gelen, yalnızca çıkış portu bulunan 'Akış Başlangıcı' düğümü standartlaştırıldı; aktif akışların bağlantısız kaydedilmesini önleyen doğrulama eklendi."
+                    },
+                    {
+                        "title": "🔗 Tek Merkezli DID Yönlendirme & Tetikleyen Giriş Noktaları Görünümü",
+                        "desc": "Gelen Arama Kuralları (DID eşleştirme) ve Kuyruk Yedek Yönlendirmelerinden ilgili akışa bağlanan tüm giriş noktaları hem akış kartlarında hem de Akış Başlangıcı penceresinde salt-okunur olarak listelendi; mevcut akışlardaki eski DID düğümleri bağlantıları korunarak otomatik olarak Akış Başlangıcı düğümüne dönüştürüldü."
+                    }
+                ]
+            },
+            {
+                "version": "v2.7.3",
+                "commit_hash": "82cc664",
+                "release_date": "3 Kasım 2026",
+                "badge": "Önceki Sürüm",
+                "badge_type": "previous",
                 "title": "Abone Bazlı Eş Zamanlı Dış Çağrı Limiti, Saniyelik Arama Hızı (CPS) Kalkanı & Otomatik Karantina",
                 "summary": "Sızdırılmış dahili hesaplar üzerinden yapılabilecek eş zamanlı ve seri bot dış aramalarını durdurmak için Asterisk GROUP(sub_out) tabanlı abone eş zamanlı çağrı limiti, saniyelik/dakikalık çağrı hızı (CPS) denetimi, saldırgan IP/User-Agent adli tespiti ve otomatik karantina devre kesicisi eklendi.",
                 "features": [

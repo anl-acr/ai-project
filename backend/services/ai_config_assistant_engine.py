@@ -2502,19 +2502,15 @@ def _build_visual_call_flow_graph(
     nodes: List[Dict[str, Any]] = []
     conns: List[Dict[str, Any]] = []
 
-    did_val = did_number or "x."
-    did_node_id = f"node-did-{uuid.uuid4().hex[:6]}"
+    did_node_id = f"node-start-{uuid.uuid4().hex[:6]}"
     nodes.append({
         "id": did_node_id,
-        "type": "did",
-        "title": f"Gelen DID ({did_number or 'Tümü'})",
+        "type": "start",
+        "title": "Akış Başlangıcı",
         "x": 80,
         "y": 180,
-        "value": did_val,
-        "extra_fields": {
-            "did_numbers": did_val,
-            "is_wildcard": not bool(did_number),
-        },
+        "value": "Çağrı Girişi",
+        "extra_fields": None,
     })
 
     tr_node_id = f"node-time-{uuid.uuid4().hex[:6]}"

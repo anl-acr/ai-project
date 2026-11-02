@@ -589,25 +589,14 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
     });
 
     (Array.isArray(inboundRules) ? inboundRules : []).forEach((r) => {
-      const rDid = r.did_number || r.did || "";
       const rLabel = r.name || r.description ? `Gelen Kural (${r.name || r.description})` : "Gelen Kural";
+      const rDid = r.did_number || r.did || "";
       if (rDid) upsertDid(rDid, rLabel);
-    });
-
-    (Array.isArray(workflows) ? workflows : []).forEach((wf) => {
-      const wfName = String(wf.name || "Arama Akışı").trim();
-      const nodes = Array.isArray(wf.nodes) ? wf.nodes : [];
-      nodes.forEach((n) => {
-        if (String(n?.type || "").toLowerCase() === "did") {
-          const ef = n.extra_fields || {};
-          const rawList = [];
-          if (Array.isArray(ef.did_numbers)) rawList.push(...ef.did_numbers);
-          else if (typeof ef.did_numbers === "string") rawList.push(...ef.did_numbers.split(/[,;\n]+/));
-          if (ef.did) rawList.push(ef.did);
-          if (n.value) rawList.push(...String(n.value).split(/[,;\n]+/));
-          rawList.forEach((d) => upsertDid(d, `Akış: ${wfName}`));
-        }
-      });
+      if (Array.isArray(r.did_patterns)) {
+        r.did_patterns.forEach((p) => {
+          if (p) upsertDid(p, rLabel);
+        });
+      }
     });
 
     (Array.isArray(outboundRules) ? outboundRules : []).forEach((r) => {

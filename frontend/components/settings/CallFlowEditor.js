@@ -28,7 +28,10 @@ import {
   AlertTriangle,
   PhoneOff,
   LogIn,
-  LogOut
+  LogOut,
+  Lock,
+  PhoneIncoming,
+  Users
 } from "lucide-react";
 import ConfirmDeleteModal from "../dashboard/ConfirmDeleteModal";
 import { useTheme } from "../../utils/theme";
@@ -50,20 +53,16 @@ export default function CallFlowEditor({ backendHost = "localhost:8000", onEditS
   const [aiAgents, setAiAgents] = useState([]);
   const [systemUsers, setSystemUsers] = useState([]);
   const [queues, setQueues] = useState([]);
+  const [inboundRules, setInboundRules] = useState([]);
   const [announcements, setAnnouncements] = useState([]);
   
-  // DID List Editor local states
-  const [newDidInput, setNewDidInput] = useState("");
-  const [didSearchQuery, setDidSearchQuery] = useState("");
-  const [editingDidIndex, setEditingDidIndex] = useState(null);
-  const [editingDidValue, setEditingDidValue] = useState("");
-  const [didWarning, setDidWarning] = useState("");
   const [newHolidayDate, setNewHolidayDate] = useState("");
   const [newHolidayLabel, setNewHolidayLabel] = useState("");
   const [newAgentIntent, setNewAgentIntent] = useState("");
   const [newAgentTargetType, setNewAgentTargetType] = useState("dahili");
   const [newAgentTargetValue, setNewAgentTargetValue] = useState("");
   const [isNodeModalOpen, setIsNodeModalOpen] = useState(false);
+  const nodeDialogRef = useRef(null);
   
   const [loading, setLoading] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
@@ -142,6 +141,15 @@ export default function CallFlowEditor({ backendHost = "localhost:8000", onEditS
       })
       .catch((err) => console.error("[CallFlow] Queues load error:", err));
 
+    // Fetch Inbound Rules (to display which rules route into each Call Flow)
+    tenantFetch(`${API_BASE}/api/settings/inbound_rules`)
+      .then((res) => res.json())
+      .then((data) => {
+        if (Array.isArray(data)) setInboundRules(data);
+        else if (Array.isArray(data?.rules)) setInboundRules(data.rules);
+      })
+      .catch((err) => console.error("[CallFlow] Inbound rules load error:", err));
+
     // Fetch Announcements
     tenantFetch(`${API_BASE}/api/settings/announcements`)
       .then((res) => res.json())
@@ -150,15 +158,6 @@ export default function CallFlowEditor({ backendHost = "localhost:8000", onEditS
       })
       .catch((err) => console.error("[CallFlow] Announcements load error:", err));
   }, []);
-
-  // Reset local state when selected node changes
-  useEffect(() => {
-    setNewDidInput("");
-    setDidSearchQuery("");
-    setEditingDidIndex(null);
-    setEditingDidValue("");
-    setDidWarning("");
-  }, [selectedNodeId]);
 
   // Sync isNodeModalOpen with selectedNodeId
   useEffect(() => {
@@ -170,133 +169,166 @@ export default function CallFlowEditor({ backendHost = "localhost:8000", onEditS
     }
   }, [selectedNodeId, nodes]);
 
+  // Manage native <dialog> modal lifecycle with showModal()
+  useEffect(() => {
+    const dlg = nodeDialogRef.current;
+    if (!dlg) return;
+    if (isNodeModalOpen) {
+      if (!dlg.open) {
+        try {
+          dlg.showModal();
+        } catch (e) {
+          dlg.setAttribute("open", "");
+        }
+      }
+    } else if (dlg.open) {
+      dlg.close();
+    }
+  }, [isNodeModalOpen, selectedNodeId]);
+
   const closeNodeModal = () => {
+    if (nodeDialogRef.current?.open) {
+      nodeDialogRef.current.close();
+    }
     setIsNodeModalOpen(false);
     setSelectedNodeId(null);
   };
 
-  // Live validation for DID duplicates
-  useEffect(() => {
-    if (!newDidInput.trim() || !selectedNodeId) {
-      setDidWarning("");
-      return;
-    }
-    const cleaned = newDidInput.trim();
-    const currentNode = nodes.find((n) => n.id === selectedNodeId);
-    
-    if (currentNode) {
-      const currentList = getDidList(currentNode);
-      if (currentList.includes(cleaned)) {
-        setDidWarning("Bu numara zaten bu arama akışında tanımlanmış.");
-        return;
+  // Normalize legacy DID / trunk_start nodes into a single locked 'start' ("Akış Başlangıcı") entry node
+  const normalizeWorkflowGraph = (rawNodes, rawConns) => {
+    const srcNodes = Array.isArray(rawNodes) ? rawNodes : [];
+    const srcConns = Array.isArray(rawConns) ? rawConns : [];
+    let primaryStart = null;
+    const duplicateStartIds = new Set();
+    const normNodes = [];
+
+    for (const n of srcNodes) {
+      if (!n || typeof n !== "object") continue;
+      const nType = String(n.type || "").toLowerCase();
+      if (["start", "did", "trunk_start", "inbound"].includes(nType)) {
+        const oldTitle = String(n.title || "").trim();
+        const cleanTitle =
+          !oldTitle || oldTitle.toLowerCase().includes("did") || ["start", "trunk_start"].includes(oldTitle.toLowerCase())
+            ? "Akış Başlangıcı"
+            : oldTitle;
+        const cleanExtra = n.extra_fields && typeof n.extra_fields === "object" ? { ...n.extra_fields } : {};
+        delete cleanExtra.did_numbers;
+        delete cleanExtra.is_wildcard;
+        const converted = {
+          ...n,
+          type: "start",
+          title: cleanTitle,
+          value: "Çağrı Girişi",
+          extra_fields: Object.keys(cleanExtra).length > 0 ? cleanExtra : null
+        };
+        if (!primaryStart) {
+          primaryStart = converted;
+          normNodes.push(converted);
+        } else if (n.id) {
+          duplicateStartIds.add(n.id);
+        }
+      } else {
+        normNodes.push(n);
       }
     }
 
-    // Check other workflows
-    for (const wf of workflows) {
-      if (wf.id === currentWfId) continue;
-      if (!wf.nodes) continue;
-      for (const n of wf.nodes) {
-        if (n.type === "did") {
-          const list = getDidList(n);
-          if (list.includes(cleaned)) {
-            setDidWarning(`Bu numara '${wf.name}' isimli farklı bir arama akışında zaten tanımlı.`);
-            return;
-          }
-        }
+    const normConns = [];
+    for (const c of srcConns) {
+      if (!c || typeof c !== "object") continue;
+      const copyC = { ...c };
+      if (primaryStart && duplicateStartIds.has(copyC.fromNode)) {
+        copyC.fromNode = primaryStart.id;
+        copyC.fromPort = "output";
+      }
+      if (duplicateStartIds.has(copyC.toNode) || (primaryStart && copyC.toNode === primaryStart.id)) {
+        continue;
+      }
+      normConns.push(copyC);
+    }
+
+    if (!primaryStart) {
+      let startId = "node-start";
+      const usedIds = new Set(normNodes.map((n) => n.id));
+      let idx = 1;
+      while (usedIds.has(startId)) {
+        startId = `node-start-${idx++}`;
+      }
+      primaryStart = {
+        id: startId,
+        type: "start",
+        x: 80,
+        y: 150,
+        title: "Akış Başlangıcı",
+        value: "Çağrı Girişi",
+        options: null,
+        extra_fields: null
+      };
+      const incomingSet = new Set(normConns.map((c) => c.toNode).filter(Boolean));
+      const rootTarget =
+        normNodes.find((n) => !incomingSet.has(n.id) && n.type !== "stargate_out") || normNodes[0] || null;
+      normNodes.unshift(primaryStart);
+      if (rootTarget?.id) {
+        normConns.unshift({
+          id: `conn-${startId}-auto`,
+          fromNode: startId,
+          fromPort: "output",
+          toNode: rootTarget.id,
+          toPort: "input"
+        });
       }
     }
 
-    setDidWarning("");
-  }, [newDidInput, selectedNodeId, workflows, currentWfId, nodes]);
-
-  const getDidList = (node) => {
-    const raw = node.extra_fields?.did_numbers;
-    if (!raw) return [];
-    if (Array.isArray(raw)) return raw;
-    return raw.split(",").map((n) => n.trim()).filter(Boolean);
+    return { nodes: normNodes, connections: normConns };
   };
 
-  const getFilteredDidList = (node) => {
-    const list = getDidList(node);
-    if (!didSearchQuery) return list;
-    return list.filter((did) => did.toLowerCase().includes(didSearchQuery.toLowerCase()));
-  };
+  // Resolve all Inbound Rules and Queue Fallbacks pointing to a given workflow ID
+  const getWorkflowEntryReferences = (wfId) => {
+    if (!wfId) return [];
+    const targetId = String(wfId);
+    const refs = [];
 
-  const handleAddDidNumber = (nodeId) => {
-    if (!newDidInput.trim() || didWarning) return;
-    const node = nodes.find((n) => n.id === nodeId);
-    if (!node) return;
-
-    const list = getDidList(node);
-    const cleaned = newDidInput.trim();
-    if (list.includes(cleaned)) return;
-
-    const newList = [...list, cleaned];
-    saveDidList(nodeId, newList);
-    setNewDidInput("");
-  };
-
-  const handleConfirmEditDid = (nodeId, index) => {
-    if (!editingDidValue.trim()) return;
-    const cleaned = editingDidValue.trim();
-    const node = nodes.find((n) => n.id === nodeId);
-    if (!node) return;
-
-    const list = getDidList(node);
-    const otherDids = list.filter((_, idx) => idx !== index);
-    if (otherDids.includes(cleaned)) {
-      alert("Bu numara zaten bu akışta tanımlı.");
-      return;
-    }
-
-    // Check in other workflows
-    for (const wf of workflows) {
-      if (wf.id === currentWfId) continue;
-      if (!wf.nodes) continue;
-      for (const n of wf.nodes) {
-        if (n.type === "did") {
-          const oList = getDidList(n);
-          if (oList.includes(cleaned)) {
-            alert(`Bu numara '${wf.name}' isimli farklı bir arama akışında zaten tanımlı.`);
-            return;
-          }
-        }
+    for (const r of inboundRules) {
+      if (!r || r.active === false || r.enabled === false) continue;
+      if (["call_flow", "ivr"].includes(String(r.destination_type || "").toLowerCase()) && String(r.destination_id) === targetId) {
+        const didSummary =
+          r.did_match_mode === "all"
+            ? "Tüm Numaralar"
+            : Array.isArray(r.did_patterns) && r.did_patterns.length > 0
+              ? r.did_patterns.join(", ")
+              : r.did_number || "Özel DID";
+        refs.push({
+          kind: "inbound",
+          name: r.name || "Gelen Arama Kuralı",
+          detail: didSummary
+        });
       }
     }
 
-    const newList = [...list];
-    newList[index] = cleaned;
+    for (const q of queues) {
+      if (!q) continue;
+      const busyDirect = q.all_busy_routing_enabled && q.all_busy_destination_type === "call_flow" && String(q.all_busy_destination_target) === targetId;
+      const busyPostAnn =
+        q.all_busy_routing_enabled &&
+        q.all_busy_destination_type === "announcement" &&
+        q.all_busy_post_announcement_action === "call_flow" &&
+        String(q.all_busy_post_announcement_target) === targetId;
+      const waitDirect = q.max_wait_time_enabled && q.max_wait_destination_type === "call_flow" && String(q.max_wait_destination_target) === targetId;
+      const waitPostAnn =
+        q.max_wait_time_enabled &&
+        q.max_wait_destination_type === "announcement" &&
+        q.max_wait_post_announcement_action === "call_flow" &&
+        String(q.max_wait_post_announcement_target) === targetId;
 
-    saveDidList(nodeId, newList);
-    setEditingDidIndex(null);
-  };
+      if (busyDirect || busyPostAnn || waitDirect || waitPostAnn) {
+        refs.push({
+          kind: "queue",
+          name: q.name || `Kuyruk ${q.extension || ""}`,
+          detail: `Kuyruk Taşması (${q.extension || q.id})`
+        });
+      }
+    }
 
-  const handleDeleteDidNumber = (nodeId, index) => {
-    const node = nodes.find((n) => n.id === nodeId);
-    if (!node) return;
-
-    const list = getDidList(node);
-    const newList = list.filter((_, idx) => idx !== index);
-    saveDidList(nodeId, newList);
-  };
-
-  const saveDidList = (nodeId, list) => {
-    setNodes((prev) =>
-      prev.map((n) => {
-        if (n.id === nodeId) {
-          return {
-            ...n,
-            value: list.join(", "),
-            extra_fields: {
-              ...n.extra_fields,
-              did_numbers: list
-            }
-          };
-        }
-        return n;
-      })
-    );
+    return refs;
   };
  
   const getHolidayList = (node) => {
@@ -407,7 +439,7 @@ export default function CallFlowEditor({ backendHost = "localhost:8000", onEditS
       case "tts": return { w: 220, h: 140 };
       case "sr": return { w: 180, h: 215 };
       case "compare": return { w: 180, h: 120 };
-      case "did": return { w: 170, h: 70 };
+      case "start": return { w: 185, h: 80 };
       case "timerule": return { w: 180, h: 176 };
       case "ai_agent": {
         const len = node.options?.length || 0;
@@ -585,10 +617,15 @@ export default function CallFlowEditor({ backendHost = "localhost:8000", onEditS
   useEffect(() => {
     const handleKeyDown = (e) => {
       if (e.key === "Delete" || e.key === "Backspace") {
-        if (document.activeElement.tagName === "INPUT" || document.activeElement.tagName === "TEXTAREA") {
+        if (["INPUT", "TEXTAREA", "SELECT"].includes(document.activeElement?.tagName)) {
           return;
         }
         if (selectedNodeId) {
+          const targetNode = nodes.find((n) => n.id === selectedNodeId);
+          if (targetNode?.type === "start") {
+            setWorkflowError("Akış Başlangıcı sabit giriş noktasıdır ve silinemez.");
+            return;
+          }
           setNodes((prev) => prev.filter((n) => n.id !== selectedNodeId));
           setConnections((prev) => prev.filter((c) => c.fromNode !== selectedNodeId && c.toNode !== selectedNodeId));
           setSelectedNodeId(null);
@@ -600,7 +637,7 @@ export default function CallFlowEditor({ backendHost = "localhost:8000", onEditS
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [selectedNodeId, selectedConnectionId]);
+  }, [selectedNodeId, selectedConnectionId, nodes]);
 
   // Create new node templates
   const addNode = (type) => {
@@ -611,7 +648,6 @@ export default function CallFlowEditor({ backendHost = "localhost:8000", onEditS
         options: ["1", "2", "timeout"] 
       },
       transfer: { title: "Transfer", value: "1000" },
-      did: { title: "DID", value: "x.", extra_fields: { did_numbers: ["x."], is_wildcard: true } },
       timerule: { 
         title: "Senaryo", 
         value: "09:00", 
@@ -625,10 +661,11 @@ export default function CallFlowEditor({ backendHost = "localhost:8000", onEditS
     };
 
     const template = defaultData[type];
+    if (!template) return;
     const newNode = {
       id: `node-${Date.now()}`,
       type,
-      x: snapToGrid(200 + Math.random() * 50),
+      x: snapToGrid(260 + Math.random() * 50),
       y: snapToGrid(150 + Math.random() * 50),
       title: template.title,
       value: template.value || "",
@@ -646,8 +683,9 @@ export default function CallFlowEditor({ backendHost = "localhost:8000", onEditS
     setCurrentWfId(wf.id);
     setWorkflowName(wf.name);
     setWorkflowStatus(wf.status);
-    setNodes(wf.nodes || []);
-    setConnections(wf.connections || []);
+    const normalized = normalizeWorkflowGraph(wf.nodes, wf.connections);
+    setNodes(normalized.nodes);
+    setConnections(normalized.connections);
     setTrunkId(wf.trunk_id || 1);
     
     setViewMode("edit");
@@ -662,7 +700,7 @@ export default function CallFlowEditor({ backendHost = "localhost:8000", onEditS
     setWorkflowName("Yeni Arama Akışı");
     setWorkflowStatus("draft");
     setNodes([
-      { id: "node-1", type: "did", x: 80, y: 150, title: "Gelen DID Eşleme", value: "x.", extra_fields: { did_numbers: "x.", is_wildcard: true } }
+      { id: "node-start", type: "start", x: 80, y: 150, title: "Akış Başlangıcı", value: "Çağrı Girişi", options: null, extra_fields: null }
     ]);
     setConnections([]);
     setTrunkId(1);
@@ -688,6 +726,15 @@ export default function CallFlowEditor({ backendHost = "localhost:8000", onEditS
     if (dupWf) {
       setWorkflowError(`'${wfName}' isimli Arama Akışı zaten mevcut. Lütfen farklı bir isim giriniz.`);
       return;
+    }
+
+    const startNode = nodes.find((n) => n.type === "start");
+    if (workflowStatus === "active") {
+      const hasStartConnection = Boolean(startNode && connections.some((c) => c.fromNode === startNode.id));
+      if (!hasStartConnection) {
+        setWorkflowError("Akışı 'AKTİF' duruma alabilmek için 'Akış Başlangıcı' kutusunun çıkış portunu en az bir adıma bağlamalısınız.");
+        return;
+      }
     }
 
     setLoading(true);
@@ -853,7 +900,7 @@ export default function CallFlowEditor({ backendHost = "localhost:8000", onEditS
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 flex-1 items-center">
                   <div className="pl-1">Akış Şeması Adı / Durum</div>
                   <div className="pl-1">Düğüm / Bağlantı Sayısı</div>
-                  <div className="pl-1">Hat Yönlendirme Kuralı</div>
+                  <div className="pl-1">Tetikleyen Giriş Noktaları</div>
                 </div>
               </div>
               <div className="w-24 text-right pr-4 shrink-0">İşlemler</div>
@@ -897,13 +944,38 @@ export default function CallFlowEditor({ backendHost = "localhost:8000", onEditS
                     </div>
 
                     <div className="text-[10px] text-slate-505 dark:text-slate-400 space-y-1 min-w-0">
-                      <div className="flex items-center gap-1.5 font-semibold">
-                        <Server size={12} className="text-slate-400 shrink-0" />
-                        <span className="truncate">Hat Yönlendirme</span>
-                      </div>
-                      <div className="text-[9px] text-slate-400 dark:text-slate-500 truncate">
-                        Tüm Gelen Aramalar (DID Tabanlı)
-                      </div>
+                      {(() => {
+                        const refs = getWorkflowEntryReferences(wf.id);
+                        if (refs.length === 0) {
+                          return (
+                            <>
+                              <div className="flex items-center gap-1.5 font-semibold text-amber-600 dark:text-amber-400">
+                                <PhoneIncoming size={12} className="shrink-0" />
+                                <span className="truncate">Gelen Kural Bekliyor</span>
+                              </div>
+                              <div className="text-[9px] text-slate-400 dark:text-slate-500 truncate">
+                                Gelen Arama Kurallarından bağlayabilirsiniz
+                              </div>
+                            </>
+                          );
+                        }
+                        return (
+                          <>
+                            <div className="flex items-center gap-1.5 font-semibold text-emerald-700 dark:text-emerald-400">
+                              <PhoneIncoming size={12} className="shrink-0" />
+                              <span className="truncate">{refs[0].name}</span>
+                              {refs.length > 1 && (
+                                <span className="px-1.5 py-0.2 rounded bg-emerald-50 dark:bg-emerald-950/40 text-[8px] font-extrabold shrink-0">
+                                  +{refs.length - 1}
+                                </span>
+                              )}
+                            </div>
+                            <div className="text-[9px] text-slate-400 dark:text-slate-500 truncate" title={refs.map((r) => `${r.name} (${r.detail})`).join(" • ")}>
+                              {refs[0].detail}
+                            </div>
+                          </>
+                        );
+                      })()}
                     </div>
                   </div>
                 </div>
@@ -1040,7 +1112,13 @@ export default function CallFlowEditor({ backendHost = "localhost:8000", onEditS
           
           {/* Node Templates toolbar */}
           <div className="p-3 border-b border-slate-200/80 dark:border-slate-800/80 bg-white/70 dark:bg-slate-900/60 backdrop-blur-md flex flex-wrap gap-2 items-center justify-between shrink-0 z-20">
-            <span className="text-[10px] font-extrabold uppercase text-slate-450 tracking-wider">Düğüm Ekle (Nodes):</span>
+            <div className="flex items-center gap-2.5">
+              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200/70 dark:border-emerald-800/50 text-emerald-700 dark:text-emerald-300 text-[10px] font-extrabold">
+                <Play size={10} className="fill-current" />
+                <span>Başlangıç: Akış Başlangıcı</span>
+              </span>
+              <span className="text-[10px] font-extrabold uppercase text-slate-450 tracking-wider hidden sm:inline">Düğüm Ekle:</span>
+            </div>
             
             <div className="flex flex-wrap gap-1.5">
               <button 
@@ -1060,12 +1138,6 @@ export default function CallFlowEditor({ backendHost = "localhost:8000", onEditS
                 className="px-2.5 py-1 bg-slate-600 hover:bg-slate-500 text-white text-[10px] font-extrabold rounded-lg transition"
               >
                 + Transfer
-              </button>
-              <button 
-                onClick={() => addNode("did")}
-                className="px-2.5 py-1 bg-primary hover:bg-primary text-white text-[10px] font-extrabold rounded-lg transition"
-              >
-                + DID
               </button>
               <button 
                 onClick={() => addNode("timerule")}
@@ -1202,7 +1274,7 @@ export default function CallFlowEditor({ backendHost = "localhost:8000", onEditS
                   >
                     
                     {/* Left side input port connector dot */}
-                    {!["trunk_start", "did", "stargate_out"].includes(node.type) && (
+                    {!["trunk_start", "start", "did", "stargate_out"].includes(node.type) && (
                       <div
                         className="port absolute left-0 top-1/2 transform -translate-x-1/2 -translate-y-1/2 w-3 h-3 bg-red-500 border-2 border-white dark:border-slate-900 rounded-full cursor-pointer z-20 hover:scale-125 transition"
                         onMouseDown={(e) => {
@@ -1217,9 +1289,9 @@ export default function CallFlowEditor({ backendHost = "localhost:8000", onEditS
                     )}
 
                     {/* Right side output port connector dot */}
-                    {["play", "setvalue", "transfer", "tts", "did", "stargate_out"].includes(node.type) && (
+                    {["start", "play", "setvalue", "transfer", "tts", "did", "stargate_out"].includes(node.type) && (
                       <div
-                        className="port absolute right-0 top-1/2 transform translate-x-1/2 -translate-y-1/2 w-3 h-3 bg-primary border-2 border-white dark:border-slate-900 rounded-full cursor-pointer z-20 hover:scale-125 transition"
+                        className={`port absolute right-0 top-1/2 transform translate-x-1/2 -translate-y-1/2 w-3.5 h-3.5 ${node.type === "start" ? "bg-emerald-500" : "bg-primary"} border-2 border-white dark:border-slate-900 rounded-full cursor-pointer z-20 hover:scale-125 transition`}
                         onMouseDown={(e) => {
                           handlePortMouseDown(e, node.id, "output");
                         }}
@@ -1227,13 +1299,14 @@ export default function CallFlowEditor({ backendHost = "localhost:8000", onEditS
                           handlePortMouseUp(e, node.id, "output");
                         }}
                         onClick={(e) => handlePortClick(e, node.id, "output", false)}
-                        title="Çıkış Portu"
+                        title="Çıkış Portu (Akışı Başlat)"
                       />
                     )}
                     
                     <div
                       onMouseDown={(e) => handleNodeMouseDown(e, node)}
                       className={`px-3 py-2 rounded-t-xl cursor-move flex items-center justify-between font-bold text-[10px] text-white shrink-0 ${
+                        node.type === "start" ? "bg-emerald-600" :
                         node.type === "play" ? "bg-primary" :
                         node.type === "menu" ? "bg-sky-500" :
                         node.type === "setvalue" ? "bg-primary" :
@@ -1241,7 +1314,6 @@ export default function CallFlowEditor({ backendHost = "localhost:8000", onEditS
                         node.type === "tts" ? "bg-primary" :
                         node.type === "sr" ? "bg-primary" :
                         node.type === "compare" ? "bg-cyan-600" :
-                        node.type === "did" ? "bg-primary" :
                         node.type === "timerule" ? "bg-primary" :
                         node.type === "ai_agent" ? "bg-primary" :
                         node.type === "hangup" ? "bg-primary" :
@@ -1250,6 +1322,7 @@ export default function CallFlowEditor({ backendHost = "localhost:8000", onEditS
                       }`}
                     >
                       <div className="flex items-center gap-1.5 truncate">
+                        {node.type === "start" && <Play size={11} className="fill-current" />}
                         {node.type === "play" && <Volume2 size={11} />}
                         {node.type === "menu" && <Shuffle size={11} />}
                         {node.type === "setvalue" && <Database size={11} />}
@@ -1257,7 +1330,6 @@ export default function CallFlowEditor({ backendHost = "localhost:8000", onEditS
                         {node.type === "tts" && <Bot size={11} />}
                         {node.type === "sr" && <Layers size={11} />}
                         {node.type === "compare" && <Settings size={11} />}
-                        {node.type === "did" && <Hash size={11} />}
                         {node.type === "timerule" && <Clock size={11} />}
                         {node.type === "ai_agent" && <Bot size={11} />}
                         {node.type === "hangup" && <PhoneOff size={11} />}
@@ -1270,23 +1342,30 @@ export default function CallFlowEditor({ backendHost = "localhost:8000", onEditS
                             setSelectedConnectionId(null);
                           }}
                           className="truncate hover:underline cursor-pointer"
-                          title="Ayarları açmak için tıklayın"
+                          title="Detayları açmak için tıklayın"
                         >
                           {node.title}
                         </span>
                       </div> 
                       
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setNodes((prev) => prev.filter((n) => n.id !== node.id));
-                          setConnections((prev) => prev.filter((c) => c.fromNode !== node.id && c.toNode !== node.id));
-                          if (selectedNodeId === node.id) setSelectedNodeId(null);
-                        }}
-                        className="text-white hover:text-red-200 transition"
-                      >
-                        <X size={10} />
-                      </button>
+                      {node.type === "start" ? (
+                        <span title="Sabit Başlangıç Noktası (Silinemez)" className="text-emerald-100/90 shrink-0">
+                          <Lock size={10} />
+                        </span>
+                      ) : (
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setNodes((prev) => prev.filter((n) => n.id !== node.id));
+                            setConnections((prev) => prev.filter((c) => c.fromNode !== node.id && c.toNode !== node.id));
+                            if (selectedNodeId === node.id) setSelectedNodeId(null);
+                          }}
+                          className="text-white hover:text-red-200 transition"
+                          title="Düğümü Sil"
+                        >
+                          <X size={10} />
+                        </button>
+                      )}
                     </div>
 
                     {/* Node Body Content */}
@@ -1418,11 +1497,19 @@ export default function CallFlowEditor({ backendHost = "localhost:8000", onEditS
                         </div>
                       )}
 
-                      {node.type === "did" && (
-                        <div className="text-[10px] font-mono text-primary dark:text-indigo-400 border border-indigo-100 dark:border-indigo-900/30 rounded bg-indigo-50/20 dark:bg-slate-950/40 p-2 truncate text-center font-bold">
-                          {node.extra_fields?.is_wildcard ? "Tüm DID'ler (x.)" : (node.extra_fields?.did_numbers || "DID girilmedi")}
-                        </div>
-                      )}
+                      {node.type === "start" && (() => {
+                        const refs = getWorkflowEntryReferences(currentWfId);
+                        return (
+                          <div className="flex flex-col gap-1 w-full text-center">
+                            <div className="text-[9px] font-extrabold text-emerald-700 dark:text-emerald-300 border border-emerald-200/70 dark:border-emerald-800/50 rounded bg-emerald-50/60 dark:bg-emerald-950/30 px-2 py-1 truncate">
+                              Çağrı Giriş Noktası
+                            </div>
+                            <div className="text-[8px] font-semibold text-slate-500 dark:text-slate-400 truncate">
+                              {refs.length > 0 ? `${refs.length} Kural / Kuyruk Bağlı` : "Gelen Kuraldan Tetiklenir"}
+                            </div>
+                          </div>
+                        );
+                      })()}
 
                       {node.type === "timerule" && (
                         <div className="flex flex-col gap-1 w-full text-[10px] font-bold">
@@ -1501,18 +1588,27 @@ export default function CallFlowEditor({ backendHost = "localhost:8000", onEditS
         </div>
       </div>
 
-      {/* Unified Node Settings Modal Popup */}
-      {isNodeModalOpen && (() => {
-        const node = nodes.find((n) => n.id === selectedNodeId);
-        if (!node) return null;
+      {/* Unified Node Settings Native Dialog Modal */}
+      {(() => {
+        const node = isNodeModalOpen ? nodes.find((n) => n.id === selectedNodeId) : null;
         return (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-sm animate-in fade-in duration-200">
-            <div className="bg-white dark:bg-slate-900 border border-slate-150 dark:border-slate-800 rounded-3xl shadow-2xl max-w-lg w-full max-h-[85vh] overflow-y-auto p-6 flex flex-col gap-4 animate-in zoom-in-95 duration-200">
+          <dialog
+            ref={nodeDialogRef}
+            aria-labelledby="callflow-node-modal-title"
+            onClose={closeNodeModal}
+            onClick={(e) => {
+              if (e.target === nodeDialogRef.current) closeNodeModal();
+            }}
+            className="m-auto p-0 bg-transparent border-0 max-w-lg w-[calc(100%-2rem)] overscroll-contain backdrop:bg-slate-950/60 backdrop:backdrop-blur-sm backdrop:overflow-hidden backdrop:overscroll-contain focus:outline-none"
+          >
+            {node && (
+            <div className="bg-white dark:bg-slate-900 border border-slate-150 dark:border-slate-800 rounded-3xl shadow-2xl w-full max-h-[85vh] overflow-y-auto overscroll-contain p-6 flex flex-col gap-4 text-slate-800 dark:text-slate-100">
               
               {/* Header */}
               <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800">
                 <div className="flex items-center gap-2">
                   <div className={`p-2 rounded-xl text-white ${
+                    node.type === "start" ? "bg-emerald-600" :
                     node.type === "play" ? "bg-primary" :
                     node.type === "menu" ? "bg-sky-500" :
                     node.type === "setvalue" ? "bg-primary" :
@@ -1520,13 +1616,13 @@ export default function CallFlowEditor({ backendHost = "localhost:8000", onEditS
                     node.type === "tts" ? "bg-primary" :
                     node.type === "sr" ? "bg-primary" :
                     node.type === "compare" ? "bg-cyan-600" :
-                    node.type === "did" ? "bg-primary" :
                     node.type === "timerule" ? "bg-primary" :
                     node.type === "ai_agent" ? "bg-primary" :
                     node.type === "hangup" ? "bg-primary" :
                     node.type === "stargate_in" ? "bg-cyan-600" :
                     node.type === "stargate_out" ? "bg-teal-600" : "bg-slate-600"
                   }`}>
+                    {node.type === "start" && <Play size={16} className="fill-current" />}
                     {node.type === "play" && <Volume2 size={16} />}
                     {node.type === "menu" && <Shuffle size={16} />}
                     {node.type === "setvalue" && <Database size={16} />}
@@ -1534,7 +1630,6 @@ export default function CallFlowEditor({ backendHost = "localhost:8000", onEditS
                     {node.type === "tts" && <Bot size={16} />}
                     {node.type === "sr" && <Layers size={16} />}
                     {node.type === "compare" && <Settings size={16} />}
-                    {node.type === "did" && <Hash size={16} />}
                     {node.type === "timerule" && <Clock size={16} />}
                     {node.type === "ai_agent" && <Bot size={16} />}
                     {node.type === "hangup" && <PhoneOff size={16} />}
@@ -1542,7 +1637,7 @@ export default function CallFlowEditor({ backendHost = "localhost:8000", onEditS
                     {node.type === "stargate_out" && <LogIn size={16} className="rotate-90" />}
                   </div>
                   <div className="text-left">
-                    <h3 className="text-sm font-bold text-slate-800 dark:text-white">{node.title} Ayarları</h3>
+                    <h3 id="callflow-node-modal-title" className="text-sm font-bold text-slate-800 dark:text-white">{node.title} Ayarları</h3>
                     <span className="text-[10px] text-slate-400 font-mono">Tip: {node.type.toUpperCase()} | ID: {node.id}</span>
                   </div>
                 </div>
@@ -1557,8 +1652,9 @@ export default function CallFlowEditor({ backendHost = "localhost:8000", onEditS
 
               {/* Title Input */}
               <div className="flex flex-col gap-1.5 text-left">
-                <label className="text-[10px] text-slate-450 dark:text-slate-505 font-bold uppercase tracking-wider">Düğüm Başlığı</label>
+                <label htmlFor="cf-node-title-input" className="text-[10px] text-slate-450 dark:text-slate-505 font-bold uppercase tracking-wider">Düğüm Başlığı</label>
                 <input
+                  id="cf-node-title-input"
                   type="text"
                   value={node.title}
                   onChange={(e) => handleUpdateNodeField("title", e.target.value)}
@@ -1568,176 +1664,61 @@ export default function CallFlowEditor({ backendHost = "localhost:8000", onEditS
 
               {/* Dynamic Forms based on node type */}
               
-              {/* DID Node Configuration */}
-              {node.type === "did" && (
-                <div className="flex flex-col gap-4">
-                  {/* Wildcard Switch */}
-                  <div className="flex items-center justify-between bg-slate-50 dark:bg-slate-950/40 p-3 rounded-xl border border-slate-150 dark:border-slate-800">
-                    <div className="flex flex-col text-left">
-                      <span className="text-[11px] text-slate-700 dark:text-slate-300 font-bold">Tüm DID'leri Kabul Et (Wildcard)</span>
-                      <span className="text-[9px] text-slate-400">Aktif edildiğinde tüm gelen aramalar kabul edilir.</span>
+              {/* Start ("Akış Başlangıcı") Node Information & Linked Entry Points */}
+              {node.type === "start" && (() => {
+                const refs = getWorkflowEntryReferences(currentWfId);
+                return (
+                  <div className="flex flex-col gap-3 text-left">
+                    <div className="p-3.5 rounded-2xl bg-emerald-50/70 dark:bg-emerald-950/25 border border-emerald-200/70 dark:border-emerald-800/50 space-y-1.5">
+                      <div className="flex items-center gap-2 text-xs font-extrabold text-emerald-800 dark:text-emerald-300">
+                        <Play size={13} className="fill-current shrink-0" />
+                        <span>Sabit Akış Başlangıç Noktası</span>
+                      </div>
+                      <p className="text-[11px] text-emerald-700/90 dark:text-emerald-300/80 leading-relaxed">
+                        Dış hat (DID) numara eşleştirmeleri merkezi olarak <strong>Gelen Arama Kuralları</strong> ekranından yapılır. Bu akış hedef olarak seçildiğinde çağrı doğrudan bu başlangıç noktasının sağ çıkış portundan akışa girer.
+                      </p>
                     </div>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        const newWildcard = !node.extra_fields?.is_wildcard;
-                        setNodes((prev) => prev.map((n) => {
-                          if (n.id === node.id) {
-                            return {
-                              ...n,
-                              value: newWildcard ? "x." : "",
-                              extra_fields: {
-                                ...n.extra_fields,
-                                is_wildcard: newWildcard,
-                                did_numbers: newWildcard ? ["x."] : []
-                              }
-                            };
-                          }
-                          return n;
-                        }));
-                      }}
-                      className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
-                        node.extra_fields?.is_wildcard ? "bg-primary" : "bg-slate-200 dark:bg-slate-800"
-                      }`}
-                    >
-                      <span
-                        className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
-                          node.extra_fields?.is_wildcard ? "translate-x-4" : "translate-x-0"
-                        }`}
-                      />
-                    </button>
-                  </div>
 
-                  {!node.extra_fields?.is_wildcard && (
-                    <div className="flex flex-col gap-4 animate-in fade-in duration-200">
-                      {didWarning && (
-                        <div className="p-3 bg-rose-50 dark:bg-rose-955 border border-rose-250 rounded-xl text-rose-700 dark:text-rose-350 text-[10px] flex items-start gap-1.5 font-bold leading-relaxed animate-pulse">
-                          <AlertTriangle size={14} className="shrink-0 mt-0.5" />
-                          <span>{didWarning}</span>
+                    <div className="flex flex-col gap-2">
+                      <div className="flex items-center justify-between text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                        <span>Bu Akışı Tetikleyen Giriş Noktaları</span>
+                        <span className="px-2 py-0.5 rounded bg-slate-100 dark:bg-slate-800 font-mono text-[9px]">
+                          {refs.length} Bağlantı
+                        </span>
+                      </div>
+
+                      {refs.length === 0 ? (
+                        <div className="p-4 rounded-xl border border-dashed border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950/30 text-center space-y-1">
+                          <div className="text-xs font-bold text-slate-600 dark:text-slate-300">
+                            Henüz bir Gelen Arama Kuralına bağlanmadı
+                          </div>
+                          <div className="text-[10px] text-slate-400">
+                            Akışı kaydettikten sonra <strong>Gelen Arama Kuralları</strong> veya <strong>Kuyruk</strong> ekranından hedef olarak bu akışı seçebilirsiniz.
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="border border-slate-200/80 dark:border-slate-800 rounded-xl divide-y divide-slate-100 dark:divide-slate-800 max-h-[180px] overflow-y-auto">
+                          {refs.map((r, i) => (
+                            <div key={i} className="px-3 py-2.5 flex items-center justify-between gap-2 text-xs">
+                              <div className="flex items-center gap-2 min-w-0">
+                                {r.kind === "inbound" ? (
+                                  <PhoneIncoming size={14} className="text-emerald-600 dark:text-emerald-400 shrink-0" />
+                                ) : (
+                                  <Users size={14} className={text + " shrink-0"} />
+                                )}
+                                <span className="font-bold text-slate-800 dark:text-slate-100 truncate">{r.name}</span>
+                              </div>
+                              <span className="px-2 py-0.5 rounded-lg bg-slate-100 dark:bg-slate-800 font-mono text-[10px] font-semibold text-slate-600 dark:text-slate-300 shrink-0">
+                                {r.detail}
+                              </span>
+                            </div>
+                          ))}
                         </div>
                       )}
-
-                      {/* Add DID Row */}
-                      <div className="flex gap-2">
-                        <div className="flex-1 flex flex-col gap-1 text-left">
-                          <span className="text-[10px] text-slate-400 dark:text-slate-500 font-bold uppercase tracking-wider">DID Ekle</span>
-                          <input
-                            type="text"
-                            value={newDidInput}
-                            onChange={(e) => setNewDidInput(e.target.value)}
-                            placeholder="Örn: 08501234567 veya x."
-                            className="px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200/65 dark:border-slate-800 rounded-xl text-xs font-mono text-slate-850 dark:text-white focus:outline-none font-bold"
-                          />
-                        </div>
-                        <button
-                          type="button"
-                          onClick={() => handleAddDidNumber(node.id)}
-                          className={`self-end px-4 py-2 ${bg} ${hover} text-white text-xs font-bold rounded-xl h-[38px] transition cursor-pointer`}
-                        >
-                          Ekle
-                        </button>
-                      </div>
-
-                      {/* Search / Filter DID */}
-                      <div className="flex flex-col gap-1 text-left">
-                        <span className="text-[10px] text-slate-400 dark:text-slate-500 font-bold uppercase tracking-wider">Listede Ara</span>
-                        <input
-                          type="text"
-                          value={didSearchQuery}
-                          onChange={(e) => setDidSearchQuery(e.target.value)}
-                          placeholder="Aranacak DID numarası..."
-                          className="px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200/65 dark:border-slate-800 rounded-xl text-xs text-slate-850 dark:text-white focus:outline-none"
-                        />
-                      </div>
-
-                      {/* DID List Box */}
-                      <div className="flex flex-col gap-2 text-left">
-                        <div className="flex items-center justify-between text-[10px] text-slate-450 dark:text-slate-550 font-bold uppercase tracking-wider">
-                          <span>Numara Listesi</span>
-                          <span className="font-mono text-[9px] text-primary dark:text-indigo-400 font-extrabold bg-indigo-50 dark:bg-indigo-950/50 px-2 py-0.5 rounded">
-                            {getDidList(node).length} Adet
-                          </span>
-                        </div>
-                        
-                        <div className="flex flex-col border border-slate-150 dark:border-slate-850 rounded-xl max-h-[180px] overflow-y-auto divide-y divide-slate-150 dark:divide-slate-850 bg-slate-50/20">
-                          {getFilteredDidList(node).length === 0 ? (
-                            <div className="text-center py-6 text-[10px] text-slate-400 font-semibold italic">
-                              {didSearchQuery ? "Aramaya uygun numara bulunamadı." : "Numara tanımlanmamış."}
-                            </div>
-                          ) : (
-                            getFilteredDidList(node).map((did) => {
-                              const mainList = getDidList(node);
-                              const absoluteIndex = mainList.indexOf(did);
-                              const isEditing = editingDidIndex === absoluteIndex;
-
-                              return (
-                                <div key={absoluteIndex} className="p-2 flex items-center justify-between hover:bg-slate-50 dark:hover:bg-slate-950/40 transition">
-                                  {isEditing ? (
-                                    <div className="flex items-center gap-1.5 w-full pr-1">
-                                      <input
-                                        type="text"
-                                        value={editingDidValue}
-                                        onChange={(e) => setEditingDidValue(e.target.value)}
-                                        onKeyDown={(e) => {
-                                          if (e.key === "Enter") {
-                                            e.preventDefault();
-                                            handleConfirmEditDid(node.id, absoluteIndex);
-                                          } else if (e.key === "Escape") {
-                                            setEditingDidIndex(null);
-                                          }
-                                        }}
-                                        className="flex-1 px-2 py-1 bg-white dark:bg-slate-950 border border-indigo-400 rounded-lg text-xs font-mono text-slate-800 dark:text-white focus:outline-none"
-                                        autoFocus
-                                      />
-                                      <button
-                                        type="button"
-                                        onClick={() => handleConfirmEditDid(node.id, absoluteIndex)}
-                                        className="px-2 py-1 bg-primary text-white text-[9px] font-bold rounded-lg cursor-pointer"
-                                      >
-                                        Tamam
-                                      </button>
-                                      <button
-                                        type="button"
-                                        onClick={() => setEditingDidIndex(null)}
-                                        className="px-2 py-1 bg-rose-600 hover:bg-rose-500 text-white text-[9px] font-bold rounded-lg cursor-pointer transition"
-                                      >
-                                        İptal
-                                      </button>
-                                    </div>
-                                  ) : (
-                                    <>
-                                      <span className="font-mono text-xs font-bold text-slate-700 dark:text-slate-300">{did}</span>
-                                      <div className="flex items-center gap-1.5">
-                                        <button
-                                          type="button"
-                                          onClick={() => {
-                                            setEditingDidIndex(absoluteIndex);
-                                            setEditingDidValue(did);
-                                          }}
-                                          className="text-[9px] font-extrabold text-primary hover:underline hover:text-primary cursor-pointer"
-                                        >
-                                          Düzenle
-                                        </button>
-                                        <button
-                                          type="button"
-                                          onClick={() => handleDeleteDidNumber(node.id, absoluteIndex)}
-                                          className="p-1 text-slate-400 hover:text-primary dark:hover:text-rose-450 rounded hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
-                                        >
-                                          <Trash2 size={11} />
-                                        </button>
-                                      </div>
-                                    </>
-                                  )}
-                                </div>
-                              );
-                            })
-                          )}
-                        </div>
-                      </div>
                     </div>
-                  )}
-                </div>
-              )}
+                  </div>
+                );
+              })()}
 
               {/* Play Node parameter */}
               {node.type === "play" && (() => {
@@ -2685,7 +2666,8 @@ export default function CallFlowEditor({ backendHost = "localhost:8000", onEditS
                 </button>
               </div>
             </div>
-          </div>
+            )}
+          </dialog>
         );
       })()}
 
