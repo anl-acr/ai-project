@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
-import { Plus, Trash2, Edit2, X, User, Mail, Phone, Shield, Check, CheckCircle, ToggleLeft, ToggleRight, Search, Copy, RefreshCw, KeyRound, PhoneCall, Settings, Image as ImageIcon, Monitor, Smartphone, AlertTriangle, PhoneOutgoing, Users, Forward, Mic, MicOff, Download, Upload, Building2, Eye, EyeOff, Cable, ExternalLink, Database, Play, LayoutGrid, ChevronRight } from "lucide-react";
+import { Plus, Trash2, Edit2, X, User, Mail, Phone, Shield, Check, CheckCircle, ToggleLeft, ToggleRight, Search, Copy, RefreshCw, KeyRound, PhoneCall, Settings, Image as ImageIcon, Monitor, Smartphone, AlertTriangle, PhoneOutgoing, Users, Forward, Mic, MicOff, Download, Upload, Building2, Eye, EyeOff, Cable, ExternalLink, Database, Play, LayoutGrid, ChevronRight, Lock, Unlock } from "lucide-react";
 import * as XLSX from "xlsx";
 import ConfirmDeleteModal from "../dashboard/ConfirmDeleteModal";
 import { useTheme } from "../../utils/theme";
@@ -197,6 +197,8 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
   const [sipPassword, setSipPassword] = useState("");
   const [showSipPassword, setShowSipPassword] = useState(false);
   const [maxActivations, setMaxActivations] = useState(1);
+  const [maxConcurrentOutbound, setMaxConcurrentOutbound] = useState(0);
+  const [outboundQuarantined, setOutboundQuarantined] = useState(false);
   const [outboundCallerId, setOutboundCallerId] = useState("");
 
   // Forwarding Fields
@@ -841,6 +843,8 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
     setSipPassword("");
     setShowSipPassword(false);
     setMaxActivations(1);
+    setMaxConcurrentOutbound(0);
+    setOutboundQuarantined(false);
     setOutboundCallerId("");
 
     setFwdAlwaysActive(false); setFwdAlwaysType("internal"); setFwdAlwaysTarget("");
@@ -957,6 +961,8 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
     if(!u.sip_password) generateSipPassword();
     setShowSipPassword(false);
     setMaxActivations(u.max_activations ? Math.max(1, Math.min(5, Number(u.max_activations))) : 1);
+    setMaxConcurrentOutbound(u.max_concurrent_outbound !== undefined && u.max_concurrent_outbound !== null ? Number(u.max_concurrent_outbound) : 0);
+    setOutboundQuarantined(Boolean(u.outbound_quarantined));
     
     setOutboundCallerId(u.outbound_caller_id || "");
 
@@ -1124,6 +1130,8 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
       sip_username: sipUsername.trim() || generateSipUsernameStr(),
       sip_password: sipPassword,
       max_activations: Number(maxActivations) || 1,
+      max_concurrent_outbound: Number.isNaN(Number(maxConcurrentOutbound)) ? 0 : Number(maxConcurrentOutbound),
+      outbound_quarantined: Boolean(outboundQuarantined),
       outbound_caller_id: outboundCallerId.trim(),
       gsm_number: cleanFmMobile || (editingUser?.gsm_number || null),
       forwarding_always: { active: Boolean(fwdAlwaysActive && fwdAlwaysTarget), type: fwdAlwaysType || "internal", target: fwdAlwaysTarget || "" },
@@ -1185,6 +1193,36 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
     }
     if (ok) {
       setShowModal(false);
+    }
+  };
+
+  const handleQuickUnquarantineUser = async (extStr) => {
+    if (!extStr) return;
+    try {
+      const res = await safeFetch("/api/security/unquarantine_subscriber", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-User-ID": localStorage.getItem("current_user_id") || "admin"
+        },
+        body: JSON.stringify({ extension: String(extStr) })
+      });
+      if (res && res.ok) {
+        setUsers((prev) =>
+          prev.map((u) =>
+            String(u.extension) === String(extStr)
+              ? { ...u, outbound_quarantined: false, quarantine_details: undefined }
+              : u
+          )
+        );
+        if (editingUser && String(editingUser.extension) === String(extStr)) {
+          setOutboundQuarantined(false);
+        }
+        setSuccess(true);
+        setTimeout(() => setSuccess(false), 3000);
+      }
+    } catch (e) {
+      console.error("Unquarantine subscriber error:", e);
     }
   };
 
@@ -1649,13 +1687,37 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
 
                   {visibleColumns.extension && (
                     <div className="min-w-0 text-[10px] text-slate-500 dark:text-slate-450 flex flex-col items-start justify-center gap-1.5" style={{ flex: '2 2 0%' }}>
-                      <div className="flex items-center gap-2">
+                      <div className="flex flex-wrap items-center gap-1.5">
                         <span className="flex items-center gap-1 text-slate-600 dark:text-slate-400 font-bold shrink-0">
                           <Phone size={10} /> Dahili:
                         </span>
                         <span className="px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 font-extrabold text-slate-700 dark:text-slate-300 text-[9px] shrink-0">
                           {u.extension}
                         </span>
+                        {u.outbound_quarantined && (
+                          <span
+                            className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-rose-50 dark:bg-rose-950/40 text-rose-600 dark:text-rose-400 border border-rose-200 dark:border-rose-800/60 text-[8px] font-extrabold shrink-0"
+                            title={
+                              u.quarantine_details?.attacker_ip
+                                ? `Dış Arama Karantinasında! Yakalanan IP: ${u.quarantine_details.attacker_ip}`
+                                : "Dış Arama Karantinasında (Hız / Eş Zamanlı Çağrı İhlali)"
+                            }
+                          >
+                            <Lock size={9} />
+                            <span>Karantina</span>
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleQuickUnquarantineUser(u.extension);
+                              }}
+                              title="Dış arama karantinasını kaldır"
+                              className="ml-0.5 hover:text-emerald-600 dark:hover:text-emerald-400 transition-colors"
+                            >
+                              <Unlock size={9} />
+                            </button>
+                          </span>
+                        )}
                       </div>
                       {(() => {
                         const activeFwds = [];
@@ -2102,17 +2164,75 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
                                         </div>
                                     </div>
 
-                                    <div>
-                                        <label className="block text-[10px] font-bold text-slate-500 dark:text-slate-450 uppercase tracking-wider mb-1.5">Maksimum Aktivasyon Sayısı</label>
-                                        <select
-                                            value={maxActivations}
-                                            onChange={(e) => setMaxActivations(Number(e.target.value))}
-                                            className="w-full text-xs font-semibold px-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 text-slate-800 dark:text-slate-100 focus:outline-none"
-                                        >
-                                            {[1, 2, 3, 4, 5].map((cnt) => (
-                                                <option key={cnt} value={cnt}>{cnt}</option>
-                                            ))}
-                                        </select>
+                                    {outboundQuarantined && (
+                                        <div className="p-3.5 rounded-xl bg-rose-50 dark:bg-rose-950/30 border border-rose-200 dark:border-rose-800/60 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                                            <div className="flex items-start gap-2.5">
+                                                <Lock size={16} className="text-rose-600 dark:text-rose-400 mt-0.5 shrink-0" />
+                                                <div className="text-xs">
+                                                    <div className="font-extrabold text-rose-800 dark:text-rose-300">
+                                                        Bu Abone Şu Anda Dış Arama Karantinasında!
+                                                    </div>
+                                                    <div className="text-[11px] text-rose-700/90 dark:text-rose-300/80 mt-0.5">
+                                                        Eş zamanlı veya saniyelik dış arama hız limiti aşıldığı için dış arama yetkisi otomatik kilitlendi.
+                                                        {editingUser?.quarantine_details?.attacker_ip && (
+                                                            <span className="font-mono font-bold ml-1">
+                                                                (Kaynak IP: {editingUser.quarantine_details.attacker_ip})
+                                                            </span>
+                                                        )}
+                                                    </div>
+                                                </div>
+                                            </div>
+                                            <button
+                                                type="button"
+                                                onClick={() => handleQuickUnquarantineUser(extension)}
+                                                className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold text-white ${bg} ${hover} shrink-0 transition-all`}
+                                            >
+                                                <Unlock size={13} />
+                                                <span>Karantinayı Kaldır</span>
+                                            </button>
+                                        </div>
+                                    )}
+
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                        <div>
+                                            <label htmlFor="sip-max-activations" className="block text-[10px] font-bold text-slate-500 dark:text-slate-450 uppercase tracking-wider mb-1.5">Maksimum Aktivasyon Sayısı</label>
+                                            <select
+                                                id="sip-max-activations"
+                                                name="max_activations"
+                                                value={maxActivations}
+                                                onChange={(e) => setMaxActivations(Number(e.target.value))}
+                                                className="w-full text-xs font-semibold px-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 text-slate-800 dark:text-slate-100 focus:outline-none"
+                                            >
+                                                {[1, 2, 3, 4, 5].map((cnt) => (
+                                                    <option key={cnt} value={cnt}>{cnt}</option>
+                                                ))}
+                                            </select>
+                                        </div>
+
+                                        <div>
+                                            <label htmlFor="sip-max-concurrent-outbound" className="block text-[10px] font-bold text-slate-500 dark:text-slate-450 uppercase tracking-wider mb-1.5">
+                                                Eş Zamanlı Dış Arama Limiti (Güvenlik)
+                                            </label>
+                                            <select
+                                                id="sip-max-concurrent-outbound"
+                                                name="max_concurrent_outbound"
+                                                value={maxConcurrentOutbound}
+                                                onChange={(e) => setMaxConcurrentOutbound(Number(e.target.value))}
+                                                aria-describedby="sip-max-concurrent-hint"
+                                                className="w-full text-xs font-semibold px-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 text-slate-800 dark:text-slate-100 focus:outline-none"
+                                            >
+                                                <option value={0}>Sistem Varsayılanını Kullan (Güvenlik Kalkanı)</option>
+                                                <option value={1}>1 Eş Zamanlı Dış Çağrı (Standart Abone)</option>
+                                                <option value={2}>2 Eş Zamanlı Dış Çağrı (Aktarım / Konferans)</option>
+                                                <option value={3}>3 Eş Zamanlı Dış Çağrı</option>
+                                                <option value={5}>5 Eş Zamanlı Dış Çağrı</option>
+                                                <option value={10}>10 Eş Zamanlı Dış Çağrı</option>
+                                                <option value={-1}>Limitsiz (Muaf)</option>
+                                            </select>
+                                            <p id="sip-max-concurrent-hint" className="text-[10px] text-slate-500 mt-1">
+                                                Sızma durumunda saldırganın aynı anda çoklu dış arama başlatmasını engeller.
+                                            </p>
+                                        </div>
                                     </div>
                                 </div>
                             </div>

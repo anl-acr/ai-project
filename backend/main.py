@@ -695,6 +695,8 @@ class UserSchema(BaseModel):
     theme_mode: Optional[str] = None
     call_panel_prefs: Optional[dict] = None
     wallboard_layout: Optional[dict] = None
+    max_concurrent_outbound: Optional[int] = None
+    outbound_quarantined: Optional[bool] = None
 
 def generate_strong_sip_password(length=24):
     alphabet = string.ascii_letters + string.digits + "!@#$%^&*"
@@ -1600,6 +1602,8 @@ def load_settings():
                 ("theme_mode", "ALTER TABLE system_users ADD COLUMN IF NOT EXISTS theme_mode VARCHAR DEFAULT 'light';"),
                 ("call_panel_prefs", "ALTER TABLE system_users ADD COLUMN IF NOT EXISTS call_panel_prefs JSON DEFAULT '{}';"),
                 ("wallboard_layout", "ALTER TABLE system_users ADD COLUMN IF NOT EXISTS wallboard_layout JSON DEFAULT '{}';"),
+                ("max_concurrent_outbound", "ALTER TABLE system_users ADD COLUMN IF NOT EXISTS max_concurrent_outbound INTEGER DEFAULT 0;"),
+                ("outbound_quarantined", "ALTER TABLE system_users ADD COLUMN IF NOT EXISTS outbound_quarantined BOOLEAN DEFAULT FALSE;"),
             ):
                 if existing_cols and col_name in existing_cols:
                     continue
@@ -2520,6 +2524,12 @@ def humanize_outbound_error_reason(raw_reason: str, callee_str: str = "") -> tup
         return "unauthorized", f"Kara liste engeli ({c_disp})"
     if "UDP_NOT_ALLOWED" in r_up:
         return "unauthorized", f"WebRTC dahilisi için yetkisiz UDP/TCP 5060 denemesi ({c_disp})"
+    if "SUBSCRIBER_QUARANTINED" in r_up:
+        return "unauthorized", f"Abone dış arama karantinasında (Otomatik Devre Kesici Kilidi: {c_disp})"
+    if "SUBSCRIBER_CONCURRENT_LIMIT" in r_up:
+        return "unauthorized", f"Abone eş zamanlı dış arama limiti aşıldı ({c_disp})"
+    if "SUBSCRIBER_BURST_RATE_LIMIT" in r_up or "SUBSCRIBER_MINUTE_RATE_LIMIT" in r_up:
+        return "unauthorized", f"Abone saniye/dakika dış arama hız limiti (CPS) aşıldı ({c_disp})"
     if "FRAUD_SCANNER" in r_up:
         return "unauthorized", f"Güvenlik Kalkanı: Şüpheli/Toll-Fraud önek denemesi ({c_disp})"
     if "OUTBOUND_RULE_MISMATCH" in r_up:
@@ -3989,9 +3999,11 @@ exten => _+X.,1,Goto(webrtc_agents,${{EXTEN:1}},1)
 
 ; Dış hat aramaları için (0 ile başlayan numaralar - Güvenlik & Toll-Fraud ACL Korumalı)
 exten => _0.,1,NoOp(Dis arama guvenlik kontrolu: Arayan=${{CALLERID(num)}}, Aranan=${{EXTEN}})
-same => n(outbound_start),Set(CURLOPT(conntimeout)=1)
+same => n(outbound_start),Set(GROUP(sub_out)=${{CALLERID(num)}})
+same => n,Set(SUB_OUT_CNT=${{GROUP_COUNT(${{CALLERID(num)}}@sub_out)}})
+same => n,Set(CURLOPT(conntimeout)=1)
 same => n,Set(CURLOPT(httptimeout)=2)
-same => n,Set(OUT_ACL=${{CURL(http://{backend_host}/api/acl/check_outbound_call?caller=${{CALLERID(num)}}&callee=${{EXTEN}}&channel=${{URIENCODE(${{CHANNEL(name)}})}}&via=${{URIENCODE(${{PJSIP_HEADER(read,Via)}})}})}})
+same => n,Set(OUT_ACL=${{CURL(http://{backend_host}/api/acl/check_outbound_call?caller=${{CALLERID(num)}}&callee=${{EXTEN}}&sub_active=${{SUB_OUT_CNT}}&channel=${{URIENCODE(${{CHANNEL(name)}})}}&via=${{URIENCODE(${{PJSIP_HEADER(read,Via)}})}}&ua=${{URIENCODE(${{PJSIP_HEADER(read,User-Agent)}})}})}})
 same => n,GotoIf($["${{OUT_ACL}}" = "ALLOW"]?allow_out)
 same => n,GotoIf($["${{CUT(OUT_ACL,:,1)}}" = "PIN_REQUIRED"]?pin_check_out:deny_out)
 same => n(pin_check_out),Gosub(outbound_pin_auth_sub,s,1(${{CUT(OUT_ACL,:,2)}},${{EXTEN}}))
@@ -4062,9 +4074,11 @@ same => n,Progress()
 same => n,Playback(/var/spool/asterisk/monitor/tr_yetkisiz_arama,noanswer)
 same => n,Hangup(21)
 same => n(outbound_route_ext),NoOp(Prefixli veya 7+ haneli dis arama yonlendiriliyor: Arayan=${{CALLERID(num)}}, Aranan=${{EXTEN}})
+same => n,Set(GROUP(sub_out)=${{CALLERID(num)}})
+same => n,Set(SUB_OUT_CNT=${{GROUP_COUNT(${{CALLERID(num)}}@sub_out)}})
 same => n,Set(CURLOPT(conntimeout)=1)
 same => n,Set(CURLOPT(httptimeout)=2)
-same => n,Set(OUT_ACL=${{CURL(http://{backend_host}/api/acl/check_outbound_call?caller=${{CALLERID(num)}}&callee=${{EXTEN}}&channel=${{URIENCODE(${{CHANNEL(name)}})}}&via=${{URIENCODE(${{PJSIP_HEADER(read,Via)}})}})}})
+same => n,Set(OUT_ACL=${{CURL(http://{backend_host}/api/acl/check_outbound_call?caller=${{CALLERID(num)}}&callee=${{EXTEN}}&sub_active=${{SUB_OUT_CNT}}&channel=${{URIENCODE(${{CHANNEL(name)}})}}&via=${{URIENCODE(${{PJSIP_HEADER(read,Via)}})}}&ua=${{URIENCODE(${{PJSIP_HEADER(read,User-Agent)}})}})}})
 same => n,GotoIf($["${{OUT_ACL}}" = "ALLOW"]?allow_out_ext)
 same => n,GotoIf($["${{CUT(OUT_ACL,:,1)}}" = "PIN_REQUIRED"]?pin_check_out_ext:deny_out_ext)
 same => n(pin_check_out_ext),Gosub(outbound_pin_auth_sub,s,1(${{CUT(OUT_ACL,:,2)}},${{EXTEN}}))
@@ -10210,8 +10224,104 @@ async def check_subscriber_call(caller: str, callee: str):
     return Response(content="DENY", media_type="text/plain")
 
 
+_SUBSCRIBER_OUTBOUND_CALL_TIMESTAMPS: Dict[str, List[float]] = {}
+_SUBSCRIBER_OUTBOUND_VIOLATION_TIMESTAMPS: Dict[str, List[float]] = {}
+
+
+def _extract_sip_via_source_ip(via_str: str, caller_str: str = "") -> str:
+    raw_via = str(via_str or "").strip()
+    if raw_via:
+        m_recv = re.search(r";\s*received=([0-9a-fA-F\.:]+)", raw_via, re.IGNORECASE)
+        if m_recv and m_recv.group(1):
+            return m_recv.group(1).strip()
+        m_host = re.search(r"SIP/2\.0/[A-Z]+\s+\[?([0-9a-fA-F\.:]+)\]?", raw_via, re.IGNORECASE)
+        if m_host and m_host.group(1):
+            cand = m_host.group(1).strip()
+            if not cand.startswith("192.0.2.") and cand != "127.0.0.1":
+                return cand
+    if caller_str:
+        try:
+            reg_ip = registered_endpoints.get_ip(caller_str)
+            if reg_ip:
+                return str(reg_ip)
+        except Exception:
+            pass
+    return "Bilinmiyor"
+
+
+def _get_subscriber_outbound_guard_config() -> dict:
+    adv = settings_db.get("security_advanced")
+    if not isinstance(adv, dict):
+        adv = {}
+    return {
+        "subscriber_outbound_guard_enabled": bool(adv.get("subscriber_outbound_guard_enabled", True)),
+        "default_max_concurrent_outbound": max(1, min(50, int(adv.get("default_max_concurrent_outbound") or 1))),
+        "burst_window_seconds": max(1, min(120, int(adv.get("burst_window_seconds") or 10))),
+        "burst_max_calls": max(1, min(100, int(adv.get("burst_max_calls") or 3))),
+        "minute_max_calls": max(1, min(300, int(adv.get("minute_max_calls") or 10))),
+        "auto_quarantine_enabled": bool(adv.get("auto_quarantine_enabled", True)),
+        "auto_quarantine_violations": max(2, min(50, int(adv.get("auto_quarantine_violations") or 5))),
+        "quarantined_subscribers": adv.get("quarantined_subscribers") if isinstance(adv.get("quarantined_subscribers"), dict) else {},
+    }
+
+
+async def _quarantine_subscriber_for_outbound(
+    caller_str: str,
+    full_name: str,
+    src_ip: str,
+    ua_str: str,
+    callee_str: str,
+    reason_text: str,
+    violation_count: int,
+):
+    adv = settings_db.setdefault("security_advanced", {})
+    if not isinstance(adv.get("quarantined_subscribers"), dict):
+        adv["quarantined_subscribers"] = {}
+    now_iso = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    adv["quarantined_subscribers"][caller_str] = {
+        "extension": caller_str,
+        "full_name": full_name or f"Dahili {caller_str}",
+        "attacker_ip": src_ip,
+        "user_agent": str(ua_str or "")[:120],
+        "target_callee": callee_str,
+        "reason": reason_text,
+        "violations": violation_count,
+        "quarantined_at": now_iso,
+    }
+    for u_item in (settings_db.get("users") or []):
+        if isinstance(u_item, dict) and str(u_item.get("extension") or "").strip() == caller_str:
+            u_item["outbound_quarantined"] = True
+    save_settings(settings_db)
+
+    try:
+        async with AsyncSessionLocal() as s_q:
+            res_u = await s_q.execute(select(SystemUser).where(SystemUser.extension == caller_str))
+            db_u = res_u.scalars().first()
+            if db_u is not None:
+                db_u.outbound_quarantined = True
+                await s_q.commit()
+    except Exception as qe:
+        print(f"[Subscriber Quarantine DB Update Warning]: {qe}")
+
+    try:
+        add_system_log(
+            "SECURITY",
+            "ERROR",
+            f"OTOMATİK KARANTİNA (DEVRE KESİCİ): Dahili {caller_str} ({full_name or '-'}) ardışık {violation_count} limit ihlali nedeniyle dış aramalara kilitlendi! Yakalanan IP={src_ip}, Cihaz={ua_str or '-'}, Hedef={callee_str}",
+        )
+    except Exception:
+        pass
+
+
 @app.get("/api/acl/check_outbound_call")
-async def check_outbound_call(caller: str = "", callee: str = "", channel: str = "", via: str = ""):
+async def check_outbound_call(
+    caller: str = "",
+    callee: str = "",
+    channel: str = "",
+    via: str = "",
+    sub_active: int = 1,
+    ua: str = "",
+):
     from fastapi import Response
     caller_str = str(caller or "").strip()
     callee_str = str(callee or "").strip()
@@ -10341,6 +10451,122 @@ async def check_outbound_call(caller: str = "", callee: str = "", channel: str =
                 status_val="blocked",
             )
             return Response(content="DENY:UDP_NOT_ALLOWED_FOR_WEBRTC", media_type="text/plain")
+
+    # 3.5 Abone Bazlı Eş Zamanlı Dış Çağrı Limiti, Saniye/Dakika Hız (CPS) Koruması ve Otomatik Karantina
+    if caller_str:
+        import time as _time_mod
+        guard_cfg = _get_subscriber_outbound_guard_config()
+        u_sub = next((u for u in all_users if str(u.get("extension") or "").strip() == caller_str), None)
+        u_full_name = str((u_sub or {}).get("full_name") or "").strip()
+        src_ip = _extract_sip_via_source_ip(via, caller_str)
+        ua_clean = str(ua or "").strip()[:100]
+        q_map = guard_cfg.get("quarantined_subscribers") or {}
+        is_quarantined = bool((u_sub and u_sub.get("outbound_quarantined") is True) or (caller_str in q_map))
+
+        if is_quarantined:
+            print(f"[SIP Security Shield] Karantinadaki abone ({caller_str}) dış arama denemesi engellendi! IP={src_ip}, Hedef={callee_str}")
+            try:
+                add_system_log(
+                    "SECURITY",
+                    "WARNING",
+                    f"Karantinadaki Abone Dış Arama Denemesi Engellendi: Dahili {caller_str} ({u_full_name or '-'}) -> {callee_str} [Kaynak IP: {src_ip}, Cihaz: {ua_clean or '-'}]",
+                )
+            except Exception:
+                pass
+            await record_call_error_event(
+                caller=caller_str,
+                callee=callee_str,
+                category="unauthorized",
+                direction="outbound",
+                reason_msg=f"Abone dış arama karantinasında (Kaynak IP: {src_ip}, Cihaz: {ua_clean or '-'})",
+                status_val="blocked",
+                trunk_name=matched_trunk_nm or None,
+            )
+            return Response(content="DENY:SUBSCRIBER_QUARANTINED", media_type="text/plain")
+
+        if guard_cfg.get("subscriber_outbound_guard_enabled", True):
+            raw_user_max = (u_sub or {}).get("max_concurrent_outbound")
+            try:
+                user_max_int = int(raw_user_max) if raw_user_max is not None else 0
+            except Exception:
+                user_max_int = 0
+
+            # user_max_int == -1 -> Muaf (Limitsiz); 0 -> Sistem Varsayılanı; >= 1 -> Abone Özel Limiti
+            if user_max_int != -1:
+                eff_max_concurrent = user_max_int if user_max_int >= 1 else guard_cfg["default_max_concurrent_outbound"]
+                try:
+                    active_cnt = max(1, int(sub_active or 1))
+                except Exception:
+                    active_cnt = 1
+
+                now_ts = _time_mod.time()
+                ts_list = [t for t in _SUBSCRIBER_OUTBOUND_CALL_TIMESTAMPS.get(caller_str, []) if now_ts - t < 60.0]
+                _SUBSCRIBER_OUTBOUND_CALL_TIMESTAMPS[caller_str] = ts_list
+
+                burst_win = guard_cfg["burst_window_seconds"]
+                burst_max = guard_cfg["burst_max_calls"]
+                min_max = guard_cfg["minute_max_calls"]
+                burst_cnt = sum(1 for t in ts_list if now_ts - t < float(burst_win))
+                min_cnt = len(ts_list)
+
+                violation_code = ""
+                violation_desc = ""
+                if active_cnt > eff_max_concurrent:
+                    violation_code = "SUBSCRIBER_CONCURRENT_LIMIT"
+                    violation_desc = (
+                        f"Abone eş zamanlı dış arama limiti aşıldı ({active_cnt}/{eff_max_concurrent} aktif kanal) - "
+                        f"Olası sızma! Kaynak IP: {src_ip}, Cihaz: {ua_clean or '-'}"
+                    )
+                elif burst_cnt >= burst_max:
+                    violation_code = "SUBSCRIBER_BURST_RATE_LIMIT"
+                    violation_desc = (
+                        f"Abone saniye bazlı seri arama limiti aşıldı ({burst_win} sn içinde {burst_cnt + 1}/{burst_max} deneme) - "
+                        f"Kaynak IP: {src_ip}, Cihaz: {ua_clean or '-'}"
+                    )
+                elif min_cnt >= min_max:
+                    violation_code = "SUBSCRIBER_MINUTE_RATE_LIMIT"
+                    violation_desc = (
+                        f"Abone dakikalık dış arama hız limiti aşıldı (60 sn içinde {min_cnt + 1}/{min_max} deneme) - "
+                        f"Kaynak IP: {src_ip}, Cihaz: {ua_clean or '-'}"
+                    )
+
+                if violation_code:
+                    v_list = [vt for vt in _SUBSCRIBER_OUTBOUND_VIOLATION_TIMESTAMPS.get(caller_str, []) if now_ts - vt < 300.0]
+                    v_list.append(now_ts)
+                    _SUBSCRIBER_OUTBOUND_VIOLATION_TIMESTAMPS[caller_str] = v_list
+
+                    print(f"[SIP Security Shield] {violation_code}: Dahili={caller_str} ({u_full_name}), Hedef={callee_str}, IP={src_ip}, UA={ua_clean}")
+                    try:
+                        add_system_log(
+                            "SECURITY",
+                            "WARNING",
+                            f"SIZMA / HIZ İHLALİ YAKALANDI: Dahili {caller_str} ({u_full_name or '-'}) -> {callee_str} | {violation_desc}",
+                        )
+                    except Exception:
+                        pass
+                    await record_call_error_event(
+                        caller=caller_str,
+                        callee=callee_str,
+                        category="unauthorized",
+                        direction="outbound",
+                        reason_msg=violation_desc,
+                        status_val="rejected_limit",
+                        trunk_name=matched_trunk_nm or None,
+                    )
+                    if guard_cfg.get("auto_quarantine_enabled", True) and len(v_list) >= guard_cfg["auto_quarantine_violations"]:
+                        await _quarantine_subscriber_for_outbound(
+                            caller_str=caller_str,
+                            full_name=u_full_name,
+                            src_ip=src_ip,
+                            ua_str=ua_clean,
+                            callee_str=callee_str,
+                            reason_text=violation_desc,
+                            violation_count=len(v_list),
+                        )
+                    return Response(content=f"DENY:{violation_code}", media_type="text/plain")
+
+                ts_list.append(now_ts)
+                _SUBSCRIBER_OUTBOUND_CALL_TIMESTAMPS[caller_str] = ts_list
 
     # 4. Giden Arama Parolası (PIN) Politikası Kontrolü (Her zaman / Mesai dışı / Özel saat aralığı)
     req_pin, pin_rule_id = _evaluate_outbound_rule_pin_requirement(matched_rule, caller_str, all_users)
@@ -22408,25 +22634,140 @@ async def get_geo_security(user_info: dict = Depends(get_user_info)):
 
 @app.get("/api/security/advanced")
 async def get_advanced_security(user_info: dict = Depends(get_user_info)):
-    return settings_db.get("security_advanced", {
-        "login_rate_limit": 3,
-        "api_rate_limit": 100,
-        "sip_rate_limit": 50,
-        "block_duration_minutes": 1440
-    })
+    raw_adv = settings_db.get("security_advanced")
+    if not isinstance(raw_adv, dict):
+        raw_adv = {}
+    guard_cfg = _get_subscriber_outbound_guard_config()
+    q_dict = raw_adv.get("quarantined_subscribers")
+    if not isinstance(q_dict, dict):
+        q_dict = {}
+
+    users_by_ext = {
+        str(u.get("extension") or "").strip(): u
+        for u in settings_db.get("users", [])
+        if isinstance(u, dict) and u.get("extension")
+    }
+    q_list = []
+    seen_exts = set()
+    for ext_k, info in q_dict.items():
+        ext_s = str(ext_k or "").strip()
+        if not ext_s:
+            continue
+        u_ref = users_by_ext.get(ext_s, {})
+        entry = dict(info) if isinstance(info, dict) else {"extension": ext_s}
+        entry.setdefault("extension", ext_s)
+        entry.setdefault("full_name", u_ref.get("full_name") or f"Dahili {ext_s}")
+        q_list.append(entry)
+        seen_exts.add(ext_s)
+
+    for ext_s, u_ref in users_by_ext.items():
+        if u_ref.get("outbound_quarantined") and ext_s not in seen_exts:
+            q_list.append({
+                "extension": ext_s,
+                "full_name": u_ref.get("full_name") or f"Dahili {ext_s}",
+                "attacker_ip": registered_endpoints.get_ip(ext_s) or "Bilinmiyor",
+                "user_agent": "SIP İstemci",
+                "callee": "-",
+                "reason": "Otomatik Dış Arama Karantinası",
+                "quarantined_at": "-"
+            })
+
+    return {
+        "login_rate_limit": int(raw_adv.get("login_rate_limit", 3) or 3),
+        "api_rate_limit": int(raw_adv.get("api_rate_limit", 100) or 100),
+        "sip_rate_limit": int(raw_adv.get("sip_rate_limit", 50) or 50),
+        "block_duration_minutes": int(raw_adv.get("block_duration_minutes", 1440) or 1440),
+        **guard_cfg,
+        "quarantined_subscribers_list": q_list,
+    }
+
 
 class AdvancedSecuritySchema(BaseModel):
-    login_rate_limit: int
-    api_rate_limit: int
-    sip_rate_limit: int
-    block_duration_minutes: int
+    login_rate_limit: int = 3
+    api_rate_limit: int = 100
+    sip_rate_limit: int = 50
+    block_duration_minutes: int = 1440
+    subscriber_outbound_guard_enabled: Optional[bool] = True
+    default_max_concurrent_outbound: Optional[int] = 1
+    burst_window_seconds: Optional[int] = 10
+    burst_max_calls: Optional[int] = 3
+    minute_max_calls: Optional[int] = 10
+    auto_quarantine_enabled: Optional[bool] = True
+    auto_quarantine_violations: Optional[int] = 5
+
+
+class UnquarantineSubscriberSchema(BaseModel):
+    extension: str
+
 
 @app.post("/api/security/advanced")
 async def save_advanced_security(payload: AdvancedSecuritySchema, user_info: dict = Depends(get_user_info)):
-    settings_db["security_advanced"] = payload.model_dump()
+    existing_adv = settings_db.get("security_advanced")
+    if not isinstance(existing_adv, dict):
+        existing_adv = {}
+    preserved_quarantine = existing_adv.get("quarantined_subscribers")
+    updated_adv = payload.model_dump()
+    if isinstance(preserved_quarantine, dict):
+        updated_adv["quarantined_subscribers"] = preserved_quarantine
+    settings_db["security_advanced"] = updated_adv
     save_settings(settings_db)
     configure_and_sync_fail2ban(install_if_missing=False)
-    return {"status": "success", "message": "Gelişmiş güvenlik ve Fail2Ban hız sınırlandırma ayarları başarıyla kaydedildi ve uygulandı."}
+    return {
+        "status": "success",
+        "message": "Gelişmiş güvenlik, abone eş zamanlı çağrı sınırı ve Fail2Ban hız kuralları başarıyla kaydedildi."
+    }
+
+
+@app.post("/api/security/unquarantine_subscriber")
+async def unquarantine_subscriber_endpoint(
+    payload: UnquarantineSubscriberSchema,
+    user_info: dict = Depends(get_user_info),
+    db: AsyncSession = Depends(get_db)
+):
+    ext_s = str(payload.extension or "").strip()
+    if not ext_s:
+        raise HTTPException(status_code=400, detail="Geçerli bir abone dahili numarası belirtilmelidir.")
+
+    try:
+        await db.execute(
+            update(SystemUser)
+            .where(SystemUser.extension == ext_s)
+            .values(outbound_quarantined=False)
+        )
+        await db.commit()
+    except Exception as e_db:
+        print(f"[Unquarantine Subscriber DB Warning]: {e_db}")
+        try:
+            await db.rollback()
+        except Exception:
+            pass
+
+    sub_name = f"Dahili {ext_s}"
+    for u in settings_db.get("users", []):
+        if isinstance(u, dict) and str(u.get("extension") or "").strip() == ext_s:
+            u["outbound_quarantined"] = False
+            sub_name = u.get("full_name") or sub_name
+
+    adv_sec = settings_db.get("security_advanced")
+    if isinstance(adv_sec, dict) and isinstance(adv_sec.get("quarantined_subscribers"), dict):
+        adv_sec["quarantined_subscribers"].pop(ext_s, None)
+
+    _SUBSCRIBER_OUTBOUND_VIOLATION_TIMESTAMPS.pop(ext_s, None)
+    _SUBSCRIBER_OUTBOUND_CALL_TIMESTAMPS.pop(ext_s, None)
+    save_settings(settings_db)
+
+    admin_actor = user_info.get("user_id", "Sistem Yöneticisi")
+    add_system_log(
+        "INFO",
+        "SECURITY",
+        f"KARANTİNA KALDIRILDI: {sub_name} (Dahili: {ext_s}) abonesinin dış arama karantinası '{admin_actor}' tarafından açıldı."
+    )
+    adv_payload = await get_advanced_security(user_info)
+    return {
+        "status": "success",
+        "message": f"{sub_name} (Dahili: {ext_s}) abonesinin dış arama kilidi başarıyla kaldırıldı.",
+        **adv_payload,
+    }
 
 class GeoSecuritySchema(BaseModel):
     allowed_countries: List[str]
@@ -23012,6 +23353,8 @@ async def startup_event():
                 "ALTER TABLE system_users ADD COLUMN IF NOT EXISTS theme_mode VARCHAR DEFAULT 'light';",
                 "ALTER TABLE system_users ADD COLUMN IF NOT EXISTS call_panel_prefs JSON DEFAULT '{}';",
                 "ALTER TABLE system_users ADD COLUMN IF NOT EXISTS wallboard_layout JSON DEFAULT '{}';",
+                "ALTER TABLE system_users ADD COLUMN IF NOT EXISTS max_concurrent_outbound INTEGER DEFAULT 0;",
+                "ALTER TABLE system_users ADD COLUMN IF NOT EXISTS outbound_quarantined BOOLEAN DEFAULT FALSE;",
                 "ALTER TABLE trunks ADD COLUMN IF NOT EXISTS max_channels INTEGER DEFAULT 30;",
                 "ALTER TABLE trunks ADD COLUMN IF NOT EXISTS codecs JSON DEFAULT '[\"alaw\", \"ulaw\", \"g722\", \"g729\"]';",
                 "ALTER TABLE trunks ADD COLUMN IF NOT EXISTS call_limit_enabled BOOLEAN DEFAULT FALSE;",
@@ -23558,6 +23901,18 @@ async def new_get_users_endpoint(request: Request, user_info: dict = Depends(get
                 u["wallboard_layout"] = disk_u.get("wallboard_layout")
             if (not u.get("theme_mode") or u.get("theme_mode") == "light") and disk_u.get("theme_mode"):
                 u["theme_mode"] = disk_u.get("theme_mode")
+            if u.get("max_concurrent_outbound") is None and disk_u.get("max_concurrent_outbound") is not None:
+                u["max_concurrent_outbound"] = disk_u.get("max_concurrent_outbound")
+            if not u.get("outbound_quarantined") and disk_u.get("outbound_quarantined"):
+                u["outbound_quarantined"] = True
+        q_subs_map = ((settings_db.get("security_advanced") or {}).get("quarantined_subscribers") or {}) if isinstance(settings_db.get("security_advanced"), dict) else {}
+        try:
+            u["max_concurrent_outbound"] = int(u.get("max_concurrent_outbound") if u.get("max_concurrent_outbound") is not None else 0)
+        except Exception:
+            u["max_concurrent_outbound"] = 0
+        u["outbound_quarantined"] = bool(u.get("outbound_quarantined") or (isinstance(q_subs_map, dict) and ext in q_subs_map))
+        if isinstance(q_subs_map, dict) and ext in q_subs_map and isinstance(q_subs_map.get(ext), dict):
+            u["quarantine_details"] = q_subs_map.get(ext)
         if u.get("two_factor_method") == "app" or not u.get("two_factor_method"):
             u["two_factor_method"] = "google_auth"
         u["two_factor_enabled"] = bool(u.get("two_factor_enabled", False))
@@ -23696,6 +24051,21 @@ async def new_save_users_endpoint(payload: Union[List[UserSchema], UserSchema], 
                 data["wallboard_layout"] = (getattr(target_user, "wallboard_layout", None) if target_user else None) or prev_disk.get("wallboard_layout") or {}
             if data.get("theme_mode") is None:
                 data["theme_mode"] = (getattr(target_user, "theme_mode", None) if target_user else None) or prev_disk.get("theme_mode") or "light"
+            if data.get("max_concurrent_outbound") is None:
+                prev_mc = (getattr(target_user, "max_concurrent_outbound", None) if target_user else None)
+                if prev_mc is None:
+                    prev_mc = prev_disk.get("max_concurrent_outbound")
+                data["max_concurrent_outbound"] = int(prev_mc) if prev_mc is not None else 0
+            if data.get("outbound_quarantined") is None:
+                prev_oq = (getattr(target_user, "outbound_quarantined", None) if target_user else None)
+                if prev_oq is None:
+                    prev_oq = prev_disk.get("outbound_quarantined")
+                data["outbound_quarantined"] = bool(prev_oq)
+            elif data.get("outbound_quarantined") is False and ext_str:
+                adv_sec = settings_db.get("security_advanced")
+                if isinstance(adv_sec, dict) and isinstance(adv_sec.get("quarantined_subscribers"), dict):
+                    adv_sec["quarantined_subscribers"].pop(ext_str, None)
+                _SUBSCRIBER_OUTBOUND_VIOLATION_TIMESTAMPS.pop(ext_str, None)
 
             if ext_str:
                 saved_payload_by_ext[ext_str] = data
@@ -23825,7 +24195,7 @@ async def new_save_users_endpoint(payload: Union[List[UserSchema], UserSchema], 
                             u_dict["sip_password"] = p_match.get("sip_password")
                         if p_match.get("sip_username"):
                             u_dict["sip_username"] = p_match.get("sip_username")
-                        for tf_k in ("two_factor_enabled", "two_factor_method", "two_factor_secret", "two_factor_enrolled", "managed_users", "managed_queues", "cti_config"):
+                        for tf_k in ("two_factor_enabled", "two_factor_method", "two_factor_secret", "two_factor_enrolled", "managed_users", "managed_queues", "cti_config", "max_concurrent_outbound", "outbound_quarantined"):
                             if p_match.get(tf_k) is not None:
                                 u_dict[tf_k] = p_match.get(tf_k)
                     u_dict["sip_password"] = resolve_secure_sip_password(ext_u, u_dict.get("sip_password") or "")
@@ -26204,18 +26574,37 @@ async def get_system_version_info():
         pass
 
     return {
-        "version": "v2.7.2",
+        "version": "v2.7.3",
         "commit_hash": live_commit,
         "release_date": "3 Kasım 2026",
         "status": "Güncel / Canlı Sürüm",
         "environment": "Production (On-Premise)",
         "changelog": [
             {
-                "version": "v2.7.2",
+                "version": "v2.7.3",
                 "commit_hash": live_commit,
                 "release_date": "3 Kasım 2026",
                 "badge": "Canlı Sürüm (Güncel)",
                 "badge_type": "current",
+                "title": "Abone Bazlı Eş Zamanlı Dış Çağrı Limiti, Saniyelik Arama Hızı (CPS) Kalkanı & Otomatik Karantina",
+                "summary": "Sızdırılmış dahili hesaplar üzerinden yapılabilecek eş zamanlı ve seri bot dış aramalarını durdurmak için Asterisk GROUP(sub_out) tabanlı abone eş zamanlı çağrı limiti, saniyelik/dakikalık çağrı hızı (CPS) denetimi, saldırgan IP/User-Agent adli tespiti ve otomatik karantina devre kesicisi eklendi.",
+                "features": [
+                    {
+                        "title": "🛡️ Abone Bazlı Eş Zamanlı Dış Çağrı & Saniye Hız (CPS) Sınırlandırması",
+                        "desc": "Asterisk GROUP(sub_out) kanal sayacı ile her abonenin aynı anda başlatabileceği dış arama adedi (varsayılan 1; kullanıcı bazında 1, 2, 3, 5, 10 veya Limitsiz/Muaf) ve saniyelik/dakikalık patlama hızı sınırlandırıldı."
+                    },
+                    {
+                        "title": "🕵️ Saldırgan Kaynak IP / Cihaz Tespiti & Otomatik Abone Karantinası",
+                        "desc": "Limit aşımında SIP Via başlığındaki gerçek kaynak IP ve User-Agent bilgisi yakalanarak Güvenlik Kalkanı ve Çağrı Hata Kayıtları ekranlarına işlenir; tekrarlayan ihlallerde abonenin dış arama yetkisi otomatik karantinaya alınır ve tek tıkla kilit açma / IP engelleme imkânı sunulur."
+                    }
+                ]
+            },
+            {
+                "version": "v2.7.2",
+                "commit_hash": "b8c6293",
+                "release_date": "3 Kasım 2026",
+                "badge": "Önceki Sürüm",
+                "badge_type": "previous",
                 "title": "Giden Arama Parolası (PIN) & Mesai Dışı Dış Hat Güvenliği",
                 "summary": "Giden arama kurallarına sesli Türkçe anonslu sayısal parola (PIN) doğrulaması, Mesai Saatleri & Resmi Tatiller takvimiyle entegre mesai dışı parola politikası, özel saat aralığı ve yönetici/VIP muafiyet desteği eklendi.",
                 "features": [

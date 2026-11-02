@@ -269,6 +269,8 @@ class SystemUser(Base):
     theme_mode = Column(String, default="light")
     call_panel_prefs = Column(JSON, default=dict)
     wallboard_layout = Column(JSON, default=dict)
+    max_concurrent_outbound = Column(Integer, default=0)
+    outbound_quarantined = Column(Boolean, default=False)
 
 class SystemRole(Base):
     __tablename__ = "system_roles"

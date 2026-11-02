@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { Shield, ShieldAlert, ShieldCheck, Globe, Trash2, Edit2, CheckCircle, Search, Save, AlertTriangle, Check, Plus, RefreshCw, Zap, X, Lock } from "lucide-react";
+import { Shield, ShieldAlert, ShieldCheck, Globe, Trash2, Edit2, CheckCircle, Search, Save, AlertTriangle, Check, Plus, RefreshCw, Zap, X, Lock, Unlock, PhoneOutgoing } from "lucide-react";
 import ConfirmDeleteModal from "../dashboard/ConfirmDeleteModal";
 import { useTheme } from "../../utils/theme";
 
@@ -50,13 +50,21 @@ export default function SecurityPanel({ backendHost = "localhost:8000" }) {
   // GeoIP States
   const [allowedCountries, setAllowedCountries] = useState(["TR"]);
 
-  // Advanced Security (Rate Limiting) States
+  // Advanced Security (Rate Limiting & Per-Subscriber Outbound Guard) States
   const [rateLimiting, setRateLimiting] = useState({
     login_rate_limit: 3,
     api_rate_limit: 100,
     sip_rate_limit: 50,
-    block_duration_minutes: 1440
+    block_duration_minutes: 1440,
+    subscriber_outbound_guard_enabled: true,
+    default_max_concurrent_outbound: 1,
+    burst_window_seconds: 10,
+    burst_max_calls: 3,
+    minute_max_calls: 10,
+    auto_quarantine_enabled: true,
+    auto_quarantine_violations: 5
   });
+  const [quarantinedSubscribers, setQuarantinedSubscribers] = useState([]);
 
   const API_BASE = typeof window !== "undefined" ? `${window.location.protocol}//${backendHost}` : `http://${backendHost}`;
 
@@ -151,10 +159,55 @@ export default function SecurityPanel({ backendHost = "localhost:8000" }) {
       const res = await fetch(`${API_BASE}/api/security/advanced`, { headers: getHeaders() });
       if (res.ok) {
         const data = await res.json();
-        setRateLimiting(data);
+        setRateLimiting(prev => ({
+          ...prev,
+          login_rate_limit: data.login_rate_limit ?? 3,
+          api_rate_limit: data.api_rate_limit ?? 100,
+          sip_rate_limit: data.sip_rate_limit ?? 50,
+          block_duration_minutes: data.block_duration_minutes ?? 1440,
+          subscriber_outbound_guard_enabled: data.subscriber_outbound_guard_enabled !== false,
+          default_max_concurrent_outbound: data.default_max_concurrent_outbound ?? 1,
+          burst_window_seconds: data.burst_window_seconds ?? 10,
+          burst_max_calls: data.burst_max_calls ?? 3,
+          minute_max_calls: data.minute_max_calls ?? 10,
+          auto_quarantine_enabled: data.auto_quarantine_enabled !== false,
+          auto_quarantine_violations: data.auto_quarantine_violations ?? 5
+        }));
+        if (Array.isArray(data.quarantined_subscribers_list)) {
+          setQuarantinedSubscribers(data.quarantined_subscribers_list);
+        }
       }
     } catch (err) {
       console.error("Advanced Security hatası:", err);
+    }
+  };
+
+  const handleUnquarantineSubscriber = async (extToUnlock) => {
+    if (!hasWritePermission || !extToUnlock) return;
+    setLoading(true);
+    setError("");
+    try {
+      const res = await fetch(`${API_BASE}/api/security/unquarantine_subscriber`, {
+        method: "POST",
+        headers: getHeaders(),
+        body: JSON.stringify({ extension: String(extToUnlock) })
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setSuccess(data.message || `Dahili ${extToUnlock} abonesinin dış arama karantinası kaldırıldı.`);
+        setTimeout(() => setSuccess(""), 4000);
+        if (Array.isArray(data.quarantined_subscribers_list)) {
+          setQuarantinedSubscribers(data.quarantined_subscribers_list);
+        } else {
+          setQuarantinedSubscribers(prev => prev.filter(q => String(q.extension) !== String(extToUnlock)));
+        }
+      } else {
+        setError(data.detail || "Karantina kilidi kaldırılamadı.");
+      }
+    } catch (err) {
+      setError("Sunucu bağlantı hatası.");
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -537,7 +590,12 @@ export default function SecurityPanel({ backendHost = "localhost:8000" }) {
           }`}
         >
           <Lock size={15} />
-          Anti-DDoS / Hız Sınırlandırması
+          <span>Anti-DDoS / Hız & Çağrı Sınırlandırması</span>
+          {quarantinedSubscribers.length > 0 && (
+            <span className="px-1.5 py-0.5 rounded-full bg-rose-600 text-white text-[10px] font-extrabold animate-pulse">
+              {quarantinedSubscribers.length} Karantina
+            </span>
+          )}
           {activeTab === "ratelimit" && (
             <span className={`absolute bottom-[-1px] left-0 w-full h-0.5 ${bg} rounded-t-full`} />
           )}
@@ -807,50 +865,330 @@ export default function SecurityPanel({ backendHost = "localhost:8000" }) {
             </div>
           </div>
         ) : (
-          <div className="space-y-4 animate-in fade-in duration-300">
-            <div className="bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-2xl p-6 shadow-sm">
-              <h3 className="text-sm font-bold text-slate-800 dark:text-white mb-2">Fail2Ban & Hız Sınırlandırma (Rate Limiting)</h3>
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              saveAdvancedSecurity();
+            }}
+            className="space-y-6 animate-in fade-in duration-300"
+          >
+            {/* Quarantined Subscribers Alert & Forensics Table */}
+            {quarantinedSubscribers.length > 0 && (
+              <div className="p-5 rounded-2xl bg-rose-50/80 dark:bg-rose-950/20 border border-rose-200 dark:border-rose-900/50 space-y-3">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                  <div className="flex items-center gap-2 text-rose-800 dark:text-rose-300 text-xs font-extrabold">
+                    <ShieldAlert size={16} className="text-rose-600 dark:text-rose-400 shrink-0" />
+                    <span>Otomatik Karantinaya Alınan Aboneler ({quarantinedSubscribers.length})</span>
+                  </div>
+                  <span className="text-[11px] text-rose-700/80 dark:text-rose-300/80 font-medium">
+                    Eş zamanlı veya saniyelik dış arama limitini aşan dahili hesapların dış arama yetkisi kilitlendi.
+                  </span>
+                </div>
+
+                <div
+                  tabIndex={0}
+                  role="region"
+                  aria-labelledby="quarantined-subs-caption"
+                  className="overflow-x-auto border border-rose-200/80 dark:border-rose-900/50 rounded-xl bg-white dark:bg-slate-900"
+                >
+                  <table className="w-full text-left border-collapse">
+                    <caption id="quarantined-subs-caption" className="sr-only">
+                      Dış arama karantinasındaki aboneler ve tespit edilen saldırgan IP bilgileri
+                    </caption>
+                    <thead>
+                      <tr className="bg-rose-50/70 dark:bg-rose-950/30 border-b border-rose-200/70 dark:border-rose-900/40">
+                        <th scope="col" className="py-2.5 px-3 text-[10px] font-black text-rose-800 dark:text-rose-300 uppercase tracking-wider">Abone / Dahili</th>
+                        <th scope="col" className="py-2.5 px-3 text-[10px] font-black text-rose-800 dark:text-rose-300 uppercase tracking-wider">Yakalanan Kaynak IP</th>
+                        <th scope="col" className="py-2.5 px-3 text-[10px] font-black text-rose-800 dark:text-rose-300 uppercase tracking-wider">Cihaz (User-Agent)</th>
+                        <th scope="col" className="py-2.5 px-3 text-[10px] font-black text-rose-800 dark:text-rose-300 uppercase tracking-wider">Aranan Hedef & Sebep</th>
+                        <th scope="col" className="py-2.5 px-3 text-[10px] font-black text-rose-800 dark:text-rose-300 uppercase tracking-wider">Tarih</th>
+                        {hasWritePermission && (
+                          <th scope="col" className="py-2.5 px-3 text-[10px] font-black text-rose-800 dark:text-rose-300 uppercase tracking-wider text-right">Müdahale</th>
+                        )}
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-rose-100 dark:divide-rose-900/30">
+                      {quarantinedSubscribers.map((q) => (
+                        <tr key={q.extension} className="hover:bg-rose-50/30 dark:hover:bg-rose-950/10 transition-colors">
+                          <th scope="row" className="py-2.5 px-3 text-xs font-bold text-slate-800 dark:text-slate-100 whitespace-nowrap">
+                            <span>{q.full_name || `Dahili ${q.extension}`}</span>
+                            <span className="ml-1.5 px-1.5 py-0.5 rounded bg-rose-100 dark:bg-rose-900/40 text-rose-700 dark:text-rose-300 font-mono text-[10px]">
+                              {q.extension}
+                            </span>
+                          </th>
+                          <td className="py-2.5 px-3 text-xs font-bold font-mono text-rose-600 dark:text-rose-400 whitespace-nowrap">
+                            {q.attacker_ip || "Bilinmiyor"}
+                          </td>
+                          <td className="py-2.5 px-3 text-[11px] text-slate-600 dark:text-slate-300 max-w-[180px] truncate" title={q.user_agent || ""}>
+                            {q.user_agent || "-"}
+                          </td>
+                          <td className="py-2.5 px-3 text-[11px] text-slate-700 dark:text-slate-300">
+                            {q.callee && q.callee !== "-" && (
+                              <span className="font-mono font-bold mr-1.5 text-slate-900 dark:text-white">{q.callee}:</span>
+                            )}
+                            <span>{q.reason || "Çağrı Limiti İhlali"}</span>
+                          </td>
+                          <td className="py-2.5 px-3 text-[11px] text-slate-500 dark:text-slate-400 whitespace-nowrap">
+                            {q.quarantined_at || "-"}
+                          </td>
+                          {hasWritePermission && (
+                            <td className="py-2.5 px-3 text-right whitespace-nowrap">
+                              <div className="inline-flex items-center gap-1.5">
+                                {q.attacker_ip && q.attacker_ip !== "Bilinmiyor" && (
+                                  <button
+                                    type="button"
+                                    onClick={() => handleManualBan(q.attacker_ip, `Abone ${q.extension} Toll-Fraud Saldırısı`)}
+                                    className="px-2.5 py-1 rounded-lg bg-rose-600 hover:bg-rose-500 text-white text-[10px] font-bold transition-all"
+                                    title="Saldırgan IP Adresini Güvenlik Duvarında Engelle"
+                                  >
+                                    IP&apos;yi Engelle
+                                  </button>
+                                )}
+                                <button
+                                  type="button"
+                                  onClick={() => handleUnquarantineSubscriber(q.extension)}
+                                  className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[10px] font-bold text-white ${bg} ${hover} transition-all`}
+                                  title="Aboneyi Karantinadan Çıkar ve Dış Aramayı Aç"
+                                >
+                                  <Unlock size={11} />
+                                  <span>Kilidi Aç</span>
+                                </button>
+                              </div>
+                            </td>
+                          )}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+
+            {/* Layer 1 & 2: Per-Subscriber Outbound Concurrency & CPS Flood Protection Card */}
+            <fieldset className="bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-2xl p-6 shadow-sm space-y-5">
+              <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4 border-b border-slate-100 dark:border-slate-800 pb-4">
+                <div>
+                  <legend className="text-sm font-bold text-slate-800 dark:text-white flex items-center gap-2">
+                    <PhoneOutgoing size={16} className={text} />
+                    <span>Abone Bazlı Eş Zamanlı Dış Çağrı &amp; Saniye Hız Koruması (Toll-Fraud Kalkanı)</span>
+                  </legend>
+                  <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+                    SIP şifresi sızdırılmış bir dahili üzerinden botların aynı anda veya saniyede ardışık dış arama başlatmasını engeller, saldırganın IP ve cihaz bilgisini yakalar.
+                  </p>
+                </div>
+
+                <label
+                  htmlFor="sub-outbound-guard-toggle"
+                  className="inline-flex items-center gap-2.5 cursor-pointer select-none shrink-0"
+                >
+                  <input
+                    id="sub-outbound-guard-toggle"
+                    name="subscriber_outbound_guard_enabled"
+                    type="checkbox"
+                    checked={Boolean(rateLimiting.subscriber_outbound_guard_enabled)}
+                    onChange={(e) => setRateLimiting({ ...rateLimiting, subscriber_outbound_guard_enabled: e.target.checked })}
+                    disabled={!hasWritePermission}
+                    className="sr-only peer"
+                  />
+                  <div className={`w-10 h-5 rounded-full transition-colors relative bg-slate-300 dark:bg-slate-700 peer-checked:${bg} peer-focus-visible:ring-2 ${ring} after:content-[''] after:absolute after:top-0.5 after:left-0.5 after:w-4 after:h-4 after:rounded-full after:bg-white after:transition-transform peer-checked:after:translate-x-5`} />
+                  <span className="text-xs font-bold text-slate-700 dark:text-slate-200">
+                    {rateLimiting.subscriber_outbound_guard_enabled ? "Koruma Aktif" : "Koruma Kapalı"}
+                  </span>
+                </label>
+              </div>
+
+              <div className={`grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-5 ${!rateLimiting.subscriber_outbound_guard_enabled ? "opacity-50 pointer-events-none" : ""}`}>
+                <div>
+                  <label htmlFor="default-max-concurrent-outbound" className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">
+                    Varsayılan Eş Zamanlı Dış Çağrı
+                  </label>
+                  <select
+                    id="default-max-concurrent-outbound"
+                    name="default_max_concurrent_outbound"
+                    value={rateLimiting.default_max_concurrent_outbound}
+                    onChange={(e) => setRateLimiting({ ...rateLimiting, default_max_concurrent_outbound: parseInt(e.target.value, 10) || 1 })}
+                    disabled={!hasWritePermission}
+                    aria-describedby="hint-max-concurrent"
+                    className="w-full text-sm font-semibold px-3.5 py-2.5 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl focus:outline-none text-slate-800 dark:text-slate-100"
+                  >
+                    <option value={1}>1 Eş Zamanlı Çağrı (Önerilen)</option>
+                    <option value={2}>2 Eş Zamanlı Çağrı (Aktarım / Konferans)</option>
+                    <option value={3}>3 Eş Zamanlı Çağrı</option>
+                    <option value={5}>5 Eş Zamanlı Çağrı</option>
+                    <option value={10}>10 Eş Zamanlı Çağrı</option>
+                  </select>
+                  <p id="hint-max-concurrent" className="text-[10px] text-slate-500 mt-1">
+                    Kullanıcı kartında özel limit seçilmeyen tüm aboneler için geçerlidir.
+                  </p>
+                </div>
+
+                <div>
+                  <label htmlFor="burst-window-seconds" className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">
+                    Saniye Hız Penceresi (Sn)
+                  </label>
+                  <input
+                    id="burst-window-seconds"
+                    name="burst_window_seconds"
+                    type="number"
+                    min={1}
+                    max={120}
+                    value={rateLimiting.burst_window_seconds}
+                    onChange={(e) => setRateLimiting({ ...rateLimiting, burst_window_seconds: Math.max(1, parseInt(e.target.value, 10) || 1) })}
+                    disabled={!hasWritePermission}
+                    aria-describedby="hint-burst-window"
+                    className="w-full text-sm px-3.5 py-2.5 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl focus:outline-none text-slate-800 dark:text-slate-100"
+                  />
+                  <p id="hint-burst-window" className="text-[10px] text-slate-500 mt-1">
+                    Tam saniyelik (CPS) kontrol için <code className="font-mono">1</code>, kısa patlama kontrolü için <code className="font-mono">10</code> sn giriniz.
+                  </p>
+                </div>
+
+                <div>
+                  <label htmlFor="burst-max-calls" className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">
+                    Pencere İçi Maks. Arama Adeti
+                  </label>
+                  <input
+                    id="burst-max-calls"
+                    name="burst_max_calls"
+                    type="number"
+                    min={1}
+                    max={100}
+                    value={rateLimiting.burst_max_calls}
+                    onChange={(e) => setRateLimiting({ ...rateLimiting, burst_max_calls: Math.max(1, parseInt(e.target.value, 10) || 1) })}
+                    disabled={!hasWritePermission}
+                    aria-describedby="hint-burst-max"
+                    className="w-full text-sm px-3.5 py-2.5 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl focus:outline-none text-slate-800 dark:text-slate-100"
+                  />
+                  <p id="hint-burst-max" className="text-[10px] text-slate-500 mt-1">
+                    {rateLimiting.burst_window_seconds} saniye içinde 1 abonenin başlatabileceği en fazla dış çağrı.
+                  </p>
+                </div>
+
+                <div>
+                  <label htmlFor="minute-max-calls" className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">
+                    Dakikalık Maks. Dış Arama (60 sn)
+                  </label>
+                  <input
+                    id="minute-max-calls"
+                    name="minute_max_calls"
+                    type="number"
+                    min={1}
+                    max={300}
+                    value={rateLimiting.minute_max_calls}
+                    onChange={(e) => setRateLimiting({ ...rateLimiting, minute_max_calls: Math.max(1, parseInt(e.target.value, 10) || 1) })}
+                    disabled={!hasWritePermission}
+                    aria-describedby="hint-minute-max"
+                    className="w-full text-sm px-3.5 py-2.5 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl focus:outline-none text-slate-800 dark:text-slate-100"
+                  />
+                  <p id="hint-minute-max" className="text-[10px] text-slate-500 mt-1">
+                    Seri numara tarayan botları durdurmak için 1 dakikalık toplam dış arama üst sınırı.
+                  </p>
+                </div>
+              </div>
+
+              {/* Auto-Quarantine Circuit Breaker Box */}
+              <div className={`p-4 rounded-xl bg-slate-50 dark:bg-slate-950/60 border border-slate-200/80 dark:border-slate-800 flex flex-col md:flex-row md:items-center justify-between gap-4 ${!rateLimiting.subscriber_outbound_guard_enabled ? "opacity-50 pointer-events-none" : ""}`}>
+                <div className="space-y-1">
+                  <div className="flex items-center gap-2">
+                    <Lock size={14} className={text} />
+                    <span className="text-xs font-bold text-slate-800 dark:text-slate-100">
+                      Otomatik Abone Karantinası (Devre Kesici)
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                    Bir abone 5 dakika içinde belirlenen sayıda eş zamanlı çağrı veya hız sınırı ihlaline takılırsa, saldırganı anında durdurmak için abonenin dış arama yetkisini otomatik kilitler.
+                  </p>
+                </div>
+
+                <div className="flex flex-wrap items-center gap-4 shrink-0">
+                  <div className="flex items-center gap-2">
+                    <label htmlFor="auto-quarantine-violations" className="text-xs font-bold text-slate-600 dark:text-slate-300 whitespace-nowrap">
+                      İhlal Eşiği:
+                    </label>
+                    <input
+                      id="auto-quarantine-violations"
+                      name="auto_quarantine_violations"
+                      type="number"
+                      min={2}
+                      max={50}
+                      value={rateLimiting.auto_quarantine_violations}
+                      onChange={(e) => setRateLimiting({ ...rateLimiting, auto_quarantine_violations: Math.max(2, parseInt(e.target.value, 10) || 5) })}
+                      disabled={!hasWritePermission || !rateLimiting.auto_quarantine_enabled}
+                      className="w-20 text-xs font-bold text-center px-2.5 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg focus:outline-none text-slate-800 dark:text-slate-100 disabled:opacity-50"
+                    />
+                  </div>
+
+                  <label htmlFor="auto-quarantine-toggle" className="inline-flex items-center gap-2 cursor-pointer select-none">
+                    <input
+                      id="auto-quarantine-toggle"
+                      name="auto_quarantine_enabled"
+                      type="checkbox"
+                      checked={Boolean(rateLimiting.auto_quarantine_enabled)}
+                      onChange={(e) => setRateLimiting({ ...rateLimiting, auto_quarantine_enabled: e.target.checked })}
+                      disabled={!hasWritePermission}
+                      className="sr-only peer"
+                    />
+                    <div className={`w-9 h-5 rounded-full transition-colors relative bg-slate-300 dark:bg-slate-700 peer-checked:${bg} peer-focus-visible:ring-2 ${ring} after:content-[''] after:absolute after:top-0.5 after:left-0.5 after:w-4 after:h-4 after:rounded-full after:bg-white after:transition-transform peer-checked:after:translate-x-4`} />
+                    <span className="text-xs font-bold text-slate-700 dark:text-slate-200">
+                      {rateLimiting.auto_quarantine_enabled ? "Açık" : "Kapalı"}
+                    </span>
+                  </label>
+                </div>
+              </div>
+            </fieldset>
+
+            {/* Existing Fail2Ban & Network Rate Limiting Card */}
+            <fieldset className="bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-2xl p-6 shadow-sm">
+              <legend className="text-sm font-bold text-slate-800 dark:text-white mb-2">Fail2Ban &amp; Ağ Hız Sınırlandırma (Rate Limiting)</legend>
               <p className="text-xs text-slate-500 dark:text-slate-400 mb-6">
                 Kaydettiğiniz değerler doğrudan sunucudaki <code className="font-mono text-[11px]">/etc/fail2ban/jail.d/asterisk-pjsip.conf</code> dosyasına yazılır ve anında uygulanır.
               </p>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div>
-                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-2">Hatalı SIP / Giriş Deneme Limiti (maxretry)</label>
+                  <label htmlFor="f2b-login-rate" className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">Hatalı SIP / Giriş Deneme Limiti (maxretry)</label>
                   <input
+                    id="f2b-login-rate"
+                    name="login_rate_limit"
                     type="number"
                     value={rateLimiting.login_rate_limit}
-                    onChange={e => setRateLimiting({ ...rateLimiting, login_rate_limit: parseInt(e.target.value) || 3 })}
+                    onChange={e => setRateLimiting({ ...rateLimiting, login_rate_limit: parseInt(e.target.value, 10) || 3 })}
                     disabled={!hasWritePermission}
                     className="w-full text-sm px-4 py-2.5 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl focus:outline-none disabled:opacity-50 text-slate-800 dark:text-slate-100"
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-2">Firewall Engelleme Süresi (Dakika - bantime)</label>
+                  <label htmlFor="f2b-ban-duration" className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">Firewall Engelleme Süresi (Dakika - bantime)</label>
                   <input
+                    id="f2b-ban-duration"
+                    name="block_duration_minutes"
                     type="number"
                     value={rateLimiting.block_duration_minutes}
-                    onChange={e => setRateLimiting({ ...rateLimiting, block_duration_minutes: parseInt(e.target.value) || 60 })}
+                    onChange={e => setRateLimiting({ ...rateLimiting, block_duration_minutes: parseInt(e.target.value, 10) || 60 })}
                     disabled={!hasWritePermission}
                     className="w-full text-sm px-4 py-2.5 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl focus:outline-none disabled:opacity-50 text-slate-800 dark:text-slate-100"
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-2">API İstek Limiti (Dakikada)</label>
+                  <label htmlFor="f2b-api-rate" className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">API İstek Limiti (Dakikada)</label>
                   <input
+                    id="f2b-api-rate"
+                    name="api_rate_limit"
                     type="number"
                     value={rateLimiting.api_rate_limit}
-                    onChange={e => setRateLimiting({ ...rateLimiting, api_rate_limit: parseInt(e.target.value) || 0 })}
+                    onChange={e => setRateLimiting({ ...rateLimiting, api_rate_limit: parseInt(e.target.value, 10) || 0 })}
                     disabled={!hasWritePermission}
                     className="w-full text-sm px-4 py-2.5 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl focus:outline-none disabled:opacity-50 text-slate-800 dark:text-slate-100"
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-2">SIP Paket Limiti (Saniyede)</label>
+                  <label htmlFor="f2b-sip-rate" className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">SIP Paket Limiti (Saniyede)</label>
                   <input
+                    id="f2b-sip-rate"
+                    name="sip_rate_limit"
                     type="number"
                     value={rateLimiting.sip_rate_limit}
-                    onChange={e => setRateLimiting({ ...rateLimiting, sip_rate_limit: parseInt(e.target.value) || 0 })}
+                    onChange={e => setRateLimiting({ ...rateLimiting, sip_rate_limit: parseInt(e.target.value, 10) || 0 })}
                     disabled={!hasWritePermission}
                     className="w-full text-sm px-4 py-2.5 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl focus:outline-none disabled:opacity-50 text-slate-800 dark:text-slate-100"
                   />
@@ -860,17 +1198,17 @@ export default function SecurityPanel({ backendHost = "localhost:8000" }) {
               {hasWritePermission && (
                 <div className="mt-6 flex justify-end pt-4 border-t border-slate-100 dark:border-slate-800">
                   <button
-                    onClick={saveAdvancedSecurity}
+                    type="submit"
                     disabled={loading}
                     className={`flex items-center gap-2 px-5 py-2.5 rounded-xl font-bold text-xs text-white ${bg} ${hover} shadow-md transition-all ${loading ? "opacity-70 cursor-not-allowed" : "hover:shadow-lg"}`}
                   >
                     <Save size={16} />
-                    {loading ? "Kaydediliyor..." : "Ayarları Kaydet & Fail2Ban'a Uygula"}
+                    {loading ? "Kaydediliyor..." : "Ayarları Kaydet & Kalkanı Uygula"}
                   </button>
                 </div>
               )}
-            </div>
-          </div>
+            </fieldset>
+          </form>
         )}
       </div>
 
