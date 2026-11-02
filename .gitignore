@@ -28,6 +28,8 @@ htmlcov/
 # Project Specific
 recordings/
 *.wav
+!asterisk_config/sounds_tr/tr_giden_parola.wav
+!asterisk_config/sounds_tr/tr_hatali_parola.wav
 *.mp3
 
 # OS Files

@@ -2,6 +2,7 @@ import os
 import sys
 import subprocess
 import re
+import hmac
 import asyncio
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -3743,6 +3744,25 @@ same => n(chk_ptime),GotoIf($["${{OUT_MAXPTIME}}" = ""]?done_hdrs)
 same => n,Set(PJSIP_HEADER(add,X-Maxptime)=${{OUT_MAXPTIME}})
 same => n(done_hdrs),Return()
 
+[outbound_pin_auth_sub]
+exten => s,1,NoOp(Giden Arama Parola Dogrulamasi Basladi: Kural=${{ARG1}}, Arayan=${{CALLERID(num)}}, Aranan=${{ARG2}})
+same => n,Set(PIN_RULE_ID=${{ARG1}})
+same => n,Set(PIN_CALLEE=${{ARG2}})
+same => n,Set(PIN_ATTEMPT=0)
+same => n,Answer()
+same => n,Wait(0.3)
+same => n(pin_ask_loop),Set(PIN_ATTEMPT=$[${{PIN_ATTEMPT}} + 1])
+same => n,Set(ENTERED_PIN=)
+same => n,Read(ENTERED_PIN,/var/spool/asterisk/monitor/tr_giden_parola,12,,,6)
+same => n,Set(CURLOPT(conntimeout)=1)
+same => n,Set(CURLOPT(httptimeout)=2)
+same => n,Set(PIN_VER_RES=${{CURL(http://{backend_host}/api/acl/verify_outbound_pin?rule_id=${{URIENCODE(${{PIN_RULE_ID}})}}&caller=${{URIENCODE(${{CALLERID(num)}})}}&callee=${{URIENCODE(${{PIN_CALLEE}})}}&pin=${{URIENCODE(${{ENTERED_PIN}})}}&attempt=${{PIN_ATTEMPT}})}})
+same => n,GotoIf($["${{PIN_VER_RES}}" = "ALLOW"]?pin_ok)
+same => n,Playback(/var/spool/asterisk/monitor/tr_hatali_parola)
+same => n,GotoIf($[${{PIN_ATTEMPT}} < 3]?pin_ask_loop)
+same => n,Return(DENY)
+same => n(pin_ok),Return(ALLOW)
+
 [queue_router_sub]
 exten => s,1,NoOp(Kuyruk Yonlendirme Motoru Basladi: Kuyruk=${{ARG1}}, CallID=${{CALL_UUID}})
 same => n,Set(CURLOPT(conntimeout)=1)
@@ -3972,7 +3992,11 @@ exten => _0.,1,NoOp(Dis arama guvenlik kontrolu: Arayan=${{CALLERID(num)}}, Aran
 same => n(outbound_start),Set(CURLOPT(conntimeout)=1)
 same => n,Set(CURLOPT(httptimeout)=2)
 same => n,Set(OUT_ACL=${{CURL(http://{backend_host}/api/acl/check_outbound_call?caller=${{CALLERID(num)}}&callee=${{EXTEN}}&channel=${{URIENCODE(${{CHANNEL(name)}})}}&via=${{URIENCODE(${{PJSIP_HEADER(read,Via)}})}})}})
-same => n,GotoIf($["${{OUT_ACL}}" = "ALLOW"]?allow_out:deny_out)
+same => n,GotoIf($["${{OUT_ACL}}" = "ALLOW"]?allow_out)
+same => n,GotoIf($["${{CUT(OUT_ACL,:,1)}}" = "PIN_REQUIRED"]?pin_check_out:deny_out)
+same => n(pin_check_out),Gosub(outbound_pin_auth_sub,s,1(${{CUT(OUT_ACL,:,2)}},${{EXTEN}}))
+same => n,GotoIf($["${{GOSUB_RETVAL}}" = "ALLOW"]?allow_out)
+same => n,Hangup(21)
 same => n(deny_out),NoOp(GUVENLIK ENGELI: Yetkisiz veya sahte dis arama reddedildi -> Arayan=${{CALLERID(num)}}, Aranan=${{EXTEN}}, Sebep=${{OUT_ACL}})
 same => n,Progress()
 same => n,Playback(/var/spool/asterisk/monitor/tr_yetkisiz_arama,noanswer)
@@ -4041,7 +4065,11 @@ same => n(outbound_route_ext),NoOp(Prefixli veya 7+ haneli dis arama yonlendiril
 same => n,Set(CURLOPT(conntimeout)=1)
 same => n,Set(CURLOPT(httptimeout)=2)
 same => n,Set(OUT_ACL=${{CURL(http://{backend_host}/api/acl/check_outbound_call?caller=${{CALLERID(num)}}&callee=${{EXTEN}}&channel=${{URIENCODE(${{CHANNEL(name)}})}}&via=${{URIENCODE(${{PJSIP_HEADER(read,Via)}})}})}})
-same => n,GotoIf($["${{OUT_ACL}}" = "ALLOW"]?allow_out_ext:deny_out_ext)
+same => n,GotoIf($["${{OUT_ACL}}" = "ALLOW"]?allow_out_ext)
+same => n,GotoIf($["${{CUT(OUT_ACL,:,1)}}" = "PIN_REQUIRED"]?pin_check_out_ext:deny_out_ext)
+same => n(pin_check_out_ext),Gosub(outbound_pin_auth_sub,s,1(${{CUT(OUT_ACL,:,2)}},${{EXTEN}}))
+same => n,GotoIf($["${{GOSUB_RETVAL}}" = "ALLOW"]?allow_out_ext)
+same => n,Hangup(21)
 same => n(deny_out_ext),NoOp(GUVENLIK ENGELI: Yetkisiz veya sahte dis arama reddedildi -> Arayan=${{CALLERID(num)}}, Aranan=${{EXTEN}}, Sebep=${{OUT_ACL}})
 same => n,Progress()
 same => n,Playback(/var/spool/asterisk/monitor/tr_yetkisiz_arama,noanswer)
@@ -8377,6 +8405,7 @@ def _convert_and_sync_announcement_wav(src_filepath: str, ann_id: str) -> str:
     for cmd in [
         ["ffmpeg", "-y", "-i", src_filepath, "-ar", "8000", "-ac", "1", "-c:a", "pcm_s16le", tmp_wav],
         ["sox", src_filepath, "-r", "8000", "-c", "1", "-b", "16", tmp_wav],
+        ["/usr/bin/afconvert", "-f", "WAVE", "-d", "LEI16@8000", "-c", "1", src_filepath, tmp_wav],
     ]:
         try:
             res = subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=4.0)
@@ -8546,6 +8575,26 @@ BUILTIN_SYSTEM_ANNOUNCEMENTS = [
         "type": "system",
         "system_key": "survey_thankyou",
         "description": "Memnuniyet anketi tuşlaması sonrasında dinletilen varsayılan kapanış anonsu.",
+        "is_builtin": True,
+    },
+    {
+        "id": "tr_giden_parola",
+        "name": "Giden Arama Parola İstemi",
+        "filename": "tr_giden_parola.wav",
+        "original_filename": "tr_giden_parola.wav",
+        "type": "system",
+        "system_key": "outbound_pin_prompt",
+        "description": "Parola korumalı giden dış aramalarda arayan aboneye parola tuşlamasını söyleyen sistem anonsu.",
+        "is_builtin": True,
+    },
+    {
+        "id": "tr_hatali_parola",
+        "name": "Hatalı Giden Arama Parolası",
+        "filename": "tr_hatali_parola.wav",
+        "original_filename": "tr_hatali_parola.wav",
+        "type": "system",
+        "system_key": "outbound_pin_invalid",
+        "description": "Giden dış aramada yanlış parola tuşlandığında dinletilen uyarı anonsu.",
         "is_builtin": True,
     },
 ]
@@ -9834,6 +9883,22 @@ async def save_outbound_rule(request: Request, user_info: dict = Depends(get_use
     payload["tenant_id"] = target_tenant
     if "allowed_users" in payload:
         payload["allowed_users"] = _expand_subscriber_groups_in_allowed_users(payload.get("allowed_users", []))
+
+    raw_pin_mode = str(payload.get("pin_mode") or "none").strip().lower()
+    if raw_pin_mode not in ("none", "always", "outside_work_hours", "custom_hours"):
+        raw_pin_mode = "none"
+    clean_pin_code = re.sub(r"\D", "", str(payload.get("pin_code") or ""))[:10]
+    if raw_pin_mode != "none" and (len(clean_pin_code) < 4 or len(clean_pin_code) > 10):
+        raise HTTPException(
+            status_code=400,
+            detail="Giden arama parolası etkinleştirildiğinde 4 ile 10 hane arasında sayısal bir PIN girilmelidir.",
+        )
+    payload["pin_mode"] = raw_pin_mode
+    payload["pin_code"] = clean_pin_code
+    payload["pin_start_time"] = str(payload.get("pin_start_time") or "18:00").strip() or "18:00"
+    payload["pin_end_time"] = str(payload.get("pin_end_time") or "09:00").strip() or "09:00"
+    payload["pin_exempt_users"] = _expand_subscriber_groups_in_allowed_users(payload.get("pin_exempt_users", []) or [])
+
     if "outbound_rules" not in settings_db:
         settings_db["outbound_rules"] = []
     
@@ -10277,7 +10342,141 @@ async def check_outbound_call(caller: str = "", callee: str = "", channel: str =
             )
             return Response(content="DENY:UDP_NOT_ALLOWED_FOR_WEBRTC", media_type="text/plain")
 
+    # 4. Giden Arama Parolası (PIN) Politikası Kontrolü (Her zaman / Mesai dışı / Özel saat aralığı)
+    req_pin, pin_rule_id = _evaluate_outbound_rule_pin_requirement(matched_rule, caller_str, all_users)
+    if req_pin and pin_rule_id:
+        return Response(content=f"PIN_REQUIRED:{pin_rule_id}", media_type="text/plain")
+
     return Response(content="ALLOW", media_type="text/plain")
+
+
+def _parse_hhmm_to_minutes(hhmm_str: str, fallback: int) -> int:
+    try:
+        parts = str(hhmm_str or "").strip().split(":")
+        if len(parts) >= 2:
+            h = max(0, min(23, int(parts[0])))
+            m = max(0, min(59, int(parts[1])))
+            return h * 60 + m
+    except Exception:
+        pass
+    return fallback
+
+
+def _evaluate_outbound_rule_pin_requirement(matched_rule: Optional[dict], caller_str: str, all_users: list) -> tuple[bool, str]:
+    if not isinstance(matched_rule, dict):
+        return False, ""
+    pin_mode = str(matched_rule.get("pin_mode") or "none").strip().lower()
+    pin_code = re.sub(r"\D", "", str(matched_rule.get("pin_code") or ""))
+    rule_id = str(matched_rule.get("id") or "").strip()
+    if pin_mode == "none" or len(pin_code) < 4 or not rule_id:
+        return False, ""
+
+    # Paroladan muaf abone / abone grubu kontrolü
+    exempt_raw = matched_rule.get("pin_exempt_users") or []
+    if exempt_raw and caller_str:
+        expanded_exempt = _expand_subscriber_groups_in_allowed_users(exempt_raw)
+        uid_to_ext_map = {
+            str(u.get("id") or "").strip(): str(u.get("extension") or "").strip()
+            for u in (all_users or [])
+            if u.get("id") and u.get("extension")
+        }
+        caller_user_obj = next((u for u in (all_users or []) if str(u.get("extension") or "").strip() == caller_str), None)
+        caller_uid = str(caller_user_obj.get("id") or "").strip() if caller_user_obj else ""
+        exempt_tokens = set()
+        for item in expanded_exempt:
+            s_it = str(item or "").strip()
+            if s_it:
+                exempt_tokens.add(s_it)
+                if s_it in uid_to_ext_map:
+                    exempt_tokens.add(uid_to_ext_map[s_it])
+        if caller_str in exempt_tokens or (caller_uid and caller_uid in exempt_tokens):
+            return False, ""
+
+    rule_tenant = str(matched_rule.get("tenant_id") or "tenant-default").strip() or "tenant-default"
+    if pin_mode == "always":
+        return True, rule_id
+    if pin_mode == "outside_work_hours":
+        wh_eval = evaluate_system_work_hours(settings_db, rule_tenant)
+        is_open_now = bool(wh_eval.get("is_open", True))
+        return (not is_open_now), (rule_id if not is_open_now else "")
+    if pin_mode == "custom_hours":
+        wh_cfg = get_tenant_work_hours_config(settings_db, rule_tenant)
+        tz_name = str(wh_cfg.get("timezone") or "Europe/Istanbul").strip()
+        try:
+            from zoneinfo import ZoneInfo
+            tz_obj = ZoneInfo(tz_name)
+        except Exception:
+            tz_obj = datetime.timezone(datetime.timedelta(hours=3))
+        local_now = datetime.datetime.now(tz_obj)
+        cur_min = local_now.hour * 60 + local_now.minute
+        start_min = _parse_hhmm_to_minutes(matched_rule.get("pin_start_time") or "18:00", 18 * 60)
+        end_min = _parse_hhmm_to_minutes(matched_rule.get("pin_end_time") or "09:00", 9 * 60)
+        if start_min == end_min:
+            in_window = True
+        elif start_min < end_min:
+            in_window = start_min <= cur_min < end_min
+        else:
+            in_window = cur_min >= start_min or cur_min < end_min
+        return in_window, (rule_id if in_window else "")
+
+    return False, ""
+
+
+@app.get("/api/acl/verify_outbound_pin")
+async def verify_outbound_pin(
+    rule_id: str = "",
+    caller: str = "",
+    callee: str = "",
+    pin: str = "",
+    attempt: int = 1,
+):
+    from fastapi import Response
+    rid = str(rule_id or "").strip()
+    caller_str = str(caller or "").strip()
+    callee_str = str(callee or "").strip()
+    entered_pin = re.sub(r"\D", "", str(pin or ""))
+
+    rule = next(
+        (r for r in (settings_db.get("outbound_rules") or []) if isinstance(r, dict) and str(r.get("id") or "").strip() == rid),
+        None,
+    )
+    if not rule:
+        return Response(content="DENY", media_type="text/plain")
+
+    expected_pin = re.sub(r"\D", "", str(rule.get("pin_code") or ""))
+    if not expected_pin:
+        return Response(content="ALLOW", media_type="text/plain")
+
+    if entered_pin and hmac.compare_digest(entered_pin.encode("utf-8"), expected_pin.encode("utf-8")):
+        return Response(content="ALLOW", media_type="text/plain")
+
+    if int(attempt or 1) >= 3:
+        rule_name = str(rule.get("name") or rid).strip()
+        trunk_nm = None
+        t_ids = rule.get("trunk_ids") or ([rule.get("trunk_id")] if rule.get("trunk_id") else [])
+        if t_ids:
+            t_obj = next((t for t in (settings_db.get("trunks") or []) if str(t.get("id")) == str(t_ids[0])), None)
+            if t_obj:
+                trunk_nm = str(t_obj.get("trunk_name") or t_obj.get("host") or "").strip() or None
+        try:
+            add_system_log(
+                "SECURITY",
+                "WARNING",
+                f"Hatalı Giden Arama Parolası (3 Başarısız Deneme): Dahili {caller_str} -> {callee_str} (Kural: {rule_name})",
+            )
+        except Exception:
+            pass
+        await record_call_error_event(
+            caller=caller_str,
+            callee=callee_str,
+            category="unauthorized",
+            direction="outbound",
+            reason_msg=f"Hatalı giden arama parolası (3 başarısız deneme - Kural: {rule_name})",
+            status_val="blocked",
+            trunk_name=trunk_nm,
+        )
+
+    return Response(content="DENY", media_type="text/plain")
 
 
 @app.get("/api/calls/log_invalid")
@@ -26005,18 +26204,37 @@ async def get_system_version_info():
         pass
 
     return {
-        "version": "v2.7.1",
+        "version": "v2.7.2",
         "commit_hash": live_commit,
         "release_date": "3 Kasım 2026",
         "status": "Güncel / Canlı Sürüm",
         "environment": "Production (On-Premise)",
         "changelog": [
             {
-                "version": "v2.7.1",
+                "version": "v2.7.2",
                 "commit_hash": live_commit,
                 "release_date": "3 Kasım 2026",
                 "badge": "Canlı Sürüm (Güncel)",
                 "badge_type": "current",
+                "title": "Giden Arama Parolası (PIN) & Mesai Dışı Dış Hat Güvenliği",
+                "summary": "Giden arama kurallarına sesli Türkçe anonslu sayısal parola (PIN) doğrulaması, Mesai Saatleri & Resmi Tatiller takvimiyle entegre mesai dışı parola politikası, özel saat aralığı ve yönetici/VIP muafiyet desteği eklendi.",
+                "features": [
+                    {
+                        "title": "🔒 Giden Arama Parolası (PIN) & Mesai Dışı Politika Seçenekleri",
+                        "desc": "Giden Arama Kuralları ekranına Kapalı, Her Zaman (7/24), Mesai Saatleri Dışında İste ve Özel Saat Aralığında İste seçenekleri, 4–10 haneli sayısal PIN alanı, tek tıkla rastgele PIN üretici ve Paroladan Muaf Aboneler seçicisi eklendi."
+                    },
+                    {
+                        "title": "🔊 Türkçe Sesli Parola İstemi & Asterisk DTMF Doğrulama Alt Yordamı",
+                        "desc": "Masa Telefonu ve WebPhone dış aramalarında sesli Türkçe anons ile PIN doğrulayan [outbound_pin_auth_sub] Asterisk alt yordamı, yerleşik tr_giden_parola.wav / tr_hatali_parola.wav anonsları ve 3 hatalı denemede güvenlik logu kaydı eklendi."
+                    }
+                ]
+            },
+            {
+                "version": "v2.7.1",
+                "commit_hash": "39e305a",
+                "release_date": "3 Kasım 2026",
+                "badge": "Önceki Sürüm",
+                "badge_type": "previous",
                 "title": "Gelişmiş Kuyruk Yönlendirme Motoru, Masa Telefonu Kuyruk İsmi Gösterimi, Periyodik Anons Süresi ve Temsilci İstatistik İyileştirmeleri",
                 "summary": "WebPhone ve fiziksel Masa Telefonu ekranlarında kuyruk ismi gösterimi ve çift cihaz eşzamanlı çaldırma mimarisi, periyodik anons tekrar sıklığı (saniye) ayarı, 'Tüm Agent'lar Meşgul' ve 'Maksimum Bekleme Süresi' modüllerinde anons sonrası çağrı yönlendirme seçenekleri, kuyruk üye/yönetici panellerinde tam arama desteği ve giden başarısız çağrı sayaç düzeltmesi yayınlandı.",
                 "features": [

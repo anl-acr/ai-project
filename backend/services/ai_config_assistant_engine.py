@@ -685,7 +685,7 @@ async def _gather_pbx_context(tenant_id: str) -> Dict[str, Any]:
     ]
 
     outbound_rules_summary = [
-        {"id": r.get("id"), "name": r.get("name") or ""}
+        {"id": r.get("id"), "name": r.get("name") or "", "pin_mode": r.get("pin_mode") or "none"}
         for r in (settings_db.get("outbound_rules", []) or [])
         if isinstance(r, dict) and _match_dict_tenant(r, tenant_id)
     ]
@@ -3776,6 +3776,13 @@ async def apply_ai_configuration_plan(request: Request, payload: Dict[str, Any] 
                 allowed_exts = [str(x) for x in (p.get("allowed_extensions") or [])]
                 allowed_uids = [batch_ext_to_user_id[e] for e in allowed_exts if e in batch_ext_to_user_id]
 
+                pin_mode_val = str(p.get("pin_mode") or "none").strip().lower()
+                if pin_mode_val not in ("none", "always", "outside_work_hours", "custom_hours"):
+                    pin_mode_val = "none"
+                pin_code_val = re.sub(r"\D", "", str(p.get("pin_code") or ""))[:10]
+                if pin_mode_val != "none" and len(pin_code_val) < 4:
+                    pin_mode_val = "none"
+
                 settings_db.setdefault("outbound_rules", []).append({
                     "id": str(uuid.uuid4()),
                     "tenant_id": norm_tenant,
@@ -3784,6 +3791,11 @@ async def apply_ai_configuration_plan(request: Request, payload: Dict[str, Any] 
                     "patterns": [{"pattern": pattern, "strip": strip_n, "prepend": prepend}],
                     "trunk_ids": default_trunks,
                     "allowed_users": allowed_uids,
+                    "pin_mode": pin_mode_val,
+                    "pin_code": pin_code_val,
+                    "pin_start_time": str(p.get("pin_start_time") or "18:00").strip(),
+                    "pin_end_time": str(p.get("pin_end_time") or "09:00").strip(),
+                    "pin_exempt_users": [],
                 })
                 applied_summaries.append(f"Giden arama kuralı '{r_name}' ({pattern}) oluşturuldu.")
                 need_asterisk_sync = True
@@ -3799,6 +3811,12 @@ async def apply_ai_configuration_plan(request: Request, payload: Dict[str, Any] 
                             r["caller_id"] = str(p["caller_id"]).strip()
                         if p.get("pattern"):
                             r["patterns"] = [{"pattern": str(p["pattern"]).strip(), "strip": int(p.get("strip") or 0), "prepend": str(p.get("prepend") or "")}]
+                        if "pin_mode" in p:
+                            pm = str(p.get("pin_mode") or "none").strip().lower()
+                            if pm in ("none", "always", "outside_work_hours", "custom_hours"):
+                                r["pin_mode"] = pm
+                        if "pin_code" in p:
+                            r["pin_code"] = re.sub(r"\D", "", str(p.get("pin_code") or ""))[:10]
                 applied_summaries.append(f"Giden arama kuralı '{target}' güncellendi.")
                 need_asterisk_sync = True
 
