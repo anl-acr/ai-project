@@ -16642,14 +16642,27 @@ async def get_reports_agents():
         res_brk = await session.execute(stmt_brk)
         today_break_logs = res_brk.scalars().all()
 
+        failed_statuses = ("missed", "no_answer", "no answer", "busy", "cancelled", "canceled", "failed", "abandoned", "blocked", "rejected_limit")
         ext_call_counts = {}
         for tc in today_calls:
+            tc_st = str(tc.status or "").lower().strip()
+            if tc_st in failed_statuses:
+                continue
+            tc_hsrc = str(tc.hangup_source or "").strip()
+            if tc_hsrc.startswith("webrtc:unanswered") or tc_hsrc.startswith("call_error:"):
+                continue
+            if tc_st == "in_progress" and tc.answered_at is None and (tc.talk_duration or 0) <= 0 and ":answered:" not in tc_hsrc:
+                continue
             c_from = str(tc.caller_number or "").strip()
             c_to = str(tc.callee_number or "").strip()
+            ans_q_ext = ""
+            if ":answered:" in tc_hsrc:
+                ans_q_ext = tc_hsrc.split(":answered:", 1)[1].split(":", 1)[0].strip()
             if c_from:
                 ext_call_counts[c_from] = ext_call_counts.get(c_from, 0) + 1
-            if c_to and c_to != c_from:
-                ext_call_counts[c_to] = ext_call_counts.get(c_to, 0) + 1
+            eff_to = ans_q_ext or c_to
+            if eff_to and eff_to != c_from:
+                ext_call_counts[eff_to] = ext_call_counts.get(eff_to, 0) + 1
 
         agents_state = {}
         for u in users:
@@ -18771,28 +18784,57 @@ async def get_agent_stats(extension: str = None, user_id: str = None, db: AsyncS
     outbound_count = 0
     missed_count = 0
 
+    failed_statuses = ("missed", "no_answer", "no answer", "busy", "cancelled", "canceled", "failed", "abandoned", "blocked", "rejected_limit")
+
     for call in today_calls:
-        caller = str(call.caller_number or "")
-        callee = str(call.callee_number or "")
-        status = (call.status or "").lower()
+        caller = str(call.caller_number or "").strip()
+        callee = str(call.callee_number or "").strip()
+        status = (call.status or "").lower().strip()
+        hsrc = str(call.hangup_source or "").strip()
+        c_dur = _resolve_authoritative_talk_seconds(call)
+        is_unanswered_src = hsrc.startswith("webrtc:unanswered") or hsrc.startswith("call_error:")
 
         if target_exts:
-            is_caller = any(caller == ext or caller.endswith(ext) for ext in target_exts)
-            is_callee = any(callee == ext or callee.endswith(ext) for ext in target_exts)
+            is_caller = any(caller == ext or (len(ext) >= 3 and caller.endswith(ext)) for ext in target_exts)
+            is_callee = any(
+                callee == ext
+                or (len(ext) >= 3 and callee.endswith(ext))
+                or f":answered:{ext}" in hsrc
+                for ext in target_exts
+            )
+            if not is_caller and not is_callee:
+                continue
 
-            if is_callee and status in ("completed", "in_progress", "transferred", "answered"):
-                inbound_count += 1
-            elif is_caller and status in ("completed", "in_progress", "transferred", "answered"):
-                outbound_count += 1
-            elif (is_callee or is_caller) and status in ("missed", "no_answer", "busy", "cancelled", "failed", "abandoned", "blocked"):
+            # Unanswered queue calls are not personal missed calls
+            if hsrc.startswith("queue:") and not is_caller and not any(f":answered:{ext}" in hsrc for ext in target_exts):
+                continue
+
+            is_connected = (
+                status in ("completed", "transferred", "answered")
+                and not is_unanswered_src
+            ) or (
+                status == "in_progress"
+                and (call.answered_at is not None or c_dur > 0 or ":answered:" in hsrc or hsrc == "webrtc:callee_answered")
+            )
+
+            if is_connected:
+                if is_callee and not is_caller:
+                    inbound_count += 1
+                elif is_caller:
+                    outbound_count += 1
+            elif (status in failed_statuses or is_unanswered_src) and is_callee and not is_caller:
+                # Only unanswered INBOUND calls count as missed; failed outbound calls are excluded
                 missed_count += 1
         else:
-            if status in ("missed", "no_answer", "busy", "cancelled", "failed", "abandoned", "blocked"):
-                missed_count += 1
-            elif len(caller) <= 4 and caller.isdigit():
-                outbound_count += 1
-            else:
-                inbound_count += 1
+            is_outbound_ext = len(caller) <= 5 and caller.isdigit() and not (len(callee) <= 5 and callee.isdigit())
+            if status in failed_statuses or is_unanswered_src:
+                if not is_outbound_ext:
+                    missed_count += 1
+            elif status in ("completed", "transferred", "answered") or (status == "in_progress" and (call.answered_at is not None or c_dur > 0)):
+                if len(caller) <= 5 and caller.isdigit():
+                    outbound_count += 1
+                else:
+                    inbound_count += 1
 
     # 2. Fetch break logs for today
     stmt_breaks = select(AgentBreakLog).where(
@@ -19376,7 +19418,7 @@ async def get_agent_timeline_report(
                         "duration_label": fmt_dur(c_dur)
                     })
                 else:
-                    missed_count += 1
+                    # Failed/unanswered outbound calls are logged on timeline but excluded from missed & outbound KPI counters
                     raw_events.append({
                         "timestamp_utc": c_start,
                         "time": fmt_tr_time(c_start),
@@ -20352,16 +20394,26 @@ async def get_agent_queue_peers(
                 active_call_obj = call
 
             c_dur = _resolve_authoritative_talk_seconds(call)
+            failed_peer_statuses = ("missed", "no_answer", "no answer", "busy", "cancelled", "canceled", "failed", "abandoned", "blocked", "rejected_limit")
+            is_unanswered_src = hsrc.startswith("webrtc:unanswered") or hsrc.startswith("call_error:")
+            is_connected = (
+                st in ("completed", "transferred", "answered")
+                and not is_unanswered_src
+            ) or (
+                st == "in_progress"
+                and (call.answered_at is not None or c_dur > 0 or ":answered:" in hsrc or hsrc == "webrtc:callee_answered")
+            )
 
-            if st in ("completed", "in_progress", "transferred", "answered"):
-                if is_callee:
+            if is_connected:
+                if is_callee and not is_caller:
                     inbound_count += 1
                 elif is_caller:
                     outbound_count += 1
                 talk_seconds += c_dur
                 if call.end_time and (last_call_end_utc is None or call.end_time > last_call_end_utc):
                     last_call_end_utc = call.end_time
-            elif st in ("missed", "no_answer", "busy", "cancelled", "failed", "abandoned", "blocked"):
+            elif (st in failed_peer_statuses or is_unanswered_src) and is_callee and not is_caller:
+                # Only unanswered INBOUND calls count as missed; failed outbound calls are excluded from both missed and outbound counters
                 missed_count += 1
 
         # Determine real-time status & status_since_utc (matching Wallboard /api/reports/agents logic)
