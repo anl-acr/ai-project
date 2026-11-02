@@ -331,6 +331,7 @@ class PBXQueue(Base):
     join_announcement = Column(String, nullable=True)
     periodic_announcement_enabled = Column(Boolean, default=False)
     periodic_announcement = Column(String, nullable=True)
+    periodic_announcement_interval = Column(Integer, default=30)
     hold_music_class = Column(String, default="default")
     position_announcement_enabled = Column(Boolean, default=False)
     position_announcement_interval = Column(Integer, default=60)
@@ -344,12 +345,16 @@ class PBXQueue(Base):
     all_busy_routing_enabled = Column(Boolean, default=False)
     all_busy_destination_type = Column(String, default="")
     all_busy_destination_target = Column(String, default="")
+    all_busy_post_announcement_action = Column(String, default="hangup")
+    all_busy_post_announcement_target = Column(String, default="")
 
     # Max Wait Time Fallback Routing
     max_wait_time_enabled = Column(Boolean, default=False)
     max_wait_time = Column(Integer, default=120)
     max_wait_destination_type = Column(String, default="")
     max_wait_destination_target = Column(String, default="")
+    max_wait_post_announcement_action = Column(String, default="hangup")
+    max_wait_post_announcement_target = Column(String, default="")
 
     # Per-Queue Smart Callback (Otomatik Geri Arama)
     smart_callback_enabled = Column(Boolean, default=False)

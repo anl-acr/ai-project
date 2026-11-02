@@ -49,6 +49,12 @@ export default function QueueEditModal({ isOpen, onClose, onSave, queueData = nu
 
   useEffect(() => {
     setError(null);
+    setSearchTargetQuery("");
+    setSearchPostAnnTargetQuery("");
+    setMemberSearchQuery("");
+    setSelectedMemberSearchQuery("");
+    setSupervisorSearchQuery("");
+    setSelectedSupervisorSearchQuery("");
   }, [isOpen, queueData]);
 
   // Dropdown strategies
@@ -66,7 +72,11 @@ export default function QueueEditModal({ isOpen, onClose, onSave, queueData = nu
   const [callFlowsList, setCallFlowsList] = useState([]);
   const [trunksList, setTrunksList] = useState([]);
   const [searchTargetQuery, setSearchTargetQuery] = useState("");
+  const [searchPostAnnTargetQuery, setSearchPostAnnTargetQuery] = useState("");
   const [memberSearchQuery, setMemberSearchQuery] = useState("");
+  const [selectedMemberSearchQuery, setSelectedMemberSearchQuery] = useState("");
+  const [supervisorSearchQuery, setSupervisorSearchQuery] = useState("");
+  const [selectedSupervisorSearchQuery, setSelectedSupervisorSearchQuery] = useState("");
   const [newDispositionCode, setNewDispositionCode] = useState("");
 
   const DEFAULT_DISPOSITION_CODES = [
@@ -93,6 +103,7 @@ export default function QueueEditModal({ isOpen, onClose, onSave, queueData = nu
     join_announcement: "",
     periodic_announcement_enabled: false,
     periodic_announcement: "",
+    periodic_announcement_interval: 30,
     hold_music_class: "default",
     position_announcement_enabled: false,
     position_announcement_interval: 60,
@@ -104,6 +115,8 @@ export default function QueueEditModal({ isOpen, onClose, onSave, queueData = nu
     max_wait_time: 120,
     max_wait_destination_type: "",
     max_wait_destination_target: "",
+    max_wait_post_announcement_action: "hangup",
+    max_wait_post_announcement_target: "",
 
     // State: IVR Routing
     ivr_routes: {
@@ -125,6 +138,8 @@ export default function QueueEditModal({ isOpen, onClose, onSave, queueData = nu
     all_busy_routing_enabled: false,
     all_busy_destination_type: "",
     all_busy_destination_target: "",
+    all_busy_post_announcement_action: "hangup",
+    all_busy_post_announcement_target: "",
 
     notify_missed_calls: false,
     show_queue_name: false,
@@ -290,7 +305,12 @@ export default function QueueEditModal({ isOpen, onClose, onSave, queueData = nu
           ...prev,
           max_concurrent_breaks: 0,
           disposition_codes: DEFAULT_DISPOSITION_CODES,
+          periodic_announcement_interval: 30,
           show_queue_name: false,
+          all_busy_post_announcement_action: "hangup",
+          all_busy_post_announcement_target: "",
+          max_wait_post_announcement_action: "hangup",
+          max_wait_post_announcement_target: "",
           smart_callback_enabled: false,
           smart_callback_max_wait_seconds: 60,
           smart_callback_queue_threshold: 3,
@@ -315,6 +335,13 @@ export default function QueueEditModal({ isOpen, onClose, onSave, queueData = nu
           auto_pause_notify_user: true,
           auto_pause_notify_channels: "both",
           ...queueData,
+          periodic_announcement_interval: Number(queueData.periodic_announcement_interval) > 0
+            ? Number(queueData.periodic_announcement_interval)
+            : 30,
+          all_busy_post_announcement_action: queueData.all_busy_post_announcement_action || "hangup",
+          all_busy_post_announcement_target: queueData.all_busy_post_announcement_target || "",
+          max_wait_post_announcement_action: queueData.max_wait_post_announcement_action || "hangup",
+          max_wait_post_announcement_target: queueData.max_wait_post_announcement_target || "",
           survey_questions: existingQuestions,
           survey_thank_you_text:
             queueData.survey_thank_you_text ||
@@ -339,12 +366,13 @@ export default function QueueEditModal({ isOpen, onClose, onSave, queueData = nu
           extension: "", name: "", strategy: "ringall", max_calls: 0, ring_time: 15, acw_time: 5,
           max_concurrent_breaks: 0, disposition_codes: DEFAULT_DISPOSITION_CODES,
           join_announcement_enabled: false, join_announcement: "",
-          periodic_announcement_enabled: false, periodic_announcement: "",
+          periodic_announcement_enabled: false, periodic_announcement: "", periodic_announcement_interval: 30,
           hold_music_class: "default",
           position_announcement_enabled: false, position_announcement_interval: 60,
           estimated_hold_time_enabled: false, estimated_hold_time_interval: 60,
           max_wait_time_enabled: false, max_wait_time: 120,
           max_wait_destination_type: "", max_wait_destination_target: "",
+          max_wait_post_announcement_action: "hangup", max_wait_post_announcement_target: "",
           ivr_routes: {
             "1": { type: "", target: "" }, "2": { type: "", target: "" }, "3": { type: "", target: "" },
             "4": { type: "", target: "" }, "5": { type: "", target: "" }, "6": { type: "", target: "" },
@@ -354,6 +382,8 @@ export default function QueueEditModal({ isOpen, onClose, onSave, queueData = nu
           all_busy_routing_enabled: false,
           all_busy_destination_type: "",
           all_busy_destination_target: "",
+          all_busy_post_announcement_action: "hangup",
+          all_busy_post_announcement_target: "",
           notify_missed_calls: false,
           show_queue_name: false,
           smart_callback_enabled: false,
@@ -442,6 +472,7 @@ export default function QueueEditModal({ isOpen, onClose, onSave, queueData = nu
           ...formData,
           extension: extStr,
           name: qName,
+          periodic_announcement_interval: Math.max(5, Math.min(600, parseInt(formData.periodic_announcement_interval, 10) || 30)),
           survey_questions: normalizedQuestions,
           survey_question_announcement: firstAnnId,
           queueMembers,
@@ -501,8 +532,7 @@ export default function QueueEditModal({ isOpen, onClose, onSave, queueData = nu
     return found ? String(found.id) : valStr;
   };
 
-  const getMaxWaitTargets = () => {
-    const type = formData.max_wait_destination_type;
+  const getTargetsForActionType = (type) => {
     if (type === "user") {
       return allUsers.map(u => ({ id: String(u.extension || u.id), label: `${u.full_name} (Dahili: ${u.extension})` }));
     } else if (type === "queue") {
@@ -519,6 +549,8 @@ export default function QueueEditModal({ isOpen, onClose, onSave, queueData = nu
     }
     return [];
   };
+
+  const getMaxWaitTargets = () => getTargetsForActionType(formData.max_wait_destination_type);
 
   const renderSidebarTabs = () => (
     <div className="w-64 bg-slate-50/50 dark:bg-slate-950/30 border-r border-slate-100 dark:border-slate-800/60 p-4 shrink-0 overflow-y-auto">
@@ -656,20 +688,25 @@ export default function QueueEditModal({ isOpen, onClose, onSave, queueData = nu
 
         <div className="p-4 rounded-xl border border-slate-200/80 dark:border-slate-800 bg-white dark:bg-slate-900 flex items-center justify-between gap-4">
           <div>
-            <label className="block text-xs font-bold text-slate-800 dark:text-white">Kuyruk İsmini WebPhone&apos;da Göster</label>
-            <p className="text-[11px] text-slate-500 mt-0.5">
-              Bu kuyruktan temsilciye çağrı geldiğinde WebPhone ekranında arayan numara ile birlikte kuyruk ismini de gösterir.
+            <label htmlFor="queue-show-name-toggle" className="block text-xs font-bold text-slate-800 dark:text-white cursor-pointer">
+              Kuyruk İsmini Telefon Ekranında Göster
+            </label>
+            <p id="queue-show-name-desc" className="text-[11px] text-slate-500 mt-0.5">
+              Bu kuyruktan temsilciye çağrı geldiğinde WebPhone ve Masa Telefonu (IP Telefon) ekranında arayan numara ile birlikte kuyruk ismini de gösterir.
             </p>
           </div>
-          <label className="relative inline-flex items-center cursor-pointer shrink-0">
+          <label htmlFor="queue-show-name-toggle" className="relative inline-flex items-center cursor-pointer shrink-0">
             <input
+              id="queue-show-name-toggle"
               type="checkbox"
+              role="switch"
               name="show_queue_name"
+              aria-describedby="queue-show-name-desc"
               checked={Boolean(formData.show_queue_name)}
               onChange={handleChange}
               className="sr-only peer"
             />
-            <div className={`w-10 h-5 bg-slate-200 dark:bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:${bg}`}></div>
+            <div className={`w-10 h-5 bg-slate-200 dark:bg-slate-700 peer-focus-visible:ring-2 ${ring} rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:${bg}`}></div>
           </label>
         </div>
       </div>
@@ -1192,10 +1229,11 @@ export default function QueueEditModal({ isOpen, onClose, onSave, queueData = nu
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-4 border-t border-slate-100 dark:border-slate-800">
             {/* 1. Hedef Türü */}
             <div>
-              <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">
+              <label htmlFor="max-wait-dest-type" className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">
                 1. Hedef Tipi Seçin
               </label>
               <select
+                id="max-wait-dest-type"
                 name="max_wait_destination_type"
                 value={formData.max_wait_destination_type || ""}
                 onChange={(e) => {
@@ -1209,27 +1247,134 @@ export default function QueueEditModal({ isOpen, onClose, onSave, queueData = nu
                 <option value="queue">👥 Başka Kuyruğa Aktar</option>
                 <option value="call_flow">🔀 Çağrı Akışına Aktar</option>
                 <option value="ai_agent">🤖 AI Temsilciye Aktar</option>
-                <option value="announcement">🔊 Anons Çal / Kapat</option>
+                <option value="mobile_transfer">📱 Mobil Numaraya Transfer (GSM)</option>
+                <option value="voicemail">📩 Sesli Mesaja Aktar</option>
+                <option value="announcement">🔊 Anons Çal</option>
               </select>
             </div>
 
             {/* 2. Hedef Seçin */}
             {formData.max_wait_destination_type && (
               <div>
-                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">
-                  2. Hedef Seçin
+                <label htmlFor="max-wait-dest-target" className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">
+                  {formData.max_wait_destination_type === "announcement" ? "2. Çalınacak Anonsu Seçin" : "2. Hedef Seçin"}
                 </label>
-                <select
-                  name="max_wait_destination_target"
-                  value={formData.max_wait_destination_type === "announcement" ? resolveAnnouncementVal(formData.max_wait_destination_target) : (formData.max_wait_destination_target || "")}
-                  onChange={handleChange}
-                  className={`w-full text-xs px-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 focus:outline-none focus:ring-2 ${ring} text-slate-800 dark:text-white transition-all font-medium`}
-                >
-                  <option value="">Seçiniz...</option>
-                  {getMaxWaitTargets().map(t => (
-                    <option key={t.id} value={t.id}>{t.label}</option>
-                  ))}
-                </select>
+                {formData.max_wait_destination_type === "voicemail" ? (
+                  <div className="p-2.5 bg-slate-50 dark:bg-slate-800/40 text-slate-600 dark:text-slate-400 text-xs rounded-xl border border-slate-200 dark:border-slate-700">
+                    Maksimum bekleme süresi dolduğunda çağrı sesli mesaj kutusuna aktarılacaktır.
+                  </div>
+                ) : formData.max_wait_destination_type === "mobile_transfer" ? (
+                  <input
+                    id="max-wait-dest-target"
+                    type="tel"
+                    inputMode="tel"
+                    autoComplete="tel"
+                    name="max_wait_destination_target"
+                    placeholder="GSM Cep Telefonu Numarası Girin (Örn: 05321234567)"
+                    value={formData.max_wait_destination_target || ""}
+                    onChange={handleChange}
+                    className={`w-full text-xs px-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 focus:outline-none focus:ring-2 ${ring} text-slate-800 dark:text-white transition-all font-medium`}
+                  />
+                ) : (
+                  <select
+                    id="max-wait-dest-target"
+                    name="max_wait_destination_target"
+                    value={formData.max_wait_destination_type === "announcement" ? resolveAnnouncementVal(formData.max_wait_destination_target) : (formData.max_wait_destination_target || "")}
+                    onChange={handleChange}
+                    className={`w-full text-xs px-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 focus:outline-none focus:ring-2 ${ring} text-slate-800 dark:text-white transition-all font-medium`}
+                  >
+                    <option value="">Seçiniz...</option>
+                    {getMaxWaitTargets().map(t => (
+                      <option key={t.id} value={t.id}>{t.label}</option>
+                    ))}
+                  </select>
+                )}
+              </div>
+            )}
+
+            {/* 3. Anons Sonrası Çağrı Yönlendirmesi (Maksimum Bekleme Süresi) */}
+            {formData.max_wait_destination_type === "announcement" && (
+              <div className="md:col-span-2 pt-4 border-t border-slate-200/80 dark:border-slate-800 space-y-4">
+                <div>
+                  <h5 className="text-xs font-bold text-slate-800 dark:text-white flex items-center gap-2">
+                    <PhoneForwarded size={15} className={text} />
+                    Anons Sonrası Çağrı Yönlendirmesi
+                  </h5>
+                  <p className="text-[11px] text-slate-500 mt-0.5">
+                    Bekleme süresi anonsu tamamlandıktan hemen sonra çağrıya uygulanacak işlemi seçin.
+                  </p>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <div>
+                    <label htmlFor="max-wait-post-ann-action" className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">
+                      3. Anons Bittikten Sonra İşlem
+                    </label>
+                    <select
+                      id="max-wait-post-ann-action"
+                      name="max_wait_post_announcement_action"
+                      value={formData.max_wait_post_announcement_action || "hangup"}
+                      onChange={(e) => {
+                        handleChange(e);
+                        setFormData(prev => ({ ...prev, max_wait_post_announcement_target: "" }));
+                      }}
+                      className={`w-full text-xs px-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 focus:outline-none focus:ring-2 ${ring} text-slate-800 dark:text-white transition-all font-medium`}
+                    >
+                      <option value="hangup">📴 Çağrıyı Kapat (Sonlandır)</option>
+                      <option value="continue_queue">⏳ Mevcut Kuyrukta Beklemeye Devam Et</option>
+                      <option value="queue">👥 Başka Bir Kuyruğa Aktar</option>
+                      <option value="user">👤 Kullanıcı / Dahiliye Aktar</option>
+                      <option value="call_flow">🔀 Arama Akışına (Call Flow) Aktar</option>
+                      <option value="ai_agent">🤖 Yapay Zeka (AI) Temsilcisine Aktar</option>
+                      <option value="mobile_transfer">📱 Mobil Numaraya Transfer (GSM)</option>
+                      <option value="voicemail">📩 Sesli Mesaja Aktar</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label htmlFor="max-wait-post-ann-target" className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">
+                      4. Anons Sonrası Hedef
+                    </label>
+                    {(formData.max_wait_post_announcement_action || "hangup") === "hangup" ? (
+                      <div className="p-2.5 bg-slate-50 dark:bg-slate-800/40 text-slate-600 dark:text-slate-400 text-xs rounded-xl border border-slate-200 dark:border-slate-700">
+                        Seçilen anons tamamlandığında çağrı otomatik olarak sonlandırılacaktır.
+                      </div>
+                    ) : formData.max_wait_post_announcement_action === "continue_queue" ? (
+                      <div className="p-2.5 bg-slate-50 dark:bg-slate-800/40 text-slate-600 dark:text-slate-400 text-xs rounded-xl border border-slate-200 dark:border-slate-700">
+                        Anons tamamlandığında müşteri mevcut kuyrukta sırasını koruyarak beklemeye devam edecektir.
+                      </div>
+                    ) : formData.max_wait_post_announcement_action === "voicemail" ? (
+                      <div className="p-2.5 bg-slate-50 dark:bg-slate-800/40 text-slate-600 dark:text-slate-400 text-xs rounded-xl border border-slate-200 dark:border-slate-700">
+                        Anons tamamlandığında çağrı sesli mesaj kutusuna aktarılacaktır.
+                      </div>
+                    ) : formData.max_wait_post_announcement_action === "mobile_transfer" ? (
+                      <input
+                        id="max-wait-post-ann-target"
+                        type="tel"
+                        inputMode="tel"
+                        autoComplete="tel"
+                        name="max_wait_post_announcement_target"
+                        placeholder="GSM Cep Telefonu Numarası Girin (Örn: 05321234567)"
+                        value={formData.max_wait_post_announcement_target || ""}
+                        onChange={handleChange}
+                        className={`w-full text-xs px-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 focus:outline-none focus:ring-2 ${ring} text-slate-800 dark:text-white transition-all font-medium`}
+                      />
+                    ) : (
+                      <select
+                        id="max-wait-post-ann-target"
+                        name="max_wait_post_announcement_target"
+                        value={formData.max_wait_post_announcement_target || ""}
+                        onChange={handleChange}
+                        className={`w-full text-xs px-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 focus:outline-none focus:ring-2 ${ring} text-slate-800 dark:text-white transition-all font-medium`}
+                      >
+                        <option value="">Hedef Seçiniz...</option>
+                        {getTargetsForActionType(formData.max_wait_post_announcement_action).map(t => (
+                          <option key={t.id} value={t.id}>{t.label}</option>
+                        ))}
+                      </select>
+                    )}
+                  </div>
+                </div>
               </div>
             )}
           </div>
@@ -1255,43 +1400,108 @@ export default function QueueEditModal({ isOpen, onClose, onSave, queueData = nu
     const digits = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "0", "*", "#"];
     return (
       <div className="p-6 animate-in fade-in slide-in-from-bottom-2 duration-300 overflow-y-auto max-h-[60vh] space-y-6">
-        {/* Periyodik Anons Aç/Kapat & Ses Kaydı Seçimi */}
+        {/* Periyodik Anons Aç/Kapat, Ses Kaydı & Tekrar Süresi Seçimi */}
         <div className="p-5 bg-slate-50/70 dark:bg-slate-800/30 rounded-2xl border border-slate-200/80 dark:border-slate-800 space-y-4">
-          <div className="flex items-center justify-between">
+          <div className="flex items-center justify-between gap-4">
             <div>
-              <h4 className="text-xs font-bold text-slate-800 dark:text-white flex items-center gap-2">
+              <label htmlFor="queue-periodic-ann-toggle" className="text-xs font-bold text-slate-800 dark:text-white flex items-center gap-2 cursor-pointer">
                 <Volume2 size={15} className={text} /> Periyodik Anons Ayarları
-              </h4>
-              <p className="text-[11px] text-slate-500 mt-0.5">Bekleme sırasında belirli aralıklarla çalacak anonsu açın ve Anons Yönetimi'nden ses kaydını seçin.</p>
+              </label>
+              <p id="queue-periodic-ann-desc" className="text-[11px] text-slate-500 mt-0.5">
+                Bekleme sırasında belirli saniye aralıklarıyla çalacak anonsu açın, ses kaydını ve çalma sıklığını seçin.
+              </p>
             </div>
-            <label className="relative inline-flex items-center cursor-pointer shrink-0">
-              <input type="checkbox" name="periodic_announcement_enabled" checked={formData.periodic_announcement_enabled} onChange={handleChange} className="sr-only peer" />
-              <div className={`w-9 h-5 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all dark:border-slate-600 peer-checked:${bg}`}></div>
+            <label htmlFor="queue-periodic-ann-toggle" className="relative inline-flex items-center cursor-pointer shrink-0">
+              <input
+                id="queue-periodic-ann-toggle"
+                type="checkbox"
+                role="switch"
+                name="periodic_announcement_enabled"
+                aria-describedby="queue-periodic-ann-desc"
+                checked={Boolean(formData.periodic_announcement_enabled)}
+                onChange={handleChange}
+                className="sr-only peer"
+              />
+              <div className={`w-9 h-5 bg-slate-200 dark:bg-slate-700 peer-focus-visible:ring-2 ${ring} rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all dark:border-slate-600 peer-checked:${bg}`}></div>
             </label>
           </div>
           
           {formData.periodic_announcement_enabled && (
-            <div className="pt-3 border-t border-slate-200/60 dark:border-slate-800/60">
-              <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">Periyodik Anons Ses Kaydı (Özel Anonslar)</label>
-              <select 
-                name="periodic_announcement" 
-                value={resolveAnnouncementVal(formData.periodic_announcement)} 
-                onChange={handleChange} 
-                className={`w-full text-xs px-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 focus:outline-none focus:ring-2 ${ring} text-slate-800 dark:text-white transition-all font-medium`}
-              >
-                <option value="">Özel Anonslar&apos;dan Seçin...</option>
-                {formData.periodic_announcement && !customAnnouncementsList.some(a => String(a.id) === String(resolveAnnouncementVal(formData.periodic_announcement))) && (
-                  <option value={resolveAnnouncementVal(formData.periodic_announcement)}>
-                    {(() => {
-                      const legacy = announcementsList.find(x => String(x.id) === String(resolveAnnouncementVal(formData.periodic_announcement)));
-                      return legacy ? formatAnnouncementLabel(legacy) : `${formData.periodic_announcement} (Kayıtlı Anons)`;
-                    })()}
-                  </option>
-                )}
-                {customAnnouncementsList.map(a => (
-                  <option key={a.id || a.filename || a.name} value={a.id}>{formatAnnouncementLabel(a)}</option>
-                ))}
-              </select>
+            <div className="pt-4 border-t border-slate-200/60 dark:border-slate-800/60 grid grid-cols-1 lg:grid-cols-12 gap-4 items-start">
+              <div className="lg:col-span-7">
+                <label htmlFor="queue-periodic-ann-select" className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">
+                  Periyodik Anons Ses Kaydı (Özel Anonslar)
+                </label>
+                <select 
+                  id="queue-periodic-ann-select"
+                  name="periodic_announcement" 
+                  value={resolveAnnouncementVal(formData.periodic_announcement)} 
+                  onChange={handleChange} 
+                  className={`w-full text-xs px-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 focus:outline-none focus:ring-2 ${ring} text-slate-800 dark:text-white transition-all font-medium`}
+                >
+                  <option value="">Özel Anonslar&apos;dan Seçin...</option>
+                  {formData.periodic_announcement && !customAnnouncementsList.some(a => String(a.id) === String(resolveAnnouncementVal(formData.periodic_announcement))) && (
+                    <option value={resolveAnnouncementVal(formData.periodic_announcement)}>
+                      {(() => {
+                        const legacy = announcementsList.find(x => String(x.id) === String(resolveAnnouncementVal(formData.periodic_announcement)));
+                        return legacy ? formatAnnouncementLabel(legacy) : `${formData.periodic_announcement} (Kayıtlı Anons)`;
+                      })()}
+                    </option>
+                  )}
+                  {customAnnouncementsList.map(a => (
+                    <option key={a.id || a.filename || a.name} value={a.id}>{formatAnnouncementLabel(a)}</option>
+                  ))}
+                </select>
+                <p className="text-[10px] text-slate-500 mt-1.5">
+                  Anons Yönetimi &gt; Özel Anonslar altından yüklenen veya üretilen ses kayıtları listelenir.
+                </p>
+              </div>
+
+              <div className="lg:col-span-5">
+                <label htmlFor="queue-periodic-ann-interval" className="text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5 flex items-center gap-1.5">
+                  <Clock size={13} className={text} /> Tekrar Çalma Sıklığı (Saniye)
+                </label>
+                <div className="relative flex items-center">
+                  <input
+                    id="queue-periodic-ann-interval"
+                    type="number"
+                    min={5}
+                    max={600}
+                    step={5}
+                    name="periodic_announcement_interval"
+                    aria-describedby="queue-periodic-ann-interval-desc"
+                    value={formData.periodic_announcement_interval ?? 30}
+                    onChange={handleChange}
+                    className={`w-full text-xs pl-3 pr-24 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 focus:outline-none focus:ring-2 ${ring} text-slate-800 dark:text-white transition-all font-bold`}
+                  />
+                  <span className="absolute right-3 text-[11px] font-semibold text-slate-400 pointer-events-none">
+                    saniyede bir
+                  </span>
+                </div>
+                <div className="flex flex-wrap items-center gap-1.5 mt-2">
+                  {[15, 30, 45, 60, 90, 120].map((sec) => {
+                    const isSelected = Number(formData.periodic_announcement_interval || 30) === sec;
+                    return (
+                      <button
+                        key={sec}
+                        type="button"
+                        aria-pressed={isSelected}
+                        onClick={() => setFormData((prev) => ({ ...prev, periodic_announcement_interval: sec }))}
+                        className={`px-2 py-1 rounded-lg text-[10px] font-bold transition-all border ${
+                          isSelected
+                            ? `${bg} text-white ${border} shadow-sm`
+                            : "bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:border-slate-300 dark:hover:border-slate-600"
+                        }`}
+                      >
+                        {sec} sn
+                      </button>
+                    );
+                  })}
+                </div>
+                <p id="queue-periodic-ann-interval-desc" className="text-[10px] text-slate-500 mt-1.5">
+                  Önceki anons bittikten kaç saniye sonra tekrar çalacağını belirler (5–600 sn).
+                </p>
+              </div>
             </div>
           )}
         </div>
@@ -1473,9 +1683,45 @@ export default function QueueEditModal({ isOpen, onClose, onSave, queueData = nu
       String(u.extension || "").toLowerCase().includes(memberSearchQuery.toLowerCase())
     );
 
+    const filteredSelectedMembers = queueMembers.filter(qm => {
+      if (!selectedMemberSearchQuery.trim()) return true;
+      const q = selectedMemberSearchQuery.trim().toLowerCase();
+      const isSubGroup = !!qm.is_subscriber_group || String(qm.user_id || "").startsWith("group_");
+      if (isSubGroup) {
+        const grpId = String(qm.user_id).replace("group_", "");
+        const grpObj = (subscriberGroupsList || []).find(g => String(g.id) === grpId);
+        const grpName = grpObj ? String(grpObj.name || "") : `Abone Grubu #${grpId}`;
+        return grpName.toLowerCase().includes(q) || "abone grubu".includes(q);
+      }
+      const user = allUsers.find(x => String(x.id) === String(qm.user_id));
+      const ai = aiAgentsList.find(x => String(x.id) === String(qm.user_id));
+      const nameStr = user ? String(user.full_name || "") : (ai ? String(ai.name || "") : `Üye #${qm.user_id}`);
+      const extStr = user ? String(user.extension || "") : (ai ? "ai yapay zeka" : "");
+      return nameStr.toLowerCase().includes(q) || extStr.toLowerCase().includes(q);
+    });
+
     // Supervisor lists
     const eligibleSupervisors = allUsers.filter(u => (u.role === "supervisor" || u.role === "admin") && !supervisors.includes(u.id));
+    const filteredEligibleSupervisors = eligibleSupervisors.filter(u => {
+      if (!supervisorSearchQuery.trim()) return true;
+      const q = supervisorSearchQuery.trim().toLowerCase();
+      return (
+        String(u.full_name || "").toLowerCase().includes(q) ||
+        String(u.extension || "").toLowerCase().includes(q) ||
+        String(getRoleLabel(u.role) || "").toLowerCase().includes(q)
+      );
+    });
+
     const selectedSupervisors = allUsers.filter(u => supervisors.includes(u.id));
+    const filteredSelectedSupervisors = selectedSupervisors.filter(u => {
+      if (!selectedSupervisorSearchQuery.trim()) return true;
+      const q = selectedSupervisorSearchQuery.trim().toLowerCase();
+      return (
+        String(u.full_name || "").toLowerCase().includes(q) ||
+        String(u.extension || "").toLowerCase().includes(q) ||
+        String(getRoleLabel(u.role) || "").toLowerCase().includes(q)
+      );
+    });
 
     const toggleMember = (user) => {
       const targetId = user.ai_id || user.id;
@@ -1602,29 +1848,47 @@ export default function QueueEditModal({ isOpen, onClose, onSave, queueData = nu
         </div>
 
         <div className="grid grid-cols-2 gap-4 flex-1 overflow-hidden p-6 pb-2">
-          {/* Sol: Tüm Kullanıcılar, Abone Grupları ve AI Temsilcileri */}
+          {/* Sol: Tüm Kullanıcılar, Abone Grupları ve AI Temsilcileri / Yönetici Adayları */}
           <div className="flex flex-col border border-slate-200 dark:border-slate-800 rounded-2xl overflow-hidden bg-slate-50/50 dark:bg-slate-900/50">
             <div className="p-3 border-b border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/80 flex flex-col gap-2">
-              <h4 className="text-xs font-bold text-slate-800 dark:text-white">
-                {memberView === "agents" ? "Kullanıcılar, Abone Grupları & AI Temsilcileri" : "Yönetici Adayları"}
-              </h4>
+              <div className="flex justify-between items-center gap-2">
+                <h4 className="text-xs font-bold text-slate-800 dark:text-white">
+                  {memberView === "agents" ? "Kullanıcılar, Abone Grupları & AI Temsilcileri" : "Yönetici Adayları"}
+                </h4>
+                <span className="px-2 py-0.5 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 text-[10px] font-bold">
+                  {memberView === "agents" ? unassignedMembers.length : eligibleSupervisors.length} Uygun
+                </span>
+              </div>
 
-              {memberView === "agents" && (
-                <div className="relative">
-                  <Search size={13} className="absolute left-2.5 top-2.5 text-slate-400" />
-                  <input
-                    type="text"
-                    placeholder="Temsilci veya abone grubu ara..."
-                    value={memberSearchQuery}
-                    onChange={(e) => setMemberSearchQuery(e.target.value)}
-                    className="w-full pl-8 pr-3 py-1.5 text-[11px] bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-1 focus:ring-indigo-500"
-                  />
-                </div>
-              )}
+              <div className="relative">
+                <Search size={13} className="absolute left-2.5 top-2.5 text-slate-400 pointer-events-none" />
+                <input
+                  type="text"
+                  autoComplete="off"
+                  autoCorrect="off"
+                  autoCapitalize="off"
+                  spellCheck={false}
+                  aria-label={memberView === "agents" ? "Atanabilecek temsilci veya abone grubu ara" : "Yönetici adayı ara"}
+                  placeholder={memberView === "agents" ? "Temsilci, dahili veya abone grubu ara..." : "Yönetici adayı veya dahili ara..."}
+                  value={memberView === "agents" ? memberSearchQuery : supervisorSearchQuery}
+                  onChange={(e) => memberView === "agents" ? setMemberSearchQuery(e.target.value) : setSupervisorSearchQuery(e.target.value)}
+                  className={`w-full pl-8 pr-7 py-1.5 text-[11px] bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-2 ${ring} transition-all`}
+                />
+                {(memberView === "agents" ? memberSearchQuery : supervisorSearchQuery) && (
+                  <button
+                    type="button"
+                    aria-label="Aramayı temizle"
+                    onClick={() => memberView === "agents" ? setMemberSearchQuery("") : setSupervisorSearchQuery("")}
+                    className="absolute right-2 top-2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
+                  >
+                    <X size={13} />
+                  </button>
+                )}
+              </div>
             </div>
 
             <div className="flex-1 overflow-y-auto p-2 space-y-1 custom-scrollbar">
-              {(memberView === "agents" ? filteredUnassigned : eligibleSupervisors).map(u => (
+              {(memberView === "agents" ? filteredUnassigned : filteredEligibleSupervisors).map(u => (
                 <div 
                   key={u.id} 
                   onClick={() => memberView === "agents" ? toggleMember(u) : toggleSupervisor(u)} 
@@ -1673,25 +1937,57 @@ export default function QueueEditModal({ isOpen, onClose, onSave, queueData = nu
                   <ChevronRight size={14} className="text-slate-300 shrink-0" />
                 </div>
               ))}
-              {(memberView === "agents" ? filteredUnassigned : eligibleSupervisors).length === 0 && (
-                <div className="p-4 text-center text-xs text-slate-400">Atanabilecek üye bulunamadı.</div>
+              {(memberView === "agents" ? filteredUnassigned : filteredEligibleSupervisors).length === 0 && (
+                <div className="p-4 text-center text-xs text-slate-400">
+                  {(memberView === "agents" ? memberSearchQuery : supervisorSearchQuery)
+                    ? "Aramayla eşleşen kayıt bulunamadı."
+                    : (memberView === "agents" ? "Atanabilecek üye bulunamadı." : "Atanabilecek yönetici adayı bulunamadı.")}
+                </div>
               )}
             </div>
           </div>
 
-          {/* Sağ: Seçili Kullanıcılar */}
+          {/* Sağ: Seçili Kullanıcılar / Seçili Yöneticiler */}
           <div className="flex flex-col border border-slate-200 dark:border-slate-800 rounded-2xl overflow-hidden bg-slate-50/50 dark:bg-slate-900/50">
-            <div className="p-3 border-b border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/80 flex justify-between items-center">
-              <h4 className="text-xs font-bold text-slate-800 dark:text-white">
-                {memberView === "agents" ? "Kuyruk Üyeleri & Öncelikler" : "Kuyruk Yöneticileri"}
-              </h4>
-              <span className={`px-2 py-0.5 rounded-lg ${lightBg} ${text} text-[10px] font-bold`}>
-                {memberView === "agents" ? queueMembers.length : supervisors.length} Seçili
-              </span>
+            <div className="p-3 border-b border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/80 flex flex-col gap-2">
+              <div className="flex justify-between items-center gap-2">
+                <h4 className="text-xs font-bold text-slate-800 dark:text-white">
+                  {memberView === "agents" ? "Kuyruk Üyeleri & Öncelikler" : "Kuyruk Yöneticileri"}
+                </h4>
+                <span className={`px-2 py-0.5 rounded-lg ${lightBg} ${text} text-[10px] font-bold`}>
+                  {memberView === "agents" ? queueMembers.length : supervisors.length} Seçili
+                </span>
+              </div>
+
+              <div className="relative">
+                <Search size={13} className="absolute left-2.5 top-2.5 text-slate-400 pointer-events-none" />
+                <input
+                  type="text"
+                  autoComplete="off"
+                  autoCorrect="off"
+                  autoCapitalize="off"
+                  spellCheck={false}
+                  aria-label={memberView === "agents" ? "Seçili kuyruk üyeleri içinde ara" : "Seçili kuyruk yöneticileri içinde ara"}
+                  placeholder={memberView === "agents" ? "Seçili üyelerde veya dahilide ara..." : "Seçili yöneticilerde ara..."}
+                  value={memberView === "agents" ? selectedMemberSearchQuery : selectedSupervisorSearchQuery}
+                  onChange={(e) => memberView === "agents" ? setSelectedMemberSearchQuery(e.target.value) : setSelectedSupervisorSearchQuery(e.target.value)}
+                  className={`w-full pl-8 pr-7 py-1.5 text-[11px] bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-2 ${ring} transition-all`}
+                />
+                {(memberView === "agents" ? selectedMemberSearchQuery : selectedSupervisorSearchQuery) && (
+                  <button
+                    type="button"
+                    aria-label="Seçili liste aramasını temizle"
+                    onClick={() => memberView === "agents" ? setSelectedMemberSearchQuery("") : setSelectedSupervisorSearchQuery("")}
+                    className="absolute right-2 top-2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
+                  >
+                    <X size={13} />
+                  </button>
+                )}
+              </div>
             </div>
 
             <div className="flex-1 overflow-y-auto p-2 space-y-1.5 custom-scrollbar">
-              {memberView === "agents" && queueMembers.map(qm => {
+              {memberView === "agents" && filteredSelectedMembers.map(qm => {
                 const isSubGroup = !!qm.is_subscriber_group || String(qm.user_id || "").startsWith("group_");
                 const grpId = isSubGroup ? String(qm.user_id).replace("group_", "") : null;
                 const grpObj = isSubGroup ? (subscriberGroupsList || []).find(g => String(g.id) === grpId) : null;
@@ -1781,21 +2077,31 @@ export default function QueueEditModal({ isOpen, onClose, onSave, queueData = nu
                 );
               })}
 
-              {memberView === "supervisors" && selectedSupervisors.map(u => (
+              {memberView === "supervisors" && filteredSelectedSupervisors.map(u => (
                 <div key={u.id} className="flex items-center gap-2 p-2 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 shadow-sm transition-all group">
                   <img src={u.avatar || `https://ui-avatars.com/api/?name=${u.full_name}&background=random`} alt="" className="w-8 h-8 rounded-lg bg-slate-200 shrink-0 cursor-pointer" onClick={() => toggleSupervisor(u)} title="Çıkar" />
                   <div className="flex-1 min-w-0">
                     <p className="text-xs font-bold text-slate-700 dark:text-slate-200 truncate">{u.full_name}</p>
                     <p className="text-[10px] text-slate-400 truncate">{getRoleLabel(u.role)} • {u.extension}</p>
                   </div>
-                  <button onClick={() => toggleSupervisor(u)} className="w-6 h-6 rounded-md hover:bg-rose-50 hover:text-rose-500 text-slate-300 flex items-center justify-center transition-all shrink-0">
+                  <button type="button" aria-label={`${u.full_name} yöneticisini çıkar`} onClick={() => toggleSupervisor(u)} className="w-6 h-6 rounded-md hover:bg-rose-50 hover:text-rose-500 text-slate-300 flex items-center justify-center transition-all shrink-0">
                     <X size={12} />
                   </button>
                 </div>
               ))}
 
-              {(memberView === "agents" && queueMembers.length === 0) && <div className="p-4 text-center text-xs text-slate-400">Kuyruğa henüz üye eklenmedi.</div>}
-              {(memberView === "supervisors" && supervisors.length === 0) && <div className="p-4 text-center text-xs text-slate-400">Kuyruğa henüz yönetici atanmadı.</div>}
+              {(memberView === "agents" && queueMembers.length === 0) && (
+                <div className="p-4 text-center text-xs text-slate-400">Kuyruğa henüz üye eklenmedi.</div>
+              )}
+              {(memberView === "agents" && queueMembers.length > 0 && filteredSelectedMembers.length === 0) && (
+                <div className="p-4 text-center text-xs text-slate-400">Aramayla eşleşen seçili üye bulunamadı.</div>
+              )}
+              {(memberView === "supervisors" && supervisors.length === 0) && (
+                <div className="p-4 text-center text-xs text-slate-400">Kuyruğa henüz yönetici atanmadı.</div>
+              )}
+              {(memberView === "supervisors" && supervisors.length > 0 && filteredSelectedSupervisors.length === 0) && (
+                <div className="p-4 text-center text-xs text-slate-400">Aramayla eşleşen seçili yönetici bulunamadı.</div>
+              )}
             </div>
           </div>
         </div>
@@ -1823,93 +2129,103 @@ export default function QueueEditModal({ isOpen, onClose, onSave, queueData = nu
   };
 
   const renderBusyRoutingTab = () => {
-    // Target options generator
-    let targets = [];
     const type = formData.all_busy_destination_type;
-
-    if (type === "user") {
-      targets = allUsers.map(u => ({ id: String(u.extension || u.id), label: `${u.full_name} (Dahili: ${u.extension})` }));
-    } else if (type === "queue") {
-      targets = (allQueues || []).filter(q => !queueData || q.id !== queueData.id).map(q => ({ id: String(q.extension), label: `${q.name} (${q.extension})` }));
-    } else if (type === "call_flow") {
-      targets = (callFlowsList || []).map(cf => ({ id: String(cf.id), label: cf.name || `Akış #${cf.id}` }));
-    } else if (type === "ai_agent") {
-      targets = (aiAgentsList || []).map(a => ({ id: String(a.id), label: `🤖 ${a.name} (${a.model || 'AI'})` }));
-    } else if (type === "announcement") {
-      targets = [...systemAnnouncementsList, ...customAnnouncementsList].map(a => ({
-        id: String(a.id || a.filename || a.name),
-        label: formatAnnouncementLabel(a)
-      }));
-    }
+    const targets = getTargetsForActionType(type);
 
     const filteredTargets = targets.filter(t => 
       !searchTargetQuery || t.label.toLowerCase().includes(searchTargetQuery.toLowerCase()) || t.id.toLowerCase().includes(searchTargetQuery.toLowerCase())
     );
 
+    const postAction = formData.all_busy_post_announcement_action || "hangup";
+    const postTargets = getTargetsForActionType(postAction);
+    const filteredPostTargets = postTargets.filter(t =>
+      !searchPostAnnTargetQuery ||
+      t.label.toLowerCase().includes(searchPostAnnTargetQuery.toLowerCase()) ||
+      t.id.toLowerCase().includes(searchPostAnnTargetQuery.toLowerCase())
+    );
+
     return (
       <div className="p-6 space-y-6 animate-in fade-in slide-in-from-bottom-2 duration-300 overflow-y-auto max-h-[60vh]">
         {/* Switch Header */}
-        <div className="p-4 bg-slate-50/50 dark:bg-slate-800/20 rounded-2xl border border-slate-100 dark:border-slate-800/60 flex items-center justify-between">
+        <div className="p-4 bg-slate-50/50 dark:bg-slate-800/20 rounded-2xl border border-slate-100 dark:border-slate-800/60 flex items-center justify-between gap-4">
           <div>
-            <h4 className="text-xs font-bold text-slate-800 dark:text-white flex items-center gap-2">
+            <label htmlFor="queue-all-busy-toggle" className="text-xs font-bold text-slate-800 dark:text-white flex items-center gap-2 cursor-pointer">
               <Bot size={16} className={text} />
-              Tüm Agent'lar Meşgul İse Düşüş (Fallback) Yönlendirmesi
-            </h4>
-            <p className="text-[10px] text-slate-500 mt-0.5">Kuyruktaki tüm temsilciler meşgule düştüğünde çağrıyı otomatik olarak seçilen hedefe aktarın.</p>
+              Tüm Agent&apos;lar Meşgul İse Düşüş (Fallback) Yönlendirmesi
+            </label>
+            <p id="queue-all-busy-desc" className="text-[10px] text-slate-500 mt-0.5">
+              Kuyruktaki tüm temsilciler meşgule düştüğünde çağrıyı otomatik olarak seçilen hedefe aktarın.
+            </p>
           </div>
-          <label className="relative inline-flex items-center cursor-pointer shrink-0">
+          <label htmlFor="queue-all-busy-toggle" className="relative inline-flex items-center cursor-pointer shrink-0">
             <input 
+              id="queue-all-busy-toggle"
               type="checkbox" 
+              role="switch"
               name="all_busy_routing_enabled" 
+              aria-describedby="queue-all-busy-desc"
               checked={formData.all_busy_routing_enabled || false} 
               onChange={handleChange} 
               className="sr-only peer" 
             />
-            <div className={`w-9 h-5 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all dark:border-slate-600 peer-checked:${bg}`}></div>
+            <div className={`w-9 h-5 bg-slate-200 dark:bg-slate-700 peer-focus-visible:ring-2 ${ring} rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all dark:border-slate-600 peer-checked:${bg}`}></div>
           </label>
         </div>
 
         {formData.all_busy_routing_enabled && (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 p-4 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-sm">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 p-5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-sm">
             {/* 1. Açılır Liste: Hedef Türü */}
             <div>
-              <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">
+              <label htmlFor="all-busy-dest-type" className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">
                 1. Hedef Tipi Seçin
               </label>
               <select
+                id="all-busy-dest-type"
                 name="all_busy_destination_type"
                 value={formData.all_busy_destination_type || ""}
                 onChange={(e) => {
                   handleChange(e);
+                  setSearchTargetQuery("");
                   setFormData(prev => ({ ...prev, all_busy_destination_target: "" }));
                 }}
-                className={`w-full text-xs px-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950 focus:outline-none focus:ring-2 ${ring} text-slate-800 dark:text-white transition-all`}
+                className={`w-full text-xs px-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950 focus:outline-none focus:ring-2 ${ring} text-slate-800 dark:text-white transition-all font-medium`}
               >
                 <option value="">Hedef Tipi Seçiniz...</option>
-                <option value="user">Kullanıcı / Dahili</option>
-                <option value="queue">Başka Bir Kuyruk</option>
-                <option value="call_flow">Arama Akışı (Call Flow)</option>
-                <option value="ai_agent">Yapay Zeka (AI) Temsilcisi</option>
-                <option value="mobile_transfer">Mobil Numaraya Transfer (GSM)</option>
-                <option value="announcement">Anons Çal</option>
-                <option value="voicemail">Sesli Mesaj</option>
-                <option value="hangup">Çağrıyı Kapat</option>
+                <option value="user">👤 Kullanıcı / Dahili</option>
+                <option value="queue">👥 Başka Bir Kuyruk</option>
+                <option value="call_flow">🔀 Arama Akışı (Call Flow)</option>
+                <option value="ai_agent">🤖 Yapay Zeka (AI) Temsilcisi</option>
+                <option value="mobile_transfer">📱 Mobil Numaraya Transfer (GSM)</option>
+                <option value="announcement">🔊 Anons Çal</option>
+                <option value="voicemail">📩 Sesli Mesaj</option>
+                <option value="hangup">📴 Çağrıyı Kapat</option>
               </select>
             </div>
 
             {/* 2. Açılır Liste (Arama Kutusuna Sahip Spesifik Hedef Seçici) */}
             <div>
-              <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">
-                2. Spesifik Hedef Seçin (Aramalı)
+              <label htmlFor="all-busy-dest-target" className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">
+                {type === "announcement" ? "2. Çalınacak Anonsu Seçin (Aramalı)" : "2. Spesifik Hedef Seçin (Aramalı)"}
               </label>
               
-              {["hangup"].includes(type) ? (
+              {!type ? (
+                <div className="p-2.5 bg-slate-50 dark:bg-slate-800/40 text-slate-500 dark:text-slate-400 text-xs rounded-xl border border-slate-200/80 dark:border-slate-700/80">
+                  Önce sol taraftan bir yönlendirme hedef tipi seçiniz.
+                </div>
+              ) : type === "hangup" ? (
                 <div className="p-2.5 bg-slate-100 dark:bg-slate-800/40 text-slate-600 dark:text-slate-400 text-xs rounded-xl border border-slate-200 dark:border-slate-700">
-                  Çağrı meşgule düştüğünde otomatik olarak kapatılacaktır.
+                  Tüm temsilciler meşgul olduğunda çağrı otomatik olarak kapatılacaktır.
+                </div>
+              ) : type === "voicemail" ? (
+                <div className="p-2.5 bg-slate-100 dark:bg-slate-800/40 text-slate-600 dark:text-slate-400 text-xs rounded-xl border border-slate-200 dark:border-slate-700">
+                  Tüm temsilciler meşgul olduğunda çağrı otomatik olarak sesli mesaj karşılama kutusuna yönlendirilecektir.
                 </div>
               ) : type === "mobile_transfer" ? (
                 <input
-                  type="text"
+                  id="all-busy-dest-target"
+                  type="tel"
+                  inputMode="tel"
+                  autoComplete="tel"
                   name="all_busy_destination_target"
                   placeholder="GSM Cep Telefonu Numarası Girin (Örn: 05321234567)"
                   value={formData.all_busy_destination_target || ""}
@@ -1920,26 +2236,41 @@ export default function QueueEditModal({ isOpen, onClose, onSave, queueData = nu
                 <div className="space-y-2">
                   {/* Search Bar inside target selector */}
                   <div className="relative">
-                    <Search size={14} className="absolute left-3 top-3 text-slate-400" />
+                    <Search size={14} className="absolute left-3 top-2.5 text-slate-400 pointer-events-none" />
                     <input
                       type="text"
-                      placeholder="Listede hızlı ara..."
+                      aria-label={type === "announcement" ? "Anons listesinde ara" : "Hedef listesinde ara"}
+                      autoCorrect="off"
+                      autoCapitalize="off"
+                      spellCheck={false}
+                      placeholder={type === "announcement" ? "Anons adıyla hızlı ara..." : "Listede hızlı ara..."}
                       value={searchTargetQuery}
                       onChange={(e) => setSearchTargetQuery(e.target.value)}
-                      className="w-full pl-9 pr-3 py-1.5 text-xs bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                      className={`w-full pl-9 pr-8 py-1.5 text-xs bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-2 ${ring}`}
                     />
+                    {searchTargetQuery && (
+                      <button
+                        type="button"
+                        onClick={() => setSearchTargetQuery("")}
+                        aria-label="Hedef aramasını temizle"
+                        className="absolute right-2.5 top-2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
+                      >
+                        <X size={13} />
+                      </button>
+                    )}
                   </div>
 
                   <select
+                    id="all-busy-dest-target"
                     name="all_busy_destination_target"
                     value={type === "announcement" ? resolveAnnouncementVal(formData.all_busy_destination_target) : (formData.all_busy_destination_target || "")}
                     onChange={handleChange}
                     size={Math.min(6, Math.max(3, filteredTargets.length + 1))}
                     className={`w-full text-xs p-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950 focus:outline-none focus:ring-2 ${ring} text-slate-800 dark:text-white transition-all custom-scrollbar`}
                   >
-                    <option value="">-- Hedef Seçiniz --</option>
+                    <option value="">{type === "announcement" ? "-- Çalınacak Anonsu Seçiniz --" : "-- Hedef Seçiniz --"}</option>
                     {filteredTargets.map(t => (
-                      <option key={t.id} value={t.id} className="py-1 px-2 hover:bg-indigo-50 dark:hover:bg-indigo-950">
+                      <option key={t.id} value={t.id} className="py-1 px-2">
                         {t.label}
                       </option>
                     ))}
@@ -1947,6 +2278,127 @@ export default function QueueEditModal({ isOpen, onClose, onSave, queueData = nu
                 </div>
               )}
             </div>
+
+            {/* 3 & 4. Anons Sonrası Çağrı Yönlendirmesi (Sadece "Anons Çal" seçildiğinde görünür) */}
+            {type === "announcement" && (
+              <div className="md:col-span-2 pt-5 border-t border-slate-200/80 dark:border-slate-800 space-y-4">
+                <div className={`p-3.5 rounded-xl ${lightBg} border ${borderLight} flex items-start gap-3`}>
+                  <PhoneForwarded size={16} className={`${text} mt-0.5 shrink-0`} />
+                  <div>
+                    <h5 className="text-xs font-bold text-slate-800 dark:text-white">
+                      Anons Sonrası Çağrı Yönlendirmesi
+                    </h5>
+                    <p className="text-[11px] text-slate-600 dark:text-slate-400 mt-0.5">
+                      Yukarıda seçtiğiniz anons müşteriye dinletildikten hemen sonra çağrının nasıl yönetileceğini belirleyin (kapatma, mevcut kuyrukta beklemeye devam etme veya başka bir hedefe aktarma).
+                    </p>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  {/* 3. Anons Bittikten Sonra İşlem */}
+                  <div>
+                    <label htmlFor="all-busy-post-ann-action" className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">
+                      3. Anons Bittikten Sonra Çağrıya Ne Yapılsın?
+                    </label>
+                    <select
+                      id="all-busy-post-ann-action"
+                      name="all_busy_post_announcement_action"
+                      value={postAction}
+                      onChange={(e) => {
+                        handleChange(e);
+                        setSearchPostAnnTargetQuery("");
+                        setFormData(prev => ({ ...prev, all_busy_post_announcement_target: "" }));
+                      }}
+                      className={`w-full text-xs px-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950 focus:outline-none focus:ring-2 ${ring} text-slate-800 dark:text-white transition-all font-medium`}
+                    >
+                      <option value="hangup">📴 Çağrıyı Kapat (Sonlandır)</option>
+                      <option value="continue_queue">⏳ Mevcut Kuyrukta Beklemeye Devam Et</option>
+                      <option value="queue">👥 Başka Bir Kuyruğa Aktar</option>
+                      <option value="user">👤 Kullanıcı / Dahiliye Aktar</option>
+                      <option value="call_flow">🔀 Arama Akışına (Call Flow) Aktar</option>
+                      <option value="ai_agent">🤖 Yapay Zeka (AI) Temsilcisine Aktar</option>
+                      <option value="mobile_transfer">📱 Mobil Numaraya Transfer (GSM)</option>
+                      <option value="voicemail">📩 Sesli Mesaja Aktar</option>
+                    </select>
+                  </div>
+
+                  {/* 4. Anons Sonrası Spesifik Hedef */}
+                  <div>
+                    <label htmlFor="all-busy-post-ann-target" className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">
+                      4. Anons Sonrası Hedef Seçin
+                    </label>
+                    {postAction === "hangup" ? (
+                      <div className="p-2.5 bg-slate-100 dark:bg-slate-800/40 text-slate-600 dark:text-slate-400 text-xs rounded-xl border border-slate-200 dark:border-slate-700">
+                        Seçilen anons dinletildikten hemen sonra çağrı otomatik olarak kapatılacaktır.
+                      </div>
+                    ) : postAction === "continue_queue" ? (
+                      <div className="p-2.5 bg-slate-100 dark:bg-slate-800/40 text-slate-600 dark:text-slate-400 text-xs rounded-xl border border-slate-200 dark:border-slate-700">
+                        Bilgilendirme anonsu tamamlandığında müşteri mevcut kuyrukta sıraya alınarak boşalan ilk temsilciyi beklemeye devam edecektir.
+                      </div>
+                    ) : postAction === "voicemail" ? (
+                      <div className="p-2.5 bg-slate-100 dark:bg-slate-800/40 text-slate-600 dark:text-slate-400 text-xs rounded-xl border border-slate-200 dark:border-slate-700">
+                        Seçilen anons tamamlandığında çağrı otomatik olarak sesli mesaj kutusuna aktarılacaktır.
+                      </div>
+                    ) : postAction === "mobile_transfer" ? (
+                      <input
+                        id="all-busy-post-ann-target"
+                        type="tel"
+                        inputMode="tel"
+                        autoComplete="tel"
+                        name="all_busy_post_announcement_target"
+                        placeholder="GSM Cep Telefonu Numarası Girin (Örn: 05321234567)"
+                        value={formData.all_busy_post_announcement_target || ""}
+                        onChange={handleChange}
+                        className={`w-full text-xs px-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950 focus:outline-none focus:ring-2 ${ring} text-slate-800 dark:text-white transition-all`}
+                      />
+                    ) : (
+                      <div className="space-y-2">
+                        <div className="relative">
+                          <Search size={14} className="absolute left-3 top-2.5 text-slate-400 pointer-events-none" />
+                          <input
+                            type="text"
+                            aria-label="Anons sonrası hedef listesinde ara"
+                            autoCorrect="off"
+                            autoCapitalize="off"
+                            spellCheck={false}
+                            placeholder="Anons sonrası hedefte ara..."
+                            value={searchPostAnnTargetQuery}
+                            onChange={(e) => setSearchPostAnnTargetQuery(e.target.value)}
+                            className={`w-full pl-9 pr-8 py-1.5 text-xs bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-2 ${ring}`}
+                          />
+                          {searchPostAnnTargetQuery && (
+                            <button
+                              type="button"
+                              onClick={() => setSearchPostAnnTargetQuery("")}
+                              aria-label="Anons sonrası hedef aramasını temizle"
+                              className="absolute right-2.5 top-2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
+                            >
+                              <X size={13} />
+                            </button>
+                          )}
+                        </div>
+
+                        <select
+                          id="all-busy-post-ann-target"
+                          name="all_busy_post_announcement_target"
+                          value={formData.all_busy_post_announcement_target || ""}
+                          onChange={handleChange}
+                          size={Math.min(6, Math.max(3, filteredPostTargets.length + 1))}
+                          className={`w-full text-xs p-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950 focus:outline-none focus:ring-2 ${ring} text-slate-800 dark:text-white transition-all custom-scrollbar`}
+                        >
+                          <option value="">-- Anons Sonrası Hedef Seçiniz --</option>
+                          {filteredPostTargets.map(t => (
+                            <option key={t.id} value={t.id} className="py-1 px-2">
+                              {t.label}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
         )}
       </div>

@@ -129,7 +129,34 @@ stunaddr=stun.l.google.com:19302
             print(f"[Sync Script] rtp.conf error: {e}")
 
     # Generate /etc/asterisk/pjsip_custom.conf directly in sync script
+    import hashlib
+    import re as _re_sync
+
+    def resolve_user_sip_username(ext_val, raw_sip_user=""):
+        ext_s = str(ext_val or "").strip()
+        cand = _re_sync.sub(r"[^a-zA-Z0-9_.-]", "", str(raw_sip_user or "").strip())
+        if cand and cand != ext_s:
+            return cand
+        seed = f"AIDA_SIP_USER_V1_{ext_s or '1000'}"
+        digest = hashlib.sha256(seed.encode("utf-8")).hexdigest()
+        alpha_up = "ABCDEFGHJKLMNPQRSTUVWXYZ"
+        alpha_lo = "abcdefghijkmnopqrstuvwxyz"
+        digits = "23456789"
+        b = bytes.fromhex(digest[:16])
+        chars = [
+            alpha_up[b[0] % len(alpha_up)],
+            alpha_lo[b[1] % len(alpha_lo)],
+            digits[b[2] % len(digits)],
+            alpha_up[b[3] % len(alpha_up)],
+            alpha_lo[b[4] % len(alpha_lo)],
+            digits[b[5] % len(digits)],
+            alpha_up[b[6] % len(alpha_up)],
+            digits[b[7] % len(digits)],
+        ]
+        return "".join(chars)
+
     sdata = {}
+    users_list = []
     try:
         import json
         settings_json_path = os.path.join(BASE_DIR, "settings.json")
@@ -465,8 +492,9 @@ trust_id_inbound={trust_id_in}
 
         has_1000_in_users = any(str(u.get("extension") or "").strip() == "1000" and (u.get("is_active", True) is not False) for u in users_list)
         if not has_1000_in_users:
+            sip_1000 = resolve_user_sip_username("1000", "")
             pjsip_custom_content += f"""
-; --- DEFAULT WEBRTC AGENT: 1000 ---
+; --- DEFAULT WEBRTC & DESKPHONE AGENT: 1000 ---
 [1000]
 type=endpoint
 context=webrtc_agents
@@ -484,6 +512,9 @@ dtls_verify=fingerprint
 dtls_setup=actpass
 ice_support=yes
 media_use_received_transport=yes
+send_pai=yes
+send_rpid=yes
+rpid_immediate=yes
 auth=1000-auth
 aors=1000
 callerid={name_1000} <1000>
@@ -498,6 +529,34 @@ password={pwd_1000}
 type=aor
 max_contacts=5
 remove_existing=yes
+
+[{sip_1000}]
+type=endpoint
+context=webrtc_agents
+disallow=all
+allow=ulaw,alaw,g722,g729
+direct_media=no
+force_rport=yes
+rewrite_contact=yes
+rtp_symmetric=yes
+send_pai=yes
+send_rpid=yes
+rpid_immediate=yes
+auth={sip_1000}-auth
+aors={sip_1000}
+callerid={name_1000} <1000>
+
+[{sip_1000}-auth]
+type=auth
+auth_type=userpass
+username={sip_1000}
+password={pwd_1000}
+
+[{sip_1000}]
+type=aor
+max_contacts=5
+remove_existing=yes
+qualify_frequency=30
 """
         seen_exts = set()
         for u in users_list:
@@ -510,7 +569,7 @@ remove_existing=yes
             seen_exts.add(ext)
             pwd = resolve_secure_sip_password(ext, u.get("sip_password") or "")
             name = u.get("full_name") or u.get("username") or ext
-            sip_user = str(u.get("sip_username") or "").strip()
+            sip_user = resolve_user_sip_username(ext, u.get("sip_username") or "")
             try:
                 max_act = max(5, int(u.get("max_activations") or 5))
             except Exception:
@@ -534,6 +593,9 @@ dtls_verify=fingerprint
 dtls_setup=actpass
 ice_support=yes
 media_use_received_transport=yes
+send_pai=yes
+send_rpid=yes
+rpid_immediate=yes
 auth={ext}-auth
 aors={ext}
 callerid={name} <{ext}>
@@ -560,8 +622,11 @@ direct_media=no
 force_rport=yes
 rewrite_contact=yes
 rtp_symmetric=yes
+send_pai=yes
+send_rpid=yes
+rpid_immediate=yes
 auth={sip_user}-auth
-aors={ext}
+aors={sip_user}
 callerid={name} <{ext}>
 
 [{sip_user}-auth]
@@ -569,6 +634,12 @@ type=auth
 auth_type=userpass
 username={sip_user}
 password={pwd}
+
+[{sip_user}]
+type=aor
+max_contacts={max_act}
+remove_existing=yes
+qualify_frequency=30
 """
 
         # Write directly to /etc/asterisk/pjsip_custom.conf
@@ -708,7 +779,28 @@ same => n,Hangup()
 
     dynamic_feature_dialplan = "\n".join(feat_blocks)
 
-    webrtc_header_and_features = f"""; Hedefli Çağrı Çekme (Directed Call Pickup: {pickup_directed}1001 vb.) ve Grup Çağrı Çekme ({pickup_group})
+    hint_lines_sync = []
+    seen_hint_exts_sync = set()
+    for u_h in (users_list or []):
+        if u_h.get("is_active") is False:
+            continue
+        h_ext = str(u_h.get("extension") or "").strip()
+        if not h_ext or h_ext in seen_hint_exts_sync:
+            continue
+        seen_hint_exts_sync.add(h_ext)
+        h_sip = resolve_user_sip_username(h_ext, u_h.get("sip_username") or "")
+        if h_sip and h_sip != h_ext:
+            hint_lines_sync.append(f"exten => {h_ext},hint,PJSIP/{h_ext}&PJSIP/{h_sip}")
+        else:
+            hint_lines_sync.append(f"exten => {h_ext},hint,PJSIP/{h_ext}")
+    if "1000" not in seen_hint_exts_sync:
+        hint_lines_sync.append(f"exten => 1000,hint,PJSIP/1000&PJSIP/{resolve_user_sip_username('1000', '')}")
+    agent_hints_str = "\n".join(hint_lines_sync)
+
+    webrtc_header_and_features = f"""; Kuyruk Cihaz Durumu (State Interface) ve Masa Telefonu BLF İpuçları (WebPhone + Masa Telefonu Birleşik)
+{agent_hints_str}
+
+; Hedefli Çağrı Çekme (Directed Call Pickup: {pickup_directed}1001 vb.) ve Grup Çağrı Çekme ({pickup_group})
 exten => _{pickup_directed}X.,1,NoOp(Hedefli Cagri Cekme: Ceken=${{CALLERID(num)}} -> Calan=${{EXTEN:{pickup_dir_len}}})
 same => n,Set(CURLOPT(conntimeout)=1)
 same => n,Set(CURLOPT(httptimeout)=2)
@@ -831,6 +923,96 @@ same => n(chk_ptime),GotoIf($["${OUT_MAXPTIME}" = ""]?done_hdrs)
 same => n,Set(PJSIP_HEADER(add,X-Maxptime)=${OUT_MAXPTIME})
 same => n(done_hdrs),Return()
 
+[queue_router_sub]
+exten => s,1,NoOp(Kuyruk Yonlendirme Motoru Basladi: Kuyruk=${ARG1}, CallID=${CALL_UUID})
+same => n,Set(CURLOPT(conntimeout)=1)
+same => n,Set(CURLOPT(httptimeout)=2)
+same => n,Set(CUR_Q_EXT=${ARG1})
+same => n,Set(Q_FB_DEPTH=0)
+same => n,Set(FALLBACK_HANDLED=0)
+same => n(q_eval_entry),Set(Q_FB_DEPTH=$[${Q_FB_DEPTH} + 1])
+same => n,GotoIf($[${Q_FB_DEPTH} > 5]?q_ret)
+same => n,Set(Q_FREE_CNT=${QUEUE_MEMBER(${CUR_Q_EXT},free)})
+same => n,Set(Q_LOGGED_CNT=${QUEUE_MEMBER(${CUR_Q_EXT},logged)})
+same => n,Set(Q_PRE_RES=${CURL(http://127.0.0.1:8000/api/queues/evaluate_routing?queue_ext=${URIENCODE(${CUR_Q_EXT})}&stage=before&free_cnt=${URIENCODE(${Q_FREE_CNT})}&logged_cnt=${URIENCODE(${Q_LOGGED_CNT})}&call_id=${URIENCODE(${CALL_UUID})}&caller=${URIENCODE(${CALLERID(num)})})})
+same => n,Set(Q_MODE=${CUT(Q_PRE_RES,|,1)})
+same => n,Set(Q_ANN_WAV=${CUT(Q_PRE_RES,|,2)})
+same => n,Set(Q_ACT_TYPE=${CUT(Q_PRE_RES,|,3)})
+same => n,Set(Q_ACT_TARGET=${CUT(Q_PRE_RES,|,4)})
+same => n,Set(Q_MAX_WAIT=${CUT(Q_PRE_RES,|,5)})
+same => n,GotoIf($["${Q_MODE}" = "FALLBACK"]?q_exec_fallback)
+same => n(q_do_queue),Set(Q_DISP_NAME=${CURL(http://127.0.0.1:8000/api/queues/resolve_display_name?queue_ext=${URIENCODE(${CUR_Q_EXT})}&call_id=${CALL_UUID}&caller=${URIENCODE(${CALLERID(num)})})})
+same => n,Set(ORIG_CID_LABEL=${IF($["${ORIG_CID_LABEL}" != ""]?${ORIG_CID_LABEL}:${IF($["${CALLERID(name)}" != "" & "${CALLERID(name)}" != "${CALLERID(num)}"]?${CALLERID(name)}:${CALLERID(num)})})})
+same => n,Set(CALLERID(name)=${IF($["${Q_DISP_NAME}" != ""]?[${Q_DISP_NAME}] ${ORIG_CID_LABEL}:${ORIG_CID_LABEL})})
+same => n,GotoIf($["${Q_MAX_WAIT}" != ""]?q_with_timeout:q_no_timeout)
+same => n(q_with_timeout),Queue(${CUR_Q_EXT},tTc,,,${Q_MAX_WAIT})
+same => n,Goto(q_after_queue)
+same => n(q_no_timeout),Queue(${CUR_Q_EXT},tTc)
+same => n(q_after_queue),GotoIf($["${MEMBERINTERFACE}" != ""]?q_answered)
+same => n,Set(Q_POST_RES=${CURL(http://127.0.0.1:8000/api/queues/evaluate_routing?queue_ext=${URIENCODE(${CUR_Q_EXT})}&stage=after&queuestatus=${URIENCODE(${QUEUESTATUS})}&call_id=${URIENCODE(${CALL_UUID})}&caller=${URIENCODE(${CALLERID(num)})})})
+same => n,Set(Q_MODE=${CUT(Q_POST_RES,|,1)})
+same => n,GotoIf($["${Q_MODE}" != "FALLBACK"]?q_unanswered)
+same => n,Set(Q_ANN_WAV=${CUT(Q_POST_RES,|,2)})
+same => n,Set(Q_ACT_TYPE=${CUT(Q_POST_RES,|,3)})
+same => n,Set(Q_ACT_TARGET=${CUT(Q_POST_RES,|,4)})
+same => n,Goto(q_exec_fallback)
+same => n(q_exec_fallback),NoOp(Kuyruk Fallback Uygulaniyor: Ann=${Q_ANN_WAV} Act=${Q_ACT_TYPE} Target=${Q_ACT_TARGET})
+same => n,Set(FALLBACK_HANDLED=1)
+same => n,GotoIf($["${Q_ANN_WAV}" = ""]?q_dispatch_act)
+same => n,Answer()
+same => n,Playback(/var/spool/asterisk/monitor/${Q_ANN_WAV})
+same => n(q_dispatch_act),GotoIf($["${Q_ACT_TYPE}" = "CONTINUE_QUEUE"]?q_cont_queue)
+same => n,GotoIf($["${Q_ACT_TYPE}" = "HANGUP"]?q_fb_hangup)
+same => n,GotoIf($["${Q_ACT_TYPE}" = "VOICEMAIL"]?q_fb_voicemail)
+same => n,GotoIf($["${Q_ACT_TYPE}" = "QUEUE"]?q_fb_queue)
+same => n,GotoIf($["${Q_ACT_TYPE}" = "USER"]?q_fb_user)
+same => n,GotoIf($["${Q_ACT_TYPE}" = "GSM"]?q_fb_gsm)
+same => n,GotoIf($["${Q_ACT_TYPE}" = "AUDIOSOCKET"]?q_fb_audiosocket)
+same => n,Goto(q_fb_hangup)
+same => n(q_cont_queue),Set(Q_FB_DEPTH=$[${Q_FB_DEPTH} + 1])
+same => n,GotoIf($[${Q_FB_DEPTH} > 6]?q_fb_hangup)
+same => n,Set(FALLBACK_HANDLED=0)
+same => n,Goto(q_do_queue)
+same => n(q_fb_queue),GotoIf($["${Q_ACT_TARGET}" = ""]?q_fb_hangup)
+same => n,Set(CUR_Q_EXT=${Q_ACT_TARGET})
+same => n,Goto(q_eval_entry)
+same => n(q_fb_voicemail),Answer()
+same => n,Playback(/var/spool/asterisk/monitor/tr_sesli_mesaj)
+same => n,Set(DIALSTATUS=NOANSWER)
+same => n,Goto(q_ret)
+same => n(q_fb_user),GotoIf($["${Q_ACT_TARGET}" = ""]?q_fb_hangup)
+same => n,Set(FB_AG_CFG=${CURL(http://127.0.0.1:8000/api/subscriber/resolve_agent_ring_targets?extension=${URIENCODE(${Q_ACT_TARGET})})})
+same => n,Set(FB_W_EP=${IF($["${FB_AG_CFG}" != "NONE"]?${CUT(FB_AG_CFG,:,1)}:${Q_ACT_TARGET})})
+same => n,Set(FB_D_EP=${IF($["${FB_AG_CFG}" != "NONE"]?${CUT(FB_AG_CFG,:,2)}:)})
+same => n,Set(FB_W_C=${IF($["${FB_W_EP}" != ""]?${PJSIP_DIAL_CONTACTS(${FB_W_EP})}:)})
+same => n,Set(FB_D_C=${IF($["${FB_D_EP}" != ""]?${PJSIP_DIAL_CONTACTS(${FB_D_EP})}:)})
+same => n,Set(FB_COMB=${IF($["${FB_W_C}" != "" & "${FB_D_C}" != ""]?${FB_W_C}&${FB_D_C}:${IF($["${FB_W_C}" != ""]?${FB_W_C}:${FB_D_C})})})
+same => n,Set(FB_DIAL_STR=${IF($["${FB_COMB}" != ""]?${FB_COMB}:PJSIP/${Q_ACT_TARGET})})
+same => n,Dial(${FB_DIAL_STR},30,tTg)
+same => n,Goto(q_ret)
+same => n(q_fb_gsm),GotoIf($["${Q_ACT_TARGET}" = ""]?q_fb_hangup)
+same => n,Set(CALLERID(num)=908503607390)
+same => n,Set(CALLERID(name)=908503607390)
+same => n,Dial(PJSIP/Operator_Trunk/sip:${Q_ACT_TARGET}@ikonsip.com:5060,45,r)
+same => n,Goto(q_ret)
+same => n(q_fb_audiosocket),Answer()
+same => n,AudioSocket(${CALL_UUID},127.0.0.1:9092)
+same => n,Hangup()
+same => n(q_fb_hangup),Set(DIALSTATUS=NOANSWER)
+same => n,Goto(q_ret)
+same => n(q_answered),Set(DIALSTATUS=ANSWER)
+same => n,Goto(q_ret)
+same => n(q_unanswered),Set(DIALSTATUS=NOANSWER)
+same => n(q_ret),Return()
+
+exten => h,1,NoOp(Kuyruk alt rutini sonlandi. Call ID: ${CALL_UUID}, Status: ${DIALSTATUS}, QueueStatus: ${QUEUESTATUS}, Member: ${MEMBERINTERFACE}, Cause: ${HANGUPCAUSE})
+same => n,StopMixMonitor()
+same => n,GotoIf($["${CALL_UUID}" = ""]?done_qsub_h)
+same => n,Set(CURLOPT(conntimeout)=1)
+same => n,Set(CURLOPT(httptimeout)=2)
+same => n,Set(CURL_RESULT=${CURL(http://127.0.0.1:8000/api/calls/end?call_id=${CALL_UUID}&dialstatus=${DIALSTATUS}&hangupcause=${HANGUPCAUSE}&queuestatus=${QUEUESTATUS}&memberinterface=${URIENCODE(${MEMBERINTERFACE})}&hangupsource=${URIENCODE(${CHANNEL(hangupsource)})}&trunk=${URIENCODE(${OUT_TRUNK_NAME})}&answeredtime=${ANSWEREDTIME}&dialedtime=${DIALEDTIME})})
+same => n(done_qsub_h),NoOp(Kuyruk Hangup tamamlandi)
+
 [default]
 ; Operatörden gelen aramaları yakalamak için (Standart numara eşleşmesi)
 exten => _X.,1,NoOp(Gelen arama DID ile yakalandi: ${EXTEN} - Arayan: ${CALLERID(num)})
@@ -907,11 +1089,8 @@ exten => transfer_to_human,1,NoOp(Yapay zeka cagriyi temsilciye aktariyor: ${UNI
 same => n,StopMixMonitor()
 same => n,MixMonitor(/var/spool/asterisk/monitor/${CALL_UUID}.wav,ab)
 same => n,Playback(/var/spool/asterisk/monitor/tr_aktariliyor)
-same => n,Set(CURLOPT(conntimeout)=1)
-same => n,Set(CURLOPT(httptimeout)=2)
-same => n,Set(Q_DISP_NAME=${CURL(http://127.0.0.1:8000/api/queues/resolve_display_name?queue_ext=temsilci_kuyrugu&call_id=${CALL_UUID}&caller=${URIENCODE(${CALLERID(num)})})})
-same => n,Set(CALLERID(name)=${IF($["${Q_DISP_NAME}" != ""]?[QUEUE:${Q_DISP_NAME}] ${CALLERID(num)}:${CALLERID(name)})})
-same => n,Queue(temsilci_kuyrugu,c)
+same => n,Gosub(queue_router_sub,s,1(temsilci_kuyrugu))
+same => n,GotoIf($["${DIALSTATUS}" != "ANSWER"]?hangup_transfer)
 same => n,Set(CURLOPT(conntimeout)=1)
 same => n,Set(CURLOPT(httptimeout)=2)
 same => n,Set(SURVEY_CFG=${CURL(http://127.0.0.1:8000/api/queues/survey/config?queue_ext=temsilci_kuyrugu&agent_ext=${URIENCODE(${MEMBERINTERFACE})}&call_id=${CALL_UUID})})
@@ -1074,12 +1253,19 @@ same => n,Set(FWD_TIMEOUT=${CUT(FWD_PRE,:,3)})
 same => n,Set(DIAL_TIMEOUT=${IF($[${ISNULL(${FWD_TIMEOUT})} | "${FWD_TIMEOUT}"=""]?30:${FWD_TIMEOUT})})
 same => n,GotoIf($["${FWD_STATUS}"="ALLOW"]?forward_call:dial_pjsip)
 
-; 2. PJSIP Dahili Arama (Profil veya Yönlendirme Zaman Aşımı Süresi)
-same => n(dial_pjsip),Set(TARGET_CONTACTS=${PJSIP_DIAL_CONTACTS(${EXTEN})})
-same => n,Set(DIAL_STR=${IF($["${TARGET_CONTACTS}"=""]?PJSIP/${EXTEN}:${TARGET_CONTACTS})})
-same => n,NoOp(PJSIP Dahiliye Arama Yapiliyor: ${DIAL_STR} Timeout=${DIAL_TIMEOUT}s)
+; 2. PJSIP Dahili Arama (WebPhone + Masa Telefonu Eşzamanlı, Profil veya Yönlendirme Zaman Aşımı Süresi)
+same => n(dial_pjsip),Set(AG_RING_CFG=${CURL(http://127.0.0.1:8000/api/subscriber/resolve_agent_ring_targets?extension=${EXTEN})})
+same => n,GotoIf($["${AG_RING_CFG}" = "NONE"]?after_dial_pjsip)
+same => n,Set(WEB_EP=${CUT(AG_RING_CFG,:,1)})
+same => n,Set(DESK_EP=${CUT(AG_RING_CFG,:,2)})
+same => n,Set(WEB_CONTACTS=${IF($["${WEB_EP}" != ""]?${PJSIP_DIAL_CONTACTS(${WEB_EP})}:)})
+same => n,Set(DESK_CONTACTS=${IF($["${DESK_EP}" != ""]?${PJSIP_DIAL_CONTACTS(${DESK_EP})}:)})
+same => n,Set(TARGET_CONTACTS=${IF($["${WEB_CONTACTS}" != "" & "${DESK_CONTACTS}" != ""]?${WEB_CONTACTS}&${DESK_CONTACTS}:${IF($["${WEB_CONTACTS}" != ""]?${WEB_CONTACTS}:${DESK_CONTACTS})})})
+same => n,Set(FB_PJSIP=${IF($["${WEB_EP}" != "" & "${DESK_EP}" != ""]?PJSIP/${WEB_EP}&PJSIP/${DESK_EP}:${IF($["${WEB_EP}" != ""]?PJSIP/${WEB_EP}:PJSIP/${DESK_EP})})})
+same => n,Set(DIAL_STR=${IF($["${TARGET_CONTACTS}"=""]?${FB_PJSIP}:${TARGET_CONTACTS})})
+same => n,NoOp(PJSIP Dahiliye Arama Yapiliyor [WebPhone + Masa Telefonu]: ${DIAL_STR} Timeout=${DIAL_TIMEOUT}s)
 same => n,Dial(${DIAL_STR},${DIAL_TIMEOUT},tTg)
-same => n,NoOp(PJSIP Arama Sonucu: ${DIALSTATUS})
+same => n(after_dial_pjsip),NoOp(PJSIP Arama Sonucu: ${DIALSTATUS})
 same => n,GotoIf($["${DIALSTATUS}"="ANSWER"]?end_call)
 
 ; 3. Sonrası Yönlendirme / Beni Takip Et (1. Adım) ve Profil Zaman Aşımı Kontrolü
@@ -1102,10 +1288,7 @@ same => n,Set(CLEAN_TARGET=${IF($["${RAW_NUM:0:2}"="90"]?${RAW_NUM}:90${RAW_NUM}
 same => n,GotoIf($[${LEN(${FWD_TARGET})} < 6]?dial_internal_fwd:dial_external_fwd)
 
 same => n(queue_fwd),NoOp(Kuyruk Aktarimi Baslatiliyor: ${FWD_TARGET:6})
-same => n,Set(Q_DISP_NAME=${CURL(http://127.0.0.1:8000/api/queues/resolve_display_name?queue_ext=${URIENCODE(${FWD_TARGET:6})}&call_id=${CALL_UUID}&caller=${URIENCODE(${CALLERID(num)})})})
-same => n,Set(CALLERID(name)=${IF($["${Q_DISP_NAME}" != ""]?[QUEUE:${Q_DISP_NAME}] ${CALLERID(num)}:${CALLERID(name)})})
-same => n,Queue(${FWD_TARGET:6},tTc)
-same => n,Set(DIALSTATUS=${IF($["${MEMBERINTERFACE}" != ""]?ANSWER:NOANSWER)})
+same => n,Gosub(queue_router_sub,s,1(${FWD_TARGET:6}))
 same => n,Goto(end_call)
 
 same => n(voicemail_fwd),NoOp(Sesli Mesaj / Voicemail Aktarimi: ${EXTEN})
@@ -1113,8 +1296,15 @@ same => n,Answer()
 same => n,Playback(/var/spool/asterisk/monitor/tr_sesli_mesaj)
 same => n,Hangup()
 
-same => n(dial_internal_fwd),NoOp(Ic Dahili / Mobil Uygulama Yonlendirme: PJSIP/${FWD_TARGET} Timeout=${STEP_TIMEOUT}s)
-same => n,Dial(PJSIP/${FWD_TARGET},${STEP_TIMEOUT},tTg)
+same => n(dial_internal_fwd),NoOp(Ic Dahili / Masa Telefonu Yonlendirme: ${FWD_TARGET} Timeout=${STEP_TIMEOUT}s)
+same => n,Set(FWD_AG_CFG=${CURL(http://127.0.0.1:8000/api/subscriber/resolve_agent_ring_targets?extension=${FWD_TARGET})})
+same => n,Set(F_WEB_EP=${IF($["${FWD_AG_CFG}" != "NONE"]?${CUT(FWD_AG_CFG,:,1)}:${FWD_TARGET})})
+same => n,Set(F_DESK_EP=${IF($["${FWD_AG_CFG}" != "NONE"]?${CUT(FWD_AG_CFG,:,2)}:)})
+same => n,Set(F_WEB_C=${IF($["${F_WEB_EP}" != ""]?${PJSIP_DIAL_CONTACTS(${F_WEB_EP})}:)})
+same => n,Set(F_DESK_C=${IF($["${F_DESK_EP}" != ""]?${PJSIP_DIAL_CONTACTS(${F_DESK_EP})}:)})
+same => n,Set(F_COMB_C=${IF($["${F_WEB_C}" != "" & "${F_DESK_C}" != ""]?${F_WEB_C}&${F_DESK_C}:${IF($["${F_WEB_C}" != ""]?${F_WEB_C}:${F_DESK_C})})})
+same => n,Set(F_DIAL_STR=${IF($["${F_COMB_C}" != ""]?${F_COMB_C}:PJSIP/${FWD_TARGET})})
+same => n,Dial(${F_DIAL_STR},${STEP_TIMEOUT},tTg)
 same => n,GotoIf($["${DIALSTATUS}"="ANSWER"]?end_call:check_step2)
 
 same => n(dial_external_fwd),NoOp(Dis Hat / Mobil Telefon Yonlendirme: PJSIP/Operator_Trunk/sip:${CLEAN_TARGET}@ikonsip.com:5060 Timeout=${STEP_TIMEOUT}s)
@@ -1135,6 +1325,7 @@ same => n,GotoIf($["${FWD_STATUS}"="ALLOW"]?forward_call:end_call)
 
 same => n(end_call),NoOp(Cagri tamamlandi veya yanitlanmadi: Status=${DIALSTATUS})
 same => n,GotoIf($["${DIALSTATUS}"="ANSWER"]?check_post_call_survey)
+same => n,GotoIf($["${FALLBACK_HANDLED}"="1"]?final_hangup)
 same => n,Set(DIALSTATUS=${IF($["${DIALSTATUS}"=""]?NOANSWER:${DIALSTATUS})})
 same => n,GotoIf($["${DIALSTATUS}"="CANCEL"]?hangup_cancel)
 same => n,Progress()
@@ -1146,7 +1337,8 @@ same => n,GotoIf($["${DIALSTATUS}"="NOANSWER"]?hangup_noans:hangup_unavail)
 same => n(hangup_noans),Hangup(19)
 same => n(hangup_unavail),Hangup(20)
 same => n(hangup_cancel),Hangup(16)
-same => n(check_post_call_survey),Set(SURVEY_CFG=${CURL(http://127.0.0.1:8000/api/queues/survey/config?queue_ext=${EXTEN}&agent_ext=${EXTEN}&call_id=${CALL_UUID})})
+same => n(check_post_call_survey),Set(EFF_AGENT_REF=${IF($["${MEMBERINTERFACE}" != ""]?${MEMBERINTERFACE}:${EXTEN})})
+same => n,Set(SURVEY_CFG=${CURL(http://127.0.0.1:8000/api/queues/survey/config?queue_ext=${EXTEN}&agent_ext=${URIENCODE(${EFF_AGENT_REF})}&call_id=${CALL_UUID})})
 same => n,GotoIf($["${CUT(SURVEY_CFG,:,1)}" != "ENABLED"]?final_hangup)
 same => n,Set(SURVEY_Q_EXT=${CUT(SURVEY_CFG,:,2)})
 same => n,Set(SURVEY_MAX_DIGITS=${CUT(SURVEY_CFG,:,3)})
@@ -1167,7 +1359,7 @@ same => n,Set(SURVEY_ANY_ANS=${IF($["${SURVEY_SCORE}" != ""]?1:${SURVEY_ANY_ANS}
 same => n,Set(SURVEY_ALL_SCORES=${IF($[${SURVEY_Q_IDX} = 1]?${SURVEY_SCORE}:${SURVEY_ALL_SCORES},${SURVEY_SCORE})})
 same => n,Set(SURVEY_Q_IDX=$[${SURVEY_Q_IDX} + 1])
 same => n,Goto(survey_w_loop)
-same => n(survey_w_done),Set(SURVEY_RES=${CURL(http://127.0.0.1:8000/api/queues/survey/submit?call_id=${CALL_UUID}&queue_ext=${SURVEY_Q_EXT}&agent_ext=${EXTEN}&caller=${CALLERID(num)}&score=${URIENCODE(${SURVEY_ALL_SCORES})})})
+same => n(survey_w_done),Set(SURVEY_RES=${CURL(http://127.0.0.1:8000/api/queues/survey/submit?call_id=${CALL_UUID}&queue_ext=${SURVEY_Q_EXT}&agent_ext=${URIENCODE(${EFF_AGENT_REF})}&caller=${CALLERID(num)}&score=${URIENCODE(${SURVEY_ALL_SCORES})})})
 same => n,GotoIf($["${SURVEY_ANY_ANS}" != "1"]?final_hangup)
 same => n,Playback(/var/spool/asterisk/monitor/${SURVEY_TY_WAV})
 same => n(final_hangup),Hangup()
@@ -1188,6 +1380,28 @@ same => n,Set(INV_LOG=${CURL(http://127.0.0.1:8000/api/calls/log_invalid?caller=
 same => n,Progress()
 same => n,Playback(beeperr,noanswer)
 same => n,Hangup(28)
+
+[queue_agent_ring]
+; Kuyruk aramalarında temsilcinin hem WebPhone hem de Masa Telefonunu (IP Telefon) Kuyruk CallerID bilgisiyle eşzamanlı çaldırır
+exten => _[1-9]X.,1,NoOp(Kuyruk Temsilci Cihaz Dagitim: Dahili=${EXTEN}, CallerID=${CALLERID(all)})
+same => n,Set(CURLOPT(conntimeout)=1)
+same => n,Set(CURLOPT(httptimeout)=2)
+same => n,Set(AG_RING_CFG=${CURL(http://127.0.0.1:8000/api/subscriber/resolve_agent_ring_targets?extension=${EXTEN})})
+same => n,GotoIf($["${AG_RING_CFG}" = "NONE"]?ag_unavailable)
+same => n,Set(WEB_EP=${CUT(AG_RING_CFG,:,1)})
+same => n,Set(DESK_EP=${CUT(AG_RING_CFG,:,2)})
+same => n,Set(WEB_TARGETS=${IF($["${WEB_EP}" != ""]?${PJSIP_DIAL_CONTACTS(${WEB_EP})}:)})
+same => n,Set(DESK_TARGETS=${IF($["${DESK_EP}" != ""]?${PJSIP_DIAL_CONTACTS(${DESK_EP})}:)})
+same => n,Set(COMBINED_TARGETS=${IF($["${WEB_TARGETS}" != "" & "${DESK_TARGETS}" != ""]?${WEB_TARGETS}&${DESK_TARGETS}:${IF($["${WEB_TARGETS}" != ""]?${WEB_TARGETS}:${DESK_TARGETS})})})
+same => n,GotoIf($["${COMBINED_TARGETS}" = ""]?ag_fallback_dial)
+same => n,NoOp(Kuyruk Temsilcisi Eszamanli Caldiriliyor [WebPhone + Masa Telefonu]: ${COMBINED_TARGETS} | CallerID=${CALLERID(all)})
+same => n,Dial(${COMBINED_TARGETS},,tTg)
+same => n,Hangup()
+same => n(ag_fallback_dial),Set(FB_DIAL=${IF($["${WEB_EP}" != "" & "${DESK_EP}" != ""]?PJSIP/${WEB_EP}&PJSIP/${DESK_EP}:${IF($["${WEB_EP}" != ""]?PJSIP/${WEB_EP}:PJSIP/${DESK_EP})})})
+same => n,GotoIf($["${FB_DIAL}" = "" | "${FB_DIAL}" = "PJSIP/"]?ag_unavailable)
+same => n,Dial(${FB_DIAL},,tTg)
+same => n,Hangup()
+same => n(ag_unavailable),Hangup(20)
 
 [mobile_transfer_context]
 exten => s,1,NoOp(Mobil aktarim arandi ve cevaplandi. Arayan=${CALLERID(num)})
@@ -1239,6 +1453,117 @@ same => n,Hangup()
         print("[Sync Script] Asterisk Dialplan başarıyla yenilendi (reload).")
     except Exception as e:
         print(f"[Sync Script] Asterisk reload hatası: {e}")
+
+    # 3. Generate queues_custom.conf with dual WebPhone + Masa Telefonu member routing
+    try:
+        queues_list = sdata.get("queues", []) if isinstance(sdata, dict) else []
+        all_groups = sdata.get("subscriber_groups", []) if isinstance(sdata, dict) else []
+        q_conf_content = "; ==========================================\n; DINAMIK OLARAK OLUŞTURULAN KUYRUK AYARLARI\n; ==========================================\n"
+        written_qk = set()
+        first_q_block = ""
+
+        def _fmt_qm(u_obj):
+            ext_s = str(u_obj.get("extension") or "").strip()
+            if not ext_s:
+                return ""
+            nm = str(u_obj.get("full_name") or u_obj.get("username") or ext_s).replace(",", " ").replace("\r", "").replace("\n", "").strip()
+            return f"member => Local/{ext_s}@queue_agent_ring/n,0,{nm},hint:{ext_s}@webrtc_agents\n"
+
+        announcements_list = sdata.get("announcements", []) if isinstance(sdata, dict) else []
+
+        def _resolve_ann_wav_sync(ann_val):
+            val_str = str(ann_val or "").strip()
+            if not val_str:
+                return ""
+            for a in announcements_list:
+                if str(a.get("id")) == val_str or str(a.get("filename")) == val_str or str(a.get("name")) == val_str:
+                    fname = str(a.get("filename") or "").strip()
+                    ann_id = str(a.get("id") or "").strip()
+                    if fname:
+                        base_n = os.path.splitext(fname)[0]
+                        if base_n:
+                            return base_n
+                    if ann_id:
+                        return ann_id
+            return os.path.splitext(val_str)[0]
+
+        for q in queues_list:
+            if q.get("is_active") is False:
+                continue
+            qk = str(q.get("extension") or q.get("id") or q.get("name", "queue_temp")).strip()
+            q_body = (
+                f"strategy={q.get('strategy', 'ringall')}\n"
+                f"timeout={q.get('timeout', 15)}\n"
+                f"retry={q.get('retry', 5)}\n"
+                f"wrapuptime={q.get('wrapuptime', 0)}\n"
+                "autopause=no\nmaxlen=0\njoinempty=yes\nleavewhenempty=no\n"
+            )
+            if bool(q.get("periodic_announcement_enabled")) and q.get("periodic_announcement"):
+                p_wav = _resolve_ann_wav_sync(q.get("periodic_announcement"))
+                if p_wav:
+                    try:
+                        p_freq = max(5, min(600, int(q.get("periodic_announcement_interval") or 30)))
+                    except Exception:
+                        p_freq = 30
+                    q_body += f"periodic-announce=/var/spool/asterisk/monitor/{p_wav}\n"
+                    q_body += f"periodic-announce-frequency={p_freq}\n"
+                    q_body += "relative-periodic-announce=yes\n"
+            members = q.get("queueMembers") or q.get("members") or []
+            if isinstance(members, str):
+                try:
+                    members = json.loads(members)
+                except Exception:
+                    members = []
+            added_e = set()
+            for member in members:
+                uid = member.get("user_id") if isinstance(member, dict) else member
+                m_ext = member.get("extension") if isinstance(member, dict) else None
+                suid = str(uid or m_ext or "")
+                if suid.startswith("group_"):
+                    gid = suid.replace("group_", "", 1)
+                    grp = next((g for g in all_groups if str(g.get("id")) == gid), None)
+                    if grp:
+                        for eid in (grp.get("extensions") or grp.get("members") or []):
+                            ug = next((u for u in users_list if str(u.get("id")) == str(eid) or str(u.get("extension")) == str(eid)), None)
+                            if ug and ug.get("extension") and str(ug["extension"]) not in added_e:
+                                added_e.add(str(ug["extension"]))
+                                q_body += _fmt_qm(ug)
+                    continue
+                u = next((u for u in users_list if str(u.get("id")) == suid or str(u.get("extension")) == suid or (m_ext and str(u.get("extension")) == str(m_ext))), None)
+                if u and u.get("extension") and str(u["extension"]) not in added_e:
+                    added_e.add(str(u["extension"]))
+                    q_body += _fmt_qm(u)
+            q_conf_content += f"\n[{qk}]\n{q_body}"
+            written_qk.add(qk)
+            if qk == "2000" or not first_q_block:
+                first_q_block = q_body
+
+        if "temsilci_kuyrugu" not in written_qk:
+            if not first_q_block:
+                first_q_block = (
+                    "strategy=ringall\ntimeout=15\nretry=5\nwrapuptime=0\n"
+                    "autopause=no\nmaxlen=0\njoinempty=yes\nleavewhenempty=no\n"
+                    "member => Local/1000@queue_agent_ring/n,0,Temsilci 1000,hint:1000@webrtc_agents\n"
+                )
+            q_conf_content += f"\n[temsilci_kuyrugu]\n{first_q_block}"
+
+        for q_path in ["/etc/asterisk/queues_custom.conf", os.path.join(PROJECT_ROOT, "asterisk_config", "queues_custom.conf")]:
+            try:
+                if q_path.startswith("/etc/asterisk") and not os.path.exists("/etc/asterisk"):
+                    continue
+                with open(q_path, "w", encoding="utf-8") as qf:
+                    qf.write(q_conf_content)
+                print(f"[Sync Script] queues_custom.conf yazıldı -> {q_path}")
+            except Exception as eqp:
+                print(f"[Sync Script] queues_custom.conf hatası ({q_path}): {eqp}")
+
+        if os.path.exists("/etc/asterisk"):
+            with open("/etc/asterisk/queues.conf", "w", encoding="utf-8") as qmf:
+                qmf.write("[general]\npersistentmembers = yes\nautofill = yes\nmonitor-type = MixMonitor\nshared_lastcall = yes\n\n#include /etc/asterisk/queues_custom.conf\n")
+            subprocess.run(["asterisk", "-rx", "queue reload all"], check=False, timeout=2.0)
+            print("[Sync Script] Asterisk Queues başarıyla yenilendi (queue reload all).")
+    except Exception as e_qsync:
+        print(f"[Sync Script] Queues senkronizasyon hatası: {e_qsync}")
 
 if __name__ == "__main__":
     sync()

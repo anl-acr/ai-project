@@ -2831,9 +2831,11 @@ outbound_auth=908503607390-auth
 aors=908503607390-aor
 """
     if not has_1000_in_users:
+        from backend.services.autoprovision_service import resolve_user_sip_username as _res_sip_u_def
         pwd_1000 = resolve_secure_sip_password("1000", "")
+        sip_1000 = _res_sip_u_def("1000", "")
         conf_content += f"""
-; --- DEFAULT WEBRTC AGENT: 1000 ---
+; --- DEFAULT WEBRTC & DESKPHONE AGENT: 1000 ---
 [1000]
 type=endpoint
 context=webrtc_agents
@@ -2851,6 +2853,9 @@ dtls_verify=fingerprint
 dtls_setup=actpass
 ice_support=yes
 media_use_received_transport=yes
+send_pai=yes
+send_rpid=yes
+rpid_immediate=yes
 auth=1000-auth
 aors=1000
 callerid=Temsilci 1000 <1000>
@@ -2865,6 +2870,34 @@ password={pwd_1000}
 type=aor
 max_contacts=5
 remove_existing=yes
+
+[{sip_1000}]
+type=endpoint
+context=webrtc_agents
+disallow=all
+allow=ulaw,alaw,g722,g729
+direct_media=no
+force_rport=yes
+rewrite_contact=yes
+rtp_symmetric=yes
+send_pai=yes
+send_rpid=yes
+rpid_immediate=yes
+auth={sip_1000}-auth
+aors={sip_1000}
+callerid=Temsilci 1000 <1000>
+
+[{sip_1000}-auth]
+type=auth
+auth_type=userpass
+username={sip_1000}
+password={pwd_1000}
+
+[{sip_1000}]
+type=aor
+max_contacts=5
+remove_existing=yes
+qualify_frequency=30
 """
 
     for t in trunks_list:
@@ -3094,9 +3127,10 @@ trust_id_inbound={trust_id_in}
         if not ext or ext in seen_exts:
             continue
         seen_exts.add(ext)
+        from backend.services.autoprovision_service import resolve_user_sip_username
         pwd = resolve_secure_sip_password(ext, u.get("sip_password") or "")
         name = u.get("full_name") or u.get("username") or ext
-        sip_user = str(u.get("sip_username") or "").strip()
+        sip_user = resolve_user_sip_username(ext, u.get("sip_username") or "")
         try:
             max_act = max(5, int(u.get("max_activations") or 5))
         except Exception:
@@ -3120,6 +3154,9 @@ dtls_verify=fingerprint
 dtls_setup=actpass
 ice_support=yes
 media_use_received_transport=yes
+send_pai=yes
+send_rpid=yes
+rpid_immediate=yes
 auth={ext}-auth
 aors={ext}
 callerid={name} <{ext}>
@@ -3146,8 +3183,11 @@ direct_media=no
 force_rport=yes
 rewrite_contact=yes
 rtp_symmetric=yes
+send_pai=yes
+send_rpid=yes
+rpid_immediate=yes
 auth={sip_user}-auth
-aors={ext}
+aors={sip_user}
 callerid={name} <{ext}>
 
 [{sip_user}-auth]
@@ -3155,6 +3195,12 @@ type=auth
 auth_type=userpass
 username={sip_user}
 password={pwd}
+
+[{sip_user}]
+type=aor
+max_contacts={max_act}
+remove_existing=yes
+qualify_frequency=30
 """
 
     config_dir = ASTERISK_CONFIG_DIR
@@ -3291,25 +3337,44 @@ def regenerate_queues_conf(background_tasks: Optional[BackgroundTasks] = None):
 ; DINAMIK OLARAK OLUŞTURULAN KUYRUK AYARLARI
 ; ==========================================
 """
+    written_q_keys = set()
+    first_active_q_block = ""
+
+    def _format_queue_member_line(u_obj: dict) -> str:
+        ext_s = str(u_obj.get("extension") or "").strip()
+        if not ext_s:
+            return ""
+        raw_nm = str(u_obj.get("full_name") or u_obj.get("username") or ext_s).replace(",", " ").replace("\r", "").replace("\n", "").strip()
+        return f"member => Local/{ext_s}@queue_agent_ring/n,0,{raw_nm},hint:{ext_s}@webrtc_agents\n"
+
     for q in queues_list:
         is_act = q.get("is_active") if "is_active" in q else True
         if not is_act:
             continue
-        q_key = q.get("extension") or str(q.get("id")) or q.get("name", "queue_temp")
+        q_key = str(q.get("extension") or q.get("id") or q.get("name", "queue_temp")).strip()
         strategy = q.get("strategy", "ringall")
         timeout = q.get("timeout", 15)
         retry = q.get("retry", 5)
         wrapup = q.get("wrapuptime", 0)
         
-        conf_content += f"\n[{q_key}]\n"
-        conf_content += f"strategy={strategy}\n"
-        conf_content += f"timeout={timeout}\n"
-        conf_content += f"retry={retry}\n"
-        conf_content += f"wrapuptime={wrapup}\n"
-        conf_content += "autopause=no\n"
-        conf_content += "maxlen=0\n"
-        conf_content += "joinempty=yes\n"
-        conf_content += "leavewhenempty=no\n"
+        q_body = f"strategy={strategy}\n"
+        q_body += f"timeout={timeout}\n"
+        q_body += f"retry={retry}\n"
+        q_body += f"wrapuptime={wrapup}\n"
+        q_body += "autopause=no\n"
+        q_body += "maxlen=0\n"
+        q_body += "joinempty=yes\n"
+        q_body += "leavewhenempty=no\n"
+        if bool(q.get("periodic_announcement_enabled")) and q.get("periodic_announcement"):
+            p_wav = _resolve_survey_announcement_wav(q.get("periodic_announcement"), "")
+            if p_wav:
+                try:
+                    p_freq = max(5, min(600, int(q.get("periodic_announcement_interval") or 30)))
+                except Exception:
+                    p_freq = 30
+                q_body += f"periodic-announce=/var/spool/asterisk/monitor/{p_wav}\n"
+                q_body += f"periodic-announce-frequency={p_freq}\n"
+                q_body += "relative-periodic-announce=yes\n"
         
         members = q.get("queueMembers") or q.get("members") or []
         if isinstance(members, str):
@@ -3322,7 +3387,8 @@ def regenerate_queues_conf(background_tasks: Optional[BackgroundTasks] = None):
         all_groups = settings_db.get("subscriber_groups", [])
         for member in members:
             user_id = member.get("user_id") if isinstance(member, dict) else member
-            s_uid = str(user_id or "")
+            m_ext_direct = member.get("extension") if isinstance(member, dict) else None
+            s_uid = str(user_id or m_ext_direct or "")
             if s_uid.startswith("group_"):
                 gid = s_uid.replace("group_", "", 1)
                 grp = next((g for g in all_groups if str(g.get("id")) == gid), None)
@@ -3331,12 +3397,34 @@ def regenerate_queues_conf(background_tasks: Optional[BackgroundTasks] = None):
                         u_grp = next((u for u in users_list if str(u.get("id")) == str(ext_or_id) or str(u.get("extension")) == str(ext_or_id)), None)
                         if u_grp and u_grp.get("extension") and str(u_grp["extension"]) not in added_exts:
                             added_exts.add(str(u_grp["extension"]))
-                            conf_content += f"member => PJSIP/{u_grp['extension']}\n"
+                            q_body += _format_queue_member_line(u_grp)
                 continue
-            u = next((u for u in users_list if str(u.get("id")) == s_uid or str(u.get("extension")) == s_uid), None)
+            u = next(
+                (
+                    u for u in users_list
+                    if str(u.get("id")) == s_uid
+                    or str(u.get("extension")) == s_uid
+                    or (m_ext_direct and str(u.get("extension")) == str(m_ext_direct))
+                ),
+                None,
+            )
             if u and u.get("extension") and str(u["extension"]) not in added_exts:
                 added_exts.add(str(u["extension"]))
-                conf_content += f"member => PJSIP/{u['extension']}\n"
+                q_body += _format_queue_member_line(u)
+
+        conf_content += f"\n[{q_key}]\n{q_body}"
+        written_q_keys.add(q_key)
+        if q_key == "2000" or not first_active_q_block:
+            first_active_q_block = q_body
+
+    if "temsilci_kuyrugu" not in written_q_keys:
+        if not first_active_q_block:
+            first_active_q_block = (
+                "strategy=ringall\ntimeout=15\nretry=5\nwrapuptime=0\n"
+                "autopause=no\nmaxlen=0\njoinempty=yes\nleavewhenempty=no\n"
+                "member => Local/1000@queue_agent_ring/n,0,Temsilci 1000,hint:1000@webrtc_agents\n"
+            )
+        conf_content += f"\n[temsilci_kuyrugu]\n{first_active_q_block}"
                 
     config_dir = ASTERISK_CONFIG_DIR
     os.makedirs(config_dir, exist_ok=True)
@@ -3351,6 +3439,10 @@ def regenerate_queues_conf(background_tasks: Optional[BackgroundTasks] = None):
             etc_path = os.path.join(etc_dir, "queues_custom.conf")
             with open(etc_path, "w", encoding="utf-8") as f:
                 f.write(conf_content)
+            queues_main_path = os.path.join(etc_dir, "queues.conf")
+            clean_queues_main = "[general]\npersistentmembers = yes\nautofill = yes\nmonitor-type = MixMonitor\nshared_lastcall = yes\n\n#include /etc/asterisk/queues_custom.conf\n"
+            with open(queues_main_path, "w", encoding="utf-8") as qmf:
+                qmf.write(clean_queues_main)
             print(f"[Asterisk Config] /etc/asterisk/queues_custom.conf güncellendi: {etc_path}")
         except Exception as e:
             print(f"[Asterisk Config] /etc/asterisk/queues_custom.conf yazılamadı: {e}")
@@ -3589,6 +3681,39 @@ same => n,Hangup()
 
     dynamic_feature_dialplan = "\n".join(feat_blocks)
 
+    from backend.services.autoprovision_service import resolve_user_sip_username as _res_sip_u_ext
+    users_for_hints = []
+    try:
+        from backend.database.config import SyncSessionLocal
+        from backend.database.models import SystemUser
+        with SyncSessionLocal() as session:
+            db_users_h = session.query(SystemUser).all()
+            for u_h in db_users_h:
+                users_for_hints.append({col.name: getattr(u_h, col.name) for col in SystemUser.__table__.columns})
+    except Exception:
+        pass
+    if not users_for_hints:
+        users_for_hints = settings_db.get("users", [])
+
+    hint_lines = []
+    seen_hint_exts = set()
+    for u_h in users_for_hints:
+        if u_h.get("is_active") is False:
+            continue
+        h_ext = str(u_h.get("extension") or "").strip()
+        if not h_ext or h_ext in seen_hint_exts:
+            continue
+        seen_hint_exts.add(h_ext)
+        h_sip = _res_sip_u_ext(h_ext, u_h.get("sip_username") or "")
+        if h_sip and h_sip != h_ext:
+            hint_lines.append(f"exten => {h_ext},hint,PJSIP/{h_ext}&PJSIP/{h_sip}")
+        else:
+            hint_lines.append(f"exten => {h_ext},hint,PJSIP/{h_ext}")
+    if "1000" not in seen_hint_exts:
+        h_sip_1000 = _res_sip_u_ext("1000", "")
+        hint_lines.append(f"exten => 1000,hint,PJSIP/1000&PJSIP/{h_sip_1000}")
+    agent_hints_dialplan = "\n".join(hint_lines)
+
     conf_content = f"""; ==========================================
 ; DINAMIK OLARAK OLUŞTURULAN EXTENSIONS (DIALPLAN) AYARLARI
 ; ==========================================
@@ -3617,6 +3742,96 @@ same => n,Set(PJSIP_HEADER(add,P-Preferred-Identity)=${{OUT_HDR_PPI}})
 same => n(chk_ptime),GotoIf($["${{OUT_MAXPTIME}}" = ""]?done_hdrs)
 same => n,Set(PJSIP_HEADER(add,X-Maxptime)=${{OUT_MAXPTIME}})
 same => n(done_hdrs),Return()
+
+[queue_router_sub]
+exten => s,1,NoOp(Kuyruk Yonlendirme Motoru Basladi: Kuyruk=${{ARG1}}, CallID=${{CALL_UUID}})
+same => n,Set(CURLOPT(conntimeout)=1)
+same => n,Set(CURLOPT(httptimeout)=2)
+same => n,Set(CUR_Q_EXT=${{ARG1}})
+same => n,Set(Q_FB_DEPTH=0)
+same => n,Set(FALLBACK_HANDLED=0)
+same => n(q_eval_entry),Set(Q_FB_DEPTH=$[${{Q_FB_DEPTH}} + 1])
+same => n,GotoIf($[${{Q_FB_DEPTH}} > 5]?q_ret)
+same => n,Set(Q_FREE_CNT=${{QUEUE_MEMBER(${{CUR_Q_EXT}},free)}})
+same => n,Set(Q_LOGGED_CNT=${{QUEUE_MEMBER(${{CUR_Q_EXT}},logged)}})
+same => n,Set(Q_PRE_RES=${{CURL(http://{backend_host}/api/queues/evaluate_routing?queue_ext=${{URIENCODE(${{CUR_Q_EXT}})}}&stage=before&free_cnt=${{URIENCODE(${{Q_FREE_CNT}})}}&logged_cnt=${{URIENCODE(${{Q_LOGGED_CNT}})}}&call_id=${{URIENCODE(${{CALL_UUID}})}}&caller=${{URIENCODE(${{CALLERID(num)}})}})}})
+same => n,Set(Q_MODE=${{CUT(Q_PRE_RES,|,1)}})
+same => n,Set(Q_ANN_WAV=${{CUT(Q_PRE_RES,|,2)}})
+same => n,Set(Q_ACT_TYPE=${{CUT(Q_PRE_RES,|,3)}})
+same => n,Set(Q_ACT_TARGET=${{CUT(Q_PRE_RES,|,4)}})
+same => n,Set(Q_MAX_WAIT=${{CUT(Q_PRE_RES,|,5)}})
+same => n,GotoIf($["${{Q_MODE}}" = "FALLBACK"]?q_exec_fallback)
+same => n(q_do_queue),Set(Q_DISP_NAME=${{CURL(http://{backend_host}/api/queues/resolve_display_name?queue_ext=${{URIENCODE(${{CUR_Q_EXT}})}}&call_id=${{CALL_UUID}}&caller=${{URIENCODE(${{CALLERID(num)}})}})}})
+same => n,Set(ORIG_CID_LABEL=${{IF($["${{ORIG_CID_LABEL}}" != ""]?${{ORIG_CID_LABEL}}:${{IF($["${{CALLERID(name)}}" != "" & "${{CALLERID(name)}}" != "${{CALLERID(num)}}"]?${{CALLERID(name)}}:${{CALLERID(num)}})}})}})
+same => n,Set(CALLERID(name)=${{IF($["${{Q_DISP_NAME}}" != ""]?[${{Q_DISP_NAME}}] ${{ORIG_CID_LABEL}}:${{ORIG_CID_LABEL}})}})
+same => n,GotoIf($["${{Q_MAX_WAIT}}" != ""]?q_with_timeout:q_no_timeout)
+same => n(q_with_timeout),Queue(${{CUR_Q_EXT}},tTc,,,${{Q_MAX_WAIT}})
+same => n,Goto(q_after_queue)
+same => n(q_no_timeout),Queue(${{CUR_Q_EXT}},tTc)
+same => n(q_after_queue),GotoIf($["${{MEMBERINTERFACE}}" != ""]?q_answered)
+same => n,Set(Q_POST_RES=${{CURL(http://{backend_host}/api/queues/evaluate_routing?queue_ext=${{URIENCODE(${{CUR_Q_EXT}})}}&stage=after&queuestatus=${{URIENCODE(${{QUEUESTATUS}})}}&call_id=${{URIENCODE(${{CALL_UUID}})}}&caller=${{URIENCODE(${{CALLERID(num)}})}})}})
+same => n,Set(Q_MODE=${{CUT(Q_POST_RES,|,1)}})
+same => n,GotoIf($["${{Q_MODE}}" != "FALLBACK"]?q_unanswered)
+same => n,Set(Q_ANN_WAV=${{CUT(Q_POST_RES,|,2)}})
+same => n,Set(Q_ACT_TYPE=${{CUT(Q_POST_RES,|,3)}})
+same => n,Set(Q_ACT_TARGET=${{CUT(Q_POST_RES,|,4)}})
+same => n,Goto(q_exec_fallback)
+same => n(q_exec_fallback),NoOp(Kuyruk Fallback Uygulaniyor: Ann=${{Q_ANN_WAV}} Act=${{Q_ACT_TYPE}} Target=${{Q_ACT_TARGET}})
+same => n,Set(FALLBACK_HANDLED=1)
+same => n,GotoIf($["${{Q_ANN_WAV}}" = ""]?q_dispatch_act)
+same => n,Answer()
+same => n,Playback(/var/spool/asterisk/monitor/${{Q_ANN_WAV}})
+same => n(q_dispatch_act),GotoIf($["${{Q_ACT_TYPE}}" = "CONTINUE_QUEUE"]?q_cont_queue)
+same => n,GotoIf($["${{Q_ACT_TYPE}}" = "HANGUP"]?q_fb_hangup)
+same => n,GotoIf($["${{Q_ACT_TYPE}}" = "VOICEMAIL"]?q_fb_voicemail)
+same => n,GotoIf($["${{Q_ACT_TYPE}}" = "QUEUE"]?q_fb_queue)
+same => n,GotoIf($["${{Q_ACT_TYPE}}" = "USER"]?q_fb_user)
+same => n,GotoIf($["${{Q_ACT_TYPE}}" = "GSM"]?q_fb_gsm)
+same => n,GotoIf($["${{Q_ACT_TYPE}}" = "AUDIOSOCKET"]?q_fb_audiosocket)
+same => n,Goto(q_fb_hangup)
+same => n(q_cont_queue),Set(Q_FB_DEPTH=$[${{Q_FB_DEPTH}} + 1])
+same => n,GotoIf($[${{Q_FB_DEPTH}} > 6]?q_fb_hangup)
+same => n,Set(FALLBACK_HANDLED=0)
+same => n,Goto(q_do_queue)
+same => n(q_fb_queue),GotoIf($["${{Q_ACT_TARGET}}" = ""]?q_fb_hangup)
+same => n,Set(CUR_Q_EXT=${{Q_ACT_TARGET}})
+same => n,Goto(q_eval_entry)
+same => n(q_fb_voicemail),Answer()
+same => n,Playback(/var/spool/asterisk/monitor/tr_sesli_mesaj)
+same => n,Set(DIALSTATUS=NOANSWER)
+same => n,Goto(q_ret)
+same => n(q_fb_user),GotoIf($["${{Q_ACT_TARGET}}" = ""]?q_fb_hangup)
+same => n,Set(FB_AG_CFG=${{CURL(http://{backend_host}/api/subscriber/resolve_agent_ring_targets?extension=${{URIENCODE(${{Q_ACT_TARGET}})}})}})
+same => n,Set(FB_W_EP=${{IF($["${{FB_AG_CFG}}" != "NONE"]?${{CUT(FB_AG_CFG,:,1)}}:${{Q_ACT_TARGET}})}})
+same => n,Set(FB_D_EP=${{IF($["${{FB_AG_CFG}}" != "NONE"]?${{CUT(FB_AG_CFG,:,2)}}:)}})
+same => n,Set(FB_W_C=${{IF($["${{FB_W_EP}}" != ""]?${{PJSIP_DIAL_CONTACTS(${{FB_W_EP}})}}:)}})
+same => n,Set(FB_D_C=${{IF($["${{FB_D_EP}}" != ""]?${{PJSIP_DIAL_CONTACTS(${{FB_D_EP}})}}:)}})
+same => n,Set(FB_COMB=${{IF($["${{FB_W_C}}" != "" & "${{FB_D_C}}" != ""]?${{FB_W_C}}&${{FB_D_C}}:${{IF($["${{FB_W_C}}" != ""]?${{FB_W_C}}:${{FB_D_C}})}})}})
+same => n,Set(FB_DIAL_STR=${{IF($["${{FB_COMB}}" != ""]?${{FB_COMB}}:PJSIP/${{Q_ACT_TARGET}})}})
+same => n,Dial(${{FB_DIAL_STR}},30,tTg)
+same => n,Goto(q_ret)
+same => n(q_fb_gsm),GotoIf($["${{Q_ACT_TARGET}}" = ""]?q_fb_hangup)
+same => n,Set(CALLERID(num)=908503607390)
+same => n,Set(CALLERID(name)=908503607390)
+same => n,Dial(PJSIP/Operator_Trunk/sip:${{Q_ACT_TARGET}}@ikonsip.com:5060,45,r)
+same => n,Goto(q_ret)
+same => n(q_fb_audiosocket),Answer()
+same => n,AudioSocket(${{CALL_UUID}},{audiosocket_host})
+same => n,Hangup()
+same => n(q_fb_hangup),Set(DIALSTATUS=NOANSWER)
+same => n,Goto(q_ret)
+same => n(q_answered),Set(DIALSTATUS=ANSWER)
+same => n,Goto(q_ret)
+same => n(q_unanswered),Set(DIALSTATUS=NOANSWER)
+same => n(q_ret),Return()
+
+exten => h,1,NoOp(Kuyruk alt rutini sonlandi. Call ID: ${{CALL_UUID}}, Status: ${{DIALSTATUS}}, QueueStatus: ${{QUEUESTATUS}}, Member: ${{MEMBERINTERFACE}}, Cause: ${{HANGUPCAUSE}})
+same => n,StopMixMonitor()
+same => n,GotoIf($["${{CALL_UUID}}" = ""]?done_qsub_h)
+same => n,Set(CURLOPT(conntimeout)=1)
+same => n,Set(CURLOPT(httptimeout)=2)
+same => n,Set(CURL_RESULT=${{CURL(http://{backend_host}/api/calls/end?call_id=${{CALL_UUID}}&dialstatus=${{DIALSTATUS}}&hangupcause=${{HANGUPCAUSE}}&queuestatus=${{QUEUESTATUS}}&memberinterface=${{URIENCODE(${{MEMBERINTERFACE}})}}&hangupsource=${{URIENCODE(${{CHANNEL(hangupsource)}})}}&trunk=${{URIENCODE(${{OUT_TRUNK_NAME}})}}&answeredtime=${{ANSWEREDTIME}}&dialedtime=${{DIALEDTIME}})}})
+same => n(done_qsub_h),NoOp(Kuyruk Hangup tamamlandi)
 
 [default]
 ; Operatörden gelen aramaları yakalamak için (Standart numara eşleşmesi)
@@ -3694,11 +3909,8 @@ exten => transfer_to_human,1,NoOp(Yapay zeka cagriyi temsilciye aktariyor: ${{UN
 same => n,StopMixMonitor()
 same => n,MixMonitor(/var/spool/asterisk/monitor/${{CALL_UUID}}.wav,ab)
 same => n,Playback(/var/spool/asterisk/monitor/tr_aktariliyor)
-same => n,Set(CURLOPT(conntimeout)=1)
-same => n,Set(CURLOPT(httptimeout)=2)
-same => n,Set(Q_DISP_NAME=${{CURL(http://{backend_host}/api/queues/resolve_display_name?queue_ext=temsilci_kuyrugu&call_id=${{CALL_UUID}}&caller=${{URIENCODE(${{CALLERID(num)}})}})}})
-same => n,Set(CALLERID(name)=${{IF($["${{Q_DISP_NAME}}" != ""]?[QUEUE:${{Q_DISP_NAME}}] ${{CALLERID(num)}}:${{CALLERID(name)}})}})
-same => n,Queue(temsilci_kuyrugu,c)
+same => n,Gosub(queue_router_sub,s,1(temsilci_kuyrugu))
+same => n,GotoIf($["${{DIALSTATUS}}" != "ANSWER"]?hangup_transfer)
 same => n,Set(CURLOPT(conntimeout)=1)
 same => n,Set(CURLOPT(httptimeout)=2)
 same => n,Set(SURVEY_CFG=${{CURL(http://{backend_host}/api/queues/survey/config?queue_ext=temsilci_kuyrugu&agent_ext=${{URIENCODE(${{MEMBERINTERFACE}})}}&call_id=${{CALL_UUID}})}})
@@ -3729,6 +3941,9 @@ same => n(hangup_transfer),Hangup()
 
 [webrtc_agents]
 ; WebRTC istemcileri ve Masa Telefonları (temsilciler) bu context üzerinden görüşme yapar
+
+; Kuyruk Cihaz Durumu (State Interface) ve Masa Telefonu BLF İpuçları (WebPhone + Masa Telefonu Birleşik)
+{agent_hints_dialplan}
 
 ; Hedefli Çağrı Çekme (Directed Call Pickup: {pickup_directed}1001 vb.) ve Grup Çağrı Çekme ({pickup_group})
 exten => _{pickup_directed}X.,1,NoOp(Hedefli Cagri Cekme: Ceken=${{CALLERID(num)}} -> Calan=${{EXTEN:{pickup_dir_len}}})
@@ -3877,12 +4092,19 @@ same => n,Set(FWD_TIMEOUT=${{CUT(FWD_PRE,:,3)}})
 same => n,Set(DIAL_TIMEOUT=${{IF($[${{ISNULL(${{FWD_TIMEOUT}})}} | "${{FWD_TIMEOUT}}"=""]?30:${{FWD_TIMEOUT}})}})
 same => n,GotoIf($["${{FWD_STATUS}}"="ALLOW"]?forward_call:dial_pjsip)
 
-; 2. PJSIP Dahili Arama (Profil veya Yönlendirme Zaman Aşımı Süresi)
-same => n(dial_pjsip),Set(TARGET_CONTACTS=${{PJSIP_DIAL_CONTACTS(${{EXTEN}})}})
-same => n,Set(DIAL_STR=${{IF($["${{TARGET_CONTACTS}}"=""]?PJSIP/${{EXTEN}}:${{TARGET_CONTACTS}})}})
-same => n,NoOp(PJSIP Dahiliye Arama Yapiliyor: ${{DIAL_STR}} Timeout=${{DIAL_TIMEOUT}}s)
+; 2. PJSIP Dahili Arama (WebPhone + Masa Telefonu Eşzamanlı, Profil veya Yönlendirme Zaman Aşımı Süresi)
+same => n(dial_pjsip),Set(AG_RING_CFG=${{CURL(http://{backend_host}/api/subscriber/resolve_agent_ring_targets?extension=${{EXTEN}})}})
+same => n,GotoIf($["${{AG_RING_CFG}}" = "NONE"]?after_dial_pjsip)
+same => n,Set(WEB_EP=${{CUT(AG_RING_CFG,:,1)}})
+same => n,Set(DESK_EP=${{CUT(AG_RING_CFG,:,2)}})
+same => n,Set(WEB_CONTACTS=${{IF($["${{WEB_EP}}" != ""]?${{PJSIP_DIAL_CONTACTS(${{WEB_EP}})}}:)}})
+same => n,Set(DESK_CONTACTS=${{IF($["${{DESK_EP}}" != ""]?${{PJSIP_DIAL_CONTACTS(${{DESK_EP}})}}:)}})
+same => n,Set(TARGET_CONTACTS=${{IF($["${{WEB_CONTACTS}}" != "" & "${{DESK_CONTACTS}}" != ""]?${{WEB_CONTACTS}}&${{DESK_CONTACTS}}:${{IF($["${{WEB_CONTACTS}}" != ""]?${{WEB_CONTACTS}}:${{DESK_CONTACTS}})}})}})
+same => n,Set(FB_PJSIP=${{IF($["${{WEB_EP}}" != "" & "${{DESK_EP}}" != ""]?PJSIP/${{WEB_EP}}&PJSIP/${{DESK_EP}}:${{IF($["${{WEB_EP}}" != ""]?PJSIP/${{WEB_EP}}:PJSIP/${{DESK_EP}})}})}})
+same => n,Set(DIAL_STR=${{IF($["${{TARGET_CONTACTS}}"=""]?${{FB_PJSIP}}:${{TARGET_CONTACTS}})}})
+same => n,NoOp(PJSIP Dahiliye Arama Yapiliyor [WebPhone + Masa Telefonu]: ${{DIAL_STR}} Timeout=${{DIAL_TIMEOUT}}s)
 same => n,Dial(${{DIAL_STR}},${{DIAL_TIMEOUT}},tTg)
-same => n,NoOp(PJSIP Arama Sonucu: ${{DIALSTATUS}})
+same => n(after_dial_pjsip),NoOp(PJSIP Arama Sonucu: ${{DIALSTATUS}})
 same => n,GotoIf($["${{DIALSTATUS}}"="ANSWER"]?end_call)
 
 ; 3. Sonrası Yönlendirme / Beni Takip Et (1. Adım) ve Profil Zaman Aşımı Kontrolü
@@ -3905,10 +4127,7 @@ same => n,Set(CLEAN_TARGET=${{IF($["${{RAW_NUM:0:2}}"="90"]?${{RAW_NUM}}:90${{RA
 same => n,GotoIf($[${{LEN(${{FWD_TARGET}})}} < 6]?dial_internal_fwd:dial_external_fwd)
 
 same => n(queue_fwd),NoOp(Kuyruk Aktarimi Baslatiliyor: ${{FWD_TARGET:6}})
-same => n,Set(Q_DISP_NAME=${{CURL(http://{backend_host}/api/queues/resolve_display_name?queue_ext=${{URIENCODE(${{FWD_TARGET:6}})}}&call_id=${{CALL_UUID}}&caller=${{URIENCODE(${{CALLERID(num)}})}})}})
-same => n,Set(CALLERID(name)=${{IF($["${{Q_DISP_NAME}}" != ""]?[QUEUE:${{Q_DISP_NAME}}] ${{CALLERID(num)}}:${{CALLERID(name)}})}})
-same => n,Queue(${{FWD_TARGET:6}},tTc)
-same => n,Set(DIALSTATUS=${{IF($["${{MEMBERINTERFACE}}" != ""]?ANSWER:NOANSWER)}})
+same => n,Gosub(queue_router_sub,s,1(${{FWD_TARGET:6}}))
 same => n,Goto(end_call)
 
 same => n(voicemail_fwd),NoOp(Sesli Mesaj / Voicemail Aktarimi: ${{EXTEN}})
@@ -3916,8 +4135,15 @@ same => n,Answer()
 same => n,Playback(/var/spool/asterisk/monitor/tr_sesli_mesaj)
 same => n,Hangup()
 
-same => n(dial_internal_fwd),NoOp(Ic Dahili / Mobil Uygulama Yonlendirme: PJSIP/${{FWD_TARGET}} Timeout=${{STEP_TIMEOUT}}s)
-same => n,Dial(PJSIP/${{FWD_TARGET}},${{STEP_TIMEOUT}},tTg)
+same => n(dial_internal_fwd),NoOp(Ic Dahili / Masa Telefonu Yonlendirme: ${{FWD_TARGET}} Timeout=${{STEP_TIMEOUT}}s)
+same => n,Set(FWD_AG_CFG=${{CURL(http://{backend_host}/api/subscriber/resolve_agent_ring_targets?extension=${{FWD_TARGET}})}})
+same => n,Set(F_WEB_EP=${{IF($["${{FWD_AG_CFG}}" != "NONE"]?${{CUT(FWD_AG_CFG,:,1)}}:${{FWD_TARGET}})}})
+same => n,Set(F_DESK_EP=${{IF($["${{FWD_AG_CFG}}" != "NONE"]?${{CUT(FWD_AG_CFG,:,2)}}:)}})
+same => n,Set(F_WEB_C=${{IF($["${{F_WEB_EP}}" != ""]?${{PJSIP_DIAL_CONTACTS(${{F_WEB_EP}})}}:)}})
+same => n,Set(F_DESK_C=${{IF($["${{F_DESK_EP}}" != ""]?${{PJSIP_DIAL_CONTACTS(${{F_DESK_EP}})}}:)}})
+same => n,Set(F_COMB_C=${{IF($["${{F_WEB_C}}" != "" & "${{F_DESK_C}}" != ""]?${{F_WEB_C}}&${{F_DESK_C}}:${{IF($["${{F_WEB_C}}" != ""]?${{F_WEB_C}}:${{F_DESK_C}})}})}})
+same => n,Set(F_DIAL_STR=${{IF($["${{F_COMB_C}}" != ""]?${{F_COMB_C}}:PJSIP/${{FWD_TARGET}})}})
+same => n,Dial(${{F_DIAL_STR}},${{STEP_TIMEOUT}},tTg)
 same => n,GotoIf($["${{DIALSTATUS}}"="ANSWER"]?end_call:check_step2)
 
 same => n(dial_external_fwd),NoOp(Dis Hat / Mobil Telefon Yonlendirme: PJSIP/Operator_Trunk/sip:${{CLEAN_TARGET}}@ikonsip.com:5060 Timeout=${{STEP_TIMEOUT}}s)
@@ -3938,6 +4164,7 @@ same => n,GotoIf($["${{FWD_STATUS}}"="ALLOW"]?forward_call:end_call)
 
 same => n(end_call),NoOp(Cagri tamamlandi veya yanitlanmadi: Status=${{DIALSTATUS}})
 same => n,GotoIf($["${{DIALSTATUS}}"="ANSWER"]?check_post_call_survey)
+same => n,GotoIf($["${{FALLBACK_HANDLED}}"="1"]?final_hangup)
 same => n,Set(DIALSTATUS=${{IF($["${{DIALSTATUS}}"=""]?NOANSWER:${{DIALSTATUS}})}})
 same => n,GotoIf($["${{DIALSTATUS}}"="CANCEL"]?hangup_cancel)
 same => n,Progress()
@@ -3949,7 +4176,8 @@ same => n,GotoIf($["${{DIALSTATUS}}"="NOANSWER"]?hangup_noans:hangup_unavail)
 same => n(hangup_noans),Hangup(19)
 same => n(hangup_unavail),Hangup(20)
 same => n(hangup_cancel),Hangup(16)
-same => n(check_post_call_survey),Set(SURVEY_CFG=${{CURL(http://{backend_host}/api/queues/survey/config?queue_ext=${{EXTEN}}&agent_ext=${{EXTEN}}&call_id=${{CALL_UUID}})}})
+same => n(check_post_call_survey),Set(EFF_AGENT_REF=${{IF($["${{MEMBERINTERFACE}}" != ""]?${{MEMBERINTERFACE}}:${{EXTEN}})}})
+same => n,Set(SURVEY_CFG=${{CURL(http://{backend_host}/api/queues/survey/config?queue_ext=${{EXTEN}}&agent_ext=${{URIENCODE(${{EFF_AGENT_REF}})}}&call_id=${{CALL_UUID}})}})
 same => n,GotoIf($["${{CUT(SURVEY_CFG,:,1)}}" != "ENABLED"]?final_hangup)
 same => n,Set(SURVEY_Q_EXT=${{CUT(SURVEY_CFG,:,2)}})
 same => n,Set(SURVEY_MAX_DIGITS=${{CUT(SURVEY_CFG,:,3)}})
@@ -3970,7 +4198,7 @@ same => n,Set(SURVEY_ANY_ANS=${{IF($["${{SURVEY_SCORE}}" != ""]?1:${{SURVEY_ANY_
 same => n,Set(SURVEY_ALL_SCORES=${{IF($[${{SURVEY_Q_IDX}} = 1]?${{SURVEY_SCORE}}:${{SURVEY_ALL_SCORES}},${{SURVEY_SCORE}})}})
 same => n,Set(SURVEY_Q_IDX=$[${{SURVEY_Q_IDX}} + 1])
 same => n,Goto(survey_w_loop)
-same => n(survey_w_done),Set(SURVEY_RES=${{CURL(http://{backend_host}/api/queues/survey/submit?call_id=${{CALL_UUID}}&queue_ext=${{SURVEY_Q_EXT}}&agent_ext=${{EXTEN}}&caller=${{CALLERID(num)}}&score=${{URIENCODE(${{SURVEY_ALL_SCORES}})}})}})
+same => n(survey_w_done),Set(SURVEY_RES=${{CURL(http://{backend_host}/api/queues/survey/submit?call_id=${{CALL_UUID}}&queue_ext=${{SURVEY_Q_EXT}}&agent_ext=${{URIENCODE(${{EFF_AGENT_REF}})}}&caller=${{CALLERID(num)}}&score=${{URIENCODE(${{SURVEY_ALL_SCORES}})}})}})
 same => n,GotoIf($["${{SURVEY_ANY_ANS}}" != "1"]?final_hangup)
 same => n,Playback(/var/spool/asterisk/monitor/${{SURVEY_TY_WAV}})
 same => n(final_hangup),Hangup()
@@ -3991,6 +4219,28 @@ same => n,Set(INV_LOG=${{CURL(http://{backend_host}/api/calls/log_invalid?caller
 same => n,Progress()
 same => n,Playback(beeperr,noanswer)
 same => n,Hangup(28)
+
+[queue_agent_ring]
+; Kuyruk aramalarında temsilcinin hem WebPhone hem de Masa Telefonunu (IP Telefon) Kuyruk CallerID bilgisiyle eşzamanlı çaldırır
+exten => _[1-9]X.,1,NoOp(Kuyruk Temsilci Cihaz Dagitim: Dahili=${{EXTEN}}, CallerID=${{CALLERID(all)}})
+same => n,Set(CURLOPT(conntimeout)=1)
+same => n,Set(CURLOPT(httptimeout)=2)
+same => n,Set(AG_RING_CFG=${{CURL(http://{backend_host}/api/subscriber/resolve_agent_ring_targets?extension=${{EXTEN}})}})
+same => n,GotoIf($["${{AG_RING_CFG}}" = "NONE"]?ag_unavailable)
+same => n,Set(WEB_EP=${{CUT(AG_RING_CFG,:,1)}})
+same => n,Set(DESK_EP=${{CUT(AG_RING_CFG,:,2)}})
+same => n,Set(WEB_TARGETS=${{IF($["${{WEB_EP}}" != ""]?${{PJSIP_DIAL_CONTACTS(${{WEB_EP}})}}:)}})
+same => n,Set(DESK_TARGETS=${{IF($["${{DESK_EP}}" != ""]?${{PJSIP_DIAL_CONTACTS(${{DESK_EP}})}}:)}})
+same => n,Set(COMBINED_TARGETS=${{IF($["${{WEB_TARGETS}}" != "" & "${{DESK_TARGETS}}" != ""]?${{WEB_TARGETS}}&${{DESK_TARGETS}}:${{IF($["${{WEB_TARGETS}}" != ""]?${{WEB_TARGETS}}:${{DESK_TARGETS}})}})}})
+same => n,GotoIf($["${{COMBINED_TARGETS}}" = ""]?ag_fallback_dial)
+same => n,NoOp(Kuyruk Temsilcisi Eszamanli Caldiriliyor [WebPhone + Masa Telefonu]: ${{COMBINED_TARGETS}} | CallerID=${{CALLERID(all)}})
+same => n,Dial(${{COMBINED_TARGETS}},,tTg)
+same => n,Hangup()
+same => n(ag_fallback_dial),Set(FB_DIAL=${{IF($["${{WEB_EP}}" != "" & "${{DESK_EP}}" != ""]?PJSIP/${{WEB_EP}}&PJSIP/${{DESK_EP}}:${{IF($["${{WEB_EP}}" != ""]?PJSIP/${{WEB_EP}}:PJSIP/${{DESK_EP}})}})}})
+same => n,GotoIf($["${{FB_DIAL}}" = "" | "${{FB_DIAL}}" = "PJSIP/"]?ag_unavailable)
+same => n,Dial(${{FB_DIAL}},,tTg)
+same => n,Hangup()
+same => n(ag_unavailable),Hangup(20)
 
 [mobile_transfer_context]
 exten => s,1,NoOp(Mobil aktarim arandi ve cevaplandi. Arayan=${{CALLERID(num)}})
@@ -9262,25 +9512,29 @@ os.makedirs(PROVISIONING_DIR, exist_ok=True)
 
 def _generate_deskphone_cfg_content(ext: str, user_obj: dict, cfg: dict) -> str:
     """Generates multi-vendor compatible IP Phone provisioning config (Yealink / Fanvil / Grandstream)."""
+    from backend.services.autoprovision_service import resolve_user_sip_username
     brand = str(cfg.get("brand") or "Yealink").strip()
     model = str(cfg.get("model") or "T46U").strip()
     full_name = str(user_obj.get("full_name") or user_obj.get("username") or f"Dahili {ext}")
-    sip_secret = str(user_obj.get("sip_password") or user_obj.get("password") or f"secret_{ext}")
+    sip_u = resolve_user_sip_username(ext, user_obj.get("sip_username") or "")
+    sip_secret = resolve_secure_sip_password(ext, str(user_obj.get("sip_password") or ""))
     pbx_host = str(settings_db.get("nat", {}).get("extern_ip") or "127.0.0.1")
 
     lines = [
         "#!version:1.0.0.1",
         f"# AIDA Self-Service Desk Phone Provisioning ({brand} {model})",
-        f"# Extension: {ext} ({full_name})",
+        f"# Extension: {ext} ({full_name}) | SIP Endpoint: {sip_u}",
         "",
         "account.1.enable = 1",
         f"account.1.label = {ext} - {full_name}",
         f"account.1.display_name = {full_name}",
-        f"account.1.auth_name = {ext}",
-        f"account.1.user_name = {ext}",
+        f"account.1.auth_name = {sip_u}",
+        f"account.1.user_name = {sip_u}",
         f"account.1.password = {sip_secret}",
         f"account.1.sip_server.1.address = {pbx_host}",
         "account.1.sip_server.1.port = 5060",
+        "account.1.cid_source = 4",
+        "account.1.cp_source = 0",
         "",
         "# --- Programmable DSS / Line Keys (1-12) ---",
     ]
@@ -9995,8 +10249,15 @@ async def check_outbound_call(caller: str = "", callee: str = "", channel: str =
 
     # 3. WebRTC dahilisi üzerinden UDP/TCP 5060 portu ile sızma kontrolü
     if ("SIP/2.0/UDP" in via_upper or "SIP/2.0/TCP" in via_upper) and "WS" not in via_upper:
+        from backend.services.autoprovision_service import resolve_user_sip_username
         u_match = next((u for u in all_users if str(u.get("extension") or "").strip() == caller_str), None)
-        has_ip_phone = bool(u_match and str(u_match.get("sip_username") or "").strip())
+        expected_desk_ep = resolve_user_sip_username(caller_str, (u_match.get("sip_username") if u_match else "") or "")
+        chan_s = str(channel or "").strip()
+        is_desk_endpoint_chan = bool(
+            expected_desk_ep
+            and chan_s.lower().startswith(f"pjsip/{expected_desk_ep.lower()}-")
+        )
+        has_ip_phone = is_desk_endpoint_chan or bool(u_match and str(u_match.get("sip_username") or "").strip())
         if not has_ip_phone:
             ap_list = settings_db.get("autoprovision", [])
             has_ip_phone = any(str(d.get("extension") or "").strip() == caller_str for d in ap_list)
@@ -10044,6 +10305,68 @@ async def log_invalid_dialplan_call(
         status_val="failed",
     )
     return Response(content="LOGGED", media_type="text/plain")
+
+@app.get("/api/subscriber/resolve_agent_ring_targets")
+async def resolve_agent_ring_targets(extension: str = "", db: AsyncSession = Depends(get_db)):
+    """
+    Resolves the WebRTC endpoint and physical IP Desk Phone (Masa Telefonu) endpoint for a subscriber
+    according to their active profile's enabled devices (`web_phone`, `desk_phone`).
+    Returns `<web_ep>:<desk_ep>` (e.g. `1000:Ab8kP2x9`, `1000:`, `:Ab8kP2x9`) or `NONE`.
+    """
+    from fastapi import Response
+    from backend.services.autoprovision_service import resolve_user_sip_username
+
+    ext_str = str(extension or "").strip()
+    if not ext_str:
+        return Response(content="NONE", media_type="text/plain")
+
+    user_dict = None
+    try:
+        res = await db.execute(select(SystemUser).where(SystemUser.extension == ext_str))
+        db_u = res.scalars().first()
+        if db_u:
+            user_dict = {c.name: getattr(db_u, c.name) for c in db_u.__table__.columns}
+    except Exception:
+        pass
+
+    for u in settings_db.get("users", []):
+        if str(u.get("extension") or "").strip() == ext_str:
+            if not user_dict:
+                user_dict = dict(u)
+            else:
+                for k in ("sip_username", "active_profile", "profiles", "is_active"):
+                    val = u.get(k)
+                    if val is not None and val != "":
+                        user_dict[k] = val
+            break
+
+    if not user_dict:
+        if ext_str == "1000":
+            return Response(content=f"1000:{resolve_user_sip_username('1000', '')}", media_type="text/plain")
+        return Response(content=f"{ext_str}:", media_type="text/plain")
+
+    if user_dict.get("is_active") is False:
+        return Response(content="NONE", media_type="text/plain")
+
+    ensure_user_profiles(user_dict)
+    active_prof_id = str(user_dict.get("active_profile") or "available").strip()
+    active_prof = next((p for p in (user_dict.get("profiles") or []) if str(p.get("id")) == active_prof_id), None)
+    prof_devices = ["desk_phone", "mobile_app", "web_phone", "pc_app"]
+    if isinstance(active_prof, dict) and isinstance(active_prof.get("devices"), list):
+        prof_devices = active_prof.get("devices")
+
+    if len(prof_devices) == 0:
+        return Response(content="NONE", media_type="text/plain")
+
+    web_ep = ext_str if ("web_phone" in prof_devices or "pc_app" in prof_devices or "mobile_app" in prof_devices) else ""
+    desk_cand = resolve_user_sip_username(ext_str, user_dict.get("sip_username") or "")
+    desk_ep = desk_cand if ("desk_phone" in prof_devices and desk_cand and desk_cand != ext_str) else ""
+
+    if not web_ep and not desk_ep:
+        return Response(content="NONE", media_type="text/plain")
+
+    return Response(content=f"{web_ep}:{desk_ep}", media_type="text/plain")
+
 
 @app.get("/api/subscriber/resolve_forwarding")
 async def resolve_subscriber_forwarding(extension: str, dialstatus: str = "BEFORE_DIAL", step: int = 1, db: AsyncSession = Depends(get_db)):
@@ -12427,6 +12750,7 @@ def clone_tenant_config(source_tenant_id: str, target_tenant_id: str):
                     join_announcement=q.join_announcement,
                     periodic_announcement_enabled=q.periodic_announcement_enabled,
                     periodic_announcement=q.periodic_announcement,
+                    periodic_announcement_interval=getattr(q, "periodic_announcement_interval", 30),
                     hold_music_class=q.hold_music_class,
                     position_announcement_enabled=q.position_announcement_enabled,
                     position_announcement_interval=q.position_announcement_interval,
@@ -12434,6 +12758,18 @@ def clone_tenant_config(source_tenant_id: str, target_tenant_id: str):
                     estimated_hold_time_interval=q.estimated_hold_time_interval,
                     ivr_routes=q.ivr_routes,
                     notify_missed_calls=q.notify_missed_calls,
+                    show_queue_name=getattr(q, "show_queue_name", False),
+                    all_busy_routing_enabled=getattr(q, "all_busy_routing_enabled", False),
+                    all_busy_destination_type=getattr(q, "all_busy_destination_type", ""),
+                    all_busy_destination_target=getattr(q, "all_busy_destination_target", ""),
+                    all_busy_post_announcement_action=getattr(q, "all_busy_post_announcement_action", "hangup"),
+                    all_busy_post_announcement_target=getattr(q, "all_busy_post_announcement_target", ""),
+                    max_wait_time_enabled=getattr(q, "max_wait_time_enabled", False),
+                    max_wait_time=getattr(q, "max_wait_time", 120),
+                    max_wait_destination_type=getattr(q, "max_wait_destination_type", ""),
+                    max_wait_destination_target=getattr(q, "max_wait_destination_target", ""),
+                    max_wait_post_announcement_action=getattr(q, "max_wait_post_announcement_action", "hangup"),
+                    max_wait_post_announcement_target=getattr(q, "max_wait_post_announcement_target", ""),
                     smart_callback_enabled=getattr(q, "smart_callback_enabled", False),
                     smart_callback_max_wait_seconds=getattr(q, "smart_callback_max_wait_seconds", 60),
                     smart_callback_queue_threshold=getattr(q, "smart_callback_queue_threshold", 3),
@@ -13975,8 +14311,7 @@ async def end_call_endpoint(
 
             clean_member_ext = ""
             if memberinterface:
-                m_iface = re.search(r"(?:PJSIP|SIP)/(\d+)", str(memberinterface), re.IGNORECASE)
-                clean_member_ext = m_iface.group(1) if m_iface else str(memberinterface).strip()
+                clean_member_ext = _extract_clean_agent_ext(str(memberinterface))
 
             resolved_status = "completed"
             if is_queue_call:
@@ -22455,6 +22790,11 @@ async def startup_event():
                 "ALTER TABLE pbx_queues ADD COLUMN IF NOT EXISTS auto_pause_notify_user BOOLEAN DEFAULT TRUE;",
                 "ALTER TABLE pbx_queues ADD COLUMN IF NOT EXISTS auto_pause_notify_channels VARCHAR DEFAULT 'both';",
                 "ALTER TABLE pbx_queues ADD COLUMN IF NOT EXISTS show_queue_name BOOLEAN DEFAULT FALSE;",
+                "ALTER TABLE pbx_queues ADD COLUMN IF NOT EXISTS periodic_announcement_interval INTEGER DEFAULT 30;",
+                "ALTER TABLE pbx_queues ADD COLUMN IF NOT EXISTS all_busy_post_announcement_action VARCHAR DEFAULT 'hangup';",
+                "ALTER TABLE pbx_queues ADD COLUMN IF NOT EXISTS all_busy_post_announcement_target VARCHAR DEFAULT '';",
+                "ALTER TABLE pbx_queues ADD COLUMN IF NOT EXISTS max_wait_post_announcement_action VARCHAR DEFAULT 'hangup';",
+                "ALTER TABLE pbx_queues ADD COLUMN IF NOT EXISTS max_wait_post_announcement_target VARCHAR DEFAULT '';",
                 "ALTER TABLE queue_survey_responses ADD COLUMN IF NOT EXISTS question_answers JSON DEFAULT '[]';",
                 "ALTER TABLE chat_sessions ADD COLUMN IF NOT EXISTS recipient_info VARCHAR;",
                 "ALTER TABLE chat_sessions ADD COLUMN IF NOT EXISTS assigned_user VARCHAR;",
@@ -23346,6 +23686,8 @@ async def new_save_users_endpoint(payload: Union[List[UserSchema], UserSchema], 
 
         try:
             regenerate_pjsip_custom_conf()
+            regenerate_extensions_custom_conf()
+            regenerate_queues_conf()
         except Exception as e_pjsip:
             print(f"[Save Users PJSIP Reload Warning]: {e_pjsip}")
         
@@ -23877,6 +24219,11 @@ async def new_save_queues_endpoint(payload: Union[List[Dict[str, Any]], Dict[str
                     target_q = existing_by_num[str(data.get("queue_number"))]
 
                 filtered_data = {k: v for k, v in data.items() if k in valid_keys and k != "id"}
+                if "periodic_announcement_interval" in filtered_data:
+                    try:
+                        filtered_data["periodic_announcement_interval"] = max(5, min(600, int(filtered_data.get("periodic_announcement_interval") or 30)))
+                    except Exception:
+                        filtered_data["periodic_announcement_interval"] = 30
                 q_name = data.get("name") or "Kuyruk"
                 q_ext = data.get("extension") or data.get("queue_number") or ""
 
@@ -24085,11 +24432,22 @@ def _extract_clean_agent_ext(raw_agent: str) -> str:
     s = str(raw_agent).strip()
     if "/" in s:
         s = s.split("/", 1)[1]
+    if ";" in s:
+        s = s.split(";", 1)[0]
     if "@" in s:
         s = s.split("@", 1)[0]
     if "-" in s:
         s = s.split("-", 1)[0]
-    return s.strip()
+    cand = s.strip()
+    if cand and not cand.isdigit():
+        try:
+            from backend.services.ami_manager import _resolve_sip_peer_to_ext
+            resolved_ext = _resolve_sip_peer_to_ext(cand)
+            if resolved_ext:
+                return resolved_ext
+        except Exception:
+            pass
+    return cand
 
 
 @app.get("/api/queues/resolve_display_name")
@@ -24149,10 +24507,257 @@ async def resolve_queue_display_name_for_dialplan(
             pass
 
     if matched_q and bool(matched_q.get("show_queue_name", False)):
-        q_label = str(matched_q.get("name") or matched_q.get("extension") or clean_q).strip()
+        q_label = str(matched_q.get("name") or matched_q.get("extension") or clean_q)
+        q_label = q_label.replace('"', "").replace("\r", "").replace("\n", "").strip()
         return PlainTextResponse(q_label)
 
     return PlainTextResponse("")
+
+
+@app.get("/api/queues/evaluate_routing")
+async def evaluate_queue_routing_for_dialplan(
+    queue_ext: Optional[str] = "",
+    stage: Optional[str] = "before",
+    free_cnt: Optional[str] = "",
+    logged_cnt: Optional[str] = "",
+    queuestatus: Optional[str] = "",
+    call_id: Optional[str] = "",
+    caller: Optional[str] = "",
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Evaluates Queue 'All Agents Busy' (stage=before) and 'Max Wait Time / Queue Exit' (stage=after)
+    fallback rules, including Post-Announcement routing when 'Anons Çal' (announcement) is selected.
+    Returns pipe-delimited string: MODE|ANN_WAV|ACTION_TYPE|ACTION_TARGET|Q_MAX_WAIT
+    """
+    clean_q = str(queue_ext or "").strip()
+    queues_list = []
+    users_list = []
+    try:
+        res_q = await db.execute(select(PBXQueue).order_by(PBXQueue.id))
+        db_queues = res_q.scalars().all()
+        queues_list = [{c.name: getattr(item, c.name) for c in item.__table__.columns} for item in db_queues]
+        res_u = await db.execute(select(SystemUser))
+        db_users = res_u.scalars().all()
+        users_list = [{c.name: getattr(item, c.name) for c in item.__table__.columns} for item in db_users]
+    except Exception:
+        queues_list = []
+        users_list = []
+
+    if not queues_list:
+        queues_list = settings_db.get("queues", [])
+    if not users_list:
+        users_list = settings_db.get("users", [])
+
+    matched_q = None
+    if clean_q:
+        for q in queues_list:
+            q_e = str(q.get("extension") or "").strip()
+            q_n = str(q.get("name") or "").strip()
+            q_i = str(q.get("id") or "").strip()
+            if clean_q in (q_e, q_n, q_i):
+                matched_q = q
+                break
+        if not matched_q and clean_q == "temsilci_kuyrugu":
+            matched_q = next((q for q in queues_list if str(q.get("extension") or "") == "2000"), None) or (queues_list[0] if queues_list else None)
+
+    if not matched_q:
+        return PlainTextResponse("ENTER_QUEUE||NONE||")
+
+    max_wait_str = ""
+    if bool(matched_q.get("max_wait_time_enabled")):
+        try:
+            mw_int = max(5, int(matched_q.get("max_wait_time") or 120))
+            max_wait_str = str(mw_int)
+        except Exception:
+            max_wait_str = "120"
+
+    def _resolve_fb_action(dest_type_raw, dest_target_raw, post_ann_act_raw, post_ann_tgt_raw):
+        dtype = str(dest_type_raw or "").strip().lower()
+        dtarget = str(dest_target_raw or "").strip()
+        if not dtype:
+            return ("", "HANGUP", "")
+
+        ann_wav = ""
+        if dtype == "announcement":
+            ann_wav = _resolve_survey_announcement_wav(dtarget, "")
+            eff_type = str(post_ann_act_raw or "hangup").strip().lower()
+            eff_target = str(post_ann_tgt_raw or "").strip()
+        else:
+            eff_type = dtype
+            eff_target = dtarget
+
+        if eff_type in ("", "hangup"):
+            return (ann_wav, "HANGUP", "")
+        if eff_type == "continue_queue":
+            return (ann_wav, "CONTINUE_QUEUE", "")
+        if eff_type == "voicemail":
+            return (ann_wav, "VOICEMAIL", "")
+        if eff_type == "user":
+            u_match = next(
+                (u for u in users_list if str(u.get("id")) == eff_target or str(u.get("extension")) == eff_target),
+                None,
+            )
+            u_ext = str((u_match.get("extension") if u_match else eff_target) or "").strip()
+            return (ann_wav, "USER" if u_ext else "HANGUP", u_ext)
+        if eff_type == "queue":
+            q_match = next(
+                (q for q in queues_list if str(q.get("id")) == eff_target or str(q.get("extension")) == eff_target or str(q.get("name")) == eff_target),
+                None,
+            )
+            q_ext_res = str((q_match.get("extension") if q_match else eff_target) or "").strip()
+            return (ann_wav, "QUEUE" if q_ext_res else "HANGUP", q_ext_res)
+        if eff_type == "mobile_transfer":
+            digits = re.sub(r"\D", "", eff_target)
+            if digits.startswith("0") and len(digits) >= 11:
+                digits = "90" + digits[1:]
+            elif len(digits) == 10 and digits.startswith("5"):
+                digits = "90" + digits
+            return (ann_wav, "GSM" if digits else "HANGUP", digits)
+        if eff_type in ("ai_agent", "ai", "call_flow", "workflow"):
+            try:
+                from backend.audiosocket_server import set_audiosocket_route_override
+                set_audiosocket_route_override(str(call_id or ""), eff_type, eff_target)
+            except Exception as _ov_err:
+                print(f"[Queue Fallback AudioSocket Override Warning]: {_ov_err}")
+            return (ann_wav, "AUDIOSOCKET", eff_target)
+
+        return (ann_wav, "HANGUP", "")
+
+    async def _update_call_fb_target(act_code_val: str, act_target_val: str):
+        if not call_id:
+            return
+        try:
+            db_call = await db.get(Call, str(call_id).strip())
+            if db_call:
+                if act_code_val == "USER" and act_target_val:
+                    db_call.callee_number = act_target_val
+                    db_call.hangup_source = f"direct:{act_target_val}"
+                    await db.commit()
+                elif act_code_val == "GSM" and act_target_val:
+                    db_call.callee_number = act_target_val
+                    db_call.hangup_source = f"gsm:{act_target_val}"
+                    await db.commit()
+                elif act_code_val == "AUDIOSOCKET":
+                    db_call.hangup_source = f"ai_fallback:{act_target_val}"
+                    await db.commit()
+        except Exception:
+            pass
+
+    stage_clean = str(stage or "before").strip().lower()
+    if stage_clean == "before":
+        if bool(matched_q.get("all_busy_routing_enabled")) and str(matched_q.get("all_busy_destination_type") or "").strip():
+            ast_free = int(str(free_cnt).strip()) if str(free_cnt or "").strip().isdigit() else None
+
+            # Expand configured human queue members to verify availability/busy state
+            members_raw = matched_q.get("queueMembers") or matched_q.get("members") or []
+            if isinstance(members_raw, str):
+                try:
+                    import json as _json
+                    members_raw = _json.loads(members_raw)
+                except Exception:
+                    members_raw = []
+
+            member_users = []
+            seen_m_exts = set()
+            all_groups = settings_db.get("subscriber_groups", [])
+            for m in (members_raw if isinstance(members_raw, list) else []):
+                if isinstance(m, dict) and m.get("is_ai"):
+                    continue
+                uid_v = m.get("user_id") if isinstance(m, dict) else m
+                ext_v = m.get("extension") if isinstance(m, dict) else None
+                s_uid = str(uid_v or ext_v or "").strip()
+                if s_uid.startswith("group_"):
+                    gid = s_uid.replace("group_", "", 1)
+                    grp = next((g for g in all_groups if str(g.get("id")) == gid), None)
+                    if grp:
+                        for ge in (grp.get("extensions") or grp.get("members") or []):
+                            u_g = next((u for u in users_list if str(u.get("id")) == str(ge) or str(u.get("extension")) == str(ge)), None)
+                            if u_g and u_g.get("extension") and str(u_g["extension"]) not in seen_m_exts:
+                                seen_m_exts.add(str(u_g["extension"]))
+                                member_users.append(u_g)
+                    continue
+                u_m = next(
+                    (
+                        u for u in users_list
+                        if str(u.get("id")) == s_uid
+                        or str(u.get("extension")) == s_uid
+                        or (ext_v and str(u.get("extension")) == str(ext_v))
+                    ),
+                    None,
+                )
+                if u_m and u_m.get("extension") and str(u_m["extension"]) not in seen_m_exts:
+                    seen_m_exts.add(str(u_m["extension"]))
+                    member_users.append(u_m)
+
+            from backend.services.ami_manager import registered_endpoints, channel_states
+            from backend.services.agent_presence import active_agent_status
+            from backend.services.autoprovision_service import resolve_user_sip_username
+
+            active_busy_exts = set(live_extension_call_state.keys())
+            for ch_info in channel_states.values():
+                if isinstance(ch_info, dict):
+                    for ck in ("caller", "exten"):
+                        cv = str(ch_info.get(ck) or "").strip()
+                        if cv:
+                            active_busy_exts.add(cv)
+
+            py_free_count = 0
+            for u_obj in member_users:
+                m_ext = str(u_obj.get("extension") or "").strip()
+                if not m_ext:
+                    continue
+                m_sip = resolve_user_sip_username(m_ext, u_obj.get("sip_username") or "")
+                is_reg = (m_ext in registered_endpoints) or (bool(m_sip) and m_sip in registered_endpoints)
+                st_ag = active_agent_status.get(m_ext) or active_agent_status.get(u_obj.get("id")) or {}
+                is_paused_crm = st_ag.get("status") in ("break", "acw")
+                is_on_call = (m_ext in active_busy_exts) or (bool(m_sip) and m_sip in active_busy_exts)
+                if is_reg and not is_paused_crm and not is_on_call:
+                    py_free_count += 1
+
+            is_all_busy = False
+            if ast_free is not None and ast_free == 0:
+                is_all_busy = True
+            elif member_users and py_free_count == 0:
+                is_all_busy = True
+
+            if is_all_busy:
+                ann_wav, act_code, act_target = _resolve_fb_action(
+                    matched_q.get("all_busy_destination_type"),
+                    matched_q.get("all_busy_destination_target"),
+                    matched_q.get("all_busy_post_announcement_action"),
+                    matched_q.get("all_busy_post_announcement_target"),
+                )
+                await _update_call_fb_target(act_code, act_target)
+                return PlainTextResponse(f"FALLBACK|{ann_wav}|{act_code}|{act_target}|{max_wait_str}")
+
+        return PlainTextResponse(f"ENTER_QUEUE||NONE||{max_wait_str}")
+
+    if stage_clean == "after":
+        q_stat = str(queuestatus or "").strip().upper()
+        if q_stat == "TIMEOUT" and bool(matched_q.get("max_wait_time_enabled")):
+            ann_wav, act_code, act_target = _resolve_fb_action(
+                matched_q.get("max_wait_destination_type"),
+                matched_q.get("max_wait_destination_target"),
+                matched_q.get("max_wait_post_announcement_action"),
+                matched_q.get("max_wait_post_announcement_target"),
+            )
+            await _update_call_fb_target(act_code, act_target)
+            return PlainTextResponse(f"FALLBACK|{ann_wav}|{act_code}|{act_target}|{max_wait_str}")
+
+        if q_stat in ("FULL", "JOINEMPTY", "LEAVEEMPTY", "JOINUNAVAIL", "LEAVEUNAVAIL") and bool(matched_q.get("all_busy_routing_enabled")) and str(matched_q.get("all_busy_destination_type") or "").strip():
+            ann_wav, act_code, act_target = _resolve_fb_action(
+                matched_q.get("all_busy_destination_type"),
+                matched_q.get("all_busy_destination_target"),
+                matched_q.get("all_busy_post_announcement_action"),
+                matched_q.get("all_busy_post_announcement_target"),
+            )
+            if act_code == "CONTINUE_QUEUE":
+                act_code = "HANGUP"
+            await _update_call_fb_target(act_code, act_target)
+            return PlainTextResponse(f"FALLBACK|{ann_wav}|{act_code}|{act_target}|")
+
+    return PlainTextResponse("NONE||NONE||")
 
 
 @app.get("/api/queues/active-call-queue")
@@ -25400,18 +26005,45 @@ async def get_system_version_info():
         pass
 
     return {
-        "version": "v2.7.0",
+        "version": "v2.7.1",
         "commit_hash": live_commit,
         "release_date": "3 Kasım 2026",
         "status": "Güncel / Canlı Sürüm",
         "environment": "Production (On-Premise)",
         "changelog": [
             {
-                "version": "v2.7.0",
+                "version": "v2.7.1",
                 "commit_hash": live_commit,
                 "release_date": "3 Kasım 2026",
                 "badge": "Canlı Sürüm (Güncel)",
                 "badge_type": "current",
+                "title": "Gelişmiş Kuyruk Yönlendirme Motoru, Masa Telefonu Kuyruk İsmi Gösterimi, Periyodik Anons Süresi ve Temsilci İstatistik İyileştirmeleri",
+                "summary": "WebPhone ve fiziksel Masa Telefonu ekranlarında kuyruk ismi gösterimi ve çift cihaz eşzamanlı çaldırma mimarisi, periyodik anons tekrar sıklığı (saniye) ayarı, 'Tüm Agent'lar Meşgul' ve 'Maksimum Bekleme Süresi' modüllerinde anons sonrası çağrı yönlendirme seçenekleri, kuyruk üye/yönetici panellerinde tam arama desteği ve giden başarısız çağrı sayaç düzeltmesi yayınlandı.",
+                "features": [
+                    {
+                        "title": "☎️ WebPhone & Masa Telefonu Kuyruk İsmi Gösterimi ve Çift Cihaz Çaldırma",
+                        "desc": "Kuyruk ayarı 'Kuyruk İsmini Telefon Ekranında Göster' olarak güncellendi; WebRTC ve Masa Telefonu PJSIP AOR uç noktaları ayrılarak P-Asserted-Identity/RPID başlıkları ve [queue_agent_ring] eşzamanlı çaldırma bağlamı ile [Kuyruk Adı] bilgisinin her iki telefon ekranına da iletilmesi sağlandı."
+                    },
+                    {
+                        "title": "🔊 Periyodik Anons Tekrar Çalma Sıklığı (Saniye)",
+                        "desc": "Kuyruk > Periyodik Anons sekmesine 5–600 saniye aralığında tekrar çalma sıklığı girişi ve hızlı süre butonları (15, 30, 45, 60, 90, 120 sn) eklendi; Asterisk queues_custom.conf yapılandırmasına entegre edildi."
+                    },
+                    {
+                        "title": "🔀 Anons Sonrası Çağrı Yönlendirmesi & Canlı Kuyruk Fallback Motoru",
+                        "desc": "Tüm Agent'lar Meşgul ve Maksimum Bekleme Süresi sekmelerinde 'Anons Çal' seçildiğinde anons sonrasında çağrıya uygulanacak işlem (Çağrıyı Kapat, Mevcut Kuyrukta Beklemeye Devam Et, Başka Kuyruk, Dahili, Arama Akışı, AI Temsilci, GSM Transfer, Sesli Mesaj) ve Asterisk [queue_router_sub] canlı değerlendirme motoru eklendi."
+                    },
+                    {
+                        "title": "👥 Kuyruk Üye/Yönetici Arama Alanları & Giden Çağrı Sayaç Düzeltmesi",
+                        "desc": "Kuyruk Üyeler & Yöneticiler ekranındaki seçili üyeler ile yönetici adayları ve kuyruk yöneticileri listelerinin tamamına hızlı arama kutusu eklendi; ayrıca başarısız giden aramaların Kayıp veya Giden çağrı istatistiklerine hatalı yansıması önlendi."
+                    }
+                ]
+            },
+            {
+                "version": "v2.7.0",
+                "commit_hash": "9dd4012",
+                "release_date": "3 Kasım 2026",
+                "badge": "Önceki Sürüm",
+                "badge_type": "previous",
                 "title": "Mesai Saatleri & Resmi Tatiller, Sorun İnceleme Merkezi, Sekmeli Ayar/RAG/Anons Mimarisi ve Arayüz İyileştirmeleri",
                 "summary": "Merkezi Mesai Saatleri & Resmi Tatiller yapılandırması, Ping/Traceroute/PCAP/sngrep içeren Sorun İnceleme Merkezi, 5 kategorili Sistem Ayarları, sekmeli Bilgi Bankası (RAG) ve Anons Yönetimi, global 'i' bilgi ipucu sistemi, telifsiz sinema karakteri avatarları, kuyruk mantığında Rapor & Yönetim Filtresi ve rol yetki sayacı düzeltmesi yayınlandı.",
                 "features": [

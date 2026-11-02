@@ -505,6 +505,8 @@ def generate_provisioning_config(
         "account.1.nat.rport = 1",
         "account.1.dtmf.type = 2",
         "account.1.dtmf.info_type = 0",
+        "account.1.cid_source = 4",
+        "account.1.cp_source = 0",
         "voice_mail.number.1 = *97",
         "account.1.direct_pickup_code = " + pickup_directed,
         "account.1.group_pickup_code = " + pickup_group,

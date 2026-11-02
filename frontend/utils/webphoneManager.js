@@ -1017,7 +1017,7 @@ class WebphoneManager {
 
     let parsedQueueName = "";
     let cleanedDisplayName = rawDisplayName;
-    const qMatch = rawDisplayName.match(/^\[(?:QUEUE|Q):([^\]]+)\]\s*(.*)$/i);
+    const qMatch = rawDisplayName.match(/^\[(?:(?:QUEUE|Q):)?([^\]]+)\]\s*(.*)$/i);
     if (qMatch) {
       parsedQueueName = (qMatch[1] || "").trim();
       cleanedDisplayName = (qMatch[2] || "").trim();

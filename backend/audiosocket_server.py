@@ -931,6 +931,42 @@ def _did_pattern_matches_as(did_val: str, pat_val: str) -> bool:
     return False
 
 
+_audiosocket_route_overrides = {}
+
+
+def set_audiosocket_route_override(call_id: str, dest_type: str, dest_target: str):
+    cid_s = str(call_id or "").strip()
+    if not cid_s:
+        return
+    if len(_audiosocket_route_overrides) > 500:
+        for old_k in list(_audiosocket_route_overrides.keys())[:100]:
+            _audiosocket_route_overrides.pop(old_k, None)
+    _audiosocket_route_overrides[cid_s] = {
+        "type": str(dest_type or "").strip(),
+        "target": str(dest_target or "").strip(),
+    }
+
+
+def evaluate_explicit_route_override(dest_type: str, dest_target: str) -> dict:
+    settings = load_settings()
+    dtype = str(dest_type or "").strip().lower()
+    dtarget = str(dest_target or "").strip()
+    if dtype in ("ai", "ai_agent"):
+        ai_agents = settings.get("ai_agents", [])
+        agent = next((a for a in ai_agents if str(a.get("id")) == dtarget), None) if dtarget else None
+        if not agent and ai_agents:
+            agent = next((a for a in ai_agents if a.get("status") != "disabled"), ai_agents[0])
+        return {"action": "ai", "agent": agent, "agent_id": agent.get("id") if agent else None}
+    if dtype in ("call_flow", "workflow"):
+        workflows = settings.get("workflows", [])
+        wf = next((w for w in workflows if str(w.get("id")) == dtarget), None) if dtarget else None
+        if wf:
+            wf_res = _evaluate_workflow_object(wf, settings)
+            if wf_res:
+                return wf_res
+    return {"action": "hangup"}
+
+
 def evaluate_call_flow_action(did: str) -> dict:
     """
     Evaluates Inbound Rules and Visual CallFlow workflows for the given DID.
@@ -1740,7 +1776,12 @@ async def handle_audiosocket_connection(reader: asyncio.StreamReader, writer: as
             print(f"[AudioSocket Blacklist Check Error]: {bl_err}")
 
         did = await get_call_did(call_id)
-        call_eval = evaluate_call_flow_action(did)
+        override_cfg = _audiosocket_route_overrides.pop(str(call_id or "").strip(), None)
+        if override_cfg:
+            print(f"[AudioSocket Queue Fallback Override] Call {call_id} -> {override_cfg}")
+            call_eval = evaluate_explicit_route_override(override_cfg.get("type"), override_cfg.get("target"))
+        else:
+            call_eval = evaluate_call_flow_action(did)
 
         route_action = call_eval.get("action")
         if route_action == "interactive_workflow":
