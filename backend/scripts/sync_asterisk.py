@@ -267,6 +267,17 @@ verify_server=no
 verify_client=no
 {nat_lines}"""
 
+        has_exp_op_t = any(
+            _sanitize_t_name(t.get("trunk_name") or t.get("name") or "") == "Operator_Trunk" and (t.get("is_active", True) is not False)
+            for t in trunks_list
+        )
+        primary_t_ref = next(
+            (t for t in trunks_list if (t.get("is_active", True) is not False) and str(t.get("trunk_name") or "") == "908503607390"),
+            next((t for t in trunks_list if (t.get("is_active", True) is not False)), None)
+        )
+        op_ref_safe_s = _sanitize_t_name(primary_t_ref.get("trunk_name") or primary_t_ref.get("name") or "908503607390") if primary_t_ref else "908503607390"
+        op_allow_s = _norm_codecs(primary_t_ref) if primary_t_ref else "ulaw,alaw,g722,g729"
+
         pjsip_custom_content = f"""; ==========================================
 ; DINAMIK OLARAK OLUŞTURULAN SIP TRUNK VE DAHILI AYARLARI
 ; ==========================================
@@ -290,21 +301,22 @@ bind=0.0.0.0:8088
 type=transport
 protocol=wss
 bind=0.0.0.0:8089
-{nat_lines}
+{nat_lines}"""
+        if not has_exp_op_t:
+            pjsip_custom_content += f"""
 ; --- OPERATOR TRUNK (OUTBOUND LINK) ---
 [Operator_Trunk]
 type=endpoint
 context=default
 disallow=all
-allow=ulaw,alaw,g722,g729
+allow={op_allow_s}
 direct_media=no
 rtp_symmetric=yes
 force_rport=yes
 rewrite_contact=no
 media_use_received_transport=yes
-outbound_auth=908503607390-auth
-aors=908503607390-aor
-
+outbound_auth={op_ref_safe_s}-auth
+aors={op_ref_safe_s}-aor
 """
         for t in trunks_list:
             if t.get("is_active", True) is False:
@@ -743,8 +755,9 @@ Event=>check-sync\\;reboot=true
             f.write(clean_pjsip_main)
         print("[Sync Script] /etc/asterisk/pjsip.conf temizlendi ve #include pjsip_custom.conf eklendi.")
 
-        subprocess.run(["asterisk", "-rx", "module reload res_pjsip.so"], check=False, timeout=2.0)
-        subprocess.run(["asterisk", "-rx", "pjsip reload"], check=False, timeout=2.0)
+        ast_reload_timeout = 10.0 if os.path.exists("/etc/asterisk") else 2.0
+        subprocess.run(["asterisk", "-rx", "module reload res_pjsip.so"], check=False, timeout=ast_reload_timeout)
+        subprocess.run(["asterisk", "-rx", "pjsip reload"], check=False, timeout=ast_reload_timeout)
         print("[Sync Script] Asterisk PJSIP başarıyla yenilendi (pjsip reload).")
     except Exception as e_pjsip:
         print(f"[Sync Script] PJSIP oluşturma hatası: {e_pjsip}")
@@ -1099,14 +1112,15 @@ same => n,Playback(/var/spool/asterisk/monitor/tr_sesli_mesaj)
 same => n,Set(DIALSTATUS=NOANSWER)
 same => n,Goto(q_ret)
 same => n(q_fb_user),GotoIf($["${Q_ACT_TARGET}" = ""]?q_fb_hangup)
-same => n,Set(FB_AG_CFG=${CURL(http://127.0.0.1:8000/api/subscriber/resolve_agent_ring_targets?extension=${URIENCODE(${Q_ACT_TARGET})})})
-same => n,Set(FB_W_EP=${IF($["${FB_AG_CFG}" != "NONE"]?${CUT(FB_AG_CFG,:,1)}:${Q_ACT_TARGET})})
-same => n,Set(FB_D_EP=${IF($["${FB_AG_CFG}" != "NONE"]?${CUT(FB_AG_CFG,:,2)}:)})
-same => n,Set(FB_W_C=${IF($["${FB_W_EP}" != ""]?${PJSIP_DIAL_CONTACTS(${FB_W_EP})}:)})
-same => n,Set(FB_D_C=${IF($["${FB_D_EP}" != ""]?${PJSIP_DIAL_CONTACTS(${FB_D_EP})}:)})
-same => n,Set(FB_COMB=${IF($["${FB_W_C}" != "" & "${FB_D_C}" != ""]?${FB_W_C}&${FB_D_C}:${IF($["${FB_W_C}" != ""]?${FB_W_C}:${FB_D_C})})})
-same => n,Set(FB_DIAL_STR=${IF($["${FB_COMB}" != ""]?${FB_COMB}:PJSIP/${Q_ACT_TARGET})})
-same => n,Dial(${FB_DIAL_STR},30,tTg)
+same => n,Set(FB_EP_LIST=${CURL(http://127.0.0.1:8000/api/subscriber/resolve_agent_ring_targets?extension=${URIENCODE(${Q_ACT_TARGET})}&format=list)})
+same => n,GotoIf($["${FB_EP_LIST}" != "" & "${FB_EP_LIST}" != "NONE"]?q_fb_build_ep)
+same => n,Set(FB_EP_LIST=${Q_ACT_TARGET})
+same => n(q_fb_build_ep),Gosub(build_multi_pjsip_dial_sub,s,1(${FB_EP_LIST}))
+same => n,GotoIf($["${MULTI_DIAL_STR}" != ""]?q_fb_dial_multi)
+same => n,Set(FB_DIAL_STR=PJSIP/${Q_ACT_TARGET})
+same => n,Goto(q_fb_exec_dial)
+same => n(q_fb_dial_multi),Set(FB_DIAL_STR=${MULTI_DIAL_STR})
+same => n(q_fb_exec_dial),Dial(${FB_DIAL_STR},30,tTg)
 same => n,Goto(q_ret)
 same => n(q_fb_gsm),GotoIf($["${Q_ACT_TARGET}" = ""]?q_fb_hangup)
 same => n,Set(CALLERID(num)=908503607390)
@@ -1285,9 +1299,13 @@ same => n,Set(__OUT_MAXPTIME=${CUT(OUT_CFG,|,12)})
 same => n,GotoIf($["${OUT_LIMIT_EN}" != "1"]?set_out_cid)
 same => n,Set(GROUP(trunk_limit)=${OUT_TRUNK_NAME})
 same => n,GotoIf($[${GROUP_COUNT(${OUT_TRUNK_NAME}@trunk_limit)} > ${OUT_MAX_CH}]?out_limit_exceeded)
-same => n(set_out_cid),Set(CALLERID(num)=${IF($["${OUT_CID_NUM}" != ""]?${OUT_CID_NUM}:908503607390)})
-same => n,Set(CALLERID(name)=${IF($["${OUT_CID_NAME}" != ""]?${OUT_CID_NAME}:${CALLERID(num)})})
-same => n,Dial(${OUT_DIAL_STR},60,rb(trunk-outbound-headers^s^1))
+same => n(set_out_cid),Set(CALLERID(num)=908503607390)
+same => n,GotoIf($["${OUT_CID_NUM}" = ""]?chk_out_cid_name)
+same => n,Set(CALLERID(num)=${OUT_CID_NUM})
+same => n(chk_out_cid_name),Set(CALLERID(name)=${CALLERID(num)})
+same => n,GotoIf($["${OUT_CID_NAME}" = ""]?do_out_dial)
+same => n,Set(CALLERID(name)=${OUT_CID_NAME})
+same => n(do_out_dial),Dial(${OUT_DIAL_STR},60,rb(trunk-outbound-headers^s^1))
 same => n,Hangup()
 same => n(out_limit_exceeded),NoOp(TRUNK GIDEN CAGRI LIMITI ASILDI: ${OUT_TRUNK_NAME} Max=${OUT_MAX_CH})
 same => n,Busy(5)
@@ -1360,9 +1378,13 @@ same => n,Set(__OUT_MAXPTIME=${CUT(OUT_CFG,|,12)})
 same => n,GotoIf($["${OUT_LIMIT_EN}" != "1"]?set_out_cid_ext)
 same => n,Set(GROUP(trunk_limit)=${OUT_TRUNK_NAME})
 same => n,GotoIf($[${GROUP_COUNT(${OUT_TRUNK_NAME}@trunk_limit)} > ${OUT_MAX_CH}]?out_limit_exceeded_ext)
-same => n(set_out_cid_ext),Set(CALLERID(num)=${IF($["${OUT_CID_NUM}" != ""]?${OUT_CID_NUM}:908503607390)})
-same => n,Set(CALLERID(name)=${IF($["${OUT_CID_NAME}" != ""]?${OUT_CID_NAME}:${CALLERID(num)})})
-same => n,Dial(${OUT_DIAL_STR},60,rb(trunk-outbound-headers^s^1))
+same => n(set_out_cid_ext),Set(CALLERID(num)=908503607390)
+same => n,GotoIf($["${OUT_CID_NUM}" = ""]?chk_out_cid_name_ext)
+same => n,Set(CALLERID(num)=${OUT_CID_NUM})
+same => n(chk_out_cid_name_ext),Set(CALLERID(name)=${CALLERID(num)})
+same => n,GotoIf($["${OUT_CID_NAME}" = ""]?do_out_dial_ext)
+same => n,Set(CALLERID(name)=${OUT_CID_NAME})
+same => n(do_out_dial_ext),Dial(${OUT_DIAL_STR},60,rb(trunk-outbound-headers^s^1))
 same => n,Hangup()
 same => n(out_limit_exceeded_ext),NoOp(TRUNK GIDEN CAGRI LIMITI ASILDI: ${OUT_TRUNK_NAME} Max=${OUT_MAX_CH})
 same => n,Busy(5)
@@ -1423,10 +1445,14 @@ same => n,Hangup()
 
 same => n(dial_internal_fwd),NoOp(Ic Dahili / SIP Cihazlari Yonlendirme: ${FWD_TARGET} Timeout=${STEP_TIMEOUT}s)
 same => n,Set(FWD_EP_LIST=${CURL(http://127.0.0.1:8000/api/subscriber/resolve_agent_ring_targets?extension=${FWD_TARGET}&format=list)})
-same => n,Set(FWD_EP_LIST=${IF($["${FWD_EP_LIST}" != "" & "${FWD_EP_LIST}" != "NONE"]?${FWD_EP_LIST}:${FWD_TARGET})})
-same => n,Gosub(build_multi_pjsip_dial_sub,s,1(${FWD_EP_LIST}))
-same => n,Set(F_DIAL_STR=${IF($["${MULTI_DIAL_STR}" != ""]?${MULTI_DIAL_STR}:PJSIP/${FWD_TARGET})})
-same => n,Dial(${F_DIAL_STR},${STEP_TIMEOUT},tTg)
+same => n,GotoIf($["${FWD_EP_LIST}" != "" & "${FWD_EP_LIST}" != "NONE"]?fwd_build_multi)
+same => n,Set(FWD_EP_LIST=${FWD_TARGET})
+same => n(fwd_build_multi),Gosub(build_multi_pjsip_dial_sub,s,1(${FWD_EP_LIST}))
+same => n,GotoIf($["${MULTI_DIAL_STR}" != ""]?fwd_use_multi)
+same => n,Set(F_DIAL_STR=PJSIP/${FWD_TARGET})
+same => n,Goto(fwd_exec_dial)
+same => n(fwd_use_multi),Set(F_DIAL_STR=${MULTI_DIAL_STR})
+same => n(fwd_exec_dial),Dial(${F_DIAL_STR},${STEP_TIMEOUT},tTg)
 same => n,GotoIf($["${DIALSTATUS}"="ANSWER"]?end_call:check_step2)
 
 same => n(dial_external_fwd),NoOp(Dis Hat / Mobil Telefon Yonlendirme: PJSIP/Operator_Trunk/sip:${CLEAN_TARGET}@ikonsip.com:5060 Timeout=${STEP_TIMEOUT}s)
@@ -1452,15 +1478,23 @@ same => n,Set(DIALSTATUS=${IF($["${DIALSTATUS}"=""]?NOANSWER:${DIALSTATUS})})
 same => n,GotoIf($["${DIALSTATUS}"="CANCEL"]?hangup_cancel)
 same => n,Progress()
 same => n,GotoIf($["${DIALSTATUS}"="BUSY"]?play_busy:play_unavail)
-same => n(play_busy),Playback(/var/spool/asterisk/monitor/tr_abone_mesgul,noanswer)
+same => n(play_busy),GotoIf($[${STAT(e,/var/spool/asterisk/monitor/tr_abone_mesgul.wav)}]?play_busy_wav)
+same => n,Busy(3)
 same => n,Hangup(17)
-same => n(play_unavail),Playback(/var/spool/asterisk/monitor/tr_abone_ulasilamiyor,noanswer)
-same => n,GotoIf($["${DIALSTATUS}"="NOANSWER"]?hangup_noans:hangup_unavail)
+same => n(play_busy_wav),Playback(/var/spool/asterisk/monitor/tr_abone_mesgul,noanswer)
+same => n,Hangup(17)
+same => n(play_unavail),GotoIf($[${STAT(e,/var/spool/asterisk/monitor/tr_abone_ulasilamiyor.wav)}]?play_unavail_wav)
+same => n,Playback(beeperr,noanswer)
+same => n,Goto(after_play_unavail)
+same => n(play_unavail_wav),Playback(/var/spool/asterisk/monitor/tr_abone_ulasilamiyor,noanswer)
+same => n(after_play_unavail),GotoIf($["${DIALSTATUS}"="NOANSWER"]?hangup_noans:hangup_unavail)
 same => n(hangup_noans),Hangup(19)
 same => n(hangup_unavail),Hangup(20)
 same => n(hangup_cancel),Hangup(16)
-same => n(check_post_call_survey),Set(EFF_AGENT_REF=${IF($["${MEMBERINTERFACE}" != ""]?${MEMBERINTERFACE}:${EXTEN})})
-same => n,Set(SURVEY_CFG=${CURL(http://127.0.0.1:8000/api/queues/survey/config?queue_ext=${EXTEN}&agent_ext=${URIENCODE(${EFF_AGENT_REF})}&call_id=${CALL_UUID})})
+same => n(check_post_call_survey),Set(EFF_AGENT_REF=${EXTEN})
+same => n,GotoIf($["${MEMBERINTERFACE}" = ""]?run_post_survey)
+same => n,Set(EFF_AGENT_REF=${MEMBERINTERFACE})
+same => n(run_post_survey),Set(SURVEY_CFG=${CURL(http://127.0.0.1:8000/api/queues/survey/config?queue_ext=${EXTEN}&agent_ext=${URIENCODE(${EFF_AGENT_REF})}&call_id=${CALL_UUID})})
 same => n,GotoIf($["${CUT(SURVEY_CFG,:,1)}" != "ENABLED"]?final_hangup)
 same => n,Set(SURVEY_Q_EXT=${CUT(SURVEY_CFG,:,2)})
 same => n,Set(SURVEY_MAX_DIGITS=${CUT(SURVEY_CFG,:,3)})
@@ -1504,24 +1538,34 @@ same => n,Playback(beeperr,noanswer)
 same => n,Hangup(28)
 
 [build_multi_pjsip_dial_sub]
-exten => s,1,Set(LOCAL(EP_LIST)=${ARG1})
-same => n,Set(MULTI_CONTACTS=)
-same => n,Set(MULTI_FALLBACK=)
-same => n,GotoIf($["${EP_LIST}" = "" | "${EP_LIST}" = "NONE"]?done)
-same => n,Set(LOCAL(EP_CNT)=${FIELDQTY(EP_LIST,&)})
-same => n,Set(LOCAL(EP_IDX)=1)
-same => n(loop),GotoIf($[${EP_IDX} > ${EP_CNT}]?finalize)
-same => n,Set(LOCAL(CUR_EP)=${CUT(EP_LIST,&,${EP_IDX})})
-same => n,GotoIf($["${CUR_EP}" = ""]?next)
-same => n,Set(LOCAL(CUR_C)=${PJSIP_DIAL_CONTACTS(${CUR_EP})})
-same => n,Set(MULTI_CONTACTS=${IF($["${CUR_C}" != ""]?${IF($["${MULTI_CONTACTS}" != ""]?${MULTI_CONTACTS}&${CUR_C}:${CUR_C})}:${MULTI_CONTACTS})})
-same => n,Set(MULTI_FALLBACK=${IF($["${MULTI_FALLBACK}" != ""]?${MULTI_FALLBACK}&PJSIP/${CUR_EP}:PJSIP/${CUR_EP})})
-same => n(next),Set(EP_IDX=$[${EP_IDX} + 1])
-same => n,Goto(loop)
-same => n(finalize),Set(MULTI_DIAL_STR=${IF($["${MULTI_CONTACTS}" != ""]?${MULTI_CONTACTS}:${MULTI_FALLBACK})})
+; ARG1 = & ile ayrilmis PJSIP endpoint listesi (orn: 1000&Ab8kP2x9&EvTel2)
+; NOT: PJSIP_DIAL_CONTACTS ciktilari 'sip:user@ip:port' seklinde iki nokta (:) icerdigi icin
+; kesinlikle Asterisk IF() fonksiyonu icinde kullanilmamalidir (GotoIf ile birlestirilir).
+exten => s,1,Set(MP_LIST=${ARG1})
+same => n,Set(MULTI_DIAL_STR=)
+same => n,Set(MP_CONTACTS=)
+same => n,Set(MP_FB=)
+same => n,GotoIf($["${MP_LIST}" = "" | "${MP_LIST}" = "NONE"]?mp_ret)
+same => n,Set(MP_IDX=1)
+same => n(mp_loop),Set(MP_EP=${CUT(MP_LIST,&,${MP_IDX})})
+same => n,GotoIf($["${MP_EP}" = ""]?mp_done)
+same => n,GotoIf($["${MP_FB}" = ""]?mp_fb_first:mp_fb_append)
+same => n(mp_fb_first),Set(MP_FB=PJSIP/${MP_EP})
+same => n,Goto(mp_chk_c)
+same => n(mp_fb_append),Set(MP_FB=${MP_FB}&PJSIP/${MP_EP})
+same => n(mp_chk_c),Set(MP_CUR_C=${PJSIP_DIAL_CONTACTS(${MP_EP})})
+same => n,GotoIf($["${MP_CUR_C}" = ""]?mp_next)
+same => n,GotoIf($["${MP_CONTACTS}" = ""]?mp_c_first:mp_c_append)
+same => n(mp_c_first),Set(MP_CONTACTS=${MP_CUR_C})
+same => n,Goto(mp_next)
+same => n(mp_c_append),Set(MP_CONTACTS=${MP_CONTACTS}&${MP_CUR_C})
+same => n(mp_next),Set(MP_IDX=$[${MP_IDX} + 1])
+same => n,Goto(mp_loop)
+same => n(mp_done),GotoIf($["${MP_CONTACTS}" != ""]?mp_use_c:mp_use_fb)
+same => n(mp_use_c),Set(MULTI_DIAL_STR=${MP_CONTACTS})
 same => n,Return()
-same => n(done),Set(MULTI_DIAL_STR=)
-same => n,Return()
+same => n(mp_use_fb),Set(MULTI_DIAL_STR=${MP_FB})
+same => n(mp_ret),Return()
 
 [queue_agent_ring]
 ; Kuyruk aramalarında temsilcinin WebPhone ve tüm aktif SIP Cihazlarını Kuyruk CallerID bilgisiyle eşzamanlı çaldırır
@@ -1583,7 +1627,8 @@ same => n,Hangup()
         print(f"[Sync Script] Ana extensions.conf yazma hatasi: {e}")
 
     try:
-        subprocess.run(["asterisk", "-rx", "dialplan reload"], check=True, timeout=2.0)
+        ast_dp_timeout = 10.0 if os.path.exists("/etc/asterisk") else 2.0
+        subprocess.run(["asterisk", "-rx", "dialplan reload"], check=True, timeout=ast_dp_timeout)
         print("[Sync Script] Asterisk Dialplan başarıyla yenilendi (reload).")
     except Exception as e:
         print(f"[Sync Script] Asterisk reload hatası: {e}")
@@ -1694,7 +1739,7 @@ same => n,Hangup()
         if os.path.exists("/etc/asterisk"):
             with open("/etc/asterisk/queues.conf", "w", encoding="utf-8") as qmf:
                 qmf.write("[general]\npersistentmembers = yes\nautofill = yes\nmonitor-type = MixMonitor\nshared_lastcall = yes\n\n#include /etc/asterisk/queues_custom.conf\n")
-            subprocess.run(["asterisk", "-rx", "queue reload all"], check=False, timeout=2.0)
+            subprocess.run(["asterisk", "-rx", "queue reload all"], check=False, timeout=10.0)
             print("[Sync Script] Asterisk Queues başarıyla yenilendi (queue reload all).")
     except Exception as e_qsync:
         print(f"[Sync Script] Queues senkronizasyon hatası: {e_qsync}")

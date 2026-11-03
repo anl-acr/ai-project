@@ -1,8 +1,10 @@
 import asyncio
 import os
+import re
 import json
 import base64
 import datetime
+import traceback
 import websockets
 from sqlalchemy import select, update
 from backend.database.config import AsyncSessionLocal
@@ -1776,11 +1778,16 @@ async def handle_audiosocket_connection(reader: asyncio.StreamReader, writer: as
 
         did = await get_call_did(call_id)
         override_cfg = _audiosocket_route_overrides.pop(str(call_id or "").strip(), None)
-        if override_cfg:
-            print(f"[AudioSocket Queue Fallback Override] Call {call_id} -> {override_cfg}")
-            call_eval = evaluate_explicit_route_override(override_cfg.get("type"), override_cfg.get("target"))
-        else:
-            call_eval = evaluate_call_flow_action(did)
+        try:
+            if override_cfg:
+                print(f"[AudioSocket Queue Fallback Override] Call {call_id} -> {override_cfg}")
+                call_eval = evaluate_explicit_route_override(override_cfg.get("type"), override_cfg.get("target"))
+            else:
+                call_eval = evaluate_call_flow_action(did)
+        except Exception as eval_err:
+            print(f"[AudioSocket CallFlow Eval Error] Call {call_id} (DID={did}): {eval_err}")
+            traceback.print_exc()
+            call_eval = {"action": "ai", "agent_id": None, "greeting": None}
 
         route_action = call_eval.get("action")
         if route_action == "interactive_workflow":

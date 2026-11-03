@@ -138,6 +138,18 @@ async def on_startup_telemetry():
     except Exception as e:
         print(f"[Telemetry Startup Error]: {e}")
 
+    if os.path.exists("/etc/asterisk"):
+        async def _startup_asterisk_sync():
+            try:
+                await asyncio.sleep(1.0)
+                await asyncio.to_thread(regenerate_pjsip_custom_conf)
+                await asyncio.to_thread(regenerate_queues_conf)
+                await asyncio.to_thread(regenerate_extensions_custom_conf)
+                print("[Asterisk Startup Sync] /etc/asterisk pjsip, queues ve dialplan otomatik senkronize edildi.")
+            except Exception as ast_err:
+                print(f"[Asterisk Startup Sync Warning]: {ast_err}")
+        asyncio.create_task(_startup_asterisk_sync())
+
 # Enable CORS for frontend development
 app.add_middleware(
     CORSMiddleware,
@@ -2367,58 +2379,67 @@ async def upload_ssl_certificates(
 
 def run_pjsip_reload():
     # Trigger Asterisk HTTP/WSS, PJSIP & Dialplan Reload command dynamically
+    ast_timeout = 10.0 if os.path.exists("/etc/asterisk") else 2.0
+    has_host_ast = bool(shutil.which("asterisk"))
     try:
         import subprocess
-        subprocess.run(["asterisk", "-rx", "module reload http"], capture_output=True, text=True, timeout=2.0)
-        res = subprocess.run(["asterisk", "-rx", "pjsip reload"], capture_output=True, text=True, timeout=2.0)
-        subprocess.run(["asterisk", "-rx", "dialplan reload"], capture_output=True, text=True, timeout=2.0)
+        subprocess.run(["asterisk", "-rx", "module reload http"], capture_output=True, text=True, timeout=ast_timeout)
+        res = subprocess.run(["asterisk", "-rx", "pjsip reload"], capture_output=True, text=True, timeout=ast_timeout)
+        subprocess.run(["asterisk", "-rx", "dialplan reload"], capture_output=True, text=True, timeout=ast_timeout)
         if res.returncode == 0:
             print("[Asterisk Config] HTTP/WSS, PJSIP ve Dialplan başarıyla yenilendi (host).")
             return
     except Exception as e:
         print(f"[Asterisk Config] Direct PJSIP reload failed: {e}")
 
-    try:
-        import subprocess
-        subprocess.run(["docker", "exec", "ai_pbx_asterisk", "asterisk", "-rx", "pjsip reload"], check=True, capture_output=True, timeout=2.0)
-        subprocess.run(["docker", "exec", "ai_pbx_asterisk", "asterisk", "-rx", "dialplan reload"], check=True, capture_output=True, timeout=2.0)
-        print("[Asterisk Config] PJSIP & Dialplan configurations reloaded successfully in Asterisk container.")
-    except Exception as e:
-        print(f"[Asterisk Config] Failed to reload PJSIP in Asterisk: {e}")
+    if not has_host_ast:
+        try:
+            import subprocess
+            subprocess.run(["docker", "exec", "ai_pbx_asterisk", "asterisk", "-rx", "pjsip reload"], check=True, capture_output=True, timeout=ast_timeout)
+            subprocess.run(["docker", "exec", "ai_pbx_asterisk", "asterisk", "-rx", "dialplan reload"], check=True, capture_output=True, timeout=ast_timeout)
+            print("[Asterisk Config] PJSIP & Dialplan configurations reloaded successfully in Asterisk container.")
+        except Exception as e:
+            print(f"[Asterisk Config] Failed to reload PJSIP in Asterisk: {e}")
 
 def run_queue_reload():
+    ast_timeout = 10.0 if os.path.exists("/etc/asterisk") else 2.0
+    has_host_ast = bool(shutil.which("asterisk"))
     try:
         import subprocess
-        res = subprocess.run(["asterisk", "-rx", "queue reload all"], capture_output=True, text=True, timeout=2.0)
+        res = subprocess.run(["asterisk", "-rx", "queue reload all"], capture_output=True, text=True, timeout=ast_timeout)
         if res.returncode == 0:
             print("[Asterisk Config] Queue reloaded successfully via host Asterisk.")
             return
     except Exception as e:
         print(f"[Asterisk Config] Direct queue reload failed: {e}")
 
-    try:
-        import subprocess
-        subprocess.run(["docker", "exec", "ai_pbx_asterisk", "asterisk", "-rx", "queue reload all"], check=True, capture_output=True, timeout=2.0)
-        print("[Asterisk Config] Queue configurations reloaded successfully in Asterisk container.")
-    except Exception as e:
-        print(f"[Asterisk Config] Failed to reload queues in Asterisk: {e}")
+    if not has_host_ast:
+        try:
+            import subprocess
+            subprocess.run(["docker", "exec", "ai_pbx_asterisk", "asterisk", "-rx", "queue reload all"], check=True, capture_output=True, timeout=ast_timeout)
+            print("[Asterisk Config] Queue configurations reloaded successfully in Asterisk container.")
+        except Exception as e:
+            print(f"[Asterisk Config] Failed to reload queues in Asterisk: {e}")
 
 def run_dialplan_reload():
+    ast_timeout = 10.0 if os.path.exists("/etc/asterisk") else 2.0
+    has_host_ast = bool(shutil.which("asterisk"))
     try:
         import subprocess
-        res = subprocess.run(["asterisk", "-rx", "dialplan reload"], capture_output=True, text=True, timeout=2.0)
+        res = subprocess.run(["asterisk", "-rx", "dialplan reload"], capture_output=True, text=True, timeout=ast_timeout)
         if res.returncode == 0:
             print("[Asterisk Config] Dialplan reloaded successfully via host Asterisk.")
             return
     except Exception as e:
         print(f"[Asterisk Config] Direct dialplan reload failed: {e}")
 
-    try:
-        import subprocess
-        subprocess.run(["docker", "exec", "ai_pbx_asterisk", "asterisk", "-rx", "dialplan reload"], check=True, capture_output=True, timeout=2.0)
-        print("[Asterisk Config] Dialplan configurations reloaded successfully in Asterisk container.")
-    except Exception as e:
-        print(f"[Asterisk Config] Failed to reload dialplan in Asterisk: {e}")
+    if not has_host_ast:
+        try:
+            import subprocess
+            subprocess.run(["docker", "exec", "ai_pbx_asterisk", "asterisk", "-rx", "dialplan reload"], check=True, capture_output=True, timeout=ast_timeout)
+            print("[Asterisk Config] Dialplan configurations reloaded successfully in Asterisk container.")
+        except Exception as e:
+            print(f"[Asterisk Config] Failed to reload dialplan in Asterisk: {e}")
 
 def resolve_secure_sip_password(ext: str, raw_pwd: str = "") -> str:
     """
@@ -2909,6 +2930,10 @@ bind=0.0.0.0:8089
 {nat_lines}
 """
     if not has_explicit_operator_trunk:
+        op_ref_safe_name = (
+            _sanitize_trunk_name(primary_trunk_ref.get("trunk_name") or primary_trunk_ref.get("name") or "908503607390")
+            if primary_trunk_ref else "908503607390"
+        )
         conf_content += f"""
 ; --- OPERATOR TRUNK (OUTBOUND LINK) ---
 [Operator_Trunk]
@@ -2921,8 +2946,8 @@ rtp_symmetric=yes
 force_rport=yes
 rewrite_contact=no
 media_use_received_transport=yes
-outbound_auth=908503607390-auth
-aors=908503607390-aor
+outbound_auth={op_ref_safe_name}-auth
+aors={op_ref_safe_name}-aor
 """
     if not has_1000_in_users:
         from backend.services.autoprovision_service import resolve_user_sip_username as _res_sip_u_def
@@ -3978,14 +4003,15 @@ same => n,Playback(/var/spool/asterisk/monitor/tr_sesli_mesaj)
 same => n,Set(DIALSTATUS=NOANSWER)
 same => n,Goto(q_ret)
 same => n(q_fb_user),GotoIf($["${{Q_ACT_TARGET}}" = ""]?q_fb_hangup)
-same => n,Set(FB_AG_CFG=${{CURL(http://{backend_host}/api/subscriber/resolve_agent_ring_targets?extension=${{URIENCODE(${{Q_ACT_TARGET}})}})}})
-same => n,Set(FB_W_EP=${{IF($["${{FB_AG_CFG}}" != "NONE"]?${{CUT(FB_AG_CFG,:,1)}}:${{Q_ACT_TARGET}})}})
-same => n,Set(FB_D_EP=${{IF($["${{FB_AG_CFG}}" != "NONE"]?${{CUT(FB_AG_CFG,:,2)}}:)}})
-same => n,Set(FB_W_C=${{IF($["${{FB_W_EP}}" != ""]?${{PJSIP_DIAL_CONTACTS(${{FB_W_EP}})}}:)}})
-same => n,Set(FB_D_C=${{IF($["${{FB_D_EP}}" != ""]?${{PJSIP_DIAL_CONTACTS(${{FB_D_EP}})}}:)}})
-same => n,Set(FB_COMB=${{IF($["${{FB_W_C}}" != "" & "${{FB_D_C}}" != ""]?${{FB_W_C}}&${{FB_D_C}}:${{IF($["${{FB_W_C}}" != ""]?${{FB_W_C}}:${{FB_D_C}})}})}})
-same => n,Set(FB_DIAL_STR=${{IF($["${{FB_COMB}}" != ""]?${{FB_COMB}}:PJSIP/${{Q_ACT_TARGET}})}})
-same => n,Dial(${{FB_DIAL_STR}},30,tTg)
+same => n,Set(FB_EP_LIST=${{CURL(http://{backend_host}/api/subscriber/resolve_agent_ring_targets?extension=${{URIENCODE(${{Q_ACT_TARGET}})}}&format=list)}})
+same => n,GotoIf($["${{FB_EP_LIST}}" != "" & "${{FB_EP_LIST}}" != "NONE"]?q_fb_build_ep)
+same => n,Set(FB_EP_LIST=${{Q_ACT_TARGET}})
+same => n(q_fb_build_ep),Gosub(build_multi_pjsip_dial_sub,s,1(${{FB_EP_LIST}}))
+same => n,GotoIf($["${{MULTI_DIAL_STR}}" != ""]?q_fb_dial_multi)
+same => n,Set(FB_DIAL_STR=PJSIP/${{Q_ACT_TARGET}})
+same => n,Goto(q_fb_exec_dial)
+same => n(q_fb_dial_multi),Set(FB_DIAL_STR=${{MULTI_DIAL_STR}})
+same => n(q_fb_exec_dial),Dial(${{FB_DIAL_STR}},30,tTg)
 same => n,Goto(q_ret)
 same => n(q_fb_gsm),GotoIf($["${{Q_ACT_TARGET}}" = ""]?q_fb_hangup)
 same => n,Set(CALLERID(num)=908503607390)
@@ -4183,9 +4209,13 @@ same => n,Set(__OUT_MAXPTIME=${{CUT(OUT_CFG,|,12)}})
 same => n,GotoIf($["${{OUT_LIMIT_EN}}" != "1"]?set_out_cid)
 same => n,Set(GROUP(trunk_limit)=${{OUT_TRUNK_NAME}})
 same => n,GotoIf($[${{GROUP_COUNT(${{OUT_TRUNK_NAME}}@trunk_limit)}} > ${{OUT_MAX_CH}}]?out_limit_exceeded)
-same => n(set_out_cid),Set(CALLERID(num)=${{IF($["${{OUT_CID_NUM}}" != ""]?${{OUT_CID_NUM}}:908503607390)}})
-same => n,Set(CALLERID(name)=${{IF($["${{OUT_CID_NAME}}" != ""]?${{OUT_CID_NAME}}:${{CALLERID(num)}})}})
-same => n,Dial(${{OUT_DIAL_STR}},60,rb(trunk-outbound-headers^s^1))
+same => n(set_out_cid),Set(CALLERID(num)=908503607390)
+same => n,GotoIf($["${{OUT_CID_NUM}}" = ""]?chk_out_cid_name)
+same => n,Set(CALLERID(num)=${{OUT_CID_NUM}})
+same => n(chk_out_cid_name),Set(CALLERID(name)=${{CALLERID(num)}})
+same => n,GotoIf($["${{OUT_CID_NAME}}" = ""]?do_out_dial)
+same => n,Set(CALLERID(name)=${{OUT_CID_NAME}})
+same => n(do_out_dial),Dial(${{OUT_DIAL_STR}},60,rb(trunk-outbound-headers^s^1))
 same => n,Hangup()
 same => n(out_limit_exceeded),NoOp(TRUNK GIDEN CAGRI LIMITI ASILDI: ${{OUT_TRUNK_NAME}} Max=${{OUT_MAX_CH}})
 same => n,Busy(5)
@@ -4258,9 +4288,13 @@ same => n,Set(__OUT_MAXPTIME=${{CUT(OUT_CFG,|,12)}})
 same => n,GotoIf($["${{OUT_LIMIT_EN}}" != "1"]?set_out_cid_ext)
 same => n,Set(GROUP(trunk_limit)=${{OUT_TRUNK_NAME}})
 same => n,GotoIf($[${{GROUP_COUNT(${{OUT_TRUNK_NAME}}@trunk_limit)}} > ${{OUT_MAX_CH}}]?out_limit_exceeded_ext)
-same => n(set_out_cid_ext),Set(CALLERID(num)=${{IF($["${{OUT_CID_NUM}}" != ""]?${{OUT_CID_NUM}}:908503607390)}})
-same => n,Set(CALLERID(name)=${{IF($["${{OUT_CID_NAME}}" != ""]?${{OUT_CID_NAME}}:${{CALLERID(num)}})}})
-same => n,Dial(${{OUT_DIAL_STR}},60,rb(trunk-outbound-headers^s^1))
+same => n(set_out_cid_ext),Set(CALLERID(num)=908503607390)
+same => n,GotoIf($["${{OUT_CID_NUM}}" = ""]?chk_out_cid_name_ext)
+same => n,Set(CALLERID(num)=${{OUT_CID_NUM}})
+same => n(chk_out_cid_name_ext),Set(CALLERID(name)=${{CALLERID(num)}})
+same => n,GotoIf($["${{OUT_CID_NAME}}" = ""]?do_out_dial_ext)
+same => n,Set(CALLERID(name)=${{OUT_CID_NAME}})
+same => n(do_out_dial_ext),Dial(${{OUT_DIAL_STR}},60,rb(trunk-outbound-headers^s^1))
 same => n,Hangup()
 same => n(out_limit_exceeded_ext),NoOp(TRUNK GIDEN CAGRI LIMITI ASILDI: ${{OUT_TRUNK_NAME}} Max=${{OUT_MAX_CH}})
 same => n,Busy(5)
@@ -4282,13 +4316,12 @@ same => n,Set(DIAL_TIMEOUT=${{IF($[${{ISNULL(${{FWD_TIMEOUT}})}} | "${{FWD_TIMEO
 same => n,GotoIf($["${{FWD_STATUS}}"="ALLOW"]?forward_call:dial_pjsip)
 
 ; 2. PJSIP Dahili Arama (WebPhone + Tüm Aktif SIP Cihazları Eşzamanlı)
-same => n(dial_pjsip),Set(AG_RING_CFG=${{CURL(http://{backend_host}/api/subscriber/resolve_agent_ring_targets?extension=${{EXTEN}}&format=list)}})
-same => n,GotoIf($["${{AG_RING_CFG}}" = "NONE" | "${{AG_RING_CFG}}" = ""]?after_dial_pjsip)
-same => n,Gosub(build_multi_pjsip_dial_sub,s,1(${{AG_RING_CFG}}))
-same => n,Set(DIAL_STR=${{GOSUB_RETVAL}})
-same => n,GotoIf($["${{DIAL_STR}}" = ""]?after_dial_pjsip)
-same => n,NoOp(PJSIP Dahiliye Arama Yapiliyor [WebPhone + SIP Cihazlari]: ${{DIAL_STR}} Timeout=${{DIAL_TIMEOUT}}s)
-same => n,Dial(${{DIAL_STR}},${{DIAL_TIMEOUT}},tTg)
+same => n(dial_pjsip),Set(AG_EP_LIST=${{CURL(http://{backend_host}/api/subscriber/resolve_agent_ring_targets?extension=${{EXTEN}}&format=list)}})
+same => n,GotoIf($["${{AG_EP_LIST}}" = "NONE" | "${{AG_EP_LIST}}" = ""]?after_dial_pjsip)
+same => n,Gosub(build_multi_pjsip_dial_sub,s,1(${{AG_EP_LIST}}))
+same => n,GotoIf($["${{MULTI_DIAL_STR}}" = ""]?after_dial_pjsip)
+same => n,NoOp(PJSIP Dahiliye Arama Yapiliyor [WebPhone + SIP Cihazlari]: ${{MULTI_DIAL_STR}} Timeout=${{DIAL_TIMEOUT}}s)
+same => n,Dial(${{MULTI_DIAL_STR}},${{DIAL_TIMEOUT}},tTg)
 same => n(after_dial_pjsip),NoOp(PJSIP Arama Sonucu: ${{DIALSTATUS}})
 same => n,GotoIf($["${{DIALSTATUS}}"="ANSWER"]?end_call)
 
@@ -4321,11 +4354,15 @@ same => n,Playback(/var/spool/asterisk/monitor/tr_sesli_mesaj)
 same => n,Hangup()
 
 same => n(dial_internal_fwd),NoOp(Ic Dahili / SIP Cihazlari Yonlendirme: ${{FWD_TARGET}} Timeout=${{STEP_TIMEOUT}}s)
-same => n,Set(FWD_AG_CFG=${{CURL(http://{backend_host}/api/subscriber/resolve_agent_ring_targets?extension=${{FWD_TARGET}}&format=list)}})
-same => n,GotoIf($["${{FWD_AG_CFG}}" = "NONE" | "${{FWD_AG_CFG}}" = ""]?check_step2)
-same => n,Gosub(build_multi_pjsip_dial_sub,s,1(${{FWD_AG_CFG}}))
-same => n,Set(F_DIAL_STR=${{IF($["${{GOSUB_RETVAL}}" != ""]?${{GOSUB_RETVAL}}:PJSIP/${{FWD_TARGET}})}})
-same => n,Dial(${{F_DIAL_STR}},${{STEP_TIMEOUT}},tTg)
+same => n,Set(FWD_EP_LIST=${{CURL(http://{backend_host}/api/subscriber/resolve_agent_ring_targets?extension=${{FWD_TARGET}}&format=list)}})
+same => n,GotoIf($["${{FWD_EP_LIST}}" != "" & "${{FWD_EP_LIST}}" != "NONE"]?fwd_build_multi)
+same => n,Set(FWD_EP_LIST=${{FWD_TARGET}})
+same => n(fwd_build_multi),Gosub(build_multi_pjsip_dial_sub,s,1(${{FWD_EP_LIST}}))
+same => n,GotoIf($["${{MULTI_DIAL_STR}}" != ""]?fwd_use_multi)
+same => n,Set(F_DIAL_STR=PJSIP/${{FWD_TARGET}})
+same => n,Goto(fwd_exec_dial)
+same => n(fwd_use_multi),Set(F_DIAL_STR=${{MULTI_DIAL_STR}})
+same => n(fwd_exec_dial),Dial(${{F_DIAL_STR}},${{STEP_TIMEOUT}},tTg)
 same => n,GotoIf($["${{DIALSTATUS}}"="ANSWER"]?end_call:check_step2)
 
 same => n(dial_external_fwd),NoOp(Dis Hat / Mobil Telefon Yonlendirme: PJSIP/Operator_Trunk/sip:${{CLEAN_TARGET}}@ikonsip.com:5060 Timeout=${{STEP_TIMEOUT}}s)
@@ -4351,15 +4388,23 @@ same => n,Set(DIALSTATUS=${{IF($["${{DIALSTATUS}}"=""]?NOANSWER:${{DIALSTATUS}})
 same => n,GotoIf($["${{DIALSTATUS}}"="CANCEL"]?hangup_cancel)
 same => n,Progress()
 same => n,GotoIf($["${{DIALSTATUS}}"="BUSY"]?play_busy:play_unavail)
-same => n(play_busy),Playback(/var/spool/asterisk/monitor/tr_abone_mesgul,noanswer)
+same => n(play_busy),GotoIf($[${{STAT(e,/var/spool/asterisk/monitor/tr_abone_mesgul.wav)}}]?play_busy_wav)
+same => n,Busy(3)
 same => n,Hangup(17)
-same => n(play_unavail),Playback(/var/spool/asterisk/monitor/tr_abone_ulasilamiyor,noanswer)
-same => n,GotoIf($["${{DIALSTATUS}}"="NOANSWER"]?hangup_noans:hangup_unavail)
+same => n(play_busy_wav),Playback(/var/spool/asterisk/monitor/tr_abone_mesgul,noanswer)
+same => n,Hangup(17)
+same => n(play_unavail),GotoIf($[${{STAT(e,/var/spool/asterisk/monitor/tr_abone_ulasilamiyor.wav)}}]?play_unavail_wav)
+same => n,Playback(beeperr,noanswer)
+same => n,Goto(after_play_unavail)
+same => n(play_unavail_wav),Playback(/var/spool/asterisk/monitor/tr_abone_ulasilamiyor,noanswer)
+same => n(after_play_unavail),GotoIf($["${{DIALSTATUS}}"="NOANSWER"]?hangup_noans:hangup_unavail)
 same => n(hangup_noans),Hangup(19)
 same => n(hangup_unavail),Hangup(20)
 same => n(hangup_cancel),Hangup(16)
-same => n(check_post_call_survey),Set(EFF_AGENT_REF=${{IF($["${{MEMBERINTERFACE}}" != ""]?${{MEMBERINTERFACE}}:${{EXTEN}})}})
-same => n,Set(SURVEY_CFG=${{CURL(http://{backend_host}/api/queues/survey/config?queue_ext=${{EXTEN}}&agent_ext=${{URIENCODE(${{EFF_AGENT_REF}})}}&call_id=${{CALL_UUID}})}})
+same => n(check_post_call_survey),Set(EFF_AGENT_REF=${{EXTEN}})
+same => n,GotoIf($["${{MEMBERINTERFACE}}" = ""]?run_post_survey)
+same => n,Set(EFF_AGENT_REF=${{MEMBERINTERFACE}})
+same => n(run_post_survey),Set(SURVEY_CFG=${{CURL(http://{backend_host}/api/queues/survey/config?queue_ext=${{EXTEN}}&agent_ext=${{URIENCODE(${{EFF_AGENT_REF}})}}&call_id=${{CALL_UUID}})}})
 same => n,GotoIf($["${{CUT(SURVEY_CFG,:,1)}}" != "ENABLED"]?final_hangup)
 same => n,Set(SURVEY_Q_EXT=${{CUT(SURVEY_CFG,:,2)}})
 same => n,Set(SURVEY_MAX_DIGITS=${{CUT(SURVEY_CFG,:,3)}})
@@ -4404,32 +4449,45 @@ same => n,Hangup(28)
 
 [build_multi_pjsip_dial_sub]
 ; ARG1 = & ile ayrilmis PJSIP endpoint listesi (orn: 1000&Ab8kP2x9&EvTel2)
+; NOT: PJSIP_DIAL_CONTACTS ciktilari 'sip:user@ip:port' seklinde iki nokta (:) icerdigi icin
+; kesinlikle Asterisk IF() fonksiyonu icinde kullanilmamalidir (GotoIf ile birlestirilir).
 exten => s,1,Set(MP_LIST=${{ARG1}})
+same => n,Set(MULTI_DIAL_STR=)
 same => n,Set(MP_CONTACTS=)
 same => n,Set(MP_FB=)
+same => n,GotoIf($["${{MP_LIST}}" = "" | "${{MP_LIST}}" = "NONE"]?mp_ret)
 same => n,Set(MP_IDX=1)
 same => n(mp_loop),Set(MP_EP=${{CUT(MP_LIST,&,${{MP_IDX}})}})
 same => n,GotoIf($["${{MP_EP}}" = ""]?mp_done)
-same => n,Set(MP_CUR_C=${{PJSIP_DIAL_CONTACTS(${{MP_EP}})}})
-same => n,Set(MP_CONTACTS=${{IF($["${{MP_CUR_C}}" != ""]?${{IF($["${{MP_CONTACTS}}" != ""]?${{MP_CONTACTS}}&${{MP_CUR_C}}:${{MP_CUR_C}})}}:${{MP_CONTACTS}})}})
-same => n,Set(MP_FB=${{IF($["${{MP_FB}}" != ""]?${{MP_FB}}&PJSIP/${{MP_EP}}:PJSIP/${{MP_EP}})}})
-same => n,Set(MP_IDX=$[${{MP_IDX}} + 1])
+same => n,GotoIf($["${{MP_FB}}" = ""]?mp_fb_first:mp_fb_append)
+same => n(mp_fb_first),Set(MP_FB=PJSIP/${{MP_EP}})
+same => n,Goto(mp_chk_c)
+same => n(mp_fb_append),Set(MP_FB=${{MP_FB}}&PJSIP/${{MP_EP}})
+same => n(mp_chk_c),Set(MP_CUR_C=${{PJSIP_DIAL_CONTACTS(${{MP_EP}})}})
+same => n,GotoIf($["${{MP_CUR_C}}" = ""]?mp_next)
+same => n,GotoIf($["${{MP_CONTACTS}}" = ""]?mp_c_first:mp_c_append)
+same => n(mp_c_first),Set(MP_CONTACTS=${{MP_CUR_C}})
+same => n,Goto(mp_next)
+same => n(mp_c_append),Set(MP_CONTACTS=${{MP_CONTACTS}}&${{MP_CUR_C}})
+same => n(mp_next),Set(MP_IDX=$[${{MP_IDX}} + 1])
 same => n,Goto(mp_loop)
-same => n(mp_done),Set(MP_OUT=${{IF($["${{MP_CONTACTS}}" != ""]?${{MP_CONTACTS}}:${{MP_FB}})}})
-same => n,Return(${{MP_OUT}})
+same => n(mp_done),GotoIf($["${{MP_CONTACTS}}" != ""]?mp_use_c:mp_use_fb)
+same => n(mp_use_c),Set(MULTI_DIAL_STR=${{MP_CONTACTS}})
+same => n,Return()
+same => n(mp_use_fb),Set(MULTI_DIAL_STR=${{MP_FB}})
+same => n(mp_ret),Return()
 
 [queue_agent_ring]
 ; Kuyruk aramalarında temsilcinin hem WebPhone hem de tüm aktif SIP Cihazlarını Kuyruk CallerID bilgisiyle eşzamanlı çaldırır
 exten => _[1-9]X.,1,NoOp(Kuyruk Temsilci Cihaz Dagitim: Dahili=${{EXTEN}}, CallerID=${{CALLERID(all)}})
 same => n,Set(CURLOPT(conntimeout)=1)
 same => n,Set(CURLOPT(httptimeout)=2)
-same => n,Set(AG_RING_CFG=${{CURL(http://{backend_host}/api/subscriber/resolve_agent_ring_targets?extension=${{EXTEN}}&format=list)}})
-same => n,GotoIf($["${{AG_RING_CFG}}" = "NONE" | "${{AG_RING_CFG}}" = ""]?ag_unavailable)
-same => n,Gosub(build_multi_pjsip_dial_sub,s,1(${{AG_RING_CFG}}))
-same => n,Set(COMBINED_TARGETS=${{GOSUB_RETVAL}})
-same => n,GotoIf($["${{COMBINED_TARGETS}}" = "" | "${{COMBINED_TARGETS}}" = "PJSIP/"]?ag_unavailable)
-same => n,NoOp(Kuyruk Temsilcisi Eszamanli Caldiriliyor [WebPhone + SIP Cihazlari]: ${{COMBINED_TARGETS}} | CallerID=${{CALLERID(all)}})
-same => n,Dial(${{COMBINED_TARGETS}},,tTg)
+same => n,Set(AG_EP_LIST=${{CURL(http://{backend_host}/api/subscriber/resolve_agent_ring_targets?extension=${{EXTEN}}&format=list)}})
+same => n,GotoIf($["${{AG_EP_LIST}}" = "NONE" | "${{AG_EP_LIST}}" = ""]?ag_unavailable)
+same => n,Gosub(build_multi_pjsip_dial_sub,s,1(${{AG_EP_LIST}}))
+same => n,GotoIf($["${{MULTI_DIAL_STR}}" = "" | "${{MULTI_DIAL_STR}}" = "PJSIP/"]?ag_unavailable)
+same => n,NoOp(Kuyruk Temsilcisi Eszamanli Caldiriliyor [WebPhone + SIP Cihazlari]: ${{MULTI_DIAL_STR}} | CallerID=${{CALLERID(all)}})
+same => n,Dial(${{MULTI_DIAL_STR}},,tTg)
 same => n,Hangup()
 same => n(ag_unavailable),Hangup(20)
 
@@ -4456,7 +4514,8 @@ same => n,Hangup()
         monitor_dir = "/var/spool/asterisk/monitor"
         if os.path.exists("/var/spool/asterisk") or os.path.exists("/etc/asterisk"):
             os.makedirs(monitor_dir, exist_ok=True)
-            for src_dir in [sounds_tr_dir, "uploads/announcements"]:
+            uploads_ann_dir = os.path.join(PROJECT_ROOT, "uploads", "announcements")
+            for src_dir in [sounds_tr_dir, uploads_ann_dir]:
                 if os.path.isdir(src_dir):
                     for fname in os.listdir(src_dir):
                         if fname.endswith(".wav"):
@@ -4597,27 +4656,65 @@ def _match_and_transform_outbound_number(callee_raw: str, caller_ext: str = "", 
     caller_str = str(caller_ext or "").strip()
     caller_user = next((u for u in u_list if str(u.get("extension") or "").strip() == caller_str), None)
     caller_uid = str(caller_user.get("id") or "") if caller_user else ""
+    uid_to_ext_map = {
+        str(u.get("id") or "").strip(): str(u.get("extension") or "").strip()
+        for u in u_list
+        if isinstance(u, dict) and u.get("id") and u.get("extension")
+    }
+    sub_groups_list = settings_db.get("subscriber_groups", []) or []
+
+    def _is_caller_allowed_in_rule(rule_obj: dict) -> bool:
+        raw_allowed = rule_obj.get("allowed_users") or []
+        if not raw_allowed or not caller_str:
+            return True
+        allowed_tokens = set()
+        for item in raw_allowed:
+            tok = str(item or "").strip()
+            if not tok:
+                continue
+            if tok.startswith("group_"):
+                gid = tok.replace("group_", "", 1)
+                grp = next((g for g in sub_groups_list if str(g.get("id")) == gid), None)
+                if grp:
+                    for gm in (grp.get("extensions") or grp.get("members") or []):
+                        gm_s = str(gm or "").strip()
+                        if gm_s:
+                            allowed_tokens.add(gm_s)
+                            if gm_s in uid_to_ext_map:
+                                allowed_tokens.add(uid_to_ext_map[gm_s])
+                continue
+            allowed_tokens.add(tok)
+            if tok in uid_to_ext_map:
+                allowed_tokens.add(uid_to_ext_map[tok])
+        if not allowed_tokens:
+            return True
+        return caller_str in allowed_tokens or (bool(caller_uid) and caller_uid in allowed_tokens)
 
     matched_rule = None
     matched_pat_obj = None
     matched_fixed_prefix = ""
     has_defined_patterns = False
     pattern_matched_any_rule = False
+    has_catchall_rule = False
+    catchall_allowed_rule = False
 
     # Pass 1: Look for explicit pattern match in active outbound_rules
     for rule in outbound_rules:
         if rule.get("is_active", True) is False:
             continue
-        allowed = [str(x).strip() for x in (rule.get("allowed_users") or []) if str(x).strip()]
-        caller_allowed_for_rule = True
-        if allowed and caller_str:
-            if caller_str not in allowed and (not caller_uid or caller_uid not in allowed):
-                caller_allowed_for_rule = False
+        caller_allowed_for_rule = _is_caller_allowed_in_rule(rule)
         patterns = rule.get("patterns") or []
+        non_empty_pats = []
         for pat_obj in patterns:
             pat_str = str((pat_obj.get("pattern") if isinstance(pat_obj, dict) else pat_obj) or "").strip()
-            if not pat_str:
-                continue
+            if pat_str:
+                non_empty_pats.append((pat_obj, pat_str))
+        if not non_empty_pats:
+            has_catchall_rule = True
+            if caller_allowed_for_rule:
+                catchall_allowed_rule = True
+            continue
+        for pat_obj, pat_str in non_empty_pats:
             has_defined_patterns = True
             rx, fixed_pref = _asterisk_pattern_to_regex(pat_str)
             try:
@@ -4633,17 +4730,28 @@ def _match_and_transform_outbound_number(callee_raw: str, caller_ext: str = "", 
         if matched_rule:
             break
 
-    # Pass 2: If no pattern explicitly matched, pick first active rule allowed for caller
+    # Pass 2: If no pattern explicitly matched, pick first active catch-all (or fallback) rule allowed for caller
     if not matched_rule:
         for rule in outbound_rules:
             if rule.get("is_active", True) is False:
                 continue
-            allowed = [str(x).strip() for x in (rule.get("allowed_users") or []) if str(x).strip()]
-            if allowed and caller_str:
-                if caller_str not in allowed and (not caller_uid or caller_uid not in allowed):
+            if not _is_caller_allowed_in_rule(rule):
+                continue
+            r_pats = [
+                str((p.get("pattern") if isinstance(p, dict) else p) or "").strip()
+                for p in (rule.get("patterns") or [])
+            ]
+            if not any(r_pats):
+                matched_rule = rule
+                break
+        if not matched_rule:
+            for rule in outbound_rules:
+                if rule.get("is_active", True) is False:
                     continue
-            matched_rule = rule
-            break
+                if not _is_caller_allowed_in_rule(rule):
+                    continue
+                matched_rule = rule
+                break
 
     working = clean_num
     prepend_val = ""
@@ -4696,6 +4804,8 @@ def _match_and_transform_outbound_number(callee_raw: str, caller_ext: str = "", 
         "has_defined_patterns": has_defined_patterns,
         "pattern_matched_any_rule": pattern_matched_any_rule,
         "pattern_matched_allowed_rule": matched_pat_obj is not None,
+        "has_catchall_rule": has_catchall_rule,
+        "catchall_allowed_rule": catchall_allowed_rule,
         "acl_number": acl_number,
         "trunk_dial_number": trunk_dial_number,
     }
@@ -10766,19 +10876,34 @@ async def check_outbound_call(
     # 0.05 Giden Arama Kuralı desen & kullanıcı yetkisi kontrolü
     if transform_info.get("has_defined_patterns"):
         if not transform_info.get("pattern_matched_any_rule"):
-            cat_m, rsn_m = humanize_outbound_error_reason("OUTBOUND_RULE_MISMATCH", callee_str)
-            print(f"[Outbound Dialplan] Aranan numara hiçbir giden arama kuralı deseniyle eşleşmedi: {caller_str} -> {callee_str}")
-            await record_call_error_event(
-                caller=caller_str,
-                callee=callee_str,
-                category=cat_m,
-                direction="outbound",
-                reason_msg=rsn_m,
-                status_val="failed",
-                trunk_name=matched_trunk_nm or None,
-            )
-            return Response(content="DENY:OUTBOUND_RULE_MISMATCH", media_type="text/plain")
-        if not transform_info.get("pattern_matched_allowed_rule"):
+            if transform_info.get("has_catchall_rule"):
+                if not transform_info.get("catchall_allowed_rule"):
+                    cat_u, rsn_u = humanize_outbound_error_reason("OUTBOUND_RULE_UNAUTHORIZED", callee_str)
+                    print(f"[Outbound ACL] Kullanıcının genel giden arama kuralını kullanma yetkisi yok: {caller_str} -> {callee_str}")
+                    await record_call_error_event(
+                        caller=caller_str,
+                        callee=callee_str,
+                        category=cat_u,
+                        direction="outbound",
+                        reason_msg=rsn_u,
+                        status_val="failed",
+                        trunk_name=matched_trunk_nm or None,
+                    )
+                    return Response(content="DENY:OUTBOUND_RULE_UNAUTHORIZED", media_type="text/plain")
+            else:
+                cat_m, rsn_m = humanize_outbound_error_reason("OUTBOUND_RULE_MISMATCH", callee_str)
+                print(f"[Outbound Dialplan] Aranan numara hiçbir giden arama kuralı deseniyle eşleşmedi: {caller_str} -> {callee_str}")
+                await record_call_error_event(
+                    caller=caller_str,
+                    callee=callee_str,
+                    category=cat_m,
+                    direction="outbound",
+                    reason_msg=rsn_m,
+                    status_val="failed",
+                    trunk_name=matched_trunk_nm or None,
+                )
+                return Response(content="DENY:OUTBOUND_RULE_MISMATCH", media_type="text/plain")
+        elif not transform_info.get("pattern_matched_allowed_rule") and not transform_info.get("catchall_allowed_rule"):
             cat_u, rsn_u = humanize_outbound_error_reason("OUTBOUND_RULE_UNAUTHORIZED", callee_str)
             print(f"[Outbound ACL] Kullanıcının eşleşen giden arama kuralını kullanma yetkisi yok: {caller_str} -> {callee_str}")
             await record_call_error_event(
@@ -27171,18 +27296,37 @@ async def get_system_version_info():
         pass
 
     return {
-        "version": "v2.7.8",
+        "version": "v2.7.9",
         "commit_hash": live_commit,
         "release_date": "3 Kasım 2026",
         "status": "Güncel / Canlı Sürüm",
         "environment": "Production (On-Premise)",
         "changelog": [
             {
-                "version": "v2.7.8",
+                "version": "v2.7.9",
                 "commit_hash": live_commit,
                 "release_date": "3 Kasım 2026",
                 "badge": "Canlı Sürüm (Güncel)",
                 "badge_type": "current",
+                "title": "Dahili Arama (INVALIDARGS), Gelen Arama (AudioSocket) & Giden Arama / PJSIP Senkronizasyon Düzeltmesi",
+                "summary": "Asterisk dialplan içerisinde PJSIP_DIAL_CONTACTS SIP URI çıktılarının iki nokta (:) karakteri nedeniyle IF() fonksiyonunda bölünüp dahiliden dahiliye ve kuyruk aramalarında DIALSTATUS=INVALIDARGS üretmesi sorunu GotoIf mimarisine geçilerek çözüldü; gelen dış aramalarda AudioSocket akış değerlendiricisindeki eksik re modülü giderildi ve PJSIP/Dialplan reload zaman aşımı ile giden arama kuralı abone grubu eşleşmeleri iyileştirildi.",
+                "features": [
+                    {
+                        "title": "☎️ Dahiliden Dahiliye & Kuyruk Çaldırma SIP URI (INVALIDARGS) Düzeltmesi",
+                        "desc": "[build_multi_pjsip_dial_sub], iç yönlendirme (dial_internal_fwd) ve kuyruk yedek abone (q_fb_user) rutinlerinde PJSIP_DIAL_CONTACTS çıktısını bozan IF() sarmalayıcıları kaldırılarak GotoIf tabanlı güvenli çoklu cihaz birleştirme uygulandı."
+                    },
+                    {
+                        "title": "📥 Gelen Arama AudioSocket Akış Motoru & 📤 Giden Arama / PJSIP Reload İyileştirmesi",
+                        "desc": "audiosocket_server.py modülüne eksik 're' kütüphanesi ve güvenli hata yakalama eklendi; canlı sunucuda pjsip/dialplan reload zaman aşımı 10 saniyeye çıkarıldı, backend açılışında otomatik /etc/asterisk senkronizasyonu ve giden arama kurallarında Abone Grubu açılımı sağlandı."
+                    }
+                ]
+            },
+            {
+                "version": "v2.7.8",
+                "commit_hash": "29b55f3",
+                "release_date": "3 Kasım 2026",
+                "badge": "Önceki Sürüm",
+                "badge_type": "previous",
                 "title": "Avatar Açılır Menüsü Sadeleştirme",
                 "summary": "Sağ üst avatar açılır penceresinde yer alan mükerrer 'Üst Barı Özelleştir' satırı kaldırılarak menü sadeleştirildi; üst bar yapılandırmasına doğrudan Profil Ayarları içerisindeki sekmeden erişim korundu.",
                 "features": [
