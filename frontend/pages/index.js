@@ -3439,10 +3439,10 @@ export default function Home() {
           </p>
           <button
             onClick={() => setActiveTab("changelog")}
-            title="Sistem Versiyonu ve Değişiklik Günlüğü (v2.7.9 On-Premise)"
+            title="Sistem Versiyonu ve Değişiklik Günlüğü (v2.8.0 On-Premise)"
             className="flex items-center gap-1 text-[10px] font-bold text-slate-500 dark:text-slate-400 hover:text-primary dark:hover:text-indigo-400 hover:underline transition cursor-pointer bg-transparent border-0 p-0 outline-none focus-visible:ring-2 focus-visible:ring-primary/50 rounded"
           >
-            <span>{isSidebarCollapsed ? "v2.7.9" : "v2.7.9 (On-Premise)"}</span>
+            <span>{isSidebarCollapsed ? "v2.8.0" : "v2.8.0 (On-Premise)"}</span>
           </button>
         </div>
       </aside>

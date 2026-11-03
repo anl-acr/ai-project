@@ -2339,11 +2339,18 @@ class WebphoneManager {
   }
 
   /**
-   * Decodes base64 synthesized speech (e.g. English TTS) and injects it directly into
-   * the active WebRTC call's outgoing RTP audio track so the customer on the phone hears it,
-   * while also playing a gentle monitor copy for the agent.
+   * Decodes base64 synthesized speech (e.g. English TTS) and routes it according to the
+   * agent's chosen output target:
+   * - sendToCustomer=true, alsoPlayLocalMonitor=false ("customer_only"): Only customer hears TTS.
+   * - sendToCustomer=true, alsoPlayLocalMonitor=true ("both"): Both customer and agent hear TTS.
+   * - sendToCustomer=false, alsoPlayLocalMonitor=true ("agent_only"): Only agent hears TTS locally.
    */
-  async playAudioIntoActiveCallLine(audioBase64, mimeType = "audio/mpeg", alsoPlayLocalMonitor = true) {
+  async playAudioIntoActiveCallLine(
+    audioBase64,
+    mimeType = "audio/mpeg",
+    alsoPlayLocalMonitor = true,
+    sendToCustomer = true
+  ) {
     if (typeof window === "undefined" || !audioBase64) return false;
     const lineId = this.state.activeLineId;
     const line = lineId ? this.linesMap.get(lineId) : Array.from(this.linesMap.values())[0];
@@ -2357,12 +2364,17 @@ class WebphoneManager {
       bytes[i] = binaryStr.charCodeAt(i);
     }
 
-    // If there is no active WebRTC peerConnection (e.g. Demo Mode), play locally only
+    // If agent_only mode OR no active WebRTC peerConnection (e.g. Demo Mode), play locally without touching RTP
     const pc = line?.session?.sessionDescriptionHandler?.peerConnection;
-    if (!pc) {
+    if (!sendToCustomer || !pc) {
       if (alsoPlayLocalMonitor) {
         const audio = new Audio(`data:${mimeType};base64,${cleanB64}`);
-        await audio.play().catch(() => {});
+        await this.applySpeakerSinkToElement(audio);
+        await new Promise((resolve) => {
+          audio.onended = () => resolve(true);
+          audio.onerror = () => resolve(false);
+          audio.play().catch(() => resolve(false));
+        });
       }
       return true;
     }
@@ -2373,6 +2385,15 @@ class WebphoneManager {
       if (ctx.state === "suspended") {
         await ctx.resume().catch(() => {});
       }
+      if (
+        alsoPlayLocalMonitor &&
+        this.state.selectedSpeakerId &&
+        this.state.selectedSpeakerId !== "default" &&
+        typeof ctx.setSinkId === "function"
+      ) {
+        await ctx.setSinkId(this.state.selectedSpeakerId).catch(() => {});
+      }
+
       const audioBuffer = await ctx.decodeAudioData(bytes.buffer.slice(0));
 
       const dest = ctx.createMediaStreamDestination();
@@ -2382,9 +2403,15 @@ class WebphoneManager {
 
       if (alsoPlayLocalMonitor) {
         const monitorGain = ctx.createGain();
-        monitorGain.gain.value = 0.55;
+        monitorGain.gain.value = 0.6;
         source.connect(monitorGain);
         monitorGain.connect(ctx.destination);
+      } else {
+        // Keep WebAudio hardware clock pulling cleanly at digital zero so Agent hears nothing
+        const silentClockGain = ctx.createGain();
+        silentClockGain.gain.value = 0;
+        source.connect(silentClockGain);
+        silentClockGain.connect(ctx.destination);
       }
 
       const ttsTrack = dest.stream.getAudioTracks()[0];
@@ -2429,9 +2456,10 @@ class WebphoneManager {
       });
     } catch (err) {
       console.error("[WebphoneManager] playAudioIntoActiveCallLine error:", err);
-      // Fallback local playback
+      // Fallback local playback only if agent requested local monitor
       if (alsoPlayLocalMonitor) {
         const audio = new Audio(`data:${mimeType};base64,${cleanB64}`);
+        await this.applySpeakerSinkToElement(audio);
         await audio.play().catch(() => {});
       }
       return false;

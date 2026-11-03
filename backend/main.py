@@ -27296,18 +27296,37 @@ async def get_system_version_info():
         pass
 
     return {
-        "version": "v2.7.9",
+        "version": "v2.8.0",
         "commit_hash": live_commit,
         "release_date": "3 Kasım 2026",
         "status": "Güncel / Canlı Sürüm",
         "environment": "Production (On-Premise)",
         "changelog": [
             {
-                "version": "v2.7.9",
+                "version": "v2.8.0",
                 "commit_hash": live_commit,
                 "release_date": "3 Kasım 2026",
                 "badge": "Canlı Sürüm (Güncel)",
                 "badge_type": "current",
+                "title": "Canlı Çeviri Düşük Gecikmeli VAD Akış Motoru & Seçilebilir Çeviri Sesi Hedefi",
+                "summary": "Canlı çağrılarda müşteri konuşmalarının ekrana düşmesindeki 10 saniyelik gecikme, 3 saniyelik kör pencere kaydı yerine gerçek zamanlı WebAudio VAD (Ses Etkinliği Algılama) akış motoru, telefon hattı ses kazancı (gain) normalizasyonu ve düşünme gecikmesi kapatılmış hızlı Gemini/Whisper hattı ile ~1 saniye seviyesine indirildi; ayrıca temsilcinin çevrilen sesin kime gideceğini seçebileceği (Sadece Müşteri / Müşteri + Ben / Sadece Ben) kontrolü eklendi.",
+                "features": [
+                    {
+                        "title": "⚡ Gerçek Zamanlı WebAudio VAD & ~1 Sn Düşük Gecikmeli Müşteri Çevirisi",
+                        "desc": "Sabit 3 saniyelik MediaRecorder dilimleri ve sessiz pencerelerin kuyruğu tıkaması kaldırılarak 340ms ön-tamponlu (pre-roll) adaptif gürültü eşikli WebAudio 16kHz PCM VAD akışı, kalıcı HTTP bağlantı havuzu, otomatik PSTN ses seviyesi yükseltme ve arka plan (non-blocking) veritabanı kaydı devreye alındı."
+                    },
+                    {
+                        "title": "🎧 Çeviri Sesi Çıkış Hedefi Seçici (Sadece Müşteri / Müşteri + Ben / Sadece Ben)",
+                        "desc": "Canlı Konuşma & Çeviri başlığına eklenen yeni ses hedefi buton grubu ile çevrilen TTS sesinin yalnızca müşteriye gitmesi (varsayılan), hem müşteriye hem temsilci kulaklığına gelmesi veya ön dinleme amacıyla yalnızca temsilciye çalınması sağlandı."
+                    }
+                ]
+            },
+            {
+                "version": "v2.7.9",
+                "commit_hash": "5dff7c4",
+                "release_date": "3 Kasım 2026",
+                "badge": "Önceki Sürüm",
+                "badge_type": "previous",
                 "title": "Dahili Arama (INVALIDARGS), Gelen Arama (AudioSocket) & Giden Arama / PJSIP Senkronizasyon Düzeltmesi",
                 "summary": "Asterisk dialplan içerisinde PJSIP_DIAL_CONTACTS SIP URI çıktılarının iki nokta (:) karakteri nedeniyle IF() fonksiyonunda bölünüp dahiliden dahiliye ve kuyruk aramalarında DIALSTATUS=INVALIDARGS üretmesi sorunu GotoIf mimarisine geçilerek çözüldü; gelen dış aramalarda AudioSocket akış değerlendiricisindeki eksik re modülü giderildi ve PJSIP/Dialplan reload zaman aşımı ile giden arama kuralı abone grubu eşleşmeleri iyileştirildi.",
                 "features": [
@@ -30378,6 +30397,94 @@ def _resolve_translator_ai_keys(user_info: Optional[dict] = None) -> dict:
     }
 
 
+_TRANSLATOR_HTTP_CLIENT: Optional[httpx.AsyncClient] = None
+_GEMINI_MODEL_COOLDOWN_UNTIL: dict[str, float] = {}
+
+
+def _get_translator_http_client() -> httpx.AsyncClient:
+    """Returns a persistent keep-alive HTTP client so real-time translation avoids TLS handshake latency."""
+    global _TRANSLATOR_HTTP_CLIENT
+    if _TRANSLATOR_HTTP_CLIENT is None or _TRANSLATOR_HTTP_CLIENT.is_closed:
+        _TRANSLATOR_HTTP_CLIENT = httpx.AsyncClient(
+            timeout=httpx.Timeout(6.5, connect=2.5),
+            limits=httpx.Limits(max_keepalive_connections=24, max_connections=48),
+            headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
+        )
+    return _TRANSLATOR_HTTP_CLIENT
+
+
+def _prepare_and_normalize_translator_wav(audio_bytes: bytes) -> tuple[bytes, bytes, int, int, int]:
+    """
+    Extracts 16-bit PCM from RIFF WAV, computes fast RMS/peak for instant silence gating,
+    and normalizes quiet PSTN/WebRTC telephone audio so first-pass STT/Gemini never misses speech.
+    Returns: (normalized_wav_bytes, normalized_pcm_bytes, sample_rate, rms, peak)
+    """
+    if not audio_bytes or len(audio_bytes) < 200:
+        return b"", b"", 16000, 0, 0
+
+    if audio_bytes[:4] != b"RIFF" or b"WAVE" not in audio_bytes[:16]:
+        # Non-WAV container (e.g. raw WebM): keep bytes intact with non-zero sentinel rms/peak
+        return audio_bytes, b"", 16000, 500, 2000
+
+    from array import array
+    import math
+    import struct
+
+    sample_rate = 16000
+    try:
+        sample_rate = struct.unpack("<I", audio_bytes[24:28])[0]
+        if sample_rate < 8000 or sample_rate > 48000:
+            sample_rate = 16000
+    except Exception:
+        sample_rate = 16000
+
+    data_idx = audio_bytes.find(b"data")
+    pcm_bytes = audio_bytes[data_idx + 8:] if data_idx != -1 else audio_bytes[44:]
+    if len(pcm_bytes) % 2 != 0:
+        pcm_bytes = pcm_bytes[:-1]
+    if len(pcm_bytes) < 400:
+        return audio_bytes, b"", sample_rate, 0, 0
+
+    samples = array("h")
+    samples.frombytes(pcm_bytes)
+    if not samples:
+        return audio_bytes, b"", sample_rate, 0, 0
+
+    peak = max(abs(min(samples)), abs(max(samples)))
+    stride_samples = samples[::2] if len(samples) > 1024 else samples
+    rms = int(math.sqrt(sum(x * x for x in stride_samples) / len(stride_samples))) if stride_samples else 0
+
+    # Instant silence/comfort-noise rejection before any external API roundtrip
+    if rms < 45 or peak < 220:
+        return audio_bytes, pcm_bytes, sample_rate, rms, peak
+
+    # Boost quiet PSTN/WebRTC voice up to ~ -3.5 dBFS so Gemini/Whisper/STT recognize immediately
+    if 220 <= peak < 18000:
+        gain = min(8.5, 22000.0 / float(peak))
+        samples = array("h", [max(-32767, min(32767, int(x * gain))) for x in samples])
+        pcm_bytes = samples.tobytes()
+        data_len = len(pcm_bytes)
+        wav_header = struct.pack(
+            "<4sI4s4sIHHIIHH4sI",
+            b"RIFF",
+            36 + data_len,
+            b"WAVE",
+            b"fmt ",
+            16,
+            1,
+            1,
+            sample_rate,
+            sample_rate * 2,
+            2,
+            16,
+            b"data",
+            data_len
+        )
+        audio_bytes = wav_header + pcm_bytes
+
+    return audio_bytes, pcm_bytes, sample_rate, rms, peak
+
+
 async def _synthesize_translator_tts_base64(text: str, lang_code: str = "tr", user_info: Optional[dict] = None) -> tuple[str, str]:
     """Synthesizes natural speech audio (MP3 base64) for real-time voice interpretation."""
     clean_text = (text or "").strip()
@@ -30385,25 +30492,26 @@ async def _synthesize_translator_tts_base64(text: str, lang_code: str = "tr", us
         return "", "audio/mpeg"
 
     keys = _resolve_translator_ai_keys(user_info)
+    client = _get_translator_http_client()
 
     # 1. Try ElevenLabs Multilingual v2 if API key is configured
     try:
         el_key = keys["elevenlabs_key"]
         if el_key:
             voice_id = keys["elevenlabs_voice_id"]
-            url = f"https://api.elevenlabs.io/v1/text-to-speech/{voice_id}?optimize_streaming_latency=3"
-            async with httpx.AsyncClient(timeout=8.0) as client:
-                r = await client.post(
-                    url,
-                    headers={"xi-api-key": el_key, "Content-Type": "application/json"},
-                    json={
-                        "text": clean_text[:350],
-                        "model_id": "eleven_multilingual_v2",
-                        "voice_settings": {"stability": 0.5, "similarity_boost": 0.75}
-                    }
-                )
-                if r.status_code == 200 and r.content:
-                    return base64.b64encode(r.content).decode("utf-8"), "audio/mpeg"
+            url = f"https://api.elevenlabs.io/v1/text-to-speech/{voice_id}?optimize_streaming_latency=4"
+            r = await client.post(
+                url,
+                headers={"xi-api-key": el_key, "Content-Type": "application/json"},
+                json={
+                    "text": clean_text[:350],
+                    "model_id": "eleven_multilingual_v2",
+                    "voice_settings": {"stability": 0.5, "similarity_boost": 0.75}
+                },
+                timeout=7.0
+            )
+            if r.status_code == 200 and r.content:
+                return base64.b64encode(r.content).decode("utf-8"), "audio/mpeg"
     except Exception as el_err:
         print(f"[LiveTranslator ElevenLabs TTS Fallback]: {el_err}")
 
@@ -30413,10 +30521,9 @@ async def _synthesize_translator_tts_base64(text: str, lang_code: str = "tr", us
         tl = (lang_code or "tr").split("-")[0].lower()
         q_enc = urllib.parse.quote(clean_text[:200])
         tts_url = f"https://translate.google.com/translate_tts?ie=UTF-8&client=tw-ob&tl={tl}&q={q_enc}"
-        async with httpx.AsyncClient(timeout=6.0, headers={"User-Agent": "Mozilla/5.0"}) as client:
-            r = await client.get(tts_url)
-            if r.status_code == 200 and r.content:
-                return base64.b64encode(r.content).decode("utf-8"), "audio/mpeg"
+        r = await client.get(tts_url, timeout=5.0)
+        if r.status_code == 200 and r.content:
+            return base64.b64encode(r.content).decode("utf-8"), "audio/mpeg"
     except Exception as g_err:
         print(f"[LiveTranslator Google TTS Warning]: {g_err}")
 
@@ -30434,35 +30541,33 @@ async def _fallback_google_text_translate(text: str, source_lang: str, target_la
     if sl == tl:
         return clean_q
     q_enc = urllib.parse.quote(clean_q)
-    headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
+    client = _get_translator_http_client()
 
     # 1. Google clients5 dict-chrome-ex endpoint (fast, no 429 on server IPs)
     try:
         url1 = f"https://clients5.google.com/translate_a/t?client=dict-chrome-ex&sl={sl}&tl={tl}&q={q_enc}"
-        async with httpx.AsyncClient(timeout=6.0, headers=headers) as client:
-            r1 = await client.get(url1)
-            if r1.status_code == 200:
-                arr1 = r1.json()
-                if isinstance(arr1, list) and len(arr1) > 0:
-                    first = arr1[0]
-                    if isinstance(first, str) and first.strip():
-                        return first.strip()
-                    if isinstance(first, list) and len(first) > 0 and isinstance(first[0], str):
-                        return first[0].strip()
+        r1 = await client.get(url1, timeout=4.0)
+        if r1.status_code == 200:
+            arr1 = r1.json()
+            if isinstance(arr1, list) and len(arr1) > 0:
+                first = arr1[0]
+                if isinstance(first, str) and first.strip():
+                    return first.strip()
+                if isinstance(first, list) and len(first) > 0 and isinstance(first[0], str):
+                    return first[0].strip()
     except Exception as e1:
         print(f"[LiveTranslator clients5 Translate Warning]: {e1}")
 
     # 2. Google translate_a/single with client=dict-chrome-ex
     try:
         url2 = f"https://translate.googleapis.com/translate_a/single?client=dict-chrome-ex&sl={sl}&tl={tl}&dt=t&q={q_enc}"
-        async with httpx.AsyncClient(timeout=6.0, headers=headers) as client:
-            r2 = await client.get(url2)
-            if r2.status_code == 200:
-                arr2 = r2.json()
-                if isinstance(arr2, list) and len(arr2) > 0 and isinstance(arr2[0], list):
-                    joined = "".join(seg[0] for seg in arr2[0] if isinstance(seg, list) and len(seg) > 0 and seg[0])
-                    if joined.strip():
-                        return joined.strip()
+        r2 = await client.get(url2, timeout=4.0)
+        if r2.status_code == 200:
+            arr2 = r2.json()
+            if isinstance(arr2, list) and len(arr2) > 0 and isinstance(arr2[0], list):
+                joined = "".join(seg[0] for seg in arr2[0] if isinstance(seg, list) and len(seg) > 0 and seg[0])
+                if joined.strip():
+                    return joined.strip()
     except Exception as e2:
         print(f"[LiveTranslator dict-chrome-ex Translate Warning]: {e2}")
 
@@ -30470,12 +30575,11 @@ async def _fallback_google_text_translate(text: str, source_lang: str, target_la
     try:
         sl_mm = "en" if sl == "auto" else sl
         url3 = f"https://api.mymemory.translated.net/get?q={q_enc}&langpair={sl_mm}|{tl}"
-        async with httpx.AsyncClient(timeout=6.0, headers=headers) as client:
-            r3 = await client.get(url3)
-            if r3.status_code == 200:
-                t_mm = ((r3.json().get("responseData") or {}).get("translatedText") or "").strip()
-                if t_mm and "MYMEMORY WARNING" not in t_mm.upper():
-                    return t_mm
+        r3 = await client.get(url3, timeout=4.5)
+        if r3.status_code == 200:
+            t_mm = ((r3.json().get("responseData") or {}).get("translatedText") or "").strip()
+            if t_mm and "MYMEMORY WARNING" not in t_mm.upper():
+                return t_mm
     except Exception as e3:
         print(f"[LiveTranslator MyMemory Translate Warning]: {e3}")
 
@@ -30493,39 +30597,45 @@ STT_LANG_TAG_MAP = {
 }
 
 
-async def _keyless_chromium_stt_from_audio(audio_bytes: bytes, mime_type: str, lang_code: str) -> str:
+async def _keyless_chromium_stt_from_audio(
+    audio_bytes: bytes,
+    mime_type: str,
+    lang_code: str,
+    precomputed_pcm: bytes = b"",
+    precomputed_rate: int = 16000
+) -> str:
     """Transcribes 16kHz 16-bit mono WAV (or ffmpeg-converted WebM/OGG) via Google Chromium Speech API v2."""
-    if not audio_bytes or len(audio_bytes) < 400:
+    if (not audio_bytes or len(audio_bytes) < 400) and not precomputed_pcm:
         return ""
     try:
         from array import array
         import math
         import struct
 
-        pcm_bytes = b""
-        sample_rate = 16000
+        pcm_bytes = precomputed_pcm
+        sample_rate = precomputed_rate or 16000
 
-        # Check if audio_bytes is already a RIFF WAV container (sent by LiveTranslatorPanel WAV encoder)
-        if audio_bytes[:4] == b"RIFF" and b"WAVE" in audio_bytes[:16]:
-            try:
-                sample_rate = struct.unpack("<I", audio_bytes[24:28])[0]
-                if sample_rate < 8000 or sample_rate > 48000:
+        if not pcm_bytes:
+            if audio_bytes[:4] == b"RIFF" and b"WAVE" in audio_bytes[:16]:
+                try:
+                    sample_rate = struct.unpack("<I", audio_bytes[24:28])[0]
+                    if sample_rate < 8000 or sample_rate > 48000:
+                        sample_rate = 16000
+                except Exception:
                     sample_rate = 16000
-            except Exception:
-                sample_rate = 16000
-            data_idx = audio_bytes.find(b"data")
-            pcm_bytes = audio_bytes[data_idx + 8:] if data_idx != -1 else audio_bytes[44:]
-        elif shutil.which("ffmpeg"):
-            proc = await asyncio.create_subprocess_exec(
-                "ffmpeg", "-y", "-i", "pipe:0", "-ar", "16000", "-ac", "1", "-f", "s16le", "pipe:1",
-                stdin=asyncio.subprocess.PIPE,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.DEVNULL
-            )
-            stdout_data, _ = await asyncio.wait_for(proc.communicate(input=audio_bytes), timeout=5.0)
-            if stdout_data and len(stdout_data) > 400:
-                pcm_bytes = stdout_data
-                sample_rate = 16000
+                data_idx = audio_bytes.find(b"data")
+                pcm_bytes = audio_bytes[data_idx + 8:] if data_idx != -1 else audio_bytes[44:]
+            elif shutil.which("ffmpeg"):
+                proc = await asyncio.create_subprocess_exec(
+                    "ffmpeg", "-y", "-i", "pipe:0", "-ar", "16000", "-ac", "1", "-f", "s16le", "pipe:1",
+                    stdin=asyncio.subprocess.PIPE,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.DEVNULL
+                )
+                stdout_data, _ = await asyncio.wait_for(proc.communicate(input=audio_bytes), timeout=4.0)
+                if stdout_data and len(stdout_data) > 400:
+                    pcm_bytes = stdout_data
+                    sample_rate = 16000
 
         if not pcm_bytes or len(pcm_bytes) < 400:
             return ""
@@ -30538,15 +30648,14 @@ async def _keyless_chromium_stt_from_audio(audio_bytes: bytes, mime_type: str, l
         if not samples:
             return ""
 
-        peak = max(abs(x) for x in samples)
-        rms = int(math.sqrt(sum(x * x for x in samples) / len(samples)))
-        print(f"[LiveTranslator STT Audio] lang={lang_code} in_bytes={len(audio_bytes)} pcm_bytes={len(pcm_bytes)} rms={rms} peak={peak}")
-        if rms < 20 or peak < 90:
+        peak = max(abs(min(samples)), abs(max(samples)))
+        stride_samples = samples[::2] if len(samples) > 1024 else samples
+        rms = int(math.sqrt(sum(x * x for x in stride_samples) / len(stride_samples))) if stride_samples else 0
+        if rms < 45 or peak < 220:
             return ""
 
-        # Auto-gain normalize quiet telephone/WebRTC RTP audio so speech recognition never misses low volume
-        if 90 <= peak < 18000:
-            gain = min(10.0, 23000.0 / float(peak))
+        if 220 <= peak < 18000:
+            gain = min(8.5, 22000.0 / float(peak))
             samples = array("h", [max(-32767, min(32767, int(x * gain))) for x in samples])
             pcm_bytes = samples.tobytes()
 
@@ -30554,28 +30663,26 @@ async def _keyless_chromium_stt_from_audio(audio_bytes: bytes, mime_type: str, l
         chromium_key = "AIzaSyBOti4mM-6x9WDnZIjIeyEU21OpBXqWBgw"
         stt_url = f"http://www.google.com/speech-api/v2/recognize?output=json&lang={lang_tag}&key={chromium_key}&client=chromium"
 
-        async with httpx.AsyncClient(timeout=8.0) as client:
-            resp = await client.post(
-                stt_url,
-                content=pcm_bytes,
-                headers={
-                    "Content-Type": f"audio/l16; rate={sample_rate}",
-                    "User-Agent": "Mozilla/5.0"
-                }
-            )
-            if resp.status_code == 200 and resp.text:
-                for line in resp.text.splitlines():
-                    line = line.strip()
-                    if not line:
-                        continue
-                    obj = json.loads(line)
-                    results = obj.get("result") or []
-                    if results and results[0].get("alternative"):
-                        alts = results[0]["alternative"]
-                        best = alts[0].get("transcript", "").strip()
-                        if best:
-                            print(f"[LiveTranslator Chromium STT] ({lang_tag}, rms={rms}, peak={peak}) -> '{best}'")
-                            return best
+        client = _get_translator_http_client()
+        resp = await client.post(
+            stt_url,
+            content=pcm_bytes,
+            headers={"Content-Type": f"audio/l16; rate={sample_rate}"},
+            timeout=5.5
+        )
+        if resp.status_code == 200 and resp.text:
+            for line in resp.text.splitlines():
+                line = line.strip()
+                if not line:
+                    continue
+                obj = json.loads(line)
+                results = obj.get("result") or []
+                if results and results[0].get("alternative"):
+                    alts = results[0]["alternative"]
+                    best = alts[0].get("transcript", "").strip()
+                    if best:
+                        print(f"[LiveTranslator Chromium STT] ({lang_tag}, rms={rms}, peak={peak}) -> '{best}'")
+                        return best
     except Exception as stt_err:
         print(f"[LiveTranslator Chromium STT Warning]: {stt_err}")
     return ""
@@ -30739,6 +30846,8 @@ async def _record_bilingual_transcript_turn(
 @app.post("/api/live-translator/translate-audio")
 @app.post("/live-translator/translate-audio")
 async def live_translate_audio_endpoint(payload: LiveTranslateAudioPayload, user_info: dict = Depends(get_user_info)):
+    import time
+
     raw_b64 = (payload.audio_base64 or "").strip()
     if ";base64," in raw_b64:
         raw_b64 = raw_b64.split(";base64,", 1)[1].strip()
@@ -30754,45 +30863,86 @@ async def live_translate_audio_endpoint(payload: LiveTranslateAudioPayload, user
     src_name = LANG_NAME_MAP.get(src_code, src_code)
     tgt_name = LANG_NAME_MAP.get(tgt_code, tgt_code)
 
+    audio_bytes = b""
+    pcm_bytes = b""
+    sample_rate = 16000
+    rms = 0
+    peak = 0
+
+    if raw_b64:
+        try:
+            padded_b64 = raw_b64 + ("=" * ((4 - len(raw_b64) % 4) % 4))
+            decoded_bytes = base64.b64decode(padded_b64)
+            audio_bytes, pcm_bytes, sample_rate, rms, peak = _prepare_and_normalize_translator_wav(decoded_bytes)
+            if audio_bytes and audio_bytes is not decoded_bytes:
+                raw_b64 = base64.b64encode(audio_bytes).decode("ascii")
+        except Exception as dec_err:
+            print(f"[LiveTranslator B64 Decode Warning]: {dec_err}")
+            audio_bytes = b""
+
+    # Fast sub-millisecond silence gate: never send silent/hiss-only frames to external AI APIs
+    if not fallback_stt and audio_bytes and (rms < 45 or peak < 220):
+        return {"original_text": "", "translated_text": ""}
+
     keys = _resolve_translator_ai_keys(user_info)
     gemini_key = keys["gemini_key"]
     groq_key = keys["groq_key"]
     openai_key = keys["openai_key"]
+    client = _get_translator_http_client()
 
     original_text = ""
     translated_text = ""
     suggested_reply_tr = ""
     suggested_reply_target = ""
     detected_lang = src_code
+    gemini_confirmed = False
+    now_mono = time.monotonic()
 
-    audio_bytes = b""
-    if raw_b64:
+    # 1. Ultra-Fast Hardware Whisper Path (Groq ~200ms) if configured
+    if groq_key and audio_bytes and _GEMINI_MODEL_COOLDOWN_UNTIL.get("groq_whisper", 0.0) < now_mono:
         try:
-            padded_b64 = raw_b64 + ("=" * ((4 - len(raw_b64) % 4) % 4))
-            audio_bytes = base64.b64decode(padded_b64)
-        except Exception as dec_err:
-            print(f"[LiveTranslator B64 Decode Warning]: {dec_err}")
-            audio_bytes = b""
+            ext = "wav" if audio_bytes[:4] == b"RIFF" else "webm"
+            r_w = await client.post(
+                "https://api.groq.com/openai/v1/audio/transcriptions",
+                headers={"Authorization": f"Bearer {groq_key}"},
+                data={"model": "whisper-large-v3-turbo", "language": src_code.split("-")[0]},
+                files={"file": (f"speech.{ext}", audio_bytes, payload.mime_type or f"audio/{ext}")},
+                timeout=4.5
+            )
+            if r_w.status_code == 200:
+                original_text = (r_w.json().get("text") or "").strip()
+            elif r_w.status_code in (401, 403, 429):
+                _GEMINI_MODEL_COOLDOWN_UNTIL["groq_whisper"] = now_mono + 60.0
+        except Exception as gw_err:
+            print(f"[LiveTranslator Groq Fast Path Warning]: {gw_err}")
 
-    print(
-        f"[LiveTranslator Req] dir={effective_direction} {src_code}->{tgt_code} "
-        f"bytes={len(audio_bytes)} mime={payload.mime_type} fallback='{fallback_stt}'"
-    )
+    # 2. Gemini Multimodal Flash (Zero-Thinking Real-Time Configuration)
+    if not original_text and gemini_key and raw_b64:
+        if effective_direction == "customer_to_agent":
+            prompt_text = (
+                f"Real-time call center interpreter. Audio is spoken in {src_name}. "
+                f"If silence or noise only, return empty strings. "
+                f"Transcribe exact speech into `original_text`, translate naturally into {tgt_name} as `translated_text`, "
+                f"and give one short polite Turkish agent reply suggestion (`suggested_reply_tr`, max 10 words). "
+                f'Return JSON: {{"detected_lang": "{src_code}", "original_text": "...", "translated_text": "...", "suggested_reply_tr": "..."}}'
+            )
+        else:
+            prompt_text = (
+                f"Real-time call center interpreter. Audio is spoken in {src_name}. "
+                f"If silence or noise only, return empty strings. "
+                f"Transcribe exact speech into `original_text` and translate naturally into {tgt_name} as `translated_text`. "
+                f'Return JSON: {{"detected_lang": "{src_code}", "original_text": "...", "translated_text": "..."}}'
+            )
 
-    # 1. Primary: Gemini Multimodal Audio -> Transcription + Translation + Suggested Reply in one shot
-    if gemini_key and raw_b64:
-        prompt_text = (
-            f"You are a real-time call center simultaneous interpreter. "
-            f"Listen to this audio clip spoken in {src_name}. "
-            f"If the audio contains only silence, static, or unintelligible background noise, return empty strings. "
-            f"Otherwise, transcribe the exact speech into `original_text` and translate it accurately and naturally into {tgt_name} as `translated_text`. "
-            f"Also provide a polite, helpful call-center agent reply suggestion in Turkish (`suggested_reply_tr`) and in {src_name} (`suggested_reply_target`). "
-            f"Return ONLY valid JSON with keys: "
-            f'{{"detected_lang": "{src_code}", "original_text": "...", "translated_text": "...", "suggested_reply_tr": "...", "suggested_reply_target": "..."}}'
-        )
-        for model_name in ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash"]:
+        for model_name in ["gemini-2.0-flash", "gemini-2.5-flash"]:
+            if _GEMINI_MODEL_COOLDOWN_UNTIL.get(model_name, 0.0) > now_mono:
+                continue
             try:
                 g_url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={gemini_key}"
+                gen_cfg = {"temperature": 0.05, "responseMimeType": "application/json"}
+                if "2.5" in model_name:
+                    # Disable hidden chain-of-thought reasoning tokens (~4s overhead) for instant live captioning
+                    gen_cfg["thinkingConfig"] = {"thinkingBudget": 0}
                 req_body = {
                     "contents": [
                         {
@@ -30807,125 +30957,131 @@ async def live_translate_audio_endpoint(payload: LiveTranslateAudioPayload, user
                             ]
                         }
                     ],
-                    "generationConfig": {"temperature": 0.1, "responseMimeType": "application/json"}
+                    "generationConfig": gen_cfg
                 }
-                async with httpx.AsyncClient(timeout=12.0) as client:
-                    resp = await client.post(g_url, json=req_body)
-                    if resp.status_code == 200:
-                        r_json = resp.json()
-                        cand_text = (
-                            r_json.get("candidates", [{}])[0]
-                            .get("content", {})
-                            .get("parts", [{}])[0]
-                            .get("text", "")
-                        )
-                        if cand_text:
-                            cleaned = cand_text.strip().removeprefix("```json").removeprefix("```").removesuffix("```").strip()
-                            parsed = json.loads(cleaned)
-                            original_text = (parsed.get("original_text") or "").strip()
-                            translated_text = (parsed.get("translated_text") or "").strip()
-                            suggested_reply_tr = (parsed.get("suggested_reply_tr") or "").strip()
-                            suggested_reply_target = (parsed.get("suggested_reply_target") or "").strip()
-                            detected_lang = (parsed.get("detected_lang") or src_code).strip()
-                            break
-                    else:
-                        print(f"[LiveTranslator Audio Gemini ({model_name}) HTTP {resp.status_code}]: {resp.text[:200]}")
+                resp = await client.post(g_url, json=req_body, timeout=5.5)
+                if resp.status_code == 200:
+                    r_json = resp.json()
+                    cand_text = (
+                        r_json.get("candidates", [{}])[0]
+                        .get("content", {})
+                        .get("parts", [{}])[0]
+                        .get("text", "")
+                    )
+                    if cand_text:
+                        cleaned = cand_text.strip().removeprefix("```json").removeprefix("```").removesuffix("```").strip()
+                        parsed = json.loads(cleaned)
+                        original_text = (parsed.get("original_text") or "").strip()
+                        translated_text = (parsed.get("translated_text") or "").strip()
+                        suggested_reply_tr = (parsed.get("suggested_reply_tr") or "").strip()
+                        suggested_reply_target = (parsed.get("suggested_reply_target") or "").strip()
+                        detected_lang = (parsed.get("detected_lang") or src_code).strip()
+                        gemini_confirmed = True
+                        break
+                else:
+                    if resp.status_code in (400, 403, 404, 429):
+                        _GEMINI_MODEL_COOLDOWN_UNTIL[model_name] = now_mono + (300.0 if resp.status_code == 404 else 45.0)
+                    print(f"[LiveTranslator Audio Gemini ({model_name}) HTTP {resp.status_code}]: {resp.text[:160]}")
             except Exception as g_err:
                 print(f"[LiveTranslator Audio Gemini ({model_name}) Warning]: {g_err}")
 
-    # 2. Secondary Audio STT Fallback: Groq Whisper or OpenAI Whisper
-    if not original_text and audio_bytes and (groq_key or openai_key):
-        try:
-            ext = "wav" if audio_bytes[:4] == b"RIFF" else "webm"
-            if groq_key:
-                async with httpx.AsyncClient(timeout=10.0) as client:
-                    r_w = await client.post(
-                        "https://api.groq.com/openai/v1/audio/transcriptions",
-                        headers={"Authorization": f"Bearer {groq_key}"},
-                        data={"model": "whisper-large-v3-turbo", "language": src_code.split("-")[0]},
-                        files={"file": (f"speech.{ext}", audio_bytes, payload.mime_type or f"audio/{ext}")}
-                    )
-                    if r_w.status_code == 200:
-                        original_text = (r_w.json().get("text") or "").strip()
-            if not original_text and openai_key:
-                async with httpx.AsyncClient(timeout=10.0) as client:
-                    r_w = await client.post(
-                        "https://api.openai.com/v1/audio/transcriptions",
-                        headers={"Authorization": f"Bearer {openai_key}"},
-                        data={"model": "whisper-1", "language": src_code.split("-")[0]},
-                        files={"file": (f"speech.{ext}", audio_bytes, payload.mime_type or f"audio/{ext}")}
-                    )
-                    if r_w.status_code == 200:
-                        original_text = (r_w.json().get("text") or "").strip()
-        except Exception as w_err:
-            print(f"[LiveTranslator Whisper Fallback Warning]: {w_err}")
+    # 3. Secondary Audio STT Fallback (only if Gemini did NOT already inspect & confirm empty/speech)
+    if not original_text and not gemini_confirmed and audio_bytes:
+        if openai_key and _GEMINI_MODEL_COOLDOWN_UNTIL.get("openai_whisper", 0.0) < now_mono:
+            try:
+                ext = "wav" if audio_bytes[:4] == b"RIFF" else "webm"
+                r_w = await client.post(
+                    "https://api.openai.com/v1/audio/transcriptions",
+                    headers={"Authorization": f"Bearer {openai_key}"},
+                    data={"model": "whisper-1", "language": src_code.split("-")[0]},
+                    files={"file": (f"speech.{ext}", audio_bytes, payload.mime_type or f"audio/{ext}")},
+                    timeout=5.5
+                )
+                if r_w.status_code == 200:
+                    original_text = (r_w.json().get("text") or "").strip()
+                elif r_w.status_code in (401, 403, 429):
+                    _GEMINI_MODEL_COOLDOWN_UNTIL["openai_whisper"] = now_mono + 60.0
+            except Exception as w_err:
+                print(f"[LiveTranslator OpenAI Whisper Warning]: {w_err}")
 
-    # 3. Built-in Keyless Audio STT: Google Chromium Speech API v2 (16kHz 16-bit WAV/PCM)
-    if not original_text and audio_bytes:
-        original_text = await _keyless_chromium_stt_from_audio(audio_bytes, payload.mime_type or "audio/wav", src_code)
-        # If speaker spoke in the opposite language, recognize it while keeping speaker direction intact
-        if not original_text and tgt_code and tgt_code != src_code:
-            alt_text = await _keyless_chromium_stt_from_audio(audio_bytes, payload.mime_type or "audio/wav", tgt_code)
-            if alt_text:
-                original_text = alt_text
-                detected_lang = tgt_code
-                if effective_direction == "customer_to_agent":
-                    translated_text = alt_text
+        if not original_text:
+            original_text = await _keyless_chromium_stt_from_audio(
+                audio_bytes,
+                payload.mime_type or "audio/wav",
+                src_code,
+                precomputed_pcm=pcm_bytes,
+                precomputed_rate=sample_rate
+            )
+            # Only attempt opposite-language recognition for agent direct foreign speech when audio energy is high
+            if (
+                not original_text
+                and effective_direction == "agent_to_customer"
+                and tgt_code
+                and tgt_code != src_code
+                and peak > 2500
+            ):
+                alt_text = await _keyless_chromium_stt_from_audio(
+                    audio_bytes,
+                    payload.mime_type or "audio/wav",
+                    tgt_code,
+                    precomputed_pcm=pcm_bytes,
+                    precomputed_rate=sample_rate
+                )
+                if alt_text:
+                    original_text = alt_text
+                    detected_lang = tgt_code
 
     # 4. Browser SpeechRecognition fallback if provided
     if not original_text and fallback_stt:
         original_text = fallback_stt
 
     # Filter out common hallucinations on silence
-    if original_text.lower().strip(".!?, ") in ("you", "thank you", "thanks for watching", "altyazı m.k.", "subtitle", ""):
+    if original_text.lower().strip(".!?, ") in (
+        "you",
+        "thank you",
+        "thanks for watching",
+        "altyazı m.k.",
+        "subtitle",
+        "mbc",
+        ""
+    ):
         if not fallback_stt:
             original_text = ""
+            translated_text = ""
 
-    # Translate transcribed speech if not yet translated
+    # Translate transcribed speech if not yet translated (e.g. Groq/Whisper/Chromium STT path)
     if original_text and not translated_text:
         if effective_direction == "agent_to_customer" and detected_lang == tgt_code and tgt_code != src_code:
-            # Agent spoke in the foreign language directly -> translate to Turkish so primary is Turkish and secondary is foreign
             tr_text = await _fallback_google_text_translate(original_text, tgt_code, src_code)
             translated_text = original_text
             original_text = tr_text or original_text
             detected_lang = src_code
         else:
             translated_text = await _fallback_google_text_translate(original_text, src_code, tgt_code)
-            if (
-                translated_text
-                and translated_text.strip().lower() == original_text.strip().lower()
-                and audio_bytes
-                and tgt_code != src_code
-            ):
-                alt_text = await _keyless_chromium_stt_from_audio(audio_bytes, payload.mime_type or "audio/wav", tgt_code)
-                if alt_text:
-                    if effective_direction == "customer_to_agent":
-                        original_text = alt_text
-                        translated_text = alt_text
-                        detected_lang = tgt_code
-                    else:
-                        tr_text = await _fallback_google_text_translate(alt_text, tgt_code, src_code)
-                        original_text = tr_text or alt_text
-                        translated_text = alt_text
-                        detected_lang = src_code
 
     if original_text or translated_text:
-        print(f"[LiveTranslator] dir={effective_direction} ({src_code}->{tgt_code}) Original='{original_text}' | Translated='{translated_text}'")
+        print(
+            f"[LiveTranslator] dir={effective_direction} ({src_code}->{tgt_code}, rms={rms}, peak={peak}) "
+            f"Original='{original_text}' | Translated='{translated_text}'"
+        )
 
     tts_b64 = ""
     tts_mime = "audio/mpeg"
     if payload.generate_tts and translated_text:
         tts_b64, tts_mime = await _synthesize_translator_tts_base64(translated_text, tgt_code, user_info=user_info)
 
+    # Fire-and-forget DB persistence so PostgreSQL queries NEVER delay real-time UI captions
     if original_text or translated_text:
-        await _record_bilingual_transcript_turn(
-            payload.call_id,
-            effective_direction,
-            original_text,
-            translated_text,
-            detected_lang or src_code,
-            tgt_code,
-            user_info=user_info
+        asyncio.create_task(
+            _record_bilingual_transcript_turn(
+                payload.call_id,
+                effective_direction,
+                original_text,
+                translated_text,
+                detected_lang or src_code,
+                tgt_code,
+                user_info=user_info
+            )
         )
 
     return {
@@ -30945,6 +31101,8 @@ async def live_translate_audio_endpoint(payload: LiveTranslateAudioPayload, user
 @app.post("/api/live-translator/translate-text")
 @app.post("/live-translator/translate-text")
 async def live_translate_text_endpoint(payload: LiveTranslateTextPayload, user_info: dict = Depends(get_user_info)):
+    import time
+
     clean_text = (payload.text or "").strip()
     if not clean_text:
         return {"original_text": "", "translated_text": ""}
@@ -30956,6 +31114,8 @@ async def live_translate_text_endpoint(payload: LiveTranslateTextPayload, user_i
 
     keys = _resolve_translator_ai_keys(user_info)
     gemini_key = keys["gemini_key"]
+    client = _get_translator_http_client()
+    now_mono = time.monotonic()
 
     translated_text = ""
     suggested_reply_tr = ""
@@ -30963,45 +31123,45 @@ async def live_translate_text_endpoint(payload: LiveTranslateTextPayload, user_i
 
     if gemini_key:
         prompt_text = (
-            f"You are a professional call-center simultaneous interpreter. "
-            f"Translate the following message from {src_name} into {tgt_name} naturally and accurately.\n"
+            f"Professional call-center interpreter. Translate from {src_name} into {tgt_name} naturally and accurately.\n"
             f"Message: \"{clean_text}\"\n"
-            f"Also provide a polite call-center agent reply suggestion in Turkish (`suggested_reply_tr`) and in {src_name if payload.direction == 'customer_to_agent' else tgt_name} (`suggested_reply_target`). "
-            f"Return ONLY valid JSON: "
-            f'{{"translated_text": "...", "suggested_reply_tr": "...", "suggested_reply_target": "..."}}'
+            f'Return ONLY valid JSON: {{"translated_text": "..."}}'
         )
-        for model_name in ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash"]:
+        for model_name in ["gemini-2.0-flash", "gemini-2.5-flash"]:
+            if _GEMINI_MODEL_COOLDOWN_UNTIL.get(model_name, 0.0) > now_mono:
+                continue
             try:
                 g_url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={gemini_key}"
+                gen_cfg = {"temperature": 0.1, "responseMimeType": "application/json"}
+                if "2.5" in model_name:
+                    gen_cfg["thinkingConfig"] = {"thinkingBudget": 0}
                 req_body = {
                     "contents": [{"parts": [{"text": prompt_text}]}],
-                    "generationConfig": {"temperature": 0.1, "responseMimeType": "application/json"}
+                    "generationConfig": gen_cfg
                 }
-                async with httpx.AsyncClient(timeout=8.0) as client:
-                    resp = await client.post(g_url, json=req_body)
-                    if resp.status_code == 200:
-                        r_json = resp.json()
-                        cand_text = (
-                            r_json.get("candidates", [{}])[0]
-                            .get("content", {})
-                            .get("parts", [{}])[0]
-                            .get("text", "")
-                        )
-                        if cand_text:
-                            cleaned = cand_text.strip().removeprefix("```json").removeprefix("```").removesuffix("```").strip()
-                            parsed = json.loads(cleaned)
-                            translated_text = (parsed.get("translated_text") or "").strip()
-                            suggested_reply_tr = (parsed.get("suggested_reply_tr") or "").strip()
-                            suggested_reply_target = (parsed.get("suggested_reply_target") or "").strip()
-                            break
+                resp = await client.post(g_url, json=req_body, timeout=5.0)
+                if resp.status_code == 200:
+                    r_json = resp.json()
+                    cand_text = (
+                        r_json.get("candidates", [{}])[0]
+                        .get("content", {})
+                        .get("parts", [{}])[0]
+                        .get("text", "")
+                    )
+                    if cand_text:
+                        cleaned = cand_text.strip().removeprefix("```json").removeprefix("```").removesuffix("```").strip()
+                        parsed = json.loads(cleaned)
+                        translated_text = (parsed.get("translated_text") or "").strip()
+                        suggested_reply_tr = (parsed.get("suggested_reply_tr") or "").strip()
+                        suggested_reply_target = (parsed.get("suggested_reply_target") or "").strip()
+                        break
+                elif resp.status_code in (400, 403, 404, 429):
+                    _GEMINI_MODEL_COOLDOWN_UNTIL[model_name] = now_mono + (300.0 if resp.status_code == 404 else 45.0)
             except Exception as g_err:
                 print(f"[LiveTranslator Text Gemini ({model_name}) Warning]: {g_err}")
 
     if not translated_text:
         translated_text = await _fallback_google_text_translate(clean_text, src_code, tgt_code)
-        if payload.direction == "customer_to_agent" and not suggested_reply_tr:
-            suggested_reply_tr = "Memnuniyetle yardımcı olabilirim, hemen kontrol ediyorum."
-            suggested_reply_target = await _fallback_google_text_translate(suggested_reply_tr, "tr", src_code)
 
     tts_b64 = ""
     tts_mime = "audio/mpeg"
@@ -31009,14 +31169,16 @@ async def live_translate_text_endpoint(payload: LiveTranslateTextPayload, user_i
         tts_b64, tts_mime = await _synthesize_translator_tts_base64(translated_text, tgt_code, user_info=user_info)
 
     if clean_text or translated_text:
-        await _record_bilingual_transcript_turn(
-            payload.call_id,
-            payload.direction or "customer_to_agent",
-            clean_text,
-            translated_text,
-            src_code,
-            tgt_code,
-            user_info=user_info
+        asyncio.create_task(
+            _record_bilingual_transcript_turn(
+                payload.call_id,
+                payload.direction or "customer_to_agent",
+                clean_text,
+                translated_text,
+                src_code,
+                tgt_code,
+                user_info=user_info
+            )
         )
 
     return {
