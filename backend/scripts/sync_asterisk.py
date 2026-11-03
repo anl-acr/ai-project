@@ -558,7 +558,24 @@ max_contacts=5
 remove_existing=yes
 qualify_frequency=30
 """
+        pickup_groups_sync = sdata.get("call_pickup_groups", []) if isinstance(sdata, dict) else []
+
+        def _sync_pickup_group_names(u_obj, ext_val):
+            uid_val = u_obj.get("id")
+            matched = []
+            for idx_pg, pg in enumerate(pickup_groups_sync):
+                if not isinstance(pg, dict):
+                    continue
+                exts = pg.get("extensions") or []
+                str_exts = [str(x) for x in exts]
+                if (uid_val is not None and (uid_val in exts or str(uid_val) in str_exts)) or (ext_val and ext_val in str_exts):
+                    pg_tok = re.sub(r"[^a-zA-Z0-9_-]", "", str(pg.get("id") or f"pg{idx_pg + 1}"))[:24] or f"pg{idx_pg + 1}"
+                    if pg_tok not in matched:
+                        matched.append(pg_tok)
+            return ",".join(matched)
+
         seen_exts = set()
+        seen_sip_eps = set()
         for u in users_list:
             is_act = u.get("is_active") if "is_active" in u else True
             if not is_act:
@@ -567,13 +584,15 @@ qualify_frequency=30
             if not ext or ext in seen_exts:
                 continue
             seen_exts.add(ext)
+            seen_sip_eps.add(ext.lower())
             pwd = resolve_secure_sip_password(ext, u.get("sip_password") or "")
             name = u.get("full_name") or u.get("username") or ext
-            sip_user = resolve_user_sip_username(ext, u.get("sip_username") or "")
             try:
                 max_act = max(5, int(u.get("max_activations") or 5))
             except Exception:
                 max_act = 5
+            pg_names = _sync_pickup_group_names(u, ext)
+            pg_lines = f"named_call_group={pg_names}\nnamed_pickup_group={pg_names}\n" if pg_names else ""
 
             pjsip_custom_content += f"\n; --- USER: {name} ({ext}) ---\n"
             pjsip_custom_content += f"""[{ext}]
@@ -596,7 +615,7 @@ media_use_received_transport=yes
 send_pai=yes
 send_rpid=yes
 rpid_immediate=yes
-auth={ext}-auth
+{pg_lines}auth={ext}-auth
 aors={ext}
 callerid={name} <{ext}>
 
@@ -611,13 +630,61 @@ type=aor
 max_contacts={max_act}
 remove_existing=yes
 """
-            if sip_user and sip_user != ext:
+            raw_devs = u.get("sip_devices")
+            if isinstance(raw_devs, str):
+                try:
+                    raw_devs = json.loads(raw_devs)
+                except Exception:
+                    raw_devs = None
+            cti_c = u.get("cti_config") if isinstance(u.get("cti_config"), dict) else {}
+            exp_empty = bool(cti_c.get("sip_devices_empty")) and isinstance(raw_devs, list) and len(raw_devs) == 0
+
+            dev_items = []
+            if isinstance(raw_devs, list) and len(raw_devs) > 0:
+                dev_items = [d for d in raw_devs if isinstance(d, dict)]
+            elif not exp_empty:
+                sip_u_fb = resolve_user_sip_username(ext, u.get("sip_username") or "")
+                if sip_u_fb:
+                    dev_items = [{
+                        "name": "Masa Telefonu 1",
+                        "sip_username": sip_u_fb,
+                        "sip_password": pwd,
+                        "max_activations": max_act,
+                        "transport": u.get("transport") or "UDP",
+                        "codecs": ["g722", "alaw", "ulaw", "g729"],
+                        "dtmf_mode": "rfc4733",
+                        "is_active": True,
+                    }]
+
+            for d_idx, dev_obj in enumerate(dev_items):
+                if dev_obj.get("is_active") is False:
+                    continue
+                d_su = re.sub(r"[^a-zA-Z0-9_.-]", "", str(dev_obj.get("sip_username") or "").strip())
+                if not d_su or d_su == ext or d_su.lower() in seen_sip_eps:
+                    continue
+                seen_sip_eps.add(d_su.lower())
+                d_pwd = resolve_secure_sip_password(ext, dev_obj.get("sip_password") or pwd)
+                try:
+                    d_max = max(1, min(10, int(dev_obj.get("max_activations") or 1)))
+                except Exception:
+                    d_max = 1
+                d_tr_raw = str(dev_obj.get("transport") or "UDP").strip().upper()
+                d_tr_line = "transport=transport-tcp\n" if d_tr_raw == "TCP" else ("transport=transport-udp\n" if d_tr_raw == "UDP" else "")
+                d_codecs_raw = dev_obj.get("codecs")
+                d_allow = _norm_codecs({"codecs": d_codecs_raw}) if d_codecs_raw else "g722,alaw,ulaw,g729"
+                d_dtmf = str(dev_obj.get("dtmf_mode") or "rfc4733").strip().lower()
+                if d_dtmf not in ("rfc4733", "info", "inband"):
+                    d_dtmf = "rfc4733"
+                d_label = str(dev_obj.get("name") or f"SIP Cihazi {d_idx + 1}").strip()
+
                 pjsip_custom_content += f"""
-[{sip_user}]
+; SIP Device: {d_label} ({d_su}) -> Ext {ext}
+[{d_su}]
 type=endpoint
-context=webrtc_agents
+{d_tr_line}context=webrtc_agents
 disallow=all
-allow=ulaw,alaw,g722,g729
+allow={d_allow}
+dtmf_mode={d_dtmf}
 direct_media=no
 force_rport=yes
 rewrite_contact=yes
@@ -625,22 +692,39 @@ rtp_symmetric=yes
 send_pai=yes
 send_rpid=yes
 rpid_immediate=yes
-auth={sip_user}-auth
-aors={sip_user}
+{pg_lines}auth={d_su}-auth
+aors={d_su}
 callerid={name} <{ext}>
 
-[{sip_user}-auth]
+[{d_su}-auth]
 type=auth
 auth_type=userpass
-username={sip_user}
-password={pwd}
+username={d_su}
+password={d_pwd}
 
-[{sip_user}]
+[{d_su}]
 type=aor
-max_contacts={max_act}
+max_contacts={d_max}
 remove_existing=yes
 qualify_frequency=30
 """
+
+        # Ensure pjsip_notify.conf exists for Check-Sync & Reboot NOTIFY actions
+        pjsip_notify_path = "/etc/asterisk/pjsip_notify.conf"
+        pjsip_notify_content = """; ==========================================
+; AIDA PBX SIP NOTIFY Custom Events (Check-Sync / Reboot)
+; ==========================================
+[check-sync]
+Event=>check-sync
+
+[reboot-yealink]
+Event=>check-sync\\;reboot=true
+"""
+        try:
+            with open(pjsip_notify_path, "w", encoding="utf-8") as nf:
+                nf.write(pjsip_notify_content)
+        except Exception:
+            pass
 
         # Write directly to /etc/asterisk/pjsip_custom.conf
         pjsip_custom_path = "/etc/asterisk/pjsip_custom.conf"
@@ -788,11 +872,26 @@ same => n,Hangup()
         if not h_ext or h_ext in seen_hint_exts_sync:
             continue
         seen_hint_exts_sync.add(h_ext)
-        h_sip = resolve_user_sip_username(h_ext, u_h.get("sip_username") or "")
-        if h_sip and h_sip != h_ext:
-            hint_lines_sync.append(f"exten => {h_ext},hint,PJSIP/{h_ext}&PJSIP/{h_sip}")
-        else:
-            hint_lines_sync.append(f"exten => {h_ext},hint,PJSIP/{h_ext}")
+        hint_eps_s = [f"PJSIP/{h_ext}"]
+        raw_h_devs = u_h.get("sip_devices")
+        if isinstance(raw_h_devs, str):
+            try:
+                raw_h_devs = json.loads(raw_h_devs)
+            except Exception:
+                raw_h_devs = None
+        h_cti = u_h.get("cti_config") if isinstance(u_h.get("cti_config"), dict) else {}
+        h_exp_empty = bool(h_cti.get("sip_devices_empty")) and isinstance(raw_h_devs, list) and len(raw_h_devs) == 0
+        if isinstance(raw_h_devs, list) and len(raw_h_devs) > 0:
+            for hd in raw_h_devs:
+                if isinstance(hd, dict) and hd.get("is_active") is not False:
+                    h_su = str(hd.get("sip_username") or "").strip()
+                    if h_su and h_su != h_ext and f"PJSIP/{h_su}" not in hint_eps_s:
+                        hint_eps_s.append(f"PJSIP/{h_su}")
+        elif not h_exp_empty:
+            h_sip = resolve_user_sip_username(h_ext, u_h.get("sip_username") or "")
+            if h_sip and h_sip != h_ext:
+                hint_eps_s.append(f"PJSIP/{h_sip}")
+        hint_lines_sync.append(f"exten => {h_ext},hint,{'&'.join(hint_eps_s)}")
     if "1000" not in seen_hint_exts_sync:
         hint_lines_sync.append(f"exten => 1000,hint,PJSIP/1000&PJSIP/{resolve_user_sip_username('1000', '')}")
     agent_hints_str = "\n".join(hint_lines_sync)
@@ -1284,18 +1383,13 @@ same => n,Set(FWD_TIMEOUT=${CUT(FWD_PRE,:,3)})
 same => n,Set(DIAL_TIMEOUT=${IF($[${ISNULL(${FWD_TIMEOUT})} | "${FWD_TIMEOUT}"=""]?30:${FWD_TIMEOUT})})
 same => n,GotoIf($["${FWD_STATUS}"="ALLOW"]?forward_call:dial_pjsip)
 
-; 2. PJSIP Dahili Arama (WebPhone + Masa Telefonu Eşzamanlı, Profil veya Yönlendirme Zaman Aşımı Süresi)
-same => n(dial_pjsip),Set(AG_RING_CFG=${CURL(http://127.0.0.1:8000/api/subscriber/resolve_agent_ring_targets?extension=${EXTEN})})
-same => n,GotoIf($["${AG_RING_CFG}" = "NONE"]?after_dial_pjsip)
-same => n,Set(WEB_EP=${CUT(AG_RING_CFG,:,1)})
-same => n,Set(DESK_EP=${CUT(AG_RING_CFG,:,2)})
-same => n,Set(WEB_CONTACTS=${IF($["${WEB_EP}" != ""]?${PJSIP_DIAL_CONTACTS(${WEB_EP})}:)})
-same => n,Set(DESK_CONTACTS=${IF($["${DESK_EP}" != ""]?${PJSIP_DIAL_CONTACTS(${DESK_EP})}:)})
-same => n,Set(TARGET_CONTACTS=${IF($["${WEB_CONTACTS}" != "" & "${DESK_CONTACTS}" != ""]?${WEB_CONTACTS}&${DESK_CONTACTS}:${IF($["${WEB_CONTACTS}" != ""]?${WEB_CONTACTS}:${DESK_CONTACTS})})})
-same => n,Set(FB_PJSIP=${IF($["${WEB_EP}" != "" & "${DESK_EP}" != ""]?PJSIP/${WEB_EP}&PJSIP/${DESK_EP}:${IF($["${WEB_EP}" != ""]?PJSIP/${WEB_EP}:PJSIP/${DESK_EP})})})
-same => n,Set(DIAL_STR=${IF($["${TARGET_CONTACTS}"=""]?${FB_PJSIP}:${TARGET_CONTACTS})})
-same => n,NoOp(PJSIP Dahiliye Arama Yapiliyor [WebPhone + Masa Telefonu]: ${DIAL_STR} Timeout=${DIAL_TIMEOUT}s)
-same => n,Dial(${DIAL_STR},${DIAL_TIMEOUT},tTg)
+; 2. PJSIP Dahili Arama (WebPhone + Tüm Aktif SIP Cihazları Eşzamanlı)
+same => n(dial_pjsip),Set(AG_EP_LIST=${CURL(http://127.0.0.1:8000/api/subscriber/resolve_agent_ring_targets?extension=${EXTEN}&format=list)})
+same => n,GotoIf($["${AG_EP_LIST}" = "NONE" | "${AG_EP_LIST}" = ""]?after_dial_pjsip)
+same => n,Gosub(build_multi_pjsip_dial_sub,s,1(${AG_EP_LIST}))
+same => n,GotoIf($["${MULTI_DIAL_STR}" = ""]?after_dial_pjsip)
+same => n,NoOp(PJSIP Dahiliye Arama Yapiliyor [Coklu SIP Cihazi]: ${MULTI_DIAL_STR} Timeout=${DIAL_TIMEOUT}s)
+same => n,Dial(${MULTI_DIAL_STR},${DIAL_TIMEOUT},tTg)
 same => n(after_dial_pjsip),NoOp(PJSIP Arama Sonucu: ${DIALSTATUS})
 same => n,GotoIf($["${DIALSTATUS}"="ANSWER"]?end_call)
 
@@ -1327,14 +1421,11 @@ same => n,Answer()
 same => n,Playback(/var/spool/asterisk/monitor/tr_sesli_mesaj)
 same => n,Hangup()
 
-same => n(dial_internal_fwd),NoOp(Ic Dahili / Masa Telefonu Yonlendirme: ${FWD_TARGET} Timeout=${STEP_TIMEOUT}s)
-same => n,Set(FWD_AG_CFG=${CURL(http://127.0.0.1:8000/api/subscriber/resolve_agent_ring_targets?extension=${FWD_TARGET})})
-same => n,Set(F_WEB_EP=${IF($["${FWD_AG_CFG}" != "NONE"]?${CUT(FWD_AG_CFG,:,1)}:${FWD_TARGET})})
-same => n,Set(F_DESK_EP=${IF($["${FWD_AG_CFG}" != "NONE"]?${CUT(FWD_AG_CFG,:,2)}:)})
-same => n,Set(F_WEB_C=${IF($["${F_WEB_EP}" != ""]?${PJSIP_DIAL_CONTACTS(${F_WEB_EP})}:)})
-same => n,Set(F_DESK_C=${IF($["${F_DESK_EP}" != ""]?${PJSIP_DIAL_CONTACTS(${F_DESK_EP})}:)})
-same => n,Set(F_COMB_C=${IF($["${F_WEB_C}" != "" & "${F_DESK_C}" != ""]?${F_WEB_C}&${F_DESK_C}:${IF($["${F_WEB_C}" != ""]?${F_WEB_C}:${F_DESK_C})})})
-same => n,Set(F_DIAL_STR=${IF($["${F_COMB_C}" != ""]?${F_COMB_C}:PJSIP/${FWD_TARGET})})
+same => n(dial_internal_fwd),NoOp(Ic Dahili / SIP Cihazlari Yonlendirme: ${FWD_TARGET} Timeout=${STEP_TIMEOUT}s)
+same => n,Set(FWD_EP_LIST=${CURL(http://127.0.0.1:8000/api/subscriber/resolve_agent_ring_targets?extension=${FWD_TARGET}&format=list)})
+same => n,Set(FWD_EP_LIST=${IF($["${FWD_EP_LIST}" != "" & "${FWD_EP_LIST}" != "NONE"]?${FWD_EP_LIST}:${FWD_TARGET})})
+same => n,Gosub(build_multi_pjsip_dial_sub,s,1(${FWD_EP_LIST}))
+same => n,Set(F_DIAL_STR=${IF($["${MULTI_DIAL_STR}" != ""]?${MULTI_DIAL_STR}:PJSIP/${FWD_TARGET})})
 same => n,Dial(${F_DIAL_STR},${STEP_TIMEOUT},tTg)
 same => n,GotoIf($["${DIALSTATUS}"="ANSWER"]?end_call:check_step2)
 
@@ -1412,25 +1503,37 @@ same => n,Progress()
 same => n,Playback(beeperr,noanswer)
 same => n,Hangup(28)
 
+[build_multi_pjsip_dial_sub]
+exten => s,1,Set(LOCAL(EP_LIST)=${ARG1})
+same => n,Set(MULTI_CONTACTS=)
+same => n,Set(MULTI_FALLBACK=)
+same => n,GotoIf($["${EP_LIST}" = "" | "${EP_LIST}" = "NONE"]?done)
+same => n,Set(LOCAL(EP_CNT)=${FIELDQTY(EP_LIST,&)})
+same => n,Set(LOCAL(EP_IDX)=1)
+same => n(loop),GotoIf($[${EP_IDX} > ${EP_CNT}]?finalize)
+same => n,Set(LOCAL(CUR_EP)=${CUT(EP_LIST,&,${EP_IDX})})
+same => n,GotoIf($["${CUR_EP}" = ""]?next)
+same => n,Set(LOCAL(CUR_C)=${PJSIP_DIAL_CONTACTS(${CUR_EP})})
+same => n,Set(MULTI_CONTACTS=${IF($["${CUR_C}" != ""]?${IF($["${MULTI_CONTACTS}" != ""]?${MULTI_CONTACTS}&${CUR_C}:${CUR_C})}:${MULTI_CONTACTS})})
+same => n,Set(MULTI_FALLBACK=${IF($["${MULTI_FALLBACK}" != ""]?${MULTI_FALLBACK}&PJSIP/${CUR_EP}:PJSIP/${CUR_EP})})
+same => n(next),Set(EP_IDX=$[${EP_IDX} + 1])
+same => n,Goto(loop)
+same => n(finalize),Set(MULTI_DIAL_STR=${IF($["${MULTI_CONTACTS}" != ""]?${MULTI_CONTACTS}:${MULTI_FALLBACK})})
+same => n,Return()
+same => n(done),Set(MULTI_DIAL_STR=)
+same => n,Return()
+
 [queue_agent_ring]
-; Kuyruk aramalarında temsilcinin hem WebPhone hem de Masa Telefonunu (IP Telefon) Kuyruk CallerID bilgisiyle eşzamanlı çaldırır
+; Kuyruk aramalarında temsilcinin WebPhone ve tüm aktif SIP Cihazlarını Kuyruk CallerID bilgisiyle eşzamanlı çaldırır
 exten => _[1-9]X.,1,NoOp(Kuyruk Temsilci Cihaz Dagitim: Dahili=${EXTEN}, CallerID=${CALLERID(all)})
 same => n,Set(CURLOPT(conntimeout)=1)
 same => n,Set(CURLOPT(httptimeout)=2)
-same => n,Set(AG_RING_CFG=${CURL(http://127.0.0.1:8000/api/subscriber/resolve_agent_ring_targets?extension=${EXTEN})})
-same => n,GotoIf($["${AG_RING_CFG}" = "NONE"]?ag_unavailable)
-same => n,Set(WEB_EP=${CUT(AG_RING_CFG,:,1)})
-same => n,Set(DESK_EP=${CUT(AG_RING_CFG,:,2)})
-same => n,Set(WEB_TARGETS=${IF($["${WEB_EP}" != ""]?${PJSIP_DIAL_CONTACTS(${WEB_EP})}:)})
-same => n,Set(DESK_TARGETS=${IF($["${DESK_EP}" != ""]?${PJSIP_DIAL_CONTACTS(${DESK_EP})}:)})
-same => n,Set(COMBINED_TARGETS=${IF($["${WEB_TARGETS}" != "" & "${DESK_TARGETS}" != ""]?${WEB_TARGETS}&${DESK_TARGETS}:${IF($["${WEB_TARGETS}" != ""]?${WEB_TARGETS}:${DESK_TARGETS})})})
-same => n,GotoIf($["${COMBINED_TARGETS}" = ""]?ag_fallback_dial)
-same => n,NoOp(Kuyruk Temsilcisi Eszamanli Caldiriliyor [WebPhone + Masa Telefonu]: ${COMBINED_TARGETS} | CallerID=${CALLERID(all)})
-same => n,Dial(${COMBINED_TARGETS},,tTg)
-same => n,Hangup()
-same => n(ag_fallback_dial),Set(FB_DIAL=${IF($["${WEB_EP}" != "" & "${DESK_EP}" != ""]?PJSIP/${WEB_EP}&PJSIP/${DESK_EP}:${IF($["${WEB_EP}" != ""]?PJSIP/${WEB_EP}:PJSIP/${DESK_EP})})})
-same => n,GotoIf($["${FB_DIAL}" = "" | "${FB_DIAL}" = "PJSIP/"]?ag_unavailable)
-same => n,Dial(${FB_DIAL},,tTg)
+same => n,Set(AG_EP_LIST=${CURL(http://127.0.0.1:8000/api/subscriber/resolve_agent_ring_targets?extension=${EXTEN}&format=list)})
+same => n,GotoIf($["${AG_EP_LIST}" = "NONE" | "${AG_EP_LIST}" = ""]?ag_unavailable)
+same => n,Gosub(build_multi_pjsip_dial_sub,s,1(${AG_EP_LIST}))
+same => n,GotoIf($["${MULTI_DIAL_STR}" = ""]?ag_unavailable)
+same => n,NoOp(Kuyruk Temsilcisi Eszamanli Caldiriliyor [Coklu SIP Cihazi]: ${MULTI_DIAL_STR} | CallerID=${CALLERID(all)})
+same => n,Dial(${MULTI_DIAL_STR},,tTg)
 same => n,Hangup()
 same => n(ag_unavailable),Hangup(20)
 

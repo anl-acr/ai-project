@@ -64,6 +64,224 @@ def resolve_user_sip_username(ext_val: Any, raw_sip_user: Any = "") -> str:
     return "".join(chars)
 
 
+def generate_random_sip_device_username(ext_val: Any = "", index: int = 1) -> str:
+    """Generates a unique 8-char alphanumeric SIP username for additional SIP devices."""
+    alpha_up = "ABCDEFGHJKLMNPQRSTUVWXYZ"
+    alpha_lo = "abcdefghijkmnopqrstuvwxyz"
+    digits = "23456789"
+    pool = alpha_up + alpha_lo + digits
+    chars = [
+        secrets.choice(alpha_up),
+        secrets.choice(alpha_lo),
+        secrets.choice(digits),
+    ] + [secrets.choice(pool) for _ in range(5)]
+    return "".join(chars)
+
+
+def normalize_user_sip_devices(
+    user_dict: Dict[str, Any],
+    autoprovision_list: Optional[List[Dict[str, Any]]] = None,
+    deskphone_configs: Optional[Dict[str, Any]] = None,
+    fallback_password_fn=None,
+) -> List[Dict[str, Any]]:
+    """
+    Ensures every subscriber has a normalized `sip_devices` list (with at least 1 default SIP device
+    migrated seamlessly from legacy `sip_username` / `sip_password` / `autoprovision` / `user_deskphone_configs`).
+    """
+    import json as _json_mod
+
+    ext_s = str(user_dict.get("extension") or "").strip()
+    uid_s = str(user_dict.get("id") or "").strip()
+    raw_devices = user_dict.get("sip_devices")
+    if isinstance(raw_devices, str):
+        try:
+            raw_devices = _json_mod.loads(raw_devices)
+        except Exception:
+            raw_devices = None
+
+    ap_list = autoprovision_list if isinstance(autoprovision_list, list) else []
+    dp_cfgs = deskphone_configs if isinstance(deskphone_configs, dict) else {}
+    legacy_dp = dp_cfgs.get(ext_s) if (ext_s and isinstance(dp_cfgs.get(ext_s), dict)) else {}
+
+    bound_ap_devices: List[Dict[str, Any]] = []
+    match_keys = {k for k in (ext_s, uid_s) if k}
+    for d in ap_list:
+        if not isinstance(d, dict):
+            continue
+        assigned = str(d.get("assigned_user") or d.get("extension") or "").strip()
+        if assigned and assigned in match_keys:
+            bound_ap_devices.append(d)
+
+    def _clean_pwd(raw_p: Any) -> str:
+        p_s = str(raw_p or "").strip()
+        if fallback_password_fn:
+            return fallback_password_fn(ext_s or "1000", p_s)
+        if len(p_s) >= 8:
+            return p_s
+        dg = hashlib.sha256(f"AIDA_PBX_SIP_V2_SECRET_{ext_s or '1000'}_8842".encode("utf-8")).hexdigest()[:12]
+        return f"Aida#{dg}"
+
+    valid_codecs = ("g722", "alaw", "ulaw", "opus", "g729", "gsm")
+
+    cti_cfg = user_dict.get("cti_config") if isinstance(user_dict.get("cti_config"), dict) else {}
+    explicitly_empty = bool(cti_cfg.get("sip_devices_empty")) and isinstance(raw_devices, list) and len(raw_devices) == 0
+
+    if not explicitly_empty and (not isinstance(raw_devices, list) or len(raw_devices) == 0):
+        primary_sip_u = resolve_user_sip_username(ext_s, user_dict.get("sip_username") or "")
+        primary_pwd = _clean_pwd(user_dict.get("sip_password") or "")
+        try:
+            primary_max_act = max(1, min(5, int(user_dict.get("max_activations") or 1)))
+        except Exception:
+            primary_max_act = 1
+        primary_tr = str(user_dict.get("transport") or "UDP").strip().upper()
+        if primary_tr not in ("UDP", "TCP", "TLS"):
+            primary_tr = "UDP"
+
+        ap0 = bound_ap_devices[0] if bound_ap_devices else {}
+        mac0, _ = normalize_mac_address(ap0.get("mac") or legacy_dp.get("mac") or "")
+        brand0 = str(ap0.get("brand") or legacy_dp.get("brand") or (detect_brand_from_mac(mac0, "Yealink") if mac0 else "Yealink")).strip()
+        model0 = str(ap0.get("model") or legacy_dp.get("model") or "T46U").strip()
+        ip0 = str(ap0.get("ip") or legacy_dp.get("ip") or "").strip()
+        dss0 = ap0.get("dss_keys") if isinstance(ap0.get("dss_keys"), list) and ap0.get("dss_keys") else (legacy_dp.get("dss_keys") if isinstance(legacy_dp.get("dss_keys"), list) else [])
+        soft0 = ap0.get("soft_keys") if isinstance(ap0.get("soft_keys"), list) and ap0.get("soft_keys") else (legacy_dp.get("soft_keys") if isinstance(legacy_dp.get("soft_keys"), list) else [])
+
+        raw_devices = [
+            {
+                "id": f"dev-{ext_s or '1'}-1",
+                "name": "Masa Telefonu 1",
+                "device_type": "desk_phone",
+                "sip_username": primary_sip_u,
+                "sip_password": primary_pwd,
+                "max_activations": primary_max_act,
+                "transport": primary_tr,
+                "is_active": True,
+                "mac": mac0,
+                "ip": ip0,
+                "brand": brand0,
+                "model": model0,
+                "codecs": ["g722", "alaw", "ulaw", "g729"],
+                "dtmf_mode": "rfc4733",
+                "language": "Turkish",
+                "timezone": "+3",
+                "ntp_server": "pool.ntp.org",
+                "auto_answer": False,
+                "direct_ip_call_block": True,
+                "dss_keys": dss0,
+                "soft_keys": soft0,
+            }
+        ]
+
+    normalized: List[Dict[str, Any]] = []
+    seen_sip_users = {ext_s.lower()} if ext_s else set()
+
+    for idx, dev in enumerate(raw_devices):
+        if not isinstance(dev, dict):
+            continue
+        dev_id = str(dev.get("id") or f"dev-{ext_s or 'u'}-{idx + 1}").strip()
+        dev_name = str(dev.get("name") or f"SIP Cihazı {idx + 1}").strip() or f"SIP Cihazı {idx + 1}"
+        dev_type = str(dev.get("device_type") or "desk_phone").strip().lower()
+        if dev_type not in ("desk_phone", "softphone", "dect"):
+            dev_type = "desk_phone"
+
+        raw_su = str(dev.get("sip_username") or "").strip()
+        if idx == 0:
+            cand_su = resolve_user_sip_username(ext_s, raw_su or user_dict.get("sip_username") or "")
+        else:
+            cand_su = re.sub(r"[^a-zA-Z0-9_.-]", "", raw_su)
+            if not cand_su or cand_su.lower() in seen_sip_users:
+                cand_su = generate_random_sip_device_username(ext_s, idx + 1)
+        while cand_su.lower() in seen_sip_users:
+            cand_su = generate_random_sip_device_username(ext_s, idx + 2)
+        seen_sip_users.add(cand_su.lower())
+
+        dev_pwd = _clean_pwd(dev.get("sip_password") or (user_dict.get("sip_password") if idx == 0 else ""))
+        try:
+            dev_max_act = max(1, min(5, int(dev.get("max_activations") or 1)))
+        except Exception:
+            dev_max_act = 1
+
+        dev_tr = str(dev.get("transport") or "UDP").strip().upper()
+        if dev_tr not in ("UDP", "TCP", "TLS"):
+            dev_tr = "UDP"
+
+        mac_colon, _ = normalize_mac_address(dev.get("mac") or "")
+        raw_brand = str(dev.get("brand") or "").strip()
+        dev_brand = detect_brand_from_mac(mac_colon, raw_brand or "Yealink") if mac_colon and not raw_brand else (raw_brand or "Yealink")
+        dev_model = str(dev.get("model") or "T46U").strip()
+        dev_ip = str(dev.get("ip") or "").strip()
+
+        raw_codecs = dev.get("codecs")
+        if isinstance(raw_codecs, str):
+            raw_codecs = [c.strip().lower() for c in raw_codecs.split(",") if c.strip()]
+        dev_codecs: List[str] = []
+        if isinstance(raw_codecs, list):
+            for c in raw_codecs:
+                cl = str(c or "").strip().lower()
+                if cl == "pcma":
+                    cl = "alaw"
+                elif cl == "pcmu":
+                    cl = "ulaw"
+                if cl in valid_codecs and cl not in dev_codecs:
+                    dev_codecs.append(cl)
+        if not dev_codecs:
+            dev_codecs = ["g722", "alaw", "ulaw", "g729"]
+
+        dtmf_m = str(dev.get("dtmf_mode") or "rfc4733").strip().lower()
+        if dtmf_m not in ("rfc4733", "info", "inband"):
+            dtmf_m = "rfc4733"
+
+        dss_list: List[Dict[str, Any]] = []
+        if isinstance(dev.get("dss_keys"), list):
+            for k_idx, k_item in enumerate(dev.get("dss_keys")):
+                if not isinstance(k_item, dict):
+                    continue
+                dss_list.append({
+                    "key_index": int(k_item.get("key_index") or (k_idx + 1)),
+                    "type": str(k_item.get("type") or "blf").strip(),
+                    "label": str(k_item.get("label") or "").strip(),
+                    "value": str(k_item.get("value") or "").strip(),
+                    "pickup_code": str(k_item.get("pickup_code") or "**").strip() or "**",
+                })
+
+        soft_list: List[Dict[str, Any]] = []
+        if isinstance(dev.get("soft_keys"), list):
+            for s_idx, s_item in enumerate(dev.get("soft_keys")):
+                if not isinstance(s_item, dict):
+                    continue
+                soft_list.append({
+                    "key_index": int(s_item.get("key_index") or (s_idx + 1)),
+                    "type": str(s_item.get("type") or "history").strip(),
+                    "label": str(s_item.get("label") or "").strip(),
+                    "value": str(s_item.get("value") or "").strip(),
+                })
+
+        normalized.append({
+            "id": dev_id,
+            "name": dev_name,
+            "device_type": dev_type,
+            "sip_username": cand_su,
+            "sip_password": dev_pwd,
+            "max_activations": dev_max_act,
+            "transport": dev_tr,
+            "is_active": dev.get("is_active") is not False,
+            "mac": mac_colon,
+            "ip": dev_ip,
+            "brand": dev_brand,
+            "model": dev_model,
+            "codecs": dev_codecs,
+            "dtmf_mode": dtmf_m,
+            "language": str(dev.get("language") or "Turkish").strip() or "Turkish",
+            "timezone": str(dev.get("timezone") or "+3").strip() or "+3",
+            "ntp_server": str(dev.get("ntp_server") or "pool.ntp.org").strip() or "pool.ntp.org",
+            "auto_answer": bool(dev.get("auto_answer", False)),
+            "direct_ip_call_block": dev.get("direct_ip_call_block") is not False,
+            "dss_keys": dss_list,
+            "soft_keys": soft_list,
+        })
+
+    return normalized
+
+
 def normalize_mac_address(raw_mac: Any) -> Tuple[str, str]:
     """
     Normalizes any MAC string ('00-15-65-AA-BB-CC', '001565aabbcc', '00:15:65:a:b:c')
@@ -218,10 +436,25 @@ def trigger_phone_sip_notify(sip_username: str, brand: str = "Yealink", reboot: 
 
 
 def inspect_asterisk_pjsip_endpoint(sip_username: str) -> Dict[str, Any]:
-    """Runs `asterisk -rx 'pjsip show endpoint <sip_username>'` to verify endpoint existence and live contact status."""
+    """Runs `asterisk -rx 'pjsip show endpoint <sip_username>'` to verify endpoint existence, live contact IP/Port/RTT, User-Agent, and PJSIP parameters."""
     ep = re.sub(r"[^a-zA-Z0-9_.-]", "", str(sip_username or "").strip())
     if not ep:
-        return {"exists": False, "endpoint": "", "online": False, "raw": "SIP kullanıcı adı boş."}
+        return {"exists": False, "endpoint": "", "online": False, "contacts": [], "parsed": {}, "raw": "SIP kullanıcı adı boş."}
+
+    parsed: Dict[str, Any] = {
+        "ip_address": "",
+        "port": "",
+        "rtt_ms": "",
+        "user_agent": "",
+        "context": "",
+        "transport": "",
+        "allow": "",
+        "dtmf_mode": "",
+        "callerid": "",
+        "named_call_group": "",
+        "named_pickup_group": "",
+        "max_contacts": "",
+    }
     try:
         proc = subprocess.run(
             ["asterisk", "-rx", f"pjsip show endpoint {ep}"],
@@ -234,15 +467,59 @@ def inspect_asterisk_pjsip_endpoint(sip_username: str) -> Dict[str, Any]:
         exists = bool(raw) and ("Unable to find object" not in raw) and ("No objects found" not in raw)
         online = exists and ("Avail" in raw or "NonQual" in raw)
         contacts: List[str] = []
+        contact_id_for_ua = ""
         for line in raw.splitlines():
             ls = line.strip()
             if ls.startswith("Contact:"):
                 contacts.append(ls)
+                m_uri = re.search(r"sip:[^@\s]+@([0-9a-fA-F\.\:]+?)(?::(\d+))?(?:[;\s]|$)", ls)
+                if m_uri and not parsed["ip_address"]:
+                    parsed["ip_address"] = m_uri.group(1)
+                    parsed["port"] = m_uri.group(2) or "5060"
+                m_rtt = re.search(r"(?:Avail|NonQual)\s+([0-9]+(?:\.[0-9]+)?)", ls)
+                if m_rtt and not parsed["rtt_ms"]:
+                    parsed["rtt_ms"] = m_rtt.group(1)
+                m_cid = re.match(r"^Contact:\s+([^\s]+)", ls)
+                if m_cid and not contact_id_for_ua:
+                    contact_id_for_ua = m_cid.group(1).strip()
+            elif ls.startswith("Aor:") and not parsed["max_contacts"]:
+                m_mc = re.search(r"\s(\d+)\s*$", ls)
+                if m_mc:
+                    parsed["max_contacts"] = m_mc.group(1)
+            elif ":" in ls:
+                k_raw, _, v_raw = ls.partition(":")
+                k_clean = k_raw.strip().lower()
+                v_clean = v_raw.strip()
+                if k_clean in parsed and v_clean:
+                    parsed[k_clean] = v_clean
+
+        if contact_id_for_ua:
+            try:
+                proc_c = subprocess.run(
+                    ["asterisk", "-rx", f"pjsip show contact {contact_id_for_ua}"],
+                    capture_output=True,
+                    text=True,
+                    timeout=1.5,
+                    check=False,
+                )
+                c_out = (proc_c.stdout or "").strip()
+                for cline in c_out.splitlines():
+                    cls = cline.strip()
+                    if cls.lower().startswith("user_agent"):
+                        _, _, ua_v = cls.partition(":")
+                        if ua_v.strip():
+                            parsed["user_agent"] = ua_v.strip()
+                            break
+            except Exception:
+                pass
+
         return {
             "exists": exists,
             "endpoint": ep,
             "online": online,
             "contacts": contacts,
+            "parsed": parsed,
+            "cli_available": True,
             "raw": raw,
         }
     except FileNotFoundError:
@@ -251,10 +528,12 @@ def inspect_asterisk_pjsip_endpoint(sip_username: str) -> Dict[str, Any]:
             "endpoint": ep,
             "online": False,
             "contacts": [],
-            "raw": "Asterisk CLI bu makinede kurulu değil (üretim sunucusunda pjsip_custom.conf ile otomatik yüklenir).",
+            "parsed": parsed,
+            "cli_available": False,
+            "raw": "Asterisk CLI bu makinede kurulu değil (üretim sunucusunda `asterisk -rx \"pjsip show endpoint " + ep + "\"` çıktısı canlı olarak görüntülenir).",
         }
     except Exception as e:
-        return {"exists": False, "endpoint": ep, "online": False, "contacts": [], "raw": str(e)}
+        return {"exists": False, "endpoint": ep, "online": False, "contacts": [], "parsed": parsed, "cli_available": False, "raw": str(e)}
 
 
 def generate_yealink_common_boot_cfg() -> str:
@@ -292,6 +571,13 @@ def generate_provisioning_config(
     pickup_directed: str = "**",
     template_obj: Optional[Dict[str, Any]] = None,
     requested_filename: str = "",
+    codecs: Optional[List[str]] = None,
+    dtmf_mode: str = "rfc4733",
+    language: str = "Turkish",
+    timezone: str = "+3",
+    ntp_server: str = "pool.ntp.org",
+    auto_answer: bool = False,
+    direct_ip_call_block: bool = True,
 ) -> Tuple[str, str, str]:
     """
     Generates multi-vendor provisioning content using `sip_username` (Kullanıcı > SIP > Kullanıcı Adı)
@@ -484,6 +770,26 @@ def generate_provisioning_config(
 
     # --- DEFAULT: YEALINK CFG (T3x / T4x / T5x) ---
     yl_tr = 2 if tr_up == "TLS" else (1 if tr_up == "TCP" else 0)
+    dtmf_low = str(dtmf_mode or "rfc4733").strip().lower()
+    yl_dtmf = 0 if dtmf_low == "inband" else (3 if dtmf_low == "info" else 2)
+    codec_list = codecs if isinstance(codecs, list) and codecs else ["g722", "alaw", "ulaw", "g729"]
+    yl_codec_map = {"g722": "g722", "alaw": "pcma", "ulaw": "pcmu", "opus": "opus", "g729": "g729"}
+    codec_cfg_lines: List[str] = []
+    prio_num = 1
+    for ck in codec_list:
+        yl_ck = yl_codec_map.get(str(ck).lower())
+        if yl_ck:
+            codec_cfg_lines.append(f"account.1.codec.{yl_ck}.enable = 1")
+            codec_cfg_lines.append(f"account.1.codec.{yl_ck}.priority = {prio_num}")
+            prio_num += 1
+    for ck_all, yl_ck in yl_codec_map.items():
+        if ck_all not in [str(x).lower() for x in codec_list]:
+            codec_cfg_lines.append(f"account.1.codec.{yl_ck}.enable = 0")
+
+    lang_val = str(language or "Turkish").strip() or "Turkish"
+    tz_val = str(timezone or "+3").strip() or "+3"
+    ntp_val = str(ntp_server or "pool.ntp.org").strip() or "pool.ntp.org"
+
     lines = [
         "#!version:1.0.0.1",
         f"# AIDA PBX Auto-Provisioning ({brand or 'Yealink'} {model or 'T46U'})",
@@ -503,34 +809,28 @@ def generate_provisioning_config(
         "account.1.nat.udp_update_enable = 1",
         "account.1.nat.udp_update_time = 30",
         "account.1.nat.rport = 1",
-        "account.1.dtmf.type = 2",
+        f"account.1.dtmf.type = {yl_dtmf}",
         "account.1.dtmf.info_type = 0",
         "account.1.cid_source = 4",
         "account.1.cp_source = 0",
+        f"account.1.auto_answer = {1 if auto_answer else 0}",
         "voice_mail.number.1 = *97",
         "account.1.direct_pickup_code = " + pickup_directed,
         "account.1.group_pickup_code = " + pickup_group,
         "account.1.dialoginfo_callpickup = 1",
         "",
-        "# --- Ses Kodek Onceligi (G.722 HD, PCMA, PCMU) ---",
-        "account.1.codec.g722.enable = 1",
-        "account.1.codec.g722.priority = 1",
-        "account.1.codec.pcma.enable = 1",
-        "account.1.codec.pcma.priority = 2",
-        "account.1.codec.pcmu.enable = 1",
-        "account.1.codec.pcmu.priority = 3",
-        "account.1.codec.g729.enable = 1",
-        "account.1.codec.g729.priority = 4",
+        "# --- Ses Kodek Onceligi ---",
+        *codec_cfg_lines,
         "",
         "# --- Dil, Saat Dilimi ve Uzaktan Senkronizasyon (check-sync) ---",
-        "lang.gui = Turkish",
-        "lang.wui = Turkish",
-        "local_time.time_zone = +3",
-        "local_time.time_zone_name = Turkey(Ankara)",
-        "local_time.ntp_server1 = pool.ntp.org",
+        f"lang.gui = {lang_val}",
+        f"lang.wui = {lang_val}",
+        f"local_time.time_zone = {tz_val}",
+        "local_time.time_zone_name = Turkey(Ankara)" if tz_val in ("+3", "3", "UTC+3") else f"local_time.time_zone_name = GMT{tz_val}",
+        f"local_time.ntp_server1 = {ntp_val}",
         "local_time.summer_time = 0",
         "sip.notify_reboot_enable = 0",
-        "features.direct_ip_call_enable = 0",
+        f"features.direct_ip_call_enable = {0 if direct_ip_call_block else 1}",
         "",
         "# --- Programlanabilir Yan Tuslar / BLF / Hizli Arama (DSS Keys) ---",
     ]

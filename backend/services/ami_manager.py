@@ -108,6 +108,9 @@ def _resolve_sip_peer_to_ext(peer_name: str) -> str:
             u_sip = resolve_user_sip_username(u_ext, u.get("sip_username") or "")
             if u_sip.lower() == p_low or str(u.get("sip_username") or "").strip().lower() == p_low:
                 return u_ext
+            for sdev in (u.get("sip_devices") or []):
+                if isinstance(sdev, dict) and str(sdev.get("sip_username") or "").strip().lower() == p_low:
+                    return u_ext
         for d in settings_db.get("autoprovision", []) or []:
             if isinstance(d, dict) and str(d.get("sip_username") or "").strip().lower() == p_low:
                 d_ext = str(d.get("extension") or "").strip()
@@ -141,6 +144,12 @@ def _get_ext_channel_prefixes(ext_s: str) -> list:
                 raw_sip = str(u.get("sip_username") or "").strip()
                 if raw_sip and raw_sip.lower() != u_sip.lower():
                     prefixes.append(f"pjsip/{raw_sip.lower()}-")
+                for sdev in (u.get("sip_devices") or []):
+                    if isinstance(sdev, dict):
+                        d_su = str(sdev.get("sip_username") or "").strip().lower()
+                        if d_su and f"pjsip/{d_su}-" not in prefixes:
+                            prefixes.append(f"pjsip/{d_su}-")
+                            prefixes.append(f"sip/{d_su}-")
                 break
     except Exception:
         pass

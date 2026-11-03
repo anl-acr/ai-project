@@ -271,6 +271,7 @@ class SystemUser(Base):
     wallboard_layout = Column(JSON, default=dict)
     max_concurrent_outbound = Column(Integer, default=0)
     outbound_quarantined = Column(Boolean, default=False)
+    sip_devices = Column(JSON, default=list)
 
 class SystemRole(Base):
     __tablename__ = "system_roles"

@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
-import { Plus, Trash2, Edit2, X, User, Mail, Phone, Shield, Check, CheckCircle, ToggleLeft, ToggleRight, Search, Copy, RefreshCw, KeyRound, PhoneCall, Settings, Image as ImageIcon, Monitor, Smartphone, AlertTriangle, PhoneOutgoing, Users, Forward, Mic, MicOff, Download, Upload, Building2, Eye, EyeOff, Cable, ExternalLink, Database, Play, LayoutGrid, ChevronRight, Lock, Unlock } from "lucide-react";
+import { Plus, Trash2, Edit2, X, User, Mail, Phone, Shield, Check, CheckCircle, ToggleLeft, ToggleRight, Search, Copy, RefreshCw, KeyRound, PhoneCall, Settings, Image as ImageIcon, Monitor, Smartphone, AlertTriangle, PhoneOutgoing, Users, Forward, Mic, MicOff, Download, Upload, Building2, Eye, EyeOff, Cable, ExternalLink, Database, Play, LayoutGrid, ChevronRight, Lock, Unlock, Terminal, Wifi, Cpu, ArrowUp, ArrowDown, Power } from "lucide-react";
 import * as XLSX from "xlsx";
 import ConfirmDeleteModal from "../dashboard/ConfirmDeleteModal";
 import { useTheme } from "../../utils/theme";
@@ -63,6 +63,77 @@ export const RING_DEVICES_METADATA = [
   { id: "web_phone", label: "Web Telefon", desc: "Tarayıcı içi WebRTC telefon" },
   { id: "pc_app", label: "PC Uygulaması", desc: "Masaüstü softphone uygulaması" }
 ];
+
+const SIP_VENDOR_OUI_MAP = {
+  "00:15:65": "Yealink",
+  "80:5e:c0": "Yealink",
+  "80:5e:0c": "Yealink",
+  "24:9a:d8": "Yealink",
+  "c4:fc:e4": "Yealink",
+  "00:0b:82": "Grandstream",
+  "c0:74:ad": "Grandstream",
+  "ec:74:d7": "Grandstream",
+  "0c:38:3e": "Fanvil",
+  "00:a8:59": "Fanvil",
+  "d0:7a:b5": "Fanvil",
+  "00:04:13": "Snom",
+  "00:08:5d": "Aastra",
+  "00:0e:08": "Cisco",
+  "68:bc:0c": "Cisco",
+  "00:1b:d4": "Cisco",
+  "7c:2f:80": "Gigaset"
+};
+
+const SIP_PHONE_MODELS = {
+  Yealink: ["T31P", "T31G", "T33G", "T43U", "T46U", "T48U", "T54W", "T58W"],
+  Fanvil: ["X3U", "X4U", "X5U", "X6U", "V62", "V64", "V65"],
+  Grandstream: ["GRP2602", "GRP2612", "GRP2614", "GXP1625", "GXP2140", "GXP2170"],
+  Snom: ["D315", "D385", "D717", "D735", "D785"],
+  Cisco: ["SPA504G", "CP-7821", "CP-8841"],
+  Gigaset: ["N510 IP PRO", "Maxwell 3"]
+};
+
+const AVAILABLE_SIP_CODECS = [
+  { id: "g722", label: "G.722", desc: "HD Genişbant Ses (16 kHz)" },
+  { id: "alaw", label: "G.711 A-Law (PCMA)", desc: "Türkiye / Avrupa Standart Kodek" },
+  { id: "ulaw", label: "G.711 µ-Law (PCMU)", desc: "Standart Kayıpsız Ses" },
+  { id: "opus", label: "Opus", desc: "Uyarlanabilir Genişbant Ses" },
+  { id: "g729", label: "G.729", desc: "Düşük Bant Genişliği (8 kbps)" }
+];
+
+const DSS_KEY_TYPES = [
+  { id: "blf", label: "BLF (Meşguliyet & Çağrı Çekme)" },
+  { id: "line", label: "Hat (Line)" },
+  { id: "speed_dial", label: "Hızlı Arama" },
+  { id: "voicemail", label: "Sesli Mesaj" },
+  { id: "dnd", label: "Rahatsız Etmeyin (DND)" },
+  { id: "transfer", label: "Çağrı Aktar" }
+];
+
+const SOFTKEY_ACTIONS = [
+  { id: "history", label: "Çağrı Geçmişi" },
+  { id: "directory", label: "Rehber" },
+  { id: "dnd", label: "Rahatsız Etme (DND)" },
+  { id: "menu", label: "Menü" },
+  { id: "redial", label: "Tekrar Ara" },
+  { id: "transfer", label: "Aktar" },
+  { id: "pickup", label: "Çağrı Çek (**)" }
+];
+
+const formatMacAddress = (raw) => {
+  const hex = String(raw || "").replace(/[^0-9a-fA-F]/g, "").slice(0, 12).toUpperCase();
+  const pairs = hex.match(/.{1,2}/g) || [];
+  return pairs.join(":");
+};
+
+const detectBrandByMac = (macStr) => {
+  const clean = formatMacAddress(macStr).toLowerCase();
+  if (clean.length >= 8) {
+    const prefix = clean.slice(0, 8);
+    if (SIP_VENDOR_OUI_MAP[prefix]) return SIP_VENDOR_OUI_MAP[prefix];
+  }
+  return null;
+};
 
 export const normalizeUserProfiles = (rawProfiles) => {
   let parsed = rawProfiles;
@@ -192,7 +263,7 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
   const [isActive, setIsActive] = useState(true);
   const [password, setPassword] = useState("");
 
-  // SIP Fields
+  // SIP Fields & Multi-Device (SIP Cihazları) States
   const [sipUsername, setSipUsername] = useState("");
   const [sipPassword, setSipPassword] = useState("");
   const [showSipPassword, setShowSipPassword] = useState(false);
@@ -200,6 +271,27 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
   const [maxConcurrentOutbound, setMaxConcurrentOutbound] = useState(0);
   const [outboundQuarantined, setOutboundQuarantined] = useState(false);
   const [outboundCallerId, setOutboundCallerId] = useState("");
+  const [sipDevices, setSipDevices] = useState([]);
+
+  // SIP Device Edit / Add Dialog States
+  const sipDeviceEditDialogRef = useRef(null);
+  const [isSipDeviceEditOpen, setIsSipDeviceEditOpen] = useState(false);
+  const [sipDeviceFormMode, setSipDeviceFormMode] = useState("add"); // 'add' | 'edit'
+  const [sipDeviceDraft, setSipDeviceDraft] = useState(null);
+  const [showDraftSipPassword, setShowDraftSipPassword] = useState(false);
+  const [copiedDeviceKey, setCopiedDeviceKey] = useState(null);
+  const [sipDeviceDeleteTarget, setSipDeviceDeleteTarget] = useState(null);
+
+  // SIP Device Inspector (Büyüteç) Dialog States
+  const sipDeviceInspectDialogRef = useRef(null);
+  const inspectTabRefs = useRef({});
+  const [isSipDeviceInspectOpen, setIsSipDeviceInspectOpen] = useState(false);
+  const [inspectTab, setInspectTab] = useState("overview"); // 'overview' | 'blf' | 'phone_settings' | 'pjsip'
+  const [inspectDraft, setInspectDraft] = useState(null);
+  const [inspectLiveInfo, setInspectLiveInfo] = useState(null);
+  const [inspectLoading, setInspectLoading] = useState(false);
+  const [inspectActionMsg, setInspectActionMsg] = useState(null);
+  const [inspectSaving, setInspectSaving] = useState(false);
 
   // Forwarding Fields
   const [fwdAlwaysActive, setFwdAlwaysActive] = useState(false);
@@ -619,17 +711,403 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
     navigator.clipboard.writeText(sipUsername);
   };
 
-  const generateSipPassword = () => {
+  const generateSipPasswordStr = () => {
     const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#$*()";
     let pwd = "";
-    for(let i=0; i<16; i++) {
-        pwd += chars.charAt(Math.floor(Math.random() * chars.length));
+    for (let i = 0; i < 16; i++) {
+      pwd += chars.charAt(Math.floor(Math.random() * chars.length));
     }
-    setSipPassword(pwd);
+    return pwd;
+  };
+
+  const generateSipPassword = () => {
+    setSipPassword(generateSipPasswordStr());
   };
 
   const copySipPassword = () => {
     navigator.clipboard.writeText(sipPassword);
+  };
+
+  const copyTextWithFeedback = (val, feedbackKey) => {
+    if (!val) return;
+    navigator.clipboard.writeText(String(val));
+    setCopiedDeviceKey(feedbackKey);
+    setTimeout(() => {
+      setCopiedDeviceKey((prev) => (prev === feedbackKey ? null : prev));
+    }, 1800);
+  };
+
+  const createSipDeviceItem = (index = 1, overrides = {}) => ({
+    id: overrides.id || `dev-${Date.now()}-${index}`,
+    name: overrides.name || `Masa Telefonu ${index}`,
+    device_type: overrides.device_type || "desk_phone",
+    sip_username: overrides.sip_username || generateSipUsernameStr(),
+    sip_password: overrides.sip_password || generateSipPasswordStr(),
+    max_activations: overrides.max_activations ? Math.max(1, Math.min(5, Number(overrides.max_activations))) : 1,
+    transport: overrides.transport || "UDP",
+    is_active: overrides.is_active !== false,
+    mac: formatMacAddress(overrides.mac || ""),
+    ip: overrides.ip || "",
+    live_ip: overrides.live_ip || "",
+    is_online: Boolean(overrides.is_online),
+    brand: overrides.brand || "Yealink",
+    model: overrides.model || "T46U",
+    codecs: Array.isArray(overrides.codecs) && overrides.codecs.length > 0 ? [...overrides.codecs] : ["g722", "alaw", "ulaw", "g729"],
+    dtmf_mode: overrides.dtmf_mode || "rfc4733",
+    language: overrides.language || "Turkish",
+    timezone: overrides.timezone || "+3",
+    ntp_server: overrides.ntp_server || "pool.ntp.org",
+    auto_answer: Boolean(overrides.auto_answer),
+    direct_ip_call_block: overrides.direct_ip_call_block !== false,
+    dss_keys: Array.isArray(overrides.dss_keys) ? overrides.dss_keys.map((k, idx) => ({ ...k, key: Number(k.key) || idx + 1 })) : [],
+    soft_keys: Array.isArray(overrides.soft_keys) && overrides.soft_keys.length > 0
+      ? overrides.soft_keys.map((sk, idx) => ({ ...sk, key: Number(sk.key) || idx + 1 }))
+      : [
+          { key: 1, type: "history", label: "Geçmiş" },
+          { key: 2, type: "directory", label: "Rehber" },
+          { key: 3, type: "dnd", label: "DND" },
+          { key: 4, type: "menu", label: "Menü" }
+        ]
+  });
+
+  const normalizeSipDevicesFromUser = (uObj) => {
+    if (!uObj) return [createSipDeviceItem(1)];
+    let raw = uObj.sip_devices;
+    if (typeof raw === "string") {
+      try { raw = JSON.parse(raw); } catch (e) { raw = null; }
+    }
+    const ctiObj = typeof uObj.cti_config === "object" && uObj.cti_config ? uObj.cti_config : {};
+    if (Array.isArray(raw)) {
+      if (raw.length === 0 && ctiObj.sip_devices_empty) return [];
+      if (raw.length > 0) {
+        return raw.map((d, idx) => createSipDeviceItem(idx + 1, d));
+      }
+    }
+    return [
+      createSipDeviceItem(1, {
+        id: `dev-${uObj.extension || uObj.id || "1"}-1`,
+        name: "Masa Telefonu 1",
+        device_type: "desk_phone",
+        sip_username: uObj.sip_username || generateSipUsernameStr(),
+        sip_password: uObj.sip_password || generateSipPasswordStr(),
+        max_activations: uObj.max_activations || 1,
+        transport: uObj.transport || "UDP",
+        is_active: true
+      })
+    ];
+  };
+
+  // Sync live online/IP badges on SIP Cihazları while the User Edit modal is open
+  useEffect(() => {
+    if (!showModal || !editingUser) return;
+    const fresh = users.find((u) => u.id === editingUser.id || String(u.extension) === String(editingUser.extension));
+    if (!fresh || !Array.isArray(fresh.sip_devices)) return;
+    const bySu = {};
+    fresh.sip_devices.forEach((fd) => {
+      if (fd?.sip_username) bySu[fd.sip_username] = fd;
+    });
+    setSipDevices((prev) =>
+      prev.map((d) => {
+        const m = bySu[d.sip_username];
+        if (!m) return d;
+        if (Boolean(d.is_online) === Boolean(m.is_online) && (d.live_ip || "") === (m.live_ip || "")) return d;
+        return { ...d, is_online: Boolean(m.is_online), live_ip: m.live_ip || d.live_ip || "" };
+      })
+    );
+  }, [users, showModal, editingUser]);
+
+  // Manage native <dialog> showModal() / close() lifecycle for SIP Cihazı Edit & Büyüteç Inspector
+  useEffect(() => {
+    const dlg = sipDeviceEditDialogRef.current;
+    if (!dlg) return;
+    if (isSipDeviceEditOpen) {
+      if (!dlg.open) {
+        try { dlg.showModal(); } catch (e) {}
+      }
+    } else if (dlg.open) {
+      try { dlg.close(); } catch (e) {}
+    }
+  }, [isSipDeviceEditOpen]);
+
+  useEffect(() => {
+    const dlg = sipDeviceInspectDialogRef.current;
+    if (!dlg) return;
+    if (isSipDeviceInspectOpen) {
+      if (!dlg.open) {
+        try { dlg.showModal(); } catch (e) {}
+      }
+    } else if (dlg.open) {
+      try { dlg.close(); } catch (e) {}
+    }
+  }, [isSipDeviceInspectOpen]);
+
+  const applyUpdatedSipDevices = async (nextDevices, persistImmediately = true) => {
+    setSipDevices(nextDevices);
+    if (nextDevices.length > 0) {
+      const first = nextDevices[0];
+      setSipUsername(first.sip_username || "");
+      setSipPassword(first.sip_password || "");
+      setMaxActivations(Number(first.max_activations) || 1);
+      setTransport(first.transport || "UDP");
+    } else {
+      setSipUsername("");
+    }
+
+    if (persistImmediately && editingUser && (editingUser.id || editingUser.extension)) {
+      try {
+        const singlePayload = {
+          ...editingUser,
+          full_name: fullName.trim() || editingUser.full_name,
+          email: email.trim() || editingUser.email,
+          extension: extension.trim() || editingUser.extension,
+          sip_username: nextDevices[0]?.sip_username || "",
+          sip_password: nextDevices[0]?.sip_password || sipPassword,
+          max_activations: Number(nextDevices[0]?.max_activations || maxActivations || 1),
+          transport: nextDevices[0]?.transport || transport || "UDP",
+          sip_devices: nextDevices
+        };
+        const res = await safeFetch("/api/settings/users", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "X-User-ID": localStorage.getItem("current_user_id") || "admin"
+          },
+          body: JSON.stringify(singlePayload)
+        });
+        if (res && res.ok) {
+          const data = await res.json();
+          if (Array.isArray(data?.users)) {
+            setUsers(data.users);
+          }
+        }
+      } catch (err) {
+        console.warn("SIP cihazı anlık senkronizasyon uyarısı:", err);
+      }
+    }
+  };
+
+  const openSipDeviceAddModal = () => {
+    const nextIdx = sipDevices.length + 1;
+    setSipDeviceFormMode("add");
+    setShowDraftSipPassword(false);
+    setSipDeviceDraft(
+      createSipDeviceItem(nextIdx, {
+        name: nextIdx === 1 ? "Masa Telefonu 1" : `SIP Cihazı ${nextIdx}`,
+        sip_username: generateSipUsernameStr(),
+        sip_password: generateSipPasswordStr(),
+        max_activations: 1,
+        transport: "UDP",
+        is_active: true
+      })
+    );
+    setIsSipDeviceEditOpen(true);
+  };
+
+  const openSipDeviceEditModal = (dev) => {
+    setSipDeviceFormMode("edit");
+    setShowDraftSipPassword(false);
+    setSipDeviceDraft(createSipDeviceItem(1, dev));
+    setIsSipDeviceEditOpen(true);
+  };
+
+  const handleSaveSipDeviceModal = async (e) => {
+    if (e) e.preventDefault();
+    if (!sipDeviceDraft) return;
+    const cleanSu = String(sipDeviceDraft.sip_username || "").replace(/[^a-zA-Z0-9_.-]/g, "").trim();
+    if (!cleanSu) {
+      setError("Lütfen geçerli bir SIP Aktivasyon Kullanıcı Adı giriniz.");
+      return;
+    }
+    if (cleanSu === String(extension || "").trim()) {
+      setError("SIP Cihazı kullanıcı adı dahili numarası ile aynı olamaz (WebRTC çakışmasını önlemek için farklı olmalıdır).");
+      return;
+    }
+    const dupInSelf = sipDevices.find(
+      (d) => d.id !== sipDeviceDraft.id && String(d.sip_username).toLowerCase() === cleanSu.toLowerCase()
+    );
+    if (dupInSelf) {
+      setError(`'${cleanSu}' kullanıcı adı bu abonenin '${dupInSelf.name}' cihazında zaten kullanılıyor.`);
+      return;
+    }
+
+    const normalizedItem = {
+      ...sipDeviceDraft,
+      name: (sipDeviceDraft.name || "").trim() || "SIP Cihazı",
+      sip_username: cleanSu,
+      sip_password: (sipDeviceDraft.sip_password || "").trim() || generateSipPasswordStr(),
+      max_activations: Math.max(1, Math.min(5, Number(sipDeviceDraft.max_activations) || 1)),
+      transport: sipDeviceDraft.transport || "UDP",
+      is_active: sipDeviceDraft.is_active !== false
+    };
+
+    const nextList =
+      sipDeviceFormMode === "add"
+        ? [...sipDevices, normalizedItem]
+        : sipDevices.map((d) => (d.id === normalizedItem.id ? { ...d, ...normalizedItem } : d));
+
+    setIsSipDeviceEditOpen(false);
+    await applyUpdatedSipDevices(nextList, true);
+  };
+
+  const confirmDeleteSipDevice = async () => {
+    if (!sipDeviceDeleteTarget) return;
+    const nextList = sipDevices.filter((d) => d.id !== sipDeviceDeleteTarget.id);
+    setSipDeviceDeleteTarget(null);
+    await applyUpdatedSipDevices(nextList, true);
+  };
+
+  const fetchSipDeviceInspection = async (extVal, sipUserVal) => {
+    const cleanExt = String(extVal || extension || "").trim();
+    const cleanSu = String(sipUserVal || "").trim();
+    if (!cleanExt || !cleanSu) return;
+    setInspectLoading(true);
+    try {
+      const res = await safeFetch(
+        `/api/settings/users/${encodeURIComponent(cleanExt)}/sip-devices/${encodeURIComponent(cleanSu)}/inspect`
+      );
+      if (res && res.ok) {
+        const data = await res.json();
+        setInspectLiveInfo(data);
+      } else {
+        setInspectLiveInfo({
+          status: "info",
+          pjsip: {
+            found: false,
+            endpoint: cleanSu,
+            raw_output: "Kullanıcı henüz kaydedilmediği veya Asterisk PJSIP üzerinde oluşturulmadığı için canlı çıktı alınamadı."
+          }
+        });
+      }
+    } catch (err) {
+      setInspectLiveInfo({
+        status: "error",
+        pjsip: {
+          found: false,
+          endpoint: cleanSu,
+          raw_output: "Canlı PJSIP sorgusu başarısız: " + err.message
+        }
+      });
+    } finally {
+      setInspectLoading(false);
+    }
+  };
+
+  const openSipDeviceInspectModal = (dev) => {
+    const draftCopy = createSipDeviceItem(1, dev);
+    setInspectDraft(draftCopy);
+    setInspectTab("overview");
+    setInspectActionMsg(null);
+    setInspectLiveInfo(null);
+    setIsSipDeviceInspectOpen(true);
+    if (editingUser && extension) {
+      fetchSipDeviceInspection(extension, draftCopy.sip_username);
+    }
+  };
+
+  const handleApplyInspectChanges = async () => {
+    if (!inspectDraft) return;
+    setInspectSaving(true);
+    setInspectActionMsg(null);
+    try {
+      const cleanedDraft = {
+        ...inspectDraft,
+        mac: formatMacAddress(inspectDraft.mac || ""),
+        ip: String(inspectDraft.ip || "").trim(),
+        codecs: Array.isArray(inspectDraft.codecs) && inspectDraft.codecs.length > 0 ? inspectDraft.codecs : ["g722", "alaw", "ulaw"]
+      };
+      const nextList = sipDevices.map((d) => (d.id === cleanedDraft.id ? { ...d, ...cleanedDraft } : d));
+      await applyUpdatedSipDevices(nextList, true);
+      if (editingUser && extension) {
+        await fetchSipDeviceInspection(extension, cleanedDraft.sip_username);
+      }
+      setInspectActionMsg({
+        type: "success",
+        text: "Cihaz, BLF tuşları ve telefon ayarları güncellendi."
+      });
+    } catch (err) {
+      setInspectActionMsg({
+        type: "error",
+        text: "Ayarlar kaydedilirken hata oluştu: " + err.message
+      });
+    } finally {
+      setInspectSaving(false);
+    }
+  };
+
+  const handleSendSipDeviceNotify = async (actionType = "check-sync") => {
+    if (!inspectDraft || !extension) return;
+    setInspectActionMsg(null);
+    try {
+      const res = await safeFetch(
+        `/api/settings/users/${encodeURIComponent(extension.trim())}/sip-devices/${encodeURIComponent(inspectDraft.sip_username)}/notify`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action: actionType })
+        }
+      );
+      const data = await res.json();
+      setInspectActionMsg({
+        type: data.ok ? "success" : "error",
+        text: data.output || (actionType === "reboot" ? "Reboot komutu gönderildi." : "Check-Sync komutu gönderildi.")
+      });
+    } catch (err) {
+      setInspectActionMsg({
+        type: "error",
+        text: "SIP NOTIFY gönderilemedi: " + err.message
+      });
+    }
+  };
+
+  const handleDownloadSipDeviceConfig = async () => {
+    if (!inspectDraft || !extension) return;
+    try {
+      // Save current draft first if editing an existing user so downloaded config includes latest BLF & codecs
+      if (editingUser) {
+        const nextList = sipDevices.map((d) => (d.id === inspectDraft.id ? { ...d, ...inspectDraft } : d));
+        await applyUpdatedSipDevices(nextList, true);
+      }
+      const res = await safeFetch(
+        `/api/settings/users/${encodeURIComponent(extension.trim())}/sip-devices/${encodeURIComponent(inspectDraft.sip_username)}/config-file`
+      );
+      if (!res.ok) {
+        setInspectActionMsg({ type: "error", text: "Konfigürasyon dosyası oluşturulamadı (Önce kullanıcıyı kaydedin)." });
+        return;
+      }
+      const blob = await res.blob();
+      const disp = res.headers.get("content-disposition") || "";
+      const fnMatch = disp.match(/filename="?([^"]+)"?/i);
+      const filename = fnMatch ? fnMatch[1] : `${inspectDraft.sip_username}.cfg`;
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(url);
+      setInspectActionMsg({ type: "success", text: `${filename} başarıyla indirildi.` });
+    } catch (err) {
+      setInspectActionMsg({ type: "error", text: "İndirme hatası: " + err.message });
+    }
+  };
+
+  const INSPECT_TABS_ORDER = ["overview", "blf", "phone_settings", "pjsip"];
+  const handleInspectTabKeyDown = (e, currentTabId) => {
+    const idx = INSPECT_TABS_ORDER.indexOf(currentTabId);
+    if (idx === -1) return;
+    let nextIdx = -1;
+    if (e.key === "ArrowRight") nextIdx = (idx + 1) % INSPECT_TABS_ORDER.length;
+    else if (e.key === "ArrowLeft") nextIdx = (idx - 1 + INSPECT_TABS_ORDER.length) % INSPECT_TABS_ORDER.length;
+    else if (e.key === "Home") nextIdx = 0;
+    else if (e.key === "End") nextIdx = INSPECT_TABS_ORDER.length - 1;
+    if (nextIdx !== -1) {
+      e.preventDefault();
+      const nextId = INSPECT_TABS_ORDER[nextIdx];
+      setInspectTab(nextId);
+      const nextBtn = inspectTabRefs.current[nextId];
+      if (nextBtn) nextBtn.focus();
+    }
   };
 
   const copyTwoFactorSecret = () => {
@@ -846,6 +1324,10 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
     setMaxConcurrentOutbound(0);
     setOutboundQuarantined(false);
     setOutboundCallerId("");
+    setSipDevices([]);
+    setIsSipDeviceEditOpen(false);
+    setIsSipDeviceInspectOpen(false);
+    setSipDeviceDeleteTarget(null);
 
     setFwdAlwaysActive(false); setFwdAlwaysType("internal"); setFwdAlwaysTarget("");
     setFwdBusyActive(false); setFwdBusyType("internal"); setFwdBusyTarget("");
@@ -922,9 +1404,23 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
   const openAddModal = () => {
     resetForm();
     const initialTenant = typeof window !== "undefined" ? (localStorage.getItem("active_tenant_id") || "tenant-default") : "tenant-default";
-    setExtension(getNextAvailableExtension(initialTenant));
-    generateSipUsername();
-    generateSipPassword();
+    const nextExt = getNextAvailableExtension(initialTenant);
+    const initSu = generateSipUsernameStr();
+    const initPwd = generateSipPasswordStr();
+    setExtension(nextExt);
+    setSipUsername(initSu);
+    setSipPassword(initPwd);
+    setSipDevices([
+      createSipDeviceItem(1, {
+        id: `dev-${nextExt}-1`,
+        name: "Masa Telefonu 1",
+        sip_username: initSu,
+        sip_password: initPwd,
+        max_activations: 1,
+        transport: "UDP",
+        is_active: true
+      })
+    ]);
     setShowModal(true);
   };
 
@@ -956,11 +1452,13 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
     setIsActive(checkIsUserActive(u));
     setPassword(u.password || "");
     
-    setSipUsername(u.sip_username || generateSipUsernameStr());
-    setSipPassword(u.sip_password || "");
-    if(!u.sip_password) generateSipPassword();
+    const resolvedDevices = normalizeSipDevicesFromUser(u);
+    setSipDevices(resolvedDevices);
+    const primaryDev = resolvedDevices[0];
+    setSipUsername(primaryDev?.sip_username || u.sip_username || generateSipUsernameStr());
+    setSipPassword(primaryDev?.sip_password || u.sip_password || generateSipPasswordStr());
     setShowSipPassword(false);
-    setMaxActivations(u.max_activations ? Math.max(1, Math.min(5, Number(u.max_activations))) : 1);
+    setMaxActivations(primaryDev?.max_activations || (u.max_activations ? Math.max(1, Math.min(5, Number(u.max_activations))) : 1));
     setMaxConcurrentOutbound(u.max_concurrent_outbound !== undefined && u.max_concurrent_outbound !== null ? Number(u.max_concurrent_outbound) : 0);
     setOutboundQuarantined(Boolean(u.outbound_quarantined));
     
@@ -1118,6 +1616,7 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
 
     const cleanFmMobile = (followMeMobileNumber || "").trim();
 
+    const primarySipDev = sipDevices[0] || null;
     const userData = {
       full_name: fullName.trim(),
       email: email.trim(),
@@ -1127,9 +1626,10 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
       is_active: isActive,
       tenant_id: userTenantId,
       password,
-      sip_username: sipUsername.trim() || generateSipUsernameStr(),
-      sip_password: sipPassword,
-      max_activations: Number(maxActivations) || 1,
+      sip_username: primarySipDev ? primarySipDev.sip_username : "",
+      sip_password: primarySipDev?.sip_password || sipPassword || generateSipPasswordStr(),
+      max_activations: Number(primarySipDev?.max_activations || maxActivations) || 1,
+      sip_devices: sipDevices,
       max_concurrent_outbound: Number.isNaN(Number(maxConcurrentOutbound)) ? 0 : Number(maxConcurrentOutbound),
       outbound_quarantined: Boolean(outboundQuarantined),
       outbound_caller_id: outboundCallerId.trim(),
@@ -1142,7 +1642,7 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
       voicemail_pin: voicemailPin,
       voicemail_to_email: voicemailToEmail,
       recording_active: recordingActive,
-      transport,
+      transport: primarySipDev?.transport || transport || "UDP",
       two_factor_enabled: twoFactorEnabled,
       two_factor_method: twoFactorMethod || "google_auth",
       two_factor_secret: twoFactorSecret || null,
@@ -2055,35 +2555,6 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
                                         </select>
                                     </div>
                                 </div>
-
-                                <div className="grid grid-cols-2 gap-4">
-                                    <div>
-                                        <label className="block text-[10px] font-bold text-slate-500 dark:text-slate-450 uppercase tracking-wider mb-1.5">Giden Arama Kuralları</label>
-                                        <select 
-                                            value={selectedOutboundRules[0] || ""} 
-                                            onChange={(e) => setSelectedOutboundRules(e.target.value ? [e.target.value] : [])} 
-                                            className="w-full text-xs px-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950 text-slate-800 dark:text-slate-100 focus:outline-none"
-                                        >
-                                            <option value="">Kural Seçilmedi</option>
-                                            {outboundRules.map(opt => (
-                                                <option key={opt.id} value={opt.id}>{opt.name || opt.id}</option>
-                                            ))}
-                                        </select>
-                                    </div>
-                                    <div>
-                                        <label className="block text-[10px] font-bold text-slate-500 dark:text-slate-450 uppercase tracking-wider mb-1.5">Çağrı Toplama Grubu</label>
-                                        <select 
-                                            value={selectedCallPickupGroups[0] || ""} 
-                                            onChange={(e) => setSelectedCallPickupGroups(e.target.value ? [e.target.value] : [])} 
-                                            className="w-full text-xs px-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950 text-slate-800 dark:text-slate-100 focus:outline-none"
-                                        >
-                                            <option value="">Grup Seçilmedi</option>
-                                            {callPickupGroups.map(opt => (
-                                                <option key={opt.id} value={opt.id}>{opt.name || opt.id}</option>
-                                            ))}
-                                        </select>
-                                    </div>
-                                </div>
                             </div>
                         )}
 
@@ -2092,20 +2563,27 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
                             <div className="space-y-5 animate-in fade-in duration-300">
                                 <div className="pb-3 border-b border-slate-100 dark:border-slate-800/60">
                                     <h4 className="text-sm font-extrabold text-slate-800 dark:text-white uppercase tracking-wider">
-                                        SIP Ayarları
+                                        SIP Ayarları &amp; SIP Cihazları
                                     </h4>
                                     <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-                                        Kullanıcının dahili numarası, telefon aktivasyon kullanıcı adı, SIP kayıt şifresi ve maksimum aktivasyon sayısı ayarları.
+                                        Kullanıcının dahili numarası, giden arama kuralı, çağrı toplama grubu ve aboneye bağlı çoklu SIP cihazlarının yönetimi.
                                     </p>
                                 </div>
 
                                 <div className={`p-5 rounded-2xl border ${borderLight} ${lightBg} space-y-5`}>
                                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                                         <div>
-                                            <label className="block text-[10px] font-bold text-slate-500 dark:text-slate-450 uppercase tracking-wider mb-1.5">Dahili Numarası (Extension)</label>
+                                            <label htmlFor="sip-extension-input" className="block text-[10px] font-bold text-slate-500 dark:text-slate-450 uppercase tracking-wider mb-1.5">
+                                                Dahili Numarası (Extension)
+                                            </label>
                                             <div className="flex gap-2">
                                                 <input
+                                                    id="sip-extension-input"
                                                     type="text"
+                                                    inputMode="numeric"
+                                                    autoCorrect="off"
+                                                    autoCapitalize="off"
+                                                    spellCheck={false}
                                                     placeholder="Örn: 1000"
                                                     value={extension}
                                                     onChange={(e) => setExtension(e.target.value)}
@@ -2116,51 +2594,62 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
                                                     onClick={() => setExtension(getNextAvailableExtension(userTenantId))}
                                                     className="p-2.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 rounded-xl transition-colors"
                                                     title="Sıradaki Boş Dahili Numarasını Getir"
+                                                    aria-label="Sıradaki Boş Dahili Numarasını Getir"
                                                 >
                                                     <RefreshCw size={16} />
                                                 </button>
                                             </div>
                                         </div>
                                         <div>
-                                            <label className="block text-[10px] font-bold text-slate-500 dark:text-slate-450 uppercase tracking-wider mb-1.5">Dış Aramada Görünecek Numara</label>
-                                            <input type="text" placeholder="Boş bırakılırsa varsayılan kural" value={outboundCallerId} onChange={(e) => setOutboundCallerId(e.target.value)} className="w-full text-xs px-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 text-slate-800 dark:text-slate-100 focus:outline-none" />
-                                        </div>
-                                    </div>
-
-                                    <div>
-                                        <label className="block text-[10px] font-bold text-slate-500 dark:text-slate-450 uppercase tracking-wider mb-1.5">Kullanıcı Adı (SIP Aktivasyon)</label>
-                                        <div className="flex gap-2">
+                                            <label htmlFor="sip-outbound-callerid" className="block text-[10px] font-bold text-slate-500 dark:text-slate-450 uppercase tracking-wider mb-1.5">
+                                                Dış Aramada Görünecek Numara
+                                            </label>
                                             <input
+                                                id="sip-outbound-callerid"
                                                 type="text"
-                                                placeholder="Örn: Ab8kP2x9"
-                                                value={sipUsername}
-                                                onChange={(e) => setSipUsername(e.target.value)}
-                                                className="flex-1 text-xs px-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 text-slate-800 dark:text-slate-100 focus:outline-none font-mono"
+                                                autoCorrect="off"
+                                                autoCapitalize="off"
+                                                spellCheck={false}
+                                                placeholder="Boş bırakılırsa varsayılan kural"
+                                                value={outboundCallerId}
+                                                onChange={(e) => setOutboundCallerId(e.target.value)}
+                                                className="w-full text-xs px-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 text-slate-800 dark:text-slate-100 focus:outline-none"
                                             />
-                                            <button type="button" onClick={copySipUsername} className="p-2.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 rounded-xl transition-colors" title="Kullanıcı Adını Kopyala"><Copy size={16}/></button>
-                                            <button type="button" onClick={generateSipUsername} className="p-2.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 rounded-xl transition-colors" title="Yeni Kullanıcı Adı Üret"><RefreshCw size={16}/></button>
                                         </div>
                                     </div>
 
-                                    <div>
-                                        <label className="block text-[10px] font-bold text-slate-500 dark:text-slate-450 uppercase tracking-wider mb-1.5">SIP Register Şifresi</label>
-                                        <div className="flex gap-2">
-                                            <input
-                                                type={showSipPassword ? "text" : "password"}
-                                                readOnly
-                                                value={sipPassword}
-                                                className="flex-1 text-xs px-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 text-slate-800 dark:text-slate-100 focus:outline-none font-mono tracking-wider"
-                                            />
-                                            <button
-                                                type="button"
-                                                onClick={() => setShowSipPassword(!showSipPassword)}
-                                                className="p-2.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 rounded-xl transition-colors"
-                                                title={showSipPassword ? "Şifreyi Gizle" : "Şifreyi Göster"}
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                        <div>
+                                            <label htmlFor="sip-outbound-rule-select" className="block text-[10px] font-bold text-slate-500 dark:text-slate-450 uppercase tracking-wider mb-1.5">
+                                                Giden Arama Kuralları
+                                            </label>
+                                            <select
+                                                id="sip-outbound-rule-select"
+                                                value={selectedOutboundRules[0] || ""}
+                                                onChange={(e) => setSelectedOutboundRules(e.target.value ? [e.target.value] : [])}
+                                                className="w-full text-xs font-semibold px-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 text-slate-800 dark:text-slate-100 focus:outline-none"
                                             >
-                                                {showSipPassword ? <EyeOff size={16} /> : <Eye size={16} />}
-                                            </button>
-                                            <button type="button" onClick={copySipPassword} className="p-2.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 rounded-xl transition-colors" title="Şifreyi Kopyala"><Copy size={16}/></button>
-                                            <button type="button" onClick={generateSipPassword} className="p-2.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 rounded-xl transition-colors" title="Yeni Şifre Üret"><RefreshCw size={16}/></button>
+                                                <option value="">Kural Seçilmedi</option>
+                                                {outboundRules.map((opt) => (
+                                                    <option key={opt.id} value={opt.id}>{opt.name || opt.id}</option>
+                                                ))}
+                                            </select>
+                                        </div>
+                                        <div>
+                                            <label htmlFor="sip-pickup-group-select" className="block text-[10px] font-bold text-slate-500 dark:text-slate-450 uppercase tracking-wider mb-1.5">
+                                                Çağrı Toplama Grubu
+                                            </label>
+                                            <select
+                                                id="sip-pickup-group-select"
+                                                value={selectedCallPickupGroups[0] || ""}
+                                                onChange={(e) => setSelectedCallPickupGroups(e.target.value ? [e.target.value] : [])}
+                                                className="w-full text-xs font-semibold px-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 text-slate-800 dark:text-slate-100 focus:outline-none"
+                                            >
+                                                <option value="">Grup Seçilmedi</option>
+                                                {callPickupGroups.map((opt) => (
+                                                    <option key={opt.id} value={opt.id}>{opt.name || opt.id}</option>
+                                                ))}
+                                            </select>
                                         </div>
                                     </div>
 
@@ -2193,47 +2682,196 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
                                         </div>
                                     )}
 
-                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                                        <div>
-                                            <label htmlFor="sip-max-activations" className="block text-[10px] font-bold text-slate-500 dark:text-slate-450 uppercase tracking-wider mb-1.5">Maksimum Aktivasyon Sayısı</label>
-                                            <select
-                                                id="sip-max-activations"
-                                                name="max_activations"
-                                                value={maxActivations}
-                                                onChange={(e) => setMaxActivations(Number(e.target.value))}
-                                                className="w-full text-xs font-semibold px-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 text-slate-800 dark:text-slate-100 focus:outline-none"
-                                            >
-                                                {[1, 2, 3, 4, 5].map((cnt) => (
-                                                    <option key={cnt} value={cnt}>{cnt}</option>
-                                                ))}
-                                            </select>
-                                        </div>
+                                    <div>
+                                        <label htmlFor="sip-max-concurrent-outbound" className="block text-[10px] font-bold text-slate-500 dark:text-slate-450 uppercase tracking-wider mb-1.5">
+                                            Eş Zamanlı Dış Arama Limiti (Güvenlik)
+                                        </label>
+                                        <select
+                                            id="sip-max-concurrent-outbound"
+                                            name="max_concurrent_outbound"
+                                            value={maxConcurrentOutbound}
+                                            onChange={(e) => setMaxConcurrentOutbound(Number(e.target.value))}
+                                            aria-describedby="sip-max-concurrent-hint"
+                                            className="w-full text-xs font-semibold px-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 text-slate-800 dark:text-slate-100 focus:outline-none"
+                                        >
+                                            <option value={0}>Sistem Varsayılanını Kullan (Güvenlik Kalkanı)</option>
+                                            <option value={1}>1 Eş Zamanlı Dış Çağrı (Standart Abone)</option>
+                                            <option value={2}>2 Eş Zamanlı Dış Çağrı (Aktarım / Konferans)</option>
+                                            <option value={3}>3 Eş Zamanlı Dış Çağrı</option>
+                                            <option value={5}>5 Eş Zamanlı Dış Çağrı</option>
+                                            <option value={10}>10 Eş Zamanlı Dış Çağrı</option>
+                                            <option value={-1}>Limitsiz (Muaf)</option>
+                                        </select>
+                                        <p id="sip-max-concurrent-hint" className="text-[10px] text-slate-500 mt-1">
+                                            Sızma durumunda saldırganın aynı anda çoklu dış arama başlatmasını engeller.
+                                        </p>
+                                    </div>
+                                </div>
 
+                                {/* MULTI-DEVICE SECTION: SIP CİHAZLARI */}
+                                <div className="p-5 rounded-2xl border border-slate-200/80 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/40 space-y-4">
+                                    <div className="flex items-center justify-between gap-3">
                                         <div>
-                                            <label htmlFor="sip-max-concurrent-outbound" className="block text-[10px] font-bold text-slate-500 dark:text-slate-450 uppercase tracking-wider mb-1.5">
-                                                Eş Zamanlı Dış Arama Limiti (Güvenlik)
-                                            </label>
-                                            <select
-                                                id="sip-max-concurrent-outbound"
-                                                name="max_concurrent_outbound"
-                                                value={maxConcurrentOutbound}
-                                                onChange={(e) => setMaxConcurrentOutbound(Number(e.target.value))}
-                                                aria-describedby="sip-max-concurrent-hint"
-                                                className="w-full text-xs font-semibold px-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 text-slate-800 dark:text-slate-100 focus:outline-none"
-                                            >
-                                                <option value={0}>Sistem Varsayılanını Kullan (Güvenlik Kalkanı)</option>
-                                                <option value={1}>1 Eş Zamanlı Dış Çağrı (Standart Abone)</option>
-                                                <option value={2}>2 Eş Zamanlı Dış Çağrı (Aktarım / Konferans)</option>
-                                                <option value={3}>3 Eş Zamanlı Dış Çağrı</option>
-                                                <option value={5}>5 Eş Zamanlı Dış Çağrı</option>
-                                                <option value={10}>10 Eş Zamanlı Dış Çağrı</option>
-                                                <option value={-1}>Limitsiz (Muaf)</option>
-                                            </select>
-                                            <p id="sip-max-concurrent-hint" className="text-[10px] text-slate-500 mt-1">
-                                                Sızma durumunda saldırganın aynı anda çoklu dış arama başlatmasını engeller.
+                                            <div className="flex items-center gap-2">
+                                                <h5 className="text-xs font-extrabold text-slate-800 dark:text-white uppercase tracking-wider">
+                                                    SIP Cihazları
+                                                </h5>
+                                                <span className={`px-2 py-0.5 rounded-md text-[10px] font-extrabold ${lightBg} ${text} border ${borderLight}`}>
+                                                    {sipDevices.length} Cihaz
+                                                </span>
+                                            </div>
+                                            <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
+                                                Masa telefonu, DECT veya harici SIP istemcilerini ayrı ayrı tanımlayın; büyüteç ile BLF, kodek ve canlı PJSIP detaylarını inceleyin.
                                             </p>
                                         </div>
+                                        <button
+                                            type="button"
+                                            onClick={openSipDeviceAddModal}
+                                            className="bg-rose-600 hover:bg-rose-500 text-white rounded-xl h-8 w-8 flex items-center justify-center shrink-0 transition-all shadow-sm"
+                                            title="Yeni SIP Cihazı Ekle"
+                                            aria-label="Yeni SIP Cihazı Ekle"
+                                        >
+                                            <Plus size={16} />
+                                        </button>
                                     </div>
+
+                                    {sipDevices.length === 0 ? (
+                                        <div className="p-6 rounded-xl border border-dashed border-slate-300 dark:border-slate-700 bg-white/70 dark:bg-slate-950/40 text-center space-y-1.5">
+                                            <p className="text-xs font-bold text-slate-700 dark:text-slate-200">
+                                                Henüz tanımlı bir SIP Cihazı bulunmuyor
+                                            </p>
+                                            <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                                                Sağ üstteki artı (+) butonuna tıklayarak bu aboneye yeni bir masa telefonu veya SIP cihazı ekleyebilirsiniz.
+                                            </p>
+                                        </div>
+                                    ) : (
+                                        <div className="space-y-2.5">
+                                            {sipDevices.map((dev, devIdx) => {
+                                                const devOnline = Boolean(dev.is_online) && dev.is_active !== false;
+                                                const devIpShown = dev.live_ip || dev.ip || "";
+                                                const blfCount = Array.isArray(dev.dss_keys) ? dev.dss_keys.length : 0;
+                                                const typeLabel =
+                                                    dev.device_type === "dect"
+                                                        ? "DECT Telefon"
+                                                        : dev.device_type === "softphone"
+                                                        ? "SIP İstemci"
+                                                        : "Masa Telefonu";
+                                                return (
+                                                    <div
+                                                        key={dev.id || `${dev.sip_username}-${devIdx}`}
+                                                        className={`p-3.5 rounded-xl border transition-all flex flex-col sm:flex-row sm:items-center justify-between gap-3 ${
+                                                            dev.is_active === false
+                                                                ? "bg-slate-100/70 dark:bg-slate-950/30 border-slate-200/70 dark:border-slate-800/60 opacity-70"
+                                                                : "bg-white dark:bg-slate-950/80 border-slate-200/90 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700 shadow-sm"
+                                                        }`}
+                                                    >
+                                                        <div className="flex items-start sm:items-center gap-3 min-w-0">
+                                                            <div className={`relative w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${lightBg} ${text} border ${borderLight}`}>
+                                                                {dev.device_type === "softphone" ? <Monitor size={17} /> : dev.device_type === "dect" ? <Smartphone size={17} /> : <Phone size={17} />}
+                                                                <span
+                                                                    className={`absolute -top-1 -right-1 w-2.5 h-2.5 rounded-full ring-2 ring-white dark:ring-slate-950 ${
+                                                                        devOnline ? "bg-emerald-500" : "bg-slate-400"
+                                                                    }`}
+                                                                    title={devOnline ? `Çevrimiçi${devIpShown ? ` (${devIpShown})` : ""}` : "Çevrimdışı"}
+                                                                />
+                                                            </div>
+                                                            <div className="min-w-0 space-y-1">
+                                                                <div className="flex flex-wrap items-center gap-2">
+                                                                    <span className="text-xs font-extrabold text-slate-800 dark:text-white truncate">
+                                                                        {dev.name || `SIP Cihazı ${devIdx + 1}`}
+                                                                    </span>
+                                                                    <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300">
+                                                                        {typeLabel}
+                                                                    </span>
+                                                                    {dev.is_active === false ? (
+                                                                        <span className="px-1.5 py-0.5 rounded text-[9px] font-extrabold bg-slate-200 dark:bg-slate-800 text-slate-600 dark:text-slate-400">
+                                                                            PASİF
+                                                                        </span>
+                                                                    ) : devOnline ? (
+                                                                        <span className="px-1.5 py-0.5 rounded text-[9px] font-extrabold bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300">
+                                                                            BAĞLI
+                                                                        </span>
+                                                                    ) : (
+                                                                        <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-slate-100 dark:bg-slate-900 text-slate-500 dark:text-slate-400">
+                                                                            ÇEVRİMDIŞI
+                                                                        </span>
+                                                                    )}
+                                                                </div>
+                                                                <div className="flex flex-wrap items-center gap-2 text-[11px] text-slate-500 dark:text-slate-400">
+                                                                    <button
+                                                                        type="button"
+                                                                        onClick={() => copyTextWithFeedback(dev.sip_username, `su-${dev.id}`)}
+                                                                        className="inline-flex items-center gap-1 font-mono font-bold text-slate-700 dark:text-slate-200 hover:underline"
+                                                                        title="SIP Kullanıcı Adını Kopyala"
+                                                                    >
+                                                                        <span>SIP: {dev.sip_username}</span>
+                                                                        {copiedDeviceKey === `su-${dev.id}` ? <Check size={11} className="text-emerald-500" /> : <Copy size={11} />}
+                                                                    </button>
+                                                                    <span>•</span>
+                                                                    <span className="font-semibold">{dev.transport || "UDP"}</span>
+                                                                    {dev.brand && (
+                                                                        <>
+                                                                            <span>•</span>
+                                                                            <span>{dev.brand} {dev.model || ""}</span>
+                                                                        </>
+                                                                    )}
+                                                                    {dev.mac && (
+                                                                        <>
+                                                                            <span>•</span>
+                                                                            <span className="font-mono text-[10px]">{dev.mac}</span>
+                                                                        </>
+                                                                    )}
+                                                                    {devIpShown && (
+                                                                        <>
+                                                                            <span>•</span>
+                                                                            <span className="font-mono text-[10px] text-emerald-600 dark:text-emerald-400 font-bold">
+                                                                                IP: {devIpShown}
+                                                                            </span>
+                                                                        </>
+                                                                    )}
+                                                                    {blfCount > 0 && (
+                                                                        <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold ${lightBg} ${text}`}>
+                                                                            {blfCount} BLF Tuşu
+                                                                        </span>
+                                                                    )}
+                                                                </div>
+                                                            </div>
+                                                        </div>
+
+                                                        <div className="flex items-center justify-end gap-1.5 shrink-0">
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => openSipDeviceInspectModal(dev)}
+                                                                className={`p-2 rounded-xl border ${borderLight} ${lightBg} ${text} hover:opacity-90 transition-all`}
+                                                                title="Cihaz Detayları, BLF & PJSIP İncele"
+                                                                aria-label={`${dev.name || "SIP Cihazı"} Cihaz Detayları, BLF ve PJSIP İncele`}
+                                                            >
+                                                                <Search size={15} />
+                                                            </button>
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => openSipDeviceEditModal(dev)}
+                                                                className="p-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 hover:bg-slate-100 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 transition-all"
+                                                                title="SIP Cihazı Ayarlarını Düzenle"
+                                                                aria-label={`${dev.name || "SIP Cihazı"} Ayarlarını Düzenle`}
+                                                            >
+                                                                <Edit2 size={15} />
+                                                            </button>
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => setSipDeviceDeleteTarget(dev)}
+                                                                className="p-2 rounded-xl border border-rose-200/80 dark:border-rose-900/50 bg-rose-50/70 hover:bg-rose-100 dark:bg-rose-950/30 dark:hover:bg-rose-950/60 text-rose-600 dark:text-rose-400 transition-all"
+                                                                title="SIP Cihazını Sil"
+                                                                aria-label={`${dev.name || "SIP Cihazı"} Sil`}
+                                                            >
+                                                                <Trash2 size={15} />
+                                                            </button>
+                                                        </div>
+                                                    </div>
+                                                );
+                                            })}
+                                        </div>
+                                    )}
                                 </div>
                             </div>
                         )}
@@ -4285,6 +4923,1100 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
         </div>,
         document.body
       )}
+
+      {/* Native Modal Dialog 1: SIP Cihazı Ekle / Düzenle */}
+      <dialog
+        ref={sipDeviceEditDialogRef}
+        aria-labelledby="sip-device-edit-dialog-title"
+        onClose={(e) => {
+          e.currentTarget.returnValue = "";
+          setIsSipDeviceEditOpen(false);
+        }}
+        className="m-auto w-full max-w-lg rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100 p-0 shadow-2xl overscroll-contain backdrop:bg-slate-950/60 backdrop:backdrop-blur-sm backdrop:overflow-hidden backdrop:overscroll-contain"
+      >
+        {sipDeviceDraft && (
+          <form onSubmit={handleSaveSipDeviceModal} className="flex flex-col max-h-[88vh]">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 dark:border-slate-800/60 bg-slate-50/60 dark:bg-slate-950/30 shrink-0">
+              <div className="flex items-center gap-2.5">
+                <div className={`w-8 h-8 rounded-xl flex items-center justify-center ${lightBg} ${text}`}>
+                  <Phone size={16} />
+                </div>
+                <div>
+                  <h2 id="sip-device-edit-dialog-title" className="text-xs font-extrabold text-slate-800 dark:text-white uppercase tracking-wider">
+                    {sipDeviceFormMode === "add" ? "Yeni SIP Cihazı Ekle" : "SIP Cihazı Ayarlarını Düzenle"}
+                  </h2>
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                    Dahili {extension || "-"} için SIP kayıt ve aktivasyon kimlik bilgileri
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsSipDeviceEditOpen(false)}
+                className="p-1.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 rounded-lg transition-colors"
+                aria-label="Pencereyi Kapat"
+              >
+                <X size={16} />
+              </button>
+            </div>
+
+            <div className="p-6 space-y-4 overflow-y-auto overscroll-contain">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label htmlFor="sip-dev-name" className="block text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1.5">
+                    SIP Cihazı Adı
+                  </label>
+                  <input
+                    id="sip-dev-name"
+                    type="text"
+                    autoFocus
+                    required
+                    placeholder="Örn: Masa Telefonu 1, Ev Telefonu"
+                    value={sipDeviceDraft.name || ""}
+                    onChange={(e) => setSipDeviceDraft((prev) => ({ ...prev, name: e.target.value }))}
+                    className="w-full text-xs font-semibold px-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-950 text-slate-800 dark:text-slate-100 focus:outline-none"
+                  />
+                </div>
+                <div>
+                  <label htmlFor="sip-dev-type" className="block text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1.5">
+                    Cihaz Tipi
+                  </label>
+                  <select
+                    id="sip-dev-type"
+                    value={sipDeviceDraft.device_type || "desk_phone"}
+                    onChange={(e) => setSipDeviceDraft((prev) => ({ ...prev, device_type: e.target.value }))}
+                    className="w-full text-xs font-semibold px-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-950 text-slate-800 dark:text-slate-100 focus:outline-none"
+                  >
+                    <option value="desk_phone">Masa Telefonu (IP Telefon)</option>
+                    <option value="dect">DECT Kablosuz Telefon</option>
+                    <option value="softphone">Masaüstü / Mobil SIP İstemci</option>
+                  </select>
+                </div>
+              </div>
+
+              <div>
+                <label htmlFor="sip-dev-username" className="block text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1.5">
+                  Kullanıcı Adı (SIP Aktivasyon)
+                </label>
+                <div className="flex gap-2">
+                  <input
+                    id="sip-dev-username"
+                    type="text"
+                    required
+                    autoCorrect="off"
+                    autoCapitalize="off"
+                    spellCheck={false}
+                    placeholder="Örn: Ab8kP2x9"
+                    value={sipDeviceDraft.sip_username || ""}
+                    onChange={(e) => setSipDeviceDraft((prev) => ({ ...prev, sip_username: e.target.value }))}
+                    className="flex-1 text-xs font-bold font-mono px-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-950 text-slate-800 dark:text-slate-100 focus:outline-none"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => copyTextWithFeedback(sipDeviceDraft.sip_username, "modal-su")}
+                    className="p-2.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 rounded-xl transition-colors"
+                    title="Kullanıcı Adını Kopyala"
+                    aria-label="SIP Kullanıcı Adını Kopyala"
+                  >
+                    {copiedDeviceKey === "modal-su" ? <Check size={16} className="text-emerald-500" /> : <Copy size={16} />}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setSipDeviceDraft((prev) => ({ ...prev, sip_username: generateSipUsernameStr() }))}
+                    className="p-2.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 rounded-xl transition-colors"
+                    title="Yeni Kullanıcı Adı Üret"
+                    aria-label="Yeni SIP Kullanıcı Adı Üret"
+                  >
+                    <RefreshCw size={16} />
+                  </button>
+                </div>
+              </div>
+
+              <div>
+                <label htmlFor="sip-dev-password" className="block text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1.5">
+                  SIP Register Şifresi
+                </label>
+                <div className="flex gap-2">
+                  <input
+                    id="sip-dev-password"
+                    type={showDraftSipPassword ? "text" : "password"}
+                    required
+                    autoComplete="new-password"
+                    autoCorrect="off"
+                    autoCapitalize="off"
+                    spellCheck={false}
+                    value={sipDeviceDraft.sip_password || ""}
+                    onChange={(e) => setSipDeviceDraft((prev) => ({ ...prev, sip_password: e.target.value }))}
+                    className="flex-1 text-xs font-mono tracking-wider px-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-950 text-slate-800 dark:text-slate-100 focus:outline-none"
+                  />
+                  <button
+                    type="button"
+                    aria-pressed={showDraftSipPassword}
+                    onClick={() => setShowDraftSipPassword((v) => !v)}
+                    className="p-2.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 rounded-xl transition-colors"
+                    title={showDraftSipPassword ? "Şifreyi Gizle" : "Şifreyi Göster"}
+                    aria-label={showDraftSipPassword ? "SIP Şifresini Gizle" : "SIP Şifresini Göster"}
+                  >
+                    {showDraftSipPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => copyTextWithFeedback(sipDeviceDraft.sip_password, "modal-pwd")}
+                    className="p-2.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 rounded-xl transition-colors"
+                    title="Şifreyi Kopyala"
+                    aria-label="SIP Şifresini Kopyala"
+                  >
+                    {copiedDeviceKey === "modal-pwd" ? <Check size={16} className="text-emerald-500" /> : <Copy size={16} />}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setSipDeviceDraft((prev) => ({ ...prev, sip_password: generateSipPasswordStr() }))}
+                    className="p-2.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 rounded-xl transition-colors"
+                    title="Yeni Şifre Üret"
+                    aria-label="Yeni SIP Şifresi Üret"
+                  >
+                    <RefreshCw size={16} />
+                  </button>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label htmlFor="sip-dev-max-activations" className="block text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1.5">
+                    Maksimum Aktivasyon Sayısı
+                  </label>
+                  <select
+                    id="sip-dev-max-activations"
+                    value={sipDeviceDraft.max_activations || 1}
+                    onChange={(e) => setSipDeviceDraft((prev) => ({ ...prev, max_activations: Number(e.target.value) }))}
+                    className="w-full text-xs font-semibold px-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-950 text-slate-800 dark:text-slate-100 focus:outline-none"
+                  >
+                    {[1, 2, 3, 4, 5].map((cnt) => (
+                      <option key={cnt} value={cnt}>{cnt}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label htmlFor="sip-dev-transport" className="block text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1.5">
+                    Transport Protokolü
+                  </label>
+                  <select
+                    id="sip-dev-transport"
+                    value={sipDeviceDraft.transport || "UDP"}
+                    onChange={(e) => setSipDeviceDraft((prev) => ({ ...prev, transport: e.target.value }))}
+                    className="w-full text-xs font-semibold px-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-950 text-slate-800 dark:text-slate-100 focus:outline-none"
+                  >
+                    <option value="UDP">UDP (Standart - 5060)</option>
+                    <option value="TCP">TCP (Güvenilir Akış - 5060)</option>
+                    <option value="TLS">TLS (Şifreli Sinyalizasyon)</option>
+                  </select>
+                </div>
+              </div>
+
+              <div className="flex items-center justify-between p-3.5 rounded-xl border border-slate-200/80 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-950/50">
+                <div>
+                  <div className="text-xs font-bold text-slate-800 dark:text-white">SIP Cihazı Aktif</div>
+                  <div className="text-[11px] text-slate-500 dark:text-slate-400">
+                    Pasif yapıldığında bu cihaz Asterisk PJSIP üzerinde çalmaz ve dış arama yapamaz.
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={sipDeviceDraft.is_active !== false}
+                  aria-label="SIP Cihazı Aktif Durumu"
+                  onClick={() => setSipDeviceDraft((prev) => ({ ...prev, is_active: prev.is_active === false }))}
+                  className="shrink-0"
+                >
+                  {sipDeviceDraft.is_active !== false ? (
+                    <ToggleRight size={30} className={text} />
+                  ) : (
+                    <ToggleLeft size={30} className="text-slate-400" />
+                  )}
+                </button>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-3 px-6 py-4 border-t border-slate-100 dark:border-slate-800/60 bg-slate-50/40 dark:bg-slate-950/20 shrink-0">
+              <button
+                type="button"
+                onClick={() => setIsSipDeviceEditOpen(false)}
+                className="flex-1 py-2.5 rounded-xl text-xs font-bold border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700 transition-all"
+              >
+                Vazgeç
+              </button>
+              <button
+                type="submit"
+                className={`flex-1 py-2.5 rounded-xl text-xs font-bold text-white ${bg} ${hover} transition-all shadow-sm`}
+              >
+                {sipDeviceFormMode === "add" ? "SIP Cihazını Ekle" : "Cihaz Ayarlarını Uygula"}
+              </button>
+            </div>
+          </form>
+        )}
+      </dialog>
+
+      {/* Native Modal Dialog 2: 🔍 Büyüteç — SIP Cihazı İnceleme, BLF & PJSIP Dahili Detay */}
+      <dialog
+        ref={sipDeviceInspectDialogRef}
+        aria-labelledby="sip-device-inspect-dialog-title"
+        onClose={(e) => {
+          e.currentTarget.returnValue = "";
+          setIsSipDeviceInspectOpen(false);
+        }}
+        className="m-auto w-full max-w-4xl rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100 p-0 shadow-2xl overscroll-contain backdrop:bg-slate-950/60 backdrop:backdrop-blur-sm backdrop:overflow-hidden backdrop:overscroll-contain"
+      >
+        {inspectDraft && (() => {
+          const pjsipData = inspectLiveInfo?.pjsip || {};
+          const liveIp = pjsipData.ip_address || inspectDraft.live_ip || inspectDraft.ip || "";
+          const livePort = pjsipData.port || "";
+          const isOnlineNow = Boolean(inspectLiveInfo?.is_online || pjsipData.registered || inspectDraft.is_online);
+          const brandModels = SIP_PHONE_MODELS[inspectDraft.brand] || ["Standart SIP"];
+          const provUrl = inspectLiveInfo?.prov_url || "";
+
+          const addDssKeyRow = () => {
+            const cur = Array.isArray(inspectDraft.dss_keys) ? inspectDraft.dss_keys : [];
+            const usedNums = new Set(cur.map((k) => Number(k.key)));
+            let nextKey = 1;
+            while (usedNums.has(nextKey) && nextKey <= 48) nextKey += 1;
+            setInspectDraft((prev) => ({
+              ...prev,
+              dss_keys: [
+                ...(prev.dss_keys || []),
+                { key: nextKey, type: "blf", label: "", value: "", extension: "**" }
+              ]
+            }));
+          };
+
+          const autoFillDirectoryBlf = () => {
+            const peerUsers = users
+              .filter((u) => u.extension && String(u.extension) !== String(extension) && u.is_active !== false)
+              .slice(0, 12);
+            const autoKeys = peerUsers.map((u, idx) => ({
+              key: idx + 1,
+              type: "blf",
+              label: (u.full_name || u.extension).slice(0, 18),
+              value: String(u.extension),
+              extension: "**"
+            }));
+            setInspectDraft((prev) => ({ ...prev, dss_keys: autoKeys }));
+          };
+
+          const toggleCodec = (codecId) => {
+            setInspectDraft((prev) => {
+              const cur = Array.isArray(prev.codecs) ? [...prev.codecs] : [];
+              const exists = cur.includes(codecId);
+              if (exists && cur.length <= 1) return prev; // keep at least 1 codec
+              const next = exists ? cur.filter((c) => c !== codecId) : [...cur, codecId];
+              return { ...prev, codecs: next };
+            });
+          };
+
+          const moveCodec = (codecId, dir) => {
+            setInspectDraft((prev) => {
+              const cur = Array.isArray(prev.codecs) ? [...prev.codecs] : [];
+              const idx = cur.indexOf(codecId);
+              const swapIdx = idx + dir;
+              if (idx < 0 || swapIdx < 0 || swapIdx >= cur.length) return prev;
+              [cur[idx], cur[swapIdx]] = [cur[swapIdx], cur[idx]];
+              return { ...prev, codecs: cur };
+            });
+          };
+
+          return (
+            <div className="flex flex-col max-h-[90vh]">
+              {/* Header */}
+              <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 dark:border-slate-800/60 bg-slate-50/70 dark:bg-slate-950/40 shrink-0">
+                <div className="flex items-center gap-3 min-w-0">
+                  <div className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${lightBg} ${text} border ${borderLight}`}>
+                    <Search size={17} />
+                  </div>
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2">
+                      <h2 id="sip-device-inspect-dialog-title" className="text-xs font-extrabold text-slate-800 dark:text-white uppercase tracking-wider truncate">
+                        {inspectDraft.name} — Cihaz İnceleme &amp; Telefon Ayarları
+                      </h2>
+                      <span className={`px-2 py-0.5 rounded text-[10px] font-extrabold ${isOnlineNow ? "bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300" : "bg-slate-200 dark:bg-slate-800 text-slate-600 dark:text-slate-400"}`}>
+                        {isOnlineNow ? "ÇEVRİMİÇİ" : "ÇEVRİMDIŞI"}
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-slate-500 dark:text-slate-400 font-mono truncate">
+                      Dahili: {extension || "-"} • SIP Endpoint: {inspectDraft.sip_username} {liveIp ? `• IP: ${liveIp}${livePort ? `:${livePort}` : ""}` : ""}
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setIsSipDeviceInspectOpen(false)}
+                  className="p-1.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 rounded-lg transition-colors"
+                  aria-label="İnceleme Penceresini Kapat"
+                >
+                  <X size={16} />
+                </button>
+              </div>
+
+              {/* Accessible WAI-ARIA Tablist */}
+              <div
+                role="tablist"
+                aria-label="SIP Cihazı İnceleme Sekmeleri"
+                className="flex flex-wrap gap-1.5 px-6 py-2.5 border-b border-slate-100 dark:border-slate-800 bg-slate-50/40 dark:bg-slate-950/20 shrink-0"
+              >
+                {[
+                  { id: "overview", label: "Cihaz & Ağ Detayları", icon: Wifi },
+                  { id: "blf", label: `BLF & Tuş Tanımları (${(inspectDraft.dss_keys || []).length})`, icon: LayoutGrid },
+                  { id: "phone_settings", label: "Diğer Telefon Ayarları", icon: Settings },
+                  { id: "pjsip", label: "PJSIP Dahili Detay", icon: Terminal }
+                ].map((tb) => {
+                  const IconComp = tb.icon;
+                  const selected = inspectTab === tb.id;
+                  return (
+                    <button
+                      key={tb.id}
+                      ref={(el) => { inspectTabRefs.current[tb.id] = el; }}
+                      id={`inspect-tab-${tb.id}`}
+                      type="button"
+                      role="tab"
+                      aria-selected={selected}
+                      aria-controls={`inspect-panel-${tb.id}`}
+                      tabIndex={selected ? 0 : -1}
+                      onKeyDown={(e) => handleInspectTabKeyDown(e, tb.id)}
+                      onClick={() => setInspectTab(tb.id)}
+                      className={`inline-flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-bold transition-all ${
+                        selected
+                          ? `${bg} text-white shadow-sm`
+                          : "text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800"
+                      }`}
+                    >
+                      <IconComp size={14} />
+                      <span>{tb.label}</span>
+                    </button>
+                  );
+                })}
+              </div>
+
+              {/* Status Banner */}
+              {inspectActionMsg && (
+                <div className={`mx-6 mt-4 px-3.5 py-2.5 rounded-xl text-xs font-bold flex items-center justify-between ${
+                  inspectActionMsg.type === "success"
+                    ? "bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800/60"
+                    : "bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-800/60"
+                }`}>
+                  <span>{inspectActionMsg.text}</span>
+                  <button type="button" onClick={() => setInspectActionMsg(null)} aria-label="Bildirimi Kapat">
+                    <X size={14} />
+                  </button>
+                </div>
+              )}
+
+              {/* Body Panels */}
+              <div className="p-6 overflow-y-auto overscroll-contain flex-1 space-y-5">
+                {/* TAB 1: CİHAZ & AĞ DETAYLARI */}
+                {inspectTab === "overview" && (
+                  <div id="inspect-panel-overview" role="tabpanel" aria-labelledby="inspect-tab-overview" className="space-y-5">
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5">
+                      <div className="p-4 rounded-xl border border-slate-200/80 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-950/40">
+                        <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Kayıt &amp; Durum</div>
+                        <div className="mt-1.5 flex items-center gap-2">
+                          <span className={`w-2.5 h-2.5 rounded-full ${isOnlineNow ? "bg-emerald-500" : "bg-slate-400"}`} />
+                          <span className="text-xs font-extrabold text-slate-800 dark:text-white">
+                            {isOnlineNow ? "Kayıtlı (Online)" : "Kayıtsız (Offline)"}
+                          </span>
+                        </div>
+                        <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">
+                          Durum: {pjsipData.device_state || "Bilinmiyor"} {pjsipData.rtt_ms ? `• RTT: ${pjsipData.rtt_ms} ms` : ""}
+                        </div>
+                      </div>
+
+                      <div className="p-4 rounded-xl border border-slate-200/80 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-950/40">
+                        <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Canlı IP Adresi &amp; Web Arayüzü</div>
+                        <div className="mt-1.5 flex items-center justify-between gap-2">
+                          <span className="text-xs font-extrabold font-mono text-slate-800 dark:text-white truncate">
+                            {liveIp ? `${liveIp}${livePort ? `:${livePort}` : ""}` : "IP Algılanmadı"}
+                          </span>
+                          {liveIp && (
+                            <a
+                              href={`http://${liveIp}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className={`inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] font-bold ${lightBg} ${text} hover:opacity-80 shrink-0`}
+                              title="Telefonun Web Yönetim Arayüzünü Aç"
+                            >
+                              <span>Web GUI</span>
+                              <ExternalLink size={11} />
+                            </a>
+                          )}
+                        </div>
+                        <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-1 truncate">
+                          Transport: {pjsipData.transport || inspectDraft.transport || "UDP"}
+                        </div>
+                      </div>
+
+                      <div className="p-4 rounded-xl border border-slate-200/80 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-950/40">
+                        <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Telefon Yazılımı (User-Agent)</div>
+                        <div className="mt-1.5 text-xs font-extrabold text-slate-800 dark:text-white truncate" title={pjsipData.user_agent || ""}>
+                          {pjsipData.user_agent || `${inspectDraft.brand || "Yealink"} ${inspectDraft.model || ""}`}
+                        </div>
+                        <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-1 truncate">
+                          MAC: {inspectDraft.mac || "Tanımlanmadı"}
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className={`p-5 rounded-2xl border ${borderLight} ${lightBg} space-y-4`}>
+                      <h3 className="text-xs font-extrabold text-slate-800 dark:text-white uppercase tracking-wider flex items-center gap-2">
+                        <Cpu size={15} className={text} />
+                        Masa Telefonu Donanım &amp; Ağ Kimliği (MAC / Marka / Model / IP)
+                      </h3>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5">
+                        <div>
+                          <label htmlFor="inspect-mac-input" className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1.5">
+                            MAC Adresi (Otomatik Marka)
+                          </label>
+                          <input
+                            id="inspect-mac-input"
+                            type="text"
+                            autoCorrect="off"
+                            autoCapitalize="off"
+                            spellCheck={false}
+                            placeholder="00:15:65:AA:BB:CC"
+                            value={inspectDraft.mac || ""}
+                            onChange={(e) => {
+                              const formatted = formatMacAddress(e.target.value);
+                              const autoBrand = detectBrandByMac(formatted);
+                              setInspectDraft((prev) => {
+                                const nextBrand = autoBrand || prev.brand || "Yealink";
+                                const modelsForBrand = SIP_PHONE_MODELS[nextBrand] || [];
+                                const nextModel = autoBrand && !modelsForBrand.includes(prev.model) ? (modelsForBrand[0] || prev.model) : prev.model;
+                                return { ...prev, mac: formatted, brand: nextBrand, model: nextModel };
+                              });
+                            }}
+                            className="w-full text-xs font-mono font-bold px-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 text-slate-800 dark:text-slate-100 focus:outline-none"
+                          />
+                        </div>
+
+                        <div>
+                          <label htmlFor="inspect-brand-select" className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1.5">
+                            Telefon Markası
+                          </label>
+                          <select
+                            id="inspect-brand-select"
+                            value={inspectDraft.brand || "Yealink"}
+                            onChange={(e) => {
+                              const newBrand = e.target.value;
+                              const firstModel = (SIP_PHONE_MODELS[newBrand] || [])[0] || "";
+                              setInspectDraft((prev) => ({ ...prev, brand: newBrand, model: firstModel }));
+                            }}
+                            className="w-full text-xs font-semibold px-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 text-slate-800 dark:text-slate-100 focus:outline-none"
+                          >
+                            {Object.keys(SIP_PHONE_MODELS).map((b) => (
+                              <option key={b} value={b}>{b}</option>
+                            ))}
+                          </select>
+                        </div>
+
+                        <div>
+                          <label htmlFor="inspect-model-select" className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1.5">
+                            Model
+                          </label>
+                          <select
+                            id="inspect-model-select"
+                            value={inspectDraft.model || brandModels[0] || ""}
+                            onChange={(e) => setInspectDraft((prev) => ({ ...prev, model: e.target.value }))}
+                            className="w-full text-xs font-semibold px-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 text-slate-800 dark:text-slate-100 focus:outline-none"
+                          >
+                            {brandModels.map((m) => (
+                              <option key={m} value={m}>{m}</option>
+                            ))}
+                          </select>
+                        </div>
+
+                        <div>
+                          <label htmlFor="inspect-ip-input" className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1.5">
+                            Sabit / Bilinen IP Adresi
+                          </label>
+                          <input
+                            id="inspect-ip-input"
+                            type="text"
+                            autoCorrect="off"
+                            autoCapitalize="off"
+                            spellCheck={false}
+                            placeholder={liveIp || "Örn: 192.168.1.55"}
+                            value={inspectDraft.ip || ""}
+                            onChange={(e) => setInspectDraft((prev) => ({ ...prev, ip: e.target.value }))}
+                            className="w-full text-xs font-mono px-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 text-slate-800 dark:text-slate-100 focus:outline-none"
+                          />
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Autoprovision & Remote Control */}
+                    <div className="p-5 rounded-2xl border border-slate-200/80 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-950/40 space-y-4">
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                        <div>
+                          <h3 className="text-xs font-extrabold text-slate-800 dark:text-white uppercase tracking-wider">
+                            Otomatik Kurulum (Autoprovision) &amp; Uzaktan Komutlar
+                          </h3>
+                          <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
+                            Telefonun Auto-Provision Server URL alanına aşağıdaki bağlantıyı yapıştırabilir veya yapılandırma dosyasını indirebilirsiniz.
+                          </p>
+                        </div>
+                        <div className="flex flex-wrap items-center gap-2 shrink-0">
+                          <button
+                            type="button"
+                            onClick={handleDownloadSipDeviceConfig}
+                            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700 transition-all"
+                          >
+                            <Download size={13} />
+                            <span>.cfg / .xml İndir</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleSendSipDeviceNotify("check-sync")}
+                            className={`inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold text-white ${bg} ${hover} transition-all`}
+                            title="Telefonu Yeniden Başlatmadan Konfigürasyonu Güncelle (SIP NOTIFY check-sync)"
+                          >
+                            <RefreshCw size={13} />
+                            <span>Check-Sync Gönder</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleSendSipDeviceNotify("reboot")}
+                            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold bg-amber-600 hover:bg-amber-500 text-white transition-all"
+                            title="SIP NOTIFY ile Masa Telefonunu Uzaktan Yeniden Başlat"
+                          >
+                            <Power size={13} />
+                            <span>Reboot</span>
+                          </button>
+                        </div>
+                      </div>
+
+                      {provUrl && (
+                        <div className="flex items-center gap-2">
+                          <input
+                            type="text"
+                            readOnly
+                            aria-label="Otomatik Kurulum Provisioning URL"
+                            value={provUrl}
+                            className="flex-1 text-xs font-mono px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 text-slate-700 dark:text-slate-200 focus:outline-none"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => copyTextWithFeedback(provUrl, "prov-url")}
+                            className="px-3 py-2 rounded-xl text-xs font-bold bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 inline-flex items-center gap-1.5"
+                          >
+                            {copiedDeviceKey === "prov-url" ? <Check size={14} className="text-emerald-500" /> : <Copy size={14} />}
+                            <span>Kopyala</span>
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {/* TAB 2: BLF & TUŞ TANIMLARI */}
+                {inspectTab === "blf" && (
+                  <div id="inspect-panel-blf" role="tabpanel" aria-labelledby="inspect-tab-blf" className="space-y-5">
+                    <div className="p-5 rounded-2xl border border-slate-200/80 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950/40 space-y-4">
+                      <div className="flex flex-wrap items-center justify-between gap-3">
+                        <div>
+                          <h3 className="text-xs font-extrabold text-slate-800 dark:text-white uppercase tracking-wider">
+                            BLF &amp; Programlanabilir DSS Tuşları (1–24)
+                          </h3>
+                          <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
+                            Masa telefonunun yan ekran tuşlarına dahili meşguliyet izleme (BLF), hızlı arama veya DND atayın.
+                          </p>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={autoFillDirectoryBlf}
+                            className={`px-3 py-1.5 rounded-xl text-xs font-bold border ${borderLight} ${lightBg} ${text} hover:opacity-90 transition-all`}
+                          >
+                            Rehberden Otomatik BLF Doldur
+                          </button>
+                          <button
+                            type="button"
+                            onClick={addDssKeyRow}
+                            className="bg-rose-600 hover:bg-rose-500 text-white rounded-xl h-8 w-8 flex items-center justify-center shrink-0 transition-all shadow-sm"
+                            title="Yeni BLF / Tuş Tanımı Ekle"
+                            aria-label="Yeni BLF veya Tuş Tanımı Ekle"
+                          >
+                            <Plus size={16} />
+                          </button>
+                        </div>
+                      </div>
+
+                      {(!inspectDraft.dss_keys || inspectDraft.dss_keys.length === 0) ? (
+                        <div className="p-6 rounded-xl border border-dashed border-slate-300 dark:border-slate-700 text-center text-xs text-slate-500">
+                          Henüz BLF tuşu tanımlanmadı. Sağ üstteki artı (+) butonundan ekleyebilir veya &ldquo;Rehberden Otomatik BLF Doldur&rdquo; ile tek tıkla oluşturabilirsiniz.
+                        </div>
+                      ) : (
+                        <div className="space-y-2.5">
+                          {inspectDraft.dss_keys.map((row, rIdx) => (
+                            <div
+                              key={`dss-${rIdx}`}
+                              className="grid grid-cols-1 sm:grid-cols-12 gap-2.5 items-center p-3 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900"
+                            >
+                              <div className="sm:col-span-2">
+                                <label htmlFor={`dss-key-${rIdx}`} className="block text-[9px] font-bold text-slate-400 uppercase mb-1">
+                                  Tuş No
+                                </label>
+                                <select
+                                  id={`dss-key-${rIdx}`}
+                                  value={row.key || rIdx + 1}
+                                  onChange={(e) => {
+                                    const val = Number(e.target.value);
+                                    setInspectDraft((prev) => ({
+                                      ...prev,
+                                      dss_keys: prev.dss_keys.map((it, i) => (i === rIdx ? { ...it, key: val } : it))
+                                    }));
+                                  }}
+                                  className="w-full text-xs font-bold px-2.5 py-2 rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950"
+                                >
+                                  {Array.from({ length: 24 }, (_, idx) => idx + 1).map((n) => (
+                                    <option key={n} value={n}>Tuş {n}</option>
+                                  ))}
+                                </select>
+                              </div>
+
+                              <div className="sm:col-span-3">
+                                <label htmlFor={`dss-type-${rIdx}`} className="block text-[9px] font-bold text-slate-400 uppercase mb-1">
+                                  Tuş Tipi
+                                </label>
+                                <select
+                                  id={`dss-type-${rIdx}`}
+                                  value={row.type || "blf"}
+                                  onChange={(e) => {
+                                    const newType = e.target.value;
+                                    setInspectDraft((prev) => ({
+                                      ...prev,
+                                      dss_keys: prev.dss_keys.map((it, i) => (i === rIdx ? { ...it, type: newType } : it))
+                                    }));
+                                  }}
+                                  className="w-full text-xs font-semibold px-2.5 py-2 rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950"
+                                >
+                                  {DSS_KEY_TYPES.map((kt) => (
+                                    <option key={kt.id} value={kt.id}>{kt.label}</option>
+                                  ))}
+                                </select>
+                              </div>
+
+                              <div className="sm:col-span-3">
+                                <label htmlFor={`dss-target-${rIdx}`} className="block text-[9px] font-bold text-slate-400 uppercase mb-1">
+                                  Dahili / Hedef Değeri
+                                </label>
+                                {row.type === "blf" ? (
+                                  <select
+                                    id={`dss-target-${rIdx}`}
+                                    value={row.value || ""}
+                                    onChange={(e) => {
+                                      const selExt = e.target.value;
+                                      const peer = users.find((u) => String(u.extension) === String(selExt));
+                                      setInspectDraft((prev) => ({
+                                        ...prev,
+                                        dss_keys: prev.dss_keys.map((it, i) =>
+                                          i === rIdx
+                                            ? {
+                                                ...it,
+                                                value: selExt,
+                                                label: it.label || (peer?.full_name || selExt)
+                                              }
+                                            : it
+                                        )
+                                      }));
+                                    }}
+                                    className="w-full text-xs font-semibold px-2.5 py-2 rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950"
+                                  >
+                                    <option value="">Dahili Seçiniz...</option>
+                                    {users
+                                      .filter((u) => u.extension && String(u.extension) !== String(extension))
+                                      .map((u) => (
+                                        <option key={u.id || u.extension} value={u.extension}>
+                                          {u.full_name} ({u.extension})
+                                        </option>
+                                      ))}
+                                  </select>
+                                ) : (
+                                  <input
+                                    id={`dss-target-${rIdx}`}
+                                    type="text"
+                                    placeholder={row.type === "voicemail" ? "*97" : "Numara / Kod"}
+                                    value={row.value || ""}
+                                    onChange={(e) => {
+                                      const v = e.target.value;
+                                      setInspectDraft((prev) => ({
+                                        ...prev,
+                                        dss_keys: prev.dss_keys.map((it, i) => (i === rIdx ? { ...it, value: v } : it))
+                                      }));
+                                    }}
+                                    className="w-full text-xs px-2.5 py-2 rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950"
+                                  />
+                                )}
+                              </div>
+
+                              <div className="sm:col-span-3">
+                                <label htmlFor={`dss-label-${rIdx}`} className="block text-[9px] font-bold text-slate-400 uppercase mb-1">
+                                  Ekran Etiketi
+                                </label>
+                                <input
+                                  id={`dss-label-${rIdx}`}
+                                  type="text"
+                                  placeholder="Örn: Muhasebe"
+                                  value={row.label || ""}
+                                  onChange={(e) => {
+                                    const lbl = e.target.value;
+                                    setInspectDraft((prev) => ({
+                                      ...prev,
+                                      dss_keys: prev.dss_keys.map((it, i) => (i === rIdx ? { ...it, label: lbl } : it))
+                                    }));
+                                  }}
+                                  className="w-full text-xs px-2.5 py-2 rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950"
+                                />
+                              </div>
+
+                              <div className="sm:col-span-1 flex sm:justify-end pt-4">
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    setInspectDraft((prev) => ({
+                                      ...prev,
+                                      dss_keys: prev.dss_keys.filter((_, i) => i !== rIdx)
+                                    }))
+                                  }
+                                  className="p-2 rounded-lg text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/40 transition-colors"
+                                  title="Tuş Tanımını Kaldır"
+                                  aria-label={`${row.key || rIdx + 1}. BLF Tuş Tanımını Kaldır`}
+                                >
+                                  <Trash2 size={14} />
+                                </button>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Softkeys F1-F4 */}
+                    <div className="p-5 rounded-2xl border border-slate-200/80 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950/40 space-y-3">
+                      <h3 className="text-xs font-extrabold text-slate-800 dark:text-white uppercase tracking-wider">
+                        Ekran Altı Esnek Tuşlar (Softkeys F1–F4)
+                      </h3>
+                      <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
+                        {[0, 1, 2, 3].map((skIdx) => {
+                          const skItem = (inspectDraft.soft_keys || [])[skIdx] || { key: skIdx + 1, type: "history", label: "" };
+                          return (
+                            <div key={`sk-${skIdx}`} className="p-3 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 space-y-2">
+                              <label htmlFor={`softkey-type-${skIdx}`} className="block text-[10px] font-extrabold text-slate-500 uppercase">
+                                F{skIdx + 1} Tuşu
+                              </label>
+                              <select
+                                id={`softkey-type-${skIdx}`}
+                                value={skItem.type || "history"}
+                                onChange={(e) => {
+                                  const nextType = e.target.value;
+                                  const defLbl = SOFTKEY_ACTIONS.find((a) => a.id === nextType)?.label || nextType;
+                                  setInspectDraft((prev) => {
+                                    const copy = [...(prev.soft_keys || [])];
+                                    while (copy.length < 4) copy.push({ key: copy.length + 1, type: "history", label: "Geçmiş" });
+                                    copy[skIdx] = { key: skIdx + 1, type: nextType, label: defLbl };
+                                    return { ...prev, soft_keys: copy };
+                                  });
+                                }}
+                                className="w-full text-xs font-semibold px-2.5 py-2 rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950"
+                              >
+                                {SOFTKEY_ACTIONS.map((act) => (
+                                  <option key={act.id} value={act.id}>{act.label}</option>
+                                ))}
+                              </select>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* TAB 3: DİĞER TELEFON AYARLARI */}
+                {inspectTab === "phone_settings" && (
+                  <div id="inspect-panel-phone_settings" role="tabpanel" aria-labelledby="inspect-tab-phone_settings" className="space-y-5">
+                    <div className="p-5 rounded-2xl border border-slate-200/80 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950/40 space-y-3">
+                      <h3 className="text-xs font-extrabold text-slate-800 dark:text-white uppercase tracking-wider">
+                        Ses Kodek Önceliği (Audio Codecs)
+                      </h3>
+                      <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                        Hem Asterisk PJSIP endpoint&apos;ine hem de telefonun otomatik kurulum (autoprovision) dosyasına uygulanır.
+                      </p>
+                      <div className="space-y-2">
+                        {AVAILABLE_SIP_CODECS.map((cdc) => {
+                          const enabledIdx = (inspectDraft.codecs || []).indexOf(cdc.id);
+                          const isEnabled = enabledIdx !== -1;
+                          return (
+                            <div
+                              key={cdc.id}
+                              className={`flex items-center justify-between p-3 rounded-xl border transition-all ${
+                                isEnabled
+                                  ? `bg-white dark:bg-slate-900 ${borderLight}`
+                                  : "bg-slate-100/50 dark:bg-slate-950/30 border-slate-200/60 dark:border-slate-800/60 opacity-65"
+                              }`}
+                            >
+                              <div className="flex items-center gap-3">
+                                <input
+                                  id={`codec-chk-${cdc.id}`}
+                                  type="checkbox"
+                                  checked={isEnabled}
+                                  onChange={() => toggleCodec(cdc.id)}
+                                  className="w-4 h-4 rounded"
+                                />
+                                <label htmlFor={`codec-chk-${cdc.id}`} className="cursor-pointer">
+                                  <span className="text-xs font-extrabold text-slate-800 dark:text-white">{cdc.label}</span>
+                                  <span className="text-[11px] text-slate-500 dark:text-slate-400 ml-2">{cdc.desc}</span>
+                                </label>
+                              </div>
+                              {isEnabled && (
+                                <div className="flex items-center gap-1.5">
+                                  <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${lightBg} ${text}`}>
+                                    Öncelik #{enabledIdx + 1}
+                                  </span>
+                                  <button
+                                    type="button"
+                                    onClick={() => moveCodec(cdc.id, -1)}
+                                    disabled={enabledIdx === 0}
+                                    className="p-1 rounded-lg bg-slate-100 dark:bg-slate-800 disabled:opacity-30"
+                                    aria-label={`${cdc.label} Önceliğini Yükselt`}
+                                  >
+                                    <ArrowUp size={13} />
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => moveCodec(cdc.id, 1)}
+                                    disabled={enabledIdx === (inspectDraft.codecs || []).length - 1}
+                                    className="p-1 rounded-lg bg-slate-100 dark:bg-slate-800 disabled:opacity-30"
+                                    aria-label={`${cdc.label} Önceliğini Düşür`}
+                                  >
+                                    <ArrowDown size={13} />
+                                  </button>
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                      <div>
+                        <label htmlFor="inspect-dtmf-select" className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1.5">
+                          DTMF Tuşlama Modu
+                        </label>
+                        <select
+                          id="inspect-dtmf-select"
+                          value={inspectDraft.dtmf_mode || "rfc4733"}
+                          onChange={(e) => setInspectDraft((prev) => ({ ...prev, dtmf_mode: e.target.value }))}
+                          className="w-full text-xs font-semibold px-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950"
+                        >
+                          <option value="rfc4733">RFC 4733 / RFC 2833 (Önerilen)</option>
+                          <option value="info">SIP INFO</option>
+                          <option value="inband">Inband (Ses İçi)</option>
+                        </select>
+                      </div>
+
+                      <div>
+                        <label htmlFor="inspect-lang-select" className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1.5">
+                          Telefon Ekran Dili
+                        </label>
+                        <select
+                          id="inspect-lang-select"
+                          value={inspectDraft.language || "Turkish"}
+                          onChange={(e) => setInspectDraft((prev) => ({ ...prev, language: e.target.value }))}
+                          className="w-full text-xs font-semibold px-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950"
+                        >
+                          <option value="Turkish">Türkçe</option>
+                          <option value="English">English</option>
+                        </select>
+                      </div>
+
+                      <div>
+                        <label htmlFor="inspect-tz-select" className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1.5">
+                          Saat Dilimi
+                        </label>
+                        <select
+                          id="inspect-tz-select"
+                          value={inspectDraft.timezone || "+3"}
+                          onChange={(e) => setInspectDraft((prev) => ({ ...prev, timezone: e.target.value }))}
+                          className="w-full text-xs font-semibold px-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950"
+                        >
+                          <option value="+3">GMT+3 (Türkiye)</option>
+                          <option value="+2">GMT+2 (Avrupa / KKTC Kış)</option>
+                          <option value="+1">GMT+1 (Orta Avrupa)</option>
+                          <option value="+0">GMT+0 (UTC / Londra)</option>
+                        </select>
+                      </div>
+
+                      <div>
+                        <label htmlFor="inspect-ntp-input" className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1.5">
+                          NTP Saat Sunucusu
+                        </label>
+                        <input
+                          id="inspect-ntp-input"
+                          type="text"
+                          autoCorrect="off"
+                          autoCapitalize="off"
+                          spellCheck={false}
+                          value={inspectDraft.ntp_server || "pool.ntp.org"}
+                          onChange={(e) => setInspectDraft((prev) => ({ ...prev, ntp_server: e.target.value }))}
+                          className="w-full text-xs font-mono px-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      <div className="flex items-center justify-between p-4 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-950/40">
+                        <div>
+                          <div className="text-xs font-bold text-slate-800 dark:text-white">İnterkom / Otomatik Cevap (Auto-Answer)</div>
+                          <div className="text-[11px] text-slate-500 dark:text-slate-400">İç interkom çağrılarında ahizeyi kaldırmadan hoparlörden yanıtlar.</div>
+                        </div>
+                        <button
+                          type="button"
+                          role="switch"
+                          aria-checked={Boolean(inspectDraft.auto_answer)}
+                          aria-label="İnterkom Otomatik Cevap"
+                          onClick={() => setInspectDraft((prev) => ({ ...prev, auto_answer: !prev.auto_answer }))}
+                        >
+                          {inspectDraft.auto_answer ? <ToggleRight size={28} className={text} /> : <ToggleLeft size={28} className="text-slate-400" />}
+                        </button>
+                      </div>
+
+                      <div className="flex items-center justify-between p-4 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-950/40">
+                        <div>
+                          <div className="text-xs font-bold text-slate-800 dark:text-white">Doğrudan IP Çağrı Engeli (Ghost Call Koruması)</div>
+                          <div className="text-[11px] text-slate-500 dark:text-slate-400">Santral dışı sahte SIP tarama aramalarının telefonu çaldırmasını engeller.</div>
+                        </div>
+                        <button
+                          type="button"
+                          role="switch"
+                          aria-checked={inspectDraft.direct_ip_call_block !== false}
+                          aria-label="Doğrudan IP Çağrı Engeli"
+                          onClick={() => setInspectDraft((prev) => ({ ...prev, direct_ip_call_block: prev.direct_ip_call_block === false }))}
+                        >
+                          {inspectDraft.direct_ip_call_block !== false ? <ToggleRight size={28} className={text} /> : <ToggleLeft size={28} className="text-slate-400" />}
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* TAB 4: PJSIP DAHİLİ DETAY (pjsip show endpoint) */}
+                {inspectTab === "pjsip" && (
+                  <div id="inspect-panel-pjsip" role="tabpanel" aria-labelledby="inspect-tab-pjsip" className="space-y-4">
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                      <div className="p-3 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-950/40">
+                        <div className="text-[10px] font-bold text-slate-400 uppercase">Endpoint / Context</div>
+                        <div className="text-xs font-extrabold font-mono text-slate-800 dark:text-white mt-1 truncate">
+                          {inspectDraft.sip_username} / {pjsipData.context || "webrtc_agents"}
+                        </div>
+                      </div>
+                      <div className="p-3 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-950/40">
+                        <div className="text-[10px] font-bold text-slate-400 uppercase">İzinli Kodekler (allow)</div>
+                        <div className="text-xs font-extrabold font-mono text-slate-800 dark:text-white mt-1 truncate">
+                          {pjsipData.allow || (inspectDraft.codecs || []).join(",")}
+                        </div>
+                      </div>
+                      <div className="p-3 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-950/40">
+                        <div className="text-[10px] font-bold text-slate-400 uppercase">CallerID &amp; DTMF</div>
+                        <div className="text-xs font-extrabold font-mono text-slate-800 dark:text-white mt-1 truncate">
+                          {pjsipData.callerid || `${extension}`} • {pjsipData.dtmf_mode || inspectDraft.dtmf_mode || "rfc4733"}
+                        </div>
+                      </div>
+                      <div className="p-3 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-950/40">
+                        <div className="text-[10px] font-bold text-slate-400 uppercase">Çağrı Toplama / Max Kayıt</div>
+                        <div className="text-xs font-extrabold font-mono text-slate-800 dark:text-white mt-1 truncate">
+                          {pjsipData.named_pickup_group || "Yok"} • Max: {pjsipData.max_contacts || inspectDraft.max_activations || 1}
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="rounded-2xl border border-slate-800 bg-slate-950 overflow-hidden">
+                      <div className="flex items-center justify-between px-4 py-2.5 border-b border-slate-800 bg-slate-900/90">
+                        <div className="flex items-center gap-2 text-xs font-mono font-bold text-slate-200">
+                          <Terminal size={14} className="text-emerald-400" />
+                          <span>asterisk -rx &quot;pjsip show endpoint {inspectDraft.sip_username}&quot;</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={() => fetchSipDeviceInspection(extension, inspectDraft.sip_username)}
+                            disabled={inspectLoading}
+                            className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-bold bg-slate-800 hover:bg-slate-700 text-slate-200 transition-colors"
+                          >
+                            <RefreshCw size={12} className={inspectLoading ? "animate-spin" : ""} />
+                            <span>Yenile</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => copyTextWithFeedback(pjsipData.raw_output || "", "pjsip-raw")}
+                            className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-bold bg-slate-800 hover:bg-slate-700 text-slate-200 transition-colors"
+                          >
+                            {copiedDeviceKey === "pjsip-raw" ? <Check size={12} className="text-emerald-400" /> : <Copy size={12} />}
+                            <span>Kopyala</span>
+                          </button>
+                        </div>
+                      </div>
+                      <pre className="p-4 text-[11px] leading-relaxed font-mono text-emerald-300/95 overflow-x-auto max-h-80 whitespace-pre">
+                        {inspectLoading
+                          ? "Asterisk PJSIP endpoint bilgileri sorgulanıyor..."
+                          : (pjsipData.raw_output || "Henüz çıktı yok. Kullanıcıyı kaydettikten sonra 'Yenile' butonuna tıklayın.") +
+                            (pjsipData.contact_raw_output ? `\n\n--- pjsip show contact ---\n${pjsipData.contact_raw_output}` : "")}
+                      </pre>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Footer */}
+              <div className="flex items-center justify-between gap-3 px-6 py-4 border-t border-slate-100 dark:border-slate-800/60 bg-slate-50/40 dark:bg-slate-950/30 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => {
+                    const target = inspectDraft;
+                    setIsSipDeviceInspectOpen(false);
+                    openSipDeviceEditModal(target);
+                  }}
+                  className="inline-flex items-center gap-1.5 px-3.5 py-2.5 rounded-xl text-xs font-bold border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700 transition-all"
+                >
+                  <Edit2 size={13} />
+                  <span>SIP Kimlik Bilgilerini Düzenle</span>
+                </button>
+                <div className="flex items-center gap-2.5">
+                  <button
+                    type="button"
+                    onClick={() => setIsSipDeviceInspectOpen(false)}
+                    className="px-5 py-2.5 rounded-xl text-xs font-bold border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700 transition-all"
+                  >
+                    Kapat
+                  </button>
+                  <button
+                    type="button"
+                    disabled={inspectSaving}
+                    onClick={handleApplyInspectChanges}
+                    className={`px-5 py-2.5 rounded-xl text-xs font-bold text-white ${bg} ${hover} transition-all shadow-sm disabled:opacity-50`}
+                  >
+                    {inspectSaving ? "Uygulanıyor..." : "Değişiklikleri Uygula"}
+                  </button>
+                </div>
+              </div>
+            </div>
+          );
+        })()}
+      </dialog>
+
+      {/* Confirm Delete Modal for SIP Cihazı */}
+      <ConfirmDeleteModal
+        isOpen={!!sipDeviceDeleteTarget}
+        onClose={() => setSipDeviceDeleteTarget(null)}
+        onConfirm={confirmDeleteSipDevice}
+        title="SIP Cihazını Sil"
+        message={`'${sipDeviceDeleteTarget?.name || ""}' (${sipDeviceDeleteTarget?.sip_username || ""}) SIP cihazını silmek istediğinize emin misiniz? Bu işlem geri alınamaz.`}
+      />
 
       {/* Confirm Delete Modal */}
       <ConfirmDeleteModal

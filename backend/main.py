@@ -697,6 +697,7 @@ class UserSchema(BaseModel):
     wallboard_layout: Optional[dict] = None
     max_concurrent_outbound: Optional[int] = None
     outbound_quarantined: Optional[bool] = None
+    sip_devices: Optional[List[dict]] = None
 
 def generate_strong_sip_password(length=24):
     alphabet = string.ascii_letters + string.digits + "!@#$%^&*"
@@ -1606,6 +1607,7 @@ def load_settings():
                 ("wallboard_layout", "ALTER TABLE system_users ADD COLUMN IF NOT EXISTS wallboard_layout JSON DEFAULT '{}';"),
                 ("max_concurrent_outbound", "ALTER TABLE system_users ADD COLUMN IF NOT EXISTS max_concurrent_outbound INTEGER DEFAULT 0;"),
                 ("outbound_quarantined", "ALTER TABLE system_users ADD COLUMN IF NOT EXISTS outbound_quarantined BOOLEAN DEFAULT FALSE;"),
+                ("sip_devices", "ALTER TABLE system_users ADD COLUMN IF NOT EXISTS sip_devices JSON DEFAULT '[]';"),
             ):
                 if existing_cols and col_name in existing_cols:
                     continue
@@ -3210,7 +3212,33 @@ trust_id_inbound={trust_id_in}
     conf_content += "; DINAMIK OLARAK OLUŞTURULAN KULLANICI (DAHILI) AYARLARI\n"
     conf_content += "; ==========================================\n"
 
+    from backend.services.autoprovision_service import (
+        resolve_user_sip_username,
+        normalize_user_sip_devices,
+        ensure_pjsip_notify_conf,
+    )
+    ensure_pjsip_notify_conf(ASTERISK_CONFIG_DIR)
+    ap_all = settings_db.get("autoprovision", [])
+    dp_all = settings_db.get("user_deskphone_configs", {})
+    pickup_groups_all = settings_db.get("call_pickup_groups", [])
+
+    def _resolve_user_pickup_group_names(u_obj: dict, ext_val: str) -> str:
+        uid_val = u_obj.get("id")
+        matched_names = []
+        for idx_pg, pg in enumerate(pickup_groups_all):
+            if not isinstance(pg, dict):
+                continue
+            exts = pg.get("extensions") or []
+            if (uid_val is not None and (uid_val in exts or str(uid_val) in [str(x) for x in exts])) or (
+                ext_val and ext_val in [str(x) for x in exts]
+            ):
+                pg_token = re.sub(r"[^a-zA-Z0-9_-]", "", str(pg.get("id") or f"pg{idx_pg + 1}"))[:24] or f"pg{idx_pg + 1}"
+                if pg_token not in matched_names:
+                    matched_names.append(pg_token)
+        return ",".join(matched_names)
+
     seen_exts = set()
+    seen_sip_eps = set()
     for u in users_list:
         is_act = u.get("is_active") if "is_active" in u else True
         if not is_act:
@@ -3219,15 +3247,16 @@ trust_id_inbound={trust_id_in}
         if not ext or ext in seen_exts:
             continue
         seen_exts.add(ext)
-        from backend.services.autoprovision_service import resolve_user_sip_username
+        seen_sip_eps.add(ext.lower())
         pwd = resolve_secure_sip_password(ext, u.get("sip_password") or "")
         name = u.get("full_name") or u.get("username") or ext
-        sip_user = resolve_user_sip_username(ext, u.get("sip_username") or "")
         try:
             max_act = max(5, int(u.get("max_activations") or 5))
         except Exception:
             max_act = 5
-        
+        pg_names = _resolve_user_pickup_group_names(u, ext)
+        pg_lines = f"named_call_group={pg_names}\nnamed_pickup_group={pg_names}\n" if pg_names else ""
+
         conf_content += f"\n; --- USER: {name} ({ext}) ---\n"
         conf_content += f"""[{ext}]
 type=endpoint
@@ -3249,7 +3278,7 @@ media_use_received_transport=yes
 send_pai=yes
 send_rpid=yes
 rpid_immediate=yes
-auth={ext}-auth
+{pg_lines}auth={ext}-auth
 aors={ext}
 callerid={name} <{ext}>
 
@@ -3264,13 +3293,38 @@ type=aor
 max_contacts={max_act}
 remove_existing=yes
 """
-        if sip_user and sip_user != ext:
+        user_devices = normalize_user_sip_devices(u, ap_all, dp_all, fallback_password_fn=resolve_secure_sip_password)
+        for dev in user_devices:
+            if dev.get("is_active") is False:
+                continue
+            dev_su = str(dev.get("sip_username") or "").strip()
+            if not dev_su or dev_su.lower() in seen_sip_eps:
+                continue
+            seen_sip_eps.add(dev_su.lower())
+            dev_pwd = resolve_secure_sip_password(ext, dev.get("sip_password") or pwd)
+            dev_codecs = ",".join(dev.get("codecs") or ["g722", "alaw", "ulaw", "g729"])
+            dev_dtmf = str(dev.get("dtmf_mode") or "rfc4733").strip().lower()
+            if dev_dtmf not in ("rfc4733", "info", "inband"):
+                dev_dtmf = "rfc4733"
+            try:
+                dev_max_c = max(1, min(5, int(dev.get("max_activations") or 1)))
+            except Exception:
+                dev_max_c = 2
+            dev_tr_raw = str(dev.get("transport") or "").strip().upper()
+            dev_tr_line = ""
+            if dev_tr_raw == "TLS":
+                dev_tr_line = "transport=transport-tls\nmedia_encryption=sdes\n"
+            elif dev_tr_raw == "TCP":
+                dev_tr_line = "transport=transport-tcp\n"
+
             conf_content += f"""
-[{sip_user}]
+; --- SIP DEVICE: {dev.get('name') or dev_su} ({ext}) ---
+[{dev_su}]
 type=endpoint
-context=webrtc_agents
+{dev_tr_line}context=webrtc_agents
 disallow=all
-allow=ulaw,alaw,g722,g729
+allow={dev_codecs}
+dtmf_mode={dev_dtmf}
 direct_media=no
 force_rport=yes
 rewrite_contact=yes
@@ -3278,19 +3332,19 @@ rtp_symmetric=yes
 send_pai=yes
 send_rpid=yes
 rpid_immediate=yes
-auth={sip_user}-auth
-aors={sip_user}
+{pg_lines}auth={dev_su}-auth
+aors={dev_su}
 callerid={name} <{ext}>
 
-[{sip_user}-auth]
+[{dev_su}-auth]
 type=auth
 auth_type=userpass
-username={sip_user}
-password={pwd}
+username={dev_su}
+password={dev_pwd}
 
-[{sip_user}]
+[{dev_su}]
 type=aor
-max_contacts={max_act}
+max_contacts={dev_max_c}
 remove_existing=yes
 qualify_frequency=30
 """
@@ -3773,7 +3827,10 @@ same => n,Hangup()
 
     dynamic_feature_dialplan = "\n".join(feat_blocks)
 
-    from backend.services.autoprovision_service import resolve_user_sip_username as _res_sip_u_ext
+    from backend.services.autoprovision_service import (
+        resolve_user_sip_username as _res_sip_u_ext,
+        normalize_user_sip_devices as _norm_devs_ext,
+    )
     users_for_hints = []
     try:
         from backend.database.config import SyncSessionLocal
@@ -3786,6 +3843,12 @@ same => n,Hangup()
         pass
     if not users_for_hints:
         users_for_hints = settings_db.get("users", [])
+    else:
+        disk_by_e = {str(du.get("extension")): du for du in settings_db.get("users", []) if du.get("extension")}
+        for uh_i in users_for_hints:
+            de_m = disk_by_e.get(str(uh_i.get("extension") or ""))
+            if de_m and not uh_i.get("sip_devices") and de_m.get("sip_devices"):
+                uh_i["sip_devices"] = de_m.get("sip_devices")
 
     hint_lines = []
     seen_hint_exts = set()
@@ -3796,11 +3859,14 @@ same => n,Hangup()
         if not h_ext or h_ext in seen_hint_exts:
             continue
         seen_hint_exts.add(h_ext)
-        h_sip = _res_sip_u_ext(h_ext, u_h.get("sip_username") or "")
-        if h_sip and h_sip != h_ext:
-            hint_lines.append(f"exten => {h_ext},hint,PJSIP/{h_ext}&PJSIP/{h_sip}")
-        else:
-            hint_lines.append(f"exten => {h_ext},hint,PJSIP/{h_ext}")
+        hint_targets = [f"PJSIP/{h_ext}"]
+        for hd in _norm_devs_ext(u_h):
+            if hd.get("is_active") is False:
+                continue
+            hd_su = str(hd.get("sip_username") or "").strip()
+            if hd_su and hd_su != h_ext and f"PJSIP/{hd_su}" not in hint_targets:
+                hint_targets.append(f"PJSIP/{hd_su}")
+        hint_lines.append(f"exten => {h_ext},hint,{'&'.join(hint_targets)}")
     if "1000" not in seen_hint_exts:
         h_sip_1000 = _res_sip_u_ext("1000", "")
         hint_lines.append(f"exten => 1000,hint,PJSIP/1000&PJSIP/{h_sip_1000}")
@@ -4215,17 +4281,13 @@ same => n,Set(FWD_TIMEOUT=${{CUT(FWD_PRE,:,3)}})
 same => n,Set(DIAL_TIMEOUT=${{IF($[${{ISNULL(${{FWD_TIMEOUT}})}} | "${{FWD_TIMEOUT}}"=""]?30:${{FWD_TIMEOUT}})}})
 same => n,GotoIf($["${{FWD_STATUS}}"="ALLOW"]?forward_call:dial_pjsip)
 
-; 2. PJSIP Dahili Arama (WebPhone + Masa Telefonu Eşzamanlı, Profil veya Yönlendirme Zaman Aşımı Süresi)
-same => n(dial_pjsip),Set(AG_RING_CFG=${{CURL(http://{backend_host}/api/subscriber/resolve_agent_ring_targets?extension=${{EXTEN}})}})
-same => n,GotoIf($["${{AG_RING_CFG}}" = "NONE"]?after_dial_pjsip)
-same => n,Set(WEB_EP=${{CUT(AG_RING_CFG,:,1)}})
-same => n,Set(DESK_EP=${{CUT(AG_RING_CFG,:,2)}})
-same => n,Set(WEB_CONTACTS=${{IF($["${{WEB_EP}}" != ""]?${{PJSIP_DIAL_CONTACTS(${{WEB_EP}})}}:)}})
-same => n,Set(DESK_CONTACTS=${{IF($["${{DESK_EP}}" != ""]?${{PJSIP_DIAL_CONTACTS(${{DESK_EP}})}}:)}})
-same => n,Set(TARGET_CONTACTS=${{IF($["${{WEB_CONTACTS}}" != "" & "${{DESK_CONTACTS}}" != ""]?${{WEB_CONTACTS}}&${{DESK_CONTACTS}}:${{IF($["${{WEB_CONTACTS}}" != ""]?${{WEB_CONTACTS}}:${{DESK_CONTACTS}})}})}})
-same => n,Set(FB_PJSIP=${{IF($["${{WEB_EP}}" != "" & "${{DESK_EP}}" != ""]?PJSIP/${{WEB_EP}}&PJSIP/${{DESK_EP}}:${{IF($["${{WEB_EP}}" != ""]?PJSIP/${{WEB_EP}}:PJSIP/${{DESK_EP}})}})}})
-same => n,Set(DIAL_STR=${{IF($["${{TARGET_CONTACTS}}"=""]?${{FB_PJSIP}}:${{TARGET_CONTACTS}})}})
-same => n,NoOp(PJSIP Dahiliye Arama Yapiliyor [WebPhone + Masa Telefonu]: ${{DIAL_STR}} Timeout=${{DIAL_TIMEOUT}}s)
+; 2. PJSIP Dahili Arama (WebPhone + Tüm Aktif SIP Cihazları Eşzamanlı)
+same => n(dial_pjsip),Set(AG_RING_CFG=${{CURL(http://{backend_host}/api/subscriber/resolve_agent_ring_targets?extension=${{EXTEN}}&format=list)}})
+same => n,GotoIf($["${{AG_RING_CFG}}" = "NONE" | "${{AG_RING_CFG}}" = ""]?after_dial_pjsip)
+same => n,Gosub(build_multi_pjsip_dial_sub,s,1(${{AG_RING_CFG}}))
+same => n,Set(DIAL_STR=${{GOSUB_RETVAL}})
+same => n,GotoIf($["${{DIAL_STR}}" = ""]?after_dial_pjsip)
+same => n,NoOp(PJSIP Dahiliye Arama Yapiliyor [WebPhone + SIP Cihazlari]: ${{DIAL_STR}} Timeout=${{DIAL_TIMEOUT}}s)
 same => n,Dial(${{DIAL_STR}},${{DIAL_TIMEOUT}},tTg)
 same => n(after_dial_pjsip),NoOp(PJSIP Arama Sonucu: ${{DIALSTATUS}})
 same => n,GotoIf($["${{DIALSTATUS}}"="ANSWER"]?end_call)
@@ -4258,14 +4320,11 @@ same => n,Answer()
 same => n,Playback(/var/spool/asterisk/monitor/tr_sesli_mesaj)
 same => n,Hangup()
 
-same => n(dial_internal_fwd),NoOp(Ic Dahili / Masa Telefonu Yonlendirme: ${{FWD_TARGET}} Timeout=${{STEP_TIMEOUT}}s)
-same => n,Set(FWD_AG_CFG=${{CURL(http://{backend_host}/api/subscriber/resolve_agent_ring_targets?extension=${{FWD_TARGET}})}})
-same => n,Set(F_WEB_EP=${{IF($["${{FWD_AG_CFG}}" != "NONE"]?${{CUT(FWD_AG_CFG,:,1)}}:${{FWD_TARGET}})}})
-same => n,Set(F_DESK_EP=${{IF($["${{FWD_AG_CFG}}" != "NONE"]?${{CUT(FWD_AG_CFG,:,2)}}:)}})
-same => n,Set(F_WEB_C=${{IF($["${{F_WEB_EP}}" != ""]?${{PJSIP_DIAL_CONTACTS(${{F_WEB_EP}})}}:)}})
-same => n,Set(F_DESK_C=${{IF($["${{F_DESK_EP}}" != ""]?${{PJSIP_DIAL_CONTACTS(${{F_DESK_EP}})}}:)}})
-same => n,Set(F_COMB_C=${{IF($["${{F_WEB_C}}" != "" & "${{F_DESK_C}}" != ""]?${{F_WEB_C}}&${{F_DESK_C}}:${{IF($["${{F_WEB_C}}" != ""]?${{F_WEB_C}}:${{F_DESK_C}})}})}})
-same => n,Set(F_DIAL_STR=${{IF($["${{F_COMB_C}}" != ""]?${{F_COMB_C}}:PJSIP/${{FWD_TARGET}})}})
+same => n(dial_internal_fwd),NoOp(Ic Dahili / SIP Cihazlari Yonlendirme: ${{FWD_TARGET}} Timeout=${{STEP_TIMEOUT}}s)
+same => n,Set(FWD_AG_CFG=${{CURL(http://{backend_host}/api/subscriber/resolve_agent_ring_targets?extension=${{FWD_TARGET}}&format=list)}})
+same => n,GotoIf($["${{FWD_AG_CFG}}" = "NONE" | "${{FWD_AG_CFG}}" = ""]?check_step2)
+same => n,Gosub(build_multi_pjsip_dial_sub,s,1(${{FWD_AG_CFG}}))
+same => n,Set(F_DIAL_STR=${{IF($["${{GOSUB_RETVAL}}" != ""]?${{GOSUB_RETVAL}}:PJSIP/${{FWD_TARGET}})}})
 same => n,Dial(${{F_DIAL_STR}},${{STEP_TIMEOUT}},tTg)
 same => n,GotoIf($["${{DIALSTATUS}}"="ANSWER"]?end_call:check_step2)
 
@@ -4343,25 +4402,34 @@ same => n,Progress()
 same => n,Playback(beeperr,noanswer)
 same => n,Hangup(28)
 
+[build_multi_pjsip_dial_sub]
+; ARG1 = & ile ayrilmis PJSIP endpoint listesi (orn: 1000&Ab8kP2x9&EvTel2)
+exten => s,1,Set(MP_LIST=${{ARG1}})
+same => n,Set(MP_CONTACTS=)
+same => n,Set(MP_FB=)
+same => n,Set(MP_IDX=1)
+same => n(mp_loop),Set(MP_EP=${{CUT(MP_LIST,&,${{MP_IDX}})}})
+same => n,GotoIf($["${{MP_EP}}" = ""]?mp_done)
+same => n,Set(MP_CUR_C=${{PJSIP_DIAL_CONTACTS(${{MP_EP}})}})
+same => n,Set(MP_CONTACTS=${{IF($["${{MP_CUR_C}}" != ""]?${{IF($["${{MP_CONTACTS}}" != ""]?${{MP_CONTACTS}}&${{MP_CUR_C}}:${{MP_CUR_C}})}}:${{MP_CONTACTS}})}})
+same => n,Set(MP_FB=${{IF($["${{MP_FB}}" != ""]?${{MP_FB}}&PJSIP/${{MP_EP}}:PJSIP/${{MP_EP}})}})
+same => n,Set(MP_IDX=$[${{MP_IDX}} + 1])
+same => n,Goto(mp_loop)
+same => n(mp_done),Set(MP_OUT=${{IF($["${{MP_CONTACTS}}" != ""]?${{MP_CONTACTS}}:${{MP_FB}})}})
+same => n,Return(${{MP_OUT}})
+
 [queue_agent_ring]
-; Kuyruk aramalarında temsilcinin hem WebPhone hem de Masa Telefonunu (IP Telefon) Kuyruk CallerID bilgisiyle eşzamanlı çaldırır
+; Kuyruk aramalarında temsilcinin hem WebPhone hem de tüm aktif SIP Cihazlarını Kuyruk CallerID bilgisiyle eşzamanlı çaldırır
 exten => _[1-9]X.,1,NoOp(Kuyruk Temsilci Cihaz Dagitim: Dahili=${{EXTEN}}, CallerID=${{CALLERID(all)}})
 same => n,Set(CURLOPT(conntimeout)=1)
 same => n,Set(CURLOPT(httptimeout)=2)
-same => n,Set(AG_RING_CFG=${{CURL(http://{backend_host}/api/subscriber/resolve_agent_ring_targets?extension=${{EXTEN}})}})
-same => n,GotoIf($["${{AG_RING_CFG}}" = "NONE"]?ag_unavailable)
-same => n,Set(WEB_EP=${{CUT(AG_RING_CFG,:,1)}})
-same => n,Set(DESK_EP=${{CUT(AG_RING_CFG,:,2)}})
-same => n,Set(WEB_TARGETS=${{IF($["${{WEB_EP}}" != ""]?${{PJSIP_DIAL_CONTACTS(${{WEB_EP}})}}:)}})
-same => n,Set(DESK_TARGETS=${{IF($["${{DESK_EP}}" != ""]?${{PJSIP_DIAL_CONTACTS(${{DESK_EP}})}}:)}})
-same => n,Set(COMBINED_TARGETS=${{IF($["${{WEB_TARGETS}}" != "" & "${{DESK_TARGETS}}" != ""]?${{WEB_TARGETS}}&${{DESK_TARGETS}}:${{IF($["${{WEB_TARGETS}}" != ""]?${{WEB_TARGETS}}:${{DESK_TARGETS}})}})}})
-same => n,GotoIf($["${{COMBINED_TARGETS}}" = ""]?ag_fallback_dial)
-same => n,NoOp(Kuyruk Temsilcisi Eszamanli Caldiriliyor [WebPhone + Masa Telefonu]: ${{COMBINED_TARGETS}} | CallerID=${{CALLERID(all)}})
+same => n,Set(AG_RING_CFG=${{CURL(http://{backend_host}/api/subscriber/resolve_agent_ring_targets?extension=${{EXTEN}}&format=list)}})
+same => n,GotoIf($["${{AG_RING_CFG}}" = "NONE" | "${{AG_RING_CFG}}" = ""]?ag_unavailable)
+same => n,Gosub(build_multi_pjsip_dial_sub,s,1(${{AG_RING_CFG}}))
+same => n,Set(COMBINED_TARGETS=${{GOSUB_RETVAL}})
+same => n,GotoIf($["${{COMBINED_TARGETS}}" = "" | "${{COMBINED_TARGETS}}" = "PJSIP/"]?ag_unavailable)
+same => n,NoOp(Kuyruk Temsilcisi Eszamanli Caldiriliyor [WebPhone + SIP Cihazlari]: ${{COMBINED_TARGETS}} | CallerID=${{CALLERID(all)}})
 same => n,Dial(${{COMBINED_TARGETS}},,tTg)
-same => n,Hangup()
-same => n(ag_fallback_dial),Set(FB_DIAL=${{IF($["${{WEB_EP}}" != "" & "${{DESK_EP}}" != ""]?PJSIP/${{WEB_EP}}&PJSIP/${{DESK_EP}}:${{IF($["${{WEB_EP}}" != ""]?PJSIP/${{WEB_EP}}:PJSIP/${{DESK_EP}})}})}})
-same => n,GotoIf($["${{FB_DIAL}}" = "" | "${{FB_DIAL}}" = "PJSIP/"]?ag_unavailable)
-same => n,Dial(${{FB_DIAL}},,tTg)
 same => n,Hangup()
 same => n(ag_unavailable),Hangup(20)
 
@@ -9949,6 +10017,265 @@ async def download_agent_deskphone_cfg(extension: str):
     )
 
 
+def _find_user_and_sip_device(ext_or_id: str, sip_username: str) -> tuple:
+    from backend.services.autoprovision_service import normalize_user_sip_devices
+    ext_s = str(ext_or_id or "").strip()
+    su_low = str(sip_username or "").strip().lower()
+    ap_all = settings_db.get("autoprovision", [])
+    dp_all = settings_db.get("user_deskphone_configs", {})
+    matched_u = None
+    for u in settings_db.get("users", []) or []:
+        if str(u.get("extension") or "").strip() == ext_s or str(u.get("id") or "").strip() == ext_s:
+            matched_u = u
+            break
+    if not matched_u:
+        return None, None
+    devs = normalize_user_sip_devices(matched_u, ap_all, dp_all, fallback_password_fn=resolve_secure_sip_password)
+    matched_dev = next((d for d in devs if str(d.get("sip_username") or "").strip().lower() == su_low), None)
+    if not matched_dev and devs:
+        matched_dev = devs[0]
+    return matched_u, matched_dev
+
+
+@app.get("/api/settings/users/{extension}/sip-devices/{sip_username}/inspect")
+async def inspect_user_sip_device_endpoint(
+    extension: str,
+    sip_username: str,
+    request: Request,
+    user_info: dict = Depends(get_user_info),
+):
+    from backend.services.autoprovision_service import (
+        inspect_asterisk_pjsip_endpoint,
+        get_or_create_provisioning_token,
+        resolve_pbx_sip_server_host,
+        normalize_mac_address,
+        SUPPORTED_PHONE_MODELS,
+    )
+    from backend.services.ami_manager import registered_endpoints
+
+    ext_s = str(extension or "").strip()
+    su_s = re.sub(r"[^a-zA-Z0-9_.-]", "", str(sip_username or "").strip())
+    matched_u, matched_dev = _find_user_and_sip_device(ext_s, su_s)
+    ast_info = inspect_asterisk_pjsip_endpoint(su_s)
+
+    ami_ip = registered_endpoints.get_ip(su_s) or ""
+    ami_online = bool(su_s and su_s in registered_endpoints)
+
+    parsed = ast_info.get("parsed") or {}
+    live_online = bool(ast_info.get("online") or ami_online)
+    live_ip = parsed.get("ip_address") or ami_ip or (matched_dev.get("ip") if matched_dev else "") or ""
+    live_port = parsed.get("port") or ("5060" if live_ip else "")
+
+    pickup_groups_all = settings_db.get("call_pickup_groups", [])
+    user_pickup_labels = []
+    if matched_u:
+        uid_val = matched_u.get("id")
+        for pg in pickup_groups_all:
+            if not isinstance(pg, dict):
+                continue
+            exts = pg.get("extensions") or []
+            if (uid_val is not None and (uid_val in exts or str(uid_val) in [str(x) for x in exts])) or (
+                ext_s and ext_s in [str(x) for x in exts]
+            ):
+                if pg.get("name"):
+                    user_pickup_labels.append(str(pg.get("name")))
+
+    tenant_id = (matched_u.get("tenant_id") if matched_u else None) or user_info.get("tenant_id") or "tenant-default"
+    prov_token = get_or_create_provisioning_token(settings_db, tenant_id)
+    req_host = request.headers.get("host") or ""
+    pbx_host = resolve_pbx_sip_server_host(settings_db, req_host)
+    scheme = request.headers.get("x-forwarded-proto") or request.url.scheme or "http"
+    mac_colon, mac_hex = normalize_mac_address((matched_dev or {}).get("mac") or "")
+    cfg_fname = f"{mac_hex}.cfg" if mac_hex else f"{su_s}.cfg"
+    prov_base_url = f"{scheme}://{req_host or (pbx_host + ':8000')}/api/prov/{prov_token}"
+    prov_file_url = f"{prov_base_url}/{cfg_fname}"
+
+    raw_output = ast_info.get("raw") or ""
+    if not ast_info.get("cli_available") and matched_dev:
+        dev_codecs = ",".join(matched_dev.get("codecs") or ["g722", "alaw", "ulaw", "g729"])
+        dev_dtmf = matched_dev.get("dtmf_mode") or "rfc4733"
+        dev_tr = str(matched_dev.get("transport") or "UDP").upper()
+        u_nm = (matched_u or {}).get("full_name") or ext_s
+        raw_output = (
+            f"# Not: Yerel geliştirme ortamında Asterisk CLI bulunamadı.\n"
+            f"# Üretim sunucusunda canlı `asterisk -rx \"pjsip show endpoint {su_s}\"` çıktısı burada yer alır.\n"
+            f"# Üretilen PJSIP Endpoint Yapılandırması (/etc/asterisk/pjsip_custom.conf):\n\n"
+            f" Endpoint:  {su_s}/CID:{ext_s}                                   {'Not in use' if live_online else 'Unavailable'}   0 of inf\n"
+            f"     OutAuth:  {su_s}-auth/{su_s}\n"
+            f"      InAuth:  {su_s}-auth/{su_s}\n"
+            f"         Aor:  {su_s}                                          {matched_dev.get('max_activations', 1)}\n"
+            f"   ParameterName              : ParameterValue\n"
+            f"   =========================================================\n"
+            f"   allow                      : ({dev_codecs.replace(',', '|')})\n"
+            f"   callerid                   : \"{u_nm}\" <{ext_s}>\n"
+            f"   context                    : webrtc_agents\n"
+            f"   dtmf_mode                  : {dev_dtmf}\n"
+            f"   transport                  : transport-{dev_tr.lower()}\n"
+            f"   named_pickup_group         : {', '.join(user_pickup_labels) or '-'}\n"
+        )
+
+    return {
+        "status": "success",
+        "extension": ext_s,
+        "sip_username": su_s,
+        "online": live_online,
+        "exists_in_asterisk": bool(ast_info.get("exists")),
+        "cli_available": bool(ast_info.get("cli_available")),
+        "ip_address": live_ip,
+        "port": live_port,
+        "rtt_ms": parsed.get("rtt_ms") or "",
+        "user_agent": parsed.get("user_agent") or "",
+        "contacts": ast_info.get("contacts") or [],
+        "parsed": {
+            **parsed,
+            "pickup_groups_display": ", ".join(user_pickup_labels) or "-",
+            "pbx_sip_server": pbx_host,
+        },
+        "provisioning": {
+            "server_url": prov_base_url,
+            "file_url": prov_file_url,
+            "pbx_host": pbx_host,
+        },
+        "supported_models": SUPPORTED_PHONE_MODELS,
+        "raw": raw_output,
+    }
+
+
+@app.post("/api/settings/users/{extension}/sip-devices/{sip_username}/notify")
+async def notify_user_sip_device_endpoint(
+    extension: str,
+    sip_username: str,
+    payload: dict = Body(default={}),
+    user_info: dict = Depends(get_user_info),
+):
+    from backend.services.autoprovision_service import trigger_phone_sip_notify
+    ext_s = str(extension or "").strip()
+    su_s = re.sub(r"[^a-zA-Z0-9_.-]", "", str(sip_username or "").strip())
+    _, matched_dev = _find_user_and_sip_device(ext_s, su_s)
+    brand = str(payload.get("brand") or (matched_dev or {}).get("brand") or "Yealink").strip()
+    reboot = bool(payload.get("reboot", False))
+    ok, msg = trigger_phone_sip_notify(su_s, brand=brand, reboot=reboot)
+    return {
+        "status": "success" if ok else "warning",
+        "sent": ok,
+        "message": msg,
+    }
+
+
+@app.get("/api/settings/users/{extension}/sip-devices/{sip_username}/config-file")
+async def download_user_sip_device_cfg(
+    extension: str,
+    sip_username: str,
+    request: Request,
+):
+    from backend.services.autoprovision_service import generate_provisioning_config, resolve_pbx_sip_server_host
+    ext_s = str(extension or "").strip()
+    su_s = re.sub(r"[^a-zA-Z0-9_.-]", "", str(sip_username or "").strip())
+    matched_u, matched_dev = _find_user_and_sip_device(ext_s, su_s)
+    if not matched_u or not matched_dev:
+        raise HTTPException(status_code=404, detail="Kullanıcı veya SIP cihazı bulunamadı.")
+
+    pbx_cfg = settings_db.get("pbx", {}) if isinstance(settings_db.get("pbx"), dict) else {}
+    pickup_cfg = ((pbx_cfg.get("numbering_plan") or {}).get("call_pickup") or {})
+    pickup_group = str(pickup_cfg.get("group") or "*8").strip() or "*8"
+    pickup_directed = str(pickup_cfg.get("directed") or "**").strip() or "**"
+    pbx_host = resolve_pbx_sip_server_host(settings_db, request.headers.get("host") or "")
+
+    content_text, media_type, fname = generate_provisioning_config(
+        ext=ext_s,
+        sip_username=su_s,
+        sip_password=str(matched_dev.get("sip_password") or ""),
+        full_name=str(matched_u.get("full_name") or f"Dahili {ext_s}"),
+        pbx_host=pbx_host,
+        brand=str(matched_dev.get("brand") or "Yealink"),
+        model=str(matched_dev.get("model") or "T46U"),
+        mac_colon=str(matched_dev.get("mac") or ""),
+        transport=str(matched_dev.get("transport") or "UDP"),
+        dss_keys=matched_dev.get("dss_keys") or [],
+        soft_keys=matched_dev.get("soft_keys") or [],
+        pickup_group=pickup_group,
+        pickup_directed=pickup_directed,
+        codecs=matched_dev.get("codecs") or ["g722", "alaw", "ulaw", "g729"],
+        dtmf_mode=str(matched_dev.get("dtmf_mode") or "rfc4733"),
+        language=str(matched_dev.get("language") or "Turkish"),
+        timezone=str(matched_dev.get("timezone") or "+3"),
+        ntp_server=str(matched_dev.get("ntp_server") or "pool.ntp.org"),
+        auto_answer=bool(matched_dev.get("auto_answer", False)),
+        direct_ip_call_block=matched_dev.get("direct_ip_call_block") is not False,
+    )
+    return Response(
+        content=content_text,
+        media_type=media_type,
+        headers={"Content-Disposition": f'attachment; filename="{fname}"'},
+    )
+
+
+@app.get("/api/prov/{token}/{filename}")
+async def serve_sip_device_autoprovision_file(token: str, filename: str, request: Request):
+    from backend.services.autoprovision_service import (
+        resolve_tenant_by_provisioning_token,
+        extract_mac_from_provision_filename,
+        normalize_mac_address,
+        normalize_user_sip_devices,
+        generate_yealink_common_boot_cfg,
+        generate_provisioning_config,
+        resolve_pbx_sip_server_host,
+    )
+    tenant_id = resolve_tenant_by_provisioning_token(settings_db, token)
+    if not tenant_id:
+        raise HTTPException(status_code=403, detail="Geçersiz provizyon anahtarı.")
+
+    fn_clean = str(filename or "").strip()
+    if re.match(r"^y0000000000\d+\.cfg$", fn_clean, re.IGNORECASE):
+        return PlainTextResponse(generate_yealink_common_boot_cfg())
+
+    mac_hex = extract_mac_from_provision_filename(fn_clean)
+    stem = os.path.splitext(fn_clean)[0]
+    ap_all = settings_db.get("autoprovision", [])
+    dp_all = settings_db.get("user_deskphone_configs", {})
+    pbx_host = resolve_pbx_sip_server_host(settings_db, request.headers.get("host") or "")
+    pbx_cfg = settings_db.get("pbx", {}) if isinstance(settings_db.get("pbx"), dict) else {}
+    pickup_cfg = ((pbx_cfg.get("numbering_plan") or {}).get("call_pickup") or {})
+    pickup_group = str(pickup_cfg.get("group") or "*8").strip() or "*8"
+    pickup_directed = str(pickup_cfg.get("directed") or "**").strip() or "**"
+
+    for u in settings_db.get("users", []) or []:
+        u_tid = u.get("tenant_id") or "tenant-default"
+        if tenant_id not in ("all", "global") and u_tid != tenant_id:
+            continue
+        ext_s = str(u.get("extension") or "").strip()
+        for dev in normalize_user_sip_devices(u, ap_all, dp_all, fallback_password_fn=resolve_secure_sip_password):
+            _, dev_mac_hex = normalize_mac_address(dev.get("mac") or "")
+            dev_su = str(dev.get("sip_username") or "").strip()
+            if (mac_hex and dev_mac_hex == mac_hex) or (dev_su and dev_su.lower() == stem.lower()):
+                content_text, media_type, _ = generate_provisioning_config(
+                    ext=ext_s,
+                    sip_username=dev_su,
+                    sip_password=str(dev.get("sip_password") or ""),
+                    full_name=str(u.get("full_name") or f"Dahili {ext_s}"),
+                    pbx_host=pbx_host,
+                    brand=str(dev.get("brand") or "Yealink"),
+                    model=str(dev.get("model") or "T46U"),
+                    mac_colon=str(dev.get("mac") or ""),
+                    transport=str(dev.get("transport") or "UDP"),
+                    dss_keys=dev.get("dss_keys") or [],
+                    soft_keys=dev.get("soft_keys") or [],
+                    pickup_group=pickup_group,
+                    pickup_directed=pickup_directed,
+                    requested_filename=fn_clean,
+                    codecs=dev.get("codecs") or ["g722", "alaw", "ulaw", "g729"],
+                    dtmf_mode=str(dev.get("dtmf_mode") or "rfc4733"),
+                    language=str(dev.get("language") or "Turkish"),
+                    timezone=str(dev.get("timezone") or "+3"),
+                    ntp_server=str(dev.get("ntp_server") or "pool.ntp.org"),
+                    auto_answer=bool(dev.get("auto_answer", False)),
+                    direct_ip_call_block=dev.get("direct_ip_call_block") is not False,
+                )
+                return Response(content=content_text, media_type=media_type)
+
+    raise HTTPException(status_code=404, detail="Eşleşen SIP cihazı bulunamadı.")
+
+
 # ----------------------------------------------------
 # API Routes: Outbound Rules
 # ----------------------------------------------------
@@ -10122,6 +10449,10 @@ async def save_call_pickup_group(request: Request, user_info: dict = Depends(get
         settings_db["call_pickup_groups"].append(data)
         
     save_settings(settings_db)
+    try:
+        regenerate_pjsip_custom_conf()
+    except Exception:
+        pass
     return {"status": "success", "call_pickup_groups": settings_db["call_pickup_groups"]}
 
 
@@ -10132,6 +10463,10 @@ async def delete_call_pickup_group(group_id: str):
         
     settings_db["call_pickup_groups"] = [g for g in settings_db["call_pickup_groups"] if g.get("id") != group_id]
     save_settings(settings_db)
+    try:
+        regenerate_pjsip_custom_conf()
+    except Exception:
+        pass
     return {"status": "success", "call_pickup_groups": settings_db["call_pickup_groups"]}
 
 # ----------------------------------------------------
@@ -10516,15 +10851,19 @@ async def check_outbound_call(
 
     # 3. WebRTC dahilisi üzerinden UDP/TCP 5060 portu ile sızma kontrolü
     if ("SIP/2.0/UDP" in via_upper or "SIP/2.0/TCP" in via_upper) and "WS" not in via_upper:
-        from backend.services.autoprovision_service import resolve_user_sip_username
+        from backend.services.autoprovision_service import resolve_user_sip_username, normalize_user_sip_devices
         u_match = next((u for u in all_users if str(u.get("extension") or "").strip() == caller_str), None)
-        expected_desk_ep = resolve_user_sip_username(caller_str, (u_match.get("sip_username") if u_match else "") or "")
-        chan_s = str(channel or "").strip()
-        is_desk_endpoint_chan = bool(
-            expected_desk_ep
-            and chan_s.lower().startswith(f"pjsip/{expected_desk_ep.lower()}-")
-        )
-        has_ip_phone = is_desk_endpoint_chan or bool(u_match and str(u_match.get("sip_username") or "").strip())
+        allowed_dev_eps = set()
+        if u_match:
+            expected_desk_ep = resolve_user_sip_username(caller_str, u_match.get("sip_username") or "")
+            if expected_desk_ep:
+                allowed_dev_eps.add(expected_desk_ep.lower())
+            for sdev in normalize_user_sip_devices(u_match):
+                if sdev.get("is_active") is not False and sdev.get("sip_username"):
+                    allowed_dev_eps.add(str(sdev.get("sip_username")).strip().lower())
+        chan_s = str(channel or "").strip().lower()
+        is_desk_endpoint_chan = any(chan_s.startswith(f"pjsip/{ep_l}-") for ep_l in allowed_dev_eps if ep_l)
+        has_ip_phone = is_desk_endpoint_chan or bool(allowed_dev_eps)
         if not has_ip_phone:
             ap_list = settings_db.get("autoprovision", [])
             has_ip_phone = any(str(d.get("extension") or "").strip() == caller_str for d in ap_list)
@@ -10824,16 +11163,18 @@ async def log_invalid_dialplan_call(
     return Response(content="LOGGED", media_type="text/plain")
 
 @app.get("/api/subscriber/resolve_agent_ring_targets")
-async def resolve_agent_ring_targets(extension: str = "", db: AsyncSession = Depends(get_db)):
+async def resolve_agent_ring_targets(extension: str = "", format: str = "", db: AsyncSession = Depends(get_db)):
     """
-    Resolves the WebRTC endpoint and physical IP Desk Phone (Masa Telefonu) endpoint for a subscriber
-    according to their active profile's enabled devices (`web_phone`, `desk_phone`).
-    Returns `<web_ep>:<desk_ep>` (e.g. `1000:Ab8kP2x9`, `1000:`, `:Ab8kP2x9`) or `NONE`.
+    Resolves the WebRTC endpoint and all active SIP Devices (`sip_devices`) for a subscriber
+    according to their active profile's enabled devices (`web_phone`, `desk_phone`, `pc_app`, `mobile_app`).
+    - When `format=list`: returns `&`-joined endpoint list (e.g. `1000&Ab8kP2x9&EvTel2`) or `NONE`.
+    - Default legacy format: returns `<web_ep>:<primary_desk_ep>` or `NONE`.
     """
     from fastapi import Response
-    from backend.services.autoprovision_service import resolve_user_sip_username
+    from backend.services.autoprovision_service import resolve_user_sip_username, normalize_user_sip_devices
 
     ext_str = str(extension or "").strip()
+    fmt_clean = str(format or "").strip().lower()
     if not ext_str:
         return Response(content="NONE", media_type="text/plain")
 
@@ -10851,16 +11192,17 @@ async def resolve_agent_ring_targets(extension: str = "", db: AsyncSession = Dep
             if not user_dict:
                 user_dict = dict(u)
             else:
-                for k in ("sip_username", "active_profile", "profiles", "is_active"):
+                for k in ("sip_username", "sip_devices", "active_profile", "profiles", "is_active"):
                     val = u.get(k)
-                    if val is not None and val != "":
+                    if val is not None and val != "" and val != []:
                         user_dict[k] = val
             break
 
     if not user_dict:
         if ext_str == "1000":
-            return Response(content=f"1000:{resolve_user_sip_username('1000', '')}", media_type="text/plain")
-        return Response(content=f"{ext_str}:", media_type="text/plain")
+            def_su = resolve_user_sip_username("1000", "")
+            return Response(content=(f"1000&{def_su}" if fmt_clean == "list" else f"1000:{def_su}"), media_type="text/plain")
+        return Response(content=(ext_str if fmt_clean == "list" else f"{ext_str}:"), media_type="text/plain")
 
     if user_dict.get("is_active") is False:
         return Response(content="NONE", media_type="text/plain")
@@ -10876,9 +11218,28 @@ async def resolve_agent_ring_targets(extension: str = "", db: AsyncSession = Dep
         return Response(content="NONE", media_type="text/plain")
 
     web_ep = ext_str if ("web_phone" in prof_devices or "pc_app" in prof_devices or "mobile_app" in prof_devices) else ""
-    desk_cand = resolve_user_sip_username(ext_str, user_dict.get("sip_username") or "")
-    desk_ep = desk_cand if ("desk_phone" in prof_devices and desk_cand and desk_cand != ext_str) else ""
+    active_sip_eps = []
+    for sdev in normalize_user_sip_devices(user_dict):
+        if sdev.get("is_active") is False:
+            continue
+        d_su = str(sdev.get("sip_username") or "").strip()
+        if not d_su or d_su == ext_str:
+            continue
+        d_type = str(sdev.get("device_type") or "desk_phone").lower()
+        allowed_by_prof = (
+            ("desk_phone" in prof_devices and d_type in ("desk_phone", "dect"))
+            or (("pc_app" in prof_devices or "mobile_app" in prof_devices or "desk_phone" in prof_devices) and d_type == "softphone")
+        )
+        if allowed_by_prof and d_su not in active_sip_eps:
+            active_sip_eps.append(d_su)
 
+    if fmt_clean == "list":
+        all_eps = ([web_ep] if web_ep else []) + active_sip_eps
+        if not all_eps:
+            return Response(content="NONE", media_type="text/plain")
+        return Response(content="&".join(all_eps), media_type="text/plain")
+
+    desk_ep = active_sip_eps[0] if active_sip_eps else ""
     if not web_ep and not desk_ep:
         return Response(content="NONE", media_type="text/plain")
 
@@ -23447,6 +23808,7 @@ async def startup_event():
                 "ALTER TABLE system_users ADD COLUMN IF NOT EXISTS wallboard_layout JSON DEFAULT '{}';",
                 "ALTER TABLE system_users ADD COLUMN IF NOT EXISTS max_concurrent_outbound INTEGER DEFAULT 0;",
                 "ALTER TABLE system_users ADD COLUMN IF NOT EXISTS outbound_quarantined BOOLEAN DEFAULT FALSE;",
+                "ALTER TABLE system_users ADD COLUMN IF NOT EXISTS sip_devices JSON DEFAULT '[]';",
                 "ALTER TABLE trunks ADD COLUMN IF NOT EXISTS max_channels INTEGER DEFAULT 30;",
                 "ALTER TABLE trunks ADD COLUMN IF NOT EXISTS codecs JSON DEFAULT '[\"alaw\", \"ulaw\", \"g722\", \"g729\"]';",
                 "ALTER TABLE trunks ADD COLUMN IF NOT EXISTS call_limit_enabled BOOLEAN DEFAULT FALSE;",
@@ -23973,6 +24335,8 @@ async def new_get_users_endpoint(request: Request, user_info: dict = Depends(get
                 u["sip_password"] = disk_u.get("sip_password")
             if not u.get("sip_username") and disk_u.get("sip_username"):
                 u["sip_username"] = disk_u.get("sip_username")
+            if not u.get("sip_devices") and disk_u.get("sip_devices"):
+                u["sip_devices"] = disk_u.get("sip_devices")
             if not u.get("two_factor_enabled") and disk_u.get("two_factor_enabled"):
                 u["two_factor_enabled"] = disk_u.get("two_factor_enabled")
             if disk_u.get("two_factor_method") and (not u.get("two_factor_method") or u.get("two_factor_method") == "app"):
@@ -24046,9 +24410,32 @@ async def new_get_users_endpoint(request: Request, user_info: dict = Depends(get
         u["email"] = u.get("email") or ""
         u["theme_mode"] = u.get("theme_mode") or "light"
         u["sip_password"] = resolve_secure_sip_password(ext, u.get("sip_password") or "")
+        from backend.services.autoprovision_service import normalize_user_sip_devices
+        norm_devs = normalize_user_sip_devices(
+            u,
+            settings_db.get("autoprovision", []),
+            settings_db.get("user_deskphone_configs", {}),
+            fallback_password_fn=resolve_secure_sip_password,
+        )
+        online_dev_ip = ""
+        any_dev_reg = False
+        for d_item in norm_devs:
+            d_su = str(d_item.get("sip_username") or "").strip()
+            d_act = d_item.get("is_active") is not False
+            d_on = bool(d_act and d_su and d_su in registered_endpoints)
+            d_live_ip = (registered_endpoints.get_ip(d_su) if d_su else "") or d_item.get("ip") or ""
+            d_item["is_online"] = d_on
+            d_item["live_ip"] = d_live_ip
+            if d_on:
+                any_dev_reg = True
+                if not online_dev_ip and d_live_ip:
+                    online_dev_ip = d_live_ip
+        u["sip_devices"] = norm_devs
+        if norm_devs and not u.get("sip_username"):
+            u["sip_username"] = norm_devs[0].get("sip_username") or ""
         ensure_user_profiles(u)
-        reg_ip = registered_endpoints.get_ip(ext) or registered_endpoints.get_ip(uid)
-        is_reg = bool(ext in registered_endpoints or uid in registered_endpoints)
+        reg_ip = registered_endpoints.get_ip(ext) or registered_endpoints.get_ip(uid) or online_dev_ip
+        is_reg = bool(ext in registered_endpoints or uid in registered_endpoints or any_dev_reg)
         c_state = get_live_user_call_state(ext, is_reg)
         if c_state in ("ringing", "busy"):
             is_reg = True
@@ -24101,9 +24488,17 @@ async def new_save_users_endpoint(payload: Union[List[UserSchema], UserSchema], 
         new_users_out = []
         changes = []
         valid_keys = {c.name for c in SystemUser.__table__.columns}
-        json_cols = {"profiles", "follow_me", "forwarding_always", "forwarding_busy", "forwarding_no_answer", "active_sessions", "managed_users", "managed_queues", "cti_config", "call_panel_prefs", "wallboard_layout"}
+        json_cols = {"profiles", "follow_me", "forwarding_always", "forwarding_busy", "forwarding_no_answer", "active_sessions", "managed_users", "managed_queues", "cti_config", "call_panel_prefs", "wallboard_layout", "sip_devices"}
         saved_payload_by_ext = {}
         saved_payload_by_id = {}
+        from backend.services.autoprovision_service import normalize_user_sip_devices, normalize_mac_address, generate_device_token
+
+        ap_Registry = settings_db.get("autoprovision")
+        if not isinstance(ap_Registry, list):
+            ap_Registry = []
+        dp_Configs = settings_db.get("user_deskphone_configs")
+        if not isinstance(dp_Configs, dict):
+            dp_Configs = {}
 
         for idx, item in enumerate(items_list):
             data = item.model_dump()
@@ -24137,6 +24532,66 @@ async def new_save_users_endpoint(payload: Union[List[UserSchema], UserSchema], 
                 data["managed_queues"] = (getattr(target_user, "managed_queues", None) if target_user else None) or prev_disk.get("managed_queues") or []
             if data.get("cti_config") is None:
                 data["cti_config"] = (getattr(target_user, "cti_config", None) if target_user else None) or prev_disk.get("cti_config") or {}
+            if not isinstance(data.get("cti_config"), dict):
+                data["cti_config"] = {}
+
+            if data.get("sip_devices") is None:
+                prev_devs = (getattr(target_user, "sip_devices", None) if target_user else None)
+                if not prev_devs:
+                    prev_devs = prev_disk.get("sip_devices")
+                data["sip_devices"] = prev_devs
+            elif isinstance(data.get("sip_devices"), list) and len(data.get("sip_devices")) == 0:
+                data["cti_config"]["sip_devices_empty"] = True
+            elif isinstance(data.get("sip_devices"), list) and len(data.get("sip_devices")) > 0:
+                data["cti_config"].pop("sip_devices_empty", None)
+
+            data["sip_devices"] = normalize_user_sip_devices(
+                data,
+                ap_Registry,
+                dp_Configs,
+                fallback_password_fn=resolve_secure_sip_password,
+            )
+            if data["sip_devices"]:
+                first_dev = data["sip_devices"][0]
+                data["sip_username"] = first_dev.get("sip_username") or data.get("sip_username") or ""
+                data["sip_password"] = first_dev.get("sip_password") or data.get("sip_password") or ""
+                data["max_activations"] = int(first_dev.get("max_activations") or data.get("max_activations") or 1)
+                data["transport"] = first_dev.get("transport") or data.get("transport") or "UDP"
+            else:
+                data["sip_username"] = ""
+
+            # Sync MAC-bound SIP devices with settings_db["autoprovision"] so AutoprovisionPanel stays in sync
+            for dev_sync in data["sip_devices"]:
+                mac_norm, _ = normalize_mac_address(dev_sync.get("mac") or "")
+                if not mac_norm:
+                    continue
+                existing_ap = next((ap for ap in ap_Registry if normalize_mac_address(ap.get("mac") or "")[0] == mac_norm), None)
+                if existing_ap is not None:
+                    existing_ap["mac"] = mac_norm
+                    existing_ap["ip"] = dev_sync.get("ip") or existing_ap.get("ip") or ""
+                    existing_ap["brand"] = dev_sync.get("brand") or existing_ap.get("brand") or "Yealink"
+                    existing_ap["model"] = dev_sync.get("model") or existing_ap.get("model") or "T46U"
+                    existing_ap["assigned_user"] = ext_str or str(data.get("id") or "")
+                    existing_ap["extension"] = ext_str
+                    existing_ap["sip_username"] = dev_sync.get("sip_username") or ""
+                    existing_ap["dss_keys"] = dev_sync.get("dss_keys") or []
+                    existing_ap["soft_keys"] = dev_sync.get("soft_keys") or []
+                    if not existing_ap.get("token"):
+                        existing_ap["token"] = generate_device_token(mac_norm)
+                else:
+                    ap_Registry.append({
+                        "id": f"ap-{mac_norm.replace(':', '')}",
+                        "mac": mac_norm,
+                        "ip": dev_sync.get("ip") or "",
+                        "brand": dev_sync.get("brand") or "Yealink",
+                        "model": dev_sync.get("model") or "T46U",
+                        "assigned_user": ext_str or str(data.get("id") or ""),
+                        "extension": ext_str,
+                        "sip_username": dev_sync.get("sip_username") or "",
+                        "token": generate_device_token(mac_norm),
+                        "dss_keys": dev_sync.get("dss_keys") or [],
+                        "soft_keys": dev_sync.get("soft_keys") or [],
+                    })
             if data.get("call_panel_prefs") is None:
                 data["call_panel_prefs"] = (getattr(target_user, "call_panel_prefs", None) if target_user else None) or prev_disk.get("call_panel_prefs") or {}
             if data.get("wallboard_layout") is None:
@@ -24285,12 +24740,20 @@ async def new_save_users_endpoint(payload: Union[List[UserSchema], UserSchema], 
                             u_dict["follow_me"] = p_match.get("follow_me")
                         if p_match.get("sip_password"):
                             u_dict["sip_password"] = p_match.get("sip_password")
-                        if p_match.get("sip_username"):
+                        if p_match.get("sip_username") is not None:
                             u_dict["sip_username"] = p_match.get("sip_username")
+                        if p_match.get("sip_devices") is not None:
+                            u_dict["sip_devices"] = p_match.get("sip_devices")
                         for tf_k in ("two_factor_enabled", "two_factor_method", "two_factor_secret", "two_factor_enrolled", "managed_users", "managed_queues", "cti_config", "max_concurrent_outbound", "outbound_quarantined"):
                             if p_match.get(tf_k) is not None:
                                 u_dict[tf_k] = p_match.get(tf_k)
                     u_dict["sip_password"] = resolve_secure_sip_password(ext_u, u_dict.get("sip_password") or "")
+                    u_dict["sip_devices"] = normalize_user_sip_devices(
+                        u_dict,
+                        ap_Registry,
+                        dp_Configs,
+                        fallback_password_fn=resolve_secure_sip_password,
+                    )
                     ensure_user_profiles(u_dict)
         except Exception as dbe:
             print(f"[Save Users DB Commit Warning]: {dbe}")
@@ -24328,6 +24791,7 @@ async def new_save_users_endpoint(payload: Union[List[UserSchema], UserSchema], 
 
             new_users_out = list(updated_dict.values())
 
+        settings_db["autoprovision"] = ap_Registry
         settings_db["needs_apply"] = True
         settings_db["users"] = new_users_out
         save_settings(settings_db)
@@ -25368,11 +25832,22 @@ async def evaluate_queue_routing_for_dialplan(
                 m_ext = str(u_obj.get("extension") or "").strip()
                 if not m_ext:
                     continue
-                m_sip = resolve_user_sip_username(m_ext, u_obj.get("sip_username") or "")
-                is_reg = (m_ext in registered_endpoints) or (bool(m_sip) and m_sip in registered_endpoints)
+                m_sips = []
+                raw_m_devs = u_obj.get("sip_devices")
+                if isinstance(raw_m_devs, list) and len(raw_m_devs) > 0:
+                    for md in raw_m_devs:
+                        if isinstance(md, dict) and md.get("is_active") is not False:
+                            msu = str(md.get("sip_username") or "").strip()
+                            if msu and msu not in m_sips:
+                                m_sips.append(msu)
+                elif not ((u_obj.get("cti_config") or {}).get("sip_devices_empty") if isinstance(u_obj.get("cti_config"), dict) else False):
+                    m_sip = resolve_user_sip_username(m_ext, u_obj.get("sip_username") or "")
+                    if m_sip:
+                        m_sips.append(m_sip)
+                is_reg = (m_ext in registered_endpoints) or any(ms in registered_endpoints for ms in m_sips)
                 st_ag = active_agent_status.get(m_ext) or active_agent_status.get(u_obj.get("id")) or {}
                 is_paused_crm = st_ag.get("status") in ("break", "acw")
-                is_on_call = (m_ext in active_busy_exts) or (bool(m_sip) and m_sip in active_busy_exts)
+                is_on_call = (m_ext in active_busy_exts) or any(ms in active_busy_exts for ms in m_sips)
                 if is_reg and not is_paused_crm and not is_on_call:
                     py_free_count += 1
 
@@ -26666,18 +27141,37 @@ async def get_system_version_info():
         pass
 
     return {
-        "version": "v2.7.4",
+        "version": "v2.7.5",
         "commit_hash": live_commit,
         "release_date": "3 Kasım 2026",
         "status": "Güncel / Canlı Sürüm",
         "environment": "Production (On-Premise)",
         "changelog": [
             {
-                "version": "v2.7.4",
+                "version": "v2.7.5",
                 "commit_hash": live_commit,
                 "release_date": "3 Kasım 2026",
                 "badge": "Canlı Sürüm (Güncel)",
                 "badge_type": "current",
+                "title": "Abone Çoklu SIP Cihazları Yönetimi, Büyüteç Cihaz/BLF/PJSIP İnceleme Ekranı & SIP Sekmesi Birleştirme",
+                "summary": "Kullanıcı Genel sekmesinde yer alan Giden Arama Kuralları ve Çağrı Toplama Grubu alanları SIP sekmesine taşındı; bir aboneye birden fazla masa telefonu, DECT veya SIP istemci tanımlamaya olanak tanıyan çoklu 'SIP Cihazları' yapısı ile 4 sekmeli canlı Büyüteç (Ağ/MAC/Autoprovision, BLF & DSS Tuşları, Kodek/Telefon Ayarları ve pjsip show endpoint) inceleme penceresi eklendi.",
+                "features": [
+                    {
+                        "title": "☎️ Abone Bazlı Çoklu 'SIP Cihazları' & Eşzamanlı PJSIP Çaldırma",
+                        "desc": "Tek bir dahili numarasına birden fazla bağımsız SIP cihazı (Masa Telefonu, DECT, Softphone) bağlama, her cihaz için ayrı SIP kullanıcı adı/şifre/transport üretme ve gelen/kuyruk aramalarında tüm aktif cihazları eşzamanlı çaldırıp BLF hint durumlarını birleştirme altyapısı kuruldu."
+                    },
+                    {
+                        "title": "🔍 4 Sekmeli Büyüteç İnceleme (Cihaz/MAC, BLF Tuşları, Telefon Ayarları & PJSIP Detay)",
+                        "desc": "Her SIP Cihazı satırına eklenen büyüteç simgesi ile canlı IP:Port ve Web GUI bağlantısı, OUI tabanlı otomatik marka algılamalı MAC tanımı, .cfg/.xml indirme, uzaktan Check-Sync/Reboot, 1-24 arası BLF/DSS ve F1-F4 Softkey tuş atamaları, ses kodek önceliği ve canlı 'pjsip show endpoint' terminal ekranı sunuldu."
+                    }
+                ]
+            },
+            {
+                "version": "v2.7.4",
+                "commit_hash": "8a9cbe9",
+                "release_date": "3 Kasım 2026",
+                "badge": "Önceki Sürüm",
+                "badge_type": "previous",
                 "title": "Arama Akış Yönetiminden DID Kaldırılması & Sabit Akış Başlangıcı (Entry Node) Mimarisi",
                 "summary": "Dış hat / DID yönlendirmesinde tek yetkili katman olarak Gelen Arama Kuralları belirlenerek Arama Akış Yönetimi (CallFlow) içerisinden mükerrer DID tanımlama kutusu kaldırıldı; her akışa silinemez sabit 'Akış Başlangıcı' (start) düğümü, tetikleyen giriş noktaları görünümü ve eski DID düğümleri için kesintisiz otomatik dönüşüm eklendi.",
                 "features": [
