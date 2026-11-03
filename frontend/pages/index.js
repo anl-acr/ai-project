@@ -74,6 +74,12 @@ import {
   Wifi,
   PhoneOutgoing,
   Palette,
+  Search,
+  EyeOff,
+  MoreHorizontal,
+  Pin,
+  Plus,
+  PanelTop,
   X
 } from "lucide-react";
 import { getSafeThemeColor, SYSTEM_THEME_PRESETS, rgbStringToHex } from "../utils/theme";
@@ -107,7 +113,14 @@ import CalendarPanel from "../components/dashboard/CalendarPanel";
 import LiveDashboardPanel from "../components/dashboard/LiveDashboardPanel";
 import SystemStatusPanel from "../components/dashboard/SystemStatusPanel";
 import AgentSessionCard from "../components/phone/AgentSessionCard";
-import AgentPanel, { ALL_TABS as CALL_PANEL_ALL_TABS, loadCallPanelPrefs, saveCallPanelPrefs, DEFAULT_CALL_PANEL_PREFS } from "../components/callcenter/AgentPanel";
+import AgentPanel, {
+  ALL_TABS as CALL_PANEL_ALL_TABS,
+  loadCallPanelPrefs,
+  saveCallPanelPrefs,
+  DEFAULT_CALL_PANEL_PREFS,
+  DEFAULT_TOPBAR_PREFS,
+  normalizeTopbarPrefs
+} from "../components/callcenter/AgentPanel";
 import { CallPanelAgentsAppearanceSettings } from "../components/callcenter/tabs/AgentQueuePeersTab";
 import WallboardPanel, { WallboardStudioSettings } from "../components/dashboard/WallboardPanel";
 import DialerSettings from "../components/settings/DialerSettings";
@@ -593,6 +606,10 @@ export default function Home() {
   // Profile and ringtone preferences states
   const [profileDropdownOpen, setProfileDropdownOpen] = useState(false);
   const profileDropdownRef = useClickOutside(() => setProfileDropdownOpen(false));
+  const [pinOverflowOpen, setPinOverflowOpen] = useState(false);
+  const pinOverflowRef = useClickOutside(() => setPinOverflowOpen(false));
+  const [draggedPinnedIdx, setDraggedPinnedIdx] = useState(null);
+  const [pinCatalogSearch, setPinCatalogSearch] = useState("");
   const [settingsModalOpen, setSettingsModalOpen] = useState(false);
   const [systemUsers, setSystemUsers] = useState([]);
   const [agentAvatar, setAgentAvatar] = useState("https://api.dicebear.com/7.x/avataaars/svg?seed=Felix");
@@ -1981,6 +1998,18 @@ export default function Home() {
     </div>
   );
 
+  useEffect(() => {
+    if (!pinOverflowOpen && !profileDropdownOpen) return undefined;
+    const handleEscMenus = (e) => {
+      if (e.key === "Escape") {
+        setPinOverflowOpen(false);
+        setProfileDropdownOpen(false);
+      }
+    };
+    window.addEventListener("keydown", handleEscMenus);
+    return () => window.removeEventListener("keydown", handleEscMenus);
+  }, [pinOverflowOpen, profileDropdownOpen]);
+
   if (isAuthChecking) {
     return <div className="min-h-screen flex items-center justify-center bg-slate-100 dark:bg-slate-950"><div className="animate-spin w-8 h-8 border-4 border-primary border-t-transparent rounded-full"></div></div>;
   }
@@ -1988,6 +2017,100 @@ export default function Home() {
   if (!isLoggedIn) {
     return <Login onLogin={handleLogin} onComplete2FA={complete2FALogin} error={loginError} backendHost={backendHost} />;
   }
+
+  const isAdminRole = currentUser?.role === "admin";
+  const hasPermPrefix = (...prefixes) => {
+    if (isAdminRole) return true;
+    if (!Array.isArray(currentRolePermissions)) return false;
+    return prefixes.some((pref) =>
+      currentRolePermissions.some((p) => p === pref || p.startsWith(pref + ":"))
+    );
+  };
+
+  const allTopbarFeatureCatalog = [
+    { id: "dashboard", group: "Operasyon & Canlı Ekranlar", label: "Gerçek Zamanlı AI Pano", shortLabel: "AI Pano", icon: Activity, allowed: !isAgentOnlyUser && !isWallboardOnlyUser && hasPermPrefix("dashboard") },
+    { id: "wallboard", group: "Operasyon & Canlı Ekranlar", label: "Canlı İzleme Paneli (Wallboard)", shortLabel: "Wallboard", icon: Monitor, allowed: hasPermPrefix("wallboard") },
+    { id: "call-center", group: "Operasyon & Canlı Ekranlar", label: "Temsilci Çağrı Paneli", shortLabel: "Çağrı Paneli", icon: Phone, allowed: isAgentOnlyUser || hasPermPrefix("call_panel") },
+    { id: "omnichannel", group: "Operasyon & Canlı Ekranlar", label: "Ortak Gelen Kutusu (Omnichannel)", shortLabel: "Omnichannel", icon: MessageSquare, allowed: hasOmnichannelPermission },
+    { id: "contacts", group: "Operasyon & Canlı Ekranlar", label: "Rehber Yönetimi", shortLabel: "Rehber", icon: BookOpen, allowed: hasContactsPermission },
+    { id: "calendar", group: "Operasyon & Canlı Ekranlar", label: "Randevu Takvimi", shortLabel: "Takvim", icon: Calendar, allowed: !isAgentOnlyUser && !isWallboardOnlyUser },
+    { id: "dialer", group: "Operasyon & Canlı Ekranlar", label: "Dış Arama (Dialer)", shortLabel: "Dialer", icon: PhoneCall, allowed: !isAgentOnlyUser && !isWallboardOnlyUser },
+
+    { id: "users", group: "Santral & Yönlendirme", label: "Kullanıcılar", shortLabel: "Kullanıcılar", icon: User, allowed: hasUsersPermission },
+    { id: "acd-queues", group: "Santral & Yönlendirme", label: "ACD Kuyruk Yönetimi", shortLabel: "Kuyruklar", icon: Users, allowed: hasQueuesPermission },
+    { id: "call-flow", group: "Santral & Yönlendirme", label: "Arama Akış Yönetimi", shortLabel: "Akış Yönetimi", icon: GitBranch, allowed: !isAgentOnlyUser && !isWallboardOnlyUser },
+    { id: "inbound-rules", group: "Santral & Yönlendirme", label: "Gelen Arama Kuralı", shortLabel: "Gelen Kural", icon: Phone, allowed: hasInboundRulesPermission },
+    { id: "outbound-rules", group: "Santral & Yönlendirme", label: "Giden Arama Kuralı", shortLabel: "Giden Kural", icon: PhoneOutgoing, allowed: hasOutboundRulesPermission },
+    { id: "trunks", group: "Santral & Yönlendirme", label: "Dış Hat Tanımı (SIP Trunk)", shortLabel: "Dış Hatlar", icon: Cable, allowed: hasTrunksPermission },
+    { id: "auto-provision", group: "Santral & Yönlendirme", label: "Oto Provizyon", shortLabel: "Provizyon", icon: Cpu, allowed: hasAutoprovisionPermission },
+    { id: "announcements", group: "Santral & Yönlendirme", label: "Anons Yönetimi", shortLabel: "Anonslar", icon: Volume2, allowed: hasAnnouncementsPermission },
+    { id: "work-hours", group: "Santral & Yönlendirme", label: "Mesai & Resmi Tatiller", shortLabel: "Mesai", icon: Clock, allowed: hasWorkHoursPermission && !isAgentOnlyUser && !isWallboardOnlyUser },
+    { id: "conferences", group: "Santral & Yönlendirme", label: "Konferans Odaları", shortLabel: "Konferans", icon: Users, allowed: hasConferencesPermission },
+    { id: "speed-dial", group: "Santral & Yönlendirme", label: "Hızlı Arama Kodları", shortLabel: "Hızlı Arama", icon: PhoneCall, allowed: hasSpeedDialPermission },
+    { id: "blacklist", group: "Santral & Yönlendirme", label: "Numara Engelleme", shortLabel: "Kara Liste", icon: ShieldAlert, allowed: hasBlacklistPermission },
+
+    { id: "ai-agents", group: "Yapay Zeka & Bilgi", label: "AI Temsilcileri", shortLabel: "AI Temsilci", icon: Bot, allowed: hasPermPrefix("ai_agents") },
+    { id: "rag-kb", group: "Yapay Zeka & Bilgi", label: "Bilgi Bankası (RAG)", shortLabel: "Bilgi Bankası", icon: Database, allowed: hasPermPrefix("rag", "knowledge_base") },
+    { id: "rule-editor", group: "Yapay Zeka & Bilgi", label: "Kural & Senaryo Editörü", shortLabel: "Senaryolar", icon: Sliders, allowed: hasPermPrefix("rules") },
+    { id: "ai-config-assistant", group: "Yapay Zeka & Bilgi", label: "AI Konfigürasyon Asistanı", shortLabel: "AI Asistan", icon: Sparkles, allowed: !isAgentOnlyUser && !isWallboardOnlyUser && hasPermPrefix("ai_config_assistant") },
+
+    { id: "reports-pano", group: "Raporlar, Güvenlik & Sistem", label: "Çağrı Rapor Panosu", shortLabel: "Raporlar", icon: TrendingUp, allowed: hasReportsPermission },
+    { id: "reports-cdr", group: "Raporlar, Güvenlik & Sistem", label: "CDR Çağrı Kayıtları", shortLabel: "CDR", icon: ClipboardList, allowed: hasReportsPermission },
+    { id: "reports-audio", group: "Raporlar, Güvenlik & Sistem", label: "Ses Kayıtları", shortLabel: "Ses Kaydı", icon: Volume2, allowed: hasReportsPermission },
+    { id: "troubleshooting", group: "Raporlar, Güvenlik & Sistem", label: "Sorun İnceleme & sngrep", shortLabel: "Sorun İncele", icon: Terminal, allowed: hasPermPrefix("sip_debugger", "system_settings") },
+    { id: "security", group: "Raporlar, Güvenlik & Sistem", label: "Güvenlik Kalkanı", shortLabel: "Güvenlik", icon: ShieldCheck, allowed: hasPermPrefix("security", "system_settings") },
+    { id: "event-logs", group: "Raporlar, Güvenlik & Sistem", label: "Olay Günlükleri", shortLabel: "Loglar", icon: FileText, allowed: hasPermPrefix("event_logs", "system_settings") },
+    { id: "system-status", group: "Raporlar, Güvenlik & Sistem", label: "Sistem Panosu & Sağlık", shortLabel: "Sistem Sağlığı", icon: Server, allowed: isAdminRole },
+    { id: "settings", group: "Raporlar, Güvenlik & Sistem", label: "Sistem Ayarları", shortLabel: "Ayarlar", icon: Settings, allowed: hasPermPrefix("system_settings", "roles") }
+  ];
+
+  const allowedTopbarFeatures = allTopbarFeatureCatalog.filter((f) => f.allowed);
+  const topbarPrefs = normalizeTopbarPrefs(callPanelPrefs?.topbar);
+  const pinnedTopbarFeatures = topbarPrefs.pinnedItems
+    .map((id) => allowedTopbarFeatures.find((f) => f.id === id))
+    .filter(Boolean);
+
+  // Yaklaşım B: Tek satır koruyarak Yatay Çağrı Merkezi modunda üst barı otomatik kompaktlaştırma
+  const isHorizontalCallCenterBar =
+    activeTab === "call-center" &&
+    (isAgentOnlyUser ||
+      currentUser?.role === "agent" ||
+      isAgentFullScreenMode ||
+      callPanelPrefs?.navPosition === "top");
+
+  const effectivePinStyle = isHorizontalCallCenterBar ? "icon" : topbarPrefs.pinStyle;
+  const effectiveMaxVisiblePins = isHorizontalCallCenterBar
+    ? Math.min(2, topbarPrefs.maxVisiblePins)
+    : topbarPrefs.maxVisiblePins;
+  const visiblePinnedFeatures = pinnedTopbarFeatures.slice(0, effectiveMaxVisiblePins);
+  const overflowPinnedFeatures = pinnedTopbarFeatures.slice(effectiveMaxVisiblePins);
+
+  const canUseGlobalSearch = !isAgentOnlyUser && !isWallboardOnlyUser && currentUser?.role !== "agent";
+  const effectiveSearchMode =
+    isHorizontalCallCenterBar && (topbarPrefs.searchMode === "normal" || topbarPrefs.searchMode === "wide")
+      ? "icon"
+      : topbarPrefs.searchMode;
+
+  const hasAnyAvatarText =
+    !topbarPrefs.avatarOnly &&
+    (topbarPrefs.showName ||
+      (topbarPrefs.showExtension && Boolean(currentUser?.extension)) ||
+      topbarPrefs.showRole ||
+      topbarPrefs.showProfile);
+
+  const updateTopbarPrefsLive = (topbarPatch) => {
+    const nextTopbar = normalizeTopbarPrefs({
+      ...topbarPrefs,
+      ...topbarPatch
+    });
+    const nextPrefs = {
+      ...callPanelPrefs,
+      topbar: nextTopbar
+    };
+    const saved = saveCallPanelPrefs(currentUser, nextPrefs);
+    setCallPanelPrefs(saved);
+    persistUserVisualPatch({ call_panel_prefs: saved });
+  };
 
   return (
     <div className="h-screen overflow-hidden bg-slate-50 dark:bg-slate-950 text-slate-800 dark:text-slate-100 flex font-sans transition-colors duration-300">
@@ -3298,10 +3421,10 @@ export default function Home() {
           </p>
           <button
             onClick={() => setActiveTab("changelog")}
-            title="Sistem Versiyonu ve Değişiklik Günlüğü (v2.7.4 On-Premise)"
+            title="Sistem Versiyonu ve Değişiklik Günlüğü (v2.7.6 On-Premise)"
             className="flex items-center gap-1 text-[10px] font-bold text-slate-500 dark:text-slate-400 hover:text-primary dark:hover:text-indigo-400 hover:underline transition cursor-pointer bg-transparent border-0 p-0 outline-none focus-visible:ring-2 focus-visible:ring-primary/50 rounded"
           >
-            <span>{isSidebarCollapsed ? "v2.7.4" : "v2.7.4 (On-Premise)"}</span>
+            <span>{isSidebarCollapsed ? "v2.7.6" : "v2.7.6 (On-Premise)"}</span>
           </button>
         </div>
       </aside>
@@ -3326,10 +3449,10 @@ export default function Home() {
       {/* Main Content Area */}
       <main className="flex-1 flex flex-col h-screen overflow-hidden bg-slate-50 dark:bg-slate-950/40 transition-colors duration-300">
         
-        {/* Top Header Navbar */}
+        {/* Top Header Navbar (Single-Row Persistent Bar with Yaklaşım B Auto-Compacting) */}
         {!isEditingCallFlow && (
         <header className="relative z-40 h-16 border-b border-slate-200/80 dark:border-slate-800/80 flex items-center justify-between px-5 bg-white/80 dark:bg-slate-900/60 backdrop-blur-md transition-colors duration-300 gap-3">
-          <div className="flex items-center gap-3 shrink-0">
+          <div className="flex items-center gap-2.5 min-w-0 shrink-0">
             {activeTab === "call-center" && (isAgentOnlyUser || isAgentFullScreenMode) && (
               <div className="flex items-center gap-2.5 pr-2">
                 <div className="h-8 w-8 shrink-0 rounded-xl bg-gradient-to-tr from-indigo-600 to-violet-600 flex items-center justify-center text-white shadow-sm">
@@ -3383,20 +3506,124 @@ export default function Home() {
             {((currentUser?.username === "admin" || currentUser?.id === "admin") || (typeof window !== "undefined" && (localStorage.getItem("current_user_id") === "admin" || sessionStorage.getItem("current_user_id") === "admin"))) && (
               <TenantSwitcher backendHost={backendHost} currentUser={currentUser} />
             )}
+
+            {/* Pinned Quick-Access Bar (Standard Screens) */}
+            {!isHorizontalCallCenterBar && pinnedTopbarFeatures.length > 0 && (
+              <nav aria-label="Sık Kullanılan Kısayollar" className="hidden md:flex items-center gap-1.5 pl-1">
+                {visiblePinnedFeatures.map((feat) => {
+                  const FeatIcon = feat.icon;
+                  const isAct = activeTab === feat.id;
+                  const slug = getTurkishSlugForTab(feat.id);
+                  return (
+                    <a
+                      key={feat.id}
+                      href={`/?tab=${encodeURIComponent(slug)}`}
+                      onClick={(e) => {
+                        if (!e.metaKey && !e.ctrlKey && !e.shiftKey && e.button === 0) {
+                          e.preventDefault();
+                          setActiveTab(feat.id);
+                        }
+                      }}
+                      title={feat.label}
+                      aria-label={feat.label}
+                      className={`flex items-center gap-1.5 rounded-xl border text-xs font-bold transition-all shadow-sm whitespace-nowrap ${
+                        effectivePinStyle === "icon" ? "p-2" : "px-2.5 py-1.5"
+                      } ${
+                        isAct
+                          ? `${bg} text-white border-transparent`
+                          : "border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800"
+                      }`}
+                    >
+                      <FeatIcon size={14} className={isAct ? "text-white shrink-0" : `${text} shrink-0`} />
+                      {effectivePinStyle !== "icon" && (
+                        <span className="max-w-[110px] truncate">{feat.shortLabel}</span>
+                      )}
+                    </a>
+                  );
+                })}
+
+                {overflowPinnedFeatures.length > 0 && (
+                  <div ref={pinOverflowRef} className="relative">
+                    <button
+                      type="button"
+                      onClick={() => setPinOverflowOpen((prev) => !prev)}
+                      aria-expanded={pinOverflowOpen}
+                      aria-label="Diğer Sabitlenmiş Kısayollar"
+                      title={`Diğer Kısayollar (+${overflowPinnedFeatures.length})`}
+                      className={`px-2 py-1.5 rounded-xl border text-xs font-extrabold transition-all shadow-sm flex items-center gap-1 cursor-pointer ${
+                        pinOverflowOpen
+                          ? `${bg} text-white border-transparent`
+                          : "border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800"
+                      }`}
+                    >
+                      <MoreHorizontal size={14} />
+                      <span className="text-[10px]">+{overflowPinnedFeatures.length}</span>
+                    </button>
+                    {pinOverflowOpen && (
+                      <div className="absolute left-0 mt-2 w-60 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-2xl z-50 p-1.5 space-y-0.5 animate-in fade-in slide-in-from-top-2 duration-150">
+                        <div className="px-2.5 py-1.5 text-[9px] font-extrabold uppercase tracking-wider text-slate-400 dark:text-slate-500">
+                          Diğer Kısayollar
+                        </div>
+                        {overflowPinnedFeatures.map((feat) => {
+                          const FeatIcon = feat.icon;
+                          const isAct = activeTab === feat.id;
+                          const slug = getTurkishSlugForTab(feat.id);
+                          return (
+                            <a
+                              key={feat.id}
+                              href={`/?tab=${encodeURIComponent(slug)}`}
+                              onClick={(e) => {
+                                if (!e.metaKey && !e.ctrlKey && !e.shiftKey && e.button === 0) {
+                                  e.preventDefault();
+                                  setActiveTab(feat.id);
+                                  setPinOverflowOpen(false);
+                                }
+                              }}
+                              className={`w-full flex items-center gap-2.5 px-2.5 py-2 rounded-xl text-xs font-bold transition-colors ${
+                                isAct
+                                  ? `${lightBg} ${text}`
+                                  : "text-slate-700 dark:text-slate-200 hover:bg-slate-100/80 dark:hover:bg-slate-800"
+                              }`}
+                            >
+                              <FeatIcon size={14} className={isAct ? text : "text-slate-400 dark:text-slate-500"} />
+                              <span className="truncate">{feat.label}</span>
+                            </a>
+                          );
+                        })}
+                        <div className="h-px bg-slate-100 dark:bg-slate-800 my-1" />
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setPinOverflowOpen(false);
+                            setActiveModalTab("topbar");
+                            setSettingsModalOpen(true);
+                          }}
+                          className="w-full text-left flex items-center gap-2 px-2.5 py-2 rounded-xl text-[11px] font-bold text-slate-500 dark:text-slate-400 hover:bg-slate-100/80 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+                        >
+                          <PanelTop size={13} className={text} />
+                          <span>Üst Barı Özelleştir</span>
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </nav>
+            )}
           </div>
 
           {/* Agent Top Navigation Portal Slot (Üst Bar Modu Aktifken Sekmeler ve Kuyruk Oturumu Doğrudan Üst Bara Gelir) */}
-          {activeTab === "call-center" && (isAgentOnlyUser || currentUser?.role === "agent" || isAgentFullScreenMode || callPanelPrefs?.navPosition === "top") && (
+          {isHorizontalCallCenterBar && (
             <div id="agent-top-nav-slot" className="flex-1 flex items-center justify-between px-2 min-w-0 overflow-hidden" />
           )}
 
-          {/* Global Search & Action Center Bar */}
-          {!isAgentOnlyUser && !isWallboardOnlyUser && currentUser?.role !== "agent" && !(activeTab === "call-center" && (isAgentFullScreenMode || callPanelPrefs?.navPosition === "top")) && (
+          {/* Global Search & Action Center Bar (Inline Standard / Wide Modes) */}
+          {canUseGlobalSearch && (effectiveSearchMode === "normal" || effectiveSearchMode === "wide") && (
             <GlobalSearchBar
               backendHost={backendHost}
               currentUser={currentUser}
               activeTab={activeTab}
               setActiveTab={setActiveTab}
+              displayMode={effectiveSearchMode}
               onOpenProfileModal={(modalTab) => {
                 setActiveModalTab(modalTab || "profile");
                 setSettingsModalOpen(true);
@@ -3416,7 +3643,130 @@ export default function Home() {
             />
           )}
 
-          <div className="flex items-center gap-3 text-xs font-semibold text-slate-600 dark:text-slate-400 shrink-0">
+          <div className="flex items-center gap-2.5 text-xs font-semibold text-slate-600 dark:text-slate-400 shrink-0">
+            {/* Yaklaşım B: Horizontal Call-Center Mode Auto-Compacted Pinned Shortcuts */}
+            {isHorizontalCallCenterBar && pinnedTopbarFeatures.length > 0 && (
+              <nav aria-label="Sık Kullanılan Kısayollar" className="hidden lg:flex items-center gap-1.5">
+                {visiblePinnedFeatures.map((feat) => {
+                  const FeatIcon = feat.icon;
+                  const isAct = activeTab === feat.id;
+                  const slug = getTurkishSlugForTab(feat.id);
+                  return (
+                    <a
+                      key={feat.id}
+                      href={`/?tab=${encodeURIComponent(slug)}`}
+                      onClick={(e) => {
+                        if (!e.metaKey && !e.ctrlKey && !e.shiftKey && e.button === 0) {
+                          e.preventDefault();
+                          setActiveTab(feat.id);
+                        }
+                      }}
+                      title={feat.label}
+                      aria-label={feat.label}
+                      className={`p-2 rounded-xl border transition-colors shadow-sm ${
+                        isAct
+                          ? `${bg} text-white border-transparent`
+                          : "border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800"
+                      }`}
+                    >
+                      <FeatIcon size={14} className={isAct ? "text-white" : text} />
+                    </a>
+                  );
+                })}
+                {overflowPinnedFeatures.length > 0 && (
+                  <div ref={pinOverflowRef} className="relative">
+                    <button
+                      type="button"
+                      onClick={() => setPinOverflowOpen((prev) => !prev)}
+                      aria-expanded={pinOverflowOpen}
+                      aria-label="Diğer Sabitlenmiş Kısayollar"
+                      title={`Diğer Kısayollar (+${overflowPinnedFeatures.length})`}
+                      className={`p-2 rounded-xl border transition-colors shadow-sm cursor-pointer flex items-center gap-0.5 ${
+                        pinOverflowOpen
+                          ? `${bg} text-white border-transparent`
+                          : "border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800"
+                      }`}
+                    >
+                      <MoreHorizontal size={14} />
+                    </button>
+                    {pinOverflowOpen && (
+                      <div className="absolute right-0 mt-2 w-60 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-2xl z-50 p-1.5 space-y-0.5 animate-in fade-in slide-in-from-top-2 duration-150">
+                        <div className="px-2.5 py-1.5 text-[9px] font-extrabold uppercase tracking-wider text-slate-400 dark:text-slate-500">
+                          Diğer Kısayollar
+                        </div>
+                        {overflowPinnedFeatures.map((feat) => {
+                          const FeatIcon = feat.icon;
+                          const isAct = activeTab === feat.id;
+                          const slug = getTurkishSlugForTab(feat.id);
+                          return (
+                            <a
+                              key={feat.id}
+                              href={`/?tab=${encodeURIComponent(slug)}`}
+                              onClick={(e) => {
+                                if (!e.metaKey && !e.ctrlKey && !e.shiftKey && e.button === 0) {
+                                  e.preventDefault();
+                                  setActiveTab(feat.id);
+                                  setPinOverflowOpen(false);
+                                }
+                              }}
+                              className={`w-full flex items-center gap-2.5 px-2.5 py-2 rounded-xl text-xs font-bold transition-colors ${
+                                isAct
+                                  ? `${lightBg} ${text}`
+                                  : "text-slate-700 dark:text-slate-200 hover:bg-slate-100/80 dark:hover:bg-slate-800"
+                              }`}
+                            >
+                              <FeatIcon size={14} className={isAct ? text : "text-slate-400 dark:text-slate-500"} />
+                              <span className="truncate">{feat.label}</span>
+                            </a>
+                          );
+                        })}
+                        <div className="h-px bg-slate-100 dark:bg-slate-800 my-1" />
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setPinOverflowOpen(false);
+                            setActiveModalTab("topbar");
+                            setSettingsModalOpen(true);
+                          }}
+                          className="w-full text-left flex items-center gap-2 px-2.5 py-2 rounded-xl text-[11px] font-bold text-slate-500 dark:text-slate-400 hover:bg-slate-100/80 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+                        >
+                          <PanelTop size={13} className={text} />
+                          <span>Üst Barı Özelleştir</span>
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </nav>
+            )}
+
+            {/* Global Search Trigger in Icon Mode (either user-selected or auto-compacted via Yaklaşım B) */}
+            {canUseGlobalSearch && effectiveSearchMode === "icon" && (
+              <GlobalSearchBar
+                backendHost={backendHost}
+                currentUser={currentUser}
+                activeTab={activeTab}
+                setActiveTab={setActiveTab}
+                displayMode="icon"
+                onOpenProfileModal={(modalTab) => {
+                  setActiveModalTab(modalTab || "profile");
+                  setSettingsModalOpen(true);
+                }}
+                onQuickProfileSwitch={handleQuickProfileSwitch}
+                onToggleTheme={toggleTheme}
+                isDarkMode={isDarkMode}
+                onApplyChanges={handleApplyChanges}
+                hasPendingChanges={hasPendingChanges}
+                onLogout={handleLogout}
+                onUpdateCallPanelPrefs={(patch) => {
+                  const current = loadCallPanelPrefs(currentUser);
+                  const next = saveCallPanelPrefs(currentUser, { ...current, ...patch });
+                  setCallPanelPrefs(next);
+                  persistUserVisualPatch({ call_panel_prefs: next });
+                }}
+              />
+            )}
+
             {currentUser?.role === 'admin' && hasPendingChanges && (
               <div className="flex items-center gap-2 relative">
                 <button
@@ -3459,7 +3809,10 @@ export default function Home() {
               </button>
             )}
 
-            {!isAgentOnlyUser && !isWallboardOnlyUser && (currentUser?.role === "admin" || (Array.isArray(currentRolePermissions) && currentRolePermissions.some(p => p.startsWith("ai_config_assistant:")))) && (
+            {!isAgentOnlyUser &&
+              !isWallboardOnlyUser &&
+              !pinnedTopbarFeatures.some((f) => f.id === "ai-config-assistant") &&
+              (currentUser?.role === "admin" || (Array.isArray(currentRolePermissions) && currentRolePermissions.some(p => p.startsWith("ai_config_assistant:")))) && (
               <button
                 type="button"
                 onClick={() => setActiveTab("ai-config-assistant")}
@@ -3475,6 +3828,7 @@ export default function Home() {
             )}
 
             <button
+              type="button"
               onClick={toggleTheme}
               className="p-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors shadow-sm cursor-pointer"
               title={isDarkMode ? "Aydınlık Mod" : "Karanlık Mod"}
@@ -3482,11 +3836,16 @@ export default function Home() {
               {isDarkMode ? <Sun size={14} className="text-amber-400" /> : <Moon size={14} className="text-primary" />}
             </button>
 
-            {/* Profile Dropdown */}
+            {/* Customizable Avatar & Profile Dropdown */}
             <div ref={profileDropdownRef} className="relative">
               <button
+                type="button"
                 onClick={() => setProfileDropdownOpen(!profileDropdownOpen)}
-                className="flex items-center gap-2.5 px-2.5 py-1 rounded-full border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 hover:bg-slate-50 dark:hover:bg-slate-800/80 transition-all shadow-sm focus:outline-none group cursor-pointer"
+                aria-expanded={profileDropdownOpen}
+                aria-label="Kullanıcı Profili ve Menüsü"
+                className={`flex items-center rounded-full border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 hover:bg-slate-50 dark:hover:bg-slate-800/80 transition-all shadow-sm focus:outline-none group cursor-pointer ${
+                  hasAnyAvatarText ? "gap-2.5 px-2.5 py-1" : "p-1"
+                }`}
                 title="Kullanıcı Profili ve Menüsü"
               >
                 <div className="relative shrink-0">
@@ -3501,23 +3860,59 @@ export default function Home() {
                     agentActiveProfile === "other" ? "bg-indigo-500" : "bg-emerald-500"
                   }`} />
                 </div>
-                <div className="hidden sm:flex flex-col text-left pr-0.5 max-w-[140px]">
-                  <span className="text-xs font-bold text-slate-800 dark:text-slate-200 truncate leading-tight">
-                    {currentUser?.full_name || currentUser?.name || currentUser?.username || 'Kullanıcı'}
-                  </span>
-                  <span className="text-[10px] font-semibold text-slate-400 dark:text-slate-500 truncate leading-tight flex items-center gap-1">
-                    <span>{currentUser?.role === 'admin' ? 'Yönetici' : currentUser?.role === 'supervisor' ? 'Süpervizör' : 'Temsilci'}</span>
-                    <span>•</span>
-                    <span className={
-                      agentActiveProfile === "away" ? "text-amber-500 font-bold" :
-                      agentActiveProfile === "meeting" ? "text-rose-500 font-bold" :
-                      agentActiveProfile === "other" ? "text-indigo-500 font-bold" : "text-emerald-500 font-bold"
-                    }>
-                      {(agentProfiles.find(p => p.id === agentActiveProfile) || DEFAULT_USER_PROFILES[0])?.name}
-                    </span>
-                  </span>
-                </div>
-                <ChevronDown size={14} className="text-slate-400 dark:text-slate-500 group-hover:text-slate-600 dark:group-hover:text-slate-300 transition-colors shrink-0" />
+
+                {hasAnyAvatarText && (
+                  <div className="hidden sm:flex flex-col text-left pr-0.5 max-w-[175px]">
+                    {(topbarPrefs.showName || (topbarPrefs.showExtension && currentUser?.extension)) && (
+                      <div className="flex items-center gap-1.5 leading-tight min-w-0">
+                        {topbarPrefs.showName && (
+                          <span className="text-xs font-bold text-slate-800 dark:text-slate-200 truncate">
+                            {currentUser?.full_name || currentUser?.name || currentUser?.username || "Kullanıcı"}
+                          </span>
+                        )}
+                        {topbarPrefs.showExtension && currentUser?.extension && (
+                          <span className={`px-1.5 py-0.5 rounded-md text-[9px] font-extrabold font-mono leading-none shrink-0 border ${lightBg} ${text} ${borderLight}`}>
+                            #{currentUser.extension}
+                          </span>
+                        )}
+                      </div>
+                    )}
+
+                    {(topbarPrefs.showRole || topbarPrefs.showProfile) && (
+                      <span className="text-[10px] font-semibold text-slate-400 dark:text-slate-500 truncate leading-tight flex items-center gap-1 mt-0.5">
+                        {topbarPrefs.showRole && (
+                          <span>
+                            {currentUser?.role === "admin"
+                              ? "Yönetici"
+                              : currentUser?.role === "supervisor"
+                              ? "Süpervizör"
+                              : "Temsilci"}
+                          </span>
+                        )}
+                        {topbarPrefs.showRole && topbarPrefs.showProfile && <span>•</span>}
+                        {topbarPrefs.showProfile && (
+                          <span
+                            className={
+                              agentActiveProfile === "away"
+                                ? "text-amber-500 font-bold"
+                                : agentActiveProfile === "meeting"
+                                ? "text-rose-500 font-bold"
+                                : agentActiveProfile === "other"
+                                ? "text-indigo-500 font-bold"
+                                : "text-emerald-500 font-bold"
+                            }
+                          >
+                            {(agentProfiles.find((p) => p.id === agentActiveProfile) || DEFAULT_USER_PROFILES[0])?.name}
+                          </span>
+                        )}
+                      </span>
+                    )}
+                  </div>
+                )}
+
+                {hasAnyAvatarText && (
+                  <ChevronDown size={14} className="hidden sm:block text-slate-400 dark:text-slate-500 group-hover:text-slate-600 dark:group-hover:text-slate-300 transition-colors shrink-0" />
+                )}
               </button>
 
               {profileDropdownOpen && (
@@ -3609,8 +4004,27 @@ export default function Home() {
                   {/* Menu Actions */}
                   <div className="p-1.5">
                     <button
+                      type="button"
                       onClick={() => {
                         setProfileDropdownOpen(false);
+                        setActiveModalTab("topbar");
+                        setSettingsModalOpen(true);
+                      }}
+                      className="w-full text-left px-3 py-2.5 rounded-xl text-xs font-bold text-slate-700 dark:text-slate-100 hover:bg-slate-100/70 dark:hover:bg-slate-800 flex items-center justify-between gap-2.5 transition-colors cursor-pointer group"
+                    >
+                      <div className="flex items-center gap-2.5">
+                        <PanelTop size={15} className={`text-slate-500 dark:text-slate-300 group-hover:${text} transition-colors`} />
+                        <span>Üst Barı Özelleştir</span>
+                      </div>
+                      <span className={`px-1.5 py-0.5 rounded-md text-[9px] font-extrabold uppercase ${lightBg} ${text}`}>
+                        Yeni
+                      </span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setProfileDropdownOpen(false);
+                        setActiveModalTab("profile");
                         setSettingsModalOpen(true);
                       }}
                       className="w-full text-left px-3 py-2.5 rounded-xl text-xs font-bold text-slate-700 dark:text-slate-100 hover:bg-slate-100/70 dark:hover:bg-slate-800 flex items-center gap-2.5 transition-colors cursor-pointer group"
@@ -3620,6 +4034,7 @@ export default function Home() {
                     </button>
                     <div className="h-px bg-slate-100 dark:bg-slate-800/80 my-1" />
                     <button
+                      type="button"
                       onClick={handleLogout}
                       className="w-full text-left px-3 py-2.5 rounded-xl text-xs font-bold text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/30 flex items-center gap-2.5 transition-colors cursor-pointer"
                     >
@@ -4048,6 +4463,19 @@ export default function Home() {
                     </button>
                     <button
                       type="button"
+                      onClick={() => setActiveModalTab("topbar")}
+                      className={"w-full flex items-center justify-between gap-2 px-3 py-2.5 rounded-xl text-xs font-bold transition-all " + (activeModalTab === "topbar" ? ("bg-white dark:bg-slate-800 " + text + " shadow-sm border border-slate-200 dark:border-slate-700") : "text-slate-500 hover:bg-white/50 dark:hover:bg-slate-800/50 hover:text-slate-700 dark:hover:text-slate-300 border border-transparent")}
+                    >
+                      <span className="flex items-center gap-3">
+                        <PanelTop size={16} />
+                        Üst Bar Özelleştirme
+                      </span>
+                      <span className={`px-1.5 py-0.5 rounded-md text-[8.5px] font-black uppercase ${lightBg} ${text}`}>
+                        Yeni
+                      </span>
+                    </button>
+                    <button
+                      type="button"
                       onClick={() => setActiveModalTab("wallboard")}
                       className={"w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-bold transition-all " + (activeModalTab === "wallboard" ? ("bg-white dark:bg-slate-800 " + text + " shadow-sm border border-slate-200 dark:border-slate-700") : "text-slate-500 hover:bg-white/50 dark:hover:bg-slate-800/50 hover:text-slate-700 dark:hover:text-slate-300 border border-transparent")}
                     >
@@ -4060,6 +4488,617 @@ export default function Home() {
                 {/* Right Tab Content Area */}
                 <div className="flex-1 overflow-y-auto p-7 flex flex-col justify-between space-y-6">
                   <div className="space-y-4">
+
+                    {/* Üst Bar Özelleştirme Sekmesi (Kısayollar, Global Arama & Avatar Kapsülü) */}
+                    {activeModalTab === "topbar" && (() => {
+                      const togglePinFeature = (featId) => {
+                        const exists = topbarPrefs.pinnedItems.includes(featId);
+                        const nextList = exists
+                          ? topbarPrefs.pinnedItems.filter((id) => id !== featId)
+                          : [...topbarPrefs.pinnedItems, featId];
+                        updateTopbarPrefsLive({ pinnedItems: nextList });
+                      };
+
+                      const movePinnedItem = (idx, dir) => {
+                        const currentIds = pinnedTopbarFeatures.map((f) => f.id);
+                        const targetIdx = idx + dir;
+                        if (targetIdx < 0 || targetIdx >= currentIds.length) return;
+                        const [moved] = currentIds.splice(idx, 1);
+                        currentIds.splice(targetIdx, 0, moved);
+                        updateTopbarPrefsLive({ pinnedItems: currentIds });
+                      };
+
+                      const handlePinDragStart = (idx) => setDraggedPinnedIdx(idx);
+                      const handlePinDragOver = (e, idx) => {
+                        e.preventDefault();
+                        if (draggedPinnedIdx === null || draggedPinnedIdx === idx) return;
+                        const currentIds = pinnedTopbarFeatures.map((f) => f.id);
+                        const [moved] = currentIds.splice(draggedPinnedIdx, 1);
+                        currentIds.splice(idx, 0, moved);
+                        setDraggedPinnedIdx(idx);
+                        updateTopbarPrefsLive({ pinnedItems: currentIds });
+                      };
+                      const handlePinDragEnd = () => setDraggedPinnedIdx(null);
+
+                      const loadSuggestedPins = () => {
+                        const candidateIds = ["dashboard", "call-center", "users", "acd-queues", "inbound-rules", "reports-pano"];
+                        const allowedIds = candidateIds.filter((cid) =>
+                          allowedTopbarFeatures.some((f) => f.id === cid)
+                        );
+                        updateTopbarPrefsLive({ pinnedItems: allowedIds.slice(0, 5) });
+                      };
+
+                      const resetTopbarDefaults = () => {
+                        updateTopbarPrefsLive({ ...DEFAULT_TOPBAR_PREFS, pinnedItems: [] });
+                      };
+
+                      const qFilter = pinCatalogSearch.trim().toLowerCase();
+                      const filteredCatalog = allowedTopbarFeatures.filter((f) => {
+                        if (!qFilter) return true;
+                        return (
+                          f.label.toLowerCase().includes(qFilter) ||
+                          f.shortLabel.toLowerCase().includes(qFilter) ||
+                          f.group.toLowerCase().includes(qFilter)
+                        );
+                      });
+
+                      const catalogGroups = Array.from(new Set(filteredCatalog.map((f) => f.group)));
+                      const previewVisiblePins = pinnedTopbarFeatures.slice(0, topbarPrefs.maxVisiblePins);
+                      const previewOverflowCount = Math.max(0, pinnedTopbarFeatures.length - topbarPrefs.maxVisiblePins);
+
+                      return (
+                        <div className="space-y-5 max-h-[65vh] overflow-y-auto pr-1">
+                          {/* Canlı Üst Bar Önizlemesi + Yaklaşım B Bilgilendirmesi */}
+                          <div className="p-4 bg-slate-50/80 dark:bg-slate-950/50 border border-slate-200/80 dark:border-slate-800 rounded-2xl space-y-3">
+                            <div className="flex flex-wrap items-center justify-between gap-2">
+                              <div>
+                                <h5 className="text-xs font-extrabold text-slate-800 dark:text-white uppercase tracking-wider">
+                                  Canlı Üst Bar Önizlemesi
+                                </h5>
+                                <p className="text-[10px] text-slate-400 dark:text-slate-500 mt-0.5">
+                                  Seçtiğiniz kısayollar, arama çubuğu genişliği ve avatar görünümü anında üst bara uygulanır.
+                                </p>
+                              </div>
+                              <button
+                                type="button"
+                                onClick={resetTopbarDefaults}
+                                className="px-2.5 py-1.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-[10px] font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center gap-1.5 transition-colors cursor-pointer"
+                              >
+                                <RotateCcw size={12} />
+                                <span>Varsayılanlara Dön</span>
+                              </button>
+                            </div>
+
+                            {/* Mini Header Simülasyonu */}
+                            <div className="w-full h-14 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 px-3.5 flex items-center justify-between gap-2.5 shadow-sm overflow-hidden">
+                              <div className="flex items-center gap-1.5 min-w-0 shrink-0">
+                                {previewVisiblePins.length === 0 ? (
+                                  <span className="text-[10px] font-semibold text-slate-400 dark:text-slate-500 italic px-1">
+                                    Sabit kısayol seçilmedi
+                                  </span>
+                                ) : (
+                                  previewVisiblePins.map((pf) => {
+                                    const PfIcon = pf.icon;
+                                    return (
+                                      <span
+                                        key={pf.id}
+                                        className={`inline-flex items-center gap-1 rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 text-[10px] font-bold text-slate-700 dark:text-slate-200 ${
+                                          topbarPrefs.pinStyle === "icon" ? "p-1.5" : "px-2 py-1"
+                                        }`}
+                                      >
+                                        <PfIcon size={11} className={text} />
+                                        {topbarPrefs.pinStyle !== "icon" && (
+                                          <span className="max-w-[70px] truncate">{pf.shortLabel}</span>
+                                        )}
+                                      </span>
+                                    );
+                                  })
+                                )}
+                                {previewOverflowCount > 0 && (
+                                  <span className="px-1.5 py-1 rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 text-[9px] font-extrabold text-slate-500">
+                                    +{previewOverflowCount}
+                                  </span>
+                                )}
+                              </div>
+
+                              {/* Mini Search Simülasyonu */}
+                              {canUseGlobalSearch && (topbarPrefs.searchMode === "normal" || topbarPrefs.searchMode === "wide") && (
+                                <div
+                                  className={`h-7 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-100/80 dark:bg-slate-800/70 px-2.5 flex items-center gap-1.5 ${
+                                    topbarPrefs.searchMode === "wide" ? "flex-1 max-w-[240px]" : "w-36 shrink"
+                                  }`}
+                                >
+                                  <Search size={11} className="text-slate-400 shrink-0" />
+                                  <span className="text-[9px] font-semibold text-slate-400 truncate">
+                                    {topbarPrefs.searchMode === "wide" ? "Menü, ayar, kullanıcı ara... (⌘K)" : "Hızlı ara..."}
+                                  </span>
+                                </div>
+                              )}
+
+                              <div className="flex items-center gap-1.5 shrink-0">
+                                {canUseGlobalSearch && topbarPrefs.searchMode === "icon" && (
+                                  <span className="p-1.5 rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950">
+                                    <Search size={11} className={text} />
+                                  </span>
+                                )}
+                                <span className="p-1.5 rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950">
+                                  {isDarkMode ? <Sun size={11} className="text-amber-400" /> : <Moon size={11} className={text} />}
+                                </span>
+                                <div
+                                  className={`flex items-center rounded-full border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 ${
+                                    hasAnyAvatarText ? "gap-1.5 px-2 py-0.5" : "p-0.5"
+                                  }`}
+                                >
+                                  <img src={agentAvatar} alt="Önizleme" className="w-5 h-5 rounded-full object-cover" />
+                                  {hasAnyAvatarText && (
+                                    <div className="flex flex-col leading-none">
+                                      {(topbarPrefs.showName || (topbarPrefs.showExtension && currentUser?.extension)) && (
+                                        <div className="flex items-center gap-1">
+                                          {topbarPrefs.showName && (
+                                            <span className="text-[9px] font-bold text-slate-800 dark:text-slate-200 max-w-[70px] truncate">
+                                              {currentUser?.full_name || currentUser?.username || "Kullanıcı"}
+                                            </span>
+                                          )}
+                                          {topbarPrefs.showExtension && currentUser?.extension && (
+                                            <span className={`px-1 py-0.2 rounded text-[8px] font-mono font-extrabold ${lightBg} ${text}`}>
+                                              #{currentUser.extension}
+                                            </span>
+                                          )}
+                                        </div>
+                                      )}
+                                      {(topbarPrefs.showRole || topbarPrefs.showProfile) && (
+                                        <span className="text-[8px] text-slate-400 mt-0.5">
+                                          {topbarPrefs.showRole ? (currentUser?.role === "admin" ? "Yönetici" : "Temsilci") : ""}
+                                          {topbarPrefs.showRole && topbarPrefs.showProfile ? " • " : ""}
+                                          {topbarPrefs.showProfile ? "Müsait" : ""}
+                                        </span>
+                                      )}
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+
+                            {/* Akıllı Yatay Mod Uyumu (Yaklaşım B) Bilgi Notu */}
+                            <div className={`px-3 py-2 rounded-xl border ${borderLight} ${lightBg} flex items-start gap-2`}>
+                              <Sparkles size={13} className={`${text} shrink-0 mt-0.5`} />
+                              <p className="text-[10px] font-semibold text-slate-600 dark:text-slate-300 leading-relaxed">
+                                <strong className={text}>Akıllı Yatay Görünüm Uyumu:</strong> Çağrı Paneli&apos;nde{" "}
+                                <strong>Üst Bar (Yatay Tam Genişlik)</strong> düzeni açıkken üst bar iki satıra bölünmez; Global Arama otomatik olarak{" "}
+                                <strong>İkon (🔍)</strong> moduna, kısayollar ise kompakt ikon/taşma menüsüne (<strong>⋯</strong>) küçülür. Diğer ekranlara geçtiğinizde seçtiğiniz tam genişliğe geri döner.
+                              </p>
+                            </div>
+                          </div>
+
+                          {/* 1. Global Arama (Global Search) Görünümü */}
+                          {canUseGlobalSearch && (
+                            <div className="p-4 bg-slate-50/70 dark:bg-slate-950/40 border border-slate-200/80 dark:border-slate-800 rounded-2xl space-y-3.5">
+                              <div className="flex items-center justify-between gap-2">
+                                <div>
+                                  <h5 className="text-xs font-extrabold text-slate-800 dark:text-white uppercase tracking-wider">
+                                    Global Arama (Search) Görünümü
+                                  </h5>
+                                  <p className="text-[10px] text-slate-400 dark:text-slate-500 mt-0.5">
+                                    Üst bardaki menü, ayar, kişi ve hızlı işlem arama alanının boyutunu belirleyin.
+                                  </p>
+                                </div>
+                                <span className={`px-2.5 py-1 rounded-full text-[10px] font-extrabold uppercase tracking-wider shrink-0 ${lightBg} ${text} border ${borderLight}`}>
+                                  {topbarPrefs.searchMode === "icon"
+                                    ? "Sadece İkon"
+                                    : topbarPrefs.searchMode === "wide"
+                                    ? "Daha Geniş"
+                                    : topbarPrefs.searchMode === "hidden"
+                                    ? "Kapalı"
+                                    : "Geniş (Standart)"}
+                                </span>
+                              </div>
+
+                              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5">
+                                {[
+                                  {
+                                    id: "icon",
+                                    title: "Sadece İkon",
+                                    desc: "Kompakt büyüteç (🔍) butonu; tıklayınca veya Ctrl+K ile açılır.",
+                                    icon: Search
+                                  },
+                                  {
+                                    id: "normal",
+                                    title: "Geniş (Standart)",
+                                    desc: "Kısayollarla dengeli duran standart arama kutusu.",
+                                    icon: Search
+                                  },
+                                  {
+                                    id: "wide",
+                                    title: "Daha Geniş",
+                                    desc: "Komut merkezi genişliğinde ferah arama alanı.",
+                                    icon: Sliders
+                                  },
+                                  {
+                                    id: "hidden",
+                                    title: "Kapalı",
+                                    desc: "Global arama alanını üst bardan tamamen gizler.",
+                                    icon: EyeOff
+                                  }
+                                ].map((opt) => {
+                                  const OptIcon = opt.icon;
+                                  const isSel = topbarPrefs.searchMode === opt.id;
+                                  return (
+                                    <button
+                                      key={opt.id}
+                                      type="button"
+                                      onClick={() => updateTopbarPrefsLive({ searchMode: opt.id })}
+                                      className={`p-3 rounded-2xl border text-left transition-all flex flex-col justify-between gap-2 cursor-pointer ${
+                                        isSel
+                                          ? `${lightBg} ${border} ring-2 ${ring}`
+                                          : "bg-white dark:bg-slate-900 border-slate-200/80 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700"
+                                      }`}
+                                    >
+                                      <div className="flex items-center justify-between w-full">
+                                        <div
+                                          className={`p-2 rounded-xl ${
+                                            isSel
+                                              ? `${bg} text-white shadow-sm`
+                                              : "bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400"
+                                          }`}
+                                        >
+                                          <OptIcon size={14} />
+                                        </div>
+                                        {isSel && <CheckCircle size={14} className={text} />}
+                                      </div>
+                                      <div>
+                                        <div className="text-xs font-extrabold text-slate-800 dark:text-white">
+                                          {opt.title}
+                                        </div>
+                                        <p className="text-[9.5px] text-slate-400 dark:text-slate-500 mt-0.5 leading-snug">
+                                          {opt.desc}
+                                        </p>
+                                      </div>
+                                    </button>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          )}
+
+                          {/* 2. Avatar & Profil Kapsülü Özelleştirme */}
+                          <div className="p-4 bg-slate-50/70 dark:bg-slate-950/40 border border-slate-200/80 dark:border-slate-800 rounded-2xl space-y-3.5">
+                            <div className="flex items-center justify-between gap-2">
+                              <div>
+                                <h5 className="text-xs font-extrabold text-slate-800 dark:text-white uppercase tracking-wider">
+                                  Avatar & Profil Alanı Özelleştirme
+                                </h5>
+                                <p className="text-[10px] text-slate-400 dark:text-slate-500 mt-0.5">
+                                  Sağ üstteki kullanıcı kapsülünde sadece avatarı gösterebilir veya dahili, profil ve rol bilgilerini açıp kapatabilirsiniz.
+                                </p>
+                              </div>
+                              <span className={`px-2.5 py-1 rounded-full text-[10px] font-extrabold uppercase tracking-wider shrink-0 ${lightBg} ${text} border ${borderLight}`}>
+                                {topbarPrefs.avatarOnly ? "Sadece Avatar" : "Detaylı Kapsül"}
+                              </span>
+                            </div>
+
+                            {/* Sadece Avatar Göster Ana Anahtarı */}
+                            <div className="p-3 rounded-xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 flex items-center justify-between gap-3">
+                              <div className="flex items-center gap-2.5">
+                                <div className={`p-2 rounded-xl ${topbarPrefs.avatarOnly ? `${bg} text-white` : `${lightBg} ${text}`}`}>
+                                  <User size={15} />
+                                </div>
+                                <div>
+                                  <div className="text-xs font-extrabold text-slate-800 dark:text-white">
+                                    Sadece Avatar Göster (Minimal Görünüm)
+                                  </div>
+                                  <div className="text-[10px] text-slate-400 dark:text-slate-500">
+                                    İsim, rol, dahili ve profil yazısını gizleyip yalnızca durum ışıklı yuvarlak avatarı gösterir.
+                                  </div>
+                                </div>
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => updateTopbarPrefsLive({ avatarOnly: !topbarPrefs.avatarOnly })}
+                                className={`w-10 h-5 rounded-full p-0.5 transition-all duration-200 flex items-center shrink-0 cursor-pointer ${
+                                  topbarPrefs.avatarOnly ? `${bg} justify-end` : "bg-slate-200 dark:bg-slate-800 justify-start"
+                                }`}
+                                aria-label="Sadece Avatar Göster"
+                              >
+                                <span className="w-4 h-4 rounded-full bg-white shadow-sm" />
+                              </button>
+                            </div>
+
+                            {/* Alt Görünürlük Seçenekleri */}
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                              {[
+                                {
+                                  key: "showName",
+                                  title: "Ad Soyad Göster",
+                                  desc: "Kullanıcı ad-soyad bilgisini kapsülde gösterir"
+                                },
+                                {
+                                  key: "showExtension",
+                                  title: `Dahili Numarası Göster${currentUser?.extension ? ` (#${currentUser.extension})` : ""}`,
+                                  desc: "Abone dahili numarasını rozet olarak gösterir"
+                                },
+                                {
+                                  key: "showProfile",
+                                  title: "Aktif Profil Göster / Gizle",
+                                  desc: "Müsait, Dışarıda, Toplantı durum metnini gösterir"
+                                },
+                                {
+                                  key: "showRole",
+                                  title: "Kullanıcı Rolü Göster / Gizle",
+                                  desc: "Yönetici, Süpervizör veya Temsilci ünvanını gösterir"
+                                }
+                              ].map((field) => {
+                                const isChecked = !topbarPrefs.avatarOnly && Boolean(topbarPrefs[field.key]);
+                                return (
+                                  <button
+                                    key={field.key}
+                                    type="button"
+                                    onClick={() => {
+                                      if (topbarPrefs.avatarOnly) {
+                                        updateTopbarPrefsLive({ avatarOnly: false, [field.key]: true });
+                                      } else {
+                                        updateTopbarPrefsLive({ [field.key]: !topbarPrefs[field.key] });
+                                      }
+                                    }}
+                                    className={`p-3 rounded-xl border text-left transition-all flex items-center justify-between gap-2.5 cursor-pointer ${
+                                      isChecked
+                                        ? `${lightBg} ${border}`
+                                        : "bg-white dark:bg-slate-900 border-slate-200/80 dark:border-slate-800 opacity-75 hover:opacity-100"
+                                    }`}
+                                  >
+                                    <div className="min-w-0">
+                                      <div className="text-[11px] font-extrabold text-slate-800 dark:text-white truncate">
+                                        {field.title}
+                                      </div>
+                                      <div className="text-[9.5px] text-slate-400 dark:text-slate-500 truncate mt-0.5">
+                                        {field.desc}
+                                      </div>
+                                    </div>
+                                    <div
+                                      className={`w-8 h-4 rounded-full p-0.5 transition-all flex items-center shrink-0 ${
+                                        isChecked ? `${bg} justify-end` : "bg-slate-200 dark:bg-slate-800 justify-start"
+                                      }`}
+                                    >
+                                      <span className="w-3 h-3 rounded-full bg-white shadow-sm" />
+                                    </div>
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          </div>
+
+                          {/* 3. Sık Kullanılan Özellik Kısayolları (Pinleme & Sıralama) */}
+                          <div className="p-4 bg-slate-50/70 dark:bg-slate-950/40 border border-slate-200/80 dark:border-slate-800 rounded-2xl space-y-4">
+                            <div className="flex flex-wrap items-center justify-between gap-2">
+                              <div>
+                                <h5 className="text-xs font-extrabold text-slate-800 dark:text-white uppercase tracking-wider">
+                                  Sık Kullanılan Özellik Kısayolları
+                                </h5>
+                                <p className="text-[10px] text-slate-400 dark:text-slate-500 mt-0.5">
+                                  En sık kullandığınız ekranları üst bara sabitleyin, sürükleyerek sıralayın ve taşma limitini belirleyin.
+                                </p>
+                              </div>
+                              <div className="flex items-center gap-1.5">
+                                <button
+                                  type="button"
+                                  onClick={loadSuggestedPins}
+                                  className={`px-2.5 py-1.5 rounded-xl border text-[10px] font-extrabold transition-colors cursor-pointer ${lightBg} ${text} ${borderLight}`}
+                                >
+                                  Önerilenleri Ekle
+                                </button>
+                                {pinnedTopbarFeatures.length > 0 && (
+                                  <button
+                                    type="button"
+                                    onClick={() => updateTopbarPrefsLive({ pinnedItems: [] })}
+                                    className="px-2.5 py-1.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-[10px] font-bold text-slate-500 hover:text-rose-600 transition-colors cursor-pointer"
+                                  >
+                                    Tümünü Kaldır
+                                  </button>
+                                )}
+                              </div>
+                            </div>
+
+                            {/* Kısayol Görünüm Stili & Maksimum Görünür Sayı */}
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 p-3 rounded-xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800">
+                              <div className="space-y-1.5">
+                                <span className="text-[10px] font-extrabold uppercase tracking-wider text-slate-500 dark:text-slate-400 block">
+                                  Kısayol Buton Stili
+                                </span>
+                                <div className="flex items-center gap-1.5">
+                                  {[
+                                    { id: "icon_label", label: "İkon + Başlık" },
+                                    { id: "icon", label: "Sadece İkon" }
+                                  ].map((st) => {
+                                    const active = topbarPrefs.pinStyle === st.id;
+                                    return (
+                                      <button
+                                        key={st.id}
+                                        type="button"
+                                        onClick={() => updateTopbarPrefsLive({ pinStyle: st.id })}
+                                        className={`flex-1 px-3 py-1.5 rounded-xl text-[11px] font-extrabold border transition-all cursor-pointer ${
+                                          active
+                                            ? `${bg} text-white border-transparent shadow-sm`
+                                            : "bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-300"
+                                        }`}
+                                      >
+                                        {st.label}
+                                      </button>
+                                    );
+                                  })}
+                                </div>
+                              </div>
+
+                              <div className="space-y-1.5">
+                                <span className="text-[10px] font-extrabold uppercase tracking-wider text-slate-500 dark:text-slate-400 block">
+                                  Üst Barda Görünür Adet (Fazlası ⋯ Menüsünde)
+                                </span>
+                                <div className="flex items-center gap-1.5">
+                                  {[3, 4, 5, 6, 8].map((cnt) => {
+                                    const active = topbarPrefs.maxVisiblePins === cnt;
+                                    return (
+                                      <button
+                                        key={cnt}
+                                        type="button"
+                                        onClick={() => updateTopbarPrefsLive({ maxVisiblePins: cnt })}
+                                        className={`flex-1 py-1.5 rounded-xl text-[11px] font-extrabold border transition-all cursor-pointer ${
+                                          active
+                                            ? `${bg} text-white border-transparent shadow-sm`
+                                            : "bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-300"
+                                        }`}
+                                      >
+                                        {cnt}
+                                      </button>
+                                    );
+                                  })}
+                                </div>
+                              </div>
+                            </div>
+
+                            {/* Sabitlenen Kısayolların Sıralaması */}
+                            {pinnedTopbarFeatures.length > 0 && (
+                              <div className="space-y-1.5">
+                                <div className="flex items-center justify-between px-1">
+                                  <span className="text-[10px] font-extrabold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                                    Sabitlenen Kısayol Sıralaması ({pinnedTopbarFeatures.length})
+                                  </span>
+                                  <span className="text-[9.5px] font-semibold text-slate-400">
+                                    Sürükleyerek veya oklarla sıralayın
+                                  </span>
+                                </div>
+                                <div className="space-y-1.5">
+                                  {pinnedTopbarFeatures.map((pf, idx) => {
+                                    const PfIcon = pf.icon;
+                                    const isOverflowing = idx >= topbarPrefs.maxVisiblePins;
+                                    return (
+                                      <div
+                                        key={pf.id}
+                                        draggable
+                                        onDragStart={() => handlePinDragStart(idx)}
+                                        onDragOver={(e) => handlePinDragOver(e, idx)}
+                                        onDragEnd={handlePinDragEnd}
+                                        className={`flex items-center justify-between gap-2 px-3 py-2 rounded-xl border bg-white dark:bg-slate-900 transition-all cursor-grab active:cursor-grabbing ${
+                                          draggedPinnedIdx === idx
+                                            ? `${border} ${lightBg} opacity-75`
+                                            : "border-slate-200/80 dark:border-slate-800"
+                                        }`}
+                                      >
+                                        <div className="flex items-center gap-2.5 min-w-0">
+                                          <GripVertical size={13} className="text-slate-400 shrink-0" />
+                                          <span className={`w-5 h-5 rounded-md text-[10px] font-black flex items-center justify-center shrink-0 ${lightBg} ${text}`}>
+                                            {idx + 1}
+                                          </span>
+                                          <PfIcon size={14} className={`${text} shrink-0`} />
+                                          <span className="text-xs font-bold text-slate-800 dark:text-white truncate">
+                                            {pf.label}
+                                          </span>
+                                          {isOverflowing && (
+                                            <span className="px-1.5 py-0.5 rounded-md text-[9px] font-bold bg-slate-100 dark:bg-slate-800 text-slate-500 shrink-0">
+                                              ⋯ Taşma Menüsünde
+                                            </span>
+                                          )}
+                                        </div>
+                                        <div className="flex items-center gap-1 shrink-0">
+                                          <button
+                                            type="button"
+                                            disabled={idx === 0}
+                                            onClick={() => movePinnedItem(idx, -1)}
+                                            className="p-1 rounded-lg text-slate-400 hover:text-slate-700 dark:hover:text-white disabled:opacity-30 cursor-pointer"
+                                            title="Yukarı Taşı"
+                                          >
+                                            <ArrowUp size={13} />
+                                          </button>
+                                          <button
+                                            type="button"
+                                            disabled={idx === pinnedTopbarFeatures.length - 1}
+                                            onClick={() => movePinnedItem(idx, 1)}
+                                            className="p-1 rounded-lg text-slate-400 hover:text-slate-700 dark:hover:text-white disabled:opacity-30 cursor-pointer"
+                                            title="Aşağı Taşı"
+                                          >
+                                            <ArrowDown size={13} />
+                                          </button>
+                                          <button
+                                            type="button"
+                                            onClick={() => togglePinFeature(pf.id)}
+                                            className="p-1 rounded-lg text-slate-400 hover:text-rose-500 transition-colors cursor-pointer"
+                                            title="Üst Bardan Kaldır"
+                                          >
+                                            <X size={13} />
+                                          </button>
+                                        </div>
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              </div>
+                            )}
+
+                            {/* Kısayol Ekleme Kataloğu */}
+                            <div className="space-y-3 pt-1">
+                              <div className="relative">
+                                <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                                <input
+                                  type="text"
+                                  value={pinCatalogSearch}
+                                  onChange={(e) => setPinCatalogSearch(e.target.value)}
+                                  placeholder="Üst bara eklenecek ekran veya modül ara..."
+                                  className="w-full pl-8 pr-3 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-xs font-semibold text-slate-800 dark:text-white placeholder:text-slate-400 focus:outline-none"
+                                />
+                              </div>
+
+                              <div className="space-y-3">
+                                {catalogGroups.map((grp) => {
+                                  const grpItems = filteredCatalog.filter((f) => f.group === grp);
+                                  return (
+                                    <div key={grp} className="space-y-1.5">
+                                      <div className="text-[10px] font-extrabold uppercase tracking-wider text-slate-400 dark:text-slate-500 px-1">
+                                        {grp}
+                                      </div>
+                                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+                                        {grpItems.map((feat) => {
+                                          const FeatIcon = feat.icon;
+                                          const isPinned = topbarPrefs.pinnedItems.includes(feat.id);
+                                          return (
+                                            <button
+                                              key={feat.id}
+                                              type="button"
+                                              onClick={() => togglePinFeature(feat.id)}
+                                              className={`px-3 py-2 rounded-xl border text-left transition-all flex items-center justify-between gap-2 cursor-pointer ${
+                                                isPinned
+                                                  ? `${lightBg} ${border} shadow-sm`
+                                                  : "bg-white dark:bg-slate-900 border-slate-200/80 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700"
+                                              }`}
+                                            >
+                                              <div className="flex items-center gap-2 min-w-0">
+                                                <div
+                                                  className={`p-1.5 rounded-lg shrink-0 ${
+                                                    isPinned
+                                                      ? `${bg} text-white`
+                                                      : "bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400"
+                                                  }`}
+                                                >
+                                                  <FeatIcon size={13} />
+                                                </div>
+                                                <span className="text-[11px] font-bold text-slate-800 dark:text-white truncate">
+                                                  {feat.label}
+                                                </span>
+                                              </div>
+                                              {isPinned ? (
+                                                <Pin size={13} className={`${text} shrink-0`} />
+                                              ) : (
+                                                <Plus size={13} className="text-slate-400 shrink-0" />
+                                              )}
+                                            </button>
+                                          );
+                                        })}
+                                      </div>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })()}
 
                     {/* Canlı İzleme Paneli (Wallboard) Özelleştirme Sekmesi */}
                     {activeModalTab === "wallboard" && (

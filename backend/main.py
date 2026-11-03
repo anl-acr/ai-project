@@ -27141,18 +27141,37 @@ async def get_system_version_info():
         pass
 
     return {
-        "version": "v2.7.5",
+        "version": "v2.7.6",
         "commit_hash": live_commit,
         "release_date": "3 Kasım 2026",
         "status": "Güncel / Canlı Sürüm",
         "environment": "Production (On-Premise)",
         "changelog": [
             {
-                "version": "v2.7.5",
+                "version": "v2.7.6",
                 "commit_hash": live_commit,
                 "release_date": "3 Kasım 2026",
                 "badge": "Canlı Sürüm (Güncel)",
                 "badge_type": "current",
+                "title": "Kişiselleştirilebilir Üst Bar (Kısayollar, Global Arama Modları, Avatar Kapsülü) & Akıllı Yatay Mod Uyumu",
+                "summary": "Kullanıcıların kendi rol yetkileri dahilindeki sık kullandıkları modülleri üst bara sabitleyip sıralayabileceği, Global Arama çubuğunu 4 farklı modda (Sadece İkon, Geniş, Daha Geniş, Kapalı) kullanabileceği, sağ üst Avatar/Profil kapsülündeki bilgileri (Sadece Avatar, Ad Soyad, Dahili #, Aktif Profil, Rol) seçebileceği ve Çağrı Merkezi yatay üst bar modunda çakışmayı önlemek için tek satırda otomatik kompaktlaşan (Yaklaşım B) üst bar özelleştirme sistemi eklendi.",
+                "features": [
+                    {
+                        "title": "📌 Sık Kullanılan Özellik Kısayolları & 4 Modlu Global Arama",
+                        "desc": "Profil Ayarları > Üst Bar Özelleştirme sekmesinden yetkili ekranları üst bara sabitleme, sürükle-bırak sıralama, İkon / İkon+Başlık stili, '⋯' taşma menüsü ve Global Arama için İkon (🔍), Geniş, Daha Geniş ve Kapalı görünüm modları sunuldu."
+                    },
+                    {
+                        "title": "👤 Özelleştirilebilir Avatar Kapsülü & Akıllı Yatay Görünüm Kompaktlaşması",
+                        "desc": "Avatar penceresinde 'Sadece Avatar Göster' veya Dahili (#1000), Aktif Profil, Rol ve İsim görünürlük anahtarları eklendi; Çağrı Paneli yatay üst bar görünümündeyken tek satır korunarak arama ve kısayolların otomatik ikon moduna küçülmesi sağlandı."
+                    }
+                ]
+            },
+            {
+                "version": "v2.7.5",
+                "commit_hash": "15df78d",
+                "release_date": "3 Kasım 2026",
+                "badge": "Önceki Sürüm",
+                "badge_type": "previous",
                 "title": "Abone Çoklu SIP Cihazları Yönetimi, Büyüteç Cihaz/BLF/PJSIP İnceleme Ekranı & SIP Sekmesi Birleştirme",
                 "summary": "Kullanıcı Genel sekmesinde yer alan Giden Arama Kuralları ve Çağrı Toplama Grubu alanları SIP sekmesine taşındı; bir aboneye birden fazla masa telefonu, DECT veya SIP istemci tanımlamaya olanak tanıyan çoklu 'SIP Cihazları' yapısı ile 4 sekmeli canlı Büyüteç (Ağ/MAC/Autoprovision, BLF & DSS Tuşları, Kodek/Telefon Ayarları ve pjsip show endpoint) inceleme penceresi eklendi.",
                 "features": [

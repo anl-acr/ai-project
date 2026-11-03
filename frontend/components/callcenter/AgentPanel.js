@@ -29,17 +29,65 @@ export const ALL_TABS = [
   { id: "deskphone", perm: "call_panel:tab_deskphone", name: "Masa Telefonum", desc: "Masa telefonu BLF, hızlı arama ve softkey tuş yönetimi", icon: Smartphone },
 ];
 
+export const DEFAULT_TOPBAR_PREFS = {
+  searchMode: "normal", // "hidden" | "icon" | "normal" | "wide"
+  pinnedItems: [], // user-selected feature IDs
+  pinStyle: "icon_label", // "icon" | "icon_label"
+  maxVisiblePins: 5, // 2..8
+  avatarOnly: false,
+  showName: true,
+  showExtension: false,
+  showProfile: true,
+  showRole: true,
+};
+
+export function normalizeTopbarPrefs(raw) {
+  if (!raw || typeof raw !== "object") {
+    return { ...DEFAULT_TOPBAR_PREFS, pinnedItems: [] };
+  }
+  const validSearchModes = ["hidden", "icon", "normal", "wide"];
+  const searchMode = validSearchModes.includes(raw.searchMode) ? raw.searchMode : "normal";
+  const pinnedItems = Array.isArray(raw.pinnedItems)
+    ? Array.from(new Set(raw.pinnedItems.filter((x) => typeof x === "string" && x.trim().length > 0)))
+    : [];
+  const pinStyle = raw.pinStyle === "icon" ? "icon" : "icon_label";
+  const parsedMax = Number(raw.maxVisiblePins);
+  const maxVisiblePins = Number.isFinite(parsedMax) ? Math.min(8, Math.max(2, Math.round(parsedMax))) : 5;
+  const avatarOnly = Boolean(raw.avatarOnly);
+  const showName = raw.showName === undefined ? true : Boolean(raw.showName);
+  const showExtension = raw.showExtension === undefined ? false : Boolean(raw.showExtension);
+  const showProfile = raw.showProfile === undefined ? true : Boolean(raw.showProfile);
+  const showRole = raw.showRole === undefined ? true : Boolean(raw.showRole);
+
+  return {
+    searchMode,
+    pinnedItems,
+    pinStyle,
+    maxVisiblePins,
+    avatarOnly,
+    showName,
+    showExtension,
+    showProfile,
+    showRole,
+  };
+}
+
 export const DEFAULT_CALL_PANEL_PREFS = {
   viewMode: "list", // "list" | "box"
   boxSize: "large", // "large" | "small"
   navPosition: "left", // "left" | "top"
   tabOrder: ALL_TABS.map((t) => t.id),
+  topbar: { ...DEFAULT_TOPBAR_PREFS },
 };
 
 export function normalizeCallPanelPrefs(raw) {
   const defaultOrder = ALL_TABS.map((t) => t.id);
   if (!raw || typeof raw !== "object") {
-    return { ...DEFAULT_CALL_PANEL_PREFS, tabOrder: [...defaultOrder] };
+    return {
+      ...DEFAULT_CALL_PANEL_PREFS,
+      tabOrder: [...defaultOrder],
+      topbar: normalizeTopbarPrefs(null),
+    };
   }
   const viewMode = raw.viewMode === "box" ? "box" : "list";
   const boxSize = raw.boxSize === "small" ? "small" : "large";
@@ -50,14 +98,19 @@ export function normalizeCallPanelPrefs(raw) {
       tabOrder.push(id);
     }
   }
-  return { viewMode, boxSize, navPosition, tabOrder };
+  const topbar = normalizeTopbarPrefs(raw.topbar);
+  return { viewMode, boxSize, navPosition, tabOrder, topbar };
 }
 
 function hasSavedCallPanelPrefs(obj) {
   return Boolean(
     obj &&
       typeof obj === "object" &&
-      (obj.viewMode || obj.boxSize || obj.navPosition || (Array.isArray(obj.tabOrder) && obj.tabOrder.length > 0))
+      (obj.viewMode ||
+        obj.boxSize ||
+        obj.navPosition ||
+        (Array.isArray(obj.tabOrder) && obj.tabOrder.length > 0) ||
+        (obj.topbar && typeof obj.topbar === "object"))
   );
 }
 

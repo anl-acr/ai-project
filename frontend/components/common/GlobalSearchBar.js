@@ -60,7 +60,8 @@ export default function GlobalSearchBar({
   onApplyChanges,
   hasPendingChanges,
   onLogout,
-  onUpdateCallPanelPrefs
+  onUpdateCallPanelPrefs,
+  displayMode = "normal" // "hidden" | "icon" | "normal" | "wide"
 }) {
   const { bg, hover, text, border, ring, lightBg, lightText, borderLight } = useTheme();
   const [query, setQuery] = useState("");
@@ -83,11 +84,12 @@ export default function GlobalSearchBar({
 
   // Global keyboard shortcut: Cmd+K or Ctrl+K to focus search
   useEffect(() => {
+    if (displayMode === "hidden") return undefined;
     const handleKeyDown = (e) => {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
         e.preventDefault();
         setIsOpen(true);
-        inputRef.current?.focus();
+        setTimeout(() => inputRef.current?.focus(), 15);
       } else if (e.key === "Escape" && isOpen) {
         setIsOpen(false);
         inputRef.current?.blur();
@@ -95,7 +97,7 @@ export default function GlobalSearchBar({
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [isOpen]);
+  }, [isOpen, displayMode]);
 
   // Close dropdown on outside click
   useEffect(() => {
@@ -1099,6 +1101,20 @@ export default function GlobalSearchBar({
         }
       },
       {
+        id: "action-topbar-customize",
+        category: "action",
+        groupLabel: "Hızlı İşlemler & Profil Ayarları",
+        title: "Üst Bar Özelleştirme (Kısayollar, Arama & Avatar)",
+        subtitle: "Sık kullanılan kısayolları, global arama görünümünü ve avatar kapsülünü özelleştirin",
+        keywords: "üst bar özelleştirme kısayol sık kullanılanlar global search arama ikonu avatar gizle dahili",
+        icon: Sliders,
+        run: () => {
+          onOpenProfileModal?.("topbar");
+          setIsOpen(false);
+          setQuery("");
+        }
+      },
+      {
         id: "action-toggle-darkmode",
         category: "action",
         groupLabel: "Hızlı İşlemler & Profil Ayarları",
@@ -1374,70 +1390,155 @@ export default function GlobalSearchBar({
     }
   };
 
+  if (displayMode === "hidden") {
+    return null;
+  }
+
+  const isIconMode = displayMode === "icon";
+  const isWideMode = displayMode === "wide";
+
+  const wrapperClass = isIconMode
+    ? "relative shrink-0 z-50"
+    : isWideMode
+    ? "relative flex-1 max-w-xl mx-3 z-50"
+    : "relative w-48 sm:w-64 lg:w-72 xl:w-80 shrink min-w-[150px] mx-2 z-50";
+
+  const dropdownAlignClass = isIconMode
+    ? "right-0 w-[min(92vw,34rem)]"
+    : isWideMode
+    ? "left-0 right-0"
+    : "left-0 w-[min(92vw,34rem)]";
+
   return (
-    <div ref={containerRef} className="relative flex-1 max-w-xl mx-4 z-50">
-      {/* Top Header Search Input Bar */}
-      <div
-        onClick={() => {
-          setIsOpen(true);
-          inputRef.current?.focus();
-        }}
-        className={`flex items-center gap-2 px-3.5 py-1.5 rounded-2xl border transition-all duration-200 cursor-text ${
-          isOpen
-            ? `bg-white dark:bg-slate-900 ${border} ring-2 ${ring} shadow-lg`
-            : "bg-slate-100/80 dark:bg-slate-800/70 border-slate-200/80 dark:border-slate-800 hover:bg-white dark:hover:bg-slate-900 hover:border-slate-300 dark:hover:border-slate-700 shadow-sm"
-        }`}
-      >
-        <Search size={15} className={`shrink-0 ${isOpen ? text : "text-slate-400 dark:text-slate-500"}`} />
-        <input
-          ref={inputRef}
-          type="text"
-          value={query}
-          onFocus={() => setIsOpen(true)}
-          onChange={(e) => {
-            setQuery(e.target.value);
-            if (!isOpen) setIsOpen(true);
+    <div ref={containerRef} className={wrapperClass}>
+      {/* Top Header Search Trigger (Icon-Only or Inline Input Bar) */}
+      {isIconMode ? (
+        <button
+          type="button"
+          onClick={() => {
+            const next = !isOpen;
+            setIsOpen(next);
+            if (next) {
+              setTimeout(() => inputRef.current?.focus(), 15);
+            }
           }}
-          onKeyDown={handleInputKeyDown}
-          placeholder="Menü, ayar, kullanıcı, dahili veya işlem ara... (Ctrl+K)"
-          className="w-full bg-transparent text-xs font-semibold text-slate-800 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500 focus:outline-none"
-        />
-
-        {query && (
-          <button
-            type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              setQuery("");
-              inputRef.current?.focus();
-            }}
-            className="p-1 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 rounded-lg transition-colors shrink-0"
-            title="Temizle"
-          >
-            <X size={13} />
-          </button>
-        )}
-
-        <div onClick={(e) => e.stopPropagation()} className="shrink-0">
-          <DictationButton
+          aria-label="Global Hızlı Arama (Ctrl+K)"
+          aria-expanded={isOpen}
+          title="Global Hızlı Arama (Ctrl+K)"
+          className={`p-2 rounded-xl border transition-all shadow-sm cursor-pointer flex items-center justify-center ${
+            isOpen
+              ? `${bg} text-white border-transparent`
+              : "border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800"
+          }`}
+        >
+          <Search size={15} className={isOpen ? "text-white" : text} />
+        </button>
+      ) : (
+        <div
+          onClick={() => {
+            setIsOpen(true);
+            inputRef.current?.focus();
+          }}
+          className={`flex items-center gap-2 px-3.5 py-1.5 rounded-2xl border transition-all duration-200 cursor-text ${
+            isOpen
+              ? `bg-white dark:bg-slate-900 ${border} ring-2 ${ring} shadow-lg`
+              : "bg-slate-100/80 dark:bg-slate-800/70 border-slate-200/80 dark:border-slate-800 hover:bg-white dark:hover:bg-slate-900 hover:border-slate-300 dark:hover:border-slate-700 shadow-sm"
+          }`}
+        >
+          <Search size={15} className={`shrink-0 ${isOpen ? text : "text-slate-400 dark:text-slate-500"}`} />
+          <input
+            ref={inputRef}
+            type="text"
             value={query}
-            onChange={(val) => {
-              setQuery(val);
+            onFocus={() => setIsOpen(true)}
+            onChange={(e) => {
+              setQuery(e.target.value);
               if (!isOpen) setIsOpen(true);
             }}
-            size="sm"
-            className="border-0 bg-transparent hover:bg-slate-200/60 dark:hover:bg-slate-800"
+            onKeyDown={handleInputKeyDown}
+            placeholder={isWideMode ? "Menü, ayar, kullanıcı, dahili veya işlem ara... (Ctrl+K)" : "Menü, kullanıcı veya işlem ara..."}
+            className="w-full bg-transparent text-xs font-semibold text-slate-800 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500 focus:outline-none"
           />
+
+          {query && (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                setQuery("");
+                inputRef.current?.focus();
+              }}
+              className="p-1 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 rounded-lg transition-colors shrink-0"
+              title="Temizle"
+            >
+              <X size={13} />
+            </button>
+          )}
+
+          <div onClick={(e) => e.stopPropagation()} className="shrink-0">
+            <DictationButton
+              value={query}
+              onChange={(val) => {
+                setQuery(val);
+                if (!isOpen) setIsOpen(true);
+              }}
+              size="sm"
+              className="border-0 bg-transparent hover:bg-slate-200/60 dark:hover:bg-slate-800"
+            />
+          </div>
+
+          <kbd className="hidden sm:inline-flex items-center gap-0.5 px-1.5 py-0.5 text-[9px] font-extrabold text-slate-400 dark:text-slate-500 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-md shrink-0">
+            ⌘K
+          </kbd>
         </div>
+      )}
 
-        <kbd className="hidden sm:inline-flex items-center gap-0.5 px-1.5 py-0.5 text-[9px] font-extrabold text-slate-400 dark:text-slate-500 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-md shrink-0">
-          ⌘K
-        </kbd>
-      </div>
-
-      {/* Global Search Results Dropdown Modal */}
+      {/* Global Search Results Dropdown Popover (immediately after trigger) */}
       {isOpen && (
-        <div className="absolute left-0 right-0 mt-2 bg-white dark:bg-slate-900 border border-slate-200/90 dark:border-slate-800 rounded-3xl shadow-2xl overflow-hidden animate-in fade-in slide-in-from-top-2 duration-150">
+        <div className={`absolute ${dropdownAlignClass} mt-2 bg-white dark:bg-slate-900 border border-slate-200/90 dark:border-slate-800 rounded-3xl shadow-2xl overflow-hidden animate-in fade-in slide-in-from-top-2 duration-150`}>
+          {/* Floating Input Bar when in Icon Mode */}
+          {isIconMode && (
+            <div className="px-3.5 py-2.5 border-b border-slate-100 dark:border-slate-800 bg-white dark:bg-slate-900 flex items-center gap-2">
+              <Search size={15} className={`shrink-0 ${text}`} />
+              <input
+                ref={inputRef}
+                type="text"
+                autoFocus
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                onKeyDown={handleInputKeyDown}
+                placeholder="Menü, ayar, kullanıcı, dahili veya işlem ara..."
+                className="w-full bg-transparent text-xs font-semibold text-slate-800 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500 focus:outline-none"
+              />
+              {query && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setQuery("");
+                    inputRef.current?.focus();
+                  }}
+                  className="p-1 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 rounded-lg transition-colors shrink-0"
+                  title="Temizle"
+                >
+                  <X size={13} />
+                </button>
+              )}
+              <DictationButton
+                value={query}
+                onChange={(val) => setQuery(val)}
+                size="sm"
+                className="border-0 bg-transparent hover:bg-slate-200/60 dark:hover:bg-slate-800 shrink-0"
+              />
+              <button
+                type="button"
+                onClick={() => setIsOpen(false)}
+                className="px-1.5 py-0.5 text-[9px] font-extrabold text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 bg-slate-100 dark:bg-slate-800 rounded-md shrink-0 cursor-pointer"
+                title="Kapat (ESC)"
+              >
+                ESC
+              </button>
+            </div>
+          )}
           {/* Category Filter Pills */}
           <div className="px-3.5 py-2.5 bg-slate-50/90 dark:bg-slate-950/50 border-b border-slate-100 dark:border-slate-800 flex items-center gap-1.5 overflow-x-auto">
             {[
