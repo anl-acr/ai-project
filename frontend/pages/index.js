@@ -1594,10 +1594,14 @@ export default function Home() {
     setLoginError("");
     const cleanUsername = (username || "").trim();
     let usersToSearch = systemUsers;
+    let backendReachable = false;
+    let backendStatus = null;
     try {
       const protocol = window.location.protocol === "https:" ? "https:" : "http:";
       const resUsers = await fetch(`${protocol}//${backendHost}/api/settings/users?tenant_id=all`);
+      backendStatus = resUsers.status;
       if (resUsers.ok) {
+        backendReachable = true;
         const freshUsers = await resUsers.json();
         if (Array.isArray(freshUsers) && freshUsers.length > 0) {
           usersToSearch = freshUsers;
@@ -1611,7 +1615,7 @@ export default function Home() {
     const adminUserFromDb = (usersToSearch || []).find(u => u.role === 'admin' || u.username === 'admin' || u.id === 1);
     const validAdminPassword = adminUserFromDb?.password || SUPER_ADMIN.password || "admin";
 
-    if (cleanUsername === "admin" && (password === validAdminPassword || password === "admin")) { // Admin login
+    if (cleanUsername.toLowerCase() === "admin" && (password === validAdminPassword || password === "admin")) { // Admin login
       const activeAdminUser = adminUserFromDb ? { ...SUPER_ADMIN, ...adminUserFromDb } : SUPER_ADMIN;
       if (activeAdminUser.two_factor_enabled) {
         const normAdminMethod = (!activeAdminUser.two_factor_method || activeAdminUser.two_factor_method === "app") ? "google_auth" : activeAdminUser.two_factor_method;
@@ -1639,17 +1643,24 @@ export default function Home() {
     }
 
     const cleanLower = cleanUsername.toLowerCase();
-    const foundUser = (usersToSearch || []).find(u => 
-      (
+    const foundUser = (usersToSearch || []).find(u => {
+      const matchesIdentity = (
         u.username === cleanUsername ||
+        (u.username && String(u.username).toLowerCase() === cleanLower) ||
         u.email === cleanUsername ||
         (u.email && String(u.email).toLowerCase() === cleanLower) ||
         String(u.extension || "") === cleanUsername ||
         u.full_name === cleanUsername ||
         (u.sip_username && u.sip_username === cleanUsername)
-      ) && 
-      (u.password === password || u.sip_password === password)
-    );
+      );
+      const matchesMainPassword = (u.password === password || u.sip_password === password);
+      const matchesSipDevice = Array.isArray(u.sip_devices) && u.sip_devices.some(d =>
+        d &&
+        String(d.sip_username || "") === cleanUsername &&
+        (u.password === password || String(d.sip_password || "") === password)
+      );
+      return (matchesIdentity && matchesMainPassword) || matchesSipDevice;
+    });
     if (foundUser) {
       if (foundUser.two_factor_enabled) {
         const normMethod = (!foundUser.two_factor_method || foundUser.two_factor_method === "app") ? "google_auth" : foundUser.two_factor_method;
@@ -1676,6 +1687,13 @@ export default function Home() {
       sendUserAuditActivity("LOGIN", "Auth", "Web Paneli Girişi", `${foundUser.full_name || foundUser.username || "Kullanıcı"} (Dahili: ${foundUser.extension || "-"}) sisteme giriş yaptı.`, foundUser);
       return { success: true };
     } else {
+      if (!backendReachable && (!usersToSearch || usersToSearch.length === 0)) {
+        const svcMsg = backendStatus
+          ? `Sunucu kullanıcı servisi yanıt vermedi (HTTP ${backendStatus}). Lütfen aida-backend servisini kontrol edin.`
+          : "Sunucu servisine (aida-backend) ulaşılamıyor. Lütfen sunucu servislerinin çalıştığını kontrol edin.";
+        setLoginError(svcMsg);
+        return { success: false, error: svcMsg };
+      }
       setLoginError("Geçersiz kullanıcı adı veya şifre.");
       return { success: false, error: "Geçersiz kullanıcı adı veya şifre." };
     }
@@ -3421,10 +3439,10 @@ export default function Home() {
           </p>
           <button
             onClick={() => setActiveTab("changelog")}
-            title="Sistem Versiyonu ve Değişiklik Günlüğü (v2.7.6 On-Premise)"
+            title="Sistem Versiyonu ve Değişiklik Günlüğü (v2.7.7 On-Premise)"
             className="flex items-center gap-1 text-[10px] font-bold text-slate-500 dark:text-slate-400 hover:text-primary dark:hover:text-indigo-400 hover:underline transition cursor-pointer bg-transparent border-0 p-0 outline-none focus-visible:ring-2 focus-visible:ring-primary/50 rounded"
           >
-            <span>{isSidebarCollapsed ? "v2.7.6" : "v2.7.6 (On-Premise)"}</span>
+            <span>{isSidebarCollapsed ? "v2.7.7" : "v2.7.7 (On-Premise)"}</span>
           </button>
         </div>
       </aside>

@@ -1574,6 +1574,94 @@ DEFAULT_SETTINGS = {
     }
 }
 
+def _normalize_workflow_start_node(wf: dict) -> dict:
+    """
+    Ensures every Call Flow workflow has a single, clean 'start' ("Akış Başlangıcı") entry node
+    and migrates any legacy 'did' / 'trunk_start' nodes seamlessly while preserving node IDs and connections.
+    """
+    if not isinstance(wf, dict):
+        return wf
+    raw_nodes = wf.get("nodes") if isinstance(wf.get("nodes"), list) else []
+    raw_conns = wf.get("connections") if isinstance(wf.get("connections"), list) else []
+
+    primary_start = None
+    duplicate_start_ids = set()
+    normalized_nodes = []
+
+    for n in raw_nodes:
+        if not isinstance(n, dict):
+            continue
+        nc = dict(n)
+        ntype = str(nc.get("type") or "").strip().lower()
+        if ntype in ("start", "did", "trunk_start", "inbound"):
+            nc["type"] = "start"
+            old_title = str(nc.get("title") or "").strip()
+            if not old_title or "did" in old_title.lower() or old_title.lower() in ("trunk_start", "start"):
+                nc["title"] = "Akış Başlangıcı"
+            nc["value"] = "Çağrı Girişi"
+            ef = dict(nc.get("extra_fields")) if isinstance(nc.get("extra_fields"), dict) else {}
+            ef.pop("did_numbers", None)
+            ef.pop("is_wildcard", None)
+            nc["extra_fields"] = ef or None
+            if primary_start is None:
+                primary_start = nc
+                normalized_nodes.append(nc)
+            else:
+                if nc.get("id"):
+                    duplicate_start_ids.add(nc["id"])
+        else:
+            normalized_nodes.append(nc)
+
+    normalized_conns = []
+    for c in raw_conns:
+        if not isinstance(c, dict):
+            continue
+        cc = dict(c)
+        if primary_start and cc.get("fromNode") in duplicate_start_ids:
+            cc["fromNode"] = primary_start["id"]
+            cc["fromPort"] = "output"
+        if cc.get("toNode") in duplicate_start_ids or (primary_start and cc.get("toNode") == primary_start["id"]):
+            continue
+        normalized_conns.append(cc)
+
+    if primary_start is None:
+        start_id = "node-start"
+        existing_ids = {n.get("id") for n in normalized_nodes}
+        idx_s = 1
+        while start_id in existing_ids:
+            start_id = f"node-start-{idx_s}"
+            idx_s += 1
+        primary_start = {
+            "id": start_id,
+            "type": "start",
+            "x": 80,
+            "y": 150,
+            "title": "Akış Başlangıcı",
+            "value": "Çağrı Girişi",
+            "options": None,
+            "extra_fields": None,
+        }
+        incoming_ids = {c.get("toNode") for c in normalized_conns if c.get("toNode")}
+        first_root = next(
+            (n for n in normalized_nodes if n.get("id") not in incoming_ids and n.get("type") != "stargate_out"),
+            normalized_nodes[0] if normalized_nodes else None,
+        )
+        normalized_nodes.insert(0, primary_start)
+        if first_root and first_root.get("id"):
+            normalized_conns.insert(0, {
+                "id": f"conn-{start_id}-auto",
+                "fromNode": start_id,
+                "fromPort": "output",
+                "toNode": first_root["id"],
+                "toPort": "input",
+            })
+
+    out_wf = dict(wf)
+    out_wf["nodes"] = normalized_nodes
+    out_wf["connections"] = normalized_conns
+    return out_wf
+
+
 def load_settings():
     db = DEFAULT_SETTINGS.copy()
     
@@ -2405,94 +2493,6 @@ def is_suspicious_or_fraud_outbound_number(callee: str, allow_international: boo
         return False, "OK"
 
     return True, f"INVALID_DIALPLAN_FORMAT ({len(num)} hane)"
-
-
-def _normalize_workflow_start_node(wf: dict) -> dict:
-    """
-    Ensures every Call Flow workflow has a single, clean 'start' ("Akış Başlangıcı") entry node
-    and migrates any legacy 'did' / 'trunk_start' nodes seamlessly while preserving node IDs and connections.
-    """
-    if not isinstance(wf, dict):
-        return wf
-    raw_nodes = wf.get("nodes") if isinstance(wf.get("nodes"), list) else []
-    raw_conns = wf.get("connections") if isinstance(wf.get("connections"), list) else []
-
-    primary_start = None
-    duplicate_start_ids = set()
-    normalized_nodes = []
-
-    for n in raw_nodes:
-        if not isinstance(n, dict):
-            continue
-        nc = dict(n)
-        ntype = str(nc.get("type") or "").strip().lower()
-        if ntype in ("start", "did", "trunk_start", "inbound"):
-            nc["type"] = "start"
-            old_title = str(nc.get("title") or "").strip()
-            if not old_title or "did" in old_title.lower() or old_title.lower() in ("trunk_start", "start"):
-                nc["title"] = "Akış Başlangıcı"
-            nc["value"] = "Çağrı Girişi"
-            ef = dict(nc.get("extra_fields")) if isinstance(nc.get("extra_fields"), dict) else {}
-            ef.pop("did_numbers", None)
-            ef.pop("is_wildcard", None)
-            nc["extra_fields"] = ef or None
-            if primary_start is None:
-                primary_start = nc
-                normalized_nodes.append(nc)
-            else:
-                if nc.get("id"):
-                    duplicate_start_ids.add(nc["id"])
-        else:
-            normalized_nodes.append(nc)
-
-    normalized_conns = []
-    for c in raw_conns:
-        if not isinstance(c, dict):
-            continue
-        cc = dict(c)
-        if primary_start and cc.get("fromNode") in duplicate_start_ids:
-            cc["fromNode"] = primary_start["id"]
-            cc["fromPort"] = "output"
-        if cc.get("toNode") in duplicate_start_ids or (primary_start and cc.get("toNode") == primary_start["id"]):
-            continue
-        normalized_conns.append(cc)
-
-    if primary_start is None:
-        start_id = "node-start"
-        existing_ids = {n.get("id") for n in normalized_nodes}
-        idx_s = 1
-        while start_id in existing_ids:
-            start_id = f"node-start-{idx_s}"
-            idx_s += 1
-        primary_start = {
-            "id": start_id,
-            "type": "start",
-            "x": 80,
-            "y": 150,
-            "title": "Akış Başlangıcı",
-            "value": "Çağrı Girişi",
-            "options": None,
-            "extra_fields": None,
-        }
-        incoming_ids = {c.get("toNode") for c in normalized_conns if c.get("toNode")}
-        first_root = next(
-            (n for n in normalized_nodes if n.get("id") not in incoming_ids and n.get("type") != "stargate_out"),
-            normalized_nodes[0] if normalized_nodes else None,
-        )
-        normalized_nodes.insert(0, primary_start)
-        if first_root and first_root.get("id"):
-            normalized_conns.insert(0, {
-                "id": f"conn-{start_id}-auto",
-                "fromNode": start_id,
-                "fromPort": "output",
-                "toNode": first_root["id"],
-                "toPort": "input",
-            })
-
-    out_wf = dict(wf)
-    out_wf["nodes"] = normalized_nodes
-    out_wf["connections"] = normalized_conns
-    return out_wf
 
 
 def _did_pattern_matches_main(did_val: str, pat_val: str) -> bool:
@@ -24288,8 +24288,22 @@ async def new_get_users_endpoint(request: Request, user_info: dict = Depends(get
                 raw_users = [{c.name: getattr(u, c.name) for c in u.__table__.columns} for u in users]
         except Exception as e:
             print(f"[Get All Users DB Error]: {e}")
+            try:
+                await db.rollback()
+                await db.execute(text("ALTER TABLE system_users ADD COLUMN IF NOT EXISTS sip_devices JSON DEFAULT '[]';"))
+                await db.commit()
+                result = await db.execute(select(SystemUser).order_by(SystemUser.id))
+                users = result.scalars().all()
+                if users:
+                    raw_users = [{c.name: getattr(u, c.name) for c in u.__table__.columns} for u in users]
+            except Exception as retry_e:
+                print(f"[Get All Users DB Retry Error]: {retry_e}")
+                try:
+                    await db.rollback()
+                except Exception:
+                    pass
         if not raw_users:
-            raw_users = settings_db.get("users", [])
+            raw_users = [dict(u) for u in settings_db.get("users", []) if isinstance(u, dict)]
     else:
         try:
             if target_tenant == "tenant-default":
@@ -24302,13 +24316,29 @@ async def new_get_users_endpoint(request: Request, user_info: dict = Depends(get
                 raw_users = [{c.name: getattr(u, c.name) for c in u.__table__.columns} for u in users]
         except Exception as e:
             print(f"[Get Users DB Error]: {e}")
+            try:
+                await db.rollback()
+                await db.execute(text("ALTER TABLE system_users ADD COLUMN IF NOT EXISTS sip_devices JSON DEFAULT '[]';"))
+                await db.commit()
+                result = await db.execute(stmt)
+                users = result.scalars().all()
+                if users:
+                    raw_users = [{c.name: getattr(u, c.name) for c in u.__table__.columns} for u in users]
+            except Exception as retry_e:
+                print(f"[Get Users DB Retry Error]: {retry_e}")
+                try:
+                    await db.rollback()
+                except Exception:
+                    pass
 
         if not raw_users:
             all_disk_users = settings_db.get("users", [])
             for u in all_disk_users:
+                if not isinstance(u, dict):
+                    continue
                 u_tenant = u.get("tenant_id") or "tenant-default"
                 if u_tenant == target_tenant:
-                    raw_users.append(u)
+                    raw_users.append(dict(u))
 
     # Attach live SIP WebRTC registration status and IP address to each user object
     from backend.services.agent_presence import get_agent_state
@@ -27141,18 +27171,37 @@ async def get_system_version_info():
         pass
 
     return {
-        "version": "v2.7.6",
+        "version": "v2.7.7",
         "commit_hash": live_commit,
         "release_date": "3 Kasım 2026",
         "status": "Güncel / Canlı Sürüm",
         "environment": "Production (On-Premise)",
         "changelog": [
             {
-                "version": "v2.7.6",
+                "version": "v2.7.7",
                 "commit_hash": live_commit,
                 "release_date": "3 Kasım 2026",
                 "badge": "Canlı Sürüm (Güncel)",
                 "badge_type": "current",
+                "title": "Kritik Giriş & Backend Başlangıç (Startup NameError) Hotfix + Otomatik DB Şema Onarımı",
+                "summary": "Backend servisinin (aida-backend) ilk yükleme aşamasında load_settings() içerisinden çağrılan _normalize_workflow_start_node fonksiyonunun tanımlama sırası nedeniyle oluşan NameError çökmesi ve buna bağlı web paneline giriş yapılamama sorunu giderildi; ayrıca PostgreSQL sip_devices sütunu için çalışma zamanı otomatik onarım (self-healing DDL) ve giriş ekranı bağlantı teşhisi eklendi.",
+                "features": [
+                    {
+                        "title": "🔐 Backend Başlangıç (load_settings) Sıralama Düzeltmesi & Giriş Kurtarma",
+                        "desc": "_normalize_workflow_start_node yardımcı fonksiyonu modül başlangıcındaki load_settings() çağrısının üstüne taşınarak aida-backend servisinin kesintisiz ayağa kalkması ve kullanıcı doğrulama API'sinin (/api/settings/users) yanıt vermesi sağlandı."
+                    },
+                    {
+                        "title": "🛡️ Otomatik PostgreSQL sip_devices Şema Onarımı & Çoklu SIP Kimlik Doğrulama",
+                        "desc": "Kullanıcı listeleme uç noktasına eksik sütun durumunda otomatik ALTER TABLE onarımı eklendi; giriş ekranında çoklu SIP cihazı kullanıcı adları ve backend erişim durumu uyarısı desteklendi."
+                    }
+                ]
+            },
+            {
+                "version": "v2.7.6",
+                "commit_hash": "0041639",
+                "release_date": "3 Kasım 2026",
+                "badge": "Önceki Sürüm",
+                "badge_type": "previous",
                 "title": "Kişiselleştirilebilir Üst Bar (Kısayollar, Global Arama Modları, Avatar Kapsülü) & Akıllı Yatay Mod Uyumu",
                 "summary": "Kullanıcıların kendi rol yetkileri dahilindeki sık kullandıkları modülleri üst bara sabitleyip sıralayabileceği, Global Arama çubuğunu 4 farklı modda (Sadece İkon, Geniş, Daha Geniş, Kapalı) kullanabileceği, sağ üst Avatar/Profil kapsülündeki bilgileri (Sadece Avatar, Ad Soyad, Dahili #, Aktif Profil, Rol) seçebileceği ve Çağrı Merkezi yatay üst bar modunda çakışmayı önlemek için tek satırda otomatik kompaktlaşan (Yaklaşım B) üst bar özelleştirme sistemi eklendi.",
                 "features": [
