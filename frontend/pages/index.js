@@ -3439,10 +3439,10 @@ export default function Home() {
           </p>
           <button
             onClick={() => setActiveTab("changelog")}
-            title="Sistem Versiyonu ve Değişiklik Günlüğü (v2.7.7 On-Premise)"
+            title="Sistem Versiyonu ve Değişiklik Günlüğü (v2.7.8 On-Premise)"
             className="flex items-center gap-1 text-[10px] font-bold text-slate-500 dark:text-slate-400 hover:text-primary dark:hover:text-indigo-400 hover:underline transition cursor-pointer bg-transparent border-0 p-0 outline-none focus-visible:ring-2 focus-visible:ring-primary/50 rounded"
           >
-            <span>{isSidebarCollapsed ? "v2.7.7" : "v2.7.7 (On-Premise)"}</span>
+            <span>{isSidebarCollapsed ? "v2.7.8" : "v2.7.8 (On-Premise)"}</span>
           </button>
         </div>
       </aside>
@@ -4021,23 +4021,6 @@ export default function Home() {
 
                   {/* Menu Actions */}
                   <div className="p-1.5">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setProfileDropdownOpen(false);
-                        setActiveModalTab("topbar");
-                        setSettingsModalOpen(true);
-                      }}
-                      className="w-full text-left px-3 py-2.5 rounded-xl text-xs font-bold text-slate-700 dark:text-slate-100 hover:bg-slate-100/70 dark:hover:bg-slate-800 flex items-center justify-between gap-2.5 transition-colors cursor-pointer group"
-                    >
-                      <div className="flex items-center gap-2.5">
-                        <PanelTop size={15} className={`text-slate-500 dark:text-slate-300 group-hover:${text} transition-colors`} />
-                        <span>Üst Barı Özelleştir</span>
-                      </div>
-                      <span className={`px-1.5 py-0.5 rounded-md text-[9px] font-extrabold uppercase ${lightBg} ${text}`}>
-                        Yeni
-                      </span>
-                    </button>
                     <button
                       type="button"
                       onClick={() => {

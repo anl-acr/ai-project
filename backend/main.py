@@ -27171,18 +27171,33 @@ async def get_system_version_info():
         pass
 
     return {
-        "version": "v2.7.7",
+        "version": "v2.7.8",
         "commit_hash": live_commit,
         "release_date": "3 Kasım 2026",
         "status": "Güncel / Canlı Sürüm",
         "environment": "Production (On-Premise)",
         "changelog": [
             {
-                "version": "v2.7.7",
+                "version": "v2.7.8",
                 "commit_hash": live_commit,
                 "release_date": "3 Kasım 2026",
                 "badge": "Canlı Sürüm (Güncel)",
                 "badge_type": "current",
+                "title": "Avatar Açılır Menüsü Sadeleştirme",
+                "summary": "Sağ üst avatar açılır penceresinde yer alan mükerrer 'Üst Barı Özelleştir' satırı kaldırılarak menü sadeleştirildi; üst bar yapılandırmasına doğrudan Profil Ayarları içerisindeki sekmeden erişim korundu.",
+                "features": [
+                    {
+                        "title": "✨ Avatar Açılır Penceresinden Mükerrer Menü Satırının Kaldırılması",
+                        "desc": "Profil Ayarları modalı içerisinde zaten kendi sekmesi bulunan 'Üst Barı Özelleştir' kısayolu sağ üst avatar menüsünden çıkarılarak yalnızca Profil Ayarları ve Çıkış Yap aksiyonları bırakıldı."
+                    }
+                ]
+            },
+            {
+                "version": "v2.7.7",
+                "commit_hash": "67e0b37",
+                "release_date": "3 Kasım 2026",
+                "badge": "Önceki Sürüm",
+                "badge_type": "previous",
                 "title": "Kritik Giriş & Backend Başlangıç (Startup NameError) Hotfix + Otomatik DB Şema Onarımı",
                 "summary": "Backend servisinin (aida-backend) ilk yükleme aşamasında load_settings() içerisinden çağrılan _normalize_workflow_start_node fonksiyonunun tanımlama sırası nedeniyle oluşan NameError çökmesi ve buna bağlı web paneline giriş yapılamama sorunu giderildi; ayrıca PostgreSQL sip_devices sütunu için çalışma zamanı otomatik onarım (self-healing DDL) ve giriş ekranı bağlantı teşhisi eklendi.",
                 "features": [
