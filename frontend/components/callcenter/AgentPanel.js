@@ -1,17 +1,30 @@
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useMemo, useRef } from "react";
 import { createPortal } from "react-dom";
 import { LayoutDashboard, PhoneCall, List, PhoneMissed, Users, History, Voicemail, MessageSquare, Headphones, Smartphone } from "lucide-react";
 import dynamic from "next/dynamic";
-const AgentDashboardTab = dynamic(() => import("./tabs/AgentDashboardTab"), { ssr: false });
+import {
+  normalizeUiMotionMode,
+  runStageViewTransition,
+  useStageRevealObserver,
+  PanelShimmerSkeleton
+} from "../../utils/uiMotion";
+
+const AgentTabFallback = () => (
+  <div className="p-6 w-full h-full overflow-hidden">
+    <PanelShimmerSkeleton variant="cards" />
+  </div>
+);
+
+const AgentDashboardTab = dynamic(() => import("./tabs/AgentDashboardTab"), { ssr: false, loading: AgentTabFallback });
 const AgentWebphoneTab = dynamic(() => import("./tabs/AgentWebphoneTab"), { ssr: false });
-const AgentSpeedDialTab = dynamic(() => import("./tabs/AgentSpeedDialTab"), { ssr: false });
-const AgentMissedCallsTab = dynamic(() => import("./tabs/AgentMissedCallsTab"), { ssr: false });
-const AgentDirectoryTab = dynamic(() => import("./tabs/AgentDirectoryTab"), { ssr: false });
-const AgentHistoryTab = dynamic(() => import("./tabs/AgentHistoryTab"), { ssr: false });
-const AgentVoicemailTab = dynamic(() => import("./tabs/AgentVoicemailTab"), { ssr: false });
-const AgentChatTab = dynamic(() => import("./tabs/AgentChatTab"), { ssr: false });
-const AgentQueuePeersTab = dynamic(() => import("./tabs/AgentQueuePeersTab"), { ssr: false });
-const AgentDeskphoneTab = dynamic(() => import("./tabs/AgentDeskphoneTab"), { ssr: false });
+const AgentSpeedDialTab = dynamic(() => import("./tabs/AgentSpeedDialTab"), { ssr: false, loading: AgentTabFallback });
+const AgentMissedCallsTab = dynamic(() => import("./tabs/AgentMissedCallsTab"), { ssr: false, loading: AgentTabFallback });
+const AgentDirectoryTab = dynamic(() => import("./tabs/AgentDirectoryTab"), { ssr: false, loading: AgentTabFallback });
+const AgentHistoryTab = dynamic(() => import("./tabs/AgentHistoryTab"), { ssr: false, loading: AgentTabFallback });
+const AgentVoicemailTab = dynamic(() => import("./tabs/AgentVoicemailTab"), { ssr: false, loading: AgentTabFallback });
+const AgentChatTab = dynamic(() => import("./tabs/AgentChatTab"), { ssr: false, loading: AgentTabFallback });
+const AgentQueuePeersTab = dynamic(() => import("./tabs/AgentQueuePeersTab"), { ssr: false, loading: AgentTabFallback });
+const AgentDeskphoneTab = dynamic(() => import("./tabs/AgentDeskphoneTab"), { ssr: false, loading: AgentTabFallback });
 import AgentSessionCard from "../phone/AgentSessionCard";
 import { useTheme } from "../../utils/theme";
 import { webphoneManager } from "../../utils/webphoneManager";
@@ -108,6 +121,7 @@ export const DEFAULT_CALL_PANEL_PREFS = {
   keyboardShortcuts: {},
   dashboardWidgets: null,
   autoOpenCustomer360OnCall: false,
+  uiMotionMode: "fluid", // "fluid" | "minimal" | "off"
 };
 
 export function normalizeCallPanelPrefs(raw) {
@@ -121,6 +135,7 @@ export function normalizeCallPanelPrefs(raw) {
       keyboardShortcuts: {},
       dashboardWidgets: null,
       autoOpenCustomer360OnCall: false,
+      uiMotionMode: "fluid",
     };
   }
   const viewMode = raw.viewMode === "box" ? "box" : "list";
@@ -158,6 +173,7 @@ export function normalizeCallPanelPrefs(raw) {
         }
       : null;
   const autoOpenCustomer360OnCall = Boolean(raw.autoOpenCustomer360OnCall);
+  const uiMotionMode = normalizeUiMotionMode(raw.uiMotionMode);
 
   return {
     viewMode,
@@ -173,6 +189,7 @@ export function normalizeCallPanelPrefs(raw) {
     keyboardShortcuts,
     dashboardWidgets,
     autoOpenCustomer360OnCall,
+    uiMotionMode,
   };
 }
 
@@ -190,6 +207,7 @@ function hasSavedCallPanelPrefs(obj) {
         obj.autoThemeConfig ||
         obj.keyboardShortcuts ||
         obj.dashboardWidgets ||
+        obj.uiMotionMode ||
         obj.autoOpenCustomer360OnCall !== undefined ||
         (Array.isArray(obj.tabOrder) && obj.tabOrder.length > 0) ||
         (obj.topbar && typeof obj.topbar === "object"))
@@ -303,6 +321,18 @@ export default function AgentPanel({ backendHost, currentUser, activeCallId, isV
   const [pendingDial, setPendingDial] = useState(null);
   const [openInternalPeerReq, setOpenInternalPeerReq] = useState(null);
   const appliedLoginSubTabUserRef = React.useRef(null);
+  const agentStageRef = useRef(null);
+
+  useStageRevealObserver(agentStageRef, `${activeTab}-${isVisible}`);
+
+  const switchAgentSubTab = (nextId) => {
+    if (!nextId || nextId === activeTab) return;
+    runStageViewTransition(
+      agentStageRef.current,
+      () => setActiveTab(nextId),
+      panelPrefs?.uiMotionMode || "fluid"
+    );
+  };
 
   const host = backendHost || (typeof window !== "undefined" ? window.location.host : "localhost:8000");
 
@@ -780,7 +810,7 @@ export default function AgentPanel({ backendHost, currentUser, activeCallId, isV
             <button
               key={tab.id}
               type="button"
-              onClick={() => setActiveTab(tab.id)}
+              onClick={() => switchAgentSubTab(tab.id)}
               className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-[11px] font-bold transition-all whitespace-nowrap shrink-0 cursor-pointer ${
                 isSelected
                   ? `${bg} text-white shadow-sm`
@@ -844,7 +874,7 @@ export default function AgentPanel({ backendHost, currentUser, activeCallId, isV
               return (
                 <button
                   key={tab.id}
-                  onClick={() => setActiveTab(tab.id)}
+                  onClick={() => switchAgentSubTab(tab.id)}
                   className={`flex items-center justify-between gap-2 px-3 py-2.5 rounded-xl font-medium transition-all text-left w-full ${
                     isSelected
                       ? `${bg} text-white shadow-md`
@@ -913,7 +943,7 @@ export default function AgentPanel({ backendHost, currentUser, activeCallId, isV
               return (
                 <button
                   key={tab.id}
-                  onClick={() => setActiveTab(tab.id)}
+                  onClick={() => switchAgentSubTab(tab.id)}
                   className={`flex items-center gap-2 px-3 py-2 rounded-xl font-medium transition-all ${
                     isSelected
                       ? `${bg} text-white shadow-md`
@@ -943,8 +973,11 @@ export default function AgentPanel({ backendHost, currentUser, activeCallId, isV
       )}
 
       {/* Tab Content Area */}
-      <div className={`flex-1 h-full overflow-hidden relative rounded-3xl bg-white dark:bg-slate-900 shadow-sm border ${borderLight}`}>
-        <div className={activeTab === "webphone" ? "w-full h-full" : "hidden"}>
+      <div
+        ref={agentStageRef}
+        className={`flex-1 h-full overflow-hidden relative rounded-3xl bg-white dark:bg-slate-900 shadow-sm border ${borderLight}`}
+      >
+        <div className={activeTab === "webphone" ? "w-full h-full aida-panel-enter" : "hidden"}>
           <AgentWebphoneTab
             backendHost={backendHost}
             currentUser={currentUser}
@@ -955,25 +988,29 @@ export default function AgentPanel({ backendHost, currentUser, activeCallId, isV
             callPanelPerms={callPanelPerms}
           />
         </div>
-        {activeTab === "dashboard" && <AgentDashboardTab backendHost={backendHost} currentUser={currentUser} callPanelPerms={callPanelPerms} panelPrefs={panelPrefs} />}
-        {activeTab === "agents" && <AgentQueuePeersTab backendHost={backendHost} currentUser={currentUser} callPanelPerms={callPanelPerms} panelPrefs={panelPrefs} />}
-        {activeTab === "speeddial" && <AgentSpeedDialTab backendHost={backendHost} currentUser={currentUser} callPanelPerms={callPanelPerms} panelPrefs={panelPrefs} />}
-        {activeTab === "missed" && <AgentMissedCallsTab backendHost={backendHost} currentUser={currentUser} callPanelPerms={callPanelPerms} panelPrefs={panelPrefs} />}
-        {activeTab === "directory" && <AgentDirectoryTab backendHost={backendHost} currentUser={currentUser} callPanelPerms={callPanelPerms} panelPrefs={panelPrefs} />}
-        {activeTab === "history" && <AgentHistoryTab backendHost={backendHost} currentUser={currentUser} callPanelPerms={callPanelPerms} panelPrefs={panelPrefs} />}
-        {activeTab === "voicemail" && <AgentVoicemailTab backendHost={backendHost} currentUser={currentUser} callPanelPerms={callPanelPerms} panelPrefs={panelPrefs} />}
-        {activeTab === "chat" && (
-          <AgentChatTab
-            backendHost={backendHost}
-            currentUser={currentUser}
-            callPanelPerms={callPanelPerms}
-            panelPrefs={panelPrefs}
-            isVisible={Boolean(isVisible && activeTab === "chat")}
-            openPeerRequest={openInternalPeerReq}
-            onPeerOpened={() => setOpenInternalPeerReq(null)}
-          />
+        {activeTab !== "webphone" && (
+          <div key={activeTab} className="w-full h-full aida-panel-enter">
+            {activeTab === "dashboard" && <AgentDashboardTab backendHost={backendHost} currentUser={currentUser} callPanelPerms={callPanelPerms} panelPrefs={panelPrefs} />}
+            {activeTab === "agents" && <AgentQueuePeersTab backendHost={backendHost} currentUser={currentUser} callPanelPerms={callPanelPerms} panelPrefs={panelPrefs} />}
+            {activeTab === "speeddial" && <AgentSpeedDialTab backendHost={backendHost} currentUser={currentUser} callPanelPerms={callPanelPerms} panelPrefs={panelPrefs} />}
+            {activeTab === "missed" && <AgentMissedCallsTab backendHost={backendHost} currentUser={currentUser} callPanelPerms={callPanelPerms} panelPrefs={panelPrefs} />}
+            {activeTab === "directory" && <AgentDirectoryTab backendHost={backendHost} currentUser={currentUser} callPanelPerms={callPanelPerms} panelPrefs={panelPrefs} />}
+            {activeTab === "history" && <AgentHistoryTab backendHost={backendHost} currentUser={currentUser} callPanelPerms={callPanelPerms} panelPrefs={panelPrefs} />}
+            {activeTab === "voicemail" && <AgentVoicemailTab backendHost={backendHost} currentUser={currentUser} callPanelPerms={callPanelPerms} panelPrefs={panelPrefs} />}
+            {activeTab === "chat" && (
+              <AgentChatTab
+                backendHost={backendHost}
+                currentUser={currentUser}
+                callPanelPerms={callPanelPerms}
+                panelPrefs={panelPrefs}
+                isVisible={Boolean(isVisible && activeTab === "chat")}
+                openPeerRequest={openInternalPeerReq}
+                onPeerOpened={() => setOpenInternalPeerReq(null)}
+              />
+            )}
+            {activeTab === "deskphone" && <AgentDeskphoneTab backendHost={backendHost} currentUser={currentUser} />}
+          </div>
         )}
-        {activeTab === "deskphone" && <AgentDeskphoneTab backendHost={backendHost} currentUser={currentUser} />}
       </div>
     </div>
   );

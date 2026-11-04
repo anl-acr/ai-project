@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useMemo, useRef } from "react";
 import {
   Coffee,
   MessageSquare,
@@ -37,6 +37,11 @@ import {
 import * as XLSX from "xlsx";
 import { useTheme } from "../../utils/theme";
 import { getApiBaseUrl, tenantFetch } from "../../utils/apiHost";
+import {
+  AnimatedMetricText,
+  PanelShimmerSkeleton,
+  useStageRevealObserver
+} from "../../utils/uiMotion";
 import DateTimePickerInput from "../common/DateTimePickerInput";
 
 const REPORT_META = {
@@ -150,6 +155,7 @@ export default function EnterpriseReportsPanel({ backendHost, reportType = "brea
   const [data, setData] = useState(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [isFilterOpen, setIsFilterOpen] = useState(false);
+  const reportStageRef = useRef(null);
 
   // Default range: Last 7 days so managers immediately see rich historical context
   const [startDate, setStartDate] = useState(() => {
@@ -355,9 +361,10 @@ export default function EnterpriseReportsPanel({ backendHost, reportType = "brea
   };
 
   const summary = data?.summary || {};
+  useStageRevealObserver(reportStageRef, `${reportType}-${activeSubView}-${loading}`);
 
   return (
-    <div className="w-full space-y-5">
+    <div ref={reportStageRef} key={reportType} className="w-full space-y-5 aida-panel-enter">
       {/* Header Card */}
       <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 shadow-sm">
         <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
@@ -599,10 +606,7 @@ export default function EnterpriseReportsPanel({ backendHost, reportType = "brea
 
       {/* Loading Skeleton */}
       {loading && !data ? (
-        <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-12 flex flex-col items-center justify-center gap-3">
-          <RefreshCw size={24} className={`animate-spin ${text}`} />
-          <p className="text-xs font-semibold text-slate-500 dark:text-slate-400">Rapor verileri hesaplanıyor...</p>
-        </div>
+        <PanelShimmerSkeleton variant="table" />
       ) : (
         <>
           {/* ============================================================== */}
@@ -1854,7 +1858,7 @@ function KpiCard({ label, value, sub, icon: Icon, alert = false, theme }) {
             alert ? "text-rose-600 dark:text-rose-400" : "text-slate-900 dark:text-white"
           }`}
         >
-          {value}
+          <AnimatedMetricText value={value} />
         </p>
         {sub && <p className="text-[11px] text-slate-400 dark:text-slate-500 mt-0.5 truncate">{sub}</p>}
       </div>

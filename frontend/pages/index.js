@@ -124,6 +124,13 @@ import {
   eventToShortcutCombo,
   isEditableTarget
 } from "../utils/keyboardShortcuts";
+import {
+  normalizeUiMotionMode,
+  applyDocumentMotionMode,
+  runStageViewTransition,
+  useStageRevealObserver,
+  PanelShimmerSkeleton
+} from "../utils/uiMotion";
 
 const NotificationCenterBell = dynamic(() => import("../components/common/NotificationCenterBell"), { ssr: false });
 const KeyboardShortcutsModal = dynamic(() => import("../components/common/KeyboardShortcutsModal"), { ssr: false });
@@ -141,8 +148,8 @@ import TenantSwitcher from "../components/TenantSwitcher";
 import GlobalSearchBar from "../components/common/GlobalSearchBar";
 
 const PanelLoadingFallback = () => (
-  <div className="w-full py-16 flex items-center justify-center">
-    <div className="h-7 w-7 rounded-full border-2 border-slate-200 dark:border-slate-800 border-t-primary animate-spin" />
+  <div className="w-full p-2">
+    <PanelShimmerSkeleton variant="default" />
   </div>
 );
 
@@ -210,7 +217,37 @@ const SUPER_ADMIN = {
 export default function Home() {
   const router = useRouter();
   const { theme, colorCode, bg, hover, text, border, ring, lightBg, lightText, borderLight } = useTheme();
-  const [activeTab, setActiveTab] = useState("dashboard"); // dashboard, call-center, pbx-settings, channel-settings, rag-kb, rule-editor
+  const [activeTab, setActiveTabRaw] = useState("dashboard"); // dashboard, call-center, pbx-settings, channel-settings, rag-kb, rule-editor
+  const mainStageRef = React.useRef(null);
+  const uiMotionModeRef = React.useRef("fluid");
+
+  const setActiveTab = React.useCallback((nextOrUpdater) => {
+    const stageEl = typeof window !== "undefined" ? mainStageRef.current : null;
+    const hadStageFocus = Boolean(stageEl && typeof document !== "undefined" && stageEl.contains(document.activeElement));
+
+    const performUpdate = () => {
+      setActiveTabRaw((prev) => {
+        const resolvedNext = typeof nextOrUpdater === "function" ? nextOrUpdater(prev) : nextOrUpdater;
+        if (!resolvedNext || resolvedNext === prev) return prev;
+        return resolvedNext;
+      });
+    };
+
+    if (stageEl && typeof nextOrUpdater === "string") {
+      runStageViewTransition(stageEl, performUpdate, uiMotionModeRef.current);
+    } else {
+      performUpdate();
+    }
+
+    if (stageEl && typeof window !== "undefined") {
+      stageEl.scrollTop = 0;
+      if (hadStageFocus) {
+        window.requestAnimationFrame(() => {
+          stageEl.focus({ preventScroll: true });
+        });
+      }
+    }
+  }, []);
   const [isAgentFullScreenMode, setIsAgentFullScreenMode] = useState(false);
   const [isAgentOnlyUser, setIsAgentOnlyUser] = useState(false);
   const [isWallboardOnlyUser, setIsWallboardOnlyUser] = useState(false);
@@ -517,6 +554,14 @@ export default function Home() {
       fetchGlobalLicenseStatus();
     }
   }, [isLoggedIn, activeTenantId]);
+
+  useEffect(() => {
+    const mode = normalizeUiMotionMode(callPanelPrefs?.uiMotionMode);
+    uiMotionModeRef.current = mode;
+    applyDocumentMotionMode(mode);
+  }, [callPanelPrefs?.uiMotionMode]);
+
+  useStageRevealObserver(mainStageRef, `${activeTab}-${activeTenantId}-${isLoggedIn}`);
 
   // Global Internal Chat Delivery Receipt & Login/Live Notification Poller
   const [internalChatToast, setInternalChatToast] = useState(null);
@@ -3628,10 +3673,10 @@ export default function Home() {
           </p>
           <button
             onClick={() => setActiveTab("changelog")}
-            title="Sistem Versiyonu ve Değişiklik Günlüğü (v2.9.0 On-Premise)"
+            title="Sistem Versiyonu ve Değişiklik Günlüğü (v2.9.1 On-Premise)"
             className="flex items-center gap-1 text-[10px] font-bold text-slate-500 dark:text-slate-400 hover:text-primary dark:hover:text-indigo-400 hover:underline transition cursor-pointer bg-transparent border-0 p-0 outline-none focus-visible:ring-2 focus-visible:ring-primary/50 rounded"
           >
-            <span>{isSidebarCollapsed ? "v2.9.0" : "v2.9.0 (On-Premise)"}</span>
+            <span>{isSidebarCollapsed ? "v2.9.1" : "v2.9.1 (On-Premise)"}</span>
           </button>
         </div>
       </aside>
@@ -4324,8 +4369,13 @@ export default function Home() {
         )}
 
         {/* Dynamic View Panel */}
-        <div key={activeTenantId} className={`flex-1 overflow-y-auto flex ${isEditingCallFlow ? "p-0 justify-center w-full h-full bg-white dark:bg-slate-950" : activeTab === "call-center" ? "p-3 justify-start items-start w-full h-full" : ["wallboard", "settings", "rag-kb", "rule-editor", "calendar", "system-status", "dialer", "call-flow", "work-hours", "ai-agents", "ai-config-assistant", "changelog", "reports-custom-builder", "reports-pano", "reports-cdr", "reports-audio", "reports-transcripts", "reports-sentiment", "reports-intent", "reports-qa", "reports-notes", "reports-perf", "reports-queue", "reports-survey", "reports-sentiment-heat", "reports-wordcloud", "reports-fcr", "reports-roi", "reports-missed", "reports-agent-status-timeline", "reports-traffic-load", "reports-trunk", "reports-did", "reports-trunk-minutes", "reports-invalid-calls", "reports-ivr-drop", "reports-transfer-hold", "reports-ab-testing", "reports-friction", "reports-compliance", "reports-silence", "reports-ceo-summary", "reports-breaks-attendance", "reports-omnichannel", "reports-disposition", "reports-dialer-callback", "reports-queue-sla", "reports-repeat-callers", "reports-dept-pickup", "reports-voip-quality", "reports-forwarding-gsm", "reports-supervisor-audit", "reports-blacklist-security", "reports-ai-appointments-rag", "reports-voicemail", "reports-conferences", "users", "trunks", "blacklist", "scheduled-reports", "announcements", "acd-queues", "auto-provision", "outbound-rules", "inbound-rules", "call-pickup-groups", "subscriber-groups", "conferences", "speed-dial", "event-logs", "troubleshooting", "sip-debugger"].includes(activeTab) ? "p-8 justify-start items-start w-full" : "p-8 justify-center"}`}>
-          <div className={activeTab === "call-center" ? "w-full h-full flex" : "hidden"}>
+        <div
+          key={activeTenantId}
+          ref={mainStageRef}
+          tabIndex={-1}
+          className={`flex-1 overflow-y-auto flex focus:outline-none aida-stage-active ${isEditingCallFlow ? "p-0 justify-center w-full h-full bg-white dark:bg-slate-950" : activeTab === "call-center" ? "p-3 justify-start items-start w-full h-full" : ["wallboard", "settings", "rag-kb", "rule-editor", "calendar", "system-status", "dialer", "call-flow", "work-hours", "ai-agents", "ai-config-assistant", "changelog", "reports-custom-builder", "reports-pano", "reports-cdr", "reports-audio", "reports-transcripts", "reports-sentiment", "reports-intent", "reports-qa", "reports-notes", "reports-perf", "reports-queue", "reports-survey", "reports-sentiment-heat", "reports-wordcloud", "reports-fcr", "reports-roi", "reports-missed", "reports-agent-status-timeline", "reports-traffic-load", "reports-trunk", "reports-did", "reports-trunk-minutes", "reports-invalid-calls", "reports-ivr-drop", "reports-transfer-hold", "reports-ab-testing", "reports-friction", "reports-compliance", "reports-silence", "reports-ceo-summary", "reports-breaks-attendance", "reports-omnichannel", "reports-disposition", "reports-dialer-callback", "reports-queue-sla", "reports-repeat-callers", "reports-dept-pickup", "reports-voip-quality", "reports-forwarding-gsm", "reports-supervisor-audit", "reports-blacklist-security", "reports-ai-appointments-rag", "reports-voicemail", "reports-conferences", "users", "trunks", "blacklist", "scheduled-reports", "announcements", "acd-queues", "auto-provision", "outbound-rules", "inbound-rules", "call-pickup-groups", "subscriber-groups", "conferences", "speed-dial", "event-logs", "troubleshooting", "sip-debugger"].includes(activeTab) ? "p-8 justify-start items-start w-full" : "p-8 justify-center"}`}
+        >
+          <div className={activeTab === "call-center" ? "w-full h-full flex aida-panel-enter" : "hidden"}>
             <AgentPanel 
               backendHost={backendHost} 
               currentUser={currentUser} 
@@ -6437,6 +6487,82 @@ export default function Home() {
                               }`}
                             />
                           </button>
+                        </div>
+
+                        {/* UI Motion & Chart Animation Mode Selector */}
+                        <div className="pt-3 border-t border-slate-200/70 dark:border-slate-800 space-y-2.5">
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <div>
+                              <h6 className="text-[11px] font-extrabold text-slate-800 dark:text-white flex items-center gap-1.5">
+                                <Sparkles size={13} className={text} />
+                                <span>Arayüz Geçiş & Grafik Animasyonları</span>
+                              </h6>
+                              <p className="text-[9.5px] text-slate-400 dark:text-slate-500 mt-0.5">
+                                Ekranlar arası pencere süzülmesi, kademeli kart yüklenişi, grafik çizimi ve KPI sayaç hızını belirleyin.
+                              </p>
+                            </div>
+                            <span className={`px-2.5 py-0.5 rounded-full text-[9.5px] font-extrabold uppercase tracking-wider border ${lightBg} ${text} ${borderLight}`}>
+                              {(callPanelPrefs?.uiMotionMode || "fluid") === "minimal"
+                                ? "Minimal (Hızlı)"
+                                : (callPanelPrefs?.uiMotionMode || "fluid") === "off"
+                                ? "Kapalı"
+                                : "Akıcı (Varsayılan)"}
+                            </span>
+                          </div>
+
+                          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                            {[
+                              {
+                                id: "fluid",
+                                title: "Akıcı (Varsayılan)",
+                                desc: "Pencere geçişleri, kademeli kart akışı, canlı grafik çizimi ve sayaç animasyonları aktif."
+                              },
+                              {
+                                id: "minimal",
+                                title: "Minimal (Hızlı)",
+                                desc: "Yalnızca 120ms hafif netleşme; kademeli gecikmeler olmadan ekstra seri sekme geçişi."
+                              },
+                              {
+                                id: "off",
+                                title: "Kapalı (Anında)",
+                                desc: "Tüm pencere, kart ve grafik geçiş efektlerini kapatarak anında statik yükleme yapar."
+                              }
+                            ].map((mOpt) => {
+                              const currentMotion = normalizeUiMotionMode(callPanelPrefs?.uiMotionMode);
+                              const isMotionSelected = currentMotion === mOpt.id;
+                              return (
+                                <button
+                                  key={mOpt.id}
+                                  type="button"
+                                  onClick={() => {
+                                    const current = loadCallPanelPrefs(currentUser);
+                                    const next = saveCallPanelPrefs(currentUser, {
+                                      ...current,
+                                      uiMotionMode: mOpt.id,
+                                    });
+                                    setCallPanelPrefs(next);
+                                    applyDocumentMotionMode(mOpt.id);
+                                    persistUserVisualPatch({ call_panel_prefs: next });
+                                  }}
+                                  className={`p-2.5 rounded-xl border text-left transition cursor-pointer ${
+                                    isMotionSelected
+                                      ? `${border} ${lightBg} shadow-sm`
+                                      : "bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 hover:border-slate-300"
+                                  }`}
+                                >
+                                  <div className="flex items-center justify-between gap-1">
+                                    <span className="text-[11px] font-extrabold text-slate-800 dark:text-white">
+                                      {mOpt.title}
+                                    </span>
+                                    {isMotionSelected && <Check size={13} className={text} />}
+                                  </div>
+                                  <p className="text-[9.5px] text-slate-400 dark:text-slate-500 mt-1 leading-relaxed">
+                                    {mOpt.desc}
+                                  </p>
+                                </button>
+                              );
+                            })}
+                          </div>
                         </div>
                       </>
                     );

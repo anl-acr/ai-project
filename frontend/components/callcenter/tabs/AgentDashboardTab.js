@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { Coffee, Clock, Play } from "lucide-react";
 import { useTheme } from "../../../utils/theme";
+import { AnimatedNumber } from "../../../utils/uiMotion";
 
 export default function AgentDashboardTab({ backendHost, currentUser }) {
   const { text, borderLight } = useTheme();
@@ -180,14 +181,18 @@ export default function AgentDashboardTab({ backendHost, currentUser }) {
         </div>
 
         {/* Top Stats */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 aida-stagger-grid">
           <div className={`p-5 bg-white dark:bg-slate-900 rounded-2xl border ${borderLight} shadow-sm text-center`}>
             <p className="text-xs text-slate-500 uppercase tracking-wider font-semibold">Gelen Çağrı</p>
-            <p className={`text-3xl font-bold ${text} mt-2`}>{stats.inbound}</p>
+            <p className={`text-3xl font-bold ${text} mt-2`}>
+              <AnimatedNumber value={stats.inbound || 0} />
+            </p>
           </div>
           <div className={`p-5 bg-white dark:bg-slate-900 rounded-2xl border ${borderLight} shadow-sm text-center`}>
             <p className="text-xs text-slate-500 uppercase tracking-wider font-semibold">Giden Çağrı</p>
-            <p className={`text-3xl font-bold ${text} mt-2`}>{stats.outbound}</p>
+            <p className={`text-3xl font-bold ${text} mt-2`}>
+              <AnimatedNumber value={stats.outbound || 0} />
+            </p>
           </div>
           <div className={`p-5 bg-white dark:bg-slate-900 rounded-2xl border ${borderLight} shadow-sm text-center`}>
             <p className="text-xs text-slate-500 uppercase tracking-wider font-semibold">Toplam Mola Süresi</p>
@@ -200,19 +205,21 @@ export default function AgentDashboardTab({ backendHost, currentUser }) {
           </div>
           <div className={`p-5 bg-white dark:bg-slate-900 rounded-2xl border ${borderLight} shadow-sm text-center`}>
             <p className="text-xs text-slate-500 uppercase tracking-wider font-semibold">Cevapsız</p>
-            <p className={`text-3xl font-bold ${text} mt-2`}>{stats.missed}</p>
+            <p className={`text-3xl font-bold ${text} mt-2`}>
+              <AnimatedNumber value={stats.missed || 0} />
+            </p>
           </div>
         </div>
 
         {/* Graphs Row */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 aida-stagger-grid">
           
           {/* Çağrı Dağılımı Grafiği */}
           <div className={`p-6 bg-white dark:bg-slate-900 border ${borderLight} rounded-2xl shadow-sm flex flex-col justify-center space-y-6`}>
             <h3 className="font-semibold text-slate-700 dark:text-slate-300">Çağrı Dağılımı</h3>
             {totalCalls > 0 ? (
               <>
-                <div className="w-full h-6 rounded-full overflow-hidden flex bg-slate-100 dark:bg-slate-800">
+                <div className="w-full h-6 rounded-full overflow-hidden flex bg-slate-100 dark:bg-slate-800 aida-chart-bar-x">
                   <div style={{width: `${inboundPct}%`}} className="bg-emerald-500 transition-all duration-500" title={`Gelen: ${stats.inbound}`}></div>
                   <div style={{width: `${outboundPct}%`}} className="bg-blue-500 transition-all duration-500" title={`Giden: ${stats.outbound}`}></div>
                   <div style={{width: `${missedPct}%`}} className="bg-rose-500 transition-all duration-500" title={`Cevapsız: ${stats.missed}`}></div>

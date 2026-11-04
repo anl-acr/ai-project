@@ -32,12 +32,14 @@ import {
 import dynamic from "next/dynamic";
 import { getTurkishSlugForSubtab, getSubtabFromTurkishSlug } from "../../utils/slugHelper";
 import { useTheme } from "../../utils/theme";
+import {
+  PanelShimmerSkeleton,
+  runStageViewTransition,
+  useStageRevealObserver,
+  readDocumentMotionMode
+} from "../../utils/uiMotion";
 
-const SubPanelLoading = () => (
-  <div className="w-full py-12 flex items-center justify-center">
-    <div className="h-6 w-6 rounded-full border-2 border-slate-200 dark:border-slate-800 border-t-primary animate-spin" />
-  </div>
-);
+const SubPanelLoading = () => <PanelShimmerSkeleton variant="cards" />;
 
 const lazySub = (loader) => dynamic(loader, { ssr: false, loading: SubPanelLoading });
 
@@ -81,6 +83,18 @@ export default function SettingsPanel({ backendHost = "localhost:8000" }) {
   const [activeSubTab, setActiveSubTab] = useState("pbx");
   const [activeCategory, setActiveCategory] = useState("pbx_network");
   const categoryTabRefs = useRef({});
+  const subPanelStageRef = useRef(null);
+
+  useStageRevealObserver(subPanelStageRef, activeSubTab);
+
+  const switchSettingsSubTab = (nextId) => {
+    if (!nextId || nextId === activeSubTab) return;
+    runStageViewTransition(
+      subPanelStageRef.current,
+      () => setActiveSubTab(nextId),
+      readDocumentMotionMode()
+    );
+  };
 
   // Read URL subtab query parameter on initial mount & listen for global navigation events
   useEffect(() => {
@@ -665,7 +679,7 @@ export default function SettingsPanel({ backendHost = "localhost:8000" }) {
                   <button
                     type="button"
                     aria-current={isActive ? "page" : undefined}
-                    onClick={() => setActiveSubTab(item.id)}
+                    onClick={() => switchSettingsSubTab(item.id)}
                     className="flex-1 min-w-0 flex items-center gap-3 pl-3 pr-1 py-2 rounded-xl text-left focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
                   >
                     <div
@@ -701,8 +715,9 @@ export default function SettingsPanel({ backendHost = "localhost:8000" }) {
 
           {/* Right Side Settings Panel Area */}
           <div
+            ref={subPanelStageRef}
             key={activeSubTab}
-            className="flex-1 min-w-0 w-full flex flex-col gap-6 animate-in fade-in slide-in-from-right-2 duration-200"
+            className="flex-1 min-w-0 w-full flex flex-col gap-6 aida-panel-enter"
           >
             {activeSubTab === "pbx" && <PBXSettings backendHost={backendHost} />}
             {activeSubTab === "nat" && <NATSettings backendHost={backendHost} />}

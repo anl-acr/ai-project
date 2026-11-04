@@ -62,6 +62,11 @@ import {
 } from "lucide-react";
 import { useTheme } from "../../utils/theme";
 import DateTimePickerInput from "../common/DateTimePickerInput";
+import {
+  AnimatedNumber,
+  PanelShimmerSkeleton,
+  useStageRevealObserver
+} from "../../utils/uiMotion";
 
 const DualListBox = ({ 
   title, 
@@ -291,6 +296,7 @@ const DualListBox = ({
 
 export default function ReportsPanel({ backendHost = "localhost:8000", viewMode = "cdr" }) {
   const { bg, hover, text, border, ring, lightBg, lightText, borderLight } = useTheme();
+  const reportsStageRef = React.useRef(null);
   const getTodayDateString = () => {
     const today = new Date();
     const yyyy = today.getFullYear();
@@ -6010,8 +6016,10 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
   const isInvalidCallsMode = viewMode === "invalid-calls";
   const isFullWidthMode = isCdrMode || isNotesMode || isAudioMode || isTranscriptsMode || isSentimentMode || isQAMode || isPanoMode || isPerfMode || isQueueMode || isSentimentHeatMode || isWordcloudMode || isFcrMode || isRoiMode || isMissedMode || isTimelineMode || isTrafficMode || isTrunkMode || isIvrDropMode || isTransferHoldMode || isEfficiencyMode || isFrictionMode || isComplianceMode || isSilenceMode || isCeoSummaryMode || isIntentMode || isDidMode || isTrunkMinutesMode || isInvalidCallsMode;
 
+  useStageRevealObserver(reportsStageRef, `${viewMode}-${isLoading}-${calls.length}`);
+
   return (
-    <div className="w-full h-[calc(100vh-12rem)] flex gap-6 text-slate-800 dark:text-slate-100">
+    <div ref={reportsStageRef} key={viewMode} className="w-full h-[calc(100vh-12rem)] flex gap-6 text-slate-800 dark:text-slate-100 aida-panel-enter">
       {/* Left side / Table container */}
       <div className={`${isFullWidthMode ? "flex-1" : "w-80 shrink-0"} bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-2xl flex flex-col overflow-hidden shadow-sm transition-colors duration-300`}>
         {/* Search Header (Without Refresh Button) */}
@@ -7894,8 +7902,8 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
         {isFullWidthMode ? (
           <div className="flex-1 overflow-auto scrollbar-thin flex flex-col">
             {isLoading ? (
-              <div className="text-center py-12 text-xs text-slate-400 dark:text-slate-500 animate-pulse font-semibold">
-                Arama kayıtları yükleniyor...
+              <div className="p-6">
+                <PanelShimmerSkeleton variant={isPanoMode ? "default" : "table"} />
               </div>
             ) : (filteredCalls.length === 0 && !isPanoMode && !isTimelineMode && !isIntentMode && !isTrafficMode && !isTrunkMode && !isIvrDropMode && !isEfficiencyMode && !isFrictionMode && !isCeoSummaryMode && !isDidMode && !isTrunkMinutesMode && !isInvalidCallsMode) ? (
               <div className="text-center py-12 text-xs text-slate-400 dark:text-slate-550 font-semibold">
@@ -7903,15 +7911,15 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
               </div>
             ) : (isPanoMode || (showCharts && isCdrMode)) ? (
               /* High-Fidelity Interactive Analytics Dashboard View */
-              <div className="p-6 overflow-y-auto flex-1 flex flex-col gap-6 scrollbar-thin bg-slate-50/30 dark:bg-slate-900/10 animate-in fade-in duration-200">
+              <div className="p-6 overflow-y-auto flex-1 flex flex-col gap-6 scrollbar-thin bg-slate-50/30 dark:bg-slate-900/10 aida-panel-enter">
                 
                 {/* Upper Section: Stats Widget / Cards */}
-                <div className="grid grid-cols-2 lg:grid-cols-6 gap-4">
+                <div className="grid grid-cols-2 lg:grid-cols-6 gap-4 aida-stagger-grid">
                   {/* Card 1: Toplam Çağrı */}
                   <div className="bg-white dark:bg-slate-900 p-4 rounded-3xl border border-slate-200/60 dark:border-slate-800 shadow-sm flex flex-col gap-1 hover:scale-102 transition duration-200">
                     <span className="text-[9px] font-extrabold text-slate-400 dark:text-slate-500 uppercase tracking-wider">Toplam Çağrı</span>
                     <div className="flex items-baseline gap-2 mt-1">
-                      <span className="text-2xl font-black text-slate-900 dark:text-slate-100">{chartData.total}</span>
+                      <span className="text-2xl font-black text-slate-900 dark:text-slate-100"><AnimatedNumber value={chartData.total || 0} /></span>
                       <span className="text-[10px] text-slate-400 font-bold">Adet</span>
                     </div>
                   </div>
@@ -7919,21 +7927,21 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                   <div className="bg-white dark:bg-slate-900 p-4 rounded-3xl border border-slate-200/60 dark:border-slate-800 shadow-sm flex flex-col gap-1 hover:scale-102 transition duration-200">
                     <span className="text-[9px] font-extrabold text-slate-450 dark:text-slate-500 uppercase tracking-wider">AI Çözüm Oranı (FCR)</span>
                     <div className="flex items-baseline gap-2 mt-1">
-                      <span className="text-2xl font-black text-primary dark:text-emerald-400">%{chartData.aiStats.fcr}</span>
+                      <span className="text-2xl font-black text-primary dark:text-emerald-400"><AnimatedNumber value={chartData.aiStats.fcr || 0} prefix="%" /></span>
                     </div>
                   </div>
                   {/* Card 3: SLA Uyum Oranı */}
                   <div className="bg-white dark:bg-slate-900 p-4 rounded-3xl border border-slate-200/60 dark:border-slate-800 shadow-sm flex flex-col gap-1 hover:scale-102 transition duration-200">
                     <span className="text-[9px] font-extrabold text-slate-450 dark:text-slate-500 uppercase tracking-wider">SLA Uyum Oranı</span>
                     <div className="flex items-baseline gap-2 mt-1">
-                      <span className="text-2xl font-black text-primary dark:text-indigo-400">%{chartData.slaRate}</span>
+                      <span className="text-2xl font-black text-primary dark:text-indigo-400"><AnimatedNumber value={chartData.slaRate || 0} prefix="%" /></span>
                     </div>
                   </div>
                   {/* Card 4: Kaçan Çağrılar */}
                   <div className="bg-white dark:bg-slate-900 p-4 rounded-3xl border border-slate-200/60 dark:border-slate-800 shadow-sm flex flex-col gap-1 hover:scale-102 transition duration-200">
                     <span className="text-[9px] font-extrabold text-slate-455 dark:text-slate-500 uppercase tracking-wider">Kaçan Çağrılar</span>
                     <div className="flex items-baseline gap-2 mt-1">
-                      <span className="text-2xl font-black text-primary dark:text-rose-455">{chartData.missedCount}</span>
+                      <span className="text-2xl font-black text-primary dark:text-rose-455"><AnimatedNumber value={chartData.missedCount || 0} /></span>
                       <span className="text-[10px] text-slate-400 font-bold">Adet</span>
                     </div>
                   </div>
@@ -8019,9 +8027,9 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                               return (
                                 <>
                                   {/* Incoming Line */}
-                                  <path d={incomingLine} fill="none" stroke="#8b5cf6" strokeWidth="2.5" strokeLinecap="round" />
+                                  <path d={incomingLine} pathLength="1" className="aida-chart-line" fill="none" stroke="#8b5cf6" strokeWidth="2.5" strokeLinecap="round" />
                                   {/* Answered Line */}
-                                  <path d={answeredLine} fill="none" stroke="#10b981" strokeWidth="2.5" strokeLinecap="round" />
+                                  <path d={answeredLine} pathLength="1" className="aida-chart-line" fill="none" stroke="#10b981" strokeWidth="2.5" strokeLinecap="round" />
 
                                   {/* X Axis Labels */}
                                   {pointsIncoming.filter((_, idx) => idx % 3 === 0).map((pt, idx) => (
@@ -8077,7 +8085,7 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
 
                               return (
                                 <>
-                                  <path d={linePath} fill="none" stroke="#6366f1" strokeWidth="2.5" strokeLinecap="round" />
+                                  <path d={linePath} pathLength="1" className="aida-chart-line" fill="none" stroke="#6366f1" strokeWidth="2.5" strokeLinecap="round" />
                                   {points.filter((_, idx) => idx % 3 === 0).map((pt, idx) => (
                                     <text key={idx} x={pt.x} y="145" textAnchor="middle" className="text-[8px] font-bold fill-slate-400 dark:fill-slate-500 font-mono">
                                       {String(idx * 3).padStart(2, '0')}:00

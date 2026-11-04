@@ -34,6 +34,7 @@ import {
 } from "lucide-react";
 import AddContactModal from "./AddContactModal";
 import { useTheme } from "../../utils/theme";
+import { AnimatedNumber, useStageRevealObserver } from "../../utils/uiMotion";
 
 const DASHBOARD_WIDGET_CATALOG = [
   {
@@ -594,6 +595,7 @@ export default function LiveDashboardPanel({ backendHost = "localhost:8000" }) {
   };
 
   const visibleWidgets = widgetOrder.filter((id) => !hiddenWidgets.includes(id));
+  useStageRevealObserver(panelRef, `${visibleWidgets.join(",")}-${Boolean(widgetsSummary)}`);
 
   const renderCrisisRadarWidget = () => {
     if (crisisAlerts.length === 0) return null;
@@ -722,15 +724,15 @@ export default function LiveDashboardPanel({ backendHost = "localhost:8000" }) {
           {widgetsSummary?.today_stats && (
             <div className="inline-flex items-center gap-3 px-3.5 py-1.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 text-[11px] font-semibold text-slate-600 dark:text-slate-300 shadow-sm">
               <span>
-                Bugün: <strong className="text-slate-900 dark:text-white">{widgetsSummary.today_stats.total_calls}</strong> çağrı
+                Bugün: <strong className="text-slate-900 dark:text-white"><AnimatedNumber value={widgetsSummary.today_stats.total_calls || 0} /></strong> çağrı
               </span>
               <span className="text-slate-300 dark:text-slate-700">•</span>
               <span>
-                Yanıt Oranı: <strong className="text-emerald-600 dark:text-emerald-400">%{widgetsSummary.today_stats.answered_rate}</strong>
+                Yanıt Oranı: <strong className="text-emerald-600 dark:text-emerald-400"><AnimatedNumber value={widgetsSummary.today_stats.answered_rate || 0} prefix="%" /></strong>
               </span>
               <span className="text-slate-300 dark:text-slate-700">•</span>
               <span>
-                AI Karşılama: <strong className={text}>{widgetsSummary.today_stats.ai_handled_calls}</strong>
+                AI Karşılama: <strong className={text}><AnimatedNumber value={widgetsSummary.today_stats.ai_handled_calls || 0} /></strong>
               </span>
             </div>
           )}
@@ -753,13 +755,13 @@ export default function LiveDashboardPanel({ backendHost = "localhost:8000" }) {
 
         if (wId === "kpi_metrics") {
           return (
-            <div key="kpi_metrics" className="grid grid-cols-1 md:grid-cols-4 gap-4">
+            <div key="kpi_metrics" className="grid grid-cols-1 md:grid-cols-4 gap-4 aida-stagger-grid">
               {/* Active Calls Stat */}
               <div className="p-5 bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800/85 rounded-2xl flex items-center justify-between shadow-sm transition-colors duration-300">
                 <div>
                   <p className="text-[10px] text-slate-400 dark:text-slate-550 font-bold uppercase tracking-wider">Aktif Görüşmeler</p>
                   <h3 className="text-2xl font-bold mt-1 text-slate-900 dark:text-white flex items-center gap-2">
-                    {activeCalls.length}
+                    <AnimatedNumber value={activeCalls.length} />
                     {activeCalls.length > 0 && (
                       <span className="h-2 w-2 rounded-full bg-primary dark:bg-emerald-400 animate-ping"></span>
                     )}
@@ -779,11 +781,13 @@ export default function LiveDashboardPanel({ backendHost = "localhost:8000" }) {
                 <div className="flex items-center gap-3">
                   <div className="flex-1 h-2 bg-slate-105 dark:bg-slate-950 rounded-full overflow-hidden border border-slate-200/40 dark:border-slate-850">
                     <div 
-                      className="h-full bg-gradient-to-r from-indigo-500 to-purple-500 transition-all duration-1000"
+                      className="h-full bg-gradient-to-r from-indigo-500 to-purple-500 transition-all duration-1000 aida-chart-bar-x"
                       style={{ width: `${metrics.cpu}%` }}
                     ></div>
                   </div>
-                  <span className="text-xs font-mono font-bold text-slate-700 dark:text-slate-300">{metrics.cpu}%</span>
+                  <span className="text-xs font-mono font-bold text-slate-700 dark:text-slate-300">
+                    <AnimatedNumber value={metrics.cpu} suffix="%" />
+                  </span>
                 </div>
               </div>
 
@@ -796,11 +800,13 @@ export default function LiveDashboardPanel({ backendHost = "localhost:8000" }) {
                 <div className="flex items-center gap-3">
                   <div className="flex-1 h-2 bg-slate-105 dark:bg-slate-950 rounded-full overflow-hidden border border-slate-200/40 dark:border-slate-850">
                     <div 
-                      className="h-full bg-gradient-to-r from-pink-500 to-rose-500 transition-all duration-1000"
+                      className="h-full bg-gradient-to-r from-pink-500 to-rose-500 transition-all duration-1000 aida-chart-bar-x"
                       style={{ width: `${metrics.ram}%` }}
                     ></div>
                   </div>
-                  <span className="text-xs font-mono font-bold text-slate-700 dark:text-slate-300">{metrics.ram}%</span>
+                  <span className="text-xs font-mono font-bold text-slate-700 dark:text-slate-300">
+                    <AnimatedNumber value={metrics.ram} suffix="%" />
+                  </span>
                 </div>
               </div>
 
@@ -809,7 +815,7 @@ export default function LiveDashboardPanel({ backendHost = "localhost:8000" }) {
                 <div>
                   <p className="text-[10px] text-slate-400 dark:text-slate-550 font-bold uppercase tracking-wider">WebSocket Kanalları</p>
                   <h3 className="text-xl font-bold mt-1 text-slate-900 dark:text-slate-200 font-mono">
-                    {metrics.activeWs} <span className="text-xs text-slate-400 dark:text-slate-500 font-medium">bağlantı</span>
+                    <AnimatedNumber value={metrics.activeWs} /> <span className="text-xs text-slate-400 dark:text-slate-500 font-medium">bağlantı</span>
                   </h3>
                 </div>
                 <div className="h-10 w-10 rounded-xl bg-emerald-50 dark:bg-emerald-950/20 border border-emerald-100 dark:border-emerald-900/30 flex items-center justify-center text-primary dark:text-emerald-400">

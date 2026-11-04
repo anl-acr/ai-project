@@ -7,7 +7,7 @@ export default function Document() {
         <meta name="color-scheme" content="light dark" />
         <script
           dangerouslySetInnerHTML={{
-            __html: `try{var m=document.querySelector('meta[name="color-scheme"]');var t=localStorage.getItem("theme");if(t==="dark"){document.documentElement.classList.add("dark");if(m)m.content="dark";}else if(t==="light"){if(m)m.content="light";}}catch(e){}`,
+            __html: `try{var m=document.querySelector('meta[name="color-scheme"]');var t=localStorage.getItem("theme");if(t==="dark"){document.documentElement.classList.add("dark");if(m)m.content="dark";}else if(t==="light"){if(m)m.content="light";}var um=localStorage.getItem("aida_ui_motion_mode");document.documentElement.setAttribute("data-ui-motion",um==="minimal"||um==="off"?um:"fluid");}catch(e){}`,
           }}
         />
         <link rel="preconnect" href="https://fonts.googleapis.com" />

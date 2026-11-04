@@ -27355,18 +27355,45 @@ async def get_system_version_info():
         pass
 
     return {
-        "version": "v2.9.0",
+        "version": "v2.9.1",
         "commit_hash": live_commit,
         "release_date": "5 Kasım 2026",
         "status": "Güncel / Canlı Sürüm",
         "environment": "Production (On-Premise)",
         "changelog": [
             {
-                "version": "v2.9.0",
+                "version": "v2.9.1",
                 "commit_hash": live_commit,
                 "release_date": "5 Kasım 2026",
                 "badge": "Canlı Sürüm (Güncel)",
                 "badge_type": "current",
+                "title": "4 Katmanlı GPU Ekran Geçiş Mimarisi, Kademeli Kart Yüklenişi, Canlı Grafik Çizimi & Işıltılı İskelet Önizleme",
+                "summary": "Sistemdeki 65'ten fazla ekran, alt sekme, modal, grafik ve tablo geçişine sıfır takılma ile çalışan 4 katmanlı GPU mikro-animasyon motoru entegre edildi: Kapsamlı sahne geçişleri (Scoped View Transition & @starting-style), kademeli kart/tablo dalga akışı (Staggered Cascade), canlı grafik/sütun dolumu ve akıcı KPI sayaçları, veri yüklenirken ışıltılı iskelet (Shimmer Skeleton) önizlemesi ve Profil Ayarları üzerinden 'Akıcı / Minimal / Kapalı' hız kontrolü.",
+                "features": [
+                    {
+                        "title": "✨ Akıcı Sahne & Sekme Geçişleri (Scoped View Transition & @starting-style)",
+                        "desc": "Sol menü, üst bar kısayolları, Sistem Ayarları alt sekmeleri ve Çağrı Paneli modülleri arasında gezinirken pencereler yay eğrisiyle (220ms) süzülerek açılır; WebRTC telefon bağlantısı arka planda kesintisiz korunur ve klavye odağı güvenle taşınır."
+                    },
+                    {
+                        "title": "🌊 Kademeli Kart & Izgara Akışı (Staggered Cascade) + Modal Mikro-Geçişleri",
+                        "desc": "Ekranlardaki KPI özet kutuları, ızgara kartlar ve açılır pencereler aynı anda sert şekilde belirmek yerine 28ms kademeli dalga sırasıyla (sibling-index / GPU transform) yerine yerleşir."
+                    },
+                    {
+                        "title": "📈 Canlı Grafik Çizimi, Bar Dolumu & Akıcı KPI Sayaçları (Count-Up)",
+                        "desc": "Saatlik yoğunluk ve SLA SVG çizgi grafikleri soldan sağa canlı çizilirken, doluluk çubukları GPU ölçeklendirmesiyle yükselir ve özet KPI rakamları hedef değere akıcı şekilde sayarak oturur."
+                    },
+                    {
+                        "title": "💎 Işıltılı Yükleme İskeleti (Shimmer Skeleton) & Kişisel Hareket Hızı Kontrolü",
+                        "desc": "Veri ve modül yüklenirken sade dönen çark yerine ekran kalıbına uygun Shimmer Skeleton gösterilir; Profil Ayarları > Avatar & Tema sekmesine 'Akıcı (Varsayılan) / Minimal (Hızlı) / Kapalı' animasyon tercihi eklendi."
+                    }
+                ]
+            },
+            {
+                "version": "v2.9.0",
+                "commit_hash": "378756f",
+                "release_date": "5 Kasım 2026",
+                "badge": "Önceki Sürüm",
+                "badge_type": "previous",
                 "title": "Müşteri 360° Çekmecesi, Canlı Bildirim Merkezi, Geri Arama Planlayıcı, Kriz Radarı & Otomatik Karanlık Mod",
                 "summary": "Temsilci ve süpervizörlerin operasyonel hızını katlayan 7 kapsamlı modül devreye alındı: Üst bar canlı bildirim merkezi ve masaüstü bildirimleri, kişiselleştirilebilir klavye kısayolları (? rehberi), mesai/saat bazlı otomatik karanlık mod, tüm iletişim kanallarını tek zaman tünelinde birleştiren Müşteri 360° çekmecesi, kayıp çağrı sahiplenme ve geri arama planlayıcı, kullanıcıya özel düzenlenebilir özet ekranı widget'ları ve canlı kriz/negatif duygu süpervizör müdahale radarı.",
                 "features": [
