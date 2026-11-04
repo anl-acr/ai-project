@@ -126,7 +126,7 @@ export default function AgentWebphoneTab({
       const [contactsRes, dirRes, callsRes, queuesRes] = await Promise.all([
         fetch(`${protocol}//${backendHost}/api/contacts`),
         fetch(`${protocol}//${backendHost}/api/agent/directory`),
-        fetch(`${protocol}//${backendHost}/api/calls?extension=${encodeURIComponent(myExt)}`),
+        fetch(`${protocol}//${backendHost}/api/calls?extension=${encodeURIComponent(myExt)}&limit=25`),
         fetch(`${protocol}//${backendHost}/api/settings/queues`)
       ]);
       if (contactsRes.ok) {
@@ -173,7 +173,15 @@ export default function AgentWebphoneTab({
     fetchContactsAndDirectory();
     const handleContactsUpdated = () => fetchContactsAndDirectory();
     window.addEventListener("CONTACTS_UPDATED", handleContactsUpdated);
-    const dirTimer = setInterval(async () => {
+    return () => {
+      window.removeEventListener("CONTACTS_UPDATED", handleContactsUpdated);
+    };
+  }, [backendHost]);
+
+  useEffect(() => {
+    if (!isWebphoneScreenActive) return;
+    const pollDir = async () => {
+      if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
       try {
         const protocol = window.location.protocol;
         const dirRes = await fetch(`${protocol}//${backendHost}/api/agent/directory?t=${Date.now()}`);
@@ -182,12 +190,11 @@ export default function AgentWebphoneTab({
           setDirectory(Array.isArray(dirData) ? dirData : []);
         }
       } catch (e) {}
-    }, 3000);
-    return () => {
-      window.removeEventListener("CONTACTS_UPDATED", handleContactsUpdated);
-      clearInterval(dirTimer);
     };
-  }, [backendHost]);
+    pollDir();
+    const dirTimer = setInterval(pollDir, 5000);
+    return () => clearInterval(dirTimer);
+  }, [backendHost, isWebphoneScreenActive]);
 
   const {
     dialNumber,

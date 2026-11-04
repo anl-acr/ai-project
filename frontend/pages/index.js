@@ -98,21 +98,21 @@ import { AVATAR_CATEGORIES, ALL_AVATAR_ITEMS } from "../utils/avatarPresets";
 
 
 import dynamic from "next/dynamic";
-
-// Import custom components (with SSR disabled for WebRTC phone client)
-const CallChatWidget = dynamic(
-  () => import("../components/dashboard/CallChatWidget"),
-  { ssr: false }
-);
-import TranscriptPanel from "../components/dashboard/TranscriptPanel";
-import SettingsPanel from "../components/settings/SettingsPanel";
-import KnowledgeBase from "../components/settings/KnowledgeBase";
-import RuleEditor from "../components/settings/RuleEditor";
-import ReportsPanel from "../components/dashboard/ReportsPanel";
-import CalendarPanel from "../components/dashboard/CalendarPanel";
-import LiveDashboardPanel from "../components/dashboard/LiveDashboardPanel";
-import SystemStatusPanel from "../components/dashboard/SystemStatusPanel";
-import AgentSessionCard from "../components/phone/AgentSessionCard";
+import {
+  DEFAULT_USER_PROFILES,
+  RING_DEVICES_METADATA,
+  normalizeUserProfiles
+} from "../utils/userProfileDefaults";
+import {
+  getAllowedLandingScreensForRole,
+  getAllowedAgentSubTabsForRole,
+  getLandingScreenLabel,
+  getAgentSubTabLabel,
+  saveLastVisitedTab,
+  getLastVisitedTab,
+  getLastVisitedAgentSubTab,
+  resolveUserLandingTab
+} from "../utils/landingPagePrefs";
 import AgentPanel, {
   ALL_TABS as CALL_PANEL_ALL_TABS,
   loadCallPanelPrefs,
@@ -121,40 +121,66 @@ import AgentPanel, {
   DEFAULT_TOPBAR_PREFS,
   normalizeTopbarPrefs
 } from "../components/callcenter/AgentPanel";
-import { CallPanelAgentsAppearanceSettings } from "../components/callcenter/tabs/AgentQueuePeersTab";
-import WallboardPanel, { WallboardStudioSettings } from "../components/dashboard/WallboardPanel";
-import DialerSettings from "../components/settings/DialerSettings";
-import CallFlowEditor from "../components/settings/CallFlowEditor";
-import AIAgentsSettings from "../components/settings/AIAgentsSettings";
-import ChangelogPanel from "../components/settings/ChangelogPanel";
-import OmnichannelPanel from "../components/dashboard/OmnichannelPanel";
-import ContactsPanel from "../components/dashboard/ContactsPanel";
-import BlacklistSettings from "../components/settings/BlacklistSettings";
-import UserSettings, { DEFAULT_USER_PROFILES, RING_DEVICES_METADATA, normalizeUserProfiles } from "../components/settings/UserSettings";
-import PBXSettings from "../components/settings/PBXSettings";
-import AnnouncementsPanel from "../components/settings/AnnouncementsPanel";
-import AcdQueuesPanel from "../components/settings/AcdQueuesPanel";
-import AutoprovisionPanel from "../components/settings/AutoprovisionPanel";
-import OutboundRulesPanel from "../components/settings/OutboundRulesPanel";
-import InboundRulesPanel from "../components/settings/InboundRulesPanel";
-import CallPickupGroupsPanel from "../components/settings/CallPickupGroupsPanel";
-import SubscriberGroupsPanel from "../components/settings/SubscriberGroupsPanel";
-import SpeedDialsPanel from "../components/settings/SpeedDialsPanel";
-import ConferencesPanel from "../components/settings/ConferencesPanel";
-import WorkHoursSettingsPanel from "../components/settings/WorkHoursSettingsPanel";
-import EventLogsPanel from "../components/settings/EventLogsPanel";
-import SecurityPanel from "../components/security/SecurityPanel";
-import TroubleshootingPanel from "../components/dashboard/TroubleshootingPanel";
 import Login from "../components/auth/Login";
 import TenantSwitcher from "../components/TenantSwitcher";
-import LicenseModal from "../components/modals/LicenseModal";
 import GlobalSearchBar from "../components/common/GlobalSearchBar";
-import APIBudgetSettings from "../components/settings/APIBudgetSettings";
-import QueueSurveyReportPanel from "../components/reports/QueueSurveyReportPanel";
-import EnterpriseReportsPanel from "../components/reports/EnterpriseReportsPanel";
-import CustomReportBuilderPanel from "../components/reports/CustomReportBuilderPanel";
-import ScheduledReportsPanel from "../components/settings/ScheduledReportsPanel";
-import AIConfigAssistantPanel from "../components/settings/AIConfigAssistantPanel";
+
+const PanelLoadingFallback = () => (
+  <div className="w-full py-16 flex items-center justify-center">
+    <div className="h-7 w-7 rounded-full border-2 border-slate-200 dark:border-slate-800 border-t-primary animate-spin" />
+  </div>
+);
+
+const dynamicPanel = (loader) =>
+  dynamic(loader, { ssr: false, loading: PanelLoadingFallback });
+
+// Lazy code-split panels & heavy widgets so initial bundle and tab clicks stay fast
+const CallChatWidget = dynamic(() => import("../components/dashboard/CallChatWidget"), { ssr: false });
+const SettingsPanel = dynamicPanel(() => import("../components/settings/SettingsPanel"));
+const KnowledgeBase = dynamicPanel(() => import("../components/settings/KnowledgeBase"));
+const RuleEditor = dynamicPanel(() => import("../components/settings/RuleEditor"));
+const ReportsPanel = dynamicPanel(() => import("../components/dashboard/ReportsPanel"));
+const CalendarPanel = dynamicPanel(() => import("../components/dashboard/CalendarPanel"));
+const LiveDashboardPanel = dynamicPanel(() => import("../components/dashboard/LiveDashboardPanel"));
+const SystemStatusPanel = dynamicPanel(() => import("../components/dashboard/SystemStatusPanel"));
+const CallPanelAgentsAppearanceSettings = dynamic(
+  () => import("../components/callcenter/tabs/AgentQueuePeersTab").then((m) => m.CallPanelAgentsAppearanceSettings),
+  { ssr: false, loading: PanelLoadingFallback }
+);
+const WallboardPanel = dynamicPanel(() => import("../components/dashboard/WallboardPanel"));
+const WallboardStudioSettings = dynamic(
+  () => import("../components/dashboard/WallboardPanel").then((m) => m.WallboardStudioSettings),
+  { ssr: false, loading: PanelLoadingFallback }
+);
+const DialerSettings = dynamicPanel(() => import("../components/settings/DialerSettings"));
+const CallFlowEditor = dynamicPanel(() => import("../components/settings/CallFlowEditor"));
+const AIAgentsSettings = dynamicPanel(() => import("../components/settings/AIAgentsSettings"));
+const ChangelogPanel = dynamicPanel(() => import("../components/settings/ChangelogPanel"));
+const OmnichannelPanel = dynamicPanel(() => import("../components/dashboard/OmnichannelPanel"));
+const ContactsPanel = dynamicPanel(() => import("../components/dashboard/ContactsPanel"));
+const BlacklistSettings = dynamicPanel(() => import("../components/settings/BlacklistSettings"));
+const UserSettings = dynamicPanel(() => import("../components/settings/UserSettings"));
+const PBXSettings = dynamicPanel(() => import("../components/settings/PBXSettings"));
+const AnnouncementsPanel = dynamicPanel(() => import("../components/settings/AnnouncementsPanel"));
+const AcdQueuesPanel = dynamicPanel(() => import("../components/settings/AcdQueuesPanel"));
+const AutoprovisionPanel = dynamicPanel(() => import("../components/settings/AutoprovisionPanel"));
+const OutboundRulesPanel = dynamicPanel(() => import("../components/settings/OutboundRulesPanel"));
+const InboundRulesPanel = dynamicPanel(() => import("../components/settings/InboundRulesPanel"));
+const CallPickupGroupsPanel = dynamicPanel(() => import("../components/settings/CallPickupGroupsPanel"));
+const SubscriberGroupsPanel = dynamicPanel(() => import("../components/settings/SubscriberGroupsPanel"));
+const SpeedDialsPanel = dynamicPanel(() => import("../components/settings/SpeedDialsPanel"));
+const ConferencesPanel = dynamicPanel(() => import("../components/settings/ConferencesPanel"));
+const WorkHoursSettingsPanel = dynamicPanel(() => import("../components/settings/WorkHoursSettingsPanel"));
+const EventLogsPanel = dynamicPanel(() => import("../components/settings/EventLogsPanel"));
+const SecurityPanel = dynamicPanel(() => import("../components/security/SecurityPanel"));
+const TroubleshootingPanel = dynamicPanel(() => import("../components/dashboard/TroubleshootingPanel"));
+const LicenseModal = dynamic(() => import("../components/modals/LicenseModal"), { ssr: false });
+const APIBudgetSettings = dynamicPanel(() => import("../components/settings/APIBudgetSettings"));
+const QueueSurveyReportPanel = dynamicPanel(() => import("../components/reports/QueueSurveyReportPanel"));
+const EnterpriseReportsPanel = dynamicPanel(() => import("../components/reports/EnterpriseReportsPanel"));
+const CustomReportBuilderPanel = dynamicPanel(() => import("../components/reports/CustomReportBuilderPanel"));
+const ScheduledReportsPanel = dynamicPanel(() => import("../components/settings/ScheduledReportsPanel"));
+const AIConfigAssistantPanel = dynamicPanel(() => import("../components/settings/AIConfigAssistantPanel"));
 
 const SUPER_ADMIN = {
   id: 9999,
@@ -271,6 +297,7 @@ export default function Home() {
   const [agentQueuesList, setAgentQueuesList] = useState([]);
   const [agentAiAgentsList, setAgentAiAgentsList] = useState([]);
   const [callPanelPrefs, setCallPanelPrefs] = useState(() => loadCallPanelPrefs(null));
+  const [currentAgentSubTab, setCurrentAgentSubTab] = useState("dashboard");
   const [currentRolePermissions, setCurrentRolePermissions] = useState(null);
   const [draggedPanelTabIdx, setDraggedPanelTabIdx] = useState(null);
   const [openCategories, setOpenCategories] = useState({
@@ -283,8 +310,10 @@ export default function Home() {
   });
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [sidebarTooltip, setSidebarTooltip] = useState(null);
+  const lastHoveredSidebarElRef = React.useRef(null);
 
   const toggleSidebarCollapse = () => {
+    lastHoveredSidebarElRef.current = null;
     setSidebarTooltip(null);
     setIsSidebarCollapsed((prev) => {
       const next = !prev;
@@ -304,43 +333,30 @@ export default function Home() {
       setIsSidebarCollapsed(true);
     }
 
-    const originalFetch = window.fetch;
-    window.fetch = async function() {
-      const url = arguments[0];
-      let options = arguments[1] || {};
-      
-      if (typeof url === "string" && url.includes("/api/")) {
-        const activeTenantId = localStorage.getItem("active_tenant_id") || "tenant-default";
-        const currentUserId = sessionStorage.getItem("current_user_id") || localStorage.getItem("current_user_id") || "";
-        
-        const headers = new Headers(options.headers || {});
-        if (!headers.has("X-Tenant-ID")) headers.set("X-Tenant-ID", activeTenantId);
-        if (!headers.has("X-User-ID") && currentUserId) headers.set("X-User-ID", currentUserId);
-        options.headers = headers;
-        arguments[1] = options;
-      }
-      
-      const response = await originalFetch.apply(this, arguments);
-      
-      if (typeof url === 'string' && url.includes('/api/settings/') && !url.includes('/api/settings/apply')) {
-        if (['POST', 'PUT', 'DELETE'].includes(options.method)) {
-          if (response.ok) {
-            setHasPendingChanges((prev) => {
-              if (!prev) {
-                localStorage.setItem('hasPendingChanges', 'true');
-                return true;
-              }
-              return prev;
-            });
-          }
+    const handleSettingsMutated = () => {
+      setHasPendingChanges((prev) => {
+        if (!prev) {
+          localStorage.setItem('hasPendingChanges', 'true');
+          return true;
         }
-      }
-      return response;
+        return prev;
+      });
     };
 
-    
+    const handleAgentSubTabChanged = (ev) => {
+      if (ev?.detail && typeof ev.detail === "string") {
+        setCurrentAgentSubTab(ev.detail);
+      }
+    };
+    if (typeof window !== "undefined" && window.__CURRENT_AGENT_SUBTAB__) {
+      setCurrentAgentSubTab(String(window.__CURRENT_AGENT_SUBTAB__));
+    }
+
+    window.addEventListener('AIDA_SETTINGS_MUTATED', handleSettingsMutated);
+    window.addEventListener('AGENT_SUBTAB_CHANGED', handleAgentSubTabChanged);
     return () => {
-      window.fetch = originalFetch;
+      window.removeEventListener('AIDA_SETTINGS_MUTATED', handleSettingsMutated);
+      window.removeEventListener('AGENT_SUBTAB_CHANGED', handleAgentSubTabChanged);
     };
   }, []);
 
@@ -519,6 +535,7 @@ export default function Home() {
 
     let mounted = true;
     const pollInternalDeliveryAndNotify = async () => {
+      if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
       try {
         const backendHostUrl = getBackendHost();
         const protocol = window.location.protocol;
@@ -595,7 +612,7 @@ export default function Home() {
 
     window.addEventListener("INTERNAL_CHAT_READ_SYNC", handleReadSync);
     pollInternalDeliveryAndNotify();
-    const timer = setInterval(pollInternalDeliveryAndNotify, 3500);
+    const timer = setInterval(pollInternalDeliveryAndNotify, 6000);
     return () => {
       mounted = false;
       window.removeEventListener("INTERNAL_CHAT_READ_SYNC", handleReadSync);
@@ -1353,6 +1370,15 @@ export default function Home() {
       const explicitUrlTabSlug = urlParams ? urlParams.get("tab") : null;
       const explicitUrlTab = explicitUrlTabSlug ? getTabFromTurkishSlug(explicitUrlTabSlug) : null;
 
+      let justLoggedInFromPage = false;
+      try {
+        if (typeof window !== "undefined" && sessionStorage.getItem("aida_just_logged_in") === "1") {
+          justLoggedInFromPage = true;
+          sessionStorage.removeItem("aida_just_logged_in");
+        }
+      } catch (e) {}
+      const isFreshLogin = Boolean(providedUser) || justLoggedInFromPage;
+
       if (userRoleLower === 'admin' || (currentRole && currentRole.role_code === 'admin')) {
         setHasOmnichannelPermission(true);
         setHasContactsPermission(true);
@@ -1375,9 +1401,15 @@ export default function Home() {
         setIsAgentOnlyUser(false);
         setIsWallboardOnlyUser(false);
         setIsAgentFullScreenMode(false);
-        if (explicitUrlTab) {
-          setActiveTab(explicitUrlTab);
-        }
+        const adminTargetTab = resolveUserLandingTab({
+          user: currentUserData,
+          panelPrefs: resolvedPanelPrefs,
+          roleCode: "admin",
+          rolePermissions: ["*"],
+          explicitUrlTab,
+          isFreshLogin
+        });
+        setActiveTab(adminTargetTab);
       } else if (!currentRole) {
         setHasOmnichannelPermission(false);
         setHasContactsPermission(false);
@@ -1488,26 +1520,15 @@ export default function Home() {
         } else {
           setIsWallboardOnlyUser(false);
           setIsAgentOnlyUser(false);
-          // Ensure multi-module roles without dashboard:access never start on "dashboard"
-          const isExplicitTabAllowed =
-            explicitUrlTab &&
-            ((explicitUrlTab === 'dashboard' && canDashboard) ||
-              (explicitUrlTab === 'wallboard' && canWallboard) ||
-              (explicitUrlTab === 'call-center' && canCallPanel) ||
-              (explicitUrlTab === 'omnichannel' && canOmni) ||
-              (explicitUrlTab.startsWith('reports-') && canReports) ||
-              explicitUrlTab !== 'dashboard');
-
-          if (isExplicitTabAllowed) {
-            setActiveTab(explicitUrlTab);
-          } else if (!canDashboard) {
-            if (canWallboard) setActiveTab('wallboard');
-            else if (canCallPanel) setActiveTab('call-center');
-            else if (canOmni) setActiveTab('omnichannel');
-            else if (canReports) setActiveTab('reports-pano');
-            else if (canUsers) setActiveTab('users');
-            else if (canContacts) setActiveTab('contacts');
-          }
+          const resolvedRoleTab = resolveUserLandingTab({
+            user: currentUserData,
+            panelPrefs: resolvedPanelPrefs,
+            roleCode: userRoleLower,
+            rolePermissions: permsList,
+            explicitUrlTab,
+            isFreshLogin
+          });
+          setActiveTab(resolvedRoleTab);
         }
       }
 
@@ -1777,6 +1798,7 @@ export default function Home() {
   const prevLoggedTabRef = React.useRef(null);
   React.useEffect(() => {
     if (!isLoggedIn || !currentUser || !activeTab) return;
+    saveLastVisitedTab(currentUser, activeTab);
     if (prevLoggedTabRef.current === null) {
       prevLoggedTabRef.current = activeTab;
       return;
@@ -1828,6 +1850,24 @@ export default function Home() {
     try {
       const protocol = typeof window !== "undefined" && window.location.protocol === "https:" ? "https:" : "http:";
       const targetUserId = currentUser?.id || currentUser?.extension || localStorage.getItem('current_user_id') || sessionStorage.getItem('current_user_id');
+
+      if (targetUserId && currentUser) {
+        const lastTabToSave = activeTab || getLastVisitedTab(currentUser) || "";
+        const lastSubToSave = currentAgentSubTab || getLastVisitedAgentSubTab(currentUser) || "";
+        const syncedPrefs = saveCallPanelPrefs(currentUser, {
+          ...callPanelPrefs,
+          lastVisitedTab: lastTabToSave,
+          lastVisitedAgentSubTab: lastSubToSave
+        });
+        fetch(`${protocol}//${backendHost}/api/agent/profile/${encodeURIComponent(String(targetUserId))}`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "X-User-ID": String(targetUserId)
+          },
+          body: JSON.stringify({ call_panel_prefs: syncedPrefs })
+        }).catch(() => {});
+      }
 
       if (targetUserId) {
         await fetch(`${protocol}//${backendHost}/api/audit/activity`, {
@@ -1895,67 +1935,46 @@ export default function Home() {
   };
 
   React.useEffect(() => {
-    const originalLog = console.log;
-    const originalWarn = console.warn;
     const originalError = console.error;
-    const rawFetch = window.fetch;
+    let sendingErrorLog = false;
 
-    // Automatically attach X-User-ID header to all backend API calls for accurate User Audit Trail
-    window.fetch = function (input, init = {}) {
+    const sendErrorLog = (args) => {
+      if (sendingErrorLog) return;
+      sendingErrorLog = true;
       try {
-        const urlStr = typeof input === "string" ? input : (input?.url || "");
-        if (urlStr.includes("/api/") || urlStr.includes("/settings/")) {
-          const activeUid = sessionStorage.getItem("current_user_id") || localStorage.getItem("current_user_id");
-          if (activeUid) {
-            const headers = new Headers(init.headers || {});
-            if (!headers.has("X-User-ID")) {
-              headers.set("X-User-ID", String(activeUid));
+        const message = args
+          .map((arg) => {
+            if (typeof arg === "object") {
+              try {
+                return JSON.stringify(arg);
+              } catch (e) {
+                return String(arg);
+              }
             }
-            init = { ...init, headers };
-          }
-        }
-      } catch (e) {}
-      return rawFetch.call(this, input, init);
+            return String(arg);
+          })
+          .join(" ");
+
+        const protocol = typeof window !== "undefined" ? window.location.protocol : "http:";
+        fetch(`${protocol}//${backendHost}/api/client-logs`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ level: "error", message })
+        }).catch(() => {});
+      } finally {
+        sendingErrorLog = false;
+      }
     };
 
-    const sendLog = (level, args) => {
-      if (level !== "error") return;
-      const message = args.map(arg => {
-        if (typeof arg === "object") {
-          try { return JSON.stringify(arg); } catch(e) { return String(arg); }
-        }
-        return String(arg);
-      }).join(" ");
-
-      const protocol = typeof window !== "undefined" ? window.location.protocol : "http:";
-      rawFetch(`${protocol}//${backendHost}/api/client-logs`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ level, message })
-      }).catch(() => {});
-    };
-
-
-    console.log = (...args) => {
-      originalLog(...args);
-      sendLog("log", args);
-    };
-    console.warn = (...args) => {
-      originalWarn(...args);
-      sendLog("warn", args);
-    };
     console.error = (...args) => {
       originalError(...args);
-      sendLog("error", args);
+      sendErrorLog(args);
     };
 
     return () => {
-      window.fetch = rawFetch;
-      console.log = originalLog;
-      console.warn = originalWarn;
       console.error = originalError;
     };
-  }, []);
+  }, [backendHost]);
 
   const renderForwardingRow = (label, active, setActive, type, setType, target, setTarget, timeout, setTimeoutVal) => (
     <div className={`grid grid-cols-12 gap-3 items-end p-3 rounded-xl border transition-all ${active ? 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800' : 'bg-slate-50 dark:bg-slate-900/30 border-slate-100 dark:border-slate-800/40 opacity-70'}`}>
@@ -2130,6 +2149,23 @@ export default function Home() {
     persistUserVisualPatch({ call_panel_prefs: saved });
   };
 
+  const updateLandingPrefsLive = (landingPatch) => {
+    const nextPrefs = {
+      ...callPanelPrefs,
+      ...landingPatch
+    };
+    const saved = saveCallPanelPrefs(currentUser, nextPrefs);
+    setCallPanelPrefs(saved);
+    persistUserVisualPatch({ call_panel_prefs: saved });
+  };
+
+  const isCurrentViewPinnedAsLanding = Boolean(
+    activeTab === "call-center"
+      ? (isAgentOnlyUser || callPanelPrefs?.defaultLandingTab === "call-center") &&
+          callPanelPrefs?.defaultAgentSubTab === currentAgentSubTab
+      : callPanelPrefs?.defaultLandingTab === activeTab
+  );
+
   return (
     <div className="h-screen overflow-hidden bg-slate-50 dark:bg-slate-950 text-slate-800 dark:text-slate-100 flex font-sans transition-colors duration-300">
       <Head>
@@ -2143,13 +2179,18 @@ export default function Home() {
         <aside
           onMouseOver={(e) => {
             if (!isSidebarCollapsed) {
-              if (sidebarTooltip) setSidebarTooltip(null);
+              if (sidebarTooltip) {
+                lastHoveredSidebarElRef.current = null;
+                setSidebarTooltip(null);
+              }
               return;
             }
             const target = e.target.closest("button, [title]");
             if (target && e.currentTarget.contains(target)) {
+              if (lastHoveredSidebarElRef.current === target) return;
               const label = target.getAttribute("title") || target.textContent?.trim();
               if (label) {
+                lastHoveredSidebarElRef.current = target;
                 const rect = target.getBoundingClientRect();
                 setSidebarTooltip({
                   label,
@@ -2159,11 +2200,22 @@ export default function Home() {
                 return;
               }
             }
+            if (lastHoveredSidebarElRef.current) {
+              lastHoveredSidebarElRef.current = null;
+              setSidebarTooltip(null);
+            }
+          }}
+          onMouseLeave={() => {
+            lastHoveredSidebarElRef.current = null;
             setSidebarTooltip(null);
           }}
-          onMouseLeave={() => setSidebarTooltip(null)}
-          onScroll={() => sidebarTooltip && setSidebarTooltip(null)}
-          className={`${
+          onScroll={() => {
+            if (sidebarTooltip) {
+              lastHoveredSidebarElRef.current = null;
+              setSidebarTooltip(null);
+            }
+          }}
+          className={`aida-sidebar-contain ${
             isSidebarCollapsed ? "w-20 px-2.5" : "w-64 px-4"
           } py-4 h-screen bg-white dark:bg-slate-900 border-r border-slate-200/80 dark:border-slate-800/80 flex flex-col shrink-0 overflow-y-auto overflow-x-hidden transition-all duration-300 ease-in-out`}
         >
@@ -3439,10 +3491,10 @@ export default function Home() {
           </p>
           <button
             onClick={() => setActiveTab("changelog")}
-            title="Sistem Versiyonu ve Değişiklik Günlüğü (v2.8.0 On-Premise)"
+            title="Sistem Versiyonu ve Değişiklik Günlüğü (v2.8.1 On-Premise)"
             className="flex items-center gap-1 text-[10px] font-bold text-slate-500 dark:text-slate-400 hover:text-primary dark:hover:text-indigo-400 hover:underline transition cursor-pointer bg-transparent border-0 p-0 outline-none focus-visible:ring-2 focus-visible:ring-primary/50 rounded"
           >
-            <span>{isSidebarCollapsed ? "v2.8.0" : "v2.8.0 (On-Premise)"}</span>
+            <span>{isSidebarCollapsed ? "v2.8.1" : "v2.8.1 (On-Premise)"}</span>
           </button>
         </div>
       </aside>
@@ -4021,6 +4073,50 @@ export default function Home() {
 
                   {/* Menu Actions */}
                   <div className="p-1.5">
+                    {!isWallboardOnlyUser && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (isCurrentViewPinnedAsLanding) {
+                            updateLandingPrefsLive({
+                              defaultLandingTab: "auto",
+                              defaultAgentSubTab: "auto"
+                            });
+                          } else if (activeTab === "call-center") {
+                            updateLandingPrefsLive({
+                              defaultLandingTab: "call-center",
+                              defaultAgentSubTab: currentAgentSubTab || "auto"
+                            });
+                          } else {
+                            updateLandingPrefsLive({
+                              defaultLandingTab: activeTab
+                            });
+                          }
+                        }}
+                        className={`w-full text-left px-3 py-2.5 rounded-xl text-xs font-bold flex items-center justify-between gap-2 transition-colors cursor-pointer group ${
+                          isCurrentViewPinnedAsLanding
+                            ? `${lightBg} ${text}`
+                            : "text-slate-700 dark:text-slate-100 hover:bg-slate-100/70 dark:hover:bg-slate-800"
+                        }`}
+                      >
+                        <span className="flex items-center gap-2.5 min-w-0">
+                          <Pin
+                            size={15}
+                            className={`shrink-0 transition-colors ${
+                              isCurrentViewPinnedAsLanding ? text : `text-slate-500 dark:text-slate-300 group-hover:${text}`
+                            }`}
+                          />
+                          <span className="truncate">
+                            {isCurrentViewPinnedAsLanding
+                              ? "Başlangıç Ekranım (Sıfırla)"
+                              : "Başlangıç Ekranım Yap"}
+                          </span>
+                        </span>
+                        {isCurrentViewPinnedAsLanding && (
+                          <Check size={13} className={`${text} shrink-0`} />
+                        )}
+                      </button>
+                    )}
                     <button
                       type="button"
                       onClick={() => {
@@ -6016,6 +6112,186 @@ export default function Home() {
                   })()}
                 </div>
 
+                {/* User Personal Startup / Landing Screen Preference */}
+                <div className={`p-4 bg-slate-50/70 dark:bg-slate-950/40 border border-slate-200/80 dark:border-slate-800 rounded-2xl space-y-3.5 ${activeModalTab === "profile" ? "block" : "hidden"}`}>
+                  {(() => {
+                    const effectiveRoleCode = isAdminRole ? "admin" : String(currentUser?.role || "agent");
+                    const allowedLandingList = getAllowedLandingScreensForRole(
+                      effectiveRoleCode,
+                      isAdminRole ? ["*"] : currentRolePermissions
+                    );
+                    const allowedSubTabList = getAllowedAgentSubTabsForRole(
+                      effectiveRoleCode,
+                      isAdminRole ? ["*"] : currentRolePermissions
+                    );
+                    const landingGroups = Array.from(new Set(allowedLandingList.map((s) => s.group)));
+                    const selectedLanding = String(callPanelPrefs?.defaultLandingTab || "auto");
+                    const selectedSubTab = String(callPanelPrefs?.defaultAgentSubTab || "auto");
+                    const showSubTabPicker =
+                      isAgentOnlyUser ||
+                      selectedLanding === "call-center" ||
+                      (selectedLanding === "auto" && allowedLandingList.length === 1 && allowedLandingList[0]?.id === "call-center");
+
+                    return (
+                      <>
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <div className="flex items-center gap-2.5">
+                            <div className={`p-2 rounded-xl ${lightBg} ${text}`}>
+                              <Pin size={15} />
+                            </div>
+                            <div>
+                              <h5 className="text-[11px] font-extrabold text-slate-800 dark:text-white uppercase tracking-wider">
+                                Girişte Açılacak Başlangıç Ekranı
+                              </h5>
+                              <p id="profile-landing-help" className="text-[9.5px] text-slate-400 dark:text-slate-500 mt-0.5">
+                                Sisteme giriş yaptığınızda otomatik olarak karşınıza gelecek ekranı veya son kaldığınız modülü seçin.
+                              </p>
+                            </div>
+                          </div>
+
+                          {!isWallboardOnlyUser && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                if (activeTab === "call-center") {
+                                  updateLandingPrefsLive({
+                                    defaultLandingTab: "call-center",
+                                    defaultAgentSubTab: currentAgentSubTab || "auto"
+                                  });
+                                } else {
+                                  updateLandingPrefsLive({
+                                    defaultLandingTab: activeTab
+                                  });
+                                }
+                              }}
+                              className={`px-2.5 py-1.5 rounded-xl border text-[10px] font-extrabold transition-all cursor-pointer flex items-center gap-1.5 ${
+                                isCurrentViewPinnedAsLanding
+                                  ? `${bg} text-white border-transparent shadow-sm`
+                                  : `bg-white dark:bg-slate-900 ${borderLight} ${text} hover:opacity-90`
+                              }`}
+                            >
+                              {isCurrentViewPinnedAsLanding ? <Check size={12} /> : <Pin size={12} />}
+                              <span>
+                                {isCurrentViewPinnedAsLanding
+                                  ? "Şu Anki Ekran Seçili"
+                                  : "Açık Ekranı Seç"}
+                              </span>
+                            </button>
+                          )}
+                        </div>
+
+                        {isWallboardOnlyUser ? (
+                          <div className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 px-1">
+                            Rolünüz yalnızca Canlı İzleme Paneli (Wallboard) modülü için yapılandırıldığından girişte doğrudan Wallboard açılır.
+                          </div>
+                        ) : (
+                          <div className={`grid grid-cols-1 ${showSubTabPicker && !isAgentOnlyUser ? "sm:grid-cols-2" : ""} gap-3`}>
+                            {!isAgentOnlyUser && (
+                              <div>
+                                <label
+                                  htmlFor="profile-default-landing-tab"
+                                  className="block text-[10px] font-extrabold text-slate-600 dark:text-slate-300 uppercase tracking-wider mb-1"
+                                >
+                                  Başlangıç Modülü / Ekranı
+                                </label>
+                                <select
+                                  id="profile-default-landing-tab"
+                                  name="default_landing_tab"
+                                  aria-describedby="profile-landing-help"
+                                  value={selectedLanding}
+                                  onChange={(e) => {
+                                    const nextVal = e.target.value;
+                                    updateLandingPrefsLive({
+                                      defaultLandingTab: nextVal,
+                                      ...(nextVal !== "call-center" ? { defaultAgentSubTab: "auto" } : {})
+                                    });
+                                  }}
+                                  className="w-full px-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-xs font-bold text-slate-800 dark:text-white focus:outline-none focus:border-primary"
+                                >
+                                  <optgroup label="Akıllı Başlangıç Modları">
+                                    <option value="auto">Varsayılan (Role Göre Otomatik)</option>
+                                    <option value="last_visited">Son Kaldığım Ekrandan Devam Et</option>
+                                  </optgroup>
+                                  {landingGroups.map((grp) => (
+                                    <optgroup key={grp} label={grp}>
+                                      {allowedLandingList
+                                        .filter((item) => item.group === grp)
+                                        .map((item) => (
+                                          <option key={item.id} value={item.id}>
+                                            {item.label}
+                                          </option>
+                                        ))}
+                                    </optgroup>
+                                  ))}
+                                </select>
+                              </div>
+                            )}
+
+                            {showSubTabPicker && (
+                              <div>
+                                <label
+                                  htmlFor="profile-default-agent-subtab"
+                                  className="block text-[10px] font-extrabold text-slate-600 dark:text-slate-300 uppercase tracking-wider mb-1"
+                                >
+                                  Çağrı Paneli Açılış Sekmesi
+                                </label>
+                                <select
+                                  id="profile-default-agent-subtab"
+                                  name="default_agent_subtab"
+                                  aria-describedby="profile-landing-help"
+                                  value={selectedSubTab}
+                                  onChange={(e) =>
+                                    updateLandingPrefsLive({
+                                      ...(isAgentOnlyUser ? { defaultLandingTab: "call-center" } : {}),
+                                      defaultAgentSubTab: e.target.value
+                                    })
+                                  }
+                                  className="w-full px-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-xs font-bold text-slate-800 dark:text-white focus:outline-none focus:border-primary"
+                                >
+                                  <option value="auto">Sıralamadaki İlk Sekme (Varsayılan)</option>
+                                  <option value="last_visited">Son Kaldığım Alt Sekmeden Devam Et</option>
+                                  {allowedSubTabList.map((st) => (
+                                    <option key={st.id} value={st.id}>
+                                      {st.label}
+                                    </option>
+                                  ))}
+                                </select>
+                              </div>
+                            )}
+                          </div>
+                        )}
+
+                        <div className="flex items-center justify-between gap-2 text-[10px] font-semibold text-slate-500 dark:text-slate-400 pt-1">
+                          <span>
+                            Aktif Tercih:{" "}
+                            <strong className={text}>
+                              {isAgentOnlyUser
+                                ? `Temsilci Çağrı Paneli › ${getAgentSubTabLabel(selectedSubTab)}`
+                                : selectedLanding === "call-center"
+                                ? `Temsilci Çağrı Paneli › ${getAgentSubTabLabel(selectedSubTab)}`
+                                : getLandingScreenLabel(selectedLanding)}
+                            </strong>
+                          </span>
+                          {(selectedLanding !== "auto" || selectedSubTab !== "auto") && (
+                            <button
+                              type="button"
+                              onClick={() =>
+                                updateLandingPrefsLive({
+                                  defaultLandingTab: "auto",
+                                  defaultAgentSubTab: "auto"
+                                })
+                              }
+                              className="text-[10px] font-bold text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 underline cursor-pointer"
+                            >
+                              Varsayılana Sıfırla
+                            </button>
+                          )}
+                        </div>
+                      </>
+                    );
+                  })()}
+                </div>
+
                 {/* Ringtone Selection */}
                 <div className={`space-y-2 ${activeModalTab === "hardware" ? "block" : "hidden"}`}>
                   <label className="text-[9px] font-extrabold text-slate-500 dark:text-slate-400 uppercase tracking-widest block">Çağrı Zil Sesi</label>
@@ -7283,12 +7559,14 @@ export default function Home() {
           />
         )}
         {/* Global License Verification & Renewal Modal */}
-        <LicenseModal
-          isOpen={isLicenseModalOpen}
-          onClose={() => setIsLicenseModalOpen(false)}
-          backendHost={backendHost}
-          onLicenseUpdated={() => fetchGlobalLicenseStatus()}
-        />
+        {isLicenseModalOpen && (
+          <LicenseModal
+            isOpen={isLicenseModalOpen}
+            onClose={() => setIsLicenseModalOpen(false)}
+            backendHost={backendHost}
+            onLicenseUpdated={() => fetchGlobalLicenseStatus()}
+          />
+        )}
       </main>
     </div>
   );

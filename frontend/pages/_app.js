@@ -36,31 +36,50 @@ function MyApp({ Component, pageProps }) {
     };
     refreshPublicIp();
 
-    // Global fetch interceptor to append X-User-ID, X-Tenant-ID, and X-Client-IP without wiping Headers instances
+    // Single unified global fetch interceptor: appends X-User-ID, X-Tenant-ID, and X-Client-IP
+    // to backend API calls and notifies settings mutation listeners without stacked wrappers
     window.fetch = async (...args) => {
       let [resource, config] = args;
-      if (typeof resource === 'string' && (resource.startsWith('http://') || resource.startsWith('https://') || resource.startsWith('/'))) {
-        const isExternalIpService = resource.includes('ipify.org');
-        if (!isExternalIpService) {
-          config = config || {};
-          const userId = sessionStorage.getItem('current_user_id') || localStorage.getItem('current_user_id') || 'System';
-          const activeTenantId = localStorage.getItem('active_tenant_id') || 'tenant-default';
-          const clientIp = cachedClientIp || localStorage.getItem('client_public_ip') || '';
-          const headers = new Headers(config.headers || {});
-          if (!headers.has('X-User-ID') || headers.get('X-User-ID') === 'System') {
-            headers.set('X-User-ID', userId);
-          }
-          if (!headers.has('X-Tenant-ID')) {
-            headers.set('X-Tenant-ID', activeTenantId);
-          }
-          if (clientIp && !headers.has('X-Client-IP')) {
-            headers.set('X-Client-IP', clientIp);
-          }
-          config.headers = headers;
-          args = [resource, config];
+      const urlStr = typeof resource === 'string' ? resource : (resource?.url || '');
+      const isApiCall =
+        Boolean(urlStr) &&
+        !urlStr.includes('ipify.org') &&
+        (urlStr.includes('/api/') || urlStr.includes('/settings/'));
+
+      if (isApiCall) {
+        config = config ? { ...config } : {};
+        const userId = sessionStorage.getItem('current_user_id') || localStorage.getItem('current_user_id') || 'System';
+        const activeTenantId = localStorage.getItem('active_tenant_id') || 'tenant-default';
+        const clientIp = cachedClientIp || localStorage.getItem('client_public_ip') || '';
+        const headers = new Headers(config.headers || {});
+        if (!headers.has('X-User-ID') || headers.get('X-User-ID') === 'System') {
+          headers.set('X-User-ID', String(userId));
+        }
+        if (!headers.has('X-Tenant-ID')) {
+          headers.set('X-Tenant-ID', activeTenantId);
+        }
+        if (clientIp && !headers.has('X-Client-IP')) {
+          headers.set('X-Client-IP', clientIp);
+        }
+        config.headers = headers;
+        args = [resource, config];
+      }
+
+      const response = await originalFetch(...args);
+
+      if (
+        isApiCall &&
+        response.ok &&
+        urlStr.includes('/api/settings/') &&
+        !urlStr.includes('/api/settings/apply')
+      ) {
+        const method = String(config?.method || (typeof resource === 'object' && resource?.method) || 'GET').toUpperCase();
+        if (method === 'POST' || method === 'PUT' || method === 'DELETE') {
+          window.dispatchEvent(new CustomEvent('AIDA_SETTINGS_MUTATED'));
         }
       }
-      return originalFetch(...args);
+
+      return response;
     };
 
     return () => {

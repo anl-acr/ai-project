@@ -9,6 +9,19 @@ import SearchableSelect from "../ui/SearchableSelect";
 import { getApiBaseUrl, tenantFetch } from "../../utils/apiHost";
 import useClickOutside from "../../utils/useClickOutside";
 import { PRESET_AVATARS, AVATAR_CATEGORIES, ALL_AVATAR_ITEMS } from "../../utils/avatarPresets";
+import {
+  DEFAULT_USER_PROFILES,
+  RING_DEVICES_METADATA,
+  normalizeUserProfiles
+} from "../../utils/userProfileDefaults";
+import {
+  classifyRoleScope,
+  getAllowedLandingScreensForRole,
+  getAllowedAgentSubTabsForRole,
+  isLandingTabAllowedForRole
+} from "../../utils/landingPagePrefs";
+
+export { DEFAULT_USER_PROFILES, RING_DEVICES_METADATA, normalizeUserProfiles };
 
 const DEFAULT_TENANT_LIST = [
   { id: "tenant-default", name: "Ana Müşteri (Varsayılan)" },
@@ -20,48 +33,6 @@ const ANNOUNCEMENTS = [
   "Varsayılan Anons",
   "Kişisel Anons 1",
   "Mesai Dışı Anonsu"
-];
-
-export const DEFAULT_USER_PROFILES = [
-  {
-    id: "available",
-    name: "Müsait",
-    devices: ["desk_phone", "mobile_app", "web_phone", "pc_app"],
-    timeout: 30,
-    timeout_action: "voicemail",
-    timeout_target: ""
-  },
-  {
-    id: "away",
-    name: "Dışarıda",
-    devices: ["mobile_app"],
-    timeout: 25,
-    timeout_action: "external",
-    timeout_target: ""
-  },
-  {
-    id: "meeting",
-    name: "Toplantı",
-    devices: [],
-    timeout: 15,
-    timeout_action: "voicemail",
-    timeout_target: ""
-  },
-  {
-    id: "other",
-    name: "Diğer",
-    devices: ["web_phone"],
-    timeout: 30,
-    timeout_action: "none",
-    timeout_target: ""
-  }
-];
-
-export const RING_DEVICES_METADATA = [
-  { id: "desk_phone", label: "Masa Telefonu", desc: "IP / SIP masa telefonu cihazı" },
-  { id: "mobile_app", label: "Mobil Uygulama", desc: "iOS / Android mobil softphone" },
-  { id: "web_phone", label: "Web Telefon", desc: "Tarayıcı içi WebRTC telefon" },
-  { id: "pc_app", label: "PC Uygulaması", desc: "Masaüstü softphone uygulaması" }
 ];
 
 const SIP_VENDOR_OUI_MAP = {
@@ -133,36 +104,6 @@ const detectBrandByMac = (macStr) => {
     if (SIP_VENDOR_OUI_MAP[prefix]) return SIP_VENDOR_OUI_MAP[prefix];
   }
   return null;
-};
-
-export const normalizeUserProfiles = (rawProfiles) => {
-  let parsed = rawProfiles;
-  if (typeof parsed === "string") {
-    try {
-      parsed = JSON.parse(parsed);
-    } catch (e) {
-      parsed = null;
-    }
-  }
-  if (!Array.isArray(parsed) || parsed.length === 0) {
-    return DEFAULT_USER_PROFILES.map(p => ({ ...p, devices: [...p.devices] }));
-  }
-  const byId = {};
-  parsed.forEach(p => {
-    if (p && p.id) byId[p.id] = p;
-  });
-  return DEFAULT_USER_PROFILES.map(def => {
-    const ex = byId[def.id];
-    if (!ex) return { ...def, devices: [...def.devices] };
-    return {
-      id: def.id,
-      name: ex.name || def.name,
-      devices: Array.isArray(ex.devices) ? [...ex.devices] : [...def.devices],
-      timeout: ex.timeout !== undefined && ex.timeout !== null ? Number(ex.timeout) : def.timeout,
-      timeout_action: ex.timeout_action || def.timeout_action,
-      timeout_target: ex.timeout_target || ""
-    };
-  });
 };
 
 export default function UserSettings({ backendHost = "localhost:8000", currentUser }) {
@@ -339,6 +280,8 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
   const [activeProfile, setActiveProfile] = useState("available");
   const [userProfiles, setUserProfiles] = useState(() => normalizeUserProfiles(null));
   const [selectedProfileTab, setSelectedProfileTab] = useState("available");
+  const [defaultLandingTab, setDefaultLandingTab] = useState("auto");
+  const [defaultAgentSubTab, setDefaultAgentSubTab] = useState("auto");
   const [queuesList, setQueuesList] = useState([]);
   const [aiAgentsList, setAiAgentsList] = useState([]);
 
@@ -1315,6 +1258,8 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
     setExtension("");
     setAvatar(PRESET_AVATARS[0]);
     setRole(systemRoles.length > 0 ? systemRoles[0].role_code : "agent");
+    setDefaultLandingTab("auto");
+    setDefaultAgentSubTab("auto");
     setIsActive(true);
     setPassword("");
     setSipUsername("");
@@ -1449,6 +1394,8 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
     setExtension(u.extension || "");
     setAvatar(u.avatar || PRESET_AVATARS[0]);
     setRole(u.role || "agent");
+    setDefaultLandingTab(u?.call_panel_prefs?.defaultLandingTab || "auto");
+    setDefaultAgentSubTab(u?.call_panel_prefs?.defaultAgentSubTab || "auto");
     setIsActive(checkIsUserActive(u));
     setPassword(u.password || "");
     
@@ -1617,6 +1564,20 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
     const cleanFmMobile = (followMeMobileNumber || "").trim();
 
     const primarySipDev = sipDevices[0] || null;
+    const prevCallPanelPrefs =
+      editingUser?.call_panel_prefs && typeof editingUser.call_panel_prefs === "object"
+        ? editingUser.call_panel_prefs
+        : {};
+    const matchedSaveRole = systemRoles.find(
+      (r) => String(r.role_code || "").toLowerCase() === String(role || "").toLowerCase()
+    );
+    const sanitizedLandingTab =
+      defaultLandingTab === "auto" ||
+      defaultLandingTab === "last_visited" ||
+      isLandingTabAllowedForRole(defaultLandingTab, role, matchedSaveRole?.permissions)
+        ? defaultLandingTab
+        : "auto";
+
     const userData = {
       full_name: fullName.trim(),
       email: email.trim(),
@@ -1658,6 +1619,11 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
       department_id: selectedDepartment || null,
       active_profile: activeProfile || "available",
       profiles: userProfiles,
+      call_panel_prefs: {
+        ...prevCallPanelPrefs,
+        defaultLandingTab: sanitizedLandingTab || "auto",
+        defaultAgentSubTab: defaultAgentSubTab || "auto"
+      },
       managed_users: managedUsers,
       managed_queues: managedQueues,
       cti_config: ctiConfig
@@ -2555,6 +2521,120 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
                                         </select>
                                     </div>
                                 </div>
+
+                                {/* Admin-Assignable Startup / Landing Screen */}
+                                {(() => {
+                                    const selectedRoleObj = systemRoles.find(
+                                        (r) => String(r.role_code || "").toLowerCase() === String(role || "").toLowerCase()
+                                    );
+                                    const rolePerms = selectedRoleObj?.permissions || [];
+                                    const { isWallboardOnly, isAgentOnly } = classifyRoleScope(role, rolePerms);
+                                    const allowedScreens = getAllowedLandingScreensForRole(role, rolePerms);
+                                    const allowedSubTabs = getAllowedAgentSubTabsForRole(role, rolePerms);
+                                    const screenGroups = Array.from(new Set(allowedScreens.map((s) => s.group)));
+                                    const effectiveLandingVal =
+                                        defaultLandingTab === "auto" ||
+                                        defaultLandingTab === "last_visited" ||
+                                        allowedScreens.some((s) => s.id === defaultLandingTab)
+                                            ? defaultLandingTab
+                                            : "auto";
+                                    const showAgentSubSelect =
+                                        !isWallboardOnly && (isAgentOnly || effectiveLandingVal === "call-center");
+
+                                    return (
+                                        <div className="p-3.5 rounded-2xl border border-slate-200/80 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-950/40 space-y-2.5">
+                                            <div className="flex items-center justify-between gap-2">
+                                                <div>
+                                                    <span className="text-[10px] font-extrabold text-slate-700 dark:text-slate-200 uppercase tracking-wider block">
+                                                        Girişte Açılacak Başlangıç Ekranı
+                                                    </span>
+                                                    <span id="admin-user-landing-help" className="text-[10px] text-slate-400 dark:text-slate-500 block">
+                                                        Kullanıcı oturum açtığında ilk gelecek ekran (kullanıcı dilerse kendi Profil Ayarları&apos;ndan değiştirebilir).
+                                                    </span>
+                                                </div>
+                                            </div>
+
+                                            {isWallboardOnly ? (
+                                                <div className="text-xs font-semibold text-slate-500 dark:text-slate-400">
+                                                    Seçilen rol yalnızca Canlı İzleme Paneli (Wallboard) yetkisine sahip olduğu için otomatik olarak Wallboard ile açılır.
+                                                </div>
+                                            ) : (
+                                                <div className={`grid grid-cols-1 ${showAgentSubSelect && !isAgentOnly ? "sm:grid-cols-2" : ""} gap-3`}>
+                                                    {!isAgentOnly && (
+                                                        <div>
+                                                            <label
+                                                                htmlFor="admin-user-default-landing"
+                                                                className="block text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1"
+                                                            >
+                                                                Başlangıç Modülü
+                                                            </label>
+                                                            <select
+                                                                id="admin-user-default-landing"
+                                                                name="default_landing_tab"
+                                                                aria-describedby="admin-user-landing-help"
+                                                                value={effectiveLandingVal}
+                                                                onChange={(e) => {
+                                                                    const nextVal = e.target.value;
+                                                                    setDefaultLandingTab(nextVal);
+                                                                    if (nextVal !== "call-center") {
+                                                                        setDefaultAgentSubTab("auto");
+                                                                    }
+                                                                }}
+                                                                className="w-full text-xs px-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 text-slate-800 dark:text-slate-100 focus:outline-none"
+                                                            >
+                                                                <optgroup label="Akıllı Başlangıç Modları">
+                                                                    <option value="auto">Varsayılan (Role Göre Otomatik)</option>
+                                                                    <option value="last_visited">Son Kaldığı Ekrandan Devam Etsin</option>
+                                                                </optgroup>
+                                                                {screenGroups.map((grp) => (
+                                                                    <optgroup key={grp} label={grp}>
+                                                                        {allowedScreens
+                                                                            .filter((item) => item.group === grp)
+                                                                            .map((item) => (
+                                                                                <option key={item.id} value={item.id}>
+                                                                                    {item.label}
+                                                                                </option>
+                                                                            ))}
+                                                                    </optgroup>
+                                                                ))}
+                                                            </select>
+                                                        </div>
+                                                    )}
+
+                                                    {showAgentSubSelect && (
+                                                        <div>
+                                                            <label
+                                                                htmlFor="admin-user-default-agent-subtab"
+                                                                className="block text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1"
+                                                            >
+                                                                Çağrı Paneli Açılış Sekmesi
+                                                            </label>
+                                                            <select
+                                                                id="admin-user-default-agent-subtab"
+                                                                name="default_agent_subtab"
+                                                                aria-describedby="admin-user-landing-help"
+                                                                value={defaultAgentSubTab}
+                                                                onChange={(e) => {
+                                                                    if (isAgentOnly) setDefaultLandingTab("call-center");
+                                                                    setDefaultAgentSubTab(e.target.value);
+                                                                }}
+                                                                className="w-full text-xs px-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 text-slate-800 dark:text-slate-100 focus:outline-none"
+                                                            >
+                                                                <option value="auto">Sıralamadaki İlk Sekme (Varsayılan)</option>
+                                                                <option value="last_visited">Son Kaldığı Alt Sekmeden Devam Etsin</option>
+                                                                {allowedSubTabs.map((st) => (
+                                                                    <option key={st.id} value={st.id}>
+                                                                        {st.label}
+                                                                    </option>
+                                                                ))}
+                                                            </select>
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            )}
+                                        </div>
+                                    );
+                                })()}
                             </div>
                         )}
 

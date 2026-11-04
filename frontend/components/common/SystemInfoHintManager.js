@@ -34,6 +34,9 @@ const EXCLUDED_ANCESTOR_SELECTOR = [
   ".text-center"
 ].join(",");
 
+const HELPER_CANDIDATE_SELECTOR =
+  'p[class*="text-slate-4"], p[class*="text-slate-5"], div[class*="text-slate-4"], div[class*="text-slate-5"]';
+
 const EMPTY_OR_SYSTEM_HEADING_RE =
   /^(henüz\b|kayıtlı .* bulun|yetkisiz|işlemi onayla|bu ekran geliştirme|anlamsal arama simülatörü|arama kriterine|sonuç bulun)/i;
 
@@ -46,6 +49,13 @@ const ALERT_COLOR_RE =
   /\b(?:bg|text|border)-(?:rose|red|amber|emerald|yellow)-(?:50|100|200|300|400|500|600|700|800|900|950)/;
 
 let autoTipCounter = 0;
+
+function yieldToMainThread() {
+  if (typeof window !== "undefined" && "scheduler" in window && typeof window.scheduler?.yield === "function") {
+    return window.scheduler.yield();
+  }
+  return new Promise((resolve) => setTimeout(resolve, 0));
+}
 
 function hasMutedHelperClasses(el) {
   const cls = typeof el.className === "string" ? el.className : "";
@@ -203,7 +213,7 @@ function findMergeableHelpBanner(titleEl, descEl) {
     if (banner.querySelector("button, input, select, textarea, a[href]")) continue;
     const bannerCls = typeof banner.className === "string" ? banner.className : "";
     if (ALERT_COLOR_RE.test(bannerCls)) continue;
-    const text = (banner.innerText || banner.textContent || "").trim();
+    const text = (banner.textContent || "").replace(/\s+/g, " ").trim();
     if (text.length >= 25 && text.length <= 900) {
       return banner;
     }
@@ -219,99 +229,130 @@ function formatBannerDetails(bannerEl) {
   if (items.length > 0) {
     return `Nasıl Çalışır?\n${items.join("\n")}`;
   }
-  return (bannerEl.innerText || bannerEl.textContent || "")
+  return (bannerEl.textContent || "")
+    .replace(/[ \t]+/g, " ")
     .replace(/\n{3,}/g, "\n\n")
     .trim();
 }
 
-function scanAndEnhanceHints() {
+function enhanceCandidateElement(descEl) {
+  if (!descEl || descEl.nodeType !== 1) return;
+  if (descEl.getAttribute("data-aida-hint-collapsed") === "true") return;
+  if (descEl.getAttribute("data-aida-hint-checked") === "true") return;
+  descEl.setAttribute("data-aida-hint-checked", "true");
+
+  if (!isExplanatoryNoteEl(descEl)) return;
+
+  const titleEl = resolveTitleForDesc(descEl);
+  if (!titleEl) return;
+
+  const cleanTitle = extractCleanTitleText(titleEl);
+  if (cleanTitle.length < 2 || cleanTitle.length > 130) return;
+  if (EMPTY_OR_SYSTEM_HEADING_RE.test(cleanTitle)) return;
+
+  const mountTarget = resolveMountTarget(titleEl);
+  if (!mountTarget || mountTarget.closest("button, a")) return;
+
+  // Check if an explicit InfoTooltip already exists on this title; if so, just collapse the duplicate note
+  const existingExplicit =
+    mountTarget.querySelector("[data-aida-explicit-info='true']") ||
+    titleEl.parentElement?.querySelector(":scope > [data-aida-explicit-info='true']");
+  if (existingExplicit) {
+    descEl.setAttribute("data-aida-hint-collapsed", "true");
+    return;
+  }
+
+  // Optional: check for a non-interactive HelpCircle / "Nasıl Çalışır?" box in the same setting card
+  const helpBannerEl = findMergeableHelpBanner(titleEl, descEl);
+
+  // Reuse existing auto button on mountTarget if already attached
+  let btn = mountTarget.querySelector(":scope > button[data-aida-auto-info='true']");
+  if (!btn) {
+    const tipId = `aida-auto-tip-${++autoTipCounter}`;
+    btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "aida-info-btn";
+    btn.setAttribute("data-aida-auto-info", "true");
+    btn.setAttribute("aria-label", `${cleanTitle} hakkında bilgi`);
+
+    const glyph = document.createElement("span");
+    glyph.className = "aida-info-glyph";
+    glyph.setAttribute("aria-hidden", "true");
+    glyph.textContent = "i";
+    btn.appendChild(glyph);
+
+    const getPayload = () => {
+      const currentTitle = extractCleanTitleText(titleEl) || cleanTitle;
+      const currentText = (btn.__aidaDescEl?.textContent || "").replace(/\s+/g, " ").trim();
+      const currentDetails = btn.__aidaBannerEl ? formatBannerDetails(btn.__aidaBannerEl) : "";
+      return {
+        anchorEl: btn,
+        title: currentTitle,
+        text: currentText,
+        details: currentDetails,
+        id: tipId
+      };
+    };
+
+    btn.addEventListener("mouseenter", () => {
+      openInfoTooltip(getPayload());
+    });
+    btn.addEventListener("mouseleave", () => {
+      scheduleCloseInfoTooltip(130);
+    });
+    btn.addEventListener("focus", () => {
+      openInfoTooltip(getPayload());
+    });
+    btn.addEventListener("blur", () => {
+      scheduleCloseInfoTooltip(80);
+    });
+    btn.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      toggleInfoTooltip(getPayload());
+    });
+
+    mountTarget.appendChild(btn);
+  }
+
+  btn.__aidaDescEl = descEl;
+  if (helpBannerEl) {
+    btn.__aidaBannerEl = helpBannerEl;
+    helpBannerEl.setAttribute("data-aida-hint-collapsed", "true");
+  }
+  descEl.setAttribute("data-aida-hint-collapsed", "true");
+}
+
+async function scanRootsForHints(roots, isCancelled) {
   if (typeof window === "undefined" || typeof document === "undefined") return;
   if (window.location.pathname === "/login") return;
 
-  const candidates = document.body.querySelectorAll("p, div");
-  for (let i = 0; i < candidates.length; i++) {
-    const descEl = candidates[i];
-    if (descEl.getAttribute("data-aida-hint-collapsed") === "true") continue;
-    if (!isExplanatoryNoteEl(descEl)) continue;
-
-    const titleEl = resolveTitleForDesc(descEl);
-    if (!titleEl) continue;
-
-    const cleanTitle = extractCleanTitleText(titleEl);
-    if (cleanTitle.length < 2 || cleanTitle.length > 130) continue;
-    if (EMPTY_OR_SYSTEM_HEADING_RE.test(cleanTitle)) continue;
-
-    const mountTarget = resolveMountTarget(titleEl);
-    if (!mountTarget || mountTarget.closest("button, a")) continue;
-
-    // Check if an explicit InfoTooltip already exists on this title; if so, just collapse the duplicate note
-    const existingExplicit =
-      mountTarget.querySelector("[data-aida-explicit-info='true']") ||
-      titleEl.parentElement?.querySelector(":scope > [data-aida-explicit-info='true']");
-    if (existingExplicit) {
-      descEl.setAttribute("data-aida-hint-collapsed", "true");
-      continue;
+  const uniqueCandidates = new Set();
+  for (const root of roots) {
+    if (!root || root.nodeType !== 1 || !root.isConnected) continue;
+    if (root.matches?.(HELPER_CANDIDATE_SELECTOR)) {
+      uniqueCandidates.add(root);
     }
-
-    // Optional: check for a non-interactive HelpCircle / "Nasıl Çalışır?" box in the same setting card
-    const helpBannerEl = findMergeableHelpBanner(titleEl, descEl);
-
-    // Reuse existing auto button on mountTarget if already attached
-    let btn = mountTarget.querySelector(":scope > button[data-aida-auto-info='true']");
-    if (!btn) {
-      const tipId = `aida-auto-tip-${++autoTipCounter}`;
-      btn = document.createElement("button");
-      btn.type = "button";
-      btn.className = "aida-info-btn";
-      btn.setAttribute("data-aida-auto-info", "true");
-      btn.setAttribute("aria-label", `${cleanTitle} hakkında bilgi`);
-
-      const glyph = document.createElement("span");
-      glyph.className = "aida-info-glyph";
-      glyph.setAttribute("aria-hidden", "true");
-      glyph.textContent = "i";
-      btn.appendChild(glyph);
-
-      const getPayload = () => {
-        const currentTitle = extractCleanTitleText(titleEl) || cleanTitle;
-        const currentText = (btn.__aidaDescEl?.textContent || "").replace(/\s+/g, " ").trim();
-        const currentDetails = btn.__aidaBannerEl ? formatBannerDetails(btn.__aidaBannerEl) : "";
-        return {
-          anchorEl: btn,
-          title: currentTitle,
-          text: currentText,
-          details: currentDetails,
-          id: tipId
-        };
-      };
-
-      btn.addEventListener("mouseenter", () => {
-        openInfoTooltip(getPayload());
-      });
-      btn.addEventListener("mouseleave", () => {
-        scheduleCloseInfoTooltip(130);
-      });
-      btn.addEventListener("focus", () => {
-        openInfoTooltip(getPayload());
-      });
-      btn.addEventListener("blur", () => {
-        scheduleCloseInfoTooltip(80);
-      });
-      btn.addEventListener("click", (e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        toggleInfoTooltip(getPayload());
-      });
-
-      mountTarget.appendChild(btn);
+    const found = root.querySelectorAll(HELPER_CANDIDATE_SELECTOR);
+    for (let i = 0; i < found.length; i++) {
+      const el = found[i];
+      if (
+        el.getAttribute("data-aida-hint-checked") !== "true" &&
+        el.getAttribute("data-aida-hint-collapsed") !== "true"
+      ) {
+        uniqueCandidates.add(el);
+      }
     }
+  }
 
-    btn.__aidaDescEl = descEl;
-    if (helpBannerEl) {
-      btn.__aidaBannerEl = helpBannerEl;
-      helpBannerEl.setAttribute("data-aida-hint-collapsed", "true");
+  let processed = 0;
+  for (const descEl of uniqueCandidates) {
+    if (isCancelled()) return;
+    enhanceCandidateElement(descEl);
+    processed++;
+    if (processed % 40 === 0) {
+      await yieldToMainThread();
     }
-    descEl.setAttribute("data-aida-hint-collapsed", "true");
   }
 }
 
@@ -319,47 +360,68 @@ export default function SystemInfoHintManager() {
   useEffect(() => {
     if (typeof window === "undefined" || typeof document === "undefined") return;
 
-    let rafId = null;
-    const scheduleScan = () => {
-      if (rafId !== null) return;
-      rafId = window.requestAnimationFrame(() => {
-        rafId = null;
-        scanAndEnhanceHints();
-      });
+    let cancelled = false;
+    let idleHandle = null;
+    let timerHandle = null;
+    const pendingRoots = new Set();
+
+    const flushScan = () => {
+      idleHandle = null;
+      timerHandle = null;
+      if (cancelled || pendingRoots.size === 0) return;
+      const roots = pendingRoots.has(document.body) ? [document.body] : Array.from(pendingRoots);
+      pendingRoots.clear();
+      scanRootsForHints(roots, () => cancelled);
     };
 
-    // Initial scan right after hydration settles
-    const initTimer = window.setTimeout(scheduleScan, 40);
+    const scheduleScan = (rootEl) => {
+      if (rootEl && rootEl.nodeType === 1) {
+        pendingRoots.add(rootEl);
+      }
+      if (idleHandle !== null || timerHandle !== null) return;
+      // Defer off the interaction's critical Next Paint frame so clicks render immediately
+      timerHandle = window.setTimeout(() => {
+        timerHandle = null;
+        if (typeof window.requestIdleCallback === "function") {
+          idleHandle = window.requestIdleCallback(flushScan, { timeout: 250 });
+        } else {
+          flushScan();
+        }
+      }, 60);
+    };
+
+    // Initial scan after hydration settles
+    scheduleScan(document.body);
 
     const observer = new MutationObserver((mutations) => {
-      let hasRelevantChange = false;
       for (let i = 0; i < mutations.length; i++) {
         const m = mutations[i];
-        if (m.type === "attributes") {
-          if (m.attributeName === "data-aida-hint-collapsed") continue;
-        }
+        if (m.type !== "childList" || !m.addedNodes || m.addedNodes.length === 0) continue;
+
         const targetEl = m.target && m.target.nodeType === 1 ? m.target : null;
         if (
           targetEl &&
           (targetEl.classList?.contains("aida-info-btn") ||
             targetEl.classList?.contains("aida-info-popover") ||
-            targetEl.closest?.(".aida-info-popover"))
+            targetEl.closest?.(".aida-info-popover, table, svg"))
         ) {
           continue;
         }
-        if (m.addedNodes && m.addedNodes.length > 0) {
-          const allInternal = Array.from(m.addedNodes).every(
-            (n) =>
-              n.nodeType === 1 &&
-              (n.classList?.contains("aida-info-btn") || n.classList?.contains("aida-info-popover"))
-          );
-          if (allInternal) continue;
+
+        for (let j = 0; j < m.addedNodes.length; j++) {
+          const node = m.addedNodes[j];
+          // Ignore pure text node updates (e.g. 1s call/break timers, counters)
+          if (node.nodeType !== 1) continue;
+          if (
+            node.classList?.contains("aida-info-btn") ||
+            node.classList?.contains("aida-info-popover") ||
+            node.tagName === "SVG" ||
+            node.tagName === "PATH"
+          ) {
+            continue;
+          }
+          scheduleScan(node);
         }
-        hasRelevantChange = true;
-        break;
-      }
-      if (hasRelevantChange) {
-        scheduleScan();
       }
     });
 
@@ -369,8 +431,11 @@ export default function SystemInfoHintManager() {
     });
 
     return () => {
-      window.clearTimeout(initTimer);
-      if (rafId !== null) window.cancelAnimationFrame(rafId);
+      cancelled = true;
+      if (timerHandle !== null) window.clearTimeout(timerHandle);
+      if (idleHandle !== null && typeof window.cancelIdleCallback === "function") {
+        window.cancelIdleCallback(idleHandle);
+      }
       observer.disconnect();
       closeInfoTooltipImmediate();
     };

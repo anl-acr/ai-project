@@ -18,6 +18,11 @@ export default function LoginPage() {
   }, [router]);
 
   const handleLoginSuccess = () => {
+    try {
+      if (typeof window !== "undefined") {
+        sessionStorage.setItem("aida_just_logged_in", "1");
+      }
+    } catch (e) {}
     router.replace("/");
   };
 

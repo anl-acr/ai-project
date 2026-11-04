@@ -1,20 +1,24 @@
 import React, { useState, useEffect, useMemo } from "react";
 import { createPortal } from "react-dom";
 import { LayoutDashboard, PhoneCall, List, PhoneMissed, Users, History, Voicemail, MessageSquare, Headphones, Smartphone } from "lucide-react";
-import AgentDashboardTab from "./tabs/AgentDashboardTab";
 import dynamic from "next/dynamic";
+const AgentDashboardTab = dynamic(() => import("./tabs/AgentDashboardTab"), { ssr: false });
 const AgentWebphoneTab = dynamic(() => import("./tabs/AgentWebphoneTab"), { ssr: false });
-import AgentSpeedDialTab from "./tabs/AgentSpeedDialTab";
-import AgentMissedCallsTab from "./tabs/AgentMissedCallsTab";
-import AgentDirectoryTab from "./tabs/AgentDirectoryTab";
-import AgentHistoryTab from "./tabs/AgentHistoryTab";
-import AgentVoicemailTab from "./tabs/AgentVoicemailTab";
-import AgentChatTab from "./tabs/AgentChatTab";
-import AgentQueuePeersTab from "./tabs/AgentQueuePeersTab";
-import AgentDeskphoneTab from "./tabs/AgentDeskphoneTab";
+const AgentSpeedDialTab = dynamic(() => import("./tabs/AgentSpeedDialTab"), { ssr: false });
+const AgentMissedCallsTab = dynamic(() => import("./tabs/AgentMissedCallsTab"), { ssr: false });
+const AgentDirectoryTab = dynamic(() => import("./tabs/AgentDirectoryTab"), { ssr: false });
+const AgentHistoryTab = dynamic(() => import("./tabs/AgentHistoryTab"), { ssr: false });
+const AgentVoicemailTab = dynamic(() => import("./tabs/AgentVoicemailTab"), { ssr: false });
+const AgentChatTab = dynamic(() => import("./tabs/AgentChatTab"), { ssr: false });
+const AgentQueuePeersTab = dynamic(() => import("./tabs/AgentQueuePeersTab"), { ssr: false });
+const AgentDeskphoneTab = dynamic(() => import("./tabs/AgentDeskphoneTab"), { ssr: false });
 import AgentSessionCard from "../phone/AgentSessionCard";
 import { useTheme } from "../../utils/theme";
 import { webphoneManager } from "../../utils/webphoneManager";
+import {
+  getLastVisitedAgentSubTab,
+  saveLastVisitedAgentSubTab
+} from "../../utils/landingPagePrefs";
 
 export const ALL_TABS = [
   { id: "dashboard", perm: "call_panel:tab_dashboard", name: "Pano", desc: "Günlük çağrı ve mola özet panosu", icon: LayoutDashboard },
@@ -78,6 +82,10 @@ export const DEFAULT_CALL_PANEL_PREFS = {
   navPosition: "left", // "left" | "top"
   tabOrder: ALL_TABS.map((t) => t.id),
   topbar: { ...DEFAULT_TOPBAR_PREFS },
+  defaultLandingTab: "auto", // "auto" | "last_visited" | <screenId>
+  defaultAgentSubTab: "auto", // "auto" | "last_visited" | <subTabId>
+  lastVisitedTab: "",
+  lastVisitedAgentSubTab: "",
 };
 
 export function normalizeCallPanelPrefs(raw) {
@@ -99,7 +107,30 @@ export function normalizeCallPanelPrefs(raw) {
     }
   }
   const topbar = normalizeTopbarPrefs(raw.topbar);
-  return { viewMode, boxSize, navPosition, tabOrder, topbar };
+  const defaultLandingTab =
+    typeof raw.defaultLandingTab === "string" && raw.defaultLandingTab.trim()
+      ? raw.defaultLandingTab.trim()
+      : "auto";
+  const defaultAgentSubTab =
+    typeof raw.defaultAgentSubTab === "string" && raw.defaultAgentSubTab.trim()
+      ? raw.defaultAgentSubTab.trim()
+      : "auto";
+  const lastVisitedTab =
+    typeof raw.lastVisitedTab === "string" ? raw.lastVisitedTab.trim() : "";
+  const lastVisitedAgentSubTab =
+    typeof raw.lastVisitedAgentSubTab === "string" ? raw.lastVisitedAgentSubTab.trim() : "";
+
+  return {
+    viewMode,
+    boxSize,
+    navPosition,
+    tabOrder,
+    topbar,
+    defaultLandingTab,
+    defaultAgentSubTab,
+    lastVisitedTab,
+    lastVisitedAgentSubTab,
+  };
 }
 
 function hasSavedCallPanelPrefs(obj) {
@@ -109,6 +140,10 @@ function hasSavedCallPanelPrefs(obj) {
       (obj.viewMode ||
         obj.boxSize ||
         obj.navPosition ||
+        obj.defaultLandingTab ||
+        obj.defaultAgentSubTab ||
+        obj.lastVisitedTab ||
+        obj.lastVisitedAgentSubTab ||
         (Array.isArray(obj.tabOrder) && obj.tabOrder.length > 0) ||
         (obj.topbar && typeof obj.topbar === "object"))
   );
@@ -179,7 +214,7 @@ export function saveCallPanelPrefs(currentUser, nextPrefs) {
   return normalized;
 }
 
-function resolveInitialAgentTab(prefs, perms) {
+function resolveInitialAgentTab(prefs, perms, currentUser = null) {
   const orderMap = new Map();
   (prefs?.tabOrder || []).forEach((id, idx) => orderMap.set(id, idx));
   const orderedAll = [...ALL_TABS].sort((a, b) => {
@@ -187,11 +222,22 @@ function resolveInitialAgentTab(prefs, perms) {
     const idxB = orderMap.has(b.id) ? orderMap.get(b.id) : 999;
     return idxA - idxB;
   });
-  if (Array.isArray(perms) && perms.some((p) => p.startsWith("call_panel:tab_"))) {
-    const allowed = orderedAll.filter((t) => perms.includes(t.perm));
-    if (allowed.length > 0) return allowed[0].id;
+  const hasConfiguredTabPerms = Array.isArray(perms) && perms.some((p) => p.startsWith("call_panel:tab_"));
+  const allowedList = hasConfiguredTabPerms
+    ? orderedAll.filter((t) => perms.includes(t.perm))
+    : orderedAll;
+  const safeAllowed = allowedList.length > 0 ? allowedList : [orderedAll[0] || ALL_TABS[0]];
+  const isAllowedId = (id) => safeAllowed.some((t) => t.id === id);
+
+  const subPref = String(prefs?.defaultAgentSubTab || "auto").trim();
+  if (subPref === "last_visited") {
+    const lastSub = getLastVisitedAgentSubTab(currentUser, prefs);
+    if (lastSub && isAllowedId(lastSub)) return lastSub;
+  } else if (subPref && subPref !== "auto" && isAllowedId(subPref)) {
+    return subPref;
   }
-  return (orderedAll[0] || ALL_TABS[0]).id;
+
+  return safeAllowed[0].id;
 }
 
 export default function AgentPanel({ backendHost, currentUser, activeCallId, isVisible = true, initialPermissions = null }) {
@@ -203,17 +249,40 @@ export default function AgentPanel({ backendHost, currentUser, activeCallId, isV
   const [activeTab, setActiveTab] = useState(() =>
     resolveInitialAgentTab(
       loadCallPanelPrefs(currentUser),
-      Array.isArray(initialPermissions) && initialPermissions.length > 0 ? initialPermissions : null
+      Array.isArray(initialPermissions) && initialPermissions.length > 0 ? initialPermissions : null,
+      currentUser
     )
   );
   const [pendingDial, setPendingDial] = useState(null);
   const [openInternalPeerReq, setOpenInternalPeerReq] = useState(null);
+  const appliedLoginSubTabUserRef = React.useRef(null);
 
   const host = backendHost || (typeof window !== "undefined" ? window.location.host : "localhost:8000");
 
   useEffect(() => {
-    setPanelPrefs(loadCallPanelPrefs(currentUser));
+    const loaded = loadCallPanelPrefs(currentUser);
+    setPanelPrefs(loaded);
+    const userKey = currentUser?.id || currentUser?.extension || currentUser?.username || null;
+    if (userKey && appliedLoginSubTabUserRef.current !== String(userKey)) {
+      appliedLoginSubTabUserRef.current = String(userKey);
+      const nextSub = resolveInitialAgentTab(
+        loaded,
+        Array.isArray(initialPermissions) && initialPermissions.length > 0 ? initialPermissions : rolePermissions,
+        currentUser
+      );
+      setActiveTab(nextSub);
+    }
   }, [currentUser?.id, currentUser?.extension, currentUser?.call_panel_prefs]);
+
+  useEffect(() => {
+    if (typeof window !== "undefined" && activeTab) {
+      window.__CURRENT_AGENT_SUBTAB__ = activeTab;
+      window.dispatchEvent(new CustomEvent("AGENT_SUBTAB_CHANGED", { detail: activeTab }));
+    }
+    if (isVisible && currentUser && activeTab) {
+      saveLastVisitedAgentSubTab(currentUser, activeTab);
+    }
+  }, [activeTab, isVisible, currentUser?.id, currentUser?.extension]);
 
   useEffect(() => {
     if (Array.isArray(initialPermissions) && initialPermissions.length > 0) {
@@ -463,13 +532,17 @@ export default function AgentPanel({ backendHost, currentUser, activeCallId, isV
   }, [activeTab, myExt, isVisible]);
 
   useEffect(() => {
+    if (!isVisible) return;
     let mounted = true;
     const pollBadges = async () => {
+      if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
       try {
         const protocol = typeof window !== "undefined" ? window.location.protocol : "http:";
+        const now = new Date();
+        const todayYmd = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
         const [mqRes, callsRes, intChatRes, omniChatRes] = await Promise.all([
           fetch(`${protocol}//${host}/api/agent/missed_queue_calls?extension=${encodeURIComponent(myExt)}&user_id=${encodeURIComponent(myUid)}&t=${Date.now()}`),
-          fetch(`${protocol}//${host}/api/calls?extension=${encodeURIComponent(myExt)}&t=${Date.now()}`),
+          fetch(`${protocol}//${host}/api/calls?extension=${encodeURIComponent(myExt)}&start_date=${todayYmd}&limit=100&t=${Date.now()}`),
           fetch(`${protocol}//${host}/api/agent/chat?extension=${encodeURIComponent(myExt)}&user_id=${encodeURIComponent(myUid)}&deliver=1&t=${Date.now()}`),
           fetch(`${protocol}//${host}/api/omnichannel/chats?t=${Date.now()}`)
         ]);
@@ -571,7 +644,7 @@ export default function AgentPanel({ backendHost, currentUser, activeCallId, isV
     window.addEventListener("MISSED_QUEUE_CALLS_UPDATED", handleMqUpdate);
     window.addEventListener("INTERNAL_CHAT_READ_SYNC", handleInternalReadSync);
     pollBadges();
-    const timer = setInterval(pollBadges, 5000);
+    const timer = setInterval(pollBadges, 8000);
     return () => {
       mounted = false;
       window.removeEventListener("MISSED_QUEUE_CALLS_UPDATED", handleMqUpdate);
@@ -699,6 +772,7 @@ export default function AgentPanel({ backendHost, currentUser, activeCallId, isV
           currentUser={currentUser}
           activeCallId={activeCallId}
           headerBar={true}
+          isVisible={isVisible}
         />
       </div>
     </div>
@@ -774,6 +848,7 @@ export default function AgentPanel({ backendHost, currentUser, activeCallId, isV
               currentUser={currentUser}
               activeCallId={activeCallId}
               compact={true}
+              isVisible={isVisible}
             />
           </div>
         </div>

@@ -29,35 +29,45 @@ import {
   ChevronRight,
   Clock
 } from "lucide-react";
-import PBXSettings from "./PBXSettings";
-import NATSettings from "./NATSettings";
-import NumberingPlanPanel from "./NumberingPlanPanel";
-import ChannelSettings from "./ChannelSettings";
-import BreakDefinitions from "./BreakDefinitions";
-import RoleSettings from "./RoleSettings";
-import LanguageDetectionSettings from "./LanguageDetectionSettings";
-import EmotionManagementSettings from "./EmotionManagementSettings";
-import WhisperSettings from "./WhisperSettings";
-import CannedResponsesSettings from "./CannedResponsesSettings";
-import QASettings from "./QASettings";
-import UniversalAPISettings from "./UniversalAPISettings";
-import VoiceBiometricsSettings from "./VoiceBiometricsSettings";
-import AutoprovisionTemplatesPanel from "./AutoprovisionTemplatesPanel";
-import LocationsDepartmentsPanel from "./LocationsDepartmentsPanel";
-import RoiSettings from "./RoiSettings";
-import SSLSettings from "./SSLSettings";
-import BackupRestorePanel from "./BackupRestorePanel";
-import RecordingRetentionSettings from "./RecordingRetentionSettings";
-import AIProvidersSettings from "./AIProvidersSettings";
-import AITaskRoutingSettings from "./AITaskRoutingSettings";
-import TenantManagementPanel from "./TenantManagementPanel";
-import LicenseSettingsPanel from "./LicenseSettingsPanel";
-import ChangelogPanel from "./ChangelogPanel";
-import EmailNotificationsPanel from "./EmailNotificationsPanel";
-import RestorePointsPanel from "./RestorePointsPanel";
-import WorkHoursSettingsPanel from "./WorkHoursSettingsPanel";
+import dynamic from "next/dynamic";
 import { getTurkishSlugForSubtab, getSubtabFromTurkishSlug } from "../../utils/slugHelper";
 import { useTheme } from "../../utils/theme";
+
+const SubPanelLoading = () => (
+  <div className="w-full py-12 flex items-center justify-center">
+    <div className="h-6 w-6 rounded-full border-2 border-slate-200 dark:border-slate-800 border-t-primary animate-spin" />
+  </div>
+);
+
+const lazySub = (loader) => dynamic(loader, { ssr: false, loading: SubPanelLoading });
+
+const PBXSettings = lazySub(() => import("./PBXSettings"));
+const NATSettings = lazySub(() => import("./NATSettings"));
+const NumberingPlanPanel = lazySub(() => import("./NumberingPlanPanel"));
+const ChannelSettings = lazySub(() => import("./ChannelSettings"));
+const BreakDefinitions = lazySub(() => import("./BreakDefinitions"));
+const RoleSettings = lazySub(() => import("./RoleSettings"));
+const LanguageDetectionSettings = lazySub(() => import("./LanguageDetectionSettings"));
+const EmotionManagementSettings = lazySub(() => import("./EmotionManagementSettings"));
+const WhisperSettings = lazySub(() => import("./WhisperSettings"));
+const CannedResponsesSettings = lazySub(() => import("./CannedResponsesSettings"));
+const QASettings = lazySub(() => import("./QASettings"));
+const UniversalAPISettings = lazySub(() => import("./UniversalAPISettings"));
+const VoiceBiometricsSettings = lazySub(() => import("./VoiceBiometricsSettings"));
+const AutoprovisionTemplatesPanel = lazySub(() => import("./AutoprovisionTemplatesPanel"));
+const LocationsDepartmentsPanel = lazySub(() => import("./LocationsDepartmentsPanel"));
+const RoiSettings = lazySub(() => import("./RoiSettings"));
+const SSLSettings = lazySub(() => import("./SSLSettings"));
+const BackupRestorePanel = lazySub(() => import("./BackupRestorePanel"));
+const RecordingRetentionSettings = lazySub(() => import("./RecordingRetentionSettings"));
+const AIProvidersSettings = lazySub(() => import("./AIProvidersSettings"));
+const AITaskRoutingSettings = lazySub(() => import("./AITaskRoutingSettings"));
+const TenantManagementPanel = lazySub(() => import("./TenantManagementPanel"));
+const LicenseSettingsPanel = lazySub(() => import("./LicenseSettingsPanel"));
+const ChangelogPanel = lazySub(() => import("./ChangelogPanel"));
+const EmailNotificationsPanel = lazySub(() => import("./EmailNotificationsPanel"));
+const RestorePointsPanel = lazySub(() => import("./RestorePointsPanel"));
+const WorkHoursSettingsPanel = lazySub(() => import("./WorkHoursSettingsPanel"));
 import InfoTooltip from "../common/InfoTooltip";
 
 const normalizeSubTab = (subTab) => {

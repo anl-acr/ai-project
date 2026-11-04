@@ -1674,7 +1674,28 @@ def _normalize_workflow_start_node(wf: dict) -> dict:
     return out_wf
 
 
-def load_settings():
+_settings_schema_migrated = False
+_settings_cache_mtime: float = -1.0
+
+
+def load_settings(force_reload: bool = False, persist: bool = False):
+    global _settings_schema_migrated, _settings_cache_mtime
+
+    try:
+        disk_mtime = os.path.getmtime(SETTINGS_FILE) if os.path.exists(SETTINGS_FILE) else -1.0
+    except Exception:
+        disk_mtime = -1.0
+
+    existing_mem = globals().get("settings_db")
+    if (
+        not force_reload
+        and not persist
+        and isinstance(existing_mem, dict)
+        and existing_mem
+        and disk_mtime == _settings_cache_mtime
+    ):
+        return existing_mem
+
     db = DEFAULT_SETTINGS.copy()
     
     # Load fallback settings from settings.json if present
@@ -1692,31 +1713,33 @@ def load_settings():
         
         session = SyncSessionLocal()
         try:
-            existing_cols = set()
-            try:
-                col_rows = session.execute(
-                    text("SELECT column_name FROM information_schema.columns WHERE table_name = 'system_users'")
-                ).fetchall()
-                existing_cols = {str(r[0]) for r in col_rows}
-            except Exception:
-                session.rollback()
-
-            for col_name, sync_ddl in (
-                ("theme_mode", "ALTER TABLE system_users ADD COLUMN IF NOT EXISTS theme_mode VARCHAR DEFAULT 'light';"),
-                ("call_panel_prefs", "ALTER TABLE system_users ADD COLUMN IF NOT EXISTS call_panel_prefs JSON DEFAULT '{}';"),
-                ("wallboard_layout", "ALTER TABLE system_users ADD COLUMN IF NOT EXISTS wallboard_layout JSON DEFAULT '{}';"),
-                ("max_concurrent_outbound", "ALTER TABLE system_users ADD COLUMN IF NOT EXISTS max_concurrent_outbound INTEGER DEFAULT 0;"),
-                ("outbound_quarantined", "ALTER TABLE system_users ADD COLUMN IF NOT EXISTS outbound_quarantined BOOLEAN DEFAULT FALSE;"),
-                ("sip_devices", "ALTER TABLE system_users ADD COLUMN IF NOT EXISTS sip_devices JSON DEFAULT '[]';"),
-            ):
-                if existing_cols and col_name in existing_cols:
-                    continue
+            if not _settings_schema_migrated:
+                existing_cols = set()
                 try:
-                    session.execute(text("SET LOCAL lock_timeout = '2s'"))
-                    session.execute(text(sync_ddl))
-                    session.commit()
+                    col_rows = session.execute(
+                        text("SELECT column_name FROM information_schema.columns WHERE table_name = 'system_users'")
+                    ).fetchall()
+                    existing_cols = {str(r[0]) for r in col_rows}
                 except Exception:
                     session.rollback()
+
+                for col_name, sync_ddl in (
+                    ("theme_mode", "ALTER TABLE system_users ADD COLUMN IF NOT EXISTS theme_mode VARCHAR DEFAULT 'light';"),
+                    ("call_panel_prefs", "ALTER TABLE system_users ADD COLUMN IF NOT EXISTS call_panel_prefs JSON DEFAULT '{}';"),
+                    ("wallboard_layout", "ALTER TABLE system_users ADD COLUMN IF NOT EXISTS wallboard_layout JSON DEFAULT '{}';"),
+                    ("max_concurrent_outbound", "ALTER TABLE system_users ADD COLUMN IF NOT EXISTS max_concurrent_outbound INTEGER DEFAULT 0;"),
+                    ("outbound_quarantined", "ALTER TABLE system_users ADD COLUMN IF NOT EXISTS outbound_quarantined BOOLEAN DEFAULT FALSE;"),
+                    ("sip_devices", "ALTER TABLE system_users ADD COLUMN IF NOT EXISTS sip_devices JSON DEFAULT '[]';"),
+                ):
+                    if existing_cols and col_name in existing_cols:
+                        continue
+                    try:
+                        session.execute(text("SET LOCAL lock_timeout = '2s'"))
+                        session.execute(text(sync_ddl))
+                        session.commit()
+                    except Exception:
+                        session.rollback()
+                _settings_schema_migrated = True
 
             settings = session.query(SystemSetting).all()
             for s in settings:
@@ -2253,11 +2276,23 @@ def load_settings():
     for u in db.get("users", []):
         ensure_user_profiles(u)
 
-    save_settings(db)
+    if persist:
+        save_settings(db)
+    else:
+        try:
+            _settings_cache_mtime = os.path.getmtime(SETTINGS_FILE) if os.path.exists(SETTINGS_FILE) else -1.0
+        except Exception:
+            _settings_cache_mtime = -1.0
+        existing_mem = globals().get("settings_db")
+        if isinstance(existing_mem, dict) and existing_mem is not db:
+            existing_mem.clear()
+            existing_mem.update(db)
+
     return db
 
 
 def save_settings(settings):
+    global _settings_cache_mtime
     try:
         from backend.database.config import SyncSessionLocal
         from backend.database.models import SystemSetting
@@ -2265,14 +2300,20 @@ def save_settings(settings):
         
         session = SyncSessionLocal()
         try:
+            existing_rows = {s.key: s for s in session.query(SystemSetting).all()}
+            dirty = False
             for key, val in settings.items():
-                setting = session.query(SystemSetting).filter_by(key=key).first()
-                if setting:
-                    setting.value = val
-                    flag_modified(setting, "value")
+                setting = existing_rows.get(key)
+                if setting is not None:
+                    if setting.value != val:
+                        setting.value = val
+                        flag_modified(setting, "value")
+                        dirty = True
                 else:
                     session.add(SystemSetting(key=key, value=val))
-            session.commit()
+                    dirty = True
+            if dirty:
+                session.commit()
         finally:
             session.close()
     except Exception as e:
@@ -2281,10 +2322,16 @@ def save_settings(settings):
     try:
         with open(SETTINGS_FILE, "w", encoding="utf-8") as f:
             json.dump(settings, f, ensure_ascii=False, indent=4)
+        _settings_cache_mtime = os.path.getmtime(SETTINGS_FILE)
     except Exception as fe:
         print(f"[Settings File Backup] Warning: Could not write settings.json: {fe}")
 
-settings_db = load_settings()
+    existing_mem = globals().get("settings_db")
+    if isinstance(existing_mem, dict) and existing_mem is not settings:
+        existing_mem.clear()
+        existing_mem.update(settings)
+
+settings_db = load_settings(force_reload=True, persist=True)
 
 # ----------------------------------------------------
 # API Routes: PBX & Channel Settings
@@ -16207,6 +16254,7 @@ async def list_calls(
     caller_number: str = None,
     call_id: str = None,
     extension: str = None,
+    limit: Optional[int] = None,
     user_info: dict = Depends(get_user_info),
     db: AsyncSession = Depends(get_db)
 ):
@@ -16269,6 +16317,8 @@ async def list_calls(
         stmt = stmt.where(Call.id.ilike(f"%{call_id}%"))
         
     stmt = stmt.order_by(Call.start_time.desc())
+    if limit is not None and limit > 0:
+        stmt = stmt.limit(min(int(limit), 5000))
     result = await db.execute(stmt)
     raw_calls_list = result.scalars().all()
 
@@ -24130,14 +24180,14 @@ async def startup_event():
 
             # Refresh global settings_db dict
             global settings_db
-            settings_db.update(load_settings())
+            settings_db.update(load_settings(force_reload=True))
 
     try:
         await asyncio.wait_for(seed_db_tables(), timeout=5.0)
     except Exception as e:
         print(f"[Database Init/Seeding Timeout or Error]: {e}")
         global settings_db
-        settings_db.update(load_settings())
+        settings_db.update(load_settings(force_reload=True))
 
     # Regenerate Asterisk configs (PJSIP endpoints, trunks, queues, dialplan) for native or docker Asterisk
     try:
@@ -27296,18 +27346,41 @@ async def get_system_version_info():
         pass
 
     return {
-        "version": "v2.8.0",
+        "version": "v2.8.1",
         "commit_hash": live_commit,
-        "release_date": "3 Kasım 2026",
+        "release_date": "5 Kasım 2026",
         "status": "Güncel / Canlı Sürüm",
         "environment": "Production (On-Premise)",
         "changelog": [
             {
-                "version": "v2.8.0",
+                "version": "v2.8.1",
                 "commit_hash": live_commit,
-                "release_date": "3 Kasım 2026",
+                "release_date": "5 Kasım 2026",
                 "badge": "Canlı Sürüm (Güncel)",
                 "badge_type": "current",
+                "title": "Kişiselleştirilebilir Başlangıç Ekranı & Tam Kapsamlı Arayüz / Backend Performans Hızlandırması",
+                "summary": "Her kullanıcının giriş yaptıktan sonra açılacak modülü (veya Çağrı Paneli alt sekmesini) kendi Profil Ayarları'ndan, sağ üst menü kısayolundan ya da 'Son Kaldığım Ekrandan Devam Et' moduyla belirleyebilmesi ve yöneticilerin Kullanıcılar ekranından başlangıç ekranı atayabilmesi sağlandı. Eşzamanlı olarak 65+ panelde dinamik kod bölme (next/dynamic), arka plan yoklama izolasyonu, INP reflow temizliği ve backend ayar önbelleklemesi ile arayüz tepki hızı üst seviyeye çıkarıldı.",
+                "features": [
+                    {
+                        "title": "📌 Kullanıcı Bazlı Başlangıç Ekranı, 'Son Kaldığım Ekran' & Yönetici Ataması",
+                        "desc": "Profil Ayarları > Avatar & Tema sekmesi, sağ üst 'Başlangıç Ekranım Yap' tek tık aksiyonu ve Kullanıcılar > Genel Bilgiler ekranına rol yetkilerine duyarlı başlangıç modülü + Çağrı Paneli alt sekme (Pano, Web Telefon, Sohbet vb.) seçicileri ve 'Son Kaldığım Ekrandan Devam Et' modu eklendi."
+                    },
+                    {
+                        "title": "🚀 Dinamik Kod Bölme (Code-Splitting) & Arayüz Tıklama (INP) Hızlandırması",
+                        "desc": "65'ten fazla yönetim, raporlama ve ayar paneli next/dynamic ile ayrı yükleme parçalarına bölünerek ana sayfa ilk yükleme boyutu ~205 kB seviyesine düşürüldü; SystemInfoHintManager tam DOM taraması artımlı boşta çalışma (idle/yield) mimarisine geçirildi ve gizli sekmelerdeki arka plan API yoklamaları durduruldu."
+                    },
+                    {
+                        "title": "⚡ Backend Ayar Önbelleği & Çağrı Listesi SQL Limit Optimizasyonu",
+                        "desc": "load_settings() içerisindeki mükerrer senkron PostgreSQL şema/kayıt yazımları mtime tabanlı bellek önbelleği ile sıfırlandı, save_settings() tek sorgulu fark güncellemesine geçirildi ve /api/calls uç noktasına SQL limit desteği eklendi."
+                    }
+                ]
+            },
+            {
+                "version": "v2.8.0",
+                "commit_hash": "26dcdc4",
+                "release_date": "3 Kasım 2026",
+                "badge": "Önceki Sürüm",
+                "badge_type": "previous",
                 "title": "Canlı Çeviri Düşük Gecikmeli VAD Akış Motoru & Seçilebilir Çeviri Sesi Hedefi",
                 "summary": "Canlı çağrılarda müşteri konuşmalarının ekrana düşmesindeki 10 saniyelik gecikme, 3 saniyelik kör pencere kaydı yerine gerçek zamanlı WebAudio VAD (Ses Etkinliği Algılama) akış motoru, telefon hattı ses kazancı (gain) normalizasyonu ve düşünme gecikmesi kapatılmış hızlı Gemini/Whisper hattı ile ~1 saniye seviyesine indirildi; ayrıca temsilcinin çevrilen sesin kime gideceğini seçebileceği (Sadece Müşteri / Müşteri + Ben / Sadece Ben) kontrolü eklendi.",
                 "features": [
@@ -29176,7 +29249,7 @@ def _restore_from_tar_archive_sync(tar_path: str) -> dict:
         if os.path.exists(settings_bkp):
             shutil.copy2(settings_bkp, SETTINGS_FILE)
             global settings_db
-            settings_db.update(load_settings())
+            settings_db.update(load_settings(force_reload=True))
 
         # 3. Restore asterisk_config
         ast_bkp = os.path.join(backup_folder, "asterisk_config")

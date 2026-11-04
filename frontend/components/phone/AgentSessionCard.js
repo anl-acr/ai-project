@@ -12,7 +12,7 @@ const DEFAULT_DISPOSITIONS = [
   "İptal / Şikayet"
 ];
 
-export default function AgentSessionCard({ backendHost = "localhost:8000", currentUser, activeCallId = null, compact = false, headerBar = false }) {
+export default function AgentSessionCard({ backendHost = "localhost:8000", currentUser, activeCallId = null, compact = false, headerBar = false, isVisible = true }) {
   const { bg, hover, text, border, lightBg, borderLight } = useTheme();
   const [agentState, setAgentState] = useState({
     is_logged_in: false,
@@ -43,20 +43,24 @@ export default function AgentSessionCard({ backendHost = "localhost:8000", curre
   useEffect(() => {
     fetchAgentStatus();
     fetchUsersAndRolesAndBreaks();
-    const interval = setInterval(() => {
-      fetchAgentStatus();
-      fetchLatestQueuesAndBreaks();
-    }, 5000);
     const onStatusUpdated = () => {
       fetchAgentStatus();
       fetchLatestQueuesAndBreaks();
     };
     window.addEventListener("AGENT_STATUS_UPDATED", onStatusUpdated);
+    let interval = null;
+    if (isVisible) {
+      interval = setInterval(() => {
+        if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
+        fetchAgentStatus();
+        fetchLatestQueuesAndBreaks();
+      }, 6000);
+    }
     return () => {
-      clearInterval(interval);
+      if (interval) clearInterval(interval);
       window.removeEventListener("AGENT_STATUS_UPDATED", onStatusUpdated);
     };
-  }, [currentUser]);
+  }, [currentUser, isVisible]);
 
   useEffect(() => {
     if (activeCallId) {
@@ -165,10 +169,13 @@ export default function AgentSessionCard({ backendHost = "localhost:8000", curre
     return () => clearInterval(timer);
   }, [agentState?.status, acwRemaining]);
 
-  // 1-second live timer when logged in (online, break, or acw)
+  // 1-second live timer when logged in (online, break, or acw) — paused when card is hidden
   useEffect(() => {
     if (!agentState?.is_logged_in || !["break", "online", "acw"].includes(agentState?.status)) {
       setLiveBreakSeconds(0);
+      return;
+    }
+    if (!isVisible) {
       return;
     }
     const calcElapsed = () => {
@@ -186,13 +193,14 @@ export default function AgentSessionCard({ backendHost = "localhost:8000", curre
     };
     setLiveBreakSeconds(calcElapsed());
     const timer = setInterval(() => {
+      if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
       setLiveBreakSeconds((prev) => {
         const fromIso = calcElapsed();
         return fromIso > 0 ? fromIso : prev + 1;
       });
     }, 1000);
     return () => clearInterval(timer);
-  }, [agentState]);
+  }, [agentState, isVisible]);
 
   const formatTimer = (sec) => {
     const s = Math.max(0, Number(sec) || 0);

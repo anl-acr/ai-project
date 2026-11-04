@@ -1,11 +1,14 @@
-@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&display=swap');
-
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
 :root {
   --color-primary: 99, 102, 241;
+}
+
+/* Isolate sidebar and floating info popover layout/style invalidation from main dashboard view */
+.aida-sidebar-contain {
+  contain: layout style;
 }
 
 body {

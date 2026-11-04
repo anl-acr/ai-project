@@ -335,9 +335,11 @@ export default function CallChatWidget({
     }
   }, [groupRingingCalls]);
 
-  // Fetch contacts and internal directory
+  // Fetch contacts and internal directory (fast poll only when widget is open or call is active)
+  const isWidgetBusy = Boolean(isOpen || callStatus !== "Idle");
   useEffect(() => {
     const fetchContacts = async () => {
+      if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
       try {
         const [contactsRes, dirRes] = await Promise.all([
           fetch(`${API_BASE}/api/contacts`),
@@ -354,13 +356,13 @@ export default function CallChatWidget({
       } catch (err) {}
     };
     fetchContacts();
-    const timer = setInterval(fetchContacts, 5000);
+    const timer = setInterval(fetchContacts, isWidgetBusy ? 6000 : 45000);
     window.addEventListener("CONTACTS_UPDATED", fetchContacts);
     return () => {
       clearInterval(timer);
       window.removeEventListener("CONTACTS_UPDATED", fetchContacts);
     };
-  }, [API_BASE]);
+  }, [API_BASE, isWidgetBusy]);
 
   const formatSeconds = (sec) => {
     const mins = Math.floor((sec || 0) / 60);
