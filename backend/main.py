@@ -127,8 +127,9 @@ async def audit_client_ip_middleware(request: Request, call_next):
     finally:
         current_request_ip_ctx.reset(token)
 
-from backend.routers import sip_debugger
+from backend.routers import sip_debugger, workspace_enhancements
 app.include_router(sip_debugger.router)
+app.include_router(workspace_enhancements.router)
 
 @app.on_event("startup")
 async def on_startup_telemetry():
@@ -1348,6 +1349,9 @@ DEFAULT_SETTINGS = {
                 "restore_points:read", "restore_points:write", "restore_points:delete",
                 "system_status:access", "logs:access", "sip_debugger:access", "troubleshooting:access",
                 "security:read", "security:write", "security:delete",
+                "customer_360:read", "customer_360:write",
+                "callback_tasks:read", "callback_tasks:write", "callback_tasks:delete",
+                "crisis_alerts:access",
                 "system_version:access"
             ],
             "allowed_breaks": [1, 2, 3, 4]
@@ -1417,6 +1421,9 @@ DEFAULT_SETTINGS = {
                 "email_notifications:read", "email_notifications:write",
                 "restore_points:read", "restore_points:write",
                 "ai_task_routing:read",
+                "customer_360:read", "customer_360:write",
+                "callback_tasks:read", "callback_tasks:write", "callback_tasks:delete",
+                "crisis_alerts:access",
                 "system_version:access"
             ],
             "allowed_breaks": [1, 2, 3, 4]
@@ -1437,6 +1444,8 @@ DEFAULT_SETTINGS = {
                 "follow_me:read", "follow_me:write",
                 "mobile_transfer:read", "mobile_transfer:write",
                 "qa:read", "recording_retention:read",
+                "customer_360:read", "customer_360:write",
+                "callback_tasks:read", "callback_tasks:write",
                 "reports:access", "agent_timeline:access"
             ],
             "allowed_breaks": [1, 2, 3, 4]
@@ -27346,18 +27355,49 @@ async def get_system_version_info():
         pass
 
     return {
-        "version": "v2.8.1",
+        "version": "v2.9.0",
         "commit_hash": live_commit,
         "release_date": "5 Kasım 2026",
         "status": "Güncel / Canlı Sürüm",
         "environment": "Production (On-Premise)",
         "changelog": [
             {
-                "version": "v2.8.1",
+                "version": "v2.9.0",
                 "commit_hash": live_commit,
                 "release_date": "5 Kasım 2026",
                 "badge": "Canlı Sürüm (Güncel)",
                 "badge_type": "current",
+                "title": "Müşteri 360° Çekmecesi, Canlı Bildirim Merkezi, Geri Arama Planlayıcı, Kriz Radarı & Otomatik Karanlık Mod",
+                "summary": "Temsilci ve süpervizörlerin operasyonel hızını katlayan 7 kapsamlı modül devreye alındı: Üst bar canlı bildirim merkezi ve masaüstü bildirimleri, kişiselleştirilebilir klavye kısayolları (? rehberi), mesai/saat bazlı otomatik karanlık mod, tüm iletişim kanallarını tek zaman tünelinde birleştiren Müşteri 360° çekmecesi, kayıp çağrı sahiplenme ve geri arama planlayıcı, kullanıcıya özel düzenlenebilir özet ekranı widget'ları ve canlı kriz/negatif duygu süpervizör müdahale radarı.",
+                "features": [
+                    {
+                        "title": "🔔 Uygulama İçi Canlı Bildirim Merkezi & Masaüstü Anlık Bildirimleri",
+                        "desc": "Üst bara okunmamış sayaçlı Bildirim Çanı (Alt+N) ve masaüstü bildirim izni eklendi; cevapsız çağrılar, yaklaşan geri aramalar, temsilci bekleyen Omnichannel mesajları, randevular ve canlı kriz uyarıları tek merkezde toplandı."
+                    },
+                    {
+                        "title": "👤 Müşteri 360° Çekmecesi (Tüm Kanallar Tek Zaman Tünelinde & VIP Etiketler)",
+                        "desc": "Rehber, Canlı Pano, Web Telefon, Kayıp Çağrılar ve Ortak Gelen Kutusu'ndan tek tıkla (veya gelen çağrıda otomatik) açılan sağ çekmecede müşterinin geçmiş ses kayıtları, AI özetleri, WhatsApp sohbetleri, randevuları, VIP statüsü ve sabit temsilci notları birleştirildi."
+                    },
+                    {
+                        "title": "⏰ Geri Arama Planlayıcı (Callback) & Kayıp Çağrı Sahiplenme",
+                        "desc": "Kayıp çağrılara 'Ben Arıyorum / Ulaşıldı / Meşgul' sahiplenme rozeti getirilerek mükerrer aramalar önlendi; ileri tarihli geri arama hatırlatıcısı ve vakti geldiğinde 'Şimdi Ara / +10 Dk Ertele' canlı uyarı kartı eklendi."
+                    },
+                    {
+                        "title": "🚨 Canlı Kriz / Negatif Duygu Alarm Radarı & Kişiselleştirilebilir Özet Panosu",
+                        "desc": "Aktif çağrılarda gerginlik veya şikayet kelimeleri algılandığında süpervizör ekranına tek tıkla 'Dinle / Sufle Ver / Araya Gir' müdahale kartı düşürüldü; ayrıca Gerçek Zamanlı AI Pano modülleri kullanıcı bazlı gizlenip sıralanabilir hale getirildi."
+                    },
+                    {
+                        "title": "⌨️ Kişisel Klavye Kısayolları (? Rehberi) & Saate Göre Otomatik Karanlık Mod",
+                        "desc": "Çağrı yanıtlama (Alt+A), kapatma (Alt+H), mikrofon susturma (Alt+M), durum değiştirme (Alt+1..3) için özelleştirilebilir kısayol yöneticisi ve belirlenen akşam saatlerinde (örn. 19:00 - 07:00) otomatik devreye giren Karanlık Mod eklendi."
+                    }
+                ]
+            },
+            {
+                "version": "v2.8.1",
+                "commit_hash": "76427b7",
+                "release_date": "5 Kasım 2026",
+                "badge": "Önceki Sürüm",
+                "badge_type": "previous",
                 "title": "Kişiselleştirilebilir Başlangıç Ekranı & Tam Kapsamlı Arayüz / Backend Performans Hızlandırması",
                 "summary": "Her kullanıcının giriş yaptıktan sonra açılacak modülü (veya Çağrı Paneli alt sekmesini) kendi Profil Ayarları'ndan, sağ üst menü kısayolundan ya da 'Son Kaldığım Ekrandan Devam Et' moduyla belirleyebilmesi ve yöneticilerin Kullanıcılar ekranından başlangıç ekranı atayabilmesi sağlandı. Eşzamanlı olarak 65+ panelde dinamik kod bölme (next/dynamic), arka plan yoklama izolasyonu, INP reflow temizliği ve backend ayar önbelleklemesi ile arayüz tepki hızı üst seviyeye çıkarıldı.",
                 "features": [

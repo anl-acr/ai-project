@@ -378,9 +378,7 @@ export default function ContactsPanel({ backendHost }) {
               <th className="p-4 text-[10px] text-slate-400 dark:text-slate-550 font-bold uppercase tracking-wider">İsim Soyisim</th>
               <th className="p-4 text-[10px] text-slate-400 dark:text-slate-550 font-bold uppercase tracking-wider">Telefon Numarası</th>
               <th className="p-4 text-[10px] text-slate-400 dark:text-slate-550 font-bold uppercase tracking-wider">E-posta</th>
-              { (hasWritePermission || hasDeletePermission) && (
-                <th className="p-4 text-[10px] text-slate-400 dark:text-slate-550 font-bold uppercase tracking-wider text-right">İşlemler</th>
-              )}
+              <th className="p-4 text-[10px] text-slate-400 dark:text-slate-550 font-bold uppercase tracking-wider text-right">İşlemler</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100 dark:divide-slate-850">
@@ -404,26 +402,41 @@ export default function ContactsPanel({ backendHost }) {
                   <td className="p-4 text-xs font-mono text-slate-550 dark:text-slate-400">
                     {contact.email || <span className="text-slate-300 dark:text-slate-700">-</span>}
                   </td>
-                  { (hasWritePermission || hasDeletePermission) && (
-                    <td className="p-4 text-right flex items-center justify-end gap-2.5">
-                      {hasWritePermission && (
-                        <button
-                          onClick={() => openFormModal(contact)}
-                          className="p-1.5 text-slate-450 hover:text-primary dark:hover:text-blue-400 transition"
-                        >
-                          <Edit2 size={13} />
-                        </button>
-                      )}
-                      {hasDeletePermission && (
-                        <button
-                          onClick={() => setDeleteTargetId(contact.id)}
-                          className="p-1.5 text-slate-450 hover:text-primary dark:hover:text-rose-455 transition"
-                        >
-                          <Trash2 size={13} />
-                        </button>
-                      )}
-                    </td>
-                  )}
+                  <td className="p-4 text-right flex items-center justify-end gap-2">
+                    <button
+                      type="button"
+                      onClick={() =>
+                        window.dispatchEvent(
+                          new CustomEvent("OPEN_CUSTOMER_360", {
+                            detail: {
+                              phone: contact.phone_number,
+                              name: `${contact.first_name || ""} ${contact.last_name || ""}`.trim(),
+                            },
+                          })
+                        )
+                      }
+                      title="Müşteri 360° Tüm Kanal Geçmişini Aç"
+                      className={`px-2 py-1 rounded-lg text-[10px] font-extrabold border ${lightBg} ${text} ${borderLight} hover:opacity-90 transition cursor-pointer`}
+                    >
+                      360° Kart
+                    </button>
+                    {hasWritePermission && (
+                      <button
+                        onClick={() => openFormModal(contact)}
+                        className="p-1.5 text-slate-450 hover:text-primary dark:hover:text-blue-400 transition"
+                      >
+                        <Edit2 size={13} />
+                      </button>
+                    )}
+                    {hasDeletePermission && (
+                      <button
+                        onClick={() => setDeleteTargetId(contact.id)}
+                        className="p-1.5 text-slate-450 hover:text-primary dark:hover:text-rose-455 transition"
+                      >
+                        <Trash2 size={13} />
+                      </button>
+                    )}
+                  </td>
                 </tr>
               ))
             )}

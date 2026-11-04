@@ -891,6 +891,23 @@ export default function OmnichannelPanel({ backendHost = "localhost:8000" }) {
                           Rehbere Kaydet
                         </button>
                       )}
+                      <button
+                        type="button"
+                        onClick={() =>
+                          window.dispatchEvent(
+                            new CustomEvent("OPEN_CUSTOMER_360", {
+                              detail: {
+                                phone: activeSession.sender_info,
+                                name: activeSession.sender_name || "",
+                              },
+                            })
+                          )
+                        }
+                        title="Müşteri 360° Tüm Kanal Geçmişi"
+                        className="px-2 py-0.5 bg-primary/10 hover:bg-primary/20 text-primary border border-primary/25 rounded text-[9px] font-extrabold transition shrink-0 cursor-pointer"
+                      >
+                        360° Kart
+                      </button>
                     </h4>
                     <span className="text-[9px] text-slate-400 dark:text-slate-550 font-bold tracking-wide mt-1 block">
                       Kanal: {activeSession.channel.toUpperCase()} {activeSession.recipient_info ? `• Hat: ${activeSession.recipient_info}` : ""}

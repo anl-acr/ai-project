@@ -76,6 +76,24 @@ export function normalizeTopbarPrefs(raw) {
   };
 }
 
+export const DEFAULT_AUTO_THEME_CONFIG = {
+  mode: "manual", // "manual" | "system" | "schedule"
+  darkStart: "19:00",
+  darkEnd: "07:00",
+};
+
+export function normalizeAutoThemeConfig(raw) {
+  if (!raw || typeof raw !== "object") {
+    return { ...DEFAULT_AUTO_THEME_CONFIG };
+  }
+  const validModes = ["manual", "system", "schedule"];
+  const mode = validModes.includes(raw.mode) ? raw.mode : "manual";
+  const timeRe = /^([01]\d|2[0-3]):([0-5]\d)$/;
+  const darkStart = typeof raw.darkStart === "string" && timeRe.test(raw.darkStart) ? raw.darkStart : "19:00";
+  const darkEnd = typeof raw.darkEnd === "string" && timeRe.test(raw.darkEnd) ? raw.darkEnd : "07:00";
+  return { mode, darkStart, darkEnd };
+}
+
 export const DEFAULT_CALL_PANEL_PREFS = {
   viewMode: "list", // "list" | "box"
   boxSize: "large", // "large" | "small"
@@ -86,6 +104,10 @@ export const DEFAULT_CALL_PANEL_PREFS = {
   defaultAgentSubTab: "auto", // "auto" | "last_visited" | <subTabId>
   lastVisitedTab: "",
   lastVisitedAgentSubTab: "",
+  autoThemeConfig: { ...DEFAULT_AUTO_THEME_CONFIG },
+  keyboardShortcuts: {},
+  dashboardWidgets: null,
+  autoOpenCustomer360OnCall: false,
 };
 
 export function normalizeCallPanelPrefs(raw) {
@@ -95,6 +117,10 @@ export function normalizeCallPanelPrefs(raw) {
       ...DEFAULT_CALL_PANEL_PREFS,
       tabOrder: [...defaultOrder],
       topbar: normalizeTopbarPrefs(null),
+      autoThemeConfig: normalizeAutoThemeConfig(null),
+      keyboardShortcuts: {},
+      dashboardWidgets: null,
+      autoOpenCustomer360OnCall: false,
     };
   }
   const viewMode = raw.viewMode === "box" ? "box" : "list";
@@ -119,6 +145,19 @@ export function normalizeCallPanelPrefs(raw) {
     typeof raw.lastVisitedTab === "string" ? raw.lastVisitedTab.trim() : "";
   const lastVisitedAgentSubTab =
     typeof raw.lastVisitedAgentSubTab === "string" ? raw.lastVisitedAgentSubTab.trim() : "";
+  const autoThemeConfig = normalizeAutoThemeConfig(raw.autoThemeConfig);
+  const keyboardShortcuts =
+    raw.keyboardShortcuts && typeof raw.keyboardShortcuts === "object" && !Array.isArray(raw.keyboardShortcuts)
+      ? { ...raw.keyboardShortcuts }
+      : {};
+  const dashboardWidgets =
+    raw.dashboardWidgets && typeof raw.dashboardWidgets === "object" && !Array.isArray(raw.dashboardWidgets)
+      ? {
+          order: Array.isArray(raw.dashboardWidgets.order) ? [...raw.dashboardWidgets.order] : [],
+          hidden: Array.isArray(raw.dashboardWidgets.hidden) ? [...raw.dashboardWidgets.hidden] : [],
+        }
+      : null;
+  const autoOpenCustomer360OnCall = Boolean(raw.autoOpenCustomer360OnCall);
 
   return {
     viewMode,
@@ -130,6 +169,10 @@ export function normalizeCallPanelPrefs(raw) {
     defaultAgentSubTab,
     lastVisitedTab,
     lastVisitedAgentSubTab,
+    autoThemeConfig,
+    keyboardShortcuts,
+    dashboardWidgets,
+    autoOpenCustomer360OnCall,
   };
 }
 
@@ -144,6 +187,10 @@ function hasSavedCallPanelPrefs(obj) {
         obj.defaultAgentSubTab ||
         obj.lastVisitedTab ||
         obj.lastVisitedAgentSubTab ||
+        obj.autoThemeConfig ||
+        obj.keyboardShortcuts ||
+        obj.dashboardWidgets ||
+        obj.autoOpenCustomer360OnCall !== undefined ||
         (Array.isArray(obj.tabOrder) && obj.tabOrder.length > 0) ||
         (obj.topbar && typeof obj.topbar === "object"))
   );

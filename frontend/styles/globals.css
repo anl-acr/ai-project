@@ -4,6 +4,15 @@
 
 :root {
   --color-primary: 99, 102, 241;
+  color-scheme: light dark;
+}
+
+html.dark {
+  color-scheme: dark;
+}
+
+html:not(.dark) {
+  color-scheme: light;
 }
 
 /* Isolate sidebar and floating info popover layout/style invalidation from main dashboard view */

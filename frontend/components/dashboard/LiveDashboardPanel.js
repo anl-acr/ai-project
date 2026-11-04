@@ -18,10 +18,52 @@ import {
   CheckCircle,
   Headphones,
   Mic,
-  PhoneCall
+  PhoneCall,
+  Sliders,
+  ArrowUp,
+  ArrowDown,
+  Eye,
+  EyeOff,
+  Calendar,
+  AlarmClock,
+  Users,
+  Database,
+  AlertTriangle,
+  RotateCcw,
+  X
 } from "lucide-react";
 import AddContactModal from "./AddContactModal";
 import { useTheme } from "../../utils/theme";
+
+const DASHBOARD_WIDGET_CATALOG = [
+  {
+    id: "crisis_radar",
+    label: "Canlı Kriz & Negatif Duygu Alarm Radarı",
+    description: "Aktif çağrılarda gerginlik veya şikayet algılandığında tek tıkla dinleme/sufle/devralma kartı.",
+  },
+  {
+    id: "kpi_metrics",
+    label: "Anlık Kanal & Sunucu Performans Kartları",
+    description: "Aktif görüşme sayısı, AI CPU yükü, RAM kullanımı ve açık WebSocket kanalları.",
+  },
+  {
+    id: "active_calls_console",
+    label: "Canlı Arama Listesi & Gerçek Zamanlı Konsol",
+    description: "Aktif aramalar, canlı akan konuşma dökümü, AI sufle kutusu ve temsilci notları.",
+  },
+  {
+    id: "ops_queues_appointments",
+    label: "Kuyruk Özeti, Bugünkü Randevular & Geri Aramalar",
+    description: "Aktif ACD kuyruk dağılımı, bugünkü randevular ve bekleyen geri arama görevleri.",
+  },
+  {
+    id: "ai_budget_top_callers",
+    label: "AI Maliyet Özeti & Bugün En Çok Arayanlar",
+    description: "Yapay zeka sağlayıcı kredi tüketimi ve gün içi en yoğun arayan numaralar.",
+  },
+];
+
+const DEFAULT_WIDGET_ORDER = DASHBOARD_WIDGET_CATALOG.map((w) => w.id);
 
 export default function LiveDashboardPanel({ backendHost = "localhost:8000" }) {
   const { bg, hover, text, border, lightBg, borderLight } = useTheme();
@@ -61,8 +103,109 @@ export default function LiveDashboardPanel({ backendHost = "localhost:8000" }) {
     activeWs: 0
   });
 
+  // Customizable Dashboard Widgets & Live Crisis Radar State
+  const [widgetOrder, setWidgetOrder] = useState(DEFAULT_WIDGET_ORDER);
+  const [hiddenWidgets, setHiddenWidgets] = useState([]);
+  const [showCustomizeModal, setShowCustomizeModal] = useState(false);
+  const [crisisAlerts, setCrisisAlerts] = useState([]);
+  const [widgetsSummary, setWidgetsSummary] = useState(null);
+  const [budgetSummary, setBudgetSummary] = useState(null);
+
   const chatEndRef = useRef(null);
   const wsRef = useRef(null);
+
+  // Load saved per-user widget layout
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const uid =
+      currentUserId ||
+      sessionStorage.getItem("current_user_id") ||
+      localStorage.getItem("current_user_id") ||
+      "default";
+    try {
+      const raw = localStorage.getItem(`aida_dashboard_widgets_${uid}`);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed.order) && parsed.order.length > 0) {
+          const valid = parsed.order.filter((id) => DEFAULT_WIDGET_ORDER.includes(id));
+          for (const defId of DEFAULT_WIDGET_ORDER) {
+            if (!valid.includes(defId)) valid.push(defId);
+          }
+          setWidgetOrder(valid);
+        }
+        if (Array.isArray(parsed.hidden)) {
+          setHiddenWidgets(parsed.hidden.filter((id) => DEFAULT_WIDGET_ORDER.includes(id)));
+        }
+      }
+    } catch (e) {}
+  }, [currentUserId]);
+
+  const persistWidgetLayout = (nextOrder, nextHidden) => {
+    setWidgetOrder(nextOrder);
+    setHiddenWidgets(nextHidden);
+    if (typeof window === "undefined") return;
+    const uid =
+      currentUserId ||
+      sessionStorage.getItem("current_user_id") ||
+      localStorage.getItem("current_user_id") ||
+      "default";
+    try {
+      localStorage.setItem(
+        `aida_dashboard_widgets_${uid}`,
+        JSON.stringify({ order: nextOrder, hidden: nextHidden })
+      );
+      if (uid && uid !== "default") {
+        const protocol = window.location.protocol === "https:" ? "https:" : "http:";
+        fetch(`${protocol}//${backendHost}/api/agent/profile/${encodeURIComponent(uid)}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            call_panel_prefs: {
+              dashboardWidgets: { order: nextOrder, hidden: nextHidden },
+            },
+          }),
+        }).catch(() => {});
+      }
+    } catch (e) {}
+  };
+
+  // Poll live crisis alerts & customizable widget summary (paused when tab is hidden)
+  useEffect(() => {
+    const fetchCrisisAndSummary = async () => {
+      if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
+      const protocol = window.location.protocol === "https:" ? "https:" : "http:";
+      const tenantId =
+        (typeof window !== "undefined" && localStorage.getItem("selected_tenant_id")) ||
+        "tenant-default";
+      const headers = {
+        "X-Tenant-ID": tenantId,
+        "X-User-ID": currentUserId || "admin",
+      };
+      try {
+        const [crRes, sumRes, budRes] = await Promise.all([
+          fetch(`${protocol}//${backendHost}/api/workspace/crisis-alerts`, { headers }).catch(() => null),
+          fetch(`${protocol}//${backendHost}/api/workspace/dashboard-widgets-summary`, { headers }).catch(() => null),
+          fetch(`${protocol}//${backendHost}/api/settings/api-budgets`, { headers }).catch(() => null),
+        ]);
+        if (crRes && crRes.ok) {
+          const crData = await crRes.json();
+          setCrisisAlerts(Array.isArray(crData.alerts) ? crData.alerts : []);
+        }
+        if (sumRes && sumRes.ok) {
+          const sumData = await sumRes.json();
+          setWidgetsSummary(sumData);
+        }
+        if (budRes && budRes.ok) {
+          const budData = await budRes.json();
+          setBudgetSummary(budData);
+        }
+      } catch (e) {}
+    };
+
+    fetchCrisisAndSummary();
+    const timer = setInterval(fetchCrisisAndSummary, 8000);
+    return () => clearInterval(timer);
+  }, [backendHost, currentUserId]);
 
   useEffect(() => {
     const handleOutside = (e) => {
@@ -77,6 +220,7 @@ export default function LiveDashboardPanel({ backendHost = "localhost:8000" }) {
   // Poll active calls from the Asterisk/FastAPI backend
   useEffect(() => {
     const fetchActiveCalls = () => {
+      if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
       const protocol = window.location.protocol === "https:" ? "https:" : "http:";
       fetch(`${protocol}//${backendHost}/api/calls/active`)
         .then((res) => res.json())
@@ -103,6 +247,7 @@ export default function LiveDashboardPanel({ backendHost = "localhost:8000" }) {
   // Fetch real system resource metrics
   useEffect(() => {
     const fetchStats = async () => {
+      if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
       try {
         const protocol = window.location.protocol === "https:" ? "https:" : "http:";
         const res = await fetch(`${protocol}//${backendHost}/api/system/stats`);
@@ -431,79 +576,456 @@ export default function LiveDashboardPanel({ backendHost = "localhost:8000" }) {
     }
   };
 
+  const toggleWidgetVisibility = (wId) => {
+    const isHidden = hiddenWidgets.includes(wId);
+    const nextHidden = isHidden
+      ? hiddenWidgets.filter((x) => x !== wId)
+      : [...hiddenWidgets, wId];
+    persistWidgetLayout(widgetOrder, nextHidden);
+  };
+
+  const moveWidgetOrder = (idx, dir) => {
+    const targetIdx = idx + dir;
+    if (targetIdx < 0 || targetIdx >= widgetOrder.length) return;
+    const nextOrder = [...widgetOrder];
+    const [moved] = nextOrder.splice(idx, 1);
+    nextOrder.splice(targetIdx, 0, moved);
+    persistWidgetLayout(nextOrder, hiddenWidgets);
+  };
+
+  const visibleWidgets = widgetOrder.filter((id) => !hiddenWidgets.includes(id));
+
+  const renderCrisisRadarWidget = () => {
+    if (crisisAlerts.length === 0) return null;
+    return (
+      <div
+        key="crisis_radar"
+        className="p-4 rounded-2xl bg-rose-50/90 dark:bg-rose-950/30 border-2 border-rose-500/70 shadow-sm space-y-3 animate-in fade-in duration-200"
+      >
+        <div className="flex items-center justify-between gap-2 flex-wrap">
+          <div className="flex items-center gap-2.5">
+            <span className="p-2 rounded-xl bg-rose-500/20 text-rose-600 dark:text-rose-400 animate-pulse">
+              <AlertTriangle size={18} />
+            </span>
+            <div>
+              <h4 className="text-xs font-extrabold text-rose-700 dark:text-rose-300 uppercase tracking-wider">
+                Canlı Kriz / Negatif Duygu Alarm Radarı ({crisisAlerts.length} Aktif Çağrı)
+              </h4>
+              <p className="text-[10px] text-rose-600/80 dark:text-rose-400/80 font-medium">
+                Müşteri ses tonunda veya ifadelerinde gerginlik/şikayet saptandı. Tek tıkla müdahale edebilirsiniz.
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+          {crisisAlerts.map((al) => {
+            const matchedActive = activeCalls.find((c) => c.id === al.call_id) || {
+              id: al.call_id,
+              caller_number: al.caller_number,
+              caller_name: al.caller_name,
+              callee_number: al.callee_number,
+            };
+            return (
+              <div
+                key={al.call_id}
+                className="p-3.5 rounded-xl bg-white dark:bg-slate-900 border border-rose-200 dark:border-rose-900/60 flex flex-col justify-between gap-2.5 shadow-sm"
+              >
+                <div className="flex items-start justify-between gap-2">
+                  <div>
+                    <div className="text-xs font-extrabold text-slate-900 dark:text-white flex items-center gap-1.5 flex-wrap">
+                      <span>
+                        {al.caller_name
+                          ? `${al.caller_name} (${al.caller_number})`
+                          : al.caller_number}
+                      </span>
+                      <span className="px-2 py-0.5 rounded-md bg-rose-500/15 text-rose-600 dark:text-rose-400 text-[9px] font-black uppercase">
+                        {al.severity === "critical" ? "Kritik Kriz" : "Gerginlik"}
+                      </span>
+                    </div>
+                    {al.latest_customer_text && (
+                      <p className="text-[11px] text-slate-600 dark:text-slate-300 italic mt-1 line-clamp-2">
+                        &ldquo;{al.latest_customer_text}&rdquo;
+                      </p>
+                    )}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setSelectedCall(matchedActive)}
+                    className={`px-2.5 py-1 rounded-lg text-[10px] font-bold border ${lightBg} ${text} ${borderLight} shrink-0 cursor-pointer`}
+                  >
+                    Konsolda Aç
+                  </button>
+                </div>
+
+                <div className="flex flex-wrap items-center gap-1.5 pt-1 border-t border-slate-100 dark:border-slate-800">
+                  {monitorPerms.listen && (
+                    <button
+                      type="button"
+                      disabled={loadingSpy}
+                      onClick={() => handleChanSpy("listen", matchedActive)}
+                      className="px-2.5 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-[10px] font-extrabold flex items-center gap-1 cursor-pointer"
+                    >
+                      <Headphones size={11} />
+                      <span>Dinle</span>
+                    </button>
+                  )}
+                  {monitorPerms.whisper && (
+                    <button
+                      type="button"
+                      disabled={loadingSpy}
+                      onClick={() => handleChanSpy("whisper", matchedActive)}
+                      className="px-2.5 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-400 text-white text-[10px] font-extrabold flex items-center gap-1 cursor-pointer"
+                    >
+                      <Mic size={11} />
+                      <span>Sufle Ver</span>
+                    </button>
+                  )}
+                  {monitorPerms.barge && (
+                    <button
+                      type="button"
+                      disabled={loadingSpy}
+                      onClick={() => handleChanSpy("barge", matchedActive)}
+                      className="px-2.5 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-500 text-white text-[10px] font-extrabold flex items-center gap-1 cursor-pointer"
+                    >
+                      <PhoneCall size={11} />
+                      <span>Araya Gir</span>
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() =>
+                      window.dispatchEvent(
+                        new CustomEvent("OPEN_CUSTOMER_360", {
+                          detail: { phone: al.caller_number, name: al.caller_name },
+                        })
+                      )
+                    }
+                    className="ml-auto px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 text-[10px] font-bold hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
+                  >
+                    360° Kart
+                  </button>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    );
+  };
+
   return (
-    <div ref={panelRef} className="w-full h-full flex flex-col gap-6">
-
-      {/* Top Header Metrics (Agents vs Bot Performance) */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        
-        {/* Active Calls Stat */}
-        <div className="p-5 bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800/85 rounded-2xl flex items-center justify-between shadow-sm transition-colors duration-300">
-          <div>
-            <p className="text-[10px] text-slate-400 dark:text-slate-550 font-bold uppercase tracking-wider">Aktif Görüşmeler</p>
-            <h3 className="text-2xl font-bold mt-1 text-slate-900 dark:text-white flex items-center gap-2">
-              {activeCalls.length}
-              {activeCalls.length > 0 && (
-                <span className="h-2 w-2 rounded-full bg-primary dark:bg-emerald-400 animate-ping"></span>
-              )}
-            </h3>
-          </div>
-          <div className="h-10 w-10 rounded-xl bg-purple-50 dark:bg-purple-950/20 border border-purple-100 dark:border-purple-900/30 flex items-center justify-center text-primary dark:text-purple-400">
-            <Activity size={20} className={activeCalls.length > 0 ? "animate-pulse" : ""} />
-          </div>
-        </div>
-
-        {/* Live CPU Meter */}
-        <div className="p-5 bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800/85 rounded-2xl shadow-sm transition-colors duration-300">
-          <div className="flex items-center justify-between mb-1.5">
-            <span className="text-[10px] text-slate-400 dark:text-slate-550 font-bold uppercase tracking-wider">Yapay Zeka CPU Yükü</span>
-            <Cpu size={14} className="text-primary dark:text-indigo-400" />
-          </div>
-          <div className="flex items-center gap-3">
-            <div className="flex-1 h-2 bg-slate-105 dark:bg-slate-950 rounded-full overflow-hidden border border-slate-200/40 dark:border-slate-850">
-              <div 
-                className="h-full bg-gradient-to-r from-indigo-500 to-purple-500 transition-all duration-1000"
-                style={{ width: `${metrics.cpu}%` }}
-              ></div>
+    <div ref={panelRef} className="w-full h-full flex flex-col gap-5">
+      {/* Top Personalization Bar */}
+      <div className="flex items-center justify-between gap-3 flex-wrap">
+        <div className="flex items-center gap-2">
+          {widgetsSummary?.today_stats && (
+            <div className="inline-flex items-center gap-3 px-3.5 py-1.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 text-[11px] font-semibold text-slate-600 dark:text-slate-300 shadow-sm">
+              <span>
+                Bugün: <strong className="text-slate-900 dark:text-white">{widgetsSummary.today_stats.total_calls}</strong> çağrı
+              </span>
+              <span className="text-slate-300 dark:text-slate-700">•</span>
+              <span>
+                Yanıt Oranı: <strong className="text-emerald-600 dark:text-emerald-400">%{widgetsSummary.today_stats.answered_rate}</strong>
+              </span>
+              <span className="text-slate-300 dark:text-slate-700">•</span>
+              <span>
+                AI Karşılama: <strong className={text}>{widgetsSummary.today_stats.ai_handled_calls}</strong>
+              </span>
             </div>
-            <span className="text-xs font-mono font-bold text-slate-700 dark:text-slate-300">{metrics.cpu}%</span>
-          </div>
+          )}
         </div>
 
-        {/* Live RAM Meter */}
-        <div className="p-5 bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800/85 rounded-2xl shadow-sm transition-colors duration-300">
-          <div className="flex items-center justify-between mb-1.5">
-            <span className="text-[10px] text-slate-400 dark:text-slate-550 font-bold uppercase tracking-wider">Bellek (RAM)</span>
-            <Layers size={14} className="text-pink-500 dark:text-pink-400" />
-          </div>
-          <div className="flex items-center gap-3">
-            <div className="flex-1 h-2 bg-slate-105 dark:bg-slate-950 rounded-full overflow-hidden border border-slate-200/40 dark:border-slate-850">
-              <div 
-                className="h-full bg-gradient-to-r from-pink-500 to-rose-500 transition-all duration-1000"
-                style={{ width: `${metrics.ram}%` }}
-              ></div>
-            </div>
-            <span className="text-xs font-mono font-bold text-slate-700 dark:text-slate-300">{metrics.ram}%</span>
-          </div>
-        </div>
-
-        {/* Active Websockets */}
-        <div className="p-5 bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800/85 rounded-2xl flex items-center justify-between shadow-sm transition-colors duration-300">
-          <div>
-            <p className="text-[10px] text-slate-400 dark:text-slate-550 font-bold uppercase tracking-wider">WebSocket Kanalları</p>
-            <h3 className="text-xl font-bold mt-1 text-slate-900 dark:text-slate-200 font-mono">
-              {metrics.activeWs} <span className="text-xs text-slate-400 dark:text-slate-500 font-medium">bağlantı</span>
-            </h3>
-          </div>
-          <div className="h-10 w-10 rounded-xl bg-emerald-50 dark:bg-emerald-950/20 border border-emerald-100 dark:border-emerald-900/30 flex items-center justify-center text-primary dark:text-emerald-400">
-            <Wifi size={18} />
-          </div>
-        </div>
-
+        <button
+          type="button"
+          onClick={() => setShowCustomizeModal(true)}
+          className="px-3.5 py-1.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800 text-xs font-bold text-slate-700 dark:text-slate-200 flex items-center gap-2 shadow-sm transition cursor-pointer"
+        >
+          <Sliders size={13} className={text} />
+          <span>Panoyu Özelleştir ({visibleWidgets.length}/{DEFAULT_WIDGET_ORDER.length})</span>
+        </button>
       </div>
 
-      {/* Main Panel Content Split */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      {visibleWidgets.map((wId) => {
+        if (wId === "crisis_radar") {
+          return renderCrisisRadarWidget();
+        }
+
+        if (wId === "kpi_metrics") {
+          return (
+            <div key="kpi_metrics" className="grid grid-cols-1 md:grid-cols-4 gap-4">
+              {/* Active Calls Stat */}
+              <div className="p-5 bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800/85 rounded-2xl flex items-center justify-between shadow-sm transition-colors duration-300">
+                <div>
+                  <p className="text-[10px] text-slate-400 dark:text-slate-550 font-bold uppercase tracking-wider">Aktif Görüşmeler</p>
+                  <h3 className="text-2xl font-bold mt-1 text-slate-900 dark:text-white flex items-center gap-2">
+                    {activeCalls.length}
+                    {activeCalls.length > 0 && (
+                      <span className="h-2 w-2 rounded-full bg-primary dark:bg-emerald-400 animate-ping"></span>
+                    )}
+                  </h3>
+                </div>
+                <div className="h-10 w-10 rounded-xl bg-purple-50 dark:bg-purple-950/20 border border-purple-100 dark:border-purple-900/30 flex items-center justify-center text-primary dark:text-purple-400">
+                  <Activity size={20} className={activeCalls.length > 0 ? "animate-pulse" : ""} />
+                </div>
+              </div>
+
+              {/* Live CPU Meter */}
+              <div className="p-5 bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800/85 rounded-2xl shadow-sm transition-colors duration-300">
+                <div className="flex items-center justify-between mb-1.5">
+                  <span className="text-[10px] text-slate-400 dark:text-slate-550 font-bold uppercase tracking-wider">Yapay Zeka CPU Yükü</span>
+                  <Cpu size={14} className="text-primary dark:text-indigo-400" />
+                </div>
+                <div className="flex items-center gap-3">
+                  <div className="flex-1 h-2 bg-slate-105 dark:bg-slate-950 rounded-full overflow-hidden border border-slate-200/40 dark:border-slate-850">
+                    <div 
+                      className="h-full bg-gradient-to-r from-indigo-500 to-purple-500 transition-all duration-1000"
+                      style={{ width: `${metrics.cpu}%` }}
+                    ></div>
+                  </div>
+                  <span className="text-xs font-mono font-bold text-slate-700 dark:text-slate-300">{metrics.cpu}%</span>
+                </div>
+              </div>
+
+              {/* Live RAM Meter */}
+              <div className="p-5 bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800/85 rounded-2xl shadow-sm transition-colors duration-300">
+                <div className="flex items-center justify-between mb-1.5">
+                  <span className="text-[10px] text-slate-400 dark:text-slate-550 font-bold uppercase tracking-wider">Bellek (RAM)</span>
+                  <Layers size={14} className="text-pink-500 dark:text-pink-400" />
+                </div>
+                <div className="flex items-center gap-3">
+                  <div className="flex-1 h-2 bg-slate-105 dark:bg-slate-950 rounded-full overflow-hidden border border-slate-200/40 dark:border-slate-850">
+                    <div 
+                      className="h-full bg-gradient-to-r from-pink-500 to-rose-500 transition-all duration-1000"
+                      style={{ width: `${metrics.ram}%` }}
+                    ></div>
+                  </div>
+                  <span className="text-xs font-mono font-bold text-slate-700 dark:text-slate-300">{metrics.ram}%</span>
+                </div>
+              </div>
+
+              {/* Active Websockets */}
+              <div className="p-5 bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800/85 rounded-2xl flex items-center justify-between shadow-sm transition-colors duration-300">
+                <div>
+                  <p className="text-[10px] text-slate-400 dark:text-slate-550 font-bold uppercase tracking-wider">WebSocket Kanalları</p>
+                  <h3 className="text-xl font-bold mt-1 text-slate-900 dark:text-slate-200 font-mono">
+                    {metrics.activeWs} <span className="text-xs text-slate-400 dark:text-slate-500 font-medium">bağlantı</span>
+                  </h3>
+                </div>
+                <div className="h-10 w-10 rounded-xl bg-emerald-50 dark:bg-emerald-950/20 border border-emerald-100 dark:border-emerald-900/30 flex items-center justify-center text-primary dark:text-emerald-400">
+                  <Wifi size={18} />
+                </div>
+              </div>
+            </div>
+          );
+        }
+
+        if (wId === "ops_queues_appointments") {
+          return (
+            <div key="ops_queues_appointments" className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+              {/* Queues Card */}
+              <div className="p-4 bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-2xl shadow-sm space-y-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-extrabold text-slate-800 dark:text-white uppercase tracking-wider flex items-center gap-1.5">
+                    <Users size={14} className={text} /> ACD Kuyruk Özeti
+                  </span>
+                  <span className="text-[10px] font-bold text-slate-400">
+                    {(widgetsSummary?.queues_summary || []).length} Kuyruk
+                  </span>
+                </div>
+                <div className="space-y-2 max-h-48 overflow-y-auto">
+                  {(widgetsSummary?.queues_summary || []).length === 0 ? (
+                    <p className="text-xs text-slate-400 py-4 text-center">Tanımlı kuyruk bulunmuyor.</p>
+                  ) : (
+                    widgetsSummary.queues_summary.map((q) => (
+                      <div
+                        key={q.id || q.extension}
+                        className="px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-950/50 border border-slate-100 dark:border-slate-800 flex items-center justify-between text-xs"
+                      >
+                        <div>
+                          <span className="font-bold text-slate-800 dark:text-slate-200">{q.name}</span>
+                          <span className="font-mono text-[10px] text-slate-400 ml-1.5">#{q.extension}</span>
+                        </div>
+                        <span className={`px-2 py-0.5 rounded-md text-[10px] font-extrabold ${lightBg} ${text}`}>
+                          {q.member_count} Üye
+                        </span>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+
+              {/* Today's Appointments Card */}
+              <div className="p-4 bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-2xl shadow-sm space-y-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-extrabold text-slate-800 dark:text-white uppercase tracking-wider flex items-center gap-1.5">
+                    <Calendar size={14} className={text} /> Bugünkü Randevular
+                  </span>
+                  <span className="text-[10px] font-bold text-slate-400">
+                    {(widgetsSummary?.today_appointments || []).length} Kayıt
+                  </span>
+                </div>
+                <div className="space-y-2 max-h-48 overflow-y-auto">
+                  {(widgetsSummary?.today_appointments || []).length === 0 ? (
+                    <p className="text-xs text-slate-400 py-4 text-center">Bugün için kayıtlı randevu yok.</p>
+                  ) : (
+                    widgetsSummary.today_appointments.map((ap) => (
+                      <div
+                        key={ap.id}
+                        onClick={() =>
+                          window.dispatchEvent(
+                            new CustomEvent("OPEN_CUSTOMER_360", {
+                              detail: { phone: ap.customer_phone, name: ap.customer_name },
+                            })
+                          )
+                        }
+                        className="px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-950/50 border border-slate-100 dark:border-slate-800 flex items-center justify-between text-xs cursor-pointer hover:border-slate-300 transition"
+                      >
+                        <div className="min-w-0">
+                          <p className="font-bold text-slate-800 dark:text-slate-200 truncate">{ap.customer_name}</p>
+                          <span className="text-[10px] font-mono text-slate-400">{ap.customer_phone}</span>
+                        </div>
+                        <span className="text-[10px] font-bold text-indigo-600 dark:text-indigo-400 shrink-0">
+                          {ap.appointment_time
+                            ? new Date(
+                                String(ap.appointment_time).endsWith("Z")
+                                  ? ap.appointment_time
+                                  : `${ap.appointment_time}Z`
+                              ).toLocaleTimeString("tr-TR", { hour: "2-digit", minute: "2-digit" })
+                            : ""}
+                        </span>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+
+              {/* Upcoming Callbacks Card */}
+              <div className="p-4 bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-2xl shadow-sm space-y-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-extrabold text-slate-800 dark:text-white uppercase tracking-wider flex items-center gap-1.5">
+                    <AlarmClock size={14} className={text} /> Bekleyen Geri Aramalar
+                  </span>
+                  <span className="text-[10px] font-bold text-slate-400">
+                    {widgetsSummary?.pending_callbacks_total || 0} Görev
+                  </span>
+                </div>
+                <div className="space-y-2 max-h-48 overflow-y-auto">
+                  {(widgetsSummary?.upcoming_callbacks || []).length === 0 ? (
+                    <p className="text-xs text-slate-400 py-4 text-center">Bekleyen geri arama görevi yok.</p>
+                  ) : (
+                    widgetsSummary.upcoming_callbacks.map((cb) => (
+                      <div
+                        key={cb.id}
+                        onClick={() =>
+                          window.dispatchEvent(
+                            new CustomEvent("OPEN_CUSTOMER_360", {
+                              detail: { phone: cb.customer_phone, name: cb.customer_name },
+                            })
+                          )
+                        }
+                        className="px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-950/50 border border-slate-100 dark:border-slate-800 flex items-center justify-between text-xs cursor-pointer hover:border-slate-300 transition"
+                      >
+                        <div className="min-w-0">
+                          <p className="font-bold text-slate-800 dark:text-slate-200 truncate">
+                            {cb.customer_name || cb.customer_phone}
+                          </p>
+                          <span className="text-[10px] text-slate-400 truncate block">
+                            {cb.note || cb.assigned_user_name || ""}
+                          </span>
+                        </div>
+                        <span className="text-[10px] font-bold text-amber-600 dark:text-amber-400 shrink-0">
+                          {cb.scheduled_at
+                            ? new Date(
+                                String(cb.scheduled_at).endsWith("Z")
+                                  ? cb.scheduled_at
+                                  : `${cb.scheduled_at}Z`
+                              ).toLocaleTimeString("tr-TR", { hour: "2-digit", minute: "2-digit" })
+                            : ""}
+                        </span>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+            </div>
+          );
+        }
+
+        if (wId === "ai_budget_top_callers") {
+          const providers = budgetSummary && typeof budgetSummary === "object"
+            ? Object.entries(budgetSummary).filter(([, val]) => val && typeof val === "object" && "spent_credit" in val).slice(0, 4)
+            : [];
+          return (
+            <div key="ai_budget_top_callers" className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+              <div className="p-4 bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-2xl shadow-sm space-y-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-extrabold text-slate-800 dark:text-white uppercase tracking-wider flex items-center gap-1.5">
+                    <Database size={14} className={text} /> AI Bütçe & Kredi Tüketim Özeti
+                  </span>
+                </div>
+                {providers.length === 0 ? (
+                  <p className="text-xs text-slate-400 py-4 text-center">Bütçe verisi yükleniyor veya tanımlı değil.</p>
+                ) : (
+                  <div className="grid grid-cols-2 gap-2.5">
+                    {providers.map(([prov, info]) => (
+                      <div
+                        key={prov}
+                        className="p-3 rounded-xl bg-slate-50 dark:bg-slate-950/50 border border-slate-100 dark:border-slate-800"
+                      >
+                        <span className="text-[10px] font-extrabold text-slate-500 uppercase block">{prov}</span>
+                        <p className="text-sm font-extrabold text-slate-900 dark:text-white font-mono mt-0.5">
+                          ${Number(info.spent_credit || 0).toFixed(2)}
+                          <span className="text-[10px] text-slate-400 font-normal">
+                            {" "}/ ${Number(info.loaded_credit || 0).toFixed(0)}
+                          </span>
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              <div className="p-4 bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-2xl shadow-sm space-y-3">
+                <span className="text-xs font-extrabold text-slate-800 dark:text-white uppercase tracking-wider flex items-center gap-1.5">
+                  <PhoneCall size={14} className={text} /> Bugün En Çok Arayan Numaralar
+                </span>
+                <div className="space-y-2">
+                  {(widgetsSummary?.top_callers_today || []).length === 0 ? (
+                    <p className="text-xs text-slate-400 py-4 text-center">Bugün henüz çağrı kaydı oluşmadı.</p>
+                  ) : (
+                    widgetsSummary.top_callers_today.map((tc) => (
+                      <div
+                        key={tc.caller_number}
+                        onClick={() =>
+                          window.dispatchEvent(
+                            new CustomEvent("OPEN_CUSTOMER_360", {
+                              detail: { phone: tc.caller_number },
+                            })
+                          )
+                        }
+                        className="px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-950/50 border border-slate-100 dark:border-slate-800 flex items-center justify-between text-xs cursor-pointer hover:border-slate-300 transition"
+                      >
+                        <span className="font-mono font-bold text-slate-800 dark:text-slate-200">
+                          {tc.caller_number}
+                        </span>
+                        <span className={`px-2 py-0.5 rounded-md text-[10px] font-extrabold ${lightBg} ${text}`}>
+                          {tc.count} Çağrı • 360°
+                        </span>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+            </div>
+          );
+        }
+
+        if (wId !== "active_calls_console") return null;
+
+        return (
+          /* Main Panel Content Split */
+          <div key="active_calls_console" className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         
         {/* Left Side: Active Calls List */}
         <div className="lg:col-span-1 flex flex-col bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800/85 rounded-2xl p-4 shadow-sm min-h-[500px] transition-colors duration-300">
@@ -645,6 +1167,22 @@ export default function LiveDashboardPanel({ backendHost = "localhost:8000" }) {
                           Rehbere Kaydet
                         </button>
                       )}
+                      <button
+                        type="button"
+                        onClick={() =>
+                          window.dispatchEvent(
+                            new CustomEvent("OPEN_CUSTOMER_360", {
+                              detail: {
+                                phone: selectedCall.caller_number,
+                                name: selectedCall.caller_name || "",
+                              },
+                            })
+                          )
+                        }
+                        className={`px-2 py-0.5 ${lightBg} ${text} border ${borderLight} rounded text-[9px] font-extrabold transition shrink-0 cursor-pointer`}
+                      >
+                        360° Kart
+                      </button>
                     </h4>
                     <p className="text-[9px] font-mono text-slate-400 dark:text-slate-500 truncate max-w-xs">{selectedCall.id}</p>
                   </div>
@@ -928,6 +1466,110 @@ export default function LiveDashboardPanel({ backendHost = "localhost:8000" }) {
         </div>
 
       </div>
+        );
+      })}
+
+      {/* Widget Customizer Modal */}
+      {showCustomizeModal && (
+        <div
+          onClick={() => setShowCustomizeModal(false)}
+          className="fixed inset-0 bg-slate-950/60 backdrop-blur-sm z-[165] flex items-center justify-center p-4"
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="w-full max-w-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl shadow-2xl overflow-hidden animate-in zoom-in-95 duration-150"
+          >
+            <div className="px-6 py-4 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between bg-slate-50/60 dark:bg-slate-950/40">
+              <div>
+                <h3 className="text-xs font-extrabold text-slate-900 dark:text-white uppercase tracking-wider flex items-center gap-2">
+                  <Sliders size={14} className={text} />
+                  Kişisel Özet Ekranı Düzeni
+                </h3>
+                <p className="text-[10px] text-slate-500 dark:text-slate-400 mt-0.5">
+                  Görmek istediğiniz modülleri açıp kapatın ve yukarı/aşağı oklarla sıralayın.
+                </p>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => persistWidgetLayout([...DEFAULT_WIDGET_ORDER], [])}
+                  title="Varsayılan Düzene Sıfırla"
+                  className="px-2.5 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 text-[10px] font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center gap-1 cursor-pointer"
+                >
+                  <RotateCcw size={11} />
+                  <span>Sıfırla</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowCustomizeModal(false)}
+                  className="p-1.5 rounded-xl text-slate-400 hover:text-slate-600 cursor-pointer"
+                >
+                  <X size={16} />
+                </button>
+              </div>
+            </div>
+
+            <div className="p-5 space-y-2.5 max-h-[65vh] overflow-y-auto">
+              {widgetOrder.map((wId, idx) => {
+                const meta = DASHBOARD_WIDGET_CATALOG.find((w) => w.id === wId);
+                if (!meta) return null;
+                const isVisible = !hiddenWidgets.includes(wId);
+
+                return (
+                  <div
+                    key={wId}
+                    className={`p-3.5 rounded-2xl border flex items-center justify-between gap-3 transition ${
+                      isVisible
+                        ? "bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800"
+                        : "bg-slate-50/70 dark:bg-slate-950/40 border-slate-200/50 dark:border-slate-800/50 opacity-60"
+                    }`}
+                  >
+                    <div className="min-w-0">
+                      <p className="text-xs font-bold text-slate-800 dark:text-slate-100">
+                        {meta.label}
+                      </p>
+                      <p className="text-[10px] text-slate-400 mt-0.5">{meta.description}</p>
+                    </div>
+
+                    <div className="flex items-center gap-1 shrink-0">
+                      <button
+                        type="button"
+                        disabled={idx === 0}
+                        onClick={() => moveWidgetOrder(idx, -1)}
+                        className="p-1.5 rounded-lg border border-slate-200 dark:border-slate-700 text-slate-500 hover:text-slate-800 disabled:opacity-30 cursor-pointer"
+                        title="Yukarı Taşı"
+                      >
+                        <ArrowUp size={13} />
+                      </button>
+                      <button
+                        type="button"
+                        disabled={idx === widgetOrder.length - 1}
+                        onClick={() => moveWidgetOrder(idx, 1)}
+                        className="p-1.5 rounded-lg border border-slate-200 dark:border-slate-700 text-slate-500 hover:text-slate-800 disabled:opacity-30 cursor-pointer"
+                        title="Aşağı Taşı"
+                      >
+                        <ArrowDown size={13} />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => toggleWidgetVisibility(wId)}
+                        className={`px-2.5 py-1.5 rounded-lg text-[10px] font-extrabold flex items-center gap-1 cursor-pointer ${
+                          isVisible
+                            ? `${bg} text-white`
+                            : "bg-slate-200 dark:bg-slate-800 text-slate-600 dark:text-slate-400"
+                        }`}
+                      >
+                        {isVisible ? <Eye size={12} /> : <EyeOff size={12} />}
+                        <span>{isVisible ? "Açık" : "Gizli"}</span>
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      )}
 
       <AddContactModal
         isOpen={showAddContactModal}

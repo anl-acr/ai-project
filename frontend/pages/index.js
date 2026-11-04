@@ -80,6 +80,7 @@ import {
   Pin,
   Plus,
   PanelTop,
+  Keyboard,
   X
 } from "lucide-react";
 import { getSafeThemeColor, SYSTEM_THEME_PRESETS, rgbStringToHex } from "../utils/theme";
@@ -113,6 +114,20 @@ import {
   getLastVisitedAgentSubTab,
   resolveUserLandingTab
 } from "../utils/landingPagePrefs";
+import { webphoneManager } from "../utils/webphoneManager";
+import {
+  resolveEffectiveDarkMode,
+  applyDocumentDarkClass
+} from "../utils/themeSchedule";
+import {
+  resolveEffectiveShortcutsMap,
+  eventToShortcutCombo,
+  isEditableTarget
+} from "../utils/keyboardShortcuts";
+
+const NotificationCenterBell = dynamic(() => import("../components/common/NotificationCenterBell"), { ssr: false });
+const KeyboardShortcutsModal = dynamic(() => import("../components/common/KeyboardShortcutsModal"), { ssr: false });
+const Customer360Drawer = dynamic(() => import("../components/common/Customer360Drawer"), { ssr: false });
 import AgentPanel, {
   ALL_TABS as CALL_PANEL_ALL_TABS,
   loadCallPanelPrefs,
@@ -1742,23 +1757,50 @@ export default function Home() {
   };
 
 
-  React.useEffect(() => {
-    const savedTheme = localStorage.getItem("theme");
-    if (savedTheme === "dark") {
-      setIsDarkMode(true);
-    } else if (savedTheme === "light") {
-      setIsDarkMode(false);
-    } else {
-      setIsDarkMode(false); // default light
-    }
-  }, []);
+  const [isShortcutsModalOpen, setIsShortcutsModalOpen] = useState(false);
+  const autoOpened360CallRef = React.useRef("");
 
   React.useEffect(() => {
-    if (isDarkMode) {
-      document.documentElement.classList.add("dark");
-    } else {
-      document.documentElement.classList.remove("dark");
+    const savedTheme = localStorage.getItem("theme") || "light";
+    const autoCfg = callPanelPrefs?.autoThemeConfig || { mode: "manual", darkStart: "19:00", darkEnd: "07:00" };
+
+    const evaluateAndApply = () => {
+      const nextDark = resolveEffectiveDarkMode(autoCfg, localStorage.getItem("theme") || savedTheme);
+      setIsDarkMode(nextDark);
+      applyDocumentDarkClass(nextDark);
+    };
+
+    evaluateAndApply();
+
+    let mediaQuery = null;
+    const onMediaChange = () => {
+      if (autoCfg.mode === "system") evaluateAndApply();
+    };
+    if (typeof window !== "undefined" && typeof window.matchMedia === "function") {
+      mediaQuery = window.matchMedia("(prefers-color-scheme: dark)");
+      if (typeof mediaQuery.addEventListener === "function") {
+        mediaQuery.addEventListener("change", onMediaChange);
+      }
     }
+
+    let scheduleTimer = null;
+    if (autoCfg.mode === "schedule") {
+      scheduleTimer = setInterval(() => {
+        if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
+        evaluateAndApply();
+      }, 30000);
+    }
+
+    return () => {
+      if (mediaQuery && typeof mediaQuery.removeEventListener === "function") {
+        mediaQuery.removeEventListener("change", onMediaChange);
+      }
+      if (scheduleTimer) clearInterval(scheduleTimer);
+    };
+  }, [callPanelPrefs?.autoThemeConfig?.mode, callPanelPrefs?.autoThemeConfig?.darkStart, callPanelPrefs?.autoThemeConfig?.darkEnd]);
+
+  React.useEffect(() => {
+    applyDocumentDarkClass(isDarkMode);
   }, [isDarkMode]);
 
   const toggleTheme = () => {
@@ -1766,8 +1808,103 @@ export default function Home() {
     const modeStr = newMode ? "dark" : "light";
     setIsDarkMode(newMode);
     localStorage.setItem("theme", modeStr);
-    persistUserVisualPatch({ theme_mode: modeStr });
+    // Switch autoThemeConfig to manual when user explicitly clicks manual toggle
+    if (callPanelPrefs?.autoThemeConfig?.mode && callPanelPrefs.autoThemeConfig.mode !== "manual") {
+      const current = loadCallPanelPrefs(currentUser);
+      const next = saveCallPanelPrefs(currentUser, {
+        ...current,
+        autoThemeConfig: { ...(current.autoThemeConfig || {}), mode: "manual" }
+      });
+      setCallPanelPrefs(next);
+      persistUserVisualPatch({ theme_mode: modeStr, call_panel_prefs: next });
+    } else {
+      persistUserVisualPatch({ theme_mode: modeStr });
+    }
   };
+
+  // Global Customizable Agent Keyboard Shortcuts + '?' Guide
+  React.useEffect(() => {
+    if (!isLoggedIn) return undefined;
+    const shortcutsMap = resolveEffectiveShortcutsMap(callPanelPrefs?.keyboardShortcuts || {});
+
+    const handleGlobalShortcuts = (e) => {
+      if (isShortcutsModalOpen) return;
+
+      // '?' opens Keyboard Shortcuts Guide when not typing in an input
+      if (!e.ctrlKey && !e.metaKey && !e.altKey && e.key === "?" && !isEditableTarget(e.target)) {
+        e.preventDefault();
+        setIsShortcutsModalOpen(true);
+        return;
+      }
+
+      const combo = eventToShortcutCombo(e);
+      if (!combo) return;
+
+      const matchedEntry = Object.entries(shortcutsMap).find(([, val]) => val && val === combo);
+      if (!matchedEntry) return;
+      const [actionId] = matchedEntry;
+
+      e.preventDefault();
+      if (actionId === "answer_call") {
+        webphoneManager.answerCall();
+      } else if (actionId === "hangup_call") {
+        webphoneManager.hangupCall();
+      } else if (actionId === "toggle_mute") {
+        webphoneManager.toggleMute();
+      } else if (actionId === "toggle_hold") {
+        webphoneManager.toggleHold();
+      } else if (actionId === "status_available") {
+        handleQuickProfileSwitch("available");
+      } else if (actionId === "status_away") {
+        handleQuickProfileSwitch("away");
+      } else if (actionId === "status_meeting") {
+        handleQuickProfileSwitch("meeting");
+      } else if (actionId === "open_webphone") {
+        setActiveTab("call-center");
+        setTimeout(() => {
+          window.dispatchEvent(
+            new CustomEvent("SWITCH_AGENT_PANEL_SUBTAB", { detail: { subTab: "webphone" } })
+          );
+        }, 50);
+      } else if (actionId === "open_notifications") {
+        window.dispatchEvent(new CustomEvent("TOGGLE_NOTIFICATION_DRAWER"));
+      } else if (actionId === "open_customer_360") {
+        const st = webphoneManager.getState();
+        const num = st?.remoteNumber || st?.dialNumber;
+        if (num) {
+          window.dispatchEvent(
+            new CustomEvent("OPEN_CUSTOMER_360", {
+              detail: { phone: num, name: st?.remoteDisplayName || "" }
+            })
+          );
+        }
+      }
+    };
+
+    window.addEventListener("keydown", handleGlobalShortcuts);
+    return () => window.removeEventListener("keydown", handleGlobalShortcuts);
+  }, [isLoggedIn, isShortcutsModalOpen, callPanelPrefs?.keyboardShortcuts]);
+
+  // Optional Auto-Open Customer 360° Drawer when incoming call rings
+  React.useEffect(() => {
+    if (!isLoggedIn || !callPanelPrefs?.autoOpenCustomer360OnCall) return undefined;
+    const unsub = webphoneManager.subscribe((st) => {
+      if (st.callStatus === "Ringing" && st.remoteNumber) {
+        const key = `${st.activeSipCallId || ""}-${st.remoteNumber}`;
+        if (autoOpened360CallRef.current !== key) {
+          autoOpened360CallRef.current = key;
+          window.dispatchEvent(
+            new CustomEvent("OPEN_CUSTOMER_360", {
+              detail: { phone: st.remoteNumber, name: st.remoteDisplayName || "" }
+            })
+          );
+        }
+      } else if (st.callStatus === "Idle") {
+        autoOpened360CallRef.current = "";
+      }
+    });
+    return () => unsub();
+  }, [isLoggedIn, callPanelPrefs?.autoOpenCustomer360OnCall]);
 
   const sendUserAuditActivity = React.useCallback((action, module, screenName, summary, userOverride = null) => {
     try {
@@ -3491,10 +3628,10 @@ export default function Home() {
           </p>
           <button
             onClick={() => setActiveTab("changelog")}
-            title="Sistem Versiyonu ve Değişiklik Günlüğü (v2.8.1 On-Premise)"
+            title="Sistem Versiyonu ve Değişiklik Günlüğü (v2.9.0 On-Premise)"
             className="flex items-center gap-1 text-[10px] font-bold text-slate-500 dark:text-slate-400 hover:text-primary dark:hover:text-indigo-400 hover:underline transition cursor-pointer bg-transparent border-0 p-0 outline-none focus-visible:ring-2 focus-visible:ring-primary/50 rounded"
           >
-            <span>{isSidebarCollapsed ? "v2.8.1" : "v2.8.1 (On-Premise)"}</span>
+            <span>{isSidebarCollapsed ? "v2.9.0" : "v2.9.0 (On-Premise)"}</span>
           </button>
         </div>
       </aside>
@@ -3897,11 +4034,37 @@ export default function Home() {
               </button>
             )}
 
+            <NotificationCenterBell
+              backendHost={backendHost}
+              currentUser={currentUser}
+              currentRolePermissions={currentRolePermissions}
+              onNavigateTab={(targetTab, targetSubTab) => {
+                setActiveTab(targetTab);
+                if (targetTab === "call-center" && targetSubTab) {
+                  setTimeout(() => {
+                    window.dispatchEvent(
+                      new CustomEvent("SWITCH_AGENT_PANEL_SUBTAB", {
+                        detail: { subTab: targetSubTab }
+                      })
+                    );
+                  }, 60);
+                }
+              }}
+            />
+
             <button
               type="button"
               onClick={toggleTheme}
               className="p-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors shadow-sm cursor-pointer"
-              title={isDarkMode ? "Aydınlık Mod" : "Karanlık Mod"}
+              title={
+                callPanelPrefs?.autoThemeConfig?.mode === "schedule"
+                  ? `Otomatik Karanlık Mod Aktif (${callPanelPrefs.autoThemeConfig.darkStart} - ${callPanelPrefs.autoThemeConfig.darkEnd})`
+                  : callPanelPrefs?.autoThemeConfig?.mode === "system"
+                  ? "Sistem Temasını Takip Ediyor"
+                  : isDarkMode
+                  ? "Aydınlık Mod"
+                  : "Karanlık Mod"
+              }
             >
               {isDarkMode ? <Sun size={14} className="text-amber-400" /> : <Moon size={14} className="text-primary" />}
             </button>
@@ -4117,6 +4280,20 @@ export default function Home() {
                         )}
                       </button>
                     )}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setProfileDropdownOpen(false);
+                        setIsShortcutsModalOpen(true);
+                      }}
+                      className="w-full text-left px-3 py-2.5 rounded-xl text-xs font-bold text-slate-700 dark:text-slate-100 hover:bg-slate-100/70 dark:hover:bg-slate-800 flex items-center justify-between gap-2 transition-colors cursor-pointer group"
+                    >
+                      <span className="flex items-center gap-2.5">
+                        <Keyboard size={15} className={`text-slate-500 dark:text-slate-300 group-hover:${text} transition-colors`} />
+                        <span>Klavye Kısayolları</span>
+                      </span>
+                      <kbd className="px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-[9px] font-mono font-bold text-slate-500">?</kbd>
+                    </button>
                     <button
                       type="button"
                       onClick={() => {
@@ -6112,6 +6289,160 @@ export default function Home() {
                   })()}
                 </div>
 
+                {/* Auto Dark Mode & Customer 360 Screen-Pop Preferences */}
+                <div className={`p-4 bg-slate-50/70 dark:bg-slate-950/40 border border-slate-200/80 dark:border-slate-800 rounded-2xl space-y-4 ${activeModalTab === "profile" ? "block" : "hidden"}`}>
+                  {(() => {
+                    const autoCfg = callPanelPrefs?.autoThemeConfig || { mode: "manual", darkStart: "19:00", darkEnd: "07:00" };
+                    const updateAutoThemeLive = (patch) => {
+                      const current = loadCallPanelPrefs(currentUser);
+                      const mergedAuto = {
+                        mode: "manual",
+                        darkStart: "19:00",
+                        darkEnd: "07:00",
+                        ...(current.autoThemeConfig || {}),
+                        ...patch,
+                      };
+                      const next = saveCallPanelPrefs(currentUser, {
+                        ...current,
+                        autoThemeConfig: mergedAuto,
+                      });
+                      setCallPanelPrefs(next);
+                      const nextDark = resolveEffectiveDarkMode(mergedAuto, localStorage.getItem("theme") || "light");
+                      setIsDarkMode(nextDark);
+                      applyDocumentDarkClass(nextDark);
+                      persistUserVisualPatch({ call_panel_prefs: next });
+                    };
+
+                    const toggleAutoOpen360 = () => {
+                      const current = loadCallPanelPrefs(currentUser);
+                      const nextVal = !Boolean(current.autoOpenCustomer360OnCall);
+                      const next = saveCallPanelPrefs(currentUser, {
+                        ...current,
+                        autoOpenCustomer360OnCall: nextVal,
+                      });
+                      setCallPanelPrefs(next);
+                      persistUserVisualPatch({ call_panel_prefs: next });
+                    };
+
+                    return (
+                      <>
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <div className="flex items-center gap-2.5">
+                            <div className={`p-2 rounded-xl ${lightBg} ${text}`}>
+                              <Moon size={15} />
+                            </div>
+                            <div>
+                              <h5 className="text-[11px] font-extrabold text-slate-800 dark:text-white uppercase tracking-wider">
+                                Otomatik Karanlık Mod & Görünüm Zamanlaması
+                              </h5>
+                              <p className="text-[9.5px] text-slate-400 dark:text-slate-500 mt-0.5">
+                                Akşam mesaisinde göz yorgunluğunu önlemek için saate veya işletim sisteminize göre otomatik karanlık moda geçin.
+                              </p>
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                          {[
+                            {
+                              id: "manual",
+                              title: "Manuel Seçim",
+                              desc: "Üst bardaki Güneş/Ay ikonundan kendiniz değiştirirsiniz.",
+                            },
+                            {
+                              id: "system",
+                              title: "İşletim Sistemiyle Eşitle",
+                              desc: "Bilgisayarınızın gece/gündüz temasını otomatik takip eder.",
+                            },
+                            {
+                              id: "schedule",
+                              title: "Saate Göre Otomatik",
+                              desc: "Belirlediğiniz akşam saatinde otomatik Karanlık Moda geçer.",
+                            },
+                          ].map((opt) => {
+                            const active = (autoCfg.mode || "manual") === opt.id;
+                            return (
+                              <button
+                                key={opt.id}
+                                type="button"
+                                onClick={() => updateAutoThemeLive({ mode: opt.id })}
+                                className={`p-3 rounded-xl border text-left transition cursor-pointer ${
+                                  active
+                                    ? `${border} ${lightBg} shadow-sm`
+                                    : "bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 hover:border-slate-300"
+                                }`}
+                              >
+                                <div className="flex items-center justify-between gap-1">
+                                  <span className="text-[11px] font-extrabold text-slate-800 dark:text-white">
+                                    {opt.title}
+                                  </span>
+                                  {active && <Check size={13} className={text} />}
+                                </div>
+                                <p className="text-[9.5px] text-slate-400 dark:text-slate-500 mt-1 leading-relaxed">
+                                  {opt.desc}
+                                </p>
+                              </button>
+                            );
+                          })}
+                        </div>
+
+                        {autoCfg.mode === "schedule" && (
+                          <div className="grid grid-cols-2 gap-3 p-3 rounded-xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800">
+                            <div>
+                              <label className="text-[10px] font-bold text-slate-500 uppercase block mb-1">
+                                Karanlık Mod Başlangıcı
+                              </label>
+                              <input
+                                type="time"
+                                value={autoCfg.darkStart || "19:00"}
+                                onChange={(e) => updateAutoThemeLive({ darkStart: e.target.value })}
+                                className="w-full px-3 py-1.5 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-xs font-mono font-bold text-slate-800 dark:text-slate-200"
+                              />
+                            </div>
+                            <div>
+                              <label className="text-[10px] font-bold text-slate-500 uppercase block mb-1">
+                                Aydınlık Moda Dönüş
+                              </label>
+                              <input
+                                type="time"
+                                value={autoCfg.darkEnd || "07:00"}
+                                onChange={(e) => updateAutoThemeLive({ darkEnd: e.target.value })}
+                                className="w-full px-3 py-1.5 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-xs font-mono font-bold text-slate-800 dark:text-slate-200"
+                              />
+                            </div>
+                          </div>
+                        )}
+
+                        <div className="pt-3 border-t border-slate-200/70 dark:border-slate-800 flex items-center justify-between gap-4">
+                          <div>
+                            <h6 className="text-[11px] font-extrabold text-slate-800 dark:text-white">
+                              Gelen Çağrıda Müşteri 360° Kartını Otomatik Aç
+                            </h6>
+                            <p className="text-[9.5px] text-slate-400 dark:text-slate-500 mt-0.5">
+                              Web Telefonunuz çaldığında arayan müşterinin geçmiş çağrı, WhatsApp ve VIP notlarını otomatik olarak sağ çekmecede açar.
+                            </p>
+                          </div>
+                          <button
+                            type="button"
+                            role="switch"
+                            aria-checked={Boolean(callPanelPrefs?.autoOpenCustomer360OnCall)}
+                            onClick={toggleAutoOpen360}
+                            className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors shrink-0 cursor-pointer ${
+                              callPanelPrefs?.autoOpenCustomer360OnCall ? bg : "bg-slate-200 dark:bg-slate-800"
+                            }`}
+                          >
+                            <span
+                              className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                                callPanelPrefs?.autoOpenCustomer360OnCall ? "translate-x-6" : "translate-x-1"
+                              }`}
+                            />
+                          </button>
+                        </div>
+                      </>
+                    );
+                  })()}
+                </div>
+
                 {/* User Personal Startup / Landing Screen Preference */}
                 <div className={`p-4 bg-slate-50/70 dark:bg-slate-950/40 border border-slate-200/80 dark:border-slate-800 rounded-2xl space-y-3.5 ${activeModalTab === "profile" ? "block" : "hidden"}`}>
                   {(() => {
@@ -7558,6 +7889,45 @@ export default function Home() {
             currentUser={currentUser}
           />
         )}
+        {/* Global Customer 360° Unified Drawer */}
+        {isLoggedIn && (
+          <Customer360Drawer
+            backendHost={backendHost}
+            currentUser={currentUser}
+            currentRolePermissions={currentRolePermissions}
+            onNavigateTab={(targetTab, targetSubTab) => {
+              setActiveTab(targetTab);
+              if (targetTab === "call-center" && targetSubTab) {
+                setTimeout(() => {
+                  window.dispatchEvent(
+                    new CustomEvent("SWITCH_AGENT_PANEL_SUBTAB", {
+                      detail: { subTab: targetSubTab }
+                    })
+                  );
+                }, 60);
+              }
+            }}
+          />
+        )}
+
+        {/* Global Customizable Keyboard Shortcuts Modal */}
+        {isLoggedIn && isShortcutsModalOpen && (
+          <KeyboardShortcutsModal
+            isOpen={isShortcutsModalOpen}
+            onClose={() => setIsShortcutsModalOpen(false)}
+            customShortcuts={callPanelPrefs?.keyboardShortcuts || {}}
+            onSaveShortcuts={(nextShortcuts) => {
+              const current = loadCallPanelPrefs(currentUser);
+              const next = saveCallPanelPrefs(currentUser, {
+                ...current,
+                keyboardShortcuts: nextShortcuts
+              });
+              setCallPanelPrefs(next);
+              persistUserVisualPatch({ call_panel_prefs: next });
+            }}
+          />
+        )}
+
         {/* Global License Verification & Renewal Modal */}
         {isLicenseModalOpen && (
           <LicenseModal

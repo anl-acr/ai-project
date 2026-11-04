@@ -1166,6 +1166,22 @@ export default function AgentWebphoneTab({
                             Rehbere Ekle
                           </button>
                         )}
+                        {!maskPhoneNumbers && remoteNumber && (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              window.dispatchEvent(
+                                new CustomEvent("OPEN_CUSTOMER_360", {
+                                  detail: { phone: remoteNumber, name: resolvedDisplayName || "" },
+                                })
+                              )
+                            }
+                            title="Müşteri 360° Tüm Kanal Geçmişini Aç (Alt+C)"
+                            className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-lg border ${lightBg} ${text} ${borderLight} text-[11px] font-extrabold transition-all cursor-pointer`}
+                          >
+                            <span>360° Kart</span>
+                          </button>
+                        )}
                         {canCtiScreenPop && userCtiConfig?.enabled !== false && userCtiConfig?.screen_pop_url && (
                           <button
                             type="button"
