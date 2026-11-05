@@ -3673,10 +3673,10 @@ export default function Home() {
           </p>
           <button
             onClick={() => setActiveTab("changelog")}
-            title="Sistem Versiyonu ve Değişiklik Günlüğü (v2.9.1 On-Premise)"
+            title="Sistem Versiyonu ve Değişiklik Günlüğü (v2.9.2 On-Premise)"
             className="flex items-center gap-1 text-[10px] font-bold text-slate-500 dark:text-slate-400 hover:text-primary dark:hover:text-indigo-400 hover:underline transition cursor-pointer bg-transparent border-0 p-0 outline-none focus-visible:ring-2 focus-visible:ring-primary/50 rounded"
           >
-            <span>{isSidebarCollapsed ? "v2.9.1" : "v2.9.1 (On-Premise)"}</span>
+            <span>{isSidebarCollapsed ? "v2.9.2" : "v2.9.2 (On-Premise)"}</span>
           </button>
         </div>
       </aside>
@@ -6515,12 +6515,12 @@ export default function Home() {
                               {
                                 id: "fluid",
                                 title: "Akıcı (Varsayılan)",
-                                desc: "Pencere geçişleri, kademeli kart akışı, canlı grafik çizimi ve sayaç animasyonları aktif."
+                                desc: "Yumuşak ve sakin pencere süzülmesi (540ms), kademeli kart akışı, canlı grafik çizimi ve sayaç animasyonu."
                               },
                               {
                                 id: "minimal",
                                 title: "Minimal (Hızlı)",
-                                desc: "Yalnızca 120ms hafif netleşme; kademeli gecikmeler olmadan ekstra seri sekme geçişi."
+                                desc: "Yalnızca 200ms hafif netleşme; kademeli gecikmeler olmadan daha seri sekme geçişi."
                               },
                               {
                                 id: "off",

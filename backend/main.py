@@ -27355,18 +27355,45 @@ async def get_system_version_info():
         pass
 
     return {
-        "version": "v2.9.1",
+        "version": "v2.9.2",
         "commit_hash": live_commit,
         "release_date": "5 Kasım 2026",
         "status": "Güncel / Canlı Sürüm",
         "environment": "Production (On-Premise)",
         "changelog": [
             {
-                "version": "v2.9.1",
+                "version": "v2.9.2",
                 "commit_hash": live_commit,
                 "release_date": "5 Kasım 2026",
                 "badge": "Canlı Sürüm (Güncel)",
                 "badge_type": "current",
+                "title": "Sinematik ve Sakinleştirilmiş GPU Geçiş Hızları, WAAPI Sahne Süzülmesi & Akıcı Grafik Kalibrasyonu",
+                "summary": "Kullanıcı geri bildirimi doğrultusunda tüm arayüzdeki pencere, kademeli kart/bölüm, grafik çizimi, açılır pencere ve KPI sayaç animasyonlarının hızları aceleci olmayacak, gözü yormadan net ve zarif biçimde hissedilecek şekilde yeniden kalibre edildi.",
+                "features": [
+                    {
+                        "title": "🎬 Sakin ve Belirgin Sahne Süzülmesi (540ms WAAPI + Scoped View Transition)",
+                        "desc": "Sekme ve alt modül geçişlerindeki pencere süzülmesi 220ms'den 540ms yumuşak yay eğrisine çıkarıldı; Web Animations API ile her sekme değişiminde kesintisiz ve sabit konumları (fixed modal) bozmadan çalışması sağlandı."
+                    },
+                    {
+                        "title": "🌊 Gözle Hissedilir Kademeli Kart & Bölüm Akışı (65ms–75ms Dalga Adımı)",
+                        "desc": "KPI ızgaraları ve dikey sayfa bölümlerinin aynı anda sert belirmesi yerine 65ms–75ms aralıklarla ve 560ms süzülme süresiyle yukarıdan aşağıya sakin bir dalga halinde yerleşmesi sağlandı."
+                    },
+                    {
+                        "title": "📊 Zarif Grafik Dolumu (950ms), SVG Çizgi Çizimi (1200ms) & KPI Sayaçları (850ms)",
+                        "desc": "Sütun/bar grafiklerinin dolumu 950ms'ye, saatlik yoğunluk SVG eğrilerinin çizimi 1200ms'ye ve KPI rakamlarının hedef değere sayarak ulaşması 850ms dördüncü derece yumuşatma eğrisine yükseltildi."
+                    },
+                    {
+                        "title": "🪟 Yumuşatılmış Açılır Pencere (Modal / Drawer) Geçişleri (340ms)",
+                        "desc": "Sistem genelindeki modal, çekmece ve açılır menülerin (.animate-in) giriş süresi 180ms'den 340ms'ye çıkarılarak ana ekran ritmiyle uyumlu hale getirildi."
+                    }
+                ]
+            },
+            {
+                "version": "v2.9.1",
+                "commit_hash": "558bee4",
+                "release_date": "5 Kasım 2026",
+                "badge": "Önceki Sürüm",
+                "badge_type": "previous",
                 "title": "4 Katmanlı GPU Ekran Geçiş Mimarisi, Kademeli Kart Yüklenişi, Canlı Grafik Çizimi & Işıltılı İskelet Önizleme",
                 "summary": "Sistemdeki 65'ten fazla ekran, alt sekme, modal, grafik ve tablo geçişine sıfır takılma ile çalışan 4 katmanlı GPU mikro-animasyon motoru entegre edildi: Kapsamlı sahne geçişleri (Scoped View Transition & @starting-style), kademeli kart/tablo dalga akışı (Staggered Cascade), canlı grafik/sütun dolumu ve akıcı KPI sayaçları, veri yüklenirken ışıltılı iskelet (Shimmer Skeleton) önizlemesi ve Profil Ayarları üzerinden 'Akıcı / Minimal / Kapalı' hız kontrolü.",
                 "features": [

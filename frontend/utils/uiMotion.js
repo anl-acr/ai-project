@@ -100,7 +100,26 @@ export function decorateStageSubtreeForMotion(rootEl) {
   const needsSiblingIndexVar = !supportsCssSiblingIndex();
 
   try {
-    // 1. Decorate multi-card grids & top-level section stacks for staggered cascade
+    // 1. Decorate top-level vertical section stacks so header -> KPIs -> charts -> tables cascade gently
+    const sectionStacks = rootEl.querySelectorAll(
+      ":scope > .space-y-4, :scope > .space-y-5, :scope > .space-y-6, :scope > .flex-col.gap-5, :scope > .flex-col.gap-6"
+    );
+    sectionStacks.forEach((stack, sIdx) => {
+      if (sIdx > 3) return;
+      if (stack.closest("[popover], [role='dialog'], .aida-no-stagger")) return;
+      const children = Array.from(stack.children).filter(
+        (ch) => ch.nodeType === 1 && !ch.classList.contains("fixed")
+      );
+      if (children.length < 2 || children.length > 10) return;
+      stack.classList.add("aida-stagger-sections");
+      if (needsSiblingIndexVar) {
+        children.forEach((child, idx) => {
+          child.style.setProperty("--sibling-index", String(Math.min(idx + 1, 8)));
+        });
+      }
+    });
+
+    // 2. Decorate multi-card grids for staggered cascade
     const grids = rootEl.querySelectorAll(".grid");
     grids.forEach((grid, gIdx) => {
       if (gIdx > 8) return; // Cap per screen for zero overhead
@@ -166,14 +185,32 @@ export function useStageRevealObserver(containerRef, triggerKey) {
     const mode = getEffectiveMotionMode(readDocumentMotionMode());
     if (mode === "off") return;
 
-    // Retrigger stage entry animation cleanly on the compositor
-    el.classList.remove("aida-stage-active");
+    // Deterministically run Web Animations API stage glide on the compositor (leaves no resting transform)
+    let stageAnim = null;
+    if (typeof el.animate === "function") {
+      try {
+        const isMinimal = mode === "minimal";
+        stageAnim = el.animate(
+          isMinimal
+            ? [{ opacity: 0 }, { opacity: 1 }]
+            : [
+                { opacity: 0, transform: "translate3d(0, 18px, 0) scale(0.985)" },
+                { opacity: 1, transform: "translate3d(0, 0, 0) scale(1)" },
+              ],
+          {
+            duration: isMinimal ? 220 : 540,
+            easing: "cubic-bezier(0.22, 0.95, 0.32, 1)",
+            fill: "none",
+          }
+        );
+      } catch (e) {}
+    }
+
     const raf1 = window.requestAnimationFrame(() => {
-      el.classList.add("aida-stage-active");
       decorateStageSubtreeForMotion(el);
     });
 
-    // Also watch briefly (900ms) for lazy dynamic chunks or fast API data renders to decorate new grids/bars
+    // Also watch briefly (1500ms) for lazy dynamic chunks or API data renders to decorate new grids/bars
     let observer = null;
     let stopTimer = null;
     if (typeof MutationObserver !== "undefined") {
@@ -191,11 +228,16 @@ export function useStageRevealObserver(containerRef, triggerKey) {
           observer.disconnect();
           observer = null;
         }
-      }, 1100);
+      }, 1500);
     }
 
     return () => {
       window.cancelAnimationFrame(raf1);
+      if (stageAnim) {
+        try {
+          stageAnim.cancel();
+        } catch (e) {}
+      }
       if (observer) observer.disconnect();
       if (stopTimer) window.clearTimeout(stopTimer);
     };
@@ -211,13 +253,13 @@ export function AnimatedNumber({
   prefix = "",
   suffix = "",
   decimals = 0,
-  duration = 420,
+  duration = 850,
   className = "",
 }) {
   const numericTarget = typeof value === "number" ? value : Number(value);
   const isPureNumber = Number.isFinite(numericTarget) && value !== "" && value !== null && typeof value !== "boolean";
 
-  const [displayVal, setDisplayVal] = useState(() => (isPureNumber ? numericTarget : value));
+  const [displayVal, setDisplayVal] = useState(() => (isPureNumber ? 0 : value));
   const prevNumericRef = useRef(null);
 
   useEffect(() => {
@@ -233,7 +275,7 @@ export function AnimatedNumber({
       return;
     }
 
-    const effectiveDuration = mode === "minimal" ? Math.min(180, duration) : duration;
+    const effectiveDuration = mode === "minimal" ? Math.min(280, duration) : duration;
     const fromVal = prevNumericRef.current !== null ? prevNumericRef.current : 0;
     prevNumericRef.current = numericTarget;
 
@@ -249,8 +291,8 @@ export function AnimatedNumber({
       if (startTs === null) startTs = ts;
       const elapsed = ts - startTs;
       const progress = Math.min(1, elapsed / effectiveDuration);
-      // Cubic ease-out
-      const eased = 1 - Math.pow(1 - progress, 3);
+      // Smooth quartic ease-out for calm count-up settle
+      const eased = 1 - Math.pow(1 - progress, 4);
       const current = fromVal + (numericTarget - fromVal) * eased;
       setDisplayVal(current);
       if (progress < 1) {
@@ -288,7 +330,7 @@ export function AnimatedNumber({
  * Smart wrapper for KPI strings that may contain "%85", "14 / 20", "142", or "₺1.250"
  * Animates leading numeric value while preserving prefixes/suffixes intact.
  */
-export function AnimatedMetricText({ value, duration = 420, className = "" }) {
+export function AnimatedMetricText({ value, duration = 850, className = "" }) {
   if (typeof value === "number" && Number.isFinite(value)) {
     const decimals = Number.isInteger(value) ? 0 : 1;
     return <AnimatedNumber value={value} decimals={decimals} duration={duration} className={className} />;

@@ -158,20 +158,20 @@ body {
 }
 
 /* ==========================================================================
-   AIDA 4-Layer GPU Motion Engine (v2.9.1)
+   AIDA 4-Layer GPU Motion Engine (v2.9.2 — Graceful Cinematic Timing)
    1. Stage & Panel Entry (@starting-style + GPU keyframes + Scoped View Transition)
-   2. Staggered Card / Widget / Grid Cascade (sibling-index() + --sibling-index fallback)
+   2. Staggered Section / Card / Widget / Grid Cascade (sibling-index() + --sibling-index fallback)
    3. Live Chart Bar & SVG Line Reveal (scaleX / scaleY / stroke-dashoffset)
    4. Shimmer Loading Skeleton + Global .animate-in Modal/Popover Utilities
    ========================================================================== */
 
 @keyframes aidaStageReveal {
-  from {
+  0% {
     opacity: 0;
-    translate: 0 10px;
-    scale: 0.992;
+    translate: 0 18px;
+    scale: 0.985;
   }
-  to {
+  100% {
     opacity: 1;
     translate: 0 0;
     scale: 1;
@@ -179,46 +179,57 @@ body {
 }
 
 @keyframes aidaCardCascade {
-  from {
+  0% {
     opacity: 0;
-    translate: 0 8px;
-    scale: 0.988;
+    translate: 0 14px;
+    scale: 0.984;
   }
-  to {
+  100% {
     opacity: 1;
     translate: 0 0;
     scale: 1;
   }
 }
 
-@keyframes aidaBarGrowX {
-  from {
-    scale: 0 1;
-    opacity: 0.65;
+@keyframes aidaSectionCascade {
+  0% {
+    opacity: 0;
+    translate: 0 14px;
   }
-  to {
+  100% {
+    opacity: 1;
+    translate: 0 0;
+  }
+}
+
+@keyframes aidaBarGrowX {
+  0% {
+    scale: 0 1;
+    opacity: 0.55;
+  }
+  100% {
     scale: 1 1;
     opacity: 1;
   }
 }
 
 @keyframes aidaBarGrowY {
-  from {
+  0% {
     scale: 1 0;
-    opacity: 0.65;
+    opacity: 0.55;
   }
-  to {
+  100% {
     scale: 1 1;
     opacity: 1;
   }
 }
 
 @keyframes aidaSvgLineDraw {
-  from {
+  0% {
     stroke-dashoffset: 1;
-    opacity: 0.35;
+    opacity: 0.25;
   }
-  to {
+  100% {
     stroke-dashoffset: 0;
     opacity: 1;
   }
@@ -234,61 +245,66 @@ body {
 }
 
 @keyframes aidaUtilityEnter {
-  from {
+  0% {
     opacity: var(--aida-enter-opacity, 1);
     transform: translate3d(var(--aida-enter-tx, 0px), var(--aida-enter-ty, 0px), 0)
       scale3d(var(--aida-enter-scale, 1), var(--aida-enter-scale, 1), 1);
   }
-  to {
+  100% {
     opacity: 1;
     transform: translate3d(0, 0, 0) scale3d(1, 1, 1);
   }
 }
 
-/* 1. Main Stage & Sub-Panel Entry */
+/* 1. Main Stage & Sub-Panel Entry (540ms graceful glide; backwards fill avoids trapping fixed modals) */
 .aida-stage-active,
 .aida-panel-enter {
   opacity: 1;
-  translate: 0 0;
-  scale: 1;
   transition:
-    opacity 220ms cubic-bezier(0.22, 1, 0.36, 1),
-    translate 220ms cubic-bezier(0.22, 1, 0.36, 1),
-    scale 220ms cubic-bezier(0.22, 1, 0.36, 1);
-  animation: aidaStageReveal 220ms cubic-bezier(0.22, 1, 0.36, 1) both;
+    opacity 540ms cubic-bezier(0.22, 0.95, 0.32, 1),
+    translate 540ms cubic-bezier(0.22, 0.95, 0.32, 1),
+    scale 540ms cubic-bezier(0.22, 0.95, 0.32, 1);
+  animation: aidaStageReveal 540ms cubic-bezier(0.22, 0.95, 0.32, 1) backwards;
 }
 
 @starting-style {
   .aida-panel-enter {
     opacity: 0;
-    translate: 0 10px;
-    scale: 0.992;
+    translate: 0 18px;
+    scale: 0.985;
   }
 }
 
-/* 2. Staggered Grid / KPI Card Cascade */
-.aida-stagger-grid > * {
-  --stagger-time: 28ms;
-  animation: aidaCardCascade 260ms cubic-bezier(0.22, 1, 0.36, 1) both;
+/* 2. Staggered Grid / KPI Card & Section Cascade (65ms–75ms rhythm, 560ms glide) */
+.aida-stagger-grid > *:not(.fixed) {
+  --stagger-time: 65ms;
+  animation: aidaCardCascade 560ms cubic-bezier(0.22, 0.95, 0.32, 1) backwards;
   animation-delay: calc((var(--sibling-index, 1) - 1) * var(--stagger-time));
   animation-delay: calc(min(sibling-index() - 1, 10) * var(--stagger-time));
 }
 
-/* 3. Chart Bars & SVG Line Reveal */
+.aida-stagger-sections > *:not(.fixed) {
+  --stagger-time: 75ms;
+  animation: aidaSectionCascade 560ms cubic-bezier(0.22, 0.95, 0.32, 1) backwards;
+  animation-delay: calc((var(--sibling-index, 1) - 1) * var(--stagger-time));
+  animation-delay: calc(min(sibling-index() - 1, 8) * var(--stagger-time));
+}
+
+/* 3. Chart Bars (950ms + 120ms delay) & SVG Line Reveal (1200ms + 140ms delay) */
 .aida-chart-bar-x {
   transform-origin: left center;
-  animation: aidaBarGrowX 480ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation: aidaBarGrowX 950ms cubic-bezier(0.22, 0.95, 0.32, 1) 120ms backwards;
 }
 
 .aida-chart-bar-y {
   transform-origin: center bottom;
-  animation: aidaBarGrowY 480ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation: aidaBarGrowY 950ms cubic-bezier(0.22, 0.95, 0.32, 1) 120ms backwards;
 }
 
 .aida-chart-line {
   stroke-dasharray: 1;
   stroke-dashoffset: 0;
-  animation: aidaSvgLineDraw 620ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation: aidaSvgLineDraw 1200ms cubic-bezier(0.22, 0.95, 0.32, 1) 140ms backwards;
 }
 
 /* 4. GPU Shimmer Skeleton */
@@ -303,7 +319,7 @@ body {
     rgba(255, 255, 255, 0.55) 50%,
     transparent 100%
   );
-  animation: aidaShimmerSweep 1.35s ease-in-out infinite;
+  animation: aidaShimmerSweep 1.85s ease-in-out infinite;
 }
 
 .dark .aida-shimmer-surface::after {
@@ -322,9 +338,9 @@ body {
   --aida-enter-ty: 0px;
   --aida-enter-scale: 1;
   animation-name: aidaUtilityEnter;
-  animation-duration: 180ms;
-  animation-timing-function: cubic-bezier(0.22, 1, 0.36, 1);
-  animation-fill-mode: both;
+  animation-duration: 340ms;
+  animation-timing-function: cubic-bezier(0.22, 0.95, 0.32, 1);
+  animation-fill-mode: backwards;
 }
 
 .fade-in {
@@ -332,42 +348,42 @@ body {
 }
 
 .zoom-in-95 {
-  --aida-enter-scale: 0.96;
+  --aida-enter-scale: 0.95;
 }
 
 .slide-in-from-top-2 {
-  --aida-enter-ty: -8px;
+  --aida-enter-ty: -10px;
 }
 
 .slide-in-from-bottom-2 {
-  --aida-enter-ty: 8px;
+  --aida-enter-ty: 12px;
 }
 
 .slide-in-from-right-2,
 .slide-in-from-right {
-  --aida-enter-tx: 14px;
+  --aida-enter-tx: 18px;
 }
 
 .slide-in-from-left-2 {
-  --aida-enter-tx: -14px;
+  --aida-enter-tx: -18px;
 }
 
 .animate-in.duration-150 {
-  animation-duration: 150ms;
+  animation-duration: 240ms;
 }
 
 .animate-in.duration-200 {
-  animation-duration: 200ms;
+  animation-duration: 340ms;
 }
 
 .animate-in.duration-300 {
-  animation-duration: 280ms;
+  animation-duration: 460ms;
 }
 
 /* 6. Scoped View Transition timing & reduced-motion safety */
 ::view-transition-group(*) {
-  animation-duration: 210ms;
-  animation-timing-function: cubic-bezier(0.22, 1, 0.36, 1);
+  animation-duration: 460ms;
+  animation-timing-function: cubic-bezier(0.22, 0.95, 0.32, 1);
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -376,7 +392,7 @@ body {
     translate: none;
     scale: none;
     animation: none;
-    transition-duration: 100ms;
+    transition-duration: 120ms;
   }
 
   @starting-style {
@@ -388,6 +404,7 @@ body {
   }
 
   .aida-stagger-grid > *,
+  .aida-stagger-sections > *,
   .aida-chart-bar-x,
   .aida-chart-bar-y,
   .aida-chart-line {
@@ -403,7 +420,7 @@ body {
     --aida-enter-tx: 0px !important;
     --aida-enter-ty: 0px !important;
     --aida-enter-scale: 1 !important;
-    animation-duration: 90ms;
+    animation-duration: 110ms;
   }
 
   ::view-transition-group(*),
@@ -418,10 +435,11 @@ html[data-ui-motion="minimal"] .aida-stage-active,
 html[data-ui-motion="minimal"] .aida-panel-enter {
   translate: none;
   scale: none;
-  animation-duration: 120ms;
+  animation-duration: 200ms;
 }
 
-html[data-ui-motion="minimal"] .aida-stagger-grid > * {
+html[data-ui-motion="minimal"] .aida-stagger-grid > *,
+html[data-ui-motion="minimal"] .aida-stagger-sections > * {
   animation: none;
 }
 
@@ -429,12 +447,13 @@ html[data-ui-motion="minimal"] .animate-in {
   --aida-enter-tx: 0px !important;
   --aida-enter-ty: 0px !important;
   --aida-enter-scale: 1 !important;
-  animation-duration: 110ms !important;
+  animation-duration: 180ms !important;
 }
 
 html[data-ui-motion="off"] .aida-stage-active,
 html[data-ui-motion="off"] .aida-panel-enter,
 html[data-ui-motion="off"] .aida-stagger-grid > *,
+html[data-ui-motion="off"] .aida-stagger-sections > *,
 html[data-ui-motion="off"] .aida-chart-bar-x,
 html[data-ui-motion="off"] .aida-chart-bar-y,
 html[data-ui-motion="off"] .aida-chart-line,
