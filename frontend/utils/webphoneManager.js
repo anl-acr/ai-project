@@ -6,6 +6,10 @@ import {
   resolveAudioDeviceId
 } from "./audioHelper";
 import {
+  isNativeElectron,
+  sendDesktopNotification
+} from "./desktopBridge";
+import {
   getSavedNoiseSuppressionMode,
   saveNoiseSuppressionMode,
   getNoiseModeLabel,
@@ -1306,8 +1310,7 @@ class WebphoneManager {
   }
 
   triggerIncomingDesktopNotification(lineObj, myExt = "") {
-    if (typeof window === "undefined" || !("Notification" in window)) return;
-    if (Notification.permission !== "granted") return;
+    if (typeof window === "undefined") return;
 
     const callerLabel =
       lineObj.remoteDisplayName && lineObj.remoteDisplayName !== lineObj.remoteNumber
@@ -1319,6 +1322,24 @@ class WebphoneManager {
       ? `${lineObj.queueName} kuyruğundan Dahili ${myExt || this.state.webrtcConfig?.agentExtension || ""} hattınıza çağrı geliyor.`
       : `Dahili ${myExt || this.state.webrtcConfig?.agentExtension || ""} hattınıza çağrı geliyor. Pencereyi öne getirmek için tıklayın.`;
     const uniqueTag = `aida-call-${lineObj.id}-${Date.now()}`;
+
+    if (isNativeElectron()) {
+      const handle = sendDesktopNotification({
+        title,
+        body,
+        tag: uniqueTag,
+        urgent: true,
+        popWindow: true,
+        focusOnClick: true,
+        actionEvent: "OPEN_FULL_WEBPHONE"
+      });
+      if (handle) {
+        lineObj.desktopNotification = handle;
+      }
+      return;
+    }
+
+    if (!("Notification" in window) || Notification.permission !== "granted") return;
 
     try {
       const notif = new Notification(title, {

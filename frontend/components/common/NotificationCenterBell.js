@@ -20,6 +20,7 @@ import {
 import { useTheme } from "../../utils/theme";
 import { getApiBaseUrl } from "../../utils/apiHost";
 import { webphoneManager } from "../../utils/webphoneManager";
+import { isDesktopApp, isNativeElectron, sendDesktopNotification } from "../../utils/desktopBridge";
 
 export default function NotificationCenterBell({
   backendHost = "localhost:8000",
@@ -90,9 +91,20 @@ export default function NotificationCenterBell({
   }, [currentUser]);
 
   const triggerBrowserNotification = useCallback((item) => {
-    if (typeof window === "undefined" || !("Notification" in window)) return;
-    if (Notification.permission !== "granted") return;
+    if (typeof window === "undefined") return;
     if (localStorage.getItem("aida_desktop_notif_enabled") === "false") return;
+    if (isNativeElectron()) {
+      sendDesktopNotification({
+        title: item.title || "AIDA Bildirimi",
+        body: item.body || "",
+        tag: item.id,
+        urgent: item.severity === "critical",
+        popWindow: false,
+        focusOnClick: true
+      });
+      return;
+    }
+    if (!("Notification" in window) || Notification.permission !== "granted") return;
     try {
       const n = new Notification(item.title || "AIDA Bildirimi", {
         body: item.body || "",
@@ -106,7 +118,7 @@ export default function NotificationCenterBell({
   }, []);
 
   const fetchNotifications = useCallback(async () => {
-    if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
+    if (typeof document !== "undefined" && document.visibilityState === "hidden" && !isDesktopApp()) return;
     if (!currentUser) return;
     try {
       const res = await fetch(`${API_BASE}/api/workspace/notifications`, {
@@ -119,11 +131,15 @@ export default function NotificationCenterBell({
       setUnreadCount(Number(data.unread_count || 0));
       setDueCallbacks(Array.isArray(data.due_callbacks) ? data.due_callbacks : []);
 
-      // Fire native desktop push for newly seen critical/warning unread items
+      // Fire native desktop push for newly seen critical/warning unread items (and omnichannel/missed in desktop app)
       for (const item of list) {
+        const shouldPush =
+          item.severity === "critical" ||
+          item.severity === "warning" ||
+          (isDesktopApp() && (item.category === "omnichannel" || item.category === "callback" || item.category === "call"));
         if (
           item.unread &&
-          (item.severity === "critical" || item.severity === "warning") &&
+          shouldPush &&
           !notifiedDesktopIdsRef.current.has(item.id)
         ) {
           notifiedDesktopIdsRef.current.add(item.id);

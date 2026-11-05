@@ -3,6 +3,7 @@ node_modules/
 .next/
 out/
 build/
+desktop/dist/
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*

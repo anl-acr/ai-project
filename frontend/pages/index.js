@@ -81,10 +81,29 @@ import {
   Plus,
   PanelTop,
   Keyboard,
+  Headphones,
+  BellRing,
   X
 } from "lucide-react";
 import { getSafeThemeColor, SYSTEM_THEME_PRESETS, rgbStringToHex } from "../utils/theme";
-import { playRingtoneSound, stopRingtoneSound, resolveAudioDeviceId } from "../utils/audioHelper";
+import {
+  playRingtoneSound,
+  stopRingtoneSound,
+  resolveAudioDeviceId,
+  getSavedRingtoneVolume,
+  setSavedRingtoneVolume,
+  playSpeakerTestSound,
+  stopSpeakerTestSound
+} from "../utils/audioHelper";
+import {
+  isDesktopApp,
+  isNativeElectron,
+  getDesktopPrefs,
+  updateDesktopPrefs,
+  sendDesktopNotification,
+  syncDesktopTrayState,
+  disconnectDesktopServer
+} from "../utils/desktopBridge";
 import {
   getSavedNoiseSuppressionMode,
   saveNoiseSuppressionMode,
@@ -249,6 +268,8 @@ export default function Home() {
     }
   }, []);
   const [isAgentFullScreenMode, setIsAgentFullScreenMode] = useState(false);
+  const [isDesktopMode, setIsDesktopMode] = useState(false);
+  const [desktopPrefs, setDesktopPrefs] = useState(() => getDesktopPrefs());
   const [isAgentOnlyUser, setIsAgentOnlyUser] = useState(false);
   const [isWallboardOnlyUser, setIsWallboardOnlyUser] = useState(false);
   const [currentUser, setCurrentUser] = useState(null);
@@ -595,7 +616,7 @@ export default function Home() {
 
     let mounted = true;
     const pollInternalDeliveryAndNotify = async () => {
-      if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
+      if (typeof document !== "undefined" && document.visibilityState === "hidden" && !isDesktopApp()) return;
       try {
         const backendHostUrl = getBackendHost();
         const protocol = window.location.protocol;
@@ -650,7 +671,15 @@ export default function Home() {
             totalUnread: unreadIncoming.length
           });
 
-          if (typeof Notification !== "undefined" && Notification.permission === "granted") {
+          if (isNativeElectron()) {
+            sendDesktopNotification({
+              title: `💬 ${senderLabel} - Yeni İç Mesaj`,
+              body: latestMsg.text || "Yeni bir mesajınız var.",
+              tag: `int-chat-${latestMsg.id}`,
+              urgent: false,
+              focusOnClick: true
+            });
+          } else if (typeof Notification !== "undefined" && Notification.permission === "granted") {
             try {
               new Notification(`${senderLabel} - Yeni İç Mesaj`, {
                 body: latestMsg.text || "Yeni bir mesajınız var."
@@ -712,6 +741,9 @@ export default function Home() {
   const [selectedSpeaker, setSelectedSpeaker] = useState("");
   const [selectedRingtoneSpeaker, setSelectedRingtoneSpeaker] = useState("");
   const [isPreviewingRingtone, setIsPreviewingRingtone] = useState(false);
+  const [ringtoneVolume, setRingtoneVolume] = useState(1.0);
+  const [isTestingSpeaker, setIsTestingSpeaker] = useState(false);
+  const [isRefreshingDevices, setIsRefreshingDevices] = useState(false);
 
   // AI Noise Suppression & Live Mic Loopback Tester states
   const [noiseSuppressionMode, setNoiseSuppressionMode] = useState("ai");
@@ -1187,82 +1219,119 @@ export default function Home() {
     }
   }, [settingsModalOpen, activeModalTab]);
 
+  const refreshHardwareAudioDevices = React.useCallback(async () => {
+    if (typeof window === "undefined" || !navigator.mediaDevices) return;
+    setIsRefreshingDevices(true);
+    try {
+      let devices = await navigator.mediaDevices.enumerateDevices();
+      if (!devices.some((d) => d.label) && typeof navigator.mediaDevices.getUserMedia === "function") {
+        let tempStream = null;
+        try {
+          tempStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        } finally {
+          if (tempStream) {
+            tempStream.getTracks().forEach((t) => {
+              try {
+                t.stop();
+              } catch (e) {}
+            });
+          }
+        }
+        devices = await navigator.mediaDevices.enumerateDevices();
+      }
+
+      const inputs = devices.filter((d) => d.kind === "audioinput");
+      const outputs = devices.filter((d) => d.kind === "audiooutput");
+      setAudioDevices({ inputs, outputs });
+
+      const savedMic = localStorage.getItem("selected_mic") || "";
+      const savedMicLabel = localStorage.getItem("selected_mic_label") || "";
+      const savedSpeaker = localStorage.getItem("selected_speaker") || "";
+      const savedSpeakerLabel = localStorage.getItem("selected_speaker_label") || "";
+      const savedRingtoneSpeaker = localStorage.getItem("selected_ringtone_speaker") || "";
+      const savedRingtoneSpeakerLabel = localStorage.getItem("selected_ringtone_speaker_label") || "";
+
+      const resolvedMic = await resolveAudioDeviceId("audioinput", savedMic, savedMicLabel);
+      const resolvedSpeaker = await resolveAudioDeviceId("audiooutput", savedSpeaker, savedSpeakerLabel);
+      const resolvedRingtoneSpeaker = await resolveAudioDeviceId(
+        "audiooutput",
+        savedRingtoneSpeaker,
+        savedRingtoneSpeakerLabel
+      );
+
+      const targetMicObj = inputs.find((d) => d.deviceId === resolvedMic) || inputs[0];
+      if (targetMicObj) {
+        setSelectedMic(targetMicObj.deviceId);
+        localStorage.setItem("selected_mic", targetMicObj.deviceId);
+        if (targetMicObj.label) localStorage.setItem("selected_mic_label", targetMicObj.label);
+      }
+
+      const targetSpeakerObj = outputs.find((d) => d.deviceId === resolvedSpeaker) || outputs[0];
+      if (targetSpeakerObj) {
+        setSelectedSpeaker(targetSpeakerObj.deviceId);
+        localStorage.setItem("selected_speaker", targetSpeakerObj.deviceId);
+        if (targetSpeakerObj.label) localStorage.setItem("selected_speaker_label", targetSpeakerObj.label);
+      }
+
+      const targetRingtoneObj = outputs.find((d) => d.deviceId === resolvedRingtoneSpeaker) || outputs[0];
+      if (targetRingtoneObj) {
+        setSelectedRingtoneSpeaker(targetRingtoneObj.deviceId);
+        localStorage.setItem("selected_ringtone_speaker", targetRingtoneObj.deviceId);
+        if (targetRingtoneObj.label) localStorage.setItem("selected_ringtone_speaker_label", targetRingtoneObj.label);
+      }
+    } catch (err) {
+      console.error("Media devices listing error:", err);
+    } finally {
+      setTimeout(() => setIsRefreshingDevices(false), 250);
+    }
+  }, []);
+
   // Sync available media devices on modal load (stopping any temporary permission stream immediately!)
   useEffect(() => {
     if (!settingsModalOpen) {
       stopRingtoneSound();
+      stopSpeakerTestSound();
       setIsPreviewingRingtone(false);
+      setIsTestingSpeaker(false);
       stopMicLoopbackTest();
       return;
     }
     setNoiseSuppressionMode(getSavedNoiseSuppressionMode());
-    const loadDevices = async () => {
-      if (typeof window === "undefined" || !navigator.mediaDevices) return;
-      try {
-        let devices = await navigator.mediaDevices.enumerateDevices();
-        // Only request temporary getUserMedia if labels are hidden (permission not yet granted),
-        // and IMMEDIATELY stop all tracks so Bluetooth headsets are never locked in HFP/SCO mic mode!
-        if (!devices.some((d) => d.label) && typeof navigator.mediaDevices.getUserMedia === "function") {
-          let tempStream = null;
-          try {
-            tempStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-          } finally {
-            if (tempStream) {
-              tempStream.getTracks().forEach((t) => {
-                try {
-                  t.stop();
-                } catch (e) {}
-              });
-            }
-          }
-          devices = await navigator.mediaDevices.enumerateDevices();
-        }
+    setRingtoneVolume(getSavedRingtoneVolume());
+    setDesktopPrefs(getDesktopPrefs());
+    refreshHardwareAudioDevices();
+  }, [settingsModalOpen, refreshHardwareAudioDevices]);
 
-        const inputs = devices.filter((d) => d.kind === "audioinput");
-        const outputs = devices.filter((d) => d.kind === "audiooutput");
-        setAudioDevices({ inputs, outputs });
+  // Desktop App Mode detection, live device hot-swap listener & Electron Tray synchronization
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const detected = isDesktopApp();
+    setIsDesktopMode(detected);
+    setDesktopPrefs(getDesktopPrefs());
+    setRingtoneVolume(getSavedRingtoneVolume());
+    if (detected) {
+      setIsAgentFullScreenMode(true);
+    }
 
-        const savedMic = localStorage.getItem("selected_mic") || selectedMic || "";
-        const savedMicLabel = localStorage.getItem("selected_mic_label") || "";
-        const savedSpeaker = localStorage.getItem("selected_speaker") || selectedSpeaker || "";
-        const savedSpeakerLabel = localStorage.getItem("selected_speaker_label") || "";
-        const savedRingtoneSpeaker = localStorage.getItem("selected_ringtone_speaker") || selectedRingtoneSpeaker || "";
-        const savedRingtoneSpeakerLabel = localStorage.getItem("selected_ringtone_speaker_label") || "";
+    const handleOpenHardwareModal = () => {
+      setActiveModalTab("hardware");
+      setSettingsModalOpen(true);
+    };
+    const handleDeviceChange = () => {
+      refreshHardwareAudioDevices();
+    };
 
-        const resolvedMic = await resolveAudioDeviceId("audioinput", savedMic, savedMicLabel);
-        const resolvedSpeaker = await resolveAudioDeviceId("audiooutput", savedSpeaker, savedSpeakerLabel);
-        const resolvedRingtoneSpeaker = await resolveAudioDeviceId(
-          "audiooutput",
-          savedRingtoneSpeaker,
-          savedRingtoneSpeakerLabel
-        );
-
-        const targetMicObj = inputs.find((d) => d.deviceId === resolvedMic) || inputs[0];
-        if (targetMicObj) {
-          setSelectedMic(targetMicObj.deviceId);
-          localStorage.setItem("selected_mic", targetMicObj.deviceId);
-          if (targetMicObj.label) localStorage.setItem("selected_mic_label", targetMicObj.label);
-        }
-
-        const targetSpeakerObj = outputs.find((d) => d.deviceId === resolvedSpeaker) || outputs[0];
-        if (targetSpeakerObj) {
-          setSelectedSpeaker(targetSpeakerObj.deviceId);
-          localStorage.setItem("selected_speaker", targetSpeakerObj.deviceId);
-          if (targetSpeakerObj.label) localStorage.setItem("selected_speaker_label", targetSpeakerObj.label);
-        }
-
-        const targetRingtoneObj = outputs.find((d) => d.deviceId === resolvedRingtoneSpeaker) || outputs[0];
-        if (targetRingtoneObj) {
-          setSelectedRingtoneSpeaker(targetRingtoneObj.deviceId);
-          localStorage.setItem("selected_ringtone_speaker", targetRingtoneObj.deviceId);
-          if (targetRingtoneObj.label) localStorage.setItem("selected_ringtone_speaker_label", targetRingtoneObj.label);
-        }
-      } catch (err) {
-        console.error("Media devices listing error:", err);
+    window.addEventListener("OPEN_HARDWARE_SETTINGS", handleOpenHardwareModal);
+    if (navigator.mediaDevices && typeof navigator.mediaDevices.addEventListener === "function") {
+      navigator.mediaDevices.addEventListener("devicechange", handleDeviceChange);
+    }
+    return () => {
+      window.removeEventListener("OPEN_HARDWARE_SETTINGS", handleOpenHardwareModal);
+      if (navigator.mediaDevices && typeof navigator.mediaDevices.removeEventListener === "function") {
+        navigator.mediaDevices.removeEventListener("devicechange", handleDeviceChange);
       }
     };
-    loadDevices();
-  }, [settingsModalOpen]);
+  }, [refreshHardwareAudioDevices]);
 
   const backendHost = getBackendHost();
 
@@ -1458,18 +1527,26 @@ export default function Home() {
         setHasSpeedDialPermission(true);
         setHasScheduledReportsPermission(true);
         setHasWorkHoursPermission(true);
-        setIsAgentOnlyUser(false);
-        setIsWallboardOnlyUser(false);
-        setIsAgentFullScreenMode(false);
-        const adminTargetTab = resolveUserLandingTab({
-          user: currentUserData,
-          panelPrefs: resolvedPanelPrefs,
-          roleCode: "admin",
-          rolePermissions: ["*"],
-          explicitUrlTab,
-          isFreshLogin
-        });
-        setActiveTab(adminTargetTab);
+        if (isDesktopApp()) {
+          setIsAgentOnlyUser(true);
+          setIsWallboardOnlyUser(false);
+          setIsAgentFullScreenMode(true);
+          const prefLanding = String(resolvedPanelPrefs?.defaultLandingTab || "auto");
+          setActiveTab(prefLanding === "omnichannel" ? "omnichannel" : "call-center");
+        } else {
+          setIsAgentOnlyUser(false);
+          setIsWallboardOnlyUser(false);
+          setIsAgentFullScreenMode(false);
+          const adminTargetTab = resolveUserLandingTab({
+            user: currentUserData,
+            panelPrefs: resolvedPanelPrefs,
+            roleCode: "admin",
+            rolePermissions: ["*"],
+            explicitUrlTab,
+            isFreshLogin
+          });
+          setActiveTab(adminTargetTab);
+        }
       } else if (!currentRole) {
         setHasOmnichannelPermission(false);
         setHasContactsPermission(false);
@@ -1565,8 +1642,18 @@ export default function Home() {
           hasPerm('sip_debugger') ||
           hasPerm('security');
 
-        // Dedicated Wallboard / Call Monitoring Only Role (no sidebar clutter)
-        if (canWallboard && !canDashboard && !canCallPanel && !canOmni && !canReports && !canAiModules && !canPbxOrSysModules) {
+        // Dedicated Desktop Agent Application Mode: strictly Call Panel (+ Omnichannel if authorized)
+        if (isDesktopApp()) {
+          setIsWallboardOnlyUser(false);
+          setIsAgentOnlyUser(true);
+          setIsAgentFullScreenMode(true);
+          const prefLanding = String(resolvedPanelPrefs?.defaultLandingTab || "auto");
+          if (prefLanding === "omnichannel" && canOmni) {
+            setActiveTab("omnichannel");
+          } else {
+            setActiveTab("call-center");
+          }
+        } else if (canWallboard && !canDashboard && !canCallPanel && !canOmni && !canReports && !canAiModules && !canPbxOrSysModules) {
           setIsWallboardOnlyUser(true);
           setIsAgentOnlyUser(false);
           setIsAgentFullScreenMode(false);
@@ -2110,6 +2197,10 @@ export default function Home() {
       setInternalChatToast(null);
       setCurrentUser(null);
       setIsLoggedIn(false);
+      if (isNativeElectron()) {
+        await disconnectDesktopServer();
+        return;
+      }
       if (typeof window !== "undefined") {
         window.location.href = "/login";
       }
@@ -2348,16 +2439,57 @@ export default function Home() {
       : callPanelPrefs?.defaultLandingTab === activeTab
   );
 
+  // Desktop Mode strict workspace guard & System Tray synchronization
+  useEffect(() => {
+    if (!isDesktopMode) return;
+    if (activeTab !== "call-center" && !(activeTab === "omnichannel" && hasOmnichannelPermission)) {
+      setActiveTab("call-center");
+    }
+  }, [isDesktopMode, activeTab, hasOmnichannelPermission]);
+
+  useEffect(() => {
+    if (!isDesktopMode || typeof window === "undefined") return;
+    const syncTray = (wpState) => {
+      const profObj =
+        agentProfiles.find((p) => p.id === agentActiveProfile) ||
+        DEFAULT_USER_PROFILES[0];
+      syncDesktopTrayState({
+        fullName: currentUser?.full_name || currentUser?.username || "Temsilci",
+        extension: currentUser?.extension || "",
+        profileId: agentActiveProfile,
+        profileLabel: profObj?.name || "Uygun",
+        registered: Boolean(wpState?.registered),
+        callStatus: wpState?.callStatus || "Idle"
+      });
+    };
+    const unsub = webphoneManager.subscribe(syncTray);
+
+    const handleTrayProfileSwitch = (e) => {
+      const nextProf = e?.detail?.profileId;
+      if (nextProf) handleQuickProfileSwitch(nextProf);
+    };
+    const handleTrayLogout = () => {
+      handleLogout();
+    };
+    window.addEventListener("SWITCH_AGENT_PROFILE_FROM_TRAY", handleTrayProfileSwitch);
+    window.addEventListener("TRIGGER_DESKTOP_LOGOUT", handleTrayLogout);
+    return () => {
+      unsub();
+      window.removeEventListener("SWITCH_AGENT_PROFILE_FROM_TRAY", handleTrayProfileSwitch);
+      window.removeEventListener("TRIGGER_DESKTOP_LOGOUT", handleTrayLogout);
+    };
+  }, [isDesktopMode, currentUser, agentActiveProfile, agentProfiles]);
+
   return (
     <div className="h-screen overflow-hidden bg-slate-50 dark:bg-slate-950 text-slate-800 dark:text-slate-100 flex font-sans transition-colors duration-300">
       <Head>
-        <title>Omnichannel AI Call Center Admin Panel</title>
+        <title>{isDesktopMode ? "AIDA Agent" : "Omnichannel AI Call Center Admin Panel"}</title>
         <meta name="description" content="AI PBX and Social Messaging dashboard" />
         <link rel="icon" href="/favicon.ico" />
       </Head>
 
       {/* Sidebar Navigation */}
-      {!isEditingCallFlow && !isWallboardOnlyUser && !(activeTab === "call-center" && (isAgentOnlyUser || isAgentFullScreenMode)) && (
+      {!isDesktopMode && !isEditingCallFlow && !isWallboardOnlyUser && !(activeTab === "call-center" && (isAgentOnlyUser || isAgentFullScreenMode)) && (
         <aside
           onMouseOver={(e) => {
             if (!isSidebarCollapsed) {
@@ -3673,10 +3805,10 @@ export default function Home() {
           </p>
           <button
             onClick={() => setActiveTab("changelog")}
-            title="Sistem Versiyonu ve Değişiklik Günlüğü (v2.9.2 On-Premise)"
+            title="Sistem Versiyonu ve Değişiklik Günlüğü (v2.9.3 On-Premise)"
             className="flex items-center gap-1 text-[10px] font-bold text-slate-500 dark:text-slate-400 hover:text-primary dark:hover:text-indigo-400 hover:underline transition cursor-pointer bg-transparent border-0 p-0 outline-none focus-visible:ring-2 focus-visible:ring-primary/50 rounded"
           >
-            <span>{isSidebarCollapsed ? "v2.9.2" : "v2.9.2 (On-Premise)"}</span>
+            <span>{isSidebarCollapsed ? "v2.9.3" : "v2.9.3 (On-Premise)"}</span>
           </button>
         </div>
       </aside>
@@ -3705,19 +3837,58 @@ export default function Home() {
         {!isEditingCallFlow && (
         <header className="relative z-40 h-16 border-b border-slate-200/80 dark:border-slate-800/80 flex items-center justify-between px-5 bg-white/80 dark:bg-slate-900/60 backdrop-blur-md transition-colors duration-300 gap-3">
           <div className="flex items-center gap-2.5 min-w-0 shrink-0">
-            {activeTab === "call-center" && (isAgentOnlyUser || isAgentFullScreenMode) && (
+            {(isDesktopMode || (activeTab === "call-center" && (isAgentOnlyUser || isAgentFullScreenMode))) && (
               <div className="flex items-center gap-2.5 pr-2">
-                <div className="h-8 w-8 shrink-0 rounded-xl bg-gradient-to-tr from-indigo-600 to-violet-600 flex items-center justify-center text-white shadow-sm">
+                <div className={`h-8 w-8 shrink-0 rounded-xl ${bg} flex items-center justify-center text-white shadow-sm`}>
                   <Bot size={18} />
                 </div>
                 <div>
-                  <div className="font-extrabold text-sm tracking-tight text-slate-900 dark:text-white leading-none">
-                    <span className="text-rose-600 dark:text-rose-500">AI</span>DA
+                  <div className="font-extrabold text-sm tracking-tight text-slate-900 dark:text-white leading-none flex items-center gap-1.5">
+                    <span><span className="text-rose-600 dark:text-rose-500">AI</span>DA{isDesktopMode ? " Agent" : ""}</span>
+                    {isDesktopMode && (
+                      <span
+                        title={`Bağlı Santral: ${desktopPrefs?.serverHost || backendHost}`}
+                        className="hidden sm:inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[9px] font-bold bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200/80 dark:border-slate-700/80"
+                      >
+                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                        <span className="max-w-[140px] truncate">{desktopPrefs?.serverHost || backendHost}</span>
+                      </span>
+                    )}
                   </div>
                   <div className="text-[9px] text-slate-400 font-bold uppercase tracking-wider mt-0.5">
-                    TEMSİLCİ ÇAĞRI PANELİ
+                    {activeTab === "omnichannel" ? "OMNICHANNEL İLETİŞİM MERKEZİ" : "TEMSİLCİ ÇAĞRI PANELİ"}
                   </div>
                 </div>
+              </div>
+            )}
+
+            {/* Desktop Mode Workspace Switcher: Call Panel <-> Omnichannel (Permission-gated) */}
+            {isDesktopMode && hasOmnichannelPermission && (
+              <div className="flex items-center p-1 rounded-xl bg-slate-100/90 dark:bg-slate-800/80 border border-slate-200/80 dark:border-slate-700/80 gap-1">
+                <button
+                  type="button"
+                  onClick={() => setActiveTab("call-center")}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-extrabold transition-all cursor-pointer ${
+                    activeTab === "call-center"
+                      ? `${bg} text-white shadow-sm`
+                      : "text-slate-600 dark:text-slate-300 hover:bg-white/70 dark:hover:bg-slate-900/50"
+                  }`}
+                >
+                  <Phone size={13} />
+                  <span>Çağrı Paneli</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setActiveTab("omnichannel")}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-extrabold transition-all cursor-pointer ${
+                    activeTab === "omnichannel"
+                      ? `${bg} text-white shadow-sm`
+                      : "text-slate-600 dark:text-slate-300 hover:bg-white/70 dark:hover:bg-slate-900/50"
+                  }`}
+                >
+                  <MessageSquare size={13} />
+                  <span>Omnichannel</span>
+                </button>
               </div>
             )}
 
@@ -3755,12 +3926,12 @@ export default function Home() {
               </button>
             )}
 
-            {((currentUser?.username === "admin" || currentUser?.id === "admin") || (typeof window !== "undefined" && (localStorage.getItem("current_user_id") === "admin" || sessionStorage.getItem("current_user_id") === "admin"))) && (
+            {!isDesktopMode && ((currentUser?.username === "admin" || currentUser?.id === "admin") || (typeof window !== "undefined" && (localStorage.getItem("current_user_id") === "admin" || sessionStorage.getItem("current_user_id") === "admin"))) && (
               <TenantSwitcher backendHost={backendHost} currentUser={currentUser} />
             )}
 
             {/* Pinned Quick-Access Bar (Standard Screens) */}
-            {!isHorizontalCallCenterBar && pinnedTopbarFeatures.length > 0 && (
+            {!isDesktopMode && !isHorizontalCallCenterBar && pinnedTopbarFeatures.length > 0 && (
               <nav aria-label="Sık Kullanılan Kısayollar" className="hidden md:flex items-center gap-1.5 pl-1">
                 {visiblePinnedFeatures.map((feat) => {
                   const FeatIcon = feat.icon;
@@ -3897,7 +4068,7 @@ export default function Home() {
 
           <div className="flex items-center gap-2.5 text-xs font-semibold text-slate-600 dark:text-slate-400 shrink-0">
             {/* Yaklaşım B: Horizontal Call-Center Mode Auto-Compacted Pinned Shortcuts */}
-            {isHorizontalCallCenterBar && pinnedTopbarFeatures.length > 0 && (
+            {!isDesktopMode && isHorizontalCallCenterBar && pinnedTopbarFeatures.length > 0 && (
               <nav aria-label="Sık Kullanılan Kısayollar" className="hidden lg:flex items-center gap-1.5">
                 {visiblePinnedFeatures.map((feat) => {
                   const FeatIcon = feat.icon;
@@ -4019,7 +4190,7 @@ export default function Home() {
               />
             )}
 
-            {currentUser?.role === 'admin' && hasPendingChanges && (
+            {!isDesktopMode && currentUser?.role === 'admin' && hasPendingChanges && (
               <div className="flex items-center gap-2 relative">
                 <button
                   onClick={handleApplyChanges}
@@ -4079,12 +4250,32 @@ export default function Home() {
               </button>
             )}
 
+            {/* Quick Audio Hardware & Ringtone Device Button */}
+            {(isDesktopMode || activeTab === "call-center" || isAgentOnlyUser) && (
+              <button
+                type="button"
+                onClick={() => {
+                  setActiveModalTab("hardware");
+                  setSettingsModalOpen(true);
+                }}
+                title="Mikrofon, Görüşme Kulaklığı ve Çalma Tonu Aygıtı Ayarları"
+                className="flex items-center gap-1.5 px-2.5 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors shadow-sm cursor-pointer"
+              >
+                <Headphones size={14} className={text} />
+                <span className="hidden lg:inline text-xs font-bold">Ses & Aygıtlar</span>
+              </button>
+            )}
+
             <NotificationCenterBell
               backendHost={backendHost}
               currentUser={currentUser}
               currentRolePermissions={currentRolePermissions}
               onNavigateTab={(targetTab, targetSubTab) => {
-                setActiveTab(targetTab);
+                if (isDesktopMode && targetTab !== "call-center" && !(targetTab === "omnichannel" && hasOmnichannelPermission)) {
+                  setActiveTab("call-center");
+                } else {
+                  setActiveTab(targetTab);
+                }
                 if (targetTab === "call-center" && targetSubTab) {
                   setTimeout(() => {
                     window.dispatchEvent(
@@ -4343,6 +4534,18 @@ export default function Home() {
                       type="button"
                       onClick={() => {
                         setProfileDropdownOpen(false);
+                        setActiveModalTab("hardware");
+                        setSettingsModalOpen(true);
+                      }}
+                      className="w-full text-left px-3 py-2.5 rounded-xl text-xs font-bold text-slate-700 dark:text-slate-100 hover:bg-slate-100/70 dark:hover:bg-slate-800 flex items-center gap-2.5 transition-colors cursor-pointer group"
+                    >
+                      <Headphones size={15} className={`text-slate-500 dark:text-slate-300 group-hover:${text} transition-colors`} />
+                      <span>Ses & Çalma Aygıtları</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setProfileDropdownOpen(false);
                         setActiveModalTab("profile");
                         setSettingsModalOpen(true);
                       }}
@@ -4351,6 +4554,16 @@ export default function Home() {
                       <Settings size={15} className={`text-slate-500 dark:text-slate-300 group-hover:${text} transition-colors`} />
                       <span>Profil Ayarları</span>
                     </button>
+                    {isNativeElectron() && (
+                      <button
+                        type="button"
+                        onClick={handleLogout}
+                        className="w-full text-left px-3 py-2.5 rounded-xl text-xs font-bold text-slate-700 dark:text-slate-100 hover:bg-slate-100/70 dark:hover:bg-slate-800 flex items-center gap-2.5 transition-colors cursor-pointer group"
+                      >
+                        <Server size={15} className={`text-slate-500 dark:text-slate-300 group-hover:${text} transition-colors`} />
+                        <span>Sunucu Adresini Değiştir</span>
+                      </button>
+                    )}
                     <div className="h-px bg-slate-100 dark:bg-slate-800/80 my-1" />
                     <button
                       type="button"
@@ -6749,6 +6962,28 @@ export default function Home() {
                   })()}
                 </div>
 
+                {/* Hardware Devices Header + Refresh */}
+                <div className={`flex items-center justify-between gap-2 pb-1 ${activeModalTab === "hardware" ? "flex" : "hidden"}`}>
+                  <div>
+                    <h5 className="text-[11px] font-extrabold text-slate-800 dark:text-slate-100 uppercase tracking-wide flex items-center gap-1.5">
+                      <Headphones size={13} className={text} />
+                      <span>PC Ses Donanımı & Çalma Aygıtları</span>
+                    </h5>
+                    <p className="text-[10px] text-slate-500 dark:text-slate-400">
+                      Mikrofonu, görüşme kulaklığını ve çağrı çalma tonu hoparlörünü birbirinden bağımsız seçebilirsiniz.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={refreshHardwareAudioDevices}
+                    title="Bağlı USB / Bluetooth ses aygıtlarını yeniden tara"
+                    className="px-2.5 py-1.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 hover:bg-slate-100 dark:hover:bg-slate-800 text-[10px] font-extrabold text-slate-700 dark:text-slate-200 flex items-center gap-1.5 shrink-0 cursor-pointer transition-colors"
+                  >
+                    <RefreshCw size={11} className={`${text} ${isRefreshingDevices ? "animate-spin" : ""}`} />
+                    <span>Aygıtları Tara</span>
+                  </button>
+                </div>
+
                 {/* Ringtone Selection */}
                 <div className={`space-y-2 ${activeModalTab === "hardware" ? "block" : "hidden"}`}>
                   <label className="text-[9px] font-extrabold text-slate-500 dark:text-slate-400 uppercase tracking-widest block">Çağrı Zil Sesi</label>
@@ -6981,65 +7216,266 @@ export default function Home() {
 
                 {/* Speaker Selection (Call output) */}
                 <div className={`space-y-2 ${activeModalTab === "hardware" ? "block" : "hidden"}`}>
-                  <label className="text-[9px] font-extrabold text-slate-500 dark:text-slate-400 uppercase tracking-widest block">Konuşma Çıkış Aygıtı (Kulaklık)</label>
-                  <select
-                    value={selectedSpeaker}
-                    onChange={(e) => {
-                      const nextId = e.target.value;
-                      setSelectedSpeaker(nextId);
-                      const devObj = audioDevices.outputs.find((d) => d.deviceId === nextId);
-                      localStorage.setItem("selected_speaker", nextId);
-                      if (devObj?.label) {
-                        localStorage.setItem("selected_speaker_label", devObj.label);
-                      }
-                      window.dispatchEvent(new CustomEvent("AUDIO_DEVICES_UPDATED"));
-                      if (isTestingMic) {
-                        startMicLoopbackTest(noiseSuppressionMode, selectedMic, nextId);
-                      }
-                    }}
-                    className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950/60 text-xs font-semibold text-slate-800 dark:text-white focus:outline-none focus:border-primary"
-                  >
-                    {audioDevices.outputs.length === 0 ? (
-                      <option value="">Aygıt bulunamadı / Desteklenmiyor</option>
-                    ) : (
-                      audioDevices.outputs.map((d) => (
-                        <option key={d.deviceId} value={d.deviceId}>
-                          {d.label || `Kulaklık/Hoparlör (${d.deviceId.slice(0, 5)})`}
-                        </option>
-                      ))
-                    )}
-                  </select>
+                  <label className="text-[9px] font-extrabold text-slate-500 dark:text-slate-400 uppercase tracking-widest block">
+                    Konuşma Çıkış Aygıtı (Görüşme Kulaklığı / Hoparlör)
+                  </label>
+                  <div className="flex gap-2">
+                    <select
+                      value={selectedSpeaker}
+                      onChange={(e) => {
+                        const nextId = e.target.value;
+                        setSelectedSpeaker(nextId);
+                        const devObj = audioDevices.outputs.find((d) => d.deviceId === nextId);
+                        localStorage.setItem("selected_speaker", nextId);
+                        if (devObj?.label) {
+                          localStorage.setItem("selected_speaker_label", devObj.label);
+                        }
+                        window.dispatchEvent(new CustomEvent("AUDIO_DEVICES_UPDATED"));
+                        if (isTestingMic) {
+                          startMicLoopbackTest(noiseSuppressionMode, selectedMic, nextId);
+                        }
+                      }}
+                      className="flex-1 px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950/60 text-xs font-semibold text-slate-800 dark:text-white focus:outline-none focus:border-primary"
+                    >
+                      {audioDevices.outputs.length === 0 ? (
+                        <option value="">Aygıt bulunamadı / Desteklenmiyor</option>
+                      ) : (
+                        audioDevices.outputs.map((d) => (
+                          <option key={d.deviceId} value={d.deviceId}>
+                            {d.label || `Kulaklık/Hoparlör (${d.deviceId.slice(0, 5)})`}
+                          </option>
+                        ))
+                      )}
+                    </select>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (isTestingSpeaker) {
+                          stopSpeakerTestSound();
+                          setIsTestingSpeaker(false);
+                        } else {
+                          const spkObj = audioDevices.outputs.find((d) => d.deviceId === selectedSpeaker);
+                          setIsTestingSpeaker(true);
+                          playSpeakerTestSound(selectedSpeaker, spkObj?.label || "", () => {
+                            setIsTestingSpeaker(false);
+                          });
+                        }
+                      }}
+                      className="px-3.5 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 border border-slate-200/50 dark:border-slate-700 text-slate-700 dark:text-slate-200 rounded-xl flex items-center justify-center gap-1.5 text-xs font-extrabold transition-all cursor-pointer shrink-0"
+                    >
+                      {isTestingSpeaker ? (
+                        <>
+                          <Square size={11} className="text-primary fill-rose-500 animate-pulse" />
+                          <span>Durdur</span>
+                        </>
+                      ) : (
+                        <>
+                          <Volume2 size={13} className={text} />
+                          <span>Test Et</span>
+                        </>
+                      )}
+                    </button>
+                  </div>
                 </div>
 
-                {/* Ringtone Speaker Selection */}
-                <div className={`space-y-2 ${activeModalTab === "hardware" ? "block" : "hidden"}`}>
-                  <label className="text-[9px] font-extrabold text-slate-500 dark:text-slate-400 uppercase tracking-widest block">Zil Sesi Çıkış Aygıtı (Hoparlör)</label>
-                  <select
-                    value={selectedRingtoneSpeaker}
-                    onChange={(e) => {
-                      const nextId = e.target.value;
-                      setSelectedRingtoneSpeaker(nextId);
-                      const devObj = audioDevices.outputs.find((d) => d.deviceId === nextId);
-                      localStorage.setItem("selected_ringtone_speaker", nextId);
-                      if (devObj?.label) {
-                        localStorage.setItem("selected_ringtone_speaker_label", devObj.label);
-                      }
-                      if (isPreviewingRingtone) {
-                        playRingtoneSound(agentRingtone, nextId, devObj?.label || "");
-                      }
-                    }}
-                    className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950/60 text-xs font-semibold text-slate-800 dark:text-white focus:outline-none focus:border-violet-500"
-                  >
-                    {audioDevices.outputs.length === 0 ? (
-                      <option value="">Aygıt bulunamadı / Desteklenmiyor</option>
-                    ) : (
-                      audioDevices.outputs.map((d) => (
-                        <option key={d.deviceId} value={d.deviceId}>
-                          {d.label || `Hoparlör (${d.deviceId.slice(0, 5)})`}
-                        </option>
-                      ))
+                {/* Ringtone Speaker Selection + Independent Volume */}
+                <div className={`p-3.5 rounded-2xl border ${borderLight} ${lightBg} space-y-2.5 ${activeModalTab === "hardware" ? "block" : "hidden"}`}>
+                  <div>
+                    <label className="text-[9.5px] font-extrabold text-slate-800 dark:text-slate-100 uppercase tracking-widest block">
+                      Çalma Tonu Aygıtı (Zil Sesi Hangi Hoparlörden Çalsın?)
+                    </label>
+                    <p className="text-[9.5px] text-slate-500 dark:text-slate-400 mt-0.5">
+                      Kulaklığınız masadayken çağrıyı duymak için çalma tonunu bilgisayar hoparlörüne, konuşma sesini ise kulaklığa verebilirsiniz.
+                    </p>
+                  </div>
+                  <div className="flex gap-2">
+                    <select
+                      value={selectedRingtoneSpeaker}
+                      onChange={(e) => {
+                        const nextId = e.target.value;
+                        setSelectedRingtoneSpeaker(nextId);
+                        const devObj = audioDevices.outputs.find((d) => d.deviceId === nextId);
+                        localStorage.setItem("selected_ringtone_speaker", nextId);
+                        if (devObj?.label) {
+                          localStorage.setItem("selected_ringtone_speaker_label", devObj.label);
+                        }
+                        if (isPreviewingRingtone) {
+                          playRingtoneSound(agentRingtone, nextId, devObj?.label || "");
+                        }
+                      }}
+                      className="flex-1 px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950/80 text-xs font-semibold text-slate-800 dark:text-white focus:outline-none focus:border-primary"
+                    >
+                      {audioDevices.outputs.length === 0 ? (
+                        <option value="">Aygıt bulunamadı / Desteklenmiyor</option>
+                      ) : (
+                        audioDevices.outputs.map((d) => (
+                          <option key={d.deviceId} value={d.deviceId}>
+                            {d.label || `Hoparlör (${d.deviceId.slice(0, 5)})`}
+                          </option>
+                        ))
+                      )}
+                    </select>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (isPreviewingRingtone) {
+                          stopRingtoneSound();
+                          setIsPreviewingRingtone(false);
+                          localStorage.setItem("temp_playing", "false");
+                        } else {
+                          const ringDevObj = audioDevices.outputs.find((d) => d.deviceId === selectedRingtoneSpeaker);
+                          const ringLabel = ringDevObj?.label || localStorage.getItem("selected_ringtone_speaker_label") || "";
+                          setIsPreviewingRingtone(true);
+                          localStorage.setItem("temp_playing", "true");
+                          playRingtoneSound(agentRingtone, selectedRingtoneSpeaker, ringLabel);
+                        }
+                      }}
+                      className="px-3.5 bg-white dark:bg-slate-900 hover:bg-slate-50 dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 rounded-xl flex items-center justify-center gap-1.5 text-xs font-extrabold transition-all cursor-pointer shrink-0"
+                    >
+                      {isPreviewingRingtone ? (
+                        <>
+                          <Square size={11} className="text-primary fill-rose-500 animate-pulse" />
+                          <span>Durdur</span>
+                        </>
+                      ) : (
+                        <>
+                          <Play size={11} className="text-primary fill-emerald-500" />
+                          <span>Zili Çal</span>
+                        </>
+                      )}
+                    </button>
+                  </div>
+
+                  <div className="flex items-center gap-3 pt-1">
+                    <span className="text-[10px] font-bold text-slate-600 dark:text-slate-300 shrink-0">
+                      Çalma Tonu Seviyesi:
+                    </span>
+                    <input
+                      type="range"
+                      min="0.1"
+                      max="1"
+                      step="0.05"
+                      value={ringtoneVolume}
+                      onChange={(e) => {
+                        const savedVol = setSavedRingtoneVolume(parseFloat(e.target.value));
+                        setRingtoneVolume(savedVol);
+                      }}
+                      className="flex-1 accent-primary cursor-pointer h-1.5 rounded-lg"
+                    />
+                    <span className={`text-[10px] font-extrabold font-mono w-9 text-right ${text}`}>
+                      %{Math.round(ringtoneVolume * 100)}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Desktop & OS Notification Controls */}
+                <div className={`p-3.5 rounded-2xl bg-slate-50/80 dark:bg-slate-900/80 border border-slate-200/80 dark:border-slate-800 space-y-2.5 ${activeModalTab === "hardware" ? "block" : "hidden"}`}>
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-2">
+                      <BellRing size={14} className={text} />
+                      <div>
+                        <span className="text-[10px] font-extrabold text-slate-800 dark:text-slate-100 uppercase tracking-wide block">
+                          Masaüstü & Gelen Çağrı Bildirimleri
+                        </span>
+                        <span className="text-[9.5px] text-slate-500 dark:text-slate-400">
+                          Uygulama arka plandayken gelen çağrı, geri arama ve mesaj bildirimleri
+                        </span>
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        if (!isNativeElectron() && typeof Notification !== "undefined" && Notification.permission !== "granted") {
+                          try {
+                            await Notification.requestPermission();
+                          } catch (e) {}
+                        }
+                        sendDesktopNotification({
+                          title: "🔔 AIDA Agent Bildirim Testi",
+                          body: "Gelen çağrı ve mesaj bildirimleriniz sorunsuz çalışıyor.",
+                          urgent: false,
+                          forceEvenIfDisabled: true
+                        });
+                      }}
+                      className="px-2.5 py-1.5 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-700 text-[10px] font-extrabold text-slate-700 dark:text-slate-200 transition-colors cursor-pointer shrink-0"
+                    >
+                      Test Bildirimi
+                    </button>
+                  </div>
+
+                  <div className="space-y-1.5 pt-1">
+                    <label className="flex items-center justify-between gap-3 p-2 rounded-xl bg-white/80 dark:bg-slate-950/50 border border-slate-200/60 dark:border-slate-800/80 cursor-pointer">
+                      <span className="text-[10.5px] font-bold text-slate-700 dark:text-slate-200">
+                        Sistem Bildirimlerini Göster
+                      </span>
+                      <input
+                        type="checkbox"
+                        checked={Boolean(desktopPrefs?.osNotifications)}
+                        onChange={async (e) => {
+                          const checked = e.target.checked;
+                          if (checked && !isNativeElectron() && typeof Notification !== "undefined" && Notification.permission === "default") {
+                            try {
+                              await Notification.requestPermission();
+                            } catch (err) {}
+                          }
+                          localStorage.setItem("aida_desktop_notif_enabled", checked ? "true" : "false");
+                          const next = await updateDesktopPrefs({ osNotifications: checked });
+                          setDesktopPrefs(next);
+                        }}
+                        className="h-4 w-4 rounded accent-primary cursor-pointer"
+                      />
+                    </label>
+
+                    {isNativeElectron() && (
+                      <>
+                        <label className="flex items-center justify-between gap-3 p-2 rounded-xl bg-white/80 dark:bg-slate-950/50 border border-slate-200/60 dark:border-slate-800/80 cursor-pointer">
+                          <span className="text-[10.5px] font-bold text-slate-700 dark:text-slate-200">
+                            Çağrı Geldiğinde Pencereyi Otomatik Öne Getir
+                          </span>
+                          <input
+                            type="checkbox"
+                            checked={Boolean(desktopPrefs?.popWindowOnCall)}
+                            onChange={async (e) => {
+                              const next = await updateDesktopPrefs({ popWindowOnCall: e.target.checked });
+                              setDesktopPrefs(next);
+                            }}
+                            className="h-4 w-4 rounded accent-primary cursor-pointer"
+                          />
+                        </label>
+
+                        <label className="flex items-center justify-between gap-3 p-2 rounded-xl bg-white/80 dark:bg-slate-950/50 border border-slate-200/60 dark:border-slate-800/80 cursor-pointer">
+                          <span className="text-[10.5px] font-bold text-slate-700 dark:text-slate-200">
+                            Pencere Kapatıldığında (X) Sistem Tepsisinde Açık Tut
+                          </span>
+                          <input
+                            type="checkbox"
+                            checked={Boolean(desktopPrefs?.minimizeToTray)}
+                            onChange={async (e) => {
+                              const next = await updateDesktopPrefs({ minimizeToTray: e.target.checked });
+                              setDesktopPrefs(next);
+                            }}
+                            className="h-4 w-4 rounded accent-primary cursor-pointer"
+                          />
+                        </label>
+
+                        <label className="flex items-center justify-between gap-3 p-2 rounded-xl bg-white/80 dark:bg-slate-950/50 border border-slate-200/60 dark:border-slate-800/80 cursor-pointer">
+                          <span className="text-[10.5px] font-bold text-slate-700 dark:text-slate-200">
+                            Bilgisayar Açıldığında AIDA Agent Otomatik Başlasın
+                          </span>
+                          <input
+                            type="checkbox"
+                            checked={Boolean(desktopPrefs?.startOnBoot)}
+                            onChange={async (e) => {
+                              const next = await updateDesktopPrefs({ startOnBoot: e.target.checked });
+                              setDesktopPrefs(next);
+                            }}
+                            className="h-4 w-4 rounded accent-primary cursor-pointer"
+                          />
+                        </label>
+                      </>
                     )}
-                  </select>
+                  </div>
                 </div>
                 
               </div>

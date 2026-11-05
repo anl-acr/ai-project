@@ -27355,18 +27355,45 @@ async def get_system_version_info():
         pass
 
     return {
-        "version": "v2.9.2",
+        "version": "v2.9.3",
         "commit_hash": live_commit,
         "release_date": "5 Kasım 2026",
         "status": "Güncel / Canlı Sürüm",
         "environment": "Production (On-Premise)",
         "changelog": [
             {
-                "version": "v2.9.2",
+                "version": "v2.9.3",
                 "commit_hash": live_commit,
                 "release_date": "5 Kasım 2026",
                 "badge": "Canlı Sürüm (Güncel)",
                 "badge_type": "current",
+                "title": "AIDA Agent Masaüstü Uygulaması (macOS & Windows), Bağımsız Çalma Tonu Aygıtı & Yerel OS Bildirim Köprüsü",
+                "summary": "Çağrı merkezi temsilcilerinin bilgisayarlarına kurabilecekleri macOS (.dmg / .zip) ve Windows (.exe) masaüstü uygulaması (AIDA Agent) ile sunucu tarafı masaüstü çalışma alanı modu (/?desktop=1) geliştirildi. Host + Kullanıcı Adı + Şifre girişi, 3 kanallı bağımsız ses donanımı yönetimi, sistem tepsisi (Tray) ve yerel işletim sistemi bildirimleri entegre edildi.",
+                "features": [
+                    {
+                        "title": "🖥️ AIDA Agent Masaüstü İstemcisi (macOS .dmg & Windows .exe) ve Host Girişi",
+                        "desc": "Sunucu adresi (Host), bağlantı testi, geçmiş sunucu listesi, kullanıcı adı/dahili + şifre ve 2FA doğrulama adımlarını içeren yerel masaüstü giriş ekranı ile tek örnek kilidi ve arka plan uyku koruması eklendi."
+                    },
+                    {
+                        "title": "🎧 3 Kanallı Bağımsız PC Ses & Çalma Tonu Aygıtı Seçimi",
+                        "desc": "Mikrofon (AI RNNoise + canlı VU metre), Görüşme Kulaklığı (tek tıkla ses testi) ve Çalma Tonu Aygıtı (zil hoparlörü + bağımsız ses seviyesi ayarı) birbirinden ayrı seçilebilir hale getirildi."
+                    },
+                    {
+                        "title": "🔔 İşletim Sistemi Bildirimleri, Pencereyi Öne Getirme & Sistem Tepsisi (Tray)",
+                        "desc": "Uygulama kapatıldığında sistem tepsisinde açık kalır; çağrı, geri arama veya mesaj geldiğinde yerel OS bildirimi gösterir, görev çubuğunu/Dock'u uyarır ve çağrıda pencereyi otomatik ekrana getirir."
+                    },
+                    {
+                        "title": "📞 Temsilci Çağrı Paneli (%100 Özellik Uyumu) & Yetkiye Bağlı Omnichannel Geçişi",
+                        "desc": "Masaüstü modunda Temsilci Çağrı Paneli'ndeki 10 sekmenin tamamı tam ekran çalışır; kullanıcının rolünde yetki varsa üst barda 'Çağrı Paneli / Omnichannel' geçiş anahtarı aktif olur."
+                    }
+                ]
+            },
+            {
+                "version": "v2.9.2",
+                "commit_hash": "d1cab7f",
+                "release_date": "5 Kasım 2026",
+                "badge": "Önceki Sürüm",
+                "badge_type": "previous",
                 "title": "Sinematik ve Sakinleştirilmiş GPU Geçiş Hızları, WAAPI Sahne Süzülmesi & Akıcı Grafik Kalibrasyonu",
                 "summary": "Kullanıcı geri bildirimi doğrultusunda tüm arayüzdeki pencere, kademeli kart/bölüm, grafik çizimi, açılır pencere ve KPI sayaç animasyonlarının hızları aceleci olmayacak, gözü yormadan net ve zarif biçimde hissedilecek şekilde yeniden kalibre edildi.",
                 "features": [

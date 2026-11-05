@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AIDA Agent — Bağlantı Bekleniyor</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Roboto, sans-serif;
+      background: radial-gradient(circle at 20% 20%, #1e1b4b 0%, #090d16 65%);
+      color: #f8fafc;
+      height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+      user-select: none;
+    }
+    .card {
+      max-width: 440px;
+      width: 100%;
+      background: rgba(15, 23, 42, 0.85);
+      border: 1px solid rgba(148, 163, 184, 0.16);
+      border-radius: 24px;
+      padding: 32px 28px;
+      text-align: center;
+      box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.6);
+      backdrop-filter: blur(16px);
+    }
+    .badge {
+      width: 56px;
+      height: 56px;
+      border-radius: 18px;
+      background: rgba(244, 63, 94, 0.14);
+      border: 1px solid rgba(244, 63, 94, 0.35);
+      color: #fb7185;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 24px;
+      margin-bottom: 16px;
+    }
+    h1 { font-size: 18px; font-weight: 800; margin-bottom: 8px; }
+    p { font-size: 13px; color: #94a3b8; line-height: 1.6; margin-bottom: 22px; }
+    .actions { display: flex; gap: 10px; }
+    button {
+      flex: 1;
+      padding: 11px 14px;
+      border-radius: 12px;
+      font-size: 12.5px;
+      font-weight: 700;
+      cursor: pointer;
+      border: none;
+      transition: all 0.2s ease;
+    }
+    .btn-primary {
+      background: linear-gradient(135deg, #4f46e5, #7c3aed);
+      color: #fff;
+    }
+    .btn-primary:hover { filter: brightness(1.1); }
+    .btn-secondary {
+      background: rgba(30, 41, 59, 0.9);
+      color: #cbd5e1;
+      border: 1px solid rgba(148, 163, 184, 0.2);
+    }
+    .btn-secondary:hover { background: rgba(51, 65, 85, 0.9); }
+    .timer { margin-top: 14px; font-size: 11px; color: #64748b; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="badge">⚡</div>
+    <h1>Santral Sunucusuna Ulaşılamıyor</h1>
+    <p>
+      Ağ bağlantınız geçici olarak kesilmiş veya santral sunucusu yeniden başlatılıyor olabilir.
+      Bağlantı geldiğinde oturumunuz kaldığı yerden devam edecektir.
+    </p>
+    <div class="actions">
+      <button id="retryBtn" class="btn-primary">Şimdi Yeniden Dene</button>
+      <button id="switchBtn" class="btn-secondary">Sunucu Değiştir</button>
+    </div>
+    <div class="timer" id="timerText">8 saniye içinde otomatik denenecek...</div>
+  </div>
+
+  <script>
+    let sec = 8;
+    const timerEl = document.getElementById("timerText");
+    const retry = () => {
+      if (window.aidaDesktop && window.aidaDesktop.reconnectWorkspace) {
+        window.aidaDesktop.reconnectWorkspace();
+      }
+    };
+    document.getElementById("retryBtn").addEventListener("click", retry);
+    document.getElementById("switchBtn").addEventListener("click", () => {
+      if (window.aidaDesktop && window.aidaDesktop.disconnectServer) {
+        window.aidaDesktop.disconnectServer();
+      }
+    });
+    setInterval(() => {
+      sec -= 1;
+      if (sec <= 0) {
+        sec = 8;
+        retry();
+      }
+      if (timerEl) {
+        timerEl.textContent = sec + " saniye içinde otomatik denenecek...";
+      }
+    }, 1000);
+  </script>
+</body>
+</html>

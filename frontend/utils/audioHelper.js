@@ -10,6 +10,34 @@ let ringbackInterval = null;
 let ringbackAudioEl = null;
 let ringbackPlayToken = 0;
 let ringbackWavUrl = null;
+let speakerTestAudioEl = null;
+let speakerTestWavUrl = null;
+
+export const getSavedRingtoneVolume = () => {
+  if (typeof window === "undefined") return 1.0;
+  try {
+    const raw = parseFloat(localStorage.getItem("ringtone_volume") || "1");
+    if (Number.isFinite(raw)) {
+      return Math.max(0.05, Math.min(1.0, raw));
+    }
+  } catch (e) {}
+  return 1.0;
+};
+
+export const setSavedRingtoneVolume = (vol) => {
+  const clamped = Math.max(0.05, Math.min(1.0, Number(vol) || 1.0));
+  if (typeof window !== "undefined") {
+    try {
+      localStorage.setItem("ringtone_volume", String(clamped));
+    } catch (e) {}
+  }
+  if (ringtoneAudioEl) {
+    try {
+      ringtoneAudioEl.volume = clamped;
+    } catch (e) {}
+  }
+  return clamped;
+};
 
 /**
  * Strips OS/Browser prefix from a device label such as:
@@ -342,7 +370,7 @@ export const playRingtoneSound = async (type = "classic", sinkId = null, sinkLab
       el.pause();
       el.src = getOrCreateRingtoneWavUrl(type || "classic");
       el.currentTime = 0;
-      el.volume = 1.0;
+      el.volume = getSavedRingtoneVolume();
 
       if (typeof el.setSinkId === "function") {
         try {
@@ -475,6 +503,87 @@ export const stopRingbackTone = () => {
       ringbackCtx.close();
     } catch (e) {}
     ringbackCtx = null;
+  }
+};
+
+function getOrCreateSpeakerTestWavUrl() {
+  if (speakerTestWavUrl) return speakerTestWavUrl;
+  const sampleRate = 44100;
+  const totalSec = 1.35;
+  const totalSamples = Math.floor(sampleRate * totalSec);
+  const samples = new Float32Array(totalSamples);
+
+  const notes = [
+    { start: 0.0, dur: 0.36, freq: 523.25 },
+    { start: 0.28, dur: 0.36, freq: 659.25 },
+    { start: 0.56, dur: 0.65, freq: 783.99 }
+  ];
+
+  notes.forEach(({ start, dur, freq }) => {
+    const startIdx = Math.floor(start * sampleRate);
+    const endIdx = Math.min(totalSamples, Math.floor((start + dur) * sampleRate));
+    for (let i = startIdx; i < endIdx; i++) {
+      const t = (i - startIdx) / sampleRate;
+      const env = Math.min(1, t / 0.025) * Math.exp(-t * 3.8);
+      samples[i] += Math.sin(2 * Math.PI * freq * t) * 0.28 * env;
+    }
+  });
+
+  speakerTestWavUrl = encodeMonoWavUrl(samples, sampleRate);
+  return speakerTestWavUrl;
+}
+
+export const stopSpeakerTestSound = () => {
+  if (speakerTestAudioEl) {
+    try {
+      speakerTestAudioEl.pause();
+      speakerTestAudioEl.currentTime = 0;
+    } catch (e) {}
+  }
+};
+
+export const playSpeakerTestSound = async (sinkId = null, sinkLabel = null, onEnded = null) => {
+  stopSpeakerTestSound();
+  if (typeof window === "undefined") return;
+
+  const savedSinkId = sinkId || localStorage.getItem("selected_speaker") || "";
+  const savedSinkLabel = sinkLabel || localStorage.getItem("selected_speaker_label") || "";
+
+  try {
+    const resolvedSinkId = await resolveAudioDeviceId("audiooutput", savedSinkId, savedSinkLabel);
+    if (!speakerTestAudioEl) {
+      let existing = document.getElementById("aida-speaker-test-audio-el");
+      if (!existing) {
+        existing = document.createElement("audio");
+        existing.id = "aida-speaker-test-audio-el";
+        existing.preload = "auto";
+        existing.playsInline = true;
+        existing.style.display = "none";
+        document.body.appendChild(existing);
+      }
+      speakerTestAudioEl = existing;
+    }
+
+    speakerTestAudioEl.onended = () => {
+      if (typeof onEnded === "function") onEnded();
+    };
+    speakerTestAudioEl.src = getOrCreateSpeakerTestWavUrl();
+    speakerTestAudioEl.currentTime = 0;
+    speakerTestAudioEl.volume = 0.9;
+
+    if (typeof speakerTestAudioEl.setSinkId === "function") {
+      try {
+        await speakerTestAudioEl.setSinkId(resolvedSinkId === "default" ? "" : resolvedSinkId);
+      } catch (e) {
+        try {
+          await speakerTestAudioEl.setSinkId("");
+        } catch (e2) {}
+      }
+    }
+    await speakerTestAudioEl.play();
+  } catch (err) {
+    console.warn("[AudioHelper] Speaker test sound error:", err);
+    if (typeof onEnded === "function") onEnded();
   }
 };
 

@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AIDA Agent — Santral Girişi</title>
+  <link rel="stylesheet" href="./login.css" />
+</head>
+<body>
+  <div class="bg-orb orb-1"></div>
+  <div class="bg-orb orb-2"></div>
+
+  <main class="shell">
+    <section class="login-card">
+      <header class="brand-header">
+        <div class="logo-box">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 8V4H8" />
+            <rect width="16" height="12" x="4" y="8" rx="2" />
+            <path d="M2 14h2" />
+            <path d="M20 14h2" />
+            <path d="M15 13v2" />
+            <path d="M9 13v2" />
+          </svg>
+        </div>
+        <div>
+          <h1 class="brand-title"><span>AI</span>DA Agent</h1>
+          <p class="brand-sub">MASAÜSTÜ TEMSİLCİ ÇAĞRI PANELİ</p>
+        </div>
+        <span class="ver-pill" id="appVersionBadge">v2.9.3</span>
+      </header>
+
+      <!-- Primary Credentials Form -->
+      <form id="loginForm" autocomplete="off">
+        <!-- Host Input -->
+        <div class="field-group">
+          <div class="label-row">
+            <label for="hostInput">SUNUCU ADRESİ (HOST)</label>
+            <span id="hostProbeBadge" class="probe-badge hidden"></span>
+          </div>
+          <div class="input-with-btn">
+            <input
+              id="hostInput"
+              type="text"
+              placeholder="Örn: santral.sirket.com veya 192.168.1.50"
+              required
+              spellcheck="false"
+            />
+            <button type="button" id="probeHostBtn" class="btn-probe" title="Sunucu bağlantısını kontrol et">
+              Test Et
+            </button>
+          </div>
+          <div id="recentHostsWrap" class="recent-hosts hidden"></div>
+        </div>
+
+        <!-- Username / Extension -->
+        <div class="field-group">
+          <label for="usernameInput">KULLANICI ADI VEYA DAHİLİ</label>
+          <input
+            id="usernameInput"
+            type="text"
+            placeholder="Kullanıcı adı, e-posta veya dahili (1001)"
+            required
+            spellcheck="false"
+          />
+        </div>
+
+        <!-- Password -->
+        <div class="field-group">
+          <label for="passwordInput">ŞİFRE</label>
+          <div class="password-wrap">
+            <input
+              id="passwordInput"
+              type="password"
+              placeholder="••••••••"
+              required
+            />
+            <button type="button" id="togglePwdBtn" class="pwd-eye" title="Şifreyi Göster / Gizle">
+              Göster
+            </button>
+          </div>
+        </div>
+
+        <!-- Audio Hardware Pre-Configuration Accordion -->
+        <div class="hw-accordion">
+          <button type="button" id="toggleHwBtn" class="hw-toggle">
+            <span class="hw-toggle-left">
+              <span>🎧 Ses & Çalma Aygıtı Seçimi</span>
+              <small id="hwCountText">Aygıtlar taranıyor...</small>
+            </span>
+            <span id="hwChevron" class="hw-chevron">▾</span>
+          </button>
+
+          <div id="hwPanel" class="hw-panel hidden">
+            <div class="hw-field">
+              <label for="micSelect">Mikrofon Girişi</label>
+              <select id="micSelect"></select>
+            </div>
+            <div class="hw-field">
+              <label for="spkSelect">Görüşme Hoparlörü / Kulaklık</label>
+              <select id="spkSelect"></select>
+            </div>
+            <div class="hw-field hw-ringtone-box">
+              <label for="ringSpkSelect">Çalma Tonu (Zil Sesi) Çıkış Aygıtı</label>
+              <select id="ringSpkSelect"></select>
+              <small>Zili bilgisayar hoparlörüne, konuşma sesini kulaklığa yönlendirebilirsiniz.</small>
+            </div>
+          </div>
+        </div>
+
+        <label class="remember-row">
+          <input type="checkbox" id="rememberCheckbox" checked />
+          <span>Sunucu adresini ve oturumumu bu bilgisayarda hatırla</span>
+        </label>
+
+        <div id="loginErrorBox" class="error-box hidden"></div>
+
+        <button type="submit" id="submitLoginBtn" class="btn-submit">
+          <span>Santrale Bağlan ve Giriş Yap</span>
+        </button>
+      </form>
+
+      <!-- 2FA Step -->
+      <form id="twoFactorForm" class="hidden" autocomplete="off">
+        <div class="twofa-info">
+          <strong id="twoFaTitle">İki Aşamalı Doğrulama</strong>
+          <p id="twoFaDesc">Lütfen 6 haneli güvenlik kodunu giriniz.</p>
+        </div>
+
+        <div class="field-group">
+          <label for="twoFaCodeInput">6 HANELİ DOĞRULAMA KODU</label>
+          <input
+            id="twoFaCodeInput"
+            type="text"
+            inputmode="numeric"
+            maxlength="6"
+            placeholder="000000"
+            class="code-input"
+            required
+          />
+        </div>
+
+        <div id="twoFaErrorBox" class="error-box hidden"></div>
+
+        <div class="twofa-actions">
+          <button type="button" id="backToLoginBtn" class="btn-secondary">Geri Dön</button>
+          <button type="button" id="resend2faBtn" class="btn-secondary hidden">Kodu Gönder</button>
+          <button type="submit" id="verify2faBtn" class="btn-submit">Doğrula</button>
+        </div>
+      </form>
+    </section>
+  </main>
+
+  <script src="./login.js"></script>
+</body>
+</html>
