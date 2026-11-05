@@ -2320,6 +2320,47 @@ export default function Home() {
     return () => window.removeEventListener("keydown", handleEscMenus);
   }, [pinOverflowOpen, profileDropdownOpen]);
 
+  // Desktop Mode strict workspace guard & System Tray synchronization (MUST run before early returns!)
+  useEffect(() => {
+    if (!isLoggedIn || !isDesktopMode) return;
+    if (activeTab !== "call-center" && !(activeTab === "omnichannel" && hasOmnichannelPermission)) {
+      setActiveTab("call-center");
+    }
+  }, [isLoggedIn, isDesktopMode, activeTab, hasOmnichannelPermission]);
+
+  useEffect(() => {
+    if (!isLoggedIn || !isDesktopMode || typeof window === "undefined") return undefined;
+    const syncTray = (wpState) => {
+      const profObj =
+        agentProfiles.find((p) => p.id === agentActiveProfile) ||
+        DEFAULT_USER_PROFILES[0];
+      syncDesktopTrayState({
+        fullName: currentUser?.full_name || currentUser?.username || "Temsilci",
+        extension: currentUser?.extension || "",
+        profileId: agentActiveProfile,
+        profileLabel: profObj?.name || "Uygun",
+        registered: Boolean(wpState?.registered),
+        callStatus: wpState?.callStatus || "Idle"
+      });
+    };
+    const unsub = webphoneManager.subscribe(syncTray);
+
+    const handleTrayProfileSwitch = (e) => {
+      const nextProf = e?.detail?.profileId;
+      if (nextProf) handleQuickProfileSwitch(nextProf);
+    };
+    const handleTrayLogout = () => {
+      handleLogout();
+    };
+    window.addEventListener("SWITCH_AGENT_PROFILE_FROM_TRAY", handleTrayProfileSwitch);
+    window.addEventListener("TRIGGER_DESKTOP_LOGOUT", handleTrayLogout);
+    return () => {
+      unsub();
+      window.removeEventListener("SWITCH_AGENT_PROFILE_FROM_TRAY", handleTrayProfileSwitch);
+      window.removeEventListener("TRIGGER_DESKTOP_LOGOUT", handleTrayLogout);
+    };
+  }, [isLoggedIn, isDesktopMode, currentUser, agentActiveProfile, agentProfiles]);
+
   if (isAuthChecking) {
     return <div className="min-h-screen flex items-center justify-center bg-slate-100 dark:bg-slate-950"><div className="animate-spin w-8 h-8 border-4 border-primary border-t-transparent rounded-full"></div></div>;
   }
@@ -2438,47 +2479,6 @@ export default function Home() {
           callPanelPrefs?.defaultAgentSubTab === currentAgentSubTab
       : callPanelPrefs?.defaultLandingTab === activeTab
   );
-
-  // Desktop Mode strict workspace guard & System Tray synchronization
-  useEffect(() => {
-    if (!isDesktopMode) return;
-    if (activeTab !== "call-center" && !(activeTab === "omnichannel" && hasOmnichannelPermission)) {
-      setActiveTab("call-center");
-    }
-  }, [isDesktopMode, activeTab, hasOmnichannelPermission]);
-
-  useEffect(() => {
-    if (!isDesktopMode || typeof window === "undefined") return;
-    const syncTray = (wpState) => {
-      const profObj =
-        agentProfiles.find((p) => p.id === agentActiveProfile) ||
-        DEFAULT_USER_PROFILES[0];
-      syncDesktopTrayState({
-        fullName: currentUser?.full_name || currentUser?.username || "Temsilci",
-        extension: currentUser?.extension || "",
-        profileId: agentActiveProfile,
-        profileLabel: profObj?.name || "Uygun",
-        registered: Boolean(wpState?.registered),
-        callStatus: wpState?.callStatus || "Idle"
-      });
-    };
-    const unsub = webphoneManager.subscribe(syncTray);
-
-    const handleTrayProfileSwitch = (e) => {
-      const nextProf = e?.detail?.profileId;
-      if (nextProf) handleQuickProfileSwitch(nextProf);
-    };
-    const handleTrayLogout = () => {
-      handleLogout();
-    };
-    window.addEventListener("SWITCH_AGENT_PROFILE_FROM_TRAY", handleTrayProfileSwitch);
-    window.addEventListener("TRIGGER_DESKTOP_LOGOUT", handleTrayLogout);
-    return () => {
-      unsub();
-      window.removeEventListener("SWITCH_AGENT_PROFILE_FROM_TRAY", handleTrayProfileSwitch);
-      window.removeEventListener("TRIGGER_DESKTOP_LOGOUT", handleTrayLogout);
-    };
-  }, [isDesktopMode, currentUser, agentActiveProfile, agentProfiles]);
 
   return (
     <div className="h-screen overflow-hidden bg-slate-50 dark:bg-slate-950 text-slate-800 dark:text-slate-100 flex font-sans transition-colors duration-300">
