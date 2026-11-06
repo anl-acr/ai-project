@@ -20,7 +20,9 @@ import {
   Settings2,
   Info,
   Check,
-  Filter
+  Filter,
+  Eye,
+  EyeOff
 } from "lucide-react";
 import { useTheme } from "../../utils/theme";
 import ConfirmDeleteModal from "../dashboard/ConfirmDeleteModal";
@@ -133,6 +135,7 @@ export default function EmailNotificationsPanel({ backendHost = "localhost:8000"
   const [testingWhatsapp, setTestingWhatsapp] = useState(false);
   const [statusMsg, setStatusMsg] = useState(null); // { type: 'success' | 'error', text: '' }
   const [showClearModal, setShowClearModal] = useState(false);
+  const [showSmtpPass, setShowSmtpPass] = useState(false);
   const [selectedCategory, setSelectedCategory] = useState("Tümü");
 
   // Permissions
@@ -221,6 +224,7 @@ export default function EmailNotificationsPanel({ backendHost = "localhost:8000"
     setLoading(true);
     try {
       const res = await fetch(`/api/settings/notifications?t=${Date.now()}`, {
+        cache: "no-store",
         headers: getHeaders()
       });
       if (res.ok) {
@@ -308,11 +312,12 @@ export default function EmailNotificationsPanel({ backendHost = "localhost:8000"
   };
 
   const handleTestNotification = async (channel) => {
+    const effectiveEmailRecipient = (config.email_recipients || config.smtp_user || "").trim();
     if (channel === "email") {
-      if (!config.email_recipients.trim()) {
+      if (!effectiveEmailRecipient) {
         setStatusMsg({
           type: "error",
-          text: "Lütfen önce en az bir alıcı E-Posta adresi yazın."
+          text: "Lütfen önce en az bir alıcı E-Posta adresi veya SMTP Kullanıcı e-postası yazın."
         });
         return;
       }
@@ -333,16 +338,18 @@ export default function EmailNotificationsPanel({ backendHost = "localhost:8000"
       // Save current settings first so backend uses latest SMTP/recipients
       await fetch(`/api/settings/notifications`, {
         method: "POST",
+        cache: "no-store",
         headers: getHeaders(),
         body: JSON.stringify(config)
       });
 
       const res = await fetch(`/api/settings/notifications/test`, {
         method: "POST",
+        cache: "no-store",
         headers: getHeaders(),
         body: JSON.stringify({
           channel,
-          email_recipients: config.email_recipients,
+          email_recipients: effectiveEmailRecipient,
           whatsapp_recipients: config.whatsapp_recipients
         })
       });
@@ -665,19 +672,36 @@ export default function EmailNotificationsPanel({ backendHost = "localhost:8000"
                     />
                   </div>
                   <div>
-                    <label className="block text-[11px] font-bold text-slate-600 dark:text-slate-400 mb-1">
+                    <label htmlFor="notif-smtp-pass" className="block text-[11px] font-bold text-slate-600 dark:text-slate-400 mb-1">
                       SMTP Şifre / Uygulama Şifresi
                     </label>
-                    <input
-                      type="password"
-                      disabled={!canWrite}
-                      value={config.smtp_password}
-                      onChange={(e) =>
-                        setConfig({ ...config, smtp_password: e.target.value })
-                      }
-                      placeholder="••••••••••••"
-                      className="w-full px-3 py-2 rounded-lg text-xs bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white"
-                    />
+                    <div className="relative">
+                      <input
+                        id="notif-smtp-pass"
+                        type={showSmtpPass ? "text" : "password"}
+                        disabled={!canWrite}
+                        value={config.smtp_password}
+                        autoComplete="new-password"
+                        autoCorrect="off"
+                        autoCapitalize="off"
+                        spellCheck={false}
+                        onChange={(e) =>
+                          setConfig({ ...config, smtp_password: e.target.value })
+                        }
+                        placeholder="••••••••••••"
+                        className="w-full pl-3 pr-9 py-2 rounded-lg text-xs bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowSmtpPass((v) => !v)}
+                        aria-pressed={showSmtpPass}
+                        aria-label={showSmtpPass ? "Şifreyi gizle" : "Şifreyi göster"}
+                        title={showSmtpPass ? "Şifreyi gizle" : "Şifreyi göster"}
+                        className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 transition"
+                      >
+                        {showSmtpPass ? <EyeOff size={14} /> : <Eye size={14} />}
+                      </button>
+                    </div>
                   </div>
                 </div>
               )}

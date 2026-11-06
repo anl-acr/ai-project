@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from "react";
-import { MessageSquare, Send, Bot, User, HelpCircle, Save, CheckCircle, Smartphone, Copy, Check, Sparkles, Plus, Trash2, Edit3, AlertTriangle, Layers, PhoneCall } from "lucide-react";
+import { MessageSquare, Send, Bot, User, HelpCircle, Save, CheckCircle, Smartphone, Copy, Check, Sparkles, Plus, Trash2, Edit3, AlertTriangle, Layers, PhoneCall, Eye, EyeOff, Mail } from "lucide-react";
 import { useTheme } from "../../utils/theme";
 
 export default function ChannelSettings({ backendHost = "localhost:8000" }) {
@@ -27,8 +27,12 @@ export default function ChannelSettings({ backendHost = "localhost:8000" }) {
   });
   
   const [success, setSuccess] = useState(false);
+  const [saveError, setSaveError] = useState("");
   const [loading, setLoading] = useState(false);
-  const [activeTab, setActiveTab] = useState("whatsapp"); // whatsapp, telegram, meta
+  const [showSmtpPass, setShowSmtpPass] = useState(false);
+  const [testingEmail, setTestingEmail] = useState(false);
+  const [emailTestStatus, setEmailTestStatus] = useState(null); // { type: 'success' | 'error', text: '' }
+  const [activeTab, setActiveTab] = useState("whatsapp"); // whatsapp, telegram, meta, email
   const [copiedUrl, setCopiedUrl] = useState(false);
   const [copiedToken, setCopiedToken] = useState(false);
 
@@ -101,20 +105,45 @@ export default function ChannelSettings({ backendHost = "localhost:8000" }) {
   const [userInput, setUserInput] = useState("");
   const chatEndRef = useRef(null);
 
-  const API_BASE = `${window.location.protocol}//${backendHost}`;
+  const API_BASE = typeof window !== "undefined" ? `${window.location.protocol}//${backendHost}` : "";
   const WEBHOOK_WHATSAPP_URL = `${API_BASE}/api/webhooks/whatsapp`;
 
+  const getRequestHeaders = () => {
+    const tenantId =
+      (typeof window !== "undefined" &&
+        (localStorage.getItem("selected_tenant_id") ||
+          sessionStorage.getItem("selected_tenant_id"))) ||
+      "tenant-default";
+    const userId =
+      (typeof window !== "undefined" &&
+        (localStorage.getItem("current_user_id") ||
+          sessionStorage.getItem("current_user_id"))) ||
+      "admin";
+    return {
+      "Content-Type": "application/json",
+      "X-Tenant-ID": tenantId,
+      "X-User-ID": userId
+    };
+  };
+
   useEffect(() => {
-    fetch(`${API_BASE}/api/settings/channels`)
-      .then((res) => res.json())
+    fetch(`/api/settings/channels?t=${Date.now()}`, {
+      cache: "no-store",
+      headers: getRequestHeaders()
+    })
+      .then((res) => (res.ok ? res.json() : null))
       .then((data) => {
-        if (data) setChannels((prev) => ({ ...prev, ...data }));
+        if (data && typeof data === "object") {
+          setChannels((prev) => ({ ...prev, ...data }));
+        }
       })
       .catch((err) => console.error("[Channels Settings] Ayarlar yuklenemedi:", err));
-  }, [API_BASE]);
+  }, [backendHost]);
 
   const handleChange = (e) => {
     const { name, value, type, checked } = e.target;
+    setSaveError("");
+    setEmailTestStatus(null);
     setChannels((prev) => ({
       ...prev,
       [name]: type === "checkbox" ? checked : value
@@ -122,24 +151,87 @@ export default function ChannelSettings({ backendHost = "localhost:8000" }) {
   };
 
   const handleSave = async (e) => {
-    e.preventDefault();
+    if (e) e.preventDefault();
     setLoading(true);
     setSuccess(false);
+    setSaveError("");
 
     try {
-      const res = await fetch(`${API_BASE}/api/settings/channels`, {
+      const res = await fetch(`/api/settings/channels`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        cache: "no-store",
+        headers: getRequestHeaders(),
         body: JSON.stringify(channels)
       });
+      const data = await res.json().catch(() => ({}));
       if (res.ok) {
+        if (data.channels && typeof data.channels === "object") {
+          setChannels((prev) => ({ ...prev, ...data.channels }));
+        }
         setSuccess(true);
-        setTimeout(() => setSuccess(false), 3000);
+        setTimeout(() => setSuccess(false), 4000);
+      } else {
+        setSaveError(data.detail || data.message || "Ayarlar kaydedilirken bir hata oluştu.");
       }
     } catch (err) {
       console.error("[Channels Settings] Kayit hatasi:", err);
+      setSaveError("Sunucu bağlantı hatası: " + err.message);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleTestChannelEmail = async () => {
+    if (!String(channels.email_smtp_user || "").trim()) {
+      setEmailTestStatus({
+        type: "error",
+        text: "Lütfen önce E-Posta Adresi (Kullanıcı) alanını doldurun."
+      });
+      return;
+    }
+    setTestingEmail(true);
+    setEmailTestStatus(null);
+    setSaveError("");
+    try {
+      const saveRes = await fetch(`/api/settings/channels`, {
+        method: "POST",
+        cache: "no-store",
+        headers: getRequestHeaders(),
+        body: JSON.stringify(channels)
+      });
+      const saveData = await saveRes.json().catch(() => ({}));
+      if (saveRes.ok && saveData.channels) {
+        setChannels((prev) => ({ ...prev, ...saveData.channels }));
+      }
+
+      const testRes = await fetch(`/api/settings/channels/test-email`, {
+        method: "POST",
+        cache: "no-store",
+        headers: getRequestHeaders(),
+        body: JSON.stringify({
+          ...channels,
+          to_email: String(channels.email_smtp_user || "").trim()
+        })
+      });
+      const testData = await testRes.json().catch(() => ({}));
+      if (testRes.ok && testData.status === "success") {
+        setEmailTestStatus({
+          type: "success",
+          text: testData.message || "Test e-postası başarıyla gönderildi!"
+        });
+      } else {
+        setEmailTestStatus({
+          type: "error",
+          text: testData.detail || testData.message || "Test e-postası gönderilemedi."
+        });
+      }
+    } catch (err) {
+      setEmailTestStatus({
+        type: "error",
+        text: "Test bağlantı hatası: " + err.message
+      });
+    } finally {
+      setTestingEmail(false);
     }
   };
 
@@ -538,87 +630,157 @@ export default function ChannelSettings({ backendHost = "localhost:8000" }) {
 
             {activeTab === "email" && (
               <div className="flex flex-col gap-3">
-                <h4 className="font-bold text-xs text-slate-400 dark:text-slate-500 uppercase tracking-wide">E-Posta Entegrasyonu (SMTP / IMAP)</h4>
+                <div className="flex items-center justify-between gap-2">
+                  <h4 className="font-bold text-xs text-slate-400 dark:text-slate-500 uppercase tracking-wide">E-Posta Entegrasyonu (SMTP / IMAP)</h4>
+                  <button
+                    type="button"
+                    onClick={handleTestChannelEmail}
+                    disabled={testingEmail}
+                    className={"px-3 py-1.5 rounded-xl text-[11px] font-bold text-white transition flex items-center gap-1.5 disabled:opacity-50 " + bg + " " + hover}
+                  >
+                    <Send size={12} />
+                    <span>{testingEmail ? "Test Gönderiliyor..." : "Test E-Postası Gönder"}</span>
+                  </button>
+                </div>
                 
                 <div className="grid grid-cols-2 gap-3">
                   <div className="flex flex-col gap-1.5">
-                    <label className="text-[10px] text-slate-400 dark:text-slate-500 font-bold uppercase tracking-wider">SMTP Sunucu Adresi</label>
+                    <label htmlFor="ch-smtp-host" className="text-[10px] text-slate-400 dark:text-slate-500 font-bold uppercase tracking-wider">SMTP Sunucu Adresi</label>
                     <input
+                      id="ch-smtp-host"
                       type="text"
                       name="email_smtp_host"
                       value={channels.email_smtp_host || ""}
                       onChange={handleChange}
+                      autoCorrect="off"
+                      autoCapitalize="off"
+                      spellCheck={false}
                       placeholder="smtp.gmail.com"
-                      className="px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl text-xs text-slate-800 dark:text-slate-200 font-mono focus:outline-none focus:border-emerald-500"
+                      className="px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl text-xs text-slate-800 dark:text-slate-200 font-mono focus:outline-none focus:border-primary"
                     />
                   </div>
                   <div className="flex flex-col gap-1.5">
-                    <label className="text-[10px] text-slate-400 dark:text-slate-500 font-bold uppercase tracking-wider">SMTP Portu</label>
+                    <label htmlFor="ch-smtp-port" className="text-[10px] text-slate-400 dark:text-slate-500 font-bold uppercase tracking-wider">SMTP Portu</label>
                     <input
+                      id="ch-smtp-port"
                       type="text"
+                      inputMode="numeric"
                       name="email_smtp_port"
                       value={channels.email_smtp_port || "587"}
                       onChange={handleChange}
+                      autoCorrect="off"
+                      autoCapitalize="off"
+                      spellCheck={false}
                       placeholder="587 veya 465"
-                      className="px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl text-xs text-slate-800 dark:text-slate-200 font-mono focus:outline-none focus:border-emerald-500"
+                      className="px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl text-xs text-slate-800 dark:text-slate-200 font-mono focus:outline-none focus:border-primary"
                     />
                   </div>
                 </div>
 
                 <div className="grid grid-cols-2 gap-3">
                   <div className="flex flex-col gap-1.5">
-                    <label className="text-[10px] text-slate-400 dark:text-slate-500 font-bold uppercase tracking-wider">E-Posta Adresi (Kullanıcı)</label>
+                    <label htmlFor="ch-smtp-user" className="text-[10px] text-slate-400 dark:text-slate-500 font-bold uppercase tracking-wider">E-Posta Adresi (Kullanıcı)</label>
                     <input
+                      id="ch-smtp-user"
                       type="email"
                       name="email_smtp_user"
                       value={channels.email_smtp_user || ""}
                       onChange={handleChange}
-                      placeholder="destek@company.com"
-                      className="px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl text-xs text-slate-800 dark:text-slate-200 font-mono focus:outline-none focus:border-emerald-500"
+                      autoComplete="off"
+                      autoCorrect="off"
+                      autoCapitalize="off"
+                      spellCheck={false}
+                      placeholder="anila@testteknoloji.com.tr"
+                      className="px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl text-xs text-slate-800 dark:text-slate-200 font-mono focus:outline-none focus:border-primary"
                     />
                   </div>
                   <div className="flex flex-col gap-1.5">
-                    <label className="text-[10px] text-slate-400 dark:text-slate-500 font-bold uppercase tracking-wider">E-Posta Şifresi / Uygulama Şifresi</label>
-                    <input
-                      type="password"
-                      name="email_smtp_pass"
-                      value={channels.email_smtp_pass || ""}
-                      onChange={handleChange}
-                      placeholder="••••••••••••"
-                      className="px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl text-xs text-slate-800 dark:text-slate-200 font-mono focus:outline-none focus:border-emerald-500"
-                    />
+                    <label htmlFor="ch-smtp-pass" className="text-[10px] text-slate-400 dark:text-slate-500 font-bold uppercase tracking-wider">E-Posta Şifresi / Uygulama Şifresi</label>
+                    <div className="relative">
+                      <input
+                        id="ch-smtp-pass"
+                        type={showSmtpPass ? "text" : "password"}
+                        name="email_smtp_pass"
+                        value={channels.email_smtp_pass || ""}
+                        onChange={handleChange}
+                        autoComplete="new-password"
+                        autoCorrect="off"
+                        autoCapitalize="off"
+                        spellCheck={false}
+                        placeholder="••••••••••••"
+                        className="w-full pl-3 pr-9 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl text-xs text-slate-800 dark:text-slate-200 font-mono focus:outline-none focus:border-primary"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowSmtpPass((v) => !v)}
+                        aria-pressed={showSmtpPass}
+                        aria-label={showSmtpPass ? "Şifreyi gizle" : "Şifreyi göster"}
+                        title={showSmtpPass ? "Şifreyi gizle" : "Şifreyi göster"}
+                        className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 transition"
+                      >
+                        {showSmtpPass ? <EyeOff size={15} /> : <Eye size={15} />}
+                      </button>
+                    </div>
                   </div>
                 </div>
 
                 <div className="grid grid-cols-2 gap-3">
                   <div className="flex flex-col gap-1.5">
-                    <label className="text-[10px] text-slate-400 dark:text-slate-500 font-bold uppercase tracking-wider">IMAP Sunucu Adresi (Gelen Kutusu)</label>
+                    <label htmlFor="ch-imap-host" className="text-[10px] text-slate-400 dark:text-slate-500 font-bold uppercase tracking-wider">IMAP Sunucu Adresi (Gelen Kutusu)</label>
                     <input
+                      id="ch-imap-host"
                       type="text"
                       name="email_imap_host"
                       value={channels.email_imap_host || ""}
                       onChange={handleChange}
+                      autoCorrect="off"
+                      autoCapitalize="off"
+                      spellCheck={false}
                       placeholder="imap.gmail.com"
-                      className="px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl text-xs text-slate-800 dark:text-slate-200 font-mono focus:outline-none focus:border-emerald-500"
+                      className="px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl text-xs text-slate-800 dark:text-slate-200 font-mono focus:outline-none focus:border-primary"
                     />
                   </div>
                   <div className="flex flex-col gap-1.5">
-                    <label className="text-[10px] text-slate-400 dark:text-slate-500 font-bold uppercase tracking-wider">IMAP Portu</label>
+                    <label htmlFor="ch-imap-port" className="text-[10px] text-slate-400 dark:text-slate-500 font-bold uppercase tracking-wider">IMAP Portu</label>
                     <input
+                      id="ch-imap-port"
                       type="text"
+                      inputMode="numeric"
                       name="email_imap_port"
                       value={channels.email_imap_port || "993"}
                       onChange={handleChange}
+                      autoCorrect="off"
+                      autoCapitalize="off"
+                      spellCheck={false}
                       placeholder="993"
-                      className="px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl text-xs text-slate-800 dark:text-slate-200 font-mono focus:outline-none focus:border-emerald-500"
+                      className="px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl text-xs text-slate-800 dark:text-slate-200 font-mono focus:outline-none focus:border-primary"
                     />
                   </div>
                 </div>
+
+                {emailTestStatus && (
+                  <div
+                    role="status"
+                    aria-live="polite"
+                    className={`p-3 rounded-xl border text-xs font-medium flex items-start gap-2 ${
+                      emailTestStatus.type === "success"
+                        ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-700 dark:text-emerald-300"
+                        : "bg-rose-500/10 border-rose-500/30 text-rose-700 dark:text-rose-300"
+                    }`}
+                  >
+                    {emailTestStatus.type === "success" ? (
+                      <CheckCircle size={15} className="shrink-0 mt-0.5" />
+                    ) : (
+                      <AlertTriangle size={15} className="shrink-0 mt-0.5" />
+                    )}
+                    <span>{emailTestStatus.text}</span>
+                  </div>
+                )}
               </div>
             )}
 
             <div className="flex items-center justify-between border-t border-slate-100 dark:border-slate-800 pt-4 mt-2">
-              <p className="text-[10px] text-slate-400 dark:text-slate-500 font-medium">Ayarları kaydettikten sonra yapay zeka mesaj almaya ve göndermeye hazır olacaktır.</p>
+              <p className="text-[10px] text-slate-400 dark:text-slate-500 font-medium">Ayarları kaydettikten sonra e-posta gönderimi ve yapay zeka kanalları aktif olacaktır.</p>
               <button
                 type="submit"
                 disabled={loading}
@@ -630,9 +792,16 @@ export default function ChannelSettings({ backendHost = "localhost:8000" }) {
           </form>
 
           {success && (
-            <div className="p-3 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-250 dark:border-emerald-800 rounded-xl text-emerald-700 dark:text-emerald-300 text-xs flex items-center gap-2 font-semibold">
+            <div role="status" aria-live="polite" className="p-3 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 rounded-xl text-emerald-700 dark:text-emerald-300 text-xs flex items-center gap-2 font-semibold">
               <CheckCircle size={15} />
-              <span>Entegrasyon jetonları başarıyla kaydedildi!</span>
+              <span>Kanal ve E-Posta (SMTP/IMAP) ayarları kalıcı olarak kaydedildi!</span>
+            </div>
+          )}
+
+          {saveError && (
+            <div role="alert" className="p-3 bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800 rounded-xl text-rose-700 dark:text-rose-300 text-xs flex items-center gap-2 font-semibold">
+              <AlertTriangle size={15} />
+              <span>{saveError}</span>
             </div>
           )}
         </div>

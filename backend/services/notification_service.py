@@ -214,18 +214,24 @@ async def _send_notification_email(
 
     if (use_custom and has_custom_creds) or (has_custom_creds and not has_channel_creds):
         smtp_host = str(cfg.get("smtp_host", "")).strip()
-        smtp_port = int(cfg.get("smtp_port") or 587)
+        try:
+            smtp_port = int(str(cfg.get("smtp_port") or "587").strip())
+        except ValueError:
+            smtp_port = 587
         smtp_user = str(cfg.get("smtp_user", "")).strip()
         smtp_pass = str(cfg.get("smtp_password") or cfg.get("smtp_pass") or "").strip()
         use_tls = bool(cfg.get("smtp_use_tls", True))
         from_name = str(cfg.get("smtp_from_name") or "AIDA PBX").strip()
     else:
         smtp_host = str(channels_cfg.get("email_smtp_host", "")).strip()
-        smtp_port = int(channels_cfg.get("email_smtp_port") or 587)
+        try:
+            smtp_port = int(str(channels_cfg.get("email_smtp_port") or "587").strip())
+        except ValueError:
+            smtp_port = 587
         smtp_user = str(channels_cfg.get("email_smtp_user", "")).strip()
         smtp_pass = str(channels_cfg.get("email_smtp_pass", "")).strip()
         use_tls = bool(channels_cfg.get("email_use_tls", True))
-        from_name = str(cfg.get("smtp_from_name") or "AIDA PBX").strip()
+        from_name = str(channels_cfg.get("email_from_name") or cfg.get("smtp_from_name") or "AIDA PBX").strip()
 
     if smtp_host.lower() in ("gmail.com", "googlemail.com"):
         smtp_host = "smtp.gmail.com"
@@ -238,8 +244,9 @@ async def _send_notification_email(
             "message": "SMTP e-posta ayarları henüz yapılandırılmamış. Lütfen Sistem Ayarları > Kanal Entegrasyonları > E-Posta (veya E-Mail ve WhatsApp Bildirimleri) bölümünden SMTP bilgilerinizi tanımlayın."
         }
 
-    # Google App Passwords are often copied as 'abcd efgh ijkl mnop' (4x4 with spaces)
-    if "gmail.com" in smtp_host.lower() and " " in smtp_pass and len(smtp_pass.replace(" ", "")) == 16:
+    # Google App Passwords are often copied as 'abcd efgh ijkl mnop' (4x4 groups with spaces)
+    import re as _re
+    if "gmail.com" in smtp_host.lower() and _re.fullmatch(r"[a-zA-Z]{4}(\s+[a-zA-Z]{4}){3}", smtp_pass):
         smtp_pass = smtp_pass.replace(" ", "")
 
     msg = MIMEMultipart("alternative")

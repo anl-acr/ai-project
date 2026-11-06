@@ -523,6 +523,14 @@ class ChannelSettingsSchema(BaseModel):
     telegram_token: Optional[str] = None
     instagram_token: Optional[str] = None
     facebook_token: Optional[str] = None
+    email_smtp_host: Optional[str] = "smtp.gmail.com"
+    email_smtp_port: Optional[Union[str, int]] = "587"
+    email_smtp_user: Optional[str] = ""
+    email_smtp_pass: Optional[str] = ""
+    email_imap_host: Optional[str] = "imap.gmail.com"
+    email_imap_port: Optional[Union[str, int]] = "993"
+    email_use_tls: Optional[bool] = True
+    email_from_name: Optional[str] = "AIDA PBX"
 
 class BreakSchema(BaseModel):
     id: Optional[int] = None
@@ -1034,9 +1042,23 @@ DEFAULT_SETTINGS = {
         "whatsapp_token": "",
         "whatsapp_phone_number_id": "",
         "whatsapp_verify_token": "ai_pbx_whatsapp_verify_token_secure",
+        "whatsapp_persona": "samimi",
+        "whatsapp_welcome_menu_enabled": True,
+        "whatsapp_after_hours_enabled": True,
+        "whatsapp_work_hours_start": "09:00",
+        "whatsapp_work_hours_end": "18:00",
+        "whatsapp_accounts": [],
         "telegram_token": "",
         "instagram_token": "",
-        "facebook_token": ""
+        "facebook_token": "",
+        "email_smtp_host": "smtp.gmail.com",
+        "email_smtp_port": "587",
+        "email_smtp_user": "",
+        "email_smtp_pass": "",
+        "email_imap_host": "imap.gmail.com",
+        "email_imap_port": "993",
+        "email_use_tls": True,
+        "email_from_name": "AIDA PBX"
     },
     "smart_callback": {
         "enabled": True,
@@ -2259,6 +2281,14 @@ def load_settings(force_reload: bool = False, persist: bool = False):
         for _rk, _rv in DEFAULT_SETTINGS["recording_retention"].items():
             if _rk not in db["recording_retention"]:
                 db["recording_retention"][_rk] = _rv.copy() if isinstance(_rv, list) else _rv
+
+    # Ensure channels config exists with all SMTP/IMAP defaults preserved (migration)
+    if "channels" not in db or not isinstance(db.get("channels"), dict):
+        db["channels"] = DEFAULT_SETTINGS["channels"].copy()
+    else:
+        for _ck, _cv in DEFAULT_SETTINGS["channels"].items():
+            if _ck not in db["channels"]:
+                db["channels"][_ck] = _cv.copy() if isinstance(_cv, list) else _cv
 
     # Ensure roi_settings config exists
     if "roi_settings" not in db:
@@ -5142,14 +5172,79 @@ async def get_trunks_status(db: AsyncSession = Depends(get_db)):
 @app.get("/api/settings/channels")
 @app.get("/settings/channels")
 async def get_channel_settings():
-    return settings_db["channels"]
+    existing = settings_db.get("channels")
+    if not isinstance(existing, dict):
+        existing = {}
+    merged = dict(DEFAULT_SETTINGS["channels"])
+    merged.update(existing)
+    return merged
 
 @app.post("/api/settings/channels")
 @app.post("/settings/channels")
-async def save_channel_settings(payload: ChannelSettingsSchema):
-    settings_db["channels"] = payload.model_dump()
+async def save_channel_settings(payload: ChannelSettingsSchema, request: Request):
+    existing = settings_db.get("channels")
+    merged = dict(DEFAULT_SETTINGS["channels"])
+    if isinstance(existing, dict):
+        merged.update(existing)
+    dumped = payload.model_dump(exclude_unset=True)
+    try:
+        raw_body = await request.json()
+        if isinstance(raw_body, dict):
+            for extra_k, extra_v in raw_body.items():
+                if extra_k not in dumped:
+                    dumped[extra_k] = extra_v
+    except Exception:
+        pass
+    merged.update(dumped)
+    merged["email_smtp_host"] = str(merged.get("email_smtp_host") or "").strip()
+    merged["email_smtp_port"] = str(merged.get("email_smtp_port") or "587").strip()
+    merged["email_smtp_user"] = str(merged.get("email_smtp_user") or "").strip()
+    merged["email_smtp_pass"] = str(merged.get("email_smtp_pass") or "").strip()
+    merged["email_imap_host"] = str(merged.get("email_imap_host") or "").strip()
+    merged["email_imap_port"] = str(merged.get("email_imap_port") or "993").strip()
+    settings_db["channels"] = merged
     save_settings(settings_db)
-    return {"status": "success", "message": "Kanal entegrasyon ayarları kaydedildi."}
+    add_system_log("CHANNELS", "INFO", f"Kanal ve E-Posta (SMTP) ayarları kaydedildi ({merged.get('email_smtp_user') or 'WhatsApp/Meta'}).")
+    return {
+        "status": "success",
+        "message": "Kanal ve E-Posta entegrasyon ayarları başarıyla kaydedildi.",
+        "channels": merged
+    }
+
+@app.post("/api/settings/channels/test-email")
+@app.post("/settings/channels/test-email")
+async def test_channel_email_settings(payload: dict = Body(default={})):
+    from backend.services.notification_service import _send_notification_email
+    channels_cfg = dict(settings_db.get("channels") or {})
+    if isinstance(payload, dict):
+        for k in ("email_smtp_host", "email_smtp_port", "email_smtp_user", "email_smtp_pass", "email_use_tls", "email_from_name"):
+            if k in payload and payload[k] is not None:
+                channels_cfg[k] = payload[k]
+    to_addr = str(payload.get("to_email") or channels_cfg.get("email_smtp_user") or "").strip()
+    if not to_addr or "@" not in to_addr:
+        raise HTTPException(status_code=400, detail="Lütfen önce geçerli bir E-Posta Adresi (Kullanıcı) girin.")
+    tr_now = (datetime.datetime.utcnow() + datetime.timedelta(hours=3)).strftime("%d.%m.%Y %H:%M:%S")
+    html_body = f"""
+    <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif; max-width: 520px; margin: 0 auto; padding: 24px; border: 1px solid #e2e8f0; border-radius: 18px; background: #ffffff;">
+      <h3 style="margin: 0 0 10px 0; color: #4f46e5;">AIDA PBX — SMTP E-Posta Testi Başarılı</h3>
+      <p style="font-size: 13px; color: #334155; line-height: 1.6;">
+        Bu test e-postası <strong>AIDA PBX Kanal Entegrasyonları &gt; E-Posta (SMTP)</strong> ayarlarınızın sorunsuz çalıştığını doğrulamak için gönderilmiştir.
+      </p>
+      <p style="font-size: 12px; color: #64748b; margin-top: 14px;">Gönderim Zamanı: {tr_now}</p>
+    </div>
+    """
+    plain_body = f"AIDA PBX SMTP E-Posta Testi Başarılı ({tr_now}). Şifremi Unuttum ve sistem bildirim e-postaları aktif."
+    res = await _send_notification_email(
+        cfg={"use_custom_smtp": False, "smtp_from_name": str(channels_cfg.get("email_from_name") or "AIDA PBX")},
+        channels_cfg=channels_cfg,
+        recipients=[to_addr],
+        subject="✅ AIDA PBX — SMTP E-Posta Bağlantı Testi",
+        html_body=html_body,
+        plain_body=plain_body
+    )
+    if res.get("status") != "success":
+        raise HTTPException(status_code=400, detail=res.get("message") or "SMTP test e-postası gönderilemedi.")
+    return {"status": "success", "message": f"Test e-postası {to_addr} adresine başarıyla gönderildi!"}
 
 @app.get("/api/settings/smart-callback")
 @app.get("/settings/smart-callback")

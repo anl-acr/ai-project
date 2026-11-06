@@ -825,7 +825,17 @@ async def send_password_reset_email(
     minutes_valid = max(1, int(ttl_seconds) // 60)
 
     cfg = get_tenant_notification_settings(settings_db, tenant_id or "tenant-default")
-    if cfg.get("smtp_host") and cfg.get("smtp_user"):
+    if not (str(cfg.get("smtp_host") or "").strip() and str(cfg.get("smtp_user") or "").strip()):
+        default_cfg = get_tenant_notification_settings(settings_db, "tenant-default")
+        if str(default_cfg.get("smtp_host") or "").strip() and str(default_cfg.get("smtp_user") or "").strip():
+            cfg = default_cfg
+        else:
+            for _t_cfg in (settings_db.get("tenant_notifications") or {}).values():
+                if isinstance(_t_cfg, dict) and str(_t_cfg.get("smtp_host") or "").strip() and str(_t_cfg.get("smtp_user") or "").strip():
+                    cfg = dict(cfg)
+                    cfg.update(_t_cfg)
+                    break
+    if str(cfg.get("smtp_host") or "").strip() and str(cfg.get("smtp_user") or "").strip():
         cfg = dict(cfg)
         cfg["use_custom_smtp"] = True
     channels_cfg = settings_db.get("channels", {})
