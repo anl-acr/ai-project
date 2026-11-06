@@ -26,7 +26,7 @@ const AgentChatTab = dynamic(() => import("./tabs/AgentChatTab"), { ssr: false, 
 const AgentQueuePeersTab = dynamic(() => import("./tabs/AgentQueuePeersTab"), { ssr: false, loading: AgentTabFallback });
 const AgentDeskphoneTab = dynamic(() => import("./tabs/AgentDeskphoneTab"), { ssr: false, loading: AgentTabFallback });
 import AgentSessionCard from "../phone/AgentSessionCard";
-import { useTheme } from "../../utils/theme";
+import { useTheme, normalizeUiTemplate } from "../../utils/theme";
 import { webphoneManager } from "../../utils/webphoneManager";
 import {
   getLastVisitedAgentSubTab,
@@ -265,6 +265,7 @@ export const DEFAULT_CALL_PANEL_PREFS = {
   dashboardWidgets: null,
   autoOpenCustomer360OnCall: false,
   uiMotionMode: "fluid", // "fluid" | "minimal" | "off"
+  uiTemplate: "classic", // "classic" | "aurora" | "bento" | "linear" | "oled"
 };
 
 export function normalizeCallPanelPrefs(raw) {
@@ -279,6 +280,7 @@ export function normalizeCallPanelPrefs(raw) {
       dashboardWidgets: null,
       autoOpenCustomer360OnCall: false,
       uiMotionMode: "fluid",
+      uiTemplate: "classic",
     };
   }
   const viewMode = raw.viewMode === "box" ? "box" : "list";
@@ -317,6 +319,7 @@ export function normalizeCallPanelPrefs(raw) {
       : null;
   const autoOpenCustomer360OnCall = Boolean(raw.autoOpenCustomer360OnCall);
   const uiMotionMode = normalizeUiMotionMode(raw.uiMotionMode);
+  const uiTemplate = normalizeUiTemplate(raw.uiTemplate);
 
   return {
     viewMode,
@@ -333,6 +336,7 @@ export function normalizeCallPanelPrefs(raw) {
     dashboardWidgets,
     autoOpenCustomer360OnCall,
     uiMotionMode,
+    uiTemplate,
   };
 }
 
@@ -351,6 +355,7 @@ function hasSavedCallPanelPrefs(obj) {
         obj.keyboardShortcuts ||
         obj.dashboardWidgets ||
         obj.uiMotionMode ||
+        obj.uiTemplate ||
         obj.autoOpenCustomer360OnCall !== undefined ||
         (Array.isArray(obj.tabOrder) && obj.tabOrder.length > 0) ||
         (obj.topbar && typeof obj.topbar === "object"))

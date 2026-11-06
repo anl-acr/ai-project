@@ -101,6 +101,73 @@ export function getSafeThemeColor(color) {
   return legacyMap[str.toLowerCase()] || "99, 102, 241";
 }
 
+export const VALID_UI_TEMPLATES = ["classic", "aurora", "bento", "linear", "oled"];
+
+export const SYSTEM_UI_TEMPLATES = [
+  {
+    id: "classic",
+    name: "AIDA Klasik",
+    badge: "Varsayılan",
+    desc: "Mevcut dengeli, sade ve hızlı AIDA kurumsal görünümü."
+  },
+  {
+    id: "aurora",
+    name: "Aurora Glass",
+    badge: "Popüler",
+    desc: "Buzlu cam paneller, yumuşak arka plan ışık geçişleri ve parlak kenarlar."
+  },
+  {
+    id: "bento",
+    name: "Soft Bento",
+    badge: "Apple Tarzı",
+    desc: "Yüzen ada menü, yuvarlatılmış geniş kartlar ve yumuşak derinlik gölgeleri."
+  },
+  {
+    id: "linear",
+    name: "Linear Crisp",
+    badge: "Minimal",
+    desc: "Keskin köşeler, gölgesiz net 1px çizgiler ve yüksek veri netliği."
+  },
+  {
+    id: "oled",
+    name: "Midnight OLED",
+    badge: "Gece / Kontrast",
+    desc: "Saf siyah (#04060b) zemin ve tema renginde hafif neon kenar ışıması.",
+    autoDark: true
+  }
+];
+
+export function normalizeUiTemplate(raw) {
+  if (typeof raw === "string" && VALID_UI_TEMPLATES.includes(raw.trim())) {
+    return raw.trim();
+  }
+  return "classic";
+}
+
+export function applyDocumentUiTemplate(templateId) {
+  if (typeof document === "undefined") return;
+  const normalized = normalizeUiTemplate(templateId);
+  document.documentElement.setAttribute("data-ui-template", normalized);
+  try {
+    localStorage.setItem("aida_ui_template", normalized);
+  } catch (e) {}
+}
+
+export function readDocumentUiTemplate() {
+  if (typeof document === "undefined") return "classic";
+  const attr = document.documentElement.getAttribute("data-ui-template");
+  if (attr && VALID_UI_TEMPLATES.includes(attr)) {
+    return attr;
+  }
+  try {
+    const saved = localStorage.getItem("aida_ui_template");
+    if (saved && VALID_UI_TEMPLATES.includes(saved)) {
+      return saved;
+    }
+  } catch (e) {}
+  return "classic";
+}
+
 export function useTheme() {
   const theme = {
     bg: "bg-primary",

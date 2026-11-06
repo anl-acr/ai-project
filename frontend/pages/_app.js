@@ -1,6 +1,6 @@
 import '../styles/globals.css'
 import { useEffect } from 'react'
-import { getSafeThemeColor } from '../utils/theme'
+import { getSafeThemeColor, applyDocumentUiTemplate, readDocumentUiTemplate } from '../utils/theme'
 import { ErrorBoundary } from '../components/ErrorBoundary'
 import SystemInfoHintManager from '../components/common/SystemInfoHintManager'
 
@@ -10,6 +10,7 @@ function MyApp({ Component, pageProps }) {
     if (savedColor) {
       document.documentElement.style.setProperty('--color-primary', getSafeThemeColor(savedColor));
     }
+    applyDocumentUiTemplate(readDocumentUiTemplate());
 
     // Resolve client's real public IP so backend audit logs & presence never show 127.0.0.1 behind local proxies
     let cachedClientIp = localStorage.getItem('client_public_ip') || '';

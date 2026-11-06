@@ -85,7 +85,14 @@ import {
   BellRing,
   X
 } from "lucide-react";
-import { getSafeThemeColor, SYSTEM_THEME_PRESETS, rgbStringToHex } from "../utils/theme";
+import {
+  getSafeThemeColor,
+  SYSTEM_THEME_PRESETS,
+  rgbStringToHex,
+  SYSTEM_UI_TEMPLATES,
+  normalizeUiTemplate,
+  applyDocumentUiTemplate
+} from "../utils/theme";
 import {
   playRingtoneSound,
   stopRingtoneSound,
@@ -609,6 +616,11 @@ export default function Home() {
     uiMotionModeRef.current = mode;
     applyDocumentMotionMode(mode);
   }, [callPanelPrefs?.uiMotionMode]);
+
+  useEffect(() => {
+    const tpl = normalizeUiTemplate(callPanelPrefs?.uiTemplate);
+    applyDocumentUiTemplate(tpl);
+  }, [callPanelPrefs?.uiTemplate]);
 
   useStageRevealObserver(mainStageRef, `${activeTab}-${activeTenantId}-${isLoggedIn}`);
 
@@ -1201,6 +1213,7 @@ export default function Home() {
       const restoredPrefs = JSON.parse(JSON.stringify(snap.callPanelPrefs));
       setCallPanelPrefs(restoredPrefs);
       applyDocumentMotionMode(normalizeUiMotionMode(restoredPrefs?.uiMotionMode));
+      applyDocumentUiTemplate(normalizeUiTemplate(restoredPrefs?.uiTemplate));
       if (typeof window !== "undefined") {
         window.dispatchEvent(new CustomEvent("AGENT_PANEL_PREFS_UPDATED", { detail: restoredPrefs }));
       }
@@ -2698,10 +2711,11 @@ export default function Home() {
   );
 
   return (
-    <div className="h-screen overflow-hidden bg-slate-50 dark:bg-slate-950 text-slate-800 dark:text-slate-100 flex font-sans transition-colors duration-300">
+    <div className="aida-app-shell h-screen overflow-hidden bg-slate-50 dark:bg-slate-950 text-slate-800 dark:text-slate-100 flex font-sans transition-colors duration-300">
       <Head>
         <title>{isDesktopMode ? "AIDA Agent" : "Omnichannel AI Call Center Admin Panel"}</title>
         <meta name="description" content="AI PBX and Social Messaging dashboard" />
+        <meta name="color-scheme" content="light dark" />
         <link rel="icon" href="/favicon.ico" />
       </Head>
 
@@ -4391,7 +4405,7 @@ export default function Home() {
           };
 
           return (
-        <header className="relative z-40 h-16 border-b border-slate-200/80 dark:border-slate-800/80 flex items-center justify-between px-5 bg-white/80 dark:bg-slate-900/60 backdrop-blur-md transition-colors duration-300 gap-3">
+        <header className="aida-app-topbar relative z-40 h-16 border-b border-slate-200/80 dark:border-slate-800/80 flex items-center justify-between px-5 bg-white/80 dark:bg-slate-900/60 backdrop-blur-md transition-colors duration-300 gap-3">
           {/* Sol Bölge */}
           <div className="flex items-center gap-2 min-w-0 shrink-0">
             {(isDesktopMode || (activeTab === "call-center" && (isAgentOnlyUser || isAgentFullScreenMode))) && (
@@ -7155,6 +7169,247 @@ export default function Home() {
                   </div>
                 </div>
 
+                {/* UI Appearance Template Selector (Arayüz Görünüm Şablonu) */}
+                <div className={`space-y-3 ${activeModalTab === "profile" ? "block" : "hidden"}`}>
+                  {(() => {
+                    const currentUiTemplate = normalizeUiTemplate(callPanelPrefs?.uiTemplate);
+                    const previewPrimaryHex = rgbStringToHex(tempThemeColor);
+                    const activeTemplateMeta =
+                      SYSTEM_UI_TEMPLATES.find((item) => item.id === currentUiTemplate) ||
+                      SYSTEM_UI_TEMPLATES[0];
+
+                    const selectUiTemplateLive = (tpl) => {
+                      const nextId = normalizeUiTemplate(tpl?.id);
+                      applyDocumentUiTemplate(nextId);
+                      setCallPanelPrefs((prev) => ({
+                        ...(prev || {}),
+                        uiTemplate: nextId
+                      }));
+                      if (tpl?.autoDark && !isDarkMode) {
+                        setIsDarkMode(true);
+                        applyDocumentDarkClass(true);
+                      } else if (
+                        !tpl?.autoDark &&
+                        currentUiTemplate === "oled" &&
+                        modalInitialSnapshotRef.current?.isDarkMode === false &&
+                        (callPanelPrefs?.autoThemeConfig?.mode || "manual") === "manual"
+                      ) {
+                        setIsDarkMode(false);
+                        applyDocumentDarkClass(false);
+                      }
+                    };
+
+                    const renderTemplateMiniPreview = (tplId) => {
+                      if (tplId === "aurora") {
+                        return (
+                          <div
+                            className="h-16 w-full rounded-lg overflow-hidden border border-white/60 dark:border-slate-700/70 relative flex p-1.5 gap-1.5"
+                            style={{
+                              background: isDarkMode
+                                ? `radial-gradient(circle at 15% 10%, rgba(${tempThemeColor}, 0.38), transparent 62%), radial-gradient(circle at 88% 85%, rgba(56, 189, 248, 0.25), #070d1c 72%)`
+                                : `radial-gradient(circle at 15% 10%, rgba(${tempThemeColor}, 0.28), transparent 62%), radial-gradient(circle at 88% 85%, rgba(56, 189, 248, 0.22), #eef3fc 72%)`
+                            }}
+                          >
+                            <div className="w-7 h-full rounded-md bg-white/65 dark:bg-slate-900/65 border border-white/80 dark:border-white/10 p-1 flex flex-col gap-1 backdrop-blur-sm">
+                              <span className="h-1.5 w-full rounded-full" style={{ backgroundColor: previewPrimaryHex }} />
+                              <span className="h-1 w-4/5 rounded-full bg-slate-300/80 dark:bg-slate-600/80" />
+                              <span className="h-1 w-3/5 rounded-full bg-slate-300/70 dark:bg-slate-600/70" />
+                            </div>
+                            <div className="flex-1 flex flex-col gap-1">
+                              <div className="h-3 rounded-md bg-white/65 dark:bg-slate-900/65 border border-white/80 dark:border-white/10" />
+                              <div className="flex-1 grid grid-cols-2 gap-1">
+                                <div className="rounded-md bg-white/75 dark:bg-slate-900/65 border border-white/90 dark:border-white/15 shadow-sm" />
+                                <div className="rounded-md bg-white/75 dark:bg-slate-900/65 border border-white/90 dark:border-white/15 shadow-sm" />
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      }
+
+                      if (tplId === "bento") {
+                        return (
+                          <div className="h-16 w-full rounded-lg overflow-hidden border border-slate-200/80 dark:border-slate-800 bg-[#ebeef5] dark:bg-[#0b0e14] flex p-1.5 gap-1.5">
+                            <div className="w-7 h-full rounded-xl bg-white dark:bg-[#141a28] border border-slate-200/90 dark:border-slate-700/70 shadow-sm p-1 flex flex-col gap-1">
+                              <span className="h-1.5 w-full rounded-full" style={{ backgroundColor: previewPrimaryHex }} />
+                              <span className="h-1 w-4/5 rounded-full bg-slate-200 dark:bg-slate-700" />
+                              <span className="h-1 w-3/5 rounded-full bg-slate-200 dark:bg-slate-700" />
+                            </div>
+                            <div className="flex-1 flex flex-col gap-1.5">
+                              <div className="h-3 rounded-xl bg-white dark:bg-[#141a28] border border-slate-200/90 dark:border-slate-700/70 shadow-sm" />
+                              <div className="flex-1 grid grid-cols-2 gap-1.5">
+                                <div className="rounded-xl bg-white dark:bg-[#141a28] border border-slate-200/90 dark:border-slate-700/70 shadow-sm" />
+                                <div className="rounded-xl bg-white dark:bg-[#141a28] border border-slate-200/90 dark:border-slate-700/70 shadow-sm" />
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      }
+
+                      if (tplId === "linear") {
+                        return (
+                          <div className="h-16 w-full rounded-[5px] overflow-hidden border border-zinc-200 dark:border-zinc-800 bg-[#fafafa] dark:bg-[#09090b] flex">
+                            <div className="w-8 h-full bg-white dark:bg-[#0c0c0f] border-r border-zinc-200 dark:border-zinc-800 p-1 flex flex-col gap-1">
+                              <span className="h-1.5 w-full rounded-[2px]" style={{ backgroundColor: previewPrimaryHex }} />
+                              <span className="h-1 w-4/5 rounded-[1px] bg-zinc-200 dark:bg-zinc-700" />
+                              <span className="h-1 w-3/5 rounded-[1px] bg-zinc-200 dark:bg-zinc-700" />
+                            </div>
+                            <div className="flex-1 flex flex-col">
+                              <div className="h-3.5 bg-white dark:bg-[#0c0c0f] border-b border-zinc-200 dark:border-zinc-800" />
+                              <div className="flex-1 grid grid-cols-2 gap-1 p-1.5">
+                                <div className="rounded-[3px] bg-white dark:bg-[#111115] border border-zinc-200 dark:border-zinc-800" />
+                                <div className="rounded-[3px] bg-white dark:bg-[#111115] border border-zinc-200 dark:border-zinc-800" />
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      }
+
+                      if (tplId === "oled") {
+                        return (
+                          <div
+                            className="h-16 w-full rounded-lg overflow-hidden border flex"
+                            style={{
+                              backgroundColor: "#020306",
+                              borderColor: `rgba(${tempThemeColor}, 0.35)`
+                            }}
+                          >
+                            <div
+                              className="w-8 h-full p-1 flex flex-col gap-1 border-r"
+                              style={{
+                                backgroundColor: "#05070d",
+                                borderColor: `rgba(${tempThemeColor}, 0.24)`
+                              }}
+                            >
+                              <span
+                                className="h-1.5 w-full rounded-full"
+                                style={{
+                                  backgroundColor: previewPrimaryHex,
+                                  boxShadow: `0 0 8px rgba(${tempThemeColor}, 0.7)`
+                                }}
+                              />
+                              <span className="h-1 w-4/5 rounded-full bg-slate-800" />
+                              <span className="h-1 w-3/5 rounded-full bg-slate-800" />
+                            </div>
+                            <div className="flex-1 flex flex-col">
+                              <div
+                                className="h-3.5 border-b"
+                                style={{
+                                  backgroundColor: "#05070d",
+                                  borderColor: `rgba(${tempThemeColor}, 0.22)`
+                                }}
+                              />
+                              <div className="flex-1 grid grid-cols-2 gap-1 p-1.5">
+                                <div
+                                  className="rounded-md border"
+                                  style={{
+                                    backgroundColor: "#070a12",
+                                    borderColor: `rgba(${tempThemeColor}, 0.32)`
+                                  }}
+                                />
+                                <div
+                                  className="rounded-md border"
+                                  style={{
+                                    backgroundColor: "#070a12",
+                                    borderColor: `rgba(${tempThemeColor}, 0.32)`
+                                  }}
+                                />
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      }
+
+                      // Default: "classic"
+                      return (
+                        <div className="h-16 w-full rounded-lg overflow-hidden border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 flex">
+                          <div className="w-8 h-full bg-white dark:bg-slate-900 border-r border-slate-200 dark:border-slate-800 p-1 flex flex-col gap-1">
+                            <span className="h-1.5 w-full rounded-md" style={{ backgroundColor: previewPrimaryHex }} />
+                            <span className="h-1 w-4/5 rounded-full bg-slate-200 dark:bg-slate-700" />
+                            <span className="h-1 w-3/5 rounded-full bg-slate-200 dark:bg-slate-700" />
+                          </div>
+                          <div className="flex-1 flex flex-col">
+                            <div className="h-3.5 bg-white/90 dark:bg-slate-900/80 border-b border-slate-200 dark:border-slate-800" />
+                            <div className="flex-1 grid grid-cols-2 gap-1 p-1.5">
+                              <div className="rounded-md bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 shadow-sm" />
+                              <div className="rounded-md bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 shadow-sm" />
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    };
+
+                    return (
+                      <div className="p-4 bg-slate-50/70 dark:bg-slate-950/40 border border-slate-200/80 dark:border-slate-800 rounded-2xl space-y-3">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <div className="flex items-center gap-2.5">
+                            <div className={`p-2 rounded-xl ${lightBg} ${text}`}>
+                              <Layers size={15} />
+                            </div>
+                            <div>
+                              <label className="text-[11px] font-extrabold text-slate-800 dark:text-white uppercase tracking-wider block">
+                                Arayüz Görünüm Şablonu
+                              </label>
+                              <span className="text-[10px] text-slate-500 dark:text-slate-400">
+                                Mevcut AIDA Klasik yapısını koruyabilir veya farklı tasarım şablonlarını seçebilirsiniz
+                              </span>
+                            </div>
+                          </div>
+
+                          <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-extrabold border ${lightBg} ${text} ${border}`}>
+                            <Sparkles size={11} />
+                            <span>Aktif: {activeTemplateMeta.name}</span>
+                          </span>
+                        </div>
+
+                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-2.5">
+                          {SYSTEM_UI_TEMPLATES.map((tpl) => {
+                            const isSelected = currentUiTemplate === tpl.id;
+                            return (
+                              <button
+                                key={tpl.id}
+                                type="button"
+                                onClick={() => selectUiTemplateLive(tpl)}
+                                className={`group relative p-2.5 rounded-xl border text-left flex flex-col gap-2 transition-all cursor-pointer ${
+                                  isSelected
+                                    ? `${border} ${lightBg} ring-2 ring-primary/15 shadow-sm`
+                                    : "bg-white dark:bg-slate-900 border-slate-200/90 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700"
+                                }`}
+                              >
+                                {renderTemplateMiniPreview(tpl.id)}
+
+                                <div className="flex items-start justify-between gap-1.5 pt-0.5">
+                                  <div className="min-w-0">
+                                    <div className={`text-[11px] font-extrabold truncate ${isSelected ? text : "text-slate-800 dark:text-slate-100"}`}>
+                                      {tpl.name}
+                                    </div>
+                                    <span className="inline-block mt-0.5 px-1.5 py-0.5 rounded text-[8.5px] font-bold bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400">
+                                      {tpl.badge}
+                                    </span>
+                                  </div>
+
+                                  <span
+                                    className={`w-4 h-4 rounded-full flex items-center justify-center shrink-0 border transition-all ${
+                                      isSelected
+                                        ? `${bg} text-white border-transparent shadow-sm`
+                                        : "border-slate-300 dark:border-slate-700 bg-transparent"
+                                    }`}
+                                  >
+                                    {isSelected && <Check size={10} strokeWidth={3} />}
+                                  </span>
+                                </div>
+
+                                <p className="text-[9.5px] leading-snug text-slate-500 dark:text-slate-400 line-clamp-2">
+                                  {tpl.desc}
+                                </p>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    );
+                  })()}
+                </div>
+
                 {/* System Theme Color Selection */}
                 <div className={`space-y-3 ${activeModalTab === "profile" ? "block" : "hidden"}`}>
                   {(() => {
@@ -8605,6 +8860,7 @@ export default function Home() {
                         localStorage.setItem("theme", isDarkMode ? "dark" : "light");
                         localStorage.setItem("agent_active_profile", agentActiveProfile);
                         applyDocumentMotionMode(normalizeUiMotionMode(callPanelPrefs?.uiMotionMode));
+                        applyDocumentUiTemplate(normalizeUiTemplate(callPanelPrefs?.uiTemplate));
 
                         localStorage.setItem("auto_logout_enabled", autoLogoutEnabled ? "true" : "false");
                         localStorage.setItem("auto_logout_duration", autoLogoutDuration.toString());

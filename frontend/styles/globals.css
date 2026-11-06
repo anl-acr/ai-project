@@ -5,6 +5,7 @@
 :root {
   --color-primary: 99, 102, 241;
   color-scheme: light dark;
+  accent-color: rgb(var(--color-primary));
   /* MANDATORY: Transitions to intrinsic keywords are disabled by default for compatibility */
   interpolate-size: allow-keywords;
 }
@@ -738,4 +739,232 @@ html[data-ui-motion="off"] ::view-transition-group(*),
 html[data-ui-motion="off"] ::view-transition-old(*),
 html[data-ui-motion="off"] ::view-transition-new(*) {
   animation: none !important;
+}
+
+/* ==========================================================================
+   8. Multi-Template UI Appearance Engine (html[data-ui-template])
+   - "classic": Zero overrides — 100% original AIDA interface (Default)
+   - "aurora" : Aurora Glass (Ambient radial mesh + frosted glass shell + specular cards)
+   - "bento"  : Soft Bento (Floating island sidebar/topbar + 24px sculpted Bento cards)
+   - "linear" : Linear Crisp (7px architectural corners + zero shadows + razor 1px borders)
+   - "oled"   : Midnight OLED (True pitch-black #020306 surfaces + primary neon micro-glow)
+   NOTE: backdrop-filter is intentionally scoped ONLY to .aida-sidebar and .aida-app-topbar
+   (never inside <main>) so position:fixed Delete Confirmation Modals never get trapped.
+   ========================================================================== */
+
+/* --- TEMPLATE: AURORA GLASS --- */
+html[data-ui-template="aurora"] .aida-app-shell {
+  background-color: #f2f5fc;
+  background-image:
+    radial-gradient(ellipse 65% 52% at 8% 0%, rgba(var(--color-primary), 0.14), transparent 68%),
+    radial-gradient(ellipse 58% 48% at 94% 8%, rgba(56, 189, 248, 0.12), transparent 65%),
+    radial-gradient(ellipse 62% 55% at 52% 102%, rgba(var(--color-primary), 0.09), transparent 70%);
+}
+
+html.dark[data-ui-template="aurora"] .aida-app-shell {
+  background-color: #060b16;
+  background-image:
+    radial-gradient(ellipse 68% 54% at 8% -2%, rgba(var(--color-primary), 0.22), transparent 68%),
+    radial-gradient(ellipse 55% 46% at 92% 6%, rgba(14, 165, 233, 0.13), transparent 65%),
+    radial-gradient(ellipse 64% 55% at 50% 104%, rgba(var(--color-primary), 0.13), transparent 70%);
+}
+
+html[data-ui-template="aurora"] .aida-sidebar,
+html[data-ui-template="aurora"] .aida-app-topbar {
+  background-color: rgba(255, 255, 255, 0.66);
+  -webkit-backdrop-filter: blur(22px) saturate(170%);
+  backdrop-filter: blur(22px) saturate(170%);
+  border-color: rgba(255, 255, 255, 0.78);
+  box-shadow: 0 8px 30px -12px rgba(15, 23, 42, 0.08);
+}
+
+html.dark[data-ui-template="aurora"] .aida-sidebar,
+html.dark[data-ui-template="aurora"] .aida-app-topbar {
+  background-color: rgba(10, 16, 30, 0.66);
+  border-color: rgba(148, 163, 184, 0.16);
+  box-shadow: 0 10px 32px -12px rgba(2, 6, 23, 0.65);
+}
+
+html[data-ui-template="aurora"] .aida-app-shell main :is(.bg-white, .dark\:bg-slate-900).border:not(.fixed) {
+  background-color: rgba(255, 255, 255, 0.75);
+  border-color: rgba(255, 255, 255, 0.85);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.88),
+    0 12px 30px -12px rgba(15, 23, 42, 0.08);
+}
+
+html.dark[data-ui-template="aurora"] .aida-app-shell main :is(.bg-white, .dark\:bg-slate-900).border:not(.fixed) {
+  background-color: rgba(15, 23, 42, 0.64);
+  border-color: rgba(148, 163, 184, 0.16);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.07),
+    0 14px 34px -12px rgba(2, 6, 23, 0.58);
+}
+
+html[data-ui-template="aurora"] .aida-sidebar-group-body > button.shadow-sm {
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.55),
+    0 6px 18px -6px rgba(var(--color-primary), 0.28);
+}
+
+html.dark[data-ui-template="aurora"] .aida-sidebar-group-body > button.shadow-sm {
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.08),
+    0 8px 20px -6px rgba(var(--color-primary), 0.34);
+}
+
+/* --- TEMPLATE: SOFT BENTO (APPLE STYLE) --- */
+html[data-ui-template="bento"] .aida-app-shell {
+  background-color: #eceff5;
+}
+
+html.dark[data-ui-template="bento"] .aida-app-shell {
+  background-color: #0b0e14;
+}
+
+html[data-ui-template="bento"] .aida-sidebar {
+  margin: 10px 0 10px 10px;
+  height: calc(100vh - 20px);
+  border-radius: 24px;
+  border: 1px solid rgba(226, 232, 240, 0.95);
+  background-color: #ffffff;
+  box-shadow:
+    0 14px 34px -10px rgba(15, 23, 42, 0.08),
+    0 2px 8px -2px rgba(15, 23, 42, 0.04);
+}
+
+html.dark[data-ui-template="bento"] .aida-sidebar {
+  border-color: rgba(51, 65, 85, 0.6);
+  background-color: #111622;
+  box-shadow:
+    0 16px 38px -10px rgba(0, 0, 0, 0.6),
+    inset 0 1px 0 rgba(255, 255, 255, 0.04);
+}
+
+html[data-ui-template="bento"] .aida-app-topbar {
+  margin: 10px 12px 0 12px;
+  border-radius: 20px;
+  border: 1px solid rgba(226, 232, 240, 0.95);
+  background-color: rgba(255, 255, 255, 0.92);
+  box-shadow: 0 8px 24px -10px rgba(15, 23, 42, 0.07);
+}
+
+html.dark[data-ui-template="bento"] .aida-app-topbar {
+  border-color: rgba(51, 65, 85, 0.6);
+  background-color: rgba(17, 22, 34, 0.92);
+  box-shadow:
+    0 10px 26px -10px rgba(0, 0, 0, 0.55),
+    inset 0 1px 0 rgba(255, 255, 255, 0.04);
+}
+
+html[data-ui-template="bento"] .aida-sidebar-group-body > button {
+  border-radius: 14px;
+}
+
+html[data-ui-template="bento"] .aida-app-shell main :is(.rounded-xl, .rounded-2xl, .rounded-3xl).border:not(.fixed) {
+  border-radius: 24px;
+  border-color: rgba(226, 232, 240, 0.9);
+  box-shadow:
+    0 10px 28px -8px rgba(15, 23, 42, 0.065),
+    0 2px 6px -1px rgba(15, 23, 42, 0.03);
+}
+
+html.dark[data-ui-template="bento"] .aida-app-shell main :is(.rounded-xl, .rounded-2xl, .rounded-3xl).border:not(.fixed) {
+  background-color: #111622;
+  border-color: rgba(51, 65, 85, 0.55);
+  box-shadow:
+    0 12px 30px -10px rgba(0, 0, 0, 0.55),
+    inset 0 1px 0 rgba(255, 255, 255, 0.04);
+}
+
+/* --- TEMPLATE: LINEAR CRISP (MINIMAL ARCHITECTURAL) --- */
+html[data-ui-template="linear"] .aida-app-shell {
+  background-color: #fafafa;
+}
+
+html.dark[data-ui-template="linear"] .aida-app-shell {
+  background-color: #09090b;
+}
+
+html[data-ui-template="linear"] .aida-sidebar,
+html[data-ui-template="linear"] .aida-app-topbar {
+  background-color: #ffffff;
+  border-color: #e4e4e7;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  box-shadow: none;
+}
+
+html.dark[data-ui-template="linear"] .aida-sidebar,
+html.dark[data-ui-template="linear"] .aida-app-topbar {
+  background-color: #0c0c0f;
+  border-color: #232329;
+}
+
+html[data-ui-template="linear"] .aida-app-shell :is(.rounded-xl, .rounded-2xl, .rounded-3xl):not(.rounded-full) {
+  border-radius: 7px;
+}
+
+html[data-ui-template="linear"] .aida-sidebar-group-body > button {
+  border-radius: 6px;
+  box-shadow: none;
+}
+
+html[data-ui-template="linear"] .aida-app-shell main :is(.shadow-sm, .shadow, .shadow-md, .shadow-lg, .shadow-xl):not(.fixed) {
+  box-shadow: none;
+}
+
+html[data-ui-template="linear"] .aida-app-shell main :is(.bg-white, .dark\:bg-slate-900).border:not(.fixed) {
+  border-color: #e4e4e7;
+}
+
+html.dark[data-ui-template="linear"] .aida-app-shell main :is(.bg-white, .dark\:bg-slate-900).border:not(.fixed) {
+  background-color: #111115;
+  border-color: #25252c;
+}
+
+/* --- TEMPLATE: MIDNIGHT OLED (HIGH CONTRAST / PITCH BLACK) --- */
+html.dark[data-ui-template="oled"] .aida-app-shell {
+  background-color: #020306;
+  background-image: radial-gradient(
+    ellipse 80% 36% at 50% -10%,
+    rgba(var(--color-primary), 0.14),
+    transparent 70%
+  );
+}
+
+html.dark[data-ui-template="oled"] .aida-sidebar,
+html.dark[data-ui-template="oled"] .aida-app-topbar {
+  background-color: #05070d;
+  border-color: rgba(var(--color-primary), 0.22);
+}
+
+html.dark[data-ui-template="oled"] .aida-app-shell main :is(.bg-white, .dark\:bg-slate-900, .dark\:bg-slate-900\/60, .dark\:bg-slate-950).border:not(.fixed) {
+  background-color: #070a12;
+  border-color: rgba(var(--color-primary), 0.2);
+  box-shadow:
+    0 0 0 1px rgba(var(--color-primary), 0.05),
+    0 14px 32px -12px rgba(0, 0, 0, 0.92);
+}
+
+html.dark[data-ui-template="oled"] .aida-sidebar-group-body > button.shadow-sm {
+  background-color: rgba(var(--color-primary), 0.15);
+  border-color: rgba(var(--color-primary), 0.45);
+  box-shadow: 0 0 20px -5px rgba(var(--color-primary), 0.34);
+}
+
+html:not(.dark)[data-ui-template="oled"] .aida-app-shell main :is(.bg-white).border:not(.fixed) {
+  border-color: rgba(var(--color-primary), 0.26);
+}
+
+/* High-Contrast / Forced Colors Mode Safety */
+@media (forced-colors: active) {
+  html[data-ui-template] .aida-app-shell,
+  html[data-ui-template] .aida-sidebar,
+  html[data-ui-template] .aida-app-topbar {
+    background-image: none !important;
+    box-shadow: none !important;
+    -webkit-backdrop-filter: none !important;
+    backdrop-filter: none !important;
+  }
 }
