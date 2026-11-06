@@ -101,38 +101,44 @@ export function getSafeThemeColor(color) {
   return legacyMap[str.toLowerCase()] || "99, 102, 241";
 }
 
-export const VALID_UI_TEMPLATES = ["classic", "aurora", "bento", "linear", "oled"];
+export const VALID_UI_TEMPLATES = ["classic", "executive", "aurora", "bento", "linear", "oled"];
 
 export const SYSTEM_UI_TEMPLATES = [
   {
     id: "classic",
     name: "AIDA Klasik",
     badge: "Varsayılan",
-    desc: "Mevcut dengeli, sade ve hızlı AIDA kurumsal görünümü."
+    desc: "Mevcut dengeli, sade ve alışılmış AIDA kurumsal görünümü."
+  },
+  {
+    id: "executive",
+    name: "Executive Koyu Menü",
+    badge: "Kurumsal",
+    desc: "Koyu lacivert sol menü, dolgulu tema rengi aktif sekme ve ferah çalışma alanı."
   },
   {
     id: "aurora",
     name: "Aurora Glass",
-    badge: "Popüler",
-    desc: "Buzlu cam paneller, yumuşak arka plan ışık geçişleri ve parlak kenarlar."
+    badge: "Canlı Cam",
+    desc: "Belirgin renkli Aurora ışık bulutları, buzlu cam paneller ve parlak geçişler."
   },
   {
     id: "bento",
-    name: "Soft Bento",
-    badge: "Apple Tarzı",
-    desc: "Yüzen ada menü, yuvarlatılmış geniş kartlar ve yumuşak derinlik gölgeleri."
+    name: "Apple Bento",
+    badge: "Yüzen Adalar",
+    desc: "Taş gri zemin üzerinde kenardan bağımsız yüzen ada menüler ve yuvarlak kutular."
   },
   {
     id: "linear",
-    name: "Linear Crisp",
-    badge: "Minimal",
-    desc: "Keskin köşeler, gölgesiz net 1px çizgiler ve yüksek veri netliği."
+    name: "Linear Blueprint",
+    badge: "Noktalı Minimal",
+    desc: "Noktalı mühendislik zemini, keskin 4px köşeler ve gölgesiz net çerçeveler."
   },
   {
     id: "oled",
-    name: "Midnight OLED",
-    badge: "Gece / Kontrast",
-    desc: "Saf siyah (#04060b) zemin ve tema renginde hafif neon kenar ışıması.",
+    name: "Midnight Neon",
+    badge: "Saf Siyah OLED",
+    desc: "Tam siyah (#000) siber ızgara zemin ve tema renginde parlayan neon çerçeveler.",
     autoDark: true
   }
 ];

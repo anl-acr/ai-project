@@ -743,218 +743,450 @@ html[data-ui-motion="off"] ::view-transition-new(*) {
 
 /* ==========================================================================
    8. Multi-Template UI Appearance Engine (html[data-ui-template])
-   - "classic": Zero overrides — 100% original AIDA interface (Default)
-   - "aurora" : Aurora Glass (Ambient radial mesh + frosted glass shell + specular cards)
-   - "bento"  : Soft Bento (Floating island sidebar/topbar + 24px sculpted Bento cards)
-   - "linear" : Linear Crisp (7px architectural corners + zero shadows + razor 1px borders)
-   - "oled"   : Midnight OLED (True pitch-black #020306 surfaces + primary neon micro-glow)
+   - "classic"   : Zero overrides — 100% original AIDA interface (Default)
+   - "executive" : Deep Midnight Navy sidebar (even in Light Mode) + solid gradient active pill
+   - "aurora"    : Vivid multi-hue Aurora mesh clouds + frosted glass panels + gradient pill
+   - "bento"     : Stone pebble canvas + detached floating island sidebar/topbar + 28px Bento tiles
+   - "linear"    : Architectural dot-matrix blueprint canvas + sharp 4px geometry + zero shadows
+   - "oled"      : Pure #000000 cyber-grid canvas + obsidian cards + glowing neon primary borders
    NOTE: backdrop-filter is intentionally scoped ONLY to .aida-sidebar and .aida-app-topbar
    (never inside <main>) so position:fixed Delete Confirmation Modals never get trapped.
    ========================================================================== */
 
-/* --- TEMPLATE: AURORA GLASS --- */
+/* Expose .aida-app-shell canvas through <main> for all non-classic templates */
+html[data-ui-template]:not([data-ui-template="classic"]) .aida-app-main {
+  background-color: transparent !important;
+}
+
+/* --------------------------------------------------------------------------
+   1) EXECUTIVE SPLIT (Kurumsal Koyu Sol Menü — Stripe / Zendesk / HubSpot)
+   -------------------------------------------------------------------------- */
+html[data-ui-template="executive"] .aida-app-shell {
+  background-color: #eef2f8;
+}
+
+html.dark[data-ui-template="executive"] .aida-app-shell {
+  background-color: #080c17;
+}
+
+html[data-ui-template="executive"] .aida-sidebar {
+  background: linear-gradient(180deg, #0d1528 0%, #070c18 100%) !important;
+  border-right-color: rgba(148, 163, 184, 0.16) !important;
+  box-shadow: 6px 0 28px -10px rgba(2, 6, 23, 0.45);
+}
+
+html[data-ui-template="executive"] .aida-sidebar h1 {
+  color: #f8fafc !important;
+}
+
+html[data-ui-template="executive"] .aida-sidebar p {
+  color: #94a3b8 !important;
+}
+
+html[data-ui-template="executive"] .aida-sidebar :is(.border-b, .border-t) {
+  border-color: rgba(148, 163, 184, 0.15) !important;
+}
+
+html[data-ui-template="executive"] .aida-sidebar > div:first-child > button {
+  color: #94a3b8 !important;
+}
+
+html[data-ui-template="executive"] .aida-sidebar > div:first-child > button:hover {
+  color: #ffffff !important;
+  background-color: rgba(255, 255, 255, 0.08) !important;
+  border-color: rgba(255, 255, 255, 0.14) !important;
+}
+
+html[data-ui-template="executive"] .aida-sidebar .aida-sidebar-cat-btn {
+  color: #8fa1b9 !important;
+}
+
+html[data-ui-template="executive"] .aida-sidebar .aida-sidebar-cat-btn:hover {
+  color: #f1f5f9 !important;
+  background-color: rgba(255, 255, 255, 0.06) !important;
+}
+
+html[data-ui-template="executive"] .aida-sidebar .aida-sidebar-group-body > button.border-transparent {
+  color: #cbd5e1 !important;
+}
+
+html[data-ui-template="executive"] .aida-sidebar .aida-sidebar-group-body > button.border-transparent:hover {
+  background-color: rgba(255, 255, 255, 0.08) !important;
+  color: #ffffff !important;
+}
+
+html[data-ui-template="executive"] .aida-sidebar .aida-sidebar-group-body > button.shadow-sm {
+  background: linear-gradient(
+    135deg,
+    rgb(var(--color-primary)) 0%,
+    rgba(var(--color-primary), 0.78) 100%
+  ) !important;
+  color: #ffffff !important;
+  border-color: rgba(255, 255, 255, 0.22) !important;
+  box-shadow: 0 8px 22px -4px rgba(var(--color-primary), 0.55) !important;
+}
+
+html[data-ui-template="executive"] .aida-sidebar .aida-sidebar-group-body > button.shadow-sm > svg {
+  color: #ffffff !important;
+}
+
+html[data-ui-template="executive"] .aida-sidebar .aida-sidebar-group-body > button.shadow-sm::before {
+  background: #ffffff !important;
+  box-shadow: none !important;
+}
+
+html[data-ui-template="executive"] .aida-app-topbar {
+  background-color: #ffffff !important;
+  border-bottom-color: rgba(203, 213, 225, 0.85) !important;
+  box-shadow: 0 4px 18px -10px rgba(15, 23, 42, 0.08);
+}
+
+html.dark[data-ui-template="executive"] .aida-app-topbar {
+  background-color: #0d1424 !important;
+  border-bottom-color: rgba(51, 65, 85, 0.65) !important;
+}
+
+html[data-ui-template="executive"] .aida-app-shell main :is(.bg-white, .dark\:bg-slate-900):is(.border, .rounded-xl, .rounded-2xl, .rounded-3xl):not(.fixed) {
+  box-shadow:
+    inset 0 2px 0 0 rgba(var(--color-primary), 0.45),
+    0 10px 26px -10px rgba(15, 23, 42, 0.09);
+}
+
+html.dark[data-ui-template="executive"] .aida-app-shell main :is(.bg-white, .dark\:bg-slate-900):is(.border, .rounded-xl, .rounded-2xl, .rounded-3xl):not(.fixed) {
+  background-color: #0e1628;
+  border-color: rgba(51, 65, 85, 0.7);
+  box-shadow:
+    inset 0 2px 0 0 rgba(var(--color-primary), 0.55),
+    0 14px 30px -10px rgba(0, 0, 0, 0.65);
+}
+
+html[data-ui-template="executive"] .aida-settings-modal-sidebar {
+  background: linear-gradient(180deg, #0d1528 0%, #070c18 100%) !important;
+  border-right-color: rgba(148, 163, 184, 0.18) !important;
+}
+
+html[data-ui-template="executive"] .aida-settings-modal-sidebar nav > button.border-transparent {
+  color: #cbd5e1 !important;
+}
+
+html[data-ui-template="executive"] .aida-settings-modal-sidebar nav > button.border-transparent:hover {
+  background-color: rgba(255, 255, 255, 0.08) !important;
+  color: #ffffff !important;
+}
+
+html[data-ui-template="executive"] .aida-settings-modal-sidebar nav > button.shadow-sm {
+  background: linear-gradient(
+    135deg,
+    rgb(var(--color-primary)) 0%,
+    rgba(var(--color-primary), 0.8) 100%
+  ) !important;
+  color: #ffffff !important;
+  border-color: rgba(255, 255, 255, 0.22) !important;
+}
+
+/* --------------------------------------------------------------------------
+   2) AURORA GLASS (Canlı Mesh Işık Bulutları & Buzlu Cam Paneller)
+   -------------------------------------------------------------------------- */
 html[data-ui-template="aurora"] .aida-app-shell {
-  background-color: #f2f5fc;
+  background-color: #ebf0fc;
   background-image:
-    radial-gradient(ellipse 65% 52% at 8% 0%, rgba(var(--color-primary), 0.14), transparent 68%),
-    radial-gradient(ellipse 58% 48% at 94% 8%, rgba(56, 189, 248, 0.12), transparent 65%),
-    radial-gradient(ellipse 62% 55% at 52% 102%, rgba(var(--color-primary), 0.09), transparent 70%);
+    radial-gradient(ellipse 62% 55% at 6% 0%, rgba(var(--color-primary), 0.30), transparent 66%),
+    radial-gradient(ellipse 56% 50% at 96% 8%, rgba(14, 165, 233, 0.26), transparent 64%),
+    radial-gradient(ellipse 64% 56% at 50% 104%, rgba(168, 85, 247, 0.20), transparent 68%);
 }
 
 html.dark[data-ui-template="aurora"] .aida-app-shell {
-  background-color: #060b16;
+  background-color: #050a16;
   background-image:
-    radial-gradient(ellipse 68% 54% at 8% -2%, rgba(var(--color-primary), 0.22), transparent 68%),
-    radial-gradient(ellipse 55% 46% at 92% 6%, rgba(14, 165, 233, 0.13), transparent 65%),
-    radial-gradient(ellipse 64% 55% at 50% 104%, rgba(var(--color-primary), 0.13), transparent 70%);
+    radial-gradient(ellipse 65% 55% at 6% -2%, rgba(var(--color-primary), 0.36), transparent 66%),
+    radial-gradient(ellipse 56% 48% at 95% 6%, rgba(14, 165, 233, 0.24), transparent 64%),
+    radial-gradient(ellipse 62% 56% at 50% 105%, rgba(168, 85, 247, 0.22), transparent 68%);
 }
 
 html[data-ui-template="aurora"] .aida-sidebar,
 html[data-ui-template="aurora"] .aida-app-topbar {
-  background-color: rgba(255, 255, 255, 0.66);
-  -webkit-backdrop-filter: blur(22px) saturate(170%);
-  backdrop-filter: blur(22px) saturate(170%);
-  border-color: rgba(255, 255, 255, 0.78);
-  box-shadow: 0 8px 30px -12px rgba(15, 23, 42, 0.08);
+  background-color: rgba(255, 255, 255, 0.52) !important;
+  -webkit-backdrop-filter: blur(24px) saturate(185%);
+  backdrop-filter: blur(24px) saturate(185%);
+  border-color: rgba(255, 255, 255, 0.85) !important;
+  box-shadow: 0 10px 32px -12px rgba(var(--color-primary), 0.14);
 }
 
 html.dark[data-ui-template="aurora"] .aida-sidebar,
 html.dark[data-ui-template="aurora"] .aida-app-topbar {
-  background-color: rgba(10, 16, 30, 0.66);
-  border-color: rgba(148, 163, 184, 0.16);
-  box-shadow: 0 10px 32px -12px rgba(2, 6, 23, 0.65);
-}
-
-html[data-ui-template="aurora"] .aida-app-shell main :is(.bg-white, .dark\:bg-slate-900).border:not(.fixed) {
-  background-color: rgba(255, 255, 255, 0.75);
-  border-color: rgba(255, 255, 255, 0.85);
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.88),
-    0 12px 30px -12px rgba(15, 23, 42, 0.08);
-}
-
-html.dark[data-ui-template="aurora"] .aida-app-shell main :is(.bg-white, .dark\:bg-slate-900).border:not(.fixed) {
-  background-color: rgba(15, 23, 42, 0.64);
-  border-color: rgba(148, 163, 184, 0.16);
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.07),
-    0 14px 34px -12px rgba(2, 6, 23, 0.58);
+  background-color: rgba(10, 16, 32, 0.56) !important;
+  border-color: rgba(255, 255, 255, 0.14) !important;
+  box-shadow: 0 12px 34px -12px rgba(2, 6, 23, 0.72);
 }
 
 html[data-ui-template="aurora"] .aida-sidebar-group-body > button.shadow-sm {
+  background: linear-gradient(
+    135deg,
+    rgb(var(--color-primary)) 0%,
+    rgba(var(--color-primary), 0.76) 100%
+  ) !important;
+  color: #ffffff !important;
+  border-color: rgba(255, 255, 255, 0.45) !important;
   box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.55),
-    0 6px 18px -6px rgba(var(--color-primary), 0.28);
+    inset 0 1px 0 rgba(255, 255, 255, 0.5),
+    0 8px 20px -5px rgba(var(--color-primary), 0.45) !important;
 }
 
-html.dark[data-ui-template="aurora"] .aida-sidebar-group-body > button.shadow-sm {
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.08),
-    0 8px 20px -6px rgba(var(--color-primary), 0.34);
+html[data-ui-template="aurora"] .aida-sidebar-group-body > button.shadow-sm > svg {
+  color: #ffffff !important;
 }
 
-/* --- TEMPLATE: SOFT BENTO (APPLE STYLE) --- */
+html[data-ui-template="aurora"] .aida-sidebar-group-body > button.shadow-sm::before {
+  background: #ffffff !important;
+  box-shadow: none !important;
+}
+
+html[data-ui-template="aurora"] .aida-app-shell main :is(.bg-white, .dark\:bg-slate-900):is(.border, .rounded-xl, .rounded-2xl, .rounded-3xl):not(.fixed) {
+  background-color: rgba(255, 255, 255, 0.62) !important;
+  border-color: rgba(255, 255, 255, 0.92) !important;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.95),
+    0 14px 34px -12px rgba(var(--color-primary), 0.12),
+    0 6px 18px -8px rgba(15, 23, 42, 0.06);
+}
+
+html.dark[data-ui-template="aurora"] .aida-app-shell main :is(.bg-white, .dark\:bg-slate-900):is(.border, .rounded-xl, .rounded-2xl, .rounded-3xl):not(.fixed) {
+  background-color: rgba(15, 23, 42, 0.54) !important;
+  border-color: rgba(255, 255, 255, 0.14) !important;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.12),
+    0 16px 36px -12px rgba(2, 6, 23, 0.65);
+}
+
+html[data-ui-template="aurora"] .aida-settings-modal-dialog {
+  background-color: rgba(255, 255, 255, 0.84) !important;
+  -webkit-backdrop-filter: blur(26px) saturate(180%);
+  backdrop-filter: blur(26px) saturate(180%);
+  border-color: rgba(255, 255, 255, 0.92) !important;
+}
+
+html.dark[data-ui-template="aurora"] .aida-settings-modal-dialog {
+  background-color: rgba(12, 19, 36, 0.82) !important;
+  border-color: rgba(255, 255, 255, 0.16) !important;
+}
+
+/* --------------------------------------------------------------------------
+   3) APPLE BENTO (Yüzen Ada Menüler, Kapsül Butonlar & 28px Bento Kutuları)
+   -------------------------------------------------------------------------- */
 html[data-ui-template="bento"] .aida-app-shell {
-  background-color: #eceff5;
+  background-color: #dce2ee;
 }
 
 html.dark[data-ui-template="bento"] .aida-app-shell {
-  background-color: #0b0e14;
+  background-color: #07090f;
 }
 
 html[data-ui-template="bento"] .aida-sidebar {
-  margin: 10px 0 10px 10px;
-  height: calc(100vh - 20px);
-  border-radius: 24px;
-  border: 1px solid rgba(226, 232, 240, 0.95);
-  background-color: #ffffff;
+  margin: 12px 0 12px 12px;
+  height: calc(100vh - 24px);
+  border-radius: 28px;
+  border: 1px solid rgba(255, 255, 255, 0.9) !important;
+  background-color: #ffffff !important;
   box-shadow:
-    0 14px 34px -10px rgba(15, 23, 42, 0.08),
-    0 2px 8px -2px rgba(15, 23, 42, 0.04);
+    0 18px 40px -12px rgba(15, 23, 42, 0.14),
+    0 4px 12px -2px rgba(15, 23, 42, 0.05);
 }
 
 html.dark[data-ui-template="bento"] .aida-sidebar {
-  border-color: rgba(51, 65, 85, 0.6);
-  background-color: #111622;
+  border-color: rgba(71, 85, 105, 0.45) !important;
+  background-color: #121723 !important;
   box-shadow:
-    0 16px 38px -10px rgba(0, 0, 0, 0.6),
-    inset 0 1px 0 rgba(255, 255, 255, 0.04);
+    0 20px 44px -12px rgba(0, 0, 0, 0.75),
+    inset 0 1px 0 rgba(255, 255, 255, 0.06);
 }
 
 html[data-ui-template="bento"] .aida-app-topbar {
-  margin: 10px 12px 0 12px;
-  border-radius: 20px;
-  border: 1px solid rgba(226, 232, 240, 0.95);
-  background-color: rgba(255, 255, 255, 0.92);
-  box-shadow: 0 8px 24px -10px rgba(15, 23, 42, 0.07);
+  margin: 12px 16px 0 16px;
+  border-radius: 22px;
+  border: 1px solid rgba(255, 255, 255, 0.9) !important;
+  background-color: rgba(255, 255, 255, 0.94) !important;
+  box-shadow:
+    0 12px 30px -10px rgba(15, 23, 42, 0.11),
+    0 2px 6px -1px rgba(15, 23, 42, 0.04);
 }
 
 html.dark[data-ui-template="bento"] .aida-app-topbar {
-  border-color: rgba(51, 65, 85, 0.6);
-  background-color: rgba(17, 22, 34, 0.92);
+  border-color: rgba(71, 85, 105, 0.45) !important;
+  background-color: rgba(18, 23, 35, 0.94) !important;
   box-shadow:
-    0 10px 26px -10px rgba(0, 0, 0, 0.55),
-    inset 0 1px 0 rgba(255, 255, 255, 0.04);
+    0 14px 32px -10px rgba(0, 0, 0, 0.68),
+    inset 0 1px 0 rgba(255, 255, 255, 0.05);
 }
 
 html[data-ui-template="bento"] .aida-sidebar-group-body > button {
-  border-radius: 14px;
+  border-radius: 9999px !important;
 }
 
-html[data-ui-template="bento"] .aida-app-shell main :is(.rounded-xl, .rounded-2xl, .rounded-3xl).border:not(.fixed) {
-  border-radius: 24px;
-  border-color: rgba(226, 232, 240, 0.9);
+html[data-ui-template="bento"] .aida-sidebar-group-body > button::before {
+  display: none;
+}
+
+html[data-ui-template="bento"] .aida-sidebar-group-body > button.shadow-sm {
+  background-color: rgb(var(--color-primary)) !important;
+  color: #ffffff !important;
+  border-color: transparent !important;
+  box-shadow: 0 8px 18px -4px rgba(var(--color-primary), 0.45) !important;
+}
+
+html[data-ui-template="bento"] .aida-sidebar-group-body > button.shadow-sm > svg {
+  color: #ffffff !important;
+}
+
+html[data-ui-template="bento"] .aida-app-shell main :is(.rounded-xl, .rounded-2xl, .rounded-3xl):is(.border, .shadow-sm, .bg-white, .dark\:bg-slate-900):not(.fixed) {
+  border-radius: 26px !important;
+  border-color: transparent !important;
   box-shadow:
-    0 10px 28px -8px rgba(15, 23, 42, 0.065),
-    0 2px 6px -1px rgba(15, 23, 42, 0.03);
+    0 14px 34px -10px rgba(15, 23, 42, 0.10),
+    0 3px 8px -2px rgba(15, 23, 42, 0.04);
 }
 
-html.dark[data-ui-template="bento"] .aida-app-shell main :is(.rounded-xl, .rounded-2xl, .rounded-3xl).border:not(.fixed) {
-  background-color: #111622;
-  border-color: rgba(51, 65, 85, 0.55);
+html.dark[data-ui-template="bento"] .aida-app-shell main :is(.rounded-xl, .rounded-2xl, .rounded-3xl):is(.border, .shadow-sm, .bg-white, .dark\:bg-slate-900):not(.fixed) {
+  background-color: #131926 !important;
+  border-color: rgba(71, 85, 105, 0.32) !important;
   box-shadow:
-    0 12px 30px -10px rgba(0, 0, 0, 0.55),
-    inset 0 1px 0 rgba(255, 255, 255, 0.04);
+    0 16px 36px -10px rgba(0, 0, 0, 0.68),
+    inset 0 1px 0 rgba(255, 255, 255, 0.05);
 }
 
-/* --- TEMPLATE: LINEAR CRISP (MINIMAL ARCHITECTURAL) --- */
+html[data-ui-template="bento"] .aida-settings-modal-dialog {
+  border-radius: 30px !important;
+  border-color: transparent !important;
+  box-shadow: 0 30px 70px -15px rgba(15, 23, 42, 0.35) !important;
+}
+
+html[data-ui-template="bento"] .aida-settings-modal-sidebar nav > button {
+  border-radius: 9999px !important;
+}
+
+/* --------------------------------------------------------------------------
+   4) LINEAR BLUEPRINT (Noktalı Mühendislik Zemini & Keskin 4px Mimari)
+   -------------------------------------------------------------------------- */
 html[data-ui-template="linear"] .aida-app-shell {
-  background-color: #fafafa;
+  background-color: #f7f7f9;
+  background-image: radial-gradient(rgba(var(--color-primary), 0.24) 1.15px, transparent 1.15px);
+  background-size: 18px 18px;
+  font-variant-numeric: tabular-nums;
 }
 
 html.dark[data-ui-template="linear"] .aida-app-shell {
   background-color: #09090b;
+  background-image: radial-gradient(rgba(var(--color-primary), 0.28) 1.15px, transparent 1.15px);
+  background-size: 18px 18px;
 }
 
 html[data-ui-template="linear"] .aida-sidebar,
 html[data-ui-template="linear"] .aida-app-topbar {
-  background-color: #ffffff;
-  border-color: #e4e4e7;
+  background-color: #ffffff !important;
+  border-color: #d4d4d8 !important;
   -webkit-backdrop-filter: none;
   backdrop-filter: none;
-  box-shadow: none;
+  box-shadow: none !important;
 }
 
 html.dark[data-ui-template="linear"] .aida-sidebar,
 html.dark[data-ui-template="linear"] .aida-app-topbar {
-  background-color: #0c0c0f;
-  border-color: #232329;
+  background-color: #0c0c0f !important;
+  border-color: #27272a !important;
 }
 
-html[data-ui-template="linear"] .aida-app-shell :is(.rounded-xl, .rounded-2xl, .rounded-3xl):not(.rounded-full) {
-  border-radius: 7px;
+html[data-ui-template="linear"] .aida-app-shell :is(.rounded-lg, .rounded-xl, .rounded-2xl, .rounded-3xl):not(.rounded-full) {
+  border-radius: 4px !important;
 }
 
 html[data-ui-template="linear"] .aida-sidebar-group-body > button {
-  border-radius: 6px;
-  box-shadow: none;
+  border-radius: 4px !important;
+  box-shadow: none !important;
+}
+
+html[data-ui-template="linear"] .aida-sidebar-group-body > button::before {
+  inset-block: 0;
+  inline-size: 3px;
+  border-radius: 0;
 }
 
 html[data-ui-template="linear"] .aida-app-shell main :is(.shadow-sm, .shadow, .shadow-md, .shadow-lg, .shadow-xl):not(.fixed) {
-  box-shadow: none;
+  box-shadow: none !important;
 }
 
-html[data-ui-template="linear"] .aida-app-shell main :is(.bg-white, .dark\:bg-slate-900).border:not(.fixed) {
-  border-color: #e4e4e7;
+html[data-ui-template="linear"] .aida-app-shell main :is(.bg-white, .dark\:bg-slate-900):is(.border, .rounded-xl, .rounded-2xl, .rounded-3xl):not(.fixed) {
+  background-color: #ffffff !important;
+  border-color: #d4d4d8 !important;
 }
 
-html.dark[data-ui-template="linear"] .aida-app-shell main :is(.bg-white, .dark\:bg-slate-900).border:not(.fixed) {
-  background-color: #111115;
-  border-color: #25252c;
+html.dark[data-ui-template="linear"] .aida-app-shell main :is(.bg-white, .dark\:bg-slate-900):is(.border, .rounded-xl, .rounded-2xl, .rounded-3xl):not(.fixed) {
+  background-color: #111114 !important;
+  border-color: #27272a !important;
 }
 
-/* --- TEMPLATE: MIDNIGHT OLED (HIGH CONTRAST / PITCH BLACK) --- */
+html[data-ui-template="linear"] .aida-settings-modal-dialog {
+  border-radius: 4px !important;
+  border-color: #a1a1aa !important;
+  box-shadow: 0 18px 40px -12px rgba(0, 0, 0, 0.35) !important;
+}
+
+html.dark[data-ui-template="linear"] .aida-settings-modal-dialog {
+  background-color: #0c0c0f !important;
+  border-color: #3f3f46 !important;
+}
+
+/* --------------------------------------------------------------------------
+   5) MIDNIGHT NEON OLED (Saf Siyah #000000 Siber Izgara & Neon Çerçeveler)
+   -------------------------------------------------------------------------- */
 html.dark[data-ui-template="oled"] .aida-app-shell {
-  background-color: #020306;
-  background-image: radial-gradient(
-    ellipse 80% 36% at 50% -10%,
-    rgba(var(--color-primary), 0.14),
-    transparent 70%
-  );
+  background-color: #000000;
+  background-image:
+    radial-gradient(ellipse 75% 38% at 50% -8%, rgba(var(--color-primary), 0.26), transparent 70%),
+    linear-gradient(to right, rgba(var(--color-primary), 0.06) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(var(--color-primary), 0.06) 1px, transparent 1px);
+  background-size: 100% 100%, 32px 32px, 32px 32px;
 }
 
 html.dark[data-ui-template="oled"] .aida-sidebar,
 html.dark[data-ui-template="oled"] .aida-app-topbar {
-  background-color: #05070d;
-  border-color: rgba(var(--color-primary), 0.22);
-}
-
-html.dark[data-ui-template="oled"] .aida-app-shell main :is(.bg-white, .dark\:bg-slate-900, .dark\:bg-slate-900\/60, .dark\:bg-slate-950).border:not(.fixed) {
-  background-color: #070a12;
-  border-color: rgba(var(--color-primary), 0.2);
-  box-shadow:
-    0 0 0 1px rgba(var(--color-primary), 0.05),
-    0 14px 32px -12px rgba(0, 0, 0, 0.92);
+  background-color: #03050a !important;
+  border-color: rgba(var(--color-primary), 0.38) !important;
+  box-shadow: 0 0 24px -8px rgba(var(--color-primary), 0.3);
 }
 
 html.dark[data-ui-template="oled"] .aida-sidebar-group-body > button.shadow-sm {
-  background-color: rgba(var(--color-primary), 0.15);
-  border-color: rgba(var(--color-primary), 0.45);
-  box-shadow: 0 0 20px -5px rgba(var(--color-primary), 0.34);
+  background-color: rgba(var(--color-primary), 0.2) !important;
+  border-color: rgba(var(--color-primary), 0.68) !important;
+  color: #ffffff !important;
+  box-shadow:
+    inset 0 0 12px rgba(var(--color-primary), 0.25),
+    0 0 20px -4px rgba(var(--color-primary), 0.5) !important;
+}
+
+html.dark[data-ui-template="oled"] .aida-app-shell main :is(.bg-white, .dark\:bg-slate-900, .dark\:bg-slate-900\/60, .dark\:bg-slate-950):is(.border, .rounded-xl, .rounded-2xl, .rounded-3xl):not(.fixed) {
+  background-color: #050811 !important;
+  border-color: rgba(var(--color-primary), 0.38) !important;
+  box-shadow:
+    inset 0 1px 0 rgba(var(--color-primary), 0.45),
+    0 0 22px -7px rgba(var(--color-primary), 0.26),
+    0 14px 32px -12px rgba(0, 0, 0, 0.95);
+}
+
+html.dark[data-ui-template="oled"] .aida-settings-modal-dialog {
+  background-color: #04060c !important;
+  border-color: rgba(var(--color-primary), 0.52) !important;
+  box-shadow:
+    0 0 0 1px rgba(var(--color-primary), 0.2),
+    0 0 42px -8px rgba(var(--color-primary), 0.42),
+    0 25px 50px -12px rgba(0, 0, 0, 0.95) !important;
+}
+
+html.dark[data-ui-template="oled"] .aida-settings-modal-sidebar {
+  background-color: #020307 !important;
+  border-right-color: rgba(var(--color-primary), 0.28) !important;
 }
 
 html:not(.dark)[data-ui-template="oled"] .aida-app-shell main :is(.bg-white).border:not(.fixed) {
-  border-color: rgba(var(--color-primary), 0.26);
+  border-color: rgba(var(--color-primary), 0.36);
 }
 
 /* High-Contrast / Forced Colors Mode Safety */

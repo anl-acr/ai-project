@@ -381,6 +381,7 @@ export default function Home() {
   const [agentQueuesList, setAgentQueuesList] = useState([]);
   const [agentAiAgentsList, setAgentAiAgentsList] = useState([]);
   const [callPanelPrefs, setCallPanelPrefs] = useState(() => loadCallPanelPrefs(null));
+  const [isPeekingUiTemplate, setIsPeekingUiTemplate] = useState(false);
   const [currentAgentSubTab, setCurrentAgentSubTab] = useState("dashboard");
   const [currentRolePermissions, setCurrentRolePermissions] = useState(null);
   const [draggedPanelTabIdx, setDraggedPanelTabIdx] = useState(null);
@@ -621,6 +622,19 @@ export default function Home() {
     const tpl = normalizeUiTemplate(callPanelPrefs?.uiTemplate);
     applyDocumentUiTemplate(tpl);
   }, [callPanelPrefs?.uiTemplate]);
+
+  useEffect(() => {
+    if (!isPeekingUiTemplate || typeof window === "undefined") return;
+    const stopPeek = () => setIsPeekingUiTemplate(false);
+    window.addEventListener("pointerup", stopPeek);
+    window.addEventListener("pointercancel", stopPeek);
+    window.addEventListener("blur", stopPeek);
+    return () => {
+      window.removeEventListener("pointerup", stopPeek);
+      window.removeEventListener("pointercancel", stopPeek);
+      window.removeEventListener("blur", stopPeek);
+    };
+  }, [isPeekingUiTemplate]);
 
   useStageRevealObserver(mainStageRef, `${activeTab}-${activeTenantId}-${isLoggedIn}`);
 
@@ -4014,7 +4028,7 @@ export default function Home() {
       )}
 
       {/* Main Content Area */}
-      <main className="flex-1 flex flex-col h-screen overflow-hidden bg-slate-50 dark:bg-slate-950/40 transition-colors duration-300">
+      <main className="aida-app-main flex-1 flex flex-col h-screen overflow-hidden bg-slate-50 dark:bg-slate-950/40 transition-colors duration-300">
         
         {/* Top Header Navbar (Single-Row Persistent Bar with Yaklaşım B Auto-Compacting) */}
         {!isEditingCallFlow && (() => {
@@ -4888,8 +4902,20 @@ export default function Home() {
 
         {/* Profile & Ringtone Settings Modal */}
         {settingsModalOpen && (
-          <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-sm z-[150] flex items-center justify-center p-4 transition-all duration-300">
-            <div className="w-full max-w-6xl max-h-[92vh] bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800/80 rounded-2xl shadow-2xl overflow-hidden flex flex-col animate-in fade-in zoom-in-95 duration-200">
+          <div
+            className={`fixed inset-0 z-[150] flex items-center justify-center p-4 transition-all duration-300 ${
+              isPeekingUiTemplate
+                ? "bg-transparent backdrop-blur-none"
+                : activeModalTab === "profile"
+                ? "bg-slate-950/30"
+                : "bg-slate-950/60 backdrop-blur-sm"
+            }`}
+          >
+            <div
+              className={`aida-settings-modal-dialog w-full max-w-6xl max-h-[92vh] bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800/80 rounded-2xl shadow-2xl overflow-hidden flex flex-col animate-in fade-in zoom-in-95 duration-200 transition-all ${
+                isPeekingUiTemplate ? "opacity-0 scale-[0.985] pointer-events-none" : "opacity-100 scale-100"
+              }`}
+            >
               
               {/* Modal Header */}
               <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 dark:border-slate-800/60 bg-slate-50/50 dark:bg-slate-950/20 shrink-0">
@@ -4913,7 +4939,7 @@ export default function Home() {
 
               <div className="flex flex-1 overflow-hidden">
                 {/* Left Sidebar Tabs (UserSettings style) */}
-                <div className="w-64 bg-slate-50/50 dark:bg-slate-950/30 border-r border-slate-100 dark:border-slate-800/60 p-4 shrink-0 overflow-y-auto">
+                <div className="aida-settings-modal-sidebar w-64 bg-slate-50/50 dark:bg-slate-950/30 border-r border-slate-100 dark:border-slate-800/60 p-4 shrink-0 overflow-y-auto transition-colors duration-300">
                   <nav className="space-y-1">
                     <button
                       type="button"
@@ -7200,26 +7226,63 @@ export default function Home() {
                     };
 
                     const renderTemplateMiniPreview = (tplId) => {
+                      if (tplId === "executive") {
+                        return (
+                          <div className="h-20 w-full rounded-lg overflow-hidden border border-slate-300/80 dark:border-slate-700 bg-[#eef2f8] dark:bg-[#080c17] flex">
+                            <div className="w-10 h-full bg-gradient-to-b from-[#0d1528] to-[#070c18] border-r border-slate-700/60 p-1.5 flex flex-col gap-1.5">
+                              <span
+                                className="h-2 w-full rounded-md"
+                                style={{
+                                  background: `linear-gradient(135deg, ${previewPrimaryHex}, rgba(${tempThemeColor}, 0.72))`,
+                                  boxShadow: `0 2px 8px rgba(${tempThemeColor}, 0.55)`
+                                }}
+                              />
+                              <span className="h-1 w-4/5 rounded-full bg-slate-600/80" />
+                              <span className="h-1 w-3/5 rounded-full bg-slate-600/70" />
+                              <span className="h-1 w-4/5 rounded-full bg-slate-700/80" />
+                            </div>
+                            <div className="flex-1 flex flex-col">
+                              <div className="h-4 bg-white dark:bg-[#0d1424] border-b border-slate-200 dark:border-slate-800" />
+                              <div className="flex-1 grid grid-cols-2 gap-1.5 p-2">
+                                <div
+                                  className="rounded-md bg-white dark:bg-[#0e1628] border border-slate-200/90 dark:border-slate-700/80 shadow-sm"
+                                  style={{ boxShadow: `inset 0 2px 0 0 rgba(${tempThemeColor}, 0.65)` }}
+                                />
+                                <div
+                                  className="rounded-md bg-white dark:bg-[#0e1628] border border-slate-200/90 dark:border-slate-700/80 shadow-sm"
+                                  style={{ boxShadow: `inset 0 2px 0 0 rgba(${tempThemeColor}, 0.65)` }}
+                                />
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      }
+
                       if (tplId === "aurora") {
                         return (
                           <div
-                            className="h-16 w-full rounded-lg overflow-hidden border border-white/60 dark:border-slate-700/70 relative flex p-1.5 gap-1.5"
+                            className="h-20 w-full rounded-lg overflow-hidden border border-white/80 dark:border-slate-700/70 relative flex p-1.5 gap-1.5"
                             style={{
                               background: isDarkMode
-                                ? `radial-gradient(circle at 15% 10%, rgba(${tempThemeColor}, 0.38), transparent 62%), radial-gradient(circle at 88% 85%, rgba(56, 189, 248, 0.25), #070d1c 72%)`
-                                : `radial-gradient(circle at 15% 10%, rgba(${tempThemeColor}, 0.28), transparent 62%), radial-gradient(circle at 88% 85%, rgba(56, 189, 248, 0.22), #eef3fc 72%)`
+                                ? `radial-gradient(circle at 12% 8%, rgba(${tempThemeColor}, 0.52), transparent 58%), radial-gradient(circle at 90% 18%, rgba(14, 165, 233, 0.36), transparent 55%), radial-gradient(circle at 55% 95%, rgba(168, 85, 247, 0.32), #060b18 75%)`
+                                : `radial-gradient(circle at 12% 8%, rgba(${tempThemeColor}, 0.42), transparent 58%), radial-gradient(circle at 90% 18%, rgba(14, 165, 233, 0.34), transparent 55%), radial-gradient(circle at 55% 95%, rgba(168, 85, 247, 0.26), #eaf0fc 75%)`
                             }}
                           >
-                            <div className="w-7 h-full rounded-md bg-white/65 dark:bg-slate-900/65 border border-white/80 dark:border-white/10 p-1 flex flex-col gap-1 backdrop-blur-sm">
-                              <span className="h-1.5 w-full rounded-full" style={{ backgroundColor: previewPrimaryHex }} />
-                              <span className="h-1 w-4/5 rounded-full bg-slate-300/80 dark:bg-slate-600/80" />
-                              <span className="h-1 w-3/5 rounded-full bg-slate-300/70 dark:bg-slate-600/70" />
+                            <div className="w-9 h-full rounded-md bg-white/55 dark:bg-slate-900/55 border border-white/90 dark:border-white/15 p-1.5 flex flex-col gap-1.5 backdrop-blur-sm">
+                              <span
+                                className="h-2 w-full rounded-md"
+                                style={{
+                                  background: `linear-gradient(135deg, ${previewPrimaryHex}, rgba(${tempThemeColor}, 0.72))`
+                                }}
+                              />
+                              <span className="h-1 w-4/5 rounded-full bg-slate-400/70 dark:bg-slate-500/80" />
+                              <span className="h-1 w-3/5 rounded-full bg-slate-400/60 dark:bg-slate-500/70" />
                             </div>
-                            <div className="flex-1 flex flex-col gap-1">
-                              <div className="h-3 rounded-md bg-white/65 dark:bg-slate-900/65 border border-white/80 dark:border-white/10" />
-                              <div className="flex-1 grid grid-cols-2 gap-1">
-                                <div className="rounded-md bg-white/75 dark:bg-slate-900/65 border border-white/90 dark:border-white/15 shadow-sm" />
-                                <div className="rounded-md bg-white/75 dark:bg-slate-900/65 border border-white/90 dark:border-white/15 shadow-sm" />
+                            <div className="flex-1 flex flex-col gap-1.5">
+                              <div className="h-3.5 rounded-md bg-white/60 dark:bg-slate-900/55 border border-white/90 dark:border-white/15" />
+                              <div className="flex-1 grid grid-cols-2 gap-1.5">
+                                <div className="rounded-md bg-white/65 dark:bg-slate-900/55 border border-white/95 dark:border-white/20 shadow-sm" />
+                                <div className="rounded-md bg-white/65 dark:bg-slate-900/55 border border-white/95 dark:border-white/20 shadow-sm" />
                               </div>
                             </div>
                           </div>
@@ -7228,17 +7291,17 @@ export default function Home() {
 
                       if (tplId === "bento") {
                         return (
-                          <div className="h-16 w-full rounded-lg overflow-hidden border border-slate-200/80 dark:border-slate-800 bg-[#ebeef5] dark:bg-[#0b0e14] flex p-1.5 gap-1.5">
-                            <div className="w-7 h-full rounded-xl bg-white dark:bg-[#141a28] border border-slate-200/90 dark:border-slate-700/70 shadow-sm p-1 flex flex-col gap-1">
-                              <span className="h-1.5 w-full rounded-full" style={{ backgroundColor: previewPrimaryHex }} />
+                          <div className="h-20 w-full rounded-lg overflow-hidden border border-slate-200/80 dark:border-slate-800 bg-[#dce2ee] dark:bg-[#07090f] flex p-2 gap-2">
+                            <div className="w-9 h-full rounded-2xl bg-white dark:bg-[#131926] shadow-md p-1.5 flex flex-col gap-1.5">
+                              <span className="h-2 w-full rounded-full" style={{ backgroundColor: previewPrimaryHex }} />
                               <span className="h-1 w-4/5 rounded-full bg-slate-200 dark:bg-slate-700" />
                               <span className="h-1 w-3/5 rounded-full bg-slate-200 dark:bg-slate-700" />
                             </div>
                             <div className="flex-1 flex flex-col gap-1.5">
-                              <div className="h-3 rounded-xl bg-white dark:bg-[#141a28] border border-slate-200/90 dark:border-slate-700/70 shadow-sm" />
-                              <div className="flex-1 grid grid-cols-2 gap-1.5">
-                                <div className="rounded-xl bg-white dark:bg-[#141a28] border border-slate-200/90 dark:border-slate-700/70 shadow-sm" />
-                                <div className="rounded-xl bg-white dark:bg-[#141a28] border border-slate-200/90 dark:border-slate-700/70 shadow-sm" />
+                              <div className="h-3.5 rounded-full bg-white dark:bg-[#131926] shadow-sm" />
+                              <div className="flex-1 grid grid-cols-2 gap-2">
+                                <div className="rounded-2xl bg-white dark:bg-[#131926] shadow-md" />
+                                <div className="rounded-2xl bg-white dark:bg-[#131926] shadow-md" />
                               </div>
                             </div>
                           </div>
@@ -7247,17 +7310,24 @@ export default function Home() {
 
                       if (tplId === "linear") {
                         return (
-                          <div className="h-16 w-full rounded-[5px] overflow-hidden border border-zinc-200 dark:border-zinc-800 bg-[#fafafa] dark:bg-[#09090b] flex">
-                            <div className="w-8 h-full bg-white dark:bg-[#0c0c0f] border-r border-zinc-200 dark:border-zinc-800 p-1 flex flex-col gap-1">
-                              <span className="h-1.5 w-full rounded-[2px]" style={{ backgroundColor: previewPrimaryHex }} />
-                              <span className="h-1 w-4/5 rounded-[1px] bg-zinc-200 dark:bg-zinc-700" />
-                              <span className="h-1 w-3/5 rounded-[1px] bg-zinc-200 dark:bg-zinc-700" />
+                          <div
+                            className="h-20 w-full rounded-[3px] overflow-hidden border border-zinc-300 dark:border-zinc-700 flex"
+                            style={{
+                              backgroundColor: isDarkMode ? "#09090b" : "#f7f7f9",
+                              backgroundImage: `radial-gradient(rgba(${tempThemeColor}, 0.35) 1px, transparent 1px)`,
+                              backgroundSize: "8px 8px"
+                            }}
+                          >
+                            <div className="w-9 h-full bg-white dark:bg-[#0c0c0f] border-r border-zinc-300 dark:border-zinc-700 p-1.5 flex flex-col gap-1.5">
+                              <span className="h-2 w-full rounded-[2px]" style={{ backgroundColor: previewPrimaryHex }} />
+                              <span className="h-1 w-4/5 rounded-[1px] bg-zinc-300 dark:bg-zinc-700" />
+                              <span className="h-1 w-3/5 rounded-[1px] bg-zinc-300 dark:bg-zinc-700" />
                             </div>
                             <div className="flex-1 flex flex-col">
-                              <div className="h-3.5 bg-white dark:bg-[#0c0c0f] border-b border-zinc-200 dark:border-zinc-800" />
-                              <div className="flex-1 grid grid-cols-2 gap-1 p-1.5">
-                                <div className="rounded-[3px] bg-white dark:bg-[#111115] border border-zinc-200 dark:border-zinc-800" />
-                                <div className="rounded-[3px] bg-white dark:bg-[#111115] border border-zinc-200 dark:border-zinc-800" />
+                              <div className="h-3.5 bg-white dark:bg-[#0c0c0f] border-b border-zinc-300 dark:border-zinc-700" />
+                              <div className="flex-1 grid grid-cols-2 gap-1.5 p-2">
+                                <div className="rounded-[2px] bg-white dark:bg-[#111114] border border-zinc-300 dark:border-zinc-700" />
+                                <div className="rounded-[2px] bg-white dark:bg-[#111114] border border-zinc-300 dark:border-zinc-700" />
                               </div>
                             </div>
                           </div>
@@ -7267,24 +7337,26 @@ export default function Home() {
                       if (tplId === "oled") {
                         return (
                           <div
-                            className="h-16 w-full rounded-lg overflow-hidden border flex"
+                            className="h-20 w-full rounded-lg overflow-hidden border flex"
                             style={{
-                              backgroundColor: "#020306",
-                              borderColor: `rgba(${tempThemeColor}, 0.35)`
+                              backgroundColor: "#000000",
+                              backgroundImage: `linear-gradient(to right, rgba(${tempThemeColor}, 0.12) 1px, transparent 1px), linear-gradient(to bottom, rgba(${tempThemeColor}, 0.12) 1px, transparent 1px)`,
+                              backgroundSize: "10px 10px",
+                              borderColor: `rgba(${tempThemeColor}, 0.55)`
                             }}
                           >
                             <div
-                              className="w-8 h-full p-1 flex flex-col gap-1 border-r"
+                              className="w-9 h-full p-1.5 flex flex-col gap-1.5 border-r"
                               style={{
-                                backgroundColor: "#05070d",
-                                borderColor: `rgba(${tempThemeColor}, 0.24)`
+                                backgroundColor: "#03050a",
+                                borderColor: `rgba(${tempThemeColor}, 0.42)`
                               }}
                             >
                               <span
-                                className="h-1.5 w-full rounded-full"
+                                className="h-2 w-full rounded-md"
                                 style={{
                                   backgroundColor: previewPrimaryHex,
-                                  boxShadow: `0 0 8px rgba(${tempThemeColor}, 0.7)`
+                                  boxShadow: `0 0 10px rgba(${tempThemeColor}, 0.9)`
                                 }}
                               />
                               <span className="h-1 w-4/5 rounded-full bg-slate-800" />
@@ -7294,23 +7366,25 @@ export default function Home() {
                               <div
                                 className="h-3.5 border-b"
                                 style={{
-                                  backgroundColor: "#05070d",
-                                  borderColor: `rgba(${tempThemeColor}, 0.22)`
+                                  backgroundColor: "#03050a",
+                                  borderColor: `rgba(${tempThemeColor}, 0.38)`
                                 }}
                               />
-                              <div className="flex-1 grid grid-cols-2 gap-1 p-1.5">
+                              <div className="flex-1 grid grid-cols-2 gap-1.5 p-2">
                                 <div
                                   className="rounded-md border"
                                   style={{
-                                    backgroundColor: "#070a12",
-                                    borderColor: `rgba(${tempThemeColor}, 0.32)`
+                                    backgroundColor: "#050811",
+                                    borderColor: `rgba(${tempThemeColor}, 0.55)`,
+                                    boxShadow: `0 0 10px -2px rgba(${tempThemeColor}, 0.45)`
                                   }}
                                 />
                                 <div
                                   className="rounded-md border"
                                   style={{
-                                    backgroundColor: "#070a12",
-                                    borderColor: `rgba(${tempThemeColor}, 0.32)`
+                                    backgroundColor: "#050811",
+                                    borderColor: `rgba(${tempThemeColor}, 0.55)`,
+                                    boxShadow: `0 0 10px -2px rgba(${tempThemeColor}, 0.45)`
                                   }}
                                 />
                               </div>
@@ -7321,15 +7395,15 @@ export default function Home() {
 
                       // Default: "classic"
                       return (
-                        <div className="h-16 w-full rounded-lg overflow-hidden border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 flex">
-                          <div className="w-8 h-full bg-white dark:bg-slate-900 border-r border-slate-200 dark:border-slate-800 p-1 flex flex-col gap-1">
-                            <span className="h-1.5 w-full rounded-md" style={{ backgroundColor: previewPrimaryHex }} />
+                        <div className="h-20 w-full rounded-lg overflow-hidden border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 flex">
+                          <div className="w-9 h-full bg-white dark:bg-slate-900 border-r border-slate-200 dark:border-slate-800 p-1.5 flex flex-col gap-1.5">
+                            <span className="h-2 w-full rounded-md" style={{ backgroundColor: previewPrimaryHex }} />
                             <span className="h-1 w-4/5 rounded-full bg-slate-200 dark:bg-slate-700" />
                             <span className="h-1 w-3/5 rounded-full bg-slate-200 dark:bg-slate-700" />
                           </div>
                           <div className="flex-1 flex flex-col">
                             <div className="h-3.5 bg-white/90 dark:bg-slate-900/80 border-b border-slate-200 dark:border-slate-800" />
-                            <div className="flex-1 grid grid-cols-2 gap-1 p-1.5">
+                            <div className="flex-1 grid grid-cols-2 gap-1.5 p-2">
                               <div className="rounded-md bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 shadow-sm" />
                               <div className="rounded-md bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 shadow-sm" />
                             </div>
@@ -7350,18 +7424,32 @@ export default function Home() {
                                 Arayüz Görünüm Şablonu
                               </label>
                               <span className="text-[10px] text-slate-500 dark:text-slate-400">
-                                Mevcut AIDA Klasik yapısını koruyabilir veya farklı tasarım şablonlarını seçebilirsiniz
+                                Mevcut AIDA Klasik yapısını koruyabilir veya belirgin tasarım şablonlarını anında önizleyebilirsiniz
                               </span>
                             </div>
                           </div>
 
-                          <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-extrabold border ${lightBg} ${text} ${border}`}>
-                            <Sparkles size={11} />
-                            <span>Aktif: {activeTemplateMeta.name}</span>
-                          </span>
+                          <div className="flex items-center gap-2">
+                            <button
+                              type="button"
+                              onPointerDown={() => setIsPeekingUiTemplate(true)}
+                              onPointerUp={() => setIsPeekingUiTemplate(false)}
+                              onPointerLeave={() => setIsPeekingUiTemplate(false)}
+                              title="Seçili şablonu arkadaki tam ekranda görmek için basılı tutun"
+                              className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-200 hover:border-primary/60 transition-all cursor-pointer select-none shadow-sm"
+                            >
+                              <Eye size={12} className={text} />
+                              <span>Ekranı Gör (Basılı Tut)</span>
+                            </button>
+
+                            <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-extrabold border ${lightBg} ${text} ${border}`}>
+                              <Sparkles size={11} />
+                              <span>Aktif: {activeTemplateMeta.name}</span>
+                            </span>
+                          </div>
                         </div>
 
-                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-2.5">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
                           {SYSTEM_UI_TEMPLATES.map((tpl) => {
                             const isSelected = currentUiTemplate === tpl.id;
                             return (
@@ -7369,20 +7457,20 @@ export default function Home() {
                                 key={tpl.id}
                                 type="button"
                                 onClick={() => selectUiTemplateLive(tpl)}
-                                className={`group relative p-2.5 rounded-xl border text-left flex flex-col gap-2 transition-all cursor-pointer ${
+                                className={`group relative p-3 rounded-xl border text-left flex flex-col gap-2 transition-all cursor-pointer ${
                                   isSelected
-                                    ? `${border} ${lightBg} ring-2 ring-primary/15 shadow-sm`
+                                    ? `${border} ${lightBg} ring-2 ring-primary/20 shadow-sm`
                                     : "bg-white dark:bg-slate-900 border-slate-200/90 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700"
                                 }`}
                               >
                                 {renderTemplateMiniPreview(tpl.id)}
 
                                 <div className="flex items-start justify-between gap-1.5 pt-0.5">
-                                  <div className="min-w-0">
-                                    <div className={`text-[11px] font-extrabold truncate ${isSelected ? text : "text-slate-800 dark:text-slate-100"}`}>
+                                  <div className="min-w-0 flex items-center gap-1.5 flex-wrap">
+                                    <span className={`text-xs font-extrabold truncate ${isSelected ? text : "text-slate-800 dark:text-slate-100"}`}>
                                       {tpl.name}
-                                    </div>
-                                    <span className="inline-block mt-0.5 px-1.5 py-0.5 rounded text-[8.5px] font-bold bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400">
+                                    </span>
+                                    <span className="inline-block px-1.5 py-0.5 rounded text-[8.5px] font-bold bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400">
                                       {tpl.badge}
                                     </span>
                                   </div>
@@ -7398,7 +7486,7 @@ export default function Home() {
                                   </span>
                                 </div>
 
-                                <p className="text-[9.5px] leading-snug text-slate-500 dark:text-slate-400 line-clamp-2">
+                                <p className="text-[10px] leading-snug text-slate-500 dark:text-slate-400 line-clamp-2">
                                   {tpl.desc}
                                 </p>
                               </button>
