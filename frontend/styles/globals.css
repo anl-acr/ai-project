@@ -105,6 +105,19 @@ label.flex.items-center {
   text-box: trim-both cap alphabetic;
 }
 
+@media (min-width: 640px) {
+  .aida-subgrid-row3 {
+    grid-template-rows: auto auto;
+  }
+
+  .aida-subgrid-field {
+    grid-row: span 2;
+    display: grid;
+    grid-template-rows: auto auto;
+    grid-template-rows: subgrid;
+  }
+}
+
 /* Interest invoker timing & Top-Layer Popover rules */
 [interestfor] {
   --interest-delay-start: 0.14s;

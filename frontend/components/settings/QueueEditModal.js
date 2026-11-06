@@ -2531,10 +2531,10 @@ export default function QueueEditModal({ isOpen, onClose, onSave, queueData = nu
           {/* Parametreler Grid */}
           <div className="p-5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-sm space-y-5">
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
-              <div>
-                <label className="text-[10px] text-slate-500 dark:text-slate-400 font-bold uppercase tracking-wider flex items-center gap-1.5 mb-1.5">
-                  <Clock size={12} className={text} />
-                  Eşik Bekleme Süresi (Saniye)
+              <div className="flex flex-col">
+                <label className="text-[11px] text-slate-600 dark:text-slate-300 font-bold uppercase tracking-wider flex items-center gap-1.5 mb-1.5 whitespace-nowrap">
+                  <Clock size={12} className={`${text} shrink-0`} />
+                  <span>Eşik Bekleme Süresi (Sn)</span>
                 </label>
                 <input
                   type="number"
@@ -2543,17 +2543,17 @@ export default function QueueEditModal({ isOpen, onClose, onSave, queueData = nu
                   onChange={handleChange}
                   disabled={!isEnabled}
                   min="5"
-                  className={`w-full px-3.5 py-2.5 bg-slate-50/50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl text-xs font-semibold text-slate-800 dark:text-white focus:outline-none focus:ring-2 ${ring} font-mono`}
+                  className={`w-full h-[42px] px-3.5 py-2.5 bg-slate-50/50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl text-xs font-semibold text-slate-800 dark:text-white focus:outline-none focus:ring-2 ${ring} font-mono mt-auto`}
                 />
                 <p className="text-[10px] text-slate-400 mt-1">
                   Bu kuyrukta bekleme süresi belirtilen saniyeyi aşarsa geri arama devreye girer.
                 </p>
               </div>
 
-              <div>
-                <label className="text-[10px] text-slate-500 dark:text-slate-400 font-bold uppercase tracking-wider flex items-center gap-1.5 mb-1.5">
-                  <BarChart2 size={12} className={text} />
-                  Eşik Kuyruk Boyutu (Kişi)
+              <div className="flex flex-col">
+                <label className="text-[11px] text-slate-600 dark:text-slate-300 font-bold uppercase tracking-wider flex items-center gap-1.5 mb-1.5 whitespace-nowrap">
+                  <BarChart2 size={12} className={`${text} shrink-0`} />
+                  <span>Eşik Kuyruk Boyutu (Kişi)</span>
                 </label>
                 <input
                   type="number"
@@ -2562,17 +2562,17 @@ export default function QueueEditModal({ isOpen, onClose, onSave, queueData = nu
                   onChange={handleChange}
                   disabled={!isEnabled}
                   min="1"
-                  className={`w-full px-3.5 py-2.5 bg-slate-50/50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl text-xs font-semibold text-slate-800 dark:text-white focus:outline-none focus:ring-2 ${ring} font-mono`}
+                  className={`w-full h-[42px] px-3.5 py-2.5 bg-slate-50/50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl text-xs font-semibold text-slate-800 dark:text-white focus:outline-none focus:ring-2 ${ring} font-mono mt-auto`}
                 />
                 <p className="text-[10px] text-slate-400 mt-1">
                   Kuyrukta bekleyen aktif kişi sayısı bu sınıra ulaştığında geri arama teklif edilir.
                 </p>
               </div>
 
-              <div>
-                <label className="text-[10px] text-slate-500 dark:text-slate-400 font-bold uppercase tracking-wider flex items-center gap-1.5 mb-1.5">
-                  <Repeat size={12} className={text} />
-                  Maksimum Deneme Sayısı
+              <div className="flex flex-col">
+                <label className="text-[11px] text-slate-600 dark:text-slate-300 font-bold uppercase tracking-wider flex items-center gap-1.5 mb-1.5 whitespace-nowrap">
+                  <Repeat size={12} className={`${text} shrink-0`} />
+                  <span>Maksimum Deneme Sayısı</span>
                 </label>
                 <input
                   type="number"
@@ -2582,17 +2582,17 @@ export default function QueueEditModal({ isOpen, onClose, onSave, queueData = nu
                   disabled={!isEnabled}
                   min="1"
                   max="10"
-                  className={`w-full px-3.5 py-2.5 bg-slate-50/50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl text-xs font-semibold text-slate-800 dark:text-white focus:outline-none focus:ring-2 ${ring} font-mono`}
+                  className={`w-full h-[42px] px-3.5 py-2.5 bg-slate-50/50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl text-xs font-semibold text-slate-800 dark:text-white focus:outline-none focus:ring-2 ${ring} font-mono mt-auto`}
                 />
                 <p className="text-[10px] text-slate-400 mt-1">
                   Geri aramada müşteri yanıt vermezse sistemin en fazla kaç kez tekrar arayacağını belirler.
                 </p>
               </div>
 
-              <div>
-                <label className="text-[10px] text-slate-500 dark:text-slate-400 font-bold uppercase tracking-wider flex items-center gap-1.5 mb-1.5">
-                  <Clock size={12} className={text} />
-                  Tekrar Arama Aralığı (Saniye)
+              <div className="flex flex-col">
+                <label className="text-[11px] text-slate-600 dark:text-slate-300 font-bold uppercase tracking-wider flex items-center gap-1.5 mb-1.5 whitespace-nowrap">
+                  <Clock size={12} className={`${text} shrink-0`} />
+                  <span>Tekrar Arama Aralığı (Sn)</span>
                 </label>
                 <input
                   type="number"
@@ -2601,7 +2601,7 @@ export default function QueueEditModal({ isOpen, onClose, onSave, queueData = nu
                   onChange={handleChange}
                   disabled={!isEnabled}
                   min="15"
-                  className={`w-full px-3.5 py-2.5 bg-slate-50/50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl text-xs font-semibold text-slate-800 dark:text-white focus:outline-none focus:ring-2 ${ring} font-mono`}
+                  className={`w-full h-[42px] px-3.5 py-2.5 bg-slate-50/50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl text-xs font-semibold text-slate-800 dark:text-white focus:outline-none focus:ring-2 ${ring} font-mono mt-auto`}
                 />
                 <p className="text-[10px] text-slate-400 mt-1">
                   Başarısız geri arama denemeleri arasında beklenecek süre (sn).
@@ -2897,18 +2897,22 @@ export default function QueueEditModal({ isOpen, onClose, onSave, queueData = nu
         <div className={"space-y-5 transition-all duration-300 " + (!isEnabled ? "opacity-45 pointer-events-none select-none" : "")}>
           {/* Anket Parametreleri */}
           <div className="p-5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-sm space-y-4">
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-              <div>
-                <label className="text-[10px] text-slate-500 dark:text-slate-400 font-bold uppercase tracking-wider flex items-center gap-1.5 mb-1.5">
-                  <Star size={12} className="text-amber-500" />
-                  Puanlama Ölçeği
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-x-5 gap-y-4 sm:gap-y-2 aida-subgrid-row3">
+              <div className="flex flex-col aida-subgrid-field">
+                <label
+                  htmlFor="queue-survey-scale"
+                  className="text-[11px] text-slate-600 dark:text-slate-300 font-bold uppercase tracking-wider flex items-center gap-1.5 mb-1.5 sm:mb-0 whitespace-nowrap self-end"
+                >
+                  <Star size={12} className="text-amber-500 shrink-0" />
+                  <span>Puanlama Ölçeği</span>
                 </label>
                 <select
+                  id="queue-survey-scale"
                   name="survey_scale"
                   value={formData.survey_scale || "1-5"}
                   onChange={handleChange}
                   disabled={!isEnabled}
-                  className={"w-full px-3.5 py-2.5 bg-slate-50/50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl text-xs font-semibold text-slate-800 dark:text-white focus:outline-none focus:ring-2 " + ring}
+                  className={"w-full h-[42px] px-3.5 py-2 bg-slate-50/50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl text-xs font-semibold text-slate-800 dark:text-white focus:outline-none focus:ring-2 " + ring}
                 >
                   <option value="1-5">1 - 5 Yıldız (Standart CSAT)</option>
                   <option value="1-10">1 - 10 Puan (NPS Ölçeği)</option>
@@ -2919,12 +2923,16 @@ export default function QueueEditModal({ isOpen, onClose, onSave, queueData = nu
                 </p>
               </div>
 
-              <div>
-                <label className="text-[10px] text-slate-500 dark:text-slate-400 font-bold uppercase tracking-wider flex items-center gap-1.5 mb-1.5">
-                  <Clock size={12} className={text} />
-                  Tuşlama Süresi (Saniye)
+              <div className="flex flex-col aida-subgrid-field">
+                <label
+                  htmlFor="queue-survey-timeout"
+                  className="text-[11px] text-slate-600 dark:text-slate-300 font-bold uppercase tracking-wider flex items-center gap-1.5 mb-1.5 sm:mb-0 whitespace-nowrap self-end"
+                >
+                  <Clock size={12} className={`${text} shrink-0`} />
+                  <span>Tuşlama Süresi (Sn)</span>
                 </label>
                 <input
+                  id="queue-survey-timeout"
                   type="number"
                   name="survey_timeout_sec"
                   value={formData.survey_timeout_sec ?? 10}
@@ -2932,19 +2940,23 @@ export default function QueueEditModal({ isOpen, onClose, onSave, queueData = nu
                   disabled={!isEnabled}
                   min="3"
                   max="30"
-                  className={"w-full px-3.5 py-2.5 bg-slate-50/50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl text-xs font-semibold text-slate-800 dark:text-white focus:outline-none focus:ring-2 " + ring + " font-mono"}
+                  className={"w-full h-[42px] px-3.5 py-2 bg-slate-50/50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl text-xs font-semibold text-slate-800 dark:text-white focus:outline-none focus:ring-2 " + ring + " font-mono"}
                 />
                 <p className="text-[10px] text-slate-400 mt-1">
                   Her soru anonsundan sonra tuşlama için beklenecek süre.
                 </p>
               </div>
 
-              <div>
-                <label className="text-[10px] text-slate-500 dark:text-slate-400 font-bold uppercase tracking-wider flex items-center gap-1.5 mb-1.5">
-                  <AlertCircle size={12} className="text-rose-500" />
-                  Düşük Puan (Kritik) Eşiği
+              <div className="flex flex-col aida-subgrid-field">
+                <label
+                  htmlFor="queue-survey-threshold"
+                  className="text-[11px] text-slate-600 dark:text-slate-300 font-bold uppercase tracking-wider flex items-center gap-1.5 mb-1.5 sm:mb-0 whitespace-nowrap self-end"
+                >
+                  <AlertCircle size={12} className="text-rose-500 shrink-0" />
+                  <span>Düşük Puan Eşiği</span>
                 </label>
                 <input
+                  id="queue-survey-threshold"
                   type="number"
                   name="survey_low_score_threshold"
                   value={formData.survey_low_score_threshold ?? 2}
@@ -2952,10 +2964,10 @@ export default function QueueEditModal({ isOpen, onClose, onSave, queueData = nu
                   disabled={!isEnabled}
                   min="1"
                   max="5"
-                  className={"w-full px-3.5 py-2.5 bg-slate-50/50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl text-xs font-semibold text-slate-800 dark:text-white focus:outline-none focus:ring-2 " + ring + " font-mono"}
+                  className={"w-full h-[42px] px-3.5 py-2 bg-slate-50/50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl text-xs font-semibold text-slate-800 dark:text-white focus:outline-none focus:ring-2 " + ring + " font-mono"}
                 />
                 <p className="text-[10px] text-slate-400 mt-1">
-                  Bu puan ve altındaki oylar raporlarda "Düşük Memnuniyet" olarak işaretlenir.
+                  Bu puan ve altındaki oylar raporlarda &quot;Düşük Memnuniyet&quot; olarak işaretlenir.
                 </p>
               </div>
             </div>
@@ -3363,7 +3375,7 @@ export default function QueueEditModal({ isOpen, onClose, onSave, queueData = nu
 
   return createPortal(
     <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-sm flex items-center justify-center z-[150] p-4 transition-all duration-300">
-      <div className="w-full max-w-4xl h-[85vh] flex flex-col bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800/80 rounded-2xl shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200">
+      <div className="w-full max-w-5xl h-[86vh] flex flex-col bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800/80 rounded-2xl shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200">
         
         {/* Header */}
         <div className="p-4 px-6 border-b border-slate-100 dark:border-slate-800/60 flex items-center justify-between shrink-0 bg-white dark:bg-slate-900">
