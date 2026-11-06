@@ -659,28 +659,28 @@ export default function QueueEditModal({ isOpen, onClose, onSave, queueData = nu
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
-          <div>
-            <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">Kuyruk İsmi</label>
+          <div className="flex flex-col">
+            <label className="flex items-center text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5 whitespace-nowrap">Kuyruk İsmi</label>
             <input
               type="text"
               name="name"
               value={formData.name}
               onChange={handleChange}
               placeholder="Örn: Satış Kuyruğu"
-              className={`w-full text-sm px-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 focus:outline-none focus:ring-2 ${ring} text-slate-800 dark:text-white transition-all`}
+              className={`w-full text-sm px-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 focus:outline-none focus:ring-2 ${ring} text-slate-800 dark:text-white transition-all mt-auto`}
             />
             <p className="text-[10px] text-slate-500 mt-1.5">Raporlarda ve canlı izleme ekranında görünecek kuyruk adı.</p>
           </div>
 
-          <div>
-            <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">Kuyruk Numarası (Dahili)</label>
+          <div className="flex flex-col">
+            <label className="flex items-center text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5 whitespace-nowrap">Kuyruk Numarası (Dahili)</label>
             <input
               type="number"
               name="extension"
               value={formData.extension}
               onChange={handleChange}
               placeholder="Örn: 2000"
-              className={`w-full text-sm px-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 focus:outline-none focus:ring-2 ${ring} text-slate-800 dark:text-white transition-all`}
+              className={`w-full text-sm px-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 focus:outline-none focus:ring-2 ${ring} text-slate-800 dark:text-white transition-all mt-auto`}
             />
             <p className="text-[10px] text-slate-500 mt-1.5">Numara planına göre 2000-2999 aralığında olmalıdır.</p>
           </div>
@@ -724,27 +724,27 @@ export default function QueueEditModal({ isOpen, onClose, onSave, queueData = nu
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
-          <div>
-            <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">Çalma Düzeni (Strategy)</label>
+          <div className="flex flex-col">
+            <label className="flex items-center text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5 whitespace-nowrap">Çalma Düzeni (Strategy)</label>
             <select
               name="strategy"
               value={formData.strategy}
               onChange={handleChange}
-              className={`w-full text-sm px-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 focus:outline-none focus:ring-2 ${ring} text-slate-800 dark:text-white transition-all`}
+              className={`w-full text-sm px-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 focus:outline-none focus:ring-2 ${ring} text-slate-800 dark:text-white transition-all mt-auto`}
             >
               {strategies.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
             </select>
             <p className="text-[10px] text-slate-500 mt-1.5">Çağrının müsait temsilciler arasında dağıtılma algoritması.</p>
           </div>
 
-          <div>
-            <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">Temsilci Çalma Süresi (Sn)</label>
+          <div className="flex flex-col">
+            <label className="flex items-center text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5 whitespace-nowrap">Temsilci Çalma Süresi (Sn)</label>
             <input
               type="number"
               name="ring_time"
               value={formData.ring_time}
               onChange={handleChange}
-              className={`w-full text-sm px-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 focus:outline-none focus:ring-2 ${ring} text-slate-800 dark:text-white transition-all`}
+              className={`w-full text-sm px-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 focus:outline-none focus:ring-2 ${ring} text-slate-800 dark:text-white transition-all mt-auto`}
             />
             <p className="text-[10px] text-slate-500 mt-1.5">Bir temsilcinin telefonu sıradaki temsilciye geçmeden önce en fazla kaç saniye çalsın?</p>
           </div>
@@ -764,40 +764,40 @@ export default function QueueEditModal({ isOpen, onClose, onSave, queueData = nu
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-5">
-          <div>
-            <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">Maksimum Bekleyen Çağrı</label>
+          <div className="flex flex-col">
+            <label className="flex items-center text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5 whitespace-nowrap">Maks. Bekleyen Çağrı</label>
             <input
               type="number"
               name="max_calls"
               value={formData.max_calls}
               onChange={handleChange}
-              className={`w-full text-sm px-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 focus:outline-none focus:ring-2 ${ring} text-slate-800 dark:text-white transition-all`}
+              className={`w-full text-sm px-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 focus:outline-none focus:ring-2 ${ring} text-slate-800 dark:text-white transition-all mt-auto`}
             />
             <p className="text-[10px] text-slate-500 mt-1.5">Kuyrukta bekleyebilecek maksimum çağrı (0 = Sınırsız).</p>
           </div>
 
-          <div>
-            <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">ACW Süresi (Sn)</label>
+          <div className="flex flex-col">
+            <label className="flex items-center text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5 whitespace-nowrap">ACW Süresi (Sn)</label>
             <input
               type="number"
               min={0}
               name="acw_time"
               value={formData.acw_time}
               onChange={handleChange}
-              className={`w-full text-sm px-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 focus:outline-none focus:ring-2 ${ring} text-slate-800 dark:text-white transition-all`}
+              className={`w-full text-sm px-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 focus:outline-none focus:ring-2 ${ring} text-slate-800 dark:text-white transition-all mt-auto`}
             />
             <p className="text-[10px] text-slate-500 mt-1.5">Çağrı sonrası işlem/not alma süresi (0 = Kapalı).</p>
           </div>
 
-          <div>
-            <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">Maks. Eşzamanlı Mola</label>
+          <div className="flex flex-col">
+            <label className="flex items-center text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5 whitespace-nowrap">Maks. Eşzamanlı Mola</label>
             <input
               type="number"
               min={0}
               name="max_concurrent_breaks"
               value={formData.max_concurrent_breaks ?? 0}
               onChange={handleChange}
-              className={`w-full text-sm px-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 focus:outline-none focus:ring-2 ${ring} text-slate-800 dark:text-white transition-all`}
+              className={`w-full text-sm px-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 focus:outline-none focus:ring-2 ${ring} text-slate-800 dark:text-white transition-all mt-auto`}
             />
             <p className="text-[10px] text-slate-500 mt-1.5">Aynı anda molaya çıkabilecek temsilci sayısı (0 = Sınırsız).</p>
           </div>
