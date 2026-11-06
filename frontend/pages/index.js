@@ -1,6 +1,13 @@
 import React, { useState, useEffect } from "react";
 import Head from "next/head";
 import { useRouter } from "next/router";
+import {
+  persistAuthenticatedSession,
+  saveRememberedCredentials,
+  loadCachedUserProfile,
+  clearAuthenticatedSession,
+  updateRememberedPasswordIfSaved
+} from "../utils/authStorage";
 
 import { 
   Bot, 
@@ -1671,14 +1678,17 @@ export default function Home() {
             currentUserData = found;
           } else {
             // Invalid / Ghost user ID in storage — clean stale state
-            localStorage.removeItem('is_logged_in');
-            localStorage.removeItem('current_user_id');
-            sessionStorage.removeItem('is_logged_in');
-            sessionStorage.removeItem('current_user_id');
+            clearAuthenticatedSession();
             setIsLoggedIn(false);
             setCurrentUser(null);
             setIsAuthChecking(false);
             return;
+          }
+        } else {
+          // Network blip while restoring remembered session — fall back to cached profile snapshot
+          const cachedProfile = loadCachedUserProfile(savedUserId);
+          if (cachedProfile) {
+            currentUserData = cachedProfile;
           }
         }
       }
@@ -2068,12 +2078,8 @@ export default function Home() {
           full_name: activeAdminUser.full_name || "Sistem Yöneticisi"
         };
       }
-      sessionStorage.setItem("is_logged_in", "true");
-      sessionStorage.setItem("current_user_id", "admin");
-      if (rememberMe) {
-        localStorage.setItem("is_logged_in", "true");
-        localStorage.setItem("current_user_id", "admin");
-      }
+      persistAuthenticatedSession("admin", rememberMe, activeAdminUser);
+      saveRememberedCredentials(cleanUsername, password, rememberMe);
       setIsAuthChecking(true);
       await checkRolePermissions(activeAdminUser);
       sendUserAuditActivity("LOGIN", "Auth", "Web Paneli Girişi", `${activeAdminUser.full_name || "Sistem Yöneticisi"} web yönetim paneline giriş yaptı.`, activeAdminUser);
@@ -2114,12 +2120,8 @@ export default function Home() {
         };
       }
 
-      sessionStorage.setItem("is_logged_in", "true");
-      sessionStorage.setItem("current_user_id", foundUser.id.toString());
-      if (rememberMe) {
-        localStorage.setItem("is_logged_in", "true");
-        localStorage.setItem("current_user_id", foundUser.id.toString());
-      }
+      persistAuthenticatedSession(foundUser.id.toString(), rememberMe, foundUser);
+      saveRememberedCredentials(cleanUsername, password, rememberMe);
       setIsAuthChecking(true);
       await checkRolePermissions(foundUser);
       sendUserAuditActivity("LOGIN", "Auth", "Web Paneli Girişi", `${foundUser.full_name || foundUser.username || "Kullanıcı"} (Dahili: ${foundUser.extension || "-"}) sisteme giriş yaptı.`, foundUser);
@@ -2148,12 +2150,7 @@ export default function Home() {
     if (foundUser) {
       const updatedUser = { ...foundUser, two_factor_enrolled: true };
       const storeId = foundUser.role === "admin" && String(userId) === "admin" ? "admin" : foundUser.id.toString();
-      sessionStorage.setItem("is_logged_in", "true");
-      sessionStorage.setItem("current_user_id", storeId);
-      if (rememberMe) {
-        localStorage.setItem("is_logged_in", "true");
-        localStorage.setItem("current_user_id", storeId);
-      }
+      persistAuthenticatedSession(storeId, rememberMe, updatedUser);
       setIsAuthChecking(true);
       await checkRolePermissions(updatedUser);
       sendUserAuditActivity("LOGIN", "Auth", "Web Paneli Girişi (2FA)", `${updatedUser.full_name || updatedUser.username || "Kullanıcı"} 2 aşamalı doğrulama ile sisteme giriş yaptı.`, updatedUser);
@@ -2457,11 +2454,7 @@ export default function Home() {
     } catch (e) {
       console.error("Logout error:", e);
     } finally {
-      localStorage.removeItem("is_logged_in");
-      localStorage.removeItem("current_user_id");
-      localStorage.removeItem("agent_avatar");
-      sessionStorage.removeItem("is_logged_in");
-      sessionStorage.removeItem("current_user_id");
+      clearAuthenticatedSession();
       try {
         const uidKey = String(currentUser?.id || "").trim();
         const extKey = String(currentUser?.extension || "").trim();
@@ -9128,6 +9121,7 @@ export default function Home() {
                               }));
                               if (newPassword) {
                                 SUPER_ADMIN.password = newPassword;
+                                updateRememberedPasswordIfSaved(newPassword);
                                 showNotification("Şifreniz başarılı olarak güncellenmiştir.", "success", "Şifre Güncellendi");
                                 setCurrentPassword("");
                                 setNewPassword("");

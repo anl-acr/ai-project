@@ -2,6 +2,11 @@ import React, { useState, useEffect } from "react";
 import { Lock, Mail, ArrowRight, BrainCircuit, User, Smartphone, KeyRound, RefreshCw, Copy, Check, PhoneCall, Eye, EyeOff } from "lucide-react";
 import { useTheme } from "../../utils/theme";
 import { getApiBaseUrl } from "../../utils/apiHost";
+import {
+  loadRememberedCredentials,
+  saveRememberedCredentials,
+  setRememberMePreference
+} from "../../utils/authStorage";
 
 export default function Login({ onLogin, onComplete2FA, error, backendHost }) {
   const { bg, text } = useTheme();
@@ -11,6 +16,15 @@ export default function Login({ onLogin, onComplete2FA, error, backendHost }) {
   const [showPassword, setShowPassword] = useState(false);
   const [rememberMe, setRememberMe] = useState(true);
   const [isLoading, setIsLoading] = useState(false);
+
+  useEffect(() => {
+    const saved = loadRememberedCredentials();
+    setRememberMe(saved.rememberMe);
+    if (saved.rememberMe) {
+      if (saved.username) setUsername(saved.username);
+      if (saved.password) setPassword(saved.password);
+    }
+  }, []);
 
   // 2FA States
   const [is2FA, setIs2FA] = useState(false);
@@ -143,6 +157,7 @@ export default function Login({ onLogin, onComplete2FA, error, backendHost }) {
         });
         const data = await res.json();
         if (res.ok && data.status === "success") {
+          saveRememberedCredentials(username, password, rememberMe);
           onComplete2FA(twoFactorUserId, rememberMe);
         } else {
           setTwoFactorError(data.detail || "Geçersiz veya süresi dolmuş 2FA doğrulama kodu.");
@@ -160,6 +175,9 @@ export default function Login({ onLogin, onComplete2FA, error, backendHost }) {
     setIsLoading(true);
     setTimeout(async () => {
       const result = await Promise.resolve(onLogin(username, password, rememberMe));
+      if (result && result.success && !result.requires2fa) {
+        saveRememberedCredentials(username, password, rememberMe);
+      }
       if (result && result.requires2fa) {
         const rawMethod = result.method || "google_auth";
         const normMethod = rawMethod === "app" ? "google_auth" : rawMethod;
@@ -310,18 +328,40 @@ export default function Login({ onLogin, onComplete2FA, error, backendHost }) {
                   </button>
                 </div>
 
-                <div className="flex items-center justify-between px-1 pt-2 pb-1">
-                  <label className="flex items-center gap-2.5 cursor-pointer group/cb">
-                    <div className={`w-4 h-4 rounded border flex items-center justify-center transition-all ${rememberMe ? 'bg-indigo-500 border-indigo-500 shadow-[0_0_10px_rgba(99,102,241,0.4)]' : 'bg-slate-100 dark:bg-black/20 border-slate-300 dark:border-white/10 group-hover/cb:border-slate-400 dark:group-hover/cb:border-white/20'}`}>
-                      {rememberMe && <svg className="w-2.5 h-2.5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" /></svg>}
-                    </div>
-                    <input 
-                      type="checkbox" 
-                      className="hidden" 
+                <div className="flex items-center justify-between px-1 pt-1 pb-0.5">
+                  <label
+                    htmlFor="login-remember-me"
+                    className="inline-flex items-center gap-2.5 min-h-[44px] cursor-pointer group/cb"
+                  >
+                    <input
+                      id="login-remember-me"
+                      name="rememberMe"
+                      type="checkbox"
+                      className="sr-only peer"
                       checked={rememberMe}
-                      onChange={() => setRememberMe(!rememberMe)}
+                      onChange={(e) => {
+                        const nextVal = e.target.checked;
+                        setRememberMe(nextVal);
+                        setRememberMePreference(nextVal);
+                      }}
                     />
-                    <span className="text-xs font-medium text-slate-500 dark:text-slate-400 select-none transition-colors group-hover/cb:text-slate-700 dark:group-hover/cb:text-slate-300">Beni Hatırla</span>
+                    <div
+                      aria-hidden="true"
+                      className={`w-4 h-4 rounded border flex items-center justify-center transition-all peer-focus-visible:ring-2 peer-focus-visible:ring-indigo-500 peer-focus-visible:ring-offset-2 dark:peer-focus-visible:ring-offset-slate-900 ${
+                        rememberMe
+                          ? "bg-indigo-500 border-indigo-500 shadow-[0_0_10px_rgba(99,102,241,0.4)]"
+                          : "bg-slate-100 dark:bg-black/20 border-slate-300 dark:border-white/10 group-hover/cb:border-slate-400 dark:group-hover/cb:border-white/20"
+                      }`}
+                    >
+                      {rememberMe && (
+                        <svg className="w-2.5 h-2.5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+                        </svg>
+                      )}
+                    </div>
+                    <span className="text-xs font-medium text-slate-500 dark:text-slate-400 select-none transition-colors group-hover/cb:text-slate-700 dark:group-hover/cb:text-slate-300">
+                      Beni Hatırla
+                    </span>
                   </label>
                   
                   <a href="#" className="text-xs font-medium text-indigo-600 dark:text-indigo-400 hover:text-indigo-500 dark:hover:text-indigo-300 transition-colors">
