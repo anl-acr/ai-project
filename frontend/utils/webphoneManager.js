@@ -16,6 +16,7 @@ import {
   buildMicConstraintsForMode,
   processMicrophoneStream,
   disposeAudioTrackAndPipeline,
+  disposeAllActiveNoisePipelines,
   VALID_NOISE_MODES
 } from "./noiseSuppressionEngine";
 
@@ -43,6 +44,7 @@ class WebphoneManager {
     this.activeUserKey = null;
     this.confAudioCtx = null;
     this.confMicStream = null;
+    this.acquiredMicBundles = new Set();
 
     this.state = {
       isLoadingConfig: true,
@@ -203,6 +205,10 @@ class WebphoneManager {
 
     if (!nextConfActive && this.confAudioCtx) {
       this.teardownConferenceAudioBridge();
+    }
+
+    if (allLines.length === 0) {
+      this.releaseAllIdleMicrophoneResources();
     }
 
     const nextAttendedPending =
@@ -437,8 +443,8 @@ class WebphoneManager {
 
     const customSdhFactory =
       SIP?.Web?.defaultSessionDescriptionHandlerFactory
-        ? SIP.Web.defaultSessionDescriptionHandlerFactory((constraints) =>
-            this.acquireAudioStreamWithFallback(constraints)
+        ? SIP.Web.defaultSessionDescriptionHandlerFactory((constraints, sdh) =>
+            this.acquireAudioStreamWithFallback(constraints, sdh)
           )
         : undefined;
 
@@ -819,13 +825,132 @@ class WebphoneManager {
     }).catch(() => {});
   }
 
+  disposeMicBundle(bundle) {
+    if (!bundle) return;
+    this.acquiredMicBundles.delete(bundle);
+    try {
+      if (bundle.processedStream) {
+        disposeAudioTrackAndPipeline(bundle.processedStream);
+        bundle.processedStream.getTracks?.().forEach((t) => {
+          try {
+            t.stop();
+          } catch (e) {}
+        });
+      }
+    } catch (e) {}
+    try {
+      if (bundle.rawStream) {
+        disposeAudioTrackAndPipeline(bundle.rawStream);
+        bundle.rawStream.getTracks?.().forEach((t) => {
+          try {
+            t.stop();
+          } catch (e) {}
+        });
+      }
+    } catch (e) {}
+  }
+
+  registerAcquiredMicBundle(rawStream, processedStream, sdh = null) {
+    const bundle = {
+      rawStream: rawStream || null,
+      processedStream: processedStream || rawStream || null,
+      sdh: sdh || null
+    };
+    this.acquiredMicBundles.add(bundle);
+
+    if (sdh) {
+      if (!sdh.__micBundles) {
+        sdh.__micBundles = new Set();
+      }
+      sdh.__micBundles.add(bundle);
+
+      if (!sdh.__micCloseHooked && typeof sdh.close === "function") {
+        sdh.__micCloseHooked = true;
+        const origClose = sdh.close.bind(sdh);
+        sdh.close = (...args) => {
+          sdh.__micClosed = true;
+          try {
+            const pc = sdh._peerConnection || sdh.peerConnection;
+            if (pc && typeof pc.getSenders === "function") {
+              pc.getSenders().forEach((s) => {
+                if (s.track && s.track.kind === "audio") {
+                  disposeAudioTrackAndPipeline(s.track);
+                }
+              });
+            }
+            if (sdh.localMediaStream) {
+              disposeAudioTrackAndPipeline(sdh.localMediaStream);
+            }
+            if (sdh.__micBundles) {
+              Array.from(sdh.__micBundles).forEach((b) => this.disposeMicBundle(b));
+              sdh.__micBundles.clear();
+            }
+          } catch (e) {}
+          return origClose(...args);
+        };
+      }
+    }
+
+    // Guard against fast hangup/cancel occurring while getUserMedia or RNNoise WASM was awaiting
+    if (
+      (sdh && sdh.__micClosed) ||
+      (this.linesMap.size === 0 && !this.state.isConferenceActive)
+    ) {
+      this.disposeMicBundle(bundle);
+    }
+
+    return bundle.processedStream;
+  }
+
+  releaseAllIdleMicrophoneResources() {
+    if (this.linesMap.size > 0) return;
+
+    try {
+      Array.from(this.acquiredMicBundles).forEach((bundle) => {
+        this.disposeMicBundle(bundle);
+      });
+      this.acquiredMicBundles.clear();
+    } catch (e) {}
+
+    try {
+      disposeAllActiveNoisePipelines({ includeLoopbackTest: false });
+    } catch (e) {}
+
+    if (this.confMicStream) {
+      try {
+        disposeAudioTrackAndPipeline(this.confMicStream);
+        this.confMicStream.getTracks().forEach((t) => t.stop());
+      } catch (e) {}
+      this.confMicStream = null;
+    }
+
+    if (this.confAudioCtx) {
+      try {
+        if (this.confAudioCtx.state !== "closed") {
+          this.confAudioCtx.close().catch(() => {});
+        }
+      } catch (e) {}
+      this.confAudioCtx = null;
+    }
+
+    if (this.silentFallbackCtx) {
+      try {
+        if (this.silentFallbackCtx.state !== "closed") {
+          this.silentFallbackCtx.close().catch(() => {});
+        }
+      } catch (e) {}
+      this.silentFallbackCtx = null;
+    }
+  }
+
   cleanupLineMicPipeline(line) {
     if (!line) return;
     if (line.establishedAt && !line.qosLogged) {
       this.collectAndSendLineQosStats(line);
     }
     try {
-      const pc = line.session?.sessionDescriptionHandler?.peerConnection;
+      const sdh = line.session?.sessionDescriptionHandler;
+      const pc = sdh?.peerConnection || sdh?._peerConnection;
       if (pc) {
         pc.getSenders().forEach((s) => {
           if (s.track && s.track.kind === "audio") {
@@ -833,9 +958,23 @@ class WebphoneManager {
           }
         });
       }
+      if (sdh?.localMediaStream) {
+        disposeAudioTrackAndPipeline(sdh.localMediaStream);
+      }
+      if (sdh?.__micBundles) {
+        Array.from(sdh.__micBundles).forEach((b) => this.disposeMicBundle(b));
+        sdh.__micBundles.clear();
+      }
       if (line.origMicTrack) {
         disposeAudioTrackAndPipeline(line.origMicTrack);
         line.origMicTrack = null;
+      }
+      if (sdh) {
+        Array.from(this.acquiredMicBundles).forEach((b) => {
+          if (b.sdh === sdh || (b.sdh && b.sdh.__micClosed)) {
+            this.disposeMicBundle(b);
+          }
+        });
       }
     } catch (e) {}
   }
@@ -893,22 +1032,36 @@ class WebphoneManager {
             const resolvedMicId = await resolveAudioDeviceId("audioinput", savedMic, savedMicLabel);
             const audioSender = pc.getSenders().find((s) => s.track && s.track.kind === "audio");
             if (audioSender) {
+              const sdh = line.session?.sessionDescriptionHandler;
+              const matchedBundle = Array.from(this.acquiredMicBundles).find((b) => {
+                const pIds = b.processedStream?.getAudioTracks?.().map((t) => t.id) || [];
+                const rIds = b.rawStream?.getAudioTracks?.().map((t) => t.id) || [];
+                return pIds.includes(audioSender.track.id) || rIds.includes(audioSender.track.id);
+              });
+              const rawTrackForSettings =
+                matchedBundle?.rawStream?.getAudioTracks?.()?.[0] || audioSender.track;
               const currentSettings =
-                audioSender.track && typeof audioSender.track.getSettings === "function"
-                  ? audioSender.track.getSettings()
+                rawTrackForSettings && typeof rawTrackForSettings.getSettings === "function"
+                  ? rawTrackForSettings.getSettings()
                   : {};
               const deviceChanged =
                 Boolean(resolvedMicId && resolvedMicId !== "default") &&
                 currentSettings.deviceId !== resolvedMicId;
 
               if (forceReplaceMic || deviceChanged) {
-                const newStream = await this.acquireAudioStreamWithFallback();
+                const newStream = await this.acquireAudioStreamWithFallback(undefined, sdh);
                 const newTrack = newStream ? newStream.getAudioTracks()[0] : null;
                 if (newTrack) {
                   newTrack.enabled = !line.isMuted && !line.isOnHold && this.state.activeLineId === line.id;
                   const oldTrack = audioSender.track;
                   await audioSender.replaceTrack(newTrack);
                   line.origMicTrack = newTrack;
+                  if (matchedBundle) {
+                    if (sdh?.__micBundles) {
+                      sdh.__micBundles.delete(matchedBundle);
+                    }
+                    this.disposeMicBundle(matchedBundle);
+                  }
                   if (oldTrack && oldTrack !== newTrack) {
                     disposeAudioTrackAndPipeline(oldTrack);
                   }
@@ -1436,7 +1589,7 @@ class WebphoneManager {
     return this.acquireAudioStreamWithFallback(preferredDeviceId ? { audio: { deviceId: { ideal: preferredDeviceId } } } : undefined);
   }
 
-  async acquireAudioStreamWithFallback(requestedConstraints) {
+  async acquireAudioStreamWithFallback(requestedConstraints, sdh = null) {
     if (typeof window === "undefined") {
       throw new Error("Tarayıcı ortamı bulunamadı.");
     }
@@ -1448,7 +1601,7 @@ class WebphoneManager {
           "Güvenli bağlantı (HTTPS) olmadığı için mikrofon açılamadı; arama dinleme moduyla başlatıldı.",
           "info"
         );
-        return silent;
+        return this.registerAcquiredMicBundle(silent, silent, sdh);
       }
       throw new Error("Tarayıcı mikrofon API erişimi için HTTPS bağlantısı gereklidir.");
     }
@@ -1466,19 +1619,34 @@ class WebphoneManager {
 
     const hasCustomMic = Boolean(resolvedMicId && resolvedMicId !== "default");
 
+    const processAndTrack = async (rawStream) => {
+      let processed = rawStream;
+      try {
+        processed = await processMicrophoneStream(rawStream, activeMode);
+      } catch (procErr) {
+        rawStream.getTracks().forEach((t) => {
+          try {
+            t.stop();
+          } catch (e) {}
+        });
+        throw procErr;
+      }
+      return this.registerAcquiredMicBundle(rawStream, processed, sdh);
+    };
+
     // 1. Try with exact resolved microphone first so Chrome strictly uses the selected headset mic
     if (hasCustomMic) {
       try {
         const rawExact = await navigator.mediaDevices.getUserMedia(
           buildMicConstraintsForMode(activeMode, { exact: resolvedMicId })
         );
-        return await processMicrophoneStream(rawExact, activeMode);
+        return await processAndTrack(rawExact);
       } catch (errExact) {
         try {
           const rawIdeal = await navigator.mediaDevices.getUserMedia(
             buildMicConstraintsForMode(activeMode, { ideal: resolvedMicId })
           );
-          return await processMicrophoneStream(rawIdeal, activeMode);
+          return await processAndTrack(rawIdeal);
         } catch (errIdeal) {
           console.warn("[WebphoneManager] Preferred mic temporarily unavailable, falling back to system default mic:", errIdeal);
         }
@@ -1490,11 +1658,11 @@ class WebphoneManager {
       const rawDefault = await navigator.mediaDevices.getUserMedia(
         buildMicConstraintsForMode(activeMode, null)
       );
-      return await processMicrophoneStream(rawDefault, activeMode);
+      return await processAndTrack(rawDefault);
     } catch (err2) {
       try {
         const rawBasic = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
-        return await processMicrophoneStream(rawBasic, activeMode);
+        return await processAndTrack(rawBasic);
       } catch (err3) {
         console.warn("[WebphoneManager] Default getUserMedia failed, using silent fallback stream:", err3);
         const errName = String(err3?.name || "");
@@ -1516,7 +1684,7 @@ class WebphoneManager {
               "info"
             );
           }
-          return silentStream;
+          return this.registerAcquiredMicBundle(silentStream, silentStream, sdh);
         }
         throw err3;
       }
@@ -2235,10 +2403,17 @@ class WebphoneManager {
       }
     }
     if (this.confMicStream) {
-      try {
-        this.confMicStream.getTracks().forEach((t) => t.stop());
-      } catch (e) {}
+      const confRef = this.confMicStream;
       this.confMicStream = null;
+      try {
+        Array.from(this.acquiredMicBundles).forEach((b) => {
+          if (b.processedStream === confRef || b.rawStream === confRef) {
+            this.disposeMicBundle(b);
+          }
+        });
+        disposeAudioTrackAndPipeline(confRef);
+        confRef.getTracks().forEach((t) => t.stop());
+      } catch (e) {}
     }
     if (this.confAudioCtx) {
       try {

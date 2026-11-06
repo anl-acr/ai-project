@@ -506,15 +506,30 @@ export default function LiveTranslatorPanel({
 
     // 2. Agent outgoing WebRTC microphone stream
     let lStream = webphoneManager.getActiveLocalStream() || agentFallbackMicStreamRef.current;
-    if (!lStream && typeof navigator !== "undefined" && navigator.mediaDevices?.getUserMedia) {
+    const hasActiveSipLines = (webphoneManager.getState()?.lines || []).length > 0;
+    if (
+      !lStream &&
+      !hasActiveSipLines &&
+      typeof navigator !== "undefined" &&
+      navigator.mediaDevices?.getUserMedia
+    ) {
       try {
         const micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        if (!isListeningCustomerRef.current || !isActiveInstance) {
+          micStream.getTracks().forEach((t) => {
+            try {
+              t.stop();
+            } catch (e) {}
+          });
+          return;
+        }
         agentFallbackMicStreamRef.current = micStream;
         lStream = micStream;
       } catch (micErr) {
         console.warn("[LiveTranslator] Fallback mic stream warning:", micErr);
       }
     }
+    if (!isListeningCustomerRef.current || !isActiveInstance) return;
     if (lStream) {
       const lTracks = lStream.getAudioTracks ? lStream.getAudioTracks() : [];
       const liveLTrack = lTracks.find((t) => t.readyState === "live") || lTracks[0];

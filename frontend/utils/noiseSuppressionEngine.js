@@ -214,6 +214,9 @@ export async function processMicrophoneStream(rawStream, mode = "ai", options = 
       if (cleanedUp) return;
       cleanedUp = true;
       activePipelinesByTrackId.delete(processedTrack.id);
+      rawAudioTracks.forEach((rt) => {
+        if (rt?.id) activePipelinesByTrackId.delete(rt.id);
+      });
 
       try {
         origStop();
@@ -259,6 +262,17 @@ export async function processMicrophoneStream(rawStream, mode = "ai", options = 
       cleanupPipeline(true);
     };
 
+    // Also hook native 'ended' on processedTrack in case Blink/WebRTC C++ sender stops the underlying track
+    if (typeof processedTrack.addEventListener === "function") {
+      processedTrack.addEventListener(
+        "ended",
+        () => {
+          cleanupPipeline(true);
+        },
+        { once: true }
+      );
+    }
+
     // If physical USB/Bluetooth headset disconnects, clean up AudioWorklet nodes automatically
     if (rawPrimaryTrack && typeof rawPrimaryTrack.addEventListener === "function") {
       rawPrimaryTrack.addEventListener(
@@ -293,12 +307,20 @@ export async function processMicrophoneStream(rawStream, mode = "ai", options = 
       inputAnalyser,
       outputAnalyser,
       mode: "ai",
+      isLoopbackTest: Boolean(options.isLoopbackTest),
       cleanup: cleanupPipeline
     };
 
     processedStream.__noisePipeline = meta;
     processedTrack.__noisePipeline = meta;
+    rawStream.__noisePipeline = meta;
     activePipelinesByTrackId.set(processedTrack.id, meta);
+    rawAudioTracks.forEach((rt) => {
+      if (rt?.id) {
+        rt.__noisePipeline = meta;
+        activePipelinesByTrackId.set(rt.id, meta);
+      }
+    });
 
     return processedStream;
   } catch (err) {
@@ -350,6 +372,19 @@ export function disposeAudioTrackAndPipeline(trackOrStream) {
   } catch (e) {}
 }
 
+export function disposeAllActiveNoisePipelines({ includeLoopbackTest = false } = {}) {
+  const uniqueMetas = new Set(activePipelinesByTrackId.values());
+  uniqueMetas.forEach((meta) => {
+    if (!meta) return;
+    if (!includeLoopbackTest && meta.isLoopbackTest) return;
+    try {
+      if (typeof meta.cleanup === "function") {
+        meta.cleanup(true);
+      }
+    } catch (e) {}
+  });
+}
+
 /**
  * Interactive Microphone Test Session ("Kendini Dinle") for Audio Settings Modal.
  * Routes mic -> (Selected Noise Suppression Mode) -> Short 320ms Monitor Delay -> Speaker Output,
@@ -382,7 +417,10 @@ export async function createMicLoopbackTester({
 
   try {
     if (mode === "ai") {
-      processedStream = await processMicrophoneStream(rawStream, "ai", { enableMeters: true });
+      processedStream = await processMicrophoneStream(rawStream, "ai", {
+        enableMeters: true,
+        isLoopbackTest: true
+      });
     }
 
     monitorCtx = new AudioCtx({ latencyHint: "interactive" });
