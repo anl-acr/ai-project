@@ -785,7 +785,16 @@ export default function Home() {
   };
 
   const handleSelectNoiseMode = (nextMode) => {
-    const saved = saveNoiseSuppressionMode(nextMode);
+    const validModes = ["ai", "standard", "off"];
+    const resolvedMode = validModes.includes(nextMode) ? nextMode : "ai";
+    if (settingsModalOpen) {
+      setNoiseSuppressionMode(resolvedMode);
+      if (isTestingMic) {
+        startMicLoopbackTest(resolvedMode, selectedMic, selectedSpeaker);
+      }
+      return;
+    }
+    const saved = saveNoiseSuppressionMode(resolvedMode);
     setNoiseSuppressionMode(saved);
     if (typeof window !== "undefined") {
       window.dispatchEvent(new CustomEvent("NOISE_MODE_UPDATED", { detail: { mode: saved, silent: true } }));
@@ -1007,6 +1016,8 @@ export default function Home() {
 
   const wasSettingsModalOpenRef = React.useRef(false);
   const hydratedModalUserKeyRef = React.useRef("");
+  const modalInitialSnapshotRef = React.useRef(null);
+  const [modalDraftWallboardLayout, setModalDraftWallboardLayout] = useState(null);
 
   useEffect(() => {
     if (!settingsModalOpen) {
@@ -1022,9 +1033,77 @@ export default function Home() {
     wasSettingsModalOpenRef.current = true;
     hydratedModalUserKeyRef.current = userKey;
 
+    const initialThemeColor = getSafeThemeColor(
+      currentUser.theme_color ||
+        (typeof window !== "undefined" ? localStorage.getItem("theme_primary_color") : null)
+    );
+    const initialProf = currentUser.active_profile || "available";
+    const initialProfiles = normalizeUserProfiles(currentUser.profiles);
+    const initialPanelPrefs = loadCallPanelPrefs(currentUser);
+    const initialAvatar =
+      currentUser.avatar ||
+      agentAvatar ||
+      (typeof window !== "undefined" ? localStorage.getItem("agent_avatar") : "") ||
+      "";
+    const initialRingtone =
+      (typeof window !== "undefined" ? localStorage.getItem("ringtone") : null) ||
+      agentRingtone ||
+      "classic";
+    const initialRingtoneVol = getSavedRingtoneVolume();
+    const initialMic =
+      (typeof window !== "undefined" ? localStorage.getItem("selected_mic") : null) ||
+      selectedMic ||
+      "";
+    const initialSpk =
+      (typeof window !== "undefined" ? localStorage.getItem("selected_speaker") : null) ||
+      selectedSpeaker ||
+      "";
+    const initialRingSpk =
+      (typeof window !== "undefined" ? localStorage.getItem("selected_ringtone_speaker") : null) ||
+      selectedRingtoneSpeaker ||
+      "";
+    const initialNoiseMode = getSavedNoiseSuppressionMode();
+    const initialDesktopPrefs = getDesktopPrefs();
+
+    let initialWbLayout = null;
+    if (currentUser.wallboard_layout && typeof currentUser.wallboard_layout === "object" && Object.keys(currentUser.wallboard_layout).length > 0) {
+      initialWbLayout = JSON.parse(JSON.stringify(currentUser.wallboard_layout));
+    } else if (typeof window !== "undefined") {
+      try {
+        const localWb = localStorage.getItem(`wallboard_layout_${userKey}`);
+        if (localWb) initialWbLayout = JSON.parse(localWb);
+      } catch (e) {}
+    }
+
+    modalInitialSnapshotRef.current = {
+      avatar: initialAvatar,
+      themeColor: initialThemeColor,
+      isDarkMode: Boolean(isDarkMode),
+      callPanelPrefs: JSON.parse(JSON.stringify(initialPanelPrefs)),
+      wallboardLayout: initialWbLayout ? JSON.parse(JSON.stringify(initialWbLayout)) : null,
+      activeProfile: initialProf,
+      profiles: JSON.parse(JSON.stringify(initialProfiles)),
+      ringtone: initialRingtone,
+      ringtoneVolume: initialRingtoneVol,
+      selectedMic: initialMic,
+      selectedSpeaker: initialSpk,
+      selectedRingtoneSpeaker: initialRingSpk,
+      noiseSuppressionMode: initialNoiseMode,
+      desktopPrefs: JSON.parse(JSON.stringify(initialDesktopPrefs || {}))
+    };
+
+    setModalDraftWallboardLayout(initialWbLayout ? JSON.parse(JSON.stringify(initialWbLayout)) : null);
+    setAgentAvatar(initialAvatar || agentAvatar);
     setGsmNumber(currentUser.gsm_number || currentUser.follow_me?.mobile_number || "");
     setMobileTransferEnabled(currentUser.mobile_transfer_enabled || false);
-    setTempThemeColor(getSafeThemeColor(currentUser.theme_color));
+    setTempThemeColor(initialThemeColor);
+    setAgentRingtone(initialRingtone);
+    setRingtoneVolume(initialRingtoneVol);
+    setSelectedMic(initialMic);
+    setSelectedSpeaker(initialSpk);
+    setSelectedRingtoneSpeaker(initialRingSpk);
+    setNoiseSuppressionMode(initialNoiseMode);
+    setDesktopPrefs(initialDesktopPrefs);
     
     setFwdAlwaysActive(currentUser.forwarding_always?.active || false);
     setFwdAlwaysType(currentUser.forwarding_always?.type || "internal");
@@ -1039,11 +1118,10 @@ export default function Home() {
     setFwdNoAnswerTarget(currentUser.forwarding_no_answer?.target || "");
     setFwdNoAnswerTimeout(currentUser.forwarding_no_answer?.timeout || 30);
 
-    const resolvedProf = currentUser.active_profile || "available";
-    setAgentActiveProfile(resolvedProf);
-    setSelectedAgentProfileTab(resolvedProf);
-    setAgentProfiles(normalizeUserProfiles(currentUser.profiles));
-    setCallPanelPrefs(loadCallPanelPrefs(currentUser));
+    setAgentActiveProfile(initialProf);
+    setSelectedAgentProfileTab(initialProf);
+    setAgentProfiles(initialProfiles);
+    setCallPanelPrefs(initialPanelPrefs);
 
     const protocol = typeof window !== "undefined" && window.location.protocol === "https:" ? "https:" : "http:";
     fetch(`${protocol}//${backendHost}/api/settings/queues`)
@@ -1072,6 +1150,50 @@ export default function Home() {
     setConfirmPassword("");
     setPasswordStatusMsg(null);
   }, [settingsModalOpen, currentUser, backendHost]);
+
+  const handleCancelSettingsModal = React.useCallback(() => {
+    stopRingtoneSound();
+    stopSpeakerTestSound();
+    stopMicLoopbackTest();
+    setIsPreviewingRingtone(false);
+    setIsTestingSpeaker(false);
+    if (typeof window !== "undefined") {
+      localStorage.setItem("temp_playing", "false");
+    }
+
+    const snap = modalInitialSnapshotRef.current;
+    if (snap) {
+      if (snap.avatar) setAgentAvatar(snap.avatar);
+      setTempThemeColor(snap.themeColor);
+      if (typeof document !== "undefined" && snap.themeColor) {
+        document.documentElement.style.setProperty("--color-primary", snap.themeColor);
+      }
+      setIsDarkMode(Boolean(snap.isDarkMode));
+      applyDocumentDarkClass(Boolean(snap.isDarkMode));
+
+      const restoredPrefs = JSON.parse(JSON.stringify(snap.callPanelPrefs));
+      setCallPanelPrefs(restoredPrefs);
+      applyDocumentMotionMode(normalizeUiMotionMode(restoredPrefs?.uiMotionMode));
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(new CustomEvent("AGENT_PANEL_PREFS_UPDATED", { detail: restoredPrefs }));
+      }
+
+      setModalDraftWallboardLayout(snap.wallboardLayout ? JSON.parse(JSON.stringify(snap.wallboardLayout)) : null);
+      setAgentActiveProfile(snap.activeProfile);
+      setSelectedAgentProfileTab(snap.activeProfile);
+      setAgentProfiles(JSON.parse(JSON.stringify(snap.profiles)));
+      setAgentRingtone(snap.ringtone);
+      setSavedRingtoneVolume(snap.ringtoneVolume);
+      setRingtoneVolume(snap.ringtoneVolume);
+      setSelectedMic(snap.selectedMic);
+      setSelectedSpeaker(snap.selectedSpeaker);
+      setSelectedRingtoneSpeaker(snap.selectedRingtoneSpeaker);
+      setNoiseSuppressionMode(snap.noiseSuppressionMode);
+      setDesktopPrefs(JSON.parse(JSON.stringify(snap.desktopPrefs || {})));
+    }
+
+    setSettingsModalOpen(false);
+  }, []);
 
   const handleQuickProfileSwitch = async (profileId) => {
     setAgentActiveProfile(profileId);
@@ -2520,6 +2642,9 @@ export default function Home() {
         ...(prev || {}),
         topbar: nextTopbar
       };
+      if (settingsModalOpen) {
+        return nextPrefs;
+      }
       const saved = saveCallPanelPrefs(currentUser, nextPrefs);
       persistUserVisualPatch({ call_panel_prefs: saved });
       return saved;
@@ -2532,6 +2657,9 @@ export default function Home() {
         ...(prev || {}),
         ...(landingPatch || {})
       };
+      if (settingsModalOpen) {
+        return nextPrefs;
+      }
       const saved = saveCallPanelPrefs(currentUser, nextPrefs);
       persistUserVisualPatch({ call_panel_prefs: saved });
       return saved;
@@ -4812,11 +4940,7 @@ export default function Home() {
                 </div>
                 <button
                   type="button"
-                  onClick={() => {
-                    stopRingtoneSound();
-                    localStorage.setItem("temp_playing", "false");
-                    setSettingsModalOpen(false);
-                  }}
+                  onClick={handleCancelSettingsModal}
                   className="p-1.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 rounded-lg transition-colors"
                 >
                   <X size={16} />
@@ -4927,16 +5051,13 @@ export default function Home() {
                       <KeyboardShortcutsModal
                         embedded
                         isOpen={settingsModalOpen && activeModalTab === "shortcuts"}
-                        onClose={() => setSettingsModalOpen(false)}
+                        onClose={handleCancelSettingsModal}
                         customShortcuts={callPanelPrefs?.keyboardShortcuts || {}}
                         onSaveShortcuts={(nextShortcuts) => {
-                          const current = loadCallPanelPrefs(currentUser);
-                          const next = saveCallPanelPrefs(currentUser, {
-                            ...current,
+                          setCallPanelPrefs((prev) => ({
+                            ...(prev || {}),
                             keyboardShortcuts: nextShortcuts
-                          });
-                          setCallPanelPrefs(next);
-                          persistUserVisualPatch({ call_panel_prefs: next });
+                          }));
                         }}
                       />
                     )}
@@ -6303,6 +6424,9 @@ export default function Home() {
                         backendHost={backendHost}
                         currentUserId={currentUser?.id || currentUser?.extension || "admin"}
                         currentUser={currentUser}
+                        deferPersist
+                        draftLayout={modalDraftWallboardLayout}
+                        onDraftLayoutChange={setModalDraftWallboardLayout}
                       />
                     )}
 
@@ -6331,13 +6455,10 @@ export default function Home() {
                   });
 
                   const updatePrefsLive = (patch) => {
-                    const next = {
-                      ...callPanelPrefs,
+                    setCallPanelPrefs((prev) => ({
+                      ...(prev || {}),
                       ...patch
-                    };
-                    setCallPanelPrefs(next);
-                    saveCallPanelPrefs(currentUser, next);
-                    persistUserVisualPatch({ call_panel_prefs: next });
+                    }));
                   };
 
                   const moveTabItem = (index, direction) => {
@@ -6636,6 +6757,9 @@ export default function Home() {
                         backendHost={backendHost}
                         currentUserId={currentUser?.id || currentUser?.extension || "admin"}
                         currentUser={currentUser}
+                        deferPersist
+                        draftLayout={modalDraftWallboardLayout}
+                        onDraftLayoutChange={setModalDraftWallboardLayout}
                       />
 
                       {/* 3. Temsilci Çağrı Paneli Seçeneklerinin Sıralaması */}
@@ -7110,8 +7234,6 @@ export default function Home() {
                       const safeColor = getSafeThemeColor(rawColor);
                       setTempThemeColor(safeColor);
                       document.documentElement.style.setProperty("--color-primary", safeColor);
-                      localStorage.setItem("theme_primary_color", safeColor);
-                      persistUserVisualPatch({ theme_color: safeColor });
                     };
 
                     return (
@@ -7217,34 +7339,32 @@ export default function Home() {
                   {(() => {
                     const autoCfg = callPanelPrefs?.autoThemeConfig || { mode: "manual", darkStart: "19:00", darkEnd: "07:00" };
                     const updateAutoThemeLive = (patch) => {
-                      const current = loadCallPanelPrefs(currentUser);
-                      const mergedAuto = {
-                        mode: "manual",
-                        darkStart: "19:00",
-                        darkEnd: "07:00",
-                        ...(current.autoThemeConfig || {}),
-                        ...patch,
-                      };
-                      const next = saveCallPanelPrefs(currentUser, {
-                        ...current,
-                        autoThemeConfig: mergedAuto,
+                      setCallPanelPrefs((prev) => {
+                        const mergedAuto = {
+                          mode: "manual",
+                          darkStart: "19:00",
+                          darkEnd: "07:00",
+                          ...(prev?.autoThemeConfig || {}),
+                          ...patch,
+                        };
+                        const nextDark = resolveEffectiveDarkMode(
+                          mergedAuto,
+                          modalInitialSnapshotRef.current?.isDarkMode ? "dark" : "light"
+                        );
+                        setIsDarkMode(nextDark);
+                        applyDocumentDarkClass(nextDark);
+                        return {
+                          ...(prev || {}),
+                          autoThemeConfig: mergedAuto,
+                        };
                       });
-                      setCallPanelPrefs(next);
-                      const nextDark = resolveEffectiveDarkMode(mergedAuto, localStorage.getItem("theme") || "light");
-                      setIsDarkMode(nextDark);
-                      applyDocumentDarkClass(nextDark);
-                      persistUserVisualPatch({ call_panel_prefs: next });
                     };
 
                     const toggleAutoOpen360 = () => {
-                      const current = loadCallPanelPrefs(currentUser);
-                      const nextVal = !Boolean(current.autoOpenCustomer360OnCall);
-                      const next = saveCallPanelPrefs(currentUser, {
-                        ...current,
-                        autoOpenCustomer360OnCall: nextVal,
-                      });
-                      setCallPanelPrefs(next);
-                      persistUserVisualPatch({ call_panel_prefs: next });
+                      setCallPanelPrefs((prev) => ({
+                        ...(prev || {}),
+                        autoOpenCustomer360OnCall: !Boolean(prev?.autoOpenCustomer360OnCall),
+                      }));
                     };
 
                     return (
@@ -7408,14 +7528,11 @@ export default function Home() {
                                   key={mOpt.id}
                                   type="button"
                                   onClick={() => {
-                                    const current = loadCallPanelPrefs(currentUser);
-                                    const next = saveCallPanelPrefs(currentUser, {
-                                      ...current,
+                                    setCallPanelPrefs((prev) => ({
+                                      ...(prev || {}),
                                       uiMotionMode: mOpt.id,
-                                    });
-                                    setCallPanelPrefs(next);
+                                    }));
                                     applyDocumentMotionMode(mOpt.id);
-                                    persistUserVisualPatch({ call_panel_prefs: next });
                                   }}
                                   className={`p-2.5 rounded-xl border text-left transition cursor-pointer ${
                                     isMotionSelected
@@ -7473,7 +7590,6 @@ export default function Home() {
                       onChange={(e) => {
                         const nextRing = e.target.value;
                         setAgentRingtone(nextRing);
-                        localStorage.setItem("ringtone", nextRing);
                         stopRingtoneSound();
                         setIsPreviewingRingtone(false);
                         localStorage.setItem("temp_playing", "false");
@@ -7530,12 +7646,6 @@ export default function Home() {
                     onChange={(e) => {
                       const nextId = e.target.value;
                       setSelectedMic(nextId);
-                      const devObj = audioDevices.inputs.find((d) => d.deviceId === nextId);
-                      localStorage.setItem("selected_mic", nextId);
-                      if (devObj?.label) {
-                        localStorage.setItem("selected_mic_label", devObj.label);
-                      }
-                      window.dispatchEvent(new CustomEvent("AUDIO_DEVICES_UPDATED"));
                       if (isTestingMic) {
                         startMicLoopbackTest(noiseSuppressionMode, nextId, selectedSpeaker);
                       }
@@ -7705,12 +7815,6 @@ export default function Home() {
                       onChange={(e) => {
                         const nextId = e.target.value;
                         setSelectedSpeaker(nextId);
-                        const devObj = audioDevices.outputs.find((d) => d.deviceId === nextId);
-                        localStorage.setItem("selected_speaker", nextId);
-                        if (devObj?.label) {
-                          localStorage.setItem("selected_speaker_label", devObj.label);
-                        }
-                        window.dispatchEvent(new CustomEvent("AUDIO_DEVICES_UPDATED"));
                         if (isTestingMic) {
                           startMicLoopbackTest(noiseSuppressionMode, selectedMic, nextId);
                         }
@@ -7776,10 +7880,6 @@ export default function Home() {
                         const nextId = e.target.value;
                         setSelectedRingtoneSpeaker(nextId);
                         const devObj = audioDevices.outputs.find((d) => d.deviceId === nextId);
-                        localStorage.setItem("selected_ringtone_speaker", nextId);
-                        if (devObj?.label) {
-                          localStorage.setItem("selected_ringtone_speaker_label", devObj.label);
-                        }
                         if (isPreviewingRingtone) {
                           playRingtoneSound(agentRingtone, nextId, devObj?.label || "");
                         }
@@ -7899,9 +7999,7 @@ export default function Home() {
                               await Notification.requestPermission();
                             } catch (err) {}
                           }
-                          localStorage.setItem("aida_desktop_notif_enabled", checked ? "true" : "false");
-                          const next = await updateDesktopPrefs({ osNotifications: checked });
-                          setDesktopPrefs(next);
+                          setDesktopPrefs((prev) => ({ ...(prev || {}), osNotifications: checked }));
                         }}
                         className="h-4 w-4 rounded accent-primary cursor-pointer"
                       />
@@ -7916,9 +8014,9 @@ export default function Home() {
                           <input
                             type="checkbox"
                             checked={Boolean(desktopPrefs?.popWindowOnCall)}
-                            onChange={async (e) => {
-                              const next = await updateDesktopPrefs({ popWindowOnCall: e.target.checked });
-                              setDesktopPrefs(next);
+                            onChange={(e) => {
+                              const checked = e.target.checked;
+                              setDesktopPrefs((prev) => ({ ...(prev || {}), popWindowOnCall: checked }));
                             }}
                             className="h-4 w-4 rounded accent-primary cursor-pointer"
                           />
@@ -7931,9 +8029,9 @@ export default function Home() {
                           <input
                             type="checkbox"
                             checked={Boolean(desktopPrefs?.minimizeToTray)}
-                            onChange={async (e) => {
-                              const next = await updateDesktopPrefs({ minimizeToTray: e.target.checked });
-                              setDesktopPrefs(next);
+                            onChange={(e) => {
+                              const checked = e.target.checked;
+                              setDesktopPrefs((prev) => ({ ...(prev || {}), minimizeToTray: checked }));
                             }}
                             className="h-4 w-4 rounded accent-primary cursor-pointer"
                           />
@@ -7946,9 +8044,9 @@ export default function Home() {
                           <input
                             type="checkbox"
                             checked={Boolean(desktopPrefs?.startOnBoot)}
-                            onChange={async (e) => {
-                              const next = await updateDesktopPrefs({ startOnBoot: e.target.checked });
-                              setDesktopPrefs(next);
+                            onChange={(e) => {
+                              const checked = e.target.checked;
+                              setDesktopPrefs((prev) => ({ ...(prev || {}), startOnBoot: checked }));
                             }}
                             className="h-4 w-4 rounded accent-primary cursor-pointer"
                           />
@@ -8509,12 +8607,7 @@ export default function Home() {
                   <div className="flex justify-end gap-3 pt-4 border-t border-slate-100 dark:border-slate-800/60 shrink-0">
                     <button
                       type="button"
-                      onClick={() => {
-                        stopRingtoneSound();
-                        setIsPreviewingRingtone(false);
-                        localStorage.setItem("temp_playing", "false");
-                        setSettingsModalOpen(false);
-                      }}
+                      onClick={handleCancelSettingsModal}
                       className="px-5 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold shadow-sm shadow-rose-500/20 transition-all cursor-pointer"
                     >
                       Vazgeç
@@ -8522,32 +8615,6 @@ export default function Home() {
                     <button
                       type="button"
                       onClick={async () => {
-                        stopRingtoneSound();
-                        setIsPreviewingRingtone(false);
-                        localStorage.setItem("temp_playing", "false");
-                        localStorage.setItem("agent_avatar", agentAvatar);
-                        localStorage.setItem("ringtone", agentRingtone);
-                        localStorage.setItem("selected_mic", selectedMic);
-                        localStorage.setItem("selected_speaker", selectedSpeaker);
-                        localStorage.setItem("selected_ringtone_speaker", selectedRingtoneSpeaker);
-
-                        const micObj = audioDevices.inputs.find((d) => d.deviceId === selectedMic);
-                        if (micObj?.label) localStorage.setItem("selected_mic_label", micObj.label);
-                        const spkObj = audioDevices.outputs.find((d) => d.deviceId === selectedSpeaker);
-                        if (spkObj?.label) localStorage.setItem("selected_speaker_label", spkObj.label);
-                        const ringSpkObj = audioDevices.outputs.find((d) => d.deviceId === selectedRingtoneSpeaker);
-                        if (ringSpkObj?.label) localStorage.setItem("selected_ringtone_speaker_label", ringSpkObj.label);
-
-                        window.dispatchEvent(new CustomEvent("AUDIO_DEVICES_UPDATED"));
-                        
-                        localStorage.setItem("auto_logout_enabled", autoLogoutEnabled ? "true" : "false");
-                        localStorage.setItem("auto_logout_duration", autoLogoutDuration.toString());
-                        localStorage.setItem("two_factor_enabled", twoFactorEnabled ? "true" : "false");
-                        localStorage.setItem("password_expiry_enabled", passwordExpiryEnabled ? "true" : "false");
-                        localStorage.setItem("password_expiry_months", passwordExpiryMonths.toString());
-                        const savedPrefsSnapshot = saveCallPanelPrefs(currentUser, callPanelPrefs);
-                        setCallPanelPrefs(savedPrefsSnapshot);
-
                         let passwordPayload = {};
                         if (newPassword || confirmPassword) {
                           if (newPassword !== confirmPassword) {
@@ -8566,6 +8633,65 @@ export default function Home() {
                           };
                         }
 
+                        stopRingtoneSound();
+                        stopSpeakerTestSound();
+                        stopMicLoopbackTest();
+                        setIsPreviewingRingtone(false);
+                        setIsTestingSpeaker(false);
+                        localStorage.setItem("temp_playing", "false");
+                        localStorage.setItem("agent_avatar", agentAvatar);
+                        localStorage.setItem("ringtone", agentRingtone);
+                        setSavedRingtoneVolume(ringtoneVolume);
+                        localStorage.setItem("selected_mic", selectedMic);
+                        localStorage.setItem("selected_speaker", selectedSpeaker);
+                        localStorage.setItem("selected_ringtone_speaker", selectedRingtoneSpeaker);
+
+                        const micObj = audioDevices.inputs.find((d) => d.deviceId === selectedMic);
+                        if (micObj?.label) localStorage.setItem("selected_mic_label", micObj.label);
+                        const spkObj = audioDevices.outputs.find((d) => d.deviceId === selectedSpeaker);
+                        if (spkObj?.label) localStorage.setItem("selected_speaker_label", spkObj.label);
+                        const ringSpkObj = audioDevices.outputs.find((d) => d.deviceId === selectedRingtoneSpeaker);
+                        if (ringSpkObj?.label) localStorage.setItem("selected_ringtone_speaker_label", ringSpkObj.label);
+
+                        const savedNoise = saveNoiseSuppressionMode(noiseSuppressionMode);
+                        setNoiseSuppressionMode(savedNoise);
+                        window.dispatchEvent(new CustomEvent("NOISE_MODE_UPDATED", { detail: { mode: savedNoise, silent: true } }));
+                        window.dispatchEvent(new CustomEvent("AUDIO_DEVICES_UPDATED"));
+
+                        if (desktopPrefs && typeof desktopPrefs === "object") {
+                          localStorage.setItem(
+                            "aida_desktop_notif_enabled",
+                            desktopPrefs.osNotifications ? "true" : "false"
+                          );
+                          try {
+                            const nextDp = await updateDesktopPrefs(desktopPrefs);
+                            setDesktopPrefs(nextDp);
+                          } catch (e) {}
+                        }
+
+                        const safeSavedColor = getSafeThemeColor(tempThemeColor);
+                        document.documentElement.style.setProperty("--color-primary", safeSavedColor);
+                        localStorage.setItem("theme_primary_color", safeSavedColor);
+                        localStorage.setItem("theme", isDarkMode ? "dark" : "light");
+                        localStorage.setItem("agent_active_profile", agentActiveProfile);
+                        applyDocumentMotionMode(normalizeUiMotionMode(callPanelPrefs?.uiMotionMode));
+
+                        localStorage.setItem("auto_logout_enabled", autoLogoutEnabled ? "true" : "false");
+                        localStorage.setItem("auto_logout_duration", autoLogoutDuration.toString());
+                        localStorage.setItem("two_factor_enabled", twoFactorEnabled ? "true" : "false");
+                        localStorage.setItem("password_expiry_enabled", passwordExpiryEnabled ? "true" : "false");
+                        localStorage.setItem("password_expiry_months", passwordExpiryMonths.toString());
+                        const savedPrefsSnapshot = saveCallPanelPrefs(currentUser, callPanelPrefs);
+                        setCallPanelPrefs(savedPrefsSnapshot);
+
+                        const wbUid = String(currentUser?.id || currentUser?.extension || "admin");
+                        if (modalDraftWallboardLayout && typeof modalDraftWallboardLayout === "object") {
+                          try {
+                            localStorage.setItem(`wallboard_layout_${wbUid}`, JSON.stringify(modalDraftWallboardLayout));
+                            window.dispatchEvent(new CustomEvent("wallboard-layout-updated", { detail: modalDraftWallboardLayout }));
+                          } catch (e) {}
+                        }
+
                         if (currentUser) {
                           try {
                             const protocol = window.location.protocol === "https:" ? "https:" : "http:";
@@ -8575,6 +8701,10 @@ export default function Home() {
                                   mobile_transfer_enabled: mobileTransferEnabled
                                 }
                               : {};
+                            const wallboardPayload =
+                              modalDraftWallboardLayout && typeof modalDraftWallboardLayout === "object"
+                                ? { wallboard_layout: modalDraftWallboardLayout }
+                                : {};
                             const profileUid = encodeURIComponent(
                               String(currentUser.id || currentUser.extension || "admin")
                             );
@@ -8584,7 +8714,7 @@ export default function Home() {
                               body: JSON.stringify({
                                 avatar: agentAvatar,
                                 ...mobileTransferPayload,
-                                theme_color: tempThemeColor,
+                                theme_color: safeSavedColor,
                                 theme_mode: isDarkMode ? "dark" : "light",
                                 forwarding_always: { active: Boolean(fwdAlwaysActive && fwdAlwaysTarget), type: fwdAlwaysType || "internal", target: fwdAlwaysTarget || "" },
                                 forwarding_busy: { active: Boolean(fwdBusyActive && fwdBusyTarget), type: fwdBusyType || "internal", target: fwdBusyTarget || "" },
@@ -8592,6 +8722,7 @@ export default function Home() {
                                 active_profile: agentActiveProfile,
                                 profiles: agentProfiles,
                                 call_panel_prefs: savedPrefsSnapshot,
+                                ...wallboardPayload,
                                 auto_logout_enabled: autoLogoutEnabled,
                                 auto_logout_duration: autoLogoutDuration,
                                 two_factor_enabled: twoFactorEnabled,
@@ -8608,7 +8739,8 @@ export default function Home() {
                               setCurrentUser((prev) => ({
                                 ...(prev || {}),
                                 ...(data.user || {}),
-                                call_panel_prefs: savedPrefsSnapshot
+                                call_panel_prefs: savedPrefsSnapshot,
+                                ...(modalDraftWallboardLayout ? { wallboard_layout: modalDraftWallboardLayout } : {})
                               }));
                               if (newPassword) {
                                 SUPER_ADMIN.password = newPassword;

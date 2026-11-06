@@ -308,7 +308,14 @@ export function normalizeWallboardLayout(saved) {
 /**
  * WallboardStudioSettings: Rendered inside the Profile Settings Modal ("Canlı İzleme Paneli" tab)
  */
-export function WallboardStudioSettings({ backendHost = "localhost:8000", currentUserId = "admin", currentUser = null }) {
+export function WallboardStudioSettings({
+  backendHost = "localhost:8000",
+  currentUserId = "admin",
+  currentUser = null,
+  deferPersist = false,
+  draftLayout = null,
+  onDraftLayoutChange = null
+}) {
   const { bg, hover, text, lightBg, borderLight } = useTheme();
   const effectiveUid = String(
     currentUser?.id ||
@@ -318,6 +325,9 @@ export function WallboardStudioSettings({ backendHost = "localhost:8000", curren
   );
 
   const initialStudioNorm = (() => {
+    if (draftLayout && typeof draftLayout === "object" && Object.keys(draftLayout).length > 0) {
+      return normalizeWallboardLayout(draftLayout);
+    }
     if (currentUser?.wallboard_layout && typeof currentUser.wallboard_layout === "object" && Object.keys(currentUser.wallboard_layout).length > 0) {
       return normalizeWallboardLayout(currentUser.wallboard_layout);
     }
@@ -347,9 +357,8 @@ export function WallboardStudioSettings({ backendHost = "localhost:8000", curren
 
   useEffect(() => {
     try {
-      const localRaw = typeof window !== "undefined" ? localStorage.getItem(`wallboard_layout_${effectiveUid}`) : null;
-      if (localRaw) {
-        const norm = normalizeWallboardLayout(JSON.parse(localRaw));
+      if (draftLayout && typeof draftLayout === "object" && Object.keys(draftLayout).length > 0) {
+        const norm = normalizeWallboardLayout(draftLayout);
         setKpiCards(norm.kpiCards);
         setMainWidgets(norm.mainWidgets);
         setAgentCardDensity(norm.agentCardDensity);
@@ -358,16 +367,29 @@ export function WallboardStudioSettings({ backendHost = "localhost:8000", curren
         setThresholds(norm.thresholds);
         setStatusColors(norm.statusColors);
         setActivePresetKey(norm.activePresetKey);
-      } else if (currentUser?.wallboard_layout && Object.keys(currentUser.wallboard_layout).length > 0) {
-        const norm = normalizeWallboardLayout(currentUser.wallboard_layout);
-        setKpiCards(norm.kpiCards);
-        setMainWidgets(norm.mainWidgets);
-        setAgentCardDensity(norm.agentCardDensity);
-        setAgentSortBy(norm.agentSortBy);
-        setAgentStatusFilter(norm.agentStatusFilter);
-        setThresholds(norm.thresholds);
-        setStatusColors(norm.statusColors);
-        setActivePresetKey(norm.activePresetKey);
+      } else {
+        const localRaw = typeof window !== "undefined" ? localStorage.getItem(`wallboard_layout_${effectiveUid}`) : null;
+        if (localRaw) {
+          const norm = normalizeWallboardLayout(JSON.parse(localRaw));
+          setKpiCards(norm.kpiCards);
+          setMainWidgets(norm.mainWidgets);
+          setAgentCardDensity(norm.agentCardDensity);
+          setAgentSortBy(norm.agentSortBy);
+          setAgentStatusFilter(norm.agentStatusFilter);
+          setThresholds(norm.thresholds);
+          setStatusColors(norm.statusColors);
+          setActivePresetKey(norm.activePresetKey);
+        } else if (currentUser?.wallboard_layout && Object.keys(currentUser.wallboard_layout).length > 0) {
+          const norm = normalizeWallboardLayout(currentUser.wallboard_layout);
+          setKpiCards(norm.kpiCards);
+          setMainWidgets(norm.mainWidgets);
+          setAgentCardDensity(norm.agentCardDensity);
+          setAgentSortBy(norm.agentSortBy);
+          setAgentStatusFilter(norm.agentStatusFilter);
+          setThresholds(norm.thresholds);
+          setStatusColors(norm.statusColors);
+          setActivePresetKey(norm.activePresetKey);
+        }
       }
     } catch (e) {}
 
@@ -379,28 +401,30 @@ export function WallboardStudioSettings({ backendHost = "localhost:8000", curren
       })
       .catch(() => {});
 
-    fetch(`${API_BASE}/api/wallboard/layout?user_id=${encodeURIComponent(effectiveUid)}`, {
-      headers: { "X-User-ID": effectiveUid }
-    })
-      .then((res) => (res.ok ? res.json() : null))
-      .then((data) => {
-        if (data?.layout) {
-          const norm = normalizeWallboardLayout(data.layout);
-          setKpiCards(norm.kpiCards);
-          setMainWidgets(norm.mainWidgets);
-          setAgentCardDensity(norm.agentCardDensity);
-          setAgentSortBy(norm.agentSortBy);
-          setAgentStatusFilter(norm.agentStatusFilter);
-          setThresholds(norm.thresholds);
-          setStatusColors(norm.statusColors);
-          setActivePresetKey(norm.activePresetKey);
-          if (typeof window !== "undefined") {
-            localStorage.setItem(`wallboard_layout_${effectiveUid}`, JSON.stringify(norm));
-          }
-        }
+    if (!deferPersist) {
+      fetch(`${API_BASE}/api/wallboard/layout?user_id=${encodeURIComponent(effectiveUid)}`, {
+        headers: { "X-User-ID": effectiveUid }
       })
-      .catch(() => {});
-  }, [effectiveUid, API_BASE]);
+        .then((res) => (res.ok ? res.json() : null))
+        .then((data) => {
+          if (data?.layout) {
+            const norm = normalizeWallboardLayout(data.layout);
+            setKpiCards(norm.kpiCards);
+            setMainWidgets(norm.mainWidgets);
+            setAgentCardDensity(norm.agentCardDensity);
+            setAgentSortBy(norm.agentSortBy);
+            setAgentStatusFilter(norm.agentStatusFilter);
+            setThresholds(norm.thresholds);
+            setStatusColors(norm.statusColors);
+            setActivePresetKey(norm.activePresetKey);
+            if (typeof window !== "undefined") {
+              localStorage.setItem(`wallboard_layout_${effectiveUid}`, JSON.stringify(norm));
+            }
+          }
+        })
+        .catch(() => {});
+    }
+  }, [effectiveUid, API_BASE, deferPersist]);
 
   const syncLayout = (nextPatch = {}) => {
     const payload = {
@@ -413,6 +437,11 @@ export function WallboardStudioSettings({ backendHost = "localhost:8000", curren
       statusColors: nextPatch.statusColors ?? statusColors,
       activePresetKey: nextPatch.activePresetKey ?? activePresetKey
     };
+
+    if (deferPersist) {
+      onDraftLayoutChange?.(payload);
+      return;
+    }
 
     if (typeof window !== "undefined") {
       localStorage.setItem(`wallboard_layout_${effectiveUid}`, JSON.stringify(payload));

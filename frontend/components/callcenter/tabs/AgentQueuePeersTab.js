@@ -35,7 +35,10 @@ import {
 export function CallPanelAgentsAppearanceSettings({
   backendHost = "localhost:8000",
   currentUserId = "admin",
-  currentUser = null
+  currentUser = null,
+  deferPersist = false,
+  draftLayout = null,
+  onDraftLayoutChange = null
 }) {
   const { bg, text, lightBg, borderLight } = useTheme();
   const effectiveUid = String(
@@ -46,6 +49,9 @@ export function CallPanelAgentsAppearanceSettings({
   );
 
   const initialNorm = (() => {
+    if (draftLayout && typeof draftLayout === "object" && Object.keys(draftLayout).length > 0) {
+      return normalizeWallboardLayout(draftLayout);
+    }
     if (currentUser?.wallboard_layout && typeof currentUser.wallboard_layout === "object" && Object.keys(currentUser.wallboard_layout).length > 0) {
       return normalizeWallboardLayout(currentUser.wallboard_layout);
     }
@@ -67,17 +73,24 @@ export function CallPanelAgentsAppearanceSettings({
 
   useEffect(() => {
     try {
-      const localRaw = typeof window !== "undefined" ? localStorage.getItem(`wallboard_layout_${effectiveUid}`) : null;
-      if (localRaw) {
-        const norm = normalizeWallboardLayout(JSON.parse(localRaw));
+      if (draftLayout && typeof draftLayout === "object" && Object.keys(draftLayout).length > 0) {
+        const norm = normalizeWallboardLayout(draftLayout);
         setAgentCardDensity(norm.agentCardDensity || "standard");
         setAgentSortBy(norm.agentSortBy || "status");
         setStatusColors(norm.statusColors);
-      } else if (currentUser?.wallboard_layout && Object.keys(currentUser.wallboard_layout).length > 0) {
-        const norm = normalizeWallboardLayout(currentUser.wallboard_layout);
-        setAgentCardDensity(norm.agentCardDensity || "standard");
-        setAgentSortBy(norm.agentSortBy || "status");
-        setStatusColors(norm.statusColors);
+      } else {
+        const localRaw = typeof window !== "undefined" ? localStorage.getItem(`wallboard_layout_${effectiveUid}`) : null;
+        if (localRaw) {
+          const norm = normalizeWallboardLayout(JSON.parse(localRaw));
+          setAgentCardDensity(norm.agentCardDensity || "standard");
+          setAgentSortBy(norm.agentSortBy || "status");
+          setStatusColors(norm.statusColors);
+        } else if (currentUser?.wallboard_layout && Object.keys(currentUser.wallboard_layout).length > 0) {
+          const norm = normalizeWallboardLayout(currentUser.wallboard_layout);
+          setAgentCardDensity(norm.agentCardDensity || "standard");
+          setAgentSortBy(norm.agentSortBy || "status");
+          setStatusColors(norm.statusColors);
+        }
       }
     } catch (e) {}
 
@@ -89,33 +102,38 @@ export function CallPanelAgentsAppearanceSettings({
       })
       .catch(() => {});
 
-    fetch(`${API_BASE}/api/wallboard/layout?user_id=${encodeURIComponent(effectiveUid)}`, {
-      headers: { "X-User-ID": effectiveUid }
-    })
-      .then((res) => (res.ok ? res.json() : null))
-      .then((resData) => {
-        if (resData?.layout) {
-          const norm = normalizeWallboardLayout(resData.layout);
-          setAgentCardDensity(norm.agentCardDensity || "standard");
-          setAgentSortBy(norm.agentSortBy || "status");
-          setStatusColors(norm.statusColors);
-          if (typeof window !== "undefined") {
-            localStorage.setItem(`wallboard_layout_${effectiveUid}`, JSON.stringify(norm));
-          }
-        }
+    if (!deferPersist) {
+      fetch(`${API_BASE}/api/wallboard/layout?user_id=${encodeURIComponent(effectiveUid)}`, {
+        headers: { "X-User-ID": effectiveUid }
       })
-      .catch(() => {});
-  }, [effectiveUid, API_BASE]);
+        .then((res) => (res.ok ? res.json() : null))
+        .then((resData) => {
+          if (resData?.layout) {
+            const norm = normalizeWallboardLayout(resData.layout);
+            setAgentCardDensity(norm.agentCardDensity || "standard");
+            setAgentSortBy(norm.agentSortBy || "status");
+            setStatusColors(norm.statusColors);
+            if (typeof window !== "undefined") {
+              localStorage.setItem(`wallboard_layout_${effectiveUid}`, JSON.stringify(norm));
+            }
+          }
+        })
+        .catch(() => {});
+    }
+  }, [effectiveUid, API_BASE, deferPersist]);
 
   const syncAppearance = (patch = {}) => {
     let existing = {};
-    if (currentUser?.wallboard_layout && typeof currentUser.wallboard_layout === "object") {
+    if (draftLayout && typeof draftLayout === "object") {
+      existing = { ...draftLayout };
+    } else if (currentUser?.wallboard_layout && typeof currentUser.wallboard_layout === "object") {
       existing = { ...currentUser.wallboard_layout };
+    } else {
+      try {
+        const localRaw = typeof window !== "undefined" ? localStorage.getItem(`wallboard_layout_${effectiveUid}`) : null;
+        if (localRaw) existing = { ...existing, ...(JSON.parse(localRaw) || {}) };
+      } catch (e) {}
     }
-    try {
-      const localRaw = typeof window !== "undefined" ? localStorage.getItem(`wallboard_layout_${effectiveUid}`) : null;
-      if (localRaw) existing = { ...existing, ...(JSON.parse(localRaw) || {}) };
-    } catch (e) {}
 
     const payload = {
       ...existing,
@@ -123,6 +141,11 @@ export function CallPanelAgentsAppearanceSettings({
       agentSortBy: patch.agentSortBy ?? agentSortBy,
       statusColors: patch.statusColors ?? statusColors
     };
+
+    if (deferPersist) {
+      onDraftLayoutChange?.(payload);
+      return;
+    }
 
     if (typeof window !== "undefined") {
       localStorage.setItem(`wallboard_layout_${effectiveUid}`, JSON.stringify(payload));
