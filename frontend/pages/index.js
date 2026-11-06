@@ -2807,10 +2807,11 @@ export default function Home() {
   return (
     <div className="aida-app-shell h-screen overflow-hidden bg-slate-50 dark:bg-slate-950 text-slate-800 dark:text-slate-100 flex font-sans transition-colors duration-300">
       <Head>
-        <title>{isDesktopMode ? "AIDA Agent" : "Omnichannel AI Call Center Admin Panel"}</title>
-        <meta name="description" content="AI PBX and Social Messaging dashboard" />
+        <title>AIDA PBX</title>
+        <meta name="description" content="AIDA PBX — Çok Kanallı Yapay Zeka Santral Platformu" />
         <meta name="color-scheme" content="light dark" />
-        <link rel="icon" href="/favicon.ico" />
+        <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+        <link rel="alternate icon" href="/favicon.ico" sizes="32x32" />
       </Head>
 
       {/* Sidebar Navigation */}

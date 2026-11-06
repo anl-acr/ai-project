@@ -1,5 +1,6 @@
 import '../styles/globals.css'
 import { useEffect } from 'react'
+import Head from 'next/head'
 import { getSafeThemeColor, applyDocumentUiTemplate, readDocumentUiTemplate } from '../utils/theme'
 import { ErrorBoundary } from '../components/ErrorBoundary'
 import SystemInfoHintManager from '../components/common/SystemInfoHintManager'
@@ -90,6 +91,12 @@ function MyApp({ Component, pageProps }) {
 
   return (
     <ErrorBoundary>
+      <Head>
+        <title>AIDA PBX</title>
+        <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+        <link rel="alternate icon" href="/favicon.ico" sizes="32x32" />
+        <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+      </Head>
       <Component {...pageProps} />
       <SystemInfoHintManager />
     </ErrorBoundary>

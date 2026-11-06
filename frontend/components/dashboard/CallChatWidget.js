@@ -391,11 +391,11 @@ export default function CallChatWidget({
     if (typeof document === "undefined") return;
 
     if (!originalTitleRef.current) {
-      originalTitleRef.current = document.title || "AIDA — Kurumsal İletişim Platformu";
+      originalTitleRef.current = document.title || "AIDA PBX";
     }
     const existingIconEl = document.querySelector("link[rel*='icon']");
     if (existingIconEl && originalFaviconRef.current === null) {
-      originalFaviconRef.current = existingIconEl.getAttribute("href") || "/favicon.ico";
+      originalFaviconRef.current = existingIconEl.getAttribute("href") || "/favicon.svg";
     }
 
     const setFaviconHref = (href) => {
