@@ -674,16 +674,25 @@ def ensure_user_profiles(u: dict) -> dict:
         u["gsm_number"] = u["follow_me"]["mobile_number"]
     return u
 
+def _norm_2fa_ts(val) -> int:
+    try:
+        n = int(float(val or 0))
+    except Exception:
+        return 0
+    if 0 < n < 10_000_000_000:
+        return n * 1000
+    return n
+
 class UserSchema(BaseModel):
-    id: Optional[int] = None
+    id: Optional[Union[int, str]] = None
     tenant_id: Optional[str] = "tenant-default"
-    full_name: str
+    full_name: Optional[str] = ""
     email: Optional[str] = ""
     extension: Optional[str] = ""
     avatar: Optional[str] = ""
-    avatar_updated_ts: Optional[int] = None
-    role: str = "agent"
-    is_active: bool = True
+    avatar_updated_ts: Optional[Union[int, float]] = None
+    role: Optional[str] = "agent"
+    is_active: Optional[bool] = True
     gsm_number: Optional[str] = None
     mobile_transfer_enabled: Optional[bool] = False
     theme_color: Optional[str] = "rose"
@@ -711,7 +720,7 @@ class UserSchema(BaseModel):
     two_factor_method: Optional[str] = "google_auth"
     two_factor_secret: Optional[str] = None
     two_factor_enrolled: Optional[bool] = False
-    two_factor_updated_ts: Optional[int] = None
+    two_factor_updated_ts: Optional[Union[int, float]] = None
     managed_users: Optional[List[Union[int, str]]] = []
     managed_queues: Optional[List[Union[int, str]]] = []
     cti_config: Optional[dict] = None
@@ -1840,9 +1849,9 @@ def load_settings(force_reload: bool = False, persist: bool = False):
                             u_dict["gsm_number"] = du.get("gsm_number")
                         if not u_dict.get("follow_me") and du.get("follow_me"):
                             u_dict["follow_me"] = du.get("follow_me")
-                        disk_tf_ts = int(du.get("two_factor_updated_ts") or 0)
+                        disk_tf_ts = _norm_2fa_ts(du.get("two_factor_updated_ts"))
                         db_tf_meta = (u_dict.get("call_panel_prefs") or {}).get("twoFactorMeta") if isinstance(u_dict.get("call_panel_prefs"), dict) else None
-                        db_tf_ts = int((db_tf_meta or {}).get("updatedTs") or 0)
+                        db_tf_ts = _norm_2fa_ts((db_tf_meta or {}).get("updatedTs"))
                         if disk_tf_ts and disk_tf_ts >= db_tf_ts:
                             u_dict["two_factor_enabled"] = bool(du.get("two_factor_enabled", False))
                             u_dict["two_factor_method"] = du.get("two_factor_method") or "google_auth"
@@ -1864,8 +1873,19 @@ def load_settings(force_reload: bool = False, persist: bool = False):
                             if not u_dict.get("two_factor_enrolled") and du.get("two_factor_enrolled"):
                                 u_dict["two_factor_enrolled"] = True
                     db_tf_meta_curr = (u_dict.get("call_panel_prefs") or {}).get("twoFactorMeta") if isinstance(u_dict.get("call_panel_prefs"), dict) else None
-                    if isinstance(db_tf_meta_curr, dict) and not u_dict.get("two_factor_updated_ts"):
-                        u_dict["two_factor_updated_ts"] = int(db_tf_meta_curr.get("updatedTs") or 0)
+                    if isinstance(db_tf_meta_curr, dict):
+                        meta_ts = _norm_2fa_ts(db_tf_meta_curr.get("updatedTs"))
+                        curr_ts = _norm_2fa_ts(u_dict.get("two_factor_updated_ts"))
+                        if meta_ts and meta_ts > curr_ts:
+                            if "enabled" in db_tf_meta_curr:
+                                u_dict["two_factor_enabled"] = bool(db_tf_meta_curr.get("enabled"))
+                            if db_tf_meta_curr.get("method"):
+                                u_dict["two_factor_method"] = db_tf_meta_curr.get("method")
+                            if "enrolled" in db_tf_meta_curr:
+                                u_dict["two_factor_enrolled"] = bool(db_tf_meta_curr.get("enrolled"))
+                            u_dict["two_factor_updated_ts"] = meta_ts
+                        elif not curr_ts and meta_ts:
+                            u_dict["two_factor_updated_ts"] = meta_ts
                         if not u_dict.get("gsm_number") and db_tf_meta_curr.get("phone"):
                             u_dict["gsm_number"] = db_tf_meta_curr.get("phone")
                     if isinstance(u_dict.get("call_panel_prefs"), dict) and u_dict["call_panel_prefs"].get("profileAvatar") and not (du and du.get("avatar_updated_ts")):
@@ -2405,20 +2425,24 @@ def save_settings(settings):
         from backend.database.config import SyncSessionLocal
         from backend.database.models import SystemSetting
         from sqlalchemy.orm.attributes import flag_modified
-        
+
         session = SyncSessionLocal()
         try:
             existing_rows = {s.key: s for s in session.query(SystemSetting).all()}
             dirty = False
             for key, val in settings.items():
+                try:
+                    safe_val = json.loads(json.dumps(val, default=str))
+                except Exception:
+                    safe_val = val
                 setting = existing_rows.get(key)
                 if setting is not None:
-                    if setting.value != val:
-                        setting.value = val
+                    if setting.value != safe_val:
+                        setting.value = safe_val
                         flag_modified(setting, "value")
                         dirty = True
                 else:
-                    session.add(SystemSetting(key=key, value=val))
+                    session.add(SystemSetting(key=key, value=safe_val))
                     dirty = True
             if dirty:
                 session.commit()
@@ -2428,8 +2452,10 @@ def save_settings(settings):
         print(f"[Settings DB] Info saving settings: {e}")
 
     try:
-        with open(SETTINGS_FILE, "w", encoding="utf-8") as f:
-            json.dump(settings, f, ensure_ascii=False, indent=4)
+        tmp_file = f"{SETTINGS_FILE}.tmp"
+        with open(tmp_file, "w", encoding="utf-8") as f:
+            json.dump(settings, f, ensure_ascii=False, indent=4, default=str)
+        os.replace(tmp_file, SETTINGS_FILE)
         _settings_cache_mtime = os.path.getmtime(SETTINGS_FILE)
     except Exception as fe:
         print(f"[Settings File Backup] Warning: Could not write settings.json: {fe}")
@@ -8599,7 +8625,7 @@ async def update_agent_profile_endpoint(user_id: Union[int, str], payload: Profi
         )
     )
     if touched_2fa:
-        now_2fa_ts = int(datetime.datetime.now().timestamp())
+        now_2fa_ts = int(time.time() * 1000)
         user["two_factor_updated_ts"] = now_2fa_ts
         if not isinstance(user.get("call_panel_prefs"), dict):
             user["call_panel_prefs"] = {}
@@ -23774,6 +23800,16 @@ class SendWhatsAppOTPSchema(BaseModel):
     user_id: str
     phone: Optional[str] = None
 
+class Save2FAConfigSchema(BaseModel):
+    user_id: Union[int, str]
+    extension: Optional[str] = None
+    email: Optional[str] = None
+    enabled: bool = False
+    method: Optional[str] = "google_auth"
+    phone: Optional[str] = None
+    secret: Optional[str] = None
+    enrolled: Optional[bool] = None
+
 def _find_disk_user_for_2fa(user_id: str) -> Optional[dict]:
     users = settings_db.get("users", [])
     uid_str = str(user_id or "").strip()
@@ -23791,7 +23827,7 @@ def _find_disk_user_for_2fa(user_id: str) -> Optional[dict]:
 
 def _sync_user_2fa_to_db(user_dict: dict):
     import copy
-    now_ts = int(datetime.datetime.now().timestamp())
+    now_ts = int(time.time() * 1000)
     user_dict["two_factor_updated_ts"] = now_ts
     if not isinstance(user_dict.get("call_panel_prefs"), dict):
         user_dict["call_panel_prefs"] = {}
@@ -23828,11 +23864,11 @@ def _sync_user_2fa_to_db(user_dict: dict):
                     db_u.two_factor_enabled = bool(user_dict.get("two_factor_enabled", False))
                 if "two_factor_method" in user_dict:
                     db_u.two_factor_method = str(user_dict.get("two_factor_method") or "google_auth")
-                if "two_factor_secret" in user_dict:
+                if "two_factor_secret" in user_dict and user_dict.get("two_factor_secret"):
                     db_u.two_factor_secret = user_dict.get("two_factor_secret")
                 if "two_factor_enrolled" in user_dict:
                     db_u.two_factor_enrolled = bool(user_dict.get("two_factor_enrolled", False))
-                if user_dict.get("gsm_number"):
+                if "gsm_number" in user_dict and user_dict.get("gsm_number") is not None:
                     db_u.gsm_number = str(user_dict.get("gsm_number"))
                 if isinstance(user_dict.get("follow_me"), dict):
                     db_u.follow_me = copy.deepcopy(user_dict.get("follow_me"))
@@ -23840,30 +23876,65 @@ def _sync_user_2fa_to_db(user_dict: dict):
                 db_u.call_panel_prefs = copy.deepcopy(user_dict.get("call_panel_prefs") or {})
                 flag_modified(db_u, "call_panel_prefs")
 
-            db_u = _find_su()
+            def _heal_2fa_cols():
+                for ddl_s in (
+                    "ALTER TABLE system_users ADD COLUMN IF NOT EXISTS follow_me JSON;",
+                    "ALTER TABLE system_users ADD COLUMN IF NOT EXISTS two_factor_enabled BOOLEAN DEFAULT FALSE;",
+                    "ALTER TABLE system_users ADD COLUMN IF NOT EXISTS two_factor_method VARCHAR DEFAULT 'google_auth';",
+                    "ALTER TABLE system_users ADD COLUMN IF NOT EXISTS two_factor_secret VARCHAR;",
+                    "ALTER TABLE system_users ADD COLUMN IF NOT EXISTS two_factor_enrolled BOOLEAN DEFAULT FALSE;",
+                    "ALTER TABLE system_users ADD COLUMN IF NOT EXISTS call_panel_prefs JSON DEFAULT '{}';",
+                ):
+                    try:
+                        session.execute(text(ddl_s))
+                        session.commit()
+                    except Exception:
+                        session.rollback()
+
+            db_u = None
+            try:
+                db_u = _find_su()
+            except Exception:
+                session.rollback()
+                _heal_2fa_cols()
+                db_u = _find_su()
+
             if db_u:
                 try:
                     _apply_su(db_u)
                     session.commit()
                 except Exception:
                     session.rollback()
-                    for ddl_s in (
-                        "ALTER TABLE system_users ADD COLUMN IF NOT EXISTS follow_me JSON;",
-                        "ALTER TABLE system_users ADD COLUMN IF NOT EXISTS two_factor_enabled BOOLEAN DEFAULT FALSE;",
-                        "ALTER TABLE system_users ADD COLUMN IF NOT EXISTS two_factor_method VARCHAR DEFAULT 'google_auth';",
-                        "ALTER TABLE system_users ADD COLUMN IF NOT EXISTS two_factor_secret VARCHAR;",
-                        "ALTER TABLE system_users ADD COLUMN IF NOT EXISTS two_factor_enrolled BOOLEAN DEFAULT FALSE;",
-                        "ALTER TABLE system_users ADD COLUMN IF NOT EXISTS call_panel_prefs JSON DEFAULT '{}';",
-                    ):
+                    _heal_2fa_cols()
+                    db_u = _find_su()
+                    if db_u:
                         try:
-                            session.execute(text(ddl_s))
+                            _apply_su(db_u)
                             session.commit()
                         except Exception:
                             session.rollback()
-                    db_u = _find_su()
-                    if db_u:
-                        _apply_su(db_u)
-                        session.commit()
+                            session.execute(
+                                text(
+                                    "UPDATE system_users SET "
+                                    "two_factor_enabled = :en, "
+                                    "two_factor_method = :m, "
+                                    "two_factor_enrolled = :enr, "
+                                    "gsm_number = :gsm, "
+                                    "follow_me = CAST(:fm AS JSON), "
+                                    "call_panel_prefs = CAST(:cpp AS JSON) "
+                                    "WHERE id = :uid"
+                                ),
+                                {
+                                    "en": bool(user_dict.get("two_factor_enabled", False)),
+                                    "m": str(user_dict.get("two_factor_method") or "google_auth"),
+                                    "enr": bool(user_dict.get("two_factor_enrolled", False)),
+                                    "gsm": str(user_dict.get("gsm_number") or ""),
+                                    "fm": json.dumps(user_dict.get("follow_me") or {}, default=str),
+                                    "cpp": json.dumps(user_dict.get("call_panel_prefs") or {}, default=str),
+                                    "uid": int(db_u.id),
+                                },
+                            )
+                            session.commit()
     except Exception as e:
         print(f"[2FA DB Sync Notice]: {e}")
 
@@ -23941,7 +24012,24 @@ async def setup_2fa(
         if reset:
             user["two_factor_enrolled"] = False
         save_settings(settings_db)
-        _sync_user_2fa_to_db(user)
+        try:
+            from backend.database.config import SyncSessionLocal
+            from backend.database.models import SystemUser
+            with SyncSessionLocal() as session:
+                uid_val = user.get("id")
+                ext_val = str(user.get("extension") or "").strip()
+                db_u = None
+                if uid_val is not None and str(uid_val).isdigit() and str(uid_val) != "9999":
+                    db_u = session.query(SystemUser).filter(SystemUser.id == int(uid_val)).first()
+                if not db_u and ext_val:
+                    db_u = session.query(SystemUser).filter(SystemUser.extension == ext_val).first()
+                if db_u:
+                    db_u.two_factor_secret = active_secret
+                    if reset:
+                        db_u.two_factor_enrolled = False
+                    session.commit()
+        except Exception:
+            pass
 
     acct_label = str(email or user.get("email") or user.get("extension") or user.get("full_name") or user_id).strip()
     uri = build_otpauth_uri(active_secret, account_name=acct_label, issuer="AIDA", method=norm_method)
@@ -23960,6 +24048,105 @@ async def setup_2fa(
         "phone": user_gsm,
         "masked_phone": mask_phone_number(user_gsm),
         "business_whatsapp_number": biz_wa
+    }
+
+@app.post("/api/auth/2fa/save-config")
+@app.post("/auth/2fa/save-config")
+async def save_2fa_config_endpoint(payload: Save2FAConfigSchema):
+    import copy
+    uid_str = str(payload.user_id or "").strip()
+    ext_str = str(payload.extension or "").strip()
+    eml_str = str(payload.email or "").strip()
+    norm_m = str(payload.method or "google_auth").strip().lower()
+    if norm_m == "app" or not norm_m:
+        norm_m = "google_auth"
+
+    user = _find_disk_user_for_2fa(uid_str)
+    if not user and ext_str:
+        user = _find_disk_user_for_2fa(ext_str)
+    if not user and eml_str:
+        user = _find_disk_user_for_2fa(eml_str)
+
+    if not user:
+        try:
+            from backend.database.config import SyncSessionLocal
+            from backend.database.models import SystemUser
+            with SyncSessionLocal() as session:
+                db_u = None
+                if uid_str.isdigit() and uid_str != "9999":
+                    db_u = session.query(SystemUser).filter(SystemUser.id == int(uid_str)).first()
+                if not db_u and ext_str:
+                    db_u = session.query(SystemUser).filter(SystemUser.extension == ext_str).first()
+                if not db_u and eml_str:
+                    db_u = session.query(SystemUser).filter(SystemUser.email == eml_str).first()
+                if not db_u and uid_str in ("admin", "9999"):
+                    db_u = session.query(SystemUser).filter(SystemUser.role == "admin").order_by(SystemUser.id.asc()).first()
+                if db_u:
+                    user = {c.name: copy.deepcopy(getattr(db_u, c.name)) for c in db_u.__table__.columns}
+                    if "users" not in settings_db or not isinstance(settings_db.get("users"), list):
+                        settings_db["users"] = []
+                    settings_db["users"].append(user)
+        except Exception as e_lk:
+            print(f"[Save 2FA Config Lookup Notice]: {e_lk}")
+
+    if not user and uid_str in ("admin", "9999"):
+        user = {
+            "id": 9999,
+            "full_name": "Sistem Yöneticisi",
+            "email": eml_str or "admin@localhost",
+            "extension": ext_str or "",
+            "username": "admin",
+            "role": "admin",
+            "is_active": True,
+            "password": "admin",
+        }
+        if "users" not in settings_db or not isinstance(settings_db.get("users"), list):
+            settings_db["users"] = []
+        settings_db["users"].append(user)
+
+    if not user:
+        raise HTTPException(status_code=404, detail="Kullanıcı bulunamadı.")
+
+    user["two_factor_enabled"] = bool(payload.enabled)
+    user["two_factor_method"] = norm_m
+    if payload.secret:
+        user["two_factor_secret"] = payload.secret
+    elif user["two_factor_enabled"] and norm_m in ("google_auth", "microsoft_auth") and not user.get("two_factor_secret"):
+        user["two_factor_secret"] = generate_totp_secret()
+    if payload.enrolled is not None:
+        user["two_factor_enrolled"] = bool(payload.enrolled)
+
+    if payload.phone is not None:
+        clean_ph = str(payload.phone).strip()
+        user["gsm_number"] = clean_ph
+        raw_fm = user.get("follow_me")
+        if isinstance(raw_fm, str) and raw_fm.strip().startswith("{"):
+            try:
+                raw_fm = json.loads(raw_fm)
+            except Exception:
+                raw_fm = {}
+        if not isinstance(raw_fm, dict):
+            raw_fm = {
+                "enabled": False,
+                "timeout": 15,
+                "first_target": "mobile_app",
+                "second_target": "mobile_number",
+                "mobile_number": clean_ph,
+            }
+        else:
+            raw_fm = {**raw_fm, "mobile_number": clean_ph}
+        user["follow_me"] = raw_fm
+
+    _sync_user_2fa_to_db(user)
+    save_settings(settings_db)
+
+    return {
+        "status": "success",
+        "user": user,
+        "two_factor_enabled": bool(user.get("two_factor_enabled", False)),
+        "two_factor_method": user.get("two_factor_method", "google_auth"),
+        "two_factor_enrolled": bool(user.get("two_factor_enrolled", False)),
+        "gsm_number": user.get("gsm_number", ""),
     }
 
 @app.post("/api/auth/2fa/send-email-otp")
@@ -25148,13 +25335,24 @@ async def new_get_users_endpoint(request: Request, user_info: dict = Depends(get
 
     async def _self_heal_user_cols_async():
         for ddl_stmt in (
+            "ALTER TABLE system_users ADD COLUMN IF NOT EXISTS active_profile VARCHAR DEFAULT 'available';",
+            "ALTER TABLE system_users ADD COLUMN IF NOT EXISTS profiles JSON DEFAULT '[]';",
+            "ALTER TABLE system_users ADD COLUMN IF NOT EXISTS sip_username VARCHAR;",
+            "ALTER TABLE system_users ADD COLUMN IF NOT EXISTS max_activations INTEGER DEFAULT 1;",
             "ALTER TABLE system_users ADD COLUMN IF NOT EXISTS sip_devices JSON DEFAULT '[]';",
             "ALTER TABLE system_users ADD COLUMN IF NOT EXISTS follow_me JSON;",
             "ALTER TABLE system_users ADD COLUMN IF NOT EXISTS two_factor_enabled BOOLEAN DEFAULT FALSE;",
             "ALTER TABLE system_users ADD COLUMN IF NOT EXISTS two_factor_method VARCHAR DEFAULT 'google_auth';",
             "ALTER TABLE system_users ADD COLUMN IF NOT EXISTS two_factor_secret VARCHAR;",
             "ALTER TABLE system_users ADD COLUMN IF NOT EXISTS two_factor_enrolled BOOLEAN DEFAULT FALSE;",
+            "ALTER TABLE system_users ADD COLUMN IF NOT EXISTS managed_users JSON DEFAULT '[]';",
+            "ALTER TABLE system_users ADD COLUMN IF NOT EXISTS managed_queues JSON DEFAULT '[]';",
+            "ALTER TABLE system_users ADD COLUMN IF NOT EXISTS cti_config JSON DEFAULT '{}';",
+            "ALTER TABLE system_users ADD COLUMN IF NOT EXISTS theme_mode VARCHAR DEFAULT 'light';",
             "ALTER TABLE system_users ADD COLUMN IF NOT EXISTS call_panel_prefs JSON DEFAULT '{}';",
+            "ALTER TABLE system_users ADD COLUMN IF NOT EXISTS wallboard_layout JSON DEFAULT '{}';",
+            "ALTER TABLE system_users ADD COLUMN IF NOT EXISTS max_concurrent_outbound INTEGER DEFAULT 0;",
+            "ALTER TABLE system_users ADD COLUMN IF NOT EXISTS outbound_quarantined BOOLEAN DEFAULT FALSE;",
             "ALTER TABLE system_users ALTER COLUMN avatar TYPE TEXT;",
         ):
             try:
@@ -25269,9 +25467,9 @@ async def new_get_users_endpoint(request: Request, user_info: dict = Depends(get
                 u["sip_username"] = disk_u.get("sip_username")
             if not u.get("sip_devices") and disk_u.get("sip_devices"):
                 u["sip_devices"] = disk_u.get("sip_devices")
-            disk_tf_ts = int(disk_u.get("two_factor_updated_ts") or 0)
+            disk_tf_ts = _norm_2fa_ts(disk_u.get("two_factor_updated_ts"))
             db_tf_meta = (u.get("call_panel_prefs") or {}).get("twoFactorMeta") if isinstance(u.get("call_panel_prefs"), dict) else None
-            db_tf_ts = int((db_tf_meta or {}).get("updatedTs") or 0)
+            db_tf_ts = _norm_2fa_ts((db_tf_meta or {}).get("updatedTs"))
             if disk_tf_ts and disk_tf_ts >= db_tf_ts:
                 u["two_factor_enabled"] = bool(disk_u.get("two_factor_enabled", False))
                 u["two_factor_method"] = disk_u.get("two_factor_method") or "google_auth"
@@ -25314,8 +25512,18 @@ async def new_get_users_endpoint(request: Request, user_info: dict = Depends(get
                 u["outbound_quarantined"] = True
         curr_tf_meta = (u.get("call_panel_prefs") or {}).get("twoFactorMeta") if isinstance(u.get("call_panel_prefs"), dict) else None
         if isinstance(curr_tf_meta, dict):
-            if not u.get("two_factor_updated_ts") and curr_tf_meta.get("updatedTs"):
-                u["two_factor_updated_ts"] = int(curr_tf_meta.get("updatedTs") or 0)
+            meta_ts = _norm_2fa_ts(curr_tf_meta.get("updatedTs"))
+            curr_ts = _norm_2fa_ts(u.get("two_factor_updated_ts"))
+            if meta_ts and meta_ts > curr_ts:
+                if "enabled" in curr_tf_meta:
+                    u["two_factor_enabled"] = bool(curr_tf_meta.get("enabled"))
+                if curr_tf_meta.get("method"):
+                    u["two_factor_method"] = curr_tf_meta.get("method")
+                if "enrolled" in curr_tf_meta:
+                    u["two_factor_enrolled"] = bool(curr_tf_meta.get("enrolled"))
+                u["two_factor_updated_ts"] = meta_ts
+            elif not curr_ts and meta_ts:
+                u["two_factor_updated_ts"] = meta_ts
             if not u.get("gsm_number") and curr_tf_meta.get("phone"):
                 u["gsm_number"] = curr_tf_meta.get("phone")
         if isinstance(u.get("call_panel_prefs"), dict) and u["call_panel_prefs"].get("profileAvatar") and not (disk_u and disk_u.get("avatar_updated_ts")):
@@ -25332,14 +25540,14 @@ async def new_get_users_endpoint(request: Request, user_info: dict = Depends(get
             u["two_factor_method"] = "google_auth"
         u["two_factor_enabled"] = bool(u.get("two_factor_enabled", False))
         u["two_factor_enrolled"] = bool(u.get("two_factor_enrolled", False))
-        for mk in ("managed_users", "managed_queues"):
+        for mk in ("managed_users", "managed_queues", "profiles", "sip_devices", "active_sessions"):
             mval = u.get(mk)
             if isinstance(mval, str) and mval.strip().startswith("["):
                 try:
                     u[mk] = json.loads(mval)
                 except Exception:
                     u[mk] = []
-            elif not isinstance(mval, list):
+            elif mk in ("managed_users", "managed_queues", "active_sessions") and not isinstance(mval, list):
                 u[mk] = []
         for fk in ("forwarding_always", "forwarding_busy", "forwarding_no_answer", "cti_config", "call_panel_prefs", "wallboard_layout"):
             fval = u.get(fk)
@@ -25410,7 +25618,9 @@ async def new_get_users_endpoint(request: Request, user_info: dict = Depends(get
 @app.post("/api/settings/users")
 @app.post("/settings/users")
 async def new_save_users_endpoint(payload: Union[List[UserSchema], UserSchema], background_tasks: BackgroundTasks, user_info: dict = Depends(get_user_info), db: AsyncSession = Depends(get_db)):
+    processed_items_data = []
     try:
+        import copy
         from sqlalchemy.orm.attributes import flag_modified
         is_single = not isinstance(payload, list)
         items_list = [payload] if is_single else payload
@@ -25421,6 +25631,10 @@ async def new_save_users_endpoint(payload: Union[List[UserSchema], UserSchema], 
 
         async def _self_heal_save_user_cols_async():
             for ddl_stmt in (
+                "ALTER TABLE system_users ADD COLUMN IF NOT EXISTS active_profile VARCHAR DEFAULT 'available';",
+                "ALTER TABLE system_users ADD COLUMN IF NOT EXISTS profiles JSON DEFAULT '[]';",
+                "ALTER TABLE system_users ADD COLUMN IF NOT EXISTS sip_username VARCHAR;",
+                "ALTER TABLE system_users ADD COLUMN IF NOT EXISTS max_activations INTEGER DEFAULT 1;",
                 "ALTER TABLE system_users ADD COLUMN IF NOT EXISTS sip_devices JSON DEFAULT '[]';",
                 "ALTER TABLE system_users ADD COLUMN IF NOT EXISTS follow_me JSON;",
                 "ALTER TABLE system_users ADD COLUMN IF NOT EXISTS two_factor_enabled BOOLEAN DEFAULT FALSE;",
@@ -25431,6 +25645,10 @@ async def new_save_users_endpoint(payload: Union[List[UserSchema], UserSchema], 
                 "ALTER TABLE system_users ADD COLUMN IF NOT EXISTS managed_users JSON DEFAULT '[]';",
                 "ALTER TABLE system_users ADD COLUMN IF NOT EXISTS managed_queues JSON DEFAULT '[]';",
                 "ALTER TABLE system_users ADD COLUMN IF NOT EXISTS cti_config JSON DEFAULT '{}';",
+                "ALTER TABLE system_users ADD COLUMN IF NOT EXISTS theme_mode VARCHAR DEFAULT 'light';",
+                "ALTER TABLE system_users ADD COLUMN IF NOT EXISTS wallboard_layout JSON DEFAULT '{}';",
+                "ALTER TABLE system_users ADD COLUMN IF NOT EXISTS max_concurrent_outbound INTEGER DEFAULT 0;",
+                "ALTER TABLE system_users ADD COLUMN IF NOT EXISTS outbound_quarantined BOOLEAN DEFAULT FALSE;",
                 "ALTER TABLE system_users ALTER COLUMN avatar TYPE TEXT;",
             ):
                 try:
@@ -25630,7 +25848,7 @@ async def new_save_users_endpoint(payload: Union[List[UserSchema], UserSchema], 
             if data.get("avatar"):
                 data["call_panel_prefs"] = {**data["call_panel_prefs"], "profileAvatar": data["avatar"]}
                 data["avatar_updated_ts"] = int(datetime.datetime.now().timestamp())
-            now_2fa_ts = int(datetime.datetime.now().timestamp())
+            now_2fa_ts = int(time.time() * 1000)
             data["two_factor_updated_ts"] = now_2fa_ts
             data["call_panel_prefs"] = {
                 **data["call_panel_prefs"],
@@ -25677,35 +25895,37 @@ async def new_save_users_endpoint(payload: Union[List[UserSchema], UserSchema], 
                 old_ext = str(getattr(target_user, "extension", "") or ext_str or "").strip()
                 new_name = str(data.get("full_name") or "").strip()
 
-                if old_name and old_ext:
+                if old_name and new_name and old_name != new_name and old_ext:
                     try:
-                        stmt_preserve_calls = (
-                            update(Call)
-                            .where(
-                                or_(Call.agent_name.is_(None), Call.agent_name == ""),
-                                or_(
-                                    Call.caller_number == old_ext,
-                                    Call.callee_number == old_ext,
-                                    Call.hangup_source == f"transfer:{old_ext}"
+                        async with db.begin_nested():
+                            stmt_preserve_calls = (
+                                update(Call)
+                                .where(
+                                    or_(Call.agent_name.is_(None), Call.agent_name == ""),
+                                    or_(
+                                        Call.caller_number == old_ext,
+                                        Call.callee_number == old_ext,
+                                        Call.hangup_source == f"transfer:{old_ext}"
+                                    )
                                 )
+                                .values(agent_name=old_name)
                             )
-                            .values(agent_name=old_name)
-                        )
-                        await db.execute(stmt_preserve_calls)
+                            await db.execute(stmt_preserve_calls)
 
-                        stmt_preserve_breaks = (
-                            update(AgentBreakLog)
-                            .where(
-                                or_(AgentBreakLog.agent_name.is_(None), AgentBreakLog.agent_name == ""),
-                                or_(
-                                    AgentBreakLog.extension == old_ext,
-                                    AgentBreakLog.user_id == str(target_user.id),
-                                    AgentBreakLog.user_id == old_ext
+                        async with db.begin_nested():
+                            stmt_preserve_breaks = (
+                                update(AgentBreakLog)
+                                .where(
+                                    or_(AgentBreakLog.agent_name.is_(None), AgentBreakLog.agent_name == ""),
+                                    or_(
+                                        AgentBreakLog.extension == old_ext,
+                                        AgentBreakLog.user_id == str(target_user.id),
+                                        AgentBreakLog.user_id == old_ext
+                                    )
                                 )
+                                .values(agent_name=old_name)
                             )
-                            .values(agent_name=old_name)
-                        )
-                        await db.execute(stmt_preserve_breaks)
+                            await db.execute(stmt_preserve_breaks)
                     except Exception as e_pres:
                         print(f"[Preserve Historical Agent Name Warning]: {e_pres}")
 
@@ -25743,17 +25963,19 @@ async def new_save_users_endpoint(payload: Union[List[UserSchema], UserSchema], 
                         "diff": user_diff
                     })
             else:
-                new_sys_user = SystemUser(**filtered_data)
-                try:
-                    db.add(new_sys_user)
-                except Exception:
-                    pass
-                changes.append({
-                    "action": "CREATED",
-                    "name": data.get("full_name"),
-                    "extension": data.get("extension"),
-                    "summary": f"Yeni kullanıcı eklendi: {data.get('full_name')} (Dahili: {data.get('extension')}, Rol: {data.get('role')})"
-                })
+                is_virtual_admin = item_id_str in ("9999", "admin") or (str(data.get("role") or "").lower() == "admin" and not ext_str)
+                if not is_virtual_admin and ext_str:
+                    new_sys_user = SystemUser(**filtered_data)
+                    try:
+                        db.add(new_sys_user)
+                    except Exception:
+                        pass
+                    changes.append({
+                        "action": "CREATED",
+                        "name": data.get("full_name"),
+                        "extension": data.get("extension"),
+                        "summary": f"Yeni kullanıcı eklendi: {data.get('full_name')} (Dahili: {data.get('extension')}, Rol: {data.get('role')})"
+                    })
 
         if not is_single and existing_users_db:
             for u in existing_users_db:
@@ -25887,7 +26109,24 @@ async def new_save_users_endpoint(payload: Union[List[UserSchema], UserSchema], 
         raise
     except Exception as e:
         print(f"[Save Users Fatal Error]: {e}")
-        return {"status": "success", "users": settings_db.get("users", [])}
+        if processed_items_data:
+            fallback_map = {
+                str(u.get("id") or u.get("extension") or idx): dict(u)
+                for idx, u in enumerate(settings_db.get("users", []))
+                if isinstance(u, dict)
+            }
+            for p_data in processed_items_data:
+                pkey = str(p_data.get("id") or p_data.get("extension") or "")
+                if pkey:
+                    fallback_map[pkey] = p_data
+                try:
+                    _sync_user_2fa_to_db(p_data)
+                except Exception:
+                    pass
+            settings_db["users"] = list(fallback_map.values())
+            save_settings(settings_db)
+            return {"status": "success", "users": settings_db["users"]}
+        raise HTTPException(status_code=500, detail=f"Kullanıcı kaydedilirken hata oluştu: {e}")
 
 
 class CtiLookupRequest(BaseModel):

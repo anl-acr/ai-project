@@ -1132,6 +1132,7 @@ export default function Home() {
   const wasSettingsModalOpenRef = React.useRef(false);
   const hydratedModalUserKeyRef = React.useRef("");
   const modalInitialSnapshotRef = React.useRef(null);
+  const userTouched2faInModalRef = React.useRef(false);
   const [modalDraftWallboardLayout, setModalDraftWallboardLayout] = useState(null);
 
   useEffect(() => {
@@ -1254,13 +1255,22 @@ export default function Home() {
       .then(d => setAgentAiAgentsList(Array.isArray(d) ? d : (d?.ai_agents || [])))
       .catch(() => {});
 
+    userTouched2faInModalRef.current = false;
     setAutoLogoutEnabled(currentUser.auto_logout_enabled ?? (localStorage.getItem("auto_logout_enabled") === "true"));
     setAutoLogoutDuration(currentUser.auto_logout_duration ?? parseInt(localStorage.getItem("auto_logout_duration") || "1"));
-    setTwoFactorEnabled(currentUser.two_factor_enabled ?? (localStorage.getItem("two_factor_enabled") === "true"));
-    const norm2faMethod = (!currentUser.two_factor_method || currentUser.two_factor_method === "app") ? "google_auth" : currentUser.two_factor_method;
+    const initTfMeta = currentUser?.call_panel_prefs?.twoFactorMeta && typeof currentUser.call_panel_prefs.twoFactorMeta === "object"
+      ? currentUser.call_panel_prefs.twoFactorMeta
+      : null;
+    const init2faEnabled =
+      typeof currentUser.two_factor_enabled === "boolean"
+        ? currentUser.two_factor_enabled
+        : (initTfMeta?.enabled ?? (localStorage.getItem("two_factor_enabled") === "true"));
+    setTwoFactorEnabled(Boolean(init2faEnabled));
+    const raw2faMethod = currentUser.two_factor_method || initTfMeta?.method;
+    const norm2faMethod = (!raw2faMethod || raw2faMethod === "app") ? "google_auth" : raw2faMethod;
     setTwoFactorMethod(norm2faMethod);
     setTwoFactorSecret(currentUser.two_factor_secret || "");
-    setTwoFactorEnrolled(Boolean(currentUser.two_factor_enrolled));
+    setTwoFactorEnrolled(Boolean(currentUser.two_factor_enrolled ?? initTfMeta?.enrolled));
     setTwoFactorQrSvg("");
     setTwoFactorTestCode("");
     setTwoFactorStatusMsg(null);
@@ -1270,6 +1280,44 @@ export default function Home() {
     setNewPassword("");
     setConfirmPassword("");
     setPasswordStatusMsg(null);
+
+    fetch(`${protocol}//${backendHost}/api/settings/users?tenant_id=all`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((list) => {
+        if (!Array.isArray(list) || userTouched2faInModalRef.current) return;
+        const freshU =
+          list.find(
+            (u) =>
+              (currentUser.id && String(u.id) === String(currentUser.id)) ||
+              (currentUser.extension && String(u.extension) === String(currentUser.extension))
+          ) ||
+          (currentUser.role === "admin"
+            ? list.find(
+                (u) =>
+                  String(u.id) === "9999" ||
+                  u.username === "admin" ||
+                  u.email === "admin@localhost" ||
+                  (!u.extension && u.role === "admin")
+              ) || list.find((u) => u.role === "admin")
+            : null);
+        if (!freshU) return;
+        const fMeta = freshU?.call_panel_prefs?.twoFactorMeta && typeof freshU.call_panel_prefs.twoFactorMeta === "object"
+          ? freshU.call_panel_prefs.twoFactorMeta
+          : null;
+        const freshEnabled =
+          typeof freshU.two_factor_enabled === "boolean"
+            ? freshU.two_factor_enabled
+            : Boolean(fMeta?.enabled ?? false);
+        const freshRawMethod = freshU.two_factor_method || fMeta?.method;
+        const freshMethod = (!freshRawMethod || freshRawMethod === "app") ? "google_auth" : freshRawMethod;
+        setTwoFactorEnabled(freshEnabled);
+        setTwoFactorMethod(freshMethod);
+        if (freshU.two_factor_secret) setTwoFactorSecret(freshU.two_factor_secret);
+        setTwoFactorEnrolled(Boolean(freshU.two_factor_enrolled ?? fMeta?.enrolled));
+        const freshPhone = freshU.gsm_number || freshU.follow_me?.mobile_number || fMeta?.phone || "";
+        if (freshPhone) setGsmNumber(freshPhone);
+      })
+      .catch(() => {});
   }, [settingsModalOpen, currentUser, backendHost]);
 
   const handleCancelSettingsModal = React.useCallback(() => {
@@ -1756,7 +1804,8 @@ export default function Home() {
         if (savedUserId === 'admin' || savedUserId === '9999') {
           const adminUserFromDb = Array.isArray(usersData)
             ? usersData.find(u => String(u.id) === '9999' || u.username === 'admin' || u.email === 'admin@localhost' || (!u.extension && u.role === 'admin')) ||
-              usersData.find(u => u.id === 1 && u.role === 'admin')
+              usersData.find(u => u.id === 1 && u.role === 'admin') ||
+              usersData.find(u => u.role === 'admin')
             : null;
           currentUserData = adminUserFromDb ? { ...SUPER_ADMIN, ...adminUserFromDb } : SUPER_ADMIN;
         } else if (Array.isArray(usersData) && usersData.length > 0) {
@@ -2231,7 +2280,8 @@ export default function Home() {
     if (!foundUser && (String(userId) === "admin" || String(userId) === "9999" || String(userId) === "1")) {
       const adminDb =
         systemUsers.find(u => String(u.id) === "9999" || u.username === "admin" || u.email === "admin@localhost" || (!u.extension && u.role === "admin")) ||
-        systemUsers.find(u => u.id === 1 && u.role === "admin");
+        systemUsers.find(u => u.id === 1 && u.role === "admin") ||
+        systemUsers.find(u => u.role === "admin");
       foundUser = adminDb ? { ...SUPER_ADMIN, ...adminDb } : SUPER_ADMIN;
     }
     if (foundUser) {
@@ -8789,6 +8839,7 @@ export default function Home() {
                       <button
                         type="button"
                         onClick={() => {
+                          userTouched2faInModalRef.current = true;
                           const nextVal = !twoFactorEnabled;
                           setTwoFactorEnabled(nextVal);
                           setTwoFactorStatusMsg(null);
@@ -8822,6 +8873,7 @@ export default function Home() {
                                   key={m.id}
                                   type="button"
                                   onClick={() => {
+                                    userTouched2faInModalRef.current = true;
                                     setTwoFactorMethod(m.id);
                                     setTwoFactorStatusMsg(null);
                                     setTwoFactorTestCode("");
@@ -8912,7 +8964,10 @@ export default function Home() {
                                   autoCapitalize="off"
                                   spellCheck={false}
                                   value={gsmNumber}
-                                  onChange={(e) => setGsmNumber(e.target.value)}
+                                  onChange={(e) => {
+                                    userTouched2faInModalRef.current = true;
+                                    setGsmNumber(e.target.value);
+                                  }}
                                   placeholder="Örn: 0532 123 45 67"
                                   className="w-full px-2.5 py-1.5 rounded-lg bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-xs font-semibold text-slate-800 dark:text-white outline-none"
                                 />
@@ -9238,14 +9293,45 @@ export default function Home() {
                             });
                             if (res.ok) {
                               const data = await res.json();
+                              try {
+                                await fetch(`${protocol}//${backendHost}/api/auth/2fa/save-config`, {
+                                  method: "POST",
+                                  headers: { "Content-Type": "application/json" },
+                                  body: JSON.stringify({
+                                    user_id: String(currentUser.id || currentUser.extension || "admin"),
+                                    extension: currentUser.extension || "",
+                                    email: currentUser.email || "",
+                                    enabled: Boolean(twoFactorEnabled),
+                                    method: twoFactorMethod || "google_auth",
+                                    phone: cleanedGsmNumber,
+                                    secret: twoFactorSecret || null,
+                                    enrolled: Boolean(twoFactorEnrolled)
+                                  })
+                                });
+                              } catch (e2fa) {}
+                              const serverTfMeta =
+                                data.user?.call_panel_prefs?.twoFactorMeta &&
+                                typeof data.user.call_panel_prefs.twoFactorMeta === "object"
+                                  ? data.user.call_panel_prefs.twoFactorMeta
+                                  : {
+                                      enabled: Boolean(twoFactorEnabled),
+                                      method: twoFactorMethod || "google_auth",
+                                      enrolled: Boolean(twoFactorEnrolled),
+                                      phone: cleanedGsmNumber,
+                                      updatedTs: Date.now()
+                                    };
                               const mergedSavedUser = {
                                 ...(currentUser || {}),
                                 ...localProfilePatch,
                                 ...(data.user || {}),
+                                two_factor_enabled: Boolean(twoFactorEnabled),
+                                two_factor_method: twoFactorMethod || "google_auth",
+                                gsm_number: cleanedGsmNumber,
                                 avatar: agentAvatar,
                                 call_panel_prefs: {
                                   ...(data.user?.call_panel_prefs && typeof data.user.call_panel_prefs === "object" ? data.user.call_panel_prefs : {}),
-                                  ...savedPrefsSnapshot
+                                  ...savedPrefsSnapshot,
+                                  twoFactorMeta: serverTfMeta
                                 },
                                 ...(modalDraftWallboardLayout ? { wallboard_layout: modalDraftWallboardLayout } : {})
                               };

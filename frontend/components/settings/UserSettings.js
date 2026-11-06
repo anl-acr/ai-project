@@ -1494,11 +1494,19 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
 
     setRecordingActive(u.recording_active || false);
     setTransport(u.transport || "UDP");
-    const normMethod = (!u.two_factor_method || u.two_factor_method === "app") ? "google_auth" : u.two_factor_method;
-    setTwoFactorEnabled(Boolean(u.two_factor_enabled));
+    const tfMeta = u?.call_panel_prefs?.twoFactorMeta && typeof u.call_panel_prefs.twoFactorMeta === "object"
+      ? u.call_panel_prefs.twoFactorMeta
+      : null;
+    const rawMethod = u.two_factor_method || tfMeta?.method;
+    const normMethod = (!rawMethod || rawMethod === "app") ? "google_auth" : rawMethod;
+    const resolved2faEnabled =
+      typeof u.two_factor_enabled === "boolean"
+        ? u.two_factor_enabled
+        : Boolean(u.two_factor_enabled ?? tfMeta?.enabled ?? false);
+    setTwoFactorEnabled(resolved2faEnabled);
     setTwoFactorMethod(normMethod);
     setTwoFactorSecret(u.two_factor_secret || "");
-    setTwoFactorEnrolled(Boolean(u.two_factor_enrolled));
+    setTwoFactorEnrolled(Boolean(u.two_factor_enrolled ?? tfMeta?.enrolled));
     setTwoFactorQrSvg("");
     setTwoFactorTestCode("");
     setTwoFactorStatusMsg(null);
@@ -1704,11 +1712,20 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
 
     setSubmitting(true);
     let ok = false;
+    let savedTargetId = editingUser?.id;
     try {
       if (editingUser) {
         // Edit mode
         const updated = users.map((u) => {
-          if (u.id === editingUser.id) {
+          const idMatches =
+            editingUser.id !== undefined &&
+            editingUser.id !== null &&
+            String(u.id) === String(editingUser.id);
+          const extMatches =
+            !idMatches &&
+            editingUser.extension &&
+            String(u.extension) === String(editingUser.extension);
+          if (idMatches || extMatches) {
             return { ...u, ...userData };
           }
           return u;
@@ -1721,12 +1738,66 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
         // Add mode
         const numericIds = users.map((u) => (Number.isFinite(Number(u.id)) ? Number(u.id) : 0));
         const nextId = numericIds.length > 0 ? Math.max(...numericIds) + 1 : 1;
+        savedTargetId = nextId;
         const newUser = { id: nextId, ...userData };
         const updated = [...users, newUser];
         ok = await handleSaveAll(updated);
         if (ok) {
           await syncUserAssociations(newUser.id);
         }
+      }
+
+      if (ok) {
+        try {
+          const tfRes = await safeFetch("/api/auth/2fa/save-config", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "X-User-ID": localStorage.getItem("current_user_id") || "admin"
+            },
+            body: JSON.stringify({
+              user_id: savedTargetId ?? extInput ?? "admin",
+              extension: extInput,
+              email: email.trim(),
+              enabled: Boolean(twoFactorEnabled),
+              method: twoFactorMethod || "google_auth",
+              phone: cleanFmMobile,
+              secret: twoFactorSecret || null,
+              enrolled: Boolean(twoFactorEnrolled)
+            })
+          });
+          if (tfRes.ok) {
+            const tfData = await tfRes.json().catch(() => null);
+            if (tfData?.user?.two_factor_secret && !userData.two_factor_secret) {
+              userData.two_factor_secret = tfData.user.two_factor_secret;
+            }
+          }
+        } catch (tfErr) {
+          console.warn("Atomic 2FA save notice:", tfErr);
+        }
+
+        lastSaveCompletedAtRef.current = Date.now();
+        setUsers((prev) =>
+          Array.isArray(prev)
+            ? prev.map((u) => {
+                const matchById =
+                  savedTargetId !== undefined &&
+                  savedTargetId !== null &&
+                  String(u.id) === String(savedTargetId);
+                const matchByExt = extInput && String(u.extension) === String(extInput);
+                return matchById || matchByExt
+                  ? {
+                      ...u,
+                      ...userData,
+                      two_factor_enabled: Boolean(twoFactorEnabled),
+                      two_factor_method: twoFactorMethod || "google_auth",
+                      two_factor_enrolled: Boolean(twoFactorEnrolled),
+                      gsm_number: cleanFmMobile || ""
+                    }
+                  : u;
+              })
+            : prev
+        );
       }
     } finally {
       setSubmitting(false);
@@ -2521,7 +2592,7 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
 
                 {/* Tab Content Area */}
                 <div className="flex-1 overflow-y-auto">
-                    <form onSubmit={handleFormSubmit} className="p-7 space-y-6 h-full flex flex-col justify-between">
+                    <form noValidate onSubmit={handleFormSubmit} className="p-7 space-y-6 h-full flex flex-col justify-between">
                         {error && (
                           <div className="p-3.5 bg-rose-50 dark:bg-rose-955/15 border border-rose-200/50 dark:border-rose-900/30 rounded-2xl text-primary dark:text-rose-400 text-xs font-bold flex items-center justify-between gap-2.5">
                             <span>{error}</span>
