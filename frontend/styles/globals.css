@@ -607,6 +607,17 @@ label.flex.items-center {
   animation: aidaNavIconPop 420ms cubic-bezier(0.22, 1.25, 0.36, 1) backwards;
 }
 
+@media (forced-colors: active) {
+  .aida-sidebar-group-body > button.shadow-sm {
+    border-color: Highlight;
+    color: Highlight;
+  }
+
+  .aida-sidebar-group-body > button.shadow-sm::before {
+    background: Highlight;
+  }
+}
+
 /* 6. Scoped View Transition timing & reduced-motion safety */
 ::view-transition-group(*) {
   animation-duration: 460ms;
