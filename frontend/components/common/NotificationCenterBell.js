@@ -40,8 +40,33 @@ export default function NotificationCenterBell({
 
   const containerRef = useRef(null);
   const notifiedDesktopIdsRef = useRef(new Set());
+  const dismissedNotifIdsRef = useRef(new Set());
+  const seenWhileOpenRef = useRef(new Set());
+  const isOpenRef = useRef(false);
 
   const API_BASE = getApiBaseUrl(backendHost);
+
+  const getDismissedStorageKey = useCallback(() => {
+    const uid =
+      currentUser?.id ||
+      (typeof window !== "undefined" &&
+        (sessionStorage.getItem("current_user_id") || localStorage.getItem("current_user_id"))) ||
+      "admin";
+    const tenantId =
+      (typeof window !== "undefined" && localStorage.getItem("selected_tenant_id")) || "tenant-default";
+    return `aida_dismissed_notifs_${tenantId}_${uid}`;
+  }, [currentUser]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      const raw = localStorage.getItem(getDismissedStorageKey());
+      const parsed = raw ? JSON.parse(raw) : [];
+      dismissedNotifIdsRef.current = new Set(Array.isArray(parsed) ? parsed : []);
+    } catch (e) {
+      dismissedNotifIdsRef.current = new Set();
+    }
+  }, [getDismissedStorageKey]);
 
   const isAdmin =
     String(currentUser?.role || "").toLowerCase() === "admin" ||
@@ -126,9 +151,11 @@ export default function NotificationCenterBell({
       });
       if (!res.ok) return;
       const data = await res.json();
-      const list = Array.isArray(data.notifications) ? data.notifications : [];
+      const rawList = Array.isArray(data.notifications) ? data.notifications : [];
+      const list = rawList.filter((item) => item?.id && !dismissedNotifIdsRef.current.has(item.id));
+      const computedUnread = list.reduce((acc, n) => acc + (n.unread ? 1 : 0), 0);
       setNotifications(list);
-      setUnreadCount(Number(data.unread_count || 0));
+      setUnreadCount(computedUnread);
       setDueCallbacks(Array.isArray(data.due_callbacks) ? data.due_callbacks : []);
 
       // Fire native desktop push for newly seen critical/warning unread items (and omnichannel/missed in desktop app)
@@ -149,6 +176,66 @@ export default function NotificationCenterBell({
     } catch (e) {}
   }, [API_BASE, buildHeaders, currentUser, triggerBrowserNotification]);
 
+  const markIdsRead = useCallback(
+    async (ids) => {
+      const validIds = Array.from(new Set((ids || []).filter(Boolean)));
+      if (validIds.length === 0) return;
+
+      validIds.forEach((id) => {
+        dismissedNotifIdsRef.current.add(id);
+        seenWhileOpenRef.current.delete(id);
+      });
+
+      if (typeof window !== "undefined") {
+        try {
+          const arr = Array.from(dismissedNotifIdsRef.current).slice(-300);
+          dismissedNotifIdsRef.current = new Set(arr);
+          localStorage.setItem(getDismissedStorageKey(), JSON.stringify(arr));
+        } catch (e) {}
+      }
+
+      setNotifications((prev) => {
+        const next = prev.filter((n) => !validIds.includes(n.id));
+        setUnreadCount(next.reduce((acc, n) => acc + (n.unread ? 1 : 0), 0));
+        return next;
+      });
+
+      try {
+        await fetch(`${API_BASE}/api/workspace/notifications/read`, {
+          method: "POST",
+          headers: buildHeaders(),
+          body: JSON.stringify({ ids: validIds }),
+        });
+      } catch (e) {}
+    },
+    [API_BASE, buildHeaders, getDismissedStorageKey]
+  );
+
+  const closeDrawerAndDismissSeen = useCallback(
+    (extraIds = []) => {
+      const toDismiss = new Set([
+        ...Array.from(seenWhileOpenRef.current),
+        ...(Array.isArray(extraIds) ? extraIds : []),
+      ]);
+      seenWhileOpenRef.current.clear();
+      isOpenRef.current = false;
+      setIsOpen(false);
+      if (toDismiss.size > 0) {
+        markIdsRead(Array.from(toDismiss));
+      }
+    },
+    [markIdsRead]
+  );
+
+  const toggleDrawer = useCallback(() => {
+    if (isOpenRef.current) {
+      closeDrawerAndDismissSeen();
+    } else {
+      isOpenRef.current = true;
+      setIsOpen(true);
+    }
+  }, [closeDrawerAndDismissSeen]);
+
   useEffect(() => {
     fetchNotifications();
     const timer = setInterval(fetchNotifications, 15000);
@@ -158,7 +245,7 @@ export default function NotificationCenterBell({
       }
     };
     const onToggleShortcut = () => {
-      setIsOpen((prev) => !prev);
+      toggleDrawer();
     };
     const onRefresh = () => fetchNotifications();
 
@@ -171,16 +258,18 @@ export default function NotificationCenterBell({
       window.removeEventListener("TOGGLE_NOTIFICATION_DRAWER", onToggleShortcut);
       window.removeEventListener("REFRESH_NOTIFICATIONS", onRefresh);
     };
-  }, [fetchNotifications]);
+  }, [fetchNotifications, toggleDrawer]);
 
   useEffect(() => {
     const handleClickOutside = (e) => {
-      if (containerRef.current && !containerRef.current.contains(e.target)) {
-        setIsOpen(false);
+      if (isOpenRef.current && containerRef.current && !containerRef.current.contains(e.target)) {
+        closeDrawerAndDismissSeen();
       }
     };
     const handleEsc = (e) => {
-      if (e.key === "Escape") setIsOpen(false);
+      if (e.key === "Escape" && isOpenRef.current) {
+        closeDrawerAndDismissSeen();
+      }
     };
     document.addEventListener("mousedown", handleClickOutside);
     window.addEventListener("keydown", handleEsc);
@@ -188,27 +277,12 @@ export default function NotificationCenterBell({
       document.removeEventListener("mousedown", handleClickOutside);
       window.removeEventListener("keydown", handleEsc);
     };
-  }, []);
-
-  const markIdsRead = async (ids) => {
-    if (!ids || ids.length === 0) return;
-    setNotifications((prev) =>
-      prev.map((n) => (ids.includes(n.id) ? { ...n, unread: false } : n))
-    );
-    setUnreadCount((prev) => Math.max(0, prev - ids.length));
-    try {
-      await fetch(`${API_BASE}/api/workspace/notifications/read`, {
-        method: "POST",
-        headers: buildHeaders(),
-        body: JSON.stringify({ ids }),
-      });
-    } catch (e) {}
-  };
+  }, [closeDrawerAndDismissSeen]);
 
   const handleMarkAllRead = async () => {
-    const unreadIds = notifications.filter((n) => n.unread).map((n) => n.id);
-    if (unreadIds.length === 0) return;
-    await markIdsRead(unreadIds);
+    const allIds = notifications.map((n) => n.id).filter(Boolean);
+    if (allIds.length === 0) return;
+    await markIdsRead(allIds);
   };
 
   const handleToggleDesktopPush = async () => {
@@ -226,10 +300,7 @@ export default function NotificationCenterBell({
   };
 
   const handleItemClick = (item) => {
-    if (item.unread) {
-      markIdsRead([item.id]);
-    }
-    setIsOpen(false);
+    closeDrawerAndDismissSeen(item?.id ? [item.id] : []);
     if (item.target_tab && typeof onNavigateTab === "function") {
       onNavigateTab(item.target_tab, item.target_subtab || null, item);
     }
@@ -300,6 +371,15 @@ export default function NotificationCenterBell({
     return true;
   });
 
+  useEffect(() => {
+    if (!isOpen) return;
+    filteredNotifications.forEach((item) => {
+      if (item?.id) {
+        seenWhileOpenRef.current.add(item.id);
+      }
+    });
+  }, [isOpen, filteredNotifications]);
+
   // Live floating crisis alerts (only unread & not dismissed in this session)
   const activeCrisisPopups = hasCrisisAccess
     ? notifications.filter(
@@ -325,7 +405,7 @@ export default function NotificationCenterBell({
       <div ref={containerRef} className="relative">
         <button
           type="button"
-          onClick={() => setIsOpen((prev) => !prev)}
+          onClick={toggleDrawer}
           aria-label="Canlı Bildirim Merkezi"
           aria-expanded={isOpen}
           title="Canlı Bildirim Merkezi (Alt+N)"
@@ -335,12 +415,12 @@ export default function NotificationCenterBell({
               : "border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800"
           }`}
         >
-          {unreadCount > 0 ? (
+          {unreadCount > 0 && !isOpen ? (
             <BellRing size={14} className={isOpen ? "text-white" : text} />
           ) : (
             <Bell size={14} />
           )}
-          {unreadCount > 0 && (
+          {unreadCount > 0 && !isOpen && (
             <span className="absolute -top-1 -right-1 min-w-[16px] h-4 px-1 rounded-full bg-rose-600 text-white text-[9px] font-extrabold flex items-center justify-center shadow-sm">
               {unreadCount > 9 ? "9+" : unreadCount}
             </span>
@@ -382,11 +462,11 @@ export default function NotificationCenterBell({
                     {desktopPushEnabled ? "Masaüstü: Açık" : "Masaüstü: Kapalı"}
                   </button>
                 )}
-                {unreadCount > 0 && (
+                {notifications.length > 0 && (
                   <button
                     type="button"
                     onClick={handleMarkAllRead}
-                    title="Tümünü Okundu İşaretle"
+                    title="Tüm Bildirimleri Temizle"
                     className="p-1 rounded-lg text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer"
                   >
                     <CheckCheck size={14} />
@@ -435,7 +515,7 @@ export default function NotificationCenterBell({
                   <div
                     key={item.id}
                     onClick={() => handleItemClick(item)}
-                    className={`px-4 py-3 flex items-start gap-3 transition cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/60 ${
+                    className={`group px-4 py-3 flex items-start gap-3 transition cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/60 ${
                       item.unread ? "bg-primary/[0.03] dark:bg-primary/[0.06]" : ""
                     }`}
                   >
@@ -447,9 +527,23 @@ export default function NotificationCenterBell({
                         <p className="text-[11px] font-bold text-slate-800 dark:text-slate-100 leading-snug">
                           {item.title}
                         </p>
-                        {item.unread && (
-                          <span className={`w-2 h-2 rounded-full shrink-0 mt-1 ${bg}`} />
-                        )}
+                        <div className="flex items-center gap-1.5 shrink-0">
+                          {item.unread && (
+                            <span className={`w-2 h-2 rounded-full shrink-0 ${bg}`} />
+                          )}
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              markIdsRead([item.id]);
+                            }}
+                            title="Bildirimi Kaldır"
+                            aria-label="Bildirimi Kaldır"
+                            className="p-0.5 rounded-md text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-200/70 dark:hover:bg-slate-700/70 transition cursor-pointer"
+                          >
+                            <X size={12} />
+                          </button>
+                        </div>
                       </div>
                       <p className="text-[10px] text-slate-500 dark:text-slate-400 mt-0.5 line-clamp-2">
                         {item.body}
@@ -471,7 +565,7 @@ export default function NotificationCenterBell({
                             type="button"
                             onClick={(e) => {
                               e.stopPropagation();
-                              setIsOpen(false);
+                              closeDrawerAndDismissSeen([item.id]);
                               window.dispatchEvent(
                                 new CustomEvent("OPEN_CUSTOMER_360", {
                                   detail: { phone: item.phone },

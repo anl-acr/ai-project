@@ -1,4 +1,5 @@
 import re
+import copy
 import uuid
 import time
 import datetime
@@ -7,6 +8,7 @@ from pydantic import BaseModel
 from fastapi import APIRouter, Depends, HTTPException, Request, Query
 from sqlalchemy import select, or_, desc, func
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm.attributes import flag_modified
 
 from backend.database.config import get_db
 from backend.database.models import (
@@ -129,26 +131,28 @@ async def _load_json_setting(db: AsyncSession, key: str, default_factory=dict) -
     now_mono = time.monotonic()
     cached = _SETTING_MEM_CACHE.get(key)
     if cached and (now_mono - cached["ts"]) < _SETTING_CACHE_TTL:
-        return cached["val"]
+        return copy.deepcopy(cached["val"])
 
     stmt = select(SystemSetting).where(SystemSetting.key == key)
     res = await db.execute(stmt)
     row = res.scalar_one_or_none()
-    val = row.value if (row and row.value is not None) else default_factory()
-    _SETTING_MEM_CACHE[key] = {"ts": now_mono, "val": val}
+    val = copy.deepcopy(row.value) if (row and row.value is not None) else default_factory()
+    _SETTING_MEM_CACHE[key] = {"ts": now_mono, "val": copy.deepcopy(val)}
     return val
 
 
 async def _save_json_setting(db: AsyncSession, key: str, value: Any) -> None:
+    clean_val = copy.deepcopy(value)
     stmt = select(SystemSetting).where(SystemSetting.key == key)
     res = await db.execute(stmt)
     row = res.scalar_one_or_none()
     if row:
-        row.value = value
+        row.value = clean_val
+        flag_modified(row, "value")
     else:
-        db.add(SystemSetting(key=key, value=value))
+        db.add(SystemSetting(key=key, value=clean_val))
     await db.commit()
-    _SETTING_MEM_CACHE[key] = {"ts": time.monotonic(), "val": value}
+    _SETTING_MEM_CACHE[key] = {"ts": time.monotonic(), "val": copy.deepcopy(clean_val)}
 
 
 # ---------------------------------------------------------------------------
@@ -920,6 +924,8 @@ async def get_in_app_notifications(
         crisis_list = await _compute_crisis_alerts_internal(db, tenant_id)
         for cr in crisis_list:
             nid = f"crisis::{cr['call_id']}"
+            if nid in user_read_ids:
+                continue
             kw_str = ", ".join(cr["matched_keywords"][:3]) if cr["matched_keywords"] else "Negatif ses/duygu"
             notifications.append({
                 "id": nid,
@@ -928,7 +934,7 @@ async def get_in_app_notifications(
                 "title": f"Canlı Kriz Alarmı: {cr['caller_name'] or cr['caller_number']}",
                 "body": cr["latest_customer_text"] or f"Tespit edilen: {kw_str}",
                 "timestamp": cr["started_at"],
-                "unread": nid not in user_read_ids,
+                "unread": True,
                 "target_tab": "dashboard",
                 "phone": cr["caller_number"],
                 "call_id": cr["call_id"],
@@ -958,8 +964,10 @@ async def get_in_app_notifications(
         if -720 <= diff_min <= 30:
             nid = f"cb::{cb.get('id')}::{sched_str[:16]}"
             is_due_now = diff_min <= 1.0
-            if is_due_now and is_mine:
+            if is_due_now and is_mine and nid not in user_read_ids:
                 due_popup_tasks.append(cb)
+            if nid in user_read_ids:
+                continue
             label_prefix = "Geri Arama Zamanı Geldi!" if is_due_now else f"{max(1, int(round(diff_min)))} dk sonra Geri Arama"
             notifications.append({
                 "id": nid,
@@ -968,7 +976,7 @@ async def get_in_app_notifications(
                 "title": f"{label_prefix} — {cb.get('customer_name') or cb.get('customer_phone')}",
                 "body": cb.get("note") or f"Numara: {cb.get('customer_phone')}",
                 "timestamp": sched_str,
-                "unread": nid not in user_read_ids,
+                "unread": True,
                 "target_tab": "call-center",
                 "target_subtab": "missed",
                 "phone": cb.get("customer_phone"),
@@ -984,6 +992,8 @@ async def get_in_app_notifications(
     for cs in res_chat.scalars().all():
         ts_iso = cs.last_message_time.isoformat() if cs.last_message_time else now_utc.isoformat()
         nid = f"chat::{cs.id}::{ts_iso[:16]}"
+        if nid in user_read_ids:
+            continue
         ch_label = str(cs.channel or "mesaj").upper()
         notifications.append({
             "id": nid,
@@ -992,7 +1002,7 @@ async def get_in_app_notifications(
             "title": f"{ch_label} Canlı Temsilci Bekliyor",
             "body": f"Müşteri: {cs.sender_info}",
             "timestamp": ts_iso,
-            "unread": nid not in user_read_ids,
+            "unread": True,
             "target_tab": "omnichannel",
             "phone": cs.sender_info,
         })
@@ -1009,6 +1019,8 @@ async def get_in_app_notifications(
     for ap in res_ap.scalars().all():
         ts_iso = ap.appointment_time.isoformat() if ap.appointment_time else now_utc.isoformat()
         nid = f"appt::{ap.id}"
+        if nid in user_read_ids:
+            continue
         notifications.append({
             "id": nid,
             "category": "appointment",
@@ -1016,7 +1028,7 @@ async def get_in_app_notifications(
             "title": f"Yaklaşan Randevu: {ap.customer_name}",
             "body": f"Tel: {ap.customer_phone}" + (f" • {ap.notes}" if ap.notes else ""),
             "timestamp": ts_iso,
-            "unread": nid not in user_read_ids,
+            "unread": True,
             "target_tab": "appointments",
             "phone": ap.customer_phone,
         })
@@ -1041,6 +1053,8 @@ async def get_in_app_notifications(
         seen_missed_phones.add(norm_p)
         ts_iso = mc.start_time.isoformat() if mc.start_time else now_utc.isoformat()
         nid = f"missed::{mc.id}"
+        if nid in user_read_ids:
+            continue
         notifications.append({
             "id": nid,
             "category": "call",
@@ -1048,7 +1062,7 @@ async def get_in_app_notifications(
             "title": f"Geri Dönüş Bekleyen Cevapsız Çağrı",
             "body": f"Arayan: {mc.caller_number}" + (f" ({claim_entry.get('agent_name')} inceliyor)" if claim_entry else ""),
             "timestamp": ts_iso,
-            "unread": nid not in user_read_ids,
+            "unread": True,
             "target_tab": "call-center",
             "target_subtab": "missed",
             "phone": mc.caller_number,
@@ -1072,6 +1086,8 @@ async def get_in_app_notifications(
         for ev in res_ev.scalars().all():
             ts_iso = ev.timestamp.isoformat() if ev.timestamp else now_utc.isoformat()
             nid = f"sys::{ev.id}"
+            if nid in user_read_ids:
+                continue
             notifications.append({
                 "id": nid,
                 "category": "system",
@@ -1079,7 +1095,7 @@ async def get_in_app_notifications(
                 "title": f"Sistem Uyarısı: {ev.action}",
                 "body": (ev.details or ev.module or "")[:160],
                 "timestamp": ts_iso,
-                "unread": nid not in user_read_ids,
+                "unread": True,
                 "target_tab": "settings",
             })
 
