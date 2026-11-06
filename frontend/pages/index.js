@@ -237,6 +237,7 @@ const SUPER_ADMIN = {
 export default function Home() {
   const router = useRouter();
   const { theme, colorCode, bg, hover, text, border, ring, lightBg, lightText, borderLight } = useTheme();
+  const backendHost = getBackendHost();
   const [activeTab, setActiveTabRaw] = useState("dashboard"); // dashboard, call-center, pbx-settings, channel-settings, rag-kb, rule-editor
   const mainStageRef = React.useRef(null);
   const uiMotionModeRef = React.useRef("fluid");
@@ -1469,9 +1470,6 @@ export default function Home() {
       }
     };
   }, [refreshHardwareAudioDevices]);
-
-  const backendHost = getBackendHost();
-
 
   const persistUserVisualPatch = React.useCallback((patchPayload, userOverride = null) => {
     try {
