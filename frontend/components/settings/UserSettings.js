@@ -2271,7 +2271,7 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
 
                   {visibleColumns.tenant !== false && isAdmin && (
                     <div className="min-w-0 text-[10px] truncate" style={{ flex: '2 2 0%' }}>
-                      <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-lg font-extrabold bg-purple-50 dark:bg-purple-950/40 text-purple-600 dark:text-purple-400 border border-purple-200/60 dark:border-purple-900/50 truncate max-w-[130px]" title={tenants.find(t => t.id === u.tenant_id || t.code === u.tenant_id)?.name || u.tenant_name || (u.tenant_id === "tenant-nolto" ? "Nolto" : "Ana Müşteri")}>
+                      <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-lg font-extrabold bg-rose-50 dark:bg-rose-950/40 text-rose-500 dark:text-rose-400 border border-rose-200 dark:border-rose-900/50 truncate max-w-[130px]" title={tenants.find(t => t.id === u.tenant_id || t.code === u.tenant_id)?.name || u.tenant_name || (u.tenant_id === "tenant-nolto" ? "Nolto" : "Ana Müşteri")}>
                         <Building2 size={11} className="shrink-0" />
                         <span className="truncate">{tenants.find(t => t.id === u.tenant_id || t.code === u.tenant_id)?.name || u.tenant_name || (u.tenant_id === "tenant-nolto" ? "Nolto" : "Ana Müşteri")}</span>
                       </span>
@@ -4005,7 +4005,7 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
                                         <select
                                             value={userTenantId}
                                             onChange={(e) => setUserTenantId(e.target.value)}
-                                            className="w-full text-xs font-semibold px-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 ring-purple-500"
+                                            className="w-full text-xs font-semibold px-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 ring-rose-500"
                                         >
                                             {tenants.map((t) => (
                                                 <option key={t.id} value={t.id}>
@@ -4015,9 +4015,9 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
                                         </select>
                                     </div>
 
-                                    <div className="p-3 bg-purple-50/60 dark:bg-purple-950/30 border border-purple-100 dark:border-purple-900/40 rounded-xl flex items-start gap-2.5">
-                                        <Building2 size={16} className="text-purple-600 dark:text-purple-400 shrink-0 mt-0.5" />
-                                        <p className="text-[11px] text-purple-700 dark:text-purple-300 font-medium leading-relaxed">
+                                    <div className="p-3 bg-rose-50/60 dark:bg-rose-950/30 border border-rose-100 dark:border-rose-900/40 rounded-xl flex items-start gap-2.5">
+                                        <Building2 size={16} className="text-rose-500 dark:text-rose-400 shrink-0 mt-0.5" />
+                                        <p className="text-[11px] text-rose-700 dark:text-rose-300 font-medium leading-relaxed">
                                             Kullanıcıyı farklı bir tenant'a aktardığınızda, kullanıcı yalnızca o tenant'a ait dahili hatları, çağrı verilerini ve müşteri panelini görüntüleyebilecektir.
                                         </p>
                                     </div>
