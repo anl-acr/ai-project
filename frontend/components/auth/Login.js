@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { Lock, Mail, ArrowRight, BrainCircuit, User, Smartphone, KeyRound, RefreshCw, Copy, Check, PhoneCall } from "lucide-react";
+import { Lock, Mail, ArrowRight, BrainCircuit, User, Smartphone, KeyRound, RefreshCw, Copy, Check, PhoneCall, Eye, EyeOff } from "lucide-react";
 import { useTheme } from "../../utils/theme";
 import { getApiBaseUrl } from "../../utils/apiHost";
 
@@ -8,6 +8,7 @@ export default function Login({ onLogin, onComplete2FA, error, backendHost }) {
   
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
   const [rememberMe, setRememberMe] = useState(true);
   const [isLoading, setIsLoading] = useState(false);
 
@@ -155,6 +156,7 @@ export default function Login({ onLogin, onComplete2FA, error, backendHost }) {
 
     if (!username || !password) return;
     
+    setShowPassword(false);
     setIsLoading(true);
     setTimeout(async () => {
       const result = await Promise.resolve(onLogin(username, password, rememberMe));
@@ -252,13 +254,21 @@ export default function Login({ onLogin, onComplete2FA, error, backendHost }) {
                   </div>
                 )}
                 
-                <div className="space-y-1.5 relative">
-                  <div className="absolute inset-y-0 left-0 pl-4 pt-1 flex items-center pointer-events-none text-slate-400 dark:text-slate-400/70 z-10">
-                    <User size={18} />
+                <div className="relative">
+                  <label htmlFor="login-username" className="sr-only">
+                    Kullanıcı Adı veya E-posta
+                  </label>
+                  <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none text-slate-400 dark:text-slate-400/70 z-10">
+                    <User size={18} aria-hidden="true" />
                   </div>
                   <input
+                    id="login-username"
+                    name="username"
                     type="text"
                     required
+                    autoComplete="username"
+                    spellCheck={false}
+                    autoCapitalize="none"
                     value={username}
                     onChange={(e) => setUsername(e.target.value)}
                     className="w-full pl-11 pr-4 py-4 bg-white/50 dark:bg-black/20 border border-slate-200/80 dark:border-white/5 rounded-2xl text-sm text-slate-800 dark:text-white placeholder-slate-400 dark:placeholder-slate-500 focus:outline-none focus:ring-1 focus:ring-indigo-500/50 focus:border-indigo-500/50 transition-all hover:bg-white/80 dark:hover:bg-black/30 shadow-inner dark:shadow-none"
@@ -266,18 +276,38 @@ export default function Login({ onLogin, onComplete2FA, error, backendHost }) {
                   />
                 </div>
 
-                <div className="space-y-1.5 relative">
+                <div className="relative">
+                  <label htmlFor="login-password" className="sr-only">
+                    Parola
+                  </label>
                   <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none text-slate-400 dark:text-slate-400/70 z-10">
-                    <Lock size={18} />
+                    <Lock size={18} aria-hidden="true" />
                   </div>
                   <input
-                    type="password"
+                    id="login-password"
+                    name="password"
+                    type={showPassword ? "text" : "password"}
+                    data-custom-password-toggle="true"
                     required
+                    autoComplete="current-password"
+                    spellCheck={false}
+                    autoCapitalize="none"
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
-                    className="w-full pl-11 pr-4 py-4 bg-white/50 dark:bg-black/20 border border-slate-200/80 dark:border-white/5 rounded-2xl text-sm text-slate-800 dark:text-white placeholder-slate-400 dark:placeholder-slate-500 focus:outline-none focus:ring-1 focus:ring-indigo-500/50 focus:border-indigo-500/50 transition-all hover:bg-white/80 dark:hover:bg-black/30 shadow-inner dark:shadow-none"
+                    className="w-full pl-11 pr-12 py-4 bg-white/50 dark:bg-black/20 border border-slate-200/80 dark:border-white/5 rounded-2xl text-sm text-slate-800 dark:text-white placeholder-slate-400 dark:placeholder-slate-500 focus:outline-none focus:ring-1 focus:ring-indigo-500/50 focus:border-indigo-500/50 transition-all hover:bg-white/80 dark:hover:bg-black/30 shadow-inner dark:shadow-none"
                     placeholder="Parola"
                   />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword((prev) => !prev)}
+                    aria-pressed={showPassword}
+                    aria-controls="login-password"
+                    aria-label={showPassword ? "Parolayı gizle" : "Parolayı göster"}
+                    title={showPassword ? "Parolayı Gizle" : "Parolayı Göster"}
+                    className="absolute inset-y-0 right-0 px-4 flex items-center justify-center text-slate-400 hover:text-indigo-600 dark:text-slate-400/70 dark:hover:text-indigo-400 focus-visible:outline-none focus-visible:text-indigo-600 dark:focus-visible:text-indigo-400 transition-colors cursor-pointer z-10"
+                  >
+                    {showPassword ? <EyeOff size={18} aria-hidden="true" /> : <Eye size={18} aria-hidden="true" />}
+                  </button>
                 </div>
 
                 <div className="flex items-center justify-between px-1 pt-2 pb-1">

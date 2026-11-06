@@ -1200,3 +1200,9 @@ html:not(.dark)[data-ui-template="oled"] .aida-app-shell main :is(.bg-white).bor
     backdrop-filter: none !important;
   }
 }
+
+/* Suppress duplicate native Edge/IE password reveal icon when custom eye button is rendered */
+input[data-custom-password-toggle="true"]::-ms-reveal,
+input[data-custom-password-toggle="true"]::-ms-clear {
+  display: none;
+}
