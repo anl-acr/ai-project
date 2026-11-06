@@ -1,11 +1,16 @@
 import os
+import re
+import ssl
+import socket
 import time
 import asyncio
 import datetime
 import smtplib
+from email.header import Header
+from email.utils import formataddr
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional, Tuple
 
 from backend.services.whatsapp_service import send_whatsapp_message
 from backend.services.audit_logger import log_event
@@ -199,6 +204,201 @@ def get_tenant_notification_settings(settings_db: dict, tenant_id: str = "tenant
     return merged
 
 
+class _IPv4SMTP(smtplib.SMTP):
+    """SMTP client preferring IPv4 (AF_INET) first to avoid broken IPv6 blackholes on Linux servers."""
+    def _get_socket(self, host, port, timeout):
+        last_err = None
+        for af in (socket.AF_INET, socket.AF_UNSPEC):
+            try:
+                addrs = socket.getaddrinfo(host, port, af, socket.SOCK_STREAM)
+            except Exception as e:
+                last_err = e
+                continue
+            for af_r, socktype, proto, _, sa in addrs:
+                sock = None
+                try:
+                    sock = socket.socket(af_r, socktype, proto)
+                    if timeout is not socket._GLOBAL_DEFAULT_TIMEOUT:
+                        sock.settimeout(timeout)
+                    if self.source_address:
+                        sock.bind(self.source_address)
+                    sock.connect(sa)
+                    return sock
+                except OSError as err:
+                    last_err = err
+                    if sock is not None:
+                        sock.close()
+        if last_err is not None:
+            raise last_err
+        raise OSError(f"DNS çözümlenemedi: {host}:{port}")
+
+
+class _IPv4SMTP_SSL(smtplib.SMTP_SSL):
+    """Implicit-TLS SMTP_SSL client preferring IPv4 (AF_INET) first with proper SNI."""
+    def _get_socket(self, host, port, timeout):
+        new_socket = _IPv4SMTP._get_socket(self, host, port, timeout)
+        return self.context.wrap_socket(new_socket, server_hostname=self._host)
+
+
+def normalize_smtp_host_and_port(raw_host: str, raw_port: Any, smtp_user: str = "") -> Tuple[str, int]:
+    host = str(raw_host or "").strip()
+    host = re.sub(r"^(https?|smtps?)://", "", host, flags=re.IGNORECASE).strip().rstrip("/")
+    port_override = None
+    if ":" in host and not host.startswith("["):
+        h_part, p_part = host.rsplit(":", 1)
+        if p_part.isdigit():
+            host = h_part.strip()
+            port_override = int(p_part)
+
+    try:
+        port = port_override if port_override is not None else int(str(raw_port or "587").strip())
+    except ValueError:
+        port = 587
+
+    host_l = host.lower()
+    if host_l in ("gmail.com", "googlemail.com", "smtp.google.com", "mail.google.com", "imap.gmail.com"):
+        host = "smtp.gmail.com"
+        if port == 993:
+            port = 465
+    elif not host and smtp_user:
+        host = "smtp.gmail.com"
+
+    return host, port
+
+
+def deliver_mime_message_sync(
+    smtp_host: str,
+    smtp_port: int,
+    smtp_user: str,
+    smtp_pass: str,
+    use_tls: bool,
+    recipients: List[str],
+    raw_msg_str: str
+) -> Dict[str, Any]:
+    """
+    Resilient synchronous SMTP delivery engine:
+    - Prefers IPv4 to bypass broken IPv6 routes.
+    - Automatically falls back between (465 + Implicit SSL) and (587 + STARTTLS) when a firewall/ISP closes one port.
+    - Falls back to unverified SSL context for corporate mail servers with self-signed/mismatched certificates.
+    - Falls back to smtp.gmail.com when mail.<domain>/smtp.<domain> fails on Google Workspace domains.
+    """
+    smtp_host, smtp_port = normalize_smtp_host_and_port(smtp_host, smtp_port, smtp_user)
+
+    def _effective_pass_for_host(h: str, pw: str) -> str:
+        if "gmail.com" in h.lower() and re.fullmatch(r"[a-zA-Z]{4}(\s+[a-zA-Z]{4}){3}", pw):
+            return pw.replace(" ", "")
+        return pw
+
+    strict_ctx = ssl.create_default_context()
+    unverified_ctx = ssl._create_unverified_context()
+
+    attempts: List[Tuple[str, int, str, ssl.SSLContext]] = []
+    if smtp_port == 465:
+        attempts.append((smtp_host, 465, "ssl", strict_ctx))
+        attempts.append((smtp_host, 587, "starttls", strict_ctx))
+    elif smtp_port == 587:
+        # Try 465 SSL right after 587 STARTTLS (many Turkish ISPs/firewalls close plaintext 587!)
+        attempts.append((smtp_host, 587, "starttls", strict_ctx))
+        attempts.append((smtp_host, 465, "ssl", strict_ctx))
+    else:
+        primary_mode = "starttls" if use_tls else "plain"
+        attempts.append((smtp_host, smtp_port, primary_mode, strict_ctx))
+        if use_tls:
+            attempts.append((smtp_host, smtp_port, "ssl", strict_ctx))
+            attempts.append((smtp_host, smtp_port, "plain", strict_ctx))
+        attempts.append((smtp_host, 465, "ssl", strict_ctx))
+        attempts.append((smtp_host, 587, "starttls", strict_ctx))
+
+    # Corporate self-signed cert fallback for non-Gmail hosts
+    if "gmail.com" not in smtp_host.lower():
+        attempts.append((smtp_host, 465 if smtp_port == 465 else smtp_port, "ssl" if smtp_port == 465 else "starttls", unverified_ctx))
+        if smtp_port != 465:
+            attempts.append((smtp_host, 465, "ssl", unverified_ctx))
+
+        # If user entered mail.<domain> or smtp.<domain> or <domain> for a Google Workspace account, try smtp.gmail.com as last resort
+        user_dom = smtp_user.split("@", 1)[-1].lower() if "@" in smtp_user else ""
+        if user_dom and smtp_host.lower() in (user_dom, f"mail.{user_dom}", f"smtp.{user_dom}"):
+            attempts.append(("smtp.gmail.com", 465, "ssl", strict_ctx))
+            attempts.append(("smtp.gmail.com", 587, "starttls", strict_ctx))
+
+    tried_labels: List[str] = []
+    last_exc: Optional[Exception] = None
+
+    for h, p, mode, ctx in attempts:
+        label = f"{h}:{p} ({mode.upper()})"
+        server = None
+        try:
+            pw_use = _effective_pass_for_host(h, smtp_pass)
+            if mode == "ssl":
+                server = _IPv4SMTP_SSL(h, p, local_hostname="aida-pbx.local", timeout=9, context=ctx)
+                server.ehlo("aida-pbx.local")
+            else:
+                server = _IPv4SMTP(h, p, local_hostname="aida-pbx.local", timeout=9)
+                server.ehlo("aida-pbx.local")
+                if mode == "starttls":
+                    server.starttls(context=ctx)
+                    server.ehlo("aida-pbx.local")
+
+            if smtp_user and pw_use:
+                auth_adv = str(server.esmtp_features.get("auth", "")).upper()
+                if "PLAIN" in auth_adv:
+                    server.user, server.password = smtp_user, pw_use
+                    server.auth("PLAIN", server.auth_plain, initial_response_ok=True)
+                else:
+                    server.login(smtp_user, pw_use)
+            server.sendmail(smtp_user, recipients, raw_msg_str)
+            try:
+                server.quit()
+            except Exception:
+                pass
+            return {
+                "status": "success",
+                "used_endpoint": label,
+                "message": f"E-posta gönderildi ({', '.join(recipients)})"
+            }
+        except smtplib.SMTPAuthenticationError as auth_err:
+            try:
+                if server:
+                    server.close()
+            except Exception:
+                pass
+            if "gmail.com" in h.lower():
+                return {
+                    "status": "error",
+                    "message": (
+                        "Google SMTP sunucusuna bağlanıldı ancak şifre reddedildi (Hata 535). "
+                        "Google güvenlik politikası gereği normal e-posta giriş şifresi yerine "
+                        "Google Hesabınızdan (myaccount.google.com/apppasswords) 2 Adımlı Doğrulama açıkken oluşturacağınız "
+                        "16 haneli 'Uygulama Şifresi'ni E-Posta Şifresi alanına girmeniz gerekmektedir."
+                    )
+                }
+            return {
+                "status": "error",
+                "message": f"SMTP Kimlik Doğrulama Hatası ({h}:{p}): Kullanıcı adı veya şifre hatalı ({str(auth_err)})."
+            }
+        except Exception as conn_err:
+            tried_labels.append(f"{label} -> {conn_err}")
+            last_exc = conn_err
+            try:
+                if server:
+                    server.close()
+            except Exception:
+                pass
+            continue
+
+    err_text = str(last_exc) if last_exc else "Bilinmeyen bağlantı hatası"
+    if "Connection unexpectedly closed" in err_text or "timed out" in err_text.lower() or "Connection refused" in err_text:
+        return {
+            "status": "error",
+            "message": (
+                f"SMTP bağlantısı kurulamadı ({smtp_host} — 587 ve 465 portları denendi: {err_text}). "
+                f"Lütfen SMTP Sunucu Adresinin doğru olduğundan (Google / Google Workspace için 'smtp.gmail.com') "
+                f"ve sunucu güvenlik duvarının (Firewall) dışarıya giden 465 / 587 portlarına izin verdiğinden emin olun."
+            )
+        }
+    return {"status": "error", "message": f"SMTP Hatası ({smtp_host}:{smtp_port}): {err_text}"}
+
+
 async def _send_notification_email(
     cfg: Dict[str, Any],
     channels_cfg: Dict[str, Any],
@@ -214,29 +414,20 @@ async def _send_notification_email(
 
     if (use_custom and has_custom_creds) or (has_custom_creds and not has_channel_creds):
         smtp_host = str(cfg.get("smtp_host", "")).strip()
-        try:
-            smtp_port = int(str(cfg.get("smtp_port") or "587").strip())
-        except ValueError:
-            smtp_port = 587
+        smtp_port_raw = cfg.get("smtp_port") or 587
         smtp_user = str(cfg.get("smtp_user", "")).strip()
         smtp_pass = str(cfg.get("smtp_password") or cfg.get("smtp_pass") or "").strip()
         use_tls = bool(cfg.get("smtp_use_tls", True))
         from_name = str(cfg.get("smtp_from_name") or "AIDA PBX").strip()
     else:
         smtp_host = str(channels_cfg.get("email_smtp_host", "")).strip()
-        try:
-            smtp_port = int(str(channels_cfg.get("email_smtp_port") or "587").strip())
-        except ValueError:
-            smtp_port = 587
+        smtp_port_raw = channels_cfg.get("email_smtp_port") or 587
         smtp_user = str(channels_cfg.get("email_smtp_user", "")).strip()
         smtp_pass = str(channels_cfg.get("email_smtp_pass", "")).strip()
         use_tls = bool(channels_cfg.get("email_use_tls", True))
         from_name = str(channels_cfg.get("email_from_name") or cfg.get("smtp_from_name") or "AIDA PBX").strip()
 
-    if smtp_host.lower() in ("gmail.com", "googlemail.com"):
-        smtp_host = "smtp.gmail.com"
-    if not smtp_host and smtp_user.lower().endswith("@gmail.com"):
-        smtp_host = "smtp.gmail.com"
+    smtp_host, smtp_port = normalize_smtp_host_and_port(smtp_host, smtp_port_raw, smtp_user)
 
     if not smtp_host or not smtp_user:
         return {
@@ -244,43 +435,25 @@ async def _send_notification_email(
             "message": "SMTP e-posta ayarları henüz yapılandırılmamış. Lütfen Sistem Ayarları > Kanal Entegrasyonları > E-Posta (veya E-Mail ve WhatsApp Bildirimleri) bölümünden SMTP bilgilerinizi tanımlayın."
         }
 
-    # Google App Passwords are often copied as 'abcd efgh ijkl mnop' (4x4 groups with spaces)
-    import re as _re
-    if "gmail.com" in smtp_host.lower() and _re.fullmatch(r"[a-zA-Z]{4}(\s+[a-zA-Z]{4}){3}", smtp_pass):
-        smtp_pass = smtp_pass.replace(" ", "")
-
     msg = MIMEMultipart("alternative")
-    msg["From"] = f"{from_name} <{smtp_user}>" if from_name else smtp_user
+    msg["From"] = formataddr((str(Header(from_name, "utf-8")), smtp_user)) if from_name else smtp_user
     msg["To"] = ", ".join(recipients)
-    msg["Subject"] = subject
+    msg["Subject"] = Header(subject, "utf-8")
 
     msg.attach(MIMEText(plain_body, "plain", "utf-8"))
     msg.attach(MIMEText(html_body, "html", "utf-8"))
+    raw_msg_str = msg.as_string()
 
-    def _send_sync():
-        if smtp_port == 465:
-            server = smtplib.SMTP_SSL(smtp_host, smtp_port, timeout=12)
-        else:
-            server = smtplib.SMTP(smtp_host, smtp_port, timeout=12)
-            if use_tls:
-                server.starttls()
-        if smtp_user and smtp_pass:
-            server.login(smtp_user, smtp_pass)
-        server.sendmail(smtp_user, recipients, msg.as_string())
-        server.quit()
-
-    try:
-        await asyncio.to_thread(_send_sync)
-        return {"status": "success", "message": f"E-posta gönderildi ({', '.join(recipients)})"}
-    except smtplib.SMTPAuthenticationError as auth_err:
-        if "gmail.com" in smtp_host.lower():
-            return {
-                "status": "error",
-                "message": "Gmail kimlik doğrulaması reddedildi (535). Google güvenlik kuralları gereği normal Gmail şifresi yerine Google Hesabı > Güvenlik > 2 Adımlı Doğrulama > Uygulama Şifreleri bölümünden alacağınız 16 haneli Uygulama Şifresini kullanmalısınız."
-            }
-        return {"status": "error", "message": f"SMTP Kimlik Doğrulama Hatası: {str(auth_err)}"}
-    except Exception as e:
-        return {"status": "error", "message": f"SMTP Hatası: {str(e)}"}
+    return await asyncio.to_thread(
+        deliver_mime_message_sync,
+        smtp_host,
+        smtp_port,
+        smtp_user,
+        smtp_pass,
+        use_tls,
+        recipients,
+        raw_msg_str
+    )
 
 
 async def dispatch_system_notification(

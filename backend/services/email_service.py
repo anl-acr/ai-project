@@ -15,13 +15,17 @@ async def send_email_message(to_email: str, subject: str, body_text: str, media_
     """
     try:
         from backend.main import settings_db
+        from backend.services.notification_service import normalize_smtp_host_and_port, deliver_mime_message_sync
         channels_cfg = settings_db.get("channels", {})
         
-        smtp_host = channels_cfg.get("email_smtp_host", "").strip()
-        smtp_port = int(channels_cfg.get("email_smtp_port", 587))
-        smtp_user = channels_cfg.get("email_smtp_user", "").strip()
-        smtp_pass = channels_cfg.get("email_smtp_pass", "").strip()
-        use_tls = channels_cfg.get("email_use_tls", True)
+        smtp_user = str(channels_cfg.get("email_smtp_user") or "").strip()
+        smtp_pass = str(channels_cfg.get("email_smtp_pass") or "").strip()
+        smtp_host, smtp_port = normalize_smtp_host_and_port(
+            channels_cfg.get("email_smtp_host", ""),
+            channels_cfg.get("email_smtp_port", 587),
+            smtp_user
+        )
+        use_tls = bool(channels_cfg.get("email_use_tls", True))
 
         if not smtp_host or not smtp_user:
             print("[Email Service] SMTP sunucu veya kullanıcı bilgisi bulunamadı. E-posta gönderilemedi.")
@@ -64,21 +68,20 @@ async def send_email_message(to_email: str, subject: str, body_text: str, media_
                     msg.attach(att)
                     break
 
-        def _send():
-            if smtp_port == 465:
-                server = smtplib.SMTP_SSL(smtp_host, smtp_port, timeout=10)
-            else:
-                server = smtplib.SMTP(smtp_host, smtp_port, timeout=10)
-                if use_tls:
-                    server.starttls()
-            
-            if smtp_user and smtp_pass:
-                server.login(smtp_user, smtp_pass)
-            server.sendmail(smtp_user, [to_email], msg.as_string())
-            server.quit()
-
-        await asyncio.to_thread(_send)
-        print(f"[Email Service] E-posta başarıyla gönderildi -> {to_email}")
+        res = await asyncio.to_thread(
+            deliver_mime_message_sync,
+            smtp_host,
+            smtp_port,
+            smtp_user,
+            smtp_pass,
+            use_tls,
+            [to_email],
+            msg.as_string()
+        )
+        if res.get("status") != "success":
+            log_event("EMAIL_EXCEPTION", "ERROR", f"E-posta gönderme hatası: {res.get('message')}")
+            return res
+        print(f"[Email Service] E-posta başarıyla gönderildi -> {to_email} ({res.get('used_endpoint')})")
         log_event("EMAIL_SENT", "INFO", f"E-posta yollandı: {to_email}")
         return {"status": "success", "message": f"E-posta gönderildi: {to_email}"}
 
