@@ -3908,24 +3908,6 @@ export default function Home() {
               </div>
             )}
 
-            {activeTab === "call-center" && !isAgentOnlyUser && (
-              <button
-                type="button"
-                onClick={() => setIsAgentFullScreenMode((prev) => !prev)}
-                className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-xs font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer"
-                title={
-                  isAgentFullScreenMode
-                    ? "Sol Menüyü Göster"
-                    : "Sol Menüyü Gizle (Tam Ekran Çağrı Paneli)"
-                }
-              >
-                {isAgentFullScreenMode ? <PanelLeftOpen size={14} /> : <PanelLeftClose size={14} />}
-                <span className="hidden xl:inline">
-                  {isAgentFullScreenMode ? "Menüyü Göster" : "Tam Ekran Panel"}
-                </span>
-              </button>
-            )}
-
             {!isDesktopMode && ((currentUser?.username === "admin" || currentUser?.id === "admin") || (typeof window !== "undefined" && (localStorage.getItem("current_user_id") === "admin" || sessionStorage.getItem("current_user_id") === "admin"))) && (
               <TenantSwitcher backendHost={backendHost} currentUser={currentUser} />
             )}
@@ -4247,22 +4229,6 @@ export default function Home() {
                 }`}
               >
                 <Sparkles size={14} className={activeTab === "ai-config-assistant" ? "text-white" : text} />
-              </button>
-            )}
-
-            {/* Quick Audio Hardware & Ringtone Device Button */}
-            {(isDesktopMode || activeTab === "call-center" || isAgentOnlyUser) && (
-              <button
-                type="button"
-                onClick={() => {
-                  setActiveModalTab("hardware");
-                  setSettingsModalOpen(true);
-                }}
-                title="Mikrofon, Görüşme Kulaklığı ve Çalma Tonu Aygıtı Ayarları"
-                className="flex items-center gap-1.5 px-2.5 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors shadow-sm cursor-pointer"
-              >
-                <Headphones size={14} className={text} />
-                <span className="hidden lg:inline text-xs font-bold">Ses & Aygıtlar</span>
               </button>
             )}
 
