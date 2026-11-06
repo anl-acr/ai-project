@@ -811,9 +811,9 @@ export default function QueueEditModal({ isOpen, onClose, onSave, queueData = nu
       <div className="p-5 rounded-2xl border border-slate-200/80 dark:border-slate-800 bg-slate-50/40 dark:bg-slate-900/40 space-y-5">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-200/60 dark:border-slate-800 pb-4">
           <div>
-            <h4 className="text-xs font-bold text-slate-800 dark:text-white flex items-center gap-2">
+            <h4 className="text-xs font-bold text-slate-800 dark:text-white flex items-center gap-2 whitespace-nowrap">
               <BarChart2 size={15} className={text} />
-              Çağrı Sonuç Kodları (Disposition / Wrap-Up Codes)
+              Çağrı Sonuç Kodları
             </h4>
             <p className="text-[11px] text-slate-500 mt-0.5">
               Temsilcilerin görüşme sonunda veya ACW süresinde tek tıkla seçebileceği çağrı sonuç etiketleri.
