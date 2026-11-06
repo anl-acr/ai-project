@@ -160,6 +160,7 @@ import AgentPanel, {
   saveCallPanelPrefs,
   DEFAULT_CALL_PANEL_PREFS,
   DEFAULT_TOPBAR_PREFS,
+  DEFAULT_TOPBAR_ZONES,
   normalizeTopbarPrefs
 } from "../components/callcenter/AgentPanel";
 import Login from "../components/auth/Login";
@@ -715,6 +716,8 @@ export default function Home() {
   const [pinOverflowOpen, setPinOverflowOpen] = useState(false);
   const pinOverflowRef = useClickOutside(() => setPinOverflowOpen(false));
   const [draggedPinnedIdx, setDraggedPinnedIdx] = useState(null);
+  const [draggedTopbarToken, setDraggedTopbarToken] = useState(null);
+  const [topbarDropIndicator, setTopbarDropIndicator] = useState(null);
   const [pinCatalogSearch, setPinCatalogSearch] = useState("");
   const [settingsModalOpen, setSettingsModalOpen] = useState(false);
   const [systemUsers, setSystemUsers] = useState([]);
@@ -3840,9 +3843,443 @@ export default function Home() {
       <main className="flex-1 flex flex-col h-screen overflow-hidden bg-slate-50 dark:bg-slate-950/40 transition-colors duration-300">
         
         {/* Top Header Navbar (Single-Row Persistent Bar with Yaklaşım B Auto-Compacting) */}
-        {!isEditingCallFlow && (
+        {!isEditingCallFlow && (() => {
+          const visiblePinIdSet = new Set(visiblePinnedFeatures.map((f) => f.id));
+          const lastVisiblePinId =
+            visiblePinnedFeatures.length > 0
+              ? visiblePinnedFeatures[visiblePinnedFeatures.length - 1].id
+              : null;
+          const canShowTopbarAiAssistant =
+            !isAgentOnlyUser &&
+            !isWallboardOnlyUser &&
+            !pinnedTopbarFeatures.some((f) => f.id === "ai-config-assistant") &&
+            (currentUser?.role === "admin" ||
+              (Array.isArray(currentRolePermissions) &&
+                currentRolePermissions.some((p) => p.startsWith("ai_config_assistant:"))));
+
+          const renderHeaderToken = (token, zoneName) => {
+            if (!token) return null;
+
+            if (token.startsWith("pin:")) {
+              if (isDesktopMode) return null;
+              const fid = token.slice(4);
+              if (!visiblePinIdSet.has(fid)) return null;
+              const feat = visiblePinnedFeatures.find((f) => f.id === fid);
+              if (!feat) return null;
+              const FeatIcon = feat.icon;
+              const isAct = activeTab === feat.id;
+              const slug = getTurkishSlugForTab(feat.id);
+              const isLastVisible = fid === lastVisiblePinId;
+
+              return (
+                <React.Fragment key={token}>
+                  <a
+                    href={`/?tab=${encodeURIComponent(slug)}`}
+                    onClick={(e) => {
+                      if (!e.metaKey && !e.ctrlKey && !e.shiftKey && e.button === 0) {
+                        e.preventDefault();
+                        setActiveTab(feat.id);
+                      }
+                    }}
+                    title={feat.label}
+                    aria-label={feat.label}
+                    className={`${isHorizontalCallCenterBar ? "hidden lg:flex" : "hidden md:flex"} items-center gap-1.5 rounded-xl border text-xs font-bold transition-all shadow-sm whitespace-nowrap ${
+                      effectivePinStyle === "icon" ? "p-2" : "px-2.5 py-1.5"
+                    } ${
+                      isAct
+                        ? `${bg} text-white border-transparent`
+                        : "border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800"
+                    }`}
+                  >
+                    <FeatIcon size={14} className={isAct ? "text-white shrink-0" : `${text} shrink-0`} />
+                    {effectivePinStyle !== "icon" && (
+                      <span className="max-w-[110px] truncate">{feat.shortLabel}</span>
+                    )}
+                  </a>
+
+                  {isLastVisible && overflowPinnedFeatures.length > 0 && (
+                    <div ref={pinOverflowRef} className={`relative ${isHorizontalCallCenterBar ? "hidden lg:block" : "hidden md:block"}`}>
+                      <button
+                        type="button"
+                        onClick={() => setPinOverflowOpen((prev) => !prev)}
+                        aria-expanded={pinOverflowOpen}
+                        aria-label="Diğer Sabitlenmiş Kısayollar"
+                        title={`Diğer Kısayollar (+${overflowPinnedFeatures.length})`}
+                        className={`${isHorizontalCallCenterBar ? "p-2" : "px-2 py-1.5"} rounded-xl border text-xs font-extrabold transition-all shadow-sm flex items-center gap-1 cursor-pointer ${
+                          pinOverflowOpen
+                            ? `${bg} text-white border-transparent`
+                            : "border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800"
+                        }`}
+                      >
+                        <MoreHorizontal size={14} />
+                        {!isHorizontalCallCenterBar && (
+                          <span className="text-[10px]">+{overflowPinnedFeatures.length}</span>
+                        )}
+                      </button>
+                      {pinOverflowOpen && (
+                        <div className={`absolute ${zoneName === "right" ? "right-0" : "left-0"} mt-2 w-60 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-2xl z-50 p-1.5 space-y-0.5 animate-in fade-in slide-in-from-top-2 duration-150`}>
+                          <div className="px-2.5 py-1.5 text-[9px] font-extrabold uppercase tracking-wider text-slate-400 dark:text-slate-500">
+                            Diğer Kısayollar
+                          </div>
+                          {overflowPinnedFeatures.map((ofeat) => {
+                            const OFeatIcon = ofeat.icon;
+                            const isOAct = activeTab === ofeat.id;
+                            const oSlug = getTurkishSlugForTab(ofeat.id);
+                            return (
+                              <a
+                                key={ofeat.id}
+                                href={`/?tab=${encodeURIComponent(oSlug)}`}
+                                onClick={(e) => {
+                                  if (!e.metaKey && !e.ctrlKey && !e.shiftKey && e.button === 0) {
+                                    e.preventDefault();
+                                    setActiveTab(ofeat.id);
+                                    setPinOverflowOpen(false);
+                                  }
+                                }}
+                                className={`w-full flex items-center gap-2.5 px-2.5 py-2 rounded-xl text-xs font-bold transition-colors ${
+                                  isOAct
+                                    ? `${lightBg} ${text}`
+                                    : "text-slate-700 dark:text-slate-200 hover:bg-slate-100/80 dark:hover:bg-slate-800"
+                                }`}
+                              >
+                                <OFeatIcon size={14} className={isOAct ? text : "text-slate-400 dark:text-slate-500"} />
+                                <span className="truncate">{ofeat.label}</span>
+                              </a>
+                            );
+                          })}
+                          <div className="h-px bg-slate-100 dark:bg-slate-800 my-1" />
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setPinOverflowOpen(false);
+                              setActiveModalTab("topbar");
+                              setSettingsModalOpen(true);
+                            }}
+                            className="w-full text-left flex items-center gap-2 px-2.5 py-2 rounded-xl text-[11px] font-bold text-slate-500 dark:text-slate-400 hover:bg-slate-100/80 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+                          >
+                            <PanelTop size={13} className={text} />
+                            <span>Üst Barı Özelleştir</span>
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </React.Fragment>
+              );
+            }
+
+            if (token === "widget:search") {
+              if (!canUseGlobalSearch || effectiveSearchMode === "hidden") return null;
+              return (
+                <GlobalSearchBar
+                  key="widget:search"
+                  backendHost={backendHost}
+                  currentUser={currentUser}
+                  activeTab={activeTab}
+                  setActiveTab={setActiveTab}
+                  displayMode={effectiveSearchMode}
+                  onOpenProfileModal={(modalTab) => {
+                    setActiveModalTab(modalTab || "profile");
+                    setSettingsModalOpen(true);
+                  }}
+                  onQuickProfileSwitch={handleQuickProfileSwitch}
+                  onToggleTheme={toggleTheme}
+                  isDarkMode={isDarkMode}
+                  onApplyChanges={handleApplyChanges}
+                  hasPendingChanges={hasPendingChanges}
+                  onLogout={handleLogout}
+                  onUpdateCallPanelPrefs={(patch) => {
+                    const current = loadCallPanelPrefs(currentUser);
+                    const next = saveCallPanelPrefs(currentUser, { ...current, ...patch });
+                    setCallPanelPrefs(next);
+                    persistUserVisualPatch({ call_panel_prefs: next });
+                  }}
+                />
+              );
+            }
+
+            if (token === "widget:ai_assistant") {
+              if (!canShowTopbarAiAssistant) return null;
+              return (
+                <button
+                  key="widget:ai_assistant"
+                  type="button"
+                  onClick={() => setActiveTab("ai-config-assistant")}
+                  title="AI Konfigürasyon Asistanı"
+                  className={`p-2 rounded-xl border transition-colors shadow-sm cursor-pointer shrink-0 ${
+                    activeTab === "ai-config-assistant"
+                      ? `${bg} text-white border-transparent`
+                      : "border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 hover:bg-slate-50 dark:hover:bg-slate-800"
+                  }`}
+                >
+                  <Sparkles size={14} className={activeTab === "ai-config-assistant" ? "text-white" : text} />
+                </button>
+              );
+            }
+
+            if (token === "widget:notifications") {
+              return (
+                <NotificationCenterBell
+                  key="widget:notifications"
+                  align={zoneName === "left" ? "left" : "right"}
+                  backendHost={backendHost}
+                  currentUser={currentUser}
+                  currentRolePermissions={currentRolePermissions}
+                  onNavigateTab={(targetTab, targetSubTab) => {
+                    if (isDesktopMode && targetTab !== "call-center" && !(targetTab === "omnichannel" && hasOmnichannelPermission)) {
+                      setActiveTab("call-center");
+                    } else {
+                      setActiveTab(targetTab);
+                    }
+                    if (targetTab === "call-center" && targetSubTab) {
+                      setTimeout(() => {
+                        window.dispatchEvent(
+                          new CustomEvent("SWITCH_AGENT_PANEL_SUBTAB", {
+                            detail: { subTab: targetSubTab }
+                          })
+                        );
+                      }, 60);
+                    }
+                  }}
+                />
+              );
+            }
+
+            if (token === "widget:theme") {
+              return (
+                <button
+                  key="widget:theme"
+                  type="button"
+                  onClick={toggleTheme}
+                  className="p-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors shadow-sm cursor-pointer shrink-0"
+                  title={
+                    callPanelPrefs?.autoThemeConfig?.mode === "schedule"
+                      ? `Otomatik Karanlık Mod Aktif (${callPanelPrefs.autoThemeConfig.darkStart} - ${callPanelPrefs.autoThemeConfig.darkEnd})`
+                      : callPanelPrefs?.autoThemeConfig?.mode === "system"
+                      ? "Sistem Temasını Takip Ediyor"
+                      : isDarkMode
+                      ? "Aydınlık Mod"
+                      : "Karanlık Mod"
+                  }
+                >
+                  {isDarkMode ? <Sun size={14} className="text-amber-400" /> : <Moon size={14} className="text-primary" />}
+                </button>
+              );
+            }
+
+            if (token === "widget:profile") {
+              return (
+                <div key="widget:profile" ref={profileDropdownRef} className="relative shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => setProfileDropdownOpen(!profileDropdownOpen)}
+                    aria-expanded={profileDropdownOpen}
+                    aria-label="Kullanıcı Profili ve Menüsü"
+                    className={`flex items-center rounded-full border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 hover:bg-slate-50 dark:hover:bg-slate-800/80 transition-all shadow-sm focus:outline-none group cursor-pointer ${
+                      hasAnyAvatarText ? "gap-2.5 px-2.5 py-1" : "p-1"
+                    }`}
+                    title="Kullanıcı Profili ve Menüsü"
+                  >
+                    <div className="relative shrink-0">
+                      <img
+                        src={agentAvatar}
+                        alt="Profil"
+                        className="w-7 h-7 rounded-full border border-slate-100 dark:border-slate-800 object-cover"
+                      />
+                      <span className={`absolute bottom-0 right-0 w-2.5 h-2.5 border-2 border-white dark:border-slate-900 rounded-full ${
+                        agentActiveProfile === "away" ? "bg-amber-500" :
+                        agentActiveProfile === "meeting" ? "bg-rose-500" :
+                        agentActiveProfile === "other" ? "bg-indigo-500" : "bg-emerald-500"
+                      }`} />
+                    </div>
+
+                    {hasAnyAvatarText && (
+                      <div className="hidden sm:flex flex-col text-left pr-0.5 max-w-[175px]">
+                        {(topbarPrefs.showName || (topbarPrefs.showExtension && currentUser?.extension)) && (
+                          <div className="flex items-center gap-1.5 leading-tight min-w-0">
+                            {topbarPrefs.showName && (
+                              <span className="text-xs font-bold text-slate-800 dark:text-slate-200 truncate">
+                                {currentUser?.full_name || currentUser?.name || currentUser?.username || "Kullanıcı"}
+                              </span>
+                            )}
+                            {topbarPrefs.showExtension && currentUser?.extension && (
+                              <span className={`px-1.5 py-0.5 rounded-md text-[9px] font-extrabold font-mono leading-none shrink-0 border ${lightBg} ${text} ${borderLight}`}>
+                                #{currentUser.extension}
+                              </span>
+                            )}
+                          </div>
+                        )}
+
+                        {(topbarPrefs.showRole || topbarPrefs.showProfile) && (
+                          <span className="text-[10px] font-semibold text-slate-400 dark:text-slate-500 truncate leading-tight flex items-center gap-1 mt-0.5">
+                            {topbarPrefs.showRole && (
+                              <span>
+                                {currentUser?.role === "admin"
+                                  ? "Yönetici"
+                                  : currentUser?.role === "supervisor"
+                                  ? "Süpervizör"
+                                  : "Temsilci"}
+                              </span>
+                            )}
+                            {topbarPrefs.showRole && topbarPrefs.showProfile && <span>•</span>}
+                            {topbarPrefs.showProfile && (
+                              <span
+                                className={
+                                  agentActiveProfile === "away"
+                                    ? "text-amber-500 font-bold"
+                                    : agentActiveProfile === "meeting"
+                                    ? "text-rose-500 font-bold"
+                                    : agentActiveProfile === "other"
+                                    ? "text-indigo-500 font-bold"
+                                    : "text-emerald-500 font-bold"
+                                }
+                              >
+                                {(agentProfiles.find((p) => p.id === agentActiveProfile) || DEFAULT_USER_PROFILES[0])?.name}
+                              </span>
+                            )}
+                          </span>
+                        )}
+                      </div>
+                    )}
+
+                    {hasAnyAvatarText && (
+                      <ChevronDown size={14} className="hidden sm:block text-slate-400 dark:text-slate-500 group-hover:text-slate-600 dark:group-hover:text-slate-300 transition-colors shrink-0" />
+                    )}
+                  </button>
+
+                  {profileDropdownOpen && (
+                    <div className={`absolute ${zoneName === "left" ? "left-0" : "right-0"} mt-2 w-72 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-2xl z-50 overflow-hidden animate-in fade-in slide-in-from-top-2 duration-150`}>
+                      {/* Active User Card Header */}
+                      <div className="p-3.5 bg-slate-50/90 dark:bg-slate-800/40 border-b border-slate-100 dark:border-slate-800/80">
+                        <div className="flex items-start gap-3">
+                          <div className="relative shrink-0 mt-0.5">
+                            <img
+                              src={agentAvatar}
+                              alt="Profil"
+                              className="w-10 h-10 rounded-xl border border-slate-200 dark:border-slate-700 object-cover shadow-sm"
+                            />
+                            <span className={`absolute -bottom-0.5 -right-0.5 w-3 h-3 border-2 border-white dark:border-slate-900 rounded-full ${
+                              agentActiveProfile === "away" ? "bg-amber-500" :
+                              agentActiveProfile === "meeting" ? "bg-rose-500" :
+                              agentActiveProfile === "other" ? "bg-indigo-500" : "bg-emerald-500"
+                            }`} />
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <h4 className="text-xs font-extrabold text-slate-900 dark:text-white truncate leading-snug">
+                              {currentUser?.full_name || currentUser?.name || currentUser?.username || 'Aktif Kullanıcı'}
+                            </h4>
+                            <p className="text-[11px] font-medium text-slate-500 dark:text-slate-400 truncate mt-0.5">
+                              {currentUser?.email || (currentUser?.username ? `@${currentUser.username}` : 'Aktif Oturum')}
+                            </p>
+                            <div className="flex flex-wrap items-center gap-1.5 mt-2">
+                              <span className={"inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-bold border " + lightBg + " " + text + " " + borderLight}>
+                                <User size={10} className="mr-1 shrink-0" />
+                                {currentUser?.role === 'admin' ? 'Sistem Yöneticisi' : currentUser?.role === 'supervisor' ? 'Süpervizör' : 'Çağrı Temsilcisi'}
+                              </span>
+                              {currentUser?.extension && (
+                                <span className="inline-flex items-center px-1.5 py-0.5 rounded-md text-[10px] font-semibold bg-slate-200/70 dark:bg-slate-800 text-slate-600 dark:text-slate-200">
+                                  Dahili: {currentUser.extension}
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Quick Profile Switcher (Müsait, Dışarıda, Toplantı, Diğer) */}
+                      <div className="p-3 border-b border-slate-100 dark:border-slate-800/80 space-y-2">
+                        <div className="flex items-center justify-between px-0.5">
+                          <span className="text-[10px] font-extrabold text-slate-400 dark:text-slate-500 uppercase tracking-wider">
+                            Aktif Profil Seçimi
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setProfileDropdownOpen(false);
+                              setActiveModalTab("profiles");
+                              setSettingsModalOpen(true);
+                            }}
+                            className={`text-[10px] font-bold ${text} hover:underline cursor-pointer`}
+                          >
+                            Profilleri Özelleştir
+                          </button>
+                        </div>
+                        <div className="grid grid-cols-2 gap-1.5">
+                          {agentProfiles.map((prof) => {
+                            const isAct = agentActiveProfile === prof.id;
+                            const dotCls =
+                              prof.id === "available" ? "bg-emerald-500" :
+                              prof.id === "away" ? "bg-amber-500" :
+                              prof.id === "meeting" ? "bg-rose-500" : "bg-indigo-500";
+                            return (
+                              <button
+                                key={prof.id}
+                                type="button"
+                                onClick={() => handleQuickProfileSwitch(prof.id)}
+                                className={`px-2.5 py-2 rounded-xl border text-left transition-all flex items-center justify-between gap-1.5 cursor-pointer ${
+                                  isAct
+                                    ? `${border} ${lightBg} shadow-sm`
+                                    : "border-slate-200/70 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-950/40 hover:bg-slate-100/70 dark:hover:bg-slate-800/60"
+                                }`}
+                              >
+                                <div className="flex items-center gap-2 min-w-0">
+                                  <span className={`w-2 h-2 rounded-full shrink-0 ${dotCls}`} />
+                                  <span className="text-[11px] font-bold text-slate-800 dark:text-white truncate">{prof.name}</span>
+                                </div>
+                                {isAct && <Check size={12} className={`${text} shrink-0`} />}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+
+                      {/* Menu Actions */}
+                      <div className="p-1.5">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setProfileDropdownOpen(false);
+                            setActiveModalTab("profile");
+                            setSettingsModalOpen(true);
+                          }}
+                          className="w-full text-left px-3 py-2.5 rounded-xl text-xs font-bold text-slate-700 dark:text-slate-100 hover:bg-slate-100/70 dark:hover:bg-slate-800 flex items-center gap-2.5 transition-colors cursor-pointer group"
+                        >
+                          <Settings size={15} className={`text-slate-500 dark:text-slate-300 group-hover:${text} transition-colors`} />
+                          <span>Profil Ayarları</span>
+                        </button>
+                        {isNativeElectron() && (
+                          <button
+                            type="button"
+                            onClick={handleLogout}
+                            className="w-full text-left px-3 py-2.5 rounded-xl text-xs font-bold text-slate-700 dark:text-slate-100 hover:bg-slate-100/70 dark:hover:bg-slate-800 flex items-center gap-2.5 transition-colors cursor-pointer group"
+                          >
+                            <Server size={15} className={`text-slate-500 dark:text-slate-300 group-hover:${text} transition-colors`} />
+                            <span>Sunucu Adresini Değiştir</span>
+                          </button>
+                        )}
+                        <div className="h-px bg-slate-100 dark:bg-slate-800/80 my-1" />
+                        <button
+                          type="button"
+                          onClick={handleLogout}
+                          className="w-full text-left px-3 py-2.5 rounded-xl text-xs font-bold text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/30 flex items-center gap-2.5 transition-colors cursor-pointer"
+                        >
+                          <LogOut size={15} className="text-rose-500" />
+                          <span>Çıkış Yap</span>
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              );
+            }
+
+            return null;
+          };
+
+          return (
         <header className="relative z-40 h-16 border-b border-slate-200/80 dark:border-slate-800/80 flex items-center justify-between px-5 bg-white/80 dark:bg-slate-900/60 backdrop-blur-md transition-colors duration-300 gap-3">
-          <div className="flex items-center gap-2.5 min-w-0 shrink-0">
+          {/* Sol Bölge */}
+          <div className="flex items-center gap-2 min-w-0 shrink-0">
             {(isDesktopMode || (activeTab === "call-center" && (isAgentOnlyUser || isAgentFullScreenMode))) && (
               <div className="flex items-center gap-2.5 pr-2">
                 <div className={`h-8 w-8 shrink-0 rounded-xl ${bg} flex items-center justify-center text-white shadow-sm`}>
@@ -3918,266 +4355,25 @@ export default function Home() {
               <TenantSwitcher backendHost={backendHost} currentUser={currentUser} />
             )}
 
-            {/* Pinned Quick-Access Bar (Standard Screens) */}
-            {!isDesktopMode && !isHorizontalCallCenterBar && pinnedTopbarFeatures.length > 0 && (
-              <nav aria-label="Sık Kullanılan Kısayollar" className="hidden md:flex items-center gap-1.5 pl-1">
-                {visiblePinnedFeatures.map((feat) => {
-                  const FeatIcon = feat.icon;
-                  const isAct = activeTab === feat.id;
-                  const slug = getTurkishSlugForTab(feat.id);
-                  return (
-                    <a
-                      key={feat.id}
-                      href={`/?tab=${encodeURIComponent(slug)}`}
-                      onClick={(e) => {
-                        if (!e.metaKey && !e.ctrlKey && !e.shiftKey && e.button === 0) {
-                          e.preventDefault();
-                          setActiveTab(feat.id);
-                        }
-                      }}
-                      title={feat.label}
-                      aria-label={feat.label}
-                      className={`flex items-center gap-1.5 rounded-xl border text-xs font-bold transition-all shadow-sm whitespace-nowrap ${
-                        effectivePinStyle === "icon" ? "p-2" : "px-2.5 py-1.5"
-                      } ${
-                        isAct
-                          ? `${bg} text-white border-transparent`
-                          : "border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800"
-                      }`}
-                    >
-                      <FeatIcon size={14} className={isAct ? "text-white shrink-0" : `${text} shrink-0`} />
-                      {effectivePinStyle !== "icon" && (
-                        <span className="max-w-[110px] truncate">{feat.shortLabel}</span>
-                      )}
-                    </a>
-                  );
-                })}
-
-                {overflowPinnedFeatures.length > 0 && (
-                  <div ref={pinOverflowRef} className="relative">
-                    <button
-                      type="button"
-                      onClick={() => setPinOverflowOpen((prev) => !prev)}
-                      aria-expanded={pinOverflowOpen}
-                      aria-label="Diğer Sabitlenmiş Kısayollar"
-                      title={`Diğer Kısayollar (+${overflowPinnedFeatures.length})`}
-                      className={`px-2 py-1.5 rounded-xl border text-xs font-extrabold transition-all shadow-sm flex items-center gap-1 cursor-pointer ${
-                        pinOverflowOpen
-                          ? `${bg} text-white border-transparent`
-                          : "border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800"
-                      }`}
-                    >
-                      <MoreHorizontal size={14} />
-                      <span className="text-[10px]">+{overflowPinnedFeatures.length}</span>
-                    </button>
-                    {pinOverflowOpen && (
-                      <div className="absolute left-0 mt-2 w-60 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-2xl z-50 p-1.5 space-y-0.5 animate-in fade-in slide-in-from-top-2 duration-150">
-                        <div className="px-2.5 py-1.5 text-[9px] font-extrabold uppercase tracking-wider text-slate-400 dark:text-slate-500">
-                          Diğer Kısayollar
-                        </div>
-                        {overflowPinnedFeatures.map((feat) => {
-                          const FeatIcon = feat.icon;
-                          const isAct = activeTab === feat.id;
-                          const slug = getTurkishSlugForTab(feat.id);
-                          return (
-                            <a
-                              key={feat.id}
-                              href={`/?tab=${encodeURIComponent(slug)}`}
-                              onClick={(e) => {
-                                if (!e.metaKey && !e.ctrlKey && !e.shiftKey && e.button === 0) {
-                                  e.preventDefault();
-                                  setActiveTab(feat.id);
-                                  setPinOverflowOpen(false);
-                                }
-                              }}
-                              className={`w-full flex items-center gap-2.5 px-2.5 py-2 rounded-xl text-xs font-bold transition-colors ${
-                                isAct
-                                  ? `${lightBg} ${text}`
-                                  : "text-slate-700 dark:text-slate-200 hover:bg-slate-100/80 dark:hover:bg-slate-800"
-                              }`}
-                            >
-                              <FeatIcon size={14} className={isAct ? text : "text-slate-400 dark:text-slate-500"} />
-                              <span className="truncate">{feat.label}</span>
-                            </a>
-                          );
-                        })}
-                        <div className="h-px bg-slate-100 dark:bg-slate-800 my-1" />
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setPinOverflowOpen(false);
-                            setActiveModalTab("topbar");
-                            setSettingsModalOpen(true);
-                          }}
-                          className="w-full text-left flex items-center gap-2 px-2.5 py-2 rounded-xl text-[11px] font-bold text-slate-500 dark:text-slate-400 hover:bg-slate-100/80 dark:hover:bg-slate-800 transition-colors cursor-pointer"
-                        >
-                          <PanelTop size={13} className={text} />
-                          <span>Üst Barı Özelleştir</span>
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                )}
-              </nav>
-            )}
+            {(topbarPrefs.layoutZones?.left || []).map((tok) => renderHeaderToken(tok, "left"))}
           </div>
 
-          {/* Agent Top Navigation Portal Slot (Üst Bar Modu Aktifken Sekmeler ve Kuyruk Oturumu Doğrudan Üst Bara Gelir) */}
-          {isHorizontalCallCenterBar && (
-            <div id="agent-top-nav-slot" className="flex-1 flex items-center justify-between px-2 min-w-0 overflow-hidden" />
+          {/* Orta Bölge */}
+          {isHorizontalCallCenterBar ? (
+            <>
+              <div id="agent-top-nav-slot" className="flex-1 flex items-center justify-between px-2 min-w-0 overflow-hidden" />
+              <div className="flex items-center gap-2 shrink-0">
+                {(topbarPrefs.layoutZones?.center || []).map((tok) => renderHeaderToken(tok, "center"))}
+              </div>
+            </>
+          ) : (
+            <div className="flex-1 flex items-center justify-center gap-2 min-w-0">
+              {(topbarPrefs.layoutZones?.center || []).map((tok) => renderHeaderToken(tok, "center"))}
+            </div>
           )}
 
-          {/* Global Search & Action Center Bar (Inline Standard / Wide Modes) */}
-          {canUseGlobalSearch && (effectiveSearchMode === "normal" || effectiveSearchMode === "wide") && (
-            <GlobalSearchBar
-              backendHost={backendHost}
-              currentUser={currentUser}
-              activeTab={activeTab}
-              setActiveTab={setActiveTab}
-              displayMode={effectiveSearchMode}
-              onOpenProfileModal={(modalTab) => {
-                setActiveModalTab(modalTab || "profile");
-                setSettingsModalOpen(true);
-              }}
-              onQuickProfileSwitch={handleQuickProfileSwitch}
-              onToggleTheme={toggleTheme}
-              isDarkMode={isDarkMode}
-              onApplyChanges={handleApplyChanges}
-              hasPendingChanges={hasPendingChanges}
-              onLogout={handleLogout}
-              onUpdateCallPanelPrefs={(patch) => {
-                const current = loadCallPanelPrefs(currentUser);
-                const next = saveCallPanelPrefs(currentUser, { ...current, ...patch });
-                setCallPanelPrefs(next);
-                persistUserVisualPatch({ call_panel_prefs: next });
-              }}
-            />
-          )}
-
+          {/* Sağ Bölge */}
           <div className="flex items-center gap-2.5 text-xs font-semibold text-slate-600 dark:text-slate-400 shrink-0">
-            {/* Yaklaşım B: Horizontal Call-Center Mode Auto-Compacted Pinned Shortcuts */}
-            {!isDesktopMode && isHorizontalCallCenterBar && pinnedTopbarFeatures.length > 0 && (
-              <nav aria-label="Sık Kullanılan Kısayollar" className="hidden lg:flex items-center gap-1.5">
-                {visiblePinnedFeatures.map((feat) => {
-                  const FeatIcon = feat.icon;
-                  const isAct = activeTab === feat.id;
-                  const slug = getTurkishSlugForTab(feat.id);
-                  return (
-                    <a
-                      key={feat.id}
-                      href={`/?tab=${encodeURIComponent(slug)}`}
-                      onClick={(e) => {
-                        if (!e.metaKey && !e.ctrlKey && !e.shiftKey && e.button === 0) {
-                          e.preventDefault();
-                          setActiveTab(feat.id);
-                        }
-                      }}
-                      title={feat.label}
-                      aria-label={feat.label}
-                      className={`p-2 rounded-xl border transition-colors shadow-sm ${
-                        isAct
-                          ? `${bg} text-white border-transparent`
-                          : "border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800"
-                      }`}
-                    >
-                      <FeatIcon size={14} className={isAct ? "text-white" : text} />
-                    </a>
-                  );
-                })}
-                {overflowPinnedFeatures.length > 0 && (
-                  <div ref={pinOverflowRef} className="relative">
-                    <button
-                      type="button"
-                      onClick={() => setPinOverflowOpen((prev) => !prev)}
-                      aria-expanded={pinOverflowOpen}
-                      aria-label="Diğer Sabitlenmiş Kısayollar"
-                      title={`Diğer Kısayollar (+${overflowPinnedFeatures.length})`}
-                      className={`p-2 rounded-xl border transition-colors shadow-sm cursor-pointer flex items-center gap-0.5 ${
-                        pinOverflowOpen
-                          ? `${bg} text-white border-transparent`
-                          : "border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800"
-                      }`}
-                    >
-                      <MoreHorizontal size={14} />
-                    </button>
-                    {pinOverflowOpen && (
-                      <div className="absolute right-0 mt-2 w-60 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-2xl z-50 p-1.5 space-y-0.5 animate-in fade-in slide-in-from-top-2 duration-150">
-                        <div className="px-2.5 py-1.5 text-[9px] font-extrabold uppercase tracking-wider text-slate-400 dark:text-slate-500">
-                          Diğer Kısayollar
-                        </div>
-                        {overflowPinnedFeatures.map((feat) => {
-                          const FeatIcon = feat.icon;
-                          const isAct = activeTab === feat.id;
-                          const slug = getTurkishSlugForTab(feat.id);
-                          return (
-                            <a
-                              key={feat.id}
-                              href={`/?tab=${encodeURIComponent(slug)}`}
-                              onClick={(e) => {
-                                if (!e.metaKey && !e.ctrlKey && !e.shiftKey && e.button === 0) {
-                                  e.preventDefault();
-                                  setActiveTab(feat.id);
-                                  setPinOverflowOpen(false);
-                                }
-                              }}
-                              className={`w-full flex items-center gap-2.5 px-2.5 py-2 rounded-xl text-xs font-bold transition-colors ${
-                                isAct
-                                  ? `${lightBg} ${text}`
-                                  : "text-slate-700 dark:text-slate-200 hover:bg-slate-100/80 dark:hover:bg-slate-800"
-                              }`}
-                            >
-                              <FeatIcon size={14} className={isAct ? text : "text-slate-400 dark:text-slate-500"} />
-                              <span className="truncate">{feat.label}</span>
-                            </a>
-                          );
-                        })}
-                        <div className="h-px bg-slate-100 dark:bg-slate-800 my-1" />
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setPinOverflowOpen(false);
-                            setActiveModalTab("topbar");
-                            setSettingsModalOpen(true);
-                          }}
-                          className="w-full text-left flex items-center gap-2 px-2.5 py-2 rounded-xl text-[11px] font-bold text-slate-500 dark:text-slate-400 hover:bg-slate-100/80 dark:hover:bg-slate-800 transition-colors cursor-pointer"
-                        >
-                          <PanelTop size={13} className={text} />
-                          <span>Üst Barı Özelleştir</span>
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                )}
-              </nav>
-            )}
-
-            {/* Global Search Trigger in Icon Mode (either user-selected or auto-compacted via Yaklaşım B) */}
-            {canUseGlobalSearch && effectiveSearchMode === "icon" && (
-              <GlobalSearchBar
-                backendHost={backendHost}
-                currentUser={currentUser}
-                activeTab={activeTab}
-                setActiveTab={setActiveTab}
-                displayMode="icon"
-                onOpenProfileModal={(modalTab) => {
-                  setActiveModalTab(modalTab || "profile");
-                  setSettingsModalOpen(true);
-                }}
-                onQuickProfileSwitch={handleQuickProfileSwitch}
-                onToggleTheme={toggleTheme}
-                isDarkMode={isDarkMode}
-                onApplyChanges={handleApplyChanges}
-                hasPendingChanges={hasPendingChanges}
-                onLogout={handleLogout}
-                onUpdateCallPanelPrefs={(patch) => {
-                  const current = loadCallPanelPrefs(currentUser);
-                  const next = saveCallPanelPrefs(currentUser, { ...current, ...patch });
-                  setCallPanelPrefs(next);
-                  persistUserVisualPatch({ call_panel_prefs: next });
-                }}
-              />
-            )}
-
             {!isDesktopMode && currentUser?.role === 'admin' && hasPendingChanges && (
               <div className="flex items-center gap-2 relative">
                 <button
@@ -4220,268 +4416,11 @@ export default function Home() {
               </button>
             )}
 
-            {!isAgentOnlyUser &&
-              !isWallboardOnlyUser &&
-              !pinnedTopbarFeatures.some((f) => f.id === "ai-config-assistant") &&
-              (currentUser?.role === "admin" || (Array.isArray(currentRolePermissions) && currentRolePermissions.some(p => p.startsWith("ai_config_assistant:")))) && (
-              <button
-                type="button"
-                onClick={() => setActiveTab("ai-config-assistant")}
-                title="AI Konfigürasyon Asistanı"
-                className={`p-2 rounded-xl border transition-colors shadow-sm cursor-pointer ${
-                  activeTab === "ai-config-assistant"
-                    ? `${bg} text-white border-transparent`
-                    : "border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 hover:bg-slate-50 dark:hover:bg-slate-800"
-                }`}
-              >
-                <Sparkles size={14} className={activeTab === "ai-config-assistant" ? "text-white" : text} />
-              </button>
-            )}
-
-            <NotificationCenterBell
-              backendHost={backendHost}
-              currentUser={currentUser}
-              currentRolePermissions={currentRolePermissions}
-              onNavigateTab={(targetTab, targetSubTab) => {
-                if (isDesktopMode && targetTab !== "call-center" && !(targetTab === "omnichannel" && hasOmnichannelPermission)) {
-                  setActiveTab("call-center");
-                } else {
-                  setActiveTab(targetTab);
-                }
-                if (targetTab === "call-center" && targetSubTab) {
-                  setTimeout(() => {
-                    window.dispatchEvent(
-                      new CustomEvent("SWITCH_AGENT_PANEL_SUBTAB", {
-                        detail: { subTab: targetSubTab }
-                      })
-                    );
-                  }, 60);
-                }
-              }}
-            />
-
-            <button
-              type="button"
-              onClick={toggleTheme}
-              className="p-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors shadow-sm cursor-pointer"
-              title={
-                callPanelPrefs?.autoThemeConfig?.mode === "schedule"
-                  ? `Otomatik Karanlık Mod Aktif (${callPanelPrefs.autoThemeConfig.darkStart} - ${callPanelPrefs.autoThemeConfig.darkEnd})`
-                  : callPanelPrefs?.autoThemeConfig?.mode === "system"
-                  ? "Sistem Temasını Takip Ediyor"
-                  : isDarkMode
-                  ? "Aydınlık Mod"
-                  : "Karanlık Mod"
-              }
-            >
-              {isDarkMode ? <Sun size={14} className="text-amber-400" /> : <Moon size={14} className="text-primary" />}
-            </button>
-
-            {/* Customizable Avatar & Profile Dropdown */}
-            <div ref={profileDropdownRef} className="relative">
-              <button
-                type="button"
-                onClick={() => setProfileDropdownOpen(!profileDropdownOpen)}
-                aria-expanded={profileDropdownOpen}
-                aria-label="Kullanıcı Profili ve Menüsü"
-                className={`flex items-center rounded-full border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 hover:bg-slate-50 dark:hover:bg-slate-800/80 transition-all shadow-sm focus:outline-none group cursor-pointer ${
-                  hasAnyAvatarText ? "gap-2.5 px-2.5 py-1" : "p-1"
-                }`}
-                title="Kullanıcı Profili ve Menüsü"
-              >
-                <div className="relative shrink-0">
-                  <img
-                    src={agentAvatar}
-                    alt="Profil"
-                    className="w-7 h-7 rounded-full border border-slate-100 dark:border-slate-800 object-cover"
-                  />
-                  <span className={`absolute bottom-0 right-0 w-2.5 h-2.5 border-2 border-white dark:border-slate-900 rounded-full ${
-                    agentActiveProfile === "away" ? "bg-amber-500" :
-                    agentActiveProfile === "meeting" ? "bg-rose-500" :
-                    agentActiveProfile === "other" ? "bg-indigo-500" : "bg-emerald-500"
-                  }`} />
-                </div>
-
-                {hasAnyAvatarText && (
-                  <div className="hidden sm:flex flex-col text-left pr-0.5 max-w-[175px]">
-                    {(topbarPrefs.showName || (topbarPrefs.showExtension && currentUser?.extension)) && (
-                      <div className="flex items-center gap-1.5 leading-tight min-w-0">
-                        {topbarPrefs.showName && (
-                          <span className="text-xs font-bold text-slate-800 dark:text-slate-200 truncate">
-                            {currentUser?.full_name || currentUser?.name || currentUser?.username || "Kullanıcı"}
-                          </span>
-                        )}
-                        {topbarPrefs.showExtension && currentUser?.extension && (
-                          <span className={`px-1.5 py-0.5 rounded-md text-[9px] font-extrabold font-mono leading-none shrink-0 border ${lightBg} ${text} ${borderLight}`}>
-                            #{currentUser.extension}
-                          </span>
-                        )}
-                      </div>
-                    )}
-
-                    {(topbarPrefs.showRole || topbarPrefs.showProfile) && (
-                      <span className="text-[10px] font-semibold text-slate-400 dark:text-slate-500 truncate leading-tight flex items-center gap-1 mt-0.5">
-                        {topbarPrefs.showRole && (
-                          <span>
-                            {currentUser?.role === "admin"
-                              ? "Yönetici"
-                              : currentUser?.role === "supervisor"
-                              ? "Süpervizör"
-                              : "Temsilci"}
-                          </span>
-                        )}
-                        {topbarPrefs.showRole && topbarPrefs.showProfile && <span>•</span>}
-                        {topbarPrefs.showProfile && (
-                          <span
-                            className={
-                              agentActiveProfile === "away"
-                                ? "text-amber-500 font-bold"
-                                : agentActiveProfile === "meeting"
-                                ? "text-rose-500 font-bold"
-                                : agentActiveProfile === "other"
-                                ? "text-indigo-500 font-bold"
-                                : "text-emerald-500 font-bold"
-                            }
-                          >
-                            {(agentProfiles.find((p) => p.id === agentActiveProfile) || DEFAULT_USER_PROFILES[0])?.name}
-                          </span>
-                        )}
-                      </span>
-                    )}
-                  </div>
-                )}
-
-                {hasAnyAvatarText && (
-                  <ChevronDown size={14} className="hidden sm:block text-slate-400 dark:text-slate-500 group-hover:text-slate-600 dark:group-hover:text-slate-300 transition-colors shrink-0" />
-                )}
-              </button>
-
-              {profileDropdownOpen && (
-                <div className="absolute right-0 mt-2 w-72 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-2xl z-50 overflow-hidden animate-in fade-in slide-in-from-top-2 duration-150">
-                  {/* Active User Card Header */}
-                  <div className="p-3.5 bg-slate-50/90 dark:bg-slate-800/40 border-b border-slate-100 dark:border-slate-800/80">
-                    <div className="flex items-start gap-3">
-                      <div className="relative shrink-0 mt-0.5">
-                        <img
-                          src={agentAvatar}
-                          alt="Profil"
-                          className="w-10 h-10 rounded-xl border border-slate-200 dark:border-slate-700 object-cover shadow-sm"
-                        />
-                        <span className={`absolute -bottom-0.5 -right-0.5 w-3 h-3 border-2 border-white dark:border-slate-900 rounded-full ${
-                          agentActiveProfile === "away" ? "bg-amber-500" :
-                          agentActiveProfile === "meeting" ? "bg-rose-500" :
-                          agentActiveProfile === "other" ? "bg-indigo-500" : "bg-emerald-500"
-                        }`} />
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <h4 className="text-xs font-extrabold text-slate-900 dark:text-white truncate leading-snug">
-                          {currentUser?.full_name || currentUser?.name || currentUser?.username || 'Aktif Kullanıcı'}
-                        </h4>
-                        <p className="text-[11px] font-medium text-slate-500 dark:text-slate-400 truncate mt-0.5">
-                          {currentUser?.email || (currentUser?.username ? `@${currentUser.username}` : 'Aktif Oturum')}
-                        </p>
-                        <div className="flex flex-wrap items-center gap-1.5 mt-2">
-                          <span className={"inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-bold border " + lightBg + " " + text + " " + borderLight}>
-                            <User size={10} className="mr-1 shrink-0" />
-                            {currentUser?.role === 'admin' ? 'Sistem Yöneticisi' : currentUser?.role === 'supervisor' ? 'Süpervizör' : 'Çağrı Temsilcisi'}
-                          </span>
-                          {currentUser?.extension && (
-                            <span className="inline-flex items-center px-1.5 py-0.5 rounded-md text-[10px] font-semibold bg-slate-200/70 dark:bg-slate-800 text-slate-600 dark:text-slate-200">
-                              Dahili: {currentUser.extension}
-                            </span>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Quick Profile Switcher (Müsait, Dışarıda, Toplantı, Diğer) */}
-                  <div className="p-3 border-b border-slate-100 dark:border-slate-800/80 space-y-2">
-                    <div className="flex items-center justify-between px-0.5">
-                      <span className="text-[10px] font-extrabold text-slate-400 dark:text-slate-500 uppercase tracking-wider">
-                        Aktif Profil Seçimi
-                      </span>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setProfileDropdownOpen(false);
-                          setActiveModalTab("profiles");
-                          setSettingsModalOpen(true);
-                        }}
-                        className={`text-[10px] font-bold ${text} hover:underline cursor-pointer`}
-                      >
-                        Profilleri Özelleştir
-                      </button>
-                    </div>
-                    <div className="grid grid-cols-2 gap-1.5">
-                      {agentProfiles.map((prof) => {
-                        const isAct = agentActiveProfile === prof.id;
-                        const dotCls =
-                          prof.id === "available" ? "bg-emerald-500" :
-                          prof.id === "away" ? "bg-amber-500" :
-                          prof.id === "meeting" ? "bg-rose-500" : "bg-indigo-500";
-                        return (
-                          <button
-                            key={prof.id}
-                            type="button"
-                            onClick={() => handleQuickProfileSwitch(prof.id)}
-                            className={`px-2.5 py-2 rounded-xl border text-left transition-all flex items-center justify-between gap-1.5 cursor-pointer ${
-                              isAct
-                                ? `${border} ${lightBg} shadow-sm`
-                                : "border-slate-200/70 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-950/40 hover:bg-slate-100/70 dark:hover:bg-slate-800/60"
-                            }`}
-                          >
-                            <div className="flex items-center gap-2 min-w-0">
-                              <span className={`w-2 h-2 rounded-full shrink-0 ${dotCls}`} />
-                              <span className="text-[11px] font-bold text-slate-800 dark:text-white truncate">{prof.name}</span>
-                            </div>
-                            {isAct && <Check size={12} className={`${text} shrink-0`} />}
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </div>
-
-                  {/* Menu Actions */}
-                  <div className="p-1.5">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setProfileDropdownOpen(false);
-                        setActiveModalTab("profile");
-                        setSettingsModalOpen(true);
-                      }}
-                      className="w-full text-left px-3 py-2.5 rounded-xl text-xs font-bold text-slate-700 dark:text-slate-100 hover:bg-slate-100/70 dark:hover:bg-slate-800 flex items-center gap-2.5 transition-colors cursor-pointer group"
-                    >
-                      <Settings size={15} className={`text-slate-500 dark:text-slate-300 group-hover:${text} transition-colors`} />
-                      <span>Profil Ayarları</span>
-                    </button>
-                    {isNativeElectron() && (
-                      <button
-                        type="button"
-                        onClick={handleLogout}
-                        className="w-full text-left px-3 py-2.5 rounded-xl text-xs font-bold text-slate-700 dark:text-slate-100 hover:bg-slate-100/70 dark:hover:bg-slate-800 flex items-center gap-2.5 transition-colors cursor-pointer group"
-                      >
-                        <Server size={15} className={`text-slate-500 dark:text-slate-300 group-hover:${text} transition-colors`} />
-                        <span>Sunucu Adresini Değiştir</span>
-                      </button>
-                    )}
-                    <div className="h-px bg-slate-100 dark:bg-slate-800/80 my-1" />
-                    <button
-                      type="button"
-                      onClick={handleLogout}
-                      className="w-full text-left px-3 py-2.5 rounded-xl text-xs font-bold text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/30 flex items-center gap-2.5 transition-colors cursor-pointer"
-                    >
-                      <LogOut size={15} className="text-rose-500" />
-                      <span>Çıkış Yap</span>
-                    </button>
-                  </div>
-                </div>
-              )}
-            </div>
+            {(topbarPrefs.layoutZones?.right || []).map((tok) => renderHeaderToken(tok, "right"))}
           </div>
         </header>
-        )}
+          );
+        })()}
 
         {/* Dynamic View Panel */}
         <div
@@ -5297,7 +5236,16 @@ export default function Home() {
                       };
 
                       const resetTopbarDefaults = () => {
-                        updateTopbarPrefsLive({ ...DEFAULT_TOPBAR_PREFS, pinnedItems: [] });
+                        updateTopbarPrefsLive({
+                          ...DEFAULT_TOPBAR_PREFS,
+                          pinnedItems: [],
+                          layoutZones: {
+                            left: [...DEFAULT_TOPBAR_ZONES.left],
+                            center: [...DEFAULT_TOPBAR_ZONES.center],
+                            right: [...DEFAULT_TOPBAR_ZONES.right]
+                          },
+                          _syncPinsFromZones: true
+                        });
                       };
 
                       const qFilter = pinCatalogSearch.trim().toLowerCase();
@@ -5312,19 +5260,415 @@ export default function Home() {
 
                       const catalogGroups = Array.from(new Set(filteredCatalog.map((f) => f.group)));
                       const previewVisiblePins = pinnedTopbarFeatures.slice(0, topbarPrefs.maxVisiblePins);
+                      const previewVisiblePinIds = new Set(previewVisiblePins.map((p) => p.id));
+                      const previewLastVisiblePinId =
+                        previewVisiblePins.length > 0
+                          ? previewVisiblePins[previewVisiblePins.length - 1].id
+                          : null;
                       const previewOverflowCount = Math.max(0, pinnedTopbarFeatures.length - topbarPrefs.maxVisiblePins);
+
+                      const canPreviewAiAssistant =
+                        !isAgentOnlyUser &&
+                        !isWallboardOnlyUser &&
+                        !pinnedTopbarFeatures.some((f) => f.id === "ai-config-assistant") &&
+                        (currentUser?.role === "admin" ||
+                          (Array.isArray(currentRolePermissions) &&
+                            currentRolePermissions.some((p) => p.startsWith("ai_config_assistant:"))));
+
+                      const isPreviewTokenVisible = (tok) => {
+                        if (!tok) return false;
+                        if (tok.startsWith("pin:")) {
+                          return !isDesktopMode && previewVisiblePinIds.has(tok.slice(4));
+                        }
+                        if (tok === "widget:search") {
+                          return canUseGlobalSearch && topbarPrefs.searchMode !== "hidden";
+                        }
+                        if (tok === "widget:ai_assistant") {
+                          return canPreviewAiAssistant;
+                        }
+                        return (
+                          tok === "widget:notifications" ||
+                          tok === "widget:theme" ||
+                          tok === "widget:profile"
+                        );
+                      };
+
+                      const getPreviewTokenLabel = (tok) => {
+                        if (!tok) return "";
+                        if (tok.startsWith("pin:")) {
+                          const f = pinnedTopbarFeatures.find((x) => x.id === tok.slice(4));
+                          return f ? `Kısayol: ${f.label}` : "Sabit Kısayol";
+                        }
+                        if (tok === "widget:search") return "Global Arama Alanı";
+                        if (tok === "widget:ai_assistant") return "AI Konfigürasyon Asistanı";
+                        if (tok === "widget:notifications") return "Bildirim Merkezi";
+                        if (tok === "widget:theme") return "Aydınlık / Karanlık Tema";
+                        if (tok === "widget:profile") return "Kullanıcı Avatar & Profil Kapsülü";
+                        return tok;
+                      };
+
+                      const commitTopbarTokenDrop = (targetZone, rawTargetIndex, explicitToken = null) => {
+                        const activeToken = explicitToken || draggedTopbarToken;
+                        setDraggedTopbarToken(null);
+                        setTopbarDropIndicator(null);
+                        if (!activeToken || !["left", "center", "right"].includes(targetZone)) return;
+
+                        const nextZones = {
+                          left: [...(topbarPrefs.layoutZones?.left || [])],
+                          center: [...(topbarPrefs.layoutZones?.center || [])],
+                          right: [...(topbarPrefs.layoutZones?.right || [])]
+                        };
+
+                        let adjustedIndex = rawTargetIndex;
+                        const prevIdxInTarget = nextZones[targetZone].indexOf(activeToken);
+                        if (prevIdxInTarget !== -1 && prevIdxInTarget < adjustedIndex) {
+                          adjustedIndex -= 1;
+                        }
+
+                        ["left", "center", "right"].forEach((zKey) => {
+                          nextZones[zKey] = nextZones[zKey].filter((t) => t !== activeToken);
+                        });
+
+                        const safeIdx = Math.max(0, Math.min(nextZones[targetZone].length, adjustedIndex));
+                        nextZones[targetZone].splice(safeIdx, 0, activeToken);
+
+                        const nextOrderedPins = [
+                          ...nextZones.left,
+                          ...nextZones.center,
+                          ...nextZones.right
+                        ]
+                          .filter((t) => t.startsWith("pin:"))
+                          .map((t) => t.slice(4));
+
+                        updateTopbarPrefsLive({
+                          layoutZones: nextZones,
+                          pinnedItems: nextOrderedPins,
+                          _syncPinsFromZones: true
+                        });
+                      };
+
+                      const moveTopbarTokenByStep = (token, delta) => {
+                        const zoneOrder = ["left", "center", "right"];
+                        const curZones = {
+                          left: [...(topbarPrefs.layoutZones?.left || [])],
+                          center: [...(topbarPrefs.layoutZones?.center || [])],
+                          right: [...(topbarPrefs.layoutZones?.right || [])]
+                        };
+                        let foundZoneIdx = -1;
+                        let foundPos = -1;
+                        zoneOrder.forEach((zKey, zIdx) => {
+                          const p = curZones[zKey].indexOf(token);
+                          if (p !== -1) {
+                            foundZoneIdx = zIdx;
+                            foundPos = p;
+                          }
+                        });
+                        if (foundZoneIdx === -1) return;
+
+                        const curZoneKey = zoneOrder[foundZoneIdx];
+                        const list = curZones[curZoneKey];
+
+                        if (delta < 0) {
+                          // Find previous visible item in current zone
+                          let prevVisIdx = -1;
+                          for (let i = foundPos - 1; i >= 0; i -= 1) {
+                            if (isPreviewTokenVisible(list[i])) {
+                              prevVisIdx = i;
+                              break;
+                            }
+                          }
+                          if (prevVisIdx !== -1) {
+                            commitTopbarTokenDrop(curZoneKey, prevVisIdx, token);
+                          } else if (foundZoneIdx > 0) {
+                            const prevZoneKey = zoneOrder[foundZoneIdx - 1];
+                            commitTopbarTokenDrop(prevZoneKey, curZones[prevZoneKey].length, token);
+                          }
+                        } else {
+                          // Find next visible item in current zone
+                          let nextVisIdx = -1;
+                          for (let i = foundPos + 1; i < list.length; i += 1) {
+                            if (isPreviewTokenVisible(list[i])) {
+                              nextVisIdx = i;
+                              break;
+                            }
+                          }
+                          if (nextVisIdx !== -1) {
+                            commitTopbarTokenDrop(curZoneKey, nextVisIdx + 1, token);
+                          } else if (foundZoneIdx < zoneOrder.length - 1) {
+                            const nextZoneKey = zoneOrder[foundZoneIdx + 1];
+                            commitTopbarTokenDrop(nextZoneKey, 0, token);
+                          }
+                        }
+                      };
+
+                      const renderPreviewTokenContent = (tok) => {
+                        if (tok.startsWith("pin:")) {
+                          const fid = tok.slice(4);
+                          const pf = previewVisiblePins.find((x) => x.id === fid);
+                          if (!pf) return null;
+                          const PfIcon = pf.icon;
+                          const isLastVis = fid === previewLastVisiblePinId;
+                          return (
+                            <span className="inline-flex items-center gap-1">
+                              <span
+                                className={`inline-flex items-center gap-1 rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 text-[10px] font-bold text-slate-700 dark:text-slate-200 shadow-2xs ${
+                                  topbarPrefs.pinStyle === "icon" ? "p-1.5" : "px-2 py-1"
+                                }`}
+                              >
+                                <PfIcon size={11} className={text} />
+                                {topbarPrefs.pinStyle !== "icon" && (
+                                  <span className="max-w-[70px] truncate">{pf.shortLabel}</span>
+                                )}
+                              </span>
+                              {isLastVis && previewOverflowCount > 0 && (
+                                <span className="px-1.5 py-1 rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 text-[9px] font-extrabold text-slate-500">
+                                  +{previewOverflowCount}
+                                </span>
+                              )}
+                            </span>
+                          );
+                        }
+
+                        if (tok === "widget:search") {
+                          if (topbarPrefs.searchMode === "icon") {
+                            return (
+                              <span className="p-1.5 rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 inline-flex items-center justify-center">
+                                <Search size={11} className={text} />
+                              </span>
+                            );
+                          }
+                          return (
+                            <div
+                              className={`h-7 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-100/80 dark:bg-slate-800/70 px-2.5 flex items-center gap-1.5 ${
+                                topbarPrefs.searchMode === "wide" ? "w-48 sm:w-56" : "w-36"
+                              }`}
+                            >
+                              <Search size={11} className="text-slate-400 shrink-0" />
+                              <span className="text-[9px] font-semibold text-slate-400 truncate">
+                                {topbarPrefs.searchMode === "wide"
+                                  ? "Menü, ayar, kullanıcı ara... (⌘K)"
+                                  : "Hızlı ara..."}
+                              </span>
+                            </div>
+                          );
+                        }
+
+                        if (tok === "widget:ai_assistant") {
+                          return (
+                            <span className="p-1.5 rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 inline-flex items-center justify-center">
+                              <Sparkles size={11} className={text} />
+                            </span>
+                          );
+                        }
+
+                        if (tok === "widget:notifications") {
+                          return (
+                            <span className="p-1.5 rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 inline-flex items-center justify-center">
+                              <Bell size={11} className="text-slate-500 dark:text-slate-400" />
+                            </span>
+                          );
+                        }
+
+                        if (tok === "widget:theme") {
+                          return (
+                            <span className="p-1.5 rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 inline-flex items-center justify-center">
+                              {isDarkMode ? (
+                                <Sun size={11} className="text-amber-400" />
+                              ) : (
+                                <Moon size={11} className={text} />
+                              )}
+                            </span>
+                          );
+                        }
+
+                        if (tok === "widget:profile") {
+                          return (
+                            <div
+                              className={`flex items-center rounded-full border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 ${
+                                hasAnyAvatarText ? "gap-1.5 px-2 py-0.5" : "p-0.5"
+                              }`}
+                            >
+                              <img
+                                src={agentAvatar}
+                                alt="Önizleme"
+                                draggable={false}
+                                className="w-5 h-5 rounded-full object-cover pointer-events-none select-none"
+                              />
+                              {hasAnyAvatarText && (
+                                <div className="flex flex-col leading-none">
+                                  {(topbarPrefs.showName || (topbarPrefs.showExtension && currentUser?.extension)) && (
+                                    <div className="flex items-center gap-1">
+                                      {topbarPrefs.showName && (
+                                        <span className="text-[9px] font-bold text-slate-800 dark:text-slate-200 max-w-[70px] truncate">
+                                          {currentUser?.full_name || currentUser?.username || "Kullanıcı"}
+                                        </span>
+                                      )}
+                                      {topbarPrefs.showExtension && currentUser?.extension && (
+                                        <span className={`px-1 py-0.2 rounded text-[8px] font-mono font-extrabold ${lightBg} ${text}`}>
+                                          #{currentUser.extension}
+                                        </span>
+                                      )}
+                                    </div>
+                                  )}
+                                  {(topbarPrefs.showRole || topbarPrefs.showProfile) && (
+                                    <span className="text-[8px] text-slate-400 mt-0.5">
+                                      {topbarPrefs.showRole ? (currentUser?.role === "admin" ? "Yönetici" : "Temsilci") : ""}
+                                      {topbarPrefs.showRole && topbarPrefs.showProfile ? " • " : ""}
+                                      {topbarPrefs.showProfile ? "Müsait" : ""}
+                                    </span>
+                                  )}
+                                </div>
+                              )}
+                            </div>
+                          );
+                        }
+
+                        return null;
+                      };
+
+                      const renderPreviewDropZone = (zoneId, zoneTitle, alignCls) => {
+                        const rawTokens = topbarPrefs.layoutZones?.[zoneId] || [];
+                        const visibleEntries = rawTokens
+                          .map((tok, rawIdx) => ({ tok, rawIdx }))
+                          .filter((entry) => isPreviewTokenVisible(entry.tok));
+                        const isZoneHighlighted =
+                          Boolean(draggedTopbarToken) && topbarDropIndicator?.zone === zoneId;
+
+                        return (
+                          <div
+                            key={zoneId}
+                            onDragOver={(e) => {
+                              if (!draggedTopbarToken) return;
+                              e.preventDefault();
+                              setTopbarDropIndicator({ zone: zoneId, index: rawTokens.length });
+                            }}
+                            onDrop={(e) => {
+                              e.preventDefault();
+                              const dropTok =
+                                draggedTopbarToken || e.dataTransfer?.getData("text/plain") || null;
+                              const dropIdx =
+                                topbarDropIndicator?.zone === zoneId
+                                  ? topbarDropIndicator.index
+                                  : rawTokens.length;
+                              commitTopbarTokenDrop(zoneId, dropIdx, dropTok);
+                            }}
+                            className={`flex items-center gap-1.5 min-h-[38px] rounded-xl transition-all duration-150 ${alignCls} ${
+                              zoneId === "center" ? "flex-1 min-w-[72px]" : "shrink-0 min-w-[64px]"
+                            } ${
+                              draggedTopbarToken
+                                ? isZoneHighlighted
+                                  ? `border border-dashed ${border} ${lightBg} px-2 py-1`
+                                  : "border border-dashed border-slate-300/70 dark:border-slate-700/80 px-2 py-1"
+                                : "px-0.5 py-0.5"
+                            }`}
+                          >
+                            {visibleEntries.length === 0 ? (
+                              draggedTopbarToken ? (
+                                <span className={`text-[9px] font-bold uppercase tracking-wider px-1.5 select-none ${isZoneHighlighted ? text : "text-slate-400 dark:text-slate-500"}`}>
+                                  {zoneTitle}
+                                </span>
+                              ) : zoneId === "left" && pinnedTopbarFeatures.length === 0 ? (
+                                <span className="text-[10px] font-semibold text-slate-400 dark:text-slate-500 italic px-1 select-none">
+                                  Sabit kısayol seçilmedi
+                                </span>
+                              ) : null
+                            ) : (
+                              visibleEntries.map(({ tok, rawIdx }) => {
+                                const isBeingDragged = draggedTopbarToken === tok;
+                                const showLineBefore =
+                                  draggedTopbarToken &&
+                                  draggedTopbarToken !== tok &&
+                                  topbarDropIndicator?.zone === zoneId &&
+                                  topbarDropIndicator?.index === rawIdx;
+                                const showLineAfter =
+                                  draggedTopbarToken &&
+                                  draggedTopbarToken !== tok &&
+                                  topbarDropIndicator?.zone === zoneId &&
+                                  topbarDropIndicator?.index === rawIdx + 1;
+                                const tokLabel = getPreviewTokenLabel(tok);
+
+                                return (
+                                  <div
+                                    key={tok}
+                                    draggable
+                                    tabIndex={0}
+                                    role="button"
+                                    aria-label={`${tokLabel} — Sürükleyerek veya sol/sağ yön tuşlarıyla yerini değiştirin`}
+                                    title={`${tokLabel} (Taşımak için sürükleyin)`}
+                                    onDragStart={(e) => {
+                                      e.stopPropagation();
+                                      try {
+                                        e.dataTransfer.effectAllowed = "move";
+                                        e.dataTransfer.setData("text/plain", tok);
+                                      } catch (err) {}
+                                      setDraggedTopbarToken(tok);
+                                    }}
+                                    onDragOver={(e) => {
+                                      if (!draggedTopbarToken) return;
+                                      e.preventDefault();
+                                      e.stopPropagation();
+                                      const rect = e.currentTarget.getBoundingClientRect();
+                                      const after = e.clientX > rect.left + rect.width / 2;
+                                      setTopbarDropIndicator({
+                                        zone: zoneId,
+                                        index: after ? rawIdx + 1 : rawIdx
+                                      });
+                                    }}
+                                    onDrop={(e) => {
+                                      e.preventDefault();
+                                      e.stopPropagation();
+                                      const dropTok =
+                                        draggedTopbarToken || e.dataTransfer?.getData("text/plain") || null;
+                                      const rect = e.currentTarget.getBoundingClientRect();
+                                      const after = e.clientX > rect.left + rect.width / 2;
+                                      commitTopbarTokenDrop(zoneId, after ? rawIdx + 1 : rawIdx, dropTok);
+                                    }}
+                                    onDragEnd={() => {
+                                      setDraggedTopbarToken(null);
+                                      setTopbarDropIndicator(null);
+                                    }}
+                                    onKeyDown={(e) => {
+                                      if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
+                                        e.preventDefault();
+                                        moveTopbarTokenByStep(tok, e.key === "ArrowLeft" ? -1 : 1);
+                                      }
+                                    }}
+                                    className={`relative inline-flex items-center rounded-xl cursor-grab active:cursor-grabbing select-none [-webkit-user-select:none] touch-none transition-all duration-150 focus:outline-none focus:ring-2 ${ring} hover:-translate-y-0.5 hover:ring-2 ${
+                                      isBeingDragged ? "opacity-40 scale-95" : ""
+                                    }`}
+                                  >
+                                    {showLineBefore && (
+                                      <span className={`absolute -left-1 top-1 bottom-1 w-0.5 rounded-full ${bg} pointer-events-none`} />
+                                    )}
+                                    {renderPreviewTokenContent(tok)}
+                                    {showLineAfter && (
+                                      <span className={`absolute -right-1 top-1 bottom-1 w-0.5 rounded-full ${bg} pointer-events-none`} />
+                                    )}
+                                  </div>
+                                );
+                              })
+                            )}
+                          </div>
+                        );
+                      };
 
                       return (
                         <div className="space-y-5 max-h-[65vh] overflow-y-auto pr-1">
-                          {/* Canlı Üst Bar Önizlemesi + Yaklaşım B Bilgilendirmesi */}
+                          {/* Canlı Üst Bar Önizlemesi + Sürükle & Bırak Alanı */}
                           <div className="p-4 bg-slate-50/80 dark:bg-slate-950/50 border border-slate-200/80 dark:border-slate-800 rounded-2xl space-y-3">
                             <div className="flex flex-wrap items-center justify-between gap-2">
                               <div>
-                                <h5 className="text-xs font-extrabold text-slate-800 dark:text-white uppercase tracking-wider">
-                                  Canlı Üst Bar Önizlemesi
-                                </h5>
+                                <div className="flex items-center gap-2">
+                                  <h5 className="text-xs font-extrabold text-slate-800 dark:text-white uppercase tracking-wider">
+                                    Canlı Üst Bar Önizlemesi
+                                  </h5>
+                                  <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] font-extrabold border ${lightBg} ${text} ${borderLight}`}>
+                                    <GripVertical size={10} />
+                                    <span>Sürükle & Bırak</span>
+                                  </span>
+                                </div>
                                 <p className="text-[10px] text-slate-400 dark:text-slate-500 mt-0.5">
-                                  Seçtiğiniz kısayollar, arama çubuğu genişliği ve avatar görünümü anında üst bara uygulanır.
+                                  Önizleme üzerindeki kısayolları, arama kutusunu, tema, bildirim ve profil alanını sürükleyip sol, orta veya sağ bölgeye bırakarak yerlerini değiştirebilirsiniz.
                                 </p>
                               </div>
                               <button
@@ -5337,94 +5681,11 @@ export default function Home() {
                               </button>
                             </div>
 
-                            {/* Mini Header Simülasyonu */}
-                            <div className="w-full h-14 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 px-3.5 flex items-center justify-between gap-2.5 shadow-sm overflow-hidden">
-                              <div className="flex items-center gap-1.5 min-w-0 shrink-0">
-                                {previewVisiblePins.length === 0 ? (
-                                  <span className="text-[10px] font-semibold text-slate-400 dark:text-slate-500 italic px-1">
-                                    Sabit kısayol seçilmedi
-                                  </span>
-                                ) : (
-                                  previewVisiblePins.map((pf) => {
-                                    const PfIcon = pf.icon;
-                                    return (
-                                      <span
-                                        key={pf.id}
-                                        className={`inline-flex items-center gap-1 rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 text-[10px] font-bold text-slate-700 dark:text-slate-200 ${
-                                          topbarPrefs.pinStyle === "icon" ? "p-1.5" : "px-2 py-1"
-                                        }`}
-                                      >
-                                        <PfIcon size={11} className={text} />
-                                        {topbarPrefs.pinStyle !== "icon" && (
-                                          <span className="max-w-[70px] truncate">{pf.shortLabel}</span>
-                                        )}
-                                      </span>
-                                    );
-                                  })
-                                )}
-                                {previewOverflowCount > 0 && (
-                                  <span className="px-1.5 py-1 rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 text-[9px] font-extrabold text-slate-500">
-                                    +{previewOverflowCount}
-                                  </span>
-                                )}
-                              </div>
-
-                              {/* Mini Search Simülasyonu */}
-                              {canUseGlobalSearch && (topbarPrefs.searchMode === "normal" || topbarPrefs.searchMode === "wide") && (
-                                <div
-                                  className={`h-7 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-100/80 dark:bg-slate-800/70 px-2.5 flex items-center gap-1.5 ${
-                                    topbarPrefs.searchMode === "wide" ? "flex-1 max-w-[240px]" : "w-36 shrink"
-                                  }`}
-                                >
-                                  <Search size={11} className="text-slate-400 shrink-0" />
-                                  <span className="text-[9px] font-semibold text-slate-400 truncate">
-                                    {topbarPrefs.searchMode === "wide" ? "Menü, ayar, kullanıcı ara... (⌘K)" : "Hızlı ara..."}
-                                  </span>
-                                </div>
-                              )}
-
-                              <div className="flex items-center gap-1.5 shrink-0">
-                                {canUseGlobalSearch && topbarPrefs.searchMode === "icon" && (
-                                  <span className="p-1.5 rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950">
-                                    <Search size={11} className={text} />
-                                  </span>
-                                )}
-                                <span className="p-1.5 rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950">
-                                  {isDarkMode ? <Sun size={11} className="text-amber-400" /> : <Moon size={11} className={text} />}
-                                </span>
-                                <div
-                                  className={`flex items-center rounded-full border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 ${
-                                    hasAnyAvatarText ? "gap-1.5 px-2 py-0.5" : "p-0.5"
-                                  }`}
-                                >
-                                  <img src={agentAvatar} alt="Önizleme" className="w-5 h-5 rounded-full object-cover" />
-                                  {hasAnyAvatarText && (
-                                    <div className="flex flex-col leading-none">
-                                      {(topbarPrefs.showName || (topbarPrefs.showExtension && currentUser?.extension)) && (
-                                        <div className="flex items-center gap-1">
-                                          {topbarPrefs.showName && (
-                                            <span className="text-[9px] font-bold text-slate-800 dark:text-slate-200 max-w-[70px] truncate">
-                                              {currentUser?.full_name || currentUser?.username || "Kullanıcı"}
-                                            </span>
-                                          )}
-                                          {topbarPrefs.showExtension && currentUser?.extension && (
-                                            <span className={`px-1 py-0.2 rounded text-[8px] font-mono font-extrabold ${lightBg} ${text}`}>
-                                              #{currentUser.extension}
-                                            </span>
-                                          )}
-                                        </div>
-                                      )}
-                                      {(topbarPrefs.showRole || topbarPrefs.showProfile) && (
-                                        <span className="text-[8px] text-slate-400 mt-0.5">
-                                          {topbarPrefs.showRole ? (currentUser?.role === "admin" ? "Yönetici" : "Temsilci") : ""}
-                                          {topbarPrefs.showRole && topbarPrefs.showProfile ? " • " : ""}
-                                          {topbarPrefs.showProfile ? "Müsait" : ""}
-                                        </span>
-                                      )}
-                                    </div>
-                                  )}
-                                </div>
-                              </div>
+                            {/* İnteraktif Sürükle-Bırak Mini Header Simülasyonu */}
+                            <div className="w-full min-h-[58px] py-1.5 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 px-3 flex items-center justify-between gap-2 shadow-sm overflow-x-auto">
+                              {renderPreviewDropZone("left", "Sol Alan", "justify-start")}
+                              {renderPreviewDropZone("center", "Orta Alan", "justify-center")}
+                              {renderPreviewDropZone("right", "Sağ Alan", "justify-end")}
                             </div>
 
                             {/* Akıllı Yatay Mod Uyumu (Yaklaşım B) Bilgi Notu */}

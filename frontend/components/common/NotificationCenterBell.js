@@ -27,6 +27,7 @@ export default function NotificationCenterBell({
   currentUser,
   currentRolePermissions = null,
   onNavigateTab,
+  align = "right",
 }) {
   const { bg, hover, text, border, lightBg, borderLight } = useTheme();
   const [isOpen, setIsOpen] = useState(false);
@@ -428,7 +429,7 @@ export default function NotificationCenterBell({
         </button>
 
         {isOpen && (
-          <div className="absolute right-0 mt-2 w-80 sm:w-96 bg-white dark:bg-slate-900 border border-slate-200/90 dark:border-slate-800 rounded-2xl shadow-2xl z-[140] overflow-hidden animate-in fade-in zoom-in-95 duration-150">
+          <div className={`absolute ${align === "left" ? "left-0" : "right-0"} mt-2 w-80 sm:w-96 bg-white dark:bg-slate-900 border border-slate-200/90 dark:border-slate-800 rounded-2xl shadow-2xl z-[140] overflow-hidden animate-in fade-in zoom-in-95 duration-150`}>
             {/* Header */}
             <div className="px-4 py-3 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between gap-2 bg-slate-50/60 dark:bg-slate-950/40">
               <div className="flex items-center gap-2">

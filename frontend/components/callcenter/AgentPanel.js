@@ -46,6 +46,20 @@ export const ALL_TABS = [
   { id: "deskphone", perm: "call_panel:tab_deskphone", name: "Masa Telefonum", desc: "Masa telefonu BLF, hızlı arama ve softkey tuş yönetimi", icon: Smartphone },
 ];
 
+export const TOPBAR_SYSTEM_WIDGET_TOKENS = [
+  "widget:search",
+  "widget:ai_assistant",
+  "widget:notifications",
+  "widget:theme",
+  "widget:profile",
+];
+
+export const DEFAULT_TOPBAR_ZONES = {
+  left: [],
+  center: ["widget:search"],
+  right: ["widget:ai_assistant", "widget:notifications", "widget:theme", "widget:profile"],
+};
+
 export const DEFAULT_TOPBAR_PREFS = {
   searchMode: "normal", // "hidden" | "icon" | "normal" | "wide"
   pinnedItems: [], // user-selected feature IDs
@@ -56,17 +70,31 @@ export const DEFAULT_TOPBAR_PREFS = {
   showExtension: false,
   showProfile: true,
   showRole: true,
+  layoutZones: {
+    left: [],
+    center: ["widget:search"],
+    right: ["widget:ai_assistant", "widget:notifications", "widget:theme", "widget:profile"],
+  },
 };
 
 export function normalizeTopbarPrefs(raw) {
   if (!raw || typeof raw !== "object") {
-    return { ...DEFAULT_TOPBAR_PREFS, pinnedItems: [] };
+    return {
+      ...DEFAULT_TOPBAR_PREFS,
+      pinnedItems: [],
+      layoutZones: {
+        left: [...DEFAULT_TOPBAR_ZONES.left],
+        center: [...DEFAULT_TOPBAR_ZONES.center],
+        right: [...DEFAULT_TOPBAR_ZONES.right],
+      },
+    };
   }
   const validSearchModes = ["hidden", "icon", "normal", "wide"];
   const searchMode = validSearchModes.includes(raw.searchMode) ? raw.searchMode : "normal";
   const pinnedItems = Array.isArray(raw.pinnedItems)
     ? Array.from(new Set(raw.pinnedItems.filter((x) => typeof x === "string" && x.trim().length > 0)))
     : [];
+  const pinnedSet = new Set(pinnedItems);
   const pinStyle = raw.pinStyle === "icon" ? "icon" : "icon_label";
   const parsedMax = Number(raw.maxVisiblePins);
   const maxVisiblePins = Number.isFinite(parsedMax) ? Math.min(8, Math.max(2, Math.round(parsedMax))) : 5;
@@ -76,9 +104,124 @@ export function normalizeTopbarPrefs(raw) {
   const showProfile = raw.showProfile === undefined ? true : Boolean(raw.showProfile);
   const showRole = raw.showRole === undefined ? true : Boolean(raw.showRole);
 
+  const rawZones = raw.layoutZones && typeof raw.layoutZones === "object" ? raw.layoutZones : null;
+  const zones = {
+    left: [],
+    center: [],
+    right: [],
+  };
+  const seenTokens = new Set();
+
+  const acceptToken = (tok) => {
+    if (typeof tok !== "string") return false;
+    const clean = tok.trim();
+    if (!clean || seenTokens.has(clean)) return false;
+    if (TOPBAR_SYSTEM_WIDGET_TOKENS.includes(clean)) {
+      seenTokens.add(clean);
+      return true;
+    }
+    if (clean.startsWith("pin:")) {
+      const fid = clean.slice(4);
+      if (fid && pinnedSet.has(fid)) {
+        seenTokens.add(clean);
+        return true;
+      }
+    }
+    return false;
+  };
+
+  if (rawZones) {
+    ["left", "center", "right"].forEach((zKey) => {
+      const list = Array.isArray(rawZones[zKey]) ? rawZones[zKey] : [];
+      list.forEach((tok) => {
+        if (acceptToken(tok)) {
+          zones[zKey].push(tok.trim());
+        }
+      });
+    });
+  } else {
+    pinnedItems.forEach((fid) => {
+      const pTok = `pin:${fid}`;
+      seenTokens.add(pTok);
+      zones.left.push(pTok);
+    });
+    zones.center.push("widget:search");
+    seenTokens.add("widget:search");
+    ["widget:ai_assistant", "widget:notifications", "widget:theme", "widget:profile"].forEach((wTok) => {
+      zones.right.push(wTok);
+      seenTokens.add(wTok);
+    });
+  }
+
+  // Ensure every system widget token exists exactly once
+  if (!seenTokens.has("widget:search")) {
+    zones.center.push("widget:search");
+    seenTokens.add("widget:search");
+  }
+  ["widget:ai_assistant", "widget:notifications", "widget:theme", "widget:profile"].forEach((wTok) => {
+    if (!seenTokens.has(wTok)) {
+      if (wTok !== "widget:profile") {
+        const profIdx = zones.right.indexOf("widget:profile");
+        if (profIdx !== -1) {
+          zones.right.splice(profIdx, 0, wTok);
+        } else {
+          zones.right.push(wTok);
+        }
+      } else {
+        zones.right.push(wTok);
+      }
+      seenTokens.add(wTok);
+    }
+  });
+
+  // Ensure newly added pinnedItems are placed right after the last existing pin token (or in left zone)
+  pinnedItems.forEach((fid) => {
+    const pTok = `pin:${fid}`;
+    if (!seenTokens.has(pTok)) {
+      let inserted = false;
+      for (const zKey of ["right", "center", "left"]) {
+        for (let i = zones[zKey].length - 1; i >= 0; i -= 1) {
+          if (zones[zKey][i].startsWith("pin:")) {
+            zones[zKey].splice(i + 1, 0, pTok);
+            inserted = true;
+            break;
+          }
+        }
+        if (inserted) break;
+      }
+      if (!inserted) {
+        zones.left.push(pTok);
+      }
+      seenTokens.add(pTok);
+    }
+  });
+
+  // Bi-directional sync: if caller updated pinnedItems order without passing new layoutZones,
+  // map pinnedItems order onto the existing pin slots across zones; otherwise derive pinnedItems from zones.
+  const zonePinOrder = [...zones.left, ...zones.center, ...zones.right]
+    .filter((t) => t.startsWith("pin:"))
+    .map((t) => t.slice(4));
+
+  let syncedPinnedItems = zonePinOrder;
+  const samePinCount = zonePinOrder.length === pinnedItems.length;
+  const orderDiffers = samePinCount && zonePinOrder.some((id, i) => id !== pinnedItems[i]);
+
+  if (orderDiffers && raw._syncPinsFromZones !== true) {
+    let cursor = 0;
+    ["left", "center", "right"].forEach((zKey) => {
+      zones[zKey] = zones[zKey].map((tok) => {
+        if (tok.startsWith("pin:") && cursor < pinnedItems.length) {
+          return `pin:${pinnedItems[cursor++]}`;
+        }
+        return tok;
+      });
+    });
+    syncedPinnedItems = [...pinnedItems];
+  }
+
   return {
     searchMode,
-    pinnedItems,
+    pinnedItems: syncedPinnedItems,
     pinStyle,
     maxVisiblePins,
     avatarOnly,
@@ -86,6 +229,7 @@ export function normalizeTopbarPrefs(raw) {
     showExtension,
     showProfile,
     showRole,
+    layoutZones: zones,
   };
 }
 
