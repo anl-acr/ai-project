@@ -5,6 +5,8 @@
 :root {
   --color-primary: 99, 102, 241;
   color-scheme: light dark;
+  /* MANDATORY: Transitions to intrinsic keywords are disabled by default for compatibility */
+  interpolate-size: allow-keywords;
 }
 
 html.dark {
@@ -398,6 +400,213 @@ label.flex.items-center {
   animation-duration: 460ms;
 }
 
+/* 5.5. Left Sidebar Navigation Motion Suite (Intrinsic Accordion + Stagger + GPU Micro-Glide) */
+@keyframes aidaSidebarEnter {
+  0% {
+    opacity: 0;
+    translate: -14px 0;
+  }
+  100% {
+    opacity: 1;
+    translate: 0 0;
+  }
+}
+
+@keyframes aidaSidebarGroupEnter {
+  0% {
+    opacity: 0;
+    translate: -10px 6px;
+  }
+  100% {
+    opacity: 1;
+    translate: 0 0;
+  }
+}
+
+@keyframes aidaSidebarItemReveal {
+  0% {
+    opacity: 0;
+    translate: -8px 4px;
+  }
+  100% {
+    opacity: 1;
+    translate: 0 0;
+  }
+}
+
+@keyframes aidaNavAccentGrow {
+  0% {
+    opacity: 0;
+    scale: 1 0.2;
+  }
+  100% {
+    opacity: 1;
+    scale: 1 1;
+  }
+}
+
+@keyframes aidaNavIconPop {
+  0% {
+    scale: 0.82;
+    rotate: -8deg;
+  }
+  60% {
+    scale: 1.14;
+    rotate: 3deg;
+  }
+  100% {
+    scale: 1;
+    rotate: 0deg;
+  }
+}
+
+.aida-sidebar {
+  animation: aidaSidebarEnter 460ms cubic-bezier(0.22, 0.95, 0.32, 1) backwards;
+  transition:
+    width 420ms cubic-bezier(0.22, 0.95, 0.32, 1),
+    padding-inline 420ms cubic-bezier(0.22, 0.95, 0.32, 1),
+    background-color 300ms ease,
+    border-color 300ms ease;
+}
+
+.aida-sidebar-group {
+  --stagger-time: 55ms;
+  animation: aidaSidebarGroupEnter 480ms cubic-bezier(0.22, 0.95, 0.32, 1) backwards;
+  animation-delay: calc((var(--sibling-index, 1) - 1) * var(--stagger-time));
+  animation-delay: calc(min(sibling-index() - 1, 8) * var(--stagger-time));
+}
+
+.aida-sidebar-cat-btn {
+  border-radius: 0.65rem;
+  transition:
+    color 240ms cubic-bezier(0.22, 0.95, 0.32, 1),
+    background-color 240ms cubic-bezier(0.22, 0.95, 0.32, 1),
+    padding-inline-start 260ms cubic-bezier(0.22, 0.95, 0.32, 1);
+}
+
+.aida-sidebar-cat-btn:hover {
+  background-color: rgba(148, 163, 184, 0.08);
+  padding-inline-start: 0.78rem;
+}
+
+.aida-sidebar-cat-btn > svg {
+  transition:
+    transform 360ms cubic-bezier(0.22, 0.95, 0.32, 1),
+    color 240ms ease;
+}
+
+.aida-sidebar-group-body {
+  block-size: 0;
+  opacity: 0;
+  overflow: hidden;
+  pointer-events: none;
+  transition:
+    block-size 400ms cubic-bezier(0.22, 0.95, 0.32, 1),
+    max-block-size 400ms cubic-bezier(0.22, 0.95, 0.32, 1),
+    opacity 280ms ease;
+}
+
+.aida-sidebar-group-body[data-open="true"] {
+  block-size: auto;
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.aida-sidebar-group-body--scroll {
+  max-block-size: 0;
+}
+
+.aida-sidebar-group-body--scroll[data-open="true"] {
+  max-block-size: 300px;
+  overflow-y: auto;
+}
+
+.aida-sidebar-group-body > button {
+  position: relative;
+  overflow: hidden;
+  transition:
+    scale 240ms cubic-bezier(0.22, 0.95, 0.32, 1),
+    background-color 220ms ease,
+    color 220ms ease,
+    border-color 220ms ease,
+    box-shadow 260ms ease;
+}
+
+.aida-sidebar-group-body[data-open="true"] > button {
+  --stagger-time: 24ms;
+  animation: aidaSidebarItemReveal 380ms cubic-bezier(0.22, 0.95, 0.32, 1) backwards;
+  animation-delay: calc((var(--sibling-index, 1) - 1) * var(--stagger-time));
+  animation-delay: calc(min(sibling-index() - 1, 12) * var(--stagger-time));
+}
+
+.aida-sidebar-group-body > button::before {
+  content: "";
+  position: absolute;
+  inset-block: 6px;
+  inset-inline-start: 0;
+  inline-size: 3px;
+  border-radius: 0 9999px 9999px 0;
+  background: rgb(var(--color-primary));
+  opacity: 0;
+  scale: 1 0.25;
+  transform-origin: center center;
+  transition:
+    opacity 240ms cubic-bezier(0.22, 0.95, 0.32, 1),
+    scale 280ms cubic-bezier(0.22, 0.95, 0.32, 1);
+}
+
+.aida-sidebar-group-body > button > svg {
+  scale: 1;
+  translate: 0 0;
+  transition:
+    scale 280ms cubic-bezier(0.22, 0.95, 0.32, 1),
+    translate 280ms cubic-bezier(0.22, 0.95, 0.32, 1),
+    color 220ms ease;
+}
+
+.aida-sidebar-group-body > button > span {
+  translate: 0 0;
+  transition:
+    translate 280ms cubic-bezier(0.22, 0.95, 0.32, 1),
+    max-width 320ms cubic-bezier(0.22, 0.95, 0.32, 1),
+    opacity 240ms ease;
+}
+
+.aida-sidebar[data-collapsed="false"] .aida-sidebar-group-body > button.border-transparent:hover::before {
+  opacity: 0.45;
+  scale: 1 0.65;
+}
+
+.aida-sidebar[data-collapsed="false"] .aida-sidebar-group-body > button.border-transparent:hover > svg {
+  scale: 1.12;
+  translate: 2px 0;
+  color: rgb(var(--color-primary));
+}
+
+.aida-sidebar[data-collapsed="false"] .aida-sidebar-group-body > button.border-transparent:hover > span {
+  translate: 3px 0;
+}
+
+.aida-sidebar[data-collapsed="true"] .aida-sidebar-group-body > button.border-transparent:hover > svg {
+  scale: 1.14;
+  color: rgb(var(--color-primary));
+}
+
+.aida-sidebar-group-body > button:active {
+  scale: 0.985;
+}
+
+.aida-sidebar-group-body > button.shadow-sm::before {
+  opacity: 1;
+  scale: 1 1;
+  box-shadow: 0 0 10px rgba(var(--color-primary), 0.42);
+  animation: aidaNavAccentGrow 360ms cubic-bezier(0.22, 0.95, 0.32, 1) backwards;
+}
+
+.aida-sidebar-group-body > button.shadow-sm > svg {
+  animation: aidaNavIconPop 420ms cubic-bezier(0.22, 1.25, 0.36, 1) backwards;
+}
+
 /* 6. Scoped View Transition timing & reduced-motion safety */
 ::view-transition-group(*) {
   animation-duration: 460ms;
@@ -425,8 +634,24 @@ label.flex.items-center {
   .aida-stagger-sections > *,
   .aida-chart-bar-x,
   .aida-chart-bar-y,
-  .aida-chart-line {
+  .aida-chart-line,
+  .aida-sidebar,
+  .aida-sidebar-group,
+  .aida-sidebar-group-body[data-open="true"] > button,
+  .aida-sidebar-group-body > button.shadow-sm::before,
+  .aida-sidebar-group-body > button.shadow-sm > svg {
     animation: none;
+  }
+
+  /* MANDATORY Copy-Paste Safety: Disable sizing animations for sensitive users */
+  .aida-sidebar,
+  .aida-sidebar-group-body,
+  .aida-sidebar-cat-btn,
+  .aida-sidebar-cat-btn > svg,
+  .aida-sidebar-group-body > button,
+  .aida-sidebar-group-body > button > svg,
+  .aida-sidebar-group-body > button > span {
+    transition: none !important;
   }
 
   .aida-shimmer-surface::after {
@@ -457,8 +682,16 @@ html[data-ui-motion="minimal"] .aida-panel-enter {
 }
 
 html[data-ui-motion="minimal"] .aida-stagger-grid > *,
-html[data-ui-motion="minimal"] .aida-stagger-sections > * {
+html[data-ui-motion="minimal"] .aida-stagger-sections > *,
+html[data-ui-motion="minimal"] .aida-sidebar,
+html[data-ui-motion="minimal"] .aida-sidebar-group,
+html[data-ui-motion="minimal"] .aida-sidebar-group-body[data-open="true"] > button,
+html[data-ui-motion="minimal"] .aida-sidebar-group-body > button.shadow-sm > svg {
   animation: none;
+}
+
+html[data-ui-motion="minimal"] .aida-sidebar-group-body {
+  transition-duration: 180ms;
 }
 
 html[data-ui-motion="minimal"] .animate-in {
@@ -476,6 +709,15 @@ html[data-ui-motion="off"] .aida-chart-bar-x,
 html[data-ui-motion="off"] .aida-chart-bar-y,
 html[data-ui-motion="off"] .aida-chart-line,
 html[data-ui-motion="off"] .aida-shimmer-surface::after,
+html[data-ui-motion="off"] .aida-sidebar,
+html[data-ui-motion="off"] .aida-sidebar-group,
+html[data-ui-motion="off"] .aida-sidebar-group-body,
+html[data-ui-motion="off"] .aida-sidebar-cat-btn,
+html[data-ui-motion="off"] .aida-sidebar-cat-btn > svg,
+html[data-ui-motion="off"] .aida-sidebar-group-body > button,
+html[data-ui-motion="off"] .aida-sidebar-group-body > button::before,
+html[data-ui-motion="off"] .aida-sidebar-group-body > button > svg,
+html[data-ui-motion="off"] .aida-sidebar-group-body > button > span,
 html[data-ui-motion="off"] .animate-in {
   animation: none !important;
   transition: none !important;

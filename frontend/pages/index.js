@@ -386,6 +386,7 @@ export default function Home() {
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [sidebarTooltip, setSidebarTooltip] = useState(null);
   const lastHoveredSidebarElRef = React.useRef(null);
+  const sidebarNavRef = React.useRef(null);
 
   const toggleSidebarCollapse = () => {
     lastHoveredSidebarElRef.current = null;
@@ -398,6 +399,29 @@ export default function Home() {
       return next;
     });
   };
+
+  // Fallback for browsers without native CSS sibling-index() support
+  useEffect(() => {
+    if (
+      typeof window === "undefined" ||
+      typeof CSS === "undefined" ||
+      CSS.supports("animation-delay: calc(sibling-index() * 0.1s)")
+    ) {
+      return;
+    }
+    const navEl = sidebarNavRef.current;
+    if (!navEl) return;
+    const groups = navEl.querySelectorAll(":scope > .aida-sidebar-group");
+    groups.forEach((groupEl, groupIdx) => {
+      groupEl.style.setProperty("--sibling-index", String(groupIdx + 1));
+      const bodyEl = groupEl.querySelector(".aida-sidebar-group-body");
+      if (bodyEl) {
+        Array.from(bodyEl.children).forEach((btnEl, btnIdx) => {
+          btnEl.style.setProperty("--sibling-index", String(btnIdx + 1));
+        });
+      }
+    });
+  }, [isLoggedIn, openCategories, isSidebarCollapsed, currentRolePermissions]);
 
   useEffect(() => {
     const saved = localStorage.getItem('hasPendingChanges');
@@ -2720,9 +2744,10 @@ export default function Home() {
               setSidebarTooltip(null);
             }
           }}
-          className={`aida-sidebar-contain ${
+          data-collapsed={isSidebarCollapsed ? "true" : "false"}
+          className={`aida-sidebar-contain aida-sidebar ${
             isSidebarCollapsed ? "w-20 px-2.5" : "w-64 px-4"
-          } py-4 h-screen bg-white dark:bg-slate-900 border-r border-slate-200/80 dark:border-slate-800/80 flex flex-col shrink-0 overflow-y-auto overflow-x-hidden transition-all duration-300 ease-in-out`}
+          } py-4 h-screen bg-white dark:bg-slate-900 border-r border-slate-200/80 dark:border-slate-800/80 flex flex-col shrink-0 overflow-y-auto overflow-x-hidden`}
         >
         <div
           className={`flex ${
@@ -2761,18 +2786,20 @@ export default function Home() {
           </button>
         </div>
 
-        <nav className={`flex-1 ${isSidebarCollapsed ? "space-y-2" : "space-y-4"} select-none transition-all duration-300`}>
+        <nav ref={sidebarNavRef} className={`flex-1 ${isSidebarCollapsed ? "space-y-2" : "space-y-4"} select-none transition-all duration-300`}>
           {/* Group 1: Operasyon & İzleme */}
-          <div className="flex flex-col gap-1">
+          <div className="aida-sidebar-group flex flex-col gap-1">
             {!isSidebarCollapsed ? (
               <button
+                type="button"
+                aria-expanded={Boolean(openCategories.operations)}
                 onClick={() => toggleCategory("operations")}
-                className="w-full flex items-center justify-between px-2.5 py-2 text-[10px] font-bold text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:hover:text-slate-300 transition tracking-wider uppercase cursor-pointer whitespace-nowrap"
+                className="aida-sidebar-cat-btn w-full flex items-center justify-between px-2.5 py-2 text-[10px] font-bold text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:hover:text-slate-300 tracking-wider uppercase cursor-pointer whitespace-nowrap"
               >
                 <span>Operasyon & İzleme</span>
                 <ChevronDown
                   size={12}
-                  className={`transform transition-transform duration-200 shrink-0 ${
+                  className={`transform shrink-0 ${
                     openCategories.operations ? "" : "-rotate-90 text-slate-300 dark:text-slate-600"
                   }`}
                 />
@@ -2782,9 +2809,9 @@ export default function Home() {
             )}
             
             <div
-              className={`space-y-1 overflow-hidden transition-all duration-300 ${
-                isSidebarCollapsed || openCategories.operations ? "max-h-[500px] opacity-100" : "max-h-0 opacity-0 pointer-events-none"
-              }`}
+              data-open={isSidebarCollapsed || openCategories.operations ? "true" : "false"}
+              {...(!isSidebarCollapsed && !openCategories.operations ? { inert: "" } : {})}
+              className="aida-sidebar-group-body space-y-1"
             >
               {(currentUser?.role === "admin" || (Array.isArray(currentRolePermissions) && currentRolePermissions.some(p => p === "dashboard" || p.startsWith("dashboard:")))) && (
                 <button
@@ -2875,16 +2902,18 @@ export default function Home() {
 
           {/* Group 2: Yapay Zeka & Bilgi */}
           {(currentUser?.role === "admin" || (Array.isArray(currentRolePermissions) && currentRolePermissions.some(p => p.startsWith("ai_agents:") || p.startsWith("ai_config_assistant:") || p.startsWith("rag:") || p.startsWith("knowledge_base:") || p.startsWith("rules:")))) && (
-          <div className="flex flex-col gap-1">
+          <div className="aida-sidebar-group flex flex-col gap-1">
             {!isSidebarCollapsed ? (
               <button
+                type="button"
+                aria-expanded={Boolean(openCategories.ai)}
                 onClick={() => toggleCategory("ai")}
-                className="w-full flex items-center justify-between px-2.5 py-2 text-[10px] font-bold text-slate-400 dark:text-slate-550 hover:text-slate-600 dark:hover:text-slate-300 transition tracking-wider uppercase cursor-pointer whitespace-nowrap"
+                className="aida-sidebar-cat-btn w-full flex items-center justify-between px-2.5 py-2 text-[10px] font-bold text-slate-400 dark:text-slate-550 hover:text-slate-600 dark:hover:text-slate-300 tracking-wider uppercase cursor-pointer whitespace-nowrap"
               >
                 <span>Yapay Zeka & Bilgi</span>
                 <ChevronDown
                   size={12}
-                  className={`transform transition-transform duration-200 shrink-0 ${
+                  className={`transform shrink-0 ${
                     openCategories.ai ? "" : "-rotate-90 text-slate-300 dark:text-slate-600"
                   }`}
                 />
@@ -2894,9 +2923,9 @@ export default function Home() {
             )}
             
             <div
-              className={`space-y-1 overflow-hidden transition-all duration-300 ${
-                isSidebarCollapsed || openCategories.ai ? "max-h-[500px] opacity-100" : "max-h-0 opacity-0 pointer-events-none"
-              }`}
+              data-open={isSidebarCollapsed || openCategories.ai ? "true" : "false"}
+              {...(!isSidebarCollapsed && !openCategories.ai ? { inert: "" } : {})}
+              className="aida-sidebar-group-body space-y-1"
             >
               {(currentUser?.role === "admin" || (Array.isArray(currentRolePermissions) && currentRolePermissions.some(p => p.startsWith("ai_config_assistant:")))) && (
                 <button
@@ -2970,16 +2999,18 @@ export default function Home() {
           )}
 
           {/* Group 2.5: Santral */}
-          <div className="flex flex-col gap-1">
+          <div className="aida-sidebar-group flex flex-col gap-1">
             {!isSidebarCollapsed ? (
               <button
+                type="button"
+                aria-expanded={Boolean(openCategories.pbxGroup)}
                 onClick={() => toggleCategory("pbxGroup")}
-                className="w-full flex items-center justify-between px-2.5 py-2 text-[10px] font-bold text-slate-400 dark:text-slate-550 hover:text-slate-600 dark:hover:text-slate-300 transition tracking-wider uppercase cursor-pointer whitespace-nowrap"
+                className="aida-sidebar-cat-btn w-full flex items-center justify-between px-2.5 py-2 text-[10px] font-bold text-slate-400 dark:text-slate-550 hover:text-slate-600 dark:hover:text-slate-300 tracking-wider uppercase cursor-pointer whitespace-nowrap"
               >
                 <span>Santral</span>
                 <ChevronDown
                   size={12}
-                  className={`transform transition-transform duration-200 shrink-0 ${
+                  className={`transform shrink-0 ${
                     openCategories.pbxGroup ? "" : "-rotate-90 text-slate-300 dark:text-slate-600"
                   }`}
                 />
@@ -2989,9 +3020,9 @@ export default function Home() {
             )}
             
             <div
-              className={`space-y-1 overflow-hidden transition-all duration-300 ${
-                isSidebarCollapsed || openCategories.pbxGroup ? "max-h-[900px] opacity-100" : "max-h-0 opacity-0 pointer-events-none"
-              }`}
+              data-open={isSidebarCollapsed || openCategories.pbxGroup ? "true" : "false"}
+              {...(!isSidebarCollapsed && !openCategories.pbxGroup ? { inert: "" } : {})}
+              className="aida-sidebar-group-body space-y-1"
             >
               {hasUsersPermission && (
                 <button
@@ -3234,16 +3265,18 @@ export default function Home() {
           </div>
 
           {/* Group 3: Çağrı & Yönlendirme */}
-          <div className="flex flex-col gap-1">
+          <div className="aida-sidebar-group flex flex-col gap-1">
             {!isSidebarCollapsed ? (
               <button
+                type="button"
+                aria-expanded={Boolean(openCategories.routing)}
                 onClick={() => toggleCategory("routing")}
-                className="w-full flex items-center justify-between px-2.5 py-2 text-[10px] font-bold text-slate-400 dark:text-slate-550 hover:text-slate-600 dark:hover:text-slate-300 transition tracking-wider uppercase cursor-pointer whitespace-nowrap"
+                className="aida-sidebar-cat-btn w-full flex items-center justify-between px-2.5 py-2 text-[10px] font-bold text-slate-400 dark:text-slate-550 hover:text-slate-600 dark:hover:text-slate-300 tracking-wider uppercase cursor-pointer whitespace-nowrap"
               >
                 <span>Çağrı & Yönlendirme</span>
                 <ChevronDown
                   size={12}
-                  className={`transform transition-transform duration-200 shrink-0 ${
+                  className={`transform shrink-0 ${
                     openCategories.routing ? "" : "-rotate-90 text-slate-300 dark:text-slate-600"
                   }`}
                 />
@@ -3253,9 +3286,9 @@ export default function Home() {
             )}
             
             <div
-              className={`space-y-1 overflow-hidden transition-all duration-300 ${
-                isSidebarCollapsed || openCategories.routing ? "max-h-[500px] opacity-100" : "max-h-0 opacity-0 pointer-events-none"
-              }`}
+              data-open={isSidebarCollapsed || openCategories.routing ? "true" : "false"}
+              {...(!isSidebarCollapsed && !openCategories.routing ? { inert: "" } : {})}
+              className="aida-sidebar-group-body space-y-1"
             >
               <button
                 onClick={() => setActiveTab("call-flow")}
@@ -3323,16 +3356,18 @@ export default function Home() {
 
           {/* Group 4: Çağrı Raporları & Analiz */}
           {hasReportsPermission && (
-            <div className="flex flex-col gap-1">
+            <div className="aida-sidebar-group flex flex-col gap-1">
               {!isSidebarCollapsed ? (
                 <button
+                  type="button"
+                  aria-expanded={Boolean(openCategories.reportsGroup)}
                   onClick={() => toggleCategory("reportsGroup")}
-                  className="w-full flex items-center justify-between px-2.5 py-2 text-[10px] font-bold text-slate-400 dark:text-slate-555 hover:text-slate-600 dark:hover:text-slate-300 transition tracking-wider uppercase cursor-pointer whitespace-nowrap"
+                  className="aida-sidebar-cat-btn w-full flex items-center justify-between px-2.5 py-2 text-[10px] font-bold text-slate-400 dark:text-slate-555 hover:text-slate-600 dark:hover:text-slate-300 tracking-wider uppercase cursor-pointer whitespace-nowrap"
                 >
                   <span>Çağrı Raporları & Analiz</span>
                   <ChevronDown
                     size={12}
-                    className={`transform transition-transform duration-200 shrink-0 ${
+                    className={`transform shrink-0 ${
                       openCategories.reportsGroup ? "" : "-rotate-90 text-slate-300 dark:text-slate-600"
                     }`}
                   />
@@ -3342,9 +3377,9 @@ export default function Home() {
               )}
             
             <div
-              className={`space-y-1 overflow-y-auto transition-all duration-300 scrollbar-thin ${isSidebarCollapsed ? "pr-0" : "pr-1.5"} ${
-                isSidebarCollapsed || openCategories.reportsGroup ? "max-h-[300px] opacity-100" : "max-h-0 opacity-0 pointer-events-none"
-              }`}
+              data-open={isSidebarCollapsed || openCategories.reportsGroup ? "true" : "false"}
+              {...(!isSidebarCollapsed && !openCategories.reportsGroup ? { inert: "" } : {})}
+              className={`aida-sidebar-group-body aida-sidebar-group-body--scroll space-y-1 scrollbar-thin ${isSidebarCollapsed ? "pr-0" : "pr-1.5"}`}
             >
               {(currentUser?.role === "admin" || !Array.isArray(currentRolePermissions) || currentRolePermissions.some(p => p.startsWith("reports_custom_builder:") || p === "reports:access")) && (
                 <button
@@ -3871,16 +3906,18 @@ export default function Home() {
 
           {/* Group 5: Yönetim & Ayarlar (Sadece Superadmin / Sistem Yöneticisi) */}
           {currentUser?.role === 'admin' && (
-          <div className="flex flex-col gap-1">
+          <div className="aida-sidebar-group flex flex-col gap-1">
             {!isSidebarCollapsed ? (
               <button
+                type="button"
+                aria-expanded={Boolean(openCategories.system)}
                 onClick={() => toggleCategory("system")}
-                className="w-full flex items-center justify-between px-2.5 py-2 text-[10px] font-bold text-slate-400 dark:text-slate-555 hover:text-slate-600 dark:hover:text-slate-300 transition tracking-wider uppercase cursor-pointer whitespace-nowrap"
+                className="aida-sidebar-cat-btn w-full flex items-center justify-between px-2.5 py-2 text-[10px] font-bold text-slate-400 dark:text-slate-555 hover:text-slate-600 dark:hover:text-slate-300 tracking-wider uppercase cursor-pointer whitespace-nowrap"
               >
                 <span>Yönetim & Ayarlar</span>
                 <ChevronDown
                   size={12}
-                  className={`transform transition-transform duration-200 shrink-0 ${
+                  className={`transform shrink-0 ${
                     openCategories.system ? "" : "-rotate-90 text-slate-300 dark:text-slate-600"
                   }`}
                 />
@@ -3890,9 +3927,9 @@ export default function Home() {
             )}
             
             <div
-              className={`space-y-1 overflow-hidden transition-all duration-300 ${
-                isSidebarCollapsed || openCategories.system ? "max-h-[500px] opacity-100" : "max-h-0 opacity-0 pointer-events-none"
-              }`}
+              data-open={isSidebarCollapsed || openCategories.system ? "true" : "false"}
+              {...(!isSidebarCollapsed && !openCategories.system ? { inert: "" } : {})}
+              className="aida-sidebar-group-body space-y-1"
             >
               <button
                 onClick={() => setActiveTab("settings")}
