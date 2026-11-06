@@ -91,57 +91,116 @@ async def handle_inbound_chat_message(channel: str, sender_info: str, text: str,
                 short_2fa_cmds = {"kod", "giris"}
 
                 if clean_cmd in explicit_2fa_cmds or clean_cmd in short_2fa_cmds:
+                    import json as _json
                     from backend.database.models import SystemUser
                     from backend.main import settings_db, add_system_log
                     from backend.services.totp_service import (
                         normalize_phone_last10,
                         generate_whatsapp_otp,
-                        format_whatsapp_2fa_message
+                        format_whatsapp_2fa_message,
+                        _WHATSAPP_OTP_CACHE
                     )
                     from backend.services.whatsapp_service import send_whatsapp_message
+
+                    def _safe_dict(raw_val):
+                        if isinstance(raw_val, dict):
+                            return raw_val
+                        if isinstance(raw_val, str) and raw_val.strip().startswith("{"):
+                            try:
+                                parsed = _json.loads(raw_val)
+                                if isinstance(parsed, dict):
+                                    return parsed
+                            except Exception:
+                                pass
+                        return {}
 
                     sender_last10 = normalize_phone_last10(sender_info)
                     matched_keys = [sender_last10] if sender_last10 else []
                     matched_user_name = None
+                    user_matched = False
 
                     if len(sender_last10) == 10:
-                        # 1. Check PostgreSQL SystemUser records
-                        stmt_users = select(SystemUser)
-                        res_users = await session.execute(stmt_users)
-                        for su in res_users.scalars().all():
-                            u_gsm = normalize_phone_last10(getattr(su, "gsm_number", "") or "")
-                            fm = getattr(su, "follow_me", None)
-                            u_fm = normalize_phone_last10(fm.get("mobile_number", "") if isinstance(fm, dict) else "")
-                            if sender_last10 in (u_gsm, u_fm):
-                                matched_keys.append(str(su.id))
-                                if su.extension:
-                                    matched_keys.append(str(su.extension))
-                                if not matched_user_name:
-                                    matched_user_name = f"{su.first_name or ''} {su.last_name or ''}".strip() or su.extension
+                        # 1. Check PostgreSQL SystemUser records safely
+                        try:
+                            stmt_users = select(SystemUser)
+                            res_users = await session.execute(stmt_users)
+                            for su in res_users.scalars().all():
+                                u_gsm = normalize_phone_last10(getattr(su, "gsm_number", "") or "")
+                                fm = _safe_dict(getattr(su, "follow_me", None))
+                                u_fm = normalize_phone_last10(fm.get("mobile_number", ""))
+                                cpp = _safe_dict(getattr(su, "call_panel_prefs", None))
+                                tf_meta = _safe_dict(cpp.get("twoFactorMeta"))
+                                u_tf_phone = normalize_phone_last10(tf_meta.get("phone", ""))
+                                if sender_last10 in (u_gsm, u_fm, u_tf_phone):
+                                    user_matched = True
+                                    if getattr(su, "id", None) is not None:
+                                        matched_keys.append(str(su.id))
+                                    if getattr(su, "extension", None):
+                                        matched_keys.append(str(su.extension))
+                                    if getattr(su, "email", None):
+                                        matched_keys.append(str(su.email))
+                                    if not matched_user_name:
+                                        matched_user_name = (
+                                            str(getattr(su, "full_name", "") or "").strip()
+                                            or f"{getattr(su, 'first_name', '') or ''} {getattr(su, 'last_name', '') or ''}".strip()
+                                            or str(getattr(su, "email", "") or "").strip()
+                                            or str(getattr(su, "extension", "") or "").strip()
+                                            or "Kullanıcı"
+                                        )
+                        except Exception as e_su_2fa:
+                            print(f"[WhatsApp 2FA DB Lookup Warning]: {e_su_2fa}")
+                            try:
+                                await session.rollback()
+                            except Exception:
+                                pass
 
                         # 2. Check settings_db["users"] fallback
                         for u_dict in settings_db.get("users", []):
                             if not isinstance(u_dict, dict):
                                 continue
                             d_gsm = normalize_phone_last10(u_dict.get("gsm_number") or "")
-                            d_fm_obj = u_dict.get("follow_me")
-                            d_fm = normalize_phone_last10(d_fm_obj.get("mobile_number", "") if isinstance(d_fm_obj, dict) else "")
-                            if sender_last10 in (d_gsm, d_fm):
+                            d_fm_obj = _safe_dict(u_dict.get("follow_me"))
+                            d_fm = normalize_phone_last10(d_fm_obj.get("mobile_number", ""))
+                            d_cpp = _safe_dict(u_dict.get("call_panel_prefs"))
+                            d_tf_phone = normalize_phone_last10(_safe_dict(d_cpp.get("twoFactorMeta")).get("phone", ""))
+                            if sender_last10 in (d_gsm, d_fm, d_tf_phone):
+                                user_matched = True
                                 if u_dict.get("id") is not None:
                                     matched_keys.append(str(u_dict.get("id")))
                                 if u_dict.get("extension"):
                                     matched_keys.append(str(u_dict.get("extension")))
+                                if u_dict.get("email"):
+                                    matched_keys.append(str(u_dict.get("email")))
+                                if u_dict.get("username"):
+                                    matched_keys.append(str(u_dict.get("username")))
                                 if not matched_user_name:
-                                    matched_user_name = f"{u_dict.get('first_name', '')} {u_dict.get('last_name', '')}".strip() or u_dict.get("extension")
+                                    matched_user_name = (
+                                        str(u_dict.get("full_name") or u_dict.get("name") or "").strip()
+                                        or f"{u_dict.get('first_name', '')} {u_dict.get('last_name', '')}".strip()
+                                        or str(u_dict.get("email") or "").strip()
+                                        or str(u_dict.get("extension") or "").strip()
+                                        or "Kullanıcı"
+                                    )
 
-                    if matched_user_name:
-                        otp_info = generate_whatsapp_otp(matched_keys, sender_info, ttl_seconds=300)
-                        reply_msg = format_whatsapp_2fa_message(matched_user_name, otp_info["code"], ttl_seconds=300)
+                        # 3. Also match active pending setup/test sessions in _WHATSAPP_OTP_CACHE (e.g. before modal save)
+                        pending_entry = _WHATSAPP_OTP_CACHE.get(sender_last10)
+                        if isinstance(pending_entry, dict):
+                            user_matched = True
+                            for pk in pending_entry.get("keys", []):
+                                if pk and str(pk) not in matched_keys:
+                                    matched_keys.append(str(pk))
+                            if not matched_user_name:
+                                matched_user_name = str(pending_entry.get("user_name") or "").strip() or "Kullanıcı"
+
+                    if user_matched:
+                        resolved_name = matched_user_name or "Kullanıcı"
+                        otp_info = generate_whatsapp_otp(matched_keys, sender_info, ttl_seconds=300, user_name=resolved_name)
+                        reply_msg = format_whatsapp_2fa_message(resolved_name, otp_info["code"], ttl_seconds=300)
                         await send_whatsapp_message(sender_info, reply_msg, phone_number_id=recipient_phone_id)
                         add_system_log(
                             "SECURITY",
                             "INFO",
-                            f"WhatsApp 'Giriş Kodu' talebi karşılandı: {matched_user_name} ({sender_info}) için 5 dk geçerli 2FA kodu gönderildi."
+                            f"WhatsApp 'Giriş Kodu' talebi karşılandı: {resolved_name} ({sender_info}) için 5 dk geçerli 2FA kodu gönderildi."
                         )
                         return reply_msg
                     elif clean_cmd in explicit_2fa_cmds:

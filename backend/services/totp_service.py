@@ -556,7 +556,12 @@ def mask_phone_number(phone_str: str) -> str:
     return raw
 
 
-def generate_whatsapp_otp(keys: List[str], phone_str: str, ttl_seconds: int = 300) -> Dict[str, Any]:
+def generate_whatsapp_otp(
+    keys: List[str],
+    phone_str: str,
+    ttl_seconds: int = 300,
+    user_name: Optional[str] = None
+) -> Dict[str, Any]:
     """
     Generates a 6-digit numeric WhatsApp OTP code valid for 5 minutes (300 seconds)
     and indexes it under all provided keys (user_id, extension, last-10 phone digits)
@@ -578,6 +583,7 @@ def generate_whatsapp_otp(keys: List[str], phone_str: str, ttl_seconds: int = 30
         "phone": str(phone_str or "").strip(),
         "last10": last10,
         "keys": list(all_keys),
+        "user_name": str(user_name or "").strip(),
         "sent_at": now,
         "expires_at": now + ttl_seconds
     }

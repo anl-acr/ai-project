@@ -1027,6 +1027,31 @@ export default function Home() {
       });
       const data = await res.json();
       if (res.ok && data.status === "success") {
+        setTwoFactorEnabled(true);
+        setTwoFactorMethod("whatsapp");
+        if (typeof window !== "undefined") {
+          localStorage.setItem("two_factor_enabled", "true");
+        }
+        const mergedPatch = {
+          gsm_number: targetPhone,
+          follow_me: {
+            ...(currentUser.follow_me && typeof currentUser.follow_me === "object" ? currentUser.follow_me : {}),
+            mobile_number: targetPhone
+          },
+          two_factor_enabled: true,
+          two_factor_method: "whatsapp"
+        };
+        setCurrentUser((prev) => (prev ? { ...prev, ...mergedPatch } : prev));
+        setSystemUsers((prev) =>
+          Array.isArray(prev)
+            ? prev.map((u) =>
+                (currentUser?.id && String(u.id) === String(currentUser.id)) ||
+                (currentUser?.extension && String(u.extension) === String(currentUser.extension))
+                  ? { ...u, ...mergedPatch }
+                  : u
+              )
+            : prev
+        );
         setTwoFactorStatusMsg({ type: "success", text: data.message });
       } else {
         setTwoFactorStatusMsg({ type: "error", text: data.detail || "WhatsApp kodu gönderilemedi." });
@@ -1047,6 +1072,7 @@ export default function Home() {
     }
     setTwoFactorVerifyLoading(true);
     setTwoFactorStatusMsg(null);
+    const resolvedPhone = (gsmNumber || currentUser.gsm_number || currentUser.follow_me?.mobile_number || "").trim();
     try {
       const protocol = typeof window !== "undefined" && window.location.protocol === "https:" ? "https:" : "http:";
       const res = await fetch(`${protocol}//${backendHost}/api/auth/verify_2fa`, {
@@ -1057,13 +1083,41 @@ export default function Home() {
           code: cleanCode,
           method: twoFactorMethod,
           secret: twoFactorSecret || undefined,
-          phone: (gsmNumber || currentUser.gsm_number || currentUser.follow_me?.mobile_number || "").trim() || undefined
+          phone: resolvedPhone || undefined
         })
       });
       const data = await res.json();
       if (res.ok && data.status === "success") {
         setTwoFactorEnrolled(true);
+        setTwoFactorEnabled(true);
         setTwoFactorTestCode("");
+        if (typeof window !== "undefined") {
+          localStorage.setItem("two_factor_enabled", "true");
+        }
+        const verifiedPatch = {
+          two_factor_enabled: true,
+          two_factor_method: twoFactorMethod || "google_auth",
+          two_factor_enrolled: true,
+          ...(twoFactorSecret ? { two_factor_secret: twoFactorSecret } : {}),
+          ...(resolvedPhone ? {
+            gsm_number: resolvedPhone,
+            follow_me: {
+              ...(currentUser.follow_me && typeof currentUser.follow_me === "object" ? currentUser.follow_me : {}),
+              mobile_number: resolvedPhone
+            }
+          } : {})
+        };
+        setCurrentUser((prev) => (prev ? { ...prev, ...verifiedPatch } : prev));
+        setSystemUsers((prev) =>
+          Array.isArray(prev)
+            ? prev.map((u) =>
+                (currentUser?.id && String(u.id) === String(currentUser.id)) ||
+                (currentUser?.extension && String(u.extension) === String(currentUser.extension))
+                  ? { ...u, ...verifiedPatch }
+                  : u
+              )
+            : prev
+        );
         setTwoFactorStatusMsg({ type: "success", text: data.message || "2FA doğrulaması başarılı ve eşleştirildi!" });
       } else {
         setTwoFactorStatusMsg({ type: "error", text: data.detail || "Doğrulama kodu geçersiz." });
@@ -1619,7 +1673,39 @@ export default function Home() {
       });
     };
     window.addEventListener("USER_AVATAR_UPDATED", handleAvatarStateSync);
-    return () => window.removeEventListener("USER_AVATAR_UPDATED", handleAvatarStateSync);
+    const handleProfileStateSync = (e) => {
+      const detail = e?.detail;
+      if (!detail || !detail.patch || typeof detail.patch !== "object") return;
+      const patch = detail.patch;
+      setSystemUsers((prev) =>
+        Array.isArray(prev)
+          ? prev.map((u) =>
+              (detail.userId !== undefined && detail.userId !== null && String(u.id) === String(detail.userId)) ||
+              (detail.extension && String(u.extension) === String(detail.extension))
+                ? { ...u, ...patch }
+                : u
+            )
+          : prev
+      );
+      setCurrentUser((prev) => {
+        if (!prev) return prev;
+        const matchesSelf =
+          (detail.userId !== undefined && detail.userId !== null && String(prev.id) === String(detail.userId)) ||
+          (detail.extension && String(prev.extension) === String(detail.extension));
+        if (!matchesSelf) return prev;
+        if (typeof window !== "undefined" && patch.two_factor_enabled !== undefined) {
+          try {
+            localStorage.setItem("two_factor_enabled", String(Boolean(patch.two_factor_enabled)));
+          } catch (err) {}
+        }
+        return { ...prev, ...patch };
+      });
+    };
+    window.addEventListener("USER_PROFILE_SYNC", handleProfileStateSync);
+    return () => {
+      window.removeEventListener("USER_AVATAR_UPDATED", handleAvatarStateSync);
+      window.removeEventListener("USER_PROFILE_SYNC", handleProfileStateSync);
+    };
   }, []);
 
   const checkRolePermissions = async (providedUser = null) => {
@@ -1667,10 +1753,10 @@ export default function Home() {
           : null;
         currentUserData = freshMatch ? { ...providedUser, ...freshMatch } : providedUser;
       } else if (savedAuth && savedUserId) {
-        if (savedUserId === 'admin') {
+        if (savedUserId === 'admin' || savedUserId === '9999') {
           const adminUserFromDb = Array.isArray(usersData)
-            ? usersData.find(u => u.username === 'admin' || u.email === 'admin@localhost' || u.id === 1) ||
-              usersData.find(u => u.role === 'admin')
+            ? usersData.find(u => String(u.id) === '9999' || u.username === 'admin' || u.email === 'admin@localhost' || (!u.extension && u.role === 'admin')) ||
+              usersData.find(u => u.id === 1 && u.role === 'admin')
             : null;
           currentUserData = adminUserFromDb ? { ...SUPER_ADMIN, ...adminUserFromDb } : SUPER_ADMIN;
         } else if (Array.isArray(usersData) && usersData.length > 0) {
@@ -2142,10 +2228,10 @@ export default function Home() {
 
   const complete2FALogin = async (userId, rememberMe) => {
     let foundUser = systemUsers.find(u => String(u.id) === String(userId) || String(u.extension) === String(userId));
-    if (!foundUser && (String(userId) === "admin" || String(userId) === "1")) {
+    if (!foundUser && (String(userId) === "admin" || String(userId) === "9999" || String(userId) === "1")) {
       const adminDb =
-        systemUsers.find(u => u.username === "admin" || u.email === "admin@localhost" || u.id === 1) ||
-        systemUsers.find(u => u.role === "admin");
+        systemUsers.find(u => String(u.id) === "9999" || u.username === "admin" || u.email === "admin@localhost" || (!u.extension && u.role === "admin")) ||
+        systemUsers.find(u => u.id === 1 && u.role === "admin");
       foundUser = adminDb ? { ...SUPER_ADMIN, ...adminDb } : SUPER_ADMIN;
     }
     if (foundUser) {
@@ -8788,6 +8874,12 @@ export default function Home() {
                             <div className="flex items-center gap-2">
                               <input
                                 type="text"
+                                inputMode="numeric"
+                                autoComplete="one-time-code"
+                                pattern="\d{6}"
+                                autoCorrect="off"
+                                autoCapitalize="off"
+                                spellCheck={false}
                                 maxLength={6}
                                 value={twoFactorTestCode}
                                 onChange={(e) => setTwoFactorTestCode(e.target.value.replace(/\D/g, ""))}
@@ -8810,9 +8902,15 @@ export default function Home() {
                           <div className="p-3 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 space-y-2.5">
                             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                               <div className="flex-1">
-                                <label className="block text-[9px] font-bold uppercase text-slate-400 mb-1">WhatsApp / GSM Numaranız</label>
+                                <label htmlFor="profile-2fa-whatsapp-phone" className="block text-[9px] font-bold uppercase text-slate-400 mb-1">WhatsApp / GSM Numaranız</label>
                                 <input
-                                  type="text"
+                                  id="profile-2fa-whatsapp-phone"
+                                  type="tel"
+                                  inputMode="tel"
+                                  autoComplete="tel"
+                                  autoCorrect="off"
+                                  autoCapitalize="off"
+                                  spellCheck={false}
                                   value={gsmNumber}
                                   onChange={(e) => setGsmNumber(e.target.value)}
                                   placeholder="Örn: 0532 123 45 67"
@@ -8845,6 +8943,12 @@ export default function Home() {
                             <div className="flex items-center gap-2">
                               <input
                                 type="text"
+                                inputMode="numeric"
+                                autoComplete="one-time-code"
+                                pattern="\d{6}"
+                                autoCorrect="off"
+                                autoCapitalize="off"
+                                spellCheck={false}
                                 maxLength={6}
                                 value={twoFactorTestCode}
                                 onChange={(e) => setTwoFactorTestCode(e.target.value.replace(/\D/g, ""))}
@@ -8914,6 +9018,12 @@ export default function Home() {
                                 <div className="flex items-center gap-1.5">
                                   <input
                                     type="text"
+                                    inputMode="numeric"
+                                    autoComplete="one-time-code"
+                                    pattern="\d{6}"
+                                    autoCorrect="off"
+                                    autoCapitalize="off"
+                                    spellCheck={false}
                                     maxLength={6}
                                     value={twoFactorTestCode}
                                     onChange={(e) => setTwoFactorTestCode(e.target.value.replace(/\D/g, ""))}
@@ -9041,12 +9151,25 @@ export default function Home() {
                           profileAvatar: agentAvatar
                         });
                         setCallPanelPrefs(savedPrefsSnapshot);
+                        const cleanedGsmNumber = (gsmNumber || "").trim();
+                        const localProfilePatch = {
+                          avatar: agentAvatar,
+                          call_panel_prefs: savedPrefsSnapshot,
+                          gsm_number: cleanedGsmNumber,
+                          follow_me: {
+                            ...(currentUser?.follow_me && typeof currentUser.follow_me === "object" ? currentUser.follow_me : {}),
+                            mobile_number: cleanedGsmNumber
+                          },
+                          two_factor_enabled: Boolean(twoFactorEnabled),
+                          two_factor_method: twoFactorMethod || "google_auth",
+                          ...(twoFactorSecret ? { two_factor_secret: twoFactorSecret } : {}),
+                          two_factor_enrolled: Boolean(twoFactorEnrolled)
+                        };
                         setCurrentUser((prev) =>
                           prev
                             ? {
                                 ...prev,
-                                avatar: agentAvatar,
-                                call_panel_prefs: savedPrefsSnapshot
+                                ...localProfilePatch
                               }
                             : prev
                         );
@@ -9055,7 +9178,7 @@ export default function Home() {
                             ? prev.map((u) =>
                                 (currentUser?.id && String(u.id) === String(currentUser.id)) ||
                                 (currentUser?.extension && String(u.extension) === String(currentUser.extension))
-                                  ? { ...u, avatar: agentAvatar, call_panel_prefs: savedPrefsSnapshot }
+                                  ? { ...u, ...localProfilePatch }
                                   : u
                               )
                             : prev
@@ -9073,10 +9196,7 @@ export default function Home() {
                           try {
                             const protocol = window.location.protocol === "https:" ? "https:" : "http:";
                             const mobileTransferPayload = hasMobileTransferPermission
-                              ? {
-                                  gsm_number: gsmNumber,
-                                  mobile_transfer_enabled: mobileTransferEnabled
-                                }
+                              ? { mobile_transfer_enabled: mobileTransferEnabled }
                               : {};
                             const wallboardPayload =
                               modalDraftWallboardLayout && typeof modalDraftWallboardLayout === "object"
@@ -9090,6 +9210,11 @@ export default function Home() {
                               headers: { "Content-Type": "application/json" },
                               body: JSON.stringify({
                                 avatar: agentAvatar,
+                                gsm_number: cleanedGsmNumber,
+                                follow_me: {
+                                  ...(currentUser.follow_me && typeof currentUser.follow_me === "object" ? currentUser.follow_me : {}),
+                                  mobile_number: cleanedGsmNumber
+                                },
                                 ...mobileTransferPayload,
                                 theme_color: safeSavedColor,
                                 theme_mode: isDarkMode ? "dark" : "light",
@@ -9113,13 +9238,33 @@ export default function Home() {
                             });
                             if (res.ok) {
                               const data = await res.json();
-                              setCurrentUser((prev) => ({
-                                ...(prev || {}),
+                              const mergedSavedUser = {
+                                ...(currentUser || {}),
+                                ...localProfilePatch,
                                 ...(data.user || {}),
                                 avatar: agentAvatar,
-                                call_panel_prefs: savedPrefsSnapshot,
+                                call_panel_prefs: {
+                                  ...(data.user?.call_panel_prefs && typeof data.user.call_panel_prefs === "object" ? data.user.call_panel_prefs : {}),
+                                  ...savedPrefsSnapshot
+                                },
                                 ...(modalDraftWallboardLayout ? { wallboard_layout: modalDraftWallboardLayout } : {})
-                              }));
+                              };
+                              setCurrentUser(mergedSavedUser);
+                              setSystemUsers((prev) =>
+                                Array.isArray(prev)
+                                  ? prev.map((u) =>
+                                      (currentUser?.id && String(u.id) === String(currentUser.id)) ||
+                                      (currentUser?.extension && String(u.extension) === String(currentUser.extension))
+                                        ? { ...u, ...mergedSavedUser }
+                                        : u
+                                    )
+                                  : prev
+                              );
+                              try {
+                                const savedAuthLocal = localStorage.getItem("is_logged_in") === "true";
+                                const storeUid = sessionStorage.getItem("current_user_id") || localStorage.getItem("current_user_id") || String(mergedSavedUser.id || "admin");
+                                persistAuthenticatedSession(storeUid, savedAuthLocal, mergedSavedUser);
+                              } catch (e) {}
                               if (newPassword) {
                                 SUPER_ADMIN.password = newPassword;
                                 updateRememberedPasswordIfSaved(newPassword);
@@ -9130,30 +9275,30 @@ export default function Home() {
                                 setPasswordStatusMsg({ type: "success", text: "Şifreniz başarılı olarak güncellenmiştir." });
                               }
                               // Force update the UI theme color if they changed it
-                              if (data.user.theme_color) {
+                              if (data.user?.theme_color) {
                                 const safeColor = getSafeThemeColor(data.user.theme_color);
                                 document.documentElement.style.setProperty("--color-primary", safeColor);
                                 localStorage.setItem("theme_primary_color", safeColor);
                               }
                             } else {
-                              const errData = await res.json();
-                              if (errData.detail) {
-                                const isPassAttempt = Boolean(newPassword || confirmPassword);
-                                showNotification(
-                                  errData.detail,
-                                  "error",
-                                  isPassAttempt ? "Şifre Güncellenemedi" : "Ayarlar Kaydedilemedi"
-                                );
-                                if (isPassAttempt) {
-                                  setPasswordStatusMsg({ type: "error", text: errData.detail });
-                                  setActiveModalTab("security");
-                                }
-                                return;
+                              const errData = await res.json().catch(() => ({}));
+                              const errMsg = errData.detail || "Profil ayarları kaydedilemedi.";
+                              const isPassAttempt = Boolean(newPassword || confirmPassword);
+                              showNotification(
+                                errMsg,
+                                "error",
+                                isPassAttempt ? "Şifre Güncellenemedi" : "Ayarlar Kaydedilemedi"
+                              );
+                              if (isPassAttempt) {
+                                setPasswordStatusMsg({ type: "error", text: errMsg });
+                                setActiveModalTab("security");
                               }
+                              return;
                             }
                           } catch (err) {
                             console.error("Failed to save profile on backend:", err);
                             showNotification("Ayarlar kaydedilirken sunucu hatası oluştu.", "error", "Bağlantı Hatası");
+                            return;
                           }
                         }
                         

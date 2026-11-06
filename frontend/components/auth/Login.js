@@ -665,6 +665,12 @@ export default function Login({ onLogin, onComplete2FA, error, backendHost }) {
 
                 <input
                   type="text"
+                  inputMode="numeric"
+                  autoComplete="one-time-code"
+                  pattern="\d{6}"
+                  autoCorrect="off"
+                  autoCapitalize="off"
+                  spellCheck={false}
                   required
                   maxLength={6}
                   autoFocus

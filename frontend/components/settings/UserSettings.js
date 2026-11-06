@@ -333,6 +333,9 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
     return await tenantFetch(url, options);
   };
 
+  const saveInFlightRef = useRef(false);
+  const lastSaveCompletedAtRef = useRef(0);
+
   useEffect(() => {
     fetchAllData(true);
     const handleTenantChange = () => {
@@ -342,6 +345,9 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
       window.addEventListener("tenantChanged", handleTenantChange);
     }
     const interval = setInterval(() => {
+      if (saveInFlightRef.current || Date.now() - lastSaveCompletedAtRef.current < 2500) {
+        return;
+      }
       fetchAllData(false);
     }, 3000);
     return () => {
@@ -357,9 +363,11 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
     try {
       try {
         const resUsers = await safeFetch(`/api/settings/users`);
-        if (resUsers.ok) {
+        if (resUsers.ok && !saveInFlightRef.current) {
           const dataUsers = await resUsers.json();
-          setUsers(Array.isArray(dataUsers) ? dataUsers : (dataUsers?.users || []));
+          if (!saveInFlightRef.current) {
+            setUsers(Array.isArray(dataUsers) ? dataUsers : (dataUsers?.users || []));
+          }
         }
       } catch (e) {
         console.error("Users fetch error:", e);
@@ -584,6 +592,7 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
 
   const handleSaveAll = async (updatedUsers) => {
     setError(null);
+    saveInFlightRef.current = true;
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 30000);
     try {
@@ -599,6 +608,7 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
       clearTimeout(timeoutId);
       if (res.ok) {
         const data = await res.json();
+        lastSaveCompletedAtRef.current = Date.now();
         if (data.users) setUsers(data.users);
         setSuccess(true);
         setTimeout(() => setSuccess(false), 3000);
@@ -623,6 +633,8 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
         setError("Bağlantı hatası oluştu.");
       }
       return false;
+    } finally {
+      saveInFlightRef.current = false;
     }
   };
 
@@ -1182,6 +1194,33 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
       });
       const data = await res.json();
       if (res.ok && data.status === "success") {
+        setTwoFactorEnabled(true);
+        setTwoFactorMethod("whatsapp");
+        if (editingUser && editingUser.id !== undefined) {
+          const waPatch = {
+            gsm_number: targetPhone,
+            follow_me: {
+              ...(editingUser.follow_me && typeof editingUser.follow_me === "object" ? editingUser.follow_me : {}),
+              mobile_number: targetPhone
+            },
+            two_factor_enabled: true,
+            two_factor_method: "whatsapp"
+          };
+          lastSaveCompletedAtRef.current = Date.now();
+          setEditingUser((prev) => (prev ? { ...prev, ...waPatch } : prev));
+          setUsers((prev) =>
+            Array.isArray(prev)
+              ? prev.map((u) => (String(u.id) === String(editingUser.id) ? { ...u, ...waPatch } : u))
+              : prev
+          );
+          if (typeof window !== "undefined") {
+            window.dispatchEvent(
+              new CustomEvent("USER_PROFILE_SYNC", {
+                detail: { userId: editingUser.id, extension: editingUser.extension, patch: waPatch }
+              })
+            );
+          }
+        }
         setTwoFactorStatusMsg({
           type: "success",
           text: data.message || "5 dakika geçerli 6 haneli WhatsApp doğrulama kodu oluşturuldu."
@@ -1228,7 +1267,40 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
       const data = await res.json();
       if (res.ok && data.status === "success") {
         setTwoFactorEnrolled(true);
+        setTwoFactorEnabled(true);
         setTwoFactorTestCode("");
+        if (editingUser && editingUser.id !== undefined) {
+          const targetPhone = (followMeMobileNumber || editingUser?.gsm_number || "").trim();
+          const verPatch = {
+            two_factor_enabled: true,
+            two_factor_method: twoFactorMethod || "google_auth",
+            two_factor_enrolled: true,
+            ...(twoFactorSecret ? { two_factor_secret: twoFactorSecret } : {}),
+            ...(targetPhone
+              ? {
+                  gsm_number: targetPhone,
+                  follow_me: {
+                    ...(editingUser.follow_me && typeof editingUser.follow_me === "object" ? editingUser.follow_me : {}),
+                    mobile_number: targetPhone
+                  }
+                }
+              : {})
+          };
+          lastSaveCompletedAtRef.current = Date.now();
+          setEditingUser((prev) => (prev ? { ...prev, ...verPatch } : prev));
+          setUsers((prev) =>
+            Array.isArray(prev)
+              ? prev.map((u) => (String(u.id) === String(editingUser.id) ? { ...u, ...verPatch } : u))
+              : prev
+          );
+          if (typeof window !== "undefined") {
+            window.dispatchEvent(
+              new CustomEvent("USER_PROFILE_SYNC", {
+                detail: { userId: editingUser.id, extension: editingUser.extension, patch: verPatch }
+              })
+            );
+          }
+        }
         setTwoFactorStatusMsg({
           type: "success",
           text: data.message || "Doğrulama başarılı! 2FA yöntemi test edildi ve aktif olarak eşleştirildi."
@@ -1440,7 +1512,7 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
       setFollowMeTimeout(fmObj.timeout ? Math.max(5, Math.min(120, Number(fmObj.timeout))) : 15);
       setFollowMeFirstTarget(fmObj.first_target || "mobile_app");
       setFollowMeSecondTarget(fmObj.second_target || "mobile_number");
-      setFollowMeMobileNumber(fmObj.mobile_number || u.gsm_number || "");
+      setFollowMeMobileNumber(u.gsm_number || fmObj.mobile_number || "");
     } else {
       setFollowMeEnabled(false);
       setFollowMeTimeout(15);
@@ -1594,7 +1666,7 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
       max_concurrent_outbound: Number.isNaN(Number(maxConcurrentOutbound)) ? 0 : Number(maxConcurrentOutbound),
       outbound_quarantined: Boolean(outboundQuarantined),
       outbound_caller_id: outboundCallerId.trim(),
-      gsm_number: cleanFmMobile || (editingUser?.gsm_number || null),
+      gsm_number: cleanFmMobile || "",
       forwarding_always: { active: Boolean(fwdAlwaysActive && fwdAlwaysTarget), type: fwdAlwaysType || "internal", target: fwdAlwaysTarget || "" },
       forwarding_busy: { active: Boolean(fwdBusyActive && fwdBusyTarget), type: fwdBusyType || "internal", target: fwdBusyTarget || "" },
       forwarding_no_answer: { active: Boolean(fwdNoAnswerActive && fwdNoAnswerTarget), type: fwdNoAnswerType || "internal", target: fwdNoAnswerTarget || "", timeout: fwdNoAnswerTimeout || 30 },
@@ -1647,7 +1719,8 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
         }
       } else {
         // Add mode
-        const nextId = users.length > 0 ? Math.max(...users.map((u) => u.id || 0)) + 1 : 1;
+        const numericIds = users.map((u) => (Number.isFinite(Number(u.id)) ? Number(u.id) : 0));
+        const nextId = numericIds.length > 0 ? Math.max(...numericIds) + 1 : 1;
         const newUser = { id: nextId, ...userData };
         const updated = [...users, newUser];
         ok = await handleSaveAll(updated);
@@ -1659,13 +1732,24 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
       setSubmitting(false);
     }
     if (ok) {
-      if (editingUser && typeof window !== "undefined" && avatar) {
+      if (editingUser && typeof window !== "undefined") {
+        if (avatar) {
+          window.dispatchEvent(
+            new CustomEvent("USER_AVATAR_UPDATED", {
+              detail: {
+                userId: editingUser.id,
+                extension: extInput,
+                avatar
+              }
+            })
+          );
+        }
         window.dispatchEvent(
-          new CustomEvent("USER_AVATAR_UPDATED", {
+          new CustomEvent("USER_PROFILE_SYNC", {
             detail: {
               userId: editingUser.id,
               extension: extInput,
-              avatar
+              patch: userData
             }
           })
         );
@@ -3647,6 +3731,12 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
                                                     <div className="pt-2 border-t border-slate-100 dark:border-slate-800/80 flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
                                                         <input
                                                             type="text"
+                                                            inputMode="numeric"
+                                                            autoComplete="one-time-code"
+                                                            pattern="\d{6}"
+                                                            autoCorrect="off"
+                                                            autoCapitalize="off"
+                                                            spellCheck={false}
                                                             maxLength={6}
                                                             value={twoFactorTestCode}
                                                             onChange={(e) => setTwoFactorTestCode(e.target.value.replace(/\D/g, ""))}
@@ -3682,11 +3772,17 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
 
                                                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 items-end">
                                                         <div>
-                                                            <label className="block text-[10px] font-bold text-slate-600 dark:text-slate-300 uppercase tracking-wider mb-1">
+                                                            <label htmlFor="usersettings-2fa-whatsapp-phone" className="block text-[10px] font-bold text-slate-600 dark:text-slate-300 uppercase tracking-wider mb-1">
                                                                 Kullanıcının WhatsApp / GSM Numarası
                                                             </label>
                                                             <input
-                                                                type="text"
+                                                                id="usersettings-2fa-whatsapp-phone"
+                                                                type="tel"
+                                                                inputMode="tel"
+                                                                autoComplete="tel"
+                                                                autoCorrect="off"
+                                                                autoCapitalize="off"
+                                                                spellCheck={false}
                                                                 placeholder="Örn: 0532 123 45 67"
                                                                 value={followMeMobileNumber}
                                                                 onChange={(e) => setFollowMeMobileNumber(e.target.value)}
@@ -3724,6 +3820,12 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
                                                     <div className="pt-2 border-t border-slate-100 dark:border-slate-800/80 flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
                                                         <input
                                                             type="text"
+                                                            inputMode="numeric"
+                                                            autoComplete="one-time-code"
+                                                            pattern="\d{6}"
+                                                            autoCorrect="off"
+                                                            autoCapitalize="off"
+                                                            spellCheck={false}
                                                             maxLength={6}
                                                             value={twoFactorTestCode}
                                                             onChange={(e) => setTwoFactorTestCode(e.target.value.replace(/\D/g, ""))}
@@ -3813,6 +3915,12 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
                                                             <div className="pt-1 flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
                                                                 <input
                                                                     type="text"
+                                                                    inputMode="numeric"
+                                                                    autoComplete="one-time-code"
+                                                                    pattern="\d{6}"
+                                                                    autoCorrect="off"
+                                                                    autoCapitalize="off"
+                                                                    spellCheck={false}
                                                                     maxLength={6}
                                                                     value={twoFactorTestCode}
                                                                     onChange={(e) => setTwoFactorTestCode(e.target.value.replace(/\D/g, ""))}
