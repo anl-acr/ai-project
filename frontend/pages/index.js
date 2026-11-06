@@ -4033,13 +4033,6 @@ export default function Home() {
             visiblePinnedFeatures.length > 0
               ? visiblePinnedFeatures[visiblePinnedFeatures.length - 1].id
               : null;
-          const canShowTopbarAiAssistant =
-            !isAgentOnlyUser &&
-            !isWallboardOnlyUser &&
-            !pinnedTopbarFeatures.some((f) => f.id === "ai-config-assistant") &&
-            (currentUser?.role === "admin" ||
-              (Array.isArray(currentRolePermissions) &&
-                currentRolePermissions.some((p) => p.startsWith("ai_config_assistant:"))));
 
           const renderHeaderToken = (token, zoneName) => {
             if (!token) return null;
@@ -4179,25 +4172,6 @@ export default function Home() {
                     persistUserVisualPatch({ call_panel_prefs: next });
                   }}
                 />
-              );
-            }
-
-            if (token === "widget:ai_assistant") {
-              if (!canShowTopbarAiAssistant) return null;
-              return (
-                <button
-                  key="widget:ai_assistant"
-                  type="button"
-                  onClick={() => setActiveTab("ai-config-assistant")}
-                  title="AI Konfigürasyon Asistanı"
-                  className={`p-2 rounded-xl border transition-colors shadow-sm cursor-pointer shrink-0 ${
-                    activeTab === "ai-config-assistant"
-                      ? `${bg} text-white border-transparent`
-                      : "border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 hover:bg-slate-50 dark:hover:bg-slate-800"
-                  }`}
-                >
-                  <Sparkles size={14} className={activeTab === "ai-config-assistant" ? "text-white" : text} />
-                </button>
               );
             }
 
@@ -5424,14 +5398,6 @@ export default function Home() {
                           : null;
                       const previewOverflowCount = Math.max(0, pinnedTopbarFeatures.length - topbarPrefs.maxVisiblePins);
 
-                      const canPreviewAiAssistant =
-                        !isAgentOnlyUser &&
-                        !isWallboardOnlyUser &&
-                        !pinnedTopbarFeatures.some((f) => f.id === "ai-config-assistant") &&
-                        (currentUser?.role === "admin" ||
-                          (Array.isArray(currentRolePermissions) &&
-                            currentRolePermissions.some((p) => p.startsWith("ai_config_assistant:"))));
-
                       const isPreviewTokenVisible = (tok) => {
                         if (!tok) return false;
                         if (tok.startsWith("pin:")) {
@@ -5439,9 +5405,6 @@ export default function Home() {
                         }
                         if (tok === "widget:search") {
                           return canUseGlobalSearch && topbarPrefs.searchMode !== "hidden";
-                        }
-                        if (tok === "widget:ai_assistant") {
-                          return canPreviewAiAssistant;
                         }
                         return (
                           tok === "widget:notifications" ||
@@ -5457,7 +5420,6 @@ export default function Home() {
                           return f ? `Kısayol: ${f.label}` : "Sabit Kısayol";
                         }
                         if (tok === "widget:search") return "Global Arama Alanı";
-                        if (tok === "widget:ai_assistant") return "AI Konfigürasyon Asistanı";
                         if (tok === "widget:notifications") return "Bildirim Merkezi";
                         if (tok === "widget:theme") return "Aydınlık / Karanlık Tema";
                         if (tok === "widget:profile") return "Kullanıcı Avatar & Profil Kapsülü";
@@ -5607,14 +5569,6 @@ export default function Home() {
                                   : "Hızlı ara..."}
                               </span>
                             </div>
-                          );
-                        }
-
-                        if (tok === "widget:ai_assistant") {
-                          return (
-                            <span className="p-1.5 rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 inline-flex items-center justify-center">
-                              <Sparkles size={11} className={text} />
-                            </span>
                           );
                         }
 

@@ -48,7 +48,6 @@ export const ALL_TABS = [
 
 export const TOPBAR_SYSTEM_WIDGET_TOKENS = [
   "widget:search",
-  "widget:ai_assistant",
   "widget:notifications",
   "widget:theme",
   "widget:profile",
@@ -57,7 +56,7 @@ export const TOPBAR_SYSTEM_WIDGET_TOKENS = [
 export const DEFAULT_TOPBAR_ZONES = {
   left: [],
   center: ["widget:search"],
-  right: ["widget:ai_assistant", "widget:notifications", "widget:theme", "widget:profile"],
+  right: ["widget:notifications", "widget:theme", "widget:profile"],
 };
 
 export const DEFAULT_TOPBAR_PREFS = {
@@ -73,7 +72,7 @@ export const DEFAULT_TOPBAR_PREFS = {
   layoutZones: {
     left: [],
     center: ["widget:search"],
-    right: ["widget:ai_assistant", "widget:notifications", "widget:theme", "widget:profile"],
+    right: ["widget:notifications", "widget:theme", "widget:profile"],
   },
 };
 
@@ -147,7 +146,7 @@ export function normalizeTopbarPrefs(raw) {
     });
     zones.center.push("widget:search");
     seenTokens.add("widget:search");
-    ["widget:ai_assistant", "widget:notifications", "widget:theme", "widget:profile"].forEach((wTok) => {
+    ["widget:notifications", "widget:theme", "widget:profile"].forEach((wTok) => {
       zones.right.push(wTok);
       seenTokens.add(wTok);
     });
@@ -158,7 +157,7 @@ export function normalizeTopbarPrefs(raw) {
     zones.center.push("widget:search");
     seenTokens.add("widget:search");
   }
-  ["widget:ai_assistant", "widget:notifications", "widget:theme", "widget:profile"].forEach((wTok) => {
+  ["widget:notifications", "widget:theme", "widget:profile"].forEach((wTok) => {
     if (!seenTokens.has(wTok)) {
       if (wTok !== "widget:profile") {
         const profIdx = zones.right.indexOf("widget:profile");
