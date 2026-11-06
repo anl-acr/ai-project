@@ -1392,7 +1392,7 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
     setFullName(u.full_name || "");
     setEmail(u.email || "");
     setExtension(u.extension || "");
-    setAvatar(u.avatar || PRESET_AVATARS[0]);
+    setAvatar(u?.call_panel_prefs?.profileAvatar || u.avatar || PRESET_AVATARS[0]);
     setRole(u.role || "agent");
     setDefaultLandingTab(u?.call_panel_prefs?.defaultLandingTab || "auto");
     setDefaultAgentSubTab(u?.call_panel_prefs?.defaultAgentSubTab || "auto");
@@ -1622,7 +1622,8 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
       call_panel_prefs: {
         ...prevCallPanelPrefs,
         defaultLandingTab: sanitizedLandingTab || "auto",
-        defaultAgentSubTab: defaultAgentSubTab || "auto"
+        defaultAgentSubTab: defaultAgentSubTab || "auto",
+        profileAvatar: avatar || ""
       },
       managed_users: managedUsers,
       managed_queues: managedQueues,
@@ -1658,6 +1659,17 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
       setSubmitting(false);
     }
     if (ok) {
+      if (editingUser && typeof window !== "undefined" && avatar) {
+        window.dispatchEvent(
+          new CustomEvent("USER_AVATAR_UPDATED", {
+            detail: {
+              userId: editingUser.id,
+              extension: extInput,
+              avatar
+            }
+          })
+        );
+      }
       setShowModal(false);
     }
   };
@@ -2096,7 +2108,7 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
                   {visibleColumns.profile && (
                     <div className="w-12 flex items-center justify-center shrink-0 min-w-0">
                       <img
-                        src={u.avatar}
+                        src={u?.call_panel_prefs?.profileAvatar || u.avatar}
                         alt={u.full_name}
                         className="w-12 h-12 rounded-2xl border border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 p-1 shrink-0"
                       />

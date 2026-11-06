@@ -1093,8 +1093,14 @@ export default function Home() {
     const initialProf = currentUser.active_profile || "available";
     const initialProfiles = normalizeUserProfiles(currentUser.profiles);
     const initialPanelPrefs = loadCallPanelPrefs(currentUser);
+    const scopedStoredAvatar =
+      typeof window !== "undefined" && userKey
+        ? localStorage.getItem(`agent_avatar_${userKey}`) || ""
+        : "";
     const initialAvatar =
+      initialPanelPrefs?.profileAvatar ||
       currentUser.avatar ||
+      scopedStoredAvatar ||
       agentAvatar ||
       (typeof window !== "undefined" ? localStorage.getItem("agent_avatar") : "") ||
       "";
@@ -1557,6 +1563,57 @@ export default function Home() {
     return () => window.removeEventListener("wallboard-layout-updated", handleWbStateSync);
   }, []);
 
+  React.useEffect(() => {
+    const handleAvatarStateSync = (e) => {
+      const detail = e?.detail;
+      if (!detail || !detail.avatar) return;
+      const nextAvatar = detail.avatar;
+      setSystemUsers((prev) =>
+        Array.isArray(prev)
+          ? prev.map((u) =>
+              (detail.userId !== undefined && String(u.id) === String(detail.userId)) ||
+              (detail.extension && String(u.extension) === String(detail.extension))
+                ? {
+                    ...u,
+                    avatar: nextAvatar,
+                    call_panel_prefs: {
+                      ...(u.call_panel_prefs && typeof u.call_panel_prefs === "object" ? u.call_panel_prefs : {}),
+                      profileAvatar: nextAvatar
+                    }
+                  }
+                : u
+            )
+          : prev
+      );
+      setCurrentUser((prev) => {
+        if (!prev) return prev;
+        const matchesSelf =
+          (detail.userId !== undefined && String(prev.id) === String(detail.userId)) ||
+          (detail.extension && String(prev.extension) === String(detail.extension));
+        if (!matchesSelf) return prev;
+        setAgentAvatar(nextAvatar);
+        setCallPanelPrefs((prevPrefs) => ({ ...(prevPrefs || {}), profileAvatar: nextAvatar }));
+        if (typeof window !== "undefined") {
+          try {
+            localStorage.setItem("agent_avatar", nextAvatar);
+            if (prev.id) localStorage.setItem(`agent_avatar_${prev.id}`, nextAvatar);
+            if (prev.extension) localStorage.setItem(`agent_avatar_${prev.extension}`, nextAvatar);
+          } catch (err) {}
+        }
+        return {
+          ...prev,
+          avatar: nextAvatar,
+          call_panel_prefs: {
+            ...(prev.call_panel_prefs && typeof prev.call_panel_prefs === "object" ? prev.call_panel_prefs : {}),
+            profileAvatar: nextAvatar
+          }
+        };
+      });
+    };
+    window.addEventListener("USER_AVATAR_UPDATED", handleAvatarStateSync);
+    return () => window.removeEventListener("USER_AVATAR_UPDATED", handleAvatarStateSync);
+  }, []);
+
   const checkRolePermissions = async (providedUser = null) => {
     let currentUserData = providedUser || null;
     try {
@@ -1603,7 +1660,10 @@ export default function Home() {
         currentUserData = freshMatch ? { ...providedUser, ...freshMatch } : providedUser;
       } else if (savedAuth && savedUserId) {
         if (savedUserId === 'admin') {
-          const adminUserFromDb = Array.isArray(usersData) ? usersData.find(u => u.role === 'admin' || u.username === 'admin' || u.id === 1) : null;
+          const adminUserFromDb = Array.isArray(usersData)
+            ? usersData.find(u => u.username === 'admin' || u.email === 'admin@localhost' || u.id === 1) ||
+              usersData.find(u => u.role === 'admin')
+            : null;
           currentUserData = adminUserFromDb ? { ...SUPER_ADMIN, ...adminUserFromDb } : SUPER_ADMIN;
         } else if (Array.isArray(usersData) && usersData.length > 0) {
           const found = usersData.find(u => String(u.id) === String(savedUserId) || String(u.extension) === String(savedUserId) || u.email === savedUserId || u.username === savedUserId);
@@ -1631,10 +1691,6 @@ export default function Home() {
       }
 
       // 4. Hydrate saved visual preferences (Avatar, Theme Color, Dark/Light Mode, Call Panel Prefs, Wallboard Layout) BEFORE revealing UI
-      if (currentUserData.avatar) {
-        setAgentAvatar(currentUserData.avatar);
-      }
-
       if (currentUserData.theme_color) {
         const safeColor = getSafeThemeColor(currentUserData.theme_color);
         document.documentElement.style.setProperty("--color-primary", safeColor);
@@ -1664,7 +1720,47 @@ export default function Home() {
       }
 
       const resolvedPanelPrefs = loadCallPanelPrefs(currentUserData);
-      setCallPanelPrefs(resolvedPanelPrefs);
+      const avatarUidKey = String(currentUserData.id || currentUserData.extension || savedUserId || "default");
+      const scopedLocalAvatar =
+        typeof window !== "undefined"
+          ? localStorage.getItem(`agent_avatar_${avatarUidKey}`) ||
+            (currentUserData.extension ? localStorage.getItem(`agent_avatar_${currentUserData.extension}`) : "") ||
+            (savedUserId === "admin" ? localStorage.getItem("agent_avatar_admin") : "")
+          : "";
+      const resolvedAvatar =
+        resolvedPanelPrefs?.profileAvatar ||
+        currentUserData.avatar ||
+        scopedLocalAvatar ||
+        (typeof window !== "undefined" ? localStorage.getItem("agent_avatar") : "") ||
+        "https://api.dicebear.com/7.x/avataaars/svg?seed=Felix";
+
+      setAgentAvatar(resolvedAvatar);
+      const hydratedPanelPrefs = resolvedAvatar
+        ? { ...resolvedPanelPrefs, profileAvatar: resolvedPanelPrefs?.profileAvatar || resolvedAvatar }
+        : resolvedPanelPrefs;
+      setCallPanelPrefs(hydratedPanelPrefs);
+      currentUserData = {
+        ...currentUserData,
+        avatar: resolvedAvatar,
+        call_panel_prefs: {
+          ...(currentUserData.call_panel_prefs && typeof currentUserData.call_panel_prefs === "object"
+            ? currentUserData.call_panel_prefs
+            : {}),
+          profileAvatar: resolvedPanelPrefs?.profileAvatar || resolvedAvatar
+        }
+      };
+      if (typeof window !== "undefined" && resolvedAvatar) {
+        try {
+          localStorage.setItem("agent_avatar", resolvedAvatar);
+          localStorage.setItem(`agent_avatar_${avatarUidKey}`, resolvedAvatar);
+          if (currentUserData.extension) {
+            localStorage.setItem(`agent_avatar_${currentUserData.extension}`, resolvedAvatar);
+          }
+          if (savedUserId === "admin") {
+            localStorage.setItem("agent_avatar_admin", resolvedAvatar);
+          }
+        } catch (e) {}
+      }
 
       // 5. Resolve Role Permissions & Initial Screen BEFORE setting isLoggedIn(true)
       const userRoleLower = String(currentUserData.role || "").toLowerCase().trim();
@@ -1905,39 +2001,20 @@ export default function Home() {
     }
   };
 
-  // Load avatar and ringtone from localStorage on mount and sync with presence
+  // Load user-scoped avatar and ringtone from localStorage on mount, then hydrate from backend user profile
   useEffect(() => {
     if (typeof window !== "undefined") {
-      const savedAvatar = localStorage.getItem("agent_avatar");
+      const mountUid =
+        sessionStorage.getItem("current_user_id") ||
+        localStorage.getItem("current_user_id") ||
+        "";
+      const savedAvatar =
+        (mountUid ? localStorage.getItem(`agent_avatar_${mountUid}`) : "") ||
+        localStorage.getItem("agent_avatar");
       if (savedAvatar) setAgentAvatar(savedAvatar);
       const savedRingtone = localStorage.getItem("ringtone");
       if (savedRingtone) setAgentRingtone(savedRingtone);
     }
-
-    const syncAgentPresence = async () => {
-      try {
-        const protocol = typeof window !== "undefined" ? window.location.protocol : "http:";
-        const resStatus = await fetch(`${protocol}//${backendHost}/api/agent/status`);
-        if (resStatus.ok) {
-          const status = await resStatus.json();
-          if (status && status.is_logged_in && status.user_id) {
-            const resUsers = await fetch(`${protocol}//${backendHost}/api/settings/users?tenant_id=all`);
-            if (resUsers.ok) {
-              const users = await resUsers.json();
-              if (Array.isArray(users)) {
-                const curr = users.find(u => String(u.id) === String(status.user_id));
-                if (curr && curr.avatar) {
-                  setAgentAvatar(curr.avatar);
-                  localStorage.setItem("agent_avatar", curr.avatar);
-                }
-              }
-            }
-          }
-        }
-      } catch (e) {
-        console.error("Agent presence sync error:", e);
-      }
-    };
 
     // Safety fallback: unblock loading spinner only if network completely stalls (5s)
     const fallbackTimer = setTimeout(() => {
@@ -1945,7 +2022,6 @@ export default function Home() {
     }, 5000);
 
     checkRolePermissions();
-    syncAgentPresence();
 
     return () => clearTimeout(fallbackTimer);
   }, []);
@@ -1972,7 +2048,9 @@ export default function Home() {
       console.error("Login user fetch error:", err);
     }
 
-    const adminUserFromDb = (usersToSearch || []).find(u => u.role === 'admin' || u.username === 'admin' || u.id === 1);
+    const adminUserFromDb =
+      (usersToSearch || []).find(u => u.username === 'admin' || u.email === 'admin@localhost' || u.id === 1) ||
+      (usersToSearch || []).find(u => u.role === 'admin');
     const validAdminPassword = adminUserFromDb?.password || SUPER_ADMIN.password || "admin";
 
     if (cleanUsername.toLowerCase() === "admin" && (password === validAdminPassword || password === "admin")) { // Admin login
@@ -2062,7 +2140,9 @@ export default function Home() {
   const complete2FALogin = async (userId, rememberMe) => {
     let foundUser = systemUsers.find(u => String(u.id) === String(userId) || String(u.extension) === String(userId));
     if (!foundUser && (String(userId) === "admin" || String(userId) === "1")) {
-      const adminDb = systemUsers.find(u => u.role === "admin" || u.username === "admin");
+      const adminDb =
+        systemUsers.find(u => u.username === "admin" || u.email === "admin@localhost" || u.id === 1) ||
+        systemUsers.find(u => u.role === "admin");
       foundUser = adminDb ? { ...SUPER_ADMIN, ...adminDb } : SUPER_ADMIN;
     }
     if (foundUser) {
@@ -8913,6 +8993,12 @@ export default function Home() {
                         setIsTestingSpeaker(false);
                         localStorage.setItem("temp_playing", "false");
                         localStorage.setItem("agent_avatar", agentAvatar);
+                        try {
+                          if (currentUser?.id) localStorage.setItem(`agent_avatar_${currentUser.id}`, agentAvatar);
+                          if (currentUser?.extension) localStorage.setItem(`agent_avatar_${currentUser.extension}`, agentAvatar);
+                          const storedLoginId = sessionStorage.getItem("current_user_id") || localStorage.getItem("current_user_id");
+                          if (storedLoginId) localStorage.setItem(`agent_avatar_${storedLoginId}`, agentAvatar);
+                        } catch (e) {}
                         localStorage.setItem("ringtone", agentRingtone);
                         setSavedRingtoneVolume(ringtoneVolume);
                         localStorage.setItem("selected_mic", selectedMic);
@@ -8955,8 +9041,30 @@ export default function Home() {
                         localStorage.setItem("two_factor_enabled", twoFactorEnabled ? "true" : "false");
                         localStorage.setItem("password_expiry_enabled", passwordExpiryEnabled ? "true" : "false");
                         localStorage.setItem("password_expiry_months", passwordExpiryMonths.toString());
-                        const savedPrefsSnapshot = saveCallPanelPrefs(currentUser, callPanelPrefs);
+                        const savedPrefsSnapshot = saveCallPanelPrefs(currentUser, {
+                          ...(callPanelPrefs || {}),
+                          profileAvatar: agentAvatar
+                        });
                         setCallPanelPrefs(savedPrefsSnapshot);
+                        setCurrentUser((prev) =>
+                          prev
+                            ? {
+                                ...prev,
+                                avatar: agentAvatar,
+                                call_panel_prefs: savedPrefsSnapshot
+                              }
+                            : prev
+                        );
+                        setSystemUsers((prev) =>
+                          Array.isArray(prev)
+                            ? prev.map((u) =>
+                                (currentUser?.id && String(u.id) === String(currentUser.id)) ||
+                                (currentUser?.extension && String(u.extension) === String(currentUser.extension))
+                                  ? { ...u, avatar: agentAvatar, call_panel_prefs: savedPrefsSnapshot }
+                                  : u
+                              )
+                            : prev
+                        );
 
                         const wbUid = String(currentUser?.id || currentUser?.extension || "admin");
                         if (modalDraftWallboardLayout && typeof modalDraftWallboardLayout === "object") {
@@ -9013,6 +9121,7 @@ export default function Home() {
                               setCurrentUser((prev) => ({
                                 ...(prev || {}),
                                 ...(data.user || {}),
+                                avatar: agentAvatar,
                                 call_panel_prefs: savedPrefsSnapshot,
                                 ...(modalDraftWallboardLayout ? { wallboard_layout: modalDraftWallboardLayout } : {})
                               }));

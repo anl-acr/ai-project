@@ -233,7 +233,7 @@ class SystemUser(Base):
     full_name = Column(String, nullable=False)
     email = Column(String, nullable=False)
     extension = Column(String, nullable=False, unique=True)
-    avatar = Column(String, nullable=True)
+    avatar = Column(Text, nullable=True)
     role = Column(String, nullable=False, default="agent")
     is_active = Column(Boolean, default=True)
     gsm_number = Column(String, nullable=True)

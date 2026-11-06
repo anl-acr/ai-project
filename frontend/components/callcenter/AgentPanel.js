@@ -266,6 +266,7 @@ export const DEFAULT_CALL_PANEL_PREFS = {
   autoOpenCustomer360OnCall: false,
   uiMotionMode: "fluid", // "fluid" | "minimal" | "off"
   uiTemplate: "classic", // "classic" | "aurora" | "bento" | "linear" | "oled"
+  profileAvatar: "",
 };
 
 export function normalizeCallPanelPrefs(raw) {
@@ -281,6 +282,7 @@ export function normalizeCallPanelPrefs(raw) {
       autoOpenCustomer360OnCall: false,
       uiMotionMode: "fluid",
       uiTemplate: "classic",
+      profileAvatar: "",
     };
   }
   const viewMode = raw.viewMode === "box" ? "box" : "list";
@@ -320,6 +322,7 @@ export function normalizeCallPanelPrefs(raw) {
   const autoOpenCustomer360OnCall = Boolean(raw.autoOpenCustomer360OnCall);
   const uiMotionMode = normalizeUiMotionMode(raw.uiMotionMode);
   const uiTemplate = normalizeUiTemplate(raw.uiTemplate);
+  const profileAvatar = typeof raw.profileAvatar === "string" ? raw.profileAvatar.trim() : "";
 
   return {
     viewMode,
@@ -337,6 +340,7 @@ export function normalizeCallPanelPrefs(raw) {
     autoOpenCustomer360OnCall,
     uiMotionMode,
     uiTemplate,
+    profileAvatar,
   };
 }
 
@@ -356,6 +360,7 @@ function hasSavedCallPanelPrefs(obj) {
         obj.dashboardWidgets ||
         obj.uiMotionMode ||
         obj.uiTemplate ||
+        obj.profileAvatar ||
         obj.autoOpenCustomer360OnCall !== undefined ||
         (Array.isArray(obj.tabOrder) && obj.tabOrder.length > 0) ||
         (obj.topbar && typeof obj.topbar === "object"))

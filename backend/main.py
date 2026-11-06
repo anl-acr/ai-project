@@ -1748,6 +1748,16 @@ def load_settings(force_reload: bool = False, persist: bool = False):
                         session.commit()
                     except Exception:
                         session.rollback()
+                try:
+                    av_type_row = session.execute(
+                        text("SELECT data_type FROM information_schema.columns WHERE table_name = 'system_users' AND column_name = 'avatar'")
+                    ).fetchone()
+                    if av_type_row and str(av_type_row[0]).lower() != "text":
+                        session.execute(text("SET LOCAL lock_timeout = '2s'"))
+                        session.execute(text("ALTER TABLE system_users ALTER COLUMN avatar TYPE TEXT;"))
+                        session.commit()
+                except Exception:
+                    session.rollback()
                 _settings_schema_migrated = True
 
             settings = session.query(SystemSetting).all()
@@ -1763,6 +1773,11 @@ def load_settings(force_reload: bool = False, persist: bool = False):
                     u_dict = {col.name: getattr(u, col.name) for col in SystemUser.__table__.columns}
                     du = disk_u_map.get(str(u_dict.get("id")))
                     if du:
+                        if du.get("avatar_updated_ts") and du.get("avatar"):
+                            u_dict["avatar"] = du.get("avatar")
+                            u_dict["avatar_updated_ts"] = du.get("avatar_updated_ts")
+                        elif not u_dict.get("avatar") and du.get("avatar"):
+                            u_dict["avatar"] = du.get("avatar")
                         if not u_dict.get("managed_users") and du.get("managed_users"):
                             u_dict["managed_users"] = du.get("managed_users")
                         if not u_dict.get("managed_queues") and du.get("managed_queues"):
@@ -1784,6 +1799,8 @@ def load_settings(force_reload: bool = False, persist: bool = False):
                                 u_dict[jcol] = {}
                         elif not isinstance(jval, dict):
                             u_dict[jcol] = {}
+                    if isinstance(u_dict.get("call_panel_prefs"), dict) and u_dict["call_panel_prefs"].get("profileAvatar") and not (du and du.get("avatar_updated_ts")):
+                        u_dict["avatar"] = u_dict["call_panel_prefs"]["profileAvatar"]
                     if not u_dict["wallboard_layout"] and wb_layouts_map:
                         uid_str = str(u_dict.get("id") or "")
                         ext_str = str(u_dict.get("extension") or "")
@@ -8244,14 +8261,18 @@ async def update_agent_profile_endpoint(user_id: Union[int, str], payload: Profi
 
     user = None
     for u in settings_db.get("users", []):
-        if (
-            str(u.get("id")) == uid_str
-            or str(u.get("extension")) == uid_str
-            or u.get("username") == uid_str
-            or u.get("email") == uid_str
-        ):
+        if str(u.get("id")) == uid_str:
             user = u
             break
+    if not user:
+        for u in settings_db.get("users", []):
+            if (
+                str(u.get("extension")) == uid_str
+                or u.get("username") == uid_str
+                or u.get("email") == uid_str
+            ):
+                user = u
+                break
 
     # If user exists in PostgreSQL SystemUser but not yet in settings_db["users"], hydrate it cleanly
     if not user:
@@ -8259,15 +8280,19 @@ async def update_agent_profile_endpoint(user_id: Union[int, str], payload: Profi
             from backend.database.config import SyncSessionLocal
             from backend.database.models import SystemUser
             with SyncSessionLocal() as session:
-                filters = [
-                    SystemUser.extension == uid_str,
-                    SystemUser.email == uid_str,
-                ]
-                if uid_int is not None:
-                    filters.insert(0, SystemUser.id == uid_int)
-                if uid_str in ("admin", "9999"):
-                    filters.append(SystemUser.role == "admin")
-                db_found = session.query(SystemUser).filter(or_(*filters)).first()
+                db_found = None
+                if uid_int is not None and uid_int != 9999:
+                    db_found = session.query(SystemUser).filter(SystemUser.id == uid_int).first()
+                if not db_found:
+                    db_found = session.query(SystemUser).filter(
+                        or_(SystemUser.extension == uid_str, SystemUser.email == uid_str)
+                    ).first()
+                if not db_found and uid_str in ("admin", "9999"):
+                    db_found = (
+                        session.query(SystemUser).filter(SystemUser.email == "admin@localhost").first()
+                        or session.query(SystemUser).filter(SystemUser.id == 1).first()
+                        or session.query(SystemUser).filter(SystemUser.role == "admin").order_by(SystemUser.id.asc()).first()
+                    )
                 if db_found:
                     user = {c.name: copy.deepcopy(getattr(db_found, c.name)) for c in db_found.__table__.columns}
                     if "users" not in settings_db or not isinstance(settings_db.get("users"), list):
@@ -8277,7 +8302,10 @@ async def update_agent_profile_endpoint(user_id: Union[int, str], payload: Profi
             print(f"[Profile Update] DB user lookup notice: {e_lookup}")
 
     if not user and uid_str in ["admin", "9999"]:
-        user = next((u for u in settings_db.get("users", []) if u.get("role") == "admin"), None)
+        user = (
+            next((u for u in settings_db.get("users", []) if u.get("username") == "admin" or u.get("email") == "admin@localhost" or u.get("id") == 1), None)
+            or next((u for u in settings_db.get("users", []) if u.get("role") == "admin"), None)
+        )
         if not user:
             user = {
                 "id": 1,
@@ -8300,6 +8328,10 @@ async def update_agent_profile_endpoint(user_id: Union[int, str], payload: Profi
 
     if payload.avatar is not None:
         user["avatar"] = payload.avatar
+        user["avatar_updated_ts"] = int(datetime.datetime.now().timestamp())
+        if not isinstance(user.get("call_panel_prefs"), dict):
+            user["call_panel_prefs"] = {}
+        user["call_panel_prefs"]["profileAvatar"] = payload.avatar
     
     role_code = user.get("role", "agent")
     role_perms = []
@@ -8351,6 +8383,8 @@ async def update_agent_profile_endpoint(user_id: Union[int, str], payload: Profi
         merged_cpp = {**existing_cpp, **incoming_cpp}
         if isinstance(existing_cpp.get("topbar"), dict) and isinstance(incoming_cpp.get("topbar"), dict):
             merged_cpp["topbar"] = {**existing_cpp["topbar"], **incoming_cpp["topbar"]}
+        if payload.avatar is not None:
+            merged_cpp["profileAvatar"] = payload.avatar
         user["call_panel_prefs"] = merged_cpp
 
     if payload.wallboard_layout is not None:
@@ -8407,67 +8441,83 @@ async def update_agent_profile_endpoint(user_id: Union[int, str], payload: Profi
         from backend.database.models import SystemUser
         from sqlalchemy.orm.attributes import flag_modified
         with SyncSessionLocal() as session:
-            sync_filters = []
-            raw_uid = str(user.get("id") or "").strip()
-            if raw_uid.isdigit():
-                sync_filters.append(SystemUser.id == int(raw_uid))
-            elif uid_int is not None:
-                sync_filters.append(SystemUser.id == uid_int)
-            if user.get("extension"):
-                sync_filters.append(SystemUser.extension == str(user.get("extension")).strip())
-            if user.get("email"):
-                sync_filters.append(SystemUser.email == str(user.get("email")).strip())
-            if uid_str in ("admin", "9999") or user.get("role") == "admin":
-                if not sync_filters:
-                    sync_filters.append(SystemUser.role == "admin")
-            db_u = session.query(SystemUser).filter(or_(*sync_filters)).first() if sync_filters else None
-            if not db_u and (uid_str in ("admin", "9999") or user.get("role") == "admin"):
-                db_u = session.query(SystemUser).filter(SystemUser.role == "admin").first()
-            if db_u:
+            def _resolve_profile_db_user():
+                found = None
+                raw_uid = str(user.get("id") or "").strip()
+                if raw_uid.isdigit() and raw_uid != "9999":
+                    found = session.query(SystemUser).filter(SystemUser.id == int(raw_uid)).first()
+                elif uid_int is not None and uid_int != 9999:
+                    found = session.query(SystemUser).filter(SystemUser.id == uid_int).first()
+                if not found and user.get("extension"):
+                    found = session.query(SystemUser).filter(SystemUser.extension == str(user.get("extension")).strip()).first()
+                if not found and user.get("email"):
+                    found = session.query(SystemUser).filter(SystemUser.email == str(user.get("email")).strip()).first()
+                if not found and uid_str in ("admin", "9999"):
+                    found = (
+                        session.query(SystemUser).filter(SystemUser.email == "admin@localhost").first()
+                        or session.query(SystemUser).filter(SystemUser.id == 1).first()
+                        or session.query(SystemUser).filter(SystemUser.role == "admin").order_by(SystemUser.id.asc()).first()
+                    )
+                return found
+
+            def _apply_profile_fields(target_db_u):
                 if payload.new_password:
-                    db_u.password = payload.new_password
-                if payload.avatar:
-                    db_u.avatar = payload.avatar
+                    target_db_u.password = payload.new_password
+                if payload.avatar is not None:
+                    target_db_u.avatar = payload.avatar
                 if payload.theme_color is not None:
-                    db_u.theme_color = payload.theme_color
+                    target_db_u.theme_color = payload.theme_color
                 if payload.theme_mode in ("dark", "light"):
-                    db_u.theme_mode = payload.theme_mode
+                    target_db_u.theme_mode = payload.theme_mode
                 if payload.gsm_number is not None:
-                    db_u.gsm_number = payload.gsm_number
+                    target_db_u.gsm_number = payload.gsm_number
                 if payload.mobile_transfer_enabled is not None:
-                    db_u.mobile_transfer_enabled = payload.mobile_transfer_enabled
+                    target_db_u.mobile_transfer_enabled = payload.mobile_transfer_enabled
                 if payload.forwarding_always is not None:
-                    db_u.forwarding_always = payload.forwarding_always
-                    flag_modified(db_u, "forwarding_always")
+                    target_db_u.forwarding_always = payload.forwarding_always
+                    flag_modified(target_db_u, "forwarding_always")
                 if payload.forwarding_busy is not None:
-                    db_u.forwarding_busy = payload.forwarding_busy
-                    flag_modified(db_u, "forwarding_busy")
+                    target_db_u.forwarding_busy = payload.forwarding_busy
+                    flag_modified(target_db_u, "forwarding_busy")
                 if payload.forwarding_no_answer is not None:
-                    db_u.forwarding_no_answer = payload.forwarding_no_answer
-                    flag_modified(db_u, "forwarding_no_answer")
+                    target_db_u.forwarding_no_answer = payload.forwarding_no_answer
+                    flag_modified(target_db_u, "forwarding_no_answer")
                 if payload.active_profile is not None:
-                    db_u.active_profile = user["active_profile"]
+                    target_db_u.active_profile = user["active_profile"]
                 if payload.profiles is not None:
-                    db_u.profiles = user["profiles"]
-                    flag_modified(db_u, "profiles")
-                if payload.call_panel_prefs is not None:
-                    db_u.call_panel_prefs = copy.deepcopy(user["call_panel_prefs"])
-                    flag_modified(db_u, "call_panel_prefs")
+                    target_db_u.profiles = user["profiles"]
+                    flag_modified(target_db_u, "profiles")
+                if payload.call_panel_prefs is not None or payload.avatar is not None:
+                    target_db_u.call_panel_prefs = copy.deepcopy(user.get("call_panel_prefs") or {})
+                    flag_modified(target_db_u, "call_panel_prefs")
                 if payload.wallboard_layout is not None:
-                    db_u.wallboard_layout = user["wallboard_layout"]
-                    flag_modified(db_u, "wallboard_layout")
+                    target_db_u.wallboard_layout = user["wallboard_layout"]
+                    flag_modified(target_db_u, "wallboard_layout")
                 if payload.cti_config is not None and user.get("cti_config") is not None:
-                    db_u.cti_config = user["cti_config"]
-                    flag_modified(db_u, "cti_config")
+                    target_db_u.cti_config = user["cti_config"]
+                    flag_modified(target_db_u, "cti_config")
                 if payload.two_factor_enabled is not None:
-                    db_u.two_factor_enabled = bool(user.get("two_factor_enabled", False))
+                    target_db_u.two_factor_enabled = bool(user.get("two_factor_enabled", False))
                 if payload.two_factor_method is not None:
-                    db_u.two_factor_method = user.get("two_factor_method", "google_auth")
+                    target_db_u.two_factor_method = user.get("two_factor_method", "google_auth")
                 if payload.two_factor_secret is not None:
-                    db_u.two_factor_secret = user.get("two_factor_secret")
+                    target_db_u.two_factor_secret = user.get("two_factor_secret")
                 if payload.two_factor_enrolled is not None:
-                    db_u.two_factor_enrolled = bool(user.get("two_factor_enrolled", False))
-                session.commit()
+                    target_db_u.two_factor_enrolled = bool(user.get("two_factor_enrolled", False))
+
+            db_u = _resolve_profile_db_user()
+            if db_u:
+                try:
+                    _apply_profile_fields(db_u)
+                    session.commit()
+                except Exception:
+                    session.rollback()
+                    session.execute(text("ALTER TABLE system_users ALTER COLUMN avatar TYPE TEXT;"))
+                    session.commit()
+                    db_u = _resolve_profile_db_user()
+                    if db_u:
+                        _apply_profile_fields(db_u)
+                        session.commit()
     except Exception as e_db_sync:
         print(f"[Profile Update] DB sync notice: {e_db_sync}")
 
@@ -24583,7 +24633,7 @@ async def new_get_users_endpoint(request: Request, user_info: dict = Depends(get
         uid = str(u.get("id") or "")
         disk_u = disk_users_by_id.get(uid) or disk_users_by_ext.get(ext)
         if disk_u:
-            if not u.get("avatar") and disk_u.get("avatar"):
+            if (disk_u.get("avatar_updated_ts") and disk_u.get("avatar")) or (not u.get("avatar") and disk_u.get("avatar")):
                 u["avatar"] = disk_u.get("avatar")
             if disk_u.get("active_profile"):
                 u["active_profile"] = disk_u.get("active_profile")
@@ -24624,6 +24674,8 @@ async def new_get_users_endpoint(request: Request, user_info: dict = Depends(get
                 u["max_concurrent_outbound"] = disk_u.get("max_concurrent_outbound")
             if not u.get("outbound_quarantined") and disk_u.get("outbound_quarantined"):
                 u["outbound_quarantined"] = True
+        if isinstance(u.get("call_panel_prefs"), dict) and u["call_panel_prefs"].get("profileAvatar") and not (disk_u and disk_u.get("avatar_updated_ts")):
+            u["avatar"] = u["call_panel_prefs"]["profileAvatar"]
         q_subs_map = ((settings_db.get("security_advanced") or {}).get("quarantined_subscribers") or {}) if isinstance(settings_db.get("security_advanced"), dict) else {}
         try:
             u["max_concurrent_outbound"] = int(u.get("max_concurrent_outbound") if u.get("max_concurrent_outbound") is not None else 0)
@@ -24856,7 +24908,11 @@ async def new_save_users_endpoint(payload: Union[List[UserSchema], UserSchema], 
                         "soft_keys": dev_sync.get("soft_keys") or [],
                     })
             if data.get("call_panel_prefs") is None:
-                data["call_panel_prefs"] = (getattr(target_user, "call_panel_prefs", None) if target_user else None) or prev_disk.get("call_panel_prefs") or {}
+                data["call_panel_prefs"] = copy.deepcopy((getattr(target_user, "call_panel_prefs", None) if target_user else None) or prev_disk.get("call_panel_prefs") or {})
+            if isinstance(data.get("call_panel_prefs"), dict) and data.get("avatar"):
+                data["call_panel_prefs"] = {**data["call_panel_prefs"], "profileAvatar": data["avatar"]}
+            if data.get("avatar"):
+                data["avatar_updated_ts"] = int(datetime.datetime.now().timestamp())
             if data.get("wallboard_layout") is None:
                 data["wallboard_layout"] = (getattr(target_user, "wallboard_layout", None) if target_user else None) or prev_disk.get("wallboard_layout") or {}
             if data.get("theme_mode") is None:
@@ -25007,7 +25063,7 @@ async def new_save_users_endpoint(payload: Union[List[UserSchema], UserSchema], 
                             u_dict["sip_username"] = p_match.get("sip_username")
                         if p_match.get("sip_devices") is not None:
                             u_dict["sip_devices"] = p_match.get("sip_devices")
-                        for tf_k in ("two_factor_enabled", "two_factor_method", "two_factor_secret", "two_factor_enrolled", "managed_users", "managed_queues", "cti_config", "max_concurrent_outbound", "outbound_quarantined"):
+                        for tf_k in ("two_factor_enabled", "two_factor_method", "two_factor_secret", "two_factor_enrolled", "managed_users", "managed_queues", "cti_config", "max_concurrent_outbound", "outbound_quarantined", "avatar_updated_ts"):
                             if p_match.get(tf_k) is not None:
                                 u_dict[tf_k] = p_match.get(tf_k)
                     u_dict["sip_password"] = resolve_secure_sip_password(ext_u, u_dict.get("sip_password") or "")
