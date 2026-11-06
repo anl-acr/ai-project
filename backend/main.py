@@ -8238,13 +8238,45 @@ class ProfileUpdateSchema(BaseModel):
 
 @app.post("/api/agent/profile/{user_id}")
 async def update_agent_profile_endpoint(user_id: Union[int, str], payload: ProfileUpdateSchema):
+    import copy
+    uid_str = str(user_id).strip()
+    uid_int = int(uid_str) if uid_str.isdigit() else None
+
     user = None
     for u in settings_db.get("users", []):
-        if str(u.get("id")) == str(user_id) or str(u.get("extension")) == str(user_id) or u.get("username") == str(user_id) or u.get("email") == str(user_id):
+        if (
+            str(u.get("id")) == uid_str
+            or str(u.get("extension")) == uid_str
+            or u.get("username") == uid_str
+            or u.get("email") == uid_str
+        ):
             user = u
             break
-            
-    if not user and str(user_id) in ["admin", "9999"]:
+
+    # If user exists in PostgreSQL SystemUser but not yet in settings_db["users"], hydrate it cleanly
+    if not user:
+        try:
+            from backend.database.config import SyncSessionLocal
+            from backend.database.models import SystemUser
+            with SyncSessionLocal() as session:
+                filters = [
+                    SystemUser.extension == uid_str,
+                    SystemUser.email == uid_str,
+                ]
+                if uid_int is not None:
+                    filters.insert(0, SystemUser.id == uid_int)
+                if uid_str in ("admin", "9999"):
+                    filters.append(SystemUser.role == "admin")
+                db_found = session.query(SystemUser).filter(or_(*filters)).first()
+                if db_found:
+                    user = {c.name: copy.deepcopy(getattr(db_found, c.name)) for c in db_found.__table__.columns}
+                    if "users" not in settings_db or not isinstance(settings_db.get("users"), list):
+                        settings_db["users"] = []
+                    settings_db["users"].append(user)
+        except Exception as e_lookup:
+            print(f"[Profile Update] DB user lookup notice: {e_lookup}")
+
+    if not user and uid_str in ["admin", "9999"]:
         user = next((u for u in settings_db.get("users", []) if u.get("role") == "admin"), None)
         if not user:
             user = {
@@ -8314,8 +8346,12 @@ async def update_agent_profile_endpoint(user_id: Union[int, str], payload: Profi
         ensure_user_profiles(user)
 
     if payload.call_panel_prefs is not None:
-        existing_cpp = user.get("call_panel_prefs") if isinstance(user.get("call_panel_prefs"), dict) else {}
-        user["call_panel_prefs"] = {**existing_cpp, **payload.call_panel_prefs}
+        existing_cpp = copy.deepcopy(user.get("call_panel_prefs")) if isinstance(user.get("call_panel_prefs"), dict) else {}
+        incoming_cpp = copy.deepcopy(payload.call_panel_prefs) if isinstance(payload.call_panel_prefs, dict) else {}
+        merged_cpp = {**existing_cpp, **incoming_cpp}
+        if isinstance(existing_cpp.get("topbar"), dict) and isinstance(incoming_cpp.get("topbar"), dict):
+            merged_cpp["topbar"] = {**existing_cpp["topbar"], **incoming_cpp["topbar"]}
+        user["call_panel_prefs"] = merged_cpp
 
     if payload.wallboard_layout is not None:
         existing_wbl = user.get("wallboard_layout") if isinstance(user.get("wallboard_layout"), dict) else {}
@@ -8371,9 +8407,22 @@ async def update_agent_profile_endpoint(user_id: Union[int, str], payload: Profi
         from backend.database.models import SystemUser
         from sqlalchemy.orm.attributes import flag_modified
         with SyncSessionLocal() as session:
-            db_u = session.query(SystemUser).filter(
-                (SystemUser.id == user.get("id")) | (SystemUser.extension == user.get("extension"))
-            ).first()
+            sync_filters = []
+            raw_uid = str(user.get("id") or "").strip()
+            if raw_uid.isdigit():
+                sync_filters.append(SystemUser.id == int(raw_uid))
+            elif uid_int is not None:
+                sync_filters.append(SystemUser.id == uid_int)
+            if user.get("extension"):
+                sync_filters.append(SystemUser.extension == str(user.get("extension")).strip())
+            if user.get("email"):
+                sync_filters.append(SystemUser.email == str(user.get("email")).strip())
+            if uid_str in ("admin", "9999") or user.get("role") == "admin":
+                if not sync_filters:
+                    sync_filters.append(SystemUser.role == "admin")
+            db_u = session.query(SystemUser).filter(or_(*sync_filters)).first() if sync_filters else None
+            if not db_u and (uid_str in ("admin", "9999") or user.get("role") == "admin"):
+                db_u = session.query(SystemUser).filter(SystemUser.role == "admin").first()
             if db_u:
                 if payload.new_password:
                     db_u.password = payload.new_password
@@ -8402,7 +8451,7 @@ async def update_agent_profile_endpoint(user_id: Union[int, str], payload: Profi
                     db_u.profiles = user["profiles"]
                     flag_modified(db_u, "profiles")
                 if payload.call_panel_prefs is not None:
-                    db_u.call_panel_prefs = user["call_panel_prefs"]
+                    db_u.call_panel_prefs = copy.deepcopy(user["call_panel_prefs"])
                     flag_modified(db_u, "call_panel_prefs")
                 if payload.wallboard_layout is not None:
                     db_u.wallboard_layout = user["wallboard_layout"]

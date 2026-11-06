@@ -1005,61 +1005,73 @@ export default function Home() {
     }
   };
 
+  const wasSettingsModalOpenRef = React.useRef(false);
+  const hydratedModalUserKeyRef = React.useRef("");
+
   useEffect(() => {
-    if (settingsModalOpen && currentUser) {
-      setGsmNumber(currentUser.gsm_number || currentUser.follow_me?.mobile_number || "");
-      setMobileTransferEnabled(currentUser.mobile_transfer_enabled || false);
-      setTempThemeColor(getSafeThemeColor(currentUser.theme_color));
-      
-      setFwdAlwaysActive(currentUser.forwarding_always?.active || false);
-      setFwdAlwaysType(currentUser.forwarding_always?.type || "internal");
-      setFwdAlwaysTarget(currentUser.forwarding_always?.target || "");
-
-      setFwdBusyActive(currentUser.forwarding_busy?.active || false);
-      setFwdBusyType(currentUser.forwarding_busy?.type || "internal");
-      setFwdBusyTarget(currentUser.forwarding_busy?.target || "");
-
-      setFwdNoAnswerActive(currentUser.forwarding_no_answer?.active || false);
-      setFwdNoAnswerType(currentUser.forwarding_no_answer?.type || "internal");
-      setFwdNoAnswerTarget(currentUser.forwarding_no_answer?.target || "");
-      setFwdNoAnswerTimeout(currentUser.forwarding_no_answer?.timeout || 30);
-
-      const resolvedProf = currentUser.active_profile || "available";
-      setAgentActiveProfile(resolvedProf);
-      setSelectedAgentProfileTab(resolvedProf);
-      setAgentProfiles(normalizeUserProfiles(currentUser.profiles));
-      setCallPanelPrefs(loadCallPanelPrefs(currentUser));
-
-      if (settingsModalOpen) {
-        const protocol = typeof window !== "undefined" && window.location.protocol === "https:" ? "https:" : "http:";
-        fetch(`${protocol}//${backendHost}/api/settings/queues`)
-          .then(r => r.ok ? r.json() : [])
-          .then(d => setAgentQueuesList(Array.isArray(d) ? d : (d?.queues || [])))
-          .catch(() => {});
-        fetch(`${protocol}//${backendHost}/api/settings/ai-agents`)
-          .then(r => r.ok ? r.json() : [])
-          .then(d => setAgentAiAgentsList(Array.isArray(d) ? d : (d?.ai_agents || [])))
-          .catch(() => {});
-      }
-
-      setAutoLogoutEnabled(currentUser.auto_logout_enabled ?? (localStorage.getItem("auto_logout_enabled") === "true"));
-      setAutoLogoutDuration(currentUser.auto_logout_duration ?? parseInt(localStorage.getItem("auto_logout_duration") || "1"));
-      setTwoFactorEnabled(currentUser.two_factor_enabled ?? (localStorage.getItem("two_factor_enabled") === "true"));
-      const norm2faMethod = (!currentUser.two_factor_method || currentUser.two_factor_method === "app") ? "google_auth" : currentUser.two_factor_method;
-      setTwoFactorMethod(norm2faMethod);
-      setTwoFactorSecret(currentUser.two_factor_secret || "");
-      setTwoFactorEnrolled(Boolean(currentUser.two_factor_enrolled));
-      setTwoFactorQrSvg("");
-      setTwoFactorTestCode("");
-      setTwoFactorStatusMsg(null);
-      setPasswordExpiryEnabled(currentUser.password_expiry_enabled ?? (localStorage.getItem("password_expiry_enabled") === "true"));
-      setPasswordExpiryMonths(currentUser.password_expiry_months ?? parseInt(localStorage.getItem("password_expiry_months") || "3"));
-      setCurrentPassword("");
-      setNewPassword("");
-      setConfirmPassword("");
-      setPasswordStatusMsg(null);
+    if (!settingsModalOpen) {
+      wasSettingsModalOpenRef.current = false;
+      return;
     }
-  }, [settingsModalOpen, currentUser]);
+    if (!currentUser) return;
+
+    const userKey = String(currentUser.id || currentUser.extension || currentUser.username || "default");
+    if (wasSettingsModalOpenRef.current && hydratedModalUserKeyRef.current === userKey) {
+      return;
+    }
+    wasSettingsModalOpenRef.current = true;
+    hydratedModalUserKeyRef.current = userKey;
+
+    setGsmNumber(currentUser.gsm_number || currentUser.follow_me?.mobile_number || "");
+    setMobileTransferEnabled(currentUser.mobile_transfer_enabled || false);
+    setTempThemeColor(getSafeThemeColor(currentUser.theme_color));
+    
+    setFwdAlwaysActive(currentUser.forwarding_always?.active || false);
+    setFwdAlwaysType(currentUser.forwarding_always?.type || "internal");
+    setFwdAlwaysTarget(currentUser.forwarding_always?.target || "");
+
+    setFwdBusyActive(currentUser.forwarding_busy?.active || false);
+    setFwdBusyType(currentUser.forwarding_busy?.type || "internal");
+    setFwdBusyTarget(currentUser.forwarding_busy?.target || "");
+
+    setFwdNoAnswerActive(currentUser.forwarding_no_answer?.active || false);
+    setFwdNoAnswerType(currentUser.forwarding_no_answer?.type || "internal");
+    setFwdNoAnswerTarget(currentUser.forwarding_no_answer?.target || "");
+    setFwdNoAnswerTimeout(currentUser.forwarding_no_answer?.timeout || 30);
+
+    const resolvedProf = currentUser.active_profile || "available";
+    setAgentActiveProfile(resolvedProf);
+    setSelectedAgentProfileTab(resolvedProf);
+    setAgentProfiles(normalizeUserProfiles(currentUser.profiles));
+    setCallPanelPrefs(loadCallPanelPrefs(currentUser));
+
+    const protocol = typeof window !== "undefined" && window.location.protocol === "https:" ? "https:" : "http:";
+    fetch(`${protocol}//${backendHost}/api/settings/queues`)
+      .then(r => r.ok ? r.json() : [])
+      .then(d => setAgentQueuesList(Array.isArray(d) ? d : (d?.queues || [])))
+      .catch(() => {});
+    fetch(`${protocol}//${backendHost}/api/settings/ai-agents`)
+      .then(r => r.ok ? r.json() : [])
+      .then(d => setAgentAiAgentsList(Array.isArray(d) ? d : (d?.ai_agents || [])))
+      .catch(() => {});
+
+    setAutoLogoutEnabled(currentUser.auto_logout_enabled ?? (localStorage.getItem("auto_logout_enabled") === "true"));
+    setAutoLogoutDuration(currentUser.auto_logout_duration ?? parseInt(localStorage.getItem("auto_logout_duration") || "1"));
+    setTwoFactorEnabled(currentUser.two_factor_enabled ?? (localStorage.getItem("two_factor_enabled") === "true"));
+    const norm2faMethod = (!currentUser.two_factor_method || currentUser.two_factor_method === "app") ? "google_auth" : currentUser.two_factor_method;
+    setTwoFactorMethod(norm2faMethod);
+    setTwoFactorSecret(currentUser.two_factor_secret || "");
+    setTwoFactorEnrolled(Boolean(currentUser.two_factor_enrolled));
+    setTwoFactorQrSvg("");
+    setTwoFactorTestCode("");
+    setTwoFactorStatusMsg(null);
+    setPasswordExpiryEnabled(currentUser.password_expiry_enabled ?? (localStorage.getItem("password_expiry_enabled") === "true"));
+    setPasswordExpiryMonths(currentUser.password_expiry_months ?? parseInt(localStorage.getItem("password_expiry_months") || "3"));
+    setCurrentPassword("");
+    setNewPassword("");
+    setConfirmPassword("");
+    setPasswordStatusMsg(null);
+  }, [settingsModalOpen, currentUser, backendHost]);
 
   const handleQuickProfileSwitch = async (profileId) => {
     setAgentActiveProfile(profileId);
@@ -2451,35 +2463,79 @@ export default function Home() {
       ? "icon"
       : topbarPrefs.searchMode;
 
-  const hasAnyAvatarText =
-    !topbarPrefs.avatarOnly &&
-    (topbarPrefs.showName ||
-      (topbarPrefs.showExtension && Boolean(currentUser?.extension)) ||
+  const effectiveUserExtension = String(
+    currentUser?.extension || currentUser?.sip_username || ""
+  ).trim();
+
+  const resolvedUserRoleLabel = (() => {
+    const rawRole = String(currentUser?.role || "").trim();
+    const lower = rawRole.toLowerCase();
+    if (lower === "admin" || lower === "sistem yöneticisi") return "Yönetici";
+    if (lower === "supervisor" || lower === "süpervizör") return "Süpervizör";
+    if (lower === "agent" || lower === "temsilci" || !rawRole) return "Temsilci";
+    return rawRole;
+  })();
+
+  const resolvedActiveProfileName =
+    (agentProfiles.find((p) => p.id === agentActiveProfile) || DEFAULT_USER_PROFILES[0])?.name ||
+    "Müsait";
+
+  const resolvedActiveProfileTextCls =
+    agentActiveProfile === "away"
+      ? "text-amber-500 font-bold"
+      : agentActiveProfile === "meeting"
+      ? "text-rose-500 font-bold"
+      : agentActiveProfile === "other"
+      ? "text-indigo-500 font-bold"
+      : "text-emerald-500 font-bold";
+
+  const resolvedActiveProfileDotCls =
+    agentActiveProfile === "away"
+      ? "bg-amber-500"
+      : agentActiveProfile === "meeting"
+      ? "bg-rose-500"
+      : agentActiveProfile === "other"
+      ? "bg-indigo-500"
+      : "bg-emerald-500";
+
+  const hasAnySelectedAvatarField = Boolean(
+    topbarPrefs.showName ||
+      (topbarPrefs.showExtension && Boolean(effectiveUserExtension)) ||
       topbarPrefs.showRole ||
-      topbarPrefs.showProfile);
+      topbarPrefs.showProfile
+  );
+
+  const effectiveAvatarOnly = Boolean(topbarPrefs.avatarOnly) || !hasAnySelectedAvatarField;
+  const hasAnyAvatarText = !effectiveAvatarOnly;
 
   const updateTopbarPrefsLive = (topbarPatch) => {
-    const nextTopbar = normalizeTopbarPrefs({
-      ...topbarPrefs,
-      ...topbarPatch
+    setCallPanelPrefs((prev) => {
+      const prevTopbar = normalizeTopbarPrefs(prev?.topbar);
+      const patchObj = typeof topbarPatch === "function" ? topbarPatch(prevTopbar) : topbarPatch;
+      const nextTopbar = normalizeTopbarPrefs({
+        ...prevTopbar,
+        ...(patchObj || {})
+      });
+      const nextPrefs = {
+        ...(prev || {}),
+        topbar: nextTopbar
+      };
+      const saved = saveCallPanelPrefs(currentUser, nextPrefs);
+      persistUserVisualPatch({ call_panel_prefs: saved });
+      return saved;
     });
-    const nextPrefs = {
-      ...callPanelPrefs,
-      topbar: nextTopbar
-    };
-    const saved = saveCallPanelPrefs(currentUser, nextPrefs);
-    setCallPanelPrefs(saved);
-    persistUserVisualPatch({ call_panel_prefs: saved });
   };
 
   const updateLandingPrefsLive = (landingPatch) => {
-    const nextPrefs = {
-      ...callPanelPrefs,
-      ...landingPatch
-    };
-    const saved = saveCallPanelPrefs(currentUser, nextPrefs);
-    setCallPanelPrefs(saved);
-    persistUserVisualPatch({ call_panel_prefs: saved });
+    setCallPanelPrefs((prev) => {
+      const nextPrefs = {
+        ...(prev || {}),
+        ...(landingPatch || {})
+      };
+      const saved = saveCallPanelPrefs(currentUser, nextPrefs);
+      persistUserVisualPatch({ call_panel_prefs: saved });
+      return saved;
+    });
   };
 
   const isCurrentViewPinnedAsLanding = Boolean(
@@ -4086,25 +4142,21 @@ export default function Home() {
                         alt="Profil"
                         className="w-7 h-7 rounded-full border border-slate-100 dark:border-slate-800 object-cover"
                       />
-                      <span className={`absolute bottom-0 right-0 w-2.5 h-2.5 border-2 border-white dark:border-slate-900 rounded-full ${
-                        agentActiveProfile === "away" ? "bg-amber-500" :
-                        agentActiveProfile === "meeting" ? "bg-rose-500" :
-                        agentActiveProfile === "other" ? "bg-indigo-500" : "bg-emerald-500"
-                      }`} />
+                      <span className={`absolute bottom-0 right-0 w-2.5 h-2.5 border-2 border-white dark:border-slate-900 rounded-full ${resolvedActiveProfileDotCls}`} />
                     </div>
 
                     {hasAnyAvatarText && (
-                      <div className="hidden sm:flex flex-col text-left pr-0.5 max-w-[175px]">
-                        {(topbarPrefs.showName || (topbarPrefs.showExtension && currentUser?.extension)) && (
+                      <div className="flex flex-col text-left pr-0.5 max-w-[185px]">
+                        {(topbarPrefs.showName || (topbarPrefs.showExtension && effectiveUserExtension)) && (
                           <div className="flex items-center gap-1.5 leading-tight min-w-0">
                             {topbarPrefs.showName && (
                               <span className="text-xs font-bold text-slate-800 dark:text-slate-200 truncate">
                                 {currentUser?.full_name || currentUser?.name || currentUser?.username || "Kullanıcı"}
                               </span>
                             )}
-                            {topbarPrefs.showExtension && currentUser?.extension && (
+                            {topbarPrefs.showExtension && effectiveUserExtension && (
                               <span className={`px-1.5 py-0.5 rounded-md text-[9px] font-extrabold font-mono leading-none shrink-0 border ${lightBg} ${text} ${borderLight}`}>
-                                #{currentUser.extension}
+                                #{effectiveUserExtension}
                               </span>
                             )}
                           </div>
@@ -4113,28 +4165,12 @@ export default function Home() {
                         {(topbarPrefs.showRole || topbarPrefs.showProfile) && (
                           <span className="text-[10px] font-semibold text-slate-400 dark:text-slate-500 truncate leading-tight flex items-center gap-1 mt-0.5">
                             {topbarPrefs.showRole && (
-                              <span>
-                                {currentUser?.role === "admin"
-                                  ? "Yönetici"
-                                  : currentUser?.role === "supervisor"
-                                  ? "Süpervizör"
-                                  : "Temsilci"}
-                              </span>
+                              <span>{resolvedUserRoleLabel}</span>
                             )}
                             {topbarPrefs.showRole && topbarPrefs.showProfile && <span>•</span>}
                             {topbarPrefs.showProfile && (
-                              <span
-                                className={
-                                  agentActiveProfile === "away"
-                                    ? "text-amber-500 font-bold"
-                                    : agentActiveProfile === "meeting"
-                                    ? "text-rose-500 font-bold"
-                                    : agentActiveProfile === "other"
-                                    ? "text-indigo-500 font-bold"
-                                    : "text-emerald-500 font-bold"
-                                }
-                              >
-                                {(agentProfiles.find((p) => p.id === agentActiveProfile) || DEFAULT_USER_PROFILES[0])?.name}
+                              <span className={resolvedActiveProfileTextCls}>
+                                {resolvedActiveProfileName}
                               </span>
                             )}
                           </span>
@@ -4143,7 +4179,7 @@ export default function Home() {
                     )}
 
                     {hasAnyAvatarText && (
-                      <ChevronDown size={14} className="hidden sm:block text-slate-400 dark:text-slate-500 group-hover:text-slate-600 dark:group-hover:text-slate-300 transition-colors shrink-0" />
+                      <ChevronDown size={14} className="block text-slate-400 dark:text-slate-500 group-hover:text-slate-600 dark:group-hover:text-slate-300 transition-colors shrink-0" />
                     )}
                   </button>
 
@@ -5488,33 +5524,42 @@ export default function Home() {
                                 hasAnyAvatarText ? "gap-1.5 px-2 py-0.5" : "p-0.5"
                               }`}
                             >
-                              <img
-                                src={agentAvatar}
-                                alt="Önizleme"
-                                draggable={false}
-                                className="w-5 h-5 rounded-full object-cover pointer-events-none select-none"
-                              />
+                              <div className="relative shrink-0">
+                                <img
+                                  src={agentAvatar}
+                                  alt="Önizleme"
+                                  draggable={false}
+                                  className="w-5 h-5 rounded-full object-cover pointer-events-none select-none"
+                                />
+                                <span
+                                  className={`absolute -bottom-0.5 -right-0.5 w-2 h-2 border border-white dark:border-slate-900 rounded-full ${resolvedActiveProfileDotCls}`}
+                                />
+                              </div>
                               {hasAnyAvatarText && (
                                 <div className="flex flex-col leading-none">
-                                  {(topbarPrefs.showName || (topbarPrefs.showExtension && currentUser?.extension)) && (
+                                  {(topbarPrefs.showName || (topbarPrefs.showExtension && effectiveUserExtension)) && (
                                     <div className="flex items-center gap-1">
                                       {topbarPrefs.showName && (
-                                        <span className="text-[9px] font-bold text-slate-800 dark:text-slate-200 max-w-[70px] truncate">
-                                          {currentUser?.full_name || currentUser?.username || "Kullanıcı"}
+                                        <span className="text-[9px] font-bold text-slate-800 dark:text-slate-200 max-w-[75px] truncate">
+                                          {currentUser?.full_name || currentUser?.name || currentUser?.username || "Kullanıcı"}
                                         </span>
                                       )}
-                                      {topbarPrefs.showExtension && currentUser?.extension && (
+                                      {topbarPrefs.showExtension && effectiveUserExtension && (
                                         <span className={`px-1 py-0.2 rounded text-[8px] font-mono font-extrabold ${lightBg} ${text}`}>
-                                          #{currentUser.extension}
+                                          #{effectiveUserExtension}
                                         </span>
                                       )}
                                     </div>
                                   )}
                                   {(topbarPrefs.showRole || topbarPrefs.showProfile) && (
-                                    <span className="text-[8px] text-slate-400 mt-0.5">
-                                      {topbarPrefs.showRole ? (currentUser?.role === "admin" ? "Yönetici" : "Temsilci") : ""}
-                                      {topbarPrefs.showRole && topbarPrefs.showProfile ? " • " : ""}
-                                      {topbarPrefs.showProfile ? "Müsait" : ""}
+                                    <span className="text-[8px] text-slate-400 mt-0.5 flex items-center gap-1">
+                                      {topbarPrefs.showRole && <span>{resolvedUserRoleLabel}</span>}
+                                      {topbarPrefs.showRole && topbarPrefs.showProfile && <span>•</span>}
+                                      {topbarPrefs.showProfile && (
+                                        <span className={resolvedActiveProfileTextCls}>
+                                          {resolvedActiveProfileName}
+                                        </span>
+                                      )}
                                     </span>
                                   )}
                                 </div>
@@ -5791,7 +5836,7 @@ export default function Home() {
 
                           {/* 2. Avatar & Profil Kapsülü Özelleştirme */}
                           <div className="p-4 bg-slate-50/70 dark:bg-slate-950/40 border border-slate-200/80 dark:border-slate-800 rounded-2xl space-y-3.5">
-                            <div className="flex items-center justify-between gap-2">
+                            <div className="flex flex-wrap items-center justify-between gap-3">
                               <div>
                                 <h5 className="text-xs font-extrabold text-slate-800 dark:text-white uppercase tracking-wider">
                                   Avatar & Profil Alanı Özelleştirme
@@ -5800,18 +5845,100 @@ export default function Home() {
                                   Sağ üstteki kullanıcı kapsülünde sadece avatarı gösterebilir veya dahili, profil ve rol bilgilerini açıp kapatabilirsiniz.
                                 </p>
                               </div>
-                              <span className={`px-2.5 py-1 rounded-full text-[10px] font-extrabold uppercase tracking-wider shrink-0 ${lightBg} ${text} border ${borderLight}`}>
-                                {topbarPrefs.avatarOnly ? "Sadece Avatar" : "Detaylı Kapsül"}
-                              </span>
+                              <div className="flex items-center gap-2 shrink-0">
+                                {/* Anlık Kapsül Önizlemesi */}
+                                <div
+                                  title="Canlı Kapsül Önizlemesi"
+                                  className={`flex items-center rounded-full border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-2xs transition-all ${
+                                    hasAnyAvatarText ? "gap-2 px-2.5 py-1" : "p-1"
+                                  }`}
+                                >
+                                  <div className="relative shrink-0">
+                                    <img
+                                      src={agentAvatar}
+                                      alt="Önizleme"
+                                      className="w-6 h-6 rounded-full border border-slate-100 dark:border-slate-800 object-cover"
+                                    />
+                                    <span
+                                      className={`absolute bottom-0 right-0 w-2 h-2 border border-white dark:border-slate-900 rounded-full ${resolvedActiveProfileDotCls}`}
+                                    />
+                                  </div>
+                                  {hasAnyAvatarText && (
+                                    <div className="flex flex-col text-left leading-tight max-w-[165px]">
+                                      {(topbarPrefs.showName || (topbarPrefs.showExtension && effectiveUserExtension)) && (
+                                        <div className="flex items-center gap-1 min-w-0">
+                                          {topbarPrefs.showName && (
+                                            <span className="text-[11px] font-bold text-slate-800 dark:text-slate-200 truncate">
+                                              {currentUser?.full_name || currentUser?.name || currentUser?.username || "Kullanıcı"}
+                                            </span>
+                                          )}
+                                          {topbarPrefs.showExtension && effectiveUserExtension && (
+                                            <span className={`px-1.5 py-0.5 rounded-md text-[8.5px] font-extrabold font-mono leading-none shrink-0 border ${lightBg} ${text} ${borderLight}`}>
+                                              #{effectiveUserExtension}
+                                            </span>
+                                          )}
+                                        </div>
+                                      )}
+                                      {(topbarPrefs.showRole || topbarPrefs.showProfile) && (
+                                        <span className="text-[9.5px] font-semibold text-slate-400 dark:text-slate-500 truncate flex items-center gap-1 mt-0.5">
+                                          {topbarPrefs.showRole && <span>{resolvedUserRoleLabel}</span>}
+                                          {topbarPrefs.showRole && topbarPrefs.showProfile && <span>•</span>}
+                                          {topbarPrefs.showProfile && (
+                                            <span className={resolvedActiveProfileTextCls}>
+                                              {resolvedActiveProfileName}
+                                            </span>
+                                          )}
+                                        </span>
+                                      )}
+                                    </div>
+                                  )}
+                                </div>
+
+                                <span className={`px-2.5 py-1 rounded-full text-[10px] font-extrabold uppercase tracking-wider shrink-0 ${lightBg} ${text} border ${borderLight}`}>
+                                  {effectiveAvatarOnly ? "Sadece Avatar" : "Detaylı Kapsül"}
+                                </span>
+                              </div>
                             </div>
 
                             {/* Sadece Avatar Göster Ana Anahtarı */}
-                            <div className="p-3 rounded-xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 flex items-center justify-between gap-3">
-                              <div className="flex items-center gap-2.5">
-                                <div className={`p-2 rounded-xl ${topbarPrefs.avatarOnly ? `${bg} text-white` : `${lightBg} ${text}`}`}>
+                            <button
+                              type="button"
+                              role="switch"
+                              aria-checked={effectiveAvatarOnly}
+                              onClick={() => {
+                                updateTopbarPrefsLive((prevTop) => {
+                                  const wasMinimal =
+                                    Boolean(prevTop.avatarOnly) ||
+                                    !(
+                                      prevTop.showName ||
+                                      (prevTop.showExtension && Boolean(effectiveUserExtension)) ||
+                                      prevTop.showProfile ||
+                                      prevTop.showRole
+                                    );
+                                  if (wasMinimal) {
+                                    const anyFieldOn =
+                                      prevTop.showName ||
+                                      (prevTop.showExtension && Boolean(effectiveUserExtension)) ||
+                                      prevTop.showProfile ||
+                                      prevTop.showRole;
+                                    return anyFieldOn
+                                      ? { avatarOnly: false }
+                                      : { avatarOnly: false, showName: true, showProfile: true };
+                                  }
+                                  return { avatarOnly: true };
+                                });
+                              }}
+                              className={`w-full p-3 rounded-xl border text-left transition-all flex items-center justify-between gap-3 cursor-pointer ${
+                                effectiveAvatarOnly
+                                  ? `${lightBg} ${border}`
+                                  : "bg-white dark:bg-slate-900 border-slate-200/80 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700"
+                              }`}
+                            >
+                              <div className="flex items-center gap-2.5 min-w-0">
+                                <div className={`p-2 rounded-xl shrink-0 ${effectiveAvatarOnly ? `${bg} text-white` : `${lightBg} ${text}`}`}>
                                   <User size={15} />
                                 </div>
-                                <div>
+                                <div className="min-w-0">
                                   <div className="text-xs font-extrabold text-slate-800 dark:text-white">
                                     Sadece Avatar Göster (Minimal Görünüm)
                                   </div>
@@ -5820,17 +5947,14 @@ export default function Home() {
                                   </div>
                                 </div>
                               </div>
-                              <button
-                                type="button"
-                                onClick={() => updateTopbarPrefsLive({ avatarOnly: !topbarPrefs.avatarOnly })}
-                                className={`w-10 h-5 rounded-full p-0.5 transition-all duration-200 flex items-center shrink-0 cursor-pointer ${
-                                  topbarPrefs.avatarOnly ? `${bg} justify-end` : "bg-slate-200 dark:bg-slate-800 justify-start"
+                              <div
+                                className={`w-10 h-5 rounded-full p-0.5 transition-all duration-200 flex items-center shrink-0 ${
+                                  effectiveAvatarOnly ? `${bg} justify-end` : "bg-slate-200 dark:bg-slate-800 justify-start"
                                 }`}
-                                aria-label="Sadece Avatar Göster"
                               >
                                 <span className="w-4 h-4 rounded-full bg-white shadow-sm" />
-                              </button>
-                            </div>
+                              </div>
+                            </button>
 
                             {/* Alt Görünürlük Seçenekleri */}
                             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
@@ -5842,36 +5966,80 @@ export default function Home() {
                                 },
                                 {
                                   key: "showExtension",
-                                  title: `Dahili Numarası Göster${currentUser?.extension ? ` (#${currentUser.extension})` : ""}`,
-                                  desc: "Abone dahili numarasını rozet olarak gösterir"
+                                  title: `Dahili Numarası Göster${effectiveUserExtension ? ` (#${effectiveUserExtension})` : ""}`,
+                                  desc: effectiveUserExtension
+                                    ? `Abone dahili numarasını (#${effectiveUserExtension}) rozet olarak gösterir`
+                                    : "Bu hesapta tanımlı dahili numarası bulunmuyor",
+                                  disabled: !effectiveUserExtension
                                 },
                                 {
                                   key: "showProfile",
                                   title: "Aktif Profil Göster / Gizle",
-                                  desc: "Müsait, Dışarıda, Toplantı durum metnini gösterir"
+                                  desc: `Aktif durum metnini (${resolvedActiveProfileName}) gösterir`
                                 },
                                 {
                                   key: "showRole",
                                   title: "Kullanıcı Rolü Göster / Gizle",
-                                  desc: "Yönetici, Süpervizör veya Temsilci ünvanını gösterir"
+                                  desc: `Kullanıcı rol ünvanını (${resolvedUserRoleLabel}) gösterir`
                                 }
                               ].map((field) => {
-                                const isChecked = !topbarPrefs.avatarOnly && Boolean(topbarPrefs[field.key]);
+                                const isChecked =
+                                  !effectiveAvatarOnly &&
+                                  Boolean(topbarPrefs[field.key]) &&
+                                  !field.disabled;
                                 return (
                                   <button
                                     key={field.key}
                                     type="button"
+                                    role="switch"
+                                    aria-checked={isChecked}
+                                    disabled={Boolean(field.disabled)}
                                     onClick={() => {
-                                      if (topbarPrefs.avatarOnly) {
-                                        updateTopbarPrefsLive({ avatarOnly: false, [field.key]: true });
-                                      } else {
-                                        updateTopbarPrefsLive({ [field.key]: !topbarPrefs[field.key] });
-                                      }
+                                      if (field.disabled) return;
+                                      updateTopbarPrefsLive((prevTop) => {
+                                        const wasMinimal =
+                                          Boolean(prevTop.avatarOnly) ||
+                                          !(
+                                            prevTop.showName ||
+                                            (prevTop.showExtension && Boolean(effectiveUserExtension)) ||
+                                            prevTop.showProfile ||
+                                            prevTop.showRole
+                                          );
+                                        if (wasMinimal) {
+                                          return {
+                                            avatarOnly: false,
+                                            showName: field.key === "showName",
+                                            showExtension: field.key === "showExtension",
+                                            showProfile: field.key === "showProfile",
+                                            showRole: field.key === "showRole"
+                                          };
+                                        }
+                                        const nextVal = !Boolean(prevTop[field.key]);
+                                        const nextCandidate = {
+                                          ...prevTop,
+                                          avatarOnly: false,
+                                          [field.key]: nextVal
+                                        };
+                                        const stillHasAny =
+                                          nextCandidate.showName ||
+                                          (nextCandidate.showExtension && Boolean(effectiveUserExtension)) ||
+                                          nextCandidate.showProfile ||
+                                          nextCandidate.showRole;
+                                        if (!stillHasAny) {
+                                          return {
+                                            ...nextCandidate,
+                                            avatarOnly: true
+                                          };
+                                        }
+                                        return nextCandidate;
+                                      });
                                     }}
-                                    className={`p-3 rounded-xl border text-left transition-all flex items-center justify-between gap-2.5 cursor-pointer ${
-                                      isChecked
-                                        ? `${lightBg} ${border}`
-                                        : "bg-white dark:bg-slate-900 border-slate-200/80 dark:border-slate-800 opacity-75 hover:opacity-100"
+                                    className={`p-3 rounded-xl border text-left transition-all flex items-center justify-between gap-2.5 ${
+                                      field.disabled
+                                        ? "bg-slate-100/60 dark:bg-slate-900/50 border-slate-200/60 dark:border-slate-800/60 opacity-50 cursor-not-allowed"
+                                        : isChecked
+                                        ? `${lightBg} ${border} cursor-pointer`
+                                        : "bg-white dark:bg-slate-900 border-slate-200/80 dark:border-slate-800 opacity-75 hover:opacity-100 cursor-pointer"
                                     }`}
                                   >
                                     <div className="min-w-0">
@@ -8377,7 +8545,8 @@ export default function Home() {
                         localStorage.setItem("two_factor_enabled", twoFactorEnabled ? "true" : "false");
                         localStorage.setItem("password_expiry_enabled", passwordExpiryEnabled ? "true" : "false");
                         localStorage.setItem("password_expiry_months", passwordExpiryMonths.toString());
-                        saveCallPanelPrefs(currentUser, callPanelPrefs);
+                        const savedPrefsSnapshot = saveCallPanelPrefs(currentUser, callPanelPrefs);
+                        setCallPanelPrefs(savedPrefsSnapshot);
 
                         let passwordPayload = {};
                         if (newPassword || confirmPassword) {
@@ -8406,7 +8575,10 @@ export default function Home() {
                                   mobile_transfer_enabled: mobileTransferEnabled
                                 }
                               : {};
-                            const res = await fetch(`${protocol}//${backendHost}/api/agent/profile/${currentUser.id}`, {
+                            const profileUid = encodeURIComponent(
+                              String(currentUser.id || currentUser.extension || "admin")
+                            );
+                            const res = await fetch(`${protocol}//${backendHost}/api/agent/profile/${profileUid}`, {
                               method: "POST",
                               headers: { "Content-Type": "application/json" },
                               body: JSON.stringify({
@@ -8419,7 +8591,7 @@ export default function Home() {
                                 forwarding_no_answer: { active: Boolean(fwdNoAnswerActive && fwdNoAnswerTarget), type: fwdNoAnswerType || "internal", target: fwdNoAnswerTarget || "", timeout: fwdNoAnswerTimeout || 20 },
                                 active_profile: agentActiveProfile,
                                 profiles: agentProfiles,
-                                call_panel_prefs: callPanelPrefs,
+                                call_panel_prefs: savedPrefsSnapshot,
                                 auto_logout_enabled: autoLogoutEnabled,
                                 auto_logout_duration: autoLogoutDuration,
                                 two_factor_enabled: twoFactorEnabled,
@@ -8433,7 +8605,11 @@ export default function Home() {
                             });
                             if (res.ok) {
                               const data = await res.json();
-                              setCurrentUser(data.user);
+                              setCurrentUser((prev) => ({
+                                ...(prev || {}),
+                                ...(data.user || {}),
+                                call_panel_prefs: savedPrefsSnapshot
+                              }));
                               if (newPassword) {
                                 SUPER_ADMIN.password = newPassword;
                                 showNotification("Şifreniz başarılı olarak güncellenmiştir.", "success", "Şifre Güncellendi");
