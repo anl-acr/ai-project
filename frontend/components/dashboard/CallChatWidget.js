@@ -810,8 +810,8 @@ export default function CallChatWidget({
                   : groupRingingCalls.length > 0
                   ? `Grubunda Çağrı Var (Dahili ${groupRingingCalls[0].ringing_extension})`
                   : registered
-                  ? `Web Telefon • Dahili ${agentExtension}`
-                  : `Dahili ${agentExtension || "X"} (Bağlı Değil)`}
+                  ? `Web Telefon (${agentExtension})`
+                  : `Web Telefon (${agentExtension || "X"}) - Bağlı Değil`}
               </span>
             </div>
           )}
@@ -840,7 +840,7 @@ export default function CallChatWidget({
               </span>
               <div className="truncate">
                 <h4 className="font-extrabold text-xs tracking-wider uppercase truncate">
-                  Mini Web Telefon • Dahili {agentExtension}
+                  Web Telefon ({agentExtension})
                 </h4>
                 <p className="text-[10px] text-white/80 font-medium truncate">
                   {callStatus === "Ringing"
