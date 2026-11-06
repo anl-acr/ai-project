@@ -1078,59 +1078,95 @@ export default function QueueEditModal({ isOpen, onClose, onSave, queueData = nu
   );
 
   const renderAnnouncementsTab = () => (
-    <div className="grid grid-cols-1 md:grid-cols-2 gap-6 p-6 animate-in fade-in slide-in-from-bottom-2 duration-300 overflow-y-auto max-h-[60vh]">
-      {/* Sol Kolon: Karşılama & Müzik Ayarları */}
-      <div className="space-y-6">
-        {/* Giriş Anonsu */}
-        <div className="p-4 bg-slate-50/50 dark:bg-slate-800/20 rounded-2xl border border-slate-100 dark:border-slate-800/60">
-          <div className="flex items-center justify-between mb-3">
-            <div>
-              <h4 className="text-xs font-bold text-slate-800 dark:text-white flex items-center gap-1.5">
-                <Volume2 size={14} className={text} /> Giriş Anonsu
-              </h4>
-              <p className="text-[10px] text-slate-500">Kuyruğa çağrı girdiğinde çalınacak anons.</p>
-            </div>
-            <label className="relative inline-flex items-center cursor-pointer shrink-0">
-              <input type="checkbox" name="join_announcement_enabled" checked={formData.join_announcement_enabled} onChange={handleChange} className="sr-only peer" />
-              <div className={`w-9 h-5 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all dark:border-slate-600 peer-checked:${bg}`}></div>
+    <div className="p-6 space-y-5 animate-in fade-in slide-in-from-bottom-2 duration-300 overflow-y-auto max-h-[68vh]">
+      {/* Grup 1: Karşılama & Giriş Anonsu */}
+      <div className="p-5 rounded-2xl border border-slate-200/80 dark:border-slate-800 bg-slate-50/40 dark:bg-slate-900/40 space-y-4">
+        <div className="p-4 rounded-xl border border-slate-200/80 dark:border-slate-800 bg-white dark:bg-slate-900 flex items-center justify-between gap-4">
+          <div className="min-w-0">
+            <label
+              htmlFor="queue-join-announcement-toggle"
+              className="flex items-center gap-2 text-xs font-bold text-slate-800 dark:text-white cursor-pointer"
+            >
+              <Volume2 size={15} className={`${text} shrink-0`} />
+              <span>Giriş Anonsu</span>
             </label>
+            <p id="queue-join-announcement-desc" className="text-[11px] text-slate-500 mt-1">
+              Kuyruğa çağrı girdiğinde temsilciye bağlanmadan önce çalınacak karşılama anonsu.
+            </p>
           </div>
-          {formData.join_announcement_enabled && (
-            <div className="mt-3">
-              <select 
-                name="join_announcement" 
-                value={resolveAnnouncementVal(formData.join_announcement)} 
-                onChange={handleChange} 
-                className={`w-full text-xs px-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 focus:outline-none focus:ring-2 ${ring} text-slate-800 dark:text-white transition-all font-medium`}
-              >
-                <option value="">Özel Anonslar&apos;dan Seçin...</option>
-                {formData.join_announcement && !customAnnouncementsList.some(a => String(a.id) === String(resolveAnnouncementVal(formData.join_announcement))) && (
-                  <option value={resolveAnnouncementVal(formData.join_announcement)}>
-                    {(() => {
-                      const legacy = announcementsList.find(x => String(x.id) === String(resolveAnnouncementVal(formData.join_announcement)));
-                      return legacy ? formatAnnouncementLabel(legacy) : `${formData.join_announcement} (Kayıtlı Anons)`;
-                    })()}
-                  </option>
-                )}
-                {customAnnouncementsList.map(a => (
-                  <option key={a.id || a.filename || a.name} value={a.id}>{formatAnnouncementLabel(a)}</option>
-                ))}
-              </select>
-            </div>
-          )}
+          <label htmlFor="queue-join-announcement-toggle" className="relative inline-flex items-center cursor-pointer shrink-0">
+            <input
+              id="queue-join-announcement-toggle"
+              type="checkbox"
+              role="switch"
+              name="join_announcement_enabled"
+              aria-describedby="queue-join-announcement-desc"
+              checked={Boolean(formData.join_announcement_enabled)}
+              onChange={handleChange}
+              className="sr-only peer"
+            />
+            <div className={`w-10 h-5 bg-slate-200 dark:bg-slate-700 peer-focus-visible:ring-2 ${ring} rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:${bg}`}></div>
+          </label>
         </div>
 
-        {/* Bekleme Müziği (Anons Yönetimi > Bekleme Müzikleri Sekmesi Entegreli) */}
-        <div className="p-4 bg-slate-50/50 dark:bg-slate-800/20 rounded-2xl border border-slate-100 dark:border-slate-800/60">
-          <h4 className="text-xs font-bold text-slate-800 dark:text-white mb-1 flex items-center gap-1.5">
-            <Music size={14} className={text} /> Bekleme Müziği Seçimi
+        {formData.join_announcement_enabled && (
+          <div className="pt-1">
+            <label
+              htmlFor="queue-join-announcement-select"
+              className="flex items-center text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5"
+            >
+              Çalınacak Karşılama Anonsu
+            </label>
+            <select
+              id="queue-join-announcement-select"
+              name="join_announcement"
+              value={resolveAnnouncementVal(formData.join_announcement)}
+              onChange={handleChange}
+              className={`w-full text-sm px-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 focus:outline-none focus:ring-2 ${ring} text-slate-800 dark:text-white transition-all font-medium`}
+            >
+              <option value="">Özel Anonslar&apos;dan Seçin...</option>
+              {formData.join_announcement && !customAnnouncementsList.some(a => String(a.id) === String(resolveAnnouncementVal(formData.join_announcement))) && (
+                <option value={resolveAnnouncementVal(formData.join_announcement)}>
+                  {(() => {
+                    const legacy = announcementsList.find(x => String(x.id) === String(resolveAnnouncementVal(formData.join_announcement)));
+                    return legacy ? formatAnnouncementLabel(legacy) : `${formData.join_announcement} (Kayıtlı Anons)`;
+                  })()}
+                </option>
+              )}
+              {customAnnouncementsList.map(a => (
+                <option key={a.id || a.filename || a.name} value={a.id}>{formatAnnouncementLabel(a)}</option>
+              ))}
+            </select>
+          </div>
+        )}
+      </div>
+
+      {/* Grup 2: Bekleme Müziği Seçimi */}
+      <div className="p-5 rounded-2xl border border-slate-200/80 dark:border-slate-800 bg-slate-50/40 dark:bg-slate-900/40 space-y-4">
+        <div className="border-b border-slate-200/60 dark:border-slate-800 pb-3">
+          <h4 className="text-xs font-bold text-slate-800 dark:text-white flex items-center gap-2">
+            <Music size={15} className={`${text} shrink-0`} />
+            <span>Bekleme Müziği Seçimi</span>
           </h4>
-          <p className="text-[10px] text-slate-500 mb-3">Müşteri kuyrukta beklerken Anons Yönetimi &gt; Bekleme Müzikleri sekmesinden çalacak müzik.</p>
+          <p id="queue-hold-music-desc" className="text-[11px] text-slate-500 mt-0.5">
+            Müşteri kuyrukta beklerken Anons Yönetimi &gt; Bekleme Müzikleri sekmesinden dinletilecek müzik.
+          </p>
+        </div>
+
+        <div>
+          <label
+            htmlFor="queue-hold-music-select"
+            className="flex items-center text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5"
+          >
+            Aktif Bekleme Müziği Sınıfı
+          </label>
           <select
+            id="queue-hold-music-select"
             name="hold_music_class"
+            aria-describedby="queue-hold-music-desc"
             value={resolveAnnouncementVal(formData.hold_music_class) || "default"}
             onChange={handleChange}
-            className={`w-full text-xs px-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 focus:outline-none focus:ring-2 ${ring} text-slate-800 dark:text-white transition-all font-medium`}
+            className={`w-full text-sm px-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 focus:outline-none focus:ring-2 ${ring} text-slate-800 dark:text-white transition-all font-medium`}
           >
             <option value="default">Varsayılan Sistem Bekleme Müziği (default)</option>
             {formData.hold_music_class && formData.hold_music_class !== "default" && !mohAnnouncementsList.some(a => String(a.id) === String(resolveAnnouncementVal(formData.hold_music_class))) && (
@@ -1150,35 +1186,70 @@ export default function QueueEditModal({ isOpen, onClose, onSave, queueData = nu
         </div>
       </div>
 
-      {/* Sağ Kolon: Otomatik Bilgilendirme Anonsları */}
-      <div className="space-y-6">
-        <div className="p-4 bg-slate-50/50 dark:bg-slate-800/20 rounded-2xl border border-slate-100 dark:border-slate-800/60 space-y-4">
-          <div className="border-b border-slate-200/60 dark:border-slate-700/60 pb-3">
-            <h4 className="text-xs font-bold text-slate-800 dark:text-white flex items-center gap-1.5">
-              <PhoneCall size={14} className={text} /> Otomatik Bekleme Bilgilendirmeleri
-            </h4>
-            <p className="text-[10px] text-slate-500 mt-0.5">Çağrı sırasındaki otomatik durum anonslarını yönetin.</p>
-          </div>
+      {/* Grup 3: Otomatik Bekleme Bilgilendirmeleri */}
+      <div className="p-5 rounded-2xl border border-slate-200/80 dark:border-slate-800 bg-slate-50/40 dark:bg-slate-900/40 space-y-4">
+        <div className="border-b border-slate-200/60 dark:border-slate-800 pb-3">
+          <h4 className="text-xs font-bold text-slate-800 dark:text-white flex items-center gap-2">
+            <PhoneCall size={15} className={`${text} shrink-0`} />
+            <span>Otomatik Bekleme Bilgilendirmeleri</span>
+          </h4>
+          <p className="text-[11px] text-slate-500 mt-0.5">
+            Çağrı kuyrukta beklerken müşteriye otomatik olarak okunacak durum ve süre anonslarını yönetin.
+          </p>
+        </div>
 
-          <div className="flex items-center justify-between pt-1">
-            <div>
-              <h5 className="text-xs font-bold text-slate-800 dark:text-white">Sıra Numarası Anonsu</h5>
-              <p className="text-[10px] text-slate-500">Müşteriye sırasını bildir.</p>
+        <div className="space-y-3">
+          <div className="p-4 rounded-xl border border-slate-200/80 dark:border-slate-800 bg-white dark:bg-slate-900 flex items-center justify-between gap-4">
+            <div className="min-w-0">
+              <label
+                htmlFor="queue-pos-announcement-toggle"
+                className="flex items-center text-xs font-bold text-slate-800 dark:text-white cursor-pointer"
+              >
+                Sıra Numarası Anonsu
+              </label>
+              <p id="queue-pos-announcement-desc" className="text-[11px] text-slate-500 mt-1">
+                Kuyrukta bekleyen müşteriye güncel sıra numarasını otomatik olarak sesli bildirir.
+              </p>
             </div>
-            <label className="relative inline-flex items-center cursor-pointer shrink-0">
-              <input type="checkbox" name="position_announcement_enabled" checked={formData.position_announcement_enabled} onChange={handleChange} className="sr-only peer" />
-              <div className={`w-9 h-5 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all dark:border-slate-600 peer-checked:${bg}`}></div>
+            <label htmlFor="queue-pos-announcement-toggle" className="relative inline-flex items-center cursor-pointer shrink-0">
+              <input
+                id="queue-pos-announcement-toggle"
+                type="checkbox"
+                role="switch"
+                name="position_announcement_enabled"
+                aria-describedby="queue-pos-announcement-desc"
+                checked={Boolean(formData.position_announcement_enabled)}
+                onChange={handleChange}
+                className="sr-only peer"
+              />
+              <div className={`w-10 h-5 bg-slate-200 dark:bg-slate-700 peer-focus-visible:ring-2 ${ring} rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:${bg}`}></div>
             </label>
           </div>
 
-          <div className="flex items-center justify-between border-t border-slate-200/50 dark:border-slate-700/50 pt-3">
-            <div>
-              <h5 className="text-xs font-bold text-slate-800 dark:text-white">Tahmini Bekleme Süresi</h5>
-              <p className="text-[10px] text-slate-500">Tahmini bekleme süresini bildir.</p>
+          <div className="p-4 rounded-xl border border-slate-200/80 dark:border-slate-800 bg-white dark:bg-slate-900 flex items-center justify-between gap-4">
+            <div className="min-w-0">
+              <label
+                htmlFor="queue-est-hold-toggle"
+                className="flex items-center text-xs font-bold text-slate-800 dark:text-white cursor-pointer"
+              >
+                Tahmini Bekleme Süresi Anonsu
+              </label>
+              <p id="queue-est-hold-desc" className="text-[11px] text-slate-500 mt-1">
+                Kuyrukta bekleyen müşteriye ortalama tahmini bekleme süresini otomatik olarak sesli bildirir.
+              </p>
             </div>
-            <label className="relative inline-flex items-center cursor-pointer shrink-0">
-              <input type="checkbox" name="estimated_hold_time_enabled" checked={formData.estimated_hold_time_enabled} onChange={handleChange} className="sr-only peer" />
-              <div className={`w-9 h-5 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all dark:border-slate-600 peer-checked:${bg}`}></div>
+            <label htmlFor="queue-est-hold-toggle" className="relative inline-flex items-center cursor-pointer shrink-0">
+              <input
+                id="queue-est-hold-toggle"
+                type="checkbox"
+                role="switch"
+                name="estimated_hold_time_enabled"
+                aria-describedby="queue-est-hold-desc"
+                checked={Boolean(formData.estimated_hold_time_enabled)}
+                onChange={handleChange}
+                className="sr-only peer"
+              />
+              <div className={`w-10 h-5 bg-slate-200 dark:bg-slate-700 peer-focus-visible:ring-2 ${ring} rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:${bg}`}></div>
             </label>
           </div>
         </div>
