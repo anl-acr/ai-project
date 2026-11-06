@@ -656,3 +656,270 @@ def resolve_business_whatsapp_number(settings_db: dict, tenant_id: str = "tenant
                     return digits
     return "908503607390"
 
+
+# ============================================================================
+# 5. PASSWORD RESET TOKEN & SYSTEM-THEMED EMAIL ENGINE
+# ============================================================================
+
+_USED_PASSWORD_RESET_JTIS: Dict[str, float] = {}
+
+_THEME_HEX_MAP: Dict[str, Tuple[str, str, str]] = {
+    "indigo": ("#4f46e5", "#7c3aed", "#eef2ff"),
+    "violet": ("#6d28d9", "#7c3aed", "#f5f3ff"),
+    "rose": ("#e11d48", "#be123c", "#fff1f2"),
+    "blue": ("#2563eb", "#4f46e5", "#eff6ff"),
+    "emerald": ("#059669", "#047857", "#ecfdf5"),
+    "amber": ("#d97706", "#b45309", "#fffbeb"),
+    "orange": ("#ea580c", "#c2410c", "#fff7ed"),
+    "cyan": ("#0891b2", "#0e7490", "#ecfeff"),
+    "teal": ("#0d9488", "#0f766e", "#f0fdfa"),
+    "fuchsia": ("#c026d3", "#a21caf", "#fdf4ff"),
+    "sky": ("#0284c7", "#0369a1", "#f0f9ff"),
+    "slate": ("#334155", "#0f172a", "#f8fafc"),
+}
+
+
+def _get_reset_signing_secret() -> bytes:
+    import os
+    raw = os.environ.get("AIDA_RESET_SECRET") or os.environ.get("JWT_SECRET") or "AIDA_PBX_SECURE_PW_RESET_HMAC_2026"
+    return raw.encode("utf-8")
+
+
+def compute_password_fingerprint(password_val: Optional[str]) -> str:
+    raw = str(password_val or "")
+    return hashlib.sha256(f"aida-pwh:{raw}".encode("utf-8")).hexdigest()[:16]
+
+
+def validate_password_complexity(pw: str) -> Tuple[bool, str]:
+    """
+    Validates password against the 5 security criteria:
+    - At least 8 characters
+    - At least 1 uppercase letter
+    - At least 1 lowercase letter
+    - At least 1 digit
+    - At least 1 special character
+    """
+    import re
+    s = str(pw or "")
+    if len(s) < 8:
+        return False, "Şifre en az 8 karakter uzunluğunda olmalıdır."
+    if not re.search(r"[A-ZÇĞİÖŞÜ]", s):
+        return False, "Şifre en az 1 büyük harf içermelidir."
+    if not re.search(r"[a-zçğıöşü]", s):
+        return False, "Şifre en az 1 küçük harf içermelidir."
+    if not re.search(r"\d", s):
+        return False, "Şifre en az 1 rakam içermelidir."
+    if not re.search(r"[^A-Za-z0-9ÇĞİÖŞÜçğıöşü\s]", s):
+        return False, "Şifre en az 1 özel karakter (!@#$%^&*._-+ vb.) içermelidir."
+    return True, "OK"
+
+
+def create_password_reset_token(
+    user_id: str,
+    email_str: str,
+    current_password: Optional[str],
+    ttl_seconds: int = 1800
+) -> str:
+    import json
+    now = int(time.time())
+    payload_obj = {
+        "uid": str(user_id),
+        "email": str(email_str or "").strip().lower(),
+        "exp": now + int(ttl_seconds),
+        "jti": secrets.token_hex(8),
+        "pwh": compute_password_fingerprint(current_password),
+    }
+    payload_bytes = json.dumps(payload_obj, separators=(",", ":"), sort_keys=True).encode("utf-8")
+    b64_payload = base64.urlsafe_b64encode(payload_bytes).decode("ascii").rstrip("=")
+    sig = hmac.new(_get_reset_signing_secret(), b64_payload.encode("ascii"), hashlib.sha256).digest()
+    b64_sig = base64.urlsafe_b64encode(sig).decode("ascii").rstrip("=")
+    return f"{b64_payload}.{b64_sig}"
+
+
+def verify_password_reset_token(token_str: str, expected_current_password: Optional[str] = None, check_pwh: bool = False) -> Tuple[bool, Optional[Dict[str, Any]], str]:
+    import json
+    raw = str(token_str or "").strip()
+    if "." not in raw:
+        return False, None, "Geçersiz şifre sıfırlama bağlantısı."
+
+    b64_payload, b64_sig = raw.split(".", 1)
+    expected_sig = hmac.new(_get_reset_signing_secret(), b64_payload.encode("ascii"), hashlib.sha256).digest()
+    expected_b64_sig = base64.urlsafe_b64encode(expected_sig).decode("ascii").rstrip("=")
+    if not hmac.compare_digest(b64_sig, expected_b64_sig):
+        return False, None, "Şifre sıfırlama bağlantısı doğrulanamadı."
+
+    try:
+        pad = "=" * ((4 - len(b64_payload) % 4) % 4)
+        payload_obj = json.loads(base64.urlsafe_b64decode(b64_payload + pad).decode("utf-8"))
+    except Exception:
+        return False, None, "Şifre sıfırlama bağlantısı çözümlenemedi."
+
+    now = time.time()
+    # Prune expired JTI entries
+    for k, exp_ts in list(_USED_PASSWORD_RESET_JTIS.items()):
+        if now > exp_ts:
+            _USED_PASSWORD_RESET_JTIS.pop(k, None)
+
+    exp_val = float(payload_obj.get("exp", 0))
+    if now > exp_val:
+        return False, None, "Bu şifre sıfırlama bağlantısının süresi dolmuş (30 dakika). Lütfen giriş ekranından yeni bağlantı talep edin."
+
+    jti = str(payload_obj.get("jti") or "")
+    if jti and jti in _USED_PASSWORD_RESET_JTIS:
+        return False, None, "Bu şifre sıfırlama bağlantısı daha önce kullanılmış."
+
+    if check_pwh:
+        curr_fp = compute_password_fingerprint(expected_current_password)
+        if not hmac.compare_digest(str(payload_obj.get("pwh") or ""), curr_fp):
+            return False, None, "Bu şifre sıfırlama bağlantısı artık geçerli değil (şifreniz zaten güncellenmiş)."
+
+    return True, payload_obj, "OK"
+
+
+def mark_password_reset_token_used(payload_obj: Dict[str, Any]) -> None:
+    jti = str((payload_obj or {}).get("jti") or "")
+    exp_val = float((payload_obj or {}).get("exp") or (time.time() + 3600))
+    if jti:
+        _USED_PASSWORD_RESET_JTIS[jti] = exp_val + 300
+
+
+async def send_password_reset_email(
+    settings_db: dict,
+    tenant_id: str,
+    to_email: str,
+    full_name: str,
+    extension: str,
+    role: str,
+    theme_color: str,
+    reset_url: str,
+    ttl_seconds: int = 1800
+) -> Dict[str, Any]:
+    """
+    Dispatches a system-theme-styled HTML password reset e-mail containing
+    the user's full name & account summary at the top and the password reset link at the bottom.
+    """
+    import datetime
+    import html
+    from backend.services.notification_service import get_tenant_notification_settings, _send_notification_email
+
+    clean_to = str(to_email or "").strip()
+    if not clean_to or "@" not in clean_to:
+        return {"status": "error", "message": "Geçerli bir e-posta adresi bulunamadı."}
+
+    theme_key = str(theme_color or "indigo").strip().lower()
+    primary_hex, secondary_hex, soft_bg_hex = _THEME_HEX_MAP.get(theme_key, ("#4f46e5", "#7c3aed", "#eef2ff"))
+
+    safe_name = html.escape(str(full_name or "Kullanıcı").strip())
+    safe_email = html.escape(clean_to)
+    safe_ext = html.escape(str(extension or "-").strip())
+    role_tr_map = {
+        "admin": "Sistem Yöneticisi",
+        "supervisor": "Süpervizör",
+        "agent": "Müşteri Temsilcisi",
+        "operator": "Santral Operatörü",
+    }
+    safe_role = html.escape(role_tr_map.get(str(role or "").lower(), str(role or "Kullanıcı")))
+    safe_url = html.escape(str(reset_url))
+
+    tr_now = (datetime.datetime.utcnow() + datetime.timedelta(hours=3)).strftime("%d.%m.%Y %H:%M:%S")
+    minutes_valid = max(1, int(ttl_seconds) // 60)
+
+    cfg = get_tenant_notification_settings(settings_db, tenant_id or "tenant-default")
+    if cfg.get("smtp_host") and cfg.get("smtp_user"):
+        cfg = dict(cfg)
+        cfg["use_custom_smtp"] = True
+    channels_cfg = settings_db.get("channels", {})
+
+    subject = "🔐 AIDA PBX — Şifre Sıfırlama Bağlantınız"
+    plain_body = (
+        f"Sayın {full_name or 'Kullanıcı'},\n\n"
+        f"AIDA PBX hesabınız için şifre sıfırlama talebinde bulunuldu.\n\n"
+        f"Kullanıcı Ön Bilgileri:\n"
+        f"- Ad Soyad: {full_name or 'Kullanıcı'}\n"
+        f"- E-Posta: {clean_to}\n"
+        f"- Dahili / Rol: {extension or '-'} / {safe_role}\n"
+        f"- Talep Zamanı: {tr_now}\n"
+        f"- Geçerlilik Süresi: {minutes_valid} dakika (Tek Kullanımlık)\n\n"
+        f"Yeni şifrenizi belirlemek için lütfen aşağıdaki şifre sıfırlama bağlantısını açın:\n"
+        f"{reset_url}\n"
+    )
+
+    html_body = f"""<!DOCTYPE html>
+<html lang="tr">
+  <body style="margin: 0; padding: 28px 14px; background-color: #f1f5f9; font-family: -apple-system, BlinkMacSystemFont, 'Plus Jakarta Sans', 'Segoe UI', Roboto, Arial, sans-serif; color: #0f172a;">
+    <div style="max-width: 580px; margin: 0 auto; background: #ffffff; border: 1px solid #e2e8f0; border-radius: 24px; overflow: hidden; box-shadow: 0 20px 45px -15px rgba(15, 23, 42, 0.10);">
+      
+      <!-- AIDA System-Themed Header -->
+      <div style="background: linear-gradient(135deg, {primary_hex} 0%, {secondary_hex} 100%); padding: 28px 32px; text-align: center; color: #ffffff;">
+        <div style="display: inline-block; background: rgba(255, 255, 255, 0.16); border: 1px solid rgba(255, 255, 255, 0.28); border-radius: 14px; padding: 8px 16px; font-size: 18px; font-weight: 900; letter-spacing: 0.5px; margin-bottom: 10px;">
+          <span style="color: #fda4af;">AI</span>DA PBX
+        </div>
+        <div style="font-size: 18px; font-weight: 800; letter-spacing: -0.2px;">Şifre Sıfırlama Talebi</div>
+        <div style="font-size: 11px; opacity: 0.86; text-transform: uppercase; letter-spacing: 2px; margin-top: 4px;">Çok Kanallı Yapay Zeka Santral Platformu</div>
+      </div>
+
+      <!-- Content Body -->
+      <div style="padding: 30px 32px; font-size: 14px; line-height: 1.65; color: #334155;">
+        <p style="margin: 0 0 14px 0; font-size: 15px; color: #0f172a;">
+          Sayın <strong>{safe_name}</strong>,
+        </p>
+        <p style="margin: 0 0 20px 0; color: #475569;">
+          <strong>AIDA PBX</strong> sistemindeki kullanıcı hesabınız için şifre sıfırlama talebi alınmıştır. İşleme devam etmeden önce aşağıdaki hesap ön bilgilerinizi kontrol edebilirsiniz:
+        </p>
+
+        <!-- User Pre-Info Summary Card -->
+        <div style="background-color: {soft_bg_hex}; border: 1px solid #e2e8f0; border-left: 4px solid {primary_hex}; border-radius: 14px; padding: 16px 20px; margin: 0 0 24px 0;">
+          <div style="font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: 1px; color: {primary_hex}; margin-bottom: 10px;">
+            Kullanıcı Ön Bilgisi
+          </div>
+          <table style="width: 100%; border-collapse: collapse; font-size: 13px; color: #1e293b;">
+            <tr>
+              <td style="padding: 4px 0; color: #64748b; width: 135px;">Ad Soyad:</td>
+              <td style="padding: 4px 0; font-weight: 700; color: #0f172a;">{safe_name}</td>
+            </tr>
+            <tr>
+              <td style="padding: 4px 0; color: #64748b;">E-Posta Adresi:</td>
+              <td style="padding: 4px 0; font-weight: 600;">{safe_email}</td>
+            </tr>
+            <tr>
+              <td style="padding: 4px 0; color: #64748b;">Dahili / Rol:</td>
+              <td style="padding: 4px 0; font-weight: 600;">{safe_ext} &bull; {safe_role}</td>
+            </tr>
+            <tr>
+              <td style="padding: 4px 0; color: #64748b;">Talep Zamanı:</td>
+              <td style="padding: 4px 0;">{tr_now} (TSİ)</td>
+            </tr>
+            <tr>
+              <td style="padding: 4px 0; color: #64748b;">Geçerlilik:</td>
+              <td style="padding: 4px 0; font-weight: 600;">{minutes_valid} Dakika (Tek Kullanımlık)</td>
+            </tr>
+          </table>
+        </div>
+
+        <p style="margin: 0 0 22px 0; font-size: 13px; color: #64748b;">
+          Bu talebi siz oluşturmadıysanız bu e-postayı dikkate almayabilirsiniz; mevcut şifreniz güvenle korunmaya devam edecektir. Yeni şifrenizi oluşturmak için aşağıdaki bağlantıyı kullanabilirsiniz:
+        </p>
+
+        <!-- Bottom Password Reset CTA & Link -->
+        <div style="border-top: 1px solid #e2e8f0; padding-top: 24px; text-align: center;">
+          <a href="{safe_url}" target="_blank" style="display: inline-block; background: linear-gradient(135deg, {primary_hex} 0%, {secondary_hex} 100%); color: #ffffff; text-decoration: none; font-weight: 800; font-size: 14px; padding: 14px 32px; border-radius: 14px; box-shadow: 0 8px 20px -6px rgba(79, 70, 229, 0.45);">
+            Yeni Şifre Oluştur &rarr;
+          </a>
+          <div style="margin-top: 16px; font-size: 11px; color: #64748b; word-break: break-all;">
+            Şifre Sıfırlama Linki:<br />
+            <a href="{safe_url}" target="_blank" style="color: {primary_hex}; text-decoration: underline; font-weight: 600;">{safe_url}</a>
+          </div>
+        </div>
+      </div>
+
+      <!-- Footer -->
+      <div style="background: #f8fafc; border-top: 1px solid #e2e8f0; padding: 14px 24px; text-align: center; font-size: 11px; color: #94a3b8;">
+        &copy; 2026 AIDA PBX &mdash; Otomatik Güvenlik Bildirimi
+      </div>
+    </div>
+  </body>
+</html>"""
+
+    return await _send_notification_email(cfg, channels_cfg, [clean_to], subject, html_body, plain_body)
+
+

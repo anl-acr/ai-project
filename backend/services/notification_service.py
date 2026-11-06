@@ -209,27 +209,41 @@ async def _send_notification_email(
 ) -> Dict[str, Any]:
     """Sends notification email using either custom SMTP override or system channels SMTP."""
     use_custom = bool(cfg.get("use_custom_smtp") or cfg.get("smtp_override_enabled"))
-    if use_custom and cfg.get("smtp_host") and cfg.get("smtp_user"):
+    has_custom_creds = bool(str(cfg.get("smtp_host", "")).strip() and str(cfg.get("smtp_user", "")).strip())
+    has_channel_creds = bool(str(channels_cfg.get("email_smtp_host", "")).strip() and str(channels_cfg.get("email_smtp_user", "")).strip())
+
+    if (use_custom and has_custom_creds) or (has_custom_creds and not has_channel_creds):
         smtp_host = str(cfg.get("smtp_host", "")).strip()
         smtp_port = int(cfg.get("smtp_port") or 587)
         smtp_user = str(cfg.get("smtp_user", "")).strip()
         smtp_pass = str(cfg.get("smtp_password") or cfg.get("smtp_pass") or "").strip()
         use_tls = bool(cfg.get("smtp_use_tls", True))
+        from_name = str(cfg.get("smtp_from_name") or "AIDA PBX").strip()
     else:
         smtp_host = str(channels_cfg.get("email_smtp_host", "")).strip()
         smtp_port = int(channels_cfg.get("email_smtp_port") or 587)
         smtp_user = str(channels_cfg.get("email_smtp_user", "")).strip()
         smtp_pass = str(channels_cfg.get("email_smtp_pass", "")).strip()
         use_tls = bool(channels_cfg.get("email_use_tls", True))
+        from_name = str(cfg.get("smtp_from_name") or "AIDA PBX").strip()
+
+    if smtp_host.lower() in ("gmail.com", "googlemail.com"):
+        smtp_host = "smtp.gmail.com"
+    if not smtp_host and smtp_user.lower().endswith("@gmail.com"):
+        smtp_host = "smtp.gmail.com"
 
     if not smtp_host or not smtp_user:
         return {
             "status": "error",
-            "message": "SMTP sunucu ayarları yapılandırılmamış. Lütfen E-Mail Bildirimleri içinden Özel SMTP bilgilerini veya Kanal Entegrasyonları > E-Posta ayarlarını giriniz."
+            "message": "SMTP e-posta ayarları henüz yapılandırılmamış. Lütfen Sistem Ayarları > Kanal Entegrasyonları > E-Posta (veya E-Mail ve WhatsApp Bildirimleri) bölümünden SMTP bilgilerinizi tanımlayın."
         }
 
+    # Google App Passwords are often copied as 'abcd efgh ijkl mnop' (4x4 with spaces)
+    if "gmail.com" in smtp_host.lower() and " " in smtp_pass and len(smtp_pass.replace(" ", "")) == 16:
+        smtp_pass = smtp_pass.replace(" ", "")
+
     msg = MIMEMultipart("alternative")
-    msg["From"] = smtp_user
+    msg["From"] = f"{from_name} <{smtp_user}>" if from_name else smtp_user
     msg["To"] = ", ".join(recipients)
     msg["Subject"] = subject
 
@@ -238,9 +252,9 @@ async def _send_notification_email(
 
     def _send_sync():
         if smtp_port == 465:
-            server = smtplib.SMTP_SSL(smtp_host, smtp_port, timeout=10)
+            server = smtplib.SMTP_SSL(smtp_host, smtp_port, timeout=12)
         else:
-            server = smtplib.SMTP(smtp_host, smtp_port, timeout=10)
+            server = smtplib.SMTP(smtp_host, smtp_port, timeout=12)
             if use_tls:
                 server.starttls()
         if smtp_user and smtp_pass:
@@ -251,6 +265,13 @@ async def _send_notification_email(
     try:
         await asyncio.to_thread(_send_sync)
         return {"status": "success", "message": f"E-posta gönderildi ({', '.join(recipients)})"}
+    except smtplib.SMTPAuthenticationError as auth_err:
+        if "gmail.com" in smtp_host.lower():
+            return {
+                "status": "error",
+                "message": "Gmail kimlik doğrulaması reddedildi (535). Google güvenlik kuralları gereği normal Gmail şifresi yerine Google Hesabı > Güvenlik > 2 Adımlı Doğrulama > Uygulama Şifreleri bölümünden alacağınız 16 haneli Uygulama Şifresini kullanmalısınız."
+            }
+        return {"status": "error", "message": f"SMTP Kimlik Doğrulama Hatası: {str(auth_err)}"}
     except Exception as e:
         return {"status": "error", "message": f"SMTP Hatası: {str(e)}"}
 

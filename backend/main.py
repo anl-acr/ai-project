@@ -24,7 +24,7 @@ from pydantic import BaseModel
 from sqlalchemy import select, delete, func, text, or_, and_
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Session
-from typing import Union, List, Optional, Dict, Any
+from typing import Union, List, Optional, Dict, Any, Tuple
 
 RECORDINGS_DIR = os.path.join(PROJECT_ROOT, "recordings")
 SETTINGS_FILE = os.path.join(BASE_DIR, "settings.json")
@@ -23921,6 +23921,272 @@ async def verify_2fa(payload: Verify2FASchema):
         }
     else:
         raise HTTPException(status_code=401, detail="Geçersiz 6 haneli doğrulama kodu. Lütfen uygulamadaki güncel kodu giriniz.")
+
+
+# --- PASSWORD RESET FLOW (E-MAIL LINK + COMPLEXITY VALIDATION) ---
+
+class PasswordResetRequestSchema(BaseModel):
+    email: str
+    origin: Optional[str] = None
+
+
+class PasswordResetConfirmSchema(BaseModel):
+    token: str
+    new_password: str
+    confirm_password: str
+
+
+def _resolve_user_for_password_reset(email_str: str = "", uid_str: str = "") -> Tuple[Optional[dict], Optional[int]]:
+    clean_email = str(email_str or "").strip().lower()
+    clean_uid = str(uid_str or "").strip()
+
+    disk_match = None
+    users_list = settings_db.get("users", [])
+    if isinstance(users_list, list):
+        if clean_uid:
+            for u in users_list:
+                if isinstance(u, dict) and str(u.get("id") or "") == clean_uid:
+                    disk_match = u
+                    break
+        if not disk_match and clean_email:
+            for u in users_list:
+                if isinstance(u, dict) and str(u.get("email") or "").strip().lower() == clean_email:
+                    disk_match = u
+                    break
+
+    db_dict = None
+    db_id = None
+    try:
+        from backend.database.config import SyncSessionLocal
+        from backend.database.models import SystemUser
+        with SyncSessionLocal() as session:
+            db_u = None
+            if clean_uid and clean_uid.isdigit():
+                db_u = session.query(SystemUser).filter(SystemUser.id == int(clean_uid)).first()
+            if not db_u and clean_email:
+                db_u = session.query(SystemUser).filter(func.lower(SystemUser.email) == clean_email).first()
+            if db_u:
+                db_id = db_u.id
+                db_dict = {c.name: copy.deepcopy(getattr(db_u, c.name)) for c in db_u.__table__.columns}
+    except Exception as e_rst_lookup:
+        print(f"[Password Reset Lookup Notice]: {e_rst_lookup}")
+
+    if db_dict and not disk_match:
+        for u in (settings_db.get("users") or []):
+            if isinstance(u, dict) and (
+                str(u.get("id")) == str(db_dict.get("id"))
+                or (db_dict.get("extension") and str(u.get("extension")) == str(db_dict.get("extension")))
+            ):
+                disk_match = u
+                break
+        if not disk_match:
+            if "users" not in settings_db or not isinstance(settings_db.get("users"), list):
+                settings_db["users"] = []
+            settings_db["users"].append(db_dict)
+            disk_match = db_dict
+    elif disk_match and db_dict:
+        # Prefer freshest password from DB if present
+        if db_dict.get("password"):
+            disk_match["password"] = db_dict["password"]
+        if db_dict.get("full_name") and not disk_match.get("full_name"):
+            disk_match["full_name"] = db_dict["full_name"]
+        if db_dict.get("theme_color") and not disk_match.get("theme_color"):
+            disk_match["theme_color"] = db_dict["theme_color"]
+
+    resolved_id = db_id if db_id is not None else (disk_match.get("id") if disk_match else None)
+    return disk_match, resolved_id
+
+
+@app.post("/api/auth/password-reset/request")
+@app.post("/auth/password-reset/request")
+async def request_password_reset_endpoint(payload: PasswordResetRequestSchema, request: Request):
+    import urllib.parse
+    from backend.services.totp_service import (
+        create_password_reset_token,
+        send_password_reset_email,
+        mask_email_address
+    )
+
+    clean_email = str(payload.email or "").strip()
+    if not clean_email or "@" not in clean_email or "." not in clean_email.split("@", 1)[-1] or clean_email.lower().endswith("@localhost"):
+        raise HTTPException(status_code=400, detail="Lütfen geçerli bir e-posta adresi giriniz.")
+
+    user, resolved_id = _resolve_user_for_password_reset(email_str=clean_email)
+    if not user:
+        raise HTTPException(
+            status_code=404,
+            detail="Bu e-posta adresine kayıtlı bir sistem kullanıcısı bulunamadı. Lütfen tanımlı e-posta adresinizi kontrol edin."
+        )
+
+    uid_val = str(resolved_id if resolved_id is not None else (user.get("id") or user.get("extension") or "admin"))
+    curr_pw = user.get("password") or ""
+    target_email = str(user.get("email") or clean_email).strip()
+    full_name = str(user.get("full_name") or user.get("name") or user.get("username") or "Kullanıcı").strip()
+    ext_val = str(user.get("extension") or "-").strip()
+    role_val = str(user.get("role") or "agent").strip()
+    theme_color = str(user.get("theme_color") or "indigo").strip()
+    user_tenant = str(user.get("tenant_id") or request.headers.get("X-Tenant-ID") or "tenant-default").strip()
+
+    raw_origin = str(payload.origin or "").strip()
+    if not (raw_origin.startswith("http://") or raw_origin.startswith("https://")):
+        hdr_origin = str(request.headers.get("origin") or "").strip()
+        if hdr_origin.startswith("http://") or hdr_origin.startswith("https://"):
+            raw_origin = hdr_origin
+        else:
+            proto = request.headers.get("x-forwarded-proto") or request.url.scheme or "http"
+            host = request.headers.get("x-forwarded-host") or request.headers.get("host") or "localhost:3000"
+            raw_origin = f"{proto}://{host}"
+
+    token = create_password_reset_token(
+        user_id=uid_val,
+        email_str=target_email,
+        current_password=curr_pw,
+        ttl_seconds=1800
+    )
+    reset_url = f"{raw_origin.rstrip('/')}/reset-password?token={urllib.parse.quote(token)}"
+
+    send_res = await send_password_reset_email(
+        settings_db=settings_db,
+        tenant_id=user_tenant,
+        to_email=target_email,
+        full_name=full_name,
+        extension=ext_val,
+        role=role_val,
+        theme_color=theme_color,
+        reset_url=reset_url,
+        ttl_seconds=1800
+    )
+    if send_res.get("status") != "success":
+        raise HTTPException(
+            status_code=400,
+            detail=send_res.get("message") or "Şifre sıfırlama e-postası gönderilemedi. Lütfen SMTP ayarlarını kontrol edin."
+        )
+
+    try:
+        log_event("PASSWORD_RESET_REQUEST", "Auth", f"{full_name} ({target_email}) için şifre sıfırlama bağlantısı gönderildi.")
+    except Exception:
+        pass
+
+    masked = mask_email_address(target_email)
+    return {
+        "status": "success",
+        "masked_email": masked,
+        "full_name": full_name,
+        "message": f"Şifre sıfırlama bağlantısı {masked} adresine başarıyla gönderildi."
+    }
+
+
+@app.get("/api/auth/password-reset/verify")
+@app.get("/auth/password-reset/verify")
+async def verify_password_reset_endpoint(token: str = ""):
+    from backend.services.totp_service import verify_password_reset_token, mask_email_address
+
+    ok_sig, token_data, err_msg = verify_password_reset_token(token, check_pwh=False)
+    if not ok_sig or not token_data:
+        raise HTTPException(status_code=400, detail=err_msg)
+
+    user, _ = _resolve_user_for_password_reset(
+        email_str=str(token_data.get("email") or ""),
+        uid_str=str(token_data.get("uid") or "")
+    )
+    if not user:
+        raise HTTPException(status_code=404, detail="Bağlantıya ait kullanıcı hesabı bulunamadı.")
+
+    ok_full, _, err_full = verify_password_reset_token(
+        token,
+        expected_current_password=user.get("password") or "",
+        check_pwh=True
+    )
+    if not ok_full:
+        raise HTTPException(status_code=400, detail=err_full)
+
+    email_str = str(user.get("email") or token_data.get("email") or "")
+    return {
+        "status": "success",
+        "user": {
+            "full_name": str(user.get("full_name") or user.get("name") or "Kullanıcı"),
+            "email": email_str,
+            "masked_email": mask_email_address(email_str),
+            "username": str(user.get("username") or ""),
+            "extension": str(user.get("extension") or ""),
+            "theme_color": str(user.get("theme_color") or "indigo"),
+        }
+    }
+
+
+@app.post("/api/auth/password-reset/confirm")
+@app.post("/auth/password-reset/confirm")
+async def confirm_password_reset_endpoint(payload: PasswordResetConfirmSchema):
+    from backend.services.totp_service import (
+        verify_password_reset_token,
+        validate_password_complexity,
+        mark_password_reset_token_used
+    )
+
+    new_pw = str(payload.new_password or "")
+    confirm_pw = str(payload.confirm_password or "")
+    if not new_pw or new_pw != confirm_pw:
+        raise HTTPException(status_code=400, detail="Girilen şifreler birbiriyle eşleşmiyor.")
+
+    valid_pw, pw_msg = validate_password_complexity(new_pw)
+    if not valid_pw:
+        raise HTTPException(status_code=400, detail=pw_msg)
+
+    ok_sig, token_data, err_msg = verify_password_reset_token(payload.token, check_pwh=False)
+    if not ok_sig or not token_data:
+        raise HTTPException(status_code=400, detail=err_msg)
+
+    user, resolved_id = _resolve_user_for_password_reset(
+        email_str=str(token_data.get("email") or ""),
+        uid_str=str(token_data.get("uid") or "")
+    )
+    if not user:
+        raise HTTPException(status_code=404, detail="Kullanıcı hesabı bulunamadı.")
+
+    ok_full, _, err_full = verify_password_reset_token(
+        payload.token,
+        expected_current_password=user.get("password") or "",
+        check_pwh=True
+    )
+    if not ok_full:
+        raise HTTPException(status_code=400, detail=err_full)
+
+    now_iso = datetime.datetime.now().isoformat()
+    user["password"] = new_pw
+    user["password_last_updated"] = now_iso
+    save_settings(settings_db)
+
+    try:
+        from backend.database.config import SyncSessionLocal
+        from backend.database.models import SystemUser
+        with SyncSessionLocal() as session:
+            db_u = None
+            if resolved_id is not None and str(resolved_id).isdigit():
+                db_u = session.query(SystemUser).filter(SystemUser.id == int(resolved_id)).first()
+            if not db_u and token_data.get("email"):
+                db_u = session.query(SystemUser).filter(func.lower(SystemUser.email) == str(token_data["email"]).lower()).first()
+            if not db_u and user.get("extension"):
+                db_u = session.query(SystemUser).filter(SystemUser.extension == str(user.get("extension"))).first()
+            if db_u:
+                db_u.password = new_pw
+                session.commit()
+    except Exception as e_pw_db:
+        print(f"[Password Reset DB Sync Error]: {e_pw_db}")
+
+    mark_password_reset_token_used(token_data)
+    full_name = str(user.get("full_name") or user.get("username") or "Kullanıcı")
+    try:
+        log_event("PASSWORD_RESET_COMPLETED", "Auth", f"{full_name} şifre sıfırlama bağlantısı ile yeni şifresini oluşturdu.")
+    except Exception:
+        pass
+
+    return {
+        "status": "success",
+        "username": str(user.get("username") or ""),
+        "email": str(user.get("email") or token_data.get("email") or ""),
+        "extension": str(user.get("extension") or ""),
+        "message": "Yeni şifreniz başarıyla oluşturuldu. Artık yeni şifrenizle sisteme giriş yapabilirsiniz."
+    }
 
 async def recording_cleanup_task():
     import asyncio

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { Lock, Mail, ArrowRight, BrainCircuit, User, Smartphone, KeyRound, RefreshCw, Copy, Check, PhoneCall, Eye, EyeOff } from "lucide-react";
+import { Lock, Mail, ArrowRight, BrainCircuit, User, Smartphone, KeyRound, RefreshCw, Copy, Check, PhoneCall, Eye, EyeOff, CheckCircle2, AlertCircle } from "lucide-react";
 import { useTheme } from "../../utils/theme";
 import { getApiBaseUrl } from "../../utils/apiHost";
 import {
@@ -44,6 +44,13 @@ export default function Login({ onLogin, onComplete2FA, error, backendHost }) {
   const [emailCountdown, setEmailCountdown] = useState(0);
   const [twoFactorError, setTwoFactorError] = useState("");
   const [twoFactorInfo, setTwoFactorInfo] = useState("");
+
+  // Forgot Password States
+  const [isForgotMode, setIsForgotMode] = useState(false);
+  const [forgotEmail, setForgotEmail] = useState("");
+  const [forgotLoading, setForgotLoading] = useState(false);
+  const [forgotError, setForgotError] = useState("");
+  const [forgotSuccessInfo, setForgotSuccessInfo] = useState(null);
 
   const resolveApiUrl = (path) => {
     const base = getApiBaseUrl(backendHost);
@@ -136,8 +143,68 @@ export default function Login({ onLogin, onComplete2FA, error, backendHost }) {
     }
   };
 
+  const sendPasswordResetRequest = async (targetEmailStr) => {
+    const cleanMail = String(targetEmailStr || "").trim();
+    if (!cleanMail || !/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(cleanMail)) {
+      setForgotError("Lütfen geçerli bir e-posta adresi giriniz.");
+      return;
+    }
+    setForgotLoading(true);
+    setForgotError("");
+    setForgotSuccessInfo(null);
+    try {
+      const originStr = typeof window !== "undefined" ? window.location.origin : "";
+      const res = await fetch(resolveApiUrl("/api/auth/password-reset/request"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          email: cleanMail,
+          origin: originStr
+        })
+      });
+      const data = await res.json();
+      if (res.ok && data.status === "success") {
+        setForgotSuccessInfo({
+          message: data.message || "Şifre sıfırlama bağlantısı e-posta adresinize gönderildi.",
+          maskedEmail: data.masked_email || cleanMail,
+          fullName: data.full_name || ""
+        });
+      } else {
+        setForgotError(data.detail || data.message || "Şifre sıfırlama e-postası gönderilemedi.");
+      }
+    } catch (err) {
+      setForgotError("Sunucu ile iletişim kurulamadı. Lütfen bağlantınızı kontrol edin.");
+    } finally {
+      setForgotLoading(false);
+    }
+  };
+
+  const handleForgotPasswordTrigger = () => {
+    const trimmedInput = String(username || "").trim();
+    const hasEmailTyped =
+      /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(trimmedInput) &&
+      !trimmedInput.toLowerCase().endsWith("@localhost");
+
+    setForgotError("");
+    setForgotSuccessInfo(null);
+    setIsForgotMode(true);
+
+    if (hasEmailTyped) {
+      setForgotEmail(trimmedInput);
+      sendPasswordResetRequest(trimmedInput);
+    } else {
+      setForgotEmail("");
+    }
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
+    if (isForgotMode) {
+      if (!forgotSuccessInfo && !forgotLoading) {
+        await sendPasswordResetRequest(forgotEmail);
+      }
+      return;
+    }
     if (is2FA) {
       const cleanCode = (twoFactorCode || "").replace(/\D/g, "");
       if (cleanCode.length < 6) return;
@@ -264,7 +331,114 @@ export default function Login({ onLogin, onComplete2FA, error, backendHost }) {
           </div>
 
           <form onSubmit={handleSubmit} className="space-y-4">
-            {!is2FA ? (
+            {isForgotMode ? (
+              <div className="animate-in fade-in zoom-in-95 duration-300 space-y-4">
+                <div className="text-center">
+                  <div className="w-12 h-12 rounded-2xl bg-indigo-100 dark:bg-indigo-900/30 flex items-center justify-center mx-auto mb-2.5 text-indigo-600 dark:text-indigo-400">
+                    <Mail size={22} aria-hidden="true" />
+                  </div>
+                  <h3 className="text-base font-extrabold text-slate-800 dark:text-white">
+                    Şifremi Unuttum
+                  </h3>
+                  <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 leading-relaxed">
+                    {forgotSuccessInfo
+                      ? "Şifre sıfırlama bağlantısı e-posta adresinize iletildi."
+                      : forgotLoading
+                      ? "Şifre sıfırlama bağlantısı hazırlanıp e-posta adresinize gönderiliyor..."
+                      : "Hesabınıza kayıtlı e-posta adresinizi girin ve Tamam butonuna basın."}
+                  </p>
+                </div>
+
+                {forgotError && (
+                  <div className="p-3 bg-red-100 dark:bg-red-500/10 border border-red-200 dark:border-red-500/20 text-red-600 dark:text-red-400 text-xs font-medium rounded-xl flex items-start gap-2 animate-in slide-in-from-top-2">
+                    <AlertCircle size={16} className="shrink-0 mt-0.5" aria-hidden="true" />
+                    <span>{forgotError}</span>
+                  </div>
+                )}
+
+                {forgotSuccessInfo ? (
+                  <div className="p-4 rounded-2xl bg-emerald-50/90 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-800/60 space-y-2 text-center animate-in fade-in duration-200">
+                    <div className="w-10 h-10 rounded-full bg-emerald-100 dark:bg-emerald-900/40 text-emerald-600 dark:text-emerald-400 flex items-center justify-center mx-auto">
+                      <CheckCircle2 size={22} aria-hidden="true" />
+                    </div>
+                    {forgotSuccessInfo.fullName && (
+                      <div className="text-xs font-extrabold text-slate-800 dark:text-white">
+                        Sayın {forgotSuccessInfo.fullName}
+                      </div>
+                    )}
+                    <p className="text-xs text-emerald-800 dark:text-emerald-200 leading-relaxed">
+                      {forgotSuccessInfo.message}
+                    </p>
+                    <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                      Lütfen gelen kutunuzu (gerekirse Spam/Gereksiz klasörünü) kontrol edip e-postanın en altındaki bağlantıya tıklayın.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="space-y-1.5">
+                    <label htmlFor="forgot-reset-email" className="block text-xs font-semibold text-slate-600 dark:text-slate-300 px-1">
+                      Kayıtlı E-Posta Adresiniz
+                    </label>
+                    <div className="relative">
+                      <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none text-slate-400 dark:text-slate-400/70 z-10">
+                        <Mail size={18} aria-hidden="true" />
+                      </div>
+                      <input
+                        id="forgot-reset-email"
+                        name="email"
+                        type="email"
+                        required
+                        autoFocus
+                        autoComplete="email"
+                        spellCheck={false}
+                        autoCapitalize="none"
+                        disabled={forgotLoading}
+                        value={forgotEmail}
+                        onChange={(e) => {
+                          setForgotEmail(e.target.value);
+                          if (forgotError) setForgotError("");
+                        }}
+                        placeholder="ornek@gmail.com"
+                        className="w-full pl-11 pr-4 py-4 bg-white/50 dark:bg-black/20 border border-slate-200/80 dark:border-white/5 rounded-2xl text-sm text-slate-800 dark:text-white placeholder-slate-400 dark:placeholder-slate-500 focus:outline-none focus:ring-1 focus:ring-indigo-500/50 focus:border-indigo-500/50 transition-all hover:bg-white/80 dark:hover:bg-black/30 shadow-inner dark:shadow-none disabled:opacity-60"
+                      />
+                    </div>
+                  </div>
+                )}
+
+                {!forgotSuccessInfo && (
+                  <button
+                    type="submit"
+                    disabled={forgotLoading || !forgotEmail.trim()}
+                    className="w-full py-4 bg-gradient-to-r from-indigo-500 to-violet-600 hover:from-indigo-400 hover:to-violet-500 text-white rounded-2xl font-bold text-sm flex items-center justify-center gap-2 shadow-[0_4px_15px_rgba(99,102,241,0.3)] dark:shadow-[0_0_20px_rgba(99,102,241,0.3)] transition-all disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
+                  >
+                    {forgotLoading ? (
+                      <>
+                        <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                        <span>Gönderiliyor...</span>
+                      </>
+                    ) : (
+                      <>
+                        <span>Tamam</span>
+                        <ArrowRight size={17} aria-hidden="true" />
+                      </>
+                    )}
+                  </button>
+                )}
+
+                <div className="pt-1 flex justify-center">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsForgotMode(false);
+                      setForgotError("");
+                      setForgotSuccessInfo(null);
+                    }}
+                    className="text-xs font-semibold text-slate-500 hover:text-slate-800 dark:hover:text-white transition-colors cursor-pointer"
+                  >
+                    ← Giriş Ekranına Dön
+                  </button>
+                </div>
+              </div>
+            ) : !is2FA ? (
               <>
                 {error && (
                   <div className="p-3 bg-red-100 dark:bg-red-500/10 border border-red-200 dark:border-red-500/20 text-red-600 dark:text-red-400 text-xs font-medium rounded-xl text-center animate-in slide-in-from-top-2">
@@ -364,9 +538,14 @@ export default function Login({ onLogin, onComplete2FA, error, backendHost }) {
                     </span>
                   </label>
                   
-                  <a href="#" className="text-xs font-medium text-indigo-600 dark:text-indigo-400 hover:text-indigo-500 dark:hover:text-indigo-300 transition-colors">
+                  <button
+                    type="button"
+                    onClick={handleForgotPasswordTrigger}
+                    disabled={forgotLoading}
+                    className="text-xs font-medium text-indigo-600 dark:text-indigo-400 hover:text-indigo-500 dark:hover:text-indigo-300 transition-colors cursor-pointer disabled:opacity-50"
+                  >
                     Şifremi Unuttum?
-                  </a>
+                  </button>
                 </div>
               </>
             ) : (
@@ -577,19 +756,21 @@ export default function Login({ onLogin, onComplete2FA, error, backendHost }) {
               </div>
             )}
 
-            <button
-              type="submit"
-              disabled={isLoading || (is2FA && twoFactorCode.length < 6)}
-              className="w-full py-4 mt-2 bg-gradient-to-r from-indigo-500 to-violet-600 hover:from-indigo-400 hover:to-violet-500 text-white rounded-2xl font-bold text-sm flex items-center justify-center gap-2 shadow-[0_4px_15px_rgba(99,102,241,0.3)] dark:shadow-[0_0_20px_rgba(99,102,241,0.3)] hover:shadow-[0_6px_20px_rgba(99,102,241,0.4)] dark:hover:shadow-[0_0_25px_rgba(99,102,241,0.5)] transition-all disabled:opacity-50 disabled:cursor-not-allowed group/btn"
-            >
-              {isLoading ? (
-                <span className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin"></span>
-              ) : (
-                <>
-                  {is2FA ? "Doğrula ve Giriş Yap" : "Giriş Yap"} <ArrowRight size={18} className="transition-transform group-hover/btn:translate-x-1" />
-                </>
-              )}
-            </button>
+            {!isForgotMode && (
+              <button
+                type="submit"
+                disabled={isLoading || (is2FA && twoFactorCode.length < 6)}
+                className="w-full py-4 mt-2 bg-gradient-to-r from-indigo-500 to-violet-600 hover:from-indigo-400 hover:to-violet-500 text-white rounded-2xl font-bold text-sm flex items-center justify-center gap-2 shadow-[0_4px_15px_rgba(99,102,241,0.3)] dark:shadow-[0_0_20px_rgba(99,102,241,0.3)] hover:shadow-[0_6px_20px_rgba(99,102,241,0.4)] dark:hover:shadow-[0_0_25px_rgba(99,102,241,0.5)] transition-all disabled:opacity-50 disabled:cursor-not-allowed group/btn"
+              >
+                {isLoading ? (
+                  <span className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin"></span>
+                ) : (
+                  <>
+                    {is2FA ? "Doğrula ve Giriş Yap" : "Giriş Yap"} <ArrowRight size={18} className="transition-transform group-hover/btn:translate-x-1" />
+                  </>
+                )}
+              </button>
+            )}
           </form>
         </div>
         

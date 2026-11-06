@@ -327,6 +327,7 @@ export default function Home() {
   useEffect(() => {
     if (typeof window !== "undefined" && !isAuthChecking && !isLoggedIn) {
       const currentPath = window.location.pathname;
+      if (currentPath.startsWith("/reset-password")) return;
       const currentSearch = window.location.search;
       if ((currentPath !== "/login" && currentPath !== "/Login") || currentSearch) {
         window.history.replaceState(null, "", "/login");
