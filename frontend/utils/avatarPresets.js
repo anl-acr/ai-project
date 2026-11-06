@@ -5,6 +5,93 @@ const svgToDataUri = (svg) =>
 
 export const CINEMA_AVATARS = [
   {
+    id: "cinema-dark-lord",
+    label: "Karanlık Lord (Galaksi)",
+    category: "cinema",
+    url: svgToDataUri(`
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120">
+        <rect width="120" height="120" rx="28" fill="#0c0612"/>
+        <circle cx="60" cy="54" r="46" fill="#dc2626" opacity="0.22"/>
+        <!-- Starfield & Crimson Plasma Glow -->
+        <circle cx="22" cy="24" r="1.4" fill="#f8fafc" opacity="0.8"/>
+        <circle cx="96" cy="28" r="1.6" fill="#fca5a5"/>
+        <circle cx="26" cy="64" r="1.2" fill="#e2e8f0" opacity="0.6"/>
+        <line x1="20" y1="102" x2="100" y2="18" stroke="#ef4444" stroke-width="6.5" stroke-linecap="round" opacity="0.32"/>
+        <line x1="20" y1="102" x2="100" y2="18" stroke="#fecaca" stroke-width="2" stroke-linecap="round" opacity="0.55"/>
+        <!-- Dark Armored Cape & Chest Control Unit -->
+        <path d="M14 120 C20 88 38 82 60 82 C82 82 100 88 106 120 Z" fill="#090d16"/>
+        <path d="M30 86 L46 82 L42 120 L22 120 Z" fill="#1e293b" opacity="0.7"/>
+        <path d="M90 86 L74 82 L78 120 L98 120 Z" fill="#1e293b" opacity="0.7"/>
+        <rect x="47" y="92" width="26" height="19" rx="3.5" fill="#111827" stroke="#475569" stroke-width="1.4"/>
+        <rect x="51" y="96" width="5" height="4" rx="1" fill="#ef4444"/>
+        <rect x="58" y="96" width="5" height="4" rx="1" fill="#38bdf8"/>
+        <rect x="65" y="96" width="4" height="4" rx="1" fill="#10b981"/>
+        <line x1="51" y1="105" x2="69" y2="105" stroke="#64748b" stroke-width="2" stroke-linecap="round"/>
+        <!-- Flared Obsidian Space Commander Helmet -->
+        <path d="M25 75 L35 45 C36 21 84 21 85 45 L95 75 Q60 84 25 75 Z" fill="#090d16" stroke="#334155" stroke-width="1.5"/>
+        <path d="M36 48 C37 24 83 24 84 48 Q60 41 36 48 Z" fill="#1e293b"/>
+        <line x1="60" y1="22" x2="60" y2="50" stroke="#475569" stroke-width="2.4" stroke-linecap="round"/>
+        <!-- Angular Brow & Dual Dark Optic Lenses -->
+        <path d="M39 49 L57 52 L60 49 L63 52 L81 49" stroke="#475569" stroke-width="2" fill="none" stroke-linejoin="round"/>
+        <ellipse cx="49" cy="55" rx="7.5" ry="4.8" fill="#020617" stroke="#475569" stroke-width="1.4"/>
+        <ellipse cx="71" cy="55" rx="7.5" ry="4.8" fill="#020617" stroke="#475569" stroke-width="1.4"/>
+        <path d="M45 54 Q49 51.5 53 54" stroke="#ef4444" stroke-width="1.3" fill="none" opacity="0.8"/>
+        <path d="M67 54 Q71 51.5 75 54" stroke="#ef4444" stroke-width="1.3" fill="none" opacity="0.8"/>
+        <!-- Geometric Respirator Grille -->
+        <polygon points="60,58 46,75 74,75" fill="#1e293b" stroke="#64748b" stroke-width="1.5" stroke-linejoin="round"/>
+        <line x1="60" y1="61" x2="60" y2="73" stroke="#090d16" stroke-width="2"/>
+        <line x1="55" y1="65" x2="55" y2="73" stroke="#090d16" stroke-width="1.8"/>
+        <line x1="65" y1="65" x2="65" y2="73" stroke="#090d16" stroke-width="1.8"/>
+        <circle cx="46" cy="75" r="2.1" fill="#94a3b8"/>
+        <circle cx="74" cy="75" r="2.1" fill="#94a3b8"/>
+      </svg>
+    `)
+  },
+  {
+    id: "cinema-wise-master",
+    label: "Bilge Usta (Galaksi)",
+    category: "cinema",
+    url: svgToDataUri(`
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120">
+        <rect width="120" height="120" rx="28" fill="#052e16"/>
+        <circle cx="60" cy="56" r="46" fill="#10b981" opacity="0.24"/>
+        <!-- Cosmic Stars & Emerald Energy Glow -->
+        <circle cx="24" cy="24" r="1.6" fill="#a7f3d0"/>
+        <circle cx="96" cy="26" r="1.4" fill="#fef08a"/>
+        <line x1="98" y1="98" x2="24" y2="20" stroke="#34d399" stroke-width="5.5" stroke-linecap="round" opacity="0.28"/>
+        <!-- Woven Sage Robe & Inner Tunic -->
+        <path d="M18 120 C24 88 40 81 60 81 C80 81 96 88 102 120 Z" fill="#e7e5e4"/>
+        <polygon points="46,81 60,112 74,81" fill="#44403c"/>
+        <path d="M40 81 L56 120 L44 120 L32 85 Z" fill="#d6d3d1"/>
+        <path d="M80 81 L64 120 L76 120 L88 85 Z" fill="#d6d3d1"/>
+        <!-- Silver Sage Hair Wisps -->
+        <path d="M38 44 Q28 36 33 52" stroke="#e2e8f0" stroke-width="3.5" fill="none" stroke-linecap="round"/>
+        <path d="M82 44 Q92 36 87 52" stroke="#e2e8f0" stroke-width="3.5" fill="none" stroke-linecap="round"/>
+        <!-- Long Horizontal Pointed Sage Ears -->
+        <path d="M40 50 L10 43 Q17 59 39 63 Z" fill="#65a30d"/>
+        <path d="M38 53 L18 48 Q23 57 38 60 Z" fill="#a3e635" opacity="0.65"/>
+        <path d="M80 50 L110 43 Q103 59 81 63 Z" fill="#65a30d"/>
+        <path d="M82 53 L102 48 Q97 57 82 60 Z" fill="#a3e635" opacity="0.65"/>
+        <!-- Wise Emerald Head -->
+        <ellipse cx="60" cy="56" rx="22" ry="20" fill="#84cc16"/>
+        <!-- Wisdom Forehead Lines & Silver Brows -->
+        <path d="M49 43 Q60 40 71 43" stroke="#4d7c0f" stroke-width="1.5" fill="none" stroke-linecap="round"/>
+        <path d="M52 46.5 Q60 44.5 68 46.5" stroke="#4d7c0f" stroke-width="1.3" fill="none" stroke-linecap="round"/>
+        <path d="M44 50 Q51 46 56 50" stroke="#f8fafc" stroke-width="2.6" fill="none" stroke-linecap="round"/>
+        <path d="M64 50 Q69 46 76 50" stroke="#f8fafc" stroke-width="2.6" fill="none" stroke-linecap="round"/>
+        <!-- Soulful Eyes & Serene Smile -->
+        <ellipse cx="50" cy="55.5" rx="4.1" ry="3.7" fill="#1e293b"/>
+        <circle cx="51.3" cy="54.2" r="1.2" fill="#ffffff"/>
+        <ellipse cx="70" cy="55.5" rx="4.1" ry="3.7" fill="#1e293b"/>
+        <circle cx="71.3" cy="54.2" r="1.2" fill="#ffffff"/>
+        <ellipse cx="60" cy="60.5" rx="2.8" ry="1.6" fill="#4d7c0f"/>
+        <path d="M51 66.5 Q60 71 69 66.5" stroke="#365314" stroke-width="2.2" fill="none" stroke-linecap="round"/>
+        <!-- Wooden Walking Staff Tip -->
+        <path d="M85 120 L88 94 Q89 86 81 88" stroke="#78350f" stroke-width="4.5" fill="none" stroke-linecap="round"/>
+      </svg>
+    `)
+  },
+  {
     id: "cinema-sherlock",
     label: "Sherlock Holmes (Dedektif)",
     category: "cinema",
