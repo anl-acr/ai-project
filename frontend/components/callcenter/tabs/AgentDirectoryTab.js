@@ -1,34 +1,28 @@
-import React, { useState, useEffect, useMemo, useRef } from "react";
+import React, { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import {
   Users,
   Search,
   Phone,
   PhoneForwarded,
   GitBranch,
-  LayoutGrid,
   CheckCircle2,
   Star,
   Clock,
   X,
-  ChevronDown,
-  Building2,
-  UserCheck
+  Building2
 } from "lucide-react";
 import { useTheme } from "../../../utils/theme";
 import { getApiBaseUrl } from "../../../utils/apiHost";
 import { webphoneManager } from "../../../utils/webphoneManager";
 
-const DEFAULT_VISIBLE_LIMIT = 12;
-const MAX_RECENT_CONTACTS = 5;
-const MAX_RECENT_SEARCHES = 5;
+const MAX_RECENT_ITEMS = 10;
 
 export default function AgentDirectoryTab({ backendHost, currentUser, callPanelPerms }) {
-  const { bg, hover, text, border, ring, lightBg, lightText, borderLight } = useTheme();
+  const { bg, text, ring, lightBg, borderLight } = useTheme();
   const canTransfer = callPanelPerms?.canTransfer !== false;
 
   const [searchQuery, setSearchQuery] = useState("");
-  const [activeCategory, setActiveCategory] = useState("all");
-  const [showAllDefault, setShowAllDefault] = useState(false);
+  const [activeTab, setActiveTab] = useState("recent"); // "recent" | "favorites"
   const [directory, setDirectory] = useState([]);
   const [loading, setLoading] = useState(false);
   const [wpState, setWpState] = useState(webphoneManager.state);
@@ -36,52 +30,62 @@ export default function AgentDirectoryTab({ backendHost, currentUser, callPanelP
 
   const [favoriteIds, setFavoriteIds] = useState([]);
   const [recentContacts, setRecentContacts] = useState([]);
-  const [recentSearches, setRecentSearches] = useState([]);
 
   const tabRefs = useRef({});
   const searchInputRef = useRef(null);
+  const didRecordCurrentQueryRef = useRef(false);
 
   const storageScopeKey = useMemo(() => {
     const uid = currentUser?.id || currentUser?.extension || "default";
     return String(uid);
   }, [currentUser?.id, currentUser?.extension]);
 
-  // Load persisted favorites, recent contacts, and recent searches per agent
+  // Load persisted favorites and last 10 searched contacts per agent
   useEffect(() => {
     if (typeof window === "undefined") return;
     try {
       const savedFavs = JSON.parse(localStorage.getItem(`agent_dir_favs_${storageScopeKey}`) || "[]");
       const savedRecents = JSON.parse(localStorage.getItem(`agent_dir_recents_${storageScopeKey}`) || "[]");
-      const savedSearches = JSON.parse(localStorage.getItem(`agent_dir_searches_${storageScopeKey}`) || "[]");
       if (Array.isArray(savedFavs)) setFavoriteIds(savedFavs);
-      if (Array.isArray(savedRecents)) setRecentContacts(savedRecents.slice(0, MAX_RECENT_CONTACTS));
-      if (Array.isArray(savedSearches)) setRecentSearches(savedSearches.slice(0, MAX_RECENT_SEARCHES));
+      if (Array.isArray(savedRecents)) {
+        const validRecents = savedRecents
+          .filter((item) => item && item.id && item.number !== undefined)
+          .slice(0, MAX_RECENT_ITEMS);
+        setRecentContacts(validRecents);
+      }
     } catch (e) {}
   }, [storageScopeKey]);
 
-  const toggleFavorite = (contactId) => {
-    setFavoriteIds((prev) => {
-      const exists = prev.includes(contactId);
-      const next = exists ? prev.filter((id) => id !== contactId) : [contactId, ...prev];
-      if (typeof window !== "undefined") {
-        try {
-          localStorage.setItem(`agent_dir_favs_${storageScopeKey}`, JSON.stringify(next));
-        } catch (e) {}
-      }
-      return next;
-    });
-  };
+  const recordRecentContact = useCallback(
+    (contact) => {
+      if (!contact?.id) return;
+      const snapshot = {
+        id: contact.id,
+        name: contact.name || "",
+        number: contact.number ?? "",
+        subtitle: contact.subtitle || "",
+        type: contact.type || "internal",
+        avatar: contact.avatar || null
+      };
+      setRecentContacts((prev) => {
+        const next = [snapshot, ...prev.filter((item) => item.id !== snapshot.id)].slice(
+          0,
+          MAX_RECENT_ITEMS
+        );
+        if (typeof window !== "undefined") {
+          try {
+            localStorage.setItem(`agent_dir_recents_${storageScopeKey}`, JSON.stringify(next));
+          } catch (e) {}
+        }
+        return next;
+      });
+    },
+    [storageScopeKey]
+  );
 
-  const recordRecentContact = (contact) => {
-    if (!contact?.id || !contact?.number) return;
-    const entry = {
-      id: contact.id,
-      name: contact.name,
-      number: contact.number,
-      type: contact.type
-    };
+  const removeRecentContact = (contactId) => {
     setRecentContacts((prev) => {
-      const next = [entry, ...prev.filter((item) => item.id !== entry.id)].slice(0, MAX_RECENT_CONTACTS);
+      const next = prev.filter((item) => item.id !== contactId);
       if (typeof window !== "undefined") {
         try {
           localStorage.setItem(`agent_dir_recents_${storageScopeKey}`, JSON.stringify(next));
@@ -91,45 +95,31 @@ export default function AgentDirectoryTab({ backendHost, currentUser, callPanelP
     });
   };
 
-  const recordRecentSearch = (term) => {
-    const clean = String(term || "").trim();
-    if (clean.length < 2) return;
-    setRecentSearches((prev) => {
-      const lower = clean.toLocaleLowerCase("tr-TR");
-      const next = [clean, ...prev.filter((s) => s.toLocaleLowerCase("tr-TR") !== lower)].slice(
-        0,
-        MAX_RECENT_SEARCHES
-      );
-      if (typeof window !== "undefined") {
-        try {
-          localStorage.setItem(`agent_dir_searches_${storageScopeKey}`, JSON.stringify(next));
-        } catch (e) {}
-      }
-      return next;
-    });
-  };
-
-  const removeRecentSearch = (term) => {
-    setRecentSearches((prev) => {
-      const next = prev.filter((s) => s !== term);
-      if (typeof window !== "undefined") {
-        try {
-          localStorage.setItem(`agent_dir_searches_${storageScopeKey}`, JSON.stringify(next));
-        } catch (e) {}
-      }
-      return next;
-    });
-  };
-
   const clearRecentHistory = () => {
     setRecentContacts([]);
-    setRecentSearches([]);
     if (typeof window !== "undefined") {
       try {
         localStorage.removeItem(`agent_dir_recents_${storageScopeKey}`);
-        localStorage.removeItem(`agent_dir_searches_${storageScopeKey}`);
       } catch (e) {}
     }
+  };
+
+  const toggleFavorite = (contact) => {
+    if (!contact?.id) return;
+    if (searchQuery.trim().length >= 1) {
+      recordRecentContact(contact);
+      didRecordCurrentQueryRef.current = true;
+    }
+    setFavoriteIds((prev) => {
+      const exists = prev.includes(contact.id);
+      const next = exists ? prev.filter((id) => id !== contact.id) : [contact.id, ...prev];
+      if (typeof window !== "undefined") {
+        try {
+          localStorage.setItem(`agent_dir_favs_${storageScopeKey}`, JSON.stringify(next));
+        } catch (e) {}
+      }
+      return next;
+    });
   };
 
   useEffect(() => {
@@ -150,11 +140,6 @@ export default function AgentDirectoryTab({ backendHost, currentUser, callPanelP
   useEffect(() => {
     refreshUserStates();
   }, [wpState.registered, wpState.callStatus]);
-
-  // Reset showAllDefault when category or search changes
-  useEffect(() => {
-    setShowAllDefault(false);
-  }, [activeCategory, searchQuery]);
 
   const refreshUserStates = async () => {
     try {
@@ -290,7 +275,6 @@ export default function AgentDirectoryTab({ backendHost, currentUser, callPanelP
     return contact.call_state || (contact.is_registered ? "online" : "offline");
   };
 
-  // Smart priority rank when browsing or filtering
   const getPriorityRank = (item) => {
     if (favoriteIds.includes(item.id)) return 0;
     if (item.type === "internal") {
@@ -304,124 +288,136 @@ export default function AgentDirectoryTab({ backendHost, currentUser, callPanelP
     return 6;
   };
 
-  const categoryCounts = useMemo(() => {
-    let internalTotal = 0;
-    let internalOnline = 0;
-    let queueTotal = 0;
-    let externalTotal = 0;
-    let workflowTotal = 0;
-    let favTotal = 0;
-
+  const directoryById = useMemo(() => {
+    const map = new Map();
     directory.forEach((item) => {
-      if (favoriteIds.includes(item.id)) favTotal += 1;
-      if (item.type === "internal") {
-        internalTotal += 1;
-        const st = resolveContactCallState(item);
-        if (st === "online") internalOnline += 1;
-      } else if (item.type === "queue") {
-        queueTotal += 1;
-      } else if (item.type === "external") {
-        externalTotal += 1;
-      } else if (item.type === "workflow") {
-        workflowTotal += 1;
-      }
+      map.set(item.id, item);
     });
+    return map;
+  }, [directory]);
 
-    return {
-      all: directory.length,
-      favorites: favTotal,
-      internal: internalTotal,
-      internalOnline,
-      queue: queueTotal,
-      external: externalTotal,
-      workflow: workflowTotal
-    };
+  // Live-hydrated recent searched contacts (up to 10, preserving chronological order)
+  const resolvedRecentList = useMemo(() => {
+    return recentContacts
+      .map((saved) => {
+        const live = directoryById.get(saved.id);
+        if (live) return live;
+        // Fallback icon if directory hasn't finished loading yet
+        return {
+          ...saved,
+          icon:
+            saved.type === "queue" ? (
+              <Users size={19} className="text-purple-500" />
+            ) : saved.type === "workflow" ? (
+              <GitBranch size={19} className="text-cyan-500" />
+            ) : null
+        };
+      })
+      .slice(0, MAX_RECENT_ITEMS);
+  }, [recentContacts, directoryById]);
+
+  // Live-hydrated favorites list
+  const resolvedFavoritesList = useMemo(() => {
+    return directory
+      .filter((item) => favoriteIds.includes(item.id))
+      .sort((a, b) => {
+        const rankDiff = getPriorityRank(a) - getPriorityRank(b);
+        if (rankDiff !== 0) return rankDiff;
+        return (a.name || "").localeCompare(b.name || "", "tr");
+      });
   }, [directory, favoriteIds, wpState.registered, wpState.callStatus, myExt]);
 
-  const categoryTabs = useMemo(() => {
-    const base = [
-      { id: "all", label: "Öne Çıkanlar", count: categoryCounts.all },
-      { id: "internal", label: "Dahililer", count: categoryCounts.internal, onlineCount: categoryCounts.internalOnline },
-      { id: "queue", label: "Kuyruklar", count: categoryCounts.queue },
-      { id: "external", label: "Dış Rehber", count: categoryCounts.external },
-      { id: "favorites", label: "Favoriler", count: categoryCounts.favorites, isStar: true }
-    ];
-    if (categoryCounts.workflow > 0) {
-      base.push({ id: "workflow", label: "Akışlar", count: categoryCounts.workflow });
-    }
-    return base;
-  }, [categoryCounts]);
-
-  const sortedAndFiltered = useMemo(() => {
+  // Search results across entire directory when searchQuery is non-empty
+  const searchResults = useMemo(() => {
     const q = searchQuery.trim().toLocaleLowerCase("tr-TR");
+    if (!q) return [];
 
-    const baseList = directory.filter((item) => {
-      // Category filter (when searching, search inside selected category unless "all")
-      if (activeCategory === "favorites" && !favoriteIds.includes(item.id)) return false;
-      if (
-        activeCategory !== "all" &&
-        activeCategory !== "favorites" &&
-        item.type !== activeCategory
-      ) {
-        return false;
-      }
-
-      if (!q) return true;
+    const matched = directory.filter((item) => {
       const nameStr = (item.name || "").toLocaleLowerCase("tr-TR");
       const numStr = String(item.number || "").toLocaleLowerCase("tr-TR");
       const subStr = (item.subtitle || "").toLocaleLowerCase("tr-TR");
       return nameStr.includes(q) || numStr.includes(q) || subStr.includes(q);
     });
 
-    return [...baseList].sort((a, b) => {
-      if (q) {
-        const aStarts =
-          (a.name || "").toLocaleLowerCase("tr-TR").startsWith(q) ||
-          String(a.number || "").toLocaleLowerCase("tr-TR").startsWith(q);
-        const bStarts =
-          (b.name || "").toLocaleLowerCase("tr-TR").startsWith(q) ||
-          String(b.number || "").toLocaleLowerCase("tr-TR").startsWith(q);
-        if (aStarts !== bStarts) return aStarts ? -1 : 1;
-      }
+    return [...matched].sort((a, b) => {
+      const aExact =
+        (a.name || "").toLocaleLowerCase("tr-TR") === q ||
+        String(a.number || "").toLocaleLowerCase("tr-TR") === q;
+      const bExact =
+        (b.name || "").toLocaleLowerCase("tr-TR") === q ||
+        String(b.number || "").toLocaleLowerCase("tr-TR") === q;
+      if (aExact !== bExact) return aExact ? -1 : 1;
+
+      const aStarts =
+        (a.name || "").toLocaleLowerCase("tr-TR").startsWith(q) ||
+        String(a.number || "").toLocaleLowerCase("tr-TR").startsWith(q);
+      const bStarts =
+        (b.name || "").toLocaleLowerCase("tr-TR").startsWith(q) ||
+        String(b.number || "").toLocaleLowerCase("tr-TR").startsWith(q);
+      if (aStarts !== bStarts) return aStarts ? -1 : 1;
+
       const rankDiff = getPriorityRank(a) - getPriorityRank(b);
       if (rankDiff !== 0) return rankDiff;
       return (a.name || "").localeCompare(b.name || "", "tr");
     });
-  }, [directory, searchQuery, activeCategory, favoriteIds, wpState.registered, wpState.callStatus, myExt]);
+  }, [directory, searchQuery, favoriteIds, wpState.registered, wpState.callStatus, myExt]);
 
   const isSearching = searchQuery.trim().length > 0;
-  const visibleDirectory = useMemo(() => {
-    if (isSearching || showAllDefault) {
-      return sortedAndFiltered;
-    }
-    return sortedAndFiltered.slice(0, DEFAULT_VISIBLE_LIMIT);
-  }, [sortedAndFiltered, isSearching, showAllDefault]);
 
-  const hiddenCount = Math.max(0, sortedAndFiltered.length - visibleDirectory.length);
+  const commitTopSearchMatchIfNeeded = useCallback(() => {
+    const q = searchQuery.trim();
+    if (q.length < 2 || didRecordCurrentQueryRef.current) return;
+    if (searchResults.length > 0) {
+      recordRecentContact(searchResults[0]);
+      didRecordCurrentQueryRef.current = true;
+    }
+  }, [searchQuery, searchResults, recordRecentContact]);
+
+  const latestCommitRef = useRef(commitTopSearchMatchIfNeeded);
+  useEffect(() => {
+    latestCommitRef.current = commitTopSearchMatchIfNeeded;
+  }, [commitTopSearchMatchIfNeeded]);
+
+  useEffect(() => {
+    return () => {
+      latestCommitRef.current?.();
+    };
+  }, []);
+
+  const visibleList = isSearching
+    ? searchResults
+    : activeTab === "favorites"
+    ? resolvedFavoritesList
+    : resolvedRecentList;
+
+  const viewTabs = useMemo(
+    () => [
+      { id: "recent", label: "Son Aramalar", count: resolvedRecentList.length, icon: "clock" },
+      { id: "favorites", label: "Favoriler", count: resolvedFavoritesList.length, icon: "star" }
+    ],
+    [resolvedRecentList.length, resolvedFavoritesList.length]
+  );
+
   const isCallActive = wpState.callStatus && wpState.callStatus !== "Idle";
 
   const triggerCall = (contact) => {
     if (!contact?.number) return;
-    if (searchQuery.trim().length >= 2) {
-      recordRecentSearch(searchQuery.trim());
-    }
     recordRecentContact(contact);
+    didRecordCurrentQueryRef.current = true;
     window.dispatchEvent(new CustomEvent("TRIGGER_CALL", { detail: String(contact.number) }));
   };
 
   const handleDirectTransfer = async (contact) => {
     if (!contact?.number || !isCallActive) return;
-    if (searchQuery.trim().length >= 2) {
-      recordRecentSearch(searchQuery.trim());
-    }
     recordRecentContact(contact);
+    didRecordCurrentQueryRef.current = true;
     await webphoneManager.blindTransfer(contact.number, contact.name);
     setTransferToast(`Çağrı ${contact.name} (${contact.number}) hedefine transfer edildi.`);
     setTimeout(() => setTransferToast(null), 4000);
   };
 
-  const handleCategoryKeyDown = (e, idx) => {
-    const len = categoryTabs.length;
+  const handleTabKeyDown = (e, idx) => {
+    const len = viewTabs.length;
     if (!len) return;
     let nextIdx = null;
     if (e.key === "ArrowRight") nextIdx = (idx + 1) % len;
@@ -431,8 +427,8 @@ export default function AgentDirectoryTab({ backendHost, currentUser, callPanelP
 
     if (nextIdx !== null) {
       e.preventDefault();
-      const targetTab = categoryTabs[nextIdx];
-      setActiveCategory(targetTab.id);
+      const targetTab = viewTabs[nextIdx];
+      setActiveTab(targetTab.id);
       tabRefs.current[targetTab.id]?.focus();
     }
   };
@@ -501,8 +497,6 @@ export default function AgentDirectoryTab({ backendHost, currentUser, callPanelP
     }
   };
 
-  const hasRecentActivity = recentContacts.length > 0 || recentSearches.length > 0;
-
   return (
     <div className="w-full h-full bg-slate-50 dark:bg-slate-900/50 p-5 md:p-6 overflow-y-auto">
       <div className="max-w-4xl mx-auto space-y-4">
@@ -512,12 +506,6 @@ export default function AgentDirectoryTab({ backendHost, currentUser, callPanelP
             <h2 className="text-lg font-extrabold text-slate-800 dark:text-white tracking-tight">
               Şirket Rehberi
             </h2>
-            {categoryCounts.internalOnline > 0 && (
-              <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-emerald-50 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-400 border border-emerald-200/80 dark:border-emerald-500/20">
-                <UserCheck size={12} />
-                {categoryCounts.internalOnline} Temsilci Müsait
-              </span>
-            )}
             {isCallActive && (
               <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-emerald-50 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-500/20">
                 <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
@@ -529,28 +517,39 @@ export default function AgentDirectoryTab({ backendHost, currentUser, callPanelP
           <form
             onSubmit={(e) => {
               e.preventDefault();
-              recordRecentSearch(searchQuery);
+              commitTopSearchMatchIfNeeded();
             }}
             className="relative w-full md:w-80"
           >
             <label htmlFor="agent-directory-search" className="sr-only">
               Kişi, departman, kuyruk veya numara ara
             </label>
-            <Search
-              className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none"
-              size={16}
-            />
+            <button
+              type="submit"
+              aria-label="Rehberde ara"
+              className="absolute left-2.5 top-1/2 -translate-y-1/2 p-1 rounded-md text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 transition cursor-pointer"
+            >
+              <Search size={16} />
+            </button>
             <input
               ref={searchInputRef}
               id="agent-directory-search"
               type="search"
               placeholder="Kişi, kuyruk veya numara ara..."
               value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              onBlur={() => {
-                if (searchQuery.trim().length >= 2) {
-                  recordRecentSearch(searchQuery.trim());
+              onChange={(e) => {
+                didRecordCurrentQueryRef.current = false;
+                setSearchQuery(e.target.value);
+              }}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  if (e.nativeEvent?.isComposing || e.keyCode === 229) return;
+                  e.preventDefault();
+                  commitTopSearchMatchIfNeeded();
                 }
+              }}
+              onBlur={() => {
+                commitTopSearchMatchIfNeeded();
               }}
               className={`w-full pl-9 pr-8 py-2 rounded-xl border ${borderLight} bg-white dark:bg-slate-800 text-sm focus:outline-none focus:ring-2 ${ring} shadow-sm transition-all text-slate-900 dark:text-white`}
             />
@@ -558,6 +557,7 @@ export default function AgentDirectoryTab({ backendHost, currentUser, callPanelP
               <button
                 type="button"
                 onClick={() => {
+                  commitTopSearchMatchIfNeeded();
                   setSearchQuery("");
                   searchInputRef.current?.focus();
                 }}
@@ -570,119 +570,76 @@ export default function AgentDirectoryTab({ backendHost, currentUser, callPanelP
           </form>
         </div>
 
-        {/* Recent Contacts & Recent Searches Strip (visible when search input is empty) */}
-        {!isSearching && hasRecentActivity && (
-          <div className="bg-white dark:bg-slate-900 border border-slate-200/75 dark:border-slate-800 rounded-2xl px-3.5 py-2.5 shadow-sm flex flex-wrap items-center justify-between gap-2">
-            <div className="flex flex-wrap items-center gap-1.5 min-w-0">
-              <span className="inline-flex items-center gap-1 text-[11px] font-bold text-slate-400 dark:text-slate-500 mr-1">
-                <Clock size={12} />
-                Son İşlemler:
-              </span>
-
-              {recentContacts.map((rc) => (
+        {/* View Tabs: Son Aramalar (Max 10) & Favoriler */}
+        <div className="flex items-center justify-between gap-2 flex-wrap">
+          <div
+            role="tablist"
+            aria-label="Rehber Görünümleri"
+            className="flex items-center gap-1.5 overflow-x-auto pb-0.5 no-scrollbar"
+          >
+            {viewTabs.map((tab, idx) => {
+              const isSelected = !isSearching && activeTab === tab.id;
+              return (
                 <button
-                  key={`rc_${rc.id}`}
+                  key={tab.id}
+                  ref={(el) => {
+                    tabRefs.current[tab.id] = el;
+                  }}
                   type="button"
-                  onClick={() =>
-                    isCallActive && canTransfer ? handleDirectTransfer(rc) : triggerCall(rc)
-                  }
-                  title={
-                    isCallActive && canTransfer
-                      ? `${rc.name} (${rc.number}) hedefine transfer et`
-                      : `${rc.name} (${rc.number}) numarasını ara`
-                  }
-                  className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl text-xs font-semibold border transition cursor-pointer ${lightBg} ${text} ${borderLight} hover:opacity-90`}
+                  role="tab"
+                  id={`dir-tab-${tab.id}`}
+                  aria-selected={isSelected}
+                  aria-controls="dir-tabpanel"
+                  tabIndex={activeTab === tab.id ? 0 : -1}
+                  onClick={() => {
+                    if (isSearching) {
+                      commitTopSearchMatchIfNeeded();
+                      setSearchQuery("");
+                    }
+                    setActiveTab(tab.id);
+                  }}
+                  onKeyDown={(e) => handleTabKeyDown(e, idx)}
+                  className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold whitespace-nowrap border transition-all cursor-pointer ${
+                    isSelected
+                      ? `${bg} text-white border-transparent shadow-sm`
+                      : "bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 border-slate-200/80 dark:border-slate-800 hover:bg-slate-100 dark:hover:bg-slate-800"
+                  }`}
                 >
-                  {isCallActive && canTransfer ? <PhoneForwarded size={11} /> : <Phone size={11} />}
-                  <span className="truncate max-w-[130px]">{rc.name}</span>
-                  <span className="font-mono text-[10px] opacity-75">({rc.number})</span>
+                  {tab.icon === "star" ? (
+                    <Star
+                      size={12}
+                      className={isSelected ? "fill-white text-white" : "text-amber-500 fill-amber-400"}
+                    />
+                  ) : (
+                    <Clock
+                      size={12}
+                      className={isSelected ? "text-white" : "text-slate-400 dark:text-slate-500"}
+                    />
+                  )}
+                  <span>{tab.label}</span>
+                  <span
+                    className={`px-1.5 py-0.2 rounded-md text-[10px] font-mono ${
+                      isSelected
+                        ? "bg-white/20 text-white"
+                        : "bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400"
+                    }`}
+                  >
+                    {tab.count}
+                  </span>
                 </button>
-              ))}
+              );
+            })}
+          </div>
 
-              {recentSearches.map((term) => (
-                <span
-                  key={`rs_${term}`}
-                  className="inline-flex items-center gap-1 pl-2.5 pr-1 py-0.5 rounded-xl text-xs font-medium bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200/70 dark:border-slate-700/70"
-                >
-                  <button
-                    type="button"
-                    onClick={() => setSearchQuery(term)}
-                    className="inline-flex items-center gap-1 hover:text-slate-900 dark:hover:text-white cursor-pointer"
-                  >
-                    <Search size={11} className="text-slate-400" />
-                    <span className="truncate max-w-[110px]">{term}</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => removeRecentSearch(term)}
-                    aria-label={`${term} son aramasını sil`}
-                    className="p-0.5 rounded hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 cursor-pointer"
-                  >
-                    <X size={11} />
-                  </button>
-                </span>
-              ))}
-            </div>
-
+          {!isSearching && activeTab === "recent" && resolvedRecentList.length > 0 && (
             <button
               type="button"
               onClick={clearRecentHistory}
-              className="text-[11px] font-semibold text-slate-400 hover:text-rose-500 transition cursor-pointer shrink-0"
+              className="text-xs font-semibold text-slate-400 hover:text-rose-500 transition cursor-pointer shrink-0"
             >
               Geçmişi Temizle
             </button>
-          </div>
-        )}
-
-        {/* Category Filter Tabs */}
-        <div
-          role="tablist"
-          aria-label="Rehber Kategorileri"
-          className="flex items-center gap-1.5 overflow-x-auto pb-0.5 no-scrollbar"
-        >
-          {categoryTabs.map((tab, idx) => {
-            const isSelected = activeCategory === tab.id;
-            return (
-              <button
-                key={tab.id}
-                ref={(el) => {
-                  tabRefs.current[tab.id] = el;
-                }}
-                type="button"
-                role="tab"
-                id={`dir-tab-${tab.id}`}
-                aria-selected={isSelected}
-                aria-controls="dir-tabpanel"
-                tabIndex={isSelected ? 0 : -1}
-                onClick={() => setActiveCategory(tab.id)}
-                onKeyDown={(e) => handleCategoryKeyDown(e, idx)}
-                className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold whitespace-nowrap border transition-all cursor-pointer ${
-                  isSelected
-                    ? `${bg} text-white border-transparent shadow-sm`
-                    : "bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 border-slate-200/80 dark:border-slate-800 hover:bg-slate-100 dark:hover:bg-slate-800"
-                }`}
-              >
-                {tab.isStar && (
-                  <Star
-                    size={12}
-                    className={isSelected ? "fill-white text-white" : "text-amber-500 fill-amber-400"}
-                  />
-                )}
-                <span>{tab.label}</span>
-                <span
-                  className={`px-1.5 py-0.2 rounded-md text-[10px] font-mono ${
-                    isSelected
-                      ? "bg-white/20 text-white"
-                      : "bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400"
-                  }`}
-                >
-                  {tab.onlineCount !== undefined && tab.count > 0
-                    ? `${tab.onlineCount}/${tab.count}`
-                    : tab.count}
-                </span>
-              </button>
-            );
-          })}
+          )}
         </div>
 
         {transferToast && (
@@ -700,230 +657,232 @@ export default function AgentDirectoryTab({ backendHost, currentUser, callPanelP
         <div
           id="dir-tabpanel"
           role="tabpanel"
-          aria-labelledby={`dir-tab-${activeCategory}`}
+          aria-labelledby={`dir-tab-${activeTab}`}
           className={`bg-white dark:bg-slate-900 border ${borderLight} rounded-2xl shadow-sm overflow-hidden`}
         >
           {/* Context Banner inside Card Header */}
-          {!loading && sortedAndFiltered.length > 0 && (
+          {!loading && visibleList.length > 0 && (
             <div className="px-4 py-2.5 bg-slate-50/80 dark:bg-slate-950/40 border-b border-slate-100 dark:border-slate-800/70 flex flex-wrap items-center justify-between gap-2 text-xs text-slate-500 dark:text-slate-400">
               <span>
                 {isSearching ? (
                   <>
                     <strong className="text-slate-700 dark:text-slate-200">
-                      "{searchQuery.trim()}"
+                      &quot;{searchQuery.trim()}&quot;
                     </strong>{" "}
-                    için {sortedAndFiltered.length} sonuç bulundu
+                    için {visibleList.length} sonuç bulundu
                   </>
-                ) : activeCategory === "favorites" ? (
-                  <>Favorilere eklediğiniz {sortedAndFiltered.length} kayıt listeleniyor</>
+                ) : activeTab === "favorites" ? (
+                  <>Favorilere eklediğiniz {visibleList.length} kayıt listeleniyor</>
                 ) : (
                   <>
-                    Öncelikli{" "}
+                    Rehberde aradığınız{" "}
                     <strong className="text-slate-700 dark:text-slate-200">
-                      ilk {visibleDirectory.length}
+                      son {visibleList.length}
                     </strong>{" "}
-                    kayıt gösteriliyor{" "}
-                    <span className="hidden sm:inline">
-                      (Favoriler, müsait dahililer ve kuyruklar üstte)
-                    </span>
+                    kayıt gösteriliyor
                   </>
                 )}
               </span>
 
-              {!isSearching && directory.length > DEFAULT_VISIBLE_LIMIT && (
+              {!isSearching && activeTab === "recent" && (
                 <span className="text-[11px] text-slate-400 dark:text-slate-500">
-                  Toplam {sortedAndFiltered.length} kayıt
+                  En fazla {MAX_RECENT_ITEMS} kayıt
                 </span>
               )}
             </div>
           )}
 
-          {loading ? (
+          {loading && visibleList.length === 0 ? (
             <div className="flex flex-col items-center justify-center p-16">
-              <div className={`w-8 h-8 border-4 border-slate-200 border-t-primary rounded-full animate-spin mb-3`} />
+              <div className="w-8 h-8 border-4 border-slate-200 border-t-primary rounded-full animate-spin mb-3" />
               <p className="text-slate-500 text-sm font-medium">Rehber yükleniyor...</p>
             </div>
-          ) : sortedAndFiltered.length === 0 ? (
+          ) : visibleList.length === 0 ? (
             <div className="flex flex-col items-center justify-center p-16 text-center">
               <div className="w-14 h-14 bg-slate-100 dark:bg-slate-800 rounded-full flex items-center justify-center mb-3">
-                {activeCategory === "favorites" && !isSearching ? (
+                {isSearching ? (
+                  <Search size={24} className="text-slate-400" />
+                ) : activeTab === "favorites" ? (
                   <Star size={24} className="text-amber-400" />
                 ) : (
-                  <LayoutGrid size={24} className="text-slate-400" />
+                  <Clock size={24} className="text-slate-400" />
                 )}
               </div>
               <h3 className="text-base font-bold text-slate-700 dark:text-slate-300 mb-1.5">
-                {activeCategory === "favorites" && !isSearching
-                  ? "Henüz Favori Kişi Eklenmedi"
-                  : isSearching
+                {isSearching
                   ? "Eşleşen Kayıt Bulunamadı"
-                  : "Rehberde Kayıt Yok"}
+                  : activeTab === "favorites"
+                  ? "Henüz Favori Kişi Eklenmedi"
+                  : "Henüz Son Arama Kaydı Yok"}
               </h3>
               <p className="text-slate-500 max-w-sm mx-auto text-xs leading-relaxed">
-                {activeCategory === "favorites" && !isSearching
-                  ? "Sık aradığınız veya çağrı aktardığınız kişilerin yanındaki yıldız ikonuna tıklayarak bu alana sabitleyebilirsiniz."
-                  : isSearching
+                {isSearching
                   ? `"${searchQuery}" aramasıyla eşleşen bir kişi, dahili, kuyruk veya akış bulunamadı.`
-                  : "Henüz tanımlı dahili temsilci, kuyruk veya dış rehber kaydı bulunmuyor."}
+                  : activeTab === "favorites"
+                  ? "Sık aradığınız veya çağrı aktardığınız kişilerin yanındaki yıldız ikonuna tıklayarak bu alana sabitleyebilirsiniz."
+                  : "Sağ üstteki arama kutusundan kişi, dahili, kuyruk veya numara aradığınızda son 10 aramanız hızlı erişim için bu ekranda listelenir."}
               </p>
-              {(isSearching || activeCategory !== "all") && (
+              {isSearching && (
                 <button
                   type="button"
                   onClick={() => {
                     setSearchQuery("");
-                    setActiveCategory("all");
+                    searchInputRef.current?.focus();
                   }}
                   className={`mt-4 px-3.5 py-1.5 rounded-xl text-xs font-bold ${lightBg} ${text} border ${borderLight} cursor-pointer`}
                 >
-                  Tüm Rehberi Göster
+                  Aramayı Temizle
                 </button>
               )}
             </div>
           ) : (
-            <>
-              <div className="divide-y divide-slate-100 dark:divide-slate-800/60">
-                {visibleDirectory.map((contact, idx) => {
-                  const resolvedCallState = resolveContactCallState(contact);
-                  const ledMeta = contact.type === "internal" ? getUserLedMeta(resolvedCallState) : null;
-                  const isFav = favoriteIds.includes(contact.id);
+            <div className="divide-y divide-slate-100 dark:divide-slate-800/60">
+              {visibleList.map((contact, idx) => {
+                const resolvedCallState = resolveContactCallState(contact);
+                const ledMeta = contact.type === "internal" ? getUserLedMeta(resolvedCallState) : null;
+                const isFav = favoriteIds.includes(contact.id);
 
-                  return (
-                    <div
-                      key={contact.id}
-                      className="px-4 py-3 flex items-center justify-between gap-3 hover:bg-slate-50 dark:hover:bg-slate-950/30 transition-colors group"
-                    >
-                      <div className="flex items-center gap-3.5 min-w-0">
-                        <button
-                          type="button"
-                          onClick={() => toggleFavorite(contact.id)}
-                          aria-pressed={isFav}
-                          aria-label={
-                            isFav
-                              ? `${contact.name} kaydını favorilerden çıkar`
-                              : `${contact.name} kaydını favorilere ekle`
-                          }
-                          title={isFav ? "Favorilerden Çıkar" : "Favorilere Sabitle"}
-                          className={`p-1 rounded-lg transition cursor-pointer shrink-0 ${
-                            isFav
-                              ? "text-amber-500 hover:text-amber-600"
-                              : "text-slate-300 dark:text-slate-600 hover:text-amber-400"
-                          }`}
-                        >
-                          <Star size={16} className={isFav ? "fill-amber-400" : ""} />
-                        </button>
+                return (
+                  <div
+                    key={contact.id}
+                    onClick={() => {
+                      if (isSearching) {
+                        recordRecentContact(contact);
+                        didRecordCurrentQueryRef.current = true;
+                      }
+                    }}
+                    className={`px-4 py-3 flex items-center justify-between gap-3 hover:bg-slate-50 dark:hover:bg-slate-950/30 transition-colors group ${
+                      isSearching ? "cursor-pointer" : ""
+                    }`}
+                  >
+                    <div className="flex items-center gap-3.5 min-w-0">
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          toggleFavorite(contact);
+                        }}
+                        aria-pressed={isFav}
+                        aria-label={
+                          isFav
+                            ? `${contact.name} kaydını favorilerden çıkar`
+                            : `${contact.name} kaydını favorilere ekle`
+                        }
+                        title={isFav ? "Favorilerden Çıkar" : "Favorilere Sabitle"}
+                        className={`p-1 rounded-lg transition cursor-pointer shrink-0 ${
+                          isFav
+                            ? "text-amber-500 hover:text-amber-600"
+                            : "text-slate-300 dark:text-slate-600 hover:text-amber-400"
+                        }`}
+                      >
+                        <Star size={16} className={isFav ? "fill-amber-400" : ""} />
+                      </button>
 
-                        <div className="relative shrink-0">
-                          {contact.avatar ? (
-                            <img
-                              src={contact.avatar}
-                              alt=""
-                              width={40}
-                              height={40}
-                              loading={idx >= 8 ? "lazy" : undefined}
-                              decoding="async"
-                              className="w-10 h-10 rounded-full border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 shadow-sm object-cover"
-                            />
-                          ) : (
-                            <div className="w-10 h-10 rounded-full border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 shadow-sm flex items-center justify-center">
-                              {contact.icon || <Building2 size={18} className="text-slate-400" />}
-                            </div>
-                          )}
+                      <div className="relative shrink-0">
+                        {contact.avatar ? (
+                          <img
+                            src={contact.avatar}
+                            alt=""
+                            width={40}
+                            height={40}
+                            loading={idx >= 8 ? "lazy" : undefined}
+                            decoding="async"
+                            className="w-10 h-10 rounded-full border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 shadow-sm object-cover"
+                          />
+                        ) : (
+                          <div className="w-10 h-10 rounded-full border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 shadow-sm flex items-center justify-center">
+                            {contact.icon || <Building2 size={18} className="text-slate-400" />}
+                          </div>
+                        )}
+                        {ledMeta && (
+                          <span
+                            title={ledMeta.label}
+                            className={`absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 rounded-full border-2 border-white dark:border-slate-900 ${ledMeta.dotClass}`}
+                          />
+                        )}
+                      </div>
+
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <h3 className="font-semibold text-sm text-slate-800 dark:text-white leading-tight truncate">
+                            {contact.name}
+                          </h3>
                           {ledMeta && (
                             <span
-                              title={ledMeta.label}
-                              className={`absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 rounded-full border-2 border-white dark:border-slate-900 ${ledMeta.dotClass}`}
-                            />
+                              title={`Durum: ${ledMeta.label}`}
+                              className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-bold border ${ledMeta.badgeClass}`}
+                            >
+                              <span className={`w-1.5 h-1.5 rounded-full ${ledMeta.dotClass}`} />
+                              {ledMeta.label}
+                            </span>
                           )}
+                          {getTypeBadge(contact.type)}
                         </div>
-
-                        <div className="min-w-0">
-                          <div className="flex items-center gap-2 flex-wrap">
-                            <h3 className="font-semibold text-sm text-slate-800 dark:text-white leading-tight truncate">
-                              {contact.name}
-                            </h3>
-                            {ledMeta && (
-                              <span
-                                title={`Durum: ${ledMeta.label}`}
-                                className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-bold border ${ledMeta.badgeClass}`}
-                              >
-                                <span className={`w-1.5 h-1.5 rounded-full ${ledMeta.dotClass}`} />
-                                {ledMeta.label}
-                              </span>
-                            )}
-                            {getTypeBadge(contact.type)}
-                          </div>
-                          <div className="flex items-center gap-2 mt-1">
-                            <span className="text-xs font-mono text-slate-600 dark:text-slate-400 bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 rounded">
-                              {contact.number}
-                            </span>
-                            <span className="text-xs text-slate-400 dark:text-slate-500 truncate hidden sm:inline-block">
-                              • {contact.subtitle}
-                            </span>
-                          </div>
+                        <div className="flex items-center gap-2 mt-1">
+                          <span className="text-xs font-mono text-slate-600 dark:text-slate-400 bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 rounded">
+                            {contact.number}
+                          </span>
+                          <span className="text-xs text-slate-400 dark:text-slate-500 truncate hidden sm:inline-block">
+                            • {contact.subtitle}
+                          </span>
                         </div>
-                      </div>
-
-                      <div className="flex items-center gap-2 shrink-0">
-                        {isCallActive && canTransfer && (
-                          <button
-                            type="button"
-                            onClick={() => handleDirectTransfer(contact)}
-                            aria-label={`${contact.name} (${contact.number}) numarasına çağrıyı transfer et`}
-                            className={`h-9 px-3 rounded-xl flex items-center gap-1.5 text-xs font-bold ${lightBg} ${text} hover:opacity-90 transition-all shadow-sm border ${borderLight} cursor-pointer`}
-                            title={`Aktif çağrıyı doğrudan ${contact.name} (${contact.number}) hedefine transfer et`}
-                          >
-                            <PhoneForwarded size={15} />
-                            <span className="hidden sm:inline">Transfer</span>
-                          </button>
-                        )}
-                        <button
-                          type="button"
-                          onClick={() => triggerCall(contact)}
-                          aria-label={`${contact.name} (${contact.number}) numarasını ara`}
-                          className="h-9 w-9 rounded-full flex items-center justify-center bg-emerald-50 text-emerald-600 hover:bg-emerald-500 hover:text-white dark:bg-emerald-950/40 dark:hover:bg-emerald-500 dark:text-emerald-400 dark:hover:text-white transition-all shadow-sm cursor-pointer"
-                          title={`${contact.name} (${contact.number}) Ara`}
-                        >
-                          <Phone
-                            size={16}
-                            className={
-                              contact.type === "internal" || contact.type === "external"
-                                ? ""
-                                : "fill-current"
-                            }
-                          />
-                        </button>
                       </div>
                     </div>
-                  );
-                })}
-              </div>
 
-              {/* Footer: Expand Remaining or Collapse */}
-              {!isSearching && sortedAndFiltered.length > DEFAULT_VISIBLE_LIMIT && (
-                <div className="px-4 py-3 bg-slate-50/70 dark:bg-slate-950/30 border-t border-slate-100 dark:border-slate-800/70 flex flex-col sm:flex-row items-center justify-between gap-2">
-                  <span className="text-xs text-slate-500 dark:text-slate-400">
-                    {hiddenCount > 0
-                      ? `Diğer ${hiddenCount} kaydı bulmak için yukarıdan arama yapabilir veya listeyi genişletebilirsiniz.`
-                      : `Tüm ${sortedAndFiltered.length} kayıt listeleniyor.`}
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => setShowAllDefault((prev) => !prev)}
-                    className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold ${lightBg} ${text} border ${borderLight} hover:opacity-90 transition cursor-pointer shrink-0`}
-                  >
-                    <span>
-                      {hiddenCount > 0
-                        ? `Tümünü Göster (+${hiddenCount})`
-                        : `İlk ${DEFAULT_VISIBLE_LIMIT} Kayda Daralt`}
-                    </span>
-                    <ChevronDown
-                      size={14}
-                      className={`transition-transform ${hiddenCount === 0 ? "rotate-180" : ""}`}
-                    />
-                  </button>
-                </div>
-              )}
-            </>
+                    <div className="flex items-center gap-2 shrink-0">
+                      {isCallActive && canTransfer && (
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleDirectTransfer(contact);
+                          }}
+                          aria-label={`${contact.name} (${contact.number}) numarasına çağrıyı transfer et`}
+                          className={`h-9 px-3 rounded-xl flex items-center gap-1.5 text-xs font-bold ${lightBg} ${text} hover:opacity-90 transition-all shadow-sm border ${borderLight} cursor-pointer`}
+                          title={`Aktif çağrıyı doğrudan ${contact.name} (${contact.number}) hedefine transfer et`}
+                        >
+                          <PhoneForwarded size={15} />
+                          <span className="hidden sm:inline">Transfer</span>
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          triggerCall(contact);
+                        }}
+                        aria-label={`${contact.name} (${contact.number}) numarasını ara`}
+                        className="h-9 w-9 rounded-full flex items-center justify-center bg-emerald-50 text-emerald-600 hover:bg-emerald-500 hover:text-white dark:bg-emerald-950/40 dark:hover:bg-emerald-500 dark:text-emerald-400 dark:hover:text-white transition-all shadow-sm cursor-pointer"
+                        title={`${contact.name} (${contact.number}) Ara`}
+                      >
+                        <Phone
+                          size={16}
+                          className={
+                            contact.type === "internal" || contact.type === "external"
+                              ? ""
+                              : "fill-current"
+                          }
+                        />
+                      </button>
+                      {!isSearching && activeTab === "recent" && (
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            removeRecentContact(contact.id);
+                          }}
+                          aria-label={`${contact.name} kaydını son aramalardan kaldır`}
+                          title="Son aramalardan kaldır"
+                          className="h-8 w-8 rounded-lg flex items-center justify-center text-slate-300 hover:text-rose-500 hover:bg-slate-100 dark:text-slate-600 dark:hover:text-rose-400 dark:hover:bg-slate-800 transition cursor-pointer"
+                        >
+                          <X size={14} />
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
           )}
         </div>
       </div>
