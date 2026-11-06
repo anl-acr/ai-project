@@ -1,10 +1,10 @@
 // Shared catalog & permission-aware resolvers for per-user startup / landing screen preferences
 
 export const LANDING_SCREEN_CATALOG = [
-  // Operasyon & Canlı Ekranlar
+  // 1. Operasyon & İzleme
   {
     id: "dashboard",
-    group: "Operasyon & Canlı Ekranlar",
+    group: "Operasyon & İzleme",
     label: "Gerçek Zamanlı AI Pano",
     shortLabel: "AI Pano",
     perms: ["dashboard"],
@@ -13,152 +13,44 @@ export const LANDING_SCREEN_CATALOG = [
   },
   {
     id: "wallboard",
-    group: "Operasyon & Canlı Ekranlar",
+    group: "Operasyon & İzleme",
     label: "Canlı İzleme Paneli (Wallboard)",
     shortLabel: "Wallboard",
     perms: ["wallboard"]
   },
   {
     id: "call-center",
-    group: "Operasyon & Canlı Ekranlar",
+    group: "Operasyon & İzleme",
     label: "Temsilci Çağrı Paneli",
     shortLabel: "Çağrı Paneli",
     perms: ["call_panel"],
-    allowAgentOnly: true
+    allowAgentOnly: true,
+    desktopAllowed: true
   },
   {
     id: "omnichannel",
-    group: "Operasyon & Canlı Ekranlar",
+    group: "Operasyon & İzleme",
     label: "Ortak Gelen Kutusu (Omnichannel)",
     shortLabel: "Omnichannel",
-    perms: ["omnichannel"]
+    perms: ["omnichannel"],
+    desktopAllowed: true
   },
   {
-    id: "contacts",
-    group: "Operasyon & Canlı Ekranlar",
-    label: "Rehber Yönetimi",
-    shortLabel: "Rehber",
-    perms: ["contacts"]
-  },
-  {
-    id: "calendar",
-    group: "Operasyon & Canlı Ekranlar",
-    label: "Randevu Takvimi",
-    shortLabel: "Takvim",
-    perms: ["calendar"],
-    allowGeneralSupervisor: true
-  },
-  {
-    id: "dialer",
-    group: "Operasyon & Canlı Ekranlar",
-    label: "Dış Arama (Dialer)",
-    shortLabel: "Dialer",
-    perms: ["dialer"],
-    allowGeneralSupervisor: true
+    id: "api-budgets",
+    group: "Operasyon & İzleme",
+    label: "API Bütçe ve Tüketim",
+    shortLabel: "API Bütçe",
+    perms: ["api_budgets", "budget_"]
   },
 
-  // Santral & Yönlendirme
+  // 2. Yapay Zeka & Bilgi
   {
-    id: "users",
-    group: "Santral & Yönlendirme",
-    label: "Kullanıcılar",
-    shortLabel: "Kullanıcılar",
-    perms: ["users"]
+    id: "ai-config-assistant",
+    group: "Yapay Zeka & Bilgi",
+    label: "AI Konfigürasyon Asistanı",
+    shortLabel: "AI Asistan",
+    perms: ["ai_config_assistant"]
   },
-  {
-    id: "acd-queues",
-    group: "Santral & Yönlendirme",
-    label: "ACD Kuyruk Yönetimi",
-    shortLabel: "Kuyruklar",
-    perms: ["acd_queues"]
-  },
-  {
-    id: "call-flow",
-    group: "Santral & Yönlendirme",
-    label: "Arama Akış Yönetimi",
-    shortLabel: "Akış Yönetimi",
-    perms: ["call_flow", "pbx"],
-    allowGeneralSupervisor: true
-  },
-  {
-    id: "inbound-rules",
-    group: "Santral & Yönlendirme",
-    label: "Gelen Arama Kuralı",
-    shortLabel: "Gelen Kural",
-    perms: ["inbound_rules"]
-  },
-  {
-    id: "outbound-rules",
-    group: "Santral & Yönlendirme",
-    label: "Giden Arama Kuralı",
-    shortLabel: "Giden Kural",
-    perms: ["outbound_rules"]
-  },
-  {
-    id: "trunks",
-    group: "Santral & Yönlendirme",
-    label: "Dış Hat Tanımı (SIP Trunk)",
-    shortLabel: "Dış Hatlar",
-    perms: ["trunks"]
-  },
-  {
-    id: "auto-provision",
-    group: "Santral & Yönlendirme",
-    label: "Oto Provizyon",
-    shortLabel: "Provizyon",
-    perms: ["autoprovision"]
-  },
-  {
-    id: "announcements",
-    group: "Santral & Yönlendirme",
-    label: "Anons Yönetimi",
-    shortLabel: "Anonslar",
-    perms: ["announcements"]
-  },
-  {
-    id: "work-hours",
-    group: "Santral & Yönlendirme",
-    label: "Mesai & Resmi Tatiller",
-    shortLabel: "Mesai",
-    perms: ["work_hours", "pbx", "call_flow"]
-  },
-  {
-    id: "call-pickup-groups",
-    group: "Santral & Yönlendirme",
-    label: "Çağrı Yakalama Grupları",
-    shortLabel: "Yakalama Grubu",
-    perms: ["call_pickup_groups"]
-  },
-  {
-    id: "subscriber-groups",
-    group: "Santral & Yönlendirme",
-    label: "Abone Grupları",
-    shortLabel: "Abone Grubu",
-    perms: ["subscriber_groups"]
-  },
-  {
-    id: "conferences",
-    group: "Santral & Yönlendirme",
-    label: "Konferans Odaları",
-    shortLabel: "Konferans",
-    perms: ["conferences"]
-  },
-  {
-    id: "speed-dial",
-    group: "Santral & Yönlendirme",
-    label: "Hızlı Arama Kodları",
-    shortLabel: "Hızlı Arama",
-    perms: ["speed_dials"]
-  },
-  {
-    id: "blacklist",
-    group: "Santral & Yönlendirme",
-    label: "Numara Engelleme (Kara Liste)",
-    shortLabel: "Kara Liste",
-    perms: ["blacklist"]
-  },
-
-  // Yapay Zeka & Bilgi
   {
     id: "ai-agents",
     group: "Yapay Zeka & Bilgi",
@@ -180,105 +72,493 @@ export const LANDING_SCREEN_CATALOG = [
     shortLabel: "Senaryolar",
     perms: ["rules"]
   },
+
+  // 3. Santral
   {
-    id: "ai-config-assistant",
-    group: "Yapay Zeka & Bilgi",
-    label: "AI Konfigürasyon Asistanı",
-    shortLabel: "AI Asistan",
-    perms: ["ai_config_assistant"]
+    id: "users",
+    group: "Santral",
+    label: "Kullanıcılar",
+    shortLabel: "Kullanıcılar",
+    perms: ["users"]
+  },
+  {
+    id: "announcements",
+    group: "Santral",
+    label: "Anons Yönetimi",
+    shortLabel: "Anonslar",
+    perms: ["announcements"]
+  },
+  {
+    id: "acd-queues",
+    group: "Santral",
+    label: "ACD Kuyruk Yönetimi",
+    shortLabel: "Kuyruklar",
+    perms: ["acd_queues"]
+  },
+  {
+    id: "auto-provision",
+    group: "Santral",
+    label: "Oto Provizyon",
+    shortLabel: "Provizyon",
+    perms: ["autoprovision"]
+  },
+  {
+    id: "outbound-rules",
+    group: "Santral",
+    label: "Giden Arama Kuralı",
+    shortLabel: "Giden Kural",
+    perms: ["outbound_rules"]
+  },
+  {
+    id: "inbound-rules",
+    group: "Santral",
+    label: "Gelen Arama Kuralı",
+    shortLabel: "Gelen Kural",
+    perms: ["inbound_rules"]
+  },
+  {
+    id: "call-pickup-groups",
+    group: "Santral",
+    label: "Çağrı Yakalama Grupları",
+    shortLabel: "Yakalama Grubu",
+    perms: ["call_pickup_groups"]
+  },
+  {
+    id: "subscriber-groups",
+    group: "Santral",
+    label: "Abone Grupları",
+    shortLabel: "Abone Grubu",
+    perms: ["subscriber_groups"]
+  },
+  {
+    id: "contacts",
+    group: "Santral",
+    label: "Rehber Yönetimi",
+    shortLabel: "Rehber",
+    perms: ["contacts"]
+  },
+  {
+    id: "trunks",
+    group: "Santral",
+    label: "Dış Hat Tanımı (SIP Trunk)",
+    shortLabel: "Dış Hatlar",
+    perms: ["trunks"]
+  },
+  {
+    id: "conferences",
+    group: "Santral",
+    label: "Konferans Odaları",
+    shortLabel: "Konferans",
+    perms: ["conferences"]
+  },
+  {
+    id: "speed-dial",
+    group: "Santral",
+    label: "Hızlı Arama Kodları",
+    shortLabel: "Hızlı Arama",
+    perms: ["speed_dials"]
+  },
+  {
+    id: "blacklist",
+    group: "Santral",
+    label: "Numara Engelleme (Kara Liste)",
+    shortLabel: "Kara Liste",
+    perms: ["blacklist"]
+  },
+  {
+    id: "scheduled-reports",
+    group: "Santral",
+    label: "Zamanlanmış Raporlar",
+    shortLabel: "Zamanlanmış Rap.",
+    perms: ["scheduled_reports"]
   },
 
-  // Raporlar, Güvenlik & Sistem
+  // 4. Çağrı & Yönlendirme
+  {
+    id: "call-flow",
+    group: "Çağrı & Yönlendirme",
+    label: "Arama Akış Yönetimi",
+    shortLabel: "Akış Yönetimi",
+    perms: ["call_flow", "pbx"],
+    allowGeneralSupervisor: true
+  },
+  {
+    id: "work-hours",
+    group: "Çağrı & Yönlendirme",
+    label: "Mesai & Resmi Tatiller",
+    shortLabel: "Mesai",
+    perms: ["work_hours", "pbx", "call_flow"]
+  },
+  {
+    id: "dialer",
+    group: "Çağrı & Yönlendirme",
+    label: "Dış Arama (Dialer)",
+    shortLabel: "Dialer",
+    perms: ["dialer"],
+    allowGeneralSupervisor: true
+  },
+  {
+    id: "calendar",
+    group: "Çağrı & Yönlendirme",
+    label: "Randevu Takvimi",
+    shortLabel: "Takvim",
+    perms: ["calendar"],
+    allowGeneralSupervisor: true
+  },
+
+  // 5. Çağrı Raporları & Analiz
+  {
+    id: "reports-custom-builder",
+    group: "Çağrı Raporları & Analiz",
+    label: "Özel Rapor Tasarımcısı",
+    shortLabel: "Özel Rapor",
+    perms: ["reports", "reports_custom_builder"]
+  },
   {
     id: "reports-pano",
-    group: "Raporlar, Güvenlik & Sistem",
+    group: "Çağrı Raporları & Analiz",
     label: "Çağrı Rapor Panosu",
     shortLabel: "Rapor Panosu",
-    perms: ["reports", "reports_"]
+    perms: ["reports", "reports_pano", "reports_"]
   },
   {
     id: "reports-cdr",
-    group: "Raporlar, Güvenlik & Sistem",
+    group: "Çağrı Raporları & Analiz",
     label: "CDR Çağrı Kayıtları",
     shortLabel: "CDR",
     perms: ["reports", "reports_cdr", "reports_"]
   },
   {
     id: "reports-audio",
-    group: "Raporlar, Güvenlik & Sistem",
+    group: "Çağrı Raporları & Analiz",
     label: "Ses Kayıtları",
     shortLabel: "Ses Kaydı",
     perms: ["reports", "reports_audio", "reports_"]
   },
   {
+    id: "reports-transcripts",
+    group: "Çağrı Raporları & Analiz",
+    label: "Çağrı Transkripti",
+    shortLabel: "Transkript",
+    perms: ["reports", "reports_transcripts", "reports_"]
+  },
+  {
+    id: "reports-sentiment",
+    group: "Çağrı Raporları & Analiz",
+    label: "Duygu Analizi",
+    shortLabel: "Duygu Analizi",
+    perms: ["reports", "reports_sentiment", "reports_"]
+  },
+  {
+    id: "reports-intent",
+    group: "Çağrı Raporları & Analiz",
+    label: "Niyet Raporu",
+    shortLabel: "Niyet Raporu",
+    perms: ["reports", "reports_intent", "reports_"]
+  },
+  {
+    id: "reports-qa",
+    group: "Çağrı Raporları & Analiz",
+    label: "Kalite Değerlendirmeleri",
+    shortLabel: "Kalite (QA)",
+    perms: ["reports", "reports_qa", "reports_"]
+  },
+  {
+    id: "reports-notes",
+    group: "Çağrı Raporları & Analiz",
+    label: "Temsilci Notları",
+    shortLabel: "Temsilci Notları",
+    perms: ["reports", "reports_notes", "reports_"]
+  },
+  {
     id: "reports-perf",
-    group: "Raporlar, Güvenlik & Sistem",
-    label: "Temsilci Performans Raporu",
+    group: "Çağrı Raporları & Analiz",
+    label: "Temsilci Performans & KPI",
     shortLabel: "Temsilci Perf.",
     perms: ["reports", "reports_perf", "reports_"]
   },
   {
     id: "reports-queue",
-    group: "Raporlar, Güvenlik & Sistem",
-    label: "Kuyruk Performans Raporu",
-    shortLabel: "Kuyruk Perf.",
+    group: "Çağrı Raporları & Analiz",
+    label: "Kuyruk / Bekleme Analitiği",
+    shortLabel: "Kuyruk Analitik",
     perms: ["reports", "reports_queue", "reports_"]
   },
   {
+    id: "reports-survey",
+    group: "Çağrı Raporları & Analiz",
+    label: "Anket Raporları",
+    shortLabel: "Anketler",
+    perms: ["reports", "reports_survey", "reports_"]
+  },
+  {
+    id: "reports-sentiment-heat",
+    group: "Çağrı Raporları & Analiz",
+    label: "Duygu Durumu Isı Haritası",
+    shortLabel: "Duygu Haritası",
+    perms: ["reports", "reports_sentiment_heat", "reports_"]
+  },
+  {
+    id: "reports-wordcloud",
+    group: "Çağrı Raporları & Analiz",
+    label: "Kelime Bulutu & Trendler",
+    shortLabel: "Kelime Bulutu",
+    perms: ["reports", "reports_wordcloud", "reports_"]
+  },
+  {
+    id: "reports-fcr",
+    group: "Çağrı Raporları & Analiz",
+    label: "İlk Aramada Çözüm (FCR)",
+    shortLabel: "FCR",
+    perms: ["reports", "reports_fcr", "reports_"]
+  },
+  {
+    id: "reports-roi",
+    group: "Çağrı Raporları & Analiz",
+    label: "AI vs. İnsan ROI Paneli",
+    shortLabel: "ROI Paneli",
+    perms: ["reports", "reports_roi", "reports_"]
+  },
+  {
     id: "reports-missed",
-    group: "Raporlar, Güvenlik & Sistem",
-    label: "Cevapsız Çağrı Raporu",
-    shortLabel: "Cevapsız Raporu",
+    group: "Çağrı Raporları & Analiz",
+    label: "Kaçan Çağrı Analizi",
+    shortLabel: "Kaçan Çağrı",
     perms: ["reports", "reports_missed", "reports_"]
   },
   {
-    id: "reports-custom-builder",
-    group: "Raporlar, Güvenlik & Sistem",
-    label: "Özel Rapor Oluşturucu",
-    shortLabel: "Özel Rapor",
-    perms: ["reports", "reports_"]
+    id: "reports-agent-status-timeline",
+    group: "Çağrı Raporları & Analiz",
+    label: "Temsilci Kronolojisi",
+    shortLabel: "Kronoloji",
+    perms: ["reports", "reports_agent_status_timeline", "reports_"]
   },
   {
-    id: "scheduled-reports",
-    group: "Raporlar, Güvenlik & Sistem",
-    label: "Zamanlanmış Raporlar",
-    shortLabel: "Zamanlanmış Rap.",
-    perms: ["scheduled_reports"]
+    id: "reports-traffic-load",
+    group: "Çağrı Raporları & Analiz",
+    label: "Yoğunluk Raporu",
+    shortLabel: "Yoğunluk",
+    perms: ["reports", "reports_traffic_load", "reports_"]
+  },
+  {
+    id: "reports-trunk",
+    group: "Çağrı Raporları & Analiz",
+    label: "Hat Kapasite Raporu",
+    shortLabel: "Hat Kapasite",
+    perms: ["reports", "reports_trunk", "reports_"]
+  },
+  {
+    id: "reports-did",
+    group: "Çağrı Raporları & Analiz",
+    label: "DID Raporu",
+    shortLabel: "DID Raporu",
+    perms: ["reports", "reports_did"]
+  },
+  {
+    id: "reports-trunk-minutes",
+    group: "Çağrı Raporları & Analiz",
+    label: "Operatör Dakika & Paket",
+    shortLabel: "Operatör Dakika",
+    perms: ["reports", "reports_trunk_minutes"]
+  },
+  {
+    id: "reports-invalid-calls",
+    group: "Çağrı Raporları & Analiz",
+    label: "Hatalı & Eşleşmeyen Çağrı",
+    shortLabel: "Hatalı Çağrı",
+    perms: ["reports", "reports_invalid_calls"]
+  },
+  {
+    id: "reports-ivr-drop",
+    group: "Çağrı Raporları & Analiz",
+    label: "IVR Terk Oranı",
+    shortLabel: "IVR Terk",
+    perms: ["reports", "reports_ivr_drop", "reports_"]
+  },
+  {
+    id: "reports-transfer-hold",
+    group: "Çağrı Raporları & Analiz",
+    label: "Aktarma & Bekletme",
+    shortLabel: "Aktarma/Bekletme",
+    perms: ["reports", "reports_transfer_hold", "reports_"]
+  },
+  {
+    id: "reports-ab-testing",
+    group: "Çağrı Raporları & Analiz",
+    label: "Verimlilik Karşılaştırması",
+    shortLabel: "Verimlilik A/B",
+    perms: ["reports", "reports_ab_testing", "reports_"]
+  },
+  {
+    id: "reports-friction",
+    group: "Çağrı Raporları & Analiz",
+    label: "Müşteri Çile Noktaları",
+    shortLabel: "Çile Noktaları",
+    perms: ["reports", "reports_friction", "reports_"]
+  },
+  {
+    id: "reports-compliance",
+    group: "Çağrı Raporları & Analiz",
+    label: "Senaryo Sadakati Raporu",
+    shortLabel: "Senaryo Sadakati",
+    perms: ["reports", "reports_compliance", "reports_"]
+  },
+  {
+    id: "reports-silence",
+    group: "Çağrı Raporları & Analiz",
+    label: "Sessizlik & Söz Kesme",
+    shortLabel: "Sessizlik/Kesme",
+    perms: ["reports", "reports_silence", "reports_"]
+  },
+  {
+    id: "reports-ceo-summary",
+    group: "Çağrı Raporları & Analiz",
+    label: "CEO Özet Raporu",
+    shortLabel: "CEO Özeti",
+    perms: ["reports", "reports_ceo_summary", "reports_"]
+  },
+  {
+    id: "reports-breaks-attendance",
+    group: "Çağrı Raporları & Analiz",
+    label: "Mola & Puantaj Raporu",
+    shortLabel: "Mola & Puantaj",
+    perms: ["reports", "reports_breaks_attendance"]
+  },
+  {
+    id: "reports-omnichannel",
+    group: "Çağrı Raporları & Analiz",
+    label: "Omnichannel Kanal & SLA",
+    shortLabel: "Omnichannel SLA",
+    perms: ["reports", "reports_omnichannel"]
+  },
+  {
+    id: "reports-disposition",
+    group: "Çağrı Raporları & Analiz",
+    label: "Çağrı Sonuç Kodları",
+    shortLabel: "Sonuç Kodları",
+    perms: ["reports", "reports_disposition"]
+  },
+  {
+    id: "reports-dialer-callback",
+    group: "Çağrı Raporları & Analiz",
+    label: "Kampanya & Geri Arama",
+    shortLabel: "Kampanya Raporu",
+    perms: ["reports", "reports_dialer_callback"]
+  },
+  {
+    id: "reports-queue-sla",
+    group: "Çağrı Raporları & Analiz",
+    label: "Kuyruk SLA & Hız Dilimleri",
+    shortLabel: "Kuyruk SLA",
+    perms: ["reports", "reports_queue_sla"]
+  },
+  {
+    id: "reports-repeat-callers",
+    group: "Çağrı Raporları & Analiz",
+    label: "Tekrar Eden Arayanlar",
+    shortLabel: "Tekrar Arayanlar",
+    perms: ["reports", "reports_repeat_callers"]
+  },
+  {
+    id: "reports-dept-pickup",
+    group: "Çağrı Raporları & Analiz",
+    label: "Departman & Çağrı Toplama",
+    shortLabel: "Dept. Toplama",
+    perms: ["reports", "reports_dept_pickup"]
+  },
+  {
+    id: "reports-voip-quality",
+    group: "Çağrı Raporları & Analiz",
+    label: "VoIP & Ses Kalitesi (MOS)",
+    shortLabel: "VoIP Kalite",
+    perms: ["reports", "reports_voip_quality"]
+  },
+  {
+    id: "reports-forwarding-gsm",
+    group: "Çağrı Raporları & Analiz",
+    label: "Yönlendirme (Follow-Me / GSM)",
+    shortLabel: "Yönlendirme Rap.",
+    perms: ["reports", "reports_forwarding_gsm"]
+  },
+  {
+    id: "reports-supervisor-audit",
+    group: "Çağrı Raporları & Analiz",
+    label: "Süpervizör Dinleme & Müdahale",
+    shortLabel: "Süpervizör Denetim",
+    perms: ["reports", "reports_supervisor_audit"]
+  },
+  {
+    id: "reports-blacklist-security",
+    group: "Çağrı Raporları & Analiz",
+    label: "Engellenen Çağrı & İhlal",
+    shortLabel: "Engel & İhlal",
+    perms: ["reports", "reports_blacklist_security"]
+  },
+  {
+    id: "reports-ai-appointments-rag",
+    group: "Çağrı Raporları & Analiz",
+    label: "AI Randevu & Bilgi Bankası",
+    shortLabel: "AI Randevu/RAG",
+    perms: ["reports", "reports_ai_appointments_rag"]
+  },
+  {
+    id: "reports-voicemail",
+    group: "Çağrı Raporları & Analiz",
+    label: "Sesli Posta (Voicemail)",
+    shortLabel: "Sesli Posta Rap.",
+    perms: ["reports", "reports_voicemail"]
+  },
+  {
+    id: "reports-conferences",
+    group: "Çağrı Raporları & Analiz",
+    label: "Konferans Odası Kullanımı",
+    shortLabel: "Konferans Rap.",
+    perms: ["reports", "reports_conferences"]
+  },
+
+  // 6. Yönetim & Ayarlar
+  {
+    id: "settings",
+    group: "Yönetim & Ayarlar",
+    label: "Sistem Ayarları",
+    shortLabel: "Ayarlar",
+    perms: ["system_settings", "roles"]
+  },
+  {
+    id: "system-status",
+    group: "Yönetim & Ayarlar",
+    label: "Sistem Panosu & Sağlık",
+    shortLabel: "Sistem Sağlığı",
+    adminOnly: true
+  },
+  {
+    id: "event-logs",
+    group: "Yönetim & Ayarlar",
+    label: "Olay Günlükleri",
+    shortLabel: "Loglar",
+    perms: ["event_logs", "logs", "system_settings"]
   },
   {
     id: "troubleshooting",
-    group: "Raporlar, Güvenlik & Sistem",
+    group: "Yönetim & Ayarlar",
     label: "Sorun İnceleme & sngrep",
     shortLabel: "Sorun İncele",
     perms: ["sip_debugger", "troubleshooting", "system_settings"]
   },
   {
     id: "security",
-    group: "Raporlar, Güvenlik & Sistem",
+    group: "Yönetim & Ayarlar",
     label: "Güvenlik Kalkanı",
     shortLabel: "Güvenlik",
     perms: ["security", "system_settings"]
   },
   {
-    id: "event-logs",
-    group: "Raporlar, Güvenlik & Sistem",
-    label: "Olay Günlükleri",
-    shortLabel: "Loglar",
-    perms: ["event_logs", "logs", "system_settings"]
-  },
-  {
-    id: "system-status",
-    group: "Raporlar, Güvenlik & Sistem",
-    label: "Sistem Panosu & Sağlık",
-    shortLabel: "Sistem Sağlığı",
-    adminOnly: true
-  },
-  {
-    id: "settings",
-    group: "Raporlar, Güvenlik & Sistem",
-    label: "Sistem Ayarları",
-    shortLabel: "Ayarlar",
-    perms: ["system_settings", "roles"]
+    id: "changelog",
+    group: "Yönetim & Ayarlar",
+    label: "Sistem Versiyonu & Günlük",
+    shortLabel: "Versiyon & Günlük",
+    perms: ["dashboard", "system_settings"],
+    allowGeneralSupervisor: true
   }
 ];
 
@@ -327,12 +607,14 @@ export function classifyRoleScope(roleCode, rolePermissions) {
   const canReports = checkHasPerm(perms, "reports") || checkHasPerm(perms, "reports_");
   const canAiModules =
     checkHasPerm(perms, "ai_agents") ||
+    checkHasPerm(perms, "ai_config_assistant") ||
     checkHasPerm(perms, "rag") ||
     checkHasPerm(perms, "knowledge_base") ||
     checkHasPerm(perms, "rules");
   const canPbxOrSysModules = [
     "users",
     "pbx",
+    "api_budgets",
     "announcements",
     "acd_queues",
     "autoprovision",
@@ -365,55 +647,66 @@ export function classifyRoleScope(roleCode, rolePermissions) {
     canWallboard && !canDashboard && !canCallPanel && !canOmni && !canReports && !canAiModules && !canPbxOrSysModules;
   const isAgentOnly =
     !isWallboardOnly &&
-    (roleLower === "agent" || (!canDashboard && !canWallboard && !canReports && !canAiModules && !canPbxOrSysModules));
+    !canDashboard &&
+    !canWallboard &&
+    !canOmni &&
+    !canReports &&
+    !canAiModules &&
+    !canPbxOrSysModules;
 
   return { isAdmin: false, isWallboardOnly, isAgentOnly };
 }
 
-export function getAllowedLandingScreensForRole(roleCode, rolePermissions) {
+export function getAllowedLandingScreensForRole(roleCode, rolePermissions, options = {}) {
+  const desktopMode = Boolean(options?.desktopMode);
   const { isAdmin, isWallboardOnly, isAgentOnly } = classifyRoleScope(roleCode, rolePermissions);
+
+  let allowed = [];
   if (isAdmin) {
-    return [...LANDING_SCREEN_CATALOG];
-  }
-  if (isWallboardOnly) {
-    return LANDING_SCREEN_CATALOG.filter((s) => s.id === "wallboard");
-  }
-  if (isAgentOnly) {
-    return LANDING_SCREEN_CATALOG.filter((s) => s.id === "call-center");
+    allowed = [...LANDING_SCREEN_CATALOG];
+  } else if (Array.isArray(rolePermissions) && rolePermissions.length > 0) {
+    const perms = rolePermissions;
+    allowed = LANDING_SCREEN_CATALOG.filter((item) => {
+      if (item.adminOnly) return false;
+      if (Array.isArray(item.perms) && item.perms.some((pref) => checkHasPerm(perms, pref))) {
+        return true;
+      }
+      if (item.allowGeneralSupervisor && !isAgentOnly && !isWallboardOnly) {
+        return true;
+      }
+      return false;
+    });
+    if (allowed.length === 0) {
+      if (isWallboardOnly) {
+        allowed = LANDING_SCREEN_CATALOG.filter((s) => s.id === "wallboard");
+      } else {
+        allowed = LANDING_SCREEN_CATALOG.filter((s) => s.id === "call-center");
+      }
+    }
+  } else if (isWallboardOnly) {
+    allowed = LANDING_SCREEN_CATALOG.filter((s) => s.id === "wallboard");
+  } else if (isAgentOnly) {
+    allowed = LANDING_SCREEN_CATALOG.filter((s) => s.id === "call-center");
+  } else {
+    allowed = LANDING_SCREEN_CATALOG.filter(
+      (s) => !s.adminOnly && (s.id === "dashboard" || s.id === "call-center" || s.allowGeneralSupervisor)
+    );
   }
 
-  const perms = Array.isArray(rolePermissions) ? rolePermissions : [];
-  return LANDING_SCREEN_CATALOG.filter((item) => {
-    if (item.adminOnly) return false;
-    if (Array.isArray(item.perms) && item.perms.some((pref) => checkHasPerm(perms, pref))) {
-      return true;
-    }
-    if (item.allowGeneralSupervisor && !isAgentOnly && !isWallboardOnly) {
-      return true;
-    }
-    return false;
-  });
+  if (desktopMode) {
+    const desktopScreens = allowed.filter((s) => s.desktopAllowed);
+    return desktopScreens.length > 0
+      ? desktopScreens
+      : LANDING_SCREEN_CATALOG.filter((s) => s.id === "call-center");
+  }
+
+  return allowed;
 }
 
-export function isLandingTabAllowedForRole(tabId, roleCode, rolePermissions) {
+export function isLandingTabAllowedForRole(tabId, roleCode, rolePermissions, options = {}) {
   if (!tabId) return false;
-  const { isAdmin, isWallboardOnly, isAgentOnly } = classifyRoleScope(roleCode, rolePermissions);
-  if (isAdmin) return true;
-  if (isWallboardOnly) return tabId === "wallboard";
-  if (isAgentOnly) return tabId === "call-center";
-
-  const perms = Array.isArray(rolePermissions) ? rolePermissions : [];
-  if (String(tabId).startsWith("reports-")) {
-    return checkHasPerm(perms, "reports") || checkHasPerm(perms, "reports_");
-  }
-  const catalogMatch = LANDING_SCREEN_CATALOG.find((s) => s.id === tabId);
-  if (!catalogMatch) return false;
-  if (catalogMatch.adminOnly) return false;
-  if (Array.isArray(catalogMatch.perms) && catalogMatch.perms.some((pref) => checkHasPerm(perms, pref))) {
-    return true;
-  }
-  if (catalogMatch.allowGeneralSupervisor) return true;
-  return false;
+  const allowedList = getAllowedLandingScreensForRole(roleCode, rolePermissions, options);
+  return allowedList.some((s) => s.id === tabId);
 }
 
 export function getAllowedAgentSubTabsForRole(roleCode, rolePermissions) {
@@ -510,14 +803,20 @@ export function resolveUserLandingTab({
   roleCode,
   rolePermissions,
   explicitUrlTab = null,
-  isFreshLogin = false
+  isFreshLogin = false,
+  desktopMode = false
 }) {
-  const { isAdmin, isWallboardOnly, isAgentOnly } = classifyRoleScope(roleCode, rolePermissions);
-  if (isWallboardOnly) return "wallboard";
-  if (isAgentOnly) return "call-center";
+  const allowedScreens = getAllowedLandingScreensForRole(roleCode, rolePermissions, { desktopMode });
+  if (allowedScreens.length === 1) {
+    return allowedScreens[0].id;
+  }
 
   // 1. Direct URL link or F5 page reload (?tab=...) takes precedence when not a fresh login
-  if (!isFreshLogin && explicitUrlTab && isLandingTabAllowedForRole(explicitUrlTab, roleCode, rolePermissions)) {
+  if (
+    !isFreshLogin &&
+    explicitUrlTab &&
+    isLandingTabAllowedForRole(explicitUrlTab, roleCode, rolePermissions, { desktopMode })
+  ) {
     return explicitUrlTab;
   }
 
@@ -528,16 +827,28 @@ export function resolveUserLandingTab({
 
   if (rawPref === "last_visited") {
     const lastTab = getLastVisitedTab(user, panelPrefs);
-    if (lastTab && isLandingTabAllowedForRole(lastTab, roleCode, rolePermissions)) {
+    if (lastTab && isLandingTabAllowedForRole(lastTab, roleCode, rolePermissions, { desktopMode })) {
       return lastTab;
     }
   } else if (rawPref && rawPref !== "auto") {
-    if (isLandingTabAllowedForRole(rawPref, roleCode, rolePermissions)) {
+    if (isLandingTabAllowedForRole(rawPref, roleCode, rolePermissions, { desktopMode })) {
       return rawPref;
     }
   }
 
   // 3. Role-based smart fallback ("auto")
+  if (desktopMode) {
+    if (isLandingTabAllowedForRole("call-center", roleCode, rolePermissions, { desktopMode: true })) {
+      return "call-center";
+    }
+    return allowedScreens[0]?.id || "call-center";
+  }
+
+  const { isAdmin } = classifyRoleScope(roleCode, rolePermissions);
+  const roleLower = String(roleCode || "").toLowerCase().trim();
+  if (roleLower === "agent" && isLandingTabAllowedForRole("call-center", roleCode, rolePermissions)) {
+    return "call-center";
+  }
   if (isAdmin || isLandingTabAllowedForRole("dashboard", roleCode, rolePermissions)) {
     return "dashboard";
   }
@@ -547,6 +858,5 @@ export function resolveUserLandingTab({
       return candidate;
     }
   }
-  const allowedScreens = getAllowedLandingScreensForRole(roleCode, rolePermissions);
   return allowedScreens[0]?.id || "dashboard";
 }

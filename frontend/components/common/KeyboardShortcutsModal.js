@@ -13,6 +13,7 @@ export default function KeyboardShortcutsModal({
   onClose,
   customShortcuts = {},
   onSaveShortcuts,
+  embedded = false,
 }) {
   const { bg, hover, text, border, lightBg, borderLight } = useTheme();
   const [capturingActionId, setCapturingActionId] = useState(null);
@@ -32,7 +33,7 @@ export default function KeyboardShortcutsModal({
     if (!isOpen) return undefined;
     const handleKeyDown = (e) => {
       if (!capturingActionId) {
-        if (e.key === "Escape") {
+        if (!embedded && e.key === "Escape") {
           onClose?.();
         }
         return;
@@ -88,7 +89,7 @@ export default function KeyboardShortcutsModal({
 
     window.addEventListener("keydown", handleKeyDown, true);
     return () => window.removeEventListener("keydown", handleKeyDown, true);
-  }, [isOpen, capturingActionId, customShortcuts, effectiveMap, onClose, onSaveShortcuts]);
+  }, [isOpen, embedded, capturingActionId, customShortcuts, effectiveMap, onClose, onSaveShortcuts]);
 
   if (!isOpen) return null;
 
@@ -101,6 +102,155 @@ export default function KeyboardShortcutsModal({
     setSavedNotice(true);
     setTimeout(() => setSavedNotice(false), 2000);
   };
+
+  const innerContent = (
+    <>
+      {/* Header */}
+      <div
+        className={
+          embedded
+            ? "flex flex-wrap items-center justify-between gap-3 pb-3 border-b border-slate-100 dark:border-slate-800"
+            : "px-6 py-4 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between bg-slate-50/60 dark:bg-slate-950/40"
+        }
+      >
+        <div className="flex items-center gap-3">
+          <div className={`p-2 rounded-xl ${lightBg} ${text}`}>
+            <Keyboard size={embedded ? 16 : 18} />
+          </div>
+          <div>
+            <h3
+              id="shortcuts-modal-title"
+              className="text-xs font-extrabold text-slate-900 dark:text-white uppercase tracking-wider"
+            >
+              Klavye Kısayolları & Kişisel Tuş Atamaları
+            </h3>
+            <p className="text-[10px] text-slate-500 dark:text-slate-400 mt-0.5">
+              Herhangi bir kısayol kutusuna tıklayıp kendi tuş kombinasyonunuzu atayabilirsiniz.
+            </p>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={handleResetDefaults}
+            className="px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 text-[10px] font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center gap-1.5 transition cursor-pointer"
+            title="Varsayılan Kısayollara Dön"
+          >
+            <RotateCcw size={12} />
+            <span>Varsayılana Sıfırla</span>
+          </button>
+          {!embedded && (
+            <button
+              type="button"
+              onClick={onClose}
+              className="p-1.5 rounded-xl text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer"
+            >
+              <X size={16} />
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* Status Banners */}
+      {(conflictMsg || savedNotice) && (
+        <div className={embedded ? "" : "px-6 pt-3"}>
+          {conflictMsg && (
+            <div className="p-2.5 rounded-xl bg-rose-50 dark:bg-rose-950/30 border border-rose-200 dark:border-rose-900/50 text-rose-600 dark:text-rose-400 text-[11px] font-semibold flex items-center gap-2">
+              <AlertCircle size={14} className="shrink-0" />
+              <span>{conflictMsg}</span>
+            </div>
+          )}
+          {!conflictMsg && savedNotice && (
+            <div className="p-2.5 rounded-xl bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-900/50 text-emerald-600 dark:text-emerald-400 text-[11px] font-semibold flex items-center gap-2">
+              <CheckCircle2 size={14} className="shrink-0" />
+              <span>Kişisel kısayol tercihiniz kaydedildi.</span>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Body */}
+      <div className={embedded ? "space-y-4 pr-1" : "flex-1 overflow-y-auto p-6 space-y-5"}>
+        {/* Built-in Fixed Shortcuts */}
+        <div className="space-y-2">
+          <h4 className="text-[10px] font-extrabold text-slate-400 dark:text-slate-500 uppercase tracking-widest">
+            Sistem Sabit Kısayolları
+          </h4>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+            {[
+              { label: "Global Hızlı Arama", keys: "Ctrl + K" },
+              { label: "Kısayol Sekmesini Aç", keys: "?" },
+              { label: "Açık Pencereyi Kapat", keys: "Esc" },
+            ].map((s) => (
+              <div
+                key={s.label}
+                className="px-3.5 py-2.5 rounded-xl bg-slate-50 dark:bg-slate-950/50 border border-slate-200/80 dark:border-slate-800 flex items-center justify-between gap-2"
+              >
+                <span className="text-[11px] font-semibold text-slate-700 dark:text-slate-300">
+                  {s.label}
+                </span>
+                <kbd className="px-2 py-0.5 rounded-md bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-[10px] font-mono font-extrabold text-slate-700 dark:text-slate-200 shadow-sm">
+                  {s.keys}
+                </kbd>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Customizable Shortcuts by Category */}
+        {categories.map((cat) => (
+          <div key={cat} className="space-y-2">
+            <h4 className="text-[10px] font-extrabold text-slate-400 dark:text-slate-500 uppercase tracking-widest">
+              {cat}
+            </h4>
+            <div className="divide-y divide-slate-100 dark:divide-slate-800/70 border border-slate-200/80 dark:border-slate-800 rounded-2xl overflow-hidden">
+              {SHORTCUT_ACTIONS_CATALOG.filter((a) => a.category === cat).map((action) => {
+                const isCapturing = capturingActionId === action.id;
+                const combo = effectiveMap[action.id];
+
+                return (
+                  <div
+                    key={action.id}
+                    className="px-4 py-3 bg-white dark:bg-slate-900 flex items-center justify-between gap-4 hover:bg-slate-50/70 dark:hover:bg-slate-800/40 transition"
+                  >
+                    <div className="min-w-0">
+                      <p className="text-xs font-bold text-slate-800 dark:text-slate-100">
+                        {action.label}
+                      </p>
+                      <p className="text-[10px] text-slate-400 dark:text-slate-500 mt-0.5">
+                        {action.description}
+                      </p>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setConflictMsg("");
+                        setCapturingActionId(isCapturing ? null : action.id);
+                      }}
+                      title="Tıklayıp yeni tuş kombinasyonuna basın (Silmek için Backspace)"
+                      className={`px-3 py-1.5 rounded-xl border text-[11px] font-mono font-extrabold shrink-0 transition cursor-pointer ${
+                        isCapturing
+                          ? `${bg} text-white border-transparent animate-pulse`
+                          : `${lightBg} ${text} ${borderLight} hover:${border}`
+                      }`}
+                    >
+                      {isCapturing ? "Tuşlara Basın..." : formatComboLabel(combo)}
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        ))}
+      </div>
+    </>
+  );
+
+  if (embedded) {
+    return <div className="space-y-4 max-h-[62vh] overflow-y-auto pr-1">{innerContent}</div>;
+  }
 
   return (
     <div
@@ -116,138 +266,7 @@ export default function KeyboardShortcutsModal({
         aria-labelledby="shortcuts-modal-title"
         className="w-full max-w-2xl bg-white dark:bg-slate-900 border border-slate-200/90 dark:border-slate-800 rounded-3xl shadow-2xl overflow-hidden animate-in zoom-in-95 duration-150 flex flex-col max-h-[86vh]"
       >
-        {/* Header */}
-        <div className="px-6 py-4 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between bg-slate-50/60 dark:bg-slate-950/40">
-          <div className="flex items-center gap-3">
-            <div className={`p-2.5 rounded-2xl ${lightBg} ${text}`}>
-              <Keyboard size={18} />
-            </div>
-            <div>
-              <h3
-                id="shortcuts-modal-title"
-                className="text-xs font-extrabold text-slate-900 dark:text-white uppercase tracking-wider"
-              >
-                Klavye Kısayolları & Kişisel Tuş Atamaları
-              </h3>
-              <p className="text-[10px] text-slate-500 dark:text-slate-400 mt-0.5">
-                Herhangi bir kısayol kutusuna tıklayıp kendi tuş kombinasyonunuzu atayabilirsiniz.
-              </p>
-            </div>
-          </div>
-
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={handleResetDefaults}
-              className="px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 text-[10px] font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center gap-1.5 transition cursor-pointer"
-              title="Varsayılan Kısayollara Dön"
-            >
-              <RotateCcw size={12} />
-              <span>Varsayılana Sıfırla</span>
-            </button>
-            <button
-              type="button"
-              onClick={onClose}
-              className="p-1.5 rounded-xl text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer"
-            >
-              <X size={16} />
-            </button>
-          </div>
-        </div>
-
-        {/* Status Banners */}
-        {(conflictMsg || savedNotice) && (
-          <div className="px-6 pt-3">
-            {conflictMsg && (
-              <div className="p-2.5 rounded-xl bg-rose-50 dark:bg-rose-950/30 border border-rose-200 dark:border-rose-900/50 text-rose-600 dark:text-rose-400 text-[11px] font-semibold flex items-center gap-2">
-                <AlertCircle size={14} className="shrink-0" />
-                <span>{conflictMsg}</span>
-              </div>
-            )}
-            {!conflictMsg && savedNotice && (
-              <div className="p-2.5 rounded-xl bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-900/50 text-emerald-600 dark:text-emerald-400 text-[11px] font-semibold flex items-center gap-2">
-                <CheckCircle2 size={14} className="shrink-0" />
-                <span>Kişisel kısayol tercihiniz kaydedildi.</span>
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* Body */}
-        <div className="flex-1 overflow-y-auto p-6 space-y-5">
-          {/* Built-in Fixed Shortcuts */}
-          <div className="space-y-2">
-            <h4 className="text-[10px] font-extrabold text-slate-400 dark:text-slate-500 uppercase tracking-widest">
-              Sistem Sabit Kısayolları
-            </h4>
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
-              {[
-                { label: "Global Hızlı Arama", keys: "Ctrl + K" },
-                { label: "Kısayol Rehberini Aç", keys: "?" },
-                { label: "Açık Pencereyi Kapat", keys: "Esc" },
-              ].map((s) => (
-                <div
-                  key={s.label}
-                  className="px-3.5 py-2.5 rounded-xl bg-slate-50 dark:bg-slate-950/50 border border-slate-200/80 dark:border-slate-800 flex items-center justify-between gap-2"
-                >
-                  <span className="text-[11px] font-semibold text-slate-700 dark:text-slate-300">
-                    {s.label}
-                  </span>
-                  <kbd className="px-2 py-0.5 rounded-md bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-[10px] font-mono font-extrabold text-slate-700 dark:text-slate-200 shadow-sm">
-                    {s.keys}
-                  </kbd>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          {/* Customizable Shortcuts by Category */}
-          {categories.map((cat) => (
-            <div key={cat} className="space-y-2">
-              <h4 className="text-[10px] font-extrabold text-slate-400 dark:text-slate-500 uppercase tracking-widest">
-                {cat}
-              </h4>
-              <div className="divide-y divide-slate-100 dark:divide-slate-800/70 border border-slate-200/80 dark:border-slate-800 rounded-2xl overflow-hidden">
-                {SHORTCUT_ACTIONS_CATALOG.filter((a) => a.category === cat).map((action) => {
-                  const isCapturing = capturingActionId === action.id;
-                  const combo = effectiveMap[action.id];
-
-                  return (
-                    <div
-                      key={action.id}
-                      className="px-4 py-3 bg-white dark:bg-slate-900 flex items-center justify-between gap-4 hover:bg-slate-50/70 dark:hover:bg-slate-800/40 transition"
-                    >
-                      <div className="min-w-0">
-                        <p className="text-xs font-bold text-slate-800 dark:text-slate-100">
-                          {action.label}
-                        </p>
-                        <p className="text-[10px] text-slate-400 dark:text-slate-500 mt-0.5">
-                          {action.description}
-                        </p>
-                      </div>
-
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setConflictMsg("");
-                          setCapturingActionId(isCapturing ? null : action.id);
-                        }}
-                        title="Tıklayıp yeni tuş kombinasyonuna basın (Silmek için Backspace)"
-                        className={`px-3 py-1.5 rounded-xl border text-[11px] font-mono font-extrabold shrink-0 transition cursor-pointer ${
-                          isCapturing
-                            ? `${bg} text-white border-transparent animate-pulse`
-                            : `${lightBg} ${text} ${borderLight} hover:${border}`
-                        }`}
-                      >
-                        {isCapturing ? "Tuşlara Basın..." : formatComboLabel(combo)}
-                      </button>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          ))}
-        </div>
+        {innerContent}
       </div>
     </div>
   );

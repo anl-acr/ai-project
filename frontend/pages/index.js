@@ -1647,19 +1647,23 @@ export default function Home() {
           setIsWallboardOnlyUser(false);
           setIsAgentOnlyUser(true);
           setIsAgentFullScreenMode(true);
-          const prefLanding = String(resolvedPanelPrefs?.defaultLandingTab || "auto");
-          if (prefLanding === "omnichannel" && canOmni) {
-            setActiveTab("omnichannel");
-          } else {
-            setActiveTab("call-center");
-          }
+          const resolvedDesktopTab = resolveUserLandingTab({
+            user: currentUserData,
+            panelPrefs: resolvedPanelPrefs,
+            roleCode: userRoleLower,
+            rolePermissions: permsList,
+            explicitUrlTab,
+            isFreshLogin,
+            desktopMode: true
+          });
+          setActiveTab(resolvedDesktopTab);
         } else if (canWallboard && !canDashboard && !canCallPanel && !canOmni && !canReports && !canAiModules && !canPbxOrSysModules) {
           setIsWallboardOnlyUser(true);
           setIsAgentOnlyUser(false);
           setIsAgentFullScreenMode(false);
           setActiveTab('wallboard');
-        } else if (userRoleLower === 'agent' || (!canDashboard && !canWallboard && !canReports && !canAiModules && !canPbxOrSysModules)) {
-          // Dedicated Call Panel / Agent Monitoring Role (full-screen Call Panel)
+        } else if (!canDashboard && !canWallboard && !canOmni && !canReports && !canAiModules && !canPbxOrSysModules) {
+          // Dedicated Call Panel Only Role (full-screen Call Panel when no other modules are granted)
           setIsWallboardOnlyUser(false);
           setIsAgentOnlyUser(true);
           setIsAgentFullScreenMode(true);
@@ -1890,6 +1894,7 @@ export default function Home() {
 
 
   const [isShortcutsModalOpen, setIsShortcutsModalOpen] = useState(false);
+  const [landingSearchQuery, setLandingSearchQuery] = useState("");
   const autoOpened360CallRef = React.useRef("");
 
   React.useEffect(() => {
@@ -1960,12 +1965,13 @@ export default function Home() {
     const shortcutsMap = resolveEffectiveShortcutsMap(callPanelPrefs?.keyboardShortcuts || {});
 
     const handleGlobalShortcuts = (e) => {
-      if (isShortcutsModalOpen) return;
+      if (isShortcutsModalOpen || (settingsModalOpen && activeModalTab === "shortcuts")) return;
 
-      // '?' opens Keyboard Shortcuts Guide when not typing in an input
+      // '?' opens Keyboard Shortcuts tab inside Profile Settings when not typing in an input
       if (!e.ctrlKey && !e.metaKey && !e.altKey && e.key === "?" && !isEditableTarget(e.target)) {
         e.preventDefault();
-        setIsShortcutsModalOpen(true);
+        setActiveModalTab("shortcuts");
+        setSettingsModalOpen(true);
         return;
       }
 
@@ -2015,7 +2021,7 @@ export default function Home() {
 
     window.addEventListener("keydown", handleGlobalShortcuts);
     return () => window.removeEventListener("keydown", handleGlobalShortcuts);
-  }, [isLoggedIn, isShortcutsModalOpen, callPanelPrefs?.keyboardShortcuts]);
+  }, [isLoggedIn, isShortcutsModalOpen, settingsModalOpen, activeModalTab, callPanelPrefs?.keyboardShortcuts]);
 
   // Optional Auto-Open Customer 360° Drawer when incoming call rings
   React.useEffect(() => {
@@ -4438,76 +4444,6 @@ export default function Home() {
 
                   {/* Menu Actions */}
                   <div className="p-1.5">
-                    {!isWallboardOnlyUser && (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          if (isCurrentViewPinnedAsLanding) {
-                            updateLandingPrefsLive({
-                              defaultLandingTab: "auto",
-                              defaultAgentSubTab: "auto"
-                            });
-                          } else if (activeTab === "call-center") {
-                            updateLandingPrefsLive({
-                              defaultLandingTab: "call-center",
-                              defaultAgentSubTab: currentAgentSubTab || "auto"
-                            });
-                          } else {
-                            updateLandingPrefsLive({
-                              defaultLandingTab: activeTab
-                            });
-                          }
-                        }}
-                        className={`w-full text-left px-3 py-2.5 rounded-xl text-xs font-bold flex items-center justify-between gap-2 transition-colors cursor-pointer group ${
-                          isCurrentViewPinnedAsLanding
-                            ? `${lightBg} ${text}`
-                            : "text-slate-700 dark:text-slate-100 hover:bg-slate-100/70 dark:hover:bg-slate-800"
-                        }`}
-                      >
-                        <span className="flex items-center gap-2.5 min-w-0">
-                          <Pin
-                            size={15}
-                            className={`shrink-0 transition-colors ${
-                              isCurrentViewPinnedAsLanding ? text : `text-slate-500 dark:text-slate-300 group-hover:${text}`
-                            }`}
-                          />
-                          <span className="truncate">
-                            {isCurrentViewPinnedAsLanding
-                              ? "Başlangıç Ekranım (Sıfırla)"
-                              : "Başlangıç Ekranım Yap"}
-                          </span>
-                        </span>
-                        {isCurrentViewPinnedAsLanding && (
-                          <Check size={13} className={`${text} shrink-0`} />
-                        )}
-                      </button>
-                    )}
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setProfileDropdownOpen(false);
-                        setIsShortcutsModalOpen(true);
-                      }}
-                      className="w-full text-left px-3 py-2.5 rounded-xl text-xs font-bold text-slate-700 dark:text-slate-100 hover:bg-slate-100/70 dark:hover:bg-slate-800 flex items-center justify-between gap-2 transition-colors cursor-pointer group"
-                    >
-                      <span className="flex items-center gap-2.5">
-                        <Keyboard size={15} className={`text-slate-500 dark:text-slate-300 group-hover:${text} transition-colors`} />
-                        <span>Klavye Kısayolları</span>
-                      </span>
-                      <kbd className="px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-[9px] font-mono font-bold text-slate-500">?</kbd>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setProfileDropdownOpen(false);
-                        setActiveModalTab("hardware");
-                        setSettingsModalOpen(true);
-                      }}
-                      className="w-full text-left px-3 py-2.5 rounded-xl text-xs font-bold text-slate-700 dark:text-slate-100 hover:bg-slate-100/70 dark:hover:bg-slate-800 flex items-center gap-2.5 transition-colors cursor-pointer group"
-                    >
-                      <Headphones size={15} className={`text-slate-500 dark:text-slate-300 group-hover:${text} transition-colors`} />
-                      <span>Ses & Çalma Aygıtları</span>
-                    </button>
                     <button
                       type="button"
                       onClick={() => {
@@ -4926,6 +4862,14 @@ export default function Home() {
                     </button>
                     <button
                       type="button"
+                      onClick={() => setActiveModalTab("landing")}
+                      className={"w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-bold transition-all " + (activeModalTab === "landing" ? ("bg-white dark:bg-slate-800 " + text + " shadow-sm border border-slate-200 dark:border-slate-700") : "text-slate-500 hover:bg-white/50 dark:hover:bg-slate-800/50 hover:text-slate-700 dark:hover:text-slate-300 border border-transparent")}
+                    >
+                      <Pin size={16} />
+                      Başlangıç Ekranı
+                    </button>
+                    <button
+                      type="button"
                       onClick={() => setActiveModalTab("profiles")}
                       className={"w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-bold transition-all " + (activeModalTab === "profiles" ? ("bg-white dark:bg-slate-800 " + text + " shadow-sm border border-slate-200 dark:border-slate-700") : "text-slate-500 hover:bg-white/50 dark:hover:bg-slate-800/50 hover:text-slate-700 dark:hover:text-slate-300 border border-transparent")}
                     >
@@ -4939,6 +4883,17 @@ export default function Home() {
                     >
                       <Volume2 size={16} />
                       Donanım
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setActiveModalTab("shortcuts")}
+                      className={"w-full flex items-center justify-between gap-2 px-3 py-2.5 rounded-xl text-xs font-bold transition-all " + (activeModalTab === "shortcuts" ? ("bg-white dark:bg-slate-800 " + text + " shadow-sm border border-slate-200 dark:border-slate-700") : "text-slate-500 hover:bg-white/50 dark:hover:bg-slate-800/50 hover:text-slate-700 dark:hover:text-slate-300 border border-transparent")}
+                    >
+                      <span className="flex items-center gap-3">
+                        <Keyboard size={16} />
+                        Klavye Kısayolları
+                      </span>
+                      <kbd className="px-1.5 py-0.5 rounded bg-slate-200/70 dark:bg-slate-800 text-[9px] font-mono font-bold text-slate-500">?</kbd>
                     </button>
                     <button
                       type="button"
@@ -4991,6 +4946,316 @@ export default function Home() {
                 {/* Right Tab Content Area */}
                 <div className="flex-1 overflow-y-auto p-7 flex flex-col justify-between space-y-6">
                   <div className="space-y-4">
+
+                    {/* Klavye Kısayolları Sekmesi */}
+                    {activeModalTab === "shortcuts" && (
+                      <KeyboardShortcutsModal
+                        embedded
+                        isOpen={settingsModalOpen && activeModalTab === "shortcuts"}
+                        onClose={() => setSettingsModalOpen(false)}
+                        customShortcuts={callPanelPrefs?.keyboardShortcuts || {}}
+                        onSaveShortcuts={(nextShortcuts) => {
+                          const current = loadCallPanelPrefs(currentUser);
+                          const next = saveCallPanelPrefs(currentUser, {
+                            ...current,
+                            keyboardShortcuts: nextShortcuts
+                          });
+                          setCallPanelPrefs(next);
+                          persistUserVisualPatch({ call_panel_prefs: next });
+                        }}
+                      />
+                    )}
+
+                    {/* Başlangıç Ekranı Sekmesi (Yetkiye Göre Tüm Ekran Seçenekleri) */}
+                    {activeModalTab === "landing" && (() => {
+                      const effectiveRoleCode = isAdminRole ? "admin" : String(currentUser?.role || "agent");
+                      const allowedLandingList = getAllowedLandingScreensForRole(
+                        effectiveRoleCode,
+                        isAdminRole ? ["*"] : currentRolePermissions,
+                        { desktopMode: isDesktopMode }
+                      );
+                      const allowedSubTabList = getAllowedAgentSubTabsForRole(
+                        effectiveRoleCode,
+                        isAdminRole ? ["*"] : currentRolePermissions
+                      );
+                      const selectedLanding = String(callPanelPrefs?.defaultLandingTab || "auto");
+                      const selectedSubTab = String(callPanelPrefs?.defaultAgentSubTab || "auto");
+                      const canAccessCallPanel = allowedLandingList.some((s) => s.id === "call-center");
+                      const showSubTabPicker =
+                        canAccessCallPanel &&
+                        (selectedLanding === "call-center" ||
+                          (selectedLanding === "auto" &&
+                            (allowedLandingList.length === 1 || effectiveRoleCode === "agent")));
+
+                      const qNorm = landingSearchQuery.trim().toLowerCase();
+                      const filteredScreens = allowedLandingList.filter((item) => {
+                        if (!qNorm) return true;
+                        return (
+                          item.label.toLowerCase().includes(qNorm) ||
+                          (item.shortLabel || "").toLowerCase().includes(qNorm) ||
+                          item.group.toLowerCase().includes(qNorm)
+                        );
+                      });
+                      const landingGroups = Array.from(new Set(filteredScreens.map((s) => s.group)));
+
+                      return (
+                        <div className="space-y-4 max-h-[62vh] overflow-y-auto pr-1">
+                          {/* Header + Quick Action */}
+                          <div className="flex flex-wrap items-center justify-between gap-2 pb-3 border-b border-slate-100 dark:border-slate-800">
+                            <div className="flex items-center gap-2.5">
+                              <div className={`p-2 rounded-xl ${lightBg} ${text}`}>
+                                <Pin size={16} />
+                              </div>
+                              <div>
+                                <h4 className="text-xs font-extrabold text-slate-900 dark:text-white uppercase tracking-wider">
+                                  Girişte Açılacak Başlangıç Ekranı
+                                </h4>
+                                <p className="text-[10px] text-slate-500 dark:text-slate-400 mt-0.5">
+                                  Rol yetkinize göre erişebildiğiniz tüm ekranlar aşağıda listelenmiştir ({allowedLandingList.length} ekran).
+                                </p>
+                              </div>
+                            </div>
+
+                            <div className="flex items-center gap-2">
+                              {!isWallboardOnlyUser && (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    if (activeTab === "call-center") {
+                                      updateLandingPrefsLive({
+                                        defaultLandingTab: "call-center",
+                                        defaultAgentSubTab: currentAgentSubTab || "auto"
+                                      });
+                                    } else {
+                                      updateLandingPrefsLive({
+                                        defaultLandingTab: activeTab
+                                      });
+                                    }
+                                  }}
+                                  className={`px-3 py-1.5 rounded-xl border text-[10px] font-extrabold transition-all cursor-pointer flex items-center gap-1.5 ${
+                                    isCurrentViewPinnedAsLanding
+                                      ? `${bg} text-white border-transparent shadow-sm`
+                                      : `bg-white dark:bg-slate-900 ${borderLight} ${text} hover:opacity-90`
+                                  }`}
+                                >
+                                  {isCurrentViewPinnedAsLanding ? <Check size={12} /> : <Pin size={12} />}
+                                  <span>
+                                    {isCurrentViewPinnedAsLanding
+                                      ? "Açık Ekran Seçili"
+                                      : "Açık Ekranı Seç"}
+                                  </span>
+                                </button>
+                              )}
+
+                              {(selectedLanding !== "auto" || selectedSubTab !== "auto") && (
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    updateLandingPrefsLive({
+                                      defaultLandingTab: "auto",
+                                      defaultAgentSubTab: "auto"
+                                    })
+                                  }
+                                  className="px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 text-[10px] font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center gap-1.5 transition cursor-pointer"
+                                >
+                                  <RotateCcw size={12} />
+                                  <span>Varsayılana Sıfırla</span>
+                                </button>
+                              )}
+                            </div>
+                          </div>
+
+                          {/* Active Preference Summary Banner */}
+                          <div className={`px-3.5 py-2.5 rounded-2xl border ${borderLight} ${lightBg} flex flex-wrap items-center justify-between gap-2 text-[11px]`}>
+                            <span className="font-semibold text-slate-700 dark:text-slate-200">
+                              Seçili Başlangıç Tercihi:{" "}
+                              <strong className={text}>
+                                {selectedLanding === "call-center"
+                                  ? `Temsilci Çağrı Paneli › ${getAgentSubTabLabel(selectedSubTab)}`
+                                  : getLandingScreenLabel(selectedLanding)}
+                              </strong>
+                            </span>
+                            <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400">
+                              Seçiminiz anında kaydedilir
+                            </span>
+                          </div>
+
+                          {/* Smart Startup Modes */}
+                          {allowedLandingList.length > 1 && (
+                            <div className="space-y-1.5">
+                              <div className="text-[10px] font-extrabold uppercase tracking-wider text-slate-400 dark:text-slate-500 px-1">
+                                Akıllı Başlangıç Modları
+                              </div>
+                              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                                {[
+                                  {
+                                    id: "auto",
+                                    title: "Varsayılan (Role Göre Otomatik)",
+                                    desc: "Kullanıcı rolünüze göre önerilen ana ekran ile başlar."
+                                  },
+                                  {
+                                    id: "last_visited",
+                                    title: "Son Kaldığım Ekrandan Devam Et",
+                                    desc: "Oturumu kapattığınızda açık olan son ekranı yeniden açar."
+                                  }
+                                ].map((modeOpt) => {
+                                  const isSel = selectedLanding === modeOpt.id;
+                                  return (
+                                    <button
+                                      key={modeOpt.id}
+                                      type="button"
+                                      onClick={() =>
+                                        updateLandingPrefsLive({
+                                          defaultLandingTab: modeOpt.id,
+                                          ...(modeOpt.id !== "auto" ? { defaultAgentSubTab: "auto" } : {})
+                                        })
+                                      }
+                                      className={`p-3 rounded-2xl border text-left transition-all flex items-start justify-between gap-2 cursor-pointer ${
+                                        isSel
+                                          ? `${lightBg} ${border} ring-1 ring-primary/30 shadow-sm`
+                                          : "bg-white dark:bg-slate-900 border-slate-200/80 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700"
+                                      }`}
+                                    >
+                                      <div className="min-w-0">
+                                        <div className={`text-xs font-extrabold ${isSel ? text : "text-slate-800 dark:text-white"}`}>
+                                          {modeOpt.title}
+                                        </div>
+                                        <div className="text-[10px] text-slate-500 dark:text-slate-400 mt-0.5 leading-snug">
+                                          {modeOpt.desc}
+                                        </div>
+                                      </div>
+                                      {isSel && <Check size={14} className={`${text} shrink-0 mt-0.5`} />}
+                                    </button>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          )}
+
+                          {/* Call Panel Sub-tab Selector (when Temsilci Çağrı Paneli is selected) */}
+                          {showSubTabPicker && (
+                            <div className="p-3.5 rounded-2xl bg-slate-50/80 dark:bg-slate-950/50 border border-slate-200/80 dark:border-slate-800 space-y-2.5">
+                              <div>
+                                <label
+                                  htmlFor="profile-default-agent-subtab"
+                                  className="block text-[10px] font-extrabold text-slate-700 dark:text-slate-200 uppercase tracking-wider"
+                                >
+                                  Temsilci Çağrı Paneli Açılış Alt Sekmesi
+                                </label>
+                                <p className="text-[9.5px] text-slate-500 dark:text-slate-400 mt-0.5">
+                                  Çağrı Paneli açıldığında hangi alt sekmenin aktif geleceğini seçin.
+                                </p>
+                              </div>
+                              <select
+                                id="profile-default-agent-subtab"
+                                name="default_agent_subtab"
+                                value={selectedSubTab}
+                                onChange={(e) =>
+                                  updateLandingPrefsLive({
+                                    ...(allowedLandingList.length === 1 && allowedLandingList[0]?.id === "call-center"
+                                      ? { defaultLandingTab: "call-center" }
+                                      : {}),
+                                    defaultAgentSubTab: e.target.value
+                                  })
+                                }
+                                className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-xs font-bold text-slate-800 dark:text-white focus:outline-none focus:border-primary"
+                              >
+                                <option value="auto">Sıralamadaki İlk Sekme (Varsayılan)</option>
+                                <option value="last_visited">Son Kaldığım Alt Sekmeden Devam Et</option>
+                                {allowedSubTabList.map((st) => (
+                                  <option key={st.id} value={st.id}>
+                                    {st.label}
+                                  </option>
+                                ))}
+                              </select>
+                            </div>
+                          )}
+
+                          {/* Search Input for All Permitted Screens */}
+                          {allowedLandingList.length > 6 && (
+                            <div className="relative">
+                              <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                              <input
+                                type="text"
+                                value={landingSearchQuery}
+                                onChange={(e) => setLandingSearchQuery(e.target.value)}
+                                placeholder="Ekran, modül veya rapor ara..."
+                                className="w-full pl-8 pr-8 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-950/50 text-xs font-semibold text-slate-800 dark:text-white placeholder:text-slate-400 focus:outline-none focus:border-primary"
+                              />
+                              {landingSearchQuery && (
+                                <button
+                                  type="button"
+                                  onClick={() => setLandingSearchQuery("")}
+                                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 cursor-pointer"
+                                >
+                                  <X size={13} />
+                                </button>
+                              )}
+                            </div>
+                          )}
+
+                          {/* All Permitted Screens Grouped by Category */}
+                          {landingGroups.length === 0 ? (
+                            <div className="p-6 text-center text-xs font-semibold text-slate-400 border border-dashed border-slate-200 dark:border-slate-800 rounded-2xl">
+                              Aramanızla eşleşen yetkili ekran bulunamadı.
+                            </div>
+                          ) : (
+                            <div className="space-y-3.5">
+                              {landingGroups.map((grp) => {
+                                const grpItems = filteredScreens.filter((item) => item.group === grp);
+                                return (
+                                  <div key={grp} className="space-y-1.5">
+                                    <div className="flex items-center justify-between px-1">
+                                      <span className="text-[10px] font-extrabold uppercase tracking-wider text-slate-400 dark:text-slate-500">
+                                        {grp}
+                                      </span>
+                                      <span className="text-[9.5px] font-bold text-slate-400">
+                                        {grpItems.length} ekran
+                                      </span>
+                                    </div>
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+                                      {grpItems.map((item) => {
+                                        const isSelected = selectedLanding === item.id;
+                                        return (
+                                          <button
+                                            key={item.id}
+                                            type="button"
+                                            onClick={() =>
+                                              updateLandingPrefsLive({
+                                                defaultLandingTab: item.id,
+                                                ...(item.id !== "call-center" ? { defaultAgentSubTab: "auto" } : {})
+                                              })
+                                            }
+                                            className={`px-3 py-2.5 rounded-xl border text-left transition-all flex items-center justify-between gap-2 cursor-pointer ${
+                                              isSelected
+                                                ? `${lightBg} ${border} ring-1 ring-primary/30 shadow-sm`
+                                                : "bg-white dark:bg-slate-900 border-slate-200/80 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700"
+                                            }`}
+                                          >
+                                            <span
+                                              className={`text-[11px] font-bold truncate ${
+                                                isSelected ? text : "text-slate-800 dark:text-slate-100"
+                                              }`}
+                                            >
+                                              {item.label}
+                                            </span>
+                                            {isSelected ? (
+                                              <Check size={13} className={`${text} shrink-0`} />
+                                            ) : (
+                                              <Pin size={12} className="text-slate-300 dark:text-slate-700 shrink-0" />
+                                            )}
+                                          </button>
+                                        );
+                                      })}
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })()}
 
                     {/* Üst Bar Özelleştirme Sekmesi (Kısayollar, Global Arama & Avatar Kapsülü) */}
                     {activeModalTab === "topbar" && (() => {
@@ -6742,186 +7007,6 @@ export default function Home() {
                               );
                             })}
                           </div>
-                        </div>
-                      </>
-                    );
-                  })()}
-                </div>
-
-                {/* User Personal Startup / Landing Screen Preference */}
-                <div className={`p-4 bg-slate-50/70 dark:bg-slate-950/40 border border-slate-200/80 dark:border-slate-800 rounded-2xl space-y-3.5 ${activeModalTab === "profile" ? "block" : "hidden"}`}>
-                  {(() => {
-                    const effectiveRoleCode = isAdminRole ? "admin" : String(currentUser?.role || "agent");
-                    const allowedLandingList = getAllowedLandingScreensForRole(
-                      effectiveRoleCode,
-                      isAdminRole ? ["*"] : currentRolePermissions
-                    );
-                    const allowedSubTabList = getAllowedAgentSubTabsForRole(
-                      effectiveRoleCode,
-                      isAdminRole ? ["*"] : currentRolePermissions
-                    );
-                    const landingGroups = Array.from(new Set(allowedLandingList.map((s) => s.group)));
-                    const selectedLanding = String(callPanelPrefs?.defaultLandingTab || "auto");
-                    const selectedSubTab = String(callPanelPrefs?.defaultAgentSubTab || "auto");
-                    const showSubTabPicker =
-                      isAgentOnlyUser ||
-                      selectedLanding === "call-center" ||
-                      (selectedLanding === "auto" && allowedLandingList.length === 1 && allowedLandingList[0]?.id === "call-center");
-
-                    return (
-                      <>
-                        <div className="flex flex-wrap items-center justify-between gap-2">
-                          <div className="flex items-center gap-2.5">
-                            <div className={`p-2 rounded-xl ${lightBg} ${text}`}>
-                              <Pin size={15} />
-                            </div>
-                            <div>
-                              <h5 className="text-[11px] font-extrabold text-slate-800 dark:text-white uppercase tracking-wider">
-                                Girişte Açılacak Başlangıç Ekranı
-                              </h5>
-                              <p id="profile-landing-help" className="text-[9.5px] text-slate-400 dark:text-slate-500 mt-0.5">
-                                Sisteme giriş yaptığınızda otomatik olarak karşınıza gelecek ekranı veya son kaldığınız modülü seçin.
-                              </p>
-                            </div>
-                          </div>
-
-                          {!isWallboardOnlyUser && (
-                            <button
-                              type="button"
-                              onClick={() => {
-                                if (activeTab === "call-center") {
-                                  updateLandingPrefsLive({
-                                    defaultLandingTab: "call-center",
-                                    defaultAgentSubTab: currentAgentSubTab || "auto"
-                                  });
-                                } else {
-                                  updateLandingPrefsLive({
-                                    defaultLandingTab: activeTab
-                                  });
-                                }
-                              }}
-                              className={`px-2.5 py-1.5 rounded-xl border text-[10px] font-extrabold transition-all cursor-pointer flex items-center gap-1.5 ${
-                                isCurrentViewPinnedAsLanding
-                                  ? `${bg} text-white border-transparent shadow-sm`
-                                  : `bg-white dark:bg-slate-900 ${borderLight} ${text} hover:opacity-90`
-                              }`}
-                            >
-                              {isCurrentViewPinnedAsLanding ? <Check size={12} /> : <Pin size={12} />}
-                              <span>
-                                {isCurrentViewPinnedAsLanding
-                                  ? "Şu Anki Ekran Seçili"
-                                  : "Açık Ekranı Seç"}
-                              </span>
-                            </button>
-                          )}
-                        </div>
-
-                        {isWallboardOnlyUser ? (
-                          <div className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 px-1">
-                            Rolünüz yalnızca Canlı İzleme Paneli (Wallboard) modülü için yapılandırıldığından girişte doğrudan Wallboard açılır.
-                          </div>
-                        ) : (
-                          <div className={`grid grid-cols-1 ${showSubTabPicker && !isAgentOnlyUser ? "sm:grid-cols-2" : ""} gap-3`}>
-                            {!isAgentOnlyUser && (
-                              <div>
-                                <label
-                                  htmlFor="profile-default-landing-tab"
-                                  className="block text-[10px] font-extrabold text-slate-600 dark:text-slate-300 uppercase tracking-wider mb-1"
-                                >
-                                  Başlangıç Modülü / Ekranı
-                                </label>
-                                <select
-                                  id="profile-default-landing-tab"
-                                  name="default_landing_tab"
-                                  aria-describedby="profile-landing-help"
-                                  value={selectedLanding}
-                                  onChange={(e) => {
-                                    const nextVal = e.target.value;
-                                    updateLandingPrefsLive({
-                                      defaultLandingTab: nextVal,
-                                      ...(nextVal !== "call-center" ? { defaultAgentSubTab: "auto" } : {})
-                                    });
-                                  }}
-                                  className="w-full px-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-xs font-bold text-slate-800 dark:text-white focus:outline-none focus:border-primary"
-                                >
-                                  <optgroup label="Akıllı Başlangıç Modları">
-                                    <option value="auto">Varsayılan (Role Göre Otomatik)</option>
-                                    <option value="last_visited">Son Kaldığım Ekrandan Devam Et</option>
-                                  </optgroup>
-                                  {landingGroups.map((grp) => (
-                                    <optgroup key={grp} label={grp}>
-                                      {allowedLandingList
-                                        .filter((item) => item.group === grp)
-                                        .map((item) => (
-                                          <option key={item.id} value={item.id}>
-                                            {item.label}
-                                          </option>
-                                        ))}
-                                    </optgroup>
-                                  ))}
-                                </select>
-                              </div>
-                            )}
-
-                            {showSubTabPicker && (
-                              <div>
-                                <label
-                                  htmlFor="profile-default-agent-subtab"
-                                  className="block text-[10px] font-extrabold text-slate-600 dark:text-slate-300 uppercase tracking-wider mb-1"
-                                >
-                                  Çağrı Paneli Açılış Sekmesi
-                                </label>
-                                <select
-                                  id="profile-default-agent-subtab"
-                                  name="default_agent_subtab"
-                                  aria-describedby="profile-landing-help"
-                                  value={selectedSubTab}
-                                  onChange={(e) =>
-                                    updateLandingPrefsLive({
-                                      ...(isAgentOnlyUser ? { defaultLandingTab: "call-center" } : {}),
-                                      defaultAgentSubTab: e.target.value
-                                    })
-                                  }
-                                  className="w-full px-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-xs font-bold text-slate-800 dark:text-white focus:outline-none focus:border-primary"
-                                >
-                                  <option value="auto">Sıralamadaki İlk Sekme (Varsayılan)</option>
-                                  <option value="last_visited">Son Kaldığım Alt Sekmeden Devam Et</option>
-                                  {allowedSubTabList.map((st) => (
-                                    <option key={st.id} value={st.id}>
-                                      {st.label}
-                                    </option>
-                                  ))}
-                                </select>
-                              </div>
-                            )}
-                          </div>
-                        )}
-
-                        <div className="flex items-center justify-between gap-2 text-[10px] font-semibold text-slate-500 dark:text-slate-400 pt-1">
-                          <span>
-                            Aktif Tercih:{" "}
-                            <strong className={text}>
-                              {isAgentOnlyUser
-                                ? `Temsilci Çağrı Paneli › ${getAgentSubTabLabel(selectedSubTab)}`
-                                : selectedLanding === "call-center"
-                                ? `Temsilci Çağrı Paneli › ${getAgentSubTabLabel(selectedSubTab)}`
-                                : getLandingScreenLabel(selectedLanding)}
-                            </strong>
-                          </span>
-                          {(selectedLanding !== "auto" || selectedSubTab !== "auto") && (
-                            <button
-                              type="button"
-                              onClick={() =>
-                                updateLandingPrefsLive({
-                                  defaultLandingTab: "auto",
-                                  defaultAgentSubTab: "auto"
-                                })
-                              }
-                              className="text-[10px] font-bold text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 underline cursor-pointer"
-                            >
-                              Varsayılana Sıfırla
-                            </button>
-                          )}
                         </div>
                       </>
                     );
