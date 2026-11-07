@@ -268,6 +268,23 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
   const [twoFactorEmailSending, setTwoFactorEmailSending] = useState(false);
   const [twoFactorStatusMsg, setTwoFactorStatusMsg] = useState(null);
   const [twoFactorSecretCopied, setTwoFactorSecretCopied] = useState(false);
+  const modalScrollPaneRef = useRef(null);
+  const twoFactorCardRef = useRef(null);
+
+  const scrollTwoFactorCardIntoPane = () => {
+    if (typeof window === "undefined") return;
+    window.requestAnimationFrame(() => {
+      setTimeout(() => {
+        const pane = modalScrollPaneRef.current;
+        const card = twoFactorCardRef.current;
+        if (!pane || !card) return;
+        const paneRect = pane.getBoundingClientRect();
+        const cardRect = card.getBoundingClientRect();
+        const targetTop = pane.scrollTop + (cardRect.top - paneRect.top) - 16;
+        pane.scrollTo({ top: Math.max(0, targetTop), behavior: "smooth" });
+      }, 60);
+    });
+  };
 
   // Follow Me (Beni Takip Et) Fields
   const [followMeEnabled, setFollowMeEnabled] = useState(false);
@@ -2471,7 +2488,7 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
       {/* POPUP MODAL (Add / Edit Form with Tabs) */}
       {showModal && createPortal(
         <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-sm flex items-center justify-center z-[150] p-4 transition-all duration-300">
-          <div className="w-full max-w-6xl max-h-[92vh] bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800/80 rounded-2xl shadow-2xl overflow-hidden flex flex-col animate-in fade-in zoom-in-95 duration-200">
+          <div className="w-full max-w-6xl h-[88vh] h-[88dvh] max-h-[880px] bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800/80 rounded-2xl shadow-2xl overflow-clip flex flex-col animate-in fade-in zoom-in-95 duration-200">
             {/* Modal Header */}
             <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 dark:border-slate-800/60 bg-slate-50/50 dark:bg-slate-950/20 shrink-0">
               <h3 className="text-xs font-bold text-slate-700 dark:text-white uppercase tracking-wider">
@@ -2485,9 +2502,9 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
               </button>
             </div>
 
-            <div className="flex flex-1 overflow-hidden">
+            <div className="flex flex-1 min-h-0 overflow-clip">
                 {/* Sidebar Tabs */}
-                <div className="w-64 bg-slate-50/50 dark:bg-slate-950/30 border-r border-slate-100 dark:border-slate-800/60 p-4 shrink-0 overflow-y-auto">
+                <div className="w-64 bg-slate-50/50 dark:bg-slate-950/30 border-r border-slate-100 dark:border-slate-800/60 p-4 shrink-0 overflow-y-auto overscroll-contain">
                     <nav className="space-y-1">
                         <button
                             type="button"
@@ -2591,8 +2608,11 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
                 </div>
 
                 {/* Tab Content Area */}
-                <div className="flex-1 overflow-y-auto">
-                    <form noValidate onSubmit={handleFormSubmit} className="p-7 space-y-6 h-full flex flex-col justify-between">
+                <form noValidate onSubmit={handleFormSubmit} className="flex-1 min-w-0 min-h-0 flex flex-col overflow-clip">
+                    <div
+                        ref={modalScrollPaneRef}
+                        className="flex-1 min-h-0 overflow-y-auto overscroll-contain [scrollbar-gutter:stable] p-7 space-y-6"
+                    >
                         {error && (
                           <div className="p-3.5 bg-rose-50 dark:bg-rose-955/15 border border-rose-200/50 dark:border-rose-900/30 rounded-2xl text-primary dark:text-rose-400 text-xs font-bold flex items-center justify-between gap-2.5">
                             <span>{error}</span>
@@ -3660,7 +3680,7 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
                                     </div>
                                 </div>
                                 
-                                <div className="p-4 bg-slate-50 dark:bg-slate-900/50 rounded-xl border border-slate-100 dark:border-slate-800">
+                                <div ref={twoFactorCardRef} className="p-4 bg-slate-50 dark:bg-slate-900/50 rounded-xl border border-slate-100 dark:border-slate-800">
                                     <div className="flex items-center justify-between">
                                         <div className="flex items-center gap-2.5">
                                             <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${twoFactorEnabled ? `${lightBg} ${text}` : "bg-slate-200/70 dark:bg-slate-800 text-slate-500"}`}>
@@ -3684,6 +3704,9 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
                                                 setTwoFactorStatusMsg(null);
                                                 if (nextVal && (!twoFactorMethod || twoFactorMethod === "app")) {
                                                     setTwoFactorMethod("google_auth");
+                                                }
+                                                if (nextVal) {
+                                                    scrollTwoFactorCardIntoPane();
                                                 }
                                             }}
                                             className="text-slate-400 hover:text-slate-700 transition-colors"
@@ -3738,6 +3761,7 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
                                                                     if (m.id === "google_auth" || m.id === "microsoft_auth") {
                                                                         fetchTwoFactorSetup(false, m.id);
                                                                     }
+                                                                    scrollTwoFactorCardIntoPane();
                                                                 }}
                                                                 className={`p-3 rounded-xl text-left border transition-all flex flex-col justify-between gap-2 ${
                                                                     isSelected
@@ -5170,25 +5194,26 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
                             </div>
                         )}
 
-                        {/* Action Buttons */}
-                        <div className="flex gap-3 pt-4 mt-auto border-t border-slate-100 dark:border-slate-800/60">
-                            <button
-                                type="button"
-                                onClick={() => setShowModal(false)}
-                                className="flex-1 py-2.5 rounded-xl text-xs font-bold bg-rose-600 hover:bg-rose-500 text-white shadow-sm shadow-rose-500/20 transition-all cursor-pointer"
-                            >
-                                Vazgeç
-                            </button>
-                            <button
-                                type="submit"
-                                disabled={submitting}
-                                className={`flex-1 py-2.5 rounded-xl text-xs font-bold ${bg} ${hover} text-white transition-all shadow-sm disabled:opacity-50`}
-                            >
-                                {submitting ? "Kaydediliyor..." : "Kaydet"}
-                            </button>
-                        </div>
-                    </form>
-                </div>
+                    </div>
+
+                    {/* Fixed Action Buttons Footer */}
+                    <div className="shrink-0 flex gap-3 px-7 py-4 bg-white dark:bg-slate-900 border-t border-slate-100 dark:border-slate-800/60">
+                        <button
+                            type="button"
+                            onClick={() => setShowModal(false)}
+                            className="flex-1 py-2.5 rounded-xl text-xs font-bold bg-rose-600 hover:bg-rose-500 text-white shadow-sm shadow-rose-500/20 transition-all cursor-pointer"
+                        >
+                            Vazgeç
+                        </button>
+                        <button
+                            type="submit"
+                            disabled={submitting}
+                            className={`flex-1 py-2.5 rounded-xl text-xs font-bold ${bg} ${hover} text-white transition-all shadow-sm disabled:opacity-50`}
+                        >
+                            {submitting ? "Kaydediliyor..." : "Kaydet"}
+                        </button>
+                    </div>
+                </form>
             </div>
           </div>
         </div>,

@@ -879,6 +879,23 @@ export default function Home() {
   const [twoFactorEmailSending, setTwoFactorEmailSending] = useState(false);
   const [twoFactorStatusMsg, setTwoFactorStatusMsg] = useState(null);
   const [twoFactorSecretCopied, setTwoFactorSecretCopied] = useState(false);
+  const profileModalScrollPaneRef = React.useRef(null);
+  const profileTwoFactorCardRef = React.useRef(null);
+
+  const scrollProfileTwoFactorIntoPane = () => {
+    if (typeof window === "undefined") return;
+    window.requestAnimationFrame(() => {
+      setTimeout(() => {
+        const pane = profileModalScrollPaneRef.current;
+        const card = profileTwoFactorCardRef.current;
+        if (!pane || !card) return;
+        const paneRect = pane.getBoundingClientRect();
+        const cardRect = card.getBoundingClientRect();
+        const targetTop = pane.scrollTop + (cardRect.top - paneRect.top) - 16;
+        pane.scrollTo({ top: Math.max(0, targetTop), behavior: "smooth" });
+      }, 60);
+    });
+  };
   const [passwordExpiryEnabled, setPasswordExpiryEnabled] = useState(false);
   const [passwordExpiryMonths, setPasswordExpiryMonths] = useState(3); // 1, 3, 6, 12 (Months)
   const [currentPassword, setCurrentPassword] = useState("");
@@ -5123,7 +5140,7 @@ export default function Home() {
             }`}
           >
             <div
-              className={`aida-settings-modal-dialog w-full max-w-6xl max-h-[92vh] bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800/80 rounded-2xl shadow-2xl overflow-hidden flex flex-col animate-in fade-in zoom-in-95 duration-200 transition-all ${
+              className={`aida-settings-modal-dialog w-full max-w-6xl h-[88vh] h-[88dvh] max-h-[880px] bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800/80 rounded-2xl shadow-2xl overflow-clip flex flex-col animate-in fade-in zoom-in-95 duration-200 transition-all ${
                 isPeekingUiTemplate ? "opacity-0 scale-[0.985] pointer-events-none" : "opacity-100 scale-100"
               }`}
             >
@@ -5148,9 +5165,9 @@ export default function Home() {
                 </button>
               </div>
 
-              <div className="flex flex-1 overflow-hidden">
+              <div className="flex flex-1 min-h-0 overflow-clip">
                 {/* Left Sidebar Tabs (UserSettings style) */}
-                <div className="aida-settings-modal-sidebar w-64 bg-slate-50/50 dark:bg-slate-950/30 border-r border-slate-100 dark:border-slate-800/60 p-4 shrink-0 overflow-y-auto transition-colors duration-300">
+                <div className="aida-settings-modal-sidebar w-64 bg-slate-50/50 dark:bg-slate-950/30 border-r border-slate-100 dark:border-slate-800/60 p-4 shrink-0 overflow-y-auto overscroll-contain transition-colors duration-300">
                   <nav className="space-y-1">
                     <button
                       type="button"
@@ -5244,8 +5261,11 @@ export default function Home() {
                 </div>
 
                 {/* Right Tab Content Area */}
-                <div className="flex-1 overflow-y-auto p-7 flex flex-col justify-between space-y-6">
-                  <div className="space-y-4">
+                <div className="flex-1 min-w-0 min-h-0 flex flex-col overflow-clip">
+                  <div
+                    ref={profileModalScrollPaneRef}
+                    className="flex-1 min-h-0 overflow-y-auto overscroll-contain [scrollbar-gutter:stable] p-7 space-y-4"
+                  >
 
                     {/* Klavye Kısayolları Sekmesi */}
                     {activeModalTab === "shortcuts" && (
@@ -8815,7 +8835,7 @@ export default function Home() {
                   </div>
 
                   {/* Section 3: Giriş Güvenliği & 2FA */}
-                  <div className="p-4 bg-slate-50/70 dark:bg-slate-950/40 border border-slate-200/80 dark:border-slate-800 rounded-2xl space-y-3">
+                  <div ref={profileTwoFactorCardRef} className="p-4 bg-slate-50/70 dark:bg-slate-950/40 border border-slate-200/80 dark:border-slate-800 rounded-2xl space-y-3">
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-2.5">
                         <div className={`p-2 rounded-xl ${twoFactorEnabled ? `${lightBg} ${text}` : "bg-blue-100/70 dark:bg-blue-950/40 text-blue-600 dark:text-blue-400"}`}>
@@ -8843,6 +8863,9 @@ export default function Home() {
                           const nextVal = !twoFactorEnabled;
                           setTwoFactorEnabled(nextVal);
                           setTwoFactorStatusMsg(null);
+                          if (nextVal) {
+                            scrollProfileTwoFactorIntoPane();
+                          }
                         }}
                         className={`w-9 h-5 rounded-full p-0.5 transition-all duration-200 focus:outline-none flex items-center ${
                           twoFactorEnabled ? `${bg} justify-end` : "bg-slate-200 dark:bg-slate-800 justify-start"
@@ -8880,6 +8903,7 @@ export default function Home() {
                                     if (m.id === "google_auth" || m.id === "microsoft_auth") {
                                       fetchProfile2faSetup(false, m.id);
                                     }
+                                    scrollProfileTwoFactorIntoPane();
                                   }}
                                   className={`p-2.5 rounded-xl text-left border transition-all flex flex-col justify-between gap-1.5 ${
                                     isSelected
@@ -9117,7 +9141,7 @@ export default function Home() {
                   </div>
 
                   {/* Modal Footer */}
-                  <div className="flex justify-end gap-3 pt-4 border-t border-slate-100 dark:border-slate-800/60 shrink-0">
+                  <div className="flex justify-end gap-3 px-7 py-4 bg-white dark:bg-slate-900 border-t border-slate-100 dark:border-slate-800/60 shrink-0">
                     <button
                       type="button"
                       onClick={handleCancelSettingsModal}
