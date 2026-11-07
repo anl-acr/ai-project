@@ -1,5 +1,7 @@
 import os
 import sys
+import time
+import copy
 import subprocess
 import re
 import hmac
@@ -21,7 +23,7 @@ from fastapi.responses import FileResponse, Response, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-from sqlalchemy import select, delete, func, text, or_, and_
+from sqlalchemy import select, delete, update, func, text, or_, and_
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Session
 from typing import Union, List, Optional, Dict, Any, Tuple
@@ -24367,7 +24369,13 @@ async def verify_2fa(payload: Verify2FASchema):
         raise HTTPException(status_code=401, detail="Geçersiz veya süresi dolmuş E-Posta doğrulama kodu.")
 
     if eff_method == "whatsapp":
-        user_gsm = user.get("gsm_number") or (user.get("follow_me", {}) or {}).get("mobile_number") or ""
+        fm_raw = user.get("follow_me")
+        if isinstance(fm_raw, str) and fm_raw.strip().startswith("{"):
+            try:
+                fm_raw = json.loads(fm_raw)
+            except Exception:
+                fm_raw = {}
+        user_gsm = user.get("gsm_number") or ((fm_raw if isinstance(fm_raw, dict) else {}).get("mobile_number")) or ""
         candidate_keys = [
             str(user.get("id") or ""),
             uid_str,
@@ -25701,7 +25709,13 @@ async def new_save_users_endpoint(payload: Union[List[UserSchema], UserSchema], 
         json_cols = {"profiles", "follow_me", "forwarding_always", "forwarding_busy", "forwarding_no_answer", "active_sessions", "managed_users", "managed_queues", "cti_config", "call_panel_prefs", "wallboard_layout", "sip_devices"}
         saved_payload_by_ext = {}
         saved_payload_by_id = {}
-        from backend.services.autoprovision_service import normalize_user_sip_devices, normalize_mac_address, generate_device_token
+        from backend.services.autoprovision_service import normalize_user_sip_devices, normalize_mac_address
+        try:
+            from backend.services.autoprovision_service import generate_device_token
+        except ImportError:
+            import hashlib as _hl_ap
+            def generate_device_token(mac_val=""):
+                return _hl_ap.sha256(f"AIDA_AP_{mac_val}".encode("utf-8")).hexdigest()[:24]
 
         ap_Registry = settings_db.get("autoprovision")
         if not isinstance(ap_Registry, list):

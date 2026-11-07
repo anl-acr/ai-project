@@ -322,6 +322,15 @@ def detect_brand_from_mac(mac_colon: str, fallback_brand: str = "Yealink") -> st
     return VENDOR_OUI_MAP.get(oui) or (str(fallback_brand or "").strip() or "Yealink")
 
 
+def generate_device_token(mac_val: Any = "") -> str:
+    """Generates a deterministic-or-random URL-safe provisioning token for a MAC-bound SIP device."""
+    clean_mac = re.sub(r"[^0-9a-fA-F]", "", str(mac_val or "")).lower()
+    if clean_mac:
+        digest = hashlib.sha256(f"AIDA_AP_DEV_TOKEN_{clean_mac}".encode("utf-8")).hexdigest()
+        return digest[:24]
+    return secrets.token_urlsafe(18).replace("-", "").replace("_", "")[:24]
+
+
 def get_or_create_provisioning_token(settings_db: dict, tenant_id: str = "tenant-default", force_rotate: bool = False) -> str:
     t_key = "tenant-default" if not tenant_id or tenant_id in ("default", "tenant-default", "all", "global") else str(tenant_id)
     tokens_map = settings_db.get("provisioning_tokens")
