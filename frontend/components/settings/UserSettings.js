@@ -3663,23 +3663,6 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
                                     )}
                                 </div>
 
-                                <div className="p-4 bg-slate-50 dark:bg-slate-900/50 rounded-xl border border-slate-100 dark:border-slate-800">
-                                    <label className="block text-xs font-bold text-slate-800 dark:text-white mb-2">Transport Protokolü</label>
-                                    <p className="text-[10px] text-slate-500 mb-3">Kullanıcının SIP cihazı veya softphone'u için geçerli protokol.</p>
-                                    <div className="flex gap-3">
-                                        {["UDP", "TCP", "TLS"].map(t => (
-                                            <button
-                                                key={t}
-                                                type="button"
-                                                onClick={() => setTransport(t)}
-                                                className={`flex-1 py-2 rounded-lg text-xs font-bold border transition-all ${transport === t ? (lightBg + " " + border + " " + text) : 'bg-white dark:bg-slate-950 border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-900'}`}
-                                            >
-                                                {t}
-                                            </button>
-                                        ))}
-                                    </div>
-                                </div>
-                                
                                 <div ref={twoFactorCardRef} className="p-4 bg-slate-50 dark:bg-slate-900/50 rounded-xl border border-slate-100 dark:border-slate-800">
                                     <div className="flex items-center justify-between">
                                         <div className="flex items-center gap-2.5">
