@@ -2,6 +2,7 @@ export const DEFAULT_USER_PROFILES = [
   {
     id: "available",
     name: "Müsait",
+    digit: "1",
     devices: ["desk_phone", "mobile_app", "web_phone", "pc_app"],
     timeout: 30,
     timeout_action: "voicemail",
@@ -10,6 +11,7 @@ export const DEFAULT_USER_PROFILES = [
   {
     id: "away",
     name: "Dışarıda",
+    digit: "2",
     devices: ["mobile_app"],
     timeout: 25,
     timeout_action: "external",
@@ -18,6 +20,7 @@ export const DEFAULT_USER_PROFILES = [
   {
     id: "meeting",
     name: "Toplantı",
+    digit: "3",
     devices: [],
     timeout: 15,
     timeout_action: "voicemail",
@@ -26,6 +29,7 @@ export const DEFAULT_USER_PROFILES = [
   {
     id: "other",
     name: "Diğer",
+    digit: "4",
     devices: ["web_phone"],
     timeout: 30,
     timeout_action: "none",
@@ -59,9 +63,14 @@ export const normalizeUserProfiles = (rawProfiles) => {
   return DEFAULT_USER_PROFILES.map((def) => {
     const ex = byId[def.id];
     if (!ex) return { ...def, devices: [...def.devices] };
+    const cleanDigit =
+      ex.digit !== undefined && ex.digit !== null && String(ex.digit).trim() !== ""
+        ? String(ex.digit).replace(/[^0-9]/g, "").slice(0, 2) || def.digit
+        : def.digit;
     return {
       id: def.id,
       name: ex.name || def.name,
+      digit: cleanDigit,
       devices: Array.isArray(ex.devices) ? [...ex.devices] : [...def.devices],
       timeout: ex.timeout !== undefined && ex.timeout !== null ? Number(ex.timeout) : def.timeout,
       timeout_action: ex.timeout_action || def.timeout_action,

@@ -31,7 +31,9 @@ import {
   Building2,
   Calendar,
   Database,
-  Sparkles
+  Sparkles,
+  ShieldCheck,
+  ShieldAlert
 } from "lucide-react";
 import { useTheme } from "../../../utils/theme";
 import { findContactByPhone, maskPhoneLast4 } from "../../../utils/contactUtils";
@@ -66,6 +68,7 @@ export default function AgentWebphoneTab({
   const canCtiScreenPop = callPanelPerms.canCtiScreenPop !== false;
   const canLiveTranslate = Boolean(callPanelPerms.canLiveTranslate || callPanelPerms.canViewTranscripts !== false);
   const canVoiceInterpret = Boolean(callPanelPerms.canVoiceInterpret);
+  const canPauseRecording = Boolean(callPanelPerms.canPauseRecording);
   const hasAnyTranslatorPerm = canLiveTranslate || canVoiceInterpret;
   const maskPhoneNumbers = Boolean(callPanelPerms.maskPhoneNumbers);
   const userCtiConfig = webphoneManager.resolveUserCtiConfig();
@@ -78,6 +81,8 @@ export default function AgentWebphoneTab({
   const [isTranslatorOpen, setIsTranslatorOpen] = useState(true);
   const [newCallInput, setNewCallInput] = useState("");
   const [isNewCallOpen, setIsNewCallOpen] = useState(false);
+  const [isRecordingPaused, setIsRecordingPaused] = useState(false);
+  const [recordingPauseBusy, setRecordingPauseBusy] = useState(false);
 
   // Contacts, Directory & Recent Calls State
   const [contacts, setContacts] = useState([]);
@@ -219,6 +224,10 @@ export default function AgentWebphoneTab({
   };
 
   useEffect(() => {
+    if (callStatus !== "InCall") {
+      setIsRecordingPaused(false);
+      setRecordingPauseBusy(false);
+    }
     if (callStatus === "Idle" && lines.length === 0) {
       setTransferOpen(false);
       setConferenceOpen(false);
@@ -232,6 +241,47 @@ export default function AgentWebphoneTab({
       fetchContactsAndDirectory();
     }
   }, [callStatus, lines.length]);
+
+  const toggleRecordingPause = async () => {
+    if (!canPauseRecording || callStatus !== "InCall" || recordingPauseBusy) return;
+    setRecordingPauseBusy(true);
+    try {
+      const protocol = window.location.protocol;
+      const uid =
+        (typeof window !== "undefined" &&
+          (sessionStorage.getItem("current_user_id") || localStorage.getItem("current_user_id"))) ||
+        currentUser?.id ||
+        myExt;
+      const res = await fetch(`${protocol}//${backendHost}/api/calls/recording/pause`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-User-ID": String(uid)
+        },
+        body: JSON.stringify({
+          extension: myExt,
+          call_id: activeCallId || undefined,
+          paused: !isRecordingPaused
+        })
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok && data.status !== "error") {
+        const nextState = typeof data.paused === "boolean" ? data.paused : !isRecordingPaused;
+        setIsRecordingPaused(nextState);
+        setCallNotification(
+          nextState
+            ? "Ses kaydı geçici olarak maskeleniyor (KVKK / Kart Bilgisi)"
+            : "Ses kaydı tekrar devam ediyor"
+        );
+      } else {
+        setCallNotification(data?.detail || data?.message || "Ses kaydı durumu değiştirilemedi");
+      }
+    } catch (err) {
+      setCallNotification("Ses kaydı kontrol bağlantı hatası");
+    } finally {
+      setRecordingPauseBusy(false);
+    }
+  };
 
   const setDialNumber = (val) => {
     if (typeof val === "function") {
@@ -1132,6 +1182,12 @@ export default function AgentWebphoneTab({
                             Kuyruk: {queueName}
                           </span>
                         )}
+                        {callStatus === "InCall" && isRecordingPaused && (
+                          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-extrabold bg-amber-100 text-amber-700 border border-amber-300 dark:bg-amber-500/20 dark:text-amber-300 dark:border-amber-500/40 animate-pulse">
+                            <ShieldAlert size={12} />
+                            KVKK: Ses Kaydı Maskeleniyor
+                          </span>
+                        )}
                         {resolvedDisplayName && (
                           <span className="text-[10px] font-bold text-slate-400">
                             {resolvedIsInternal ? "Dahili Abone" : "Kayıtlı Kişi"}
@@ -1269,6 +1325,29 @@ export default function AgentWebphoneTab({
                               : "Ham"}
                           </span>
                         </button>
+
+                        {callStatus === "InCall" && canPauseRecording && (
+                          <button
+                            type="button"
+                            onClick={toggleRecordingPause}
+                            disabled={recordingPauseBusy}
+                            title={
+                              isRecordingPaused
+                                ? "Ses Kaydına Devam Et (Maskelemeyi Bitir)"
+                                : "KVKK & Kredi Kartı Bilgisi İçin Ses Kaydını Duraklat"
+                            }
+                            className={`h-11 px-3 rounded-2xl border flex items-center gap-1.5 justify-center text-[10px] font-extrabold uppercase tracking-wide transition-all disabled:opacity-50 ${
+                              isRecordingPaused
+                                ? "bg-amber-100 border-amber-300 text-amber-700 dark:bg-amber-500/20 dark:border-amber-500/50 dark:text-amber-300 animate-pulse"
+                                : "bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100 dark:bg-slate-800 dark:border-slate-700 dark:text-slate-200"
+                            }`}
+                          >
+                            {isRecordingPaused ? <ShieldAlert size={16} /> : <ShieldCheck size={16} />}
+                            <span className="hidden sm:inline">
+                              {isRecordingPaused ? "Kaydı Sürdür" : "Kaydı Duraklat"}
+                            </span>
+                          </button>
+                        )}
 
                         {/* Transfer Button */}
                         {callStatus === "InCall" && canTransfer && (

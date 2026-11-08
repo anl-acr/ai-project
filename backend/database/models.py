@@ -272,6 +272,8 @@ class SystemUser(Base):
     max_concurrent_outbound = Column(Integer, default=0)
     outbound_quarantined = Column(Boolean, default=False)
     sip_devices = Column(JSON, default=list)
+    boss_secretary = Column(JSON, default=dict)
+    hotdesk_config = Column(JSON, default=dict)
 
 class SystemRole(Base):
     __tablename__ = "system_roles"
@@ -457,4 +459,21 @@ class VoipQualityLog(Base):
     codec = Column(String, default="opus/48000")
     quality_grade = Column(String, default="excellent")  # excellent, good, fair, poor
     timestamp = Column(DateTime, default=datetime.datetime.utcnow, index=True)
+
+
+class VoicemailMessage(Base):
+    __tablename__ = "voicemail_messages"
+    id = Column(String, primary_key=True, index=True)
+    tenant_id = Column(String, default="tenant-default", index=True)
+    call_id = Column(String, nullable=True, index=True)
+    extension = Column(String, nullable=False, index=True)
+    caller_number = Column(String, nullable=False)
+    caller_name = Column(String, nullable=True)
+    recording_path = Column(String, nullable=False)
+    duration_seconds = Column(Integer, default=0)
+    is_read = Column(Boolean, default=False, index=True)
+    email_sent = Column(Boolean, default=False)
+    transcript_text = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow, index=True)
+
 

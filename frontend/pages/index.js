@@ -388,6 +388,15 @@ export default function Home() {
   const [selectedAgentProfileTab, setSelectedAgentProfileTab] = useState("available");
   const [agentQueuesList, setAgentQueuesList] = useState([]);
   const [agentAiAgentsList, setAgentAiAgentsList] = useState([]);
+  const [agentHotdeskConfig, setAgentHotdeskConfig] = useState({
+    enabled: false,
+    pin: "",
+    auto_logout_midnight: true
+  });
+  const [showAgentHotdeskPin, setShowAgentHotdeskPin] = useState(false);
+  const [agentHotdeskPinTouched, setAgentHotdeskPinTouched] = useState(false);
+  const [agentHotdeskSessions, setAgentHotdeskSessions] = useState([]);
+  const [agentHotdeskLogoutBusy, setAgentHotdeskLogoutBusy] = useState(false);
   const [callPanelPrefs, setCallPanelPrefs] = useState(() => loadCallPanelPrefs(null));
   const [isPeekingUiTemplate, setIsPeekingUiTemplate] = useState(false);
   const [currentAgentSubTab, setCurrentAgentSubTab] = useState("dashboard");
@@ -1318,6 +1327,15 @@ export default function Home() {
       "";
     const initialNoiseMode = getSavedNoiseSuppressionMode();
     const initialDesktopPrefs = getDesktopPrefs();
+    const rawInitialHd =
+      currentUser.hotdesk_config && typeof currentUser.hotdesk_config === "object"
+        ? currentUser.hotdesk_config
+        : {};
+    const initialHotdeskCfg = {
+      enabled: Boolean(rawInitialHd.enabled),
+      pin: String(rawInitialHd.pin || ""),
+      auto_logout_midnight: rawInitialHd.auto_logout_midnight !== false
+    };
 
     let initialWbLayout = null;
     if (currentUser.wallboard_layout && typeof currentUser.wallboard_layout === "object" && Object.keys(currentUser.wallboard_layout).length > 0) {
@@ -1343,8 +1361,13 @@ export default function Home() {
       selectedSpeaker: initialSpk,
       selectedRingtoneSpeaker: initialRingSpk,
       noiseSuppressionMode: initialNoiseMode,
-      desktopPrefs: JSON.parse(JSON.stringify(initialDesktopPrefs || {}))
+      desktopPrefs: JSON.parse(JSON.stringify(initialDesktopPrefs || {})),
+      hotdeskConfig: JSON.parse(JSON.stringify(initialHotdeskCfg))
     };
+
+    setAgentHotdeskConfig(initialHotdeskCfg);
+    setShowAgentHotdeskPin(false);
+    setAgentHotdeskPinTouched(false);
 
     setModalDraftWallboardLayout(initialWbLayout ? JSON.parse(JSON.stringify(initialWbLayout)) : null);
     setAgentAvatar(initialAvatar || agentAvatar);
@@ -1386,6 +1409,14 @@ export default function Home() {
       .then(r => r.ok ? r.json() : [])
       .then(d => setAgentAiAgentsList(Array.isArray(d) ? d : (d?.ai_agents || [])))
       .catch(() => {});
+    if (currentUser.extension) {
+      fetch(`${protocol}//${backendHost}/api/hotdesk/sessions?extension=${encodeURIComponent(currentUser.extension)}`)
+        .then(r => r.ok ? r.json() : null)
+        .then(d => setAgentHotdeskSessions(Array.isArray(d?.sessions) ? d.sessions : []))
+        .catch(() => setAgentHotdeskSessions([]));
+    } else {
+      setAgentHotdeskSessions([]);
+    }
 
     userTouched2faInModalRef.current = false;
     setAutoLogoutEnabled(currentUser.auto_logout_enabled ?? (localStorage.getItem("auto_logout_enabled") === "true"));
@@ -1454,6 +1485,17 @@ export default function Home() {
         setTwoFactorEnrolled(Boolean(freshMethodsMap[freshMethod]?.enrolled));
         const freshPhone = freshU.gsm_number || freshU.follow_me?.mobile_number || fMeta?.phone || "";
         if (freshPhone) setGsmNumber(freshPhone);
+        if (freshU.hotdesk_config && typeof freshU.hotdesk_config === "object") {
+          const fHd = {
+            enabled: Boolean(freshU.hotdesk_config.enabled),
+            pin: String(freshU.hotdesk_config.pin || ""),
+            auto_logout_midnight: freshU.hotdesk_config.auto_logout_midnight !== false
+          };
+          setAgentHotdeskConfig(fHd);
+          if (modalInitialSnapshotRef.current) {
+            modalInitialSnapshotRef.current.hotdeskConfig = JSON.parse(JSON.stringify(fHd));
+          }
+        }
       })
       .catch(() => {});
   }, [settingsModalOpen, currentUser, backendHost]);
@@ -1498,6 +1540,9 @@ export default function Home() {
       setSelectedRingtoneSpeaker(snap.selectedRingtoneSpeaker);
       setNoiseSuppressionMode(snap.noiseSuppressionMode);
       setDesktopPrefs(JSON.parse(JSON.stringify(snap.desktopPrefs || {})));
+      if (snap.hotdeskConfig) {
+        setAgentHotdeskConfig(JSON.parse(JSON.stringify(snap.hotdeskConfig)));
+      }
     }
 
     setSettingsModalOpen(false);
@@ -5341,6 +5386,23 @@ export default function Home() {
                       <PhoneForwarded size={16} />
                       Yönlendirme
                     </button>
+                    {currentUser?.extension && (
+                      <button
+                        type="button"
+                        onClick={() => setActiveModalTab("hotdesk")}
+                        className={"w-full flex items-center justify-between gap-2 px-3 py-2.5 rounded-xl text-xs font-bold transition-all " + (activeModalTab === "hotdesk" ? ("bg-white dark:bg-slate-800 " + text + " shadow-sm border border-slate-200 dark:border-slate-700") : "text-slate-500 hover:bg-white/50 dark:hover:bg-slate-800/50 hover:text-slate-700 dark:hover:text-slate-300 border border-transparent")}
+                      >
+                        <span className="flex items-center gap-3">
+                          <Phone size={16} />
+                          Hot-Desking
+                        </span>
+                        {agentHotdeskConfig?.enabled && (
+                          <span className="px-1.5 py-0.5 rounded-md text-[8.5px] font-extrabold bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30">
+                            AKTİF
+                          </span>
+                        )}
+                      </button>
+                    )}
                     <button
                       type="button"
                       onClick={() => setActiveModalTab("security")}
@@ -7322,8 +7384,8 @@ export default function Home() {
                           </div>
                         </div>
 
-                        {/* Timeout & Post-Timeout Action */}
-                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 pt-3 border-t border-slate-200/60 dark:border-slate-800">
+                        {/* Timeout, Post-Timeout Action & Digit */}
+                        <div className="grid grid-cols-1 sm:grid-cols-4 gap-3 pt-3 border-t border-slate-200/60 dark:border-slate-800">
                           <div>
                             <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1.5">
                               Zaman Aşımı (sn)
@@ -7412,6 +7474,28 @@ export default function Home() {
                                 {curProf.timeout_action === "voicemail" ? "Sesli mesaja aktarılır" : "Ek hedef gerekmiyor"}
                               </div>
                             )}
+                          </div>
+
+                          <div>
+                            <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1.5">
+                              Tuşlama Kodu (Digit)
+                            </label>
+                            <div className="flex items-center gap-1.5">
+                              <input
+                                type="text"
+                                inputMode="numeric"
+                                maxLength={2}
+                                value={curProf.digit ?? ""}
+                                onChange={(e) =>
+                                  updateCurProf({ digit: e.target.value.replace(/\D/g, "").slice(0, 2) })
+                                }
+                                placeholder="1"
+                                className="w-14 text-xs font-mono font-extrabold text-center px-2 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 text-slate-800 dark:text-slate-100 focus:outline-none"
+                              />
+                              <span className={`px-2 py-2 rounded-xl text-[10px] font-mono font-extrabold ${lightBg} ${text} border ${borderLight} whitespace-nowrap`}>
+                                *70*{curProf.digit || "1"}
+                              </span>
+                            </div>
                           </div>
                         </div>
                       </div>
@@ -9266,6 +9350,205 @@ export default function Home() {
                   </div>
 
                 </div>
+
+                {/* Self-Service Hot-Desking Tab */}
+                <div className={`space-y-4 ${activeModalTab === "hotdesk" ? "block" : "hidden"}`}>
+                  <div className="p-5 bg-slate-50 dark:bg-slate-950/50 border border-slate-200/80 dark:border-slate-800 rounded-2xl space-y-5">
+                    <div className="flex items-center justify-between gap-4">
+                      <div className="flex items-center gap-3">
+                        <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${agentHotdeskConfig?.enabled ? `${lightBg} ${text}` : "bg-slate-200/70 dark:bg-slate-800 text-slate-500"}`}>
+                          <Phone size={18} />
+                        </div>
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <h4 className="text-sm font-extrabold text-slate-800 dark:text-white">
+                              Hot-Desking (Ortak Masa Telefonu Oturumu)
+                            </h4>
+                            <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${agentHotdeskConfig?.enabled ? `${lightBg} ${text} border ${border}` : "bg-slate-200 dark:bg-slate-800 text-slate-500"}`}>
+                              {agentHotdeskConfig?.enabled ? "Aktif" : "Pasif"}
+                            </span>
+                          </div>
+                          <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
+                            Ofisteki herhangi bir masa telefonuna oturup kendi dahilinizi ({currentUser?.extension}) bağlamak için özel PIN şifrenizi ve gece 00:00 otomatik çıkış tercihinizi yönetin.
+                          </p>
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setAgentHotdeskConfig((prev) => ({ ...prev, enabled: !prev.enabled }))
+                        }
+                        className={`transition-colors shrink-0 ${agentHotdeskConfig?.enabled ? text : "text-slate-400"}`}
+                      >
+                        {agentHotdeskConfig?.enabled ? <ToggleRight size={32} /> : <ToggleLeft size={32} />}
+                      </button>
+                    </div>
+
+                    {agentHotdeskConfig?.enabled && (
+                      <div className="pt-4 border-t border-slate-200/70 dark:border-slate-800 space-y-4">
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                          {/* Dedicated Hot-Desk PIN */}
+                          <div className="p-4 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 space-y-2">
+                            <div className="flex items-center justify-between gap-2">
+                              <label
+                                htmlFor="self-hotdesk-pin"
+                                className="text-xs font-extrabold text-slate-800 dark:text-white"
+                              >
+                                Hot-Desking Özel PIN Şifrem
+                              </label>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  const rnd = String(Math.floor(100000 + Math.random() * 900000));
+                                  setAgentHotdeskConfig((prev) => ({ ...prev, pin: rnd }));
+                                  setShowAgentHotdeskPin(true);
+                                }}
+                                className={`text-[10px] font-bold px-2.5 py-1 rounded-lg ${lightBg} ${text} border ${borderLight} flex items-center gap-1`}
+                              >
+                                <RefreshCw size={11} />
+                                PIN Üret
+                              </button>
+                            </div>
+                            <p
+                              id="self-hotdesk-pin-hint"
+                              className="text-[10px] text-slate-500 dark:text-slate-400"
+                            >
+                              Giriş ve SIP şifrenizden ayrıdır; 4 ile 8 haneli sadece rakam belirleyiniz.
+                            </p>
+                            <div className="relative flex items-center">
+                              <input
+                                id="self-hotdesk-pin"
+                                type={showAgentHotdeskPin ? "text" : "password"}
+                                inputMode="numeric"
+                                autoComplete="off"
+                                pattern="\d{4,8}"
+                                maxLength={8}
+                                aria-describedby="self-hotdesk-pin-hint"
+                                value={agentHotdeskConfig?.pin || ""}
+                                onChange={(e) =>
+                                  setAgentHotdeskConfig((prev) => ({
+                                    ...prev,
+                                    pin: e.target.value.replace(/\D/g, "").slice(0, 8)
+                                  }))
+                                }
+                                onBlur={() => setAgentHotdeskPinTouched(true)}
+                                placeholder="Örn: 482910"
+                                className={`w-full text-xs font-mono font-extrabold tracking-widest px-3.5 py-2.5 pr-10 rounded-xl border bg-slate-50 dark:bg-slate-950 text-slate-800 dark:text-white focus:outline-none ${
+                                  agentHotdeskPinTouched && !/^\d{4,8}$/.test(String(agentHotdeskConfig?.pin || ""))
+                                    ? "border-rose-400 dark:border-rose-600"
+                                    : "border-slate-200 dark:border-slate-800"
+                                }`}
+                              />
+                              <button
+                                type="button"
+                                onClick={() => setShowAgentHotdeskPin((p) => !p)}
+                                className="absolute right-3 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
+                              >
+                                {showAgentHotdeskPin ? <EyeOff size={15} /> : <Eye size={15} />}
+                              </button>
+                            </div>
+                            {agentHotdeskPinTouched && !/^\d{4,8}$/.test(String(agentHotdeskConfig?.pin || "")) && (
+                              <p className="text-[11px] font-bold text-rose-600 dark:text-rose-400 flex items-center gap-1">
+                                <AlertTriangle size={12} />
+                                Lütfen 4 ile 8 haneli rakamlardan oluşan bir PIN giriniz.
+                              </p>
+                            )}
+                          </div>
+
+                          {/* Midnight Auto-Logout Toggle */}
+                          <div className="p-4 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 flex flex-col justify-between gap-3">
+                            <div className="flex items-start justify-between gap-3">
+                              <div>
+                                <h5 className="text-xs font-extrabold text-slate-800 dark:text-white">
+                                  Gece 00:00&apos;da Oturumu Otomatik Kapat
+                                </h5>
+                                <p className="text-[10px] text-slate-500 dark:text-slate-400 mt-1 leading-relaxed">
+                                  Mesai sonunda masa telefonundan çıkış yapmayı unutursanız gece 00:00&apos;da oturumunuz güvenli şekilde otomatik kapatılır.
+                                </p>
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setAgentHotdeskConfig((prev) => ({
+                                    ...prev,
+                                    auto_logout_midnight: !prev.auto_logout_midnight
+                                  }))
+                                }
+                                className={`transition-colors shrink-0 ${agentHotdeskConfig?.auto_logout_midnight ? text : "text-slate-400"}`}
+                              >
+                                {agentHotdeskConfig?.auto_logout_midnight ? <ToggleRight size={30} /> : <ToggleLeft size={30} />}
+                              </button>
+                            </div>
+                            <div className={`p-2.5 rounded-xl border ${lightBg} ${borderLight} text-[10px] font-semibold ${text}`}>
+                              Masa telefonundan <span className="font-mono font-extrabold">*75*{currentUser?.extension || "1000"}*PIN</span> ile giriş, <span className="font-mono font-extrabold">*76</span> ile çıkış yapabilirsiniz.
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Active Hot-Desk Sessions */}
+                        <div className="p-4 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 space-y-3">
+                          <div className="flex items-center justify-between">
+                            <h5 className="text-xs font-extrabold text-slate-800 dark:text-white">
+                              Açık Masa Telefonu Oturumlarım
+                            </h5>
+                            <span className="text-[10px] font-bold text-slate-400">
+                              {agentHotdeskSessions.length > 0 ? `${agentHotdeskSessions.length} Aktif Telefon` : "Aktif Oturum Yok"}
+                            </span>
+                          </div>
+                          {agentHotdeskSessions.length === 0 ? (
+                            <p className="text-[11px] text-slate-400">
+                              Şu anda herhangi bir ortak masa telefonunda açık Hot-Desk oturumunuz bulunmuyor.
+                            </p>
+                          ) : (
+                            <div className="space-y-2">
+                              {agentHotdeskSessions.map((sess) => (
+                                <div
+                                  key={sess.device_sip_username}
+                                  className="flex items-center justify-between gap-3 p-3 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200/80 dark:border-slate-800"
+                                >
+                                  <div>
+                                    <div className="text-xs font-mono font-extrabold text-slate-800 dark:text-white">
+                                      Cihaz: {sess.device_sip_username}
+                                    </div>
+                                    <div className="text-[10px] text-slate-500 mt-0.5">
+                                      Giriş Zamanı: {sess.logged_in_at || "-"}
+                                    </div>
+                                  </div>
+                                  <button
+                                    type="button"
+                                    disabled={agentHotdeskLogoutBusy}
+                                    onClick={async () => {
+                                      setAgentHotdeskLogoutBusy(true);
+                                      try {
+                                        const protocol = window.location.protocol === "https:" ? "https:" : "http:";
+                                        const res = await fetch(
+                                          `${protocol}//${backendHost}/api/hotdesk/sessions/${encodeURIComponent(sess.device_sip_username)}`,
+                                          { method: "DELETE" }
+                                        );
+                                        if (res.ok) {
+                                          setAgentHotdeskSessions((prev) =>
+                                            prev.filter((x) => x.device_sip_username !== sess.device_sip_username)
+                                          );
+                                          showNotification("Masa telefonu Hot-Desk oturumu kapatıldı.", "success", "Hot-Desking");
+                                        }
+                                      } finally {
+                                        setAgentHotdeskLogoutBusy(false);
+                                      }
+                                    }}
+                                    className="px-3 py-1.5 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-[11px] font-bold flex items-center gap-1.5 transition-all disabled:opacity-50"
+                                  >
+                                    <LogOut size={13} />
+                                    Oturumu Kapat
+                                  </button>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
                   </div>
 
                   {/* Modal Footer */}
@@ -9297,6 +9580,19 @@ export default function Home() {
                             new_password: newPassword
                           };
                         }
+
+                        const cleanSelfHotdeskPin = String(agentHotdeskConfig?.pin || "").replace(/\D/g, "").slice(0, 8);
+                        if (agentHotdeskConfig?.enabled && !/^\d{4,8}$/.test(cleanSelfHotdeskPin)) {
+                          setAgentHotdeskPinTouched(true);
+                          setActiveModalTab("hotdesk");
+                          showNotification("Hot-Desking aktifken 4 ile 8 haneli bir PIN şifresi belirlemelisiniz.", "error", "Hot-Desking");
+                          return;
+                        }
+                        const normalizedSelfHotdesk = {
+                          enabled: Boolean(agentHotdeskConfig?.enabled),
+                          pin: cleanSelfHotdeskPin,
+                          auto_logout_midnight: agentHotdeskConfig?.auto_logout_midnight !== false
+                        };
 
                         stopRingtoneSound();
                         stopSpeakerTestSound();
@@ -9370,7 +9666,8 @@ export default function Home() {
                           two_factor_enabled: Boolean(twoFactorEnabled),
                           two_factor_method: twoFactorMethod || "google_auth",
                           ...(twoFactorSecret ? { two_factor_secret: twoFactorSecret } : {}),
-                          two_factor_enrolled: Boolean(twoFactorEnrolled)
+                          two_factor_enrolled: Boolean(twoFactorEnrolled),
+                          hotdesk_config: normalizedSelfHotdesk
                         };
                         setCurrentUser((prev) =>
                           prev
@@ -9430,6 +9727,7 @@ export default function Home() {
                                 forwarding_no_answer: { active: Boolean(fwdNoAnswerActive && fwdNoAnswerTarget), type: fwdNoAnswerType || "internal", target: fwdNoAnswerTarget || "", timeout: fwdNoAnswerTimeout || 20 },
                                 active_profile: agentActiveProfile,
                                 profiles: agentProfiles,
+                                hotdesk_config: normalizedSelfHotdesk,
                                 call_panel_prefs: savedPrefsSnapshot,
                                 ...wallboardPayload,
                                 auto_logout_enabled: autoLogoutEnabled,

@@ -664,6 +664,8 @@ export default function AgentPanel({ backendHost, currentUser, activeCallId, isV
       perms.includes("call_panel:cti_screen_pop") ||
       perms.includes("cti_integration:read") ||
       perms.includes("cti_integration:write");
+    const canPauseRecording =
+      isRoleAdmin || Boolean(perms && perms.includes("call_panel:pause_recording"));
 
     return {
       rawPermissions: perms || [],
@@ -676,6 +678,7 @@ export default function AgentPanel({ backendHost, currentUser, activeCallId, isV
       canCtiScreenPop,
       canLiveTranslate,
       canVoiceInterpret,
+      canPauseRecording,
       maskPhoneNumbers: Boolean(perms && perms.includes("call_panel:webphone_mask_number")),
       agentsCanSeeStatus: checkAgentsFeature("call_panel:agents_status"),
       agentsCanSeeDuration: checkAgentsFeature("call_panel:agents_duration"),
@@ -744,6 +747,7 @@ export default function AgentPanel({ backendHost, currentUser, activeCallId, isV
   const [missedQueueCount, setMissedQueueCount] = useState(0);
   const [unseenDirectMissedCount, setUnseenDirectMissedCount] = useState(0);
   const [unseenChatCount, setUnseenChatCount] = useState(0);
+  const [unreadVoicemailCount, setUnreadVoicemailCount] = useState(0);
   const myExt = String(currentUser?.extension || "1000").trim();
   const myUid = String(currentUser?.id || "").trim();
 
@@ -770,12 +774,23 @@ export default function AgentPanel({ backendHost, currentUser, activeCallId, isV
         const protocol = typeof window !== "undefined" ? window.location.protocol : "http:";
         const now = new Date();
         const todayYmd = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
-        const [mqRes, callsRes, intChatRes, omniChatRes] = await Promise.all([
+        const [mqRes, callsRes, intChatRes, omniChatRes, vmRes] = await Promise.all([
           fetch(`${protocol}//${host}/api/agent/missed_queue_calls?extension=${encodeURIComponent(myExt)}&user_id=${encodeURIComponent(myUid)}&t=${Date.now()}`),
           fetch(`${protocol}//${host}/api/calls?extension=${encodeURIComponent(myExt)}&start_date=${todayYmd}&limit=100&t=${Date.now()}`),
           fetch(`${protocol}//${host}/api/agent/chat?extension=${encodeURIComponent(myExt)}&user_id=${encodeURIComponent(myUid)}&deliver=1&t=${Date.now()}`),
-          fetch(`${protocol}//${host}/api/omnichannel/chats?t=${Date.now()}`)
+          fetch(`${protocol}//${host}/api/omnichannel/chats?t=${Date.now()}`),
+          fetch(`${protocol}//${host}/api/agent/voicemail?extension=${encodeURIComponent(myExt)}&only_unread=true&t=${Date.now()}`)
         ]);
+        if (mounted && vmRes && vmRes.ok) {
+          const vmData = await vmRes.json();
+          if (typeof vmData?.unread_count === "number") {
+            setUnreadVoicemailCount(vmData.unread_count);
+          } else if (Array.isArray(vmData)) {
+            setUnreadVoicemailCount(vmData.length);
+          } else if (Array.isArray(vmData?.items)) {
+            setUnreadVoicemailCount(vmData.items.length);
+          }
+        }
         if (mounted && mqRes.ok) {
           const mqData = await mqRes.json();
           setMissedQueueCount(Array.isArray(mqData) ? mqData.length : 0);
@@ -871,14 +886,23 @@ export default function AgentPanel({ backendHost, currentUser, activeCallId, isV
     const handleInternalReadSync = () => {
       pollBadges();
     };
+    const handleVoicemailUpdate = (e) => {
+      if (typeof e?.detail === "number") {
+        setUnreadVoicemailCount(e.detail);
+      } else {
+        pollBadges();
+      }
+    };
     window.addEventListener("MISSED_QUEUE_CALLS_UPDATED", handleMqUpdate);
     window.addEventListener("INTERNAL_CHAT_READ_SYNC", handleInternalReadSync);
+    window.addEventListener("VOICEMAIL_UNREAD_UPDATED", handleVoicemailUpdate);
     pollBadges();
     const timer = setInterval(pollBadges, 8000);
     return () => {
       mounted = false;
       window.removeEventListener("MISSED_QUEUE_CALLS_UPDATED", handleMqUpdate);
       window.removeEventListener("INTERNAL_CHAT_READ_SYNC", handleInternalReadSync);
+      window.removeEventListener("VOICEMAIL_UNREAD_UPDATED", handleVoicemailUpdate);
       clearInterval(timer);
     };
   }, [host, myExt, myUid, activeTab, isVisible, currentUser?.full_name, currentUser?.username, currentUser?.role]);
@@ -959,6 +983,7 @@ export default function AgentPanel({ backendHost, currentUser, activeCallId, isV
           const showMissedBadge = tab.id === "missed" && missedQueueCount > 0;
           const showHistoryDot = tab.id === "history" && unseenDirectMissedCount > 0;
           const showChatBadge = tab.id === "chat" && unseenChatCount > 0;
+          const showVoicemailBadge = tab.id === "voicemail" && unreadVoicemailCount > 0;
           return (
             <button
               key={tab.id}
@@ -989,6 +1014,16 @@ export default function AgentPanel({ backendHost, currentUser, activeCallId, isV
               {showChatBadge && (
                 <span className="px-1.5 py-0.5 rounded-full text-[9px] font-extrabold bg-rose-500 text-white shrink-0 animate-pulse">
                   {unseenChatCount}
+                </span>
+              )}
+              {showVoicemailBadge && (
+                <span
+                  className={`px-1.5 py-0.5 rounded-full text-[9px] font-extrabold shrink-0 ${
+                    isSelected ? "bg-white text-rose-600" : "bg-rose-500 text-white animate-pulse"
+                  }`}
+                  title={`${unreadVoicemailCount} okunmamış sesli posta`}
+                >
+                  {unreadVoicemailCount}
                 </span>
               )}
             </button>
@@ -1024,6 +1059,7 @@ export default function AgentPanel({ backendHost, currentUser, activeCallId, isV
               const showMissedBadge = tab.id === "missed" && missedQueueCount > 0;
               const showHistoryDot = tab.id === "history" && unseenDirectMissedCount > 0;
               const showChatBadge = tab.id === "chat" && unseenChatCount > 0;
+              const showVoicemailBadge = tab.id === "voicemail" && unreadVoicemailCount > 0;
               return (
                 <button
                   key={tab.id}
@@ -1066,6 +1102,18 @@ export default function AgentPanel({ backendHost, currentUser, activeCallId, isV
                       {unseenChatCount}
                     </span>
                   )}
+                  {showVoicemailBadge && (
+                    <span
+                      className={`px-2 py-0.5 rounded-full text-[10px] font-extrabold shrink-0 ${
+                        isSelected
+                          ? "bg-white text-rose-600"
+                          : "bg-rose-500 text-white animate-pulse"
+                      }`}
+                      title={`${unreadVoicemailCount} okunmamış sesli posta`}
+                    >
+                      {unreadVoicemailCount}
+                    </span>
+                  )}
                 </button>
               );
             })}
@@ -1093,6 +1141,7 @@ export default function AgentPanel({ backendHost, currentUser, activeCallId, isV
               const showMissedBadge = tab.id === "missed" && missedQueueCount > 0;
               const showHistoryDot = tab.id === "history" && unseenDirectMissedCount > 0;
               const showChatBadge = tab.id === "chat" && unseenChatCount > 0;
+              const showVoicemailBadge = tab.id === "voicemail" && unreadVoicemailCount > 0;
               return (
                 <button
                   key={tab.id}
@@ -1116,6 +1165,11 @@ export default function AgentPanel({ backendHost, currentUser, activeCallId, isV
                   {showChatBadge && (
                     <span className="px-1.5 py-0.5 rounded-full text-[9px] font-extrabold bg-rose-500 text-white animate-pulse">
                       {unseenChatCount}
+                    </span>
+                  )}
+                  {showVoicemailBadge && (
+                    <span className="px-1.5 py-0.5 rounded-full text-[9px] font-extrabold bg-rose-500 text-white animate-pulse">
+                      {unreadVoicemailCount}
                     </span>
                   )}
                 </button>
@@ -1149,7 +1203,15 @@ export default function AgentPanel({ backendHost, currentUser, activeCallId, isV
             {activeTab === "missed" && <AgentMissedCallsTab backendHost={backendHost} currentUser={currentUser} callPanelPerms={callPanelPerms} panelPrefs={panelPrefs} />}
             {activeTab === "directory" && <AgentDirectoryTab backendHost={backendHost} currentUser={currentUser} callPanelPerms={callPanelPerms} panelPrefs={panelPrefs} />}
             {activeTab === "history" && <AgentHistoryTab backendHost={backendHost} currentUser={currentUser} callPanelPerms={callPanelPerms} panelPrefs={panelPrefs} />}
-            {activeTab === "voicemail" && <AgentVoicemailTab backendHost={backendHost} currentUser={currentUser} callPanelPerms={callPanelPerms} panelPrefs={panelPrefs} />}
+            {activeTab === "voicemail" && (
+              <AgentVoicemailTab
+                backendHost={backendHost}
+                currentUser={currentUser}
+                callPanelPerms={callPanelPerms}
+                panelPrefs={panelPrefs}
+                onUnreadCountChange={setUnreadVoicemailCount}
+              />
+            )}
             {activeTab === "chat" && (
               <AgentChatTab
                 backendHost={backendHost}

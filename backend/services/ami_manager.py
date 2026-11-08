@@ -99,6 +99,14 @@ def _resolve_sip_peer_to_ext(peer_name: str) -> str:
         from backend.main import settings_db
         from backend.services.autoprovision_service import resolve_user_sip_username, resolve_user_webphone_sip_username
         p_low = p.lower()
+        # 0. Active Hot-Desk session override: if a physical phone is temporarily bound to an extension, map directly to that extension!
+        hd_sessions = settings_db.get("hotdesk_sessions") or {}
+        if isinstance(hd_sessions, dict):
+            for hd_dev, hd_info in hd_sessions.items():
+                if str(hd_dev or "").strip().lower() == p_low and isinstance(hd_info, dict):
+                    hd_ext = str(hd_info.get("extension") or "").strip()
+                    if hd_ext:
+                        return hd_ext
         if resolve_user_webphone_sip_username("1000", "").lower() == p_low or resolve_user_sip_username("1000", "").lower() == p_low:
             return "1000"
         for u in settings_db.get("users", []) or []:
@@ -142,6 +150,20 @@ def _get_ext_channel_prefixes(ext_s: str) -> list:
     try:
         from backend.main import settings_db
         from backend.services.autoprovision_service import resolve_user_sip_username, resolve_user_webphone_sip_username
+        hd_sessions = settings_db.get("hotdesk_sessions") or {}
+        hijacked_elsewhere = set()
+        if isinstance(hd_sessions, dict):
+            for hd_dev, hd_info in hd_sessions.items():
+                hd_dev_low = str(hd_dev or "").strip().lower()
+                if not hd_dev_low or not isinstance(hd_info, dict):
+                    continue
+                hd_ext = str(hd_info.get("extension") or "").strip()
+                if hd_ext == ext_s:
+                    for pfx_cand in (f"pjsip/{hd_dev_low}-", f"sip/{hd_dev_low}-"):
+                        if pfx_cand not in prefixes:
+                            prefixes.append(pfx_cand)
+                elif hd_ext:
+                    hijacked_elsewhere.add(hd_dev_low)
         def_web_sip = resolve_user_webphone_sip_username(ext_s, "")
         if def_web_sip and f"pjsip/{def_web_sip.lower()}-" not in prefixes:
             prefixes.append(f"pjsip/{def_web_sip.lower()}-")
@@ -149,15 +171,17 @@ def _get_ext_channel_prefixes(ext_s: str) -> list:
         for u in settings_db.get("users", []) or []:
             if isinstance(u, dict) and str(u.get("extension") or "").strip() == ext_s:
                 u_sip = resolve_user_sip_username(ext_s, u.get("sip_username") or "")
-                if u_sip and f"pjsip/{u_sip.lower()}-" not in prefixes:
+                if u_sip and u_sip.lower() not in hijacked_elsewhere and f"pjsip/{u_sip.lower()}-" not in prefixes:
                     prefixes.append(f"pjsip/{u_sip.lower()}-")
                     prefixes.append(f"sip/{u_sip.lower()}-")
                 raw_sip = str(u.get("sip_username") or "").strip()
-                if raw_sip and f"pjsip/{raw_sip.lower()}-" not in prefixes:
+                if raw_sip and raw_sip.lower() not in hijacked_elsewhere and f"pjsip/{raw_sip.lower()}-" not in prefixes:
                     prefixes.append(f"pjsip/{raw_sip.lower()}-")
                 for sdev in (u.get("sip_devices") or []):
                     if isinstance(sdev, dict):
                         d_su = str(sdev.get("sip_username") or "").strip().lower()
+                        if d_su and d_su in hijacked_elsewhere:
+                            continue
                         if d_su and f"pjsip/{d_su}-" not in prefixes:
                             prefixes.append(f"pjsip/{d_su}-")
                             prefixes.append(f"sip/{d_su}-")
@@ -1340,6 +1364,7 @@ async def attended_transfer_agent_calls(agent_extension: str, remote_number_1: s
     agent_channels = []
     agent_bridge_ids = set()
 
+    ag_prefixes = _get_ext_channel_prefixes(ag_ext)
     try:
         res = await manager.send_action({"Action": "CoreShowChannels"})
         for r in _iter_ami_responses(res):
@@ -1353,7 +1378,7 @@ async def attended_transfer_agent_calls(agent_extension: str, remote_number_1: s
             exten_val = str(r.get("Exten") or "").strip()
             bridge_id = str(r.get("BridgeId") or "").strip()
             ch_lower = ch.lower()
-            is_agent_leg = ch_lower.startswith(f"pjsip/{ag_ext.lower()}-") or ch_lower.startswith(f"sip/{ag_ext.lower()}-")
+            is_agent_leg = any(ch_lower.startswith(pfx) for pfx in ag_prefixes)
             row = {
                 "channel": ch,
                 "ch_lower": ch_lower,
@@ -1426,6 +1451,148 @@ async def attended_transfer_agent_calls(agent_extension: str, remote_number_1: s
         print(f"[AMI] AttendedTransfer error: {ex}")
 
     return False
+
+
+# Registry of currently paused/masked call recordings keyed by extension or call_id
+recording_paused_state = {}
+
+
+async def toggle_call_recording_pause(
+    extension: str = "",
+    channel: str = "",
+    call_id: str = "",
+    paused: bool = None
+) -> dict:
+    """
+    Masks/pauses or resumes MixMonitor recording on all bridged legs of an active call
+    for KVKK / PCI-DSS compliance using Asterisk AMI MuteMixMonitor (with PauseMixMonitor fallback).
+    """
+    ext_s = str(extension or "").strip()
+    ch_s = str(channel or "").strip()
+    cid_s = str(call_id or "").strip()
+
+    state_key = cid_s or ext_s or ch_s
+    current_paused = bool(recording_paused_state.get(state_key, False))
+    target_paused = (not current_paused) if paused is None else bool(paused)
+
+    manager = await get_ami_manager()
+    matched_channels = []
+    matched_bridges = set()
+
+    if manager:
+        try:
+            ext_prefixes = _get_ext_channel_prefixes(ext_s) if ext_s else []
+            ast_uid = str(call_id_to_asterisk_id.get(cid_s) or "").strip() if cid_s else ""
+            res = await manager.send_action({"Action": "CoreShowChannels"})
+            all_rows = []
+            for r in _iter_ami_responses(res):
+                if not hasattr(r, "get"):
+                    continue
+                c_name = str(r.get("Channel") or "").strip()
+                if not c_name:
+                    continue
+                u_id = str(r.get("Uniqueid") or "").strip()
+                l_id = str(r.get("Linkedid") or "").strip()
+                b_id = str(r.get("BridgeId") or "").strip()
+                cid_num = str(r.get("CallerIDNum") or "").strip()
+                conn_num = str(r.get("ConnectedLineNum") or "").strip()
+                row_obj = {
+                    "channel": c_name,
+                    "ch_lower": c_name.lower(),
+                    "uid": u_id,
+                    "lid": l_id,
+                    "bid": b_id,
+                    "cid": cid_num,
+                    "conn": conn_num,
+                }
+                all_rows.append(row_obj)
+                direct_hit = False
+                if ch_s and c_name.lower() == ch_s.lower():
+                    direct_hit = True
+                elif ast_uid and (u_id == ast_uid or l_id == ast_uid):
+                    direct_hit = True
+                elif ext_prefixes and any(row_obj["ch_lower"].startswith(p) for p in ext_prefixes):
+                    direct_hit = True
+                elif ext_s and (cid_num == ext_s or conn_num == ext_s):
+                    direct_hit = True
+                if direct_hit:
+                    if c_name not in matched_channels:
+                        matched_channels.append(c_name)
+                    if b_id:
+                        matched_bridges.add(b_id)
+
+            # Include bridged peer channels because MixMonitor is frequently attached to the trunk/caller leg!
+            if matched_bridges:
+                for row_obj in all_rows:
+                    if row_obj["bid"] in matched_bridges and row_obj["channel"] not in matched_channels:
+                        matched_channels.append(row_obj["channel"])
+
+            for target_ch in matched_channels:
+                try:
+                    await manager.send_action({
+                        "Action": "MuteMixMonitor",
+                        "Channel": target_ch,
+                        "Direction": "both",
+                        "State": "1" if target_paused else "0",
+                    })
+                except Exception:
+                    pass
+                try:
+                    await manager.send_action({
+                        "Action": "PauseMixMonitor",
+                        "Channel": target_ch,
+                        "Direction": "both",
+                        "State": "1" if target_paused else "0",
+                    })
+                except Exception:
+                    pass
+        except Exception as e_pm:
+            print(f"[AMI] toggle_call_recording_pause warning: {e_pm}")
+
+    if state_key:
+        recording_paused_state[state_key] = target_paused
+    if ext_s:
+        recording_paused_state[ext_s] = target_paused
+    if cid_s:
+        recording_paused_state[cid_s] = target_paused
+
+    return {
+        "status": "success",
+        "paused": target_paused,
+        "channels": matched_channels,
+        "ami_connected": bool(manager),
+    }
+
+
+async def notify_voicemail_mwi(extension: str, unread_count: int = 0, old_count: int = 0) -> bool:
+    """
+    Publishes MWI (Message Waiting Indicator) state for a user's physical SIP endpoints via AMI/CLI
+    so IP desk phones illuminate or extinguish their voicemail LED.
+    """
+    ext_s = str(extension or "").strip()
+    if not ext_s:
+        return False
+    manager = await get_ami_manager()
+    if not manager:
+        return False
+    try:
+        # Trigger Asterisk MWI update via Command if res_mwi_external / pjsip notify is available
+        waiting_str = "yes" if int(unread_count or 0) > 0 else "no"
+        await manager.send_action({
+            "Action": "Command",
+            "Command": f"dialplan set global VM_MWI_{ext_s} {int(unread_count or 0)}",
+        })
+        await manager.send_action({
+            "Action": "UserEvent",
+            "UserEvent": "VoicemailMWI",
+            "Extension": ext_s,
+            "MessagesWaiting": waiting_str,
+            "NewMessages": str(int(unread_count or 0)),
+            "OldMessages": str(int(old_count or 0)),
+        })
+        return True
+    except Exception:
+        return False
 
 
 # background task to keep AMI connected

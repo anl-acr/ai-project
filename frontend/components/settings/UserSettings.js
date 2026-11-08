@@ -258,6 +258,24 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
   // Feature Fields
   const [recordingActive, setRecordingActive] = useState(false);
   const [transport, setTransport] = useState("UDP");
+  const [bossSecretary, setBossSecretary] = useState({
+    enabled: false,
+    secretaries: [],
+    vip_whitelist: []
+  });
+  const [newBossSecExt, setNewBossSecExt] = useState("");
+  const [newBossVipExt, setNewBossVipExt] = useState("");
+
+  // Hot-Desking Fields (Dedicated PIN + Midnight Auto-Logout)
+  const [hotdeskConfig, setHotdeskConfig] = useState({
+    enabled: false,
+    pin: "",
+    auto_logout_midnight: true
+  });
+  const [showHotdeskPin, setShowHotdeskPin] = useState(false);
+  const [hotdeskPinTouched, setHotdeskPinTouched] = useState(false);
+  const [activeHotdeskSessions, setActiveHotdeskSessions] = useState([]);
+  const [hotdeskLogoutBusy, setHotdeskLogoutBusy] = useState(false);
   const [twoFactorEnabled, setTwoFactorEnabled] = useState(false);
   const [twoFactorMethod, setTwoFactorMethod] = useState("google_auth");
   const [twoFactorSecret, setTwoFactorSecret] = useState("");
@@ -1679,6 +1697,15 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
     setFollowMeSecondTarget("mobile_number");
     setFollowMeMobileNumber("");
 
+    setBossSecretary({ enabled: false, secretaries: [], vip_whitelist: [] });
+    setNewBossSecExt("");
+    setNewBossVipExt("");
+    setHotdeskConfig({ enabled: false, pin: "", auto_logout_midnight: true });
+    setShowHotdeskPin(false);
+    setHotdeskPinTouched(false);
+    setActiveHotdeskSessions([]);
+    setHotdeskLogoutBusy(false);
+
     setSelectedOutboundRules([]);
     setSelectedCallPickupGroups([]);
     setSelectedLocation("");
@@ -1857,6 +1884,49 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
       setFollowMeMobileNumber(u.gsm_number || "");
     }
 
+    let bsObj = u.boss_secretary;
+    if (typeof bsObj === "string") {
+      try { bsObj = JSON.parse(bsObj); } catch (e) { bsObj = null; }
+    }
+    if (bsObj && typeof bsObj === "object") {
+      setBossSecretary({
+        enabled: Boolean(bsObj.enabled),
+        secretaries: Array.isArray(bsObj.secretaries) ? bsObj.secretaries.map(String).filter(Boolean) : [],
+        vip_whitelist: Array.isArray(bsObj.vip_whitelist) ? bsObj.vip_whitelist.map(String).filter(Boolean) : []
+      });
+    } else {
+      setBossSecretary({ enabled: false, secretaries: [], vip_whitelist: [] });
+    }
+    setNewBossSecExt("");
+    setNewBossVipExt("");
+
+    let hdObj = u.hotdesk_config;
+    if (typeof hdObj === "string") {
+      try { hdObj = JSON.parse(hdObj); } catch (e) { hdObj = null; }
+    }
+    if (hdObj && typeof hdObj === "object") {
+      setHotdeskConfig({
+        enabled: Boolean(hdObj.enabled),
+        pin: String(hdObj.pin || ""),
+        auto_logout_midnight: hdObj.auto_logout_midnight !== false
+      });
+    } else {
+      setHotdeskConfig({ enabled: false, pin: "", auto_logout_midnight: true });
+    }
+    setShowHotdeskPin(false);
+    setHotdeskPinTouched(false);
+    setActiveHotdeskSessions(Array.isArray(u.active_hotdesk_sessions) ? u.active_hotdesk_sessions : []);
+    if (u.extension) {
+      safeFetch(`/api/hotdesk/sessions?extension=${encodeURIComponent(u.extension)}`)
+        .then((r) => (r.ok ? r.json() : null))
+        .then((d) => {
+          if (d && Array.isArray(d.sessions)) {
+            setActiveHotdeskSessions(d.sessions);
+          }
+        })
+        .catch(() => {});
+    }
+
     const activeOutbound = outboundRules.filter(r => r.allowed_users && r.allowed_users.includes(u.id)).map(r => r.id);
     setSelectedOutboundRules(activeOutbound);
     
@@ -1970,6 +2040,13 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
     }
 
     const cleanFmMobile = (followMeMobileNumber || "").trim();
+    const cleanHotdeskPin = String(hotdeskConfig?.pin || "").replace(/\D/g, "").slice(0, 8);
+    if (hotdeskConfig?.enabled && !/^\d{4,8}$/.test(cleanHotdeskPin)) {
+      setHotdeskPinTouched(true);
+      setActiveTab("hotdesk");
+      setError("Hot-Desking aktifken 4 ile 8 haneli sadece rakamlardan oluşan bir PIN şifresi belirlemelisiniz.");
+      return;
+    }
 
     const orderedSaveDevices = ensureWebPhoneFirst(sipDevices, editingUser, extInput);
     const primarySipDev = orderedSaveDevices.find((d) => d.device_type !== "virtual_subscriber" && d.device_type !== "web_phone") || null;
@@ -2027,6 +2104,16 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
         first_target: followMeFirstTarget || "mobile_app",
         second_target: followMeSecondTarget || "none",
         mobile_number: cleanFmMobile
+      },
+      boss_secretary: {
+        enabled: Boolean(bossSecretary?.enabled),
+        secretaries: Array.isArray(bossSecretary?.secretaries) ? bossSecretary.secretaries : [],
+        vip_whitelist: Array.isArray(bossSecretary?.vip_whitelist) ? bossSecretary.vip_whitelist : []
+      },
+      hotdesk_config: {
+        enabled: Boolean(hotdeskConfig?.enabled),
+        pin: cleanHotdeskPin,
+        auto_logout_midnight: hotdeskConfig?.auto_logout_midnight !== false
       },
       location_id: selectedLocation || null,
       department_id: selectedDepartment || null,
@@ -2856,6 +2943,21 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
                         >
                             <KeyRound size={16} />
                             SIP
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => setActiveTab("hotdesk")}
+                            className={"w-full flex items-center justify-between gap-2 px-3 py-2.5 rounded-xl text-xs font-bold transition-all " + (activeTab === 'hotdesk' ? ("bg-white dark:bg-slate-800 " + text + " shadow-sm border border-slate-200 dark:border-slate-700") : "text-slate-500 hover:bg-white/50 dark:hover:bg-slate-800/50 hover:text-slate-700 dark:hover:text-slate-300 border border-transparent")}
+                        >
+                            <span className="flex items-center gap-3">
+                                <Monitor size={16} />
+                                Hot-Desking
+                            </span>
+                            {hotdeskConfig?.enabled && (
+                                <span className="px-1.5 py-0.5 rounded-md text-[9px] font-extrabold bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30">
+                                    AKTİF
+                                </span>
+                            )}
                         </button>
                         <button
                             type="button"
@@ -3700,28 +3802,28 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
                                             )}
                                         </div>
 
-                                        {/* 2. Timeout & Post-Timeout Action */}
-                                        <div className="grid grid-cols-1 md:grid-cols-12 gap-5 pt-4 border-t border-slate-200/60 dark:border-slate-800">
-                                            <div className="md:col-span-4">
+                                        {/* 2. Timeout, Post-Timeout Action & Digit Switch */}
+                                        <div className="grid grid-cols-1 md:grid-cols-12 gap-4 pt-4 border-t border-slate-200/60 dark:border-slate-800">
+                                            <div className="md:col-span-3">
                                                 <label className="block text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-2">
-                                                    2. Çalma Süresi / Zaman Aşımı (sn)
+                                                    2. Çalma Süresi (sn)
                                                 </label>
-                                                <div className="flex items-center gap-2">
+                                                <div className="flex items-center gap-1.5">
                                                     <input
                                                         type="number"
                                                         min="5"
                                                         max="120"
                                                         value={currentProf.timeout ?? 30}
                                                         onChange={(e) => updateCurrentProfile({ timeout: Math.max(5, parseInt(e.target.value) || 30) })}
-                                                        className="w-20 text-xs font-bold px-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 text-slate-800 dark:text-slate-100 focus:outline-none"
+                                                        className="w-16 text-xs font-bold px-2.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 text-slate-800 dark:text-slate-100 focus:outline-none"
                                                     />
-                                                    <div className="flex items-center gap-1.5">
-                                                        {[15, 25, 30, 45].map(sec => (
+                                                    <div className="flex items-center gap-1">
+                                                        {[15, 30, 45].map(sec => (
                                                             <button
                                                                 key={sec}
                                                                 type="button"
                                                                 onClick={() => updateCurrentProfile({ timeout: sec })}
-                                                                className={`px-2.5 py-2 rounded-xl text-[10px] font-bold border transition-all ${
+                                                                className={`px-2 py-2 rounded-xl text-[10px] font-bold border transition-all ${
                                                                     Number(currentProf.timeout) === sec
                                                                         ? `${bg} text-white border-transparent`
                                                                         : "bg-white dark:bg-slate-900 text-slate-500 border-slate-200 dark:border-slate-800 hover:border-slate-300"
@@ -3734,14 +3836,14 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
                                                 </div>
                                             </div>
 
-                                            <div className="md:col-span-4">
+                                            <div className="md:col-span-3">
                                                 <label className="block text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-2">
                                                     3. Zaman Aşımı Sonrası İşlem
                                                 </label>
                                                 <select
                                                     value={currentProf.timeout_action || "none"}
                                                     onChange={(e) => updateCurrentProfile({ timeout_action: e.target.value, timeout_target: "" })}
-                                                    className="w-full text-xs font-semibold px-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 text-slate-800 dark:text-slate-100 focus:outline-none"
+                                                    className="w-full text-xs font-semibold px-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 text-slate-800 dark:text-slate-100 focus:outline-none"
                                                 >
                                                     <option value="none">Çağrıyı Sonlandır (İşlem Yapma)</option>
                                                     <option value="voicemail">Sesli Mesaja (Voicemail) Aktar</option>
@@ -3752,7 +3854,7 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
                                                 </select>
                                             </div>
 
-                                            <div className="md:col-span-4">
+                                            <div className="md:col-span-3">
                                                 <label className="block text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-2">
                                                     Hedef Seçimi / Numara
                                                 </label>
@@ -3760,7 +3862,7 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
                                                     <select
                                                         value={currentProf.timeout_target || ""}
                                                         onChange={(e) => updateCurrentProfile({ timeout_target: e.target.value })}
-                                                        className="w-full text-xs px-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 text-slate-800 dark:text-slate-100 focus:outline-none"
+                                                        className="w-full text-xs px-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 text-slate-800 dark:text-slate-100 focus:outline-none"
                                                     >
                                                         <option value="">Dahili Seçiniz...</option>
                                                         {users.filter(u => String(u.extension) !== String(extension)).map(u => (
@@ -3775,13 +3877,13 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
                                                         placeholder="Örn: 05321234567"
                                                         value={currentProf.timeout_target || ""}
                                                         onChange={(e) => updateCurrentProfile({ timeout_target: e.target.value })}
-                                                        className="w-full text-xs px-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 text-slate-800 dark:text-slate-100 focus:outline-none"
+                                                        className="w-full text-xs px-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 text-slate-800 dark:text-slate-100 focus:outline-none"
                                                     />
                                                 ) : currentProf.timeout_action === "queue" ? (
                                                     <select
                                                         value={currentProf.timeout_target || ""}
                                                         onChange={(e) => updateCurrentProfile({ timeout_target: e.target.value })}
-                                                        className="w-full text-xs px-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 text-slate-800 dark:text-slate-100 focus:outline-none"
+                                                        className="w-full text-xs px-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 text-slate-800 dark:text-slate-100 focus:outline-none"
                                                     >
                                                         <option value="">Kuyruk Seçiniz...</option>
                                                         {queuesList.map(q => (
@@ -3794,7 +3896,7 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
                                                     <select
                                                         value={currentProf.timeout_target || ""}
                                                         onChange={(e) => updateCurrentProfile({ timeout_target: e.target.value })}
-                                                        className="w-full text-xs px-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 text-slate-800 dark:text-slate-100 focus:outline-none"
+                                                        className="w-full text-xs px-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 text-slate-800 dark:text-slate-100 focus:outline-none"
                                                     >
                                                         <option value="">AI Temsilci Seçiniz...</option>
                                                         {aiAgentsList.map(ag => (
@@ -3804,10 +3906,34 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
                                                         ))}
                                                     </select>
                                                 ) : (
-                                                    <div className="px-3.5 py-2.5 rounded-xl border border-slate-200/60 dark:border-slate-800/60 bg-slate-100/60 dark:bg-slate-900/50 text-[11px] text-slate-400">
+                                                    <div className="px-3 py-2.5 rounded-xl border border-slate-200/60 dark:border-slate-800/60 bg-slate-100/60 dark:bg-slate-900/50 text-[11px] text-slate-400">
                                                         {currentProf.timeout_action === "voicemail" ? "Sesli mesaj kutusuna aktarılır" : "Ek hedef gerekmiyor"}
                                                     </div>
                                                 )}
+                                            </div>
+
+                                            <div className="md:col-span-3">
+                                                <label className="block text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-2">
+                                                    4. Telefon Tuşlama Kodu (Digit)
+                                                </label>
+                                                <div className="flex items-center gap-2">
+                                                    <input
+                                                        type="text"
+                                                        inputMode="numeric"
+                                                        maxLength={2}
+                                                        value={currentProf.digit ?? ""}
+                                                        onChange={(e) =>
+                                                            updateCurrentProfile({
+                                                                digit: e.target.value.replace(/\D/g, "").slice(0, 2)
+                                                            })
+                                                        }
+                                                        placeholder="1"
+                                                        className="w-16 text-xs font-mono font-extrabold text-center px-2.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 text-slate-800 dark:text-slate-100 focus:outline-none"
+                                                    />
+                                                    <span className={`px-2.5 py-2 rounded-xl text-[10px] font-mono font-extrabold ${lightBg} ${text} border ${borderLight} whitespace-nowrap`}>
+                                                        *70*{currentProf.digit || "1"}
+                                                    </span>
+                                                </div>
                                             </div>
                                         </div>
                                     </div>
@@ -4055,6 +4181,193 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
                                                         <> ({followMeTimeout} sn) ➔ 2. {followMeSecondTarget === "mobile_app" ? "Mobil Uygulama" : `Mobil Telefon (${followMeMobileNumber || "Numara Girilmedi"})`}</>
                                                     )}
                                                 </span>
+                                            </div>
+                                        </div>
+                                    )}
+                                </div>
+
+                                {/* YÖNETİCİ - SEKRETER FİLTRESİ (BOSS / SECRETARY MODE) */}
+                                <div className="p-4 bg-slate-50 dark:bg-slate-900/50 rounded-xl border border-slate-100 dark:border-slate-800 space-y-4">
+                                    <div className="flex items-center justify-between">
+                                        <div className="flex items-center gap-2.5">
+                                            <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${bossSecretary?.enabled ? `${lightBg} ${text}` : "bg-slate-200/70 dark:bg-slate-800 text-slate-500"}`}>
+                                                <Users size={16} />
+                                            </div>
+                                            <div>
+                                                <div className="flex items-center gap-2 flex-wrap">
+                                                    <h5 className="text-sm font-bold text-slate-800 dark:text-white">
+                                                        Yönetici - Sekreter Filtresi (Boss / Secretary)
+                                                    </h5>
+                                                    <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${bossSecretary?.enabled ? `${lightBg} ${text} border ${border}` : "bg-slate-200 dark:bg-slate-800 text-slate-500"}`}>
+                                                        {bossSecretary?.enabled ? "Aktif" : "Pasif"}
+                                                    </span>
+                                                </div>
+                                                <p className="text-[10px] text-slate-500 mt-0.5">
+                                                    Aktifken yöneticiye gelen aramalar önce sekreter(ler)e düşer; yalnızca sekreterler ve VIP listesindeki numaralar yöneticiyi doğrudan çaldırabilir.
+                                                </p>
+                                            </div>
+                                        </div>
+                                        <button
+                                            type="button"
+                                            onClick={() =>
+                                                setBossSecretary((prev) => ({
+                                                    ...prev,
+                                                    enabled: !prev.enabled
+                                                }))
+                                            }
+                                            className={`transition-colors ${bossSecretary?.enabled ? text : "text-slate-400"}`}
+                                        >
+                                            {bossSecretary?.enabled ? <ToggleRight size={30} /> : <ToggleLeft size={30} />}
+                                        </button>
+                                    </div>
+
+                                    {bossSecretary?.enabled && (
+                                        <div className="pt-3 border-t border-slate-200/70 dark:border-slate-800 grid grid-cols-1 md:grid-cols-2 gap-4 animate-in fade-in duration-200">
+                                            {/* Sekreter Seçimi */}
+                                            <div className="space-y-2">
+                                                <label className="block text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
+                                                    Atanan Sekreter Dahilileri
+                                                </label>
+                                                <div className="flex items-center gap-2">
+                                                    <select
+                                                        value={newBossSecExt}
+                                                        onChange={(e) => setNewBossSecExt(e.target.value)}
+                                                        className="flex-1 text-xs font-semibold px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 text-slate-800 dark:text-white focus:outline-none"
+                                                    >
+                                                        <option value="">Sekreter Seçiniz...</option>
+                                                        {users
+                                                            .filter(
+                                                                (u) =>
+                                                                    u.extension &&
+                                                                    String(u.extension) !== String(extension) &&
+                                                                    !(bossSecretary?.secretaries || []).includes(String(u.extension))
+                                                            )
+                                                            .map((u) => (
+                                                                <option key={u.id || u.extension} value={u.extension}>
+                                                                    {u.full_name} ({u.extension})
+                                                                </option>
+                                                            ))}
+                                                    </select>
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => {
+                                                            if (!newBossSecExt) return;
+                                                            setBossSecretary((prev) => ({
+                                                                ...prev,
+                                                                secretaries: [...new Set([...(prev.secretaries || []), String(newBossSecExt)])]
+                                                            }));
+                                                            setNewBossSecExt("");
+                                                        }}
+                                                        title="Sekreter Ekle"
+                                                        className="bg-rose-600 hover:bg-rose-500 text-white rounded-xl h-8 w-8 flex items-center justify-center shrink-0 transition-all"
+                                                    >
+                                                        <Plus size={16} />
+                                                    </button>
+                                                </div>
+                                                <div className="flex flex-wrap gap-1.5 pt-1">
+                                                    {(bossSecretary?.secretaries || []).length === 0 ? (
+                                                        <span className="text-[10px] text-slate-400 italic">Henüz sekreter seçilmedi.</span>
+                                                    ) : (
+                                                        (bossSecretary?.secretaries || []).map((secExt) => {
+                                                            const matchedSec = users.find((u) => String(u.extension) === String(secExt));
+                                                            return (
+                                                                <span
+                                                                    key={secExt}
+                                                                    className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl text-[11px] font-bold ${lightBg} ${text} border ${borderLight}`}
+                                                                >
+                                                                    {matchedSec ? `${matchedSec.full_name} (${secExt})` : `Dahili ${secExt}`}
+                                                                    <button
+                                                                        type="button"
+                                                                        onClick={() =>
+                                                                            setBossSecretary((prev) => ({
+                                                                                ...prev,
+                                                                                secretaries: (prev.secretaries || []).filter((x) => x !== secExt)
+                                                                            }))
+                                                                        }
+                                                                        className="opacity-70 hover:opacity-100"
+                                                                    >
+                                                                        <X size={12} />
+                                                                    </button>
+                                                                </span>
+                                                            );
+                                                        })
+                                                    )}
+                                                </div>
+                                            </div>
+
+                                            {/* VIP Doğrudan Erişim Listesi */}
+                                            <div className="space-y-2">
+                                                <label className="block text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
+                                                    VIP Doğrudan Erişim Listesi (Dahili veya GSM)
+                                                </label>
+                                                <div className="flex items-center gap-2">
+                                                    <input
+                                                        type="text"
+                                                        value={newBossVipExt}
+                                                        onChange={(e) => setNewBossVipExt(e.target.value.replace(/[^\d+]/g, ""))}
+                                                        onKeyDown={(e) => {
+                                                            if (e.nativeEvent?.isComposing || e.isComposing || e.keyCode === 229) return;
+                                                            if (e.key === "Enter") {
+                                                                e.preventDefault();
+                                                                const v = newBossVipExt.trim();
+                                                                if (!v) return;
+                                                                setBossSecretary((prev) => ({
+                                                                    ...prev,
+                                                                    vip_whitelist: [...new Set([...(prev.vip_whitelist || []), v])]
+                                                                }));
+                                                                setNewBossVipExt("");
+                                                            }
+                                                        }}
+                                                        placeholder="Örn: 1002 veya 05321234567"
+                                                        className="flex-1 text-xs font-mono font-semibold px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 text-slate-800 dark:text-white focus:outline-none"
+                                                    />
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => {
+                                                            const v = newBossVipExt.trim();
+                                                            if (!v) return;
+                                                            setBossSecretary((prev) => ({
+                                                                ...prev,
+                                                                vip_whitelist: [...new Set([...(prev.vip_whitelist || []), v])]
+                                                            }));
+                                                            setNewBossVipExt("");
+                                                        }}
+                                                        title="VIP Numara Ekle"
+                                                        className="bg-rose-600 hover:bg-rose-500 text-white rounded-xl h-8 w-8 flex items-center justify-center shrink-0 transition-all"
+                                                    >
+                                                        <Plus size={16} />
+                                                    </button>
+                                                </div>
+                                                <div className="flex flex-wrap gap-1.5 pt-1">
+                                                    {(bossSecretary?.vip_whitelist || []).length === 0 ? (
+                                                        <span className="text-[10px] text-slate-400 italic">Sekreter harici doğrudan çaldırabilecek numara yok.</span>
+                                                    ) : (
+                                                        (bossSecretary?.vip_whitelist || []).map((vipNum) => (
+                                                            <span
+                                                                key={vipNum}
+                                                                className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl text-[11px] font-mono font-bold bg-white dark:bg-slate-950 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700"
+                                                            >
+                                                                {vipNum}
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={() =>
+                                                                        setBossSecretary((prev) => ({
+                                                                            ...prev,
+                                                                            vip_whitelist: (prev.vip_whitelist || []).filter((x) => x !== vipNum)
+                                                                        }))
+                                                                    }
+                                                                    className="text-slate-400 hover:text-rose-500"
+                                                                >
+                                                                    <X size={12} />
+                                                                </button>
+                                                            </span>
+                                                        ))
+                                                    )}
+                                                </div>
+                                            </div>
+
+                                            <div className={`md:col-span-2 p-2.5 rounded-xl border ${lightBg} ${borderLight} text-[11px] font-semibold ${text}`}>
+                                                Masa telefonundan hızlı aç/kapat: Yönetici kendi telefonundan <span className="font-mono font-extrabold">*74</span>, sekreter ise kendi telefonundan <span className="font-mono font-extrabold">*74*{extension || "1000"}</span> tuşlayabilir.
                                             </div>
                                         </div>
                                     )}
@@ -4433,6 +4746,209 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
                                                     <span>{twoFactorStatusMsg.text}</span>
                                                 </div>
                                             )}
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+                        )}
+
+                        {/* TAB: HOT-DESKING (MASA PAYLAŞIMI & ÖZEL PIN) */}
+                        {activeTab === "hotdesk" && (
+                            <div className="space-y-5 animate-in fade-in duration-300">
+                                <div className="p-5 bg-slate-50 dark:bg-slate-900/50 rounded-2xl border border-slate-200/80 dark:border-slate-800 space-y-4">
+                                    <div className="flex items-center justify-between gap-4">
+                                        <div className="flex items-center gap-3">
+                                            <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${hotdeskConfig?.enabled ? `${lightBg} ${text}` : "bg-slate-200/70 dark:bg-slate-800 text-slate-500"}`}>
+                                                <Monitor size={18} />
+                                            </div>
+                                            <div>
+                                                <div className="flex items-center gap-2">
+                                                    <h4 className="text-sm font-bold text-slate-800 dark:text-white">
+                                                        Hot-Desking (Ortak Masa Telefonu Oturumu)
+                                                    </h4>
+                                                    <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${hotdeskConfig?.enabled ? `${lightBg} ${text} border ${border}` : "bg-slate-200 dark:bg-slate-800 text-slate-500"}`}>
+                                                        {hotdeskConfig?.enabled ? "Yetki Açık" : "Pasif"}
+                                                    </span>
+                                                </div>
+                                                <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
+                                                    Kullanıcının ofisteki herhangi bir fiziksel IP masa telefonundan kendi dahilisi ve özel Hot-Desk PIN şifresiyle oturum açmasını sağlar.
+                                                </p>
+                                            </div>
+                                        </div>
+                                        <button
+                                            type="button"
+                                            onClick={() =>
+                                                setHotdeskConfig((prev) => ({
+                                                    ...prev,
+                                                    enabled: !prev.enabled
+                                                }))
+                                            }
+                                            className={`transition-colors shrink-0 ${hotdeskConfig?.enabled ? text : "text-slate-400"}`}
+                                        >
+                                            {hotdeskConfig?.enabled ? <ToggleRight size={32} /> : <ToggleLeft size={32} />}
+                                        </button>
+                                    </div>
+
+                                    {hotdeskConfig?.enabled && (
+                                        <div className="pt-4 border-t border-slate-200/80 dark:border-slate-800 space-y-5 animate-in fade-in duration-200">
+                                            <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                                                {/* Dedicated Hot-Desk PIN */}
+                                                <div className="p-4 rounded-xl bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 space-y-2">
+                                                    <div className="flex items-center justify-between gap-2">
+                                                        <label
+                                                            htmlFor="admin-hotdesk-pin"
+                                                            className="text-xs font-extrabold text-slate-800 dark:text-white"
+                                                        >
+                                                            Hot-Desking Özel PIN Şifresi
+                                                        </label>
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => {
+                                                                const rnd = String(Math.floor(100000 + Math.random() * 900000));
+                                                                setHotdeskConfig((prev) => ({ ...prev, pin: rnd }));
+                                                                setShowHotdeskPin(true);
+                                                            }}
+                                                            className={`text-[10px] font-bold px-2.5 py-1 rounded-lg ${lightBg} ${text} border ${borderLight} flex items-center gap-1`}
+                                                        >
+                                                            <RefreshCw size={11} />
+                                                            Rastgele PIN Üret
+                                                        </button>
+                                                    </div>
+                                                    <p
+                                                        id="admin-hotdesk-pin-hint"
+                                                        className="text-[10px] text-slate-500 dark:text-slate-400"
+                                                    >
+                                                        SIP ve Sesli Posta şifresinden bağımsız, 4 ile 8 haneli sadece rakam giriniz.
+                                                    </p>
+                                                    <div className="relative flex items-center">
+                                                        <input
+                                                            id="admin-hotdesk-pin"
+                                                            type={showHotdeskPin ? "text" : "password"}
+                                                            inputMode="numeric"
+                                                            autoComplete="off"
+                                                            pattern="\d{4,8}"
+                                                            maxLength={8}
+                                                            aria-describedby="admin-hotdesk-pin-hint"
+                                                            value={hotdeskConfig?.pin || ""}
+                                                            onChange={(e) =>
+                                                                setHotdeskConfig((prev) => ({
+                                                                    ...prev,
+                                                                    pin: e.target.value.replace(/\D/g, "").slice(0, 8)
+                                                                }))
+                                                            }
+                                                            onBlur={() => setHotdeskPinTouched(true)}
+                                                            placeholder="Örn: 482910"
+                                                            className={`w-full text-xs font-mono font-extrabold tracking-widest px-3.5 py-2.5 pr-10 rounded-xl border bg-slate-50 dark:bg-slate-900 text-slate-800 dark:text-white focus:outline-none focus:ring-2 ${ring} ${
+                                                                hotdeskPinTouched && !/^\d{4,8}$/.test(String(hotdeskConfig?.pin || ""))
+                                                                    ? "border-rose-400 dark:border-rose-600"
+                                                                    : "border-slate-200 dark:border-slate-800"
+                                                            }`}
+                                                        />
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => setShowHotdeskPin((p) => !p)}
+                                                            className="absolute right-3 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
+                                                            title={showHotdeskPin ? "PIN Gizle" : "PIN Göster"}
+                                                        >
+                                                            {showHotdeskPin ? <EyeOff size={15} /> : <Eye size={15} />}
+                                                        </button>
+                                                    </div>
+                                                    {hotdeskPinTouched && !/^\d{4,8}$/.test(String(hotdeskConfig?.pin || "")) && (
+                                                        <p className="text-[11px] font-bold text-rose-600 dark:text-rose-400 flex items-center gap-1">
+                                                            <AlertTriangle size={12} />
+                                                            Lütfen 4 ile 8 haneli rakamlardan oluşan bir PIN belirleyin.
+                                                        </p>
+                                                    )}
+                                                </div>
+
+                                                {/* Midnight Auto-Logout */}
+                                                <div className="p-4 rounded-xl bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 flex flex-col justify-between gap-3">
+                                                    <div className="flex items-start justify-between gap-3">
+                                                        <div>
+                                                            <h5 className="text-xs font-extrabold text-slate-800 dark:text-white">
+                                                                Gece 00:00&apos;da Oturumu Otomatik Kapat
+                                                            </h5>
+                                                            <p className="text-[10px] text-slate-500 dark:text-slate-400 mt-1 leading-relaxed">
+                                                                Açık bırakıldığında vardiya bitiminde unutulan masa telefonu oturumu her gece 00:00&apos;da otomatik olarak sonlandırılır. Kullanıcı bu ayarı kendi profilinden de değiştirebilir.
+                                                            </p>
+                                                        </div>
+                                                        <button
+                                                            type="button"
+                                                            onClick={() =>
+                                                                setHotdeskConfig((prev) => ({
+                                                                    ...prev,
+                                                                    auto_logout_midnight: !prev.auto_logout_midnight
+                                                                }))
+                                                            }
+                                                            className={`transition-colors shrink-0 ${hotdeskConfig?.auto_logout_midnight ? text : "text-slate-400"}`}
+                                                        >
+                                                            {hotdeskConfig?.auto_logout_midnight ? <ToggleRight size={30} /> : <ToggleLeft size={30} />}
+                                                        </button>
+                                                    </div>
+                                                    <div className={`p-2.5 rounded-xl border ${lightBg} ${borderLight} text-[10px] font-semibold ${text}`}>
+                                                        Telefon yeniden başlatılmaz (Zero-Reboot): Masa telefonundan <span className="font-mono font-extrabold">*75*{extension || "1001"}*PIN</span> ile giriş, <span className="font-mono font-extrabold">*76</span> ile çıkış yapılır.
+                                                    </div>
+                                                </div>
+                                            </div>
+
+                                            {/* Active Hot-Desk Sessions */}
+                                            <div className="p-4 rounded-xl bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 space-y-3">
+                                                <div className="flex items-center justify-between">
+                                                    <h5 className="text-xs font-extrabold text-slate-800 dark:text-white">
+                                                        Aktif Masa Telefonu Oturumu
+                                                    </h5>
+                                                    <span className="text-[10px] font-bold text-slate-400">
+                                                        {activeHotdeskSessions.length > 0 ? `${activeHotdeskSessions.length} Aktif Cihaz` : "Aktif Oturum Yok"}
+                                                    </span>
+                                                </div>
+                                                {activeHotdeskSessions.length === 0 ? (
+                                                    <p className="text-[11px] text-slate-400">
+                                                        Bu dahili şu anda herhangi bir ortak masa telefonunda Hot-Desk oturumu açmamış.
+                                                    </p>
+                                                ) : (
+                                                    <div className="space-y-2">
+                                                        {activeHotdeskSessions.map((sess) => (
+                                                            <div
+                                                                key={sess.device_sip_username}
+                                                                className="flex items-center justify-between gap-3 p-3 rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800"
+                                                            >
+                                                                <div>
+                                                                    <div className="text-xs font-extrabold text-slate-800 dark:text-white font-mono">
+                                                                        SIP Cihaz: {sess.device_sip_username}
+                                                                    </div>
+                                                                    <div className="text-[10px] text-slate-500 mt-0.5">
+                                                                        Giriş Zamanı: {sess.logged_in_at || "-"}
+                                                                    </div>
+                                                                </div>
+                                                                <button
+                                                                    type="button"
+                                                                    disabled={hotdeskLogoutBusy}
+                                                                    onClick={async () => {
+                                                                        setHotdeskLogoutBusy(true);
+                                                                        try {
+                                                                            const res = await safeFetch(
+                                                                                `/api/hotdesk/sessions/${encodeURIComponent(sess.device_sip_username)}`,
+                                                                                { method: "DELETE" }
+                                                                            );
+                                                                            if (res.ok) {
+                                                                                setActiveHotdeskSessions((prev) =>
+                                                                                    prev.filter((x) => x.device_sip_username !== sess.device_sip_username)
+                                                                                );
+                                                                            }
+                                                                        } finally {
+                                                                            setHotdeskLogoutBusy(false);
+                                                                        }
+                                                                    }}
+                                                                    className="px-3 py-1.5 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-[11px] font-bold flex items-center gap-1.5 transition-all disabled:opacity-50"
+                                                                >
+                                                                    <Power size={13} />
+                                                                    Oturumu Kapat
+                                                                </button>
+                                                            </div>
+                                                        ))}
+                                                    </div>
+                                                )}
+                                            </div>
                                         </div>
                                     )}
                                 </div>

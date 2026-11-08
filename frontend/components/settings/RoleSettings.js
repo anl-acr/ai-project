@@ -55,6 +55,11 @@ export const CALL_PANEL_SUB_GROUPS = [
       { id: "call_panel:live_translation", name: "Anlık Konuşma Metni Çevirisi (İngilizce/Yabancı Dil → Türkçe Metin)" },
       { id: "call_panel:voice_interpreter", name: "Anlık Sesli Çeviri & Çift Yönlü Tercüman (TR ↔ Yabancı Dil Ses)" },
       {
+        id: "call_panel:pause_recording",
+        name: "Ses Kaydı Duraklatma / Maskeleme (KVKK & Kredi Kartı)",
+        optInOnly: true
+      },
+      {
         id: "call_panel:webphone_mask_number",
         name: "Numara Maskeleme (Kayıtlı İsim ve Son 4 Hane ** **)",
         isRestriction: true
@@ -74,7 +79,7 @@ export const CALL_PANEL_SUB_GROUPS = [
 ];
 
 export const DEFAULT_CALL_PANEL_SUB_PERMS = CALL_PANEL_SUB_GROUPS.flatMap(g =>
-  g.items.filter(it => !it.isRestriction).map(it => it.id)
+  g.items.filter(it => !it.isRestriction && !it.optInOnly).map(it => it.id)
 );
 
 export const REPORT_FEATURE_IDS = [

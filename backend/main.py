@@ -48,7 +48,7 @@ def add_system_log(source: str, level: str, message: str):
 add_system_log("SYSTEM", "INFO", "FastAPI Sunucusu başlatıldı.")
 add_system_log("DATABASE", "INFO", "Veritabanı bağlantısı kuruldu.")
 from backend.database.config import get_db, Base, engine, AsyncSessionLocal
-from backend.database.models import Rule, Call, Transcript, Appointment, ChatSession, ChatMessage, Contact, CannedResponse, BlacklistItem, BlockWord, SystemUser, SystemRole, PBXQueue, Trunk, AIAgent, BreakType, AgentBreakLog, SystemSetting, EventLog, QueueSurveyResponse, VoipQualityLog
+from backend.database.models import Rule, Call, Transcript, Appointment, ChatSession, ChatMessage, Contact, CannedResponse, BlacklistItem, BlockWord, SystemUser, SystemRole, PBXQueue, Trunk, AIAgent, BreakType, AgentBreakLog, SystemSetting, EventLog, QueueSurveyResponse, VoipQualityLog, VoicemailMessage
 from backend.services.agent_presence import get_agent_state
 from backend.services.rag_service import index_pdf_file, index_website_url, query_vector_search, index_manual_text, delete_indexed_source, get_genai_client
 from backend.services.license_service import verify_license_key, generate_license_key
@@ -483,6 +483,18 @@ class CallMonitoringPrefixSchema(BaseModel):
     whisper: str = "*552*"
     barge: str = "*553*"
 
+class EmergencyNumbersSchema(BaseModel):
+    numbers: List[str] = ["112", "110", "155", "156", "177", "185", "186", "187"]
+    preferred_trunk: str = ""
+
+class PBXFeatureCodesSchema(BaseModel):
+    voicemail_listen: str = "*97"
+    recording_pause: str = "*9"
+    profile_switch: str = "*70"
+    boss_secretary_toggle: str = "*74"
+    hotdesk_login: str = "*75"
+    hotdesk_logout: str = "*76"
+
 class NumberingPlanSchema(BaseModel):
     extension_range: NumberingPlanRangeSchema
     queue_range: NumberingPlanRangeSchema
@@ -492,6 +504,8 @@ class NumberingPlanSchema(BaseModel):
     call_pickup: Optional[CallPickupPrefixSchema] = None
     call_forwarding: Optional[CallForwardingPrefixSchema] = None
     call_monitoring: Optional[CallMonitoringPrefixSchema] = None
+    emergency_numbers: Optional[EmergencyNumbersSchema] = None
+    pbx_features: Optional[PBXFeatureCodesSchema] = None
 
 class PBXSettingsSchema(BaseModel):
     ami_host: str
@@ -568,6 +582,7 @@ DEFAULT_USER_PROFILES = [
     {
         "id": "available",
         "name": "Müsait",
+        "digit": "1",
         "devices": ["desk_phone", "mobile_app", "web_phone", "pc_app"],
         "timeout": 30,
         "timeout_action": "none",
@@ -576,6 +591,7 @@ DEFAULT_USER_PROFILES = [
     {
         "id": "away",
         "name": "Dışarıda",
+        "digit": "2",
         "devices": ["mobile_app"],
         "timeout": 25,
         "timeout_action": "external",
@@ -584,6 +600,7 @@ DEFAULT_USER_PROFILES = [
     {
         "id": "meeting",
         "name": "Toplantı",
+        "digit": "3",
         "devices": [],
         "timeout": 15,
         "timeout_action": "voicemail",
@@ -592,6 +609,7 @@ DEFAULT_USER_PROFILES = [
     {
         "id": "other",
         "name": "Diğer",
+        "digit": "4",
         "devices": ["web_phone"],
         "timeout": 30,
         "timeout_action": "none",
@@ -640,9 +658,12 @@ def ensure_user_profiles(u: dict) -> dict:
             pid = def_p["id"]
             if pid in existing_by_id:
                 ep = existing_by_id[pid]
+                raw_dig = str(ep.get("digit") if ep.get("digit") is not None else def_p.get("digit", "")).strip()
+                clean_dig = re.sub(r"[^0-9]", "", raw_dig)[:2] or def_p.get("digit", "")
                 merged.append({
                     "id": pid,
                     "name": ep.get("name") or def_p["name"],
+                    "digit": clean_dig,
                     "devices": ep.get("devices") if isinstance(ep.get("devices"), list) else list(def_p["devices"]),
                     "timeout": int(ep.get("timeout") if ep.get("timeout") is not None else def_p["timeout"]),
                     "timeout_action": str(ep.get("timeout_action") or def_p["timeout_action"]),
@@ -651,6 +672,10 @@ def ensure_user_profiles(u: dict) -> dict:
             else:
                 merged.append(copy.deepcopy(def_p))
         u["profiles"] = merged
+
+    from backend.services.pbx_enterprise_features import normalize_boss_secretary_config, normalize_hotdesk_config
+    u["boss_secretary"] = normalize_boss_secretary_config(u.get("boss_secretary"))
+    u["hotdesk_config"] = normalize_hotdesk_config(u.get("hotdesk_config"))
 
     raw_fm = u.get("follow_me")
     if isinstance(raw_fm, str):
@@ -732,6 +757,8 @@ class UserSchema(BaseModel):
     max_concurrent_outbound: Optional[int] = None
     outbound_quarantined: Optional[bool] = None
     sip_devices: Optional[List[dict]] = None
+    boss_secretary: Optional[dict] = None
+    hotdesk_config: Optional[dict] = None
 
 def generate_strong_sip_password(length=24):
     alphabet = string.ascii_letters + string.digits + "!@#$%^&*"
@@ -1048,6 +1075,18 @@ DEFAULT_SETTINGS = {
                 "listen": "*551*",
                 "whisper": "*552*",
                 "barge": "*553*"
+            },
+            "emergency_numbers": {
+                "numbers": ["112", "110", "155", "156", "177", "185", "186", "187"],
+                "preferred_trunk": ""
+            },
+            "pbx_features": {
+                "voicemail_listen": "*97",
+                "recording_pause": "*9",
+                "profile_switch": "*70",
+                "boss_secretary_toggle": "*74",
+                "hotdesk_login": "*75",
+                "hotdesk_logout": "*76"
             }
         }
     },
@@ -1307,7 +1346,7 @@ DEFAULT_SETTINGS = {
                 "call_monitor:listen", "call_monitor:whisper", "call_monitor:barge",
                 "call_panel:tab_dashboard", "call_panel:tab_webphone", "call_panel:tab_deskphone", "call_panel:tab_agents", "call_panel:tab_speeddial",
                 "call_panel:tab_missed", "call_panel:tab_directory", "call_panel:tab_history", "call_panel:tab_voicemail", "call_panel:tab_chat",
-                "call_panel:webphone_save_contact", "call_panel:webphone_transfer", "call_panel:webphone_conference", "call_panel:webphone_reject",
+                "call_panel:webphone_save_contact", "call_panel:webphone_transfer", "call_panel:webphone_conference", "call_panel:webphone_reject", "call_panel:pause_recording",
                 "call_panel:cti_screen_pop", "cti_integration:read", "cti_integration:write",
                 "call_panel:agents_status", "call_panel:agents_duration", "call_panel:agents_call_counts", "call_panel:agents_login_logout",
                 # Yapay Zeka & Bilgi
@@ -1403,7 +1442,7 @@ DEFAULT_SETTINGS = {
                 "call_monitor:listen", "call_monitor:whisper", "call_monitor:barge",
                 "call_panel:tab_dashboard", "call_panel:tab_webphone", "call_panel:tab_deskphone", "call_panel:tab_agents", "call_panel:tab_speeddial",
                 "call_panel:tab_missed", "call_panel:tab_directory", "call_panel:tab_history", "call_panel:tab_voicemail", "call_panel:tab_chat",
-                "call_panel:webphone_save_contact", "call_panel:webphone_transfer", "call_panel:webphone_conference", "call_panel:webphone_reject",
+                "call_panel:webphone_save_contact", "call_panel:webphone_transfer", "call_panel:webphone_conference", "call_panel:webphone_reject", "call_panel:pause_recording",
                 "call_panel:cti_screen_pop", "cti_integration:read", "cti_integration:write",
                 "call_panel:agents_status", "call_panel:agents_duration", "call_panel:agents_call_counts", "call_panel:agents_login_logout",
                 "ai_agents:read", "ai_agents:write", "ai_agent_scenarios:read", "ai_agent_scenarios:write",
@@ -1922,6 +1961,8 @@ def load_settings(force_reload: bool = False, persist: bool = False):
                     ("max_concurrent_outbound", "ALTER TABLE system_users ADD COLUMN IF NOT EXISTS max_concurrent_outbound INTEGER DEFAULT 0;"),
                     ("outbound_quarantined", "ALTER TABLE system_users ADD COLUMN IF NOT EXISTS outbound_quarantined BOOLEAN DEFAULT FALSE;"),
                     ("sip_devices", "ALTER TABLE system_users ADD COLUMN IF NOT EXISTS sip_devices JSON DEFAULT '[]';"),
+                    ("boss_secretary", "ALTER TABLE system_users ADD COLUMN IF NOT EXISTS boss_secretary JSON DEFAULT '{}';"),
+                    ("hotdesk_config", "ALTER TABLE system_users ADD COLUMN IF NOT EXISTS hotdesk_config JSON DEFAULT '{}';"),
                 ):
                     if existing_cols and col_name in existing_cols:
                         continue
@@ -1959,7 +2000,7 @@ def load_settings(force_reload: bool = False, persist: bool = False):
                 for u in db_users:
                     u_dict = {col.name: getattr(u, col.name) for col in SystemUser.__table__.columns}
                     du = disk_u_map.get(str(u_dict.get("id"))) or disk_ext_map.get(str(u_dict.get("extension") or ""))
-                    for jcol in ("cti_config", "call_panel_prefs", "wallboard_layout", "follow_me"):
+                    for jcol in ("cti_config", "call_panel_prefs", "wallboard_layout", "follow_me", "boss_secretary", "hotdesk_config"):
                         jval = u_dict.get(jcol)
                         if isinstance(jval, str) and jval.strip().startswith("{"):
                             try:
@@ -2006,6 +2047,10 @@ def load_settings(force_reload: bool = False, persist: bool = False):
                             u_dict["gsm_number"] = du.get("gsm_number")
                         if not u_dict.get("follow_me") and du.get("follow_me"):
                             u_dict["follow_me"] = du.get("follow_me")
+                        if not u_dict.get("boss_secretary") and du.get("boss_secretary"):
+                            u_dict["boss_secretary"] = du.get("boss_secretary")
+                        if not u_dict.get("hotdesk_config") and du.get("hotdesk_config"):
+                            u_dict["hotdesk_config"] = du.get("hotdesk_config")
                         disk_tf_ts = _norm_2fa_ts(du.get("two_factor_updated_ts"))
                         db_tf_meta = (u_dict.get("call_panel_prefs") or {}).get("twoFactorMeta") if isinstance(u_dict.get("call_panel_prefs"), dict) else None
                         db_tf_ts = _norm_2fa_ts((db_tf_meta or {}).get("updatedTs"))
@@ -2793,6 +2838,10 @@ def run_dialplan_reload():
         import subprocess
         res = subprocess.run(["asterisk", "-rx", "dialplan reload"], capture_output=True, text=True, timeout=ast_timeout)
         if res.returncode == 0:
+            try:
+                subprocess.run(["asterisk", "-rx", "module reload features"], capture_output=True, text=True, timeout=2.0)
+            except Exception:
+                pass
             print("[Asterisk Config] Dialplan reloaded successfully via host Asterisk.")
             return
     except Exception as e:
@@ -4241,6 +4290,10 @@ def regenerate_extensions_custom_conf(background_tasks: Optional[BackgroundTasks
     mon_whisper_pfx = str(mon_cfg.get("whisper") or "*552*").strip() or "*552*"
     mon_barge_pfx = str(mon_cfg.get("barge") or "*553*").strip() or "*553*"
 
+    from backend.services.pbx_enterprise_features import normalize_pbx_features_config
+    pbx_feat_cfg = normalize_pbx_features_config(num_plan.get("pbx_features"))
+    rec_pause_code = str(pbx_feat_cfg.get("recording_pause") or "*9").strip() or "*9"
+
     def _build_chanspy_exten(pat_str: str, mode_str: str, comment_str: str) -> str:
         return f"""; {comment_str} ({pat_str})
 exten => {pat_str},1,NoOp(Masa Telefonu Canli Cagri Izleme [{mode_str}]: Arayan=${{CALLERID(num)}}, Kod=${{EXTEN}})
@@ -4265,13 +4318,18 @@ same => n,Hangup()
 
     def _build_feat_exten(pat_str: str, comment_str: str) -> str:
         return f"""; {comment_str} ({pat_str})
-exten => {pat_str},1,NoOp(Masa Telefonu Yonlendirme Kodu: Arayan=${{CALLERID(num)}}, Kod=${{EXTEN}})
+exten => {pat_str},1,NoOp(Masa Telefonu Ozellik Kodu: Arayan=${{CALLERID(num)}}, Kod=${{EXTEN}})
 same => n,Set(CURLOPT(conntimeout)=1)
 same => n,Set(CURLOPT(httptimeout)=3)
 same => n,Set(FEAT_RES=${{CURL(http://{backend_host}/api/subscriber/resolve_feature_code?caller=${{URIENCODE(${{CALLERID(num)}})}}&exten=${{URIENCODE(${{EXTEN}})}}&channel=${{URIENCODE(${{CHANNEL(name)}})}})}})
 same => n,GotoIf($["${{CUT(FEAT_RES,:,1)}}"="CHANSPY"]?do_feat_spy)
+same => n,GotoIf($["${{CUT(FEAT_RES,:,1)}}"="VOICEMAIL_MENU"]?do_vm_menu)
+same => n,GotoIf($["${{CUT(FEAT_RES,:,1)}}"="PROFILE_PROMPT"]?do_prof_prompt)
+same => n,GotoIf($["${{FEAT_RES}}"="HOTDESK_PROMPT"]?do_hd_prompt)
 same => n,Answer()
 same => n,Wait(0.3)
+same => n,GotoIf($["${{FEAT_RES}}"="REC_PAUSED"]?play_rec_pause)
+same => n,GotoIf($["${{FEAT_RES}}"="REC_RESUMED"]?play_rec_resume)
 same => n,GotoIf($["${{FEAT_RES}}"="ACTIVATED"]?play_act)
 same => n,GotoIf($["${{FEAT_RES}}"="CANCELLED"]?play_canc)
 same => n,Playback(beeperr)
@@ -4281,6 +4339,17 @@ same => n,Set(SPY_FLAGS=${{CUT(FEAT_RES,:,3)}})
 same => n,Answer()
 same => n,Wait(0.2)
 same => n,ChanSpy(${{SPY_CHAN}},${{SPY_FLAGS}})
+same => n,Hangup()
+same => n(do_vm_menu),Gosub(voicemail_ivr_sub,s,1(${{CUT(FEAT_RES,:,2)}},${{CUT(FEAT_RES,:,3)}}))
+same => n,Hangup()
+same => n(do_prof_prompt),Gosub(profile_prompt_sub,s,1(${{CUT(FEAT_RES,:,2)}}))
+same => n,Hangup()
+same => n(do_hd_prompt),Gosub(hotdesk_prompt_sub,s,1)
+same => n,Hangup()
+same => n(play_rec_pause),Playback(beep)
+same => n,Hangup()
+same => n(play_rec_resume),Playback(beep)
+same => n,Playback(beep)
 same => n,Hangup()
 same => n(play_act),Playback(/var/spool/asterisk/monitor/tr_yonlendirme_aktif)
 same => n,Hangup()
@@ -4487,8 +4556,8 @@ same => n,Goto(q_do_queue)
 same => n(q_fb_queue),GotoIf($["${{Q_ACT_TARGET}}" = ""]?q_fb_hangup)
 same => n,Set(CUR_Q_EXT=${{Q_ACT_TARGET}})
 same => n,Goto(q_eval_entry)
-same => n(q_fb_voicemail),Answer()
-same => n,Playback(/var/spool/asterisk/monitor/tr_sesli_mesaj)
+same => n(q_fb_voicemail),Set(Q_VM_EXT=${{IF($["${{Q_ACT_TARGET}}" != ""]?${{Q_ACT_TARGET}}:${{CUR_Q_EXT}})}})
+same => n,Gosub(voicemail_record_sub,s,1(${{Q_VM_EXT}}))
 same => n,Set(DIALSTATUS=NOANSWER)
 same => n,Goto(q_ret)
 same => n(q_fb_user),GotoIf($["${{Q_ACT_TARGET}}" = ""]?q_fb_hangup)
@@ -4503,9 +4572,7 @@ same => n(q_fb_dial_multi),Set(FB_DIAL_STR=${{MULTI_DIAL_STR}})
 same => n(q_fb_exec_dial),Dial(${{FB_DIAL_STR}},30,tTg)
 same => n,Goto(q_ret)
 same => n(q_fb_gsm),GotoIf($["${{Q_ACT_TARGET}}" = ""]?q_fb_hangup)
-same => n,Set(CALLERID(num)=908503607390)
-same => n,Set(CALLERID(name)=908503607390)
-same => n,Dial(PJSIP/Operator_Trunk/sip:${{Q_ACT_TARGET}}@ikonsip.com:5060,45,r)
+same => n,Gosub(outbound_failover_dial_sub,s,1(${{Q_ACT_TARGET}},${{Q_ACT_TARGET}},45,0))
 same => n,Goto(q_ret)
 same => n(q_fb_audiosocket),Answer()
 same => n,AudioSocket(${{CALL_UUID}},{audiosocket_host})
@@ -4659,8 +4726,9 @@ same => n,Hangup()
 ; +90 veya + ile başlayan dış hat aramalarını başında + olmadan yönlendir
 exten => _+X.,1,Goto(webrtc_agents,${{EXTEN:1}},1)
 
-; Dış hat aramaları için (0 ile başlayan numaralar - Güvenlik & Toll-Fraud ACL Korumalı)
-exten => _0.,1,NoOp(Dis arama guvenlik kontrolu: Arayan=${{CALLERID(num)}}, Aranan=${{EXTEN}})
+; Dış hat aramaları için (0 ile başlayan numaralar - Güvenlik & Toll-Fraud ACL Korumalı + Multi-Trunk Failover)
+exten => _0.,1,Gosub(hotdesk_cid_sub,s,1)
+same => n,NoOp(Dis arama guvenlik kontrolu: Arayan=${{CALLERID(num)}}, Aranan=${{EXTEN}})
 same => n(outbound_start),Set(GROUP(sub_out)=${{CALLERID(num)}})
 same => n,Set(SUB_OUT_CNT=${{GROUP_COUNT(${{CALLERID(num)}}@sub_out)}})
 same => n,Set(CURLOPT(conntimeout)=1)
@@ -4682,36 +4750,7 @@ same => n,Set(CURL_RESULT=${{CURL(http://{backend_host}/api/calls/register?call_
 same => n,GotoIf($["${{CURL_RESULT}}" = "BLOCKED"]?deny_out)
 same => n,MixMonitor(/var/spool/asterisk/monitor/${{CALL_UUID}}.wav,b)
 same => n,Set(DIAL_NUM=${{IF($["${{EXTEN:0:1}}"="0"]?90${{EXTEN:1}}:${{EXTEN}})}})
-same => n,Set(OUT_CFG=${{CURL(http://{backend_host}/api/trunks/resolve_outbound_dial?call_id=${{URIENCODE(${{CALL_UUID}})}}&caller=${{URIENCODE(${{CALLERID(num)}})}}&caller_name=${{URIENCODE(${{CALLERID(name)}})}}&callee=${{URIENCODE(${{EXTEN}})}}&dial_num=${{URIENCODE(${{DIAL_NUM}})}}&orig_caller=${{URIENCODE(${{ORIG_CALLER_NUM}})}}&orig_name=${{URIENCODE(${{ORIG_CALLER_NAME}})}})}})
-same => n,GotoIf($["${{CUT(OUT_CFG,|,1)}}" = "ALLOW"]?apply_out_cfg:fallback_out_dial)
-same => n(apply_out_cfg),Set(__OUT_TRUNK_NAME=${{CUT(OUT_CFG,|,2)}})
-same => n,Set(OUT_LIMIT_EN=${{CUT(OUT_CFG,|,3)}})
-same => n,Set(OUT_MAX_CH=${{CUT(OUT_CFG,|,4)}})
-same => n,Set(OUT_CID_NUM=${{CUT(OUT_CFG,|,5)}})
-same => n,Set(OUT_CID_NAME=${{CUT(OUT_CFG,|,6)}})
-same => n,Set(OUT_DIAL_STR=${{CUT(OUT_CFG,|,7)}})
-same => n,Set(__OUT_HDR_DIVERSION=${{CUT(OUT_CFG,|,8)}})
-same => n,Set(__OUT_HDR_RPID=${{CUT(OUT_CFG,|,9)}})
-same => n,Set(__OUT_HDR_PAI=${{CUT(OUT_CFG,|,10)}})
-same => n,Set(__OUT_HDR_PPI=${{CUT(OUT_CFG,|,11)}})
-same => n,Set(__OUT_MAXPTIME=${{CUT(OUT_CFG,|,12)}})
-same => n,GotoIf($["${{OUT_LIMIT_EN}}" != "1"]?set_out_cid)
-same => n,Set(GROUP(trunk_limit)=${{OUT_TRUNK_NAME}})
-same => n,GotoIf($[${{GROUP_COUNT(${{OUT_TRUNK_NAME}}@trunk_limit)}} > ${{OUT_MAX_CH}}]?out_limit_exceeded)
-same => n(set_out_cid),Set(CALLERID(num)=908503607390)
-same => n,GotoIf($["${{OUT_CID_NUM}}" = ""]?chk_out_cid_name)
-same => n,Set(CALLERID(num)=${{OUT_CID_NUM}})
-same => n(chk_out_cid_name),Set(CALLERID(name)=${{CALLERID(num)}})
-same => n,GotoIf($["${{OUT_CID_NAME}}" = ""]?do_out_dial)
-same => n,Set(CALLERID(name)=${{OUT_CID_NAME}})
-same => n(do_out_dial),Dial(${{OUT_DIAL_STR}},60,rb(trunk-outbound-headers^s^1))
-same => n,Hangup()
-same => n(out_limit_exceeded),NoOp(TRUNK GIDEN CAGRI LIMITI ASILDI: ${{OUT_TRUNK_NAME}} Max=${{OUT_MAX_CH}})
-same => n,Busy(5)
-same => n,Hangup(17)
-same => n(fallback_out_dial),Set(CALLERID(num)=908503607390)
-same => n,Set(CALLERID(name)=908503607390)
-same => n,Dial(PJSIP/Operator_Trunk/sip:${{DIAL_NUM}}@ikonsip.com:5060,60,r)
+same => n,Gosub(outbound_failover_dial_sub,s,1(${{EXTEN}},${{DIAL_NUM}},60,0))
 same => n,Hangup()
 
 exten => h,1,NoOp(Temsilci aramasi sonlandi. Call ID: ${{CALL_UUID}}, Status: ${{DIALSTATUS}}, QueueStatus: ${{QUEUESTATUS}}, Member: ${{MEMBERINTERFACE}}, Cause: ${{HANGUPCAUSE}})
@@ -4722,11 +4761,14 @@ same => n,Set(CURLOPT(httptimeout)=2)
 same => n,Set(CURL_RESULT=${{CURL(http://{backend_host}/api/calls/end?call_id=${{CALL_UUID}}&dialstatus=${{DIALSTATUS}}&hangupcause=${{HANGUPCAUSE}}&queuestatus=${{QUEUESTATUS}}&memberinterface=${{URIENCODE(${{MEMBERINTERFACE}})}}&hangupsource=${{URIENCODE(${{CHANNEL(hangupsource)}})}}&trunk=${{URIENCODE(${{OUT_TRUNK_NAME}})}}&answeredtime=${{ANSWEREDTIME}}&dialedtime=${{DIALEDTIME}})}})
 same => n(done_h),NoOp(Hangup tamamlandi)
 
-; İç hat (Diğer temsilciler & Dahililer: 100-999999) ve Prefix'li Dış Aramalar (99805..., 905..., 507... vb. >= 7 hane)
-exten => _[1-9]X.,1,GotoIf($[${{LEN(${{EXTEN}})}} >= 7]?outbound_route_ext)
-same => n,NoOp(Dahili arama basladi: Arayan=${{CALLERID(num)}}, Aranan=${{EXTEN}})
+; İç hat (Diğer temsilciler & Dahililer: 100-999999), Acil Durum Numaraları (112 vb.) ve Prefix'li Dış Aramalar (>= 7 hane)
+exten => _[1-9]X.,1,Gosub(hotdesk_cid_sub,s,1)
 same => n,Set(CURLOPT(conntimeout)=1)
 same => n,Set(CURLOPT(httptimeout)=2)
+same => n,Set(EM_CHK=${{CURL(http://{backend_host}/api/trunks/check_emergency?callee=${{URIENCODE(${{EXTEN}})}})}})
+same => n,GotoIf($["${{EM_CHK}}" = "EMERGENCY"]?emergency_route_ext)
+same => n,GotoIf($[${{LEN(${{EXTEN}})}} >= 7]?outbound_route_ext)
+same => n,NoOp(Dahili arama basladi: Arayan=${{CALLERID(num)}}, Aranan=${{EXTEN}})
 same => n,GotoIf($["${{CALL_UUID}}" != ""]?already_registered_int)
 same => n,Set(MD5_VAL=${{MD5(${{UNIQUEID}}${{EPOCH}})}})
 same => n,Set(__CALL_UUID=${{MD5_VAL:0:8}}-${{MD5_VAL:8:4}}-4${{MD5_VAL:13:3}}-a${{MD5_VAL:17:3}}-${{MD5_VAL:20:12}})
@@ -4739,6 +4781,13 @@ same => n,Set(DIALSTATUS=FAILED)
 same => n,Progress()
 same => n,Playback(/var/spool/asterisk/monitor/tr_yetkisiz_arama,noanswer)
 same => n,Hangup(21)
+same => n(emergency_route_ext),NoOp(ACIL DURUM ARAMASI [ACL/LIMIT BYPASS]: Arayan=${{CALLERID(num)}}, Acil=${{EXTEN}})
+same => n,Set(MD5_VAL=${{MD5(${{UNIQUEID}}${{EPOCH}})}})
+same => n,Set(__CALL_UUID=${{MD5_VAL:0:8}}-${{MD5_VAL:8:4}}-4${{MD5_VAL:13:3}}-a${{MD5_VAL:17:3}}-${{MD5_VAL:20:12}})
+same => n,Set(CURL_RESULT=${{CURL(http://{backend_host}/api/calls/register?call_id=${{CALL_UUID}}&did=${{EXTEN}}&caller=${{CALLERID(num)}}&asterisk_id=${{UNIQUEID}}&direction=outbound)}})
+same => n,MixMonitor(/var/spool/asterisk/monitor/${{CALL_UUID}}.wav,b)
+same => n,Gosub(outbound_failover_dial_sub,s,1(${{EXTEN}},${{EXTEN}},60,1))
+same => n,Hangup()
 same => n(outbound_route_ext),NoOp(Prefixli veya 7+ haneli dis arama yonlendiriliyor: Arayan=${{CALLERID(num)}}, Aranan=${{EXTEN}})
 same => n,Set(GROUP(sub_out)=${{CALLERID(num)}})
 same => n,Set(SUB_OUT_CNT=${{GROUP_COUNT(${{CALLERID(num)}}@sub_out)}})
@@ -4761,43 +4810,15 @@ same => n,Set(CURL_RESULT=${{CURL(http://{backend_host}/api/calls/register?call_
 same => n,GotoIf($["${{CURL_RESULT}}" = "BLOCKED"]?deny_out_ext)
 same => n,MixMonitor(/var/spool/asterisk/monitor/${{CALL_UUID}}.wav,b)
 same => n,Set(DIAL_NUM=${{IF($["${{EXTEN:0:1}}"="0"]?90${{EXTEN:1}}:${{EXTEN}})}})
-same => n,Set(OUT_CFG=${{CURL(http://{backend_host}/api/trunks/resolve_outbound_dial?call_id=${{URIENCODE(${{CALL_UUID}})}}&caller=${{URIENCODE(${{CALLERID(num)}})}}&caller_name=${{URIENCODE(${{CALLERID(name)}})}}&callee=${{URIENCODE(${{EXTEN}})}}&dial_num=${{URIENCODE(${{DIAL_NUM}})}}&orig_caller=${{URIENCODE(${{ORIG_CALLER_NUM}})}}&orig_name=${{URIENCODE(${{ORIG_CALLER_NAME}})}})}})
-same => n,GotoIf($["${{CUT(OUT_CFG,|,1)}}" = "ALLOW"]?apply_out_cfg_ext:fallback_out_dial_ext)
-same => n(apply_out_cfg_ext),Set(__OUT_TRUNK_NAME=${{CUT(OUT_CFG,|,2)}})
-same => n,Set(OUT_LIMIT_EN=${{CUT(OUT_CFG,|,3)}})
-same => n,Set(OUT_MAX_CH=${{CUT(OUT_CFG,|,4)}})
-same => n,Set(OUT_CID_NUM=${{CUT(OUT_CFG,|,5)}})
-same => n,Set(OUT_CID_NAME=${{CUT(OUT_CFG,|,6)}})
-same => n,Set(OUT_DIAL_STR=${{CUT(OUT_CFG,|,7)}})
-same => n,Set(__OUT_HDR_DIVERSION=${{CUT(OUT_CFG,|,8)}})
-same => n,Set(__OUT_HDR_RPID=${{CUT(OUT_CFG,|,9)}})
-same => n,Set(__OUT_HDR_PAI=${{CUT(OUT_CFG,|,10)}})
-same => n,Set(__OUT_HDR_PPI=${{CUT(OUT_CFG,|,11)}})
-same => n,Set(__OUT_MAXPTIME=${{CUT(OUT_CFG,|,12)}})
-same => n,GotoIf($["${{OUT_LIMIT_EN}}" != "1"]?set_out_cid_ext)
-same => n,Set(GROUP(trunk_limit)=${{OUT_TRUNK_NAME}})
-same => n,GotoIf($[${{GROUP_COUNT(${{OUT_TRUNK_NAME}}@trunk_limit)}} > ${{OUT_MAX_CH}}]?out_limit_exceeded_ext)
-same => n(set_out_cid_ext),Set(CALLERID(num)=908503607390)
-same => n,GotoIf($["${{OUT_CID_NUM}}" = ""]?chk_out_cid_name_ext)
-same => n,Set(CALLERID(num)=${{OUT_CID_NUM}})
-same => n(chk_out_cid_name_ext),Set(CALLERID(name)=${{CALLERID(num)}})
-same => n,GotoIf($["${{OUT_CID_NAME}}" = ""]?do_out_dial_ext)
-same => n,Set(CALLERID(name)=${{OUT_CID_NAME}})
-same => n(do_out_dial_ext),Dial(${{OUT_DIAL_STR}},60,rb(trunk-outbound-headers^s^1))
-same => n,Hangup()
-same => n(out_limit_exceeded_ext),NoOp(TRUNK GIDEN CAGRI LIMITI ASILDI: ${{OUT_TRUNK_NAME}} Max=${{OUT_MAX_CH}})
-same => n,Busy(5)
-same => n,Hangup(17)
-same => n(fallback_out_dial_ext),Set(CALLERID(num)=908503607390)
-same => n,Set(CALLERID(name)=908503607390)
-same => n,Dial(PJSIP/Operator_Trunk/sip:${{DIAL_NUM}}@ikonsip.com:5060,60,r)
+same => n,Gosub(outbound_failover_dial_sub,s,1(${{EXTEN}},${{DIAL_NUM}},60,0))
 same => n,Hangup()
 same => n(allow),NoOp(ACL ONAYLANDI: On Yonlendirme Kontrol Ediliyor)
+same => n,Set(ORIG_EXTEN=${{EXTEN}})
 same => n,StopMixMonitor()
 same => n,MixMonitor(/var/spool/asterisk/monitor/${{CALL_UUID}}.wav,${{IF($["${{APPEND_REC}}"="1"]?ab:b)}})
 
-; 1. Ön Yönlendirme ve Aktif Profil Kontrolü (Offline / Koşulsuz Yönlendirme / Cihaz Seçimi)
-same => n,Set(FWD_PRE=${{CURL(http://{backend_host}/api/subscriber/resolve_forwarding?extension=${{EXTEN}}&dialstatus=BEFORE_DIAL)}})
+; 1. Ön Yönlendirme, Yönetici-Sekreter Filtresi ve Aktif Profil Kontrolü
+same => n,Set(FWD_PRE=${{CURL(http://{backend_host}/api/subscriber/resolve_forwarding?extension=${{EXTEN}}&dialstatus=BEFORE_DIAL&caller=${{URIENCODE(${{CALLERID(num)}})}}&channel=${{URIENCODE(${{CHANNEL(name)}})}})}})
 same => n,Set(FWD_STATUS=${{CUT(FWD_PRE,:,1)}})
 same => n,Set(FWD_TARGET=${{CUT(FWD_PRE,:,2)}})
 same => n,Set(FWD_TIMEOUT=${{CUT(FWD_PRE,:,3)}})
@@ -4837,9 +4858,8 @@ same => n(queue_fwd),NoOp(Kuyruk Aktarimi Baslatiliyor: ${{FWD_TARGET:6}})
 same => n,Gosub(queue_router_sub,s,1(${{FWD_TARGET:6}}))
 same => n,Goto(end_call)
 
-same => n(voicemail_fwd),NoOp(Sesli Mesaj / Voicemail Aktarimi: ${{EXTEN}})
-same => n,Answer()
-same => n,Playback(/var/spool/asterisk/monitor/tr_sesli_mesaj)
+same => n(voicemail_fwd),NoOp(Sesli Mesaj / Voicemail Kaydi Baslatiliyor: ${{ORIG_EXTEN}})
+same => n,Gosub(voicemail_record_sub,s,1(${{IF($["${{ORIG_EXTEN}}" != ""]?${{ORIG_EXTEN}}:${{EXTEN}})}}))
 same => n,Hangup()
 
 same => n(dial_internal_fwd),NoOp(Ic Dahili / SIP Cihazlari Yonlendirme: ${{FWD_TARGET}} Timeout=${{STEP_TIMEOUT}}s)
@@ -4854,10 +4874,8 @@ same => n(fwd_use_multi),Set(F_DIAL_STR=${{MULTI_DIAL_STR}})
 same => n(fwd_exec_dial),Dial(${{F_DIAL_STR}},${{STEP_TIMEOUT}},tTg)
 same => n,GotoIf($["${{DIALSTATUS}}"="ANSWER"]?end_call:check_step2)
 
-same => n(dial_external_fwd),NoOp(Dis Hat / Mobil Telefon Yonlendirme: PJSIP/Operator_Trunk/sip:${{CLEAN_TARGET}}@ikonsip.com:5060 Timeout=${{STEP_TIMEOUT}}s)
-same => n,Set(CALLERID(num)=908503607390)
-same => n,Set(CALLERID(name)=908503607390)
-same => n,Dial(PJSIP/Operator_Trunk/sip:${{CLEAN_TARGET}}@ikonsip.com:5060,${{STEP_TIMEOUT}},r)
+same => n(dial_external_fwd),NoOp(Dis Hat / Mobil Telefon Yonlendirme [Multi-Trunk Failover]: Hedef=${{CLEAN_TARGET}} Timeout=${{STEP_TIMEOUT}}s)
+same => n,Gosub(outbound_failover_dial_sub,s,1(${{CLEAN_TARGET}},${{CLEAN_TARGET}},${{STEP_TIMEOUT}},0))
 same => n,GotoIf($["${{DIALSTATUS}}"="ANSWER"]?end_call:check_step2)
 
 ; 5. Beni Takip Et (2. Adım) Kontrolü
@@ -4991,6 +5009,196 @@ same => n,Answer()
 same => n,Playback(/var/spool/asterisk/monitor/summary_${{CALL_UUID}})
 same => n,Bridge(${{CUSTOMER_CHANNEL}})
 same => n,Hangup()
+
+[hotdesk_cid_sub]
+exten => s,1,Set(__DYNAMIC_FEATURES=rec_pause_toggle)
+same => n,Set(CURLOPT(conntimeout)=1)
+same => n,Set(CURLOPT(httptimeout)=2)
+same => n,Set(HD_ID_RES=${{CURL(http://{backend_host}/api/hotdesk/resolve_channel_identity?channel=${{URIENCODE(${{CHANNEL(name)}})}})}})
+same => n,GotoIf($["${{CUT(HD_ID_RES,|,1)}}" != "ALLOW"]?hd_cid_done)
+same => n,Set(CALLERID(num)=${{CUT(HD_ID_RES,|,2)}})
+same => n,Set(CALLERID(name)=${{CUT(HD_ID_RES,|,3)}})
+same => n(hd_cid_done),Return()
+
+[outbound_failover_dial_sub]
+; ARG1 = callee, ARG2 = dial_num, ARG3 = timeout_sec, ARG4 = is_emergency (0/1)
+exten => s,1,Set(OB_CALLEE=${{ARG1}})
+same => n,Set(OB_DIAL_NUM=${{ARG2}})
+same => n,Set(OB_TIMEOUT=${{IF($["${{ARG3}}" = ""]?60:${{ARG3}})}})
+same => n,Set(OB_IS_EM=${{IF($["${{ARG4}}" = "1"]?1:0)}})
+same => n,Set(ORIG_SUB_EXT=${{CALLERID(num)}})
+same => n,Set(ORIG_SUB_NAME=${{CALLERID(name)}})
+same => n,Set(OB_TRY_IDX=0)
+same => n(ob_try_loop),GotoIf($[${{OB_TRY_IDX}} > 8]?ob_exhausted)
+same => n,Set(CURLOPT(conntimeout)=1)
+same => n,Set(CURLOPT(httptimeout)=2)
+same => n,Set(OUT_CFG=${{CURL(http://{backend_host}/api/trunks/resolve_outbound_dial?call_id=${{URIENCODE(${{CALL_UUID}})}}&caller=${{URIENCODE(${{ORIG_SUB_EXT}})}}&caller_name=${{URIENCODE(${{ORIG_SUB_NAME}})}}&callee=${{URIENCODE(${{OB_CALLEE}})}}&dial_num=${{URIENCODE(${{OB_DIAL_NUM}})}}&orig_caller=${{URIENCODE(${{ORIG_CALLER_NUM}})}}&orig_name=${{URIENCODE(${{ORIG_CALLER_NAME}})}}&try_idx=${{OB_TRY_IDX}}&is_emergency=${{OB_IS_EM}}&channel=${{URIENCODE(${{CHANNEL(name)}})}})}})
+same => n,GotoIf($["${{OUT_CFG}}" = "EXHAUSTED"]?ob_exhausted)
+same => n,GotoIf($["${{CUT(OUT_CFG,|,1)}}" = "ALLOW"]?ob_apply_cfg)
+same => n,GotoIf($[${{OB_TRY_IDX}} > 0]?ob_exhausted)
+same => n,Set(CALLERID(num)=908503607390)
+same => n,Set(CALLERID(name)=908503607390)
+same => n,Dial(PJSIP/Operator_Trunk/sip:${{OB_DIAL_NUM}}@ikonsip.com:5060,${{OB_TIMEOUT}},r)
+same => n,Return()
+same => n(ob_apply_cfg),Set(__OUT_TRUNK_NAME=${{CUT(OUT_CFG,|,2)}})
+same => n,Set(OUT_LIMIT_EN=${{CUT(OUT_CFG,|,3)}})
+same => n,Set(OUT_MAX_CH=${{CUT(OUT_CFG,|,4)}})
+same => n,Set(OUT_CID_NUM=${{CUT(OUT_CFG,|,5)}})
+same => n,Set(OUT_CID_NAME=${{CUT(OUT_CFG,|,6)}})
+same => n,Set(OUT_DIAL_STR=${{CUT(OUT_CFG,|,7)}})
+same => n,Set(__OUT_HDR_DIVERSION=${{CUT(OUT_CFG,|,8)}})
+same => n,Set(__OUT_HDR_RPID=${{CUT(OUT_CFG,|,9)}})
+same => n,Set(__OUT_HDR_PAI=${{CUT(OUT_CFG,|,10)}})
+same => n,Set(__OUT_HDR_PPI=${{CUT(OUT_CFG,|,11)}})
+same => n,Set(__OUT_MAXPTIME=${{CUT(OUT_CFG,|,12)}})
+same => n,GotoIf($["${{OUT_LIMIT_EN}}" != "1"]?ob_set_cid)
+same => n,Set(GROUP(trunk_limit)=${{OUT_TRUNK_NAME}})
+same => n,GotoIf($[${{GROUP_COUNT(${{OUT_TRUNK_NAME}}@trunk_limit)}} > ${{OUT_MAX_CH}}]?ob_next_trunk)
+same => n(ob_set_cid),Set(CALLERID(num)=908503607390)
+same => n,GotoIf($["${{OUT_CID_NUM}}" = ""]?ob_chk_cid_name)
+same => n,Set(CALLERID(num)=${{OUT_CID_NUM}})
+same => n(ob_chk_cid_name),Set(CALLERID(name)=${{CALLERID(num)}})
+same => n,GotoIf($["${{OUT_CID_NAME}}" = ""]?ob_do_dial)
+same => n,Set(CALLERID(name)=${{OUT_CID_NAME}})
+same => n(ob_do_dial),NoOp(Dis Hat Denemesi #${{OB_TRY_IDX}}: Trunk=${{OUT_TRUNK_NAME}} Dial=${{OUT_DIAL_STR}})
+same => n,Dial(${{OUT_DIAL_STR}},${{OB_TIMEOUT}},rb(trunk-outbound-headers^s^1))
+same => n,GotoIf($["${{DIALSTATUS}}" = "CHANUNAVAIL" | "${{DIALSTATUS}}" = "CONGESTION"]?ob_next_trunk)
+same => n,Return()
+same => n(ob_next_trunk),NoOp(Trunk #${{OB_TRY_IDX}} [${{OUT_TRUNK_NAME}}] Ulasilamadi/Dolu [${{DIALSTATUS}}], Siradaki Yedek Trunk Deneniyor...)
+same => n,Set(OB_TRY_IDX=$[${{OB_TRY_IDX}} + 1])
+same => n,Goto(ob_try_loop)
+same => n(ob_exhausted),NoOp(Tum Dis Hat Trunk Secenekleri Tukendi: ${{OB_CALLEE}})
+same => n,GotoIf($["${{DIALSTATUS}}" = ""]?ob_set_cong:ob_ret_end)
+same => n(ob_set_cong),Set(DIALSTATUS=CONGESTION)
+same => n(ob_ret_end),Return()
+
+[voicemail_record_sub]
+; ARG1 = hedef dahili / kuyruk uzantisi
+exten => s,1,Set(VM_TARGET_EXT=${{ARG1}})
+same => n,Answer()
+same => n,Wait(0.3)
+same => n,Set(CURLOPT(conntimeout)=1)
+same => n,Set(CURLOPT(httptimeout)=3)
+same => n,Set(VM_PREP=${{CURL(http://{backend_host}/api/voicemail/prepare?extension=${{URIENCODE(${{VM_TARGET_EXT}})}}&caller=${{URIENCODE(${{CALLERID(num)}})}}&call_id=${{URIENCODE(${{CALL_UUID}})}})}})
+same => n,GotoIf($["${{CUT(VM_PREP,|,1)}}" != "ALLOW"]?vm_rec_fallback)
+same => n,Set(VM_ID=${{CUT(VM_PREP,|,2)}})
+same => n,Set(VM_GREET_WAV=${{CUT(VM_PREP,|,3)}})
+same => n,Set(VM_REC_FILE=${{CUT(VM_PREP,|,4)}})
+same => n,GotoIf($[${{STAT(e,${{VM_GREET_WAV}}.wav)}}]?vm_play_custom:vm_chk_def_wav)
+same => n(vm_play_custom),Playback(${{VM_GREET_WAV}})
+same => n,Goto(vm_do_rec)
+same => n(vm_chk_def_wav),GotoIf($[${{STAT(e,/var/spool/asterisk/monitor/tr_sesli_mesaj.wav)}}]?vm_play_def_tr)
+same => n,Playback(vm-intro)
+same => n,Goto(vm_do_rec)
+same => n(vm_play_def_tr),Playback(/var/spool/asterisk/monitor/tr_sesli_mesaj)
+same => n(vm_do_rec),Playback(beep)
+same => n,Record(${{VM_REC_FILE}},5,120,kq)
+same => n,Set(VM_FIN=${{CURL(http://{backend_host}/api/voicemail/complete?vm_id=${{URIENCODE(${{VM_ID}})}}&call_id=${{URIENCODE(${{CALL_UUID}})}}&extension=${{URIENCODE(${{VM_TARGET_EXT}})}}&caller=${{URIENCODE(${{CALLERID(num)}})}})}})
+same => n,Set(FALLBACK_HANDLED=1)
+same => n,Return()
+same => n(vm_rec_fallback),Playback(/var/spool/asterisk/monitor/tr_sesli_mesaj)
+same => n,Return()
+
+[voicemail_ivr_sub]
+; ARG1 = extension, ARG2 = has_pin (0/1)
+exten => s,1,Set(VM_EXT=${{ARG1}})
+same => n,Set(VM_NEED_PIN=${{ARG2}})
+same => n,Answer()
+same => n,Wait(0.3)
+same => n,GotoIf($["${{VM_NEED_PIN}}" != "1"]?vm_load_msgs)
+same => n,Set(VM_PIN_TRY=0)
+same => n(vm_ask_pin),Set(VM_PIN_TRY=$[${{VM_PIN_TRY}} + 1])
+same => n,Set(VM_IN_PIN=)
+same => n,Read(VM_IN_PIN,vm-password,8,,,6)
+same => n,Set(VM_PIN_OK=${{CURL(http://{backend_host}/api/voicemail/check_pin?extension=${{URIENCODE(${{VM_EXT}})}}&pin=${{URIENCODE(${{VM_IN_PIN}})}})}})
+same => n,GotoIf($["${{VM_PIN_OK}}" = "ALLOW"]?vm_load_msgs)
+same => n,Playback(beeperr)
+same => n,GotoIf($[${{VM_PIN_TRY}} < 3]?vm_ask_pin)
+same => n,Return()
+same => n(vm_load_msgs),Set(VM_LIST_RAW=${{CURL(http://{backend_host}/api/voicemail/ivr_list?extension=${{URIENCODE(${{VM_EXT}})}})}})
+same => n,Set(VM_CNT=${{CUT(VM_LIST_RAW,|,1)}})
+same => n,Set(VM_ITEMS=${{CUT(VM_LIST_RAW,|,2)}})
+same => n,GotoIf($["${{VM_CNT}}" = "" | "${{VM_CNT}}" = "0"]?vm_empty)
+same => n,Set(VM_IDX=1)
+same => n(vm_msg_loop),GotoIf($[${{VM_IDX}} > ${{VM_CNT}}]?vm_done_all)
+same => n,Set(CUR_VM_PAIR=${{CUT(VM_ITEMS,\\,,${{VM_IDX}})}})
+same => n,Set(CUR_VM_ID=${{CUT(CUR_VM_PAIR,:,1)}})
+same => n,Set(CUR_VM_WAV=${{CUT(CUR_VM_PAIR,:,2)}})
+same => n,GotoIf($["${{CUR_VM_ID}}" = ""]?vm_done_all)
+same => n(vm_play_cur),Playback(beep)
+same => n,Playback(${{CUR_VM_WAV}})
+same => n,Set(VM_RD=${{CURL(http://{backend_host}/api/voicemail/ivr_action?vm_id=${{URIENCODE(${{CUR_VM_ID}})}}&action=read&extension=${{URIENCODE(${{VM_EXT}})}})}})
+same => n,Set(VM_ACT_DIG=)
+same => n,Read(VM_ACT_DIG,beep,1,,,2)
+same => n,GotoIf($["${{VM_ACT_DIG}}" = "1"]?vm_play_cur)
+same => n,GotoIf($["${{VM_ACT_DIG}}" != "7"]?vm_next_msg)
+same => n,Set(VM_DEL=${{CURL(http://{backend_host}/api/voicemail/ivr_action?vm_id=${{URIENCODE(${{CUR_VM_ID}})}}&action=delete&extension=${{URIENCODE(${{VM_EXT}})}})}})
+same => n,Playback(beep)
+same => n(vm_next_msg),Set(VM_IDX=$[${{VM_IDX}} + 1])
+same => n,Goto(vm_msg_loop)
+same => n(vm_empty),Playback(vm-nomore)
+same => n,Return()
+same => n(vm_done_all),Playback(vm-goodbye)
+same => n,Return()
+
+[profile_prompt_sub]
+exten => s,1,Set(PR_EXT=${{ARG1}})
+same => n,Answer()
+same => n,Wait(0.2)
+same => n,Set(PR_DIG=)
+same => n,Read(PR_DIG,beep,2,,,5)
+same => n,GotoIf($["${{PR_DIG}}" = ""]?pr_err)
+same => n,Set(PR_RES=${{CURL(http://{backend_host}/api/subscriber/dialplan_profile_switch?caller=${{URIENCODE(${{PR_EXT}})}}&channel=${{URIENCODE(${{CHANNEL(name)}})}}&digit=${{URIENCODE(${{PR_DIG}})}})}})
+same => n,GotoIf($["${{PR_RES}}" = "ACTIVATED"]?pr_ok:pr_err)
+same => n(pr_ok),Playback(/var/spool/asterisk/monitor/tr_yonlendirme_aktif)
+same => n,Return()
+same => n(pr_err),Playback(beeperr)
+same => n,Return()
+
+[hotdesk_prompt_sub]
+exten => s,1,Answer()
+same => n,Wait(0.2)
+same => n,Set(HD_IN_EXT=)
+same => n,Read(HD_IN_EXT,vm-extension,6,,,6)
+same => n,GotoIf($["${{HD_IN_EXT}}" = ""]?hd_p_err)
+same => n,Set(HD_IN_PIN=)
+same => n,Read(HD_IN_PIN,vm-password,8,,,6)
+same => n,GotoIf($["${{HD_IN_PIN}}" = ""]?hd_p_err)
+same => n,Set(HD_L_RES=${{CURL(http://{backend_host}/api/hotdesk/dialplan_login?channel=${{URIENCODE(${{CHANNEL(name)}})}}&extension=${{URIENCODE(${{HD_IN_EXT}})}}&pin=${{URIENCODE(${{HD_IN_PIN}})}})}})
+same => n,GotoIf($["${{HD_L_RES}}" = "ALLOW"]?hd_p_ok:hd_p_err)
+same => n(hd_p_ok),Playback(/var/spool/asterisk/monitor/tr_yonlendirme_aktif)
+same => n,Return()
+same => n(hd_p_err),Playback(beeperr)
+same => n,Return()
+
+[rec_pause_sub]
+exten => s,1,Set(CURLOPT(conntimeout)=1)
+same => n,Set(CURLOPT(httptimeout)=2)
+same => n,Set(RP_RES=${{CURL(http://{backend_host}/api/calls/resolve_recording_pause?caller=${{URIENCODE(${{CALLERID(num)}})}}&channel=${{URIENCODE(${{CHANNEL(name)}})}})}})
+same => n,GotoIf($["${{RP_RES}}" = "REC_PAUSED"]?rp_paused)
+same => n,GotoIf($["${{RP_RES}}" = "REC_RESUMED"]?rp_resumed)
+same => n,Playback(beeperr)
+same => n,Return()
+same => n(rp_paused),Playback(beep)
+same => n,Return()
+same => n(rp_resumed),Playback(beep)
+same => n,Playback(beep)
+same => n,Return()
+"""
+
+    features_conf_content = f"""; ==========================================
+; Asterisk Call Features & KVKK Recording Masking
+; ==========================================
+[general]
+featuredigittimeout = 1000
+transferdigittimeout = 3
+
+[featuremap]
+blindxfer => #1
+atxfer => *2
+
+[applicationmap]
+rec_pause_toggle => {rec_pause_code},self/both,Gosub(rec_pause_sub,s,1)
 """
 
     config_dir = ASTERISK_CONFIG_DIR
@@ -4998,6 +5206,11 @@ same => n,Hangup()
     config_path = os.path.join(config_dir, "extensions_custom.conf")
     with open(config_path, "w", encoding="utf-8") as f:
         f.write(conf_content)
+    try:
+        with open(os.path.join(config_dir, "features.conf"), "w", encoding="utf-8") as f_feat:
+            f_feat.write(features_conf_content)
+    except Exception:
+        pass
     print(f"[Asterisk Config] extensions_custom.conf yeniden uretildi: {config_path}")
 
     # Copy Turkish announcement WAV files to /var/spool/asterisk/monitor/
@@ -5040,7 +5253,9 @@ clearglobalvars=no
 """
             with open(ext_main_path, "w", encoding="utf-8") as f_main:
                 f_main.write(clean_ext_main)
-            print(f"[Asterisk Config] /etc/asterisk/extensions.conf güncellendi (#include extensions_custom.conf).")
+            with open(os.path.join(etc_dir, "features.conf"), "w", encoding="utf-8") as f_etc_feat:
+                f_etc_feat.write(features_conf_content)
+            print(f"[Asterisk Config] /etc/asterisk/extensions.conf ve features.conf güncellendi.")
         except Exception as e:
             print(f"[Asterisk Config] /etc/asterisk/extensions_custom.conf yazılamadı: {e}")
 
@@ -5304,6 +5519,14 @@ def _match_and_transform_outbound_number(callee_raw: str, caller_ext: str = "", 
     }
 
 
+@app.get("/api/trunks/check_emergency", response_class=PlainTextResponse)
+async def check_emergency_endpoint(callee: str = ""):
+    from backend.services.pbx_enterprise_features import is_configured_emergency_number
+    if is_configured_emergency_number(callee, settings_db):
+        return "EMERGENCY"
+    return "NORMAL"
+
+
 @app.get("/api/trunks/resolve_outbound_dial", response_class=PlainTextResponse)
 async def resolve_outbound_dial_endpoint(
     call_id: str = "",
@@ -5313,18 +5536,40 @@ async def resolve_outbound_dial_endpoint(
     dial_num: str = "",
     orig_caller: str = "",
     orig_name: str = "",
+    try_idx: int = 0,
+    is_emergency: int = 0,
+    channel: str = "",
     db: AsyncSession = Depends(get_db)
 ):
     """
     Asterisk giden aramalarda (webrtc_agents _0. ve _[1-9]X. vb.) seçili Dış Hat (Trunk) üzerindeki:
-    - Giden Arama Kuralları (outbound_rules: pattern, strip, prepend, trunk_ids/trunks, caller_id)
+    - Giden Arama Kuralları (outbound_rules: pattern, strip, prepend, sıralı multi-trunk failover `try_idx`, caller_id)
+    - Acil Numaralar (112, 110, 155 vb.) için öncelikli trunk ve tüm aktif trunk'lar üzerinden yedekli çıkış
     - Çağrı Kısıtlama (call_limit_enabled, call_limit_direction, max_channels)
     - Giden SIP Başlıkları (From User, From Display Name, Diversion, Remote-Party-ID, P-Asserted-Identity, P-Preferred-Identity)
     - Diğer Ayarlar (Realm, Maxptime)
     değerlerini bire bir hesaplayarak Asterisk Dialplan'a pipe (|) ayracıyla döner.
     Format: ALLOW|TRUNK_SAFE_NAME|LIMIT_EN|MAX_CH|CID_NUM|CID_NAME|DIAL_STR|DIVERSION|RPID|PAI|PPI|MAXPTIME
+    Yedek trunk kalmadığında: EXHAUSTED döner.
     """
     try:
+        from backend.services.pbx_enterprise_features import (
+            is_configured_emergency_number,
+            normalize_emergency_config,
+            build_ordered_outbound_trunks,
+            resolve_hotdesk_session_for_channel,
+        )
+
+        if channel:
+            hd_sess = resolve_hotdesk_session_for_channel(channel, settings_db)
+            if hd_sess and hd_sess.get("extension"):
+                caller = str(hd_sess.get("extension")).strip()
+                if hd_sess.get("full_name"):
+                    caller_name = str(hd_sess.get("full_name")).strip()
+
+        raw_target_in = str(callee or dial_num or "").strip()
+        is_em = bool(int(is_emergency or 0) == 1 or is_configured_emergency_number(raw_target_in, settings_db))
+
         trunks_list = []
         users_list = []
         try:
@@ -5340,6 +5585,14 @@ async def resolve_outbound_dial_endpoint(
             trunks_list = settings_db.get("trunks", [])
         if not users_list:
             users_list = settings_db.get("users", [])
+        else:
+            disk_u_by_ext = {str(du.get("extension") or "").strip(): du for du in (settings_db.get("users") or []) if isinstance(du, dict)}
+            for mu in users_list:
+                d_match = disk_u_by_ext.get(str(mu.get("extension") or "").strip())
+                if d_match:
+                    for fk in ("outbound_caller_id", "location_id", "full_name"):
+                        if not mu.get(fk) and d_match.get(fk):
+                            mu[fk] = d_match.get(fk)
 
         disk_trunks_map = {str(dt.get("trunk_name") or dt.get("id") or ""): dt for dt in settings_db.get("trunks", [])}
         for t in trunks_list:
@@ -5350,37 +5603,44 @@ async def resolve_outbound_dial_endpoint(
                     if t.get(extra_k) in (None, {}, []) and dt.get(extra_k) not in (None, {}, []):
                         t[extra_k] = dt.get(extra_k)
 
-        # Match outbound rule & strip prefix (e.g. 99805071796372 -> 905071796372)
-        transform_info = _match_and_transform_outbound_number(callee or dial_num, caller_ext=caller, users_list=users_list)
-        matched_rule = transform_info.get("matched_rule")
-        resolved_target_num = transform_info.get("trunk_dial_number") or dial_num or callee
+        if is_em:
+            matched_rule = None
+            resolved_target_num = re.sub(r"[^0-9]", "", raw_target_in) or raw_target_in
+        else:
+            # Match outbound rule & strip prefix (e.g. 99805071796372 -> 905071796372)
+            transform_info = _match_and_transform_outbound_number(callee or dial_num, caller_ext=caller, users_list=users_list)
+            matched_rule = transform_info.get("matched_rule")
+            resolved_target_num = transform_info.get("trunk_dial_number") or dial_num or callee
 
         active_trunks = [t for t in trunks_list if t.get("is_active", True) is not False]
         if not active_trunks:
+            if int(try_idx or 0) > 0:
+                return "EXHAUSTED"
             return f"ALLOW|Operator_Trunk|0|30|908503607390|908503607390|PJSIP/Operator_Trunk/sip:{resolved_target_num}@ikonsip.com:5060|||||"
 
-        selected_trunk = None
-        if matched_rule:
-            r_trunks = (
-                matched_rule.get("trunk_ids")
-                or matched_rule.get("trunks")
-                or ([matched_rule.get("trunk_id")] if matched_rule.get("trunk_id") else [])
-            )
-            for t_ref in r_trunks:
-                t_ref_str = str(t_ref).strip()
-                cand = next(
-                    (
-                        t for t in active_trunks
-                        if str(t.get("id")) == t_ref_str or str(t.get("trunk_name")) == t_ref_str
-                    ),
-                    None,
-                )
-                if cand:
-                    selected_trunk = cand
-                    break
+        em_pref_trunk = ""
+        if is_em:
+            pbx_cfg = settings_db.get("pbx", {}) if isinstance(settings_db.get("pbx"), dict) else {}
+            num_plan = pbx_cfg.get("numbering_plan", {}) if isinstance(pbx_cfg.get("numbering_plan"), dict) else {}
+            em_cfg = normalize_emergency_config(num_plan.get("emergency_numbers"))
+            em_pref_trunk = em_cfg.get("preferred_trunk") or ""
 
-        if not selected_trunk:
-            selected_trunk = next((t for t in active_trunks if str(t.get("trunk_name")) == "908503607390"), active_trunks[0])
+        ordered_candidates = build_ordered_outbound_trunks(
+            active_trunks,
+            matched_rule=None if is_em else matched_rule,
+            preferred_trunk=em_pref_trunk if is_em else "",
+        )
+        idx_clean = max(0, int(try_idx or 0))
+        if idx_clean >= len(ordered_candidates):
+            return "EXHAUSTED"
+
+        selected_trunk = ordered_candidates[idx_clean]
+        if idx_clean > 0:
+            add_system_log(
+                "OUTBOUND_FAILOVER",
+                "WARNING",
+                f"Yedek Dış Hat (Failover #{idx_clean + 1}) devreye alındı: {caller} -> {resolved_target_num} üzerinden {selected_trunk.get('trunk_name')}",
+            )
 
         raw_t_name = selected_trunk.get("trunk_name") or "Operator_Trunk"
         safe_t_name = _sanitize_trunk_name(raw_t_name)
@@ -5419,7 +5679,13 @@ async def resolve_outbound_dial_endpoint(
         user_obj = next((u for u in users_list if str(u.get("extension") or "").strip() == caller_clean), None)
         ext_number = caller_clean or "1000"
         ext_name = (user_obj.get("full_name") or user_obj.get("username") or caller_name or ext_number) if user_obj else (caller_name or ext_number)
-        ext_callerid = str((user_obj.get("outbound_caller_id") or user_obj.get("caller_id") or user_obj.get("did_number") or t_did) if user_obj else t_did).strip()
+        loc_cid = ""
+        if user_obj and user_obj.get("location_id"):
+            loc_id_s = str(user_obj.get("location_id")).strip()
+            matched_loc = next((lc for lc in (settings_db.get("locations") or []) if isinstance(lc, dict) and str(lc.get("id") or "").strip() == loc_id_s), None)
+            if matched_loc:
+                loc_cid = str(matched_loc.get("caller_id") or matched_loc.get("outbound_caller_id") or matched_loc.get("phone") or "").strip()
+        ext_callerid = str((user_obj.get("outbound_caller_id") or loc_cid or user_obj.get("caller_id") or user_obj.get("did_number") or t_did) if user_obj else t_did).strip()
         rule_cid = str((matched_rule.get("caller_id") or matched_rule.get("outbound_caller_id") or t_did) if matched_rule else t_did).strip()
         orig_num = str(orig_caller or "").strip() or ext_number
         orig_nm = str(orig_name or "").strip() or ext_name
@@ -5450,7 +5716,10 @@ async def resolve_outbound_dial_endpoint(
         # 1. Outbound From User (CID Number)
         out_from_user_mode = str(sip_hdrs.get("outbound_from_user") or "default").strip()
         out_from_user_custom = str(sip_hdrs.get("outbound_from_user_custom") or "").strip()
-        default_cid_num = rule_cid if (matched_rule and (matched_rule.get("caller_id") or matched_rule.get("outbound_caller_id"))) else t_did
+        if is_em and ext_callerid:
+            default_cid_num = ext_callerid
+        else:
+            default_cid_num = rule_cid if (matched_rule and (matched_rule.get("caller_id") or matched_rule.get("outbound_caller_id"))) else t_did
         cid_num = _resolve_num_val(out_from_user_mode, out_from_user_custom, default_cid_num)
 
         # 2. Outbound From Display Name (CID Name)
@@ -5482,8 +5751,8 @@ async def resolve_outbound_dial_endpoint(
         pai_hdr = _build_sip_uri_hdr("outbound_pai", "outbound_pai_custom", "")
         ppi_hdr = _build_sip_uri_hdr("outbound_ppi", "outbound_ppi_custom", "")
 
-        # 4. Call Limit Check (Outbound / Both)
-        limit_enabled = bool(selected_trunk.get("call_limit_enabled", False))
+        # 4. Call Limit Check (Outbound / Both) — Emergency calls bypass channel limits
+        limit_enabled = bool(selected_trunk.get("call_limit_enabled", False)) and (not is_em)
         limit_dir = str(selected_trunk.get("call_limit_direction") or "both").strip().lower()
         limit_en_flag = "1" if (limit_enabled and limit_dir in ("both", "outbound")) else "0"
         try:
@@ -8677,6 +8946,9 @@ async def get_numbering_plan():
         for mk, mv in default_plan["call_monitoring"].items():
             if not merged["call_monitoring"].get(mk):
                 merged["call_monitoring"][mk] = mv
+    from backend.services.pbx_enterprise_features import normalize_emergency_config, normalize_pbx_features_config
+    merged["emergency_numbers"] = normalize_emergency_config(merged.get("emergency_numbers"))
+    merged["pbx_features"] = normalize_pbx_features_config(merged.get("pbx_features"))
     return merged
 
 @app.post("/api/settings/numbering-plan")
@@ -8764,6 +9036,8 @@ class ProfileUpdateSchema(BaseModel):
     call_panel_prefs: Optional[dict] = None
     wallboard_layout: Optional[dict] = None
     cti_config: Optional[dict] = None
+    boss_secretary: Optional[dict] = None
+    hotdesk_config: Optional[dict] = None
 
 @app.post("/api/agent/profile/{user_id}")
 async def update_agent_profile_endpoint(user_id: Union[int, str], payload: ProfileUpdateSchema):
@@ -8911,6 +9185,16 @@ async def update_agent_profile_endpoint(user_id: Union[int, str], payload: Profi
         user["profiles"] = payload.profiles
         ensure_user_profiles(user)
 
+    if payload.boss_secretary is not None and isinstance(payload.boss_secretary, dict):
+        from backend.services.pbx_enterprise_features import normalize_boss_secretary_config
+        existing_bs = user.get("boss_secretary") if isinstance(user.get("boss_secretary"), dict) else {}
+        user["boss_secretary"] = normalize_boss_secretary_config({**existing_bs, **payload.boss_secretary})
+
+    if payload.hotdesk_config is not None and isinstance(payload.hotdesk_config, dict):
+        from backend.services.pbx_enterprise_features import normalize_hotdesk_config
+        existing_hd = user.get("hotdesk_config") if isinstance(user.get("hotdesk_config"), dict) else {}
+        user["hotdesk_config"] = normalize_hotdesk_config({**existing_hd, **payload.hotdesk_config})
+
     if payload.call_panel_prefs is not None:
         existing_cpp = copy.deepcopy(user.get("call_panel_prefs")) if isinstance(user.get("call_panel_prefs"), dict) else {}
         incoming_cpp = copy.deepcopy(payload.call_panel_prefs) if isinstance(payload.call_panel_prefs, dict) else {}
@@ -9048,6 +9332,12 @@ async def update_agent_profile_endpoint(user_id: Union[int, str], payload: Profi
                 if payload.profiles is not None:
                     target_db_u.profiles = user["profiles"]
                     flag_modified(target_db_u, "profiles")
+                if payload.boss_secretary is not None and isinstance(user.get("boss_secretary"), dict):
+                    target_db_u.boss_secretary = copy.deepcopy(user["boss_secretary"])
+                    flag_modified(target_db_u, "boss_secretary")
+                if payload.hotdesk_config is not None and isinstance(user.get("hotdesk_config"), dict):
+                    target_db_u.hotdesk_config = copy.deepcopy(user["hotdesk_config"])
+                    flag_modified(target_db_u, "hotdesk_config")
                 if payload.call_panel_prefs is not None or payload.avatar is not None or touched_2fa:
                     target_db_u.call_panel_prefs = copy.deepcopy(user.get("call_panel_prefs") or {})
                     flag_modified(target_db_u, "call_panel_prefs")
@@ -9075,6 +9365,8 @@ async def update_agent_profile_endpoint(user_id: Union[int, str], payload: Profi
                     "ALTER TABLE system_users ADD COLUMN IF NOT EXISTS two_factor_secret VARCHAR;",
                     "ALTER TABLE system_users ADD COLUMN IF NOT EXISTS two_factor_enrolled BOOLEAN DEFAULT FALSE;",
                     "ALTER TABLE system_users ADD COLUMN IF NOT EXISTS call_panel_prefs JSON DEFAULT '{}';",
+                    "ALTER TABLE system_users ADD COLUMN IF NOT EXISTS boss_secretary JSON DEFAULT '{}';",
+                    "ALTER TABLE system_users ADD COLUMN IF NOT EXISTS hotdesk_config JSON DEFAULT '{}';",
                 ):
                     try:
                         session.execute(text(ddl_s))
@@ -11668,9 +11960,23 @@ async def check_outbound_call(
     ua: str = "",
 ):
     from fastapi import Response
+    from backend.services.pbx_enterprise_features import (
+        is_configured_emergency_number,
+        resolve_hotdesk_session_for_channel,
+    )
     caller_str = str(caller or "").strip()
     callee_str = str(callee or "").strip()
     via_upper = str(via or "").upper()
+
+    if channel:
+        hd_sess = resolve_hotdesk_session_for_channel(channel, settings_db)
+        if hd_sess and hd_sess.get("extension"):
+            caller_str = str(hd_sess.get("extension")).strip()
+
+    # ACİL DURUM NUMARALARI (112, 110, 155 vb.) - Tüm ACL, Karantina, PIN ve Limit Kontrollerini Bypass Eder!
+    if is_configured_emergency_number(callee_str, settings_db):
+        add_system_log("EMERGENCY", "WARNING", f"Acil Durum Çağrısı Başlatıldı (ACL/Limit Bypass): Dahili {caller_str or '-'} -> {callee_str}")
+        return Response(content="ALLOW", media_type="text/plain")
 
     all_users = settings_db.get("users", [])
     uid_to_ext = {str(u.get("id") or "").strip(): str(u.get("extension") or "").strip() for u in all_users if u.get("id") and u.get("extension")}
@@ -11796,6 +12102,10 @@ async def check_outbound_call(
                     and sdev.get("sip_username")
                 ):
                     allowed_dev_eps.add(str(sdev.get("sip_username")).strip().lower())
+        hd_sessions_acl = settings_db.get("hotdesk_sessions") if isinstance(settings_db.get("hotdesk_sessions"), dict) else {}
+        for hd_dev_k, hd_s_v in hd_sessions_acl.items():
+            if isinstance(hd_s_v, dict) and str(hd_s_v.get("extension") or "").strip() == caller_str:
+                allowed_dev_eps.add(str(hd_dev_k).strip().lower())
         chan_s = str(channel or "").strip().lower()
         is_desk_endpoint_chan = any(chan_s.startswith(f"pjsip/{ep_l}-") for ep_l in allowed_dev_eps if ep_l)
         has_ip_phone = is_desk_endpoint_chan or bool(allowed_dev_eps)
@@ -12166,6 +12476,12 @@ async def resolve_agent_ring_targets(extension: str = "", format: str = "", db: 
     )
     trunks_lookup = None
     active_sip_eps = []
+    hd_sessions_ring = settings_db.get("hotdesk_sessions") if isinstance(settings_db.get("hotdesk_sessions"), dict) else {}
+    hijacked_by_other = {
+        str(hd_k).strip().lower()
+        for hd_k, hd_v in hd_sessions_ring.items()
+        if isinstance(hd_v, dict) and hd_v.get("extension") and str(hd_v.get("extension")).strip() != ext_str
+    }
     for sdev in norm_user_devs:
         if sdev.get("is_active") is False:
             continue
@@ -12237,7 +12553,7 @@ async def resolve_agent_ring_targets(extension: str = "", format: str = "", db: 
             continue
 
         d_su = str(sdev.get("sip_username") or "").strip()
-        if not d_su or d_su == ext_str:
+        if not d_su or d_su == ext_str or d_su.lower() in hijacked_by_other:
             continue
         allowed_by_prof = (
             ("desk_phone" in prof_devices and d_type in ("desk_phone", "dect"))
@@ -12245,6 +12561,13 @@ async def resolve_agent_ring_targets(extension: str = "", format: str = "", db: 
         )
         if allowed_by_prof and d_su not in active_sip_eps:
             active_sip_eps.append(d_su)
+
+    if "desk_phone" in prof_devices and isinstance(hd_sessions_ring, dict):
+        for hd_dev_ep, hd_sess_obj in hd_sessions_ring.items():
+            if isinstance(hd_sess_obj, dict) and str(hd_sess_obj.get("extension") or "").strip() == ext_str:
+                hd_ep_clean = str(hd_dev_ep or "").strip()
+                if hd_ep_clean and hd_ep_clean not in active_sip_eps and hd_ep_clean != web_ep:
+                    active_sip_eps.append(hd_ep_clean)
 
     if fmt_clean == "list":
         all_eps = ([web_ep] if web_ep else []) + active_sip_eps
@@ -12260,7 +12583,14 @@ async def resolve_agent_ring_targets(extension: str = "", format: str = "", db: 
 
 
 @app.get("/api/subscriber/resolve_forwarding")
-async def resolve_subscriber_forwarding(extension: str, dialstatus: str = "BEFORE_DIAL", step: int = 1, db: AsyncSession = Depends(get_db)):
+async def resolve_subscriber_forwarding(
+    extension: str,
+    dialstatus: str = "BEFORE_DIAL",
+    step: int = 1,
+    caller: str = "",
+    channel: str = "",
+    db: AsyncSession = Depends(get_db),
+):
     """
     Evaluates the forwarding types and Follow Me (Beni Takip Et) rules for an extension:
     1. HER ZAMAN (forwarding_always)
@@ -12273,9 +12603,13 @@ async def resolve_subscriber_forwarding(extension: str, dialstatus: str = "BEFOR
         ext_str = str(extension).strip()
         
         # 1. Fetch from DB
-        stmt = select(SystemUser).where(or_(SystemUser.extension == ext_str, SystemUser.email == ext_str))
-        res = await db.execute(stmt)
-        user = res.scalars().first()
+        user = None
+        try:
+            stmt = select(SystemUser).where(or_(SystemUser.extension == ext_str, SystemUser.email == ext_str))
+            res = await db.execute(stmt)
+            user = res.scalars().first()
+        except Exception:
+            user = None
         
         user_dict = {}
         if user:
@@ -12285,7 +12619,7 @@ async def resolve_subscriber_forwarding(extension: str, dialstatus: str = "BEFOR
         all_users = settings_db.get("users", [])
         for u in all_users:
             if str(u.get("extension")) == ext_str or str(u.get("id")) == ext_str or u.get("email") == ext_str:
-                for k in ["forwarding_always", "forwarding_busy", "forwarding_no_answer", "gsm_number", "mobile_number", "mobile_transfer_enabled", "voicemail_active", "active_profile", "profiles", "follow_me", "sip_devices", "sip_username"]:
+                for k in ["forwarding_always", "forwarding_busy", "forwarding_no_answer", "gsm_number", "mobile_number", "mobile_transfer_enabled", "voicemail_active", "active_profile", "profiles", "follow_me", "sip_devices", "sip_username", "boss_secretary", "hotdesk_config"]:
                     val = u.get(k)
                     if val is not None and val != "" and val != {} and val != []:
                         user_dict[k] = val
@@ -12330,6 +12664,13 @@ async def resolve_subscriber_forwarding(extension: str, dialstatus: str = "BEFOR
                 else:
                     f_su = str(f_dev.get("sip_username") or "").strip()
                     if f_su and f_su in registered_endpoints:
+                        is_registered = True
+                        break
+        if not is_registered:
+            hd_fwd_map = settings_db.get("hotdesk_sessions") if isinstance(settings_db.get("hotdesk_sessions"), dict) else {}
+            for hd_f_dev, hd_f_s in hd_fwd_map.items():
+                if isinstance(hd_f_s, dict) and str(hd_f_s.get("extension") or "").strip() == ext_str:
+                    if str(hd_f_dev).strip() in registered_endpoints:
                         is_registered = True
                         break
 
@@ -12447,6 +12788,21 @@ async def resolve_subscriber_forwarding(extension: str, dialstatus: str = "BEFOR
             print(f"[Forwarding Resolver] Extension {ext_str} -> 1. HER ZAMAN (Always Forward) to: {f_always}")
             log_fwd_action("Her Zaman Yönlendirme", f_always)
             return Response(content=f"ALLOW:{f_always}:{no_ans_timeout}", media_type="text/plain")
+
+        # Rule 1.2: YÖNETİCİ - SEKRETER FİLTRESİ (Boss / Secretary Mode)
+        if dialstatus == "BEFORE_DIAL":
+            from backend.services.pbx_enterprise_features import evaluate_boss_secretary_target
+            sec_target = evaluate_boss_secretary_target(
+                user_dict,
+                caller_ext=caller,
+                channel_name=channel,
+                settings_db=settings_db,
+                registered_endpoints=registered_endpoints,
+            )
+            if sec_target:
+                print(f"[Boss/Secretary Filter] Boss {ext_str} intercepted (caller={caller or '-'}) -> Secretary {sec_target}")
+                log_fwd_action("Yönetici-Sekreter Filtresi", sec_target)
+                return Response(content=f"ALLOW:{sec_target}:{no_ans_timeout}", media_type="text/plain")
 
         # Rule 1.5: ACTIVE PROFILE WITH 0 RING DEVICES SELECTED (e.g. Toplantı profile)
         if dialstatus == "BEFORE_DIAL" and len(prof_devices) == 0:
@@ -12625,6 +12981,213 @@ async def _sync_user_forwarding_state(
     return found_any
 
 
+async def _load_merged_user_by_ext(ext_str: str, db: Optional[AsyncSession] = None) -> Optional[Dict[str, Any]]:
+    ext_clean = str(ext_str or "").strip()
+    if not ext_clean:
+        return None
+    u_dict: Optional[Dict[str, Any]] = None
+    if db is not None:
+        try:
+            res = await db.execute(select(SystemUser).where(SystemUser.extension == ext_clean))
+            db_u = res.scalars().first()
+            if db_u:
+                u_dict = {c.name: getattr(db_u, c.name) for c in db_u.__table__.columns}
+        except Exception:
+            pass
+    for du in (settings_db.get("users") or []):
+        if isinstance(du, dict) and str(du.get("extension") or "").strip() == ext_clean:
+            if u_dict is None:
+                u_dict = copy.deepcopy(du)
+            else:
+                for k, v in du.items():
+                    if v is not None and v != "" and v != {} and v != []:
+                        u_dict[k] = copy.deepcopy(v)
+            break
+    if u_dict is not None:
+        ensure_user_profiles(u_dict)
+    return u_dict
+
+
+async def _perform_hotdesk_login(
+    device_peer: str,
+    target_ext: str,
+    pin_code: str,
+    db: Optional[AsyncSession] = None,
+    source_label: str = "Masa Telefonu",
+) -> Tuple[bool, str]:
+    from backend.services.pbx_enterprise_features import normalize_hotdesk_config, get_tr_date_str
+    peer_clean = str(device_peer or "").strip()
+    ext_clean = re.sub(r"[^0-9]", "", str(target_ext or "").strip())
+    pin_clean = re.sub(r"[^0-9]", "", str(pin_code or "").strip())
+    if not peer_clean or not ext_clean or len(pin_clean) < 4:
+        return False, "Eksik cihaz, dahili veya PIN"
+
+    user_dict = await _load_merged_user_by_ext(ext_clean, db=db)
+    if not user_dict or user_dict.get("is_active") is False:
+        return False, "Kullanıcı bulunamadı veya pasif"
+
+    hd_cfg = normalize_hotdesk_config(user_dict.get("hotdesk_config"))
+    if not hd_cfg.get("enabled", True):
+        return False, "Kullanıcının Hot-Desking özelliği kapalı"
+
+    saved_pin = str(hd_cfg.get("pin") or "").strip()
+    if not saved_pin or len(saved_pin) < 4 or not hmac.compare_digest(saved_pin, pin_clean):
+        add_system_log("HOTDESK", "WARNING", f"Hatalı Hot-Desk PIN denemesi: Hedef Dahili {ext_clean}, Cihaz {peer_clean}")
+        return False, "Hot-Desk şifresi hatalı veya tanımlanmamış"
+
+    if not isinstance(settings_db.get("hotdesk_sessions"), dict):
+        settings_db["hotdesk_sessions"] = {}
+    sessions = settings_db["hotdesk_sessions"]
+
+    # Detach any previous desk session belonging to this extension or this physical peer (case-insensitive)
+    for old_k in list(sessions.keys()):
+        old_s = sessions.get(old_k)
+        if str(old_k).strip().lower() == peer_clean.lower() or (
+            isinstance(old_s, dict) and str(old_s.get("extension") or "").strip() == ext_clean
+        ):
+            sessions.pop(old_k, None)
+
+    now_utc = datetime.datetime.utcnow()
+    sess_entry = {
+        "extension": ext_clean,
+        "user_id": str(user_dict.get("id") or ""),
+        "full_name": str(user_dict.get("full_name") or ext_clean),
+        "device_sip_username": peer_clean,
+        "auto_logout_midnight": bool(hd_cfg.get("auto_logout_midnight", True)),
+        "started_at": now_utc.isoformat(),
+        "started_date_tr": get_tr_date_str(now_utc),
+        "source": source_label,
+    }
+    sessions[peer_clean] = sess_entry
+    save_settings(settings_db)
+    add_system_log(
+        "HOTDESK",
+        "INFO",
+        f"Hot-Desk Oturumu Açıldı ({source_label}): Dahili {ext_clean} ({sess_entry['full_name']}) -> Cihaz {peer_clean}",
+    )
+    return True, "OK"
+
+
+def _perform_hotdesk_logout(
+    device_peer: str = "",
+    extension: str = "",
+    source_label: str = "Masa Telefonu",
+) -> int:
+    sessions = settings_db.get("hotdesk_sessions")
+    if not isinstance(sessions, dict) or not sessions:
+        return 0
+    peer_low = str(device_peer or "").strip().lower()
+    ext_clean = str(extension or "").strip()
+    removed = 0
+    for dev_k in list(sessions.keys()):
+        sess = sessions.get(dev_k)
+        match_peer = bool(peer_low and str(dev_k).strip().lower() == peer_low)
+        match_ext = bool(ext_clean and isinstance(sess, dict) and str(sess.get("extension") or "").strip() == ext_clean)
+        if match_peer or match_ext:
+            removed_sess = sessions.pop(dev_k, None)
+            removed += 1
+            if isinstance(removed_sess, dict):
+                add_system_log(
+                    "HOTDESK",
+                    "INFO",
+                    f"Hot-Desk Oturumu Kapatıldı ({source_label}): Dahili {removed_sess.get('extension')} <- Cihaz {dev_k}",
+                )
+    if removed > 0:
+        save_settings(settings_db)
+    return removed
+
+
+async def _switch_user_profile_by_digit(
+    caller_ext: str,
+    digit_str: str,
+    db: AsyncSession,
+) -> bool:
+    clean_d = re.sub(r"[^0-9]", "", str(digit_str or "").strip())
+    if not caller_ext or not clean_d:
+        return False
+    user_dict = await _load_merged_user_by_ext(caller_ext, db=db)
+    if not user_dict:
+        return False
+    profiles = user_dict.get("profiles") or []
+    matched_prof = next((p for p in profiles if str(p.get("digit") or "").strip() == clean_d), None)
+    if not matched_prof:
+        return False
+    new_prof_id = str(matched_prof.get("id") or "available")
+    ok = await _sync_user_forwarding_state(caller_ext, {"active_profile": new_prof_id}, db, source_label="Masa Telefonu (*70)")
+    if ok:
+        add_system_log(
+            "PROFILE_SWITCH",
+            "INFO",
+            f"Dahili {caller_ext} tuşlama kodu ({clean_d}) ile profilini '{matched_prof.get('name')}' ({new_prof_id}) olarak değiştirdi.",
+        )
+    return ok
+
+
+async def _toggle_boss_secretary_by_code(
+    caller_ext: str,
+    target_boss_ext: str,
+    db: AsyncSession,
+) -> str:
+    from backend.services.pbx_enterprise_features import normalize_boss_secretary_config
+    boss_ext = re.sub(r"[^0-9]", "", str(target_boss_ext or caller_ext or "").strip()) or caller_ext
+    if not boss_ext:
+        return "INVALID"
+    boss_user = await _load_merged_user_by_ext(boss_ext, db=db)
+    if not boss_user:
+        return "INVALID"
+    bs_cfg = normalize_boss_secretary_config(boss_user.get("boss_secretary"))
+    # Only the Boss themselves or one of the configured Secretaries can toggle Boss/Secretary mode!
+    if caller_ext != boss_ext and caller_ext not in bs_cfg["secretaries"]:
+        return "INVALID"
+    new_enabled = not bool(bs_cfg.get("enabled", False))
+    if new_enabled and not bs_cfg["secretaries"]:
+        return "INVALID"
+    bs_cfg["enabled"] = new_enabled
+    await _sync_user_forwarding_state(boss_ext, {"boss_secretary": bs_cfg}, db, source_label="Masa Telefonu (*74)")
+    state_lbl = "AKTİF" if new_enabled else "DEVRE DIŞI"
+    add_system_log(
+        "BOSS_SECRETARY",
+        "INFO",
+        f"Yönetici-Sekreter Filtresi {state_lbl}: Yönetici Dahili {boss_ext} (İşlemi Yapan: {caller_ext})",
+    )
+    return "ACTIVATED" if new_enabled else "CANCELLED"
+
+
+async def _handle_dialplan_recording_pause(caller_ext: str, raw_channel: str) -> str:
+    from backend.services.pbx_enterprise_features import check_user_has_pause_recording_perm
+    from backend.services.ami_manager import toggle_call_recording_pause
+    user_dict = await _load_merged_user_by_ext(caller_ext, db=None)
+    if not check_user_has_pause_recording_perm(user_dict, settings_db):
+        add_system_log("SECURITY", "WARNING", f"Yetkisiz Ses Kaydı Duraklatma Denemesi Engellendi: Dahili {caller_ext}")
+        return "INVALID"
+    res = await toggle_call_recording_pause(extension=caller_ext, channel=raw_channel, requested_paused=None)
+    if res.get("status") != "success":
+        return "INVALID"
+    is_paused = bool(res.get("paused"))
+    act_code = "RECORDING_PAUSED" if is_paused else "RECORDING_RESUMED"
+    try:
+        await log_event(
+            user_id=str(user_dict.get("id") or caller_ext),
+            action=act_code,
+            module="CallRecording",
+            details={
+                "extension": caller_ext,
+                "call_id": res.get("call_id") or "",
+                "paused": is_paused,
+                "source": "deskphone_dtmf",
+                "channels": res.get("channels") or [],
+            },
+        )
+    except Exception:
+        pass
+    add_system_log(
+        "RECORDING_MASK",
+        "INFO",
+        f"KVKK Ses Kaydı {'Duraklatıldı (Maskeleme Aktif)' if is_paused else 'Devam Ettirildi'}: Dahili {caller_ext}",
+    )
+    return "REC_PAUSED" if is_paused else "REC_RESUMED"
+
+
 @app.get("/api/subscriber/resolve_feature_code")
 @app.get("/api/subscriber/dial_feature_code")
 async def resolve_subscriber_feature_code(
@@ -12634,22 +13197,54 @@ async def resolve_subscriber_feature_code(
     db: AsyncSession = Depends(get_db)
 ):
     """
-    Handles Call Forwarding activation and cancellation codes dialed from a registered
-    SIP/PJSIP desk phone or softphone. Updates the user's forwarding settings identically
-    to the Web UI so changes immediately appear in Kullanıcılar & Profil Ayarları.
-    Returns 'ACTIVATED', 'CANCELLED', or 'INVALID'.
+    Handles Call Forwarding, Voicemail (*97), Recording Pause (*9), Profile Switching (*70),
+    Boss/Secretary (*74), and Hot-Desking (*75/*76) codes dialed from a registered SIP/PJSIP phone.
     """
     try:
         import urllib.parse
-        raw_caller = urllib.parse.unquote(caller or "").strip()
-        raw_exten = urllib.parse.unquote(exten or "").strip().replace("%23", "#")
-        raw_channel = urllib.parse.unquote(channel or "").strip()
+        from backend.services.pbx_enterprise_features import (
+            normalize_pbx_features_config,
+            extract_peer_from_channel,
+            resolve_hotdesk_session_for_channel,
+        )
+        from backend.services.ami_manager import _extract_ext_from_channel
 
-        # Extract extension from channel (e.g. PJSIP/1000-0000001a -> 1000) as reliable fallback
-        chan_ext = ""
-        if "/" in raw_channel:
-            after_slash = raw_channel.split("/", 1)[1]
-            chan_ext = after_slash.split("-", 1)[0].split("@", 1)[0].strip()
+        raw_caller = urllib.parse.unquote(caller or "").strip()
+        raw_exten = urllib.parse.unquote(exten or "").strip().replace("%23", "#").rstrip("#")
+        if urllib.parse.unquote(exten or "").strip().replace("%23", "#") in ("#21#", "#002#", "#67#", "#61#"):
+            raw_exten = urllib.parse.unquote(exten or "").strip().replace("%23", "#")
+        raw_channel = urllib.parse.unquote(channel or "").strip()
+        chan_peer = extract_peer_from_channel(raw_channel)
+
+        # Read configured prefixes from Numbering Plan
+        pbx_cfg = settings_db.get("pbx", {}) if isinstance(settings_db.get("pbx"), dict) else {}
+        num_plan = pbx_cfg.get("numbering_plan", {}) if isinstance(pbx_cfg.get("numbering_plan"), dict) else {}
+        fwd_cfg = num_plan.get("call_forwarding", {}) if isinstance(num_plan.get("call_forwarding"), dict) else {}
+        pbx_feat = normalize_pbx_features_config(num_plan.get("pbx_features"))
+
+        # A. Hot-Desk Login (*75 / *75*EXT*PIN) & Logout (*76) — evaluated on physical SIP peer even before caller_ext lookup!
+        hd_login_pfx = pbx_feat["hotdesk_login"]
+        hd_logout_pfx = pbx_feat["hotdesk_logout"]
+        if raw_exten == hd_logout_pfx or raw_exten == hd_logout_pfx.rstrip("*"):
+            removed_cnt = _perform_hotdesk_logout(device_peer=chan_peer, source_label=f"Masa Telefonu ({raw_exten})")
+            return Response(content=("CANCELLED" if removed_cnt > 0 else "INVALID"), media_type="text/plain")
+
+        hd_login_core = hd_login_pfx.rstrip("*")
+        if raw_exten == hd_login_pfx or raw_exten == hd_login_core:
+            if not chan_peer:
+                return Response(content="INVALID", media_type="text/plain")
+            return Response(content="HOTDESK_PROMPT", media_type="text/plain")
+        if raw_exten.startswith(hd_login_core + "*"):
+            rem_hd = raw_exten[len(hd_login_core) + 1:].strip("*")
+            parts_hd = [p for p in rem_hd.split("*") if p]
+            if len(parts_hd) >= 2 and chan_peer:
+                ok_hd, _ = await _perform_hotdesk_login(chan_peer, parts_hd[0], parts_hd[1], db=db, source_label=f"Masa Telefonu ({hd_login_core})")
+                return Response(content=("ACTIVATED" if ok_hd else "INVALID"), media_type="text/plain")
+            return Response(content="HOTDESK_PROMPT", media_type="text/plain")
+
+        # Resolve effective caller extension (honoring Hot-Desk session & username-based SIP endpoints)
+        hd_active = resolve_hotdesk_session_for_channel(raw_channel, settings_db)
+        resolved_chan_ext = _extract_ext_from_channel(raw_channel) if raw_channel else ""
 
         # Gather all known extensions from DB and settings_db
         known_exts = set()
@@ -12664,15 +13259,51 @@ async def resolve_subscriber_feature_code(
         except Exception:
             pass
 
-        caller_ext = raw_caller if raw_caller in known_exts else (chan_ext if chan_ext in known_exts else (raw_caller or chan_ext))
+        if hd_active and hd_active.get("extension"):
+            caller_ext = str(hd_active["extension"]).strip()
+        elif raw_caller in known_exts:
+            caller_ext = raw_caller
+        elif resolved_chan_ext in known_exts:
+            caller_ext = resolved_chan_ext
+        else:
+            caller_ext = resolved_chan_ext or raw_caller
+
         if not caller_ext:
             print(f"[Feature Code] Caller extension could not be resolved: caller={raw_caller}, chan={raw_channel}")
             return Response(content="INVALID", media_type="text/plain")
 
-        # Read configured prefixes from Numbering Plan
-        pbx_cfg = settings_db.get("pbx", {}) if isinstance(settings_db.get("pbx"), dict) else {}
-        num_plan = pbx_cfg.get("numbering_plan", {}) if isinstance(pbx_cfg.get("numbering_plan"), dict) else {}
-        fwd_cfg = num_plan.get("call_forwarding", {}) if isinstance(num_plan.get("call_forwarding"), dict) else {}
+        # B. Voicemail Listen (*97)
+        vm_pfx = pbx_feat["voicemail_listen"].rstrip("*")
+        if raw_exten == pbx_feat["voicemail_listen"] or raw_exten == vm_pfx:
+            vm_u = await _load_merged_user_by_ext(caller_ext, db=db)
+            has_pin = "1" if (vm_u and str(vm_u.get("voicemail_pin") or "").strip()) else "0"
+            return Response(content=f"VOICEMAIL_MENU:{caller_ext}:{has_pin}", media_type="text/plain")
+
+        # C. Role-Bound Call Recording Pause / Resume (*9)
+        rec_pfx = pbx_feat["recording_pause"].rstrip("*")
+        if raw_exten == pbx_feat["recording_pause"] or raw_exten == rec_pfx:
+            rec_res = await _handle_dialplan_recording_pause(caller_ext, raw_channel)
+            return Response(content=rec_res, media_type="text/plain")
+
+        # D. Profile Switching via Digit (*70 / *70*<digit> / *70<digit>)
+        prof_pfx = pbx_feat["profile_switch"].rstrip("*")
+        if raw_exten == pbx_feat["profile_switch"] or raw_exten == prof_pfx:
+            return Response(content=f"PROFILE_PROMPT:{caller_ext}", media_type="text/plain")
+        if raw_exten.startswith(prof_pfx):
+            rem_prof = raw_exten[len(prof_pfx):].lstrip("*").strip()
+            if rem_prof.isdigit() and 1 <= len(rem_prof) <= 2:
+                ok_pr = await _switch_user_profile_by_digit(caller_ext, rem_prof, db)
+                return Response(content=("ACTIVATED" if ok_pr else "INVALID"), media_type="text/plain")
+
+        # E. Boss / Secretary Toggle (*74 / *74*<boss_ext>)
+        bs_pfx = pbx_feat["boss_secretary_toggle"].rstrip("*")
+        if raw_exten == pbx_feat["boss_secretary_toggle"] or raw_exten == bs_pfx:
+            bs_res = await _toggle_boss_secretary_by_code(caller_ext, caller_ext, db)
+            return Response(content=bs_res, media_type="text/plain")
+        if raw_exten.startswith(bs_pfx + "*") or (raw_exten.startswith(bs_pfx) and raw_exten[len(bs_pfx):].isdigit()):
+            target_b = raw_exten[len(bs_pfx):].lstrip("*").strip()
+            bs_res = await _toggle_boss_secretary_by_code(caller_ext, target_b, db)
+            return Response(content=bs_res, media_type="text/plain")
 
         p_always = str(fwd_cfg.get("always") or "*21*").strip() or "*21*"
         p_busy = str(fwd_cfg.get("busy") or "*67*").strip() or "*67*"
@@ -15615,6 +16246,8 @@ async def register_call_endpoint(call_id: str, did: str, caller: str, asterisk_i
                 return Response(content="BLOCKED", media_type="text/plain")
 
         async with AsyncSessionLocal() as session:
+            from backend.services.pbx_enterprise_features import is_configured_emergency_number
+            is_emergency_did = is_configured_emergency_number(did_str_check, settings_db)
             call_tenant = "tenant-default"
             resolved_agent_name = resolve_call_agent_name_snapshot(caller, did)
             matched_trunk_name = None
@@ -15661,8 +16294,8 @@ async def register_call_endpoint(call_id: str, did: str, caller: str, asterisk_i
                 print(f"[Call Register Tenant Error]: {e_tenant}")
 
             try:
-                is_bl, bl_reason = await is_phone_or_value_blacklisted(caller, session=session)
-                if not is_bl and did and did != "s":
+                is_bl, bl_reason = (False, "") if is_emergency_did else await is_phone_or_value_blacklisted(caller, session=session)
+                if not is_emergency_did and not is_bl and did and did != "s":
                     is_bl, bl_reason = await is_phone_or_value_blacklisted(did, session=session)
 
                 if is_bl:
@@ -15769,6 +16402,8 @@ async def register_call_endpoint(call_id: str, did: str, caller: str, asterisk_i
                 # 2) Dahili Arama (Internal) Tanımsız Dahili Kontrolü -> Kaydet ve Sonlandır
                 elif (
                     dir_hint != "inbound"
+                    and dir_hint != "outbound"
+                    and not is_emergency_did
                     and did_s
                     and len(did_s) < 7
                     and not did_s.startswith(("0", "+", "*", "#", "%23"))
@@ -15827,7 +16462,7 @@ async def register_call_endpoint(call_id: str, did: str, caller: str, asterisk_i
                 eff_max = call_info["effective_max_concurrent_calls"]
                 used_now = call_info["used_concurrent_calls"]
 
-                if used_now >= eff_max:
+                if not is_emergency_did and used_now >= eff_max:
                     from backend.services.ami_manager import hangup_call
                     print(f"[License Concurrent Call Block] Tenant '{call_tenant}' reached total concurrent channel limit ({used_now}/{base_max}+{tol_max}). Rejecting call {call_id} ({caller} -> {did}).")
                     add_system_log("LICENSE", "WARNING", f"Eş Zamanlı Çağrı Kanalı Limiti Doldu ({used_now}/{base_max}" + (f"+{tol_max} Tolerans" if tol_max > 0 else "") + f" Kanal): Çağrı reddedildi ({caller} -> {did})")
@@ -16184,7 +16819,19 @@ async def end_call_endpoint(
     answeredtime: Optional[str] = None,
     dialedtime: Optional[str] = None
 ):
+    try:
+        from backend.services.ami_manager import recording_paused_state
+        recording_paused_state.pop(str(call_id), None)
+    except Exception:
+        pass
     async with AsyncSessionLocal() as session:
+        # Finalize any pending voicemail recording if caller hung up mid-recording without pressing '#'
+        try:
+            if str(call_id) in _PENDING_VOICEMAIL_SESSIONS:
+                await _finalize_voicemail_recording(call_id=str(call_id), db=session)
+        except Exception as e_vm_fin:
+            print(f"[End Call Voicemail Finalize Warning]: {e_vm_fin}")
+
         db_call = await session.get(Call, call_id)
         if db_call:
             set_live_extension_call_state(db_call.caller_number, None)
@@ -16283,6 +16930,8 @@ async def end_call_endpoint(
 
             if db_call.status in ("blocked", "rejected_limit") or hangup_src_val.startswith("call_error:"):
                 resolved_status = db_call.status if db_call.status in ("blocked", "rejected_limit") else "failed"
+            elif db_call.status == "voicemail" or hangup_src_val.startswith("voicemail"):
+                resolved_status = "voicemail"
             elif hangup_src_val.startswith("pickup:"):
                 resolved_status = "completed"
             elif hangup_src_val.startswith("webrtc:unanswered"):
@@ -16297,7 +16946,11 @@ async def end_call_endpoint(
             ast_ans_sec = int(ast_ans_str) if ast_ans_str.isdigit() else None
             cur_rec_flag = str(db_call.recording_path or "").strip()
 
-            if resolved_status in ("no_answer", "busy", "cancelled", "failed", "blocked", "rejected_limit", "missed") or hangup_src_val.startswith("call_error:"):
+            if resolved_status == "voicemail":
+                if not db_call.answered_at and db_call.end_time:
+                    vm_dur = int(db_call.talk_duration or 0)
+                    db_call.answered_at = db_call.end_time - datetime.timedelta(seconds=vm_dur)
+            elif resolved_status in ("no_answer", "busy", "cancelled", "failed", "blocked", "rejected_limit", "missed") or hangup_src_val.startswith("call_error:"):
                 db_call.talk_duration = 0
                 db_call.answered_at = None
                 if cur_rec_flag not in ("DELETED_BY_DYNAMIC_POLICY", "DISABLED_BY_USER_SETTING"):
@@ -17700,6 +18353,28 @@ async def get_active_calls(user_info: dict = Depends(get_user_info)):
                 "handled_by": getattr(call, "handled_by", "ai") or "ai"
             })
     return active_list
+
+
+@app.get("/api/calls/resolve_recording_pause", response_class=PlainTextResponse)
+async def resolve_recording_pause_dialplan_endpoint(
+    caller: str = "",
+    channel: str = "",
+):
+    import urllib.parse
+    from backend.services.ami_manager import _extract_ext_from_channel
+    from backend.services.pbx_enterprise_features import resolve_hotdesk_session_for_channel
+    raw_ch = urllib.parse.unquote(channel or "").strip()
+    raw_c = urllib.parse.unquote(caller or "").strip()
+    hd_s = resolve_hotdesk_session_for_channel(raw_ch, settings_db)
+    eff_ext = (
+        str(hd_s.get("extension")).strip()
+        if (hd_s and hd_s.get("extension"))
+        else (_extract_ext_from_channel(raw_ch) or raw_c)
+    )
+    if not eff_ext:
+        return "INVALID"
+    return await _handle_dialplan_recording_pause(eff_ext, raw_ch)
+
 
 @app.get("/api/calls/{call_id}")
 async def get_call_details(call_id: str, db: AsyncSession = Depends(get_db)):
@@ -22840,9 +23515,830 @@ async def delete_agent_speed_dial(sd_id: str, extension: str = None):
     save_settings(settings_db)
     return {"status": "success", "speed_dials": settings_db["agent_speed_dials"][extension]}
 
+_PENDING_VOICEMAIL_SESSIONS: Dict[str, Dict[str, Any]] = {}
+
+
+def _resolve_voicemail_wav_path(vm_id: str, stored_path: str = "") -> str:
+    clean_id = re.sub(r"[^a-zA-Z0-9_-]", "", str(vm_id or "").strip())
+    candidates = []
+    if stored_path:
+        candidates.append(stored_path)
+    if clean_id:
+        candidates.extend([
+            os.path.join(RECORDINGS_DIR, f"vm_{clean_id}.wav"),
+            f"/var/spool/asterisk/monitor/vm_{clean_id}.wav",
+        ])
+    for c_path in candidates:
+        if c_path and os.path.exists(c_path) and os.path.isfile(c_path):
+            return c_path
+    return os.path.join(RECORDINGS_DIR, f"vm_{clean_id}.wav")
+
+
+async def _refresh_extension_mwi(ext_str: str, db: Optional[AsyncSession] = None):
+    ext_clean = str(ext_str or "").strip()
+    if not ext_clean:
+        return
+    unread_cnt = 0
+    old_cnt = 0
+    seen_ids = set()
+    if db is not None:
+        try:
+            res = await db.execute(select(VoicemailMessage).where(VoicemailMessage.extension == ext_clean))
+            for row in res.scalars().all():
+                seen_ids.add(str(row.id))
+                if row.is_read:
+                    old_cnt += 1
+                else:
+                    unread_cnt += 1
+        except Exception:
+            pass
+    for vm_d in (settings_db.get("voicemails") or []):
+        if isinstance(vm_d, dict) and str(vm_d.get("extension") or "").strip() == ext_clean:
+            vid = str(vm_d.get("id") or "")
+            if vid and vid not in seen_ids:
+                seen_ids.add(vid)
+                if vm_d.get("is_read"):
+                    old_cnt += 1
+                else:
+                    unread_cnt += 1
+    try:
+        from backend.services.ami_manager import notify_voicemail_mwi
+        await notify_voicemail_mwi(ext_clean, unread_count=unread_cnt, old_count=old_cnt)
+    except Exception:
+        pass
+
+
+async def _finalize_voicemail_recording(
+    vm_id: str = "",
+    call_id: str = "",
+    extension: str = "",
+    caller: str = "",
+    db: Optional[AsyncSession] = None,
+) -> Optional[Dict[str, Any]]:
+    from backend.services.pbx_enterprise_features import (
+        compute_wav_duration_seconds,
+        send_voicemail_email_notification,
+    )
+
+    pending = None
+    if call_id and str(call_id) in _PENDING_VOICEMAIL_SESSIONS:
+        pending = _PENDING_VOICEMAIL_SESSIONS.get(str(call_id))
+    if not pending and vm_id:
+        pending = _PENDING_VOICEMAIL_SESSIONS.get(str(vm_id))
+        if not pending:
+            for p_obj in _PENDING_VOICEMAIL_SESSIONS.values():
+                if isinstance(p_obj, dict) and str(p_obj.get("vm_id") or "") == str(vm_id):
+                    pending = p_obj
+                    break
+
+    if pending and pending.get("finalized"):
+        return pending.get("result")
+
+    eff_vm_id = re.sub(r"[^a-zA-Z0-9_-]", "", str(vm_id or (pending or {}).get("vm_id") or "").strip())
+    if not eff_vm_id:
+        return None
+
+    eff_call_id = str(call_id or (pending or {}).get("call_id") or "").strip()
+    eff_ext = str(extension or (pending or {}).get("extension") or "1000").strip()
+    eff_caller = str(caller or (pending or {}).get("caller") or "Bilinmeyen").strip()
+    eff_tenant = str((pending or {}).get("tenant_id") or "tenant-default").strip()
+
+    os.makedirs(RECORDINGS_DIR, exist_ok=True)
+    spool_wav = f"/var/spool/asterisk/monitor/vm_{eff_vm_id}.wav"
+    local_wav = os.path.join(RECORDINGS_DIR, f"vm_{eff_vm_id}.wav")
+
+    active_wav = ""
+    if os.path.exists(spool_wav) and os.path.getsize(spool_wav) > 200:
+        active_wav = spool_wav
+        try:
+            if os.path.abspath(spool_wav) != os.path.abspath(local_wav):
+                shutil.copy2(spool_wav, local_wav)
+                active_wav = local_wav
+        except Exception:
+            pass
+    elif os.path.exists(local_wav) and os.path.getsize(local_wav) > 200:
+        active_wav = local_wav
+        try:
+            if os.path.isdir("/var/spool/asterisk/monitor") and not os.path.exists(spool_wav):
+                shutil.copy2(local_wav, spool_wav)
+                os.chmod(spool_wav, 0o644)
+        except Exception:
+            pass
+
+    if pending is not None:
+        pending["finalized"] = True
+
+    if not active_wav:
+        if pending is not None:
+            pending["result"] = None
+        return None
+
+    dur_sec = max(1, compute_wav_duration_seconds(active_wav))
+    now_utc = datetime.datetime.utcnow()
+    audio_api_url = f"/api/voicemail/{eff_vm_id}/audio"
+
+    vm_record = {
+        "id": eff_vm_id,
+        "tenant_id": eff_tenant,
+        "call_id": eff_call_id,
+        "extension": eff_ext,
+        "caller_number": eff_caller,
+        "duration_seconds": dur_sec,
+        "audio_path": active_wav,
+        "audio_url": audio_api_url,
+        "is_read": False,
+        "transcript": None,
+        "created_at": now_utc.isoformat(),
+    }
+
+    if not isinstance(settings_db.get("voicemails"), list):
+        settings_db["voicemails"] = []
+    settings_db["voicemails"] = [v for v in settings_db["voicemails"] if str(v.get("id")) != eff_vm_id]
+    settings_db["voicemails"].insert(0, vm_record)
+    save_settings(settings_db)
+
+    async def _persist_vm_db(sess: AsyncSession):
+        existing_vm = await sess.get(VoicemailMessage, eff_vm_id)
+        if not existing_vm:
+            sess.add(VoicemailMessage(
+                id=eff_vm_id,
+                tenant_id=eff_tenant,
+                call_id=eff_call_id or None,
+                extension=eff_ext,
+                caller_number=eff_caller,
+                duration_seconds=dur_sec,
+                audio_path=active_wav,
+                is_read=False,
+                created_at=now_utc,
+            ))
+        if eff_call_id:
+            db_call = await sess.get(Call, eff_call_id)
+            if db_call:
+                db_call.status = "voicemail"
+                db_call.hangup_source = f"voicemail:{eff_ext}"
+                db_call.recording_path = audio_api_url
+                db_call.talk_duration = dur_sec
+                if not db_call.answered_at:
+                    db_call.answered_at = now_utc - datetime.timedelta(seconds=dur_sec)
+        await sess.commit()
+
+    try:
+        if db is not None:
+            await _persist_vm_db(db)
+        else:
+            async with AsyncSessionLocal() as own_sess:
+                await _persist_vm_db(own_sess)
+    except Exception as e_vmdb:
+        print(f"[Voicemail DB Save Warning]: {e_vmdb}")
+        if db is not None:
+            try:
+                await db.rollback()
+            except Exception:
+                pass
+
+    if pending is not None:
+        pending["result"] = vm_record
+
+    add_system_log("VOICEMAIL", "INFO", f"Yeni Sesli Mesaj Kaydedildi: Arayan {eff_caller} -> Dahili {eff_ext} ({dur_sec} sn)")
+    await _refresh_extension_mwi(eff_ext, db=db)
+
+    # Trigger Voicemail-to-Email notification with WAV attachment if enabled on user
+    user_dict = await _load_merged_user_by_ext(eff_ext, db=db)
+    if user_dict and bool(user_dict.get("voicemail_to_email")) and user_dict.get("email"):
+        asyncio.create_task(
+            send_voicemail_email_notification(
+                to_email=str(user_dict.get("email")),
+                user_full_name=str(user_dict.get("full_name") or eff_ext),
+                extension=eff_ext,
+                caller_number=eff_caller,
+                duration_seconds=dur_sec,
+                wav_path=active_wav,
+                created_at_utc=now_utc,
+                settings_db=settings_db,
+            )
+        )
+
+    try:
+        await ws_manager.broadcast({
+            "type": "voicemail_received",
+            "extension": eff_ext,
+            "vm_id": eff_vm_id,
+            "caller_number": eff_caller,
+            "duration_seconds": dur_sec,
+        })
+    except Exception:
+        pass
+
+    return vm_record
+
+
+@app.get("/api/voicemail/prepare", response_class=PlainTextResponse)
+async def prepare_voicemail_endpoint(
+    extension: str = "",
+    caller: str = "",
+    call_id: str = "",
+    db: AsyncSession = Depends(get_db),
+):
+    ext_clean = str(extension or "1000").strip() or "1000"
+    caller_clean = str(caller or "Bilinmeyen").strip() or "Bilinmeyen"
+    cid_clean = str(call_id or "").strip()
+    user_dict = await _load_merged_user_by_ext(ext_clean, db=db)
+
+    greeting_pb = "/var/spool/asterisk/monitor/tr_ulanilamiyor"
+    ann_ref = str((user_dict or {}).get("voicemail_announcement") or "").strip()
+    if ann_ref and ann_ref.lower() not in ("default", "none", "null", "varsayilan"):
+        matched_ann = next(
+            (
+                a for a in (settings_db.get("announcements") or [])
+                if isinstance(a, dict)
+                and (str(a.get("id") or "") == ann_ref or str(a.get("name") or "") == ann_ref or str(a.get("filename") or "") == ann_ref)
+            ),
+            None,
+        )
+        ann_id_stem = os.path.splitext(str((matched_ann or {}).get("filename") or (matched_ann or {}).get("id") or ann_ref))[0]
+        src_candidates = [
+            os.path.join(PROJECT_ROOT, "uploads", "announcements", f"{ann_id_stem}.wav"),
+            os.path.join(ASTERISK_CONFIG_DIR, "sounds_tr", f"{ann_id_stem}.wav"),
+        ]
+        for s_wav in src_candidates:
+            if os.path.exists(s_wav):
+                if os.path.isdir("/var/spool/asterisk/monitor"):
+                    dst_mon = f"/var/spool/asterisk/monitor/{ann_id_stem}.wav"
+                    try:
+                        shutil.copy2(s_wav, dst_mon)
+                        os.chmod(dst_mon, 0o644)
+                        greeting_pb = f"/var/spool/asterisk/monitor/{ann_id_stem}"
+                    except Exception:
+                        greeting_pb = os.path.splitext(s_wav)[0]
+                else:
+                    greeting_pb = os.path.splitext(s_wav)[0]
+                break
+
+    vm_id = uuid.uuid4().hex[:16]
+    rec_target = (
+        f"/var/spool/asterisk/monitor/vm_{vm_id}.wav"
+        if os.path.isdir("/var/spool/asterisk/monitor")
+        else os.path.join(RECORDINGS_DIR, f"vm_{vm_id}.wav")
+    )
+    sess_meta = {
+        "vm_id": vm_id,
+        "call_id": cid_clean,
+        "extension": ext_clean,
+        "caller": caller_clean,
+        "tenant_id": str((user_dict or {}).get("tenant_id") or "tenant-default"),
+        "rec_target": rec_target,
+        "finalized": False,
+        "result": None,
+        "created_at": datetime.datetime.utcnow().isoformat(),
+    }
+    _PENDING_VOICEMAIL_SESSIONS[vm_id] = sess_meta
+    if cid_clean:
+        _PENDING_VOICEMAIL_SESSIONS[cid_clean] = sess_meta
+
+    return f"ALLOW|{vm_id}|{greeting_pb}|{rec_target}"
+
+
+@app.get("/api/voicemail/complete", response_class=PlainTextResponse)
+async def complete_voicemail_endpoint(
+    vm_id: str = "",
+    call_id: str = "",
+    extension: str = "",
+    caller: str = "",
+    db: AsyncSession = Depends(get_db),
+):
+    saved = await _finalize_voicemail_recording(
+        vm_id=vm_id,
+        call_id=call_id,
+        extension=extension,
+        caller=caller,
+        db=db,
+    )
+    return "SAVED" if saved else "EMPTY"
+
+
+@app.get("/api/voicemail/check_pin", response_class=PlainTextResponse)
+async def check_voicemail_pin_endpoint(
+    extension: str = "",
+    pin: str = "",
+    db: AsyncSession = Depends(get_db),
+):
+    ext_clean = str(extension or "").strip()
+    pin_clean = re.sub(r"[^0-9]", "", str(pin or "").strip())
+    user_dict = await _load_merged_user_by_ext(ext_clean, db=db)
+    if not user_dict:
+        return "DENY"
+    saved_pin = re.sub(r"[^0-9]", "", str(user_dict.get("voicemail_pin") or "").strip())
+    if not saved_pin:
+        return "ALLOW"
+    if pin_clean and hmac.compare_digest(saved_pin, pin_clean):
+        return "ALLOW"
+    return "DENY"
+
+
+@app.get("/api/voicemail/ivr_list", response_class=PlainTextResponse)
+async def get_voicemail_ivr_list_endpoint(
+    extension: str = "",
+    db: AsyncSession = Depends(get_db),
+):
+    ext_clean = str(extension or "").strip()
+    if not ext_clean:
+        return "0|"
+    items_by_id: Dict[str, Dict[str, Any]] = {}
+    try:
+        stmt = select(VoicemailMessage).where(VoicemailMessage.extension == ext_clean).order_by(VoicemailMessage.is_read.asc(), VoicemailMessage.created_at.desc())
+        res = await db.execute(stmt)
+        for row in res.scalars().all():
+            items_by_id[str(row.id)] = {
+                "id": str(row.id),
+                "audio_path": row.audio_path,
+                "is_read": bool(row.is_read),
+                "created_at": row.created_at.isoformat() if row.created_at else "",
+            }
+    except Exception:
+        pass
+    for vm_d in (settings_db.get("voicemails") or []):
+        if isinstance(vm_d, dict) and str(vm_d.get("extension") or "").strip() == ext_clean:
+            vid = str(vm_d.get("id") or "")
+            if vid and vid not in items_by_id:
+                items_by_id[vid] = vm_d
+
+    ordered = sorted(
+        items_by_id.values(),
+        key=lambda x: (1 if x.get("is_read") else 0, "" if not x.get("created_at") else str(x.get("created_at"))),
+    )
+    entries = []
+    for vm_it in ordered[:20]:
+        vid = str(vm_it.get("id") or "")
+        wav_p = _resolve_voicemail_wav_path(vid, str(vm_it.get("audio_path") or ""))
+        if not os.path.exists(wav_p):
+            continue
+        pb_stem = os.path.splitext(wav_p)[0]
+        if os.path.isdir("/var/spool/asterisk/monitor"):
+            mon_dst = f"/var/spool/asterisk/monitor/vm_{vid}.wav"
+            try:
+                if os.path.abspath(wav_p) != os.path.abspath(mon_dst):
+                    shutil.copy2(wav_p, mon_dst)
+                    os.chmod(mon_dst, 0o644)
+                pb_stem = f"/var/spool/asterisk/monitor/vm_{vid}"
+            except Exception:
+                pass
+        entries.append(f"{vid}:{pb_stem}")
+    return f"{len(entries)}|{','.join(entries)}"
+
+
+@app.get("/api/voicemail/ivr_action", response_class=PlainTextResponse)
+async def voicemail_ivr_action_endpoint(
+    vm_id: str = "",
+    action: str = "read",
+    extension: str = "",
+    db: AsyncSession = Depends(get_db),
+):
+    vid = re.sub(r"[^a-zA-Z0-9_-]", "", str(vm_id or "").strip())
+    act = str(action or "read").strip().lower()
+    if not vid:
+        return "ERR"
+    target_ext = str(extension or "").strip()
+    if act == "delete":
+        try:
+            row = await db.get(VoicemailMessage, vid)
+            if row:
+                if not target_ext:
+                    target_ext = str(row.extension or "")
+                await db.delete(row)
+                await db.commit()
+        except Exception:
+            try:
+                await db.rollback()
+            except Exception:
+                pass
+        for v in list(settings_db.get("voicemails") or []):
+            if str(v.get("id")) == vid:
+                if not target_ext:
+                    target_ext = str(v.get("extension") or "")
+                settings_db["voicemails"].remove(v)
+        save_settings(settings_db)
+        for p_del in [os.path.join(RECORDINGS_DIR, f"vm_{vid}.wav"), f"/var/spool/asterisk/monitor/vm_{vid}.wav"]:
+            if os.path.exists(p_del):
+                try:
+                    os.remove(p_del)
+                except Exception:
+                    pass
+        if target_ext:
+            await _refresh_extension_mwi(target_ext, db=db)
+        return "DELETED"
+
+    # Mark as read
+    try:
+        row = await db.get(VoicemailMessage, vid)
+        if row:
+            row.is_read = True
+            if not target_ext:
+                target_ext = str(row.extension or "")
+            await db.commit()
+    except Exception:
+        try:
+            await db.rollback()
+        except Exception:
+            pass
+    for v in (settings_db.get("voicemails") or []):
+        if isinstance(v, dict) and str(v.get("id")) == vid:
+            v["is_read"] = True
+            if not target_ext:
+                target_ext = str(v.get("extension") or "")
+    save_settings(settings_db)
+    if target_ext:
+        await _refresh_extension_mwi(target_ext, db=db)
+    return "READ"
+
+
 @app.get("/api/agent/voicemail")
-async def get_agent_voicemails(extension: str = None):
-    return []
+async def get_agent_voicemails(
+    extension: Optional[str] = None,
+    only_unread: bool = False,
+    user_info: dict = Depends(get_user_info),
+    db: AsyncSession = Depends(get_db),
+):
+    target_tenant = user_info.get("tenant_id") or "tenant-default"
+    req_ext = str(extension or "").strip()
+    role_low = str(user_info.get("role") or "agent").strip().lower()
+
+    if not req_ext:
+        uid_s = str(user_info.get("user_id") or "").strip()
+        matched_u = next(
+            (u for u in (settings_db.get("users") or []) if str(u.get("id")) == uid_s or str(u.get("extension")) == uid_s),
+            None,
+        )
+        if matched_u and matched_u.get("extension"):
+            req_ext = str(matched_u.get("extension")).strip()
+
+    # Also include queues where this extension is a member so queue fallback voicemails are visible to queue agents
+    allowed_exts = {req_ext} if req_ext and req_ext.upper() != "ALL" else set()
+    if req_ext and req_ext.upper() != "ALL":
+        for q_obj in (settings_db.get("queues") or []):
+            if not isinstance(q_obj, dict):
+                continue
+            q_ext = str(q_obj.get("extension") or q_obj.get("name") or "").strip()
+            q_mems = [str(m.get("extension") if isinstance(m, dict) else m).strip() for m in (q_obj.get("members") or [])]
+            if q_ext and req_ext in q_mems:
+                allowed_exts.add(q_ext)
+
+    items_map: Dict[str, Dict[str, Any]] = {}
+    try:
+        stmt = select(VoicemailMessage).order_by(VoicemailMessage.created_at.desc())
+        res = await db.execute(stmt)
+        for row in res.scalars().all():
+            r_tenant = str(row.tenant_id or "tenant-default")
+            if not is_global_tenant(target_tenant):
+                if is_default_tenant(target_tenant):
+                    if not is_default_tenant(r_tenant):
+                        continue
+                elif r_tenant != target_tenant:
+                    continue
+            r_ext = str(row.extension or "").strip()
+            if allowed_exts and r_ext not in allowed_exts:
+                continue
+            if not allowed_exts and req_ext.upper() != "ALL" and role_low not in ("admin", "superadmin", "supervisor"):
+                continue
+            if only_unread and row.is_read:
+                continue
+            items_map[str(row.id)] = {
+                "id": str(row.id),
+                "call_id": row.call_id or "",
+                "extension": r_ext,
+                "caller_number": row.caller_number or "Bilinmeyen",
+                "duration_seconds": int(row.duration_seconds or 0),
+                "audio_url": f"/api/voicemail/{row.id}/audio",
+                "is_read": bool(row.is_read),
+                "transcript": row.transcript or "",
+                "created_at": row.created_at.isoformat() if row.created_at else "",
+            }
+    except Exception as e_qvm:
+        print(f"[Get Agent Voicemails DB Warning]: {e_qvm}")
+
+    for vm_d in (settings_db.get("voicemails") or []):
+        if not isinstance(vm_d, dict):
+            continue
+        vid = str(vm_d.get("id") or "")
+        if not vid or vid in items_map:
+            continue
+        v_tenant = str(vm_d.get("tenant_id") or "tenant-default")
+        if not is_global_tenant(target_tenant):
+            if is_default_tenant(target_tenant):
+                if not is_default_tenant(v_tenant):
+                    continue
+            elif v_tenant != target_tenant:
+                continue
+        v_ext = str(vm_d.get("extension") or "").strip()
+        if allowed_exts and v_ext not in allowed_exts:
+            continue
+        if not allowed_exts and req_ext.upper() != "ALL" and role_low not in ("admin", "superadmin", "supervisor"):
+            continue
+        if only_unread and vm_d.get("is_read"):
+            continue
+        items_map[vid] = {
+            "id": vid,
+            "call_id": vm_d.get("call_id") or "",
+            "extension": v_ext,
+            "caller_number": vm_d.get("caller_number") or "Bilinmeyen",
+            "duration_seconds": int(vm_d.get("duration_seconds") or 0),
+            "audio_url": f"/api/voicemail/{vid}/audio",
+            "is_read": bool(vm_d.get("is_read", False)),
+            "transcript": vm_d.get("transcript") or "",
+            "created_at": vm_d.get("created_at") or "",
+        }
+
+    # Resolve contact / internal subscriber names for callers
+    users_ext_name = {
+        str(u.get("extension")).strip(): str(u.get("full_name") or u.get("extension"))
+        for u in (settings_db.get("users") or [])
+        if isinstance(u, dict) and u.get("extension")
+    }
+    out_list = sorted(items_map.values(), key=lambda x: str(x.get("created_at") or ""), reverse=True)
+    for item in out_list:
+        c_num = str(item.get("caller_number") or "").strip()
+        c_name = users_ext_name.get(c_num) or ""
+        if not c_name and c_num:
+            try:
+                c_name = await resolve_contact_name_by_phone(c_num, db, tenant_id=target_tenant) or ""
+            except Exception:
+                c_name = ""
+        item["caller_name"] = c_name
+
+    return out_list
+
+
+@app.get("/api/voicemail/{vm_id}/audio")
+async def stream_voicemail_audio(vm_id: str, download: int = 0, db: AsyncSession = Depends(get_db)):
+    clean_id = re.sub(r"[^a-zA-Z0-9_-]", "", str(vm_id or "").strip())
+    stored_path = ""
+    try:
+        row = await db.get(VoicemailMessage, clean_id)
+        if row and row.audio_path:
+            stored_path = str(row.audio_path)
+    except Exception:
+        pass
+    if not stored_path:
+        for vm_d in (settings_db.get("voicemails") or []):
+            if isinstance(vm_d, dict) and str(vm_d.get("id")) == clean_id:
+                stored_path = str(vm_d.get("audio_path") or "")
+                break
+    wav_path = _resolve_voicemail_wav_path(clean_id, stored_path)
+    if not os.path.exists(wav_path):
+        raise HTTPException(status_code=404, detail="Sesli mesaj ses dosyası bulunamadı.")
+    headers = {"Cache-Control": "no-cache"}
+    if int(download or 0) == 1:
+        headers["Content-Disposition"] = f'attachment; filename="sesli_mesaj_{clean_id}.wav"'
+    return FileResponse(wav_path, media_type="audio/wav", headers=headers)
+
+
+@app.post("/api/voicemail/{vm_id}/read")
+async def mark_voicemail_read_endpoint(
+    vm_id: str,
+    payload: dict = Body(default={}),
+    user_info: dict = Depends(get_user_info),
+    db: AsyncSession = Depends(get_db),
+):
+    clean_id = re.sub(r"[^a-zA-Z0-9_-]", "", str(vm_id or "").strip())
+    is_read_val = bool(payload.get("is_read", True))
+    target_ext = ""
+    found = False
+    try:
+        row = await db.get(VoicemailMessage, clean_id)
+        if row:
+            row.is_read = is_read_val
+            target_ext = str(row.extension or "")
+            await db.commit()
+            found = True
+    except Exception:
+        try:
+            await db.rollback()
+        except Exception:
+            pass
+
+    for vm_d in (settings_db.get("voicemails") or []):
+        if isinstance(vm_d, dict) and str(vm_d.get("id")) == clean_id:
+            vm_d["is_read"] = is_read_val
+            if not target_ext:
+                target_ext = str(vm_d.get("extension") or "")
+            found = True
+    if found:
+        save_settings(settings_db)
+        if target_ext:
+            await _refresh_extension_mwi(target_ext, db=db)
+    if not found:
+        raise HTTPException(status_code=404, detail="Sesli mesaj bulunamadı.")
+    return {"status": "success", "id": clean_id, "is_read": is_read_val}
+
+
+@app.delete("/api/voicemail/{vm_id}")
+async def delete_voicemail_endpoint(
+    vm_id: str,
+    user_info: dict = Depends(get_user_info),
+    db: AsyncSession = Depends(get_db),
+):
+    clean_id = re.sub(r"[^a-zA-Z0-9_-]", "", str(vm_id or "").strip())
+    res_act = await voicemail_ivr_action_endpoint(vm_id=clean_id, action="delete", db=db)
+    if res_act != "DELETED":
+        raise HTTPException(status_code=404, detail="Sesli mesaj bulunamadı.")
+    await log_event(
+        user_id=user_info.get("user_id") or "SYSTEM",
+        action="DELETE_VOICEMAIL",
+        module="Voicemail",
+        details={"vm_id": clean_id},
+        ip_address=user_info.get("ip_address"),
+    )
+    return {"status": "success", "id": clean_id}
+
+
+# ==============================================================================
+# ROLE-BOUND CALL RECORDING PAUSE / RESUME (KVKK & PCI-DSS MASKING)
+# ==============================================================================
+
+@app.post("/api/calls/recording/pause")
+async def toggle_recording_pause_endpoint(
+    payload: dict = Body(default={}),
+    user_info: dict = Depends(get_user_info),
+    db: AsyncSession = Depends(get_db),
+):
+    from backend.services.pbx_enterprise_features import check_user_has_pause_recording_perm
+    from backend.services.ami_manager import toggle_call_recording_pause
+
+    uid_str = str(user_info.get("user_id") or "").strip()
+    req_ext = str(payload.get("extension") or "").strip()
+
+    user_dict = None
+    for u in (settings_db.get("users") or []):
+        if isinstance(u, dict) and (
+            str(u.get("id")) == uid_str
+            or str(u.get("extension")) == uid_str
+            or (req_ext and str(u.get("extension")) == req_ext and str(user_info.get("role") or "").lower() in ("admin", "superadmin"))
+        ):
+            user_dict = u
+            break
+    if not user_dict and req_ext:
+        user_dict = await _load_merged_user_by_ext(req_ext, db=db)
+    if not user_dict and str(user_info.get("role") or "").lower() in ("admin", "superadmin"):
+        user_dict = {"id": uid_str or "admin", "role": "admin", "extension": req_ext or "1000"}
+
+    if not check_user_has_pause_recording_perm(user_dict, settings_db):
+        raise HTTPException(
+            status_code=403,
+            detail="Ses kaydını duraklatma / maskeleme yetkiniz bulunmamaktadır (call_panel:pause_recording).",
+        )
+
+    eff_ext = req_ext or str((user_dict or {}).get("extension") or "")
+    call_id_val = str(payload.get("call_id") or "").strip()
+    req_paused = payload.get("paused") if isinstance(payload.get("paused"), bool) else None
+
+    ami_res = await toggle_call_recording_pause(
+        extension=eff_ext,
+        call_id=call_id_val,
+        requested_paused=req_paused,
+    )
+    paused_now = bool(ami_res.get("paused"))
+    act_name = "RECORDING_PAUSED" if paused_now else "RECORDING_RESUMED"
+
+    await log_event(
+        user_id=uid_str or eff_ext or "SYSTEM",
+        action=act_name,
+        module="CallRecording",
+        details={
+            "extension": eff_ext,
+            "call_id": call_id_val,
+            "paused": paused_now,
+            "channels": ami_res.get("channels") or [],
+            "source": "webphone",
+        },
+        ip_address=user_info.get("ip_address"),
+    )
+    add_system_log(
+        "RECORDING_MASK",
+        "INFO",
+        f"KVKK Ses Kaydı {'Duraklatıldı (Maskeleme Aktif)' if paused_now else 'Devam Ettirildi'}: Dahili {eff_ext or uid_str}",
+    )
+    return {
+        "status": "success",
+        "paused": paused_now,
+        "extension": eff_ext,
+        "call_id": call_id_val,
+        "channels": ami_res.get("channels") or [],
+    }
+
+
+@app.get("/api/calls/recording/status")
+async def get_recording_pause_status_endpoint(
+    extension: str = "",
+    call_id: str = "",
+    user_info: dict = Depends(get_user_info),
+):
+    from backend.services.ami_manager import recording_paused_state
+    key = str(call_id or extension or "").strip()
+    paused = bool(recording_paused_state.get(key, False))
+    if not paused and extension:
+        paused = bool(recording_paused_state.get(str(extension).strip(), False))
+    return {"status": "success", "paused": paused}
+
+
+@app.get("/api/subscriber/dialplan_profile_switch", response_class=PlainTextResponse)
+async def dialplan_profile_switch_endpoint(
+    caller: str = "",
+    channel: str = "",
+    digit: str = "",
+    db: AsyncSession = Depends(get_db),
+):
+    import urllib.parse
+    from backend.services.ami_manager import _extract_ext_from_channel
+    from backend.services.pbx_enterprise_features import resolve_hotdesk_session_for_channel
+    raw_ch = urllib.parse.unquote(channel or "").strip()
+    raw_c = urllib.parse.unquote(caller or "").strip()
+    hd_s = resolve_hotdesk_session_for_channel(raw_ch, settings_db)
+    eff_ext = (
+        str(hd_s.get("extension")).strip()
+        if (hd_s and hd_s.get("extension"))
+        else (raw_c or _extract_ext_from_channel(raw_ch))
+    )
+    ok = await _switch_user_profile_by_digit(eff_ext, digit, db)
+    return "ACTIVATED" if ok else "INVALID"
+
+
+# ==============================================================================
+# HOT-DESKING SESSION MANAGEMENT & DIALPLAN ENDPOINTS
+# ==============================================================================
+
+@app.get("/api/hotdesk/resolve_channel_identity", response_class=PlainTextResponse)
+async def resolve_hotdesk_channel_identity_endpoint(channel: str = ""):
+    import urllib.parse
+    from backend.services.pbx_enterprise_features import (
+        cleanup_expired_midnight_hotdesk_sessions,
+        resolve_hotdesk_session_for_channel,
+    )
+    cleanup_expired_midnight_hotdesk_sessions(settings_db, save_fn=save_settings, log_fn=add_system_log)
+    raw_ch = urllib.parse.unquote(channel or "").strip()
+    sess = resolve_hotdesk_session_for_channel(raw_ch, settings_db)
+    if sess and sess.get("extension"):
+        ext_s = str(sess.get("extension")).replace("|", "").strip()
+        nm_s = str(sess.get("full_name") or ext_s).replace("|", "").strip()
+        return f"ALLOW|{ext_s}|{nm_s}"
+    return "NONE"
+
+
+@app.get("/api/hotdesk/dialplan_login", response_class=PlainTextResponse)
+async def hotdesk_dialplan_login_endpoint(
+    channel: str = "",
+    extension: str = "",
+    pin: str = "",
+    db: AsyncSession = Depends(get_db),
+):
+    import urllib.parse
+    from backend.services.pbx_enterprise_features import extract_peer_from_channel
+    raw_ch = urllib.parse.unquote(channel or "").strip()
+    peer = extract_peer_from_channel(raw_ch)
+    if not peer:
+        return "DENY"
+    ok, _ = await _perform_hotdesk_login(peer, extension, pin, db=db, source_label="Masa Telefonu (*75 IVR)")
+    return "ALLOW" if ok else "DENY"
+
+
+@app.get("/api/hotdesk/sessions")
+async def list_hotdesk_sessions_endpoint(
+    extension: Optional[str] = None,
+    user_info: dict = Depends(get_user_info),
+):
+    from backend.services.pbx_enterprise_features import cleanup_expired_midnight_hotdesk_sessions
+    from backend.services.ami_manager import registered_endpoints
+    cleanup_expired_midnight_hotdesk_sessions(settings_db, save_fn=save_settings, log_fn=add_system_log)
+    raw_map = settings_db.get("hotdesk_sessions")
+    if not isinstance(raw_map, dict):
+        return []
+    ext_filter = str(extension or "").strip()
+    out = []
+    for dev_peer, sess in raw_map.items():
+        if not isinstance(sess, dict):
+            continue
+        s_ext = str(sess.get("extension") or "").strip()
+        if ext_filter and s_ext != ext_filter:
+            continue
+        dev_str = str(dev_peer).strip()
+        out.append({
+            **sess,
+            "device_sip_username": dev_str,
+            "is_online": bool(dev_str in registered_endpoints),
+            "live_ip": registered_endpoints.get_ip(dev_str) or "",
+        })
+    return out
+
+
+@app.delete("/api/hotdesk/sessions/{session_key}")
+async def logout_hotdesk_session_endpoint(
+    session_key: str,
+    user_info: dict = Depends(get_user_info),
+):
+    key_clean = str(session_key or "").strip()
+    if key_clean.startswith("ext:"):
+        removed = _perform_hotdesk_logout(extension=key_clean[4:].strip(), source_label="Web Arayüzü")
+    else:
+        removed = _perform_hotdesk_logout(device_peer=key_clean, source_label="Web Arayüzü")
+    return {"status": "success", "removed": removed}
 
 @app.get("/api/agent/history")
 async def get_agent_history(extension: str = None):
@@ -24380,6 +25876,8 @@ def _sync_user_2fa_to_db(user_dict: dict, explicit_methods_map: Optional[Dict[st
                     "ALTER TABLE system_users ADD COLUMN IF NOT EXISTS two_factor_secret VARCHAR;",
                     "ALTER TABLE system_users ADD COLUMN IF NOT EXISTS two_factor_enrolled BOOLEAN DEFAULT FALSE;",
                     "ALTER TABLE system_users ADD COLUMN IF NOT EXISTS call_panel_prefs JSON DEFAULT '{}';",
+                    "ALTER TABLE system_users ADD COLUMN IF NOT EXISTS boss_secretary JSON DEFAULT '{}';",
+                    "ALTER TABLE system_users ADD COLUMN IF NOT EXISTS hotdesk_config JSON DEFAULT '{}';",
                 ):
                     try:
                         session.execute(text(ddl_s))
@@ -25499,6 +26997,8 @@ async def startup_event():
                 "ALTER TABLE system_users ADD COLUMN IF NOT EXISTS max_concurrent_outbound INTEGER DEFAULT 0;",
                 "ALTER TABLE system_users ADD COLUMN IF NOT EXISTS outbound_quarantined BOOLEAN DEFAULT FALSE;",
                 "ALTER TABLE system_users ADD COLUMN IF NOT EXISTS sip_devices JSON DEFAULT '[]';",
+                "ALTER TABLE system_users ADD COLUMN IF NOT EXISTS boss_secretary JSON DEFAULT '{}';",
+                "ALTER TABLE system_users ADD COLUMN IF NOT EXISTS hotdesk_config JSON DEFAULT '{}';",
                 "ALTER TABLE trunks ADD COLUMN IF NOT EXISTS max_channels INTEGER DEFAULT 30;",
                 "ALTER TABLE trunks ADD COLUMN IF NOT EXISTS codecs JSON DEFAULT '[\"alaw\", \"ulaw\", \"g722\", \"g729\"]';",
                 "ALTER TABLE trunks ADD COLUMN IF NOT EXISTS call_limit_enabled BOOLEAN DEFAULT FALSE;",
@@ -25727,6 +27227,17 @@ async def startup_event():
         
     asyncio.create_task(start_ami_listener())
     asyncio.create_task(asterisk_sip_ips_guard_loop())
+
+    async def hotdesk_midnight_cleanup_loop():
+        from backend.services.pbx_enterprise_features import cleanup_expired_midnight_hotdesk_sessions
+        while True:
+            try:
+                cleanup_expired_midnight_hotdesk_sessions(settings_db, save_fn=save_settings, log_fn=add_system_log)
+            except Exception as e_hd_clean:
+                print(f"[HotDesk Midnight Cleanup Warning]: {e_hd_clean}")
+            await asyncio.sleep(20)
+
+    asyncio.create_task(hotdesk_midnight_cleanup_loop())
 
     try:
         from backend.audiosocket_server import start_server as start_audiosocket_server
@@ -26146,6 +27657,10 @@ async def new_get_users_endpoint(request: Request, user_info: dict = Depends(get
                 u["max_concurrent_outbound"] = disk_u.get("max_concurrent_outbound")
             if not u.get("outbound_quarantined") and disk_u.get("outbound_quarantined"):
                 u["outbound_quarantined"] = True
+            if not u.get("boss_secretary") and disk_u.get("boss_secretary"):
+                u["boss_secretary"] = disk_u.get("boss_secretary")
+            if not u.get("hotdesk_config") and disk_u.get("hotdesk_config"):
+                u["hotdesk_config"] = disk_u.get("hotdesk_config")
         curr_tf_meta = (u.get("call_panel_prefs") or {}).get("twoFactorMeta") if isinstance(u.get("call_panel_prefs"), dict) else None
         if isinstance(curr_tf_meta, dict):
             meta_ts = _norm_2fa_ts(curr_tf_meta.get("updatedTs"))
@@ -26280,6 +27795,25 @@ async def new_get_users_endpoint(request: Request, user_info: dict = Depends(get
             )
             u["sip_username"] = (first_real_g.get("sip_username") if first_real_g else "") or ""
         ensure_user_profiles(u)
+        hd_map = settings_db.get("hotdesk_sessions") if isinstance(settings_db.get("hotdesk_sessions"), dict) else {}
+        user_hd_sessions = []
+        if ext and isinstance(hd_map, dict):
+            for hd_dev, hd_sess in hd_map.items():
+                if isinstance(hd_sess, dict) and str(hd_sess.get("extension") or "").strip() == ext:
+                    hd_dev_str = str(hd_dev).strip()
+                    hd_online = bool(hd_dev_str and hd_dev_str in registered_endpoints)
+                    hd_ip = (registered_endpoints.get_ip(hd_dev_str) if hd_dev_str else "") or ""
+                    if hd_online:
+                        any_dev_reg = True
+                        if not online_dev_ip and hd_ip:
+                            online_dev_ip = hd_ip
+                    user_hd_sessions.append({
+                        **hd_sess,
+                        "device_sip_username": hd_dev_str,
+                        "is_online": hd_online,
+                        "live_ip": hd_ip,
+                    })
+        u["active_hotdesk_sessions"] = user_hd_sessions
         reg_ip = registered_endpoints.get_ip(ext) or registered_endpoints.get_ip(uid) or online_dev_ip
         is_reg = bool(ext in registered_endpoints or uid in registered_endpoints or any_dev_reg)
         c_state = get_live_user_call_state(ext, is_reg)
@@ -26328,6 +27862,8 @@ async def new_save_users_endpoint(payload: Union[List[UserSchema], UserSchema], 
                 "ALTER TABLE system_users ADD COLUMN IF NOT EXISTS wallboard_layout JSON DEFAULT '{}';",
                 "ALTER TABLE system_users ADD COLUMN IF NOT EXISTS max_concurrent_outbound INTEGER DEFAULT 0;",
                 "ALTER TABLE system_users ADD COLUMN IF NOT EXISTS outbound_quarantined BOOLEAN DEFAULT FALSE;",
+                "ALTER TABLE system_users ADD COLUMN IF NOT EXISTS boss_secretary JSON DEFAULT '{}';",
+                "ALTER TABLE system_users ADD COLUMN IF NOT EXISTS hotdesk_config JSON DEFAULT '{}';",
                 "ALTER TABLE system_users ALTER COLUMN avatar TYPE TEXT;",
             ):
                 try:
@@ -26377,7 +27913,7 @@ async def new_save_users_endpoint(payload: Union[List[UserSchema], UserSchema], 
         processed_items_data = []
         changes = []
         valid_keys = {c.name for c in SystemUser.__table__.columns}
-        json_cols = {"profiles", "follow_me", "forwarding_always", "forwarding_busy", "forwarding_no_answer", "active_sessions", "managed_users", "managed_queues", "cti_config", "call_panel_prefs", "wallboard_layout", "sip_devices"}
+        json_cols = {"profiles", "follow_me", "forwarding_always", "forwarding_busy", "forwarding_no_answer", "active_sessions", "managed_users", "managed_queues", "cti_config", "call_panel_prefs", "wallboard_layout", "sip_devices", "boss_secretary", "hotdesk_config"}
         saved_payload_by_ext = {}
         saved_payload_by_id = {}
         from backend.services.autoprovision_service import normalize_user_sip_devices, normalize_mac_address
@@ -26396,6 +27932,8 @@ async def new_save_users_endpoint(payload: Union[List[UserSchema], UserSchema], 
             dp_Configs = {}
 
         for idx, item in enumerate(items_list):
+            raw_boss_sec_in = item.boss_secretary if hasattr(item, "boss_secretary") else (item.get("boss_secretary") if isinstance(item, dict) else None)
+            raw_hotdesk_in = item.hotdesk_config if hasattr(item, "hotdesk_config") else (item.get("hotdesk_config") if isinstance(item, dict) else None)
             data = item.model_dump()
             for loc_dep_k in ("location_id", "department_id"):
                 lv = data.get(loc_dep_k)
@@ -26420,6 +27958,13 @@ async def new_save_users_endpoint(payload: Union[List[UserSchema], UserSchema], 
                 )
 
             prev_disk = existing_disk_by_id.get(item_id_str) or (existing_disk_by_ext.get(ext_str) if ext_str else None) or {}
+            from backend.services.pbx_enterprise_features import normalize_boss_secretary_config as _norm_bs_save, normalize_hotdesk_config as _norm_hd_save
+            if raw_boss_sec_in is None:
+                prev_bs = (getattr(target_user, "boss_secretary", None) if target_user else None) or prev_disk.get("boss_secretary")
+                data["boss_secretary"] = _norm_bs_save(prev_bs)
+            if raw_hotdesk_in is None:
+                prev_hd = (getattr(target_user, "hotdesk_config", None) if target_user else None) or prev_disk.get("hotdesk_config")
+                data["hotdesk_config"] = _norm_hd_save(prev_hd)
             methods_map_save = _extract_2fa_methods_map(target_user, prev_disk) if (target_user or prev_disk) else _extract_2fa_methods_map(data)
             norm_save_m = _normalize_2fa_method(data.get("two_factor_method"))
             data["two_factor_method"] = norm_save_m
@@ -26722,7 +28267,7 @@ async def new_save_users_endpoint(payload: Union[List[UserSchema], UserSchema], 
                             u_dict["sip_username"] = p_match.get("sip_username")
                         if p_match.get("sip_devices") is not None:
                             u_dict["sip_devices"] = p_match.get("sip_devices")
-                        for tf_k in ("two_factor_enabled", "two_factor_method", "two_factor_secret", "two_factor_enrolled", "two_factor_updated_ts", "managed_users", "managed_queues", "cti_config", "call_panel_prefs", "max_concurrent_outbound", "outbound_quarantined", "avatar_updated_ts"):
+                        for tf_k in ("two_factor_enabled", "two_factor_method", "two_factor_secret", "two_factor_enrolled", "two_factor_updated_ts", "managed_users", "managed_queues", "cti_config", "call_panel_prefs", "max_concurrent_outbound", "outbound_quarantined", "avatar_updated_ts", "boss_secretary", "hotdesk_config"):
                             if p_match.get(tf_k) is not None:
                                 u_dict[tf_k] = p_match.get(tf_k)
                     u_dict["sip_password"] = resolve_secure_sip_password(ext_u, u_dict.get("sip_password") or "")
