@@ -444,3 +444,292 @@ async def send_voicemail_email_notification(
     except Exception as e_vm_mail:
         print(f"[Voicemail Email Warning]: {e_vm_mail}")
         return False
+
+
+def sanitize_trunk_name_safe(name: Any) -> str:
+    clean = re.sub(r"[^a-zA-Z0-9_\-.]", "_", str(name or "trunk").strip())
+    return clean or "trunk"
+
+
+def _parse_pjsip_registrations_cli_output(raw_text: str) -> Dict[str, str]:
+    """
+    Parses `asterisk -rx 'pjsip show registrations'` output into {reg_object_lower: status_lower}.
+    Example row:
+      908503607390-reg/sip:ikonsip.com:5060   908503607390-auth   Registered   (exp. 3412s)
+    """
+    reg_map: Dict[str, str] = {}
+    known_statuses = {"registered", "unregistered", "rejected", "attempting", "stopped"}
+    for line in (raw_text or "").splitlines():
+        ls = line.strip()
+        if not ls or ls.startswith("<") or ls.startswith("=") or ls.lower().startswith("objects found") or ls.lower().startswith("no objects"):
+            continue
+        parts = ls.split()
+        if len(parts) < 3 or "/" not in parts[0]:
+            continue
+        reg_name = parts[0].split("/", 1)[0].strip().lower()
+        if not reg_name:
+            continue
+        matched_st = ""
+        for tok in parts[1:]:
+            tl = tok.strip().lower()
+            if tl in known_statuses:
+                matched_st = tl
+                break
+        if matched_st:
+            reg_map[reg_name] = matched_st
+    return reg_map
+
+
+def _parse_pjsip_registration_detail_cli_output(raw_text: str) -> str:
+    """
+    Parses `asterisk -rx 'pjsip show registration <name>-reg'` output and returns status_lower or ''.
+    """
+    if not raw_text or "Unable to find object" in raw_text or "No objects found" in raw_text:
+        return ""
+    m_param = re.search(r"^\s*status\s*:\s*([A-Za-z]+)", raw_text, re.IGNORECASE | re.MULTILINE)
+    if m_param:
+        return m_param.group(1).strip().lower()
+    summary_map = _parse_pjsip_registrations_cli_output(raw_text)
+    if summary_map:
+        return next(iter(summary_map.values()))
+    return ""
+
+
+def _parse_pjsip_contacts_cli_output(raw_text: str) -> Dict[str, List[str]]:
+    """
+    Parses `asterisk -rx 'pjsip show contacts'` or `pjsip show aor <aor>` output into
+    {aor_name_lower: [status_lower, ...]}.
+    Example row:
+      Contact:  test-aor/sip:1.2.3.4:5060   88a12b33c9 Unavail   0.000
+    """
+    aor_map: Dict[str, List[str]] = {}
+    known_contact_states = {"avail", "unavail", "unknown", "nonqual", "created", "removed", "reachable", "unreachable"}
+    for line in (raw_text or "").splitlines():
+        ls = line.strip()
+        if not ls.startswith("Contact:"):
+            continue
+        rest = ls[len("Contact:"):].strip()
+        if not rest or rest.startswith("<"):
+            continue
+        parts = rest.split()
+        if len(parts) < 3:
+            continue
+        aor_name = parts[0].split("/", 1)[0].strip().lower()
+        if not aor_name:
+            continue
+        matched_st = ""
+        for tok in parts[1:]:
+            tl = tok.strip().lower()
+            if tl in known_contact_states:
+                matched_st = tl
+                break
+        if matched_st:
+            aor_map.setdefault(aor_name, []).append(matched_st)
+    return aor_map
+
+
+def _collect_asterisk_cli_trunk_snapshot(trunks_list: List[dict]) -> Tuple[bool, Dict[str, str], Dict[str, List[str]]]:
+    """
+    Runs Asterisk CLI commands synchronously (meant to be invoked via asyncio.to_thread)
+    to gather live PJSIP registration states and AOR contact qualify states.
+    """
+    import subprocess
+
+    def _run_cli(cmd_str: str, timeout_s: float = 2.0) -> Tuple[bool, str]:
+        try:
+            proc = subprocess.run(
+                ["asterisk", "-rx", cmd_str],
+                capture_output=True,
+                text=True,
+                timeout=timeout_s,
+                check=False,
+            )
+            out = (proc.stdout or proc.stderr or "").strip()
+            if proc.returncode == 0 and "Unable to connect to remote asterisk" not in out:
+                return True, out
+        except FileNotFoundError:
+            pass
+        except Exception:
+            return False, ""
+
+        try:
+            proc_d = subprocess.run(
+                ["docker", "exec", "ai_pbx_asterisk", "asterisk", "-rx", cmd_str],
+                capture_output=True,
+                text=True,
+                timeout=timeout_s,
+                check=False,
+            )
+            out_d = (proc_d.stdout or proc_d.stderr or "").strip()
+            if proc_d.returncode == 0 and "Unable to connect to remote asterisk" not in out_d:
+                return True, out_d
+        except Exception:
+            pass
+        return False, ""
+
+    ok_reg, raw_regs = _run_cli("pjsip show registrations", 2.0)
+    ok_con, raw_cons = _run_cli("pjsip show contacts", 2.0)
+    if not ok_reg and not ok_con:
+        return False, {}, {}
+
+    reg_map = _parse_pjsip_registrations_cli_output(raw_regs) if ok_reg else {}
+    aor_map = _parse_pjsip_contacts_cli_output(raw_cons) if ok_con else {}
+
+    for t in trunks_list or []:
+        if not isinstance(t, dict) or t.get("is_active", True) is False:
+            continue
+        raw_name = t.get("trunk_name") or t.get("name") or "trunk"
+        safe_name = sanitize_trunk_name_safe(raw_name)
+        t_type = str(t.get("trunk_type") or "register").strip().lower()
+        if t_type == "ip":
+            t_type = "peer"
+
+        if t_type == "register":
+            reg_key = f"{safe_name}-reg".lower()
+            if reg_key not in reg_map:
+                ok_d, raw_d = _run_cli(f"pjsip show registration {safe_name}-reg", 1.5)
+                if ok_d:
+                    det_st = _parse_pjsip_registration_detail_cli_output(raw_d)
+                    if det_st:
+                        reg_map[reg_key] = det_st
+        else:
+            aor_key = f"{safe_name}-aor".lower()
+            if aor_key not in aor_map:
+                ok_a, raw_a = _run_cli(f"pjsip show aor {safe_name}-aor", 1.5)
+                if ok_a and "Unable to find object" not in raw_a:
+                    parsed_a = _parse_pjsip_contacts_cli_output(raw_a)
+                    for k_a, v_a in parsed_a.items():
+                        aor_map.setdefault(k_a, []).extend(v_a)
+            if t_type == "account":
+                acc_user = sanitize_trunk_name_safe(str(t.get("username") or "").strip())
+                if acc_user and acc_user.lower() != safe_name.lower() and acc_user.lower() not in aor_map:
+                    ok_u, raw_u = _run_cli(f"pjsip show aor {acc_user}", 1.5)
+                    if ok_u and "Unable to find object" not in raw_u:
+                        parsed_u = _parse_pjsip_contacts_cli_output(raw_u)
+                        for k_u, v_u in parsed_u.items():
+                            aor_map.setdefault(k_u, []).extend(v_u)
+
+    return True, reg_map, aor_map
+
+
+async def inspect_live_trunks_pjsip_status(trunks_list: List[dict]) -> Dict[Any, str]:
+    """
+    Evaluates real-time Asterisk PJSIP trunk status for all trunk types:
+      - 'register': checks PJSIP outbound registration (`<name>-reg` == 'Registered').
+      - 'peer' / 'ip': checks PJSIP AOR SIP OPTIONS qualify status (`<name>-aor` == 'Avail' / 'Reachable').
+      - 'account': checks inbound registered contacts on `<name>-aor` / `<username>`.
+      - disabled trunks (`is_active == False`): returns 'passive'.
+    Never uses DNS/socket.gethostbyname to mark unreachable IPs (like 1.2.3.4) as active.
+    """
+    status_dict: Dict[Any, str] = {}
+    if not trunks_list:
+        return status_dict
+
+    cli_ok, reg_map, aor_map = await asyncio.to_thread(_collect_asterisk_cli_trunk_snapshot, trunks_list)
+    ami_ok = False
+
+    if not cli_ok:
+        try:
+            from backend.services.ami_manager import get_ami_manager, _iter_ami_responses
+            manager = await get_ami_manager()
+            if manager:
+                try:
+                    res_reg = await asyncio.wait_for(
+                        manager.send_action({"Action": "PJSIPShowRegistrationsOutbound"}),
+                        timeout=2.5,
+                    )
+                    if res_reg is not None:
+                        ami_ok = True
+                    for ev in _iter_ami_responses(res_reg):
+                        if not hasattr(ev, "get"):
+                            continue
+                        obj_name = str(ev.get("ObjectName") or ev.get("Registration") or "").strip().lower()
+                        st_val = str(ev.get("Status") or "").strip().lower()
+                        if obj_name and st_val:
+                            reg_map[obj_name] = st_val
+                except Exception:
+                    pass
+
+                try:
+                    res_con = await asyncio.wait_for(
+                        manager.send_action({"Action": "PJSIPShowContacts"}),
+                        timeout=2.5,
+                    )
+                    if res_con is not None:
+                        ami_ok = True
+                    for ev in _iter_ami_responses(res_con):
+                        if not hasattr(ev, "get"):
+                            continue
+                        aor_name = str(ev.get("AOR") or ev.get("Endpoint") or "").strip().lower()
+                        st_val = str(ev.get("Status") or ev.get("ContactStatus") or "").strip().lower()
+                        if aor_name and st_val:
+                            aor_map.setdefault(aor_name, []).append(st_val)
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
+    ast_reachable = cli_ok or ami_ok
+
+    for t in trunks_list:
+        if not isinstance(t, dict):
+            continue
+        trunk_id = t.get("id")
+        if trunk_id is None:
+            continue
+
+        if t.get("is_active", True) is False:
+            status_dict[trunk_id] = "passive"
+            continue
+
+        if not ast_reachable:
+            status_dict[trunk_id] = "inactive"
+            continue
+
+        raw_name = t.get("trunk_name") or t.get("name") or "trunk"
+        safe_name = sanitize_trunk_name_safe(raw_name)
+        t_type = str(t.get("trunk_type") or "register").strip().lower()
+        if t_type == "ip":
+            t_type = "peer"
+
+        host = str(t.get("host") or "").strip()
+        username = str(t.get("username") or "").strip()
+
+        if t_type == "register":
+            if not host or not username:
+                status_dict[trunk_id] = "inactive"
+                continue
+            reg_st = reg_map.get(f"{safe_name}-reg".lower(), "")
+            if reg_st == "registered":
+                status_dict[trunk_id] = "registered"
+            elif reg_st == "attempting":
+                status_dict[trunk_id] = "trying"
+            else:
+                status_dict[trunk_id] = "inactive"
+
+        elif t_type == "peer":
+            if not host:
+                status_dict[trunk_id] = "inactive"
+                continue
+            c_states = aor_map.get(f"{safe_name}-aor".lower(), [])
+            if any(s in ("avail", "reachable") for s in c_states):
+                status_dict[trunk_id] = "active"
+            elif any(s == "unknown" for s in c_states):
+                status_dict[trunk_id] = "trying"
+            else:
+                status_dict[trunk_id] = "inactive"
+
+        elif t_type == "account":
+            c_states = list(aor_map.get(f"{safe_name}-aor".lower(), []))
+            acc_user = sanitize_trunk_name_safe(username) if username else ""
+            if acc_user and acc_user.lower() != safe_name.lower():
+                c_states.extend(aor_map.get(acc_user.lower(), []))
+            if any(s in ("avail", "reachable", "nonqual", "nonqualified", "created", "registered") for s in c_states):
+                status_dict[trunk_id] = "registered"
+            else:
+                status_dict[trunk_id] = "inactive"
+        else:
+            status_dict[trunk_id] = "inactive"
+
+    return status_dict
+

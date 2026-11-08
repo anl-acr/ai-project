@@ -10545,7 +10545,7 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                     const totalCallsOnTrunk = tIntervals.length;
                     const satPct = Math.round((used / Math.max(1, limit)) * 100);
                     const isActive = t.is_active !== false;
-                    const liveReg = isActive ? trunkStatuses[t.id] || "active" : "passive";
+                    const liveReg = isActive ? trunkStatuses[t.id] || "inactive" : "passive";
 
                     let statusLabel = "Normal";
                     let statusBadgeClass =
@@ -10755,15 +10755,35 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                                         <td className="p-4">
                                           <div className="flex items-center gap-2.5">
                                             <span
+                                              aria-hidden="true"
                                               className={`w-2.5 h-2.5 rounded-full shrink-0 ${
                                                 !p.isActive
                                                   ? "bg-slate-400"
                                                   : p.liveReg === "registered" || p.liveReg === "active"
                                                   ? "bg-emerald-500"
-                                                  : "bg-amber-500"
+                                                  : p.liveReg === "trying"
+                                                  ? "bg-amber-500"
+                                                  : "bg-rose-500"
                                               }`}
-                                              title={!p.isActive ? "Pasif" : p.liveReg === "registered" || p.liveReg === "active" ? "Kayıtlı / Aktif" : "Bağlantı Bekleniyor"}
+                                              title={
+                                                !p.isActive
+                                                  ? "Pasif"
+                                                  : p.liveReg === "registered" || p.liveReg === "active"
+                                                  ? "Kayıtlı / Aktif"
+                                                  : p.liveReg === "trying"
+                                                  ? "Bağlantı Kontrol Ediliyor"
+                                                  : "Bağlantı Yok"
+                                              }
                                             />
+                                            <span className="sr-only">
+                                              {!p.isActive
+                                                ? "Pasif"
+                                                : p.liveReg === "registered" || p.liveReg === "active"
+                                                ? "Kayıtlı / Aktif"
+                                                : p.liveReg === "trying"
+                                                ? "Bağlantı Kontrol Ediliyor"
+                                                : "Bağlantı Yok"}
+                                            </span>
                                             <div>
                                               <div className="font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
                                                 <span>{p.name}</span>

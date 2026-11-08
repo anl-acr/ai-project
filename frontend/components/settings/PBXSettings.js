@@ -611,6 +611,8 @@ export default function PBXSettings({ viewMode = "pbx", backendHost = "localhost
           fetchTrunks();
         }
         fetchTrunkStatuses();
+        setTimeout(fetchTrunkStatuses, 2000);
+        setTimeout(fetchTrunkStatuses, 4500);
       } else {
         setTrunkError(data.detail || "Dış hat kaydedilirken bir hata oluştu.");
       }
@@ -1098,31 +1100,46 @@ export default function PBXSettings({ viewMode = "pbx", backendHost = "localhost
                         const isActive = t.is_active !== false;
                         const status = isActive ? (trunkStatuses[t.id] || "inactive") : "passive";
                         const tType = (t.trunk_type || "register").toLowerCase();
+                        const statusTitle =
+                          status === "passive"
+                            ? "Pasif (Devre Dışı)"
+                            : status === "registered" || status === "active"
+                            ? tType === "peer"
+                              ? "Erişilebilir (Aktif)"
+                              : "Kayıtlı (Aktif)"
+                            : status === "trying"
+                            ? "Bağlantı Kontrol Ediliyor..."
+                            : tType === "peer"
+                            ? "Bağlantı Yok (Erişilemiyor)"
+                            : tType === "account"
+                            ? "Bağlantı Yok (Kayıtlı Cihaz Yok)"
+                            : "Bağlantı Yok (Kayıt Başarısız)";
                         const codecList = parseCodecsArray(t);
                         const pkgMins = Math.max(0, parseInt(t.monthly_package_minutes, 10) || 0);
                         const pkgResetDay = Math.min(31, Math.max(1, parseInt(t.package_reset_day, 10) || 1));
                         return (
                           <tr key={t.id} className="border-b border-slate-100 dark:border-slate-850 hover:bg-slate-50/40 dark:hover:bg-slate-950/20 transition-colors">
                             <td className="py-3 text-center">
-                              <div className="flex items-center justify-center">
-                                <span className="relative flex h-2 w-2">
+                              <div className="flex items-center justify-center p-1" title={statusTitle}>
+                                <span className="sr-only">{statusTitle}</span>
+                                <span aria-hidden="true" className="relative flex h-2 w-2">
                                   {(status === "registered" || status === "active") && (
                                     <>
                                       <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-                                      <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500 shadow-lg shadow-emerald-500/50" title="Kayıtlı (Aktif)"></span>
+                                      <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500 shadow-lg shadow-emerald-500/50"></span>
                                     </>
                                   )}
                                   {status === "trying" && (
                                     <>
                                       <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
-                                      <span className="relative inline-flex rounded-full h-2 w-2 bg-amber-500 shadow-lg shadow-amber-500/50" title="Deneniyor"></span>
+                                      <span className="relative inline-flex rounded-full h-2 w-2 bg-amber-500 shadow-lg shadow-amber-500/50"></span>
                                     </>
                                   )}
                                   {status === "inactive" && (
-                                    <span className="relative inline-flex rounded-full h-2 w-2 bg-rose-500 shadow-lg shadow-rose-500/50" title="Bağlantı Yok"></span>
+                                    <span className="relative inline-flex rounded-full h-2 w-2 bg-rose-500 shadow-lg shadow-rose-500/50"></span>
                                   )}
                                   {status === "passive" && (
-                                    <span className="relative inline-flex rounded-full h-2 w-2 bg-slate-400 dark:bg-slate-600 shadow-lg shadow-slate-500/50" title="Pasif (Devre Dışı)"></span>
+                                    <span className="relative inline-flex rounded-full h-2 w-2 bg-slate-400 dark:bg-slate-600 shadow-lg shadow-slate-500/50"></span>
                                   )}
                                 </span>
                               </div>

@@ -452,7 +452,8 @@ auth_rejection_permanent=no
 [{name}-aor]
 type=aor
 contact=sip:{host}:{port}
-qualify_frequency=60
+qualify_frequency=30
+qualify_timeout=3.0
 
 [{name}]
 type=endpoint
@@ -480,7 +481,8 @@ trust_id_inbound={trust_id_in}
                 pjsip_custom_content += f"""[{name}-aor]
 type=aor
 contact=sip:{host}:{port}
-qualify_frequency=60
+qualify_frequency=30
+qualify_timeout=3.0
 
 [{name}]
 type=endpoint

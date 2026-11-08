@@ -3593,7 +3593,8 @@ auth_rejection_permanent=no
 [{name}-aor]
 type=aor
 contact=sip:{host}:{port}
-qualify_frequency=60
+qualify_frequency=30
+qualify_timeout=3.0
 
 [{name}]
 type=endpoint
@@ -3628,7 +3629,8 @@ match={host}
             conf_content += f"""[{name}-aor]
 type=aor
 contact=sip:{host}:{port}
-qualify_frequency=60
+qualify_frequency=30
+qualify_timeout=3.0
 
 [{name}]
 type=endpoint
@@ -5791,41 +5793,29 @@ async def resolve_outbound_dial_endpoint(
 
 
 @app.get("/api/settings/trunks/status")
+@app.get("/settings/trunks/status")
 async def get_trunks_status(db: AsyncSession = Depends(get_db)):
-    status_dict = {}
+    from backend.services.pbx_enterprise_features import inspect_live_trunks_pjsip_status
     trunks_list = []
+    disk_trunks = [dt for dt in (settings_db.get("trunks") or []) if isinstance(dt, dict)]
+    disk_trunks_map = {str(dt.get("trunk_name") or dt.get("id") or ""): dt for dt in disk_trunks}
     try:
         res = await db.execute(select(Trunk).order_by(Trunk.id))
         for row in res.scalars().all():
-            trunks_list.append({c.name: getattr(row, c.name) for c in row.__table__.columns})
+            row_d = {c.name: getattr(row, c.name) for c in row.__table__.columns}
+            tk = str(row_d.get("trunk_name") or row_d.get("id") or "")
+            dt = disk_trunks_map.get(tk)
+            if dt:
+                for extra_k in ("trunk_type", "username", "host", "port", "is_active"):
+                    if row_d.get(extra_k) in (None, "") and dt.get(extra_k) not in (None, ""):
+                        row_d[extra_k] = dt.get(extra_k)
+            trunks_list.append(row_d)
     except Exception:
         pass
     if not trunks_list:
-        trunks_list = settings_db.get("trunks", [])
+        trunks_list = disk_trunks
 
-    for t in trunks_list:
-        trunk_id = t.get("id")
-        if t.get("is_active", True) is False:
-            status_dict[trunk_id] = "inactive"
-            continue
-        t_type = str(t.get("trunk_type") or "register").lower()
-        if t_type == "account":
-            status_dict[trunk_id] = "active"
-            continue
-        host = str(t.get("host") or "").strip()
-        if not host:
-            status_dict[trunk_id] = "inactive"
-            continue
-        try:
-            socket.gethostbyname(host)
-            if host == "sip.operator.com":
-                status_dict[trunk_id] = "trying"
-            else:
-                status_dict[trunk_id] = "active"
-        except Exception:
-            status_dict[trunk_id] = "inactive"
-
-    return status_dict
+    return await inspect_live_trunks_pjsip_status(trunks_list)
 
 
 @app.get("/api/settings/channels")
