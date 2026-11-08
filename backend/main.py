@@ -24036,7 +24036,13 @@ async def setup_2fa(
     acct_label = str(email or user.get("email") or user.get("extension") or user.get("full_name") or user_id).strip()
     uri = build_otpauth_uri(active_secret, account_name=acct_label, issuer="AIDA", method=norm_method)
     qr_svg = generate_qr_svg_data_uri(uri)
-    user_gsm = user.get("gsm_number") or (user.get("follow_me", {}) or {}).get("mobile_number") or ""
+    fm_setup_raw = user.get("follow_me")
+    if isinstance(fm_setup_raw, str) and fm_setup_raw.strip().startswith("{"):
+        try:
+            fm_setup_raw = json.loads(fm_setup_raw)
+        except Exception:
+            fm_setup_raw = {}
+    user_gsm = user.get("gsm_number") or ((fm_setup_raw if isinstance(fm_setup_raw, dict) else {}).get("mobile_number")) or ""
 
     return {
         "status": "success",
