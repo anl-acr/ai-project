@@ -37,13 +37,13 @@ SUPPORTED_PHONE_MODELS: Dict[str, List[str]] = {
 def resolve_user_sip_username(ext_val: Any, raw_sip_user: Any = "") -> str:
     """
     Returns a clean, deterministic PJSIP endpoint identifier for physical IP phones / SIP clients.
-    - Uses user's configured `sip_username` (Kullanıcı Ayarları > SIP > Kullanıcı Adı) when valid and distinct from numeric extension.
+    - Uses user's configured `sip_username` (Kullanıcı Ayarları > SIP > Kullanıcı Adı) when valid and non-numeric.
     - Otherwise derives a stable 8-character alphanumeric SIP username from `ext_val` so it never changes randomly across restarts
-      and never collides with the WebRTC `[<ext>]` endpoint.
+      and never exposes numeric extension numbers in Asterisk PJSIP.
     """
     ext_s = str(ext_val or "").strip()
     cand = re.sub(r"[^a-zA-Z0-9_.-]", "", str(raw_sip_user or "").strip())
-    if cand and cand != ext_s:
+    if cand and cand != ext_s and not cand.isdigit():
         return cand
     seed = f"AIDA_SIP_USER_V1_{ext_s or '1000'}"
     digest = hashlib.sha256(seed.encode("utf-8")).hexdigest()
@@ -53,6 +53,34 @@ def resolve_user_sip_username(ext_val: Any, raw_sip_user: Any = "") -> str:
     b = bytes.fromhex(digest[:16])
     chars = [
         alpha_up[b[0] % len(alpha_up)],
+        alpha_lo[b[1] % len(alpha_lo)],
+        digits[b[2] % len(digits)],
+        alpha_up[b[3] % len(alpha_up)],
+        alpha_lo[b[4] % len(alpha_lo)],
+        digits[b[5] % len(digits)],
+        alpha_up[b[6] % len(alpha_up)],
+        digits[b[7] % len(digits)],
+    ]
+    return "".join(chars)
+
+
+def resolve_user_webphone_sip_username(ext_val: Any, raw_web_sip_user: Any = "") -> str:
+    """
+    Returns a clean, deterministic alphanumeric PJSIP endpoint identifier for the browser WebRTC phone (`web_phone`).
+    Never returns a numeric extension so Asterisk `pjsip show endpoints` contains zero extension numbers.
+    """
+    ext_s = str(ext_val or "").strip()
+    cand = re.sub(r"[^a-zA-Z0-9_.-]", "", str(raw_web_sip_user or "").strip())
+    if cand and cand != ext_s and not cand.isdigit():
+        return cand
+    seed = f"AIDA_WEBPHONE_SIP_V1_{ext_s or '1000'}"
+    digest = hashlib.sha256(seed.encode("utf-8")).hexdigest()
+    alpha_up = "ABCDEFGHJKLMNPQRSTUVWXYZ"
+    alpha_lo = "abcdefghijkmnopqrstuvwxyz"
+    digits = "23456789"
+    b = bytes.fromhex(digest[:16])
+    chars = [
+        "W",
         alpha_lo[b[1] % len(alpha_lo)],
         digits[b[2] % len(digits)],
         alpha_up[b[3] % len(alpha_up)],
@@ -125,51 +153,84 @@ def normalize_user_sip_devices(
 
     cti_cfg = user_dict.get("cti_config") if isinstance(user_dict.get("cti_config"), dict) else {}
     explicitly_empty = bool(cti_cfg.get("sip_devices_empty")) and isinstance(raw_devices, list) and len(raw_devices) == 0
+    is_system_admin_no_ext = (not ext_s) and (
+        str(user_dict.get("role") or "").strip().lower() == "admin" or uid_s in ("admin", "9999")
+    )
 
-    if not explicitly_empty and (not isinstance(raw_devices, list) or len(raw_devices) == 0):
-        primary_sip_u = resolve_user_sip_username(ext_s, user_dict.get("sip_username") or "")
-        primary_pwd = _clean_pwd(user_dict.get("sip_password") or "")
-        try:
-            primary_max_act = max(1, min(5, int(user_dict.get("max_activations") or 1)))
-        except Exception:
-            primary_max_act = 1
-        primary_tr = str(user_dict.get("transport") or "UDP").strip().upper()
-        if primary_tr not in ("UDP", "TCP", "TLS"):
-            primary_tr = "UDP"
+    if not isinstance(raw_devices, list) or len(raw_devices) == 0:
+        if is_system_admin_no_ext:
+            return []
+        if explicitly_empty:
+            raw_devices = []
+        else:
+            primary_sip_u = resolve_user_sip_username(ext_s, user_dict.get("sip_username") or "")
+            primary_pwd = _clean_pwd(user_dict.get("sip_password") or "")
+            try:
+                primary_max_act = max(1, min(5, int(user_dict.get("max_activations") or 1)))
+            except Exception:
+                primary_max_act = 1
+            primary_tr = str(user_dict.get("transport") or "UDP").strip().upper()
+            if primary_tr not in ("UDP", "TCP", "TLS"):
+                primary_tr = "UDP"
 
-        ap0 = bound_ap_devices[0] if bound_ap_devices else {}
-        mac0, _ = normalize_mac_address(ap0.get("mac") or legacy_dp.get("mac") or "")
-        brand0 = str(ap0.get("brand") or legacy_dp.get("brand") or (detect_brand_from_mac(mac0, "Yealink") if mac0 else "Yealink")).strip()
-        model0 = str(ap0.get("model") or legacy_dp.get("model") or "T46U").strip()
-        ip0 = str(ap0.get("ip") or legacy_dp.get("ip") or "").strip()
-        dss0 = ap0.get("dss_keys") if isinstance(ap0.get("dss_keys"), list) and ap0.get("dss_keys") else (legacy_dp.get("dss_keys") if isinstance(legacy_dp.get("dss_keys"), list) else [])
-        soft0 = ap0.get("soft_keys") if isinstance(ap0.get("soft_keys"), list) and ap0.get("soft_keys") else (legacy_dp.get("soft_keys") if isinstance(legacy_dp.get("soft_keys"), list) else [])
+            ap0 = bound_ap_devices[0] if bound_ap_devices else {}
+            mac0, _ = normalize_mac_address(ap0.get("mac") or legacy_dp.get("mac") or "")
+            brand0 = str(ap0.get("brand") or legacy_dp.get("brand") or (detect_brand_from_mac(mac0, "Yealink") if mac0 else "Yealink")).strip()
+            model0 = str(ap0.get("model") or legacy_dp.get("model") or "T46U").strip()
+            ip0 = str(ap0.get("ip") or legacy_dp.get("ip") or "").strip()
+            dss0 = ap0.get("dss_keys") if isinstance(ap0.get("dss_keys"), list) and ap0.get("dss_keys") else (legacy_dp.get("dss_keys") if isinstance(legacy_dp.get("dss_keys"), list) else [])
+            soft0 = ap0.get("soft_keys") if isinstance(ap0.get("soft_keys"), list) and ap0.get("soft_keys") else (legacy_dp.get("soft_keys") if isinstance(legacy_dp.get("soft_keys"), list) else [])
 
-        raw_devices = [
-            {
-                "id": f"dev-{ext_s or '1'}-1",
-                "name": "Masa Telefonu 1",
-                "device_type": "desk_phone",
-                "sip_username": primary_sip_u,
-                "sip_password": primary_pwd,
-                "max_activations": primary_max_act,
-                "transport": primary_tr,
-                "is_active": True,
-                "mac": mac0,
-                "ip": ip0,
-                "brand": brand0,
-                "model": model0,
-                "codecs": ["g722", "alaw", "ulaw", "g729"],
-                "dtmf_mode": "rfc4733",
-                "language": "Turkish",
-                "timezone": "+3",
-                "ntp_server": "pool.ntp.org",
-                "auto_answer": False,
-                "direct_ip_call_block": True,
-                "dss_keys": dss0,
-                "soft_keys": soft0,
-            }
+            raw_devices = [
+                {
+                    "id": f"dev-{ext_s or '1'}-1",
+                    "name": "Masa Telefonu 1",
+                    "device_type": "desk_phone",
+                    "sip_username": primary_sip_u,
+                    "sip_password": primary_pwd,
+                    "max_activations": primary_max_act,
+                    "transport": primary_tr,
+                    "is_active": True,
+                    "mac": mac0,
+                    "ip": ip0,
+                    "brand": brand0,
+                    "model": model0,
+                    "codecs": ["g722", "alaw", "ulaw", "g729"],
+                    "dtmf_mode": "rfc4733",
+                    "language": "Turkish",
+                    "timezone": "+3",
+                    "ntp_server": "pool.ntp.org",
+                    "auto_answer": False,
+                    "direct_ip_call_block": True,
+                    "dss_keys": dss0,
+                    "soft_keys": soft0,
+                }
+            ]
+
+    # Ensure exactly one Web Telefonu (`web_phone`) sits at index 0 for every subscriber with an extension
+    if ext_s or any(isinstance(d, dict) and str(d.get("device_type") or "").strip().lower() == "web_phone" for d in raw_devices):
+        existing_web_devs = [
+            d for d in raw_devices
+            if isinstance(d, dict) and str(d.get("device_type") or "").strip().lower() == "web_phone"
         ]
+        other_devs = [
+            d for d in raw_devices
+            if isinstance(d, dict) and str(d.get("device_type") or "").strip().lower() != "web_phone"
+        ]
+        if existing_web_devs:
+            web_seed_item = dict(existing_web_devs[0])
+        else:
+            web_seed_item = {
+                "id": f"dev-web-{ext_s or uid_s or '1'}",
+                "name": "Web Telefonu",
+                "device_type": "web_phone",
+                "sip_username": resolve_user_webphone_sip_username(ext_s, ""),
+                "sip_password": _clean_pwd(user_dict.get("sip_password") or ""),
+                "max_activations": 5,
+                "transport": "WSS",
+                "is_active": True,
+            }
+        raw_devices = [web_seed_item] + other_devs
 
     normalized: List[Dict[str, Any]] = []
     seen_sip_users = {ext_s.lower()} if ext_s else set()
@@ -178,12 +239,19 @@ def normalize_user_sip_devices(
     for idx, dev in enumerate(raw_devices):
         if not isinstance(dev, dict):
             continue
-        dev_id = str(dev.get("id") or f"dev-{ext_s or 'u'}-{idx + 1}").strip()
         dev_type = str(dev.get("device_type") or "desk_phone").strip().lower()
-        if dev_type not in ("desk_phone", "softphone", "dect", "virtual_subscriber"):
+        if dev_type not in ("web_phone", "desk_phone", "softphone", "dect", "virtual_subscriber"):
             dev_type = "desk_phone"
 
-        default_dev_label = f"Sanal Abone {idx + 1}" if dev_type == "virtual_subscriber" else f"SIP Cihazı {idx + 1}"
+        if dev_type == "web_phone":
+            dev_id = str(dev.get("id") or f"dev-web-{ext_s or 'u'}").strip()
+            default_dev_label = "Web Telefonu"
+        elif dev_type == "virtual_subscriber":
+            dev_id = str(dev.get("id") or f"dev-{ext_s or 'u'}-{idx + 1}").strip()
+            default_dev_label = f"Sanal Abone {idx}"
+        else:
+            dev_id = str(dev.get("id") or f"dev-{ext_s or 'u'}-{idx + 1}").strip()
+            default_dev_label = f"SIP Cihazı {idx}"
         dev_name = str(dev.get("name") or default_dev_label).strip() or default_dev_label
 
         dev_trunk = str(dev.get("trunk") or "").strip()
@@ -195,6 +263,13 @@ def normalize_user_sip_devices(
         if dev_type == "virtual_subscriber":
             cand_su = ""
             dev_pwd = ""
+        elif dev_type == "web_phone":
+            raw_su = str(dev.get("sip_username") or "").strip()
+            cand_su = resolve_user_webphone_sip_username(ext_s, raw_su)
+            while cand_su.lower() in seen_sip_users or cand_su.isdigit():
+                cand_su = "W" + generate_random_sip_device_username(ext_s, idx + 1)[1:]
+            seen_sip_users.add(cand_su.lower())
+            dev_pwd = _clean_pwd(dev.get("sip_password") or user_dict.get("sip_password") or "")
         else:
             raw_su = str(dev.get("sip_username") or "").strip()
             if not assigned_primary_real_sip:
@@ -202,20 +277,25 @@ def normalize_user_sip_devices(
                 assigned_primary_real_sip = True
             else:
                 cand_su = re.sub(r"[^a-zA-Z0-9_.-]", "", raw_su)
-                if not cand_su or cand_su.lower() in seen_sip_users:
+                if not cand_su or cand_su.isdigit() or cand_su.lower() in seen_sip_users:
                     cand_su = generate_random_sip_device_username(ext_s, idx + 1)
-            while cand_su.lower() in seen_sip_users:
+            while cand_su.lower() in seen_sip_users or cand_su.isdigit():
                 cand_su = generate_random_sip_device_username(ext_s, idx + 2)
             seen_sip_users.add(cand_su.lower())
-            dev_pwd = _clean_pwd(dev.get("sip_password") or (user_dict.get("sip_password") if idx == 0 else ""))
+            dev_pwd = _clean_pwd(dev.get("sip_password") or (user_dict.get("sip_password") if not normalized else ""))
         try:
-            dev_max_act = max(1, min(5, int(dev.get("max_activations") or 1)))
+            max_upper = 10 if dev_type == "web_phone" else 5
+            default_max_act = 5 if dev_type == "web_phone" else 1
+            dev_max_act = max(1, min(max_upper, int(dev.get("max_activations") or default_max_act)))
         except Exception:
-            dev_max_act = 1
+            dev_max_act = 5 if dev_type == "web_phone" else 1
 
-        dev_tr = str(dev.get("transport") or "UDP").strip().upper()
-        if dev_tr not in ("UDP", "TCP", "TLS"):
-            dev_tr = "UDP"
+        if dev_type == "web_phone":
+            dev_tr = "WSS"
+        else:
+            dev_tr = str(dev.get("transport") or "UDP").strip().upper()
+            if dev_tr not in ("UDP", "TCP", "TLS"):
+                dev_tr = "UDP"
 
         mac_colon, _ = normalize_mac_address(dev.get("mac") or "")
         raw_brand = str(dev.get("brand") or "").strip()
@@ -277,6 +357,7 @@ def normalize_user_sip_devices(
             "max_activations": dev_max_act,
             "transport": dev_tr,
             "is_active": dev.get("is_active") is not False,
+            "is_deletable": dev_type != "web_phone",
             "trunk": dev_trunk,
             "prefix": dev_prefix,
             "virtual_target_mode": dev_vmode,

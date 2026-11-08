@@ -135,7 +135,7 @@ stunaddr=stun.l.google.com:19302
     def resolve_user_sip_username(ext_val, raw_sip_user=""):
         ext_s = str(ext_val or "").strip()
         cand = _re_sync.sub(r"[^a-zA-Z0-9_.-]", "", str(raw_sip_user or "").strip())
-        if cand and cand != ext_s:
+        if cand and cand != ext_s and not cand.isdigit():
             return cand
         seed = f"AIDA_SIP_USER_V1_{ext_s or '1000'}"
         digest = hashlib.sha256(seed.encode("utf-8")).hexdigest()
@@ -152,6 +152,29 @@ stunaddr=stun.l.google.com:19302
             digits[b[5] % len(digits)],
             alpha_up[b[6] % len(alpha_up)],
             digits[b[7] % len(digits)],
+        ]
+        return "".join(chars)
+
+    def resolve_user_webphone_sip_username(ext_val, raw_web_sip_user=""):
+        ext_s = str(ext_val or "").strip()
+        cand = _re_sync.sub(r"[^a-zA-Z0-9_.-]", "", str(raw_web_sip_user or "").strip())
+        if cand and cand != ext_s and not cand.isdigit():
+            return cand
+        seed = f"AIDA_WEBPHONE_SIP_V1_{ext_s or '1000'}"
+        digest = hashlib.sha256(seed.encode("utf-8")).hexdigest()
+        alpha_up = "ABCDEFGHJKLMNPQRSTUVWXYZ"
+        alpha_lo = "abcdefghijkmnopqrstuvwxyz"
+        digits = "23456789"
+        b = bytes.fromhex(digest[:16])
+        chars = [
+            "W",
+            alpha_lo[b[0] % len(alpha_lo)],
+            digits[b[1] % len(digits)],
+            alpha_up[b[2] % len(alpha_up)],
+            alpha_lo[b[3] % len(alpha_lo)],
+            digits[b[4] % len(digits)],
+            alpha_up[b[5] % len(alpha_up)],
+            digits[b[6] % len(digits)],
         ]
         return "".join(chars)
 
@@ -550,14 +573,15 @@ trust_id_inbound={trust_id_in}
 
         has_1000_in_users = any(str(u.get("extension") or "").strip() == "1000" and (u.get("is_active", True) is not False) for u in users_list)
         if not has_1000_in_users:
+            web_1000 = resolve_user_webphone_sip_username("1000", "")
             sip_1000 = resolve_user_sip_username("1000", "")
             pjsip_custom_content += f"""
 ; --- DEFAULT WEBRTC & DESKPHONE AGENT: 1000 ---
-[1000]
+[{web_1000}]
 type=endpoint
 context=webrtc_agents
 disallow=all
-allow=ulaw,alaw,g722,g729
+allow=ulaw,alaw,g722,g729,opus
 direct_media=no
 force_rport=yes
 rewrite_contact=no
@@ -573,17 +597,17 @@ media_use_received_transport=yes
 send_pai=yes
 send_rpid=yes
 rpid_immediate=yes
-auth=1000-auth
-aors=1000
+auth={web_1000}-auth
+aors={web_1000}
 callerid={name_1000} <1000>
 
-[1000-auth]
+[{web_1000}-auth]
 type=auth
 auth_type=userpass
-username=1000
+username={web_1000}
 password={pwd_1000}
 
-[1000]
+[{web_1000}]
 type=aor
 max_contacts=5
 remove_existing=yes
@@ -634,6 +658,10 @@ qualify_frequency=30
 
         seen_exts = set()
         seen_sip_eps = set()
+        if not has_1000_in_users:
+            seen_sip_eps.add("1000")
+            seen_sip_eps.add(resolve_user_webphone_sip_username("1000", "").lower())
+            seen_sip_eps.add(resolve_user_sip_username("1000", "").lower())
         for u in users_list:
             is_act = u.get("is_active") if "is_active" in u else True
             if not is_act:
@@ -646,48 +674,15 @@ qualify_frequency=30
             pwd = resolve_secure_sip_password(ext, u.get("sip_password") or "")
             name = u.get("full_name") or u.get("username") or ext
             try:
-                max_act = max(5, int(u.get("max_activations") or 5))
+                max_act = max(1, min(5, int(u.get("max_activations") or 1)))
             except Exception:
-                max_act = 5
+                max_act = 1
             pg_names = _sync_pickup_group_names(u, ext)
             pg_lines = f"named_call_group={pg_names}\nnamed_pickup_group={pg_names}\n" if pg_names else ""
+            safe_nm = str(name or ext).replace('"', "").replace("<", "").replace(">", "").replace(";", "").strip() or ext
 
-            pjsip_custom_content += f"\n; --- USER: {name} ({ext}) ---\n"
-            pjsip_custom_content += f"""[{ext}]
-type=endpoint
-context=webrtc_agents
-disallow=all
-allow=ulaw,alaw,g722,g729
-direct_media=no
-force_rport=yes
-rewrite_contact=no
-rtp_symmetric=yes
-webrtc=yes
-use_avpf=yes
-media_encryption=dtls
-dtls_auto_generate_cert=yes
-dtls_verify=fingerprint
-dtls_setup=actpass
-ice_support=yes
-media_use_received_transport=yes
-send_pai=yes
-send_rpid=yes
-rpid_immediate=yes
-{pg_lines}auth={ext}-auth
-aors={ext}
-callerid={name} <{ext}>
+            pjsip_custom_content += f"\n; --- USER: {safe_nm} ({ext}) ---\n"
 
-[{ext}-auth]
-type=auth
-auth_type=userpass
-username={ext}
-password={pwd}
-
-[{ext}]
-type=aor
-max_contacts={max_act}
-remove_existing=yes
-"""
             raw_devs = u.get("sip_devices")
             if isinstance(raw_devs, str):
                 try:
@@ -705,6 +700,7 @@ remove_existing=yes
                 if sip_u_fb:
                     dev_items = [{
                         "name": "Masa Telefonu 1",
+                        "device_type": "desk_phone",
                         "sip_username": sip_u_fb,
                         "sip_password": pwd,
                         "max_activations": max_act,
@@ -714,16 +710,79 @@ remove_existing=yes
                         "is_active": True,
                     }]
 
+            has_web_dev_sync = any(str(d.get("device_type") or "").strip().lower() == "web_phone" for d in dev_items)
+            if not has_web_dev_sync:
+                dev_items = [{
+                    "name": "Web Telefonu",
+                    "device_type": "web_phone",
+                    "sip_username": resolve_user_webphone_sip_username(ext, ""),
+                    "sip_password": pwd,
+                    "max_activations": 5,
+                    "transport": "WSS",
+                    "is_active": True,
+                }] + dev_items
+
             for d_idx, dev_obj in enumerate(dev_items):
                 if dev_obj.get("is_active") is False:
                     continue
-                if str(dev_obj.get("device_type") or "").strip().lower() == "virtual_subscriber":
+                d_type_s = str(dev_obj.get("device_type") or "desk_phone").strip().lower()
+                if d_type_s == "virtual_subscriber":
                     continue
-                d_su = re.sub(r"[^a-zA-Z0-9_.-]", "", str(dev_obj.get("sip_username") or "").strip())
-                if not d_su or d_su == ext or d_su.lower() in seen_sip_eps:
+                if d_type_s == "web_phone":
+                    d_su = resolve_user_webphone_sip_username(ext, dev_obj.get("sip_username") or "")
+                else:
+                    d_su = re.sub(r"[^a-zA-Z0-9_.-]", "", str(dev_obj.get("sip_username") or "").strip())
+                if not d_su or d_su == ext or d_su.isdigit() or d_su.lower() in seen_sip_eps:
                     continue
                 seen_sip_eps.add(d_su.lower())
                 d_pwd = resolve_secure_sip_password(ext, dev_obj.get("sip_password") or pwd)
+                esc_dpwd = str(d_pwd or "").replace("\r", "").replace("\n", "").replace(";", "\\;")
+                d_label = str(dev_obj.get("name") or f"SIP Cihazi {d_idx + 1}").strip().replace('"', "").replace(";", "")
+
+                if d_type_s == "web_phone":
+                    try:
+                        w_max = max(1, min(10, int(dev_obj.get("max_activations") or 5)))
+                    except Exception:
+                        w_max = 5
+                    pjsip_custom_content += f"""
+; Web Phone: {d_label} ({d_su}) -> Ext {ext}
+[{d_su}]
+type=endpoint
+context=webrtc_agents
+disallow=all
+allow=ulaw,alaw,g722,g729,opus
+direct_media=no
+force_rport=yes
+rewrite_contact=no
+rtp_symmetric=yes
+webrtc=yes
+use_avpf=yes
+media_encryption=dtls
+dtls_auto_generate_cert=yes
+dtls_verify=fingerprint
+dtls_setup=actpass
+ice_support=yes
+media_use_received_transport=yes
+send_pai=yes
+send_rpid=yes
+rpid_immediate=yes
+{pg_lines}auth={d_su}-auth
+aors={d_su}
+callerid="{safe_nm}" <{ext}>
+
+[{d_su}-auth]
+type=auth
+auth_type=userpass
+username={d_su}
+password={esc_dpwd}
+
+[{d_su}]
+type=aor
+max_contacts={w_max}
+remove_existing=yes
+"""
+                    continue
+
                 try:
                     d_max = max(1, min(10, int(dev_obj.get("max_activations") or 1)))
                 except Exception:
@@ -740,9 +799,6 @@ remove_existing=yes
                 d_dtmf = str(dev_obj.get("dtmf_mode") or "rfc4733").strip().lower()
                 if d_dtmf not in ("rfc4733", "info", "inband"):
                     d_dtmf = "rfc4733"
-                d_label = str(dev_obj.get("name") or f"SIP Cihazi {d_idx + 1}").strip().replace('"', "").replace(";", "")
-                safe_nm = str(name or ext).replace('"', "").replace("<", "").replace(">", "").replace(";", "").strip() or ext
-                esc_dpwd = str(d_pwd or "").replace("\r", "").replace("\n", "").replace(";", "\\;")
 
                 pjsip_custom_content += f"""
 ; SIP Device: {d_label} ({d_su}) -> Ext {ext}
@@ -969,7 +1025,7 @@ same => n,Hangup()
         if not h_ext or h_ext in seen_hint_exts_sync:
             continue
         seen_hint_exts_sync.add(h_ext)
-        hint_eps_s = [f"PJSIP/{h_ext}"]
+        hint_eps_s = []
         raw_h_devs = u_h.get("sip_devices")
         if isinstance(raw_h_devs, str):
             try:
@@ -978,21 +1034,34 @@ same => n,Hangup()
                 raw_h_devs = None
         h_cti = u_h.get("cti_config") if isinstance(u_h.get("cti_config"), dict) else {}
         h_exp_empty = bool(h_cti.get("sip_devices_empty")) and isinstance(raw_h_devs, list) and len(raw_h_devs) == 0
+        has_h_web = False
         if isinstance(raw_h_devs, list) and len(raw_h_devs) > 0:
             for hd in raw_h_devs:
-                if isinstance(hd, dict) and hd.get("is_active") is not False:
-                    if str(hd.get("device_type") or "").strip().lower() == "virtual_subscriber":
+                if isinstance(hd, dict):
+                    hd_t = str(hd.get("device_type") or "").strip().lower()
+                    if hd_t == "web_phone":
+                        has_h_web = True
+                    if hd.get("is_active") is False or hd_t == "virtual_subscriber":
                         continue
                     h_su = str(hd.get("sip_username") or "").strip()
-                    if h_su and h_su != h_ext and f"PJSIP/{h_su}" not in hint_eps_s:
+                    if h_su and h_su != h_ext and not h_su.isdigit() and f"PJSIP/{h_su}" not in hint_eps_s:
                         hint_eps_s.append(f"PJSIP/{h_su}")
-        elif not h_exp_empty:
-            h_sip = resolve_user_sip_username(h_ext, u_h.get("sip_username") or "")
-            if h_sip and h_sip != h_ext:
-                hint_eps_s.append(f"PJSIP/{h_sip}")
-        hint_lines_sync.append(f"exten => {h_ext},hint,{'&'.join(hint_eps_s)}")
+            if not has_h_web:
+                def_w_h = resolve_user_webphone_sip_username(h_ext, "")
+                hint_eps_s.insert(0, f"PJSIP/{def_w_h}")
+        else:
+            def_w_h = resolve_user_webphone_sip_username(h_ext, "")
+            hint_eps_s.append(f"PJSIP/{def_w_h}")
+            if not h_exp_empty:
+                h_sip = resolve_user_sip_username(h_ext, u_h.get("sip_username") or "")
+                if h_sip and h_sip != h_ext and not h_sip.isdigit():
+                    hint_eps_s.append(f"PJSIP/{h_sip}")
+        if hint_eps_s:
+            hint_lines_sync.append(f"exten => {h_ext},hint,{'&'.join(hint_eps_s)}")
     if "1000" not in seen_hint_exts_sync:
-        hint_lines_sync.append(f"exten => 1000,hint,PJSIP/1000&PJSIP/{resolve_user_sip_username('1000', '')}")
+        hint_lines_sync.append(
+            f"exten => 1000,hint,PJSIP/{resolve_user_webphone_sip_username('1000', '')}&PJSIP/{resolve_user_sip_username('1000', '')}"
+        )
     agent_hints_str = "\n".join(hint_lines_sync)
 
     webrtc_header_and_features = f"""; Kuyruk Cihaz Durumu (State Interface) ve Masa Telefonu BLF İpuçları (WebPhone + Masa Telefonu Birleşik)

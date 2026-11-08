@@ -97,8 +97,10 @@ def _resolve_sip_peer_to_ext(peer_name: str) -> str:
         return p
     try:
         from backend.main import settings_db
-        from backend.services.autoprovision_service import resolve_user_sip_username
+        from backend.services.autoprovision_service import resolve_user_sip_username, resolve_user_webphone_sip_username
         p_low = p.lower()
+        if resolve_user_webphone_sip_username("1000", "").lower() == p_low or resolve_user_sip_username("1000", "").lower() == p_low:
+            return "1000"
         for u in settings_db.get("users", []) or []:
             if not isinstance(u, dict):
                 continue
@@ -106,7 +108,12 @@ def _resolve_sip_peer_to_ext(peer_name: str) -> str:
             if not u_ext:
                 continue
             u_sip = resolve_user_sip_username(u_ext, u.get("sip_username") or "")
-            if u_sip.lower() == p_low or str(u.get("sip_username") or "").strip().lower() == p_low:
+            u_web_sip = resolve_user_webphone_sip_username(u_ext, "")
+            if (
+                u_sip.lower() == p_low
+                or u_web_sip.lower() == p_low
+                or str(u.get("sip_username") or "").strip().lower() == p_low
+            ):
                 return u_ext
             for sdev in (u.get("sip_devices") or []):
                 if isinstance(sdev, dict) and str(sdev.get("sip_username") or "").strip().lower() == p_low:
@@ -134,15 +141,19 @@ def _get_ext_channel_prefixes(ext_s: str) -> list:
     prefixes = [f"pjsip/{ext_s.lower()}-", f"sip/{ext_s.lower()}-"]
     try:
         from backend.main import settings_db
-        from backend.services.autoprovision_service import resolve_user_sip_username
+        from backend.services.autoprovision_service import resolve_user_sip_username, resolve_user_webphone_sip_username
+        def_web_sip = resolve_user_webphone_sip_username(ext_s, "")
+        if def_web_sip and f"pjsip/{def_web_sip.lower()}-" not in prefixes:
+            prefixes.append(f"pjsip/{def_web_sip.lower()}-")
+            prefixes.append(f"sip/{def_web_sip.lower()}-")
         for u in settings_db.get("users", []) or []:
             if isinstance(u, dict) and str(u.get("extension") or "").strip() == ext_s:
                 u_sip = resolve_user_sip_username(ext_s, u.get("sip_username") or "")
-                if u_sip:
+                if u_sip and f"pjsip/{u_sip.lower()}-" not in prefixes:
                     prefixes.append(f"pjsip/{u_sip.lower()}-")
                     prefixes.append(f"sip/{u_sip.lower()}-")
                 raw_sip = str(u.get("sip_username") or "").strip()
-                if raw_sip and raw_sip.lower() != u_sip.lower():
+                if raw_sip and f"pjsip/{raw_sip.lower()}-" not in prefixes:
                     prefixes.append(f"pjsip/{raw_sip.lower()}-")
                 for sdev in (u.get("sip_devices") or []):
                     if isinstance(sdev, dict):
@@ -492,7 +503,7 @@ def register_event_handlers(manager: Manager):
         if aor:
             aor_str = str(aor).strip()
             mapped_ext = _resolve_sip_peer_to_ext(aor_str)
-            if status in ["Reachable", "Created", "Registered"]:
+            if status in ["Reachable", "Created", "Registered", "NonQualified"]:
                 registered_endpoints.add(aor_str, extracted_ip)
                 print(f"[AMI] Endpoint Kaydedildi: {aor_str} (Dahili: {mapped_ext or aor_str}, IP: {extracted_ip})")
                 try:
@@ -503,19 +514,27 @@ def register_event_handlers(manager: Manager):
             elif status in ["Removed", "Unreachable", "Unknown"]:
                 registered_endpoints.discard(aor_str)
                 print(f"[AMI] Endpoint Koptu: {aor_str} (Dahili: {mapped_ext or aor_str})")
-                # Only trigger disconnect auto-pause if NEITHER WebRTC ext NOR SIP hardware username remains registered
+                # Only trigger disconnect auto-pause if NEITHER WebRTC NOR SIP hardware username remains registered
                 still_online = False
                 if mapped_ext and mapped_ext in registered_endpoints:
                     still_online = True
                 if not still_online and mapped_ext:
                     try:
                         from backend.main import settings_db
-                        from backend.services.autoprovision_service import resolve_user_sip_username
+                        from backend.services.autoprovision_service import resolve_user_sip_username, resolve_user_webphone_sip_username
+                        def_web_sip = resolve_user_webphone_sip_username(mapped_ext, "")
+                        if def_web_sip and def_web_sip in registered_endpoints:
+                            still_online = True
                         for u in settings_db.get("users", []) or []:
                             if isinstance(u, dict) and str(u.get("extension") or "").strip() == mapped_ext:
                                 u_sip = resolve_user_sip_username(mapped_ext, u.get("sip_username") or "")
                                 if u_sip and u_sip in registered_endpoints:
                                     still_online = True
+                                for sd in (u.get("sip_devices") or []):
+                                    if isinstance(sd, dict) and sd.get("is_active") is not False:
+                                        sd_su = str(sd.get("sip_username") or "").strip()
+                                        if sd_su and sd_su in registered_endpoints:
+                                            still_online = True
                                 break
                     except Exception:
                         pass

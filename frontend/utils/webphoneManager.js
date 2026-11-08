@@ -398,7 +398,23 @@ class WebphoneManager {
     }
   }
 
+  reloadWebrtcConfig() {
+    this.activeUserKey = null;
+    if (this.userAgent) {
+      try {
+        this.userAgent.stop();
+      } catch (e) {}
+      this.userAgent = null;
+    }
+    this.setState({ registered: false });
+    this.init({
+      backendHost: this.state.backendHost,
+      currentUser: this.state.currentUser
+    });
+  }
+
   scheduleReconnect(config, refetchConfig = false) {
+    if (config?.webPhoneEnabled === false) return;
     if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
     this._reconnectAttempt = (this._reconnectAttempt || 0) + 1;
     const delayMs = Math.min(4000 + (this._reconnectAttempt % 3) * 1500, 8000);
@@ -420,9 +436,6 @@ class WebphoneManager {
     if (!config?.asteriskWssUrl || !config?.agentExtension) return;
     if (typeof window === "undefined") return;
 
-    await ensureSipLoaded();
-    if (!SIP) return;
-
     if (this.reconnectTimer) {
       clearTimeout(this.reconnectTimer);
       this.reconnectTimer = null;
@@ -435,9 +448,22 @@ class WebphoneManager {
       this.userAgent = null;
     }
 
+    if (config.webPhoneEnabled === false) {
+      if (this.registerNotifyInterval) {
+        clearInterval(this.registerNotifyInterval);
+        this.registerNotifyInterval = null;
+      }
+      this.setState({ registered: false, error: "" });
+      return;
+    }
+
+    await ensureSipLoaded();
+    if (!SIP) return;
+
     const { asteriskWssUrl, agentExtension, password, agentName } = config;
+    const sipAuthUser = String(config.sipUsername || agentExtension).trim();
     const hostOnly = asteriskWssUrl.split("/")[2].split(":")[0];
-    const uri = SIP.UserAgent.makeURI(`sip:${agentExtension}@${hostOnly}`);
+    const uri = SIP.UserAgent.makeURI(`sip:${sipAuthUser}@${hostOnly}`);
     const resolvedViaHost = config.viaHost || hostOnly;
     const displayLabel = agentName || this.state.currentUser?.full_name || `Temsilci ${agentExtension}`;
 
@@ -464,8 +490,8 @@ class WebphoneManager {
         }
       },
       viaHost: resolvedViaHost,
-      contactName: agentExtension,
-      authorizationUsername: agentExtension,
+      contactName: sipAuthUser,
+      authorizationUsername: sipAuthUser,
       authorizationPassword: password,
       displayName: displayLabel,
       hackIpInContact: resolvedViaHost || true,
@@ -595,6 +621,7 @@ class WebphoneManager {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         extension: ext,
+        sip_username: this.state.webrtcConfig?.sipUsername || "",
         user_id: this.state.currentUser?.id,
         call_state: callState
       })

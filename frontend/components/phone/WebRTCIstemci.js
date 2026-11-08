@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from "react";
 import * as SIP from "sip.js";
 import { Phone, PhoneOff, ShieldAlert, Wifi, WifiOff, Minimize2 } from "lucide-react";
 
-export default function WebRTCIstemci({ agentExtension, password, asteriskWssUrl, onActiveCall }) {
+export default function WebRTCIstemci({ agentExtension, sipUsername, password, asteriskWssUrl, onActiveCall }) {
   const [registered, setRegistered] = useState(false);
   const [session, setSession] = useState(null);
   const [callStatus, setCallStatus] = useState("Idle"); // Idle, Ringing, InCall
@@ -49,22 +49,23 @@ export default function WebRTCIstemci({ agentExtension, password, asteriskWssUrl
     if (!asteriskWssUrl || !agentExtension) return;
 
     setError("");
+    const sipAuthUser = String(sipUsername || agentExtension).trim();
     const hostOnly = asteriskWssUrl.split('/')[2].split(':')[0];
-    const uri = SIP.UserAgent.makeURI(`sip:${agentExtension}@${hostOnly}`);
+    const uri = SIP.UserAgent.makeURI(`sip:${sipAuthUser}@${hostOnly}`);
     
     const transportOptions = {
       server: asteriskWssUrl,
       traceSip: true
     };
 
-    const resolvedViaHost = webrtcConfig?.viaHost || hostOnly;
+    const resolvedViaHost = typeof webrtcConfig !== "undefined" && webrtcConfig?.viaHost ? webrtcConfig.viaHost : hostOnly;
     const userAgentOptions = {
       uri: uri,
       contactURI: uri,
       transportOptions: transportOptions,
       viaHost: resolvedViaHost,
-      contactName: agentExtension,
-      authorizationUsername: agentExtension,
+      contactName: sipAuthUser,
+      authorizationUsername: sipAuthUser,
       authorizationPassword: password,
       displayName: `Temsilci ${agentExtension}`,
       hackIpInContact: resolvedViaHost || true,
@@ -149,7 +150,7 @@ export default function WebRTCIstemci({ agentExtension, password, asteriskWssUrl
         userAgentRef.current.stop();
       }
     };
-  }, [agentExtension, password, asteriskWssUrl]);
+  }, [agentExtension, sipUsername, password, asteriskWssUrl]);
 
   // Answer Incoming Call
   const answerCall = async () => {

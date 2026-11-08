@@ -3391,16 +3391,20 @@ outbound_auth={op_ref_safe_name}-auth
 aors={op_ref_safe_name}-aor
 """
     if not has_1000_in_users:
-        from backend.services.autoprovision_service import resolve_user_sip_username as _res_sip_u_def
+        from backend.services.autoprovision_service import (
+            resolve_user_sip_username as _res_sip_u_def,
+            resolve_user_webphone_sip_username as _res_web_u_def,
+        )
         pwd_1000 = resolve_secure_sip_password("1000", "")
+        web_1000 = _res_web_u_def("1000", "")
         sip_1000 = _res_sip_u_def("1000", "")
         conf_content += f"""
 ; --- DEFAULT WEBRTC & DESKPHONE AGENT: 1000 ---
-[1000]
+[{web_1000}]
 type=endpoint
 context=webrtc_agents
 disallow=all
-allow=ulaw,alaw,g722,g729
+allow=ulaw,alaw,g722,g729,opus
 direct_media=no
 force_rport=yes
 rewrite_contact=no
@@ -3416,17 +3420,17 @@ media_use_received_transport=yes
 send_pai=yes
 send_rpid=yes
 rpid_immediate=yes
-auth=1000-auth
-aors=1000
+auth={web_1000}-auth
+aors={web_1000}
 callerid=Temsilci 1000 <1000>
 
-[1000-auth]
+[{web_1000}-auth]
 type=auth
 auth_type=userpass
-username=1000
+username={web_1000}
 password={pwd_1000}
 
-[1000]
+[{web_1000}]
 type=aor
 max_contacts=5
 remove_existing=yes
@@ -3713,7 +3717,9 @@ trust_id_inbound={trust_id_in}
     seen_exts = set()
     seen_sip_eps = set()
     if not has_1000_in_users:
+        from backend.services.autoprovision_service import resolve_user_webphone_sip_username as _res_web_u_seen
         seen_sip_eps.add("1000")
+        seen_sip_eps.add(_res_web_u_seen("1000", "").lower())
         seen_sip_eps.add(resolve_user_sip_username("1000", "").lower())
 
     db_sip_backfill_items = []
@@ -3732,20 +3738,46 @@ trust_id_inbound={trust_id_in}
             seen_sip_eps.add(ext.lower())
         pwd = resolve_secure_sip_password(ext or "1000", u.get("sip_password") or "")
         name = _safe_cid_label(u.get("full_name") or u.get("username") or ext, ext or "1000")
-        try:
-            max_act = max(5, int(u.get("max_activations") or 5))
-        except Exception:
-            max_act = 5
         pg_names = _resolve_user_pickup_group_names(u, ext) if ext else ""
         pg_lines = f"named_call_group={pg_names}\nnamed_pickup_group={pg_names}\n" if pg_names else ""
 
         if ext:
             conf_content += f"\n; --- USER: {name} ({ext}) ---\n"
-            conf_content += f"""[{ext}]
+
+        raw_u_devs = u.get("sip_devices") if isinstance(u.get("sip_devices"), list) else []
+        had_empty_raw_devs = len(raw_u_devs) == 0
+        lacked_web_phone = bool(ext) and not any(
+            isinstance(d, dict) and str(d.get("device_type") or "").strip().lower() == "web_phone"
+            for d in raw_u_devs
+        )
+        user_devices = normalize_user_sip_devices(u, ap_all, dp_all, fallback_password_fn=resolve_secure_sip_password)
+        if (had_empty_raw_devs or lacked_web_phone) and user_devices and u.get("id") is not None:
+            db_sip_backfill_items.append((u.get("id"), ext, user_devices))
+        for dev in user_devices:
+            if dev.get("is_active") is False:
+                continue
+            dev_type_l = str(dev.get("device_type") or "desk_phone").strip().lower()
+            if dev_type_l == "virtual_subscriber":
+                continue
+            dev_su = re.sub(r"[^a-zA-Z0-9_.-]", "", str(dev.get("sip_username") or "").strip())
+            if not dev_su or dev_su.isdigit() or dev_su.lower() in seen_sip_eps:
+                continue
+            seen_sip_eps.add(dev_su.lower())
+            dev_pwd = resolve_secure_sip_password(ext or dev_su, dev.get("sip_password") or pwd)
+            cid_ext_val = ext or dev_su
+
+            if dev_type_l == "web_phone":
+                try:
+                    web_max_c = max(1, min(10, int(dev.get("max_activations") or 5)))
+                except Exception:
+                    web_max_c = 5
+                conf_content += f"""
+; --- WEB PHONE: {_safe_cid_label(dev.get('name') or 'Web Telefonu', dev_su)} ({cid_ext_val}) ---
+[{dev_su}]
 type=endpoint
 context=webrtc_agents
 disallow=all
-allow=ulaw,alaw,g722,g729
+allow=ulaw,alaw,g722,g729,opus
 direct_media=no
 force_rport=yes
 rtp_symmetric=yes
@@ -3761,35 +3793,23 @@ media_use_received_transport=yes
 send_pai=yes
 send_rpid=yes
 rpid_immediate=yes
-{pg_lines}auth={ext}-auth
-aors={ext}
-callerid="{name}" <{ext}>
+{pg_lines}auth={dev_su}-auth
+aors={dev_su}
+callerid="{name}" <{cid_ext_val}>
 
-[{ext}-auth]
+[{dev_su}-auth]
 type=auth
 auth_type=userpass
-username={ext}
-password={_esc_pjsip_val(pwd)}
+username={dev_su}
+password={_esc_pjsip_val(dev_pwd)}
 
-[{ext}]
+[{dev_su}]
 type=aor
-max_contacts={max_act}
+max_contacts={web_max_c}
 remove_existing=yes
 """
-        had_empty_raw_devs = not (isinstance(u.get("sip_devices"), list) and len(u.get("sip_devices")) > 0)
-        user_devices = normalize_user_sip_devices(u, ap_all, dp_all, fallback_password_fn=resolve_secure_sip_password)
-        if had_empty_raw_devs and user_devices and u.get("id") is not None:
-            db_sip_backfill_items.append((u.get("id"), ext, user_devices))
-        for dev in user_devices:
-            if dev.get("is_active") is False:
                 continue
-            if str(dev.get("device_type") or "").strip().lower() == "virtual_subscriber":
-                continue
-            dev_su = re.sub(r"[^a-zA-Z0-9_.-]", "", str(dev.get("sip_username") or "").strip())
-            if not dev_su or dev_su.lower() in seen_sip_eps:
-                continue
-            seen_sip_eps.add(dev_su.lower())
-            dev_pwd = resolve_secure_sip_password(ext or dev_su, dev.get("sip_password") or pwd)
+
             raw_c_list = [str(c).strip().lower() for c in (dev.get("codecs") or ["g722", "alaw", "ulaw", "g729"]) if str(c).strip()]
             safe_c_list = [c for c in raw_c_list if c in ("g722", "alaw", "ulaw", "g729", "gsm", "opus")]
             dev_codecs = ",".join(safe_c_list or ["g722", "alaw", "ulaw", "g729"])
@@ -3807,7 +3827,6 @@ remove_existing=yes
                 dev_tr_line = "transport=transport-tcp\n"
             else:
                 dev_tr_line = "transport=transport-udp\n"
-            cid_ext_val = ext or dev_su
 
             conf_content += f"""
 ; --- SIP DEVICE: {_safe_cid_label(dev.get('name') or dev_su, dev_su)} ({cid_ext_val}) ---
@@ -4319,6 +4338,7 @@ same => n,Hangup()
 
     from backend.services.autoprovision_service import (
         resolve_user_sip_username as _res_sip_u_ext,
+        resolve_user_webphone_sip_username as _res_web_u_ext,
         normalize_user_sip_devices as _norm_devs_ext,
     )
     users_for_hints = []
@@ -4349,19 +4369,21 @@ same => n,Hangup()
         if not h_ext or h_ext in seen_hint_exts:
             continue
         seen_hint_exts.add(h_ext)
-        hint_targets = [f"PJSIP/{h_ext}"]
+        hint_targets = []
         for hd in _norm_devs_ext(u_h):
             if hd.get("is_active") is False:
                 continue
             if str(hd.get("device_type") or "").strip().lower() == "virtual_subscriber":
                 continue
             hd_su = str(hd.get("sip_username") or "").strip()
-            if hd_su and hd_su != h_ext and f"PJSIP/{hd_su}" not in hint_targets:
+            if hd_su and hd_su != h_ext and not hd_su.isdigit() and f"PJSIP/{hd_su}" not in hint_targets:
                 hint_targets.append(f"PJSIP/{hd_su}")
-        hint_lines.append(f"exten => {h_ext},hint,{'&'.join(hint_targets)}")
+        if hint_targets:
+            hint_lines.append(f"exten => {h_ext},hint,{'&'.join(hint_targets)}")
     if "1000" not in seen_hint_exts:
+        h_web_1000 = _res_web_u_ext("1000", "")
         h_sip_1000 = _res_sip_u_ext("1000", "")
-        hint_lines.append(f"exten => 1000,hint,PJSIP/1000&PJSIP/{h_sip_1000}")
+        hint_lines.append(f"exten => 1000,hint,PJSIP/{h_web_1000}&PJSIP/{h_sip_1000}")
     agent_hints_dialplan = "\n".join(hint_lines)
 
     conf_content = f"""; ==========================================
@@ -7782,22 +7804,35 @@ async def save_departments_endpoint(payload: Union[List[DepartmentSchema], Depar
 @app.post("/api/webrtc/register_notify")
 async def webrtc_register_notify(request: Request, payload: dict, db: AsyncSession = Depends(get_db)):
     from backend.services.ami_manager import registered_endpoints
+    from backend.services.autoprovision_service import resolve_user_webphone_sip_username
 
     ext = str(payload.get("extension") or payload.get("user_id") or "").strip()
     user_id_val = payload.get("user_id")
+    sip_su_payload = str(payload.get("sip_username") or "").strip()
 
     # Extract real client IP from headers, AMI, or fallback
     client_ip = str(payload.get("client_ip") or "").strip() or extract_client_ip(request)
+
+    if sip_su_payload:
+        registered_endpoints.add(sip_su_payload, client_ip)
 
     if ext:
         registered_endpoints.add(ext, client_ip)
         settings = load_settings()
         matched_user_id = user_id_val or ext
+        web_su_resolved = sip_su_payload or resolve_user_webphone_sip_username(ext, "")
         for u in settings.get("users", []):
             if str(u.get("extension")) == ext:
                 matched_user_id = u.get("id")
+                for sd in (u.get("sip_devices") or []):
+                    if isinstance(sd, dict) and str(sd.get("device_type") or "").strip().lower() == "web_phone":
+                        if sd.get("sip_username"):
+                            web_su_resolved = str(sd.get("sip_username")).strip()
+                        break
                 break
 
+        if web_su_resolved:
+            registered_endpoints.add(web_su_resolved, client_ip)
         if matched_user_id:
             registered_endpoints.add(str(matched_user_id), client_ip)
 
@@ -7825,12 +7860,18 @@ async def webrtc_unregister_notify(payload: dict, db: AsyncSession = Depends(get
     from backend.services.ami_manager import registered_endpoints
     from backend.services.agent_presence import update_agent_state
     from backend.database.models import AgentBreakLog
+    from backend.services.autoprovision_service import resolve_user_webphone_sip_username
 
     ext = str(payload.get("extension") or payload.get("user_id") or "").strip()
     user_id_val = payload.get("user_id")
+    sip_su_payload = str(payload.get("sip_username") or "").strip()
+
+    if sip_su_payload:
+        registered_endpoints.discard(sip_su_payload)
 
     if ext:
         registered_endpoints.discard(ext)
+        registered_endpoints.discard(resolve_user_webphone_sip_username(ext, ""))
         if user_id_val:
             registered_endpoints.discard(str(user_id_val))
 
@@ -7839,8 +7880,15 @@ async def webrtc_unregister_notify(payload: dict, db: AsyncSession = Depends(get
         for u in settings.get("users", []):
             if str(u.get("extension")) == ext or str(u.get("id")) == str(user_id_val) or str(u.get("extension")) == str(user_id_val):
                 matched_user_id = u.get("id")
-                registered_endpoints.discard(str(u.get("extension")))
+                u_ext_s = str(u.get("extension") or "").strip()
+                if u_ext_s:
+                    registered_endpoints.discard(u_ext_s)
+                    registered_endpoints.discard(resolve_user_webphone_sip_username(u_ext_s, ""))
                 registered_endpoints.discard(str(u.get("id")))
+                for sd in (u.get("sip_devices") or []):
+                    if isinstance(sd, dict) and str(sd.get("device_type") or "").strip().lower() == "web_phone":
+                        if sd.get("sip_username"):
+                            registered_endpoints.discard(str(sd.get("sip_username")).strip())
 
         _clear_internal_chat_heartbeat({ext, str(user_id_val or ""), str(matched_user_id or "")})
         update_agent_state(is_logged_in=False, status="offline", current_break=None, user_id=matched_user_id, extension=ext)
@@ -10898,13 +10946,14 @@ async def inspect_user_sip_device_endpoint(
         except Exception as e_heal_pjsip:
             print(f"[PJSIP Inspect Self-Heal Warning]: {e_heal_pjsip}")
 
-    ami_ip = registered_endpoints.get_ip(su_s) or ""
-    ami_online = bool(su_s and su_s in registered_endpoints)
+    is_web_dev = str((matched_dev or {}).get("device_type") or "").strip().lower() == "web_phone"
+    ami_ip = registered_endpoints.get_ip(su_s) or (registered_endpoints.get_ip(ext_s) if is_web_dev and ext_s else "") or ""
+    ami_online = bool((su_s and su_s in registered_endpoints) or (is_web_dev and ext_s and ext_s in registered_endpoints))
 
     parsed = ast_info.get("parsed") or {}
     live_online = bool(ast_info.get("online") or ami_online)
     live_ip = parsed.get("ip_address") or ami_ip or (matched_dev.get("ip") if matched_dev else "") or ""
-    live_port = parsed.get("port") or ("5060" if live_ip else "")
+    live_port = parsed.get("port") or (("8089" if is_web_dev else "5060") if live_ip else "")
 
     pickup_groups_all = settings_db.get("call_pickup_groups", [])
     user_pickup_labels = []
@@ -10930,14 +10979,16 @@ async def inspect_user_sip_device_endpoint(
     prov_base_url = f"{scheme}://{req_host or (pbx_host + ':8000')}/api/prov/{prov_token}"
     prov_file_url = f"{prov_base_url}/{cfg_fname}"
 
-    dev_codecs = ",".join((matched_dev or {}).get("codecs") or ["g722", "alaw", "ulaw", "g729"])
+    dev_codecs = "ulaw,alaw,g722,g729,opus" if is_web_dev else ",".join((matched_dev or {}).get("codecs") or ["g722", "alaw", "ulaw", "g729"])
     dev_dtmf = (matched_dev or {}).get("dtmf_mode") or "rfc4733"
-    dev_tr = str((matched_dev or {}).get("transport") or "UDP").upper()
+    dev_tr = "WSS" if is_web_dev else str((matched_dev or {}).get("transport") or "UDP").upper()
+    sim_tr_label = "ws,wss (WebRTC DTLS-SRTP)" if is_web_dev else f"transport-{dev_tr.lower()}"
     u_nm = (matched_u or {}).get("full_name") or ext_s
     pickup_disp = ", ".join(user_pickup_labels) or "Yok"
 
     raw_output = ast_info.get("raw") or ""
     if not ast_info.get("cli_available") and matched_dev:
+        webrtc_extra = "   webrtc                     : yes\n   rewrite_contact            : no\n" if is_web_dev else ""
         raw_output = (
             f"# Not: Yerel geliştirme ortamında Asterisk CLI bulunamadı.\n"
             f"# Üretim sunucusunda canlı `asterisk -rx \"pjsip show endpoint {su_s}\"` çıktısı burada yer alır.\n"
@@ -10945,14 +10996,15 @@ async def inspect_user_sip_device_endpoint(
             f" Endpoint:  {su_s}/CID:{ext_s}                                   {'Not in use' if live_online else 'Unavailable'}   0 of inf\n"
             f"     OutAuth:  {su_s}-auth/{su_s}\n"
             f"      InAuth:  {su_s}-auth/{su_s}\n"
-            f"         Aor:  {su_s}                                          {matched_dev.get('max_activations', 1)}\n"
+            f"         Aor:  {su_s}                                          {matched_dev.get('max_activations', 5 if is_web_dev else 1)}\n"
             f"   ParameterName              : ParameterValue\n"
             f"   =========================================================\n"
             f"   allow                      : ({dev_codecs.replace(',', '|')})\n"
             f"   callerid                   : \"{u_nm}\" <{ext_s}>\n"
             f"   context                    : webrtc_agents\n"
             f"   dtmf_mode                  : {dev_dtmf}\n"
-            f"   transport                  : transport-{dev_tr.lower()}\n"
+            f"   transport                  : {sim_tr_label}\n"
+            f"{webrtc_extra}"
             f"   named_pickup_group         : {pickup_disp}\n"
         )
 
@@ -10967,7 +11019,7 @@ async def inspect_user_sip_device_endpoint(
         "rtt_ms": parsed.get("rtt_ms") or "",
         "user_agent": parsed.get("user_agent") or "",
         "context": parsed.get("context") or "webrtc_agents",
-        "transport": parsed.get("transport") or f"transport-{dev_tr.lower()}",
+        "transport": parsed.get("transport") or sim_tr_label,
         "allow": parsed.get("allow") or dev_codecs,
         "dtmf_mode": parsed.get("dtmf_mode") or dev_dtmf,
         "callerid": parsed.get("callerid") or f'"{u_nm}" <{ext_s}>',
@@ -11732,15 +11784,17 @@ async def check_outbound_call(
 
     # 3. WebRTC dahilisi üzerinden UDP/TCP 5060 portu ile sızma kontrolü
     if ("SIP/2.0/UDP" in via_upper or "SIP/2.0/TCP" in via_upper) and "WS" not in via_upper:
-        from backend.services.autoprovision_service import resolve_user_sip_username, normalize_user_sip_devices
+        from backend.services.autoprovision_service import normalize_user_sip_devices
         u_match = next((u for u in all_users if str(u.get("extension") or "").strip() == caller_str), None)
         allowed_dev_eps = set()
         if u_match:
-            expected_desk_ep = resolve_user_sip_username(caller_str, u_match.get("sip_username") or "")
-            if expected_desk_ep:
-                allowed_dev_eps.add(expected_desk_ep.lower())
             for sdev in normalize_user_sip_devices(u_match):
-                if sdev.get("is_active") is not False and sdev.get("sip_username"):
+                sdev_type = str(sdev.get("device_type") or "desk_phone").strip().lower()
+                if (
+                    sdev.get("is_active") is not False
+                    and sdev_type in ("desk_phone", "dect", "softphone")
+                    and sdev.get("sip_username")
+                ):
                     allowed_dev_eps.add(str(sdev.get("sip_username")).strip().lower())
         chan_s = str(channel or "").strip().lower()
         is_desk_endpoint_chan = any(chan_s.startswith(f"pjsip/{ep_l}-") for ep_l in allowed_dev_eps if ep_l)
@@ -12052,7 +12106,11 @@ async def resolve_agent_ring_targets(extension: str = "", format: str = "", db: 
     - Default legacy format: returns `<web_ep>:<primary_desk_ep>` or `NONE`.
     """
     from fastapi import Response
-    from backend.services.autoprovision_service import resolve_user_sip_username, normalize_user_sip_devices
+    from backend.services.autoprovision_service import (
+        resolve_user_sip_username,
+        resolve_user_webphone_sip_username,
+        normalize_user_sip_devices,
+    )
 
     ext_str = str(extension or "").strip()
     fmt_clean = str(format or "").strip().lower()
@@ -12081,9 +12139,10 @@ async def resolve_agent_ring_targets(extension: str = "", format: str = "", db: 
 
     if not user_dict:
         if ext_str == "1000":
+            web_1000 = resolve_user_webphone_sip_username("1000", "")
             def_su = resolve_user_sip_username("1000", "")
-            return Response(content=(f"1000&{def_su}" if fmt_clean == "list" else f"1000:{def_su}"), media_type="text/plain")
-        return Response(content=(ext_str if fmt_clean == "list" else f"{ext_str}:"), media_type="text/plain")
+            return Response(content=(f"{web_1000}&{def_su}" if fmt_clean == "list" else f"{web_1000}:{def_su}"), media_type="text/plain")
+        return Response(content="NONE", media_type="text/plain")
 
     if user_dict.get("is_active") is False:
         return Response(content="NONE", media_type="text/plain")
@@ -12098,7 +12157,8 @@ async def resolve_agent_ring_targets(extension: str = "", format: str = "", db: 
     if len(prof_devices) == 0:
         return Response(content="NONE", media_type="text/plain")
 
-    web_ep = ext_str if ("web_phone" in prof_devices or "pc_app" in prof_devices or "mobile_app" in prof_devices) else ""
+    web_allowed_by_prof = ("web_phone" in prof_devices or "pc_app" in prof_devices or "mobile_app" in prof_devices)
+    web_ep = ""
     norm_user_devs = normalize_user_sip_devices(
         user_dict,
         settings_db.get("autoprovision", []),
@@ -12110,6 +12170,12 @@ async def resolve_agent_ring_targets(extension: str = "", format: str = "", db: 
         if sdev.get("is_active") is False:
             continue
         d_type = str(sdev.get("device_type") or "desk_phone").strip().lower()
+        if d_type == "web_phone":
+            if web_allowed_by_prof and not web_ep:
+                cand_w = str(sdev.get("sip_username") or "").strip()
+                if cand_w and cand_w != ext_str and not cand_w.isdigit():
+                    web_ep = cand_w
+            continue
         if d_type == "virtual_subscriber":
             if "desk_phone" not in prof_devices:
                 continue
@@ -26177,6 +26243,21 @@ async def new_get_users_endpoint(request: Request, user_info: dict = Depends(get
                 d_item["live_ip"] = ""
                 if d_on:
                     any_dev_reg = True
+            elif d_type_g == "web_phone":
+                d_su = str(d_item.get("sip_username") or "").strip()
+                d_on = bool(d_act and ((d_su and d_su in registered_endpoints) or (ext and ext in registered_endpoints)))
+                d_live_ip = (
+                    (registered_endpoints.get_ip(d_su) if d_su else "")
+                    or (registered_endpoints.get_ip(ext) if ext else "")
+                    or d_item.get("ip")
+                    or ""
+                )
+                d_item["is_online"] = d_on
+                d_item["live_ip"] = d_live_ip
+                if d_on:
+                    any_dev_reg = True
+                    if not online_dev_ip and d_live_ip:
+                        online_dev_ip = d_live_ip
             else:
                 d_su = str(d_item.get("sip_username") or "").strip()
                 d_on = bool(d_act and d_su and d_su in registered_endpoints)
@@ -26190,7 +26271,11 @@ async def new_get_users_endpoint(request: Request, user_info: dict = Depends(get
         u["sip_devices"] = norm_devs
         if norm_devs and not u.get("sip_username"):
             first_real_g = next(
-                (nd for nd in norm_devs if str(nd.get("device_type") or "").strip().lower() != "virtual_subscriber" and nd.get("sip_username")),
+                (
+                    nd for nd in norm_devs
+                    if str(nd.get("device_type") or "").strip().lower() not in ("virtual_subscriber", "web_phone")
+                    and nd.get("sip_username")
+                ),
                 None,
             )
             u["sip_username"] = (first_real_g.get("sip_username") if first_real_g else "") or ""
@@ -26419,15 +26504,16 @@ async def new_save_users_endpoint(payload: Union[List[UserSchema], UserSchema], 
                 first_real_dev = next(
                     (
                         rd for rd in data["sip_devices"]
-                        if str(rd.get("device_type") or "").strip().lower() != "virtual_subscriber" and rd.get("sip_username")
+                        if str(rd.get("device_type") or "").strip().lower() not in ("virtual_subscriber", "web_phone")
+                        and rd.get("sip_username")
                     ),
                     None,
                 )
                 first_dev = first_real_dev or data["sip_devices"][0]
                 data["sip_username"] = (first_real_dev.get("sip_username") if first_real_dev else "") or ""
                 data["sip_password"] = (first_real_dev.get("sip_password") if first_real_dev else "") or data.get("sip_password") or ""
-                data["max_activations"] = int(first_dev.get("max_activations") or data.get("max_activations") or 1)
-                data["transport"] = first_dev.get("transport") or data.get("transport") or "UDP"
+                data["max_activations"] = int(first_real_dev.get("max_activations") if first_real_dev else (data.get("max_activations") or 1))
+                data["transport"] = (first_real_dev.get("transport") if first_real_dev else None) or data.get("transport") or "UDP"
             else:
                 data["sip_username"] = ""
 
@@ -30409,13 +30495,38 @@ async def get_webrtc_config(request: Request, db: AsyncSession = Depends(get_db)
             except Exception:
                 pass
                 
+        from backend.services.autoprovision_service import (
+            resolve_user_webphone_sip_username,
+            normalize_user_sip_devices,
+        )
         agent_ext = str(current_user.get("extension", "1000") if current_user else "1000").strip()
         raw_sip_pwd = (current_user.get("sip_password") if current_user else "") or ""
-        if not raw_sip_pwd or raw_sip_pwd == "1234":
-            for su in settings_db.get("users", []):
-                if str(su.get("extension", "")).strip() == agent_ext and su.get("sip_password"):
+        for su in settings_db.get("users", []):
+            if str(su.get("extension", "")).strip() == agent_ext:
+                if (not raw_sip_pwd or raw_sip_pwd == "1234") and su.get("sip_password"):
                     raw_sip_pwd = su.get("sip_password")
-                    break
+                if current_user is not None and not current_user.get("sip_devices") and su.get("sip_devices"):
+                    current_user["sip_devices"] = su.get("sip_devices")
+                break
+
+        web_sip_user = resolve_user_webphone_sip_username(agent_ext, "")
+        web_enabled = True
+        if current_user:
+            norm_w_devs = normalize_user_sip_devices(
+                current_user,
+                settings_db.get("autoprovision", []),
+                settings_db.get("user_deskphone_configs", {}),
+                fallback_password_fn=resolve_secure_sip_password,
+            )
+            web_dev = next(
+                (d for d in norm_w_devs if str(d.get("device_type") or "").strip().lower() == "web_phone"),
+                None,
+            )
+            if web_dev:
+                web_sip_user = str(web_dev.get("sip_username") or web_sip_user).strip()
+                web_enabled = web_dev.get("is_active") is not False
+                if web_dev.get("sip_password"):
+                    raw_sip_pwd = web_dev.get("sip_password")
         sip_password = resolve_secure_sip_password(agent_ext, raw_sip_pwd)
         
         # Dynamically compute WebSocket URL and resolved viaHost IPv4
@@ -30465,18 +30576,23 @@ async def get_webrtc_config(request: Request, db: AsyncSession = Depends(get_db)
             "asteriskWssUrl": wss_url,
             "fallbackWssUrl": f"{scheme}://{req_host}/ws",
             "agentExtension": agent_ext,
+            "sipUsername": web_sip_user,
+            "webPhoneEnabled": web_enabled,
             "agentName": agent_name,
             "password": sip_password,
             "viaHost": via_ip
         }
     except Exception as e:
         print(f"WebRTC Config error: {e}")
+        from backend.services.autoprovision_service import resolve_user_webphone_sip_username as _res_web_fb
         req_host = request.headers.get("host", "").split(":")[0] or "127.0.0.1"
         scheme = "wss" if request.url.scheme == "https" or request.headers.get("x-forwarded-proto") == "https" else "ws"
         wss_url = f"wss://{req_host}:8089/ws" if scheme == "wss" else f"ws://{req_host}:8088/ws"
         return {
             "asteriskWssUrl": wss_url,
             "agentExtension": "1000",
+            "sipUsername": _res_web_fb("1000", ""),
+            "webPhoneEnabled": True,
             "agentName": "Temsilci 1000",
             "password": resolve_secure_sip_password("1000", ""),
             "viaHost": "78.189.210.15"
