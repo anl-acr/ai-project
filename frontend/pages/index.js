@@ -873,6 +873,12 @@ export default function Home() {
   const [twoFactorSecret, setTwoFactorSecret] = useState("");
   const [twoFactorEnrolled, setTwoFactorEnrolled] = useState(false);
   const [twoFactorQrSvg, setTwoFactorQrSvg] = useState("");
+  const [twoFactorMethodsMap, setTwoFactorMethodsMap] = useState({
+    google_auth: { secret: "", qrSvg: "", enrolled: false },
+    microsoft_auth: { secret: "", qrSvg: "", enrolled: false },
+    whatsapp: { enrolled: false },
+    email: { enrolled: false }
+  });
   const [twoFactorSetupLoading, setTwoFactorSetupLoading] = useState(false);
   const [twoFactorTestCode, setTwoFactorTestCode] = useState("");
   const [twoFactorVerifyLoading, setTwoFactorVerifyLoading] = useState(false);
@@ -881,6 +887,43 @@ export default function Home() {
   const [twoFactorSecretCopied, setTwoFactorSecretCopied] = useState(false);
   const profileModalScrollPaneRef = React.useRef(null);
   const profileTwoFactorCardRef = React.useRef(null);
+  const activeProfileTwoFactorMethodRef = React.useRef("google_auth");
+
+  const buildProfile2faMethodsMap = (u) => {
+    const base = {
+      google_auth: { secret: "", qrSvg: "", enrolled: false },
+      microsoft_auth: { secret: "", qrSvg: "", enrolled: false },
+      whatsapp: { enrolled: false },
+      email: { enrolled: false }
+    };
+    if (!u) return base;
+    const tfMeta = u?.call_panel_prefs?.twoFactorMeta && typeof u.call_panel_prefs.twoFactorMeta === "object"
+      ? u.call_panel_prefs.twoFactorMeta
+      : null;
+    if (tfMeta?.methods && typeof tfMeta.methods === "object") {
+      ["google_auth", "microsoft_auth", "whatsapp", "email"].forEach((mk) => {
+        const mv = tfMeta.methods[mk];
+        if (mv && typeof mv === "object") {
+          base[mk] = {
+            ...base[mk],
+            ...(mk === "google_auth" || mk === "microsoft_auth" ? { secret: mv.secret || "" } : {}),
+            enrolled: Boolean(mv.enrolled)
+          };
+        }
+      });
+      return base;
+    }
+    const rawM = String(u.two_factor_method || tfMeta?.method || "").toLowerCase();
+    const normM = rawM === "microsoft_auth" || rawM === "whatsapp" || rawM === "email" ? rawM : "google_auth";
+    const enr = Boolean(u.two_factor_enrolled ?? tfMeta?.enrolled);
+    const sec = u.two_factor_secret || tfMeta?.secret || "";
+    if (normM === "google_auth" || normM === "microsoft_auth") {
+      base[normM] = { secret: sec, qrSvg: "", enrolled: enr };
+    } else {
+      base[normM] = { enrolled: enr };
+    }
+    return base;
+  };
 
   const scrollProfileTwoFactorIntoPane = () => {
     if (typeof window === "undefined") return;
@@ -946,14 +989,15 @@ export default function Home() {
     return diffDays >= allowedDays;
   }, [currentUser]);
 
-  const profile2faSetupInFlightRef = React.useRef(false);
+  const profile2faSetupInFlightMethodRef = React.useRef(null);
 
   const fetchProfile2faSetup = async (resetSecret = false, overrideMethod = null) => {
     if (!currentUser) return;
-    const targetMethod = overrideMethod || twoFactorMethod || "google_auth";
+    const rawTarget = overrideMethod || twoFactorMethod || "google_auth";
+    const targetMethod = rawTarget === "app" ? "google_auth" : rawTarget;
     if (targetMethod === "email" || targetMethod === "whatsapp") return;
-    if (!resetSecret && profile2faSetupInFlightRef.current) return;
-    profile2faSetupInFlightRef.current = true;
+    if (!resetSecret && profile2faSetupInFlightMethodRef.current === targetMethod) return;
+    profile2faSetupInFlightMethodRef.current = targetMethod;
     setTwoFactorSetupLoading(true);
     if (resetSecret) setTwoFactorStatusMsg(null);
     try {
@@ -967,21 +1011,44 @@ export default function Home() {
       const res = await fetch(`${protocol}//${backendHost}/api/auth/setup_2fa/${encodeURIComponent(String(uid))}?${qs.toString()}`);
       const data = await res.json();
       if (res.ok && data.status === "success") {
-        setTwoFactorSecret(data.secret || "");
-        setTwoFactorQrSvg(data.qr_svg || "");
+        const resolvedEnrolled = resetSecret ? false : Boolean(data.enrolled);
+        setTwoFactorMethodsMap((prev) => {
+          const next = { ...prev };
+          if (data.methods && typeof data.methods === "object") {
+            ["google_auth", "microsoft_auth", "whatsapp", "email"].forEach((mk) => {
+              const srvM = data.methods[mk];
+              if (srvM && typeof srvM === "object") {
+                next[mk] = {
+                  ...(prev[mk] || {}),
+                  ...(mk === "google_auth" || mk === "microsoft_auth" ? { secret: srvM.secret || prev[mk]?.secret || "" } : {}),
+                  enrolled: Boolean(srvM.enrolled)
+                };
+              }
+            });
+          }
+          next[targetMethod] = {
+            ...(next[targetMethod] || {}),
+            secret: data.secret || "",
+            qrSvg: data.qr_svg || "",
+            enrolled: resolvedEnrolled
+          };
+          return next;
+        });
+        if (activeProfileTwoFactorMethodRef.current === targetMethod) {
+          setTwoFactorSecret(data.secret || "");
+          setTwoFactorQrSvg(data.qr_svg || "");
+          setTwoFactorEnrolled(resolvedEnrolled);
+        }
         if (resetSecret) {
-          setTwoFactorEnrolled(false);
           setTwoFactorStatusMsg({ type: "success", text: "Yeni QR kod ve anahtar üretildi. Uygulamadan tekrar okutunuz." });
-        } else if (data.enrolled !== undefined) {
-          const prevSavedMethod = String(data.method || currentUser?.two_factor_method || "").toLowerCase();
-          const wasTotpEnrolled = Boolean(data.enrolled) && (prevSavedMethod === "google_auth" || prevSavedMethod === "microsoft_auth" || prevSavedMethod === "app");
-          setTwoFactorEnrolled(wasTotpEnrolled);
         }
       }
     } catch (e) {
       console.error("2FA profile setup error:", e);
     } finally {
-      profile2faSetupInFlightRef.current = false;
+      if (profile2faSetupInFlightMethodRef.current === targetMethod) {
+        profile2faSetupInFlightMethodRef.current = null;
+      }
       setTwoFactorSetupLoading(false);
     }
   };
@@ -1112,17 +1179,58 @@ export default function Home() {
       });
       const data = await res.json();
       if (res.ok && data.status === "success") {
+        const verMethod = (twoFactorMethod === "app" ? "google_auth" : twoFactorMethod) || "google_auth";
         setTwoFactorEnrolled(true);
         setTwoFactorEnabled(true);
         setTwoFactorTestCode("");
+        setTwoFactorMethodsMap((prev) => ({
+          ...prev,
+          ...(data.methods && typeof data.methods === "object"
+            ? Object.fromEntries(
+                ["google_auth", "microsoft_auth", "whatsapp", "email"]
+                  .filter((mk) => data.methods[mk] && typeof data.methods[mk] === "object")
+                  .map((mk) => [
+                    mk,
+                    {
+                      ...(prev[mk] || {}),
+                      ...(mk === "google_auth" || mk === "microsoft_auth" ? { secret: data.methods[mk].secret || prev[mk]?.secret || "" } : {}),
+                      enrolled: Boolean(data.methods[mk].enrolled)
+                    }
+                  ])
+              )
+            : {}),
+          [verMethod]: {
+            ...(prev[verMethod] || {}),
+            ...(verMethod === "google_auth" || verMethod === "microsoft_auth" ? { secret: twoFactorSecret || prev[verMethod]?.secret || "" } : {}),
+            enrolled: true
+          }
+        }));
         if (typeof window !== "undefined") {
           localStorage.setItem("two_factor_enabled", "true");
         }
+        const prevCppVer = currentUser.call_panel_prefs && typeof currentUser.call_panel_prefs === "object" ? currentUser.call_panel_prefs : {};
+        const prevTfMetaVer = prevCppVer.twoFactorMeta && typeof prevCppVer.twoFactorMeta === "object" ? prevCppVer.twoFactorMeta : {};
         const verifiedPatch = {
           two_factor_enabled: true,
-          two_factor_method: twoFactorMethod || "google_auth",
+          two_factor_method: verMethod,
           two_factor_enrolled: true,
           ...(twoFactorSecret ? { two_factor_secret: twoFactorSecret } : {}),
+          ...(data.methods
+            ? {
+                call_panel_prefs: {
+                  ...prevCppVer,
+                  twoFactorMeta: {
+                    ...prevTfMetaVer,
+                    enabled: true,
+                    method: verMethod,
+                    enrolled: true,
+                    ...(twoFactorSecret ? { secret: twoFactorSecret } : {}),
+                    methods: data.methods,
+                    updatedTs: Date.now()
+                  }
+                }
+              }
+            : {}),
           ...(resolvedPhone ? {
             gsm_number: resolvedPhone,
             follow_me: {
@@ -1292,9 +1400,12 @@ export default function Home() {
     setTwoFactorEnabled(Boolean(init2faEnabled));
     const raw2faMethod = currentUser.two_factor_method || initTfMeta?.method;
     const norm2faMethod = (!raw2faMethod || raw2faMethod === "app") ? "google_auth" : raw2faMethod;
+    const initProfMethodsMap = buildProfile2faMethodsMap(currentUser);
     setTwoFactorMethod(norm2faMethod);
-    setTwoFactorSecret(currentUser.two_factor_secret || "");
-    setTwoFactorEnrolled(Boolean(currentUser.two_factor_enrolled ?? initTfMeta?.enrolled));
+    activeProfileTwoFactorMethodRef.current = norm2faMethod;
+    setTwoFactorMethodsMap(initProfMethodsMap);
+    setTwoFactorSecret(initProfMethodsMap[norm2faMethod]?.secret || "");
+    setTwoFactorEnrolled(Boolean(initProfMethodsMap[norm2faMethod]?.enrolled));
     setTwoFactorQrSvg("");
     setTwoFactorTestCode("");
     setTwoFactorStatusMsg(null);
@@ -1334,10 +1445,13 @@ export default function Home() {
             : Boolean(fMeta?.enabled ?? false);
         const freshRawMethod = freshU.two_factor_method || fMeta?.method;
         const freshMethod = (!freshRawMethod || freshRawMethod === "app") ? "google_auth" : freshRawMethod;
+        const freshMethodsMap = buildProfile2faMethodsMap(freshU);
         setTwoFactorEnabled(freshEnabled);
         setTwoFactorMethod(freshMethod);
-        if (freshU.two_factor_secret) setTwoFactorSecret(freshU.two_factor_secret);
-        setTwoFactorEnrolled(Boolean(freshU.two_factor_enrolled ?? fMeta?.enrolled));
+        activeProfileTwoFactorMethodRef.current = freshMethod;
+        setTwoFactorMethodsMap(freshMethodsMap);
+        setTwoFactorSecret(freshMethodsMap[freshMethod]?.secret || "");
+        setTwoFactorEnrolled(Boolean(freshMethodsMap[freshMethod]?.enrolled));
         const freshPhone = freshU.gsm_number || freshU.follow_me?.mobile_number || fMeta?.phone || "";
         if (freshPhone) setGsmNumber(freshPhone);
       })
@@ -8904,11 +9018,18 @@ export default function Home() {
                                   type="button"
                                   onClick={() => {
                                     userTouched2faInModalRef.current = true;
+                                    activeProfileTwoFactorMethodRef.current = m.id;
                                     setTwoFactorMethod(m.id);
                                     setTwoFactorStatusMsg(null);
                                     setTwoFactorTestCode("");
+                                    const cachedM = twoFactorMethodsMap[m.id] || {};
+                                    setTwoFactorEnrolled(Boolean(cachedM.enrolled));
                                     if (m.id === "google_auth" || m.id === "microsoft_auth") {
-                                      fetchProfile2faSetup(false, m.id);
+                                      setTwoFactorSecret(cachedM.secret || "");
+                                      setTwoFactorQrSvg(cachedM.qrSvg || "");
+                                      if (!cachedM.qrSvg) {
+                                        fetchProfile2faSetup(false, m.id);
+                                      }
                                     }
                                     scrollProfileTwoFactorIntoPane();
                                   }}
@@ -9315,8 +9436,11 @@ export default function Home() {
                                 auto_logout_duration: autoLogoutDuration,
                                 two_factor_enabled: twoFactorEnabled,
                                 two_factor_method: twoFactorMethod || "google_auth",
-                                two_factor_secret: twoFactorSecret || currentUser?.two_factor_secret || undefined,
-                                two_factor_enrolled: twoFactorEnrolled,
+                                two_factor_secret:
+                                  (twoFactorMethod === "google_auth" || twoFactorMethod === "microsoft_auth" || twoFactorMethod === "app")
+                                    ? (twoFactorSecret || twoFactorMethodsMap[twoFactorMethod === "app" ? "google_auth" : twoFactorMethod]?.secret || undefined)
+                                    : undefined,
+                                two_factor_enrolled: Boolean(twoFactorEnrolled),
                                 password_expiry_enabled: passwordExpiryEnabled,
                                 password_expiry_months: passwordExpiryMonths,
                                 ...passwordPayload
@@ -9335,7 +9459,10 @@ export default function Home() {
                                     enabled: Boolean(twoFactorEnabled),
                                     method: twoFactorMethod || "google_auth",
                                     phone: cleanedGsmNumber,
-                                    secret: twoFactorSecret || currentUser?.two_factor_secret || null,
+                                    secret:
+                                      (twoFactorMethod === "google_auth" || twoFactorMethod === "microsoft_auth" || twoFactorMethod === "app")
+                                        ? (twoFactorSecret || twoFactorMethodsMap[twoFactorMethod === "app" ? "google_auth" : twoFactorMethod]?.secret || null)
+                                        : null,
                                     enrolled: Boolean(twoFactorEnrolled)
                                   })
                                 });

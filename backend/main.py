@@ -1722,6 +1722,142 @@ _settings_schema_migrated = False
 _settings_cache_mtime: float = -1.0
 
 
+def _normalize_2fa_method(raw_method: Any) -> str:
+    m = str(raw_method or "").strip().lower()
+    if m in ("microsoft_auth", "whatsapp", "email"):
+        return m
+    return "google_auth"
+
+
+def _extract_2fa_methods_map(*sources: Any) -> Dict[str, Dict[str, Any]]:
+    """
+    Builds a per-method 2FA state dictionary across one or more user dicts / ORM objects:
+      {
+        "google_auth": {"secret": "...", "enrolled": bool},
+        "microsoft_auth": {"secret": "...", "enrolled": bool},
+        "whatsapp": {"enrolled": bool},
+        "email": {"enrolled": bool},
+      }
+    Legacy single-method fields only backfill that exact `two_factor_method` so Google Authenticator
+    enrollment/secret never bleeds into Microsoft Authenticator (or vice versa).
+    """
+    methods: Dict[str, Dict[str, Any]] = {
+        "google_auth": {"secret": "", "enrolled": False},
+        "microsoft_auth": {"secret": "", "enrolled": False},
+        "whatsapp": {"enrolled": False},
+        "email": {"enrolled": False},
+    }
+    explicit_seen = set()
+
+    def _get_f(src: Any, key: str) -> Any:
+        if isinstance(src, dict):
+            return src.get(key)
+        return getattr(src, key, None)
+
+    for src in sources:
+        if not src:
+            continue
+        cpp = _get_f(src, "call_panel_prefs")
+        if isinstance(cpp, str) and cpp.strip().startswith("{"):
+            try:
+                cpp = json.loads(cpp)
+            except Exception:
+                cpp = {}
+        tf_meta = cpp.get("twoFactorMeta") if isinstance(cpp, dict) else None
+        raw_methods = tf_meta.get("methods") if isinstance(tf_meta, dict) else None
+        if isinstance(raw_methods, dict):
+            for mk in ("google_auth", "microsoft_auth", "whatsapp", "email"):
+                mv = raw_methods.get(mk)
+                if isinstance(mv, dict):
+                    explicit_seen.add(mk)
+                    if mk in ("google_auth", "microsoft_auth"):
+                        sec_s = str(mv.get("secret") or "").strip()
+                        if sec_s:
+                            methods[mk]["secret"] = sec_s
+                    if "enrolled" in mv:
+                        methods[mk]["enrolled"] = bool(mv.get("enrolled"))
+
+    for src in sources:
+        if not src:
+            continue
+        cpp = _get_f(src, "call_panel_prefs")
+        if isinstance(cpp, str) and cpp.strip().startswith("{"):
+            try:
+                cpp = json.loads(cpp)
+            except Exception:
+                cpp = {}
+        tf_meta = cpp.get("twoFactorMeta") if isinstance(cpp, dict) else {}
+        if not isinstance(tf_meta, dict):
+            tf_meta = {}
+        raw_m = _get_f(src, "two_factor_method") or tf_meta.get("method")
+        if not raw_m:
+            continue
+        norm_m = _normalize_2fa_method(raw_m)
+        if norm_m in explicit_seen:
+            continue
+        src_sec = str(_get_f(src, "two_factor_secret") or tf_meta.get("secret") or "").strip()
+        raw_enr = _get_f(src, "two_factor_enrolled")
+        src_enr = bool(raw_enr if raw_enr is not None else tf_meta.get("enrolled", False))
+        if norm_m in ("google_auth", "microsoft_auth"):
+            if src_sec and not methods[norm_m]["secret"]:
+                methods[norm_m]["secret"] = src_sec
+            if src_enr:
+                methods[norm_m]["enrolled"] = True
+        else:
+            if src_enr:
+                methods[norm_m]["enrolled"] = True
+
+    return methods
+
+
+def _sync_active_2fa_fields_with_methods(user_dict: dict, methods_map: Dict[str, Dict[str, Any]], now_ts: Optional[int] = None) -> Dict[str, Dict[str, Any]]:
+    """Synchronizes top-level active 2FA fields and `call_panel_prefs.twoFactorMeta` with `methods_map`."""
+    if now_ts is None:
+        now_ts = int(time.time() * 1000)
+    act_m = _normalize_2fa_method(user_dict.get("two_factor_method"))
+    user_dict["two_factor_method"] = act_m
+    m_info = methods_map.get(act_m) or {}
+    if act_m in ("google_auth", "microsoft_auth"):
+        act_sec = str(m_info.get("secret") or user_dict.get("two_factor_secret") or "").strip()
+        act_enr = bool(m_info.get("enrolled", False))
+        methods_map[act_m] = {"secret": act_sec, "enrolled": act_enr}
+        user_dict["two_factor_secret"] = act_sec
+        user_dict["two_factor_enrolled"] = act_enr
+    else:
+        act_enr = bool(m_info.get("enrolled", False))
+        methods_map[act_m] = {"enrolled": act_enr}
+        user_dict["two_factor_enrolled"] = act_enr
+
+    if not isinstance(user_dict.get("call_panel_prefs"), dict):
+        user_dict["call_panel_prefs"] = {}
+    fm_raw = user_dict.get("follow_me")
+    if isinstance(fm_raw, str) and fm_raw.strip().startswith("{"):
+        try:
+            fm_raw = json.loads(fm_raw)
+        except Exception:
+            fm_raw = {}
+    phone_str = str(
+        user_dict.get("gsm_number")
+        or ((fm_raw if isinstance(fm_raw, dict) else {}).get("mobile_number"))
+        or ((user_dict["call_panel_prefs"].get("twoFactorMeta") or {}).get("phone") if isinstance(user_dict["call_panel_prefs"].get("twoFactorMeta"), dict) else "")
+        or ""
+    )
+    user_dict["two_factor_updated_ts"] = now_ts
+    user_dict["call_panel_prefs"] = {
+        **user_dict["call_panel_prefs"],
+        "twoFactorMeta": {
+            "enabled": bool(user_dict.get("two_factor_enabled", False)),
+            "method": act_m,
+            "secret": str(user_dict.get("two_factor_secret") or ""),
+            "enrolled": bool(user_dict.get("two_factor_enrolled", False)),
+            "phone": phone_str,
+            "methods": copy.deepcopy(methods_map),
+            "updatedTs": now_ts,
+        },
+    }
+    return methods_map
+
+
 def load_settings(force_reload: bool = False, persist: bool = False):
     global _settings_schema_migrated, _settings_cache_mtime
 
@@ -1894,6 +2030,13 @@ def load_settings(force_reload: bool = False, persist: bool = False):
                             u_dict["two_factor_secret"] = db_tf_meta_curr.get("secret")
                         if not u_dict.get("gsm_number") and db_tf_meta_curr.get("phone"):
                             u_dict["gsm_number"] = db_tf_meta_curr.get("phone")
+                        if isinstance(db_tf_meta_curr.get("methods"), dict):
+                            act_m_load = _normalize_2fa_method(u_dict.get("two_factor_method"))
+                            m_slot_load = db_tf_meta_curr["methods"].get(act_m_load)
+                            if isinstance(m_slot_load, dict):
+                                u_dict["two_factor_enrolled"] = bool(m_slot_load.get("enrolled", False))
+                                if act_m_load in ("google_auth", "microsoft_auth") and m_slot_load.get("secret"):
+                                    u_dict["two_factor_secret"] = m_slot_load.get("secret")
                     if isinstance(u_dict.get("call_panel_prefs"), dict) and u_dict["call_panel_prefs"].get("profileAvatar") and not (du and du.get("avatar_updated_ts")):
                         u_dict["avatar"] = u_dict["call_panel_prefs"]["profileAvatar"]
                     if not u_dict["wallboard_layout"] and wb_layouts_map:
@@ -8609,15 +8752,24 @@ async def update_agent_profile_endpoint(user_id: Union[int, str], payload: Profi
         user["auto_logout_enabled"] = payload.auto_logout_enabled
     if payload.auto_logout_duration is not None:
         user["auto_logout_duration"] = payload.auto_logout_duration
+    prev_methods_prof = _extract_2fa_methods_map(user)
     if payload.two_factor_enabled is not None:
         user["two_factor_enabled"] = bool(payload.two_factor_enabled)
     if payload.two_factor_method is not None:
-        norm_2fa_m = str(payload.two_factor_method or "google_auth").strip().lower()
-        user["two_factor_method"] = "google_auth" if norm_2fa_m == "app" else norm_2fa_m
-    if payload.two_factor_secret is not None:
-        user["two_factor_secret"] = payload.two_factor_secret
-    if payload.two_factor_enrolled is not None:
-        user["two_factor_enrolled"] = bool(payload.two_factor_enrolled)
+        user["two_factor_method"] = _normalize_2fa_method(payload.two_factor_method)
+    act_prof_m = _normalize_2fa_method(user.get("two_factor_method"))
+    if act_prof_m in ("google_auth", "microsoft_auth"):
+        other_prof_m = "microsoft_auth" if act_prof_m == "google_auth" else "google_auth"
+        inc_sec = str(payload.two_factor_secret or "").strip()
+        if inc_sec and (not prev_methods_prof[act_prof_m]["secret"] or inc_sec != prev_methods_prof[other_prof_m]["secret"]):
+            prev_methods_prof[act_prof_m]["secret"] = inc_sec
+        if not prev_methods_prof[act_prof_m]["secret"] and user.get("two_factor_enabled"):
+            prev_methods_prof[act_prof_m]["secret"] = generate_totp_secret()
+        if payload.two_factor_enrolled is True:
+            prev_methods_prof[act_prof_m]["enrolled"] = True
+    else:
+        if payload.two_factor_enrolled is True:
+            prev_methods_prof[act_prof_m]["enrolled"] = True
 
     touched_2fa = any(
         v is not None
@@ -8631,18 +8783,7 @@ async def update_agent_profile_endpoint(user_id: Union[int, str], payload: Profi
         )
     )
     if touched_2fa:
-        now_2fa_ts = int(time.time() * 1000)
-        user["two_factor_updated_ts"] = now_2fa_ts
-        if not isinstance(user.get("call_panel_prefs"), dict):
-            user["call_panel_prefs"] = {}
-        user["call_panel_prefs"]["twoFactorMeta"] = {
-            "enabled": bool(user.get("two_factor_enabled", False)),
-            "method": str(user.get("two_factor_method") or "google_auth"),
-            "secret": str(user.get("two_factor_secret") or ""),
-            "enrolled": bool(user.get("two_factor_enrolled", False)),
-            "phone": str(user.get("gsm_number") or (user.get("follow_me") or {}).get("mobile_number") or ""),
-            "updatedTs": now_2fa_ts,
-        }
+        _sync_active_2fa_fields_with_methods(user, prev_methods_prof)
 
     if payload.password_expiry_enabled is not None:
         user["password_expiry_enabled"] = payload.password_expiry_enabled
@@ -23832,26 +23973,11 @@ def _find_disk_user_for_2fa(user_id: str) -> Optional[dict]:
         return next((u for u in users if u.get("role") == "admin"), None)
     return None
 
-def _sync_user_2fa_to_db(user_dict: dict):
+def _sync_user_2fa_to_db(user_dict: dict, explicit_methods_map: Optional[Dict[str, Dict[str, Any]]] = None):
     import copy
     now_ts = int(time.time() * 1000)
-    user_dict["two_factor_updated_ts"] = now_ts
-    if not isinstance(user_dict.get("call_panel_prefs"), dict):
-        user_dict["call_panel_prefs"] = {}
-    fm_sync_raw = user_dict.get("follow_me")
-    if isinstance(fm_sync_raw, str) and fm_sync_raw.strip().startswith("{"):
-        try:
-            fm_sync_raw = json.loads(fm_sync_raw)
-        except Exception:
-            fm_sync_raw = {}
-    user_dict["call_panel_prefs"]["twoFactorMeta"] = {
-        "enabled": bool(user_dict.get("two_factor_enabled", False)),
-        "method": str(user_dict.get("two_factor_method") or "google_auth"),
-        "secret": str(user_dict.get("two_factor_secret") or ""),
-        "enrolled": bool(user_dict.get("two_factor_enrolled", False)),
-        "phone": str(user_dict.get("gsm_number") or ((fm_sync_raw if isinstance(fm_sync_raw, dict) else {}).get("mobile_number")) or ""),
-        "updatedTs": now_ts,
-    }
+    methods_map = copy.deepcopy(explicit_methods_map) if isinstance(explicit_methods_map, dict) else _extract_2fa_methods_map(user_dict)
+    _sync_active_2fa_fields_with_methods(user_dict, methods_map, now_ts=now_ts)
     try:
         from backend.database.config import SyncSessionLocal
         from backend.database.models import SystemUser
@@ -24021,55 +24147,48 @@ async def setup_2fa(
     if not user:
         raise HTTPException(status_code=404, detail="Kullanıcı bulunamadı.")
 
-    cpp_setup = user.get("call_panel_prefs")
-    if isinstance(cpp_setup, str) and cpp_setup.strip().startswith("{"):
-        try:
-            cpp_setup = json.loads(cpp_setup)
-        except Exception:
-            cpp_setup = {}
-    meta_sec = ((cpp_setup if isinstance(cpp_setup, dict) else {}).get("twoFactorMeta") or {}).get("secret")
-    active_secret = user.get("two_factor_secret") or meta_sec
+    db_u_setup = None
+    try:
+        from backend.database.config import SyncSessionLocal
+        from backend.database.models import SystemUser
+        with SyncSessionLocal() as session:
+            uid_val = user.get("id")
+            ext_val = str(user.get("extension") or "").strip()
+            eml_val = str(user.get("email") or "").strip()
+            if uid_val is not None and str(uid_val).isdigit() and str(uid_val) != "9999":
+                db_u_setup = session.query(SystemUser).filter(SystemUser.id == int(uid_val)).first()
+            if not db_u_setup and ext_val:
+                db_u_setup = session.query(SystemUser).filter(SystemUser.extension == ext_val).first()
+            if not db_u_setup and eml_val:
+                db_u_setup = session.query(SystemUser).filter(SystemUser.email == eml_val).first()
+    except Exception:
+        db_u_setup = None
 
-    if not active_secret and not reset:
-        try:
-            from backend.database.config import SyncSessionLocal
-            from backend.database.models import SystemUser
-            with SyncSessionLocal() as session:
-                uid_val = user.get("id")
-                ext_val = str(user.get("extension") or "").strip()
-                eml_val = str(user.get("email") or "").strip()
-                db_u = None
-                if uid_val is not None and str(uid_val).isdigit() and str(uid_val) != "9999":
-                    db_u = session.query(SystemUser).filter(SystemUser.id == int(uid_val)).first()
-                if not db_u and ext_val:
-                    db_u = session.query(SystemUser).filter(SystemUser.extension == ext_val).first()
-                if not db_u and eml_val:
-                    db_u = session.query(SystemUser).filter(SystemUser.email == eml_val).first()
-                if db_u:
-                    db_cpp = getattr(db_u, "call_panel_prefs", None)
-                    if isinstance(db_cpp, str) and db_cpp.strip().startswith("{"):
-                        try:
-                            db_cpp = json.loads(db_cpp)
-                        except Exception:
-                            db_cpp = {}
-                    db_meta_sec = ((db_cpp if isinstance(db_cpp, dict) else {}).get("twoFactorMeta") or {}).get("secret")
-                    active_secret = getattr(db_u, "two_factor_secret", None) or db_meta_sec
-                    if active_secret:
-                        user["two_factor_secret"] = active_secret
-        except Exception:
-            pass
+    methods_map = _extract_2fa_methods_map(db_u_setup, user)
+    m_slot = methods_map.get(norm_method) or {"secret": "", "enrolled": False}
+    active_secret = str(m_slot.get("secret") or "").strip()
+    method_enrolled = bool(m_slot.get("enrolled", False))
 
-    if reset or not active_secret:
-        active_secret = (secret if (secret and not reset) else None) or generate_totp_secret()
-        user["two_factor_secret"] = active_secret
-        if reset:
-            user["two_factor_enrolled"] = False
-        _sync_user_2fa_to_db(user)
-        save_settings(settings_db)
+    if norm_method in ("google_auth", "microsoft_auth"):
+        if reset or not active_secret:
+            active_secret = generate_totp_secret()
+            method_enrolled = False
+            methods_map[norm_method] = {"secret": active_secret, "enrolled": False}
+            if _normalize_2fa_method(user.get("two_factor_method")) == norm_method:
+                user["two_factor_secret"] = active_secret
+                user["two_factor_enrolled"] = False
+            _sync_user_2fa_to_db(user, explicit_methods_map=methods_map)
+            save_settings(settings_db)
+        else:
+            curr_cpp = user.get("call_panel_prefs") if isinstance(user.get("call_panel_prefs"), dict) else {}
+            curr_meta = curr_cpp.get("twoFactorMeta") if isinstance(curr_cpp.get("twoFactorMeta"), dict) else {}
+            if not isinstance(curr_meta.get("methods"), dict):
+                _sync_user_2fa_to_db(user, explicit_methods_map=methods_map)
+                save_settings(settings_db)
 
     acct_label = str(email or user.get("email") or user.get("extension") or user.get("full_name") or user_id).strip()
-    uri = build_otpauth_uri(active_secret, account_name=acct_label, issuer="AIDA", method=norm_method)
-    qr_svg = generate_qr_svg_data_uri(uri)
+    uri = build_otpauth_uri(active_secret, account_name=acct_label, issuer="AIDA", method=norm_method) if active_secret else ""
+    qr_svg = generate_qr_svg_data_uri(uri) if uri else ""
     fm_setup_raw = user.get("follow_me")
     if isinstance(fm_setup_raw, str) and fm_setup_raw.strip().startswith("{"):
         try:
@@ -24083,8 +24202,10 @@ async def setup_2fa(
         "secret": active_secret,
         "uri": uri,
         "qr_svg": qr_svg,
-        "enrolled": bool(user.get("two_factor_enrolled", False)),
-        "method": user.get("two_factor_method") or norm_method,
+        "enrolled": method_enrolled,
+        "method": norm_method,
+        "active_method": _normalize_2fa_method(user.get("two_factor_method")),
+        "methods": methods_map,
         "email": user.get("email", ""),
         "masked_email": mask_email_address(user.get("email", "")),
         "phone": user_gsm,
@@ -24149,14 +24270,35 @@ async def save_2fa_config_endpoint(payload: Save2FAConfigSchema):
     if not user:
         raise HTTPException(status_code=404, detail="Kullanıcı bulunamadı.")
 
+    db_u_cfg = None
+    try:
+        from backend.database.config import SyncSessionLocal
+        from backend.database.models import SystemUser
+        with SyncSessionLocal() as session:
+            if uid_str.isdigit() and uid_str != "9999":
+                db_u_cfg = session.query(SystemUser).filter(SystemUser.id == int(uid_str)).first()
+            if not db_u_cfg and ext_str:
+                db_u_cfg = session.query(SystemUser).filter(SystemUser.extension == ext_str).first()
+            if not db_u_cfg and eml_str:
+                db_u_cfg = session.query(SystemUser).filter(SystemUser.email == eml_str).first()
+    except Exception:
+        db_u_cfg = None
+
+    methods_map = _extract_2fa_methods_map(db_u_cfg, user)
     user["two_factor_enabled"] = bool(payload.enabled)
     user["two_factor_method"] = norm_m
-    if payload.secret:
-        user["two_factor_secret"] = payload.secret
-    elif user["two_factor_enabled"] and norm_m in ("google_auth", "microsoft_auth") and not user.get("two_factor_secret"):
-        user["two_factor_secret"] = generate_totp_secret()
-    if payload.enrolled is not None:
-        user["two_factor_enrolled"] = bool(payload.enrolled)
+    if norm_m in ("google_auth", "microsoft_auth"):
+        other_m = "microsoft_auth" if norm_m == "google_auth" else "google_auth"
+        inc_sec = str(payload.secret or "").strip()
+        if inc_sec and (not methods_map[norm_m]["secret"] or inc_sec != methods_map[other_m]["secret"]):
+            methods_map[norm_m]["secret"] = inc_sec
+        if user["two_factor_enabled"] and not methods_map[norm_m]["secret"]:
+            methods_map[norm_m]["secret"] = generate_totp_secret()
+        if payload.enrolled is True:
+            methods_map[norm_m]["enrolled"] = True
+    else:
+        if payload.enrolled is True:
+            methods_map[norm_m]["enrolled"] = True
 
     if payload.phone is not None:
         clean_ph = str(payload.phone).strip()
@@ -24179,7 +24321,7 @@ async def save_2fa_config_endpoint(payload: Save2FAConfigSchema):
             raw_fm = {**raw_fm, "mobile_number": clean_ph}
         user["follow_me"] = raw_fm
 
-    _sync_user_2fa_to_db(user)
+    _sync_user_2fa_to_db(user, explicit_methods_map=methods_map)
     save_settings(settings_db)
 
     return {
@@ -24188,6 +24330,7 @@ async def save_2fa_config_endpoint(payload: Save2FAConfigSchema):
         "two_factor_enabled": bool(user.get("two_factor_enabled", False)),
         "two_factor_method": user.get("two_factor_method", "google_auth"),
         "two_factor_enrolled": bool(user.get("two_factor_enrolled", False)),
+        "methods": methods_map,
         "gsm_number": user.get("gsm_number", ""),
     }
 
@@ -24387,92 +24530,9 @@ async def verify_2fa(payload: Verify2FASchema):
     if not user:
         raise HTTPException(status_code=404, detail="Kullanıcı bulunamadı.")
 
-    eff_method = str(payload.method or user.get("two_factor_method") or "google_auth").strip().lower()
-    if eff_method == "email":
-        verified = (
-            verify_email_otp(str(user.get("id")), code)
-            or verify_email_otp(uid_str, code)
-            or verify_email_otp(str(user.get("extension") or ""), code)
-        )
-        if verified:
-            user["two_factor_enrolled"] = True
-            user["two_factor_enabled"] = True
-            user["two_factor_method"] = "email"
-            _sync_user_2fa_to_db(user)
-            save_settings(settings_db)
-            return {
-                "status": "success",
-                "message": "E-Posta 2FA doğrulaması başarılı.",
-                "enrolled": True,
-                "method": "email"
-            }
-        raise HTTPException(status_code=401, detail="Geçersiz veya süresi dolmuş E-Posta doğrulama kodu.")
+    eff_method = _normalize_2fa_method(payload.method or user.get("two_factor_method") or "google_auth")
 
-    if eff_method == "whatsapp":
-        fm_raw = user.get("follow_me")
-        if isinstance(fm_raw, str) and fm_raw.strip().startswith("{"):
-            try:
-                fm_raw = json.loads(fm_raw)
-            except Exception:
-                fm_raw = {}
-        user_gsm = user.get("gsm_number") or ((fm_raw if isinstance(fm_raw, dict) else {}).get("mobile_number")) or ""
-        candidate_keys = [
-            str(user.get("id") or ""),
-            uid_str,
-            str(user.get("extension") or ""),
-            str(user_gsm),
-            str(payload.phone or "")
-        ]
-        if verify_whatsapp_otp(candidate_keys, code):
-            user["two_factor_enrolled"] = True
-            user["two_factor_enabled"] = True
-            user["two_factor_method"] = "whatsapp"
-            if payload.phone and str(payload.phone).strip():
-                clean_ph = str(payload.phone).strip()
-                user["gsm_number"] = clean_ph
-                if not isinstance(user.get("follow_me"), dict):
-                    user["follow_me"] = {
-                        "enabled": False,
-                        "timeout": 15,
-                        "first_target": "mobile_app",
-                        "second_target": "mobile_number",
-                        "mobile_number": clean_ph,
-                    }
-                else:
-                    user["follow_me"] = {**user["follow_me"], "mobile_number": clean_ph}
-            _sync_user_2fa_to_db(user)
-            save_settings(settings_db)
-            return {
-                "status": "success",
-                "message": "WhatsApp 2FA doğrulaması başarılı.",
-                "enrolled": True,
-                "method": "whatsapp"
-            }
-        raise HTTPException(
-            status_code=401,
-            detail="Geçersiz veya süresi dolmuş (5 dk) WhatsApp doğrulama kodu. Lütfen WhatsApp hattımıza 'Giriş Kodu' yazarak yeni kod alınız."
-        )
-
-    # Google Authenticator / Microsoft Authenticator / TOTP App verification
-    candidate_secrets: List[str] = []
-
-    def _add_cand_secret(val: Any):
-        s_val = str(val or "").strip()
-        if s_val and s_val not in candidate_secrets:
-            candidate_secrets.append(s_val)
-
-    _add_cand_secret(payload.secret)
-    _add_cand_secret(user.get("two_factor_secret"))
-    u_cpp = user.get("call_panel_prefs")
-    if isinstance(u_cpp, str) and u_cpp.strip().startswith("{"):
-        try:
-            u_cpp = json.loads(u_cpp)
-        except Exception:
-            u_cpp = {}
-    if isinstance(u_cpp, dict):
-        _add_cand_secret((u_cpp.get("twoFactorMeta") or {}).get("secret"))
-
-    # Also check PostgreSQL SystemUser directly so DB vs memory desync or multi-worker setups never fail
+    db_matches_v: List[Any] = []
     try:
         from backend.database.config import SyncSessionLocal
         from backend.database.models import SystemUser
@@ -24492,20 +24552,124 @@ async def verify_2fa(payload: Verify2FASchema):
             if uid_str in ("admin", "9999") or str(user.get("role") or "").lower() == "admin":
                 q_conds.append(SystemUser.role == "admin")
             if q_conds:
-                db_matches = session.query(SystemUser).filter(or_(*q_conds)).all()
-                for db_m in db_matches:
-                    _add_cand_secret(getattr(db_m, "two_factor_secret", None))
-                    db_m_cpp = getattr(db_m, "call_panel_prefs", None)
-                    if isinstance(db_m_cpp, str) and db_m_cpp.strip().startswith("{"):
-                        try:
-                            db_m_cpp = json.loads(db_m_cpp)
-                        except Exception:
-                            db_m_cpp = {}
-                    if isinstance(db_m_cpp, dict):
-                        _add_cand_secret((db_m_cpp.get("twoFactorMeta") or {}).get("secret"))
+                db_matches_v = session.query(SystemUser).filter(or_(*q_conds)).all()
     except Exception as e_vdb:
-        print(f"[Verify 2FA DB Secret Lookup Notice]: {e_vdb}")
+        print(f"[Verify 2FA DB Lookup Notice]: {e_vdb}")
 
+    methods_map_v = _extract_2fa_methods_map(*(db_matches_v + [user]))
+
+    if eff_method == "email":
+        verified = (
+            verify_email_otp(str(user.get("id")), code)
+            or verify_email_otp(uid_str, code)
+            or verify_email_otp(str(user.get("extension") or ""), code)
+        )
+        if verified:
+            methods_map_v["email"] = {"enrolled": True}
+            user["two_factor_enrolled"] = True
+            user["two_factor_enabled"] = True
+            user["two_factor_method"] = "email"
+            _sync_user_2fa_to_db(user, explicit_methods_map=methods_map_v)
+            save_settings(settings_db)
+            return {
+                "status": "success",
+                "message": "E-Posta 2FA doğrulaması başarılı.",
+                "enrolled": True,
+                "method": "email",
+                "methods": methods_map_v,
+            }
+        raise HTTPException(status_code=401, detail="Geçersiz veya süresi dolmuş E-Posta doğrulama kodu.")
+
+    if eff_method == "whatsapp":
+        fm_raw = user.get("follow_me")
+        if isinstance(fm_raw, str) and fm_raw.strip().startswith("{"):
+            try:
+                fm_raw = json.loads(fm_raw)
+            except Exception:
+                fm_raw = {}
+        user_gsm = user.get("gsm_number") or ((fm_raw if isinstance(fm_raw, dict) else {}).get("mobile_number")) or ""
+        candidate_keys = [
+            str(user.get("id") or ""),
+            uid_str,
+            str(user.get("extension") or ""),
+            str(user_gsm),
+            str(payload.phone or "")
+        ]
+        if verify_whatsapp_otp(candidate_keys, code):
+            methods_map_v["whatsapp"] = {"enrolled": True}
+            user["two_factor_enrolled"] = True
+            user["two_factor_enabled"] = True
+            user["two_factor_method"] = "whatsapp"
+            if payload.phone and str(payload.phone).strip():
+                clean_ph = str(payload.phone).strip()
+                user["gsm_number"] = clean_ph
+                if not isinstance(user.get("follow_me"), dict):
+                    user["follow_me"] = {
+                        "enabled": False,
+                        "timeout": 15,
+                        "first_target": "mobile_app",
+                        "second_target": "mobile_number",
+                        "mobile_number": clean_ph,
+                    }
+                else:
+                    user["follow_me"] = {**user["follow_me"], "mobile_number": clean_ph}
+            _sync_user_2fa_to_db(user, explicit_methods_map=methods_map_v)
+            save_settings(settings_db)
+            return {
+                "status": "success",
+                "message": "WhatsApp 2FA doğrulaması başarılı.",
+                "enrolled": True,
+                "method": "whatsapp",
+                "methods": methods_map_v,
+            }
+        raise HTTPException(
+            status_code=401,
+            detail="Geçersiz veya süresi dolmuş (5 dk) WhatsApp doğrulama kodu. Lütfen WhatsApp hattımıza 'Giriş Kodu' yazarak yeni kod alınız."
+        )
+
+    # Google Authenticator / Microsoft Authenticator / TOTP App verification (strictly per-method)
+    candidate_secrets: List[str] = []
+    other_totp_m = "microsoft_auth" if eff_method == "google_auth" else "google_auth"
+    other_totp_sec = str((methods_map_v.get(other_totp_m) or {}).get("secret") or "").strip()
+
+    def _add_cand_secret(val: Any, allow_if_matches_other: bool = False):
+        s_val = str(val or "").strip()
+        if not s_val:
+            return
+        if not allow_if_matches_other and other_totp_sec and s_val == other_totp_sec:
+            return
+        if s_val not in candidate_secrets:
+            candidate_secrets.append(s_val)
+
+    _add_cand_secret((methods_map_v.get(eff_method) or {}).get("secret"), allow_if_matches_other=True)
+    _add_cand_secret(payload.secret)
+
+    def _collect_from_source(src_obj: Any):
+        if not src_obj:
+            return
+        src_cpp = src_obj.get("call_panel_prefs") if isinstance(src_obj, dict) else getattr(src_obj, "call_panel_prefs", None)
+        if isinstance(src_cpp, str) and src_cpp.strip().startswith("{"):
+            try:
+                src_cpp = json.loads(src_cpp)
+            except Exception:
+                src_cpp = {}
+        src_meta = src_cpp.get("twoFactorMeta") if isinstance(src_cpp, dict) else {}
+        if not isinstance(src_meta, dict):
+            src_meta = {}
+        src_methods = src_meta.get("methods") if isinstance(src_meta.get("methods"), dict) else {}
+        if isinstance(src_methods.get(eff_method), dict):
+            _add_cand_secret(src_methods[eff_method].get("secret"), allow_if_matches_other=True)
+        src_act_m = _normalize_2fa_method(
+            (src_obj.get("two_factor_method") if isinstance(src_obj, dict) else getattr(src_obj, "two_factor_method", None))
+            or src_meta.get("method")
+        )
+        if src_act_m == eff_method:
+            _add_cand_secret(src_obj.get("two_factor_secret") if isinstance(src_obj, dict) else getattr(src_obj, "two_factor_secret", None))
+            _add_cand_secret(src_meta.get("secret"))
+
+    _collect_from_source(user)
+    for db_m in db_matches_v:
+        _collect_from_source(db_m)
     for du_cand in (settings_db.get("users") or []):
         if not isinstance(du_cand, dict):
             continue
@@ -24514,13 +24678,10 @@ async def verify_2fa(payload: Verify2FASchema):
             or (user.get("extension") and str(du_cand.get("extension")) == str(user.get("extension")))
             or (uid_str in ("admin", "9999") and str(du_cand.get("role") or "").lower() == "admin")
         ):
-            _add_cand_secret(du_cand.get("two_factor_secret"))
-            du_cpp = du_cand.get("call_panel_prefs")
-            if isinstance(du_cpp, dict):
-                _add_cand_secret((du_cpp.get("twoFactorMeta") or {}).get("secret"))
+            _collect_from_source(du_cand)
 
     if not candidate_secrets:
-        raise HTTPException(status_code=400, detail="Bu kullanıcı için henüz Authenticator anahtarı oluşturulmamış.")
+        raise HTTPException(status_code=400, detail="Bu doğrulama yöntemi için henüz kurulum anahtarı oluşturulmamış.")
 
     matched_secret = None
     for cand_sec in candidate_secrets:
@@ -24529,18 +24690,19 @@ async def verify_2fa(payload: Verify2FASchema):
             break
 
     if matched_secret:
+        methods_map_v[eff_method] = {"secret": matched_secret, "enrolled": True}
+        user["two_factor_method"] = eff_method
         user["two_factor_secret"] = matched_secret
         user["two_factor_enrolled"] = True
         user["two_factor_enabled"] = True
-        if payload.method and payload.method in ["google_auth", "microsoft_auth"]:
-            user["two_factor_method"] = payload.method
-        _sync_user_2fa_to_db(user)
+        _sync_user_2fa_to_db(user, explicit_methods_map=methods_map_v)
         save_settings(settings_db)
         return {
             "status": "success",
             "message": "Authenticator 2FA doğrulaması başarılı.",
             "enrolled": True,
-            "method": user.get("two_factor_method") or eff_method
+            "method": eff_method,
+            "methods": methods_map_v,
         }
     else:
         raise HTTPException(status_code=401, detail="Geçersiz 6 haneli doğrulama kodu. Lütfen uygulamadaki güncel kodu giriniz.")
@@ -25648,6 +25810,13 @@ async def new_get_users_endpoint(request: Request, user_info: dict = Depends(get
                 u["two_factor_secret"] = curr_tf_meta.get("secret")
             if not u.get("gsm_number") and curr_tf_meta.get("phone"):
                 u["gsm_number"] = curr_tf_meta.get("phone")
+            if isinstance(curr_tf_meta.get("methods"), dict):
+                act_m_get = _normalize_2fa_method(u.get("two_factor_method"))
+                m_slot_get = curr_tf_meta["methods"].get(act_m_get)
+                if isinstance(m_slot_get, dict):
+                    u["two_factor_enrolled"] = bool(m_slot_get.get("enrolled", False))
+                    if act_m_get in ("google_auth", "microsoft_auth") and m_slot_get.get("secret"):
+                        u["two_factor_secret"] = m_slot_get.get("secret")
         if isinstance(u.get("call_panel_prefs"), dict) and u["call_panel_prefs"].get("profileAvatar") and not (disk_u and disk_u.get("avatar_updated_ts")):
             u["avatar"] = u["call_panel_prefs"]["profileAvatar"]
         q_subs_map = ((settings_db.get("security_advanced") or {}).get("quarantined_subscribers") or {}) if isinstance(settings_db.get("security_advanced"), dict) else {}
@@ -25863,16 +26032,36 @@ async def new_save_users_endpoint(payload: Union[List[UserSchema], UserSchema], 
                 )
 
             prev_disk = existing_disk_by_id.get(item_id_str) or (existing_disk_by_ext.get(ext_str) if ext_str else None) or {}
-            # Preserve existing 2FA secret if not explicitly overwritten
-            if not data.get("two_factor_secret"):
-                existing_sec = (getattr(target_user, "two_factor_secret", None) if target_user else None) or prev_disk.get("two_factor_secret")
-                if existing_sec:
-                    data["two_factor_secret"] = existing_sec
-            # Auto-generate a TOTP secret if 2FA is enabled with an Authenticator app and no secret exists yet
-            if data.get("two_factor_enabled") and data.get("two_factor_method") in ["google_auth", "microsoft_auth"] and not data.get("two_factor_secret"):
-                data["two_factor_secret"] = generate_totp_secret()
-            if data.get("two_factor_enabled") and not data.get("two_factor_enrolled") and prev_disk.get("two_factor_enrolled"):
-                data["two_factor_enrolled"] = True
+            methods_map_save = _extract_2fa_methods_map(target_user, prev_disk) if (target_user or prev_disk) else _extract_2fa_methods_map(data)
+            norm_save_m = _normalize_2fa_method(data.get("two_factor_method"))
+            data["two_factor_method"] = norm_save_m
+            if norm_save_m in ("google_auth", "microsoft_auth"):
+                other_save_m = "microsoft_auth" if norm_save_m == "google_auth" else "google_auth"
+                inc_save_sec = str(data.get("two_factor_secret") or "").strip()
+                if inc_save_sec and (not methods_map_save[norm_save_m]["secret"] or inc_save_sec != methods_map_save[other_save_m]["secret"]):
+                    methods_map_save[norm_save_m]["secret"] = inc_save_sec
+                if data.get("two_factor_enabled") and not methods_map_save[norm_save_m]["secret"]:
+                    methods_map_save[norm_save_m]["secret"] = generate_totp_secret()
+                if data.get("two_factor_enrolled") is True:
+                    prev_active_m = _normalize_2fa_method(
+                        (getattr(target_user, "two_factor_method", None) if target_user else None)
+                        or prev_disk.get("two_factor_method")
+                        or norm_save_m
+                    )
+                    if not (target_user or prev_disk) or prev_active_m == norm_save_m or methods_map_save[norm_save_m]["enrolled"]:
+                        methods_map_save[norm_save_m]["enrolled"] = True
+                data["two_factor_secret"] = methods_map_save[norm_save_m]["secret"]
+                data["two_factor_enrolled"] = bool(methods_map_save[norm_save_m]["enrolled"])
+            else:
+                if data.get("two_factor_enrolled") is True:
+                    prev_active_m = _normalize_2fa_method(
+                        (getattr(target_user, "two_factor_method", None) if target_user else None)
+                        or prev_disk.get("two_factor_method")
+                        or norm_save_m
+                    )
+                    if not (target_user or prev_disk) or prev_active_m == norm_save_m or methods_map_save[norm_save_m]["enrolled"]:
+                        methods_map_save[norm_save_m]["enrolled"] = True
+                data["two_factor_enrolled"] = bool(methods_map_save[norm_save_m]["enrolled"])
 
             # Synchronize follow_me and gsm_number so WhatsApp 2FA & Follow-Me always share the exact mobile number
             raw_fm = data.get("follow_me")
@@ -25977,18 +26166,7 @@ async def new_save_users_endpoint(payload: Union[List[UserSchema], UserSchema], 
                 data["call_panel_prefs"] = {**data["call_panel_prefs"], "profileAvatar": data["avatar"]}
                 data["avatar_updated_ts"] = int(datetime.datetime.now().timestamp())
             now_2fa_ts = int(time.time() * 1000)
-            data["two_factor_updated_ts"] = now_2fa_ts
-            data["call_panel_prefs"] = {
-                **data["call_panel_prefs"],
-                "twoFactorMeta": {
-                    "enabled": bool(data.get("two_factor_enabled", False)),
-                    "method": str(data.get("two_factor_method") or "google_auth"),
-                    "secret": str(data.get("two_factor_secret") or ""),
-                    "enrolled": bool(data.get("two_factor_enrolled", False)),
-                    "phone": str(data.get("gsm_number") or ""),
-                    "updatedTs": now_2fa_ts,
-                },
-            }
+            _sync_active_2fa_fields_with_methods(data, methods_map_save, now_ts=now_2fa_ts)
             if data.get("wallboard_layout") is None:
                 data["wallboard_layout"] = (getattr(target_user, "wallboard_layout", None) if target_user else None) or prev_disk.get("wallboard_layout") or {}
             if data.get("theme_mode") is None:
