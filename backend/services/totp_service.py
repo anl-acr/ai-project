@@ -48,15 +48,64 @@ def get_totp_code(
     return str(code_int).zfill(digits)
 
 
+_NETWORK_CLOCK_CACHE: Dict[str, float] = {
+    "offset_sec": 0.0,
+    "checked_monotonic": 0.0,
+}
+
+
+def _get_network_utc_timestamp(force_refresh: bool = False) -> Optional[float]:
+    """
+    Resolves true UTC epoch time via HTTPS Date / Cloudflare trace headers (cached for 15 min)
+    so TOTP verification remains accurate even if the host VM/server system clock has drifted.
+    """
+    import email.utils
+    import urllib.request
+
+    mono_now = time.monotonic()
+    if not force_refresh and _NETWORK_CLOCK_CACHE["checked_monotonic"] > 0 and (mono_now - _NETWORK_CLOCK_CACHE["checked_monotonic"]) < 900:
+        return time.time() + _NETWORK_CLOCK_CACHE["offset_sec"]
+
+    for probe_url in ("https://www.google.com/generate_204", "https://1.1.1.1/cdn-cgi/trace"):
+        try:
+            req = urllib.request.Request(probe_url, method="HEAD" if "generate_204" in probe_url else "GET", headers={"User-Agent": "AIDA-TOTP-ClockSync/1.0"})
+            t_before = time.time()
+            with urllib.request.urlopen(req, timeout=1.5) as resp:
+                t_after = time.time()
+                local_mid = (t_before + t_after) / 2.0
+                date_hdr = resp.headers.get("Date")
+                if date_hdr:
+                    dt = email.utils.parsedate_to_datetime(date_hdr)
+                    net_ts = dt.timestamp()
+                    offset = net_ts - local_mid
+                    _NETWORK_CLOCK_CACHE["offset_sec"] = offset
+                    _NETWORK_CLOCK_CACHE["checked_monotonic"] = time.monotonic()
+                    if abs(offset) > 20:
+                        print(f"[TOTP Clock Drift Info]: Host clock differs from network UTC by {offset:+.1f}s (auto-compensated).")
+                    return time.time() + offset
+                if "trace" in probe_url:
+                    body = resp.read(512).decode("utf-8", errors="ignore")
+                    for line in body.splitlines():
+                        if line.startswith("ts="):
+                            net_ts = float(line.split("=", 1)[1].strip())
+                            offset = net_ts - local_mid
+                            _NETWORK_CLOCK_CACHE["offset_sec"] = offset
+                            _NETWORK_CLOCK_CACHE["checked_monotonic"] = time.monotonic()
+                            return time.time() + offset
+        except Exception:
+            continue
+    return None
+
+
 def verify_totp_code(
     secret: str,
     code: str,
-    window: int = 1,
+    window: int = 2,
     interval: int = 30
 ) -> bool:
     """
     Verifies a 6-digit TOTP code against the secret with a +/- `window` step tolerance
-    (default +/- 30 seconds) to handle slight phone/server clock drift.
+    (default +/- 60 seconds) plus automatic network UTC clock-drift compensation.
     """
     if not secret or not code:
         return False
@@ -69,6 +118,14 @@ def verify_totp_code(
             candidate = get_totp_code(secret, for_time=now + (offset * interval), interval=interval)
             if hmac.compare_digest(candidate, clean_code):
                 return True
+
+        # Fallback: check against network UTC timestamp in case server VM clock drifted
+        net_now = _get_network_utc_timestamp()
+        if net_now is not None and abs(net_now - now) > 15:
+            for offset in range(-window, window + 1):
+                candidate = get_totp_code(secret, for_time=net_now + (offset * interval), interval=interval)
+                if hmac.compare_digest(candidate, clean_code):
+                    return True
     except Exception as e:
         print(f"[TOTP Verify Error]: {e}")
     return False
@@ -81,14 +138,17 @@ def build_otpauth_uri(
     method: str = "google_auth"
 ) -> str:
     """
-    Builds standard otpauth://totp/ URI compatible with both
-    Google Authenticator and Microsoft Authenticator.
+    Builds standard otpauth://totp/Issuer:Account URI compatible with both
+    Google Authenticator and Microsoft Authenticator (iOS & Android).
     """
-    clean_issuer = str(issuer or "AIDA").strip()
-    clean_account = str(account_name or "user").strip()
-    label = urllib.parse.quote(f"{clean_issuer}:{clean_account}")
+    clean_issuer = str(issuer or "AIDA").replace(":", "").strip() or "AIDA"
+    clean_account = str(account_name or "user").replace(":", "").strip() or "user"
+    clean_secret = "".join(ch for ch in str(secret or "").upper() if ch in BASE32_ALPHABET)
+    enc_issuer = urllib.parse.quote(clean_issuer, safe="")
+    enc_account = urllib.parse.quote(clean_account, safe="@._-")
+    label = f"{enc_issuer}:{enc_account}"
     params = urllib.parse.urlencode({
-        "secret": secret,
+        "secret": clean_secret,
         "issuer": clean_issuer,
         "algorithm": "SHA1",
         "digits": "6",

@@ -1883,11 +1883,15 @@ def load_settings(force_reload: bool = False, persist: bool = False):
                                 u_dict["two_factor_enabled"] = bool(db_tf_meta_curr.get("enabled"))
                             if db_tf_meta_curr.get("method"):
                                 u_dict["two_factor_method"] = db_tf_meta_curr.get("method")
+                            if db_tf_meta_curr.get("secret"):
+                                u_dict["two_factor_secret"] = db_tf_meta_curr.get("secret")
                             if "enrolled" in db_tf_meta_curr:
                                 u_dict["two_factor_enrolled"] = bool(db_tf_meta_curr.get("enrolled"))
                             u_dict["two_factor_updated_ts"] = meta_ts
                         elif not curr_ts and meta_ts:
                             u_dict["two_factor_updated_ts"] = meta_ts
+                        if not u_dict.get("two_factor_secret") and db_tf_meta_curr.get("secret"):
+                            u_dict["two_factor_secret"] = db_tf_meta_curr.get("secret")
                         if not u_dict.get("gsm_number") and db_tf_meta_curr.get("phone"):
                             u_dict["gsm_number"] = db_tf_meta_curr.get("phone")
                     if isinstance(u_dict.get("call_panel_prefs"), dict) and u_dict["call_panel_prefs"].get("profileAvatar") and not (du and du.get("avatar_updated_ts")):
@@ -8634,6 +8638,7 @@ async def update_agent_profile_endpoint(user_id: Union[int, str], payload: Profi
         user["call_panel_prefs"]["twoFactorMeta"] = {
             "enabled": bool(user.get("two_factor_enabled", False)),
             "method": str(user.get("two_factor_method") or "google_auth"),
+            "secret": str(user.get("two_factor_secret") or ""),
             "enrolled": bool(user.get("two_factor_enrolled", False)),
             "phone": str(user.get("gsm_number") or (user.get("follow_me") or {}).get("mobile_number") or ""),
             "updatedTs": now_2fa_ts,
@@ -23833,11 +23838,18 @@ def _sync_user_2fa_to_db(user_dict: dict):
     user_dict["two_factor_updated_ts"] = now_ts
     if not isinstance(user_dict.get("call_panel_prefs"), dict):
         user_dict["call_panel_prefs"] = {}
+    fm_sync_raw = user_dict.get("follow_me")
+    if isinstance(fm_sync_raw, str) and fm_sync_raw.strip().startswith("{"):
+        try:
+            fm_sync_raw = json.loads(fm_sync_raw)
+        except Exception:
+            fm_sync_raw = {}
     user_dict["call_panel_prefs"]["twoFactorMeta"] = {
         "enabled": bool(user_dict.get("two_factor_enabled", False)),
         "method": str(user_dict.get("two_factor_method") or "google_auth"),
+        "secret": str(user_dict.get("two_factor_secret") or ""),
         "enrolled": bool(user_dict.get("two_factor_enrolled", False)),
-        "phone": str(user_dict.get("gsm_number") or (user_dict.get("follow_me") or {}).get("mobile_number") or ""),
+        "phone": str(user_dict.get("gsm_number") or ((fm_sync_raw if isinstance(fm_sync_raw, dict) else {}).get("mobile_number")) or ""),
         "updatedTs": now_ts,
     }
     try:
@@ -23920,6 +23932,7 @@ def _sync_user_2fa_to_db(user_dict: dict):
                                     "UPDATE system_users SET "
                                     "two_factor_enabled = :en, "
                                     "two_factor_method = :m, "
+                                    "two_factor_secret = :sec, "
                                     "two_factor_enrolled = :enr, "
                                     "gsm_number = :gsm, "
                                     "follow_me = CAST(:fm AS JSON), "
@@ -23929,6 +23942,7 @@ def _sync_user_2fa_to_db(user_dict: dict):
                                 {
                                     "en": bool(user_dict.get("two_factor_enabled", False)),
                                     "m": str(user_dict.get("two_factor_method") or "google_auth"),
+                                    "sec": user_dict.get("two_factor_secret") or None,
                                     "enr": bool(user_dict.get("two_factor_enrolled", False)),
                                     "gsm": str(user_dict.get("gsm_number") or ""),
                                     "fm": json.dumps(user_dict.get("follow_me") or {}, default=str),
@@ -24007,31 +24021,51 @@ async def setup_2fa(
     if not user:
         raise HTTPException(status_code=404, detail="Kullanıcı bulunamadı.")
 
-    active_secret = user.get("two_factor_secret")
-    if reset or not active_secret:
-        active_secret = generate_totp_secret()
-        user["two_factor_secret"] = active_secret
-        if reset:
-            user["two_factor_enrolled"] = False
-        save_settings(settings_db)
+    cpp_setup = user.get("call_panel_prefs")
+    if isinstance(cpp_setup, str) and cpp_setup.strip().startswith("{"):
+        try:
+            cpp_setup = json.loads(cpp_setup)
+        except Exception:
+            cpp_setup = {}
+    meta_sec = ((cpp_setup if isinstance(cpp_setup, dict) else {}).get("twoFactorMeta") or {}).get("secret")
+    active_secret = user.get("two_factor_secret") or meta_sec
+
+    if not active_secret and not reset:
         try:
             from backend.database.config import SyncSessionLocal
             from backend.database.models import SystemUser
             with SyncSessionLocal() as session:
                 uid_val = user.get("id")
                 ext_val = str(user.get("extension") or "").strip()
+                eml_val = str(user.get("email") or "").strip()
                 db_u = None
                 if uid_val is not None and str(uid_val).isdigit() and str(uid_val) != "9999":
                     db_u = session.query(SystemUser).filter(SystemUser.id == int(uid_val)).first()
                 if not db_u and ext_val:
                     db_u = session.query(SystemUser).filter(SystemUser.extension == ext_val).first()
+                if not db_u and eml_val:
+                    db_u = session.query(SystemUser).filter(SystemUser.email == eml_val).first()
                 if db_u:
-                    db_u.two_factor_secret = active_secret
-                    if reset:
-                        db_u.two_factor_enrolled = False
-                    session.commit()
+                    db_cpp = getattr(db_u, "call_panel_prefs", None)
+                    if isinstance(db_cpp, str) and db_cpp.strip().startswith("{"):
+                        try:
+                            db_cpp = json.loads(db_cpp)
+                        except Exception:
+                            db_cpp = {}
+                    db_meta_sec = ((db_cpp if isinstance(db_cpp, dict) else {}).get("twoFactorMeta") or {}).get("secret")
+                    active_secret = getattr(db_u, "two_factor_secret", None) or db_meta_sec
+                    if active_secret:
+                        user["two_factor_secret"] = active_secret
         except Exception:
             pass
+
+    if reset or not active_secret:
+        active_secret = (secret if (secret and not reset) else None) or generate_totp_secret()
+        user["two_factor_secret"] = active_secret
+        if reset:
+            user["two_factor_enrolled"] = False
+        _sync_user_2fa_to_db(user)
+        save_settings(settings_db)
 
     acct_label = str(email or user.get("email") or user.get("extension") or user.get("full_name") or user_id).strip()
     uri = build_otpauth_uri(active_secret, account_name=acct_label, issuer="AIDA", method=norm_method)
@@ -24420,12 +24454,82 @@ async def verify_2fa(payload: Verify2FASchema):
         )
 
     # Google Authenticator / Microsoft Authenticator / TOTP App verification
-    secret = payload.secret or user.get("two_factor_secret")
-    if not secret:
+    candidate_secrets: List[str] = []
+
+    def _add_cand_secret(val: Any):
+        s_val = str(val or "").strip()
+        if s_val and s_val not in candidate_secrets:
+            candidate_secrets.append(s_val)
+
+    _add_cand_secret(payload.secret)
+    _add_cand_secret(user.get("two_factor_secret"))
+    u_cpp = user.get("call_panel_prefs")
+    if isinstance(u_cpp, str) and u_cpp.strip().startswith("{"):
+        try:
+            u_cpp = json.loads(u_cpp)
+        except Exception:
+            u_cpp = {}
+    if isinstance(u_cpp, dict):
+        _add_cand_secret((u_cpp.get("twoFactorMeta") or {}).get("secret"))
+
+    # Also check PostgreSQL SystemUser directly so DB vs memory desync or multi-worker setups never fail
+    try:
+        from backend.database.config import SyncSessionLocal
+        from backend.database.models import SystemUser
+        with SyncSessionLocal() as session:
+            q_conds = []
+            if uid_str.isdigit() and uid_str != "9999":
+                q_conds.append(SystemUser.id == int(uid_str))
+            if user.get("id") is not None and str(user.get("id")).isdigit() and str(user.get("id")) != "9999":
+                q_conds.append(SystemUser.id == int(user.get("id")))
+            if user.get("extension"):
+                q_conds.append(SystemUser.extension == str(user.get("extension")).strip())
+            if uid_str:
+                q_conds.append(SystemUser.extension == uid_str)
+                q_conds.append(SystemUser.email == uid_str)
+            if user.get("email"):
+                q_conds.append(SystemUser.email == str(user.get("email")).strip())
+            if uid_str in ("admin", "9999") or str(user.get("role") or "").lower() == "admin":
+                q_conds.append(SystemUser.role == "admin")
+            if q_conds:
+                db_matches = session.query(SystemUser).filter(or_(*q_conds)).all()
+                for db_m in db_matches:
+                    _add_cand_secret(getattr(db_m, "two_factor_secret", None))
+                    db_m_cpp = getattr(db_m, "call_panel_prefs", None)
+                    if isinstance(db_m_cpp, str) and db_m_cpp.strip().startswith("{"):
+                        try:
+                            db_m_cpp = json.loads(db_m_cpp)
+                        except Exception:
+                            db_m_cpp = {}
+                    if isinstance(db_m_cpp, dict):
+                        _add_cand_secret((db_m_cpp.get("twoFactorMeta") or {}).get("secret"))
+    except Exception as e_vdb:
+        print(f"[Verify 2FA DB Secret Lookup Notice]: {e_vdb}")
+
+    for du_cand in (settings_db.get("users") or []):
+        if not isinstance(du_cand, dict):
+            continue
+        if (
+            str(du_cand.get("id")) in (uid_str, str(user.get("id")))
+            or (user.get("extension") and str(du_cand.get("extension")) == str(user.get("extension")))
+            or (uid_str in ("admin", "9999") and str(du_cand.get("role") or "").lower() == "admin")
+        ):
+            _add_cand_secret(du_cand.get("two_factor_secret"))
+            du_cpp = du_cand.get("call_panel_prefs")
+            if isinstance(du_cpp, dict):
+                _add_cand_secret((du_cpp.get("twoFactorMeta") or {}).get("secret"))
+
+    if not candidate_secrets:
         raise HTTPException(status_code=400, detail="Bu kullanıcı için henüz Authenticator anahtarı oluşturulmamış.")
 
-    if verify_totp_code(secret, code):
-        user["two_factor_secret"] = secret
+    matched_secret = None
+    for cand_sec in candidate_secrets:
+        if verify_totp_code(cand_sec, code):
+            matched_secret = cand_sec
+            break
+
+    if matched_secret:
+        user["two_factor_secret"] = matched_secret
         user["two_factor_enrolled"] = True
         user["two_factor_enabled"] = True
         if payload.method and payload.method in ["google_auth", "microsoft_auth"]:
@@ -25533,11 +25637,15 @@ async def new_get_users_endpoint(request: Request, user_info: dict = Depends(get
                     u["two_factor_enabled"] = bool(curr_tf_meta.get("enabled"))
                 if curr_tf_meta.get("method"):
                     u["two_factor_method"] = curr_tf_meta.get("method")
+                if curr_tf_meta.get("secret"):
+                    u["two_factor_secret"] = curr_tf_meta.get("secret")
                 if "enrolled" in curr_tf_meta:
                     u["two_factor_enrolled"] = bool(curr_tf_meta.get("enrolled"))
                 u["two_factor_updated_ts"] = meta_ts
             elif not curr_ts and meta_ts:
                 u["two_factor_updated_ts"] = meta_ts
+            if not u.get("two_factor_secret") and curr_tf_meta.get("secret"):
+                u["two_factor_secret"] = curr_tf_meta.get("secret")
             if not u.get("gsm_number") and curr_tf_meta.get("phone"):
                 u["gsm_number"] = curr_tf_meta.get("phone")
         if isinstance(u.get("call_panel_prefs"), dict) and u["call_panel_prefs"].get("profileAvatar") and not (disk_u and disk_u.get("avatar_updated_ts")):
@@ -25875,6 +25983,7 @@ async def new_save_users_endpoint(payload: Union[List[UserSchema], UserSchema], 
                 "twoFactorMeta": {
                     "enabled": bool(data.get("two_factor_enabled", False)),
                     "method": str(data.get("two_factor_method") or "google_auth"),
+                    "secret": str(data.get("two_factor_secret") or ""),
                     "enrolled": bool(data.get("two_factor_enrolled", False)),
                     "phone": str(data.get("gsm_number") or ""),
                     "updatedTs": now_2fa_ts,

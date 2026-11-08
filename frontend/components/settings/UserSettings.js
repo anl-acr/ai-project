@@ -270,6 +270,7 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
   const [twoFactorSecretCopied, setTwoFactorSecretCopied] = useState(false);
   const modalScrollPaneRef = useRef(null);
   const twoFactorCardRef = useRef(null);
+  const twoFactorSetupInFlightRef = useRef(false);
 
   const scrollTwoFactorCardIntoPane = () => {
     if (typeof window === "undefined") return;
@@ -1091,7 +1092,9 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
 
   const fetchTwoFactorSetup = async (resetSecret = false, overrideMethod = null, overrideSecret = null, overrideUserId = null, overrideEmail = null) => {
     const targetMethod = overrideMethod || twoFactorMethod || "google_auth";
-    if (targetMethod === "email") return;
+    if (targetMethod === "email" || targetMethod === "whatsapp") return;
+    if (!resetSecret && twoFactorSetupInFlightRef.current) return;
+    twoFactorSetupInFlightRef.current = true;
     setTwoFactorSetupLoading(true);
     if (resetSecret) setTwoFactorStatusMsg(null);
     try {
@@ -1116,7 +1119,9 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
             text: "Yeni kurulum anahtarı ve QR kod üretildi. Lütfen uygulamadan tekrar taratınız."
           });
         } else if (data.enrolled !== undefined && editingUser) {
-          setTwoFactorEnrolled(Boolean(data.enrolled));
+          const prevSavedMethod = String(data.method || editingUser?.two_factor_method || "").toLowerCase();
+          const wasTotpEnrolled = Boolean(data.enrolled) && (prevSavedMethod === "google_auth" || prevSavedMethod === "microsoft_auth" || prevSavedMethod === "app");
+          setTwoFactorEnrolled(wasTotpEnrolled);
         }
       } else {
         setTwoFactorStatusMsg({
@@ -1130,6 +1135,7 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
         text: "2FA kurulum bilgisi alınırken hata oluştu: " + err.message
       });
     } finally {
+      twoFactorSetupInFlightRef.current = false;
       setTwoFactorSetupLoading(false);
     }
   };
@@ -1703,7 +1709,7 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
       transport: primarySipDev?.transport || transport || "UDP",
       two_factor_enabled: twoFactorEnabled,
       two_factor_method: twoFactorMethod || "google_auth",
-      two_factor_secret: twoFactorSecret || null,
+      two_factor_secret: twoFactorSecret || editingUser?.two_factor_secret || null,
       two_factor_enrolled: twoFactorEnrolled,
       follow_me: {
         enabled: Boolean(followMeEnabled),
@@ -1779,7 +1785,7 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
               enabled: Boolean(twoFactorEnabled),
               method: twoFactorMethod || "google_auth",
               phone: cleanFmMobile,
-              secret: twoFactorSecret || null,
+              secret: twoFactorSecret || editingUser?.two_factor_secret || null,
               enrolled: Boolean(twoFactorEnrolled)
             })
           });

@@ -946,10 +946,14 @@ export default function Home() {
     return diffDays >= allowedDays;
   }, [currentUser]);
 
+  const profile2faSetupInFlightRef = React.useRef(false);
+
   const fetchProfile2faSetup = async (resetSecret = false, overrideMethod = null) => {
     if (!currentUser) return;
     const targetMethod = overrideMethod || twoFactorMethod || "google_auth";
-    if (targetMethod === "email") return;
+    if (targetMethod === "email" || targetMethod === "whatsapp") return;
+    if (!resetSecret && profile2faSetupInFlightRef.current) return;
+    profile2faSetupInFlightRef.current = true;
     setTwoFactorSetupLoading(true);
     if (resetSecret) setTwoFactorStatusMsg(null);
     try {
@@ -969,12 +973,15 @@ export default function Home() {
           setTwoFactorEnrolled(false);
           setTwoFactorStatusMsg({ type: "success", text: "Yeni QR kod ve anahtar üretildi. Uygulamadan tekrar okutunuz." });
         } else if (data.enrolled !== undefined) {
-          setTwoFactorEnrolled(Boolean(data.enrolled));
+          const prevSavedMethod = String(data.method || currentUser?.two_factor_method || "").toLowerCase();
+          const wasTotpEnrolled = Boolean(data.enrolled) && (prevSavedMethod === "google_auth" || prevSavedMethod === "microsoft_auth" || prevSavedMethod === "app");
+          setTwoFactorEnrolled(wasTotpEnrolled);
         }
       }
     } catch (e) {
       console.error("2FA profile setup error:", e);
     } finally {
+      profile2faSetupInFlightRef.current = false;
       setTwoFactorSetupLoading(false);
     }
   };
@@ -9308,7 +9315,7 @@ export default function Home() {
                                 auto_logout_duration: autoLogoutDuration,
                                 two_factor_enabled: twoFactorEnabled,
                                 two_factor_method: twoFactorMethod || "google_auth",
-                                two_factor_secret: twoFactorSecret || undefined,
+                                two_factor_secret: twoFactorSecret || currentUser?.two_factor_secret || undefined,
                                 two_factor_enrolled: twoFactorEnrolled,
                                 password_expiry_enabled: passwordExpiryEnabled,
                                 password_expiry_months: passwordExpiryMonths,
@@ -9328,7 +9335,7 @@ export default function Home() {
                                     enabled: Boolean(twoFactorEnabled),
                                     method: twoFactorMethod || "google_auth",
                                     phone: cleanedGsmNumber,
-                                    secret: twoFactorSecret || null,
+                                    secret: twoFactorSecret || currentUser?.two_factor_secret || null,
                                     enrolled: Boolean(twoFactorEnrolled)
                                   })
                                 });
