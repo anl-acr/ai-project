@@ -717,6 +717,8 @@ remove_existing=yes
             for d_idx, dev_obj in enumerate(dev_items):
                 if dev_obj.get("is_active") is False:
                     continue
+                if str(dev_obj.get("device_type") or "").strip().lower() == "virtual_subscriber":
+                    continue
                 d_su = re.sub(r"[^a-zA-Z0-9_.-]", "", str(dev_obj.get("sip_username") or "").strip())
                 if not d_su or d_su == ext or d_su.lower() in seen_sip_eps:
                     continue
@@ -979,6 +981,8 @@ same => n,Hangup()
         if isinstance(raw_h_devs, list) and len(raw_h_devs) > 0:
             for hd in raw_h_devs:
                 if isinstance(hd, dict) and hd.get("is_active") is not False:
+                    if str(hd.get("device_type") or "").strip().lower() == "virtual_subscriber":
+                        continue
                     h_su = str(hd.get("sip_username") or "").strip()
                     if h_su and h_su != h_ext and f"PJSIP/{h_su}" not in hint_eps_s:
                         hint_eps_s.append(f"PJSIP/{h_su}")
@@ -1620,8 +1624,8 @@ same => n,Playback(beeperr,noanswer)
 same => n,Hangup(28)
 
 [build_multi_pjsip_dial_sub]
-; ARG1 = & ile ayrilmis PJSIP endpoint listesi (orn: 1000&Ab8kP2x9&EvTel2)
-; NOT: PJSIP_DIAL_CONTACTS ciktilari 'sip:user@ip:port' seklinde iki nokta (:) icerdigi icin
+; ARG1 = & ile ayrilmis PJSIP endpoint / trunk hedef listesi (orn: 1000&Ab8kP2x9&Merkez_Trunk/sip:81000@10.0.0.5:5060)
+; NOT: PJSIP_DIAL_CONTACTS ve Sanal Abone trunk hedefleri iki nokta (:) icerdigi icin
 ; kesinlikle Asterisk IF() fonksiyonu icinde kullanilmamalidir (GotoIf ile birlestirilir).
 exten => s,1,Set(MP_LIST=${ARG1})
 same => n,Set(MULTI_DIAL_STR=)
@@ -1633,11 +1637,15 @@ same => n(mp_loop),Set(MP_EP=${CUT(MP_LIST,&,${MP_IDX})})
 same => n,GotoIf($["${MP_EP}" = ""]?mp_done)
 same => n,GotoIf($["${MP_FB}" = ""]?mp_fb_first:mp_fb_append)
 same => n(mp_fb_first),Set(MP_FB=PJSIP/${MP_EP})
-same => n,Goto(mp_chk_c)
+same => n,Goto(mp_chk_type)
 same => n(mp_fb_append),Set(MP_FB=${MP_FB}&PJSIP/${MP_EP})
+same => n(mp_chk_type),Set(MP_AT_PART=${CUT(MP_EP,@,2)})
+same => n,GotoIf($["${MP_AT_PART}" != ""]?mp_trunk_ep:mp_chk_c)
+same => n(mp_trunk_ep),Set(MP_CUR_C=PJSIP/${MP_EP})
+same => n,Goto(mp_c_add)
 same => n(mp_chk_c),Set(MP_CUR_C=${PJSIP_DIAL_CONTACTS(${MP_EP})})
 same => n,GotoIf($["${MP_CUR_C}" = ""]?mp_next)
-same => n,GotoIf($["${MP_CONTACTS}" = ""]?mp_c_first:mp_c_append)
+same => n(mp_c_add),GotoIf($["${MP_CONTACTS}" = ""]?mp_c_first:mp_c_append)
 same => n(mp_c_first),Set(MP_CONTACTS=${MP_CUR_C})
 same => n,Goto(mp_next)
 same => n(mp_c_append),Set(MP_CONTACTS=${MP_CONTACTS}&${MP_CUR_C})
@@ -1728,6 +1736,21 @@ same => n,Hangup()
             if not ext_s:
                 return ""
             nm = str(u_obj.get("full_name") or u_obj.get("username") or ext_s).replace(",", " ").replace("\r", "").replace("\n", "").strip()
+            raw_qd = u_obj.get("sip_devices")
+            if isinstance(raw_qd, str) and raw_qd.strip().startswith("["):
+                try:
+                    raw_qd = json.loads(raw_qd)
+                except Exception:
+                    raw_qd = None
+            has_vsub_s = isinstance(raw_qd, list) and any(
+                isinstance(qd, dict)
+                and qd.get("is_active") is not False
+                and str(qd.get("device_type") or "").strip().lower() == "virtual_subscriber"
+                and str(qd.get("trunk") or "").strip() != ""
+                for qd in raw_qd
+            )
+            if has_vsub_s:
+                return f"member => Local/{ext_s}@queue_agent_ring/n,0,{nm}\n"
             return f"member => Local/{ext_s}@queue_agent_ring/n,0,{nm},hint:{ext_s}@webrtc_agents\n"
 
         announcements_list = sdata.get("announcements", []) if isinstance(sdata, dict) else []

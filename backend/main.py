@@ -3783,6 +3783,8 @@ remove_existing=yes
         for dev in user_devices:
             if dev.get("is_active") is False:
                 continue
+            if str(dev.get("device_type") or "").strip().lower() == "virtual_subscriber":
+                continue
             dev_su = re.sub(r"[^a-zA-Z0-9_.-]", "", str(dev.get("sip_username") or "").strip())
             if not dev_su or dev_su.lower() in seen_sip_eps:
                 continue
@@ -3964,6 +3966,21 @@ def regenerate_queues_conf(background_tasks: Optional[BackgroundTasks] = None):
         if not ext_s:
             return ""
         raw_nm = str(u_obj.get("full_name") or u_obj.get("username") or ext_s).replace(",", " ").replace("\r", "").replace("\n", "").strip()
+        raw_q_devs = u_obj.get("sip_devices")
+        if isinstance(raw_q_devs, str) and raw_q_devs.strip().startswith("["):
+            try:
+                raw_q_devs = json.loads(raw_q_devs)
+            except Exception:
+                raw_q_devs = None
+        has_active_vsub = isinstance(raw_q_devs, list) and any(
+            isinstance(qd, dict)
+            and qd.get("is_active") is not False
+            and str(qd.get("device_type") or "").strip().lower() == "virtual_subscriber"
+            and str(qd.get("trunk") or "").strip() != ""
+            for qd in raw_q_devs
+        )
+        if has_active_vsub:
+            return f"member => Local/{ext_s}@queue_agent_ring/n,0,{raw_nm}\n"
         return f"member => Local/{ext_s}@queue_agent_ring/n,0,{raw_nm},hint:{ext_s}@webrtc_agents\n"
 
     for q in queues_list:
@@ -4335,6 +4352,8 @@ same => n,Hangup()
         hint_targets = [f"PJSIP/{h_ext}"]
         for hd in _norm_devs_ext(u_h):
             if hd.get("is_active") is False:
+                continue
+            if str(hd.get("device_type") or "").strip().lower() == "virtual_subscriber":
                 continue
             hd_su = str(hd.get("sip_username") or "").strip()
             if hd_su and hd_su != h_ext and f"PJSIP/{hd_su}" not in hint_targets:
@@ -4896,8 +4915,8 @@ same => n,Playback(beeperr,noanswer)
 same => n,Hangup(28)
 
 [build_multi_pjsip_dial_sub]
-; ARG1 = & ile ayrilmis PJSIP endpoint listesi (orn: 1000&Ab8kP2x9&EvTel2)
-; NOT: PJSIP_DIAL_CONTACTS ciktilari 'sip:user@ip:port' seklinde iki nokta (:) icerdigi icin
+; ARG1 = & ile ayrilmis PJSIP endpoint / trunk hedef listesi (orn: 1000&Ab8kP2x9&Merkez_Trunk/sip:81000@10.0.0.5:5060)
+; NOT: PJSIP_DIAL_CONTACTS ve Sanal Abone trunk hedefleri iki nokta (:) icerdigi icin
 ; kesinlikle Asterisk IF() fonksiyonu icinde kullanilmamalidir (GotoIf ile birlestirilir).
 exten => s,1,Set(MP_LIST=${{ARG1}})
 same => n,Set(MULTI_DIAL_STR=)
@@ -4909,11 +4928,15 @@ same => n(mp_loop),Set(MP_EP=${{CUT(MP_LIST,&,${{MP_IDX}})}})
 same => n,GotoIf($["${{MP_EP}}" = ""]?mp_done)
 same => n,GotoIf($["${{MP_FB}}" = ""]?mp_fb_first:mp_fb_append)
 same => n(mp_fb_first),Set(MP_FB=PJSIP/${{MP_EP}})
-same => n,Goto(mp_chk_c)
+same => n,Goto(mp_chk_type)
 same => n(mp_fb_append),Set(MP_FB=${{MP_FB}}&PJSIP/${{MP_EP}})
+same => n(mp_chk_type),Set(MP_AT_PART=${{CUT(MP_EP,@,2)}})
+same => n,GotoIf($["${{MP_AT_PART}}" != ""]?mp_trunk_ep:mp_chk_c)
+same => n(mp_trunk_ep),Set(MP_CUR_C=PJSIP/${{MP_EP}})
+same => n,Goto(mp_c_add)
 same => n(mp_chk_c),Set(MP_CUR_C=${{PJSIP_DIAL_CONTACTS(${{MP_EP}})}})
 same => n,GotoIf($["${{MP_CUR_C}}" = ""]?mp_next)
-same => n,GotoIf($["${{MP_CONTACTS}}" = ""]?mp_c_first:mp_c_append)
+same => n(mp_c_add),GotoIf($["${{MP_CONTACTS}}" = ""]?mp_c_first:mp_c_append)
 same => n(mp_c_first),Set(MP_CONTACTS=${{MP_CUR_C}})
 same => n,Goto(mp_next)
 same => n(mp_c_append),Set(MP_CONTACTS=${{MP_CONTACTS}}&${{MP_CUR_C}})
@@ -12076,14 +12099,80 @@ async def resolve_agent_ring_targets(extension: str = "", format: str = "", db: 
         return Response(content="NONE", media_type="text/plain")
 
     web_ep = ext_str if ("web_phone" in prof_devices or "pc_app" in prof_devices or "mobile_app" in prof_devices) else ""
+    norm_user_devs = normalize_user_sip_devices(
+        user_dict,
+        settings_db.get("autoprovision", []),
+        settings_db.get("user_deskphone_configs", {}),
+    )
+    trunks_lookup = None
     active_sip_eps = []
-    for sdev in normalize_user_sip_devices(user_dict):
+    for sdev in norm_user_devs:
         if sdev.get("is_active") is False:
             continue
+        d_type = str(sdev.get("device_type") or "desk_phone").strip().lower()
+        if d_type == "virtual_subscriber":
+            if "desk_phone" not in prof_devices:
+                continue
+            trunk_ref = str(sdev.get("trunk") or "").strip()
+            if not trunk_ref:
+                continue
+            v_mode = str(sdev.get("virtual_target_mode") or "extension").strip().lower()
+            if v_mode == "custom":
+                dial_num = re.sub(r"[^0-9a-zA-Z*#+_.-]", "", str(sdev.get("custom_target") or "").strip())
+            else:
+                pfx = re.sub(r"[^0-9a-zA-Z*#+_.-]", "", str(sdev.get("prefix") or "").strip())
+                dial_num = f"{pfx}{ext_str}"
+            if not dial_num:
+                continue
+            if trunks_lookup is None:
+                trunks_lookup = []
+                try:
+                    res_tr = await db.execute(select(Trunk).order_by(Trunk.id))
+                    for row_tr in res_tr.scalars().all():
+                        trunks_lookup.append({c.name: getattr(row_tr, c.name) for c in row_tr.__table__.columns})
+                except Exception:
+                    pass
+                for dt_tr in settings_db.get("trunks", []):
+                    if isinstance(dt_tr, dict):
+                        dt_nm = str(dt_tr.get("trunk_name") or dt_tr.get("name") or "").strip()
+                        if not any(str(et.get("trunk_name") or "").strip() == dt_nm for et in trunks_lookup):
+                            trunks_lookup.append(dt_tr)
+            safe_ref = _sanitize_trunk_name(trunk_ref)
+            matched_tr = next(
+                (
+                    t_item for t_item in trunks_lookup
+                    if str(t_item.get("trunk_name") or t_item.get("name") or "").strip() == trunk_ref
+                    or str(t_item.get("id") or "").strip() == trunk_ref
+                    or _sanitize_trunk_name(t_item.get("trunk_name") or t_item.get("name") or "") == safe_ref
+                ),
+                None,
+            )
+            if matched_tr is not None:
+                if matched_tr.get("is_active") is False:
+                    continue
+                raw_tr_name = str(matched_tr.get("trunk_name") or matched_tr.get("name") or trunk_ref).strip()
+                safe_tr_name = _sanitize_trunk_name(raw_tr_name)
+                tr_type = str(matched_tr.get("trunk_type") or "register").strip().lower()
+                tr_host = str(matched_tr.get("host") or "").strip()
+                try:
+                    tr_port = int(matched_tr.get("port") or 5060)
+                except Exception:
+                    tr_port = 5060
+                if tr_type == "account" or not tr_host:
+                    trunk_ep_target = f"{dial_num}@{safe_tr_name}"
+                elif raw_tr_name == "908503607390" or safe_tr_name == "Operator_Trunk":
+                    trunk_ep_target = f"Operator_Trunk/sip:{dial_num}@{tr_host}:{tr_port}"
+                else:
+                    trunk_ep_target = f"{safe_tr_name}/sip:{dial_num}@{tr_host}:{tr_port}"
+            else:
+                trunk_ep_target = f"{dial_num}@{safe_ref}"
+            if trunk_ep_target and trunk_ep_target not in active_sip_eps:
+                active_sip_eps.append(trunk_ep_target)
+            continue
+
         d_su = str(sdev.get("sip_username") or "").strip()
         if not d_su or d_su == ext_str:
             continue
-        d_type = str(sdev.get("device_type") or "desk_phone").lower()
         allowed_by_prof = (
             ("desk_phone" in prof_devices and d_type in ("desk_phone", "dect"))
             or (("pc_app" in prof_devices or "mobile_app" in prof_devices or "desk_phone" in prof_devices) and d_type == "softphone")
@@ -12130,9 +12219,9 @@ async def resolve_subscriber_forwarding(extension: str, dialstatus: str = "BEFOR
         all_users = settings_db.get("users", [])
         for u in all_users:
             if str(u.get("extension")) == ext_str or str(u.get("id")) == ext_str or u.get("email") == ext_str:
-                for k in ["forwarding_always", "forwarding_busy", "forwarding_no_answer", "gsm_number", "mobile_number", "mobile_transfer_enabled", "voicemail_active", "active_profile", "profiles", "follow_me"]:
+                for k in ["forwarding_always", "forwarding_busy", "forwarding_no_answer", "gsm_number", "mobile_number", "mobile_transfer_enabled", "voicemail_active", "active_profile", "profiles", "follow_me", "sip_devices", "sip_username"]:
                     val = u.get(k)
-                    if val is not None and val != "" and val != {}:
+                    if val is not None and val != "" and val != {} and val != []:
                         user_dict[k] = val
                 break
 
@@ -12158,7 +12247,25 @@ async def resolve_subscriber_forwarding(extension: str, dialstatus: str = "BEFOR
         ensure_user_profiles(user_dict)
 
         from backend.services.ami_manager import registered_endpoints
+        from backend.services.autoprovision_service import normalize_user_sip_devices as _norm_fwd_devs
         is_registered = (ext_str in registered_endpoints)
+        if not is_registered:
+            for f_dev in _norm_fwd_devs(
+                user_dict,
+                settings_db.get("autoprovision", []),
+                settings_db.get("user_deskphone_configs", {}),
+            ):
+                if f_dev.get("is_active") is False:
+                    continue
+                if str(f_dev.get("device_type") or "").strip().lower() == "virtual_subscriber":
+                    if str(f_dev.get("trunk") or "").strip():
+                        is_registered = True
+                        break
+                else:
+                    f_su = str(f_dev.get("sip_username") or "").strip()
+                    if f_su and f_su in registered_endpoints:
+                        is_registered = True
+                        break
 
         def extract_target(f_obj):
             if not f_obj:
@@ -26061,19 +26168,32 @@ async def new_get_users_endpoint(request: Request, user_info: dict = Depends(get
         online_dev_ip = ""
         any_dev_reg = False
         for d_item in norm_devs:
-            d_su = str(d_item.get("sip_username") or "").strip()
+            d_type_g = str(d_item.get("device_type") or "desk_phone").strip().lower()
             d_act = d_item.get("is_active") is not False
-            d_on = bool(d_act and d_su and d_su in registered_endpoints)
-            d_live_ip = (registered_endpoints.get_ip(d_su) if d_su else "") or d_item.get("ip") or ""
-            d_item["is_online"] = d_on
-            d_item["live_ip"] = d_live_ip
-            if d_on:
-                any_dev_reg = True
-                if not online_dev_ip and d_live_ip:
-                    online_dev_ip = d_live_ip
+            if d_type_g == "virtual_subscriber":
+                d_on = bool(d_act and str(d_item.get("trunk") or "").strip())
+                d_item["is_virtual"] = True
+                d_item["is_online"] = d_on
+                d_item["live_ip"] = ""
+                if d_on:
+                    any_dev_reg = True
+            else:
+                d_su = str(d_item.get("sip_username") or "").strip()
+                d_on = bool(d_act and d_su and d_su in registered_endpoints)
+                d_live_ip = (registered_endpoints.get_ip(d_su) if d_su else "") or d_item.get("ip") or ""
+                d_item["is_online"] = d_on
+                d_item["live_ip"] = d_live_ip
+                if d_on:
+                    any_dev_reg = True
+                    if not online_dev_ip and d_live_ip:
+                        online_dev_ip = d_live_ip
         u["sip_devices"] = norm_devs
         if norm_devs and not u.get("sip_username"):
-            u["sip_username"] = norm_devs[0].get("sip_username") or ""
+            first_real_g = next(
+                (nd for nd in norm_devs if str(nd.get("device_type") or "").strip().lower() != "virtual_subscriber" and nd.get("sip_username")),
+                None,
+            )
+            u["sip_username"] = (first_real_g.get("sip_username") if first_real_g else "") or ""
         ensure_user_profiles(u)
         reg_ip = registered_endpoints.get_ip(ext) or registered_endpoints.get_ip(uid) or online_dev_ip
         is_reg = bool(ext in registered_endpoints or uid in registered_endpoints or any_dev_reg)
@@ -26296,9 +26416,16 @@ async def new_save_users_endpoint(payload: Union[List[UserSchema], UserSchema], 
                 fallback_password_fn=resolve_secure_sip_password,
             )
             if data["sip_devices"]:
-                first_dev = data["sip_devices"][0]
-                data["sip_username"] = first_dev.get("sip_username") or data.get("sip_username") or ""
-                data["sip_password"] = first_dev.get("sip_password") or data.get("sip_password") or ""
+                first_real_dev = next(
+                    (
+                        rd for rd in data["sip_devices"]
+                        if str(rd.get("device_type") or "").strip().lower() != "virtual_subscriber" and rd.get("sip_username")
+                    ),
+                    None,
+                )
+                first_dev = first_real_dev or data["sip_devices"][0]
+                data["sip_username"] = (first_real_dev.get("sip_username") if first_real_dev else "") or ""
+                data["sip_password"] = (first_real_dev.get("sip_password") if first_real_dev else "") or data.get("sip_password") or ""
                 data["max_activations"] = int(first_dev.get("max_activations") or data.get("max_activations") or 1)
                 data["transport"] = first_dev.get("transport") or data.get("transport") or "UDP"
             else:
@@ -27635,10 +27762,20 @@ async def evaluate_queue_routing_for_dialplan(
                 if not m_ext:
                     continue
                 m_sips = []
+                has_vsub_m = False
                 raw_m_devs = u_obj.get("sip_devices")
+                if isinstance(raw_m_devs, str) and raw_m_devs.strip().startswith("["):
+                    try:
+                        raw_m_devs = json.loads(raw_m_devs)
+                    except Exception:
+                        raw_m_devs = None
                 if isinstance(raw_m_devs, list) and len(raw_m_devs) > 0:
                     for md in raw_m_devs:
                         if isinstance(md, dict) and md.get("is_active") is not False:
+                            if str(md.get("device_type") or "").strip().lower() == "virtual_subscriber":
+                                if str(md.get("trunk") or "").strip():
+                                    has_vsub_m = True
+                                continue
                             msu = str(md.get("sip_username") or "").strip()
                             if msu and msu not in m_sips:
                                 m_sips.append(msu)
@@ -27646,7 +27783,7 @@ async def evaluate_queue_routing_for_dialplan(
                     m_sip = resolve_user_sip_username(m_ext, u_obj.get("sip_username") or "")
                     if m_sip:
                         m_sips.append(m_sip)
-                is_reg = (m_ext in registered_endpoints) or any(ms in registered_endpoints for ms in m_sips)
+                is_reg = has_vsub_m or (m_ext in registered_endpoints) or any(ms in registered_endpoints for ms in m_sips)
                 st_ag = active_agent_status.get(m_ext) or active_agent_status.get(u_obj.get("id")) or {}
                 is_paused_crm = st_ag.get("status") in ("break", "acw")
                 is_on_call = (m_ext in active_busy_exts) or any(ms in active_busy_exts for ms in m_sips)

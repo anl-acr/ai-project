@@ -349,6 +349,7 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
   const [systemRoles, setSystemRoles] = useState([]);
 
   // Associations Fields
+  const [trunksList, setTrunksList] = useState([]);
   const [outboundRules, setOutboundRules] = useState([]);
   const [callPickupGroups, setCallPickupGroups] = useState([]);
   const [selectedOutboundRules, setSelectedOutboundRules] = useState([]);
@@ -449,6 +450,14 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
         if (resRoles.ok) {
           const dataRoles = await resRoles.json();
           setSystemRoles(Array.isArray(dataRoles) ? dataRoles : (dataRoles?.roles || []));
+        }
+      } catch (e) {}
+
+      try {
+        const resTrunks = await safeFetch(`/api/settings/trunks`);
+        if (resTrunks.ok) {
+          const dataTrunks = await resTrunks.json();
+          setTrunksList(Array.isArray(dataTrunks) ? dataTrunks : (dataTrunks?.trunks || []));
         }
       } catch (e) {}
 
@@ -753,38 +762,46 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
     }, 1800);
   };
 
-  const createSipDeviceItem = (index = 1, overrides = {}) => ({
-    id: overrides.id || `dev-${Date.now()}-${index}`,
-    name: overrides.name || `Masa Telefonu ${index}`,
-    device_type: overrides.device_type || "desk_phone",
-    sip_username: overrides.sip_username || generateSipUsernameStr(),
-    sip_password: overrides.sip_password || generateSipPasswordStr(),
-    max_activations: overrides.max_activations ? Math.max(1, Math.min(5, Number(overrides.max_activations))) : 1,
-    transport: overrides.transport || "UDP",
-    is_active: overrides.is_active !== false,
-    mac: formatMacAddress(overrides.mac || ""),
-    ip: overrides.ip || "",
-    live_ip: overrides.live_ip || "",
-    is_online: Boolean(overrides.is_online),
-    brand: overrides.brand || "Yealink",
-    model: overrides.model || "T46U",
-    codecs: Array.isArray(overrides.codecs) && overrides.codecs.length > 0 ? [...overrides.codecs] : ["g722", "alaw", "ulaw", "g729"],
-    dtmf_mode: overrides.dtmf_mode || "rfc4733",
-    language: overrides.language || "Turkish",
-    timezone: overrides.timezone || "+3",
-    ntp_server: overrides.ntp_server || "pool.ntp.org",
-    auto_answer: Boolean(overrides.auto_answer),
-    direct_ip_call_block: overrides.direct_ip_call_block !== false,
-    dss_keys: Array.isArray(overrides.dss_keys) ? overrides.dss_keys.map((k, idx) => ({ ...k, key: Number(k.key) || idx + 1 })) : [],
-    soft_keys: Array.isArray(overrides.soft_keys) && overrides.soft_keys.length > 0
-      ? overrides.soft_keys.map((sk, idx) => ({ ...sk, key: Number(sk.key) || idx + 1 }))
-      : [
-          { key: 1, type: "history", label: "Geçmiş" },
-          { key: 2, type: "directory", label: "Rehber" },
-          { key: 3, type: "dnd", label: "DND" },
-          { key: 4, type: "menu", label: "Menü" }
-        ]
-  });
+  const createSipDeviceItem = (index = 1, overrides = {}) => {
+    const isVirtualSub = overrides.device_type === "virtual_subscriber";
+    return {
+      id: overrides.id || `dev-${Date.now()}-${index}`,
+      name: overrides.name || (isVirtualSub ? `Sanal Abone ${index}` : `Masa Telefonu ${index}`),
+      device_type: overrides.device_type || "desk_phone",
+      sip_username: isVirtualSub ? "" : (overrides.sip_username || generateSipUsernameStr()),
+      sip_password: isVirtualSub ? "" : (overrides.sip_password || generateSipPasswordStr()),
+      max_activations: overrides.max_activations ? Math.max(1, Math.min(5, Number(overrides.max_activations))) : 1,
+      transport: overrides.transport || "UDP",
+      is_active: overrides.is_active !== false,
+      trunk: overrides.trunk || "",
+      prefix: overrides.prefix !== undefined && overrides.prefix !== null ? String(overrides.prefix) : "",
+      virtual_target_mode: overrides.virtual_target_mode === "custom" ? "custom" : "extension",
+      custom_target: overrides.custom_target !== undefined && overrides.custom_target !== null ? String(overrides.custom_target) : "",
+      is_virtual: Boolean(overrides.is_virtual || isVirtualSub),
+      mac: formatMacAddress(overrides.mac || ""),
+      ip: overrides.ip || "",
+      live_ip: overrides.live_ip || "",
+      is_online: isVirtualSub ? Boolean(overrides.is_active !== false && overrides.trunk) : Boolean(overrides.is_online),
+      brand: overrides.brand || "Yealink",
+      model: overrides.model || "T46U",
+      codecs: Array.isArray(overrides.codecs) && overrides.codecs.length > 0 ? [...overrides.codecs] : ["g722", "alaw", "ulaw", "g729"],
+      dtmf_mode: overrides.dtmf_mode || "rfc4733",
+      language: overrides.language || "Turkish",
+      timezone: overrides.timezone || "+3",
+      ntp_server: overrides.ntp_server || "pool.ntp.org",
+      auto_answer: Boolean(overrides.auto_answer),
+      direct_ip_call_block: overrides.direct_ip_call_block !== false,
+      dss_keys: Array.isArray(overrides.dss_keys) ? overrides.dss_keys.map((k, idx) => ({ ...k, key: Number(k.key) || idx + 1 })) : [],
+      soft_keys: Array.isArray(overrides.soft_keys) && overrides.soft_keys.length > 0
+        ? overrides.soft_keys.map((sk, idx) => ({ ...sk, key: Number(sk.key) || idx + 1 }))
+        : [
+            { key: 1, type: "history", label: "Geçmiş" },
+            { key: 2, type: "directory", label: "Rehber" },
+            { key: 3, type: "dnd", label: "DND" },
+            { key: 4, type: "menu", label: "Menü" }
+          ]
+    };
+  };
 
   const normalizeSipDevicesFromUser = (uObj) => {
     if (!uObj) return [createSipDeviceItem(1)];
@@ -818,13 +835,15 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
     if (!showModal || !editingUser) return;
     const fresh = users.find((u) => u.id === editingUser.id || String(u.extension) === String(editingUser.extension));
     if (!fresh || !Array.isArray(fresh.sip_devices)) return;
+    const byId = {};
     const bySu = {};
     fresh.sip_devices.forEach((fd) => {
+      if (fd?.id) byId[fd.id] = fd;
       if (fd?.sip_username) bySu[fd.sip_username] = fd;
     });
     setSipDevices((prev) =>
       prev.map((d) => {
-        const m = bySu[d.sip_username];
+        const m = (d.id && byId[d.id]) || (d.sip_username && bySu[d.sip_username]);
         if (!m) return d;
         if (Boolean(d.is_online) === Boolean(m.is_online) && (d.live_ip || "") === (m.live_ip || "")) return d;
         return { ...d, is_online: Boolean(m.is_online), live_ip: m.live_ip || d.live_ip || "" };
@@ -859,12 +878,12 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
 
   const applyUpdatedSipDevices = async (nextDevices, persistImmediately = true) => {
     setSipDevices(nextDevices);
-    if (nextDevices.length > 0) {
-      const first = nextDevices[0];
-      setSipUsername(first.sip_username || "");
-      setSipPassword(first.sip_password || "");
-      setMaxActivations(Number(first.max_activations) || 1);
-      setTransport(first.transport || "UDP");
+    const firstRealDev = nextDevices.find((d) => d.device_type !== "virtual_subscriber") || null;
+    if (firstRealDev) {
+      setSipUsername(firstRealDev.sip_username || "");
+      setSipPassword(firstRealDev.sip_password || "");
+      setMaxActivations(Number(firstRealDev.max_activations) || 1);
+      setTransport(firstRealDev.transport || "UDP");
     } else {
       setSipUsername("");
     }
@@ -887,10 +906,10 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
           full_name: fullName.trim() || editingUser.full_name || "",
           email: email.trim() || editingUser.email || "",
           extension: targetExt,
-          sip_username: nextDevices[0]?.sip_username || "",
-          sip_password: nextDevices[0]?.sip_password || sipPassword,
-          max_activations: Number(nextDevices[0]?.max_activations || maxActivations || 1),
-          transport: nextDevices[0]?.transport || transport || "UDP",
+          sip_username: firstRealDev?.sip_username || "",
+          sip_password: firstRealDev?.sip_password || sipPassword,
+          max_activations: Number(firstRealDev?.max_activations || maxActivations || 1),
+          transport: firstRealDev?.transport || transport || "UDP",
           forwarding_always: safeDictOrNull(editingUser.forwarding_always),
           forwarding_busy: safeDictOrNull(editingUser.forwarding_busy),
           forwarding_no_answer: safeDictOrNull(editingUser.forwarding_no_answer),
@@ -968,43 +987,83 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
   const handleSaveSipDeviceModal = async (e) => {
     if (e) e.preventDefault();
     if (!sipDeviceDraft) return;
-    const cleanSu = String(sipDeviceDraft.sip_username || "").replace(/[^a-zA-Z0-9_.-]/g, "").trim();
-    if (!cleanSu) {
-      setError("Lütfen geçerli bir SIP Aktivasyon Kullanıcı Adı giriniz.");
-      return;
-    }
-    if (cleanSu === String(extension || "").trim()) {
-      setError("SIP Cihazı kullanıcı adı dahili numarası ile aynı olamaz (WebRTC çakışmasını önlemek için farklı olmalıdır).");
-      return;
-    }
-    const dupInSelf = sipDevices.find(
-      (d) => d.id !== sipDeviceDraft.id && String(d.sip_username).toLowerCase() === cleanSu.toLowerCase()
-    );
-    if (dupInSelf) {
-      setError(`'${cleanSu}' kullanıcı adı bu abonenin '${dupInSelf.name}' cihazında zaten kullanılıyor.`);
-      return;
-    }
-    const dupOtherUser = users.find((u) => {
-      if (editingUser && ((editingUser.id !== undefined && String(u.id) === String(editingUser.id)) || (editingUser.extension && String(u.extension) === String(editingUser.extension)))) {
-        return false;
-      }
-      if (String(u.extension || "").trim().toLowerCase() === cleanSu.toLowerCase()) return true;
-      return Array.isArray(u.sip_devices) && u.sip_devices.some((od) => String(od?.sip_username || "").trim().toLowerCase() === cleanSu.toLowerCase());
-    });
-    if (dupOtherUser) {
-      setError(`'${cleanSu}' kullanıcı adı '${dupOtherUser.full_name || dupOtherUser.extension}' isimli kullanıcıda zaten tanımlı.`);
-      return;
-    }
 
-    const normalizedItem = {
-      ...sipDeviceDraft,
-      name: (sipDeviceDraft.name || "").trim() || "SIP Cihazı",
-      sip_username: cleanSu,
-      sip_password: (sipDeviceDraft.sip_password || "").trim() || generateSipPasswordStr(),
-      max_activations: Math.max(1, Math.min(5, Number(sipDeviceDraft.max_activations) || 1)),
-      transport: sipDeviceDraft.transport || "UDP",
-      is_active: sipDeviceDraft.is_active !== false
-    };
+    let normalizedItem = null;
+
+    if (sipDeviceDraft.device_type === "virtual_subscriber") {
+      const cleanTrunk = String(sipDeviceDraft.trunk || "").trim();
+      if (!cleanTrunk) {
+        setError("Lütfen sanal abonenin aranacağı SIP Trunk bağlantısını seçiniz.");
+        return;
+      }
+      const vMode = sipDeviceDraft.virtual_target_mode === "custom" ? "custom" : "extension";
+      const cleanPrefix = String(sipDeviceDraft.prefix || "").replace(/[^0-9a-zA-Z*#+_.-]/g, "").trim();
+      const cleanCustomTarget = String(sipDeviceDraft.custom_target || "").replace(/[^0-9a-zA-Z*#+_.-]/g, "").trim();
+      const extTrimmed = String(extension || editingUser?.extension || "").trim();
+
+      if (vMode === "custom" && !cleanCustomTarget) {
+        setError("Lütfen karşı santrale gönderilecek özel veriyi / hedef numarayı giriniz.");
+        return;
+      }
+      if (vMode === "extension" && !extTrimmed && !cleanPrefix) {
+        setError("Prefix + Dahili modunda karşı santrale gönderilecek hedef için önce Dahili Numarası tanımlanmalı veya Özel Veri modu seçilmelidir.");
+        return;
+      }
+
+      normalizedItem = {
+        ...sipDeviceDraft,
+        name: (sipDeviceDraft.name || "").trim() || "Sanal Abone",
+        device_type: "virtual_subscriber",
+        sip_username: "",
+        sip_password: "",
+        trunk: cleanTrunk,
+        prefix: cleanPrefix,
+        virtual_target_mode: vMode,
+        custom_target: cleanCustomTarget,
+        is_virtual: true,
+        is_active: sipDeviceDraft.is_active !== false,
+        is_online: sipDeviceDraft.is_active !== false && Boolean(cleanTrunk)
+      };
+    } else {
+      const cleanSu = String(sipDeviceDraft.sip_username || "").replace(/[^a-zA-Z0-9_.-]/g, "").trim();
+      if (!cleanSu) {
+        setError("Lütfen geçerli bir SIP Aktivasyon Kullanıcı Adı giriniz.");
+        return;
+      }
+      if (cleanSu === String(extension || "").trim()) {
+        setError("SIP Cihazı kullanıcı adı dahili numarası ile aynı olamaz (WebRTC çakışmasını önlemek için farklı olmalıdır).");
+        return;
+      }
+      const dupInSelf = sipDevices.find(
+        (d) => d.id !== sipDeviceDraft.id && d.device_type !== "virtual_subscriber" && String(d.sip_username).toLowerCase() === cleanSu.toLowerCase()
+      );
+      if (dupInSelf) {
+        setError(`'${cleanSu}' kullanıcı adı bu abonenin '${dupInSelf.name}' cihazında zaten kullanılıyor.`);
+        return;
+      }
+      const dupOtherUser = users.find((u) => {
+        if (editingUser && ((editingUser.id !== undefined && String(u.id) === String(editingUser.id)) || (editingUser.extension && String(u.extension) === String(editingUser.extension)))) {
+          return false;
+        }
+        if (String(u.extension || "").trim().toLowerCase() === cleanSu.toLowerCase()) return true;
+        return Array.isArray(u.sip_devices) && u.sip_devices.some((od) => od?.device_type !== "virtual_subscriber" && String(od?.sip_username || "").trim().toLowerCase() === cleanSu.toLowerCase());
+      });
+      if (dupOtherUser) {
+        setError(`'${cleanSu}' kullanıcı adı '${dupOtherUser.full_name || dupOtherUser.extension}' isimli kullanıcıda zaten tanımlı.`);
+        return;
+      }
+
+      normalizedItem = {
+        ...sipDeviceDraft,
+        name: (sipDeviceDraft.name || "").trim() || "SIP Cihazı",
+        sip_username: cleanSu,
+        sip_password: (sipDeviceDraft.sip_password || "").trim() || generateSipPasswordStr(),
+        max_activations: Math.max(1, Math.min(5, Number(sipDeviceDraft.max_activations) || 1)),
+        transport: sipDeviceDraft.transport || "UDP",
+        is_virtual: false,
+        is_active: sipDeviceDraft.is_active !== false
+      };
+    }
 
     const nextList =
       sipDeviceFormMode === "add"
@@ -1837,7 +1896,7 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
 
     const cleanFmMobile = (followMeMobileNumber || "").trim();
 
-    const primarySipDev = sipDevices[0] || null;
+    const primarySipDev = sipDevices.find((d) => d.device_type !== "virtual_subscriber") || null;
     const prevCallPanelPrefs =
       editingUser?.call_panel_prefs && typeof editingUser.call_panel_prefs === "object"
         ? editingUser.call_panel_prefs
@@ -3200,15 +3259,23 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
                                     ) : (
                                         <div className="space-y-2.5">
                                             {sipDevices.map((dev, devIdx) => {
-                                                const devOnline = Boolean(dev.is_online) && dev.is_active !== false;
+                                                const isVirtualSub = dev.device_type === "virtual_subscriber";
+                                                const devOnline = isVirtualSub
+                                                    ? dev.is_active !== false && Boolean(dev.trunk)
+                                                    : Boolean(dev.is_online) && dev.is_active !== false;
                                                 const devIpShown = dev.live_ip || dev.ip || "";
                                                 const blfCount = Array.isArray(dev.dss_keys) ? dev.dss_keys.length : 0;
-                                                const typeLabel =
-                                                    dev.device_type === "dect"
-                                                        ? "DECT Telefon"
-                                                        : dev.device_type === "softphone"
-                                                        ? "SIP İstemci"
-                                                        : "Masa Telefonu";
+                                                const resolvedVirtualData =
+                                                    dev.virtual_target_mode === "custom"
+                                                        ? (dev.custom_target || "-")
+                                                        : `${dev.prefix || ""}${extension || editingUser?.extension || "<Dahili>"}`;
+                                                const typeLabel = isVirtualSub
+                                                    ? "Sanal Abone"
+                                                    : dev.device_type === "dect"
+                                                    ? "DECT Telefon"
+                                                    : dev.device_type === "softphone"
+                                                    ? "SIP İstemci"
+                                                    : "Masa Telefonu";
                                                 return (
                                                     <div
                                                         key={dev.id || `${dev.sip_username}-${devIdx}`}
@@ -3220,18 +3287,34 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
                                                     >
                                                         <div className="flex items-start sm:items-center gap-3 min-w-0">
                                                             <div className={`relative w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${lightBg} ${text} border ${borderLight}`}>
-                                                                {dev.device_type === "softphone" ? <Monitor size={17} /> : dev.device_type === "dect" ? <Smartphone size={17} /> : <Phone size={17} />}
+                                                                {isVirtualSub ? (
+                                                                    <Cable size={17} />
+                                                                ) : dev.device_type === "softphone" ? (
+                                                                    <Monitor size={17} />
+                                                                ) : dev.device_type === "dect" ? (
+                                                                    <Smartphone size={17} />
+                                                                ) : (
+                                                                    <Phone size={17} />
+                                                                )}
                                                                 <span
                                                                     className={`absolute -top-1 -right-1 w-2.5 h-2.5 rounded-full ring-2 ring-white dark:ring-slate-950 ${
                                                                         devOnline ? "bg-emerald-500" : "bg-slate-400"
                                                                     }`}
-                                                                    title={devOnline ? `Çevrimiçi${devIpShown ? ` (${devIpShown})` : ""}` : "Çevrimdışı"}
+                                                                    title={
+                                                                        isVirtualSub
+                                                                            ? devOnline
+                                                                                ? `Sanal Abone Aktif (Trunk: ${dev.trunk})`
+                                                                                : "Pasif / Trunk Seçilmedi"
+                                                                            : devOnline
+                                                                            ? `Çevrimiçi${devIpShown ? ` (${devIpShown})` : ""}`
+                                                                            : "Çevrimdışı"
+                                                                    }
                                                                 />
                                                             </div>
                                                             <div className="min-w-0 space-y-1">
                                                                 <div className="flex flex-wrap items-center gap-2">
                                                                     <span className="text-xs font-extrabold text-slate-800 dark:text-white truncate">
-                                                                        {dev.name || `SIP Cihazı ${devIdx + 1}`}
+                                                                        {dev.name || (isVirtualSub ? `Sanal Abone ${devIdx + 1}` : `SIP Cihazı ${devIdx + 1}`)}
                                                                     </span>
                                                                     <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300">
                                                                         {typeLabel}
@@ -3239,6 +3322,10 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
                                                                     {dev.is_active === false ? (
                                                                         <span className="px-1.5 py-0.5 rounded text-[9px] font-extrabold bg-slate-200 dark:bg-slate-800 text-slate-600 dark:text-slate-400">
                                                                             PASİF
+                                                                        </span>
+                                                                    ) : isVirtualSub && devOnline ? (
+                                                                        <span className="px-1.5 py-0.5 rounded text-[9px] font-extrabold bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300">
+                                                                            TRUNK YÖNLENDİRME
                                                                         </span>
                                                                     ) : devOnline ? (
                                                                         <span className="px-1.5 py-0.5 rounded text-[9px] font-extrabold bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300">
@@ -3250,57 +3337,84 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
                                                                         </span>
                                                                     )}
                                                                 </div>
-                                                                <div className="flex flex-wrap items-center gap-2 text-[11px] text-slate-500 dark:text-slate-400">
-                                                                    <button
-                                                                        type="button"
-                                                                        onClick={() => copyTextWithFeedback(dev.sip_username, `su-${dev.id}`)}
-                                                                        className="inline-flex items-center gap-1 font-mono font-bold text-slate-700 dark:text-slate-200 hover:underline"
-                                                                        title="SIP Kullanıcı Adını Kopyala"
-                                                                    >
-                                                                        <span>SIP: {dev.sip_username}</span>
-                                                                        {copiedDeviceKey === `su-${dev.id}` ? <Check size={11} className="text-emerald-500" /> : <Copy size={11} />}
-                                                                    </button>
-                                                                    <span>•</span>
-                                                                    <span className="font-semibold">{dev.transport || "UDP"}</span>
-                                                                    {dev.brand && (
-                                                                        <>
-                                                                            <span>•</span>
-                                                                            <span>{dev.brand} {dev.model || ""}</span>
-                                                                        </>
-                                                                    )}
-                                                                    {dev.mac && (
-                                                                        <>
-                                                                            <span>•</span>
-                                                                            <span className="font-mono text-[10px]">{dev.mac}</span>
-                                                                        </>
-                                                                    )}
-                                                                    {devIpShown && (
-                                                                        <>
-                                                                            <span>•</span>
-                                                                            <span className="font-mono text-[10px] text-emerald-600 dark:text-emerald-400 font-bold">
-                                                                                IP: {devIpShown}
-                                                                            </span>
-                                                                        </>
-                                                                    )}
-                                                                    {blfCount > 0 && (
-                                                                        <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold ${lightBg} ${text}`}>
-                                                                            {blfCount} BLF Tuşu
+                                                                {isVirtualSub ? (
+                                                                    <div className="flex flex-wrap items-center gap-2 text-[11px] text-slate-500 dark:text-slate-400">
+                                                                        <span className="font-semibold text-slate-700 dark:text-slate-200">
+                                                                            Trunk: <span className="font-mono font-bold">{dev.trunk || "-"}</span>
                                                                         </span>
-                                                                    )}
-                                                                </div>
+                                                                        <span>•</span>
+                                                                        <button
+                                                                            type="button"
+                                                                            onClick={() => copyTextWithFeedback(resolvedVirtualData, `vd-${dev.id}`)}
+                                                                            className="inline-flex items-center gap-1 font-mono font-bold text-slate-700 dark:text-slate-200 hover:underline"
+                                                                            title="Karşı Santrale Gönderilecek Veriyi Kopyala"
+                                                                        >
+                                                                            <span>Gönderilen: {resolvedVirtualData}</span>
+                                                                            {copiedDeviceKey === `vd-${dev.id}` ? <Check size={11} className="text-emerald-500" /> : <Copy size={11} />}
+                                                                        </button>
+                                                                        <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold ${lightBg} ${text}`}>
+                                                                            {dev.virtual_target_mode === "custom"
+                                                                                ? "Özel Veri"
+                                                                                : dev.prefix
+                                                                                ? `Prefix: ${dev.prefix}`
+                                                                                : "Doğrudan Dahili"}
+                                                                        </span>
+                                                                    </div>
+                                                                ) : (
+                                                                    <div className="flex flex-wrap items-center gap-2 text-[11px] text-slate-500 dark:text-slate-400">
+                                                                        <button
+                                                                            type="button"
+                                                                            onClick={() => copyTextWithFeedback(dev.sip_username, `su-${dev.id}`)}
+                                                                            className="inline-flex items-center gap-1 font-mono font-bold text-slate-700 dark:text-slate-200 hover:underline"
+                                                                            title="SIP Kullanıcı Adını Kopyala"
+                                                                        >
+                                                                            <span>SIP: {dev.sip_username}</span>
+                                                                            {copiedDeviceKey === `su-${dev.id}` ? <Check size={11} className="text-emerald-500" /> : <Copy size={11} />}
+                                                                        </button>
+                                                                        <span>•</span>
+                                                                        <span className="font-semibold">{dev.transport || "UDP"}</span>
+                                                                        {dev.brand && (
+                                                                            <>
+                                                                                <span>•</span>
+                                                                                <span>{dev.brand} {dev.model || ""}</span>
+                                                                            </>
+                                                                        )}
+                                                                        {dev.mac && (
+                                                                            <>
+                                                                                <span>•</span>
+                                                                                <span className="font-mono text-[10px]">{dev.mac}</span>
+                                                                            </>
+                                                                        )}
+                                                                        {devIpShown && (
+                                                                            <>
+                                                                                <span>•</span>
+                                                                                <span className="font-mono text-[10px] text-emerald-600 dark:text-emerald-400 font-bold">
+                                                                                    IP: {devIpShown}
+                                                                                </span>
+                                                                            </>
+                                                                        )}
+                                                                        {blfCount > 0 && (
+                                                                            <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold ${lightBg} ${text}`}>
+                                                                                {blfCount} BLF Tuşu
+                                                                            </span>
+                                                                        )}
+                                                                    </div>
+                                                                )}
                                                             </div>
                                                         </div>
 
                                                         <div className="flex items-center justify-end gap-1.5 shrink-0">
-                                                            <button
-                                                                type="button"
-                                                                onClick={() => openSipDeviceInspectModal(dev)}
-                                                                className={`p-2 rounded-xl border ${borderLight} ${lightBg} ${text} hover:opacity-90 transition-all`}
-                                                                title="Cihaz Detayları, BLF & PJSIP İncele"
-                                                                aria-label={`${dev.name || "SIP Cihazı"} Cihaz Detayları, BLF ve PJSIP İncele`}
-                                                            >
-                                                                <Search size={15} />
-                                                            </button>
+                                                            {!isVirtualSub && (
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={() => openSipDeviceInspectModal(dev)}
+                                                                    className={`p-2 rounded-xl border ${borderLight} ${lightBg} ${text} hover:opacity-90 transition-all`}
+                                                                    title="Cihaz Detayları, BLF & PJSIP İncele"
+                                                                    aria-label={`${dev.name || "SIP Cihazı"} Cihaz Detayları, BLF ve PJSIP İncele`}
+                                                                >
+                                                                    <Search size={15} />
+                                                                </button>
+                                                            )}
                                                             <button
                                                                 type="button"
                                                                 onClick={() => openSipDeviceEditModal(dev)}
@@ -5406,19 +5520,52 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
         }}
         className="m-auto w-full max-w-lg rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100 p-0 shadow-2xl overscroll-contain backdrop:bg-slate-950/60 backdrop:backdrop-blur-sm backdrop:overflow-hidden backdrop:overscroll-contain"
       >
-        {sipDeviceDraft && (
+        {sipDeviceDraft && (() => {
+          const isVirtualDraft = sipDeviceDraft.device_type === "virtual_subscriber";
+          const draftVMode = sipDeviceDraft.virtual_target_mode === "custom" ? "custom" : "extension";
+          const cleanDraftPfx = String(sipDeviceDraft.prefix || "").replace(/[^0-9a-zA-Z*#+_.-]/g, "").trim();
+          const cleanDraftCustom = String(sipDeviceDraft.custom_target || "").replace(/[^0-9a-zA-Z*#+_.-]/g, "").trim();
+          const extForPreview = String(extension || editingUser?.extension || "").trim() || "<Dahili>";
+          const computedVirtualPayload = draftVMode === "custom"
+            ? (cleanDraftCustom || "<Özel_Veri>")
+            : `${cleanDraftPfx}${extForPreview}`;
+          const selectedTrunkObj = trunksList.find(
+            (t) => String(t.trunk_name || t.name || "") === String(sipDeviceDraft.trunk || "")
+          );
+          const safeTrunkPreview = String(sipDeviceDraft.trunk || "")
+            .trim()
+            .replace(/[^a-zA-Z0-9_.-]/g, "_") || "<Secili_Trunk>";
+          const trunkDialPreview = selectedTrunkObj
+            ? String(selectedTrunkObj.trunk_type || "register").toLowerCase() === "account" || !selectedTrunkObj.host
+              ? `PJSIP/${computedVirtualPayload}@${safeTrunkPreview}`
+              : (selectedTrunkObj.trunk_name === "908503607390" || safeTrunkPreview === "Operator_Trunk")
+              ? `PJSIP/Operator_Trunk/sip:${computedVirtualPayload}@${selectedTrunkObj.host}:${selectedTrunkObj.port || 5060}`
+              : `PJSIP/${safeTrunkPreview}/sip:${computedVirtualPayload}@${selectedTrunkObj.host}:${selectedTrunkObj.port || 5060}`
+            : `PJSIP/${computedVirtualPayload}@${safeTrunkPreview}`;
+          const syncAriaInvalid = (ev) => {
+            const el = ev?.currentTarget;
+            if (el && typeof el.matches === "function") {
+              try {
+                el.setAttribute("aria-invalid", el.matches(":user-invalid") ? "true" : "false");
+              } catch (_) {}
+            }
+          };
+
+          return (
           <form onSubmit={handleSaveSipDeviceModal} className="flex flex-col max-h-[88vh]">
             <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 dark:border-slate-800/60 bg-slate-50/60 dark:bg-slate-950/30 shrink-0">
               <div className="flex items-center gap-2.5">
                 <div className={`w-8 h-8 rounded-xl flex items-center justify-center ${lightBg} ${text}`}>
-                  <Phone size={16} />
+                  {isVirtualDraft ? <Cable size={16} /> : <Phone size={16} />}
                 </div>
                 <div>
                   <h2 id="sip-device-edit-dialog-title" className="text-xs font-extrabold text-slate-800 dark:text-white uppercase tracking-wider">
                     {sipDeviceFormMode === "add" ? "Yeni SIP Cihazı Ekle" : "SIP Cihazı Ayarlarını Düzenle"}
                   </h2>
                   <p className="text-[11px] text-slate-500 dark:text-slate-400">
-                    Dahili {extension || "-"} için SIP kayıt ve aktivasyon kimlik bilgileri
+                    {isVirtualDraft
+                      ? `Dahili ${extension || "-"} arandığında seçili SIP Trunk üzerinden harici santrale yönlendirir`
+                      : `Dahili ${extension || "-"} için SIP kayıt ve aktivasyon kimlik bilgileri`}
                   </p>
                 </div>
               </div>
@@ -5436,14 +5583,15 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label htmlFor="sip-dev-name" className="block text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1.5">
-                    SIP Cihazı Adı
+                    {isVirtualDraft ? "Sanal Abone / Tanım Adı" : "SIP Cihazı Adı"}
                   </label>
                   <input
                     id="sip-dev-name"
+                    name="name"
                     type="text"
                     autoFocus
                     required
-                    placeholder="Örn: Masa Telefonu 1, Ev Telefonu"
+                    placeholder={isVirtualDraft ? "Örn: Merkez Santral Dahili" : "Örn: Masa Telefonu 1, Ev Telefonu"}
                     value={sipDeviceDraft.name || ""}
                     onChange={(e) => setSipDeviceDraft((prev) => ({ ...prev, name: e.target.value }))}
                     className="w-full text-xs font-semibold px-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-950 text-slate-800 dark:text-slate-100 focus:outline-none"
@@ -5451,145 +5599,332 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
                 </div>
                 <div>
                   <label htmlFor="sip-dev-type" className="block text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1.5">
-                    Cihaz Tipi
+                    Telefon / Cihaz Tipi
                   </label>
                   <select
                     id="sip-dev-type"
+                    name="device_type"
                     value={sipDeviceDraft.device_type || "desk_phone"}
-                    onChange={(e) => setSipDeviceDraft((prev) => ({ ...prev, device_type: e.target.value }))}
+                    onChange={(e) => {
+                      const nextType = e.target.value;
+                      setSipDeviceDraft((prev) => {
+                        const curName = String(prev?.name || "").trim();
+                        let updatedName = prev?.name || "";
+                        if (nextType === "virtual_subscriber" && (!curName || /^(Masa Telefonu|SIP Cihazı)\s*\d*$/i.test(curName))) {
+                          updatedName = "Sanal Abone";
+                        } else if (nextType !== "virtual_subscriber" && /^Sanal Abone\s*\d*$/i.test(curName)) {
+                          updatedName = `Masa Telefonu ${sipDevices.length + 1}`;
+                        }
+                        return {
+                          ...prev,
+                          device_type: nextType,
+                          name: updatedName,
+                          sip_username: nextType !== "virtual_subscriber" && !prev?.sip_username ? generateSipUsernameStr() : prev?.sip_username || "",
+                          sip_password: nextType !== "virtual_subscriber" && !prev?.sip_password ? generateSipPasswordStr() : prev?.sip_password || "",
+                          virtual_target_mode: prev?.virtual_target_mode === "custom" ? "custom" : "extension"
+                        };
+                      });
+                    }}
                     className="w-full text-xs font-semibold px-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-950 text-slate-800 dark:text-slate-100 focus:outline-none"
                   >
                     <option value="desk_phone">Masa Telefonu (IP Telefon)</option>
                     <option value="dect">DECT Kablosuz Telefon</option>
                     <option value="softphone">Masaüstü / Mobil SIP İstemci</option>
+                    <option value="virtual_subscriber">Sanal Abone (Harici Santral / Trunk)</option>
                   </select>
                 </div>
               </div>
 
-              <div>
-                <label htmlFor="sip-dev-username" className="block text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1.5">
-                  Kullanıcı Adı (SIP Aktivasyon)
-                </label>
-                <div className="flex gap-2">
-                  <input
-                    id="sip-dev-username"
-                    type="text"
-                    required
-                    autoCorrect="off"
-                    autoCapitalize="off"
-                    spellCheck={false}
-                    placeholder="Örn: Ab8kP2x9"
-                    value={sipDeviceDraft.sip_username || ""}
-                    onChange={(e) => setSipDeviceDraft((prev) => ({ ...prev, sip_username: e.target.value }))}
-                    className="flex-1 text-xs font-bold font-mono px-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-950 text-slate-800 dark:text-slate-100 focus:outline-none"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => copyTextWithFeedback(sipDeviceDraft.sip_username, "modal-su")}
-                    className="p-2.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 rounded-xl transition-colors"
-                    title="Kullanıcı Adını Kopyala"
-                    aria-label="SIP Kullanıcı Adını Kopyala"
-                  >
-                    {copiedDeviceKey === "modal-su" ? <Check size={16} className="text-emerald-500" /> : <Copy size={16} />}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setSipDeviceDraft((prev) => ({ ...prev, sip_username: generateSipUsernameStr() }))}
-                    className="p-2.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 rounded-xl transition-colors"
-                    title="Yeni Kullanıcı Adı Üret"
-                    aria-label="Yeni SIP Kullanıcı Adı Üret"
-                  >
-                    <RefreshCw size={16} />
-                  </button>
-                </div>
-              </div>
+              {isVirtualDraft ? (
+                <>
+                  <div>
+                    <label htmlFor="sip-dev-trunk" className="block text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1.5">
+                      SIP Trunk Bağlantısı <span className="text-rose-500">*</span>
+                    </label>
+                    <select
+                      id="sip-dev-trunk"
+                      name="trunk"
+                      required
+                      value={sipDeviceDraft.trunk || ""}
+                      onBlur={syncAriaInvalid}
+                      onChange={(e) => {
+                        syncAriaInvalid(e);
+                        setSipDeviceDraft((prev) => ({ ...prev, trunk: e.target.value }));
+                      }}
+                      aria-describedby="virtual-sub-preview"
+                      className="w-full text-xs font-semibold px-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-950 text-slate-800 dark:text-slate-100 focus:outline-none user-invalid:border-rose-500"
+                    >
+                      <option value="" disabled>
+                        {trunksList.length > 0 ? "SIP Trunk seçiniz..." : "Tanımlı SIP Trunk bulunamadı"}
+                      </option>
+                      {sipDeviceDraft.trunk &&
+                        !trunksList.some((t) => String(t.trunk_name || t.name || "") === String(sipDeviceDraft.trunk)) && (
+                          <option value={sipDeviceDraft.trunk}>{sipDeviceDraft.trunk}</option>
+                        )}
+                      {trunksList.map((tItem, tIdx) => {
+                        const tVal = tItem.trunk_name || tItem.name || `trunk_${tIdx + 1}`;
+                        const tHostLbl = tItem.host ? ` (${tItem.host}${tItem.port ? `:${tItem.port}` : ""})` : "";
+                        const tStateLbl = tItem.is_active === false ? " [Pasif]" : "";
+                        return (
+                          <option key={tItem.id || `${tVal}-${tIdx}`} value={tVal}>
+                            {tVal}{tHostLbl}{tStateLbl}
+                          </option>
+                        );
+                      })}
+                    </select>
+                  </div>
 
-              <div>
-                <label htmlFor="sip-dev-password" className="block text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1.5">
-                  SIP Register Şifresi
-                </label>
-                <div className="flex gap-2">
-                  <input
-                    id="sip-dev-password"
-                    type={showDraftSipPassword ? "text" : "password"}
-                    required
-                    autoComplete="new-password"
-                    autoCorrect="off"
-                    autoCapitalize="off"
-                    spellCheck={false}
-                    value={sipDeviceDraft.sip_password || ""}
-                    onChange={(e) => setSipDeviceDraft((prev) => ({ ...prev, sip_password: e.target.value }))}
-                    className="flex-1 text-xs font-mono tracking-wider px-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-950 text-slate-800 dark:text-slate-100 focus:outline-none"
-                  />
-                  <button
-                    type="button"
-                    aria-pressed={showDraftSipPassword}
-                    onClick={() => setShowDraftSipPassword((v) => !v)}
-                    className="p-2.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 rounded-xl transition-colors"
-                    title={showDraftSipPassword ? "Şifreyi Gizle" : "Şifreyi Göster"}
-                    aria-label={showDraftSipPassword ? "SIP Şifresini Gizle" : "SIP Şifresini Göster"}
-                  >
-                    {showDraftSipPassword ? <EyeOff size={16} /> : <Eye size={16} />}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => copyTextWithFeedback(sipDeviceDraft.sip_password, "modal-pwd")}
-                    className="p-2.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 rounded-xl transition-colors"
-                    title="Şifreyi Kopyala"
-                    aria-label="SIP Şifresini Kopyala"
-                  >
-                    {copiedDeviceKey === "modal-pwd" ? <Check size={16} className="text-emerald-500" /> : <Copy size={16} />}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setSipDeviceDraft((prev) => ({ ...prev, sip_password: generateSipPasswordStr() }))}
-                    className="p-2.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 rounded-xl transition-colors"
-                    title="Yeni Şifre Üret"
-                    aria-label="Yeni SIP Şifresi Üret"
-                  >
-                    <RefreshCw size={16} />
-                  </button>
-                </div>
-              </div>
+                  <fieldset className="space-y-2">
+                    <legend className="block text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1">
+                      Karşı Santrale Gönderilecek Veri Seçimi
+                    </legend>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                      <label
+                        htmlFor="vmode-extension"
+                        className={`cursor-pointer p-3 rounded-xl border transition-all flex items-start gap-2.5 ${
+                          draftVMode === "extension"
+                            ? `${border} ${lightBg}`
+                            : "border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950/60 hover:border-slate-300 dark:hover:border-slate-700"
+                        }`}
+                      >
+                        <input
+                          id="vmode-extension"
+                          type="radio"
+                          name="virtual_target_mode"
+                          value="extension"
+                          checked={draftVMode === "extension"}
+                          onChange={() => setSipDeviceDraft((prev) => ({ ...prev, virtual_target_mode: "extension" }))}
+                          className="mt-0.5 accent-current"
+                        />
+                        <div className="min-w-0">
+                          <div className={`text-xs font-bold ${draftVMode === "extension" ? text : "text-slate-800 dark:text-slate-100"}`}>
+                            Prefix + Dahili Numarası
+                          </div>
+                          <div className="text-[10px] text-slate-500 dark:text-slate-400 leading-snug mt-0.5">
+                            Ön ek ile dahili numarasını ({extForPreview}) birleştirip gönderir
+                          </div>
+                        </div>
+                      </label>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div>
-                  <label htmlFor="sip-dev-max-activations" className="block text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1.5">
-                    Maksimum Aktivasyon Sayısı
-                  </label>
-                  <select
-                    id="sip-dev-max-activations"
-                    value={sipDeviceDraft.max_activations || 1}
-                    onChange={(e) => setSipDeviceDraft((prev) => ({ ...prev, max_activations: Number(e.target.value) }))}
-                    className="w-full text-xs font-semibold px-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-950 text-slate-800 dark:text-slate-100 focus:outline-none"
+                      <label
+                        htmlFor="vmode-custom"
+                        className={`cursor-pointer p-3 rounded-xl border transition-all flex items-start gap-2.5 ${
+                          draftVMode === "custom"
+                            ? `${border} ${lightBg}`
+                            : "border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950/60 hover:border-slate-300 dark:hover:border-slate-700"
+                        }`}
+                      >
+                        <input
+                          id="vmode-custom"
+                          type="radio"
+                          name="virtual_target_mode"
+                          value="custom"
+                          checked={draftVMode === "custom"}
+                          onChange={() => setSipDeviceDraft((prev) => ({ ...prev, virtual_target_mode: "custom" }))}
+                          className="mt-0.5 accent-current"
+                        />
+                        <div className="min-w-0">
+                          <div className={`text-xs font-bold ${draftVMode === "custom" ? text : "text-slate-800 dark:text-slate-100"}`}>
+                            Özel Veri / Farklı Hedef
+                          </div>
+                          <div className="text-[10px] text-slate-500 dark:text-slate-400 leading-snug mt-0.5">
+                            Dahiliden bağımsız özel numara veya SIP verisi gönderir
+                          </div>
+                        </div>
+                      </label>
+                    </div>
+                  </fieldset>
+
+                  {draftVMode === "extension" ? (
+                    <div>
+                      <label htmlFor="sip-dev-prefix" className="block text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1.5">
+                        Arama Prefix (Ön Ek) <span className="font-normal normal-case text-slate-400">(İsteğe Bağlı)</span>
+                      </label>
+                      <input
+                        id="sip-dev-prefix"
+                        name="prefix"
+                        type="text"
+                        autoCorrect="off"
+                        autoCapitalize="off"
+                        spellCheck={false}
+                        aria-describedby="virtual-sub-preview"
+                        placeholder="Örn: 8, 09, *77 (Doğrudan dahili göndermek için boş bırakın)"
+                        value={sipDeviceDraft.prefix || ""}
+                        onChange={(e) => setSipDeviceDraft((prev) => ({ ...prev, prefix: e.target.value }))}
+                        className="w-full text-xs font-mono font-bold px-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-950 text-slate-800 dark:text-slate-100 focus:outline-none"
+                      />
+                    </div>
+                  ) : (
+                    <div>
+                      <label htmlFor="sip-dev-custom-target" className="block text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1.5">
+                        Karşı Santrale Gönderilecek Özel Veri / Hedef <span className="text-rose-500">*</span>
+                      </label>
+                      <input
+                        id="sip-dev-custom-target"
+                        name="custom_target"
+                        type="text"
+                        required
+                        autoCorrect="off"
+                        autoCapitalize="off"
+                        spellCheck={false}
+                        aria-describedby="virtual-sub-preview"
+                        placeholder="Örn: 4420, sales_ivr, *77100 veya 902125554433"
+                        value={sipDeviceDraft.custom_target || ""}
+                        onBlur={syncAriaInvalid}
+                        onChange={(e) => {
+                          syncAriaInvalid(e);
+                          setSipDeviceDraft((prev) => ({ ...prev, custom_target: e.target.value }));
+                        }}
+                        className="w-full text-xs font-mono font-bold px-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-950 text-slate-800 dark:text-slate-100 focus:outline-none user-invalid:border-rose-500"
+                      />
+                    </div>
+                  )}
+
+                  <div
+                    id="virtual-sub-preview"
+                    className={`p-3 rounded-xl border ${borderLight} ${lightBg} space-y-1`}
                   >
-                    {[1, 2, 3, 4, 5].map((cnt) => (
-                      <option key={cnt} value={cnt}>{cnt}</option>
-                    ))}
-                  </select>
-                </div>
-                <div>
-                  <label htmlFor="sip-dev-transport" className="block text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1.5">
-                    Transport Protokolü
-                  </label>
-                  <select
-                    id="sip-dev-transport"
-                    value={sipDeviceDraft.transport || "UDP"}
-                    onChange={(e) => setSipDeviceDraft((prev) => ({ ...prev, transport: e.target.value }))}
-                    className="w-full text-xs font-semibold px-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-950 text-slate-800 dark:text-slate-100 focus:outline-none"
-                  >
-                    <option value="UDP">UDP (Standart - 5060)</option>
-                    <option value="TCP">TCP (Güvenilir Akış - 5060)</option>
-                    <option value="TLS">TLS (Şifreli Sinyalizasyon)</option>
-                  </select>
-                </div>
-              </div>
+                    <div className="flex items-center justify-between gap-2 text-[11px]">
+                      <span className="font-bold text-slate-600 dark:text-slate-300">Karşı Santrale İletilecek Veri:</span>
+                      <span className={`font-mono font-extrabold ${text}`}>{computedVirtualPayload}</span>
+                    </div>
+                    <div className="text-[10px] font-mono text-slate-500 dark:text-slate-400 break-all">
+                      Çağrı Hedefi: {trunkDialPreview}
+                    </div>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div>
+                    <label htmlFor="sip-dev-username" className="block text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1.5">
+                      Kullanıcı Adı (SIP Aktivasyon)
+                    </label>
+                    <div className="flex gap-2">
+                      <input
+                        id="sip-dev-username"
+                        type="text"
+                        required
+                        autoCorrect="off"
+                        autoCapitalize="off"
+                        spellCheck={false}
+                        placeholder="Örn: Ab8kP2x9"
+                        value={sipDeviceDraft.sip_username || ""}
+                        onChange={(e) => setSipDeviceDraft((prev) => ({ ...prev, sip_username: e.target.value }))}
+                        className="flex-1 text-xs font-bold font-mono px-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-950 text-slate-800 dark:text-slate-100 focus:outline-none"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => copyTextWithFeedback(sipDeviceDraft.sip_username, "modal-su")}
+                        className="p-2.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 rounded-xl transition-colors"
+                        title="Kullanıcı Adını Kopyala"
+                        aria-label="SIP Kullanıcı Adını Kopyala"
+                      >
+                        {copiedDeviceKey === "modal-su" ? <Check size={16} className="text-emerald-500" /> : <Copy size={16} />}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setSipDeviceDraft((prev) => ({ ...prev, sip_username: generateSipUsernameStr() }))}
+                        className="p-2.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 rounded-xl transition-colors"
+                        title="Yeni Kullanıcı Adı Üret"
+                        aria-label="Yeni SIP Kullanıcı Adı Üret"
+                      >
+                        <RefreshCw size={16} />
+                      </button>
+                    </div>
+                  </div>
+
+                  <div>
+                    <label htmlFor="sip-dev-password" className="block text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1.5">
+                      SIP Register Şifresi
+                    </label>
+                    <div className="flex gap-2">
+                      <input
+                        id="sip-dev-password"
+                        type={showDraftSipPassword ? "text" : "password"}
+                        required
+                        autoComplete="new-password"
+                        autoCorrect="off"
+                        autoCapitalize="off"
+                        spellCheck={false}
+                        value={sipDeviceDraft.sip_password || ""}
+                        onChange={(e) => setSipDeviceDraft((prev) => ({ ...prev, sip_password: e.target.value }))}
+                        className="flex-1 text-xs font-mono tracking-wider px-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-950 text-slate-800 dark:text-slate-100 focus:outline-none"
+                      />
+                      <button
+                        type="button"
+                        aria-pressed={showDraftSipPassword}
+                        onClick={() => setShowDraftSipPassword((v) => !v)}
+                        className="p-2.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 rounded-xl transition-colors"
+                        title={showDraftSipPassword ? "Şifreyi Gizle" : "Şifreyi Göster"}
+                        aria-label={showDraftSipPassword ? "SIP Şifresini Gizle" : "SIP Şifresini Göster"}
+                      >
+                        {showDraftSipPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => copyTextWithFeedback(sipDeviceDraft.sip_password, "modal-pwd")}
+                        className="p-2.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 rounded-xl transition-colors"
+                        title="Şifreyi Kopyala"
+                        aria-label="SIP Şifresini Kopyala"
+                      >
+                        {copiedDeviceKey === "modal-pwd" ? <Check size={16} className="text-emerald-500" /> : <Copy size={16} />}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setSipDeviceDraft((prev) => ({ ...prev, sip_password: generateSipPasswordStr() }))}
+                        className="p-2.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 rounded-xl transition-colors"
+                        title="Yeni Şifre Üret"
+                        aria-label="Yeni SIP Şifresi Üret"
+                      >
+                        <RefreshCw size={16} />
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div>
+                      <label htmlFor="sip-dev-max-activations" className="block text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1.5">
+                        Maksimum Aktivasyon Sayısı
+                      </label>
+                      <select
+                        id="sip-dev-max-activations"
+                        value={sipDeviceDraft.max_activations || 1}
+                        onChange={(e) => setSipDeviceDraft((prev) => ({ ...prev, max_activations: Number(e.target.value) }))}
+                        className="w-full text-xs font-semibold px-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-950 text-slate-800 dark:text-slate-100 focus:outline-none"
+                      >
+                        {[1, 2, 3, 4, 5].map((cnt) => (
+                          <option key={cnt} value={cnt}>{cnt}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label htmlFor="sip-dev-transport" className="block text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1.5">
+                        Transport Protokolü
+                      </label>
+                      <select
+                        id="sip-dev-transport"
+                        value={sipDeviceDraft.transport || "UDP"}
+                        onChange={(e) => setSipDeviceDraft((prev) => ({ ...prev, transport: e.target.value }))}
+                        className="w-full text-xs font-semibold px-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-950 text-slate-800 dark:text-slate-100 focus:outline-none"
+                      >
+                        <option value="UDP">UDP (Standart - 5060)</option>
+                        <option value="TCP">TCP (Güvenilir Akış - 5060)</option>
+                        <option value="TLS">TLS (Şifreli Sinyalizasyon)</option>
+                      </select>
+                    </div>
+                  </div>
+                </>
+              )}
 
               <div className="flex items-center justify-between p-3.5 rounded-xl border border-slate-200/80 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-950/50">
                 <div>
-                  <div className="text-xs font-bold text-slate-800 dark:text-white">SIP Cihazı Aktif</div>
+                  <div className="text-xs font-bold text-slate-800 dark:text-white">
+                    {isVirtualDraft ? "Sanal Abone Yönlendirmesi Aktif" : "SIP Cihazı Aktif"}
+                  </div>
                   <div className="text-[11px] text-slate-500 dark:text-slate-400">
-                    Pasif yapıldığında bu cihaz Asterisk PJSIP üzerinde çalmaz ve dış arama yapamaz.
+                    {isVirtualDraft
+                      ? "Pasif yapıldığında bu sanal abone üzerinden seçili SIP Trunk hattına çağrı yönlendirilmez."
+                      : "Pasif yapıldığında bu cihaz Asterisk PJSIP üzerinde çalmaz ve dış arama yapamaz."}
                   </div>
                 </div>
                 <button
@@ -5621,11 +5956,14 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
                 type="submit"
                 className={`flex-1 py-2.5 rounded-xl text-xs font-bold text-white ${bg} ${hover} transition-all shadow-sm`}
               >
-                {sipDeviceFormMode === "add" ? "SIP Cihazını Ekle" : "Cihaz Ayarlarını Uygula"}
+                {sipDeviceFormMode === "add"
+                  ? (isVirtualDraft ? "Sanal Aboneyi Ekle" : "SIP Cihazını Ekle")
+                  : "Cihaz Ayarlarını Uygula"}
               </button>
             </div>
           </form>
-        )}
+          );
+        })()}
       </dialog>
 
       {/* Native Modal Dialog 2: 🔍 Büyüteç — SIP Cihazı İnceleme, BLF & PJSIP Dahili Detay */}

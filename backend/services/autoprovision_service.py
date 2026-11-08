@@ -173,28 +173,41 @@ def normalize_user_sip_devices(
 
     normalized: List[Dict[str, Any]] = []
     seen_sip_users = {ext_s.lower()} if ext_s else set()
+    assigned_primary_real_sip = False
 
     for idx, dev in enumerate(raw_devices):
         if not isinstance(dev, dict):
             continue
         dev_id = str(dev.get("id") or f"dev-{ext_s or 'u'}-{idx + 1}").strip()
-        dev_name = str(dev.get("name") or f"SIP Cihazı {idx + 1}").strip() or f"SIP Cihazı {idx + 1}"
         dev_type = str(dev.get("device_type") or "desk_phone").strip().lower()
-        if dev_type not in ("desk_phone", "softphone", "dect"):
+        if dev_type not in ("desk_phone", "softphone", "dect", "virtual_subscriber"):
             dev_type = "desk_phone"
 
-        raw_su = str(dev.get("sip_username") or "").strip()
-        if idx == 0:
-            cand_su = resolve_user_sip_username(ext_s, raw_su or user_dict.get("sip_username") or "")
-        else:
-            cand_su = re.sub(r"[^a-zA-Z0-9_.-]", "", raw_su)
-            if not cand_su or cand_su.lower() in seen_sip_users:
-                cand_su = generate_random_sip_device_username(ext_s, idx + 1)
-        while cand_su.lower() in seen_sip_users:
-            cand_su = generate_random_sip_device_username(ext_s, idx + 2)
-        seen_sip_users.add(cand_su.lower())
+        default_dev_label = f"Sanal Abone {idx + 1}" if dev_type == "virtual_subscriber" else f"SIP Cihazı {idx + 1}"
+        dev_name = str(dev.get("name") or default_dev_label).strip() or default_dev_label
 
-        dev_pwd = _clean_pwd(dev.get("sip_password") or (user_dict.get("sip_password") if idx == 0 else ""))
+        dev_trunk = str(dev.get("trunk") or "").strip()
+        dev_prefix = re.sub(r"[^0-9a-zA-Z*#+_.-]", "", str(dev.get("prefix") or "").strip())
+        raw_vmode = str(dev.get("virtual_target_mode") or "extension").strip().lower()
+        dev_vmode = "custom" if raw_vmode == "custom" else "extension"
+        dev_custom_target = re.sub(r"[^0-9a-zA-Z*#+_.-]", "", str(dev.get("custom_target") or "").strip())
+
+        if dev_type == "virtual_subscriber":
+            cand_su = ""
+            dev_pwd = ""
+        else:
+            raw_su = str(dev.get("sip_username") or "").strip()
+            if not assigned_primary_real_sip:
+                cand_su = resolve_user_sip_username(ext_s, raw_su or user_dict.get("sip_username") or "")
+                assigned_primary_real_sip = True
+            else:
+                cand_su = re.sub(r"[^a-zA-Z0-9_.-]", "", raw_su)
+                if not cand_su or cand_su.lower() in seen_sip_users:
+                    cand_su = generate_random_sip_device_username(ext_s, idx + 1)
+            while cand_su.lower() in seen_sip_users:
+                cand_su = generate_random_sip_device_username(ext_s, idx + 2)
+            seen_sip_users.add(cand_su.lower())
+            dev_pwd = _clean_pwd(dev.get("sip_password") or (user_dict.get("sip_password") if idx == 0 else ""))
         try:
             dev_max_act = max(1, min(5, int(dev.get("max_activations") or 1)))
         except Exception:
@@ -264,6 +277,10 @@ def normalize_user_sip_devices(
             "max_activations": dev_max_act,
             "transport": dev_tr,
             "is_active": dev.get("is_active") is not False,
+            "trunk": dev_trunk,
+            "prefix": dev_prefix,
+            "virtual_target_mode": dev_vmode,
+            "custom_target": dev_custom_target,
             "mac": mac_colon,
             "ip": dev_ip,
             "brand": dev_brand,
