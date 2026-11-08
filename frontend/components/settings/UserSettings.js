@@ -871,15 +871,33 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
 
     if (persistImmediately && editingUser && (editingUser.id || editingUser.extension)) {
       try {
+        const {
+          is_registered: _ir,
+          sip_status: _ss,
+          web_online: _wo,
+          call_state: _cs,
+          ip_address: _ip,
+          quarantine_details: _qd,
+          ...cleanBaseUser
+        } = editingUser;
+        const safeDictOrNull = (val) => (val && typeof val === "object" && !Array.isArray(val) ? val : null);
+        const targetExt = (extension || "").trim() || String(editingUser.extension || "").trim();
         const singlePayload = {
-          ...editingUser,
-          full_name: fullName.trim() || editingUser.full_name,
-          email: email.trim() || editingUser.email,
-          extension: extension.trim() || editingUser.extension,
+          ...cleanBaseUser,
+          full_name: fullName.trim() || editingUser.full_name || "",
+          email: email.trim() || editingUser.email || "",
+          extension: targetExt,
           sip_username: nextDevices[0]?.sip_username || "",
           sip_password: nextDevices[0]?.sip_password || sipPassword,
           max_activations: Number(nextDevices[0]?.max_activations || maxActivations || 1),
           transport: nextDevices[0]?.transport || transport || "UDP",
+          forwarding_always: safeDictOrNull(editingUser.forwarding_always),
+          forwarding_busy: safeDictOrNull(editingUser.forwarding_busy),
+          forwarding_no_answer: safeDictOrNull(editingUser.forwarding_no_answer),
+          follow_me: safeDictOrNull(editingUser.follow_me),
+          cti_config: safeDictOrNull(editingUser.cti_config) || {},
+          call_panel_prefs: safeDictOrNull(editingUser.call_panel_prefs) || {},
+          wallboard_layout: safeDictOrNull(editingUser.wallboard_layout) || {},
           sip_devices: nextDevices
         };
         const res = await safeFetch("/api/settings/users", {
@@ -894,10 +912,31 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
           const data = await res.json();
           if (Array.isArray(data?.users)) {
             setUsers(data.users);
+            const savedMatch = data.users.find(
+              (u) =>
+                (editingUser.id !== undefined && editingUser.id !== null && String(u.id) === String(editingUser.id)) ||
+                (targetExt && String(u.extension) === targetExt)
+            );
+            if (savedMatch) {
+              setEditingUser((prev) => (prev ? { ...prev, ...savedMatch } : prev));
+              if (Array.isArray(savedMatch.sip_devices)) {
+                setSipDevices(savedMatch.sip_devices.map((d, idx) => createSipDeviceItem(idx + 1, d)));
+              }
+            }
           }
+        } else if (res) {
+          const errData = await res.json().catch(() => ({ detail: res.statusText }));
+          const rawDetail = errData?.detail;
+          const errMsg = Array.isArray(rawDetail)
+            ? rawDetail.map((e) => e?.msg || JSON.stringify(e)).join(" | ")
+            : typeof rawDetail === "string"
+            ? rawDetail
+            : `SIP cihazı kaydedilemedi (${res.status})`;
+          setError(errMsg);
         }
       } catch (err) {
         console.warn("SIP cihazı anlık senkronizasyon uyarısı:", err);
+        setError("SIP cihazı Asterisk'e kaydedilirken bağlantı hatası oluştu: " + (err?.message || ""));
       }
     }
   };
@@ -943,6 +982,17 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
     );
     if (dupInSelf) {
       setError(`'${cleanSu}' kullanıcı adı bu abonenin '${dupInSelf.name}' cihazında zaten kullanılıyor.`);
+      return;
+    }
+    const dupOtherUser = users.find((u) => {
+      if (editingUser && ((editingUser.id !== undefined && String(u.id) === String(editingUser.id)) || (editingUser.extension && String(u.extension) === String(editingUser.extension)))) {
+        return false;
+      }
+      if (String(u.extension || "").trim().toLowerCase() === cleanSu.toLowerCase()) return true;
+      return Array.isArray(u.sip_devices) && u.sip_devices.some((od) => String(od?.sip_username || "").trim().toLowerCase() === cleanSu.toLowerCase());
+    });
+    if (dupOtherUser) {
+      setError(`'${cleanSu}' kullanıcı adı '${dupOtherUser.full_name || dupOtherUser.extension}' isimli kullanıcıda zaten tanımlı.`);
       return;
     }
 

@@ -168,6 +168,51 @@ stunaddr=stun.l.google.com:19302
                 users_list = sdata.get("users", [])
                 nat_cfg = sdata.get("nat", {})
 
+        # Merge PostgreSQL system_users (zero-dependency fallback if SQLAlchemy unavailable) so DB-saved sip_devices are never lost
+        try:
+            import sys as _sys_sync
+            _proj_root = os.path.dirname(BASE_DIR)
+            if _proj_root not in _sys_sync.path:
+                _sys_sync.path.insert(0, _proj_root)
+            from backend.database.config import SyncSessionLocal
+            from backend.database.models import SystemUser
+            with SyncSessionLocal() as _db_s:
+                _db_users = _db_s.query(SystemUser).all()
+                if _db_users:
+                    _disk_by_id = {str(du.get("id")): du for du in users_list if isinstance(du, dict) and du.get("id") is not None}
+                    _disk_by_ext = {str(du.get("extension") or "").strip(): du for du in users_list if isinstance(du, dict) and str(du.get("extension") or "").strip()}
+                    _merged = []
+                    _seen_ids = set()
+                    _seen_exts = set()
+                    for _u in _db_users:
+                        _ud = {c.name: getattr(_u, c.name) for c in SystemUser.__table__.columns}
+                        _uid = str(_ud.get("id")) if _ud.get("id") is not None else ""
+                        _uext = str(_ud.get("extension") or "").strip()
+                        if _uid:
+                            _seen_ids.add(_uid)
+                        if _uext:
+                            _seen_exts.add(_uext)
+                        _du = (_disk_by_id.get(_uid) if _uid else None) or (_disk_by_ext.get(_uext) if _uext else None)
+                        if _du:
+                            if (not _ud.get("sip_password") or _ud.get("sip_password") == "1234") and _du.get("sip_password"):
+                                _ud["sip_password"] = _du.get("sip_password")
+                            if not _ud.get("sip_username") and _du.get("sip_username"):
+                                _ud["sip_username"] = _du.get("sip_username")
+                            if not _ud.get("sip_devices") and _du.get("sip_devices"):
+                                _ud["sip_devices"] = _du.get("sip_devices")
+                        _merged.append(_ud)
+                    for _du in users_list:
+                        if not isinstance(_du, dict):
+                            continue
+                        _du_id = str(_du.get("id")) if _du.get("id") is not None else ""
+                        _du_ext = str(_du.get("extension") or "").strip()
+                        if (_du_id and _du_id in _seen_ids) or (_du_ext and _du_ext in _seen_exts):
+                            continue
+                        _merged.append(_du)
+                    users_list = _merged
+        except Exception:
+            pass
+
         nat_enabled = nat_cfg.get("enabled", False)
         extern_ip = (nat_cfg.get("extern_ip") or "").strip()
         local_nets = nat_cfg.get("local_nets", [])
@@ -253,16 +298,17 @@ stunaddr=stun.l.google.com:19302
                 break
 
         global_ua_block = f"[global]\ntype=global\nuser_agent={custom_global_ua}\nmax_forwards=70\n\n" if custom_global_ua else ""
-        has_tls_trunk = any(str(t.get("protocol") or "").lower() == "tls" and (t.get("is_active", True) is not False) for t in trunks_list)
+        has_ast_cert = os.path.exists("/etc/asterisk/keys/asterisk.pem")
+        has_ast_priv = os.path.exists("/etc/asterisk/keys/webphone_privkey.pem")
         tls_block = ""
-        if has_tls_trunk or os.path.exists("/etc/asterisk/keys/asterisk.pem"):
+        if has_ast_cert:
+            priv_line = "priv_key_file=/etc/asterisk/keys/webphone_privkey.pem\n" if has_ast_priv else ""
             tls_block = f"""[transport-tls]
 type=transport
 protocol=tls
 bind=0.0.0.0:5061
 cert_file=/etc/asterisk/keys/asterisk.pem
-priv_key_file=/etc/asterisk/keys/webphone_privkey.pem
-method=tlsv1_2
+{priv_line}method=tlsv1_2
 verify_server=no
 verify_client=no
 {nat_lines}"""
@@ -681,13 +727,20 @@ remove_existing=yes
                 except Exception:
                     d_max = 1
                 d_tr_raw = str(dev_obj.get("transport") or "UDP").strip().upper()
-                d_tr_line = "transport=transport-tcp\n" if d_tr_raw == "TCP" else ("transport=transport-udp\n" if d_tr_raw == "UDP" else "")
+                if d_tr_raw == "TLS" and has_ast_cert:
+                    d_tr_line = "transport=transport-tls\nmedia_encryption=sdes\n"
+                elif d_tr_raw in ("TCP", "TLS"):
+                    d_tr_line = "transport=transport-tcp\n"
+                else:
+                    d_tr_line = "transport=transport-udp\n"
                 d_codecs_raw = dev_obj.get("codecs")
                 d_allow = _norm_codecs({"codecs": d_codecs_raw}) if d_codecs_raw else "g722,alaw,ulaw,g729"
                 d_dtmf = str(dev_obj.get("dtmf_mode") or "rfc4733").strip().lower()
                 if d_dtmf not in ("rfc4733", "info", "inband"):
                     d_dtmf = "rfc4733"
-                d_label = str(dev_obj.get("name") or f"SIP Cihazi {d_idx + 1}").strip()
+                d_label = str(dev_obj.get("name") or f"SIP Cihazi {d_idx + 1}").strip().replace('"', "").replace(";", "")
+                safe_nm = str(name or ext).replace('"', "").replace("<", "").replace(">", "").replace(";", "").strip() or ext
+                esc_dpwd = str(d_pwd or "").replace("\r", "").replace("\n", "").replace(";", "\\;")
 
                 pjsip_custom_content += f"""
 ; SIP Device: {d_label} ({d_su}) -> Ext {ext}
@@ -701,18 +754,19 @@ direct_media=no
 force_rport=yes
 rewrite_contact=yes
 rtp_symmetric=yes
+media_use_received_transport=yes
 send_pai=yes
 send_rpid=yes
 rpid_immediate=yes
 {pg_lines}auth={d_su}-auth
 aors={d_su}
-callerid={name} <{ext}>
+callerid="{safe_nm}" <{ext}>
 
 [{d_su}-auth]
 type=auth
 auth_type=userpass
 username={d_su}
-password={d_pwd}
+password={esc_dpwd}
 
 [{d_su}]
 type=aor
@@ -730,11 +784,30 @@ qualify_frequency=30
 Event=>check-sync
 
 [reboot-yealink]
-Event=>check-sync\\;reboot=true
+Event=>check-sync;reboot=true
+
+[yealink-check-sync]
+Event=>check-sync;reboot=false
+
+[yealink-reboot]
+Event=>check-sync;reboot=true
+
+[grandstream-check-sync]
+Event=>check-sync
+
+[fanvil-check-sync]
+Event=>check-sync;reboot=false
+
+[fanvil-reboot]
+Event=>check-sync;reboot=true
+
+[snom-check-sync]
+Event=>check-sync;reboot=false
 """
         try:
             with open(pjsip_notify_path, "w", encoding="utf-8") as nf:
                 nf.write(pjsip_notify_content)
+            os.chmod(pjsip_notify_path, 0o644)
         except Exception:
             pass
 
@@ -742,6 +815,10 @@ Event=>check-sync\\;reboot=true
         pjsip_custom_path = "/etc/asterisk/pjsip_custom.conf"
         with open(pjsip_custom_path, "w", encoding="utf-8") as pf:
             pf.write(pjsip_custom_content)
+        try:
+            os.chmod(pjsip_custom_path, 0o644)
+        except Exception:
+            pass
         print(f"[Sync Script] pjsip_custom.conf yazıldı -> {pjsip_custom_path}")
 
         # Clean and reset /etc/asterisk/pjsip.conf to cleanly include pjsip_custom.conf
@@ -753,9 +830,14 @@ Event=>check-sync\\;reboot=true
 """
         with open(pjsip_main, "w", encoding="utf-8") as f:
             f.write(clean_pjsip_main)
+        try:
+            os.chmod(pjsip_main, 0o644)
+        except Exception:
+            pass
         print("[Sync Script] /etc/asterisk/pjsip.conf temizlendi ve #include pjsip_custom.conf eklendi.")
 
         ast_reload_timeout = 10.0 if os.path.exists("/etc/asterisk") else 2.0
+        subprocess.run(["asterisk", "-rx", "module reload res_pjsip_notify.so"], check=False, timeout=ast_reload_timeout)
         subprocess.run(["asterisk", "-rx", "module reload res_pjsip.so"], check=False, timeout=ast_reload_timeout)
         subprocess.run(["asterisk", "-rx", "pjsip reload"], check=False, timeout=ast_reload_timeout)
         print("[Sync Script] Asterisk PJSIP başarıyla yenilendi (pjsip reload).")

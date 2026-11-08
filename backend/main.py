@@ -728,7 +728,7 @@ class UserSchema(BaseModel):
     cti_config: Optional[dict] = None
     theme_mode: Optional[str] = None
     call_panel_prefs: Optional[dict] = None
-    wallboard_layout: Optional[dict] = None
+    wallboard_layout: Optional[Union[dict, List[Any]]] = None
     max_concurrent_outbound: Optional[int] = None
     outbound_quarantined: Optional[bool] = None
     sip_devices: Optional[List[dict]] = None
@@ -1952,6 +1952,9 @@ def load_settings(force_reload: bool = False, persist: bool = False):
                 disk_u_map = {str(du.get("id")): du for du in db.get("users", []) if isinstance(du, dict) and du.get("id") is not None}
                 disk_ext_map = {str(du.get("extension")): du for du in db.get("users", []) if isinstance(du, dict) and du.get("extension")}
                 wb_layouts_map = db.get("wallboard_layouts") if isinstance(db.get("wallboard_layouts"), dict) else {}
+                from backend.services.autoprovision_service import normalize_user_sip_devices as _load_norm_sip_devs
+                ap_load_list = db.get("autoprovision") if isinstance(db.get("autoprovision"), list) else []
+                dp_load_cfgs = db.get("user_deskphone_configs") if isinstance(db.get("user_deskphone_configs"), dict) else {}
                 users_list = []
                 for u in db_users:
                     u_dict = {col.name: getattr(u, col.name) for col in SystemUser.__table__.columns}
@@ -1965,6 +1968,12 @@ def load_settings(force_reload: bool = False, persist: bool = False):
                                 u_dict[jcol] = {} if jcol != "follow_me" else None
                         elif jcol != "follow_me" and not isinstance(jval, dict):
                             u_dict[jcol] = {}
+                    raw_sd = u_dict.get("sip_devices")
+                    if isinstance(raw_sd, str) and raw_sd.strip().startswith("["):
+                        try:
+                            u_dict["sip_devices"] = json.loads(raw_sd)
+                        except Exception:
+                            u_dict["sip_devices"] = []
                     if du:
                         if du.get("avatar_updated_ts") and du.get("avatar"):
                             u_dict["avatar"] = du.get("avatar")
@@ -1977,6 +1986,16 @@ def load_settings(force_reload: bool = False, persist: bool = False):
                             u_dict["managed_queues"] = du.get("managed_queues")
                         if not u_dict.get("cti_config") and du.get("cti_config"):
                             u_dict["cti_config"] = du.get("cti_config")
+                        if (not u_dict.get("sip_password") or u_dict.get("sip_password") == "1234") and du.get("sip_password"):
+                            u_dict["sip_password"] = du.get("sip_password")
+                        if not u_dict.get("sip_username") and du.get("sip_username"):
+                            u_dict["sip_username"] = du.get("sip_username")
+                        if not u_dict.get("sip_devices") and du.get("sip_devices"):
+                            u_dict["sip_devices"] = du.get("sip_devices")
+                        if u_dict.get("max_activations") in (None, 0, 1) and du.get("max_activations"):
+                            u_dict["max_activations"] = du.get("max_activations")
+                        if (not u_dict.get("transport") or u_dict.get("transport") == "UDP") and du.get("transport"):
+                            u_dict["transport"] = du.get("transport")
                         if not u_dict.get("call_panel_prefs") and du.get("call_panel_prefs"):
                             u_dict["call_panel_prefs"] = du.get("call_panel_prefs")
                         if not u_dict.get("wallboard_layout") and du.get("wallboard_layout"):
@@ -2055,6 +2074,17 @@ def load_settings(force_reload: bool = False, persist: bool = False):
                     u_dict["managed_users"] = u_dict.get("managed_users") if isinstance(u_dict.get("managed_users"), list) else []
                     u_dict["managed_queues"] = u_dict.get("managed_queues") if isinstance(u_dict.get("managed_queues"), list) else []
                     u_dict["theme_mode"] = u_dict.get("theme_mode") or "light"
+                    u_ext_load = str(u_dict.get("extension") or "").strip()
+                    if u_ext_load or u_dict.get("sip_devices") or u_dict.get("sip_username"):
+                        u_dict["sip_password"] = resolve_secure_sip_password(u_ext_load, u_dict.get("sip_password") or "")
+                        u_dict["sip_devices"] = _load_norm_sip_devs(
+                            u_dict,
+                            ap_load_list,
+                            dp_load_cfgs,
+                            fallback_password_fn=resolve_secure_sip_password,
+                        )
+                        if u_dict["sip_devices"] and not u_dict.get("sip_username"):
+                            u_dict["sip_username"] = u_dict["sip_devices"][0].get("sip_username") or ""
                     users_list.append(u_dict)
                 # Preserve disk-only admin profile if no admin row exists in system_users yet
                 if not any(u_item.get("role") == "admin" or u_item.get("username") == "admin" for u_item in users_list):
@@ -2714,17 +2744,22 @@ def run_pjsip_reload():
     try:
         import subprocess
         subprocess.run(["asterisk", "-rx", "module reload http"], capture_output=True, text=True, timeout=ast_timeout)
+        subprocess.run(["asterisk", "-rx", "module reload res_pjsip_notify.so"], capture_output=True, text=True, timeout=ast_timeout)
+        subprocess.run(["asterisk", "-rx", "module reload res_pjsip.so"], capture_output=True, text=True, timeout=ast_timeout)
         res = subprocess.run(["asterisk", "-rx", "pjsip reload"], capture_output=True, text=True, timeout=ast_timeout)
         subprocess.run(["asterisk", "-rx", "dialplan reload"], capture_output=True, text=True, timeout=ast_timeout)
         if res.returncode == 0:
             print("[Asterisk Config] HTTP/WSS, PJSIP ve Dialplan başarıyla yenilendi (host).")
             return
+        elif (res.stderr or res.stdout):
+            print(f"[Asterisk Config] PJSIP reload çıktısı (kod={res.returncode}): {(res.stderr or res.stdout).strip()}")
     except Exception as e:
         print(f"[Asterisk Config] Direct PJSIP reload failed: {e}")
 
     if not has_host_ast:
         try:
             import subprocess
+            subprocess.run(["docker", "exec", "ai_pbx_asterisk", "asterisk", "-rx", "module reload res_pjsip.so"], check=False, capture_output=True, timeout=ast_timeout)
             subprocess.run(["docker", "exec", "ai_pbx_asterisk", "asterisk", "-rx", "pjsip reload"], check=True, capture_output=True, timeout=ast_timeout)
             subprocess.run(["docker", "exec", "ai_pbx_asterisk", "asterisk", "-rx", "dialplan reload"], check=True, capture_output=True, timeout=ast_timeout)
             print("[Asterisk Config] PJSIP & Dialplan configurations reloaded successfully in Asterisk container.")
@@ -3177,16 +3212,91 @@ def regenerate_pjsip_custom_conf(background_tasks: Optional[BackgroundTasks] = N
             if net_clean:
                 nat_lines += f"local_net={net_clean}\n"
 
-    # Merge sip_password and sip_username from settings_db["users"] if present
-    disk_users_map = {str(du.get("extension") or "").strip(): du for du in settings_db.get("users", []) if du.get("extension")}
+    # Merge sip_password, sip_username, sip_devices and cti_config from settings_db["users"] if present
+    disk_users_list = [du for du in settings_db.get("users", []) if isinstance(du, dict)]
+    disk_users_by_id = {str(du.get("id")): du for du in disk_users_list if du.get("id") is not None}
+    disk_users_map = {str(du.get("extension") or "").strip(): du for du in disk_users_list if str(du.get("extension") or "").strip()}
+    seen_db_ids = {str(u.get("id")) for u in users_list if u.get("id") is not None}
+    seen_db_exts = {str(u.get("extension") or "").strip() for u in users_list if str(u.get("extension") or "").strip()}
     for u in users_list:
         ext_k = str(u.get("extension") or "").strip()
-        du = disk_users_map.get(ext_k)
+        uid_k = str(u.get("id")) if u.get("id") is not None else ""
+        if isinstance(u.get("sip_devices"), str) and u["sip_devices"].strip().startswith("["):
+            try:
+                u["sip_devices"] = json.loads(u["sip_devices"])
+            except Exception:
+                u["sip_devices"] = []
+        if isinstance(u.get("cti_config"), str) and u["cti_config"].strip().startswith("{"):
+            try:
+                u["cti_config"] = json.loads(u["cti_config"])
+            except Exception:
+                u["cti_config"] = {}
+        du = (disk_users_by_id.get(uid_k) if uid_k else None) or (disk_users_map.get(ext_k) if ext_k else None)
         if du:
             if (not u.get("sip_password") or u.get("sip_password") == "1234") and du.get("sip_password"):
                 u["sip_password"] = du.get("sip_password")
             if not u.get("sip_username") and du.get("sip_username"):
                 u["sip_username"] = du.get("sip_username")
+            if not u.get("cti_config") and isinstance(du.get("cti_config"), dict):
+                u["cti_config"] = du.get("cti_config")
+            if not u.get("sip_devices") and du.get("sip_devices"):
+                u["sip_devices"] = du.get("sip_devices")
+            if u.get("max_activations") in (None, 0, 1) and du.get("max_activations"):
+                u["max_activations"] = du.get("max_activations")
+            if (not u.get("transport") or u.get("transport") == "UDP") and du.get("transport"):
+                u["transport"] = du.get("transport")
+    for du in disk_users_list:
+        du_id = str(du.get("id")) if du.get("id") is not None else ""
+        du_ext = str(du.get("extension") or "").strip()
+        if (du_id and du_id in seen_db_ids) or (du_ext and du_ext in seen_db_exts):
+            continue
+        if du_ext or du.get("sip_devices"):
+            users_list.append(dict(du))
+
+    # Prepare SSL certificate files BEFORE building [transport-tls] so PJSIP never references a missing key file
+    if os.path.exists("/etc/asterisk"):
+        try:
+            ast_keys_dir = "/etc/asterisk/keys"
+            os.makedirs(ast_keys_dir, exist_ok=True)
+            try:
+                os.chmod(ast_keys_dir, 0o755)
+            except Exception:
+                pass
+            target_cert = None
+            target_key = None
+            letsencrypt_base = "/etc/letsencrypt/live"
+            if os.path.exists(letsencrypt_base):
+                try:
+                    candidates = []
+                    for root, dirs, files in os.walk(letsencrypt_base):
+                        if "fullchain.pem" in files and "privkey.pem" in files:
+                            fc_p = os.path.join(root, "fullchain.pem")
+                            pk_p = os.path.join(root, "privkey.pem")
+                            score = 2 if ("aida" in root.lower() or "saphira" in root.lower()) else 1
+                            candidates.append((score, fc_p, pk_p))
+                    if candidates:
+                        candidates.sort(key=lambda x: x[0], reverse=True)
+                        target_cert = candidates[0][1]
+                        target_key = candidates[0][2]
+                except Exception:
+                    pass
+            if target_cert and target_key:
+                try:
+                    ast_fc = os.path.join(ast_keys_dir, "webphone_fullchain.pem")
+                    ast_pk = os.path.join(ast_keys_dir, "webphone_privkey.pem")
+                    ast_combined = os.path.join(ast_keys_dir, "asterisk.pem")
+                    shutil.copy2(os.path.realpath(target_cert), ast_fc)
+                    shutil.copy2(os.path.realpath(target_key), ast_pk)
+                    with open(ast_fc, "r") as f1, open(ast_pk, "r") as f2, open(ast_combined, "w") as fout:
+                        fout.write(f1.read().strip() + "\n" + f2.read().strip() + "\n")
+                    os.chmod(ast_fc, 0o644)
+                    os.chmod(ast_pk, 0o644)
+                    os.chmod(ast_combined, 0o644)
+                    subprocess.run(["chown", "-R", "asterisk:asterisk", ast_keys_dir], check=False, capture_output=True, timeout=2.0)
+                except Exception as e_ssl_pre:
+                    print(f"[Asterisk Config] SSL birleştirme uyarısı: {e_ssl_pre}")
+        except Exception:
+            pass
 
     has_1000_in_users = any(str(u.get("extension") or "").strip() == "1000" and (u.get("is_active", True) is not False) for u in users_list)
 
@@ -3210,16 +3320,17 @@ max_forwards=70
 
 """
 
+    has_ast_cert = os.path.exists("/etc/asterisk/keys/asterisk.pem")
+    has_ast_priv = os.path.exists("/etc/asterisk/keys/webphone_privkey.pem")
     tls_transport_block = ""
-    has_tls_trunk = any(str(t.get("protocol") or "").lower() == "tls" and (t.get("is_active", True) is not False) for t in trunks_list)
-    if has_tls_trunk or os.path.exists("/etc/asterisk/keys/asterisk.pem"):
+    if has_ast_cert:
+        priv_key_line = "priv_key_file=/etc/asterisk/keys/webphone_privkey.pem\n" if has_ast_priv else ""
         tls_transport_block = f"""[transport-tls]
 type=transport
 protocol=tls
 bind=0.0.0.0:5061
 cert_file=/etc/asterisk/keys/asterisk.pem
-priv_key_file=/etc/asterisk/keys/webphone_privkey.pem
-method=tlsv1_2
+{priv_key_line}method=tlsv1_2
 verify_server=no
 verify_client=no
 {nat_lines}"""
@@ -3592,28 +3703,45 @@ trust_id_inbound={trust_id_in}
                     matched_names.append(pg_token)
         return ",".join(matched_names)
 
+    def _esc_pjsip_val(raw_val: Any) -> str:
+        return str(raw_val or "").replace("\r", "").replace("\n", "").replace(";", "\\;")
+
+    def _safe_cid_label(raw_nm: Any, fallback_ext: str) -> str:
+        cleaned = str(raw_nm or fallback_ext).replace('"', "").replace("<", "").replace(">", "").replace(";", "").replace("\r", "").replace("\n", "").strip()
+        return cleaned or fallback_ext
+
     seen_exts = set()
     seen_sip_eps = set()
+    if not has_1000_in_users:
+        seen_sip_eps.add("1000")
+        seen_sip_eps.add(resolve_user_sip_username("1000", "").lower())
+
+    db_sip_backfill_items = []
     for u in users_list:
         is_act = u.get("is_active") if "is_active" in u else True
         if not is_act:
             continue
         ext = str(u.get("extension") or "").strip()
-        if not ext or ext in seen_exts:
+        has_custom_devs = isinstance(u.get("sip_devices"), list) and len(u.get("sip_devices")) > 0
+        if not ext and not has_custom_devs:
             continue
-        seen_exts.add(ext)
-        seen_sip_eps.add(ext.lower())
-        pwd = resolve_secure_sip_password(ext, u.get("sip_password") or "")
-        name = u.get("full_name") or u.get("username") or ext
+        if ext and ext in seen_exts:
+            continue
+        if ext:
+            seen_exts.add(ext)
+            seen_sip_eps.add(ext.lower())
+        pwd = resolve_secure_sip_password(ext or "1000", u.get("sip_password") or "")
+        name = _safe_cid_label(u.get("full_name") or u.get("username") or ext, ext or "1000")
         try:
             max_act = max(5, int(u.get("max_activations") or 5))
         except Exception:
             max_act = 5
-        pg_names = _resolve_user_pickup_group_names(u, ext)
+        pg_names = _resolve_user_pickup_group_names(u, ext) if ext else ""
         pg_lines = f"named_call_group={pg_names}\nnamed_pickup_group={pg_names}\n" if pg_names else ""
 
-        conf_content += f"\n; --- USER: {name} ({ext}) ---\n"
-        conf_content += f"""[{ext}]
+        if ext:
+            conf_content += f"\n; --- USER: {name} ({ext}) ---\n"
+            conf_content += f"""[{ext}]
 type=endpoint
 context=webrtc_agents
 disallow=all
@@ -3635,29 +3763,34 @@ send_rpid=yes
 rpid_immediate=yes
 {pg_lines}auth={ext}-auth
 aors={ext}
-callerid={name} <{ext}>
+callerid="{name}" <{ext}>
 
 [{ext}-auth]
 type=auth
 auth_type=userpass
 username={ext}
-password={pwd}
+password={_esc_pjsip_val(pwd)}
 
 [{ext}]
 type=aor
 max_contacts={max_act}
 remove_existing=yes
 """
+        had_empty_raw_devs = not (isinstance(u.get("sip_devices"), list) and len(u.get("sip_devices")) > 0)
         user_devices = normalize_user_sip_devices(u, ap_all, dp_all, fallback_password_fn=resolve_secure_sip_password)
+        if had_empty_raw_devs and user_devices and u.get("id") is not None:
+            db_sip_backfill_items.append((u.get("id"), ext, user_devices))
         for dev in user_devices:
             if dev.get("is_active") is False:
                 continue
-            dev_su = str(dev.get("sip_username") or "").strip()
+            dev_su = re.sub(r"[^a-zA-Z0-9_.-]", "", str(dev.get("sip_username") or "").strip())
             if not dev_su or dev_su.lower() in seen_sip_eps:
                 continue
             seen_sip_eps.add(dev_su.lower())
-            dev_pwd = resolve_secure_sip_password(ext, dev.get("sip_password") or pwd)
-            dev_codecs = ",".join(dev.get("codecs") or ["g722", "alaw", "ulaw", "g729"])
+            dev_pwd = resolve_secure_sip_password(ext or dev_su, dev.get("sip_password") or pwd)
+            raw_c_list = [str(c).strip().lower() for c in (dev.get("codecs") or ["g722", "alaw", "ulaw", "g729"]) if str(c).strip()]
+            safe_c_list = [c for c in raw_c_list if c in ("g722", "alaw", "ulaw", "g729", "gsm", "opus")]
+            dev_codecs = ",".join(safe_c_list or ["g722", "alaw", "ulaw", "g729"])
             dev_dtmf = str(dev.get("dtmf_mode") or "rfc4733").strip().lower()
             if dev_dtmf not in ("rfc4733", "info", "inband"):
                 dev_dtmf = "rfc4733"
@@ -3665,15 +3798,17 @@ remove_existing=yes
                 dev_max_c = max(1, min(5, int(dev.get("max_activations") or 1)))
             except Exception:
                 dev_max_c = 2
-            dev_tr_raw = str(dev.get("transport") or "").strip().upper()
-            dev_tr_line = ""
-            if dev_tr_raw == "TLS":
+            dev_tr_raw = str(dev.get("transport") or "UDP").strip().upper()
+            if dev_tr_raw == "TLS" and has_ast_cert:
                 dev_tr_line = "transport=transport-tls\nmedia_encryption=sdes\n"
-            elif dev_tr_raw == "TCP":
+            elif dev_tr_raw in ("TCP", "TLS"):
                 dev_tr_line = "transport=transport-tcp\n"
+            else:
+                dev_tr_line = "transport=transport-udp\n"
+            cid_ext_val = ext or dev_su
 
             conf_content += f"""
-; --- SIP DEVICE: {dev.get('name') or dev_su} ({ext}) ---
+; --- SIP DEVICE: {_safe_cid_label(dev.get('name') or dev_su, dev_su)} ({cid_ext_val}) ---
 [{dev_su}]
 type=endpoint
 {dev_tr_line}context=webrtc_agents
@@ -3684,18 +3819,19 @@ direct_media=no
 force_rport=yes
 rewrite_contact=yes
 rtp_symmetric=yes
+media_use_received_transport=yes
 send_pai=yes
 send_rpid=yes
 rpid_immediate=yes
 {pg_lines}auth={dev_su}-auth
 aors={dev_su}
-callerid={name} <{ext}>
+callerid="{name}" <{cid_ext_val}>
 
 [{dev_su}-auth]
 type=auth
 auth_type=userpass
 username={dev_su}
-password={dev_pwd}
+password={_esc_pjsip_val(dev_pwd)}
 
 [{dev_su}]
 type=aor
@@ -3703,6 +3839,30 @@ max_contacts={dev_max_c}
 remove_existing=yes
 qualify_frequency=30
 """
+
+    if db_sip_backfill_items:
+        try:
+            from backend.database.config import SyncSessionLocal
+            from backend.database.models import SystemUser
+            from sqlalchemy.orm.attributes import flag_modified
+            with SyncSessionLocal() as bf_session:
+                bf_changed = False
+                for bf_uid, bf_ext, bf_devs in db_sip_backfill_items:
+                    bf_row = None
+                    if str(bf_uid).isdigit():
+                        bf_row = bf_session.query(SystemUser).filter(SystemUser.id == int(bf_uid)).first()
+                    if not bf_row and bf_ext:
+                        bf_row = bf_session.query(SystemUser).filter(SystemUser.extension == bf_ext).first()
+                    if bf_row and not bf_row.sip_devices:
+                        bf_row.sip_devices = bf_devs
+                        if not bf_row.sip_username and bf_devs:
+                            bf_row.sip_username = bf_devs[0].get("sip_username") or ""
+                        flag_modified(bf_row, "sip_devices")
+                        bf_changed = True
+                if bf_changed:
+                    bf_session.commit()
+        except Exception as e_bf:
+            print(f"[Asterisk Config] SIP devices DB backfill notice: {e_bf}")
 
     config_dir = ASTERISK_CONFIG_DIR
     os.makedirs(config_dir, exist_ok=True)
@@ -3722,64 +3882,22 @@ qualify_frequency=30
 """
             with open(pjsip_main, "w", encoding="utf-8") as f:
                 f.write(clean_pjsip_main)
+            try:
+                os.chmod(pjsip_main, 0o644)
+            except Exception:
+                pass
             print("[Asterisk Config] /etc/asterisk/pjsip.conf temizlendi ve #include pjsip_custom.conf eklendi.")
 
             etc_path = os.path.join(etc_dir, "pjsip_custom.conf")
             with open(etc_path, "w", encoding="utf-8") as f:
                 f.write(conf_content)
+            try:
+                os.chmod(etc_path, 0o644)
+            except Exception:
+                pass
             print(f"[Asterisk Config] /etc/asterisk/pjsip_custom.conf güncellendi: {etc_path}")
         except Exception as e:
             print(f"[Asterisk Config] /etc/asterisk/pjsip_custom.conf yazılamadı: {e}")
-            
-    # Comprehensive search for SSL certificate (Let's Encrypt)
-    try:
-        ast_keys_dir = "/etc/asterisk/keys"
-        os.makedirs(ast_keys_dir, exist_ok=True)
-        try:
-            os.chmod(ast_keys_dir, 0o755)
-        except Exception:
-            pass
-        target_cert = None
-        target_key = None
-
-        letsencrypt_base = "/etc/letsencrypt/live"
-        if os.path.exists(letsencrypt_base):
-            try:
-                candidates = []
-                for root, dirs, files in os.walk(letsencrypt_base):
-                    if "fullchain.pem" in files and "privkey.pem" in files:
-                        fc_p = os.path.join(root, "fullchain.pem")
-                        pk_p = os.path.join(root, "privkey.pem")
-                        score = 2 if ("aida" in root.lower() or "saphira" in root.lower()) else 1
-                        candidates.append((score, fc_p, pk_p))
-                if candidates:
-                    candidates.sort(key=lambda x: x[0], reverse=True)
-                    target_cert = candidates[0][1]
-                    target_key = candidates[0][2]
-            except Exception:
-                pass
-
-        if target_cert and target_key:
-            try:
-                ast_fc = os.path.join(ast_keys_dir, "webphone_fullchain.pem")
-                ast_pk = os.path.join(ast_keys_dir, "webphone_privkey.pem")
-                ast_combined = os.path.join(ast_keys_dir, "asterisk.pem")
-
-                shutil.copy2(os.path.realpath(target_cert), ast_fc)
-                shutil.copy2(os.path.realpath(target_key), ast_pk)
-
-                with open(ast_fc, "r") as f1, open(ast_pk, "r") as f2, open(ast_combined, "w") as fout:
-                    fout.write(f1.read().strip() + "\n" + f2.read().strip() + "\n")
-
-                os.chmod(ast_fc, 0o644)
-                os.chmod(ast_pk, 0o644)
-                os.chmod(ast_combined, 0o644)
-                subprocess.run(["chown", "-R", "asterisk:asterisk", ast_keys_dir], check=False, capture_output=True, timeout=2.0)
-                print(f"[Asterisk Config] SSL sertifikası Asterisk için hazırlandı ve birleştirildi: {ast_combined}")
-            except Exception as e_ssl_main:
-                print(f"[Asterisk Config] SSL birleştirme hatası: {e_ssl_main}")
-    except Exception as e_keys:
-        print(f"[Asterisk Config] SSL anahtar dizini oluşturulamadı/erişilemedi: {e_keys}")
 
     # Auto-sync /etc/asterisk/http.conf for WebRTC WebSocket port 8088 & WSS port 8089
     http_content = """; ==========================================
@@ -10684,10 +10802,35 @@ def _find_user_and_sip_device(ext_or_id: str, sip_username: str) -> tuple:
     ap_all = settings_db.get("autoprovision", [])
     dp_all = settings_db.get("user_deskphone_configs", {})
     matched_u = None
+    disk_u = None
     for u in settings_db.get("users", []) or []:
+        if not isinstance(u, dict):
+            continue
         if str(u.get("extension") or "").strip() == ext_s or str(u.get("id") or "").strip() == ext_s:
-            matched_u = u
+            disk_u = dict(u)
             break
+    try:
+        from backend.database.config import SyncSessionLocal
+        from backend.database.models import SystemUser
+        with SyncSessionLocal() as session:
+            db_row = None
+            if ext_s:
+                db_row = session.query(SystemUser).filter(SystemUser.extension == ext_s).first()
+                if not db_row and ext_s.isdigit():
+                    db_row = session.query(SystemUser).filter(SystemUser.id == int(ext_s)).first()
+            if db_row:
+                matched_u = {col.name: getattr(db_row, col.name) for col in SystemUser.__table__.columns}
+    except Exception:
+        pass
+    if matched_u and disk_u:
+        if not matched_u.get("sip_devices") and disk_u.get("sip_devices"):
+            matched_u["sip_devices"] = disk_u.get("sip_devices")
+        if not matched_u.get("sip_username") and disk_u.get("sip_username"):
+            matched_u["sip_username"] = disk_u.get("sip_username")
+        if (not matched_u.get("sip_password") or matched_u.get("sip_password") == "1234") and disk_u.get("sip_password"):
+            matched_u["sip_password"] = disk_u.get("sip_password")
+    elif not matched_u and disk_u:
+        matched_u = disk_u
     if not matched_u:
         return None, None
     devs = normalize_user_sip_devices(matched_u, ap_all, dp_all, fallback_password_fn=resolve_secure_sip_password)
@@ -10716,7 +10859,21 @@ async def inspect_user_sip_device_endpoint(
     ext_s = str(extension or "").strip()
     su_s = re.sub(r"[^a-zA-Z0-9_.-]", "", str(sip_username or "").strip())
     matched_u, matched_dev = _find_user_and_sip_device(ext_s, su_s)
-    ast_info = inspect_asterisk_pjsip_endpoint(su_s)
+    ast_info = await asyncio.to_thread(inspect_asterisk_pjsip_endpoint, su_s)
+
+    # Self-heal: if this active SIP device belongs to the user but is not yet loaded in Asterisk, regenerate & reload PJSIP automatically
+    if (
+        ast_info.get("cli_available")
+        and not ast_info.get("exists")
+        and matched_dev
+        and matched_dev.get("is_active") is not False
+        and str(matched_dev.get("sip_username") or "").strip().lower() == su_s.lower()
+    ):
+        try:
+            await asyncio.to_thread(regenerate_pjsip_custom_conf)
+            ast_info = await asyncio.to_thread(inspect_asterisk_pjsip_endpoint, su_s)
+        except Exception as e_heal_pjsip:
+            print(f"[PJSIP Inspect Self-Heal Warning]: {e_heal_pjsip}")
 
     ami_ip = registered_endpoints.get_ip(su_s) or ""
     ami_online = bool(su_s and su_s in registered_endpoints)
@@ -10750,12 +10907,14 @@ async def inspect_user_sip_device_endpoint(
     prov_base_url = f"{scheme}://{req_host or (pbx_host + ':8000')}/api/prov/{prov_token}"
     prov_file_url = f"{prov_base_url}/{cfg_fname}"
 
+    dev_codecs = ",".join((matched_dev or {}).get("codecs") or ["g722", "alaw", "ulaw", "g729"])
+    dev_dtmf = (matched_dev or {}).get("dtmf_mode") or "rfc4733"
+    dev_tr = str((matched_dev or {}).get("transport") or "UDP").upper()
+    u_nm = (matched_u or {}).get("full_name") or ext_s
+    pickup_disp = ", ".join(user_pickup_labels) or "Yok"
+
     raw_output = ast_info.get("raw") or ""
     if not ast_info.get("cli_available") and matched_dev:
-        dev_codecs = ",".join(matched_dev.get("codecs") or ["g722", "alaw", "ulaw", "g729"])
-        dev_dtmf = matched_dev.get("dtmf_mode") or "rfc4733"
-        dev_tr = str(matched_dev.get("transport") or "UDP").upper()
-        u_nm = (matched_u or {}).get("full_name") or ext_s
         raw_output = (
             f"# Not: Yerel geliştirme ortamında Asterisk CLI bulunamadı.\n"
             f"# Üretim sunucusunda canlı `asterisk -rx \"pjsip show endpoint {su_s}\"` çıktısı burada yer alır.\n"
@@ -10771,14 +10930,36 @@ async def inspect_user_sip_device_endpoint(
             f"   context                    : webrtc_agents\n"
             f"   dtmf_mode                  : {dev_dtmf}\n"
             f"   transport                  : transport-{dev_tr.lower()}\n"
-            f"   named_pickup_group         : {', '.join(user_pickup_labels) or '-'}\n"
+            f"   named_pickup_group         : {pickup_disp}\n"
         )
+
+    dev_state = parsed.get("device_state") or ("Not in use" if live_online else ("Unavailable" if ast_info.get("exists") else "Tanımsız"))
+    pjsip_payload = {
+        "found": bool(ast_info.get("exists") or (not ast_info.get("cli_available") and matched_dev)),
+        "registered": live_online,
+        "endpoint": su_s,
+        "device_state": dev_state,
+        "ip_address": live_ip,
+        "port": live_port,
+        "rtt_ms": parsed.get("rtt_ms") or "",
+        "user_agent": parsed.get("user_agent") or "",
+        "context": parsed.get("context") or "webrtc_agents",
+        "transport": parsed.get("transport") or f"transport-{dev_tr.lower()}",
+        "allow": parsed.get("allow") or dev_codecs,
+        "dtmf_mode": parsed.get("dtmf_mode") or dev_dtmf,
+        "callerid": parsed.get("callerid") or f'"{u_nm}" <{ext_s}>',
+        "named_pickup_group": parsed.get("named_pickup_group") or pickup_disp,
+        "max_contacts": parsed.get("max_contacts") or str((matched_dev or {}).get("max_activations") or 1),
+        "raw_output": raw_output,
+        "contact_raw_output": ast_info.get("contact_raw") or "",
+    }
 
     return {
         "status": "success",
         "extension": ext_s,
         "sip_username": su_s,
         "online": live_online,
+        "is_online": live_online,
         "exists_in_asterisk": bool(ast_info.get("exists")),
         "cli_available": bool(ast_info.get("cli_available")),
         "ip_address": live_ip,
@@ -10786,9 +10967,11 @@ async def inspect_user_sip_device_endpoint(
         "rtt_ms": parsed.get("rtt_ms") or "",
         "user_agent": parsed.get("user_agent") or "",
         "contacts": ast_info.get("contacts") or [],
+        "prov_url": prov_base_url,
+        "pjsip": pjsip_payload,
         "parsed": {
             **parsed,
-            "pickup_groups_display": ", ".join(user_pickup_labels) or "-",
+            "pickup_groups_display": pickup_disp,
             "pbx_sip_server": pbx_host,
         },
         "provisioning": {
@@ -26167,8 +26350,9 @@ async def new_save_users_endpoint(payload: Union[List[UserSchema], UserSchema], 
                 data["avatar_updated_ts"] = int(datetime.datetime.now().timestamp())
             now_2fa_ts = int(time.time() * 1000)
             _sync_active_2fa_fields_with_methods(data, methods_map_save, now_ts=now_2fa_ts)
-            if data.get("wallboard_layout") is None:
-                data["wallboard_layout"] = (getattr(target_user, "wallboard_layout", None) if target_user else None) or prev_disk.get("wallboard_layout") or {}
+            if data.get("wallboard_layout") is None or not isinstance(data.get("wallboard_layout"), dict):
+                prev_wb = (getattr(target_user, "wallboard_layout", None) if target_user else None) or prev_disk.get("wallboard_layout")
+                data["wallboard_layout"] = prev_wb if isinstance(prev_wb, dict) else {}
             if data.get("theme_mode") is None:
                 data["theme_mode"] = (getattr(target_user, "theme_mode", None) if target_user else None) or prev_disk.get("theme_mode") or "light"
             if data.get("max_concurrent_outbound") is None:
@@ -26432,6 +26616,12 @@ async def new_save_users_endpoint(payload: Union[List[UserSchema], UserSchema], 
                     pass
             settings_db["users"] = list(fallback_map.values())
             save_settings(settings_db)
+            try:
+                regenerate_pjsip_custom_conf()
+                regenerate_extensions_custom_conf()
+                regenerate_queues_conf()
+            except Exception as e_fb_pjsip:
+                print(f"[Save Users Fallback PJSIP Reload Warning]: {e_fb_pjsip}")
             return {"status": "success", "users": settings_db["users"]}
         raise HTTPException(status_code=500, detail=f"Kullanıcı kaydedilirken hata oluştu: {e}")
 

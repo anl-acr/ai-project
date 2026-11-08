@@ -406,6 +406,7 @@ Event=>check-sync;reboot=false
         try:
             with open("/etc/asterisk/pjsip_notify.conf", "w", encoding="utf-8") as f:
                 f.write(notify_content)
+            os.chmod("/etc/asterisk/pjsip_notify.conf", 0o644)
         except Exception:
             pass
 
@@ -455,6 +456,7 @@ def inspect_asterisk_pjsip_endpoint(sip_username: str) -> Dict[str, Any]:
         "port": "",
         "rtt_ms": "",
         "user_agent": "",
+        "device_state": "",
         "context": "",
         "transport": "",
         "allow": "",
@@ -464,22 +466,58 @@ def inspect_asterisk_pjsip_endpoint(sip_username: str) -> Dict[str, Any]:
         "named_pickup_group": "",
         "max_contacts": "",
     }
+
+    def _run_ast_cli(cmd_str: str, timeout_s: float = 2.5) -> Tuple[bool, str]:
+        try:
+            proc = subprocess.run(
+                ["asterisk", "-rx", cmd_str],
+                capture_output=True,
+                text=True,
+                timeout=timeout_s,
+                check=False,
+            )
+            return True, (proc.stdout or proc.stderr or "").strip()
+        except FileNotFoundError:
+            try:
+                proc_d = subprocess.run(
+                    ["docker", "exec", "ai_pbx_asterisk", "asterisk", "-rx", cmd_str],
+                    capture_output=True,
+                    text=True,
+                    timeout=timeout_s,
+                    check=False,
+                )
+                if proc_d.returncode == 0 or (proc_d.stdout or "").strip():
+                    return True, (proc_d.stdout or proc_d.stderr or "").strip()
+            except Exception:
+                pass
+            return False, ""
+
     try:
-        proc = subprocess.run(
-            ["asterisk", "-rx", f"pjsip show endpoint {ep}"],
-            capture_output=True,
-            text=True,
-            timeout=2.5,
-            check=False,
-        )
-        raw = (proc.stdout or proc.stderr or "").strip()
+        cli_ok, raw = _run_ast_cli(f"pjsip show endpoint {ep}", 2.5)
+        if not cli_ok:
+            return {
+                "exists": False,
+                "endpoint": ep,
+                "online": False,
+                "contacts": [],
+                "parsed": parsed,
+                "cli_available": False,
+                "contact_raw": "",
+                "raw": "Asterisk CLI bu makinede kurulu değil (üretim sunucusunda `asterisk -rx \"pjsip show endpoint " + ep + "\"` çıktısı canlı olarak görüntülenir).",
+            }
         exists = bool(raw) and ("Unable to find object" not in raw) and ("No objects found" not in raw)
-        online = exists and ("Avail" in raw or "NonQual" in raw)
+        online = exists and ("Avail" in raw or "NonQual" in raw or ("Contact:" in raw and "Unavailable" not in raw))
         contacts: List[str] = []
         contact_id_for_ua = ""
+        contact_raw = ""
         for line in raw.splitlines():
             ls = line.strip()
-            if ls.startswith("Contact:"):
+            if ls.startswith("Endpoint:") and not parsed["device_state"]:
+                for st_lbl in ("Not in use", "In use", "Ringing", "Busy", "On hold", "Unavailable", "Invalid"):
+                    if st_lbl in ls:
+                        parsed["device_state"] = st_lbl
+                        break
+            elif ls.startswith("Contact:"):
                 contacts.append(ls)
                 m_uri = re.search(r"sip:[^@\s]+@([0-9a-fA-F\.\:]+?)(?::(\d+))?(?:[;\s]|$)", ls)
                 if m_uri and not parsed["ip_address"]:
@@ -504,21 +542,16 @@ def inspect_asterisk_pjsip_endpoint(sip_username: str) -> Dict[str, Any]:
 
         if contact_id_for_ua:
             try:
-                proc_c = subprocess.run(
-                    ["asterisk", "-rx", f"pjsip show contact {contact_id_for_ua}"],
-                    capture_output=True,
-                    text=True,
-                    timeout=1.5,
-                    check=False,
-                )
-                c_out = (proc_c.stdout or "").strip()
-                for cline in c_out.splitlines():
-                    cls = cline.strip()
-                    if cls.lower().startswith("user_agent"):
-                        _, _, ua_v = cls.partition(":")
-                        if ua_v.strip():
-                            parsed["user_agent"] = ua_v.strip()
-                            break
+                c_ok, c_out = _run_ast_cli(f"pjsip show contact {contact_id_for_ua}", 1.5)
+                if c_ok and c_out and "Unable to find object" not in c_out:
+                    contact_raw = c_out
+                    for cline in c_out.splitlines():
+                        cls = cline.strip()
+                        if cls.lower().startswith("user_agent"):
+                            _, _, ua_v = cls.partition(":")
+                            if ua_v.strip():
+                                parsed["user_agent"] = ua_v.strip()
+                                break
             except Exception:
                 pass
 
@@ -529,20 +562,11 @@ def inspect_asterisk_pjsip_endpoint(sip_username: str) -> Dict[str, Any]:
             "contacts": contacts,
             "parsed": parsed,
             "cli_available": True,
+            "contact_raw": contact_raw,
             "raw": raw,
         }
-    except FileNotFoundError:
-        return {
-            "exists": False,
-            "endpoint": ep,
-            "online": False,
-            "contacts": [],
-            "parsed": parsed,
-            "cli_available": False,
-            "raw": "Asterisk CLI bu makinede kurulu değil (üretim sunucusunda `asterisk -rx \"pjsip show endpoint " + ep + "\"` çıktısı canlı olarak görüntülenir).",
-        }
     except Exception as e:
-        return {"exists": False, "endpoint": ep, "online": False, "contacts": [], "parsed": parsed, "cli_available": False, "raw": str(e)}
+        return {"exists": False, "endpoint": ep, "online": False, "contacts": [], "parsed": parsed, "cli_available": False, "contact_raw": "", "raw": str(e)}
 
 
 def generate_yealink_common_boot_cfg() -> str:
