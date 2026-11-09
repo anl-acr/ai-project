@@ -246,10 +246,23 @@ export default function QueueEditModal({ isOpen, onClose, onSave, queueData = nu
 
       // System roles
       setSystemRoles([
-        { role_code: "admin", role_name: "Sistem Yöneticisi" },
-        { role_code: "supervisor", role_name: "Takım Lideri" },
-        { role_code: "agent", role_name: "Müşteri Temsilcisi" },
+        { role_code: "admin", name: "Sistem Yöneticisi", role_name: "Sistem Yöneticisi" },
+        { role_code: "supervisor", name: "Takım Lideri", role_name: "Takım Lideri" },
+        { role_code: "agent", name: "Müşteri Temsilcisi", role_name: "Müşteri Temsilcisi" },
       ]);
+      const fetchRoles = async () => {
+        try {
+          const res = await tenantFetch(`${API_BASE}/api/settings/roles`);
+          if (res.ok) {
+            const data = await res.json();
+            const list = Array.isArray(data) ? data : (data?.roles || []);
+            if (list.length > 0) setSystemRoles(list);
+          }
+        } catch (err) {
+          console.error("Roles fetch error:", err);
+        }
+      };
+      fetchRoles();
 
       // Fetch announcements
       const fetchAnnouncements = async () => {
@@ -1697,7 +1710,7 @@ export default function QueueEditModal({ isOpen, onClose, onSave, queueData = nu
 
   const getRoleLabel = (roleCode) => {
     const r = systemRoles.find(x => x.role_code === roleCode);
-    return r ? r.name : roleCode;
+    return r ? (r.name || r.role_name || roleCode) : (roleCode || "Kullanıcı");
   };
 
   const getGroupMemberUserIds = (group, usersList = allUsers) => {
@@ -2153,7 +2166,7 @@ export default function QueueEditModal({ isOpen, onClose, onSave, queueData = nu
                   <img src={u.avatar || `https://ui-avatars.com/api/?name=${u.full_name}&background=random`} alt="" className="w-8 h-8 rounded-lg bg-slate-200 shrink-0 cursor-pointer" onClick={() => toggleSupervisor(u)} title="Çıkar" />
                   <div className="flex-1 min-w-0">
                     <p className="text-xs font-bold text-slate-700 dark:text-slate-200 truncate">{u.full_name}</p>
-                    <p className="text-[10px] text-slate-400 truncate">{getRoleLabel(u.role)} • {u.extension}</p>
+                    <p className="text-[10px] text-slate-400 truncate">{getRoleLabel(u.role)} • Dahili: {u.extension}</p>
                   </div>
                   <button type="button" aria-label={`${u.full_name} yöneticisini çıkar`} onClick={() => toggleSupervisor(u)} className="w-6 h-6 rounded-md hover:bg-rose-50 hover:text-rose-500 text-slate-300 flex items-center justify-center transition-all shrink-0">
                     <X size={12} />
