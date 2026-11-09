@@ -8,6 +8,7 @@ export default function ChangelogPanel({ onBack, backendHost = "localhost:8000" 
   const [versionData, setVersionData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [copied, setCopied] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
 
   const API_BASE = typeof window !== "undefined" ? `${window.location.protocol}//${backendHost}` : "";
 
@@ -37,9 +38,24 @@ export default function ChangelogPanel({ onBack, backendHost = "localhost:8000" 
     setTimeout(() => setCopied(false), 2000);
   };
 
-  const currentVer = versionData?.version || "v2.9.3";
+  const currentVer = versionData?.version || "v3.0.0";
   const commitHash = versionData?.commit_hash || "auto";
+  const releaseDate = versionData?.release_date || "9 Kasım 2026";
   const changelogList = versionData?.changelog || [];
+  const filteredChangelog = changelogList.filter((item) => {
+    if (!searchQuery.trim()) return true;
+    const q = searchQuery.toLowerCase();
+    const inVer = (item.version || "").toLowerCase().includes(q);
+    const inTitle = (item.title || "").toLowerCase().includes(q);
+    const inSum = (item.summary || "").toLowerCase().includes(q);
+    const inFeat = (item.features || []).some((f) =>
+      typeof f === "string"
+        ? f.toLowerCase().includes(q)
+        : (f.title || "").toLowerCase().includes(q) || (f.desc || "").toLowerCase().includes(q)
+    );
+    const inFix = (item.fixes || []).some((fx) => String(fx || "").toLowerCase().includes(q));
+    return inVer || inTitle || inSum || inFeat || inFix;
+  });
 
   return (
     <div className="w-full bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800/80 rounded-3xl shadow-sm p-6 space-y-6 transition-colors duration-300 animate-in fade-in duration-200">
@@ -97,10 +113,14 @@ export default function ChangelogPanel({ onBack, backendHost = "localhost:8000" 
                 {versionData?.status || "Güncel / Canlıda"}
               </span>
             </div>
-            <div className="flex items-center gap-3">
+            <div className="flex flex-wrap items-center gap-3">
               <span className="text-2xl font-black font-mono tracking-tight text-white">{currentVer}</span>
-              <span className="text-xs font-mono text-slate-400 bg-slate-800/80 px-2.5 py-1 rounded-lg border border-slate-700/60">
+              <span className="text-xs font-mono text-slate-300 bg-slate-800/80 px-2.5 py-1 rounded-lg border border-slate-700/60">
                 Commit: {commitHash}
+              </span>
+              <span className="text-xs font-medium text-slate-300 bg-slate-800/60 px-2.5 py-1 rounded-lg border border-slate-700/50 flex items-center gap-1.5">
+                <Calendar size={12} className="text-rose-400" />
+                {releaseDate}
               </span>
             </div>
           </div>
@@ -119,15 +139,26 @@ export default function ChangelogPanel({ onBack, backendHost = "localhost:8000" 
 
       {/* Changelog Timeline */}
       <div className="space-y-4 pt-2">
-        <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-2">
-          <h3 className="text-xs font-extrabold uppercase tracking-wider text-slate-500 dark:text-slate-400">
-            Sürüm Geçmişi ve Değişiklik Listesi
-          </h3>
-          <span className="text-xs text-slate-400 font-medium">Toplam {changelogList.length} Sürüm Kaydı</span>
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-100 dark:border-slate-800 pb-3">
+          <div>
+            <h3 className="text-xs font-extrabold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+              Sürüm Geçmişi ve Değişiklik Listesi
+            </h3>
+            <span className="text-[11px] text-slate-400 font-medium">
+              Toplam {changelogList.length} Sürüm Kaydı {searchQuery.trim() ? `(${filteredChangelog.length} eşleşme)` : ""}
+            </span>
+          </div>
+          <input
+            type="text"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder="Sürüm veya özellik ara (örn: 2FA, Web Phone, Trunk)..."
+            className="w-full sm:w-72 px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 text-xs font-medium text-slate-700 dark:text-slate-200 focus:outline-none focus:border-primary"
+          />
         </div>
 
         <div className="relative border-l-2 border-slate-200 dark:border-slate-800 ml-4 pl-6 space-y-8 py-2">
-          {changelogList.map((item, idx) => {
+          {filteredChangelog.map((item, idx) => {
             const isCurrent = item.version === currentVer;
             return (
               <div key={idx} className="relative group">

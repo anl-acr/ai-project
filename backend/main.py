@@ -31560,18 +31560,98 @@ async def get_system_version_info():
         pass
 
     return {
-        "version": "v2.9.3",
+        "version": "v3.0.0",
         "commit_hash": live_commit,
-        "release_date": "5 Kasım 2026",
+        "release_date": "9 Kasım 2026",
         "status": "Güncel / Canlı Sürüm",
         "environment": "Production (On-Premise)",
         "changelog": [
             {
-                "version": "v2.9.3",
+                "version": "v3.0.0",
                 "commit_hash": live_commit,
-                "release_date": "5 Kasım 2026",
+                "release_date": "9 Kasım 2026",
                 "badge": "Canlı Sürüm (Güncel)",
                 "badge_type": "current",
+                "title": "Web Phone Canlı Ses Seviye Barları, Profil Donanım Hızlı Testi, Proaktif SIP Trunk Sağlık İzleme & Tam Sistem Denetim Paketi",
+                "summary": "Aktif çağrı sırasında Web Phone üzerinde gerçek zamanlı donanım mikrofonu ve gelen müşteri RTP ses barları, Profil Ayarları > Donanım sekmesinde tek tıkla ses cihazı hızlı testi, AMI tabanlı proaktif SIP Trunk kopma/bağlanma izlemesi, Kuyruk Geri Arama (Smart Callback) ayar ekranı ve uçtan uca Asterisk/Backend/RBAC senkronizasyon düzeltmeleri devreye alındı.",
+                "features": [
+                    {
+                        "title": "🎙️ Web Phone Aktif Çağrı Canlı Mikrofon (Donanım) & Hoparlör (Gelen RTP) Barları",
+                        "desc": "Aktif görüşme kartında tek parça akıcı (smooth) iki seviye barı eklendi: Mikrofon barı doğrudan fiziksel mikrofon sinyalini (kulaklık üzerindeki donanımsal mute dahil) ölçerken, Hoparlör barı bilgisayar sesi kısık olsa bile müşteriden gelen gerçek RTP ses paketini canlı gösterir."
+                    },
+                    {
+                        "title": "🎧 Profil Ayarları > Donanım Sekmesinde 'Ses Cihazı Hızlı Test' Alanı",
+                        "desc": "Çağrıya girmeden önce mikrofon donanımını ve kulaklık/hoparlör çıkışını tek tıkla aynı anda test eden, fiziksel mute uyarısı veren akıcı seviye barlarına sahip hızlı kontrol kartı eklendi."
+                    },
+                    {
+                        "title": "📡 Proaktif SIP Trunk Sağlık İzleme (TRUNK_DOWN / TRUNK_UP) & Fiziksel IP Telefon MWI LED Senkronu",
+                        "desc": "AMI ContactStatus ve Registry olayları dinlenerek SIP Trunk kopmaları ve geri gelmeleri anında Olay Günlüklerine (EventLog) işlenir; sesli mesaj bırakıldığında veya silindiğinde fiziksel IP telefonlara RFC 3842 SIP NOTIFY (MWIUpdate) gönderilir."
+                    },
+                    {
+                        "title": "🔄 Akıllı Geri Arama (Smart Callback) Ayar Paneli & Çoklu Müşteri (Multi-Tenant) IMAP E-Posta Tarayıcısı",
+                        "desc": "Sistem Ayarları > Kuyruk Geri Arama (Callback) sekmesi ve rol yetkileri aktif edildi; IMAP e-posta servisi 15 sn soket zaman aşımı koruması ve tüm kiracıların (tenant) posta kutularını tarayacak şekilde genişletildi."
+                    }
+                ],
+                "fixes": [
+                    "Gelen ve kuyruk çağrılarında da *9 (KVKK Ses Kaydı Duraklatma) tuşlamasının çalışması için [default], [queue_router_sub] ve [queue_agent_ring] bağlamlarına __DYNAMIC_FEATURES=rec_pause_toggle eklendi.",
+                    "*70 ile yapılan hızlı profil değişimlerinin AgentBreakLog, canlı temsilci durumu (agent_presence) ve Asterisk kuyruk duraklatma (QueuePause) durumuyla tam senkronize olması sağlandı.",
+                    "*98 genel sesli mesaj dinleme kodu desteği ve sesli mesaj silindiğinde diskteki fiziksel .wav dosyasının temizlenmesi düzeltildi.",
+                    "ROI, PBX, Smart Callback, Evrensel API ve Ses Biyometrisi ayarlarının kayıt sonrası diske (settings.json) kalıcı yazılması sağlandı.",
+                    "Kuyruk Anket Raporu ses kaydı oynatma URL'si, Global Arama rehber telefon eşleşmesi ve 8 ayar panelindeki RBAC rol/yetki kontrolleri düzeltildi."
+                ]
+            },
+            {
+                "version": "v2.9.5",
+                "commit_hash": "6776864",
+                "release_date": "8 Kasım 2026",
+                "badge": "Önceki Sürüm",
+                "badge_type": "previous",
+                "title": "2 Aşamalı Hibrit 2FA (E-Posta + Authenticator) & Yenilenen Ortak Gelen Kutusu (E-Posta Kartları, CC/BCC/İlet, Boyutlandırılabilir Liste)",
+                "summary": "Kullanıcıların aynı anda birden fazla 2FA yöntemini '2 Aşamalı Sıralı Zorunlu (Örn: E-Posta + Google Authenticator)' veya 'Alternatif Yedekli' modda kullanabilmesi sağlandı. Omnichannel Ortak Gelen Kutusu e-posta görünümü, yeni e-posta oluşturma, yanıtlama/iletme ve kenardan sürükleyerek boyutlandırma özellikleriyle baştan sona güçlendirildi.",
+                "features": [
+                    {
+                        "title": "🔐 2 Aşamalı (Multi-Step) ve Çoklu Yöntem 2FA Doğrulama Mimarisi",
+                        "desc": "Kullanıcı ve Profil ayarlarında birden fazla 2FA yöntemi (E-Posta, WhatsApp, Google/Microsoft Authenticator) aynı anda seçilebilir hale getirildi; giriş ekranında 1. ve 2. aşama adım göstergeli sıralı doğrulama veya tek tıkla alternatif yönteme geçiş desteği eklendi."
+                    },
+                    {
+                        "title": "✉️ Ortak Gelen Kutusu Yapılandırılmış E-Posta Kartları & CC / BCC / İlet / Yeni E-Posta Modalı",
+                        "desc": "Gelen HTML/MIME e-postalar temizlenerek başlık, gönderen, alıcı, tarih ve okunaklı içerik kartlarıyla gösterilir; CC/BCC destekli yanıtlama, başka adrese iletme (Forward) ve doğrudan yeni e-posta başlatma eklendi."
+                    },
+                    {
+                        "title": "↔️ Kenardan Sürüklenerek Boyutlandırılabilir (Resizable) Görüşme Listesi & Hızlı Filtreler",
+                        "desc": "Ortak Gelen Kutusu sol görüşme listesi 260px–600px aralığında fare ile genişletilip daraltılabilir (localStorage kalıcılıklı) hale getirildi; Okunmamış, Bana Atananlar ve Kanal filtreleri ile Temsilci Atama, Çözüldü ve Kalite (QA) aksiyonları eklendi."
+                    }
+                ]
+            },
+            {
+                "version": "v2.9.4",
+                "commit_hash": "a52e187",
+                "release_date": "7 Kasım 2026",
+                "badge": "Önceki Sürüm",
+                "badge_type": "previous",
+                "title": "Kalıcı Web Phone SIP Kimliği, Sanal Abone Trunk, Acil Durum Yönlendirme, Sesli Mesaj, *9 Kayıt Duraklatma & Hot-Desking",
+                "summary": "Web Phone dahili numaradan bağımsız kalıcı SIP kullanıcı adına kavuşturuldu. Sanal Abone Trunk yönlendirmesi, 112/Acil durum öncelikli çıkış kuralları, Trunk yedeklilik (Failover) zinciri, Sesli Mesaj (Voicemail *97), KVKK *9 kayıt duraklatma, Yönetici-Sekreter filtreleme ve Hot-Desking (*75/*76) özellikleri eklendi.",
+                "features": [
+                    {
+                        "title": "🔑 Kalıcı Web Phone SIP Kimliği & Sanal Abone Trunk Yönlendirme",
+                        "desc": "Kullanıcının dahili numarası değişse bile WebRTC SIP uç noktası bozulmadan çalışır; 3. parti santrallere Prefix + Dahili veya Özel Hedef formatında Sanal Abone Trunk çağrı teslimi yapılır."
+                    },
+                    {
+                        "title": "🚨 Acil Durum Numaraları, Trunk Failover Zinciri & Yönetici/Sekreter Modu",
+                        "desc": "Acil numaralar (112 vb.) kısıtlamaları atlayarak öncelikli trunk üzerinden çıkar; ana trunk meşgul/kopuk olduğunda çağrı otomatik yedek trunk'a devredilir; yönetici dahilisine gelen aramalar sekreter üzerinden süzülür."
+                    },
+                    {
+                        "title": "📼 Sesli Mesaj (*97 / *98), KVKK Kayıt Duraklatma (*9) & Hot-Desking (*75 / *76)",
+                        "desc": "Cevapsız çağrılarda sesli mesaj bırakma ve tuşlamalı IVR menüsü, görüşme esnasında kredi kartı/KVKK bilgisi alınırken *9 ile ses kaydını duraklatıp devam ettirme ve paylaşımlı masa (Hot-Desk) oturum açma/kapama devreye alındı."
+                    }
+                ]
+            },
+            {
+                "version": "v2.9.3",
+                "commit_hash": "093d6c4",
+                "release_date": "5 Kasım 2026",
+                "badge": "Önceki Sürüm",
+                "badge_type": "previous",
                 "title": "AIDA Agent Masaüstü Uygulaması (macOS & Windows), Bağımsız Çalma Tonu Aygıtı & Yerel OS Bildirim Köprüsü",
                 "summary": "Çağrı merkezi temsilcilerinin bilgisayarlarına kurabilecekleri macOS (.dmg / .zip) ve Windows (.exe) masaüstü uygulaması (AIDA Agent) ile sunucu tarafı masaüstü çalışma alanı modu (/?desktop=1) geliştirildi. Host + Kullanıcı Adı + Şifre girişi, 3 kanallı bağımsız ses donanımı yönetimi, sistem tepsisi (Tray) ve yerel işletim sistemi bildirimleri entegre edildi.",
                 "features": [
@@ -33429,7 +33509,7 @@ def _create_full_system_backup_archive_sync(trigger_source: str = "manual") -> d
             "filename": archive_filename,
             "created_at": now_dt.strftime("%Y-%m-%d %H:%M:%S"),
             "trigger": trigger_source,
-            "version": "v2.4.8",
+            "version": "v3.0.0",
             "total_rows": db_export["total_rows"],
             "tables_count": len(db_export["tables"]),
             "table_summary": table_summary,
