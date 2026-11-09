@@ -89,6 +89,7 @@ import {
   PanelTop,
   Keyboard,
   Headphones,
+  Bell,
   BellRing,
   X
 } from "lucide-react";
