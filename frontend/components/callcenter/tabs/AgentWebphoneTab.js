@@ -1885,7 +1885,7 @@ export default function AgentWebphoneTab({
                           type="button"
                           onClick={cycleNoiseMode}
                           title={`Gürültü Engelleme: ${getNoiseModeLabel(noiseSuppressionMode)} (Çağrıda Canlı Değiştir)`}
-                          className={`h-11 px-3 rounded-2xl border flex items-center gap-1.5 justify-center text-[10px] font-extrabold uppercase tracking-wide transition-all ${
+                          className={`h-11 w-11 rounded-2xl border flex items-center justify-center transition-all ${
                             noiseSuppressionMode === "ai"
                               ? `${lightBg} ${text} ${borderLight}`
                               : noiseSuppressionMode === "standard"
@@ -1893,14 +1893,7 @@ export default function AgentWebphoneTab({
                               : "bg-slate-50 border-slate-200 text-slate-400 dark:bg-slate-900 dark:border-slate-800 dark:text-slate-500"
                           }`}
                         >
-                          <Sparkles size={16} />
-                          <span className="hidden sm:inline">
-                            {noiseSuppressionMode === "ai"
-                              ? "AI Ses"
-                              : noiseSuppressionMode === "standard"
-                              ? "Standart"
-                              : "Ham"}
-                          </span>
+                          <Sparkles size={18} />
                         </button>
 
                         {callStatus === "InCall" && canPauseRecording && (
@@ -1913,16 +1906,13 @@ export default function AgentWebphoneTab({
                                 ? "Ses Kaydına Devam Et (Maskelemeyi Bitir)"
                                 : "KVKK & Kredi Kartı Bilgisi İçin Ses Kaydını Duraklat"
                             }
-                            className={`h-11 px-3 rounded-2xl border flex items-center gap-1.5 justify-center text-[10px] font-extrabold uppercase tracking-wide transition-all disabled:opacity-50 ${
+                            className={`h-11 w-11 rounded-2xl border flex items-center justify-center transition-all disabled:opacity-50 ${
                               isRecordingPaused
                                 ? "bg-amber-100 border-amber-300 text-amber-700 dark:bg-amber-500/20 dark:border-amber-500/50 dark:text-amber-300 animate-pulse"
                                 : "bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100 dark:bg-slate-800 dark:border-slate-700 dark:text-slate-200"
                             }`}
                           >
-                            {isRecordingPaused ? <ShieldAlert size={16} /> : <ShieldCheck size={16} />}
-                            <span className="hidden sm:inline">
-                              {isRecordingPaused ? "Kaydı Sürdür" : "Kaydı Duraklat"}
-                            </span>
+                            {isRecordingPaused ? <ShieldAlert size={18} /> : <ShieldCheck size={18} />}
                           </button>
                         )}
 
@@ -2099,10 +2089,9 @@ export default function AgentWebphoneTab({
                           type="button"
                           onClick={() => handleHangup()}
                           title="Çağrıyı Sonlandır"
-                          className="h-11 px-4 rounded-2xl bg-rose-600 hover:bg-rose-500 text-white font-extrabold text-xs flex items-center gap-1.5 shadow-md shadow-rose-500/20 transition-all"
+                          className="h-11 w-11 rounded-2xl bg-rose-600 hover:bg-rose-500 text-white flex items-center justify-center shadow-md shadow-rose-500/20 transition-all"
                         >
-                          <PhoneOff size={16} />
-                          <span>Kapat</span>
+                          <PhoneOff size={18} />
                         </button>
                       </>
                     )}
