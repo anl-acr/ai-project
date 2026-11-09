@@ -737,12 +737,12 @@ export default function CallChatWidget({
                         <button
                           type="button"
                           onClick={cycleNoiseMode}
-                          className={`p-1.5 rounded-xl transition-colors cursor-pointer ${
+                          className={`p-1.5 rounded-xl transition-colors cursor-pointer border ${
                             noiseSuppressionMode === "ai"
-                              ? "bg-white text-slate-900 shadow-sm"
+                              ? "bg-amber-500/20 text-amber-400 border-amber-500/40 shadow-sm"
                               : noiseSuppressionMode === "standard"
-                              ? "bg-white/25 text-white"
-                              : "bg-white/10 hover:bg-white/20 text-white/60"
+                              ? "bg-white/25 text-white border-white/20"
+                              : "bg-white/10 hover:bg-white/20 text-white/60 border-transparent"
                           }`}
                           title={
                             noiseSuppressionMode === "ai"
@@ -752,7 +752,7 @@ export default function CallChatWidget({
                               : "Gürültü Engelleme: Kapalı (Açmak için tıklayın)"
                           }
                         >
-                          <Sparkles size={14} />
+                          <Sparkles size={14} className="shrink-0" />
                         </button>
                       </>
                     )}
@@ -860,12 +860,12 @@ export default function CallChatWidget({
               <button
                 type="button"
                 onClick={cycleNoiseMode}
-                className={`px-2 py-1 text-[10px] font-extrabold rounded-xl flex items-center gap-1 transition-all cursor-pointer ${
+                className={`px-2 py-1 text-[10px] font-extrabold rounded-xl flex items-center gap-1 transition-all cursor-pointer border ${
                   noiseSuppressionMode === "ai"
-                    ? "bg-white text-slate-900 shadow-sm"
+                    ? "bg-amber-400/25 text-amber-200 border-amber-300/50 shadow-sm"
                     : noiseSuppressionMode === "standard"
-                    ? "bg-white/25 hover:bg-white/30 text-white"
-                    : "bg-white/10 hover:bg-white/20 text-white/75"
+                    ? "bg-white/25 hover:bg-white/30 text-white border-white/20"
+                    : "bg-white/10 hover:bg-white/20 text-white/75 border-transparent"
                 }`}
                 title={
                   noiseSuppressionMode === "ai"
@@ -875,7 +875,7 @@ export default function CallChatWidget({
                     : "Gürültü Engelleme: Kapalı (Ham Mikrofon) — Açmak için tıklayın"
                 }
               >
-                <Sparkles size={11} />
+                <Sparkles size={11} className="shrink-0" />
                 <span>
                   {noiseSuppressionMode === "ai"
                     ? "AI Ses"
