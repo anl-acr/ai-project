@@ -13074,9 +13074,10 @@ async def resolve_subscriber_forwarding(
         active_prof_id = str(user_dict.get("active_profile") or "available").strip()
         active_prof = next((p for p in user_dict.get("profiles", []) if str(p.get("id")) == active_prof_id), None)
 
-        # Extract timeout for no_answer (default 30 seconds, overridden by active profile or follow_me timeout)
+        # Extract timeout for no_answer (default 30 seconds, configured in Yönlendirme & Voicemail tab)
         no_ans_obj = user_dict.get("forwarding_no_answer")
         no_ans_timeout = 30
+        has_explicit_fwd_timeout = False
         if isinstance(no_ans_obj, str) and no_ans_obj.strip().startswith("{"):
             try:
                 import json
@@ -13085,7 +13086,8 @@ async def resolve_subscriber_forwarding(
                 pass
         if isinstance(no_ans_obj, dict) and no_ans_obj.get("timeout"):
             try:
-                no_ans_timeout = int(no_ans_obj.get("timeout"))
+                no_ans_timeout = max(5, int(no_ans_obj.get("timeout")))
+                has_explicit_fwd_timeout = True
             except Exception:
                 no_ans_timeout = 30
 
@@ -13094,7 +13096,7 @@ async def resolve_subscriber_forwarding(
         prof_target = None
 
         if active_prof and isinstance(active_prof, dict):
-            if active_prof.get("timeout"):
+            if not has_explicit_fwd_timeout and active_prof.get("timeout"):
                 try:
                     no_ans_timeout = max(5, int(active_prof.get("timeout")))
                 except Exception:
@@ -13156,8 +13158,10 @@ async def resolve_subscriber_forwarding(
 
         # Rule 1.5: ACTIVE PROFILE WITH 0 RING DEVICES SELECTED (e.g. Toplantı profile)
         if dialstatus == "BEFORE_DIAL" and len(prof_devices) == 0:
-            imm_target = prof_target if prof_target else "HANGUP"
-            print(f"[Forwarding Resolver] Extension {ext_str} -> Profile '{active_prof_id}' has 0 ring devices. Immediate action: {prof_action} -> {imm_target}")
+            f_noans_imm = extract_target(user_dict.get("forwarding_no_answer"))
+            vm_imm = "VOICEMAIL" if bool(user_dict.get("voicemail_active", False)) else None
+            imm_target = f_noans_imm or vm_imm or prof_target or "HANGUP"
+            print(f"[Forwarding Resolver] Extension {ext_str} -> Profile '{active_prof_id}' has 0 ring devices. Immediate action -> {imm_target}")
             log_fwd_action(f"Profil ({active_prof_id}) Yönlendirmesi", imm_target)
             return Response(content=f"ALLOW:{imm_target}:{no_ans_timeout}", media_type="text/plain")
 
@@ -13221,16 +13225,20 @@ async def resolve_subscriber_forwarding(
                 log_fwd_action("Meşgul / Mobil GSM Aktarımı", gsm_num)
                 return Response(content=f"ALLOW:{gsm_num}:{no_ans_timeout}", media_type="text/plain")
 
-        # Rule 3: ZAMAN AŞIMINDA (CEVAPSIZ) (forwarding_no_answer & active_profile timeout_action) - When line rings and times out
+        # Rule 3: ZAMAN AŞIMINDA (CEVAPSIZ) (forwarding_no_answer & voicemail) - When line rings and times out
         if dialstatus in ["NOANSWER", "CANCEL"]:
-            if prof_target:
-                print(f"[Forwarding Resolver] Extension {ext_str} ({dialstatus}) -> Profile '{active_prof_id}' Timeout Action ({prof_action}) to: {prof_target}")
-                log_fwd_action(f"Cevapsız Zaman Aşımı ({active_prof_id})", prof_target)
-                return Response(content=f"ALLOW:{prof_target}:{no_ans_timeout}", media_type="text/plain")
             if f_noans:
                 print(f"[Forwarding Resolver] Extension {ext_str} ({dialstatus}) -> 3. ZAMAN AŞIMINDA (Cevapsız) Forward to: {f_noans}")
                 log_fwd_action("Cevapsız Zaman Aşımı Yönlendirmesi", f_noans)
                 return Response(content=f"ALLOW:{f_noans}:{no_ans_timeout}", media_type="text/plain")
+            if bool(user_dict.get("voicemail_active", False)):
+                print(f"[Forwarding Resolver] Extension {ext_str} ({dialstatus}) -> Voicemail Active -> VOICEMAIL")
+                log_fwd_action("Cevapsız Sesli Mesaj (Voicemail)", "VOICEMAIL")
+                return Response(content=f"ALLOW:VOICEMAIL:{no_ans_timeout}", media_type="text/plain")
+            if prof_target:
+                print(f"[Forwarding Resolver] Extension {ext_str} ({dialstatus}) -> Profile '{active_prof_id}' Timeout Action ({prof_action}) to: {prof_target}")
+                log_fwd_action(f"Cevapsız Zaman Aşımı ({active_prof_id})", prof_target)
+                return Response(content=f"ALLOW:{prof_target}:{no_ans_timeout}", media_type="text/plain")
             if mobile_enabled and gsm_num:
                 print(f"[Forwarding Resolver] Extension {ext_str} ({dialstatus}) -> Mobile Transfer GSM: {gsm_num}")
                 log_fwd_action("Cevapsız / Mobil GSM Aktarımı", gsm_num)
