@@ -1,7 +1,15 @@
 import React, { useState, useEffect, useRef } from "react";
-import { MessageSquare, Send, Bot, User, Shield, HelpCircle, RefreshCw, AlertCircle, FileText, X, Award, ChevronDown, ChevronUp, Megaphone, CheckCircle, Upload, Search, Paperclip, Image, Video, Mic, Download } from "lucide-react";
+import { MessageSquare, Send, Bot, User, Shield, HelpCircle, RefreshCw, AlertCircle, FileText, X, Award, ChevronDown, ChevronUp, Megaphone, CheckCircle, Upload, Search, Paperclip, Image, Video, Mic, Download, Mail } from "lucide-react";
 import AddContactModal from "./AddContactModal";
 import DictationButton from "../common/DictationButton";
+import {
+  isEmailChannel,
+  EmailMessageCard,
+  formatSessionPreviewText,
+  extractReplySubjectFromMessages,
+  extractMediaTags,
+  renderLinkifiedPlainText,
+} from "../../utils/emailFormatter";
 
 export default function OmnichannelPanel({ backendHost = "localhost:8000" }) {
   const [sessions, setSessions] = useState([]);
@@ -457,41 +465,46 @@ export default function OmnichannelPanel({ backendHost = "localhost:8000" }) {
 
   const renderMessageContent = (msg) => {
     const text = msg.text || "";
-    const mediaMatch = text.match(/\[MED(?:IA|YA):([^|]+)\|([^|]+)\|?([^\]]*)\]/i);
+    const isOutbound = msg.direction !== "inbound";
+    const { cleanedText, attachments } = extractMediaTags(text, API_BASE);
 
-    if (!mediaMatch) {
-      return <span>{text}</span>;
+    if (attachments.length === 0) {
+      return (
+        <span className="whitespace-pre-wrap break-words [overflow-wrap:anywhere] text-left block">
+          {renderLinkifiedPlainText(text, isOutbound)}
+        </span>
+      );
     }
-
-    const mediaType = mediaMatch[1].toLowerCase();
-    let mediaUrl = mediaMatch[2];
-    if (mediaUrl.startsWith("/")) {
-      mediaUrl = `${API_BASE}${mediaUrl}`;
-    }
-    const filename = mediaMatch[3] || mediaUrl.split("/").pop();
-    const captionText = text.replace(mediaMatch[0], "").trim();
 
     return (
       <div className="space-y-2 text-left">
-        {mediaType === "image" && (
-          <a href={mediaUrl} target="_blank" rel="noreferrer" className="block">
-            <img src={mediaUrl} alt={filename} className="max-w-xs max-h-60 rounded-xl border border-slate-200/50 dark:border-slate-700 shadow-sm hover:opacity-95 transition my-1 object-cover" />
-          </a>
+        {attachments.map((att, idx) => (
+          <React.Fragment key={idx}>
+            {att.mediaType === "image" && (
+              <a href={att.mediaUrl} target="_blank" rel="noopener noreferrer" className="block">
+                <img src={att.mediaUrl} alt={att.filename} className="max-w-xs max-h-60 rounded-xl border border-slate-200/50 dark:border-slate-700 shadow-sm hover:opacity-95 transition my-1 object-cover" />
+              </a>
+            )}
+            {att.mediaType === "video" && (
+              <video src={att.mediaUrl} controls className="max-w-xs max-h-60 rounded-xl border border-slate-200/50 dark:border-slate-700 my-1" />
+            )}
+            {att.mediaType === "audio" && (
+              <audio src={att.mediaUrl} controls className="max-w-xs my-1" />
+            )}
+            {att.mediaType === "document" && (
+              <a href={att.mediaUrl} target="_blank" rel="noopener noreferrer" download className="flex items-center gap-2 p-2.5 bg-slate-100/90 dark:bg-slate-900/90 rounded-xl text-xs font-bold text-primary border border-slate-200 dark:border-slate-700 hover:bg-slate-200/70 transition my-1">
+                <FileText size={18} className="shrink-0" />
+                <span className="truncate max-w-[180px]">{att.filename}</span>
+                <Download size={14} className="shrink-0 ml-auto text-slate-400" />
+              </a>
+            )}
+          </React.Fragment>
+        ))}
+        {cleanedText && (
+          <p className="mt-1 leading-relaxed whitespace-pre-wrap break-words [overflow-wrap:anywhere]">
+            {renderLinkifiedPlainText(cleanedText, isOutbound)}
+          </p>
         )}
-        {mediaType === "video" && (
-          <video src={mediaUrl} controls className="max-w-xs max-h-60 rounded-xl border border-slate-200/50 dark:border-slate-700 my-1" />
-        )}
-        {mediaType === "audio" && (
-          <audio src={mediaUrl} controls className="max-w-xs my-1" />
-        )}
-        {mediaType === "document" && (
-          <a href={mediaUrl} target="_blank" rel="noreferrer" download className="flex items-center gap-2 p-2.5 bg-slate-100/90 dark:bg-slate-900/90 rounded-xl text-xs font-bold text-indigo-600 dark:text-indigo-400 border border-slate-200 dark:border-slate-700 hover:bg-slate-200/70 transition my-1">
-            <FileText size={18} className="shrink-0" />
-            <span className="truncate max-w-[180px]">{filename}</span>
-            <Download size={14} className="shrink-0 ml-auto text-slate-400" />
-          </a>
-        )}
-        {captionText && <p className="mt-1 leading-relaxed">{captionText}</p>}
       </div>
     );
   };
@@ -666,7 +679,7 @@ export default function OmnichannelPanel({ backendHost = "localhost:8000" }) {
 
   // Helper to render channel badges styled nicely
   const renderChannelBadge = (channel) => {
-    switch (channel.toLowerCase()) {
+    switch ((channel || "").toLowerCase()) {
       case "whatsapp":
         return <span className="px-2 py-0.5 text-[9px] bg-primary/10 text-primary border border-emerald-500/20 rounded-md font-bold uppercase tracking-wider">WhatsApp</span>;
       case "instagram":
@@ -676,7 +689,8 @@ export default function OmnichannelPanel({ backendHost = "localhost:8000" }) {
       case "facebook":
         return <span className="px-2 py-0.5 text-[9px] bg-primary/10 text-primary border border-blue-600/20 rounded-md font-bold uppercase tracking-wider">Facebook</span>;
       case "mail":
-        return <span className="px-2 py-0.5 text-[9px] bg-primary/10 text-primary border border-indigo-500/20 rounded-md font-bold uppercase tracking-wider">Mail</span>;
+      case "email":
+        return <span className="px-2 py-0.5 text-[9px] bg-primary/10 text-primary border border-primary/25 rounded-md font-bold uppercase tracking-wider inline-flex items-center gap-1"><Mail size={10} /> E-Posta</span>;
       default:
         return <span className="px-2 py-0.5 text-[9px] bg-slate-500/10 text-slate-500 border border-slate-500/20 rounded-md font-bold uppercase tracking-wider">{channel}</span>;
     }
@@ -732,7 +746,8 @@ export default function OmnichannelPanel({ backendHost = "localhost:8000" }) {
                   const cleanPhone = session.sender_info ? session.sender_info.replace(/\D/g, "") : "";
                   const qDigits = q.replace(/\D/g, "");
                   const phoneDigitsMatch = qDigits.length >= 2 && cleanPhone.includes(qDigits);
-                  const lastMsgMatch = session.last_message_text && session.last_message_text.toLowerCase().includes(q);
+                  const previewText = formatSessionPreviewText(session.last_message_text, session.channel).toLowerCase();
+                  const lastMsgMatch = (session.last_message_text && session.last_message_text.toLowerCase().includes(q)) || previewText.includes(q);
                   const lineMatch = session.recipient_info && session.recipient_info.toLowerCase().includes(q);
                   return nameMatch || infoMatch || phoneDigitsMatch || lastMsgMatch || lineMatch;
                 }).length}
@@ -746,7 +761,7 @@ export default function OmnichannelPanel({ backendHost = "localhost:8000" }) {
                 type="text"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                 placeholder="İsim veya tel no ara..."
+                placeholder="İsim, e-posta veya tel no ara..."
                 className="w-full pl-8 pr-7 py-1.5 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl text-xs text-slate-800 dark:text-slate-200 focus:outline-none focus:border-purple-500 font-medium placeholder:text-slate-400 dark:placeholder:text-slate-500"
               />
               {searchQuery && (
@@ -777,7 +792,8 @@ export default function OmnichannelPanel({ backendHost = "localhost:8000" }) {
                   const cleanPhone = session.sender_info ? session.sender_info.replace(/\D/g, "") : "";
                   const qDigits = q.replace(/\D/g, "");
                   const phoneDigitsMatch = qDigits.length >= 2 && cleanPhone.includes(qDigits);
-                  const lastMsgMatch = session.last_message_text && session.last_message_text.toLowerCase().includes(q);
+                  const previewText = formatSessionPreviewText(session.last_message_text, session.channel).toLowerCase();
+                  const lastMsgMatch = (session.last_message_text && session.last_message_text.toLowerCase().includes(q)) || previewText.includes(q);
                   const lineMatch = session.recipient_info && session.recipient_info.toLowerCase().includes(q);
                   return nameMatch || infoMatch || phoneDigitsMatch || lastMsgMatch || lineMatch;
                 });
@@ -816,7 +832,7 @@ export default function OmnichannelPanel({ backendHost = "localhost:8000" }) {
                       )}
 
                       <p className="text-[10px] text-slate-500 dark:text-slate-400 truncate font-semibold">
-                        {session.last_message_text || "Mesaj yok"}
+                        {formatSessionPreviewText(session.last_message_text, session.channel)}
                       </p>
 
                       <div className="flex items-center justify-between text-[9px] text-slate-400 dark:text-slate-550 mt-0.5">
@@ -910,7 +926,7 @@ export default function OmnichannelPanel({ backendHost = "localhost:8000" }) {
                       </button>
                     </h4>
                     <span className="text-[9px] text-slate-400 dark:text-slate-550 font-bold tracking-wide mt-1 block">
-                      Kanal: {activeSession.channel.toUpperCase()} {activeSession.recipient_info ? `• Hat: ${activeSession.recipient_info}` : ""}
+                      Kanal: {isEmailChannel(activeSession.channel) ? "E-POSTA" : activeSession.channel.toUpperCase()} {activeSession.recipient_info ? `• Hat: ${activeSession.recipient_info}` : ""}
                     </span>
                   </div>
                 </div>
@@ -967,42 +983,59 @@ export default function OmnichannelPanel({ backendHost = "localhost:8000" }) {
                 {loading.messages ? (
                   <div className="text-center py-12 text-xs text-slate-400 font-bold animate-pulse">Mesajlar yükleniyor...</div>
                 ) : (
-                  messages.map((msg) => {
-                    const isCustomer = msg.direction === "inbound";
-                    const isAi = msg.sender === "ai";
-                    
-                    return (
-                      <div
-                        key={msg.id}
-                        className={`flex flex-col max-w-[80%] ${
-                          isCustomer ? "mr-auto text-left items-start" : "ml-auto text-right items-end"
-                        }`}
-                      >
-                        {/* Sender Label */}
-                        <span className="text-[9px] text-slate-400 dark:text-slate-550 font-bold uppercase tracking-wider mb-1 px-1">
-                          {isCustomer ? "Müşteri" : isAi ? "🤖 Yapay Zeka Temsilcisi" : "👤 Temsilci"}
-                        </span>
-                        
-                        {/* Bubble */}
+                  (() => {
+                    const emailMode = isEmailChannel(activeSession.channel);
+                    const fallbackEmailSubject = emailMode ? extractReplySubjectFromMessages(messages) : "";
+
+                    return messages.map((msg) => {
+                      if (emailMode || /^E-Posta Konusu\s*:/i.test(msg.text || "")) {
+                        return (
+                          <EmailMessageCard
+                            key={msg.id}
+                            msg={msg}
+                            session={activeSession}
+                            apiBase={API_BASE}
+                            fallbackSubject={fallbackEmailSubject}
+                          />
+                        );
+                      }
+
+                      const isCustomer = msg.direction === "inbound";
+                      const isAi = msg.sender === "ai";
+
+                      return (
                         <div
-                          className={`p-3.5 rounded-2xl text-xs leading-relaxed font-semibold ${
-                            isCustomer
-                              ? "bg-white dark:bg-slate-800 border border-slate-200/50 dark:border-slate-700 text-slate-800 dark:text-slate-200 rounded-tl-none shadow-sm"
-                              : isAi
-                              ? "bg-primary text-white rounded-tr-none shadow-sm"
-                              : "bg-primary text-white rounded-tr-none shadow-sm"
+                          key={msg.id}
+                          className={`flex flex-col max-w-[80%] ${
+                            isCustomer ? "mr-auto text-left items-start" : "ml-auto text-right items-end"
                           }`}
                         >
-                          {renderMessageContent(msg)}
+                          {/* Sender Label */}
+                          <span className="text-[9px] text-slate-400 dark:text-slate-550 font-bold uppercase tracking-wider mb-1 px-1">
+                            {isCustomer ? "Müşteri" : isAi ? "🤖 Yapay Zeka Temsilcisi" : "👤 Temsilci"}
+                          </span>
+
+                          {/* Bubble */}
+                          <div
+                            className={`p-3.5 rounded-2xl text-xs leading-relaxed font-semibold ${
+                              isCustomer
+                                ? "bg-white dark:bg-slate-800 border border-slate-200/50 dark:border-slate-700 text-slate-800 dark:text-slate-200 rounded-tl-none shadow-sm"
+                                : isAi
+                                ? "bg-primary text-white rounded-tr-none shadow-sm"
+                                : "bg-primary text-white rounded-tr-none shadow-sm"
+                            }`}
+                          >
+                            {renderMessageContent(msg)}
+                          </div>
+
+                          {/* Time */}
+                          <span className="text-[8px] text-slate-400 dark:text-slate-550 mt-1 px-1">
+                            {safeFormatTime(msg.timestamp)}
+                          </span>
                         </div>
-                        
-                        {/* Time */}
-                        <span className="text-[8px] text-slate-400 dark:text-slate-550 mt-1 px-1">
-                          {safeFormatTime(msg.timestamp)}
-                        </span>
-                      </div>
-                    );
-                  })
+                      );
+                    });
+                  })()
                 )}
                 <div ref={messagesEndRef} />
               </div>
@@ -1072,116 +1105,169 @@ export default function OmnichannelPanel({ backendHost = "localhost:8000" }) {
               )}
 
               {/* Send Form */}
-              <form onSubmit={handleSendMessage} className="p-4 border-t border-slate-100 dark:border-slate-800 flex gap-2 items-center">
-                {/* Paperclip Media Upload Button */}
-                <button
-                  type="button"
-                  disabled={activeSession.assigned_agent === "ai" || actionLoading || uploadingMedia}
-                  onClick={() => mediaFileInputRef.current?.click()}
-                  className="p-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950/40 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 transition disabled:opacity-45 shrink-0"
-                  title="Görsel, Video veya Belge Yükle"
-                >
-                  <Paperclip size={15} className={uploadingMedia ? "animate-spin text-purple-500" : ""} />
-                </button>
+              <form onSubmit={handleSendMessage} className="p-3.5 border-t border-slate-100 dark:border-slate-800 flex flex-col gap-2">
+                {isEmailChannel(activeSession.channel) && (
+                  <div className="flex items-center justify-between gap-2 px-2.5 py-1.5 rounded-xl bg-slate-50/90 dark:bg-slate-950/60 border border-slate-200/70 dark:border-slate-800 text-[11px] text-slate-600 dark:text-slate-300">
+                    <div className="flex items-center gap-1.5 min-w-0 truncate">
+                      <Mail size={12} className="text-primary shrink-0" />
+                      <span className="font-bold text-slate-500 dark:text-slate-400 shrink-0">Yanıt Konusu:</span>
+                      <span className="font-semibold text-slate-800 dark:text-slate-100 truncate">
+                        {extractReplySubjectFromMessages(messages) || "AIDA Müşteri Hizmetleri Yanıtı"}
+                      </span>
+                    </div>
+                    <span className="text-[10px] text-slate-400 dark:text-slate-500 shrink-0 hidden sm:inline">
+                      Ctrl+Enter ile gönder
+                    </span>
+                  </div>
+                )}
 
-                <input
-                  type="text"
-                  value={inputText}
-                  onPaste={handleChatPaste}
-                  onChange={(e) => {
-                    const val = e.target.value;
-                    setInputText(val);
-                    if (val.startsWith("/")) {
-                      setShowSuggestions(true);
-                    } else {
-                      setShowSuggestions(false);
-                    }
-                  }}
-                  placeholder={
-                    activeSession.assigned_agent === "ai"
-                      ? "Canlı sohbet yapay zekada. Mesaj göndermek için 'Sohbeti Devral' butonuna basın..."
-                      : "Müşteriye yanıt yazın, mikrofonla dikte edin veya dosya sürükleyip bırakın... (Şablonlar için / yazın)"
-                  }
-                  disabled={activeSession.assigned_agent === "ai" || actionLoading}
-                  className="flex-1 px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl text-xs focus:outline-none focus:border-purple-500 disabled:opacity-55 disabled:cursor-not-allowed text-slate-800 dark:text-slate-200 placeholder:text-slate-400 dark:placeholder:text-slate-500"
-                />
-
-                <DictationButton
-                  value={inputText}
-                  onChange={(val) => {
-                    setInputText(val);
-                    if (val.startsWith("/")) {
-                      setShowSuggestions(true);
-                    } else {
-                      setShowSuggestions(false);
-                    }
-                  }}
-                  disabled={activeSession.assigned_agent === "ai" || actionLoading}
-                  size="md"
-                  onError={(errMsg) => setSendError(errMsg)}
-                />
-
-                <div className="relative flex items-center shrink-0">
+                <div className="flex gap-2 items-end">
+                  {/* Paperclip Media Upload Button */}
                   <button
                     type="button"
-                    disabled={activeSession.assigned_agent === "ai" || actionLoading}
-                    onClick={() => {
-                      setShowCannedPopover(!showCannedPopover);
-                      setShowSuggestions(false);
-                    }}
-                    className={`p-2 rounded-xl border transition hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-45 ${
-                      showCannedPopover 
-                        ? "border-purple-200 dark:border-purple-800 bg-purple-50 dark:bg-purple-950/25 text-primary dark:text-purple-400" 
-                        : "border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950/40 text-slate-400"
-                    }`}
-                    title="Hızlı Cevaplar"
+                    disabled={activeSession.assigned_agent === "ai" || actionLoading || uploadingMedia}
+                    onClick={() => mediaFileInputRef.current?.click()}
+                    className="p-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950/40 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 transition disabled:opacity-45 shrink-0"
+                    title="Görsel, Video veya Belge Yükle"
                   >
-                    <FileText size={15} />
+                    <Paperclip size={15} className={uploadingMedia ? "animate-spin text-purple-500" : ""} />
                   </button>
-                  
-                  {/* Canned Responses Popover Panel */}
-                  {showCannedPopover && (
-                    <div className="absolute bottom-12 right-0 w-64 bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-2xl shadow-xl overflow-hidden z-25 flex flex-col max-h-60 animate-in slide-in-from-bottom-2 duration-150 text-left">
-                      <div className="p-3 border-b border-slate-100 dark:border-slate-850 bg-slate-50/40 dark:bg-slate-950/20 flex items-center justify-between">
-                        <span className="text-[10px] font-bold text-slate-800 dark:text-white uppercase tracking-wider">Hızlı Cevap Seçin</span>
-                        <button type="button" onClick={() => setShowCannedPopover(false)} className="text-slate-400 hover:text-slate-600">
-                          <X size={12} />
-                        </button>
-                      </div>
-                      <div className="overflow-y-auto p-1.5 divide-y divide-slate-100 dark:divide-slate-850">
-                        {cannedResponses.length === 0 ? (
-                          <div className="p-4 text-center text-[10px] text-slate-400 font-bold">Tanımlı hızlı cevap bulunamadı.</div>
-                        ) : (
-                          cannedResponses.map((item) => (
-                            <button
-                              key={item.id}
-                              type="button"
-                              onClick={() => {
-                                setInputText(item.content);
-                                setShowCannedPopover(false);
-                              }}
-                              className="w-full text-left p-2 rounded-lg hover:bg-purple-50 dark:hover:bg-purple-950/20 transition flex flex-col gap-1"
-                            >
-                              <div className="flex items-center justify-between">
-                                <span className="text-[10px] font-mono font-bold text-primary dark:text-purple-400">{item.shortcut}</span>
-                                <span className="text-[9px] font-bold text-slate-450 dark:text-slate-550">{item.title}</span>
-                              </div>
-                              <span className="text-[10px] text-slate-550 dark:text-slate-400 truncate w-full">{item.content}</span>
-                            </button>
-                          ))
-                        )}
-                      </div>
-                    </div>
-                  )}
-                </div>
 
-                <button
-                  type="submit"
-                  disabled={activeSession.assigned_agent === "ai" || (!inputText.trim() && !attachedFile) || actionLoading}
-                  className="p-2.5 bg-primary hover:bg-primary text-white rounded-xl text-xs font-bold transition disabled:opacity-55 flex items-center justify-center shrink-0"
-                >
-                  <Send size={14} />
-                </button>
+                  <label htmlFor="omnichannel-reply-input" className="sr-only">
+                    Yanıt mesajı
+                  </label>
+                  {isEmailChannel(activeSession.channel) ? (
+                    <textarea
+                      id="omnichannel-reply-input"
+                      rows={2}
+                      value={inputText}
+                      onPaste={handleChatPaste}
+                      onKeyDown={(e) => {
+                        if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
+                          e.preventDefault();
+                          e.currentTarget.form?.requestSubmit();
+                        }
+                      }}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        setInputText(val);
+                        if (val.startsWith("/")) {
+                          setShowSuggestions(true);
+                        } else {
+                          setShowSuggestions(false);
+                        }
+                      }}
+                      placeholder={
+                        activeSession.assigned_agent === "ai"
+                          ? "E-posta yanıtı yapay zekada. Yanıt yazmak için sağ üstten 'Sohbeti Devral' butonuna basın..."
+                          : "E-posta yanıtınızı yazın (Alt satır için Enter, hızlı gönderim için Ctrl+Enter, şablonlar için / yazın)..."
+                      }
+                      disabled={activeSession.assigned_agent === "ai" || actionLoading}
+                      className="flex-1 px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl text-xs leading-relaxed resize-y min-h-[56px] max-h-36 focus:outline-none focus:border-primary disabled:opacity-55 disabled:cursor-not-allowed text-slate-800 dark:text-slate-200 placeholder:text-slate-400 dark:placeholder:text-slate-500"
+                    />
+                  ) : (
+                    <input
+                      id="omnichannel-reply-input"
+                      type="text"
+                      value={inputText}
+                      onPaste={handleChatPaste}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        setInputText(val);
+                        if (val.startsWith("/")) {
+                          setShowSuggestions(true);
+                        } else {
+                          setShowSuggestions(false);
+                        }
+                      }}
+                      placeholder={
+                        activeSession.assigned_agent === "ai"
+                          ? "Canlı sohbet yapay zekada. Mesaj göndermek için 'Sohbeti Devral' butonuna basın..."
+                          : "Müşteriye yanıt yazın, mikrofonla dikte edin veya dosya sürükleyip bırakın... (Şablonlar için / yazın)"
+                      }
+                      disabled={activeSession.assigned_agent === "ai" || actionLoading}
+                      className="flex-1 px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl text-xs focus:outline-none focus:border-purple-500 disabled:opacity-55 disabled:cursor-not-allowed text-slate-800 dark:text-slate-200 placeholder:text-slate-400 dark:placeholder:text-slate-500"
+                    />
+                  )}
+
+                  <DictationButton
+                    value={inputText}
+                    onChange={(val) => {
+                      setInputText(val);
+                      if (val.startsWith("/")) {
+                        setShowSuggestions(true);
+                      } else {
+                        setShowSuggestions(false);
+                      }
+                    }}
+                    disabled={activeSession.assigned_agent === "ai" || actionLoading}
+                    size="md"
+                    onError={(errMsg) => setSendError(errMsg)}
+                  />
+
+                  <div className="relative flex items-center shrink-0">
+                    <button
+                      type="button"
+                      disabled={activeSession.assigned_agent === "ai" || actionLoading}
+                      onClick={() => {
+                        setShowCannedPopover(!showCannedPopover);
+                        setShowSuggestions(false);
+                      }}
+                      className={`p-2 rounded-xl border transition hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-45 ${
+                        showCannedPopover 
+                          ? "border-purple-200 dark:border-purple-800 bg-purple-50 dark:bg-purple-950/25 text-primary dark:text-purple-400" 
+                          : "border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950/40 text-slate-400"
+                      }`}
+                      title="Hızlı Cevaplar"
+                    >
+                      <FileText size={15} />
+                    </button>
+                    
+                    {/* Canned Responses Popover Panel */}
+                    {showCannedPopover && (
+                      <div className="absolute bottom-12 right-0 w-64 bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-2xl shadow-xl overflow-hidden z-25 flex flex-col max-h-60 animate-in slide-in-from-bottom-2 duration-150 text-left">
+                        <div className="p-3 border-b border-slate-100 dark:border-slate-850 bg-slate-50/40 dark:bg-slate-950/20 flex items-center justify-between">
+                          <span className="text-[10px] font-bold text-slate-800 dark:text-white uppercase tracking-wider">Hızlı Cevap Seçin</span>
+                          <button type="button" onClick={() => setShowCannedPopover(false)} className="text-slate-400 hover:text-slate-600">
+                            <X size={12} />
+                          </button>
+                        </div>
+                        <div className="overflow-y-auto p-1.5 divide-y divide-slate-100 dark:divide-slate-850">
+                          {cannedResponses.length === 0 ? (
+                            <div className="p-4 text-center text-[10px] text-slate-400 font-bold">Tanımlı hızlı cevap bulunamadı.</div>
+                          ) : (
+                            cannedResponses.map((item) => (
+                              <button
+                                key={item.id}
+                                type="button"
+                                onClick={() => {
+                                  setInputText(item.content);
+                                  setShowCannedPopover(false);
+                                }}
+                                className="w-full text-left p-2 rounded-lg hover:bg-purple-50 dark:hover:bg-purple-950/20 transition flex flex-col gap-1"
+                              >
+                                <div className="flex items-center justify-between">
+                                  <span className="text-[10px] font-mono font-bold text-primary dark:text-purple-400">{item.shortcut}</span>
+                                  <span className="text-[9px] font-bold text-slate-450 dark:text-slate-550">{item.title}</span>
+                                </div>
+                                <span className="text-[10px] text-slate-550 dark:text-slate-400 truncate w-full">{item.content}</span>
+                              </button>
+                            ))
+                          )}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  <button
+                    type="submit"
+                    disabled={activeSession.assigned_agent === "ai" || (!inputText.trim() && !attachedFile) || actionLoading}
+                    className="p-2.5 bg-primary hover:bg-primary text-white rounded-xl text-xs font-bold transition disabled:opacity-55 flex items-center justify-center shrink-0"
+                    title="Yanıt Gönder"
+                  >
+                    <Send size={14} />
+                  </button>
+                </div>
               </form>
             </>
           ) : (
@@ -1201,8 +1287,8 @@ export default function OmnichannelPanel({ backendHost = "localhost:8000" }) {
       <AddContactModal
         isOpen={showAddContactModal}
         onClose={() => setShowAddContactModal(false)}
-        initialPhone={activeSession?.channel !== "mail" ? activeSession?.sender_info : ""}
-        initialEmail={activeSession?.channel === "mail" ? activeSession?.sender_info : ""}
+        initialPhone={!isEmailChannel(activeSession?.channel) ? activeSession?.sender_info : ""}
+        initialEmail={isEmailChannel(activeSession?.channel) ? activeSession?.sender_info : ""}
         backendHost={backendHost}
         onSaveSuccess={() => {
           if (activeSession) {

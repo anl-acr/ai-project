@@ -1,8 +1,15 @@
 import React, { useState, useEffect, useRef } from "react";
-import { MessageSquare, Send, Bot, RefreshCw, Search, User, ArrowLeft, Plus, AlertCircle, X, Check, CheckCheck, Trash2, Phone } from "lucide-react";
+import { MessageSquare, Send, Bot, RefreshCw, Search, User, ArrowLeft, Plus, AlertCircle, X, Check, CheckCheck, Trash2, Phone, Mail } from "lucide-react";
 import { useTheme } from "../../../utils/theme";
 import DictationButton from "../../common/DictationButton";
 import ConfirmDeleteModal from "../../dashboard/ConfirmDeleteModal";
+import {
+  isEmailChannel,
+  EmailMessageCard,
+  formatSessionPreviewText,
+  extractReplySubjectFromMessages,
+  renderLinkifiedPlainText,
+} from "../../../utils/emailFormatter";
 
 export default function AgentChatTab({ backendHost, currentUser, isVisible = true, openPeerRequest = null, onPeerOpened }) {
   const { bg, hover, text, border, ring, lightBg, lightText, borderLight } = useTheme();
@@ -1011,10 +1018,10 @@ export default function AgentChatTab({ backendHost, currentUser, isVisible = tru
                                       ? "bg-indigo-50 dark:bg-indigo-950/20 text-indigo-600 dark:text-indigo-400 border-indigo-200/30"
                                       : "bg-emerald-50 dark:bg-emerald-950/20 text-emerald-600 dark:text-emerald-400 border-emerald-200/30"
                                   }`}>
-                                    {isAi ? "🤖 AI" : session.channel || "WhatsApp"}
+                                    {isAi ? "🤖 AI" : isEmailChannel(session.channel) ? "E-Posta" : (session.channel || "WhatsApp")}
                                   </span>
                                   <p className="text-xs text-slate-450 dark:text-slate-400 truncate font-normal flex-1">
-                                    {session.last_message_text || "Mesaj yok..."}
+                                    {formatSessionPreviewText(session.last_message_text, session.channel)}
                                   </p>
                                 </div>
                               </div>
@@ -1299,54 +1306,71 @@ export default function AgentChatTab({ backendHost, currentUser, isVisible = tru
                         Bu sohbet için henüz mesaj bulunmuyor.
                       </div>
                     ) : (
-                      customerMessages.map((m, idx) => {
-                        const isAgent = m.sender === "human" || m.sender === "agent" || m.direction === "outbound";
-                        const isAI = m.sender === "ai";
-                        const isSystem = m.sender === "system";
+                      (() => {
+                        const emailMode = isEmailChannel(selectedCustomerChat?.channel);
+                        const fallbackEmailSubject = emailMode ? extractReplySubjectFromMessages(customerMessages) : "";
 
-                        if (isSystem) {
+                        return customerMessages.map((m, idx) => {
+                          const isAgent = m.sender === "human" || m.sender === "agent" || m.direction === "outbound";
+                          const isAI = m.sender === "ai";
+                          const isSystem = m.sender === "system";
+
+                          if (isSystem) {
+                            return (
+                              <div key={m.id || idx} className="flex justify-center my-4">
+                                <span className="bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-500 text-[10px] font-bold px-3 py-1.5 rounded-full uppercase tracking-widest border border-amber-200 dark:border-amber-800/50 flex items-center gap-2">
+                                  <Bot size={12} />
+                                  {m.text}
+                                </span>
+                              </div>
+                            );
+                          }
+
+                          if (emailMode || /^E-Posta Konusu\s*:/i.test(m.text || "")) {
+                            return (
+                              <EmailMessageCard
+                                key={m.id || idx}
+                                msg={m}
+                                session={selectedCustomerChat}
+                                apiBase={API_BASE}
+                                fallbackSubject={fallbackEmailSubject}
+                              />
+                            );
+                          }
+
                           return (
-                            <div key={m.id || idx} className="flex justify-center my-4">
-                              <span className="bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-500 text-[10px] font-bold px-3 py-1.5 rounded-full uppercase tracking-widest border border-amber-200 dark:border-amber-800/50 flex items-center gap-2">
-                                <Bot size={12} />
-                                {m.text}
-                              </span>
-                            </div>
-                          );
-                        }
-
-                        return (
-                          <div
-                            key={m.id || idx}
-                            className={`flex flex-col max-w-[75%] ${
-                              isAgent ? "ml-auto items-end" : "mr-auto items-start"
-                            }`}
-                          >
-                            {isAI && (
-                              <span className="text-[10px] font-bold text-indigo-500 mb-1 ml-1 flex items-center gap-1 uppercase tracking-wider">
-                                <Bot size={12} />
-                                Yapay Zeka Asistanı
-                              </span>
-                            )}
                             <div
-                              className={`p-3.5 rounded-2xl text-xs leading-relaxed shadow-sm ${
-                                isAgent
-                                  ? `${bg} text-white rounded-tr-none`
-                                  : isAI
-                                    ? "bg-indigo-50 dark:bg-indigo-900/20 border border-indigo-100 dark:border-indigo-800/30 text-slate-800 dark:text-slate-200 rounded-tl-none"
-                                    : "bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-800 dark:text-slate-200 rounded-tl-none"
+                              key={m.id || idx}
+                              className={`flex flex-col max-w-[75%] ${
+                                isAgent ? "ml-auto items-end" : "mr-auto items-start"
                               }`}
                             >
-                              {m.text}
+                              {isAI && (
+                                <span className="text-[10px] font-bold text-indigo-500 mb-1 ml-1 flex items-center gap-1 uppercase tracking-wider">
+                                  <Bot size={12} />
+                                  Yapay Zeka Asistanı
+                                </span>
+                              )}
+                              <div
+                                className={`p-3.5 rounded-2xl text-xs leading-relaxed shadow-sm whitespace-pre-wrap break-words [overflow-wrap:anywhere] ${
+                                  isAgent
+                                    ? `${bg} text-white rounded-tr-none`
+                                    : isAI
+                                      ? "bg-indigo-50 dark:bg-indigo-900/20 border border-indigo-100 dark:border-indigo-800/30 text-slate-800 dark:text-slate-200 rounded-tl-none"
+                                      : "bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-800 dark:text-slate-200 rounded-tl-none"
+                                }`}
+                              >
+                                {renderLinkifiedPlainText(m.text, isAgent)}
+                              </div>
+                              <div className="flex items-center gap-1.5 mt-1 px-1">
+                                <span className="text-[10px] font-bold text-slate-450 dark:text-slate-500 tracking-wider">
+                                  {formatTime(m.timestamp)}
+                                </span>
+                              </div>
                             </div>
-                            <div className="flex items-center gap-1.5 mt-1 px-1">
-                              <span className="text-[10px] font-bold text-slate-450 dark:text-slate-500 tracking-wider">
-                                {formatTime(m.timestamp)}
-                              </span>
-                            </div>
-                          </div>
-                        );
-                      })
+                          );
+                        });
+                      })()
                     )
                   ) : (
                     /* Internal Chat Messages */
@@ -1377,13 +1401,13 @@ export default function AgentChatTab({ backendHost, currentUser, isVisible = tru
                                 </button>
                               )}
                               <div
-                                className={`p-3.5 rounded-2xl text-xs leading-relaxed shadow-sm ${
+                                className={`p-3.5 rounded-2xl text-xs leading-relaxed shadow-sm whitespace-pre-wrap break-words [overflow-wrap:anywhere] ${
                                   isAgent
                                     ? `${bg} text-white rounded-tr-none`
                                     : "bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-800 dark:text-slate-200 rounded-tl-none"
                                 }`}
                               >
-                                {m.text}
+                                {renderLinkifiedPlainText(m.text, isAgent)}
                               </div>
                             </div>
                             <div className="flex items-center gap-1 mt-1 px-1">
@@ -1413,30 +1437,67 @@ export default function AgentChatTab({ backendHost, currentUser, isVisible = tru
                       </button>
                     </div>
                   )}
-                  <form onSubmit={handleSendChatMessage} className="flex items-center gap-2.5">
-                    <div className="flex-1 relative">
-                      <input
-                        type="text"
-                        placeholder="Mesajınızı yazın veya mikrofon ile dikte edin..."
+                  <form onSubmit={handleSendChatMessage} className="flex flex-col gap-2">
+                    {chatTab === "customer" && isEmailChannel(selectedCustomerChat?.channel) && (
+                      <div className="flex items-center justify-between gap-2 px-3 py-1.5 rounded-xl bg-slate-50 dark:bg-slate-950/60 border border-slate-200/80 dark:border-slate-800 text-[11px] text-slate-600 dark:text-slate-300">
+                        <div className="flex items-center gap-1.5 min-w-0 truncate">
+                          <Mail size={12} className="text-primary shrink-0" />
+                          <span className="font-bold text-slate-500 dark:text-slate-400 shrink-0">Yanıt Konusu:</span>
+                          <span className="font-semibold text-slate-800 dark:text-slate-100 truncate">
+                            {extractReplySubjectFromMessages(customerMessages) || "AIDA Müşteri Hizmetleri Yanıtı"}
+                          </span>
+                        </div>
+                        <span className="text-[10px] text-slate-400 dark:text-slate-500 shrink-0 hidden sm:inline">
+                          Ctrl+Enter ile gönder
+                        </span>
+                      </div>
+                    )}
+                    <div className="flex items-end gap-2.5">
+                      <div className="flex-1 relative">
+                        <label htmlFor="agent-chat-reply-input" className="sr-only">
+                          Mesajınız
+                        </label>
+                        {chatTab === "customer" && isEmailChannel(selectedCustomerChat?.channel) ? (
+                          <textarea
+                            id="agent-chat-reply-input"
+                            rows={2}
+                            placeholder="E-posta yanıtınızı yazın (Alt satır için Enter, hızlı gönderim için Ctrl+Enter)..."
+                            value={chatInput}
+                            onChange={(e) => setChatInput(e.target.value)}
+                            onKeyDown={(e) => {
+                              if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
+                                e.preventDefault();
+                                e.currentTarget.form?.requestSubmit();
+                              }
+                            }}
+                            className="w-full text-xs leading-relaxed px-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 text-slate-800 dark:text-slate-100 focus:outline-none focus:border-primary resize-y min-h-[56px] max-h-36"
+                          />
+                        ) : (
+                          <input
+                            id="agent-chat-reply-input"
+                            type="text"
+                            placeholder="Mesajınızı yazın veya mikrofon ile dikte edin..."
+                            value={chatInput}
+                            onChange={(e) => setChatInput(e.target.value)}
+                            className="w-full text-xs px-4 py-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 text-slate-800 dark:text-slate-100 focus:outline-none focus:border-rose-500/50"
+                          />
+                        )}
+                      </div>
+                      <DictationButton
                         value={chatInput}
-                        onChange={(e) => setChatInput(e.target.value)}
-                        className="w-full text-xs px-4 py-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 text-slate-800 dark:text-slate-100 focus:outline-none focus:border-rose-500/50"
+                        onChange={setChatInput}
+                        size="lg"
+                        onError={(errMsg) => setSendError(errMsg)}
                       />
+                      <button
+                        type="submit"
+                        disabled={!chatInput.trim()}
+                        className={`p-3 ${bg} hover:opacity-90 text-white rounded-xl flex items-center justify-center shrink-0 disabled:opacity-50 transition-opacity shadow-sm`}
+                        title="Mesaj Gönder"
+                      >
+                        <Send size={16} />
+                      </button>
                     </div>
-                    <DictationButton
-                      value={chatInput}
-                      onChange={setChatInput}
-                      size="lg"
-                      onError={(errMsg) => setSendError(errMsg)}
-                    />
-                    <button
-                      type="submit"
-                      disabled={!chatInput.trim()}
-                      className={`p-3 ${bg} hover:opacity-90 text-white rounded-xl flex items-center justify-center shrink-0 disabled:opacity-50 transition-opacity shadow-sm`}
-                      title="Mesaj Gönder"
-                    >
-                      <Send size={16} />
-                    </button>
                   </form>
                 </div>
               </>

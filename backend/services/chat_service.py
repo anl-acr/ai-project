@@ -1,7 +1,7 @@
 import datetime
 import uuid
 import re
-from sqlalchemy import select, or_
+from sqlalchemy import select, or_, func
 from backend.database.config import AsyncSessionLocal
 from backend.database.models import ChatSession, ChatMessage, Contact, BlacklistItem, BlockWord
 from backend.services.rag_service import get_genai_client
@@ -24,7 +24,7 @@ async def auto_blacklist_sender(channel: str, sender_info: str, reason: str):
     async with AsyncSessionLocal() as session:
         already_bl, _ = await is_phone_or_value_blacklisted(sender_info, session)
         if not already_bl:
-            item_type = "email" if channel.lower() == "mail" else "phone"
+            item_type = "email" if channel.lower() in ("mail", "email") else "phone"
             item = BlacklistItem(
                 type=item_type,
                 value=sender_info,
@@ -65,7 +65,14 @@ def resolve_contact_name_by_phone(contacts: list, phone_info: str):
                     return f"{c.first_name} {c.last_name}".strip()
     return None
 
-async def handle_inbound_chat_message(channel: str, sender_info: str, text: str, recipient_phone_id: str = None, recipient_phone_num: str = None):
+async def handle_inbound_chat_message(
+    channel: str,
+    sender_info: str,
+    text: str,
+    recipient_phone_id: str = None,
+    recipient_phone_num: str = None,
+    sender_display_name: str = None,
+):
     """
     Handles an incoming customer chat message from social channels (whatsapp, instagram, telegram, facebook, mail).
     Creates or loads the active session, saves the message, broadcasts it, and generates an automated AI reply
@@ -285,25 +292,39 @@ async def handle_inbound_chat_message(channel: str, sender_info: str, text: str,
             stmt_contacts = select(Contact)
             res_contacts = await session.execute(stmt_contacts)
             contacts = res_contacts.scalars().all()
-            contact_by_email = {c.email: f"{c.first_name} {c.last_name}" for c in contacts if c.email}
-            
+            contact_by_email = {
+                str(c.email).strip().lower(): f"{c.first_name or ''} {c.last_name or ''}".strip()
+                for c in contacts
+                if c.email
+            }
+
+            is_email_ch = str(channel or "").strip().lower() in ("mail", "email") or "@" in str(sender_info or "")
             sender_name = None
-            if channel.lower() == "mail":
-                sender_name = contact_by_email.get(sender_info)
+            if is_email_ch:
+                sender_name = contact_by_email.get(str(sender_info or "").strip().lower()) or (
+                    str(sender_display_name).strip() if sender_display_name else None
+                )
             else:
                 sender_name = resolve_contact_name_by_phone(contacts, sender_info)
 
             # 1. Fetch active session or create new one
-            clean_sender = re.sub(r"\D", "", str(sender_info))
-            stmt = select(ChatSession).where(
-                ChatSession.channel == channel,
-                or_(
-                    ChatSession.sender_info == sender_info,
-                    ChatSession.sender_info == clean_sender,
-                    ChatSession.sender_info == f"+{clean_sender}"
-                ),
-                ChatSession.status == "active"
-            ).order_by(ChatSession.last_message_time.desc())
+            if is_email_ch:
+                stmt = select(ChatSession).where(
+                    func.lower(ChatSession.channel).in_(["email", "mail"]),
+                    func.lower(ChatSession.sender_info) == str(sender_info or "").strip().lower(),
+                    ChatSession.status == "active"
+                ).order_by(ChatSession.last_message_time.desc())
+            else:
+                clean_sender = re.sub(r"\D", "", str(sender_info))
+                sender_conds = [ChatSession.sender_info == sender_info]
+                if clean_sender:
+                    sender_conds.append(ChatSession.sender_info == clean_sender)
+                    sender_conds.append(ChatSession.sender_info == f"+{clean_sender}")
+                stmt = select(ChatSession).where(
+                    ChatSession.channel == channel,
+                    or_(*sender_conds),
+                    ChatSession.status == "active"
+                ).order_by(ChatSession.last_message_time.desc())
             result = await session.execute(stmt)
             chat_sessions = result.scalars().all()
             
@@ -908,20 +929,21 @@ Yanıtını kesinlikle Türkçe olarak yaz.
                     asyncio.create_task(send_meta_message(sender_info, ai_reply_text, channel=ch_lower))
                 elif ch_lower in ["email", "mail"]:
                     import asyncio
-                    from backend.services.email_service import send_email_message
+                    from backend.services.email_service import send_email_message, extract_email_reply_subject
+                    reply_subject = extract_email_reply_subject([text], default_subject="AIDA Yanıtı")
                     if queued_media_items:
                         first_m = queued_media_items[0]
                         asyncio.create_task(
                             send_email_message(
                                 sender_info,
-                                "AIDA Yanıtı",
+                                reply_subject,
                                 ai_reply_text,
                                 media_url=first_m.get("url", ""),
                                 filename=first_m.get("filename", "dosya")
                             )
                         )
                     else:
-                        asyncio.create_task(send_email_message(sender_info, "AIDA Yanıtı", ai_reply_text))
+                        asyncio.create_task(send_email_message(sender_info, reply_subject, ai_reply_text))
 
                 return stored_reply_text
 

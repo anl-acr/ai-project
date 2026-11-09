@@ -20850,7 +20850,11 @@ async def list_chat_sessions(user_info: dict = Depends(get_user_info)):
         stmt_contacts = select(Contact)
         res_contacts = await session.execute(stmt_contacts)
         contacts = res_contacts.scalars().all()
-        contact_by_email = {c.email: f"{c.first_name} {c.last_name}" for c in contacts if c.email}
+        contact_by_email = {
+            str(c.email).strip().lower(): f"{c.first_name or ''} {c.last_name or ''}".strip()
+            for c in contacts
+            if c.email
+        }
         
         # For each session, load the last message preview
         data = []
@@ -20860,8 +20864,8 @@ async def list_chat_sessions(user_info: dict = Depends(get_user_info)):
             last_msg = res_last.scalar_one_or_none()
             
             sender_name = None
-            if s.channel.lower() == "mail":
-                sender_name = contact_by_email.get(s.sender_info)
+            if (s.channel or "").lower() in ("mail", "email") or "@" in str(s.sender_info or ""):
+                sender_name = contact_by_email.get(str(s.sender_info or "").strip().lower())
             else:
                 sender_name = resolve_contact_name_by_phone(contacts, s.sender_info)
                 
@@ -21266,10 +21270,17 @@ async def send_representative_message(session_id: str, payload: ChatMessageSendS
             from backend.services.meta_service import send_meta_message
             dispatch_res = await send_meta_message(chat.sender_info, payload.text, channel=ch_lower)
         elif ch_lower in ["email", "mail"]:
-            from backend.services.email_service import send_email_message
+            from backend.services.email_service import send_email_message, extract_email_reply_subject
+            stmt_subj = select(ChatMessage.text).where(
+                ChatMessage.session_id == session_id,
+                ChatMessage.direction == "inbound"
+            ).order_by(ChatMessage.timestamp.asc())
+            res_subj = await session.execute(stmt_subj)
+            inbound_texts = [r[0] for r in res_subj.all() if r and r[0]]
+            reply_subj = extract_email_reply_subject(inbound_texts, default_subject="AIDA Müşteri Hizmetleri Yanıtı")
             dispatch_res = await send_email_message(
                 chat.sender_info,
-                "AIDA Müşteri Hizmetleri Yanıtı",
+                reply_subj,
                 payload.text or "Ekteki dosyayı bilgilerinize sunarız.",
                 media_url=payload.media_url,
                 filename=payload.media_filename
