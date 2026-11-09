@@ -270,10 +270,16 @@ export function parseEmailMessage(rawText, apiBase = "") {
   let working = String(cleanedText || "").replace(/\r\n/g, "\n").replace(/\r/g, "\n").trim();
 
   let subject = "";
-  const subjMatch = working.match(/^(?:E-Posta Konusu|Konu|Subject)\s*:\s*([^\n]*)(?:\n+([\s\S]*))?$/i);
+  let cc = "";
+  const subjMatch = working.match(/^(?:E-Posta Konusu|Konu|Subject)\s*:\s*([^\n]*)(?:\n([\s\S]*))?$/i);
   if (subjMatch) {
     subject = decodeRfc2047(subjMatch[1].trim());
     working = (subjMatch[2] || "").trim();
+    const ccMatch = working.match(/^CC\s*:\s*([^\n]*)(?:\n+([\s\S]*))?$/i);
+    if (ccMatch) {
+      cc = decodeRfc2047(ccMatch[1].trim());
+      working = (ccMatch[2] || "").trim();
+    }
   }
 
   working = decodeRfc2047(working);
@@ -302,6 +308,7 @@ export function parseEmailMessage(rawText, apiBase = "") {
     return {
       hasSubjectHeader: Boolean(subjMatch),
       subject: subject || "",
+      cc: cc || "",
       isHtml: true,
       htmlBody,
       quotedHtml,
@@ -322,6 +329,7 @@ export function parseEmailMessage(rawText, apiBase = "") {
   return {
     hasSubjectHeader: Boolean(subjMatch),
     subject: subject || "",
+    cc: cc || "",
     isHtml: false,
     htmlBody: "",
     quotedHtml: "",
@@ -525,6 +533,7 @@ export function EmailMessageCard({
   session,
   apiBase = "",
   fallbackSubject = "",
+  onForward = null,
 }) {
   const [showQuoted, setShowQuoted] = useState(false);
   const isCustomer = msg.direction === "inbound" || msg.sender === "customer";
@@ -586,11 +595,29 @@ export function EmailMessageCard({
                   </span>
                 )}
               </div>
+              {parsed.cc && (
+                <div className="text-[10px] text-slate-400 dark:text-slate-500 truncate mt-0.5">
+                  <span className="font-semibold">CC:</span> {parsed.cc}
+                </div>
+              )}
             </div>
           </div>
-          <span className="text-[10px] font-semibold text-slate-400 dark:text-slate-500 whitespace-nowrap shrink-0 pt-0.5">
-            {formatEmailFullDateTime(msg.timestamp)}
-          </span>
+          <div className="flex items-center gap-2 shrink-0 pt-0.5">
+            <span className="text-[10px] font-semibold text-slate-400 dark:text-slate-500 whitespace-nowrap">
+              {formatEmailFullDateTime(msg.timestamp)}
+            </span>
+            {typeof onForward === "function" && (
+              <button
+                type="button"
+                onClick={() => onForward(msg, parsed, effectiveSubject)}
+                title="Bu e-postayı başka bir adrese ilet (Forward)"
+                className="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] font-bold bg-white/80 hover:bg-white dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 border border-slate-200/80 dark:border-slate-700 transition cursor-pointer"
+              >
+                <CornerDownRight size={11} />
+                <span>İlet</span>
+              </button>
+            )}
+          </div>
         </div>
       </div>
 

@@ -173,9 +173,32 @@ def _save_inbound_email_attachment(filename_raw: str, content_type: str, payload
         return None
 
 
-async def send_email_message(to_email: str, subject: str, body_text: str, media_url: str = None, filename: str = None) -> Dict[str, Any]:
+def _parse_email_address_list(raw_val: Optional[str]) -> List[str]:
+    if not raw_val:
+        return []
+    parts = re.split(r"[,;\n]+", str(raw_val))
+    cleaned: List[str] = []
+    seen = set()
+    for p in parts:
+        _, addr = email.utils.parseaddr(p.strip())
+        candidate = (addr or p).strip()
+        if "@" in candidate and candidate.lower() not in seen:
+            seen.add(candidate.lower())
+            cleaned.append(candidate)
+    return cleaned
+
+
+async def send_email_message(
+    to_email: str,
+    subject: str,
+    body_text: str,
+    media_url: str = None,
+    filename: str = None,
+    cc_emails: str = None,
+    bcc_emails: str = None,
+) -> Dict[str, Any]:
     """
-    Sends an outbound email via SMTP with optional file attachment.
+    Sends an outbound email via SMTP with optional CC, BCC, signature, and file attachment.
     """
     try:
         from backend.main import settings_db
@@ -195,14 +218,34 @@ async def send_email_message(to_email: str, subject: str, body_text: str, media_
             print("[Email Service] SMTP sunucu veya kullanıcı bilgisi bulunamadı. E-posta gönderilemedi.")
             return {"status": "error", "message": "SMTP server credentials are not configured."}
 
+        to_list = _parse_email_address_list(to_email)
+        cc_list = _parse_email_address_list(cc_emails)
+        bcc_list = _parse_email_address_list(bcc_emails)
+        if not to_list:
+            return {"status": "error", "message": "Geçerli bir alıcı e-posta adresi bulunamadı."}
+
+        all_recipients: List[str] = []
+        seen_rcpt = set()
+        for addr in to_list + cc_list + bcc_list:
+            if addr.lower() not in seen_rcpt:
+                seen_rcpt.add(addr.lower())
+                all_recipients.append(addr)
+
+        effective_body = body_text or ""
+        signature_text = str(channels_cfg.get("email_signature") or "").strip()
+        if signature_text and signature_text not in effective_body:
+            effective_body = f"{effective_body.rstrip()}\n\n--\n{signature_text}" if effective_body.strip() else signature_text
+
         msg = MIMEMultipart("mixed")
         msg["From"] = smtp_user
-        msg["To"] = to_email
+        msg["To"] = ", ".join(to_list)
+        if cc_list:
+            msg["Cc"] = ", ".join(cc_list)
         msg["Subject"] = subject or "AIDA Destek Yanıtı"
 
-        safe_html_body = html.escape(body_text or "").replace("\n", "<br>")
+        safe_html_body = html.escape(effective_body).replace("\n", "<br>")
         alt_part = MIMEMultipart("alternative")
-        part1 = MIMEText(body_text or "", "plain", "utf-8")
+        part1 = MIMEText(effective_body, "plain", "utf-8")
         html_content = f"""
         <html>
           <body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif; line-height: 1.65; color: #1e293b; background-color: #f8fafc; padding: 20px;">
@@ -239,15 +282,15 @@ async def send_email_message(to_email: str, subject: str, body_text: str, media_
             smtp_user,
             smtp_pass,
             use_tls,
-            [to_email],
+            all_recipients,
             msg.as_string()
         )
         if res.get("status") != "success":
             log_event("EMAIL_EXCEPTION", "ERROR", f"E-posta gönderme hatası: {res.get('message')}")
             return res
-        print(f"[Email Service] E-posta başarıyla gönderildi -> {to_email} ({res.get('used_endpoint')})")
-        log_event("EMAIL_SENT", "INFO", f"E-posta yollandı: {to_email}")
-        return {"status": "success", "message": f"E-posta gönderildi: {to_email}"}
+        print(f"[Email Service] E-posta başarıyla gönderildi -> {', '.join(all_recipients)} ({res.get('used_endpoint')})")
+        log_event("EMAIL_SENT", "INFO", f"E-posta yollandı: {', '.join(all_recipients)}")
+        return {"status": "success", "message": f"E-posta gönderildi: {', '.join(to_list)}"}
 
     except Exception as e:
         print(f"[Email Service Exception]: {e}")

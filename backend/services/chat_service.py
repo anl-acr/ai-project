@@ -423,7 +423,9 @@ async def handle_inbound_chat_message(
                     "assigned_agent": assigned_agent,
                     "assigned_user": chat_session.assigned_user,
                     "last_message_time": chat_session.last_message_time.isoformat(),
-                    "last_message_text": text
+                    "last_message_text": text,
+                    "last_message_direction": "inbound",
+                    "last_message_sender": "customer",
                 }
             })
 

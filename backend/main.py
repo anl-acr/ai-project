@@ -20880,7 +20880,9 @@ async def list_chat_sessions(user_info: dict = Depends(get_user_info)):
                 "recipient_info": s.recipient_info,
                 "qa_score": s.qa_score,
                 "last_message_time": s.last_message_time.isoformat(),
-                "last_message_text": last_msg.text if last_msg else ""
+                "last_message_text": last_msg.text if last_msg else "",
+                "last_message_direction": last_msg.direction if last_msg else None,
+                "last_message_sender": last_msg.sender if last_msg else None,
             })
         return data
 
@@ -20905,6 +20907,7 @@ class TakeoverSchema(BaseModel):
 @app.post("/api/omnichannel/chats/{session_id}/takeover")
 async def takeover_chat(session_id: str, payload: Optional[TakeoverSchema] = None, user_info: dict = Depends(get_user_info)):
     import datetime
+    from sqlalchemy import cast, String
     async with AsyncSessionLocal() as session:
         stmt = select(ChatSession).where(ChatSession.id == session_id)
         result = await session.execute(stmt)
@@ -20916,17 +20919,20 @@ async def takeover_chat(session_id: str, payload: Optional[TakeoverSchema] = Non
         if payload and payload.assigned_user:
             agent_name = payload.assigned_user.strip()
             
-        if not agent_name and user_info.get("user_id") and user_info.get("user_id") != "Bilinmeyen":
+        uid_str = str(user_info.get("user_id") or "").strip()
+        if not agent_name and uid_str and uid_str != "Bilinmeyen":
             stmt_u = select(SystemUser).where(
                 or_(
-                    SystemUser.id == user_info.get("user_id"),
-                    SystemUser.username == user_info.get("user_id")
+                    cast(SystemUser.id, String) == uid_str,
+                    SystemUser.extension == uid_str,
+                    SystemUser.email == uid_str,
+                    SystemUser.sip_username == uid_str,
                 )
             )
             res_u = await session.execute(stmt_u)
             u = res_u.scalar_one_or_none()
             if u:
-                agent_name = f"{u.first_name} {u.last_name}".strip() or u.username
+                agent_name = (u.full_name or "").strip() or u.extension or u.email
                 
         if not agent_name:
             agent_name = user_info.get("full_name") or user_info.get("username") or "Temsilci"
@@ -21079,6 +21085,9 @@ class ChatMessageSendSchema(BaseModel):
     media_url: Optional[str] = None
     media_type: Optional[str] = None
     media_filename: Optional[str] = None
+    subject: Optional[str] = None
+    cc: Optional[str] = None
+    bcc: Optional[str] = None
 
 @app.post("/api/omnichannel/chats/{session_id}/send")
 async def send_representative_message(session_id: str, payload: ChatMessageSendSchema, request: Request):
@@ -21091,21 +21100,46 @@ async def send_representative_message(session_id: str, payload: ChatMessageSendS
             raise HTTPException(status_code=404, detail="Sohbet oturumu bulunamadı")
             
         chat.last_message_time = datetime.datetime.utcnow()
+        ch_lower = (chat.channel or "").lower()
         
         # Load contacts to resolve names
         stmt_contacts = select(Contact)
         res_contacts = await session.execute(stmt_contacts)
         contacts = res_contacts.scalars().all()
-        contact_by_email = {c.email: f"{c.first_name} {c.last_name}" for c in contacts if c.email}
+        contact_by_email = {
+            str(c.email).strip().lower(): f"{c.first_name or ''} {c.last_name or ''}".strip()
+            for c in contacts
+            if c.email
+        }
         
         sender_name = None
-        if chat.channel.lower() == "mail":
-            sender_name = contact_by_email.get(chat.sender_info)
+        if ch_lower in ("mail", "email") or "@" in str(chat.sender_info or ""):
+            sender_name = contact_by_email.get(str(chat.sender_info or "").strip().lower())
         else:
             sender_name = resolve_contact_name_by_phone(contacts, chat.sender_info)
+
+        email_reply_subject = None
+        if ch_lower in ("mail", "email"):
+            from backend.services.email_service import extract_email_reply_subject
+            custom_subj = (payload.subject or "").strip()
+            if custom_subj:
+                email_reply_subject = custom_subj
+            else:
+                stmt_subj = select(ChatMessage.text).where(
+                    ChatMessage.session_id == session_id
+                ).order_by(ChatMessage.timestamp.asc())
+                res_subj = await session.execute(stmt_subj)
+                prev_texts = [r[0] for r in res_subj.all() if r and r[0]]
+                email_reply_subject = extract_email_reply_subject(prev_texts, default_subject="AIDA Müşteri Hizmetleri Yanıtı")
         
-        # Determine stored text & format if media is present
+        # Determine stored text & format if media / email headers are present
         text_content = payload.text or ""
+        if ch_lower in ("mail", "email") and email_reply_subject:
+            header_lines = [f"E-Posta Konusu: {email_reply_subject}"]
+            if payload.cc and payload.cc.strip():
+                header_lines.append(f"CC: {payload.cc.strip()}")
+            text_content = "\n".join(header_lines) + (f"\n\n{text_content}" if text_content else "")
+
         if payload.media_url:
             fname = payload.media_filename or payload.media_url.split("/")[-1]
             m_tag = f"[MEDIA:{payload.media_type or 'document'}|{payload.media_url}|{fname}]"
@@ -21153,13 +21187,14 @@ async def send_representative_message(session_id: str, payload: ChatMessageSendS
                 "assigned_agent": chat.assigned_agent,
                 "assigned_user": chat.assigned_user,
                 "last_message_time": chat.last_message_time.isoformat() + "Z",
-                "last_message_text": db_message.text
+                "last_message_text": db_message.text,
+                "last_message_direction": "outbound",
+                "last_message_sender": "human",
             }
         })
         
         # Trigger outbound channel message
         dispatch_res = None
-        ch_lower = chat.channel.lower()
         if ch_lower == "whatsapp":
             from backend.services.whatsapp_service import send_whatsapp_message, send_whatsapp_media, load_settings
             ch_settings = settings_db.get("channels", {})
@@ -21270,20 +21305,15 @@ async def send_representative_message(session_id: str, payload: ChatMessageSendS
             from backend.services.meta_service import send_meta_message
             dispatch_res = await send_meta_message(chat.sender_info, payload.text, channel=ch_lower)
         elif ch_lower in ["email", "mail"]:
-            from backend.services.email_service import send_email_message, extract_email_reply_subject
-            stmt_subj = select(ChatMessage.text).where(
-                ChatMessage.session_id == session_id,
-                ChatMessage.direction == "inbound"
-            ).order_by(ChatMessage.timestamp.asc())
-            res_subj = await session.execute(stmt_subj)
-            inbound_texts = [r[0] for r in res_subj.all() if r and r[0]]
-            reply_subj = extract_email_reply_subject(inbound_texts, default_subject="AIDA Müşteri Hizmetleri Yanıtı")
+            from backend.services.email_service import send_email_message
             dispatch_res = await send_email_message(
                 chat.sender_info,
-                reply_subj,
+                email_reply_subject or "AIDA Müşteri Hizmetleri Yanıtı",
                 payload.text or "Ekteki dosyayı bilgilerinize sunarız.",
                 media_url=payload.media_url,
-                filename=payload.media_filename
+                filename=payload.media_filename,
+                cc_emails=payload.cc,
+                bcc_emails=payload.bcc,
             )
         
         # Trigger background QA evaluation AFTER message dispatch
@@ -21299,6 +21329,439 @@ async def send_representative_message(session_id: str, payload: ChatMessageSendS
             )
 
         return {"status": "success", "message": "Mesaj gönderildi.", "dispatch": dispatch_res}
+
+
+class ChatSessionStatusSchema(BaseModel):
+    status: str  # "closed" | "active"
+
+
+@app.post("/api/omnichannel/chats/{session_id}/status")
+async def update_omnichannel_chat_status(
+    session_id: str,
+    payload: ChatSessionStatusSchema,
+    user_info: dict = Depends(get_user_info),
+):
+    import datetime
+    new_status = "closed" if str(payload.status or "").strip().lower() == "closed" else "active"
+    actor_label = user_info.get("full_name") or user_info.get("username") or user_info.get("user_id") or "Temsilci"
+    async with AsyncSessionLocal() as session:
+        chat = await session.get(ChatSession, session_id)
+        if not chat:
+            raise HTTPException(status_code=404, detail="Sohbet oturumu bulunamadı")
+
+        chat.status = new_status
+        chat.last_message_time = datetime.datetime.utcnow()
+
+        sys_text = (
+            f"Görüşme çözüldü olarak kapatıldı ({actor_label})."
+            if new_status == "closed"
+            else f"Görüşme yeniden aktif hale getirildi ({actor_label})."
+        )
+        sys_msg = ChatMessage(
+            session_id=session_id,
+            direction="outbound",
+            sender="system",
+            text=sys_text,
+        )
+        session.add(sys_msg)
+        await session.commit()
+        await session.refresh(sys_msg)
+
+        await ws_manager.broadcast_omnichannel_event({
+            "type": "message",
+            "message": {
+                "id": sys_msg.id,
+                "session_id": session_id,
+                "direction": sys_msg.direction,
+                "sender": sys_msg.sender,
+                "text": sys_msg.text,
+                "timestamp": sys_msg.timestamp.isoformat() + "Z",
+            },
+        })
+        await ws_manager.broadcast_omnichannel_event({
+            "type": "session_update",
+            "session": {
+                "id": session_id,
+                "channel": chat.channel,
+                "sender_info": chat.sender_info,
+                "recipient_info": chat.recipient_info,
+                "status": chat.status,
+                "assigned_agent": chat.assigned_agent,
+                "assigned_user": chat.assigned_user,
+                "last_message_time": chat.last_message_time.isoformat() + "Z",
+                "last_message_text": sys_msg.text,
+                "last_message_direction": "outbound",
+                "last_message_sender": "system",
+            },
+        })
+        return {"status": "success", "chat_status": new_status, "message": sys_text}
+
+
+class ChatSessionAssignSchema(BaseModel):
+    assigned_user: str
+    assigned_ext: Optional[str] = None
+
+
+@app.post("/api/omnichannel/chats/{session_id}/assign")
+async def assign_omnichannel_chat(
+    session_id: str,
+    payload: ChatSessionAssignSchema,
+    user_info: dict = Depends(get_user_info),
+):
+    import datetime
+    target_user = (payload.assigned_user or "").strip()
+    if not target_user:
+        raise HTTPException(status_code=400, detail="Atanacak temsilci bilgisi boş olamaz.")
+
+    target_label = f"{target_user} ({payload.assigned_ext})" if payload.assigned_ext else target_user
+    async with AsyncSessionLocal() as session:
+        chat = await session.get(ChatSession, session_id)
+        if not chat:
+            raise HTTPException(status_code=404, detail="Sohbet oturumu bulunamadı")
+
+        chat.assigned_agent = "human"
+        chat.assigned_user = target_user
+        if chat.status == "closed":
+            chat.status = "active"
+        chat.last_message_time = datetime.datetime.utcnow()
+
+        sys_msg = ChatMessage(
+            session_id=session_id,
+            direction="outbound",
+            sender="system",
+            text=f"Görüşme {target_label} temsilcisine atandı.",
+        )
+        session.add(sys_msg)
+        await session.commit()
+        await session.refresh(sys_msg)
+
+        await ws_manager.broadcast_omnichannel_event({
+            "type": "message",
+            "message": {
+                "id": sys_msg.id,
+                "session_id": session_id,
+                "direction": sys_msg.direction,
+                "sender": sys_msg.sender,
+                "text": sys_msg.text,
+                "timestamp": sys_msg.timestamp.isoformat() + "Z",
+            },
+        })
+        await ws_manager.broadcast_omnichannel_event({
+            "type": "takeover_changed",
+            "session_id": session_id,
+            "assigned_agent": "human",
+            "assigned_user": target_user,
+        })
+        await ws_manager.broadcast_omnichannel_event({
+            "type": "session_update",
+            "session": {
+                "id": session_id,
+                "channel": chat.channel,
+                "sender_info": chat.sender_info,
+                "recipient_info": chat.recipient_info,
+                "status": chat.status,
+                "assigned_agent": "human",
+                "assigned_user": target_user,
+                "last_message_time": chat.last_message_time.isoformat() + "Z",
+                "last_message_text": sys_msg.text,
+                "last_message_direction": "outbound",
+                "last_message_sender": "system",
+            },
+        })
+        return {"status": "success", "assigned_user": target_user, "message": sys_msg.text}
+
+
+@app.delete("/api/omnichannel/chats/{session_id}")
+async def delete_omnichannel_chat(
+    session_id: str,
+    user_info: dict = Depends(get_user_info),
+):
+    from sqlalchemy import delete as sqla_delete
+    async with AsyncSessionLocal() as session:
+        chat = await session.get(ChatSession, session_id)
+        if not chat:
+            raise HTTPException(status_code=404, detail="Sohbet oturumu bulunamadı")
+        sender_ref = chat.sender_info
+        channel_ref = chat.channel
+        await session.execute(sqla_delete(ChatMessage).where(ChatMessage.session_id == session_id))
+        await session.delete(chat)
+        await session.commit()
+
+    add_system_log("OMNICHANNEL_DELETE", "INFO", f"Omnichannel görüşmesi silindi: {channel_ref} / {sender_ref}")
+    await ws_manager.broadcast_omnichannel_event({
+        "type": "session_deleted",
+        "session_id": session_id,
+    })
+    return {"status": "success", "message": "Görüşme kalıcı olarak silindi."}
+
+
+class ChatComposeNewSchema(BaseModel):
+    channel: str = "email"  # "email" | "whatsapp"
+    recipient: str
+    subject: Optional[str] = None
+    cc: Optional[str] = None
+    bcc: Optional[str] = None
+    text: str
+    media_url: Optional[str] = None
+    media_type: Optional[str] = None
+    media_filename: Optional[str] = None
+    assigned_user: Optional[str] = None
+
+
+@app.post("/api/omnichannel/chats/compose")
+async def compose_new_omnichannel_message(
+    payload: ChatComposeNewSchema,
+    request: Request,
+    user_info: dict = Depends(get_user_info),
+):
+    import datetime
+    from sqlalchemy import func
+    target_tenant = user_info.get("tenant_id") or "tenant-default"
+    ch_norm = str(payload.channel or "email").strip().lower()
+    if ch_norm == "mail":
+        ch_norm = "email"
+    if ch_norm not in ("email", "whatsapp"):
+        raise HTTPException(status_code=400, detail="Desteklenmeyen kanal tipi.")
+
+    raw_recipient = (payload.recipient or "").strip()
+    if not raw_recipient:
+        raise HTTPException(status_code=400, detail="Alıcı bilgisi boş olamaz.")
+
+    body_txt = (payload.text or "").strip()
+    if not body_txt and not payload.media_url:
+        raise HTTPException(status_code=400, detail="Mesaj metni veya ek dosya gereklidir.")
+
+    agent_name = (payload.assigned_user or user_info.get("full_name") or user_info.get("username") or "Temsilci").strip()
+
+    if ch_norm == "email":
+        if "@" not in raw_recipient:
+            raise HTTPException(status_code=400, detail="Geçerli bir e-posta adresi giriniz.")
+        primary_to = re.split(r"[,;\s]+", raw_recipient)[0].strip()
+        subj = (payload.subject or "").strip() or "AIDA Bilgilendirme"
+        from backend.services.email_service import send_email_message
+        dispatch_res = await send_email_message(
+            to_email=raw_recipient,
+            subject=subj,
+            body_text=body_txt or "Ekteki dosyayı bilgilerinize sunarız.",
+            media_url=payload.media_url,
+            filename=payload.media_filename,
+            cc_emails=payload.cc,
+            bcc_emails=payload.bcc,
+        )
+        if dispatch_res.get("status") != "success":
+            raise HTTPException(
+                status_code=400,
+                detail=f"E-posta gönderilemedi: {dispatch_res.get('message') or 'SMTP hatası'}",
+            )
+        sender_key = primary_to
+        recipient_line = str(settings_db.get("channels", {}).get("email_smtp_user") or "").strip() or None
+        header_lines = [f"E-Posta Konusu: {subj}"]
+        if payload.cc and payload.cc.strip():
+            header_lines.append(f"CC: {payload.cc.strip()}")
+        stored_text = "\n".join(header_lines) + (f"\n\n{body_txt}" if body_txt else "")
+    else:
+        from backend.services.whatsapp_service import (
+            send_whatsapp_message,
+            send_whatsapp_media,
+            sanitize_phone_number,
+            resolve_whatsapp_credentials,
+        )
+        clean_phone = sanitize_phone_number(raw_recipient)
+        if not clean_phone or len(re.sub(r"\D", "", clean_phone)) < 10:
+            raise HTTPException(status_code=400, detail="Geçerli bir telefon numarası giriniz.")
+        w_token, w_phone_id = resolve_whatsapp_credentials()
+        if not w_token or not w_phone_id:
+            raise HTTPException(status_code=400, detail="WhatsApp API kimlik bilgileri (Token / Phone Number ID) tanımlı değil.")
+        if payload.media_url:
+            full_url = payload.media_url
+            if full_url.startswith("/"):
+                host_hdr = request.headers.get("host") or "localhost:8000"
+                scheme = "https" if "443" in host_hdr or "https" in request.headers.get("x-forwarded-proto", "") else "http"
+                full_url = f"{scheme}://{host_hdr}{payload.media_url}"
+            dispatch_res = await send_whatsapp_media(
+                clean_phone,
+                payload.media_type or "document",
+                full_url,
+                caption=body_txt,
+                phone_number_id=w_phone_id,
+                token=w_token,
+                filename=payload.media_filename,
+            )
+        else:
+            dispatch_res = await send_whatsapp_message(clean_phone, body_txt, phone_number_id=w_phone_id, token=w_token)
+        if dispatch_res.get("status") in ("error", "dry_run"):
+            raise HTTPException(
+                status_code=400,
+                detail=f"WhatsApp mesajı gönderilemedi: {dispatch_res.get('detail') or dispatch_res.get('message')}",
+            )
+        sender_key = clean_phone
+        recipient_line = f"ID:{w_phone_id}"
+        stored_text = body_txt
+
+    if payload.media_url:
+        fname = payload.media_filename or payload.media_url.split("/")[-1]
+        m_tag = f"[MEDIA:{payload.media_type or 'document'}|{payload.media_url}|{fname}]"
+        stored_text = f"{stored_text}\n{m_tag}" if stored_text else m_tag
+
+    async with AsyncSessionLocal() as session:
+        if ch_norm == "email":
+            stmt_s = select(ChatSession).where(
+                func.lower(ChatSession.channel).in_(["email", "mail"]),
+                func.lower(ChatSession.sender_info) == sender_key.lower(),
+                ChatSession.status == "active",
+            )
+        else:
+            stmt_s = select(ChatSession).where(
+                ChatSession.channel == "whatsapp",
+                ChatSession.sender_info == sender_key,
+                ChatSession.status == "active",
+            )
+        res_s = await session.execute(stmt_s)
+        chat = res_s.scalars().first()
+        now_dt = datetime.datetime.utcnow()
+
+        if not chat:
+            chat = ChatSession(
+                id=str(uuid.uuid4()),
+                tenant_id=target_tenant,
+                channel=ch_norm,
+                sender_info=sender_key,
+                status="active",
+                assigned_agent="human",
+                assigned_user=agent_name,
+                recipient_info=recipient_line,
+                last_message_time=now_dt,
+            )
+            session.add(chat)
+            await session.commit()
+            await session.refresh(chat)
+        else:
+            chat.last_message_time = now_dt
+            chat.assigned_agent = "human"
+            chat.assigned_user = agent_name
+            if recipient_line and not chat.recipient_info:
+                chat.recipient_info = recipient_line
+
+        db_msg = ChatMessage(
+            session_id=chat.id,
+            direction="outbound",
+            sender="human",
+            text=stored_text,
+        )
+        session.add(db_msg)
+        await session.commit()
+        await session.refresh(db_msg)
+
+        stmt_contacts = select(Contact)
+        res_contacts = await session.execute(stmt_contacts)
+        contacts = res_contacts.scalars().all()
+        if ch_norm == "email":
+            contact_by_email = {
+                str(c.email).strip().lower(): f"{c.first_name or ''} {c.last_name or ''}".strip()
+                for c in contacts
+                if c.email
+            }
+            sender_name = contact_by_email.get(sender_key.lower())
+        else:
+            sender_name = resolve_contact_name_by_phone(contacts, sender_key)
+
+        session_payload = {
+            "id": chat.id,
+            "channel": chat.channel,
+            "sender_info": chat.sender_info,
+            "sender_name": sender_name,
+            "recipient_info": chat.recipient_info,
+            "status": chat.status,
+            "assigned_agent": chat.assigned_agent,
+            "assigned_user": chat.assigned_user,
+            "qa_score": chat.qa_score,
+            "last_message_time": chat.last_message_time.isoformat() + "Z",
+            "last_message_text": db_msg.text,
+            "last_message_direction": "outbound",
+            "last_message_sender": "human",
+        }
+
+        await ws_manager.broadcast_omnichannel_event({"type": "session_update", "session": session_payload})
+        await ws_manager.broadcast_omnichannel_event({
+            "type": "message",
+            "message": {
+                "id": db_msg.id,
+                "session_id": chat.id,
+                "direction": db_msg.direction,
+                "sender": db_msg.sender,
+                "text": db_msg.text,
+                "timestamp": db_msg.timestamp.isoformat() + "Z",
+            },
+        })
+
+        return {"status": "success", "session": session_payload, "dispatch": dispatch_res}
+
+
+class ChatForwardEmailSchema(BaseModel):
+    message_id: Optional[int] = None
+    to_email: str
+    cc: Optional[str] = None
+    bcc: Optional[str] = None
+    subject: Optional[str] = None
+    body_text: str
+    media_url: Optional[str] = None
+    media_filename: Optional[str] = None
+
+
+@app.post("/api/omnichannel/chats/{session_id}/forward")
+async def forward_omnichannel_email(
+    session_id: str,
+    payload: ChatForwardEmailSchema,
+    user_info: dict = Depends(get_user_info),
+):
+    import datetime
+    from backend.services.email_service import send_email_message
+    to_addr = (payload.to_email or "").strip()
+    if "@" not in to_addr:
+        raise HTTPException(status_code=400, detail="Geçerli bir hedef e-posta adresi giriniz.")
+
+    fwd_subj = (payload.subject or "").strip() or "Fwd: İletilen E-Posta"
+    dispatch_res = await send_email_message(
+        to_email=to_addr,
+        subject=fwd_subj,
+        body_text=payload.body_text or "",
+        media_url=payload.media_url,
+        filename=payload.media_filename,
+        cc_emails=payload.cc,
+        bcc_emails=payload.bcc,
+    )
+    if dispatch_res.get("status") != "success":
+        raise HTTPException(
+            status_code=400,
+            detail=f"E-posta iletilemedi: {dispatch_res.get('message') or 'SMTP hatası'}",
+        )
+
+    async with AsyncSessionLocal() as session:
+        chat = await session.get(ChatSession, session_id)
+        if chat:
+            chat.last_message_time = datetime.datetime.utcnow()
+            sys_msg = ChatMessage(
+                session_id=session_id,
+                direction="outbound",
+                sender="system",
+                text=f"İleti {to_addr} adresine yönlendirildi (Forward).",
+            )
+            session.add(sys_msg)
+            await session.commit()
+            await session.refresh(sys_msg)
+            await ws_manager.broadcast_omnichannel_event({
+                "type": "message",
+                "message": {
+                    "id": sys_msg.id,
+                    "session_id": session_id,
+                    "direction": sys_msg.direction,
+                    "sender": sys_msg.sender,
+                    "text": sys_msg.text,
+                    "timestamp": sys_msg.timestamp.isoformat() + "Z",
+                },
+            })
+
+    return {"status": "success", "message": f"E-posta {to_addr} adresine iletildi.", "dispatch": dispatch_res}
 
 @app.get("/api/omnichannel/whatsapp/status")
 async def get_whatsapp_diagnostics():
