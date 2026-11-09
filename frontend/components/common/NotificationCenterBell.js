@@ -36,7 +36,6 @@ export default function NotificationCenterBell({
   const [dueCallbacks, setDueCallbacks] = useState([]);
   const [dismissedPopupIds, setDismissedPopupIds] = useState(() => new Set());
   const [categoryFilter, setCategoryFilter] = useState("all");
-  const [desktopPushEnabled, setDesktopPushEnabled] = useState(false);
   const [spyLoadingId, setSpyLoadingId] = useState("");
 
   const containerRef = useRef(null);
@@ -94,8 +93,10 @@ export default function NotificationCenterBell({
 
   useEffect(() => {
     if (typeof window !== "undefined" && "Notification" in window) {
-      const savedPref = localStorage.getItem("aida_desktop_notif_enabled");
-      setDesktopPushEnabled(Notification.permission === "granted" && savedPref !== "false");
+      localStorage.removeItem("aida_desktop_notif_enabled");
+      if (Notification.permission === "default") {
+        Notification.requestPermission().catch(() => {});
+      }
     }
   }, []);
 
@@ -118,7 +119,6 @@ export default function NotificationCenterBell({
 
   const triggerBrowserNotification = useCallback((item) => {
     if (typeof window === "undefined") return;
-    if (localStorage.getItem("aida_desktop_notif_enabled") === "false") return;
     if (isNativeElectron()) {
       sendDesktopNotification({
         title: item.title || "AIDA Bildirimi",
@@ -286,20 +286,6 @@ export default function NotificationCenterBell({
     await markIdsRead(allIds);
   };
 
-  const handleToggleDesktopPush = async () => {
-    if (typeof window === "undefined" || !("Notification" in window)) return;
-    if (desktopPushEnabled) {
-      localStorage.setItem("aida_desktop_notif_enabled", "false");
-      setDesktopPushEnabled(false);
-      return;
-    }
-    const perm = await Notification.requestPermission();
-    if (perm === "granted") {
-      localStorage.setItem("aida_desktop_notif_enabled", "true");
-      setDesktopPushEnabled(true);
-    }
-  };
-
   const handleItemClick = (item) => {
     closeDrawerAndDismissSeen(item?.id ? [item.id] : []);
     if (item.target_tab && typeof onNavigateTab === "function") {
@@ -445,24 +431,6 @@ export default function NotificationCenterBell({
               </div>
 
               <div className="flex items-center gap-1.5">
-                {typeof window !== "undefined" && "Notification" in window && (
-                  <button
-                    type="button"
-                    onClick={handleToggleDesktopPush}
-                    title={
-                      desktopPushEnabled
-                        ? "Masaüstü Anlık Bildirimleri Açık (Kapatmak için tıklayın)"
-                        : "Masaüstü Anlık Bildirimlerini Etkinleştir"
-                    }
-                    className={`px-2 py-1 rounded-lg text-[9px] font-bold border transition cursor-pointer ${
-                      desktopPushEnabled
-                        ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/30"
-                        : "bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 border-slate-200 dark:border-slate-700"
-                    }`}
-                  >
-                    {desktopPushEnabled ? "Masaüstü: Açık" : "Masaüstü: Kapalı"}
-                  </button>
-                )}
                 {notifications.length > 0 && (
                   <button
                     type="button"
