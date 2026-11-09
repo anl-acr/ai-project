@@ -149,12 +149,22 @@ export default function AgentSessionCard({ backendHost = "localhost:8000", curre
   // ACW countdown timer
   useEffect(() => {
     if (agentState?.status !== "acw") {
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(new CustomEvent("AGENT_ACW_STATE", { detail: { active: false, remaining: 0 } }));
+      }
       return;
     }
     if (acwRemaining <= 0) {
       const { acwTime } = getAgentQueueConfig();
-      setAcwRemaining(acwTime > 0 ? acwTime : 15);
+      const nextRem = acwTime > 0 ? acwTime : 15;
+      setAcwRemaining(nextRem);
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(new CustomEvent("AGENT_ACW_STATE", { detail: { active: true, remaining: nextRem } }));
+      }
       return;
+    }
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(new CustomEvent("AGENT_ACW_STATE", { detail: { active: true, remaining: acwRemaining } }));
     }
     const timer = setInterval(() => {
       setAcwRemaining((prev) => {
@@ -168,6 +178,26 @@ export default function AgentSessionCard({ backendHost = "localhost:8000", curre
     }, 1000);
     return () => clearInterval(timer);
   }, [agentState?.status, acwRemaining]);
+
+  useEffect(() => {
+    const onFinishAcw = () => {
+      if (agentState?.status === "acw") {
+        handleEndBreak();
+      }
+    };
+    const onDispSelected = (e) => {
+      if (e?.detail?.code) {
+        setSelectedDisposition(e.detail.code);
+        setDispositionSaved(true);
+      }
+    };
+    window.addEventListener("FINISH_AGENT_ACW", onFinishAcw);
+    window.addEventListener("CALL_DISPOSITION_SELECTED", onDispSelected);
+    return () => {
+      window.removeEventListener("FINISH_AGENT_ACW", onFinishAcw);
+      window.removeEventListener("CALL_DISPOSITION_SELECTED", onDispSelected);
+    };
+  }, [agentState?.status, effectiveUserId, currentUser?.extension]);
 
   // 1-second live timer when logged in (online, break, or acw) — paused when card is hidden
   useEffect(() => {

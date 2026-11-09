@@ -603,7 +603,8 @@ export default function AgentPanel({ backendHost, currentUser, activeCallId, isV
             "call_panel:webphone_conference",
             "call_panel:webphone_reject",
             "call_panel:webphone_mask_number",
-            "call_panel:cti_screen_pop"
+            "call_panel:cti_screen_pop",
+            "call_panel:ai_note_assistant"
           ].includes(p)
         )
       : false;
@@ -666,6 +667,8 @@ export default function AgentPanel({ backendHost, currentUser, activeCallId, isV
       perms.includes("cti_integration:write");
     const canPauseRecording =
       isRoleAdmin || Boolean(perms && perms.includes("call_panel:pause_recording"));
+    const canAiNoteAssistant =
+      isRoleAdmin || checkWebphoneFeature("call_panel:ai_note_assistant");
 
     return {
       rawPermissions: perms || [],
@@ -676,6 +679,7 @@ export default function AgentPanel({ backendHost, currentUser, activeCallId, isV
       canConference: checkWebphoneFeature("call_panel:webphone_conference"),
       canRejectCall: checkWebphoneFeature("call_panel:webphone_reject"),
       canCtiScreenPop,
+      canAiNoteAssistant,
       canLiveTranslate,
       canVoiceInterpret,
       canPauseRecording,

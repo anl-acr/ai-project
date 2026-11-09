@@ -1349,7 +1349,7 @@ DEFAULT_SETTINGS = {
                 "call_panel:tab_dashboard", "call_panel:tab_webphone", "call_panel:tab_deskphone", "call_panel:tab_agents", "call_panel:tab_speeddial",
                 "call_panel:tab_missed", "call_panel:tab_directory", "call_panel:tab_history", "call_panel:tab_voicemail", "call_panel:tab_chat",
                 "call_panel:webphone_save_contact", "call_panel:webphone_transfer", "call_panel:webphone_conference", "call_panel:webphone_reject", "call_panel:pause_recording",
-                "call_panel:cti_screen_pop", "cti_integration:read", "cti_integration:write",
+                "call_panel:cti_screen_pop", "call_panel:ai_note_assistant", "cti_integration:read", "cti_integration:write",
                 "call_panel:agents_status", "call_panel:agents_duration", "call_panel:agents_call_counts", "call_panel:agents_login_logout",
                 # Yapay Zeka & Bilgi
                 "ai_agents:read", "ai_agents:write", "ai_agents:delete", "ai_agents:access",
@@ -1445,7 +1445,7 @@ DEFAULT_SETTINGS = {
                 "call_panel:tab_dashboard", "call_panel:tab_webphone", "call_panel:tab_deskphone", "call_panel:tab_agents", "call_panel:tab_speeddial",
                 "call_panel:tab_missed", "call_panel:tab_directory", "call_panel:tab_history", "call_panel:tab_voicemail", "call_panel:tab_chat",
                 "call_panel:webphone_save_contact", "call_panel:webphone_transfer", "call_panel:webphone_conference", "call_panel:webphone_reject", "call_panel:pause_recording",
-                "call_panel:cti_screen_pop", "cti_integration:read", "cti_integration:write",
+                "call_panel:cti_screen_pop", "call_panel:ai_note_assistant", "cti_integration:read", "cti_integration:write",
                 "call_panel:agents_status", "call_panel:agents_duration", "call_panel:agents_call_counts", "call_panel:agents_login_logout",
                 "ai_agents:read", "ai_agents:write", "ai_agent_scenarios:read", "ai_agent_scenarios:write",
                 "rag_kb:read", "rag_kb:write", "rule_editor:read", "rule_editor:write",
@@ -1513,6 +1513,7 @@ DEFAULT_SETTINGS = {
                 "call_panel:tab_dashboard", "call_panel:tab_webphone", "call_panel:tab_agents", "call_panel:tab_speeddial",
                 "call_panel:tab_missed", "call_panel:tab_directory", "call_panel:tab_history", "call_panel:tab_voicemail", "call_panel:tab_chat",
                 "call_panel:listen_records", "call_panel:view_transcripts", "call_panel:webphone_save_contact", "call_panel:webphone_transfer", "call_panel:webphone_conference", "call_panel:webphone_reject",
+                "call_panel:ai_note_assistant",
                 "call_panel:agents_status", "call_panel:agents_duration", "call_panel:agents_call_counts", "call_panel:agents_login_logout",
                 "contacts:read", "contacts:write",
                 "calendar:read", "calendar:write",
@@ -2395,7 +2396,7 @@ def load_settings(force_reload: bool = False, persist: bool = False):
                 for tr_perm in ["live_translator:access", "call_panel:live_translation", "call_panel:voice_interpreter"]:
                     if tr_perm not in new_perms:
                         new_perms.append(tr_perm)
-                for cti_perm in ["cti_integration:read", "cti_integration:write", "call_panel:cti_screen_pop"]:
+                for cti_perm in ["cti_integration:read", "cti_integration:write", "call_panel:cti_screen_pop", "call_panel:ai_note_assistant"]:
                     if cti_perm not in new_perms:
                         new_perms.append(cti_perm)
                 if "ai_task_routing:read" not in new_perms:
@@ -2590,7 +2591,7 @@ def load_settings(force_reload: bool = False, persist: bool = False):
                     "call_panel:tab_dashboard", "call_panel:tab_webphone", "call_panel:tab_agents", "call_panel:tab_speeddial",
                     "call_panel:tab_missed", "call_panel:tab_directory", "call_panel:tab_history", "call_panel:tab_voicemail", "call_panel:tab_chat",
                     "call_panel:listen_records", "call_panel:view_transcripts", "call_panel:webphone_save_contact", "call_panel:webphone_transfer",
-                    "call_panel:webphone_conference", "call_panel:webphone_reject",
+                    "call_panel:webphone_conference", "call_panel:webphone_reject", "call_panel:ai_note_assistant",
                     "call_panel:agents_status", "call_panel:agents_duration", "call_panel:agents_call_counts", "call_panel:agents_login_logout",
                 ]
                 for cp_p in default_cp_subs:
@@ -14419,7 +14420,7 @@ async def test_ai_task_routing_endpoint(payload: dict, user_info: dict = Depends
         res = await generate_routed_text(
             task_id=task_id,
             prompt="Müşteri: Faturamı ödemek istiyorum. Temsilci: Hemen yardımcı oluyorum, işleminiz tamamlandı. Müşteri: Çok teşekkürler!\nKısa özet ve duygu analizi JSON üret: {\"summary\": \"...\", \"sentiment\": \"Memnun\"}",
-            json_mode=(task_id in ("call_summary_sentiment", "call_qa_scoring", "chat_qa_scoring", "scenario_generator", "custom_report_generator", "pbx_config_assistant")),
+            json_mode=(task_id in ("call_summary_sentiment", "agent_call_note_assistant", "call_qa_scoring", "chat_qa_scoring", "scenario_generator", "custom_report_generator", "pbx_config_assistant")),
             tenant_id=target_tenant,
             interactive=True,
         )
@@ -19605,8 +19606,15 @@ async def save_call_notes(call_id: str, payload: CallNotesSchema, db: AsyncSessi
     if not call:
         raise HTTPException(status_code=404, detail="Call not found")
         
-    call.agent_topic = payload.topic
-    call.agent_notes = payload.notes
+    if payload.topic and str(payload.topic).strip():
+        call.agent_topic = str(payload.topic).strip()
+    incoming_note = str(payload.notes or "").strip()
+    existing_note = str(call.agent_notes or "").strip()
+    if incoming_note.startswith("Çağrı Sonuç Kodu (Disposition):") and existing_note and not existing_note.startswith("Çağrı Sonuç Kodu (Disposition):"):
+        # Preserve existing detailed note when only disposition tag is clicked
+        pass
+    elif incoming_note or not existing_note:
+        call.agent_notes = incoming_note
     try:
         from backend.services.agent_presence import get_agent_state
         st = get_agent_state()
@@ -19624,7 +19632,197 @@ async def save_call_notes(call_id: str, payload: CallNotesSchema, db: AsyncSessi
     except Exception:
         pass
     await db.commit()
-    return {"status": "success", "message": "Call notes saved"}
+    return {"status": "success", "message": "Call notes saved", "topic": call.agent_topic, "notes": call.agent_notes}
+
+
+@app.post("/api/calls/generate-ai-note")
+async def generate_ai_call_note_endpoint(
+    payload: dict,
+    user_info: dict = Depends(get_user_info),
+    db: AsyncSession = Depends(get_db)
+):
+    role_code = str(user_info.get("role") or "agent").lower().strip()
+    target_tenant = user_info.get("tenant_id") or "tenant-default"
+
+    if role_code != "admin":
+        roles_list = settings_db.get("roles", [])
+        matched_role = next(
+            (
+                r for r in roles_list
+                if str(r.get("role_code") or "").lower().strip() == role_code
+                or str(r.get("name") or "").lower().strip() == role_code
+            ),
+            None
+        )
+        perms = (matched_role or {}).get("permissions") or []
+        has_webphone_subs = any(
+            p in (
+                "call_panel:listen_records",
+                "call_panel:view_transcripts",
+                "call_panel:webphone_save_contact",
+                "call_panel:webphone_transfer",
+                "call_panel:webphone_conference",
+                "call_panel:webphone_reject",
+                "call_panel:cti_screen_pop",
+                "call_panel:ai_note_assistant",
+            )
+            for p in perms
+        )
+        if has_webphone_subs and "call_panel:ai_note_assistant" not in perms:
+            raise HTTPException(
+                status_code=403,
+                detail="Bu rol için AI Otomatik Çağrı Notu çıkarma yetkisi (call_panel:ai_note_assistant) kapalıdır."
+            )
+
+    call_id = str(payload.get("call_id") or "").strip()
+    caller_number = str(payload.get("caller_number") or "").strip()
+    caller_name = str(payload.get("caller_name") or "").strip()
+    disposition_codes = payload.get("disposition_codes") or [
+        "Satış Yapıldı",
+        "Bilgi Verildi",
+        "Tekrar Aranacak",
+        "Teknik Destek",
+        "İptal / Şikayet",
+    ]
+    raw_turns = payload.get("transcript_turns") or []
+
+    dialogue_lines = []
+    seen_texts = set()
+
+    for t in raw_turns:
+        if not isinstance(t, dict):
+            continue
+        spk_raw = str(t.get("speaker") or "customer").lower()
+        spk_label = "Müşteri" if spk_raw in ("customer", "user", "caller") else "Temsilci"
+        txt = str(t.get("text") or "").strip()
+        if txt:
+            clean_txt = txt.split("[[ORIG:")[0].strip()
+            if clean_txt and clean_txt not in seen_texts:
+                seen_texts.add(clean_txt)
+                dialogue_lines.append(f"{spk_label}: {clean_txt}")
+
+    db_call = None
+    if call_id:
+        try:
+            stmt_c = select(Call).where(Call.id == call_id)
+            res_c = await db.execute(stmt_c)
+            db_call = res_c.scalar_one_or_none()
+        except Exception:
+            db_call = None
+
+        try:
+            stmt_t = select(Transcript).where(Transcript.call_id == call_id).order_by(Transcript.timestamp.asc())
+            res_t = await db.execute(stmt_t)
+            db_tr_list = res_t.scalars().all()
+            for tr in db_tr_list:
+                txt = str(tr.text or "").split("[[ORIG:")[0].strip()
+                if txt and txt not in seen_texts:
+                    seen_texts.add(txt)
+                    spk_label = "Müşteri" if str(tr.speaker or "").lower() in ("customer", "user", "caller") else "Temsilci"
+                    dialogue_lines.append(f"{spk_label}: {txt}")
+        except Exception:
+            pass
+
+    # If no live turns were captured yet, check if call recording WAV exists on disk and transcribe on-the-fly
+    if not dialogue_lines and call_id:
+        try:
+            from backend.services.ai_task_router import transcribe_routed_audio
+            cand_wavs = [
+                os.path.join("/var/spool/asterisk/monitor", f"{call_id}.wav"),
+                os.path.join(RECORDINGS_DIR, f"{call_id}.wav"),
+            ]
+            wav_fp = next((p for p in cand_wavs if os.path.isfile(p) and os.path.getsize(p) > 1000), None)
+            if wav_fp:
+                prov_w, turns_w = await transcribe_routed_audio(wav_fp, tenant_id=target_tenant)
+                for spk_w, txt_w in (turns_w or []):
+                    clean_w = str(txt_w or "").split("[[ORIG:")[0].strip()
+                    if clean_w and clean_w not in seen_texts:
+                        seen_texts.add(clean_w)
+                        lbl_w = "Müşteri" if spk_w == "customer" else "Temsilci"
+                        dialogue_lines.append(f"{lbl_w}: {clean_w}")
+        except Exception as e_tr_fb:
+            print(f"[AI Note Assistant Audio Fallback Warning]: {e_tr_fb}")
+
+    if not dialogue_lines and db_call and db_call.summary:
+        dialogue_lines.append(f"Çağrı Özeti: {db_call.summary}")
+
+    if not dialogue_lines:
+        return {
+            "status": "empty",
+            "message": "Henüz görüşmede konuşma metni algılanmadı. Konuşma devam ettikçe veya sesli dikte ile not oluşturabilirsiniz.",
+            "suggested_note": "",
+            "suggested_disposition": "",
+        }
+
+    transcript_block = "\n".join(dialogue_lines[-40:])
+    disp_list_str = ", ".join(str(c) for c in disposition_codes if c)
+
+    sys_inst = (
+        "Sen kurumsal bir çağrı merkezi temsilci asistanısın (AI Agent Assist). "
+        "Verilen müşteri-temsilci telefon görüşmesi dökümünü analiz et ve temsilcinin çağrı kaydına (CRM/CDR) "
+        "yazması gereken kısa, net, aksiyon odaklı Türkçe görüşme notunu ve en uygun sonuç kodunu (disposition) JSON olarak döndür. "
+        "Yanıtın SADECE geçerli bir JSON objesi olmalıdır:\n"
+        '{\n'
+        '  "suggested_note": "1-2 cümlelik net kurumsal görüşme özeti ve alınacak aksiyon",\n'
+        '  "suggested_disposition": "Verilen sonuç kodları listesinden en uygun 1 tanesi",\n'
+        '  "key_points": ["Önemli nokta 1", "Önemli nokta 2"]\n'
+        '}'
+    )
+    user_prompt = (
+        f"Arayan Kişi/Numara: {caller_name or caller_number or 'Bilinmiyor'}\n"
+        f"Mevcut Sonuç Kodları Listesi: [{disp_list_str}]\n\n"
+        f"Görüşme Konuşma Dökümü:\n{transcript_block}\n\n"
+        "Lütfen bu görüşme için temsilcinin kaydedeceği özeti (suggested_note) ve listedeki en uygun sonuç kodunu (suggested_disposition) JSON formatında üret."
+    )
+
+    try:
+        from backend.services.ai_task_router import generate_routed_text
+        routed_res = await generate_routed_text(
+            task_id="agent_call_note_assistant",
+            prompt=user_prompt,
+            system_instruction=sys_inst,
+            json_mode=True,
+            tenant_id=target_tenant,
+            interactive=True,
+        )
+        raw_out = str(routed_res.get("text") or "").strip()
+        cleaned_json = raw_out
+        if "```" in cleaned_json:
+            import re as _re_note
+            m_json = _re_note.search(r"\{[\s\S]*\}", cleaned_json)
+            if m_json:
+                cleaned_json = m_json.group(0)
+        parsed = {}
+        try:
+            parsed = json.loads(cleaned_json)
+        except Exception:
+            parsed = {"suggested_note": raw_out, "suggested_disposition": ""}
+
+        suggested_note = str(parsed.get("suggested_note") or parsed.get("note") or parsed.get("summary") or "").strip()
+        suggested_disp = str(parsed.get("suggested_disposition") or parsed.get("disposition") or "").strip()
+        key_points = parsed.get("key_points") if isinstance(parsed.get("key_points"), list) else []
+
+        # Match suggested_disp case-insensitively against available disposition_codes
+        if suggested_disp and disposition_codes:
+            exact_match = next(
+                (str(c) for c in disposition_codes if str(c).strip().lower() == suggested_disp.lower()),
+                None
+            )
+            if exact_match:
+                suggested_disp = exact_match
+
+        return {
+            "status": "success",
+            "suggested_note": suggested_note,
+            "suggested_disposition": suggested_disp,
+            "key_points": [str(kp) for kp in key_points[:4] if kp],
+            "provider_used": routed_res.get("provider_used", "gemini"),
+            "model_used": routed_res.get("model_used", ""),
+            "fallback_used": bool(routed_res.get("fallback_used")),
+        }
+    except Exception as e_ai_note:
+        print(f"[AI Note Assistant Error]: {e_ai_note}")
+        raise HTTPException(status_code=500, detail=f"AI Not Asistanı yanıt üretemedi: {e_ai_note}")
 
 class TranscriptBroadcastSchema(BaseModel):
     call_id: str

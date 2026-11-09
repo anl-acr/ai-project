@@ -34,7 +34,8 @@ import {
   Sparkles,
   ShieldCheck,
   ShieldAlert,
-  Volume2
+  Volume2,
+  Loader2
 } from "lucide-react";
 import { useTheme } from "../../../utils/theme";
 import { findContactByPhone, maskPhoneLast4 } from "../../../utils/contactUtils";
@@ -70,6 +71,7 @@ export default function AgentWebphoneTab({
   const canLiveTranslate = Boolean(callPanelPerms.canLiveTranslate || callPanelPerms.canViewTranscripts !== false);
   const canVoiceInterpret = Boolean(callPanelPerms.canVoiceInterpret);
   const canPauseRecording = Boolean(callPanelPerms.canPauseRecording);
+  const canAiNoteAssistant = callPanelPerms.canAiNoteAssistant !== false;
   const hasAnyTranslatorPerm = canLiveTranslate || canVoiceInterpret;
   const maskPhoneNumbers = Boolean(callPanelPerms.maskPhoneNumbers);
   const userCtiConfig = webphoneManager.resolveUserCtiConfig();
@@ -95,15 +97,36 @@ export default function AgentWebphoneTab({
   const [savingContact, setSavingContact] = useState(false);
   const [contactError, setContactError] = useState("");
 
-  // Quick Disposition & In-Call Note State
+  // Quick Disposition & In-Call / Post-Call ACW Note State
   const [dispositionCodes, setDispositionCodes] = useState(DEFAULT_DISPOSITIONS);
+  const [defaultAcwSeconds, setDefaultAcwSeconds] = useState(20);
   const [selectedDisposition, setSelectedDisposition] = useState("");
   const [callNote, setCallNote] = useState("");
   const [noteSaved, setNoteSaved] = useState(false);
+  const [isDictatingNote, setIsDictatingNote] = useState(false);
+  const [aiNoteLoading, setAiNoteLoading] = useState(false);
+  const [aiNoteSuggestion, setAiNoteSuggestion] = useState(null);
+  const [aiNoteError, setAiNoteError] = useState("");
+  const [acwWrapUp, setAcwWrapUp] = useState({
+    active: false,
+    remaining: 0,
+    callId: null,
+    remoteNumber: "",
+    displayName: "",
+    queueName: "",
+    duration: 0,
+    isInternal: false
+  });
 
   const inputRef = useRef(null);
+  const noteInputRef = useRef(null);
   const backspaceHoldTimeoutRef = useRef(null);
   const backspaceHoldIntervalRef = useRef(null);
+  const noteDictationRecRef = useRef(null);
+  const callTranscriptTurnsRef = useRef([]);
+  const lastActiveCallSnapshotRef = useRef(null);
+  const prevCallStatusRef = useRef("Idle");
+  const autoAiTriggeredForCallRef = useRef(null);
 
   useEffect(() => {
     const unsub = webphoneManager.subscribe((state) => {
@@ -161,13 +184,18 @@ export default function AgentWebphoneTab({
         const qData = await queuesRes.json();
         const list = Array.isArray(qData) ? qData : qData?.queues || [];
         const codes = new Set();
+        let resolvedAcw = 20;
         list.forEach((q) => {
+          if (typeof q.acw_time === "number" && q.acw_time > 0) {
+            resolvedAcw = q.acw_time;
+          }
           if (Array.isArray(q.disposition_codes)) {
             q.disposition_codes.forEach((c) => {
               if (c && String(c).trim()) codes.add(String(c).trim());
             });
           }
         });
+        setDefaultAcwSeconds(resolvedAcw);
         if (codes.size > 0) setDispositionCodes(Array.from(codes));
       }
     } catch (err) {
@@ -247,24 +275,274 @@ export default function AgentWebphoneTab({
     return () => clearInterval(meterTimer);
   }, [isWebphoneScreenActive, callStatus, activeLineId, isConferenceActive, noiseSuppressionMode]);
 
+  // Capture live conversation turns during call for AI Note Assistant
+  useEffect(() => {
+    const onLiveTurn = (e) => {
+      const spk = e?.detail?.speaker || "customer";
+      const txt = String(e?.detail?.text || "").trim();
+      if (!txt) return;
+      const arr = callTranscriptTurnsRef.current || [];
+      if (arr.length === 0 || arr[arr.length - 1]?.text !== txt) {
+        callTranscriptTurnsRef.current = [...arr.slice(-39), { speaker: spk, text: txt }];
+      }
+    };
+    const onAcwSync = (e) => {
+      const isAct = Boolean(e?.detail?.active);
+      const rem = Number(e?.detail?.remaining || 0);
+      if (isAct && rem > 0) {
+        setAcwWrapUp((prev) => (prev.active ? { ...prev, remaining: rem } : prev));
+      } else if (!isAct) {
+        setAcwWrapUp((prev) => (prev.active ? { ...prev, active: false, remaining: 0 } : prev));
+      }
+    };
+    const onDispSync = (e) => {
+      if (e?.detail?.code) {
+        setSelectedDisposition(e.detail.code);
+      }
+    };
+    window.addEventListener("LIVE_TRANSLATION_TURN", onLiveTurn);
+    window.addEventListener("AGENT_ACW_STATE", onAcwSync);
+    window.addEventListener("CALL_DISPOSITION_SELECTED", onDispSync);
+    return () => {
+      window.removeEventListener("LIVE_TRANSLATION_TURN", onLiveTurn);
+      window.removeEventListener("AGENT_ACW_STATE", onAcwSync);
+      window.removeEventListener("CALL_DISPOSITION_SELECTED", onDispSync);
+    };
+  }, []);
+
+  // Local fallback ACW countdown timer so Post-Call Note Card stays visible for ACW duration even for non-queue calls
+  useEffect(() => {
+    if (!acwWrapUp.active || callStatus !== "Idle") return;
+    if (acwWrapUp.remaining <= 0) {
+      setAcwWrapUp((prev) => ({ ...prev, active: false, remaining: 0 }));
+      return;
+    }
+    const timer = setInterval(() => {
+      setAcwWrapUp((prev) => {
+        if (!prev.active || prev.remaining <= 1) {
+          clearInterval(timer);
+          return { ...prev, active: false, remaining: 0 };
+        }
+        return { ...prev, remaining: prev.remaining - 1 };
+      });
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [acwWrapUp.active, acwWrapUp.remaining, callStatus]);
+
+  const stopNoteDictation = () => {
+    if (noteDictationRecRef.current) {
+      try {
+        noteDictationRecRef.current.onresult = null;
+        noteDictationRecRef.current.onerror = null;
+        noteDictationRecRef.current.onend = null;
+        noteDictationRecRef.current.stop();
+      } catch (e) {}
+      noteDictationRecRef.current = null;
+    }
+    setIsDictatingNote(false);
+  };
+
+  const toggleNoteDictation = () => {
+    if (isDictatingNote) {
+      stopNoteDictation();
+      return;
+    }
+    if (typeof window === "undefined") return;
+    const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SpeechRec) {
+      setCallNotification({
+        type: "error",
+        message: "Tarayıcınız sesli dikte (Web Speech API) özelliğini desteklemiyor."
+      });
+      return;
+    }
+    try {
+      const rec = new SpeechRec();
+      rec.lang = "tr-TR";
+      rec.continuous = true;
+      rec.interimResults = false;
+      rec.onresult = (event) => {
+        let added = "";
+        for (let i = event.resultIndex; i < event.results.length; i++) {
+          if (event.results[i].isFinal) {
+            added += (event.results[i][0]?.transcript || "") + " ";
+          }
+        }
+        const clean = added.trim();
+        if (clean) {
+          setCallNote((prev) => {
+            const p = String(prev || "").trim();
+            return p ? `${p} ${clean}` : clean;
+          });
+        }
+      };
+      rec.onerror = () => {
+        setIsDictatingNote(false);
+        noteDictationRecRef.current = null;
+      };
+      rec.onend = () => {
+        setIsDictatingNote(false);
+        noteDictationRecRef.current = null;
+      };
+      noteDictationRecRef.current = rec;
+      rec.start();
+      setIsDictatingNote(true);
+      noteInputRef.current?.focus();
+    } catch (e) {
+      setIsDictatingNote(false);
+    }
+  };
+
+  useEffect(() => {
+    return () => stopNoteDictation();
+  }, []);
+
+  const handleGenerateAiNote = async (overrideCallId = null, opts = {}) => {
+    if (!canAiNoteAssistant || aiNoteLoading) return;
+    const targetCallId = overrideCallId || activeCallId || acwWrapUp.callId || lastActiveCallSnapshotRef.current?.callId;
+    const snap = lastActiveCallSnapshotRef.current || {};
+    setAiNoteLoading(true);
+    setAiNoteError("");
+    try {
+      const protocol = window.location.protocol;
+      const uid =
+        (typeof window !== "undefined" &&
+          (sessionStorage.getItem("current_user_id") || localStorage.getItem("current_user_id"))) ||
+        currentUser?.id ||
+        myExt;
+      const tId =
+        (typeof window !== "undefined" &&
+          (localStorage.getItem("selected_tenant_id") || sessionStorage.getItem("selected_tenant_id"))) ||
+        "";
+      const headers = {
+        "Content-Type": "application/json",
+        "X-User-ID": String(uid)
+      };
+      if (tId) headers["X-Tenant-ID"] = tId;
+
+      const res = await fetch(`${protocol}//${backendHost}/api/calls/generate-ai-note`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({
+          call_id: targetCallId || "",
+          caller_number: remoteNumber || acwWrapUp.remoteNumber || snap.remoteNumber || "",
+          caller_name: snap.displayName || acwWrapUp.displayName || "",
+          transcript_turns: callTranscriptTurnsRef.current || [],
+          disposition_codes: dispositionCodes
+        })
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        if (!opts.auto) {
+          setAiNoteError(data?.detail || "AI not önerisi alınamadı.");
+        }
+        return;
+      }
+      if (data.status === "empty") {
+        if (!opts.auto) {
+          setAiNoteError(data.message || "Henüz konuşma metni algılanmadı.");
+        }
+        return;
+      }
+      if (data.suggested_note || data.suggested_disposition) {
+        const suggestionObj = {
+          note: data.suggested_note || "",
+          disposition: data.suggested_disposition || "",
+          keyPoints: Array.isArray(data.key_points) ? data.key_points : [],
+          provider: data.provider_used || "ai",
+          model: data.model_used || ""
+        };
+        setAiNoteSuggestion(suggestionObj);
+        if (data.suggested_note) {
+          setCallNote((prev) => (String(prev || "").trim() ? prev : data.suggested_note));
+        }
+        if (data.suggested_disposition && !selectedDisposition) {
+          setSelectedDisposition(data.suggested_disposition);
+        }
+      }
+    } catch (err) {
+      if (!opts.auto) {
+        setAiNoteError("AI Not Asistanı bağlantı hatası.");
+      }
+    } finally {
+      setAiNoteLoading(false);
+    }
+  };
+
   useEffect(() => {
     if (callStatus !== "InCall") {
       setIsRecordingPaused(false);
       setRecordingPauseBusy(false);
     }
-    if (callStatus === "Idle" && lines.length === 0) {
+
+    // When a NEW call begins (Ringing or Calling or new InCall), clear previous post-call ACW wrap-up
+    if (
+      (callStatus === "Calling" || callStatus === "Ringing" || callStatus === "InCall") &&
+      prevCallStatusRef.current === "Idle"
+    ) {
+      setAcwWrapUp({
+        active: false,
+        remaining: 0,
+        callId: null,
+        remoteNumber: "",
+        displayName: "",
+        queueName: "",
+        duration: 0,
+        isInternal: false
+      });
+      setSelectedDisposition("");
+      setCallNote("");
+      setNoteSaved(false);
+      setAiNoteSuggestion(null);
+      setAiNoteError("");
+      callTranscriptTurnsRef.current = [];
+    }
+
+    // Transition from InCall -> Idle: Enter Post-Call ACW Note & Disposition Wrap-Up Mode
+    if (prevCallStatusRef.current === "InCall" && callStatus === "Idle" && lines.length === 0) {
       setTransferOpen(false);
       setConferenceOpen(false);
       setIsNewCallOpen(false);
       setTransferTarget("");
       setConferenceTarget("");
       setNewCallInput("");
-      setSelectedDisposition("");
-      setCallNote("");
-      setNoteSaved(false);
       fetchContactsAndDirectory();
+
+      const snap = lastActiveCallSnapshotRef.current || {};
+      const wrapSecs = defaultAcwSeconds > 0 ? defaultAcwSeconds : 20;
+      const endedCallId = snap.callId || activeCallId || null;
+      setAcwWrapUp({
+        active: true,
+        remaining: wrapSecs,
+        callId: endedCallId,
+        remoteNumber: snap.remoteNumber || "",
+        displayName: snap.displayName || "",
+        queueName: snap.queueName || "",
+        duration: snap.duration || 0,
+        isInternal: Boolean(snap.isInternal)
+      });
+
+      if (
+        canAiNoteAssistant &&
+        endedCallId !== autoAiTriggeredForCallRef.current &&
+        ((callTranscriptTurnsRef.current && callTranscriptTurnsRef.current.length > 0) || endedCallId)
+      ) {
+        autoAiTriggeredForCallRef.current = endedCallId || `call_${Date.now()}`;
+        setTimeout(() => {
+          handleGenerateAiNote(endedCallId, { auto: true });
+        }, 350);
+      }
+    } else if (callStatus === "Idle" && lines.length === 0 && !acwWrapUp.active) {
+      setTransferOpen(false);
+      setConferenceOpen(false);
+      setIsNewCallOpen(false);
+      setTransferTarget("");
+      setConferenceTarget("");
+      setNewCallInput("");
     }
-  }, [callStatus, lines.length]);
+
+    prevCallStatusRef.current = callStatus;
+  }, [callStatus, lines.length, defaultAcwSeconds, canAiNoteAssistant, activeCallId]);
 
   const toggleRecordingPause = async () => {
     if (!canPauseRecording || callStatus !== "InCall" || recordingPauseBusy) return;
@@ -394,19 +672,39 @@ export default function AgentWebphoneTab({
     webphoneManager.toggleHold();
   };
 
-  const handleSaveCallDispositionAndNote = async (codeOverride = null) => {
+  const handleFinishAcwWrapUp = () => {
+    stopNoteDictation();
+    setAcwWrapUp((prev) => ({ ...prev, active: false, remaining: 0 }));
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(new CustomEvent("FINISH_AGENT_ACW"));
+    }
+  };
+
+  const handleSaveCallDispositionAndNote = async (codeOverride = null, opts = {}) => {
     const topicToSave = codeOverride !== null ? codeOverride : selectedDisposition;
     if (codeOverride !== null) {
       setSelectedDisposition(codeOverride);
     }
-    if (!activeCallId) {
+    const targetCallId =
+      activeCallId || acwWrapUp.callId || lastActiveCallSnapshotRef.current?.callId || null;
+
+    if (typeof window !== "undefined" && topicToSave) {
+      window.dispatchEvent(
+        new CustomEvent("CALL_DISPOSITION_SELECTED", { detail: { code: topicToSave, callId: targetCallId } })
+      );
+    }
+
+    if (!targetCallId) {
       setNoteSaved(true);
       setTimeout(() => setNoteSaved(false), 2500);
+      if (opts?.finishAcw) {
+        handleFinishAcwWrapUp();
+      }
       return;
     }
     try {
       const protocol = window.location.protocol;
-      await fetch(`${protocol}//${backendHost}/api/calls/${activeCallId}/notes`, {
+      await fetch(`${protocol}//${backendHost}/api/calls/${targetCallId}/notes`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -416,6 +714,10 @@ export default function AgentWebphoneTab({
       });
       setNoteSaved(true);
       setTimeout(() => setNoteSaved(false), 2500);
+      fetchContactsAndDirectory();
+      if (opts?.finishAcw) {
+        handleFinishAcwWrapUp();
+      }
     } catch (e) {
       console.error("Not kaydedilemedi:", e);
     }
@@ -479,6 +781,19 @@ export default function AgentWebphoneTab({
   );
   const displayPhoneNum =
     callStatus !== "Idle" && maskPhoneNumbers ? maskPhoneLast4(activePhoneNum, true) : activePhoneNum;
+
+  useEffect(() => {
+    if (callStatus === "InCall" || callStatus === "Calling" || callStatus === "Ringing") {
+      lastActiveCallSnapshotRef.current = {
+        callId: activeCallId || lastActiveCallSnapshotRef.current?.callId || null,
+        remoteNumber: activePhoneNum || "",
+        displayName: resolvedDisplayName || "",
+        queueName: queueName || "",
+        duration: callDuration || 0,
+        isInternal: resolvedIsInternal
+      };
+    }
+  }, [callStatus, activeCallId, activePhoneNum, resolvedDisplayName, queueName, callDuration, resolvedIsInternal]);
 
   const inCallLinesCount = lines.filter((l) => l.callStatus === "InCall").length;
   const hasMultipleLines = lines.length >= 2;
@@ -759,8 +1074,211 @@ export default function AgentWebphoneTab({
           )}
 
           {callStatus === "Idle" ? (
-            /* IDLE STATE WORKSPACE: Recent Calls & Quick Directory instead of empty white space */
-            <div className="grid grid-cols-1 xl:grid-cols-2 gap-4 h-full overflow-hidden">
+            /* IDLE STATE WORKSPACE: Post-Call ACW Wrap-Up Card (if active) + Recent Calls & Quick Directory */
+            <div className="flex flex-col gap-4 h-full overflow-hidden">
+              {acwWrapUp.active && (
+                <div
+                  className={`p-5 bg-white dark:bg-slate-900 border-2 ${border} rounded-3xl shadow-md flex flex-col gap-3.5 shrink-0 animate-in fade-in slide-in-from-top-2 duration-200`}
+                >
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div className="flex items-center gap-3">
+                      <div className={`w-11 h-11 rounded-2xl ${lightBg} ${text} flex items-center justify-center shrink-0`}>
+                        <Clock size={22} className="animate-pulse" />
+                      </div>
+                      <div>
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-extrabold uppercase ${bg} text-white`}>
+                            <span className="h-1.5 w-1.5 rounded-full bg-white animate-ping" />
+                            Çağrı Sonrası İşlem (ACW) • {formatDuration(acwWrapUp.remaining)}
+                          </span>
+                          {acwWrapUp.queueName && (
+                            <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold border ${lightBg} ${text} ${borderLight}`}>
+                              Kuyruk: {acwWrapUp.queueName}
+                            </span>
+                          )}
+                          <span className="text-[10px] font-bold text-slate-400">
+                            Görüşme Süresi: {formatDuration(acwWrapUp.duration)}
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-2.5 mt-1 flex-wrap">
+                          <h3 className="text-base font-extrabold text-slate-900 dark:text-white">
+                            {acwWrapUp.displayName || (maskPhoneNumbers ? maskPhoneLast4(acwWrapUp.remoteNumber, true) : acwWrapUp.remoteNumber) || "Son Görüşme"}
+                          </h3>
+                          {acwWrapUp.displayName && acwWrapUp.remoteNumber && (
+                            <span className="text-xs font-mono font-semibold text-slate-400">
+                              {maskPhoneNumbers ? maskPhoneLast4(acwWrapUp.remoteNumber, true) : acwWrapUp.remoteNumber}
+                            </span>
+                          )}
+                          {!maskPhoneNumbers && acwWrapUp.remoteNumber && (
+                            <button
+                              type="button"
+                              onClick={() =>
+                                window.dispatchEvent(
+                                  new CustomEvent("OPEN_CUSTOMER_360", {
+                                    detail: {
+                                      phone: acwWrapUp.remoteNumber,
+                                      name: acwWrapUp.displayName || ""
+                                    }
+                                  })
+                                )
+                              }
+                              className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-lg bg-amber-50 hover:bg-amber-100 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 text-amber-700 dark:text-amber-300 text-[10px] font-extrabold transition-all cursor-pointer"
+                            >
+                              <Sparkles size={11} />
+                              360° Kart
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={handleFinishAcwWrapUp}
+                      className="px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-white text-xs font-bold flex items-center gap-1 transition-all"
+                      title="Not yazmadan ACW süresini bitir ve Müsait duruma geç"
+                    >
+                      <X size={14} />
+                      ACW Kapat
+                    </button>
+                  </div>
+
+                  {/* Shared Disposition, AI Note Assistant & Dictation Note Bar in Post-Call ACW Mode */}
+                  <div className="pt-2.5 border-t border-slate-100 dark:border-slate-800 flex flex-col gap-2.5">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        <span className="text-[10px] font-extrabold text-slate-400 uppercase flex items-center gap-1 mr-1">
+                          <Tag size={11} />
+                          Sonuç Kodu:
+                        </span>
+                        {dispositionCodes.map((code) => (
+                          <button
+                            key={code}
+                            type="button"
+                            onClick={() => handleSaveCallDispositionAndNote(code)}
+                            className={`px-2.5 py-1 rounded-xl text-[11px] font-bold border transition-all ${
+                              selectedDisposition === code
+                                ? `${bg} text-white ${border}`
+                                : "bg-slate-50 dark:bg-slate-800/80 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:border-slate-300"
+                            }`}
+                          >
+                            {code}
+                          </button>
+                        ))}
+                      </div>
+                      <div className="flex items-center gap-2">
+                        {canAiNoteAssistant && (
+                          <button
+                            type="button"
+                            onClick={() => handleGenerateAiNote(acwWrapUp.callId)}
+                            disabled={aiNoteLoading}
+                            className={`px-2.5 py-1 rounded-xl text-[11px] font-extrabold border flex items-center gap-1.5 transition-all cursor-pointer ${lightBg} ${text} ${borderLight} disabled:opacity-50`}
+                            title="Görüşme konuşmalarından yapay zeka ile otomatik not ve sonuç kodu çıkar"
+                          >
+                            {aiNoteLoading ? <Loader2 size={12} className="animate-spin" /> : <Sparkles size={12} />}
+                            <span>{aiNoteLoading ? "AI Not Çıkarıyor..." : "AI Not Çıkar"}</span>
+                          </button>
+                        )}
+                        {noteSaved && (
+                          <span className="text-[11px] font-bold text-emerald-600 dark:text-emerald-400 flex items-center gap-1">
+                            <Check size={13} />
+                            Kaydedildi
+                          </span>
+                        )}
+                      </div>
+                    </div>
+
+                    {aiNoteError && (
+                      <div className="px-3 py-1.5 rounded-xl bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800/60 text-[11px] font-semibold text-amber-700 dark:text-amber-300 flex items-center justify-between gap-2">
+                        <span>{aiNoteError}</span>
+                        <button type="button" onClick={() => setAiNoteError("")} className="opacity-70 hover:opacity-100">
+                          <X size={12} />
+                        </button>
+                      </div>
+                    )}
+
+                    {aiNoteSuggestion?.note && (
+                      <div className={`p-2.5 rounded-xl border ${borderLight} ${lightBg} flex flex-wrap items-center justify-between gap-2`}>
+                        <div className="flex items-start gap-2 min-w-0 flex-1">
+                          <Sparkles size={14} className={`${text} shrink-0 mt-0.5`} />
+                          <div className="text-xs text-slate-700 dark:text-slate-200 min-w-0">
+                            <div className="flex items-center gap-1.5 flex-wrap mb-0.5">
+                              <span className={`text-[10px] font-extrabold uppercase ${text}`}>AI Not Önerisi</span>
+                              {aiNoteSuggestion.provider && (
+                                <span className="px-1.5 py-0.2 rounded text-[9px] font-mono font-bold bg-white/80 dark:bg-slate-900/80 text-slate-500 border border-slate-200/70 dark:border-slate-700">
+                                  {aiNoteSuggestion.provider.toUpperCase()} {aiNoteSuggestion.model ? `• ${aiNoteSuggestion.model}` : ""}
+                                </span>
+                              )}
+                            </div>
+                            <p className="font-medium leading-snug">{aiNoteSuggestion.note}</p>
+                          </div>
+                        </div>
+                        {callNote !== aiNoteSuggestion.note && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setCallNote(aiNoteSuggestion.note);
+                              if (aiNoteSuggestion.disposition) {
+                                setSelectedDisposition(aiNoteSuggestion.disposition);
+                              }
+                            }}
+                            className={`px-2.5 py-1 rounded-lg ${bg} ${hover} text-white text-[10px] font-extrabold shrink-0`}
+                          >
+                            Not Alanına Uygula
+                          </button>
+                        )}
+                      </div>
+                    )}
+
+                    <div className="flex items-center gap-2">
+                      <div className="relative flex-1 flex items-center">
+                        <input
+                          ref={noteInputRef}
+                          type="text"
+                          value={callNote}
+                          onChange={(e) => setCallNote(e.target.value)}
+                          onKeyDown={(e) => e.key === "Enter" && handleSaveCallDispositionAndNote(null, { finishAcw: true })}
+                          placeholder="Çağrı sonrası görüşme notunu yazın veya mikrofonla dikte edin..."
+                          className="w-full pl-3.5 pr-24 py-2.5 rounded-xl bg-slate-50 dark:bg-slate-800/70 border border-slate-200/80 dark:border-slate-700/80 text-xs font-medium text-slate-800 dark:text-white focus:outline-none"
+                          autoFocus
+                        />
+                        <button
+                          type="button"
+                          onClick={toggleNoteDictation}
+                          title={isDictatingNote ? "Sesli Dikteyi Durdur" : "Sesle Not Yaz (Dikte - Türkçe)"}
+                          className={`absolute right-1.5 px-2.5 py-1 rounded-lg text-[10px] font-extrabold flex items-center gap-1 transition-all cursor-pointer ${
+                            isDictatingNote
+                              ? "bg-rose-600 text-white animate-pulse"
+                              : "bg-slate-200/80 hover:bg-slate-300 dark:bg-slate-700 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-200"
+                          }`}
+                        >
+                          {isDictatingNote ? <MicOff size={12} /> : <Mic size={12} />}
+                          <span>{isDictatingNote ? "Dinliyor..." : "Dikte"}</span>
+                        </button>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => handleSaveCallDispositionAndNote()}
+                        className="px-3.5 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 dark:bg-slate-100 dark:text-slate-900 text-white text-xs font-bold flex items-center gap-1.5 shrink-0 transition-all"
+                      >
+                        <Save size={13} />
+                        Kaydet
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleSaveCallDispositionAndNote(null, { finishAcw: true })}
+                        className={`px-3.5 py-2.5 rounded-xl ${bg} ${hover} text-white text-xs font-extrabold flex items-center gap-1.5 shrink-0 shadow-xs transition-all`}
+                        title="Notu kaydet ve ACW süresini tamamlayıp Müsait duruma geç"
+                      >
+                        <Check size={14} />
+                        Kaydet &amp; Müsait Ol
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              <div className="grid grid-cols-1 xl:grid-cols-2 gap-4 flex-1 overflow-hidden">
               {/* Recent Calls Card */}
               <div
                 className={`p-5 bg-white dark:bg-slate-900 border ${borderLight} rounded-3xl shadow-sm flex flex-col overflow-hidden`}
@@ -1016,6 +1534,7 @@ export default function AgentWebphoneTab({
                     ))
                   )}
                 </div>
+              </div>
               </div>
             </div>
           ) : (
@@ -1743,23 +2262,95 @@ export default function AgentWebphoneTab({
                         </button>
                       ))}
                     </div>
-                    {noteSaved && (
-                      <span className="text-[11px] font-bold text-emerald-600 dark:text-emerald-400 flex items-center gap-1">
-                        <Check size={13} />
-                        Kaydedildi
-                      </span>
-                    )}
+                    <div className="flex items-center gap-2">
+                      {canAiNoteAssistant && (
+                        <button
+                          type="button"
+                          onClick={() => handleGenerateAiNote(activeCallId)}
+                          disabled={aiNoteLoading}
+                          className={`px-2.5 py-1 rounded-xl text-[11px] font-extrabold border flex items-center gap-1.5 transition-all cursor-pointer ${lightBg} ${text} ${borderLight} disabled:opacity-50`}
+                          title="Görüşme konuşmalarından yapay zeka ile otomatik not ve sonuç kodu çıkar"
+                        >
+                          {aiNoteLoading ? <Loader2 size={12} className="animate-spin" /> : <Sparkles size={12} />}
+                          <span>{aiNoteLoading ? "AI Not Çıkarıyor..." : "AI Not Çıkar"}</span>
+                        </button>
+                      )}
+                      {noteSaved && (
+                        <span className="text-[11px] font-bold text-emerald-600 dark:text-emerald-400 flex items-center gap-1">
+                          <Check size={13} />
+                          Kaydedildi
+                        </span>
+                      )}
+                    </div>
                   </div>
 
+                  {aiNoteError && (
+                    <div className="px-3 py-1.5 rounded-xl bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800/60 text-[11px] font-semibold text-amber-700 dark:text-amber-300 flex items-center justify-between gap-2">
+                      <span>{aiNoteError}</span>
+                      <button type="button" onClick={() => setAiNoteError("")} className="opacity-70 hover:opacity-100">
+                        <X size={12} />
+                      </button>
+                    </div>
+                  )}
+
+                  {aiNoteSuggestion?.note && (
+                    <div className={`p-2.5 rounded-xl border ${borderLight} ${lightBg} flex flex-wrap items-center justify-between gap-2`}>
+                      <div className="flex items-start gap-2 min-w-0 flex-1">
+                        <Sparkles size={14} className={`${text} shrink-0 mt-0.5`} />
+                        <div className="text-xs text-slate-700 dark:text-slate-200 min-w-0">
+                          <div className="flex items-center gap-1.5 flex-wrap mb-0.5">
+                            <span className={`text-[10px] font-extrabold uppercase ${text}`}>AI Not Önerisi</span>
+                            {aiNoteSuggestion.provider && (
+                              <span className="px-1.5 py-0.2 rounded text-[9px] font-mono font-bold bg-white/80 dark:bg-slate-900/80 text-slate-500 border border-slate-200/70 dark:border-slate-700">
+                                {aiNoteSuggestion.provider.toUpperCase()} {aiNoteSuggestion.model ? `• ${aiNoteSuggestion.model}` : ""}
+                              </span>
+                            )}
+                          </div>
+                          <p className="font-medium leading-snug">{aiNoteSuggestion.note}</p>
+                        </div>
+                      </div>
+                      {callNote !== aiNoteSuggestion.note && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setCallNote(aiNoteSuggestion.note);
+                            if (aiNoteSuggestion.disposition) {
+                              setSelectedDisposition(aiNoteSuggestion.disposition);
+                            }
+                          }}
+                          className={`px-2.5 py-1 rounded-lg ${bg} ${hover} text-white text-[10px] font-extrabold shrink-0`}
+                        >
+                          Not Alanına Uygula
+                        </button>
+                      )}
+                    </div>
+                  )}
+
                   <div className="flex items-center gap-2">
-                    <input
-                      type="text"
-                      value={callNote}
-                      onChange={(e) => setCallNote(e.target.value)}
-                      onKeyDown={(e) => e.key === "Enter" && handleSaveCallDispositionAndNote()}
-                      placeholder="Görüşme ile ilgili kısa not ekleyin..."
-                      className="flex-1 px-3.5 py-2 rounded-xl bg-slate-50 dark:bg-slate-800/70 border border-slate-200/80 dark:border-slate-700/80 text-xs font-medium text-slate-800 dark:text-white focus:outline-none"
-                    />
+                    <div className="relative flex-1 flex items-center">
+                      <input
+                        ref={noteInputRef}
+                        type="text"
+                        value={callNote}
+                        onChange={(e) => setCallNote(e.target.value)}
+                        onKeyDown={(e) => e.key === "Enter" && handleSaveCallDispositionAndNote()}
+                        placeholder="Görüşme ile ilgili kısa not ekleyin veya mikrofonla dikte edin..."
+                        className="w-full pl-3.5 pr-24 py-2 rounded-xl bg-slate-50 dark:bg-slate-800/70 border border-slate-200/80 dark:border-slate-700/80 text-xs font-medium text-slate-800 dark:text-white focus:outline-none"
+                      />
+                      <button
+                        type="button"
+                        onClick={toggleNoteDictation}
+                        title={isDictatingNote ? "Sesli Dikteyi Durdur" : "Sesle Not Yaz (Dikte - Türkçe)"}
+                        className={`absolute right-1.5 px-2.5 py-1 rounded-lg text-[10px] font-extrabold flex items-center gap-1 transition-all cursor-pointer ${
+                          isDictatingNote
+                            ? "bg-rose-600 text-white animate-pulse"
+                            : "bg-slate-200/80 hover:bg-slate-300 dark:bg-slate-700 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-200"
+                        }`}
+                      >
+                        {isDictatingNote ? <MicOff size={12} /> : <Mic size={12} />}
+                        <span>{isDictatingNote ? "Dinliyor..." : "Dikte"}</span>
+                      </button>
+                    </div>
                     <button
                       type="button"
                       onClick={() => handleSaveCallDispositionAndNote()}
@@ -1772,14 +2363,14 @@ export default function AgentWebphoneTab({
                 </div>
               </div>
 
-              {/* Live Translator Chat Panel (Toggled from the call control bar button) */}
-              {hasAnyTranslatorPerm && (
-                <div className={isTranslatorOpen ? "flex-1 min-h-[240px]" : "hidden"}>
+              {/* Live Translator Chat Panel (Toggled from the call control bar button, or hidden background VAD for AI Note Assistant) */}
+              {(hasAnyTranslatorPerm || canAiNoteAssistant) && (
+                <div className={hasAnyTranslatorPerm && isTranslatorOpen ? "flex-1 min-h-[240px]" : "hidden"}>
                   <LiveTranslatorPanel
                     backendHost={backendHost}
                     callId={activeCallId}
                     callStatus={callStatus}
-                    canLiveTranslate={canLiveTranslate}
+                    canLiveTranslate={canLiveTranslate || canAiNoteAssistant}
                     canVoiceInterpret={canVoiceInterpret}
                     isActiveInstance={Boolean(isWebphoneScreenActive)}
                     onClose={() => setIsTranslatorOpen(false)}

@@ -52,6 +52,7 @@ export const CALL_PANEL_SUB_GROUPS = [
       { id: "call_panel:webphone_conference", name: "Konferans" },
       { id: "call_panel:webphone_reject", name: "Çağrı Reddi" },
       { id: "call_panel:cti_screen_pop", name: "CTI & CRM Müşteri Ekranı Otomatik Açma (Screen Pop - 2. Sekme)" },
+      { id: "call_panel:ai_note_assistant", name: "AI Otomatik Çağrı Notu & Sonuç Kodu Önerisi (Görüşme İçi & ACW)" },
       { id: "call_panel:live_translation", name: "Anlık Konuşma Metni Çevirisi (İngilizce/Yabancı Dil → Türkçe Metin)" },
       { id: "call_panel:voice_interpreter", name: "Anlık Sesli Çeviri & Çift Yönlü Tercüman (TR ↔ Yabancı Dil Ses)" },
       {

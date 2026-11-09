@@ -52,6 +52,11 @@ DEFAULT_AI_TASK_ROUTING = {
             "model": "gemini-2.5-flash",
             "enabled": True,
         },
+        "agent_call_note_assistant": {
+            "provider": "gemini",
+            "model": "gemini-2.5-flash",
+            "enabled": True,
+        },
         "call_qa_scoring": {
             "provider": "gemini",
             "model": "gemini-2.5-flash",
