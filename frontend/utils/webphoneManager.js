@@ -856,6 +856,12 @@ class WebphoneManager {
     if (!bundle) return;
     this.acquiredMicBundles.delete(bundle);
     try {
+      if (bundle.hwMonitorTrack) {
+        bundle.hwMonitorTrack.stop();
+        bundle.hwMonitorTrack = null;
+      }
+    } catch (e) {}
+    try {
       if (bundle.processedStream) {
         disposeAudioTrackAndPipeline(bundle.processedStream);
         bundle.processedStream.getTracks?.().forEach((t) => {
@@ -878,9 +884,19 @@ class WebphoneManager {
   }
 
   registerAcquiredMicBundle(rawStream, processedStream, sdh = null) {
+    let hwMonitorTrack = null;
+    try {
+      const rawTrack = rawStream?.getAudioTracks?.()?.[0];
+      if (rawTrack && typeof rawTrack.clone === "function" && rawTrack.readyState === "live") {
+        hwMonitorTrack = rawTrack.clone();
+        hwMonitorTrack.enabled = true;
+      }
+    } catch (e) {}
+
     const bundle = {
       rawStream: rawStream || null,
       processedStream: processedStream || rawStream || null,
+      hwMonitorTrack,
       sdh: sdh || null
     };
     this.acquiredMicBundles.add(bundle);
@@ -929,8 +945,233 @@ class WebphoneManager {
     return bundle.processedStream;
   }
 
+  teardownAudioMeterNodes() {
+    try {
+      if (this._meterMicSource) {
+        this._meterMicSource.disconnect();
+      }
+    } catch (e) {}
+    this._meterMicSource = null;
+    this._meterMicTrackId = null;
+
+    try {
+      if (this._meterRemoteSource) {
+        this._meterRemoteSource.disconnect();
+      }
+    } catch (e) {}
+    this._meterRemoteSource = null;
+    this._meterRemoteTrackId = null;
+
+    this._smoothMicLevel = 0;
+    this._smoothSpeakerLevel = 0;
+  }
+
+  sampleActiveCallAudioLevels() {
+    if (typeof window === "undefined") {
+      return { micLevel: 0, speakerLevel: 0 };
+    }
+
+    const activeLine =
+      (this.state.activeLineId && this.linesMap.get(this.state.activeLineId)) ||
+      Array.from(this.linesMap.values()).find((l) => l.callStatus === "InCall" || l.callStatus === "Calling") ||
+      null;
+
+    if (!activeLine || (activeLine.callStatus !== "InCall" && activeLine.callStatus !== "Calling")) {
+      this.teardownAudioMeterNodes();
+      return { micLevel: 0, speakerLevel: 0 };
+    }
+
+    const sdh = activeLine.session?.sessionDescriptionHandler;
+    const pc = sdh?.peerConnection || sdh?._peerConnection;
+
+    // 1. Resolve physical microphone hardware track (independent of software mute)
+    let micTrack = null;
+    if (this.state.isConferenceActive && this.confMicStream) {
+      const confTrack = this.confMicStream.getAudioTracks?.()?.[0];
+      if (confTrack && confTrack.readyState === "live") {
+        micTrack = confTrack;
+      }
+    }
+    if (!micTrack && sdh?.__micBundles) {
+      for (const b of sdh.__micBundles) {
+        if (b.hwMonitorTrack && b.hwMonitorTrack.readyState === "live") {
+          micTrack = b.hwMonitorTrack;
+          break;
+        }
+        const rawT = b.rawStream?.getAudioTracks?.()?.[0];
+        if (rawT && rawT.readyState === "live") {
+          micTrack = rawT;
+          break;
+        }
+      }
+    }
+    if (!micTrack && this.acquiredMicBundles.size > 0) {
+      for (const b of this.acquiredMicBundles) {
+        if (b.hwMonitorTrack && b.hwMonitorTrack.readyState === "live") {
+          micTrack = b.hwMonitorTrack;
+          break;
+        }
+        const rawT = b.rawStream?.getAudioTracks?.()?.[0];
+        if (rawT && rawT.readyState === "live") {
+          micTrack = rawT;
+          break;
+        }
+      }
+    }
+    if (!micTrack && pc && typeof pc.getSenders === "function") {
+      const sender = pc.getSenders().find((s) => s.track && s.track.kind === "audio");
+      if (sender?.track && sender.track.readyState === "live") {
+        micTrack = sender.track;
+      }
+    }
+    if (!micTrack && activeLine.origMicTrack && activeLine.origMicTrack.readyState === "live") {
+      micTrack = activeLine.origMicTrack;
+    }
+
+    // 2. Resolve incoming customer RTP audio track & receivers (independent of OS speaker volume / mute)
+    let remoteTrack = activeLine.remoteTrack && activeLine.remoteTrack.readyState === "live"
+      ? activeLine.remoteTrack
+      : null;
+    const audioReceivers = [];
+
+    const collectLineReceivers = (lineItem) => {
+      const linePc =
+        lineItem?.session?.sessionDescriptionHandler?.peerConnection ||
+        lineItem?.session?.sessionDescriptionHandler?._peerConnection;
+      if (linePc && typeof linePc.getReceivers === "function") {
+        linePc.getReceivers().forEach((r) => {
+          if (r && r.track && r.track.kind === "audio") {
+            audioReceivers.push(r);
+            if (!remoteTrack && r.track.readyState === "live") {
+              remoteTrack = r.track;
+            }
+          }
+        });
+      }
+    };
+
+    if (this.state.isConferenceActive) {
+      for (const l of this.linesMap.values()) {
+        if (l.callStatus === "InCall") collectLineReceivers(l);
+      }
+    } else {
+      collectLineReceivers(activeLine);
+    }
+
+    const audioCtx = this.getUnlockedAudioContext();
+    let micRms = 0;
+    let remoteAnalyserRms = 0;
+
+    const computeTimeDomainRms = (analyser, buf) => {
+      try {
+        analyser.getByteTimeDomainData(buf);
+        let sumSq = 0;
+        for (let i = 0; i < buf.length; i++) {
+          const norm = (buf[i] - 128) / 128;
+          sumSq += norm * norm;
+        }
+        return Math.sqrt(sumSq / buf.length);
+      } catch (e) {
+        return 0;
+      }
+    };
+
+    if (audioCtx) {
+      try {
+        if (!this._meterMicAnalyser || this._meterCtxRef !== audioCtx) {
+          this._meterCtxRef = audioCtx;
+          this._meterMicAnalyser = audioCtx.createAnalyser();
+          this._meterMicAnalyser.fftSize = 256;
+          this._meterMicAnalyser.smoothingTimeConstant = 0.4;
+          this._meterRemoteAnalyser = audioCtx.createAnalyser();
+          this._meterRemoteAnalyser.fftSize = 256;
+          this._meterRemoteAnalyser.smoothingTimeConstant = 0.4;
+          this._meterDataBuf = new Uint8Array(256);
+          this._meterMicTrackId = null;
+          this._meterRemoteTrackId = null;
+        }
+
+        if (micTrack && micTrack.readyState === "live") {
+          if (this._meterMicTrackId !== micTrack.id) {
+            try {
+              if (this._meterMicSource) this._meterMicSource.disconnect();
+            } catch (e) {}
+            this._meterMicSource = audioCtx.createMediaStreamSource(new MediaStream([micTrack]));
+            this._meterMicSource.connect(this._meterMicAnalyser);
+            this._meterMicTrackId = micTrack.id;
+          }
+          micRms = computeTimeDomainRms(this._meterMicAnalyser, this._meterDataBuf);
+        } else {
+          this._meterMicTrackId = null;
+        }
+
+        if (remoteTrack && remoteTrack.readyState === "live") {
+          if (this._meterRemoteTrackId !== remoteTrack.id) {
+            try {
+              if (this._meterRemoteSource) this._meterRemoteSource.disconnect();
+            } catch (e) {}
+            this._meterRemoteSource = audioCtx.createMediaStreamSource(new MediaStream([remoteTrack]));
+            this._meterRemoteSource.connect(this._meterRemoteAnalyser);
+            this._meterRemoteTrackId = remoteTrack.id;
+          }
+          remoteAnalyserRms = computeTimeDomainRms(this._meterRemoteAnalyser, this._meterDataBuf);
+        } else {
+          this._meterRemoteTrackId = null;
+        }
+      } catch (e) {}
+    }
+
+    // 3. Also read direct WebRTC RTP packet audioLevel from RTCRtpReceiver.getSynchronizationSources()
+    // This guarantees speaker bar movement when customer RTP audio packets arrive even if OS/browser audio output is muted
+    let rtpReceiverLevel = 0;
+    for (const receiver of audioReceivers) {
+      try {
+        if (typeof receiver.getSynchronizationSources === "function") {
+          const sources = receiver.getSynchronizationSources() || [];
+          for (const src of sources) {
+            if (typeof src.audioLevel === "number" && src.audioLevel > rtpReceiverLevel) {
+              rtpReceiverLevel = src.audioLevel;
+            }
+          }
+        }
+      } catch (e) {}
+    }
+
+    const toPerceptualPercent = (rmsVal) => {
+      const floor = 0.0045;
+      if (!rmsVal || rmsVal <= floor) return 0;
+      const normalized = Math.min(1, (rmsVal - floor) / 0.28);
+      return Math.min(100, Math.round(Math.pow(normalized, 0.52) * 100));
+    };
+
+    const rawMicPct = toPerceptualPercent(micRms);
+    const combinedRemoteEnergy = Math.max(remoteAnalyserRms, rtpReceiverLevel * 0.75);
+    const rawSpeakerPct = toPerceptualPercent(combinedRemoteEnergy);
+
+    const prevMic = this._smoothMicLevel || 0;
+    const prevSpk = this._smoothSpeakerLevel || 0;
+
+    const smoothStep = (prev, target) => {
+      if (target >= prev) {
+        return Math.min(100, Math.round(prev * 0.3 + target * 0.7));
+      }
+      const decayed = prev * 0.68 + target * 0.32;
+      return decayed < 2 ? 0 : Math.round(decayed);
+    };
+
+    this._smoothMicLevel = smoothStep(prevMic, rawMicPct);
+    this._smoothSpeakerLevel = smoothStep(prevSpk, rawSpeakerPct);
+
+    return {
+      micLevel: this._smoothMicLevel,
+      speakerLevel: this._smoothSpeakerLevel
+    };
+  }
+
   releaseAllIdleMicrophoneResources() {
     if (this.linesMap.size > 0) return;
+
+    this.teardownAudioMeterNodes();
 
     try {
       Array.from(this.acquiredMicBundles).forEach((bundle) => {
@@ -972,6 +1213,7 @@ class WebphoneManager {
 
   cleanupLineMicPipeline(line) {
     if (!line) return;
+    this.teardownAudioMeterNodes();
     if (line.establishedAt && !line.qosLogged) {
       this.collectAndSendLineQosStats(line);
     }

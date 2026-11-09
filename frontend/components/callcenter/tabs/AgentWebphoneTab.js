@@ -33,7 +33,8 @@ import {
   Database,
   Sparkles,
   ShieldCheck,
-  ShieldAlert
+  ShieldAlert,
+  Volume2
 } from "lucide-react";
 import { useTheme } from "../../../utils/theme";
 import { findContactByPhone, maskPhoneLast4 } from "../../../utils/contactUtils";
@@ -222,6 +223,29 @@ export default function AgentWebphoneTab({
   const cycleNoiseMode = () => {
     webphoneManager.cycleNoiseSuppressionMode();
   };
+
+  // Real-time Microphone (Hardware) & Speaker (Incoming Customer RTP) smooth level bars
+  const [audioLevels, setAudioLevels] = useState({ micLevel: 0, speakerLevel: 0 });
+
+  useEffect(() => {
+    if (!isWebphoneScreenActive || (callStatus !== "InCall" && callStatus !== "Calling")) {
+      setAudioLevels((prev) =>
+        prev.micLevel === 0 && prev.speakerLevel === 0 ? prev : { micLevel: 0, speakerLevel: 0 }
+      );
+      return;
+    }
+    const meterTimer = setInterval(() => {
+      if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
+      const next = webphoneManager.sampleActiveCallAudioLevels();
+      setAudioLevels((prev) => {
+        if (prev.micLevel === next.micLevel && prev.speakerLevel === next.speakerLevel) {
+          return prev;
+        }
+        return next;
+      });
+    }, 50);
+    return () => clearInterval(meterTimer);
+  }, [isWebphoneScreenActive, callStatus, activeLineId, isConferenceActive, noiseSuppressionMode]);
 
   useEffect(() => {
     if (callStatus !== "InCall") {
@@ -1531,6 +1555,109 @@ export default function AgentWebphoneTab({
                     )}
                   </div>
                 </div>
+
+                {/* Live Hardware Microphone & Incoming Customer RTP Speaker Smooth Level Bars */}
+                {(callStatus === "InCall" || callStatus === "Calling") && (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 px-3.5 py-2.5 rounded-2xl bg-slate-50/90 dark:bg-slate-800/50 border border-slate-200/70 dark:border-slate-800">
+                    {/* Microphone Bar (Direct Hardware Input) */}
+                    <div className="flex flex-col gap-1.5">
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="flex items-center gap-1.5">
+                          <span
+                            className={`h-5 w-5 rounded-lg flex items-center justify-center transition-colors ${
+                              audioLevels.micLevel > 2
+                                ? "bg-emerald-100 text-emerald-600 dark:bg-emerald-500/20 dark:text-emerald-400"
+                                : "bg-slate-200/70 text-slate-500 dark:bg-slate-700/70 dark:text-slate-400"
+                            }`}
+                          >
+                            <Mic size={12} />
+                          </span>
+                          <span className="text-[11px] font-extrabold text-slate-700 dark:text-slate-200">
+                            Mikrofon
+                          </span>
+                          <span className="text-[10px] font-semibold text-slate-400">
+                            (Donanım)
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-1.5">
+                          {isMuted && (
+                            <span className="px-1.5 py-0.5 rounded text-[9px] font-extrabold bg-rose-100 text-rose-600 dark:bg-rose-500/20 dark:text-rose-400">
+                              WebPhone Sessizde
+                            </span>
+                          )}
+                          <span
+                            className={`text-[10px] font-mono font-extrabold ${
+                              audioLevels.micLevel > 2
+                                ? "text-emerald-600 dark:text-emerald-400"
+                                : "text-slate-400"
+                            }`}
+                          >
+                            {audioLevels.micLevel}%
+                          </span>
+                        </div>
+                      </div>
+                      <div className="h-2.5 w-full rounded-full bg-slate-200/80 dark:bg-slate-700/60 overflow-hidden p-0.5">
+                        <div
+                          className="h-full rounded-full transition-all duration-75 ease-out bg-gradient-to-r from-emerald-400 via-emerald-500 to-amber-400"
+                          style={{
+                            width: `${
+                              audioLevels.micLevel > 0 ? Math.max(4, audioLevels.micLevel) : 0
+                            }%`
+                          }}
+                        />
+                      </div>
+                    </div>
+
+                    {/* Speaker Bar (Incoming Customer RTP Stream - Independent of OS/Headset Volume) */}
+                    <div className="flex flex-col gap-1.5">
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="flex items-center gap-1.5">
+                          <span
+                            className={`h-5 w-5 rounded-lg flex items-center justify-center transition-colors ${
+                              audioLevels.speakerLevel > 2
+                                ? "bg-sky-100 text-sky-600 dark:bg-sky-500/20 dark:text-sky-400"
+                                : "bg-slate-200/70 text-slate-500 dark:bg-slate-700/70 dark:text-slate-400"
+                            }`}
+                          >
+                            <Volume2 size={12} />
+                          </span>
+                          <span className="text-[11px] font-extrabold text-slate-700 dark:text-slate-200">
+                            Hoparlör
+                          </span>
+                          <span className="text-[10px] font-semibold text-slate-400">
+                            (Müşteri Sesi)
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-1.5">
+                          {isOnHold && (
+                            <span className="px-1.5 py-0.5 rounded text-[9px] font-extrabold bg-amber-100 text-amber-600 dark:bg-amber-500/20 dark:text-amber-400">
+                              Beklemede
+                            </span>
+                          )}
+                          <span
+                            className={`text-[10px] font-mono font-extrabold ${
+                              audioLevels.speakerLevel > 2
+                                ? "text-sky-600 dark:text-sky-400"
+                                : "text-slate-400"
+                            }`}
+                          >
+                            {audioLevels.speakerLevel}%
+                          </span>
+                        </div>
+                      </div>
+                      <div className="h-2.5 w-full rounded-full bg-slate-200/80 dark:bg-slate-700/60 overflow-hidden p-0.5">
+                        <div
+                          className="h-full rounded-full transition-all duration-75 ease-out bg-gradient-to-r from-sky-400 via-emerald-500 to-amber-400"
+                          style={{
+                            width: `${
+                              audioLevels.speakerLevel > 0 ? Math.max(4, audioLevels.speakerLevel) : 0
+                            }%`
+                          }}
+                        />
+                      </div>
+                    </div>
+                  </div>
+                )}
 
                 {/* Live CTI Customer CRM Card */}
                 {canCtiScreenPop &&
