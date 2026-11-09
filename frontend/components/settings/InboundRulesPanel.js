@@ -376,30 +376,17 @@ export default function InboundRulesPanel({ backendHost }) {
   const handleOpenModal = (rule = null) => {
     if (rule) {
       setSelectedRule(rule);
-      let initialAllowed = [...(rule.allowed_users || [])];
-      if (rule.destination_type === "user" && rule.destination_id && !initialAllowed.some(x => String(x) === String(rule.destination_id))) {
-        initialAllowed.push(rule.destination_id);
+      let initialDestId = rule.destination_id || "";
+      if (rule.destination_type === "user" && !initialDestId && Array.isArray(rule.allowed_users) && rule.allowed_users.length > 0) {
+        initialDestId = rule.allowed_users[0];
       }
-      initialAllowed.forEach(id => {
-        if (String(id).startsWith("group_")) {
-          const grpId = String(id).replace("group_", "");
-          const grp = (subscriberGroups || []).find(g => String(g.id) === grpId);
-          if (grp) {
-            getGroupMemberUserIds(grp, users).forEach(uid => {
-              if (!initialAllowed.some(x => String(x) === String(uid))) {
-                initialAllowed.push(uid);
-              }
-            });
-          }
-        }
-      });
       setFormData({
         id: rule.id,
         name: rule.name || "",
         trunk_ids: rule.trunk_ids || [],
-        allowed_users: initialAllowed,
+        allowed_users: [],
         destination_type: rule.destination_type || "user",
-        destination_id: rule.destination_id || "",
+        destination_id: initialDestId,
         did_match_mode: rule.did_match_mode || "all",
         did_patterns: rule.did_patterns || []
       });
@@ -424,43 +411,14 @@ export default function InboundRulesPanel({ backendHost }) {
 
   const handleChange = (e) => {
     const { name, value } = e.target;
-    if (name === "destination_id" && formData.destination_type === "user" && value) {
-      let nextAllowed = [...(formData.allowed_users || [])];
-      if (String(value).startsWith("group_")) {
-        if (!nextAllowed.some(x => String(x) === String(value))) {
-          nextAllowed.push(value);
-        }
-        const grpId = String(value).replace("group_", "");
-        const grp = (subscriberGroups || []).find(g => String(g.id) === grpId);
-        if (grp) {
-          getGroupMemberUserIds(grp, users).forEach(uid => {
-            if (!nextAllowed.some(x => String(x) === String(uid))) {
-              nextAllowed.push(uid);
-            }
-          });
-        }
-      } else {
-        const matchedUser = users.find(u => String(u.id) === String(value));
-        const uidToAdd = matchedUser ? matchedUser.id : value;
-        if (!nextAllowed.some(x => String(x) === String(uidToAdd))) {
-          nextAllowed.push(uidToAdd);
-        }
-      }
-      setFormData(prev => ({ ...prev, destination_id: value, allowed_users: nextAllowed }));
-      return;
-    }
     setFormData(prev => ({ ...prev, [name]: value }));
   };
 
   const handleSave = async () => {
-    let resolvedDestId = formData.destination_id;
-    if (formData.destination_type === "user" && !resolvedDestId && formData.allowed_users && formData.allowed_users.length > 0) {
-      resolvedDestId = formData.allowed_users.find(id => !String(id).startsWith("group_")) || formData.allowed_users[0];
-    }
     const payload = {
       id: selectedRule ? selectedRule.id : null,
       ...formData,
-      destination_id: resolvedDestId
+      allowed_users: []
     };
 
     try {
@@ -528,22 +486,11 @@ export default function InboundRulesPanel({ backendHost }) {
         destName = cf ? cf.name : String(rule.destination_id || "");
       }
 
-      const allowedUserNames = (rule.allowed_users || []).map(uid => {
-        if (String(uid).startsWith("group_")) {
-          const gid = String(uid).replace("group_", "");
-          const grp = subscriberGroups.find(g => String(g.id) === gid);
-          return grp ? `[Abone Grubu: ${grp.name}]` : uid;
-        }
-        const u = users.find(x => String(x.id) === String(uid));
-        return u ? u.full_name : uid;
-      }).join(", ");
-
       return {
         "Kural Adı": rule.name || "",
         "Dış Hatlar": trunkNames,
         "Hedef Türü": destTypeLabel,
         "Hedef": destName,
-        "Dahililer / Abone Grupları": allowedUserNames,
         "DID Eşleşme Modu": rule.did_match_mode || "all",
         "DID Desenleri": Array.isArray(rule.did_patterns) ? rule.did_patterns.join(", ") : ""
       };
@@ -729,7 +676,7 @@ export default function InboundRulesPanel({ backendHost }) {
                 <tr className="border-b border-slate-200 dark:border-slate-800 bg-slate-50/80 dark:bg-slate-900/50">
                   <th className="py-3 px-4 text-xs font-bold text-slate-500 dark:text-slate-400">Kural Adı</th>
                   <th className="py-3 px-4 text-xs font-bold text-slate-500 dark:text-slate-400">Dış Hat (Trunks)</th>
-                  <th className="py-3 px-4 text-xs font-bold text-slate-500 dark:text-slate-400">Hedef / Dahililer</th>
+                  <th className="py-3 px-4 text-xs font-bold text-slate-500 dark:text-slate-400">Hedef</th>
                   <th className="py-3 px-4 text-right text-xs font-bold text-slate-500 dark:text-slate-400">İşlemler</th>
                 </tr>
               </thead>
@@ -740,12 +687,13 @@ export default function InboundRulesPanel({ backendHost }) {
                   
                   let destName = "Bilinmeyen Hedef";
                   if (rule.destination_type === "user") {
-                    if (String(rule.destination_id || "").startsWith("group_")) {
-                      const gid = String(rule.destination_id).replace("group_", "");
+                    const effectiveDestId = rule.destination_id || (Array.isArray(rule.allowed_users) && rule.allowed_users[0]) || "";
+                    if (String(effectiveDestId).startsWith("group_")) {
+                      const gid = String(effectiveDestId).replace("group_", "");
                       const grp = subscriberGroups.find(g => String(g.id) === gid);
                       destName = grp ? `Abone Grubu: ${grp.name}` : "Abone Grubu";
                     } else {
-                      const u = users.find(x => String(x.id) === String(rule.destination_id));
+                      const u = users.find(x => String(x.id) === String(effectiveDestId));
                       destName = u ? `Kullanıcı: ${u.full_name} (${u.extension})` : "Kullanıcı";
                     }
                   } else if (rule.destination_type === "queue") {
@@ -755,10 +703,6 @@ export default function InboundRulesPanel({ backendHost }) {
                     const cf = callFlows.find(x => x.id === rule.destination_id);
                     destName = cf ? `Akış: ${cf.name}` : "Akış (Silinmiş)";
                   }
-
-                  const ruleAllowed = rule.allowed_users || [];
-                  const groupIds = ruleAllowed.filter(uid => String(uid).startsWith("group_"));
-                  const userIds = ruleAllowed.filter(uid => !String(uid).startsWith("group_"));
 
                   return (
                     <tr key={rule.id} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/30 transition-colors">
@@ -780,46 +724,7 @@ export default function InboundRulesPanel({ backendHost }) {
                         </div>
                       </td>
                       <td className="py-3 px-4">
-                        <div className="flex flex-col gap-1.5">
-                          <span className="text-xs font-medium text-slate-600 dark:text-slate-300">{destName}</span>
-                          {ruleAllowed.length > 0 && (
-                            <div className="flex flex-wrap items-center gap-1.5">
-                              {groupIds.map(gid => {
-                                const rawId = String(gid).replace("group_", "");
-                                const grp = subscriberGroups.find(g => String(g.id) === rawId);
-                                return (
-                                  <span
-                                    key={gid}
-                                    className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-[10px] font-bold ${lightBg} ${text} border ${borderLight}`}
-                                    title={grp ? `Abone Grubu: ${grp.name}` : gid}
-                                  >
-                                    <Users size={11} />
-                                    {grp ? grp.name : gid}
-                                  </span>
-                                );
-                              })}
-                              <div className="flex -space-x-2 overflow-hidden">
-                                {userIds.slice(0, 5).map((uid) => {
-                                  const u = users.find(x => String(x.id) === String(uid));
-                                  return (
-                                    <div key={uid} className="inline-block h-6 w-6 rounded-full ring-2 ring-white dark:ring-slate-900 bg-slate-200 dark:bg-slate-700 flex items-center justify-center shrink-0" title={u ? `${u.full_name} (${u.extension})` : uid}>
-                                      {u?.avatar ? (
-                                        <img src={u.avatar} alt={u.full_name} className="w-full h-full rounded-full object-cover" />
-                                      ) : (
-                                        <span className="text-[9px] font-bold text-slate-600 dark:text-slate-300">{u ? u.full_name.charAt(0) : '?'}</span>
-                                      )}
-                                    </div>
-                                  );
-                                })}
-                                {userIds.length > 5 && (
-                                  <div className="inline-block h-6 w-6 rounded-full ring-2 ring-white dark:ring-slate-900 bg-slate-100 dark:bg-slate-800 flex items-center justify-center shrink-0">
-                                    <span className="text-[9px] font-bold text-slate-500">+{userIds.length - 5}</span>
-                                  </div>
-                                )}
-                              </div>
-                            </div>
-                          )}
-                        </div>
+                        <span className="text-xs font-medium text-slate-600 dark:text-slate-300">{destName}</span>
                       </td>
                       <td className="py-3 px-4 text-right">
                         <div className="flex items-center justify-end gap-2">
@@ -994,41 +899,6 @@ export default function InboundRulesPanel({ backendHost }) {
                 )}
               </div>
 
-              {/* İç Hat / İç Hat Grubu Section */}
-              <div className="space-y-4">
-                <DualListBox 
-                  title="İç Hat / İç Hat Grubu"
-                  availableItems={userAndGroupItems}
-                  selectedIds={formData.allowed_users}
-                  onChangeSelectedIds={handleAllowedUsersChange}
-                  columns={["İç Hat No / Grup", "Görünen İsim"]}
-                  bg={bg} hover={hover} text={text} border={border} lightBg={lightBg}
-                  renderRow={(item) => (
-                    item.isSubscriberGroup ? (
-                      <>
-                        <td className="p-2">
-                          <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-[10px] font-bold ${lightBg} ${text} border ${borderLight}`}>
-                            <Users size={11} />
-                            Abone Grubu
-                          </span>
-                        </td>
-                        <td className="p-2 text-slate-800 dark:text-slate-200 font-bold">
-                          {item.full_name}
-                          <span className="ml-1.5 text-[10px] font-medium text-slate-400">
-                            ({(item.memberUserIds || []).length} Abone)
-                          </span>
-                        </td>
-                      </>
-                    ) : (
-                      <>
-                        <td className="p-2 text-slate-800 dark:text-slate-200 font-medium">{item.extension || "-"}</td>
-                        <td className="p-2 text-slate-500">{item.full_name}</td>
-                      </>
-                    )
-                  )}
-                />
-              </div>
-
               {/* Varsayılan Hedef Section */}
               <div className="space-y-4">
                 <h4 className="text-sm font-bold text-slate-800 dark:text-white border-b border-slate-200 dark:border-slate-800 pb-2">Varsayılan Hedef</h4>
@@ -1120,7 +990,7 @@ export default function InboundRulesPanel({ backendHost }) {
               </button>
               <button
                 onClick={handleSave}
-                disabled={!formData.name || formData.trunk_ids.length === 0 || (!formData.destination_id && (!formData.allowed_users || formData.allowed_users.length === 0))}
+                disabled={!formData.name || formData.trunk_ids.length === 0 || !formData.destination_id}
                 className={`px-6 py-2.5 rounded-xl text-xs font-bold text-white transition-all shadow-sm disabled:opacity-50 disabled:cursor-not-allowed ${bg} hover:opacity-90`}
               >
                 Kaydet
