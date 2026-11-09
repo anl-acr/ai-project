@@ -10163,9 +10163,9 @@ def _sync_active_moh_to_asterisk(active_moh_id: Optional[str] = None) -> str:
             if os.path.exists(os.path.dirname(moh_dir)):
                 try:
                     os.makedirs(moh_dir, exist_ok=True)
-                    # Remove old wavs in moh_dir so Asterisk plays the selected active MOH track
+                    # Remove old audio files in moh_dir so Asterisk exclusively plays the selected active MOH track
                     for f in os.listdir(moh_dir):
-                        if f.endswith(".wav") or f.endswith(".sln") or f.endswith(".ulaw") or f.endswith(".alaw"):
+                        if f.endswith((".wav", ".sln", ".ulaw", ".alaw", ".gsm", ".g722", ".mp3")):
                             try:
                                 os.remove(os.path.join(moh_dir, f))
                             except Exception:
@@ -10177,6 +10177,18 @@ def _sync_active_moh_to_asterisk(active_moh_id: Optional[str] = None) -> str:
                     print(f"[Asterisk MOH Sync Warning] ({moh_dir}): {e_moh}")
         if os.path.exists("/etc/asterisk"):
             try:
+                moh_conf = (
+                    "; ==========================================\n"
+                    "; AIDA PBX Music on Hold (Bekleme Müziği)\n"
+                    "; ==========================================\n"
+                    "[general]\n\n"
+                    "[default]\n"
+                    "mode=files\n"
+                    "directory=/var/lib/asterisk/moh\n"
+                    "sort=alpha\n"
+                )
+                with open("/etc/asterisk/musiconhold.conf", "w", encoding="utf-8") as mf:
+                    mf.write(moh_conf)
                 subprocess.run(["asterisk", "-rx", "moh reload"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=2.0)
             except Exception:
                 pass

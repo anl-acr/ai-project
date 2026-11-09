@@ -1989,7 +1989,7 @@ rec_pause_toggle => {rec_pause_code},self/both,Gosub(rec_pause_sub,s,1)
                     try:
                         os.makedirs(moh_dir, exist_ok=True)
                         for existing_f in os.listdir(moh_dir):
-                            if existing_f.startswith("aida_active_moh"):
+                            if existing_f.endswith((".wav", ".sln", ".ulaw", ".alaw", ".gsm", ".g722", ".mp3")):
                                 try:
                                     os.remove(os.path.join(moh_dir, existing_f))
                                 except Exception:
