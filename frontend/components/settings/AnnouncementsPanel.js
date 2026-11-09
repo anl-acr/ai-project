@@ -587,6 +587,30 @@ export default function AnnouncementsPanel({ backendHost = "localhost:8000", use
     }
   };
 
+  const handleSetActiveMoh = async (mohId) => {
+    try {
+      const res = await tenantFetch(`${API_BASE}/api/settings/announcements/active-moh`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: mohId })
+      });
+      if (res.ok) {
+        setAnnouncements((prev) =>
+          (prev || []).map((item) =>
+            normalizeCategoryType(item.type) === "moh"
+              ? { ...item, is_active_moh: item.id === mohId }
+              : item
+          )
+        );
+        if (typeof window !== "undefined") {
+          window.dispatchEvent(new CustomEvent("ACTIVE_MOH_UPDATED", { detail: { id: mohId } }));
+        }
+      }
+    } catch (err) {
+      console.error("Aktif bekleme müziği seçilemedi:", err);
+    }
+  };
+
   const handleDownload = async (ann) => {
     try {
       const cacheBust = ann.updated_at || ann.created_at || "1";
@@ -786,7 +810,9 @@ export default function AnnouncementsPanel({ backendHost = "localhost:8000", use
               const RowIcon = normType === "moh" ? Music : normType === "system" ? ShieldCheck : FileAudio;
               const typeBadgeLabel =
                 normType === "moh"
-                  ? "Bekleme Müziği"
+                  ? ann.is_builtin
+                    ? "Anonim Bekleme Müziği"
+                    : "Özel Bekleme Müziği"
                   : normType === "system"
                   ? ann.is_builtin
                     ? ann.is_customized
@@ -826,6 +852,12 @@ export default function AnnouncementsPanel({ backendHost = "localhost:8000", use
                       >
                         {typeBadgeLabel}
                       </span>
+                      {normType === "moh" && ann.is_active_moh && (
+                        <span className="text-[10px] px-2.5 py-0.5 rounded-full font-extrabold bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800/60 flex items-center gap-1">
+                          <Check size={11} />
+                          <span>Aktif Bekleme Müziği</span>
+                        </span>
+                      )}
                       {isTtsItem && (
                         <span className="text-[10px] px-2 py-0.5 rounded-full font-bold bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300">
                           TTS{shortVoiceLabel ? ` • ${shortVoiceLabel}` : ""}
@@ -880,6 +912,17 @@ export default function AnnouncementsPanel({ backendHost = "localhost:8000", use
                 </div>
                 
                 <div className="flex items-center gap-1 sm:border-l border-slate-100 dark:border-slate-800 sm:pl-4 shrink-0 justify-end">
+                  {canWrite && normType === "moh" && !ann.is_active_moh && (
+                    <button
+                      type="button"
+                      onClick={() => handleSetActiveMoh(ann.id)}
+                      className={`px-3 py-1.5 mr-1 rounded-xl text-[11px] font-extrabold border ${borderLight} ${lightBg} ${text} hover:opacity-90 transition-all cursor-pointer flex items-center gap-1`}
+                      title="Çağrı beklemeye alındığında bu müziği çal"
+                    >
+                      <Check size={13} />
+                      <span>Varsayılan Yap</span>
+                    </button>
+                  )}
                   {canWrite && (
                     <button
                       type="button"

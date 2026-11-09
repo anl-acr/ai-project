@@ -96,8 +96,19 @@ class WebphoneManager {
       const requested = e?.detail?.mode || getSavedNoiseSuppressionMode();
       this.setNoiseSuppressionMode(requested, { silent: Boolean(e?.detail?.silent), fromEvent: true });
     };
+    const handleActiveMohUpdated = () => {
+      this.cachedMohArrayBuffer = null;
+      this.cachedMohTimestamp = 0;
+      for (const line of this.linesMap.values()) {
+        if (line.isOnHold && line.callStatus === "InCall" && !this.state.isConferenceActive) {
+          this.stopLineHoldMusic(line);
+          this.startLineHoldMusic(line);
+        }
+      }
+    };
     window.addEventListener("AUDIO_DEVICES_UPDATED", handleUpdate);
     window.addEventListener("NOISE_MODE_UPDATED", handleNoiseModeEvent);
+    window.addEventListener("ACTIVE_MOH_UPDATED", handleActiveMohUpdated);
     if (navigator.mediaDevices && typeof navigator.mediaDevices.addEventListener === "function") {
       navigator.mediaDevices.addEventListener("devicechange", handleUpdate);
     }
@@ -1213,6 +1224,7 @@ class WebphoneManager {
 
   cleanupLineMicPipeline(line) {
     if (!line) return;
+    this.stopLineHoldMusic(line, { restoreMic: false });
     this.teardownAudioMeterNodes();
     if (line.establishedAt && !line.qosLogged) {
       this.collectAndSendLineQosStats(line);
@@ -1322,16 +1334,18 @@ class WebphoneManager {
                 const newTrack = newStream ? newStream.getAudioTracks()[0] : null;
                 if (newTrack) {
                   newTrack.enabled = !line.isMuted && !line.isOnHold && this.state.activeLineId === line.id;
-                  const oldTrack = audioSender.track;
-                  await audioSender.replaceTrack(newTrack);
+                  const oldTrack = line.origMicTrack || audioSender.track;
                   line.origMicTrack = newTrack;
+                  if (!line.isOnHold && !line.holdMusicTrack) {
+                    await audioSender.replaceTrack(newTrack);
+                  }
                   if (matchedBundle) {
                     if (sdh?.__micBundles) {
                       sdh.__micBundles.delete(matchedBundle);
                     }
                     this.disposeMicBundle(matchedBundle);
                   }
-                  if (oldTrack && oldTrack !== newTrack) {
+                  if (oldTrack && oldTrack !== newTrack && oldTrack !== line.holdMusicTrack) {
                     disposeAudioTrackAndPipeline(oldTrack);
                   }
                 }
@@ -1394,6 +1408,191 @@ class WebphoneManager {
     });
   }
 
+  createFallbackMohBuffer(ctx) {
+    const sampleRate = ctx.sampleRate || 48000;
+    const duration = 12;
+    const numSamples = sampleRate * duration;
+    const buffer = ctx.createBuffer(1, numSamples, sampleRate);
+    const data = buffer.getChannelData(0);
+    const chords = [
+      [261.63, 329.63, 392.00, 493.88], // Cmaj7
+      [220.00, 261.63, 329.63, 392.00], // Am7
+      [174.61, 220.00, 261.63, 349.23], // Fmaj7
+      [196.00, 246.94, 293.66, 392.00]  // G6
+    ];
+    for (let i = 0; i < numSamples; i++) {
+      const t = i / sampleRate;
+      const chordIdx = Math.floor(t / 3.0) % chords.length;
+      const chord = chords[chordIdx];
+      const localT = t % 3.0;
+      const env = Math.sin((Math.PI * localT) / 3.0);
+      let s = 0;
+      for (let k = 0; k < chord.length; k++) {
+        s += Math.sin(2 * Math.PI * chord[k] * t) * 0.06 * env;
+      }
+      const noteIdx = Math.floor((localT / 3.0) * 6) % chord.length;
+      const noteT = localT % 0.5;
+      const noteEnv = Math.exp(-noteT * 4.5);
+      s += Math.sin(2 * Math.PI * chord[noteIdx] * 2 * t) * 0.08 * noteEnv;
+      data[i] = Math.max(-0.8, Math.min(0.8, s));
+    }
+    return buffer;
+  }
+
+  async startLineHoldMusic(line) {
+    if (!line || line.holdMusicTrack || line.holdMusicStarting) return;
+    const pc = line.session?.sessionDescriptionHandler?.peerConnection;
+    if (!pc) return;
+
+    line.holdMusicStarting = true;
+    try {
+      // Preserve original microphone track before replacing sender track with Hold Music
+      pc.getSenders().forEach((sender) => {
+        if (
+          sender.track &&
+          sender.track.kind === "audio" &&
+          sender.track !== this.silentRtpTrack &&
+          sender.track !== line.holdMusicTrack &&
+          !line.origMicTrack
+        ) {
+          line.origMicTrack = sender.track;
+        }
+      });
+
+      if (line.origMicTrack) {
+        line.origMicTrack.enabled = false;
+      }
+
+      const AudioCtx = window.AudioContext || window.webkitAudioContext;
+      if (!AudioCtx) {
+        line.holdMusicStarting = false;
+        return;
+      }
+
+      const ctx = new AudioCtx();
+      if (ctx.state === "suspended") {
+        await ctx.resume().catch(() => {});
+      }
+
+      let audioBuffer = null;
+      try {
+        const now = Date.now();
+        if (!this.cachedMohArrayBuffer || !this.cachedMohTimestamp || now - this.cachedMohTimestamp > 60000) {
+          const protocol = window.location.protocol === "https:" ? "https:" : "http:";
+          const host = this.state.backendHost || `${window.location.hostname}:8000`;
+          const resp = await fetch(`${protocol}//${host}/api/settings/announcements/active-moh.wav?t=${now}`);
+          if (resp.ok) {
+            this.cachedMohArrayBuffer = await resp.arrayBuffer();
+            this.cachedMohTimestamp = now;
+          }
+        }
+        if (this.cachedMohArrayBuffer) {
+          const clonedBuf = this.cachedMohArrayBuffer.slice(0);
+          audioBuffer = await ctx.decodeAudioData(clonedBuf);
+        }
+      } catch (fetchErr) {
+        // Fallback to built-in synthesized warm chord buffer
+      }
+
+      if (!audioBuffer) {
+        audioBuffer = this.createFallbackMohBuffer(ctx);
+      }
+
+      // Check if line was unheld or ended while loading
+      if (!line.isOnHold || this.state.isConferenceActive || line.callStatus !== "InCall") {
+        ctx.close().catch(() => {});
+        line.holdMusicStarting = false;
+        return;
+      }
+
+      const source = ctx.createBufferSource();
+      source.buffer = audioBuffer;
+      source.loop = true;
+
+      const gainNode = ctx.createGain();
+      gainNode.gain.value = 0.85;
+
+      const dest = ctx.createMediaStreamDestination();
+      source.connect(gainNode);
+      gainNode.connect(dest);
+
+      // Keep WebAudio clock active in background tabs with a zero-gain sink
+      const silentSink = ctx.createGain();
+      silentSink.gain.value = 0.0;
+      gainNode.connect(silentSink);
+      silentSink.connect(ctx.destination);
+
+      source.start(0);
+
+      const holdTrack = dest.stream.getAudioTracks()[0];
+      if (holdTrack) {
+        holdTrack.enabled = true;
+        line.holdMusicCtx = ctx;
+        line.holdMusicSource = source;
+        line.holdMusicTrack = holdTrack;
+
+        const senders = pc.getSenders();
+        for (const sender of senders) {
+          if (!sender.track || sender.track.kind === "audio") {
+            await sender.replaceTrack(holdTrack).catch(() => {});
+          }
+        }
+      } else {
+        ctx.close().catch(() => {});
+      }
+    } catch (err) {
+      console.warn("[WebphoneManager] Hold music start warning:", err);
+    } finally {
+      line.holdMusicStarting = false;
+    }
+  }
+
+  stopLineHoldMusic(line, opts = { restoreMic: true }) {
+    if (!line) return;
+    line.holdMusicStarting = false;
+
+    if (line.holdMusicSource) {
+      try {
+        line.holdMusicSource.stop();
+        line.holdMusicSource.disconnect();
+      } catch (e) {}
+      line.holdMusicSource = null;
+    }
+
+    if (line.holdMusicTrack) {
+      try {
+        line.holdMusicTrack.stop();
+      } catch (e) {}
+      line.holdMusicTrack = null;
+    }
+
+    if (line.holdMusicCtx) {
+      try {
+        if (line.holdMusicCtx.state !== "closed") {
+          line.holdMusicCtx.close().catch(() => {});
+        }
+      } catch (e) {}
+      line.holdMusicCtx = null;
+    }
+
+    if (opts?.restoreMic !== false && !this.state.isConferenceActive) {
+      const pc = line.session?.sessionDescriptionHandler?.peerConnection;
+      if (pc && line.origMicTrack) {
+        const shouldSendMic =
+          !line.isMuted && !line.isOnHold && this.state.activeLineId === line.id;
+        line.origMicTrack.enabled = shouldSendMic;
+        const targetTrack = this.rawMicSuppressed && this.silentRtpTrack
+          ? this.silentRtpTrack
+          : line.origMicTrack;
+        pc.getSenders().forEach((sender) => {
+          if (!sender.track || sender.track.kind === "audio") {
+            sender.replaceTrack(targetTrack).catch(() => {});
+          }
+        });
+      }
+    }
+  }
+
   applyLineAudioState(line) {
     if (!line) return;
     const audioEl = this.ensureAudioElement(line.id);
@@ -1405,13 +1604,25 @@ class WebphoneManager {
       audioEl.muted = !shouldReceiveAudio;
     }
 
+    if (line.isOnHold && !inConf && line.callStatus === "InCall") {
+      this.startLineHoldMusic(line);
+      return;
+    }
+
+    if (line.holdMusicTrack || line.holdMusicCtx || line.holdMusicStarting) {
+      this.stopLineHoldMusic(line, { restoreMic: true });
+    }
+
     const pc = line.session?.sessionDescriptionHandler?.peerConnection;
     if (pc && !inConf) {
       pc.getSenders().forEach((sender) => {
-        if (sender.track && sender.track.kind === "audio") {
+        if (sender.track && sender.track.kind === "audio" && sender.track !== line.holdMusicTrack) {
           sender.track.enabled = shouldSendMic;
         }
       });
+      if (line.origMicTrack) {
+        line.origMicTrack.enabled = shouldSendMic;
+      }
     }
   }
 

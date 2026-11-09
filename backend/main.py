@@ -10100,6 +10100,88 @@ BUILTIN_SYSTEM_ANNOUNCEMENTS = [
     },
 ]
 
+BUILTIN_MOH_ANNOUNCEMENTS = [
+    {
+        "id": "moh_kurumsal_piyano",
+        "name": "Kurumsal Akustik Piyano & Ambient",
+        "filename": "moh_kurumsal_piyano.wav",
+        "original_filename": "moh_kurumsal_piyano.wav",
+        "type": "moh",
+        "description": "Yumuşak akustik piyano ve ambient akorlardan oluşan anonim kurumsal bekleme müziği.",
+        "is_builtin": True,
+    },
+    {
+        "id": "moh_lounge_jazz",
+        "name": "Modern Lounge & Yumuşak Akorlar",
+        "filename": "moh_lounge_jazz.wav",
+        "original_filename": "moh_lounge_jazz.wav",
+        "type": "moh",
+        "description": "Modern elektrik piyano ve sıcak lounge akorlarıyla dinlendirici anonim bekleme müziği.",
+        "is_builtin": True,
+    },
+    {
+        "id": "moh_klasik_armoni",
+        "name": "Klasik Yaylı & Arp Armonisi",
+        "filename": "moh_klasik_armoni.wav",
+        "original_filename": "moh_klasik_armoni.wav",
+        "type": "moh",
+        "description": "Klasik yaylılar ve arp arpejlerinden oluşan zarif kurumsal bekleme müziği.",
+        "is_builtin": True,
+    },
+    {
+        "id": "moh_pozitif_melodi",
+        "name": "Pozitif Kurumsal Melodi",
+        "filename": "moh_pozitif_melodi.wav",
+        "original_filename": "moh_pozitif_melodi.wav",
+        "type": "moh",
+        "description": "Dinamik ve sıcak tonlu pozitif kurumsal bekleme müziği.",
+        "is_builtin": True,
+    },
+]
+
+
+def _sync_active_moh_to_asterisk(active_moh_id: Optional[str] = None) -> str:
+    """ Resolves the currently active MOH WAV file and syncs it to Asterisk MOH directories. """
+    import shutil
+    import subprocess
+    chosen_id = str(active_moh_id or settings_db.get("active_moh_id") or "moh_kurumsal_piyano").strip()
+    all_anns = list(settings_db.get("announcements", [])) + BUILTIN_MOH_ANNOUNCEMENTS
+    matched = next((a for a in all_anns if isinstance(a, dict) and str(a.get("id")) == chosen_id), None)
+    if not matched:
+        matched = BUILTIN_MOH_ANNOUNCEMENTS[0]
+
+    valid_fp = _ensure_announcement_audio_valid(matched)
+    if not valid_fp or not os.path.exists(valid_fp):
+        for b_moh in BUILTIN_MOH_ANNOUNCEMENTS:
+            cand = _ensure_announcement_audio_valid(b_moh)
+            if cand and os.path.exists(cand):
+                valid_fp = cand
+                break
+
+    if valid_fp and os.path.exists(valid_fp):
+        for moh_dir in ["/var/lib/asterisk/moh", "/usr/share/asterisk/moh"]:
+            if os.path.exists(os.path.dirname(moh_dir)):
+                try:
+                    os.makedirs(moh_dir, exist_ok=True)
+                    # Remove old wavs in moh_dir so Asterisk plays the selected active MOH track
+                    for f in os.listdir(moh_dir):
+                        if f.endswith(".wav") or f.endswith(".sln") or f.endswith(".ulaw") or f.endswith(".alaw"):
+                            try:
+                                os.remove(os.path.join(moh_dir, f))
+                            except Exception:
+                                pass
+                    dst_wav = os.path.join(moh_dir, "aida_active_moh.wav")
+                    shutil.copy2(valid_fp, dst_wav)
+                    os.chmod(dst_wav, 0o644)
+                except Exception as e_moh:
+                    print(f"[Asterisk MOH Sync Warning] ({moh_dir}): {e_moh}")
+        if os.path.exists("/etc/asterisk"):
+            try:
+                subprocess.run(["asterisk", "-rx", "moh reload"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=2.0)
+            except Exception:
+                pass
+    return valid_fp or ""
+
 
 def _normalize_announcement_type(raw_type: Optional[str]) -> str:
     val = str(raw_type or "").strip().lower()
@@ -10161,7 +10243,10 @@ async def get_announcements(category: Optional[str] = None, type: Optional[str] 
         filtered = [a for a in all_announcements if not a.get("tenant_id") or a.get("tenant_id") in [target_tenant, "tenant-default", "default"]]
 
     builtin_by_id = {b["id"]: b for b in BUILTIN_SYSTEM_ANNOUNCEMENTS}
+    builtin_moh_by_id = {b["id"]: b for b in BUILTIN_MOH_ANNOUNCEMENTS}
+    active_moh_id = str(settings_db.get("active_moh_id") or "moh_kurumsal_piyano").strip()
     seen_builtin_ids = set()
+    seen_builtin_moh_ids = set()
     normalized = []
     dirty_settings = False
     for a in filtered:
@@ -10210,6 +10295,7 @@ async def get_announcements(category: Optional[str] = None, type: Optional[str] 
         item = dict(a)
         item_id = str(item.get("id") or "").strip()
         builtin_meta = builtin_by_id.get(item_id)
+        builtin_moh_meta = builtin_moh_by_id.get(item_id)
         if builtin_meta:
             seen_builtin_ids.add(item_id)
             item["type"] = "system"
@@ -10217,8 +10303,17 @@ async def get_announcements(category: Optional[str] = None, type: Optional[str] 
             item["is_customized"] = True
             item.setdefault("system_key", builtin_meta.get("system_key"))
             item.setdefault("description", builtin_meta.get("description"))
+        elif builtin_moh_meta:
+            seen_builtin_moh_ids.add(item_id)
+            item["type"] = "moh"
+            item["is_builtin"] = True
+            item["is_customized"] = True
+            item.setdefault("description", builtin_moh_meta.get("description"))
         else:
             item["type"] = _normalize_announcement_type(item.get("type"))
+
+        if item["type"] == "moh":
+            item["is_active_moh"] = (item_id == active_moh_id)
 
         if not item.get("name"):
             item["name"] = item.get("original_filename") or item.get("filename") or "Anons"
@@ -10251,6 +10346,25 @@ async def get_announcements(category: Optional[str] = None, type: Optional[str] 
         b_item["duration_formatted"] = _format_duration_mmss(dur_sec)
         normalized.append(b_item)
 
+    # Include built-in Anonymous Hold Music (MoH) tracks that have not been overridden
+    for b_moh in BUILTIN_MOH_ANNOUNCEMENTS:
+        if b_moh["id"] in seen_builtin_moh_ids:
+            continue
+        m_item = dict(b_moh)
+        m_item["is_customized"] = False
+        m_item["is_active_moh"] = (m_item["id"] == active_moh_id)
+        valid_fp = _ensure_announcement_audio_valid(m_item)
+        if not valid_fp:
+            continue
+        dur_sec = _calc_audio_duration_seconds(valid_fp)
+        try:
+            m_item["created_at"] = os.path.getmtime(valid_fp)
+        except Exception:
+            m_item["created_at"] = None
+        m_item["duration"] = dur_sec
+        m_item["duration_formatted"] = _format_duration_mmss(dur_sec)
+        normalized.append(m_item)
+
     if dirty_settings:
         save_settings(settings_db)
 
@@ -10260,6 +10374,32 @@ async def get_announcements(category: Optional[str] = None, type: Optional[str] 
         return [x for x in normalized if x.get("type") == norm_cat]
 
     return normalized
+
+
+@app.get("/api/settings/announcements/active-moh")
+async def get_active_moh_info():
+    active_id = str(settings_db.get("active_moh_id") or "moh_kurumsal_piyano").strip()
+    return {"status": "success", "active_moh_id": active_id}
+
+
+@app.post("/api/settings/announcements/active-moh")
+async def set_active_moh_endpoint(payload: dict):
+    chosen_id = str(payload.get("id") or payload.get("active_moh_id") or "moh_kurumsal_piyano").strip()
+    settings_db["active_moh_id"] = chosen_id
+    save_settings(settings_db)
+    _sync_active_moh_to_asterisk(chosen_id)
+    return {"status": "success", "active_moh_id": chosen_id}
+
+
+@app.get("/api/settings/announcements/active-moh.wav")
+async def get_active_moh_wav_file():
+    valid_fp = _sync_active_moh_to_asterisk()
+    if not valid_fp or not os.path.exists(valid_fp):
+        raise HTTPException(status_code=404, detail="Aktif bekleme müziği bulunamadı.")
+    with open(valid_fp, "rb") as f:
+        head = f.read(12)
+    media_type = "audio/wav" if (head[:4] == b"RIFF" and head[8:12] == b"WAVE") else "audio/mpeg"
+    return FileResponse(valid_fp, media_type=media_type, headers={"Cache-Control": "no-cache"})
 
 
 @app.post("/api/settings/announcements")
@@ -10286,10 +10426,10 @@ async def create_announcement(
     clean_ann_id = str(announcement_id or "").strip()
     if clean_ann_id:
         existing_ann = next((a for a in settings_db["announcements"] if str(a.get("id")) == clean_ann_id), None)
-        builtin_match = next((b for b in BUILTIN_SYSTEM_ANNOUNCEMENTS if b["id"] == clean_ann_id), None)
+        builtin_match = next((b for b in (BUILTIN_SYSTEM_ANNOUNCEMENTS + BUILTIN_MOH_ANNOUNCEMENTS) if b["id"] == clean_ann_id), None)
 
     if builtin_match:
-        resolved_type = "system"
+        resolved_type = builtin_match.get("type", "system")
 
     ann_id = existing_ann["id"] if existing_ann else (builtin_match["id"] if builtin_match else str(uuid.uuid4()))
 
@@ -10683,10 +10823,10 @@ async def create_tts_announcement(payload: dict, user_info: dict = Depends(get_u
     builtin_match = None
     if existing_id:
         existing_ann = next((a for a in settings_db["announcements"] if str(a.get("id")) == existing_id), None)
-        builtin_match = next((b for b in BUILTIN_SYSTEM_ANNOUNCEMENTS if b["id"] == existing_id), None)
+        builtin_match = next((b for b in (BUILTIN_SYSTEM_ANNOUNCEMENTS + BUILTIN_MOH_ANNOUNCEMENTS) if b["id"] == existing_id), None)
 
     if builtin_match:
-        ann_type = "system"
+        ann_type = builtin_match.get("type", "system")
 
     ann_id = existing_ann["id"] if existing_ann else (builtin_match["id"] if builtin_match else str(uuid.uuid4()))
 
@@ -10777,7 +10917,7 @@ async def update_announcement(announcement_id: str, payload: dict, user_info: di
 
     clean_ann_id = str(announcement_id).strip()
     target = next((a for a in settings_db["announcements"] if str(a.get("id")) == clean_ann_id), None)
-    builtin_match = next((b for b in BUILTIN_SYSTEM_ANNOUNCEMENTS if b["id"] == clean_ann_id), None)
+    builtin_match = next((b for b in (BUILTIN_SYSTEM_ANNOUNCEMENTS + BUILTIN_MOH_ANNOUNCEMENTS) if b["id"] == clean_ann_id), None)
 
     if not target and builtin_match:
         target = dict(builtin_match)
@@ -10790,7 +10930,7 @@ async def update_announcement(announcement_id: str, payload: dict, user_info: di
         raise HTTPException(status_code=404, detail="Anons bulunamadı.")
 
     new_name = str(payload.get("name") or target.get("name") or "Anons").strip() or "Anons"
-    new_type = "system" if builtin_match else (
+    new_type = builtin_match.get("type", "system") if builtin_match else (
         _normalize_announcement_type(payload.get("type")) if payload.get("type") else _normalize_announcement_type(target.get("type"))
     )
     new_text = str(payload.get("text") if payload.get("text") is not None else (target.get("text") or "")).strip()
@@ -10879,7 +11019,7 @@ async def delete_announcement(announcement_id: str):
         return {"status": "error", "message": "Not found"}
 
     clean_ann_id = str(announcement_id).strip()
-    builtin_match = next((b for b in BUILTIN_SYSTEM_ANNOUNCEMENTS if b["id"] == clean_ann_id), None)
+    builtin_match = next((b for b in (BUILTIN_SYSTEM_ANNOUNCEMENTS + BUILTIN_MOH_ANNOUNCEMENTS) if b["id"] == clean_ann_id), None)
 
     for ann in list(settings_db["announcements"]):
         if str(ann.get("id")) == clean_ann_id:

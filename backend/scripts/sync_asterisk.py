@@ -1959,7 +1959,7 @@ atxfer => *2
 rec_pause_toggle => {rec_pause_code},self/both,Gosub(rec_pause_sub,s,1)
 """
 
-    # Copy Turkish announcement WAV files to /var/spool/asterisk/monitor/
+    # Copy Turkish announcement WAV files to /var/spool/asterisk/monitor/ and sync Asterisk MOH
     try:
         sounds_tr_dir = os.path.join(PROJECT_ROOT, "asterisk_config", "sounds_tr")
         uploads_ann_dir = os.path.join(PROJECT_ROOT, "uploads", "announcements")
@@ -1975,6 +1975,47 @@ rec_pause_toggle => {rec_pause_code},self/both,Gosub(rec_pause_sub,s,1)
                             shutil.copy2(src_wav, dst_wav)
                             os.chmod(dst_wav, 0o644)
             print(f"[Sync Script] Türkçe anons ses dosyaları kopyalandı -> {monitor_dir}")
+
+            # Sync Active Hold Music (MOH) into Asterisk MOH directories
+            active_moh_id = str(sdata.get("active_moh_id") if isinstance(sdata, dict) else "").strip() or "moh_kurumsal_piyano"
+            moh_candidates = [
+                os.path.join(uploads_ann_dir, f"{active_moh_id}.wav"),
+                os.path.join(sounds_tr_dir, f"{active_moh_id}.wav"),
+                os.path.join(sounds_tr_dir, "moh_kurumsal_piyano.wav"),
+            ]
+            src_moh_wav = next((p for p in moh_candidates if os.path.isfile(p)), None)
+            if src_moh_wav:
+                for moh_dir in ["/var/lib/asterisk/moh", "/usr/share/asterisk/moh"]:
+                    try:
+                        os.makedirs(moh_dir, exist_ok=True)
+                        for existing_f in os.listdir(moh_dir):
+                            if existing_f.startswith("aida_active_moh"):
+                                try:
+                                    os.remove(os.path.join(moh_dir, existing_f))
+                                except Exception:
+                                    pass
+                        dst_moh = os.path.join(moh_dir, "aida_active_moh.wav")
+                        shutil.copy2(src_moh_wav, dst_moh)
+                        os.chmod(dst_moh, 0o644)
+                    except Exception:
+                        pass
+                moh_conf = (
+                    "; ==========================================\n"
+                    "; AIDA PBX Music on Hold (Bekleme Müziği)\n"
+                    "; ==========================================\n"
+                    "[general]\n\n"
+                    "[default]\n"
+                    "mode=files\n"
+                    "directory=/var/lib/asterisk/moh\n"
+                    "sort=alpha\n"
+                )
+                try:
+                    with open("/etc/asterisk/musiconhold.conf", "w", encoding="utf-8") as mf:
+                        mf.write(moh_conf)
+                    subprocess.run(["asterisk", "-rx", "moh reload"], check=False, timeout=2.0)
+                    print(f"[Sync Script] Asterisk Bekleme Müziği (MOH) senkronize edildi: {active_moh_id}")
+                except Exception:
+                    pass
     except Exception as e_snd:
         print(f"[Sync Script] Türkçe ses kopyalama uyarısı: {e_snd}")
 
