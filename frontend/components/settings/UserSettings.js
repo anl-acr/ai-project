@@ -1880,15 +1880,18 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
     setOutboundCallerId(u.outbound_caller_id || "");
 
     const resolvedActiveProf = u.active_profile || "available";
-    const normalizedProfiles = normalizeUserProfiles(u.profiles);
+    const normalizedProfiles = normalizeUserProfiles(u.profiles, u);
     const activeProfObj = normalizedProfiles.find((p) => p.id === resolvedActiveProf) || normalizedProfiles[0];
-    if (u.forwarding_always) { setFwdAlwaysActive(u.forwarding_always.active || false); setFwdAlwaysType(u.forwarding_always.type || "internal"); setFwdAlwaysTarget(u.forwarding_always.target || ""); }
-    if (u.forwarding_busy) { setFwdBusyActive(u.forwarding_busy.active || false); setFwdBusyType(u.forwarding_busy.type || "internal"); setFwdBusyTarget(u.forwarding_busy.target || ""); }
-    if (u.forwarding_no_answer) {
-      setFwdNoAnswerActive(u.forwarding_no_answer.active || false);
-      setFwdNoAnswerType(u.forwarding_no_answer.type || "internal");
-      setFwdNoAnswerTarget(u.forwarding_no_answer.target || "");
-      setFwdNoAnswerTimeout(u.forwarding_no_answer.timeout || activeProfObj?.timeout || 30);
+    const initAlways = activeProfObj?.forwarding_always || u.forwarding_always;
+    const initBusy = activeProfObj?.forwarding_busy || u.forwarding_busy;
+    const initNoAns = activeProfObj?.forwarding_no_answer || u.forwarding_no_answer;
+    if (initAlways) { setFwdAlwaysActive(initAlways.active || false); setFwdAlwaysType(initAlways.type || "internal"); setFwdAlwaysTarget(initAlways.target || ""); }
+    if (initBusy) { setFwdBusyActive(initBusy.active || false); setFwdBusyType(initBusy.type || "internal"); setFwdBusyTarget(initBusy.target || ""); }
+    if (initNoAns) {
+      setFwdNoAnswerActive(initNoAns.active || false);
+      setFwdNoAnswerType(initNoAns.type || "internal");
+      setFwdNoAnswerTarget(initNoAns.target || "");
+      setFwdNoAnswerTimeout(activeProfObj?.timeout || u.forwarding_no_answer?.timeout || 30);
     } else {
       setFwdNoAnswerTimeout(activeProfObj?.timeout || 30);
     }
@@ -2136,6 +2139,32 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
           : "all";
     const primarySave2faMethod = resolvedSaveActiveMethods[0] || twoFactorMethod || "google_auth";
 
+    const sanitizedProfiles = (userProfiles || []).map((p) => ({
+      ...p,
+      timeout: Math.max(5, Math.min(120, Number(p.timeout) || 30)),
+      timeout_action: "none",
+      timeout_target: "",
+      forwarding_always: {
+        active: Boolean(p.forwarding_always?.active && String(p.forwarding_always?.target || "").trim()),
+        type: p.forwarding_always?.type === "external" ? "external" : "internal",
+        target: String(p.forwarding_always?.target || "").trim()
+      },
+      forwarding_busy: {
+        active: Boolean(p.forwarding_busy?.active && String(p.forwarding_busy?.target || "").trim()),
+        type: p.forwarding_busy?.type === "external" ? "external" : "internal",
+        target: String(p.forwarding_busy?.target || "").trim()
+      },
+      forwarding_no_answer: {
+        active: Boolean(p.forwarding_no_answer?.active && String(p.forwarding_no_answer?.target || "").trim()),
+        type: p.forwarding_no_answer?.type === "external" ? "external" : "internal",
+        target: String(p.forwarding_no_answer?.target || "").trim()
+      }
+    }));
+    const activeSaveProfObj =
+      sanitizedProfiles.find((p) => p.id === (activeProfile || "available")) ||
+      sanitizedProfiles[0] ||
+      {};
+
     const userData = {
       full_name: fullName.trim(),
       email: email.trim(),
@@ -2153,9 +2182,12 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
       outbound_quarantined: Boolean(outboundQuarantined),
       outbound_caller_id: outboundCallerId.trim(),
       gsm_number: cleanFmMobile || "",
-      forwarding_always: { active: Boolean(fwdAlwaysActive && fwdAlwaysTarget), type: fwdAlwaysType || "internal", target: fwdAlwaysTarget || "" },
-      forwarding_busy: { active: Boolean(fwdBusyActive && fwdBusyTarget), type: fwdBusyType || "internal", target: fwdBusyTarget || "" },
-      forwarding_no_answer: { active: Boolean(fwdNoAnswerActive && fwdNoAnswerTarget), type: fwdNoAnswerType || "internal", target: fwdNoAnswerTarget || "", timeout: fwdNoAnswerTimeout || 30 },
+      forwarding_always: activeSaveProfObj.forwarding_always || { active: false, type: "internal", target: "" },
+      forwarding_busy: activeSaveProfObj.forwarding_busy || { active: false, type: "internal", target: "" },
+      forwarding_no_answer: {
+        ...(activeSaveProfObj.forwarding_no_answer || { active: false, type: "internal", target: "" }),
+        timeout: Number(activeSaveProfObj.timeout) || 30
+      },
       voicemail_active: voicemailActive,
       voicemail_announcement: voicemailAnnouncement,
       voicemail_pin: voicemailPin,
@@ -2191,12 +2223,7 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
       location_id: selectedLocation || null,
       department_id: selectedDepartment || null,
       active_profile: activeProfile || "available",
-      profiles: (userProfiles || []).map((p) => ({
-        ...p,
-        timeout: Number(fwdNoAnswerTimeout) || 30,
-        timeout_action: "none",
-        timeout_target: ""
-      })),
+      profiles: sanitizedProfiles,
       call_panel_prefs: {
         ...prevCallPanelPrefs,
         defaultLandingTab: sanitizedLandingTab || "auto",
@@ -2406,6 +2433,23 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
             setFwdNoAnswerActive(false);
             setFwdNoAnswerTarget("");
           }
+          setUserProfiles((prev) =>
+            (prev || []).map((p) => {
+              if (p.id !== (activeProfile || "available")) return p;
+              return {
+                ...p,
+                ...(ruleType === "all" || ruleType === "always"
+                  ? { forwarding_always: { active: false, type: "internal", target: "" } }
+                  : {}),
+                ...(ruleType === "all" || ruleType === "busy"
+                  ? { forwarding_busy: { active: false, type: "internal", target: "" } }
+                  : {}),
+                ...(ruleType === "all" || ruleType === "no_answer"
+                  ? { forwarding_no_answer: { active: false, type: "internal", target: "" } }
+                  : {})
+              };
+            })
+          );
         }
         setSuccess(true);
         setTimeout(() => setSuccess(false), 3000);
@@ -2861,14 +2905,21 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
                       </div>
                       {(() => {
                         const activeFwds = [];
-                        if (u.forwarding_always?.active) {
-                          activeFwds.push({ key: "always", label: "Her Zaman", target: u.forwarding_always.target });
+                        const actProfIdRow = u.active_profile || "available";
+                        const actProfObjRow = Array.isArray(u.profiles)
+                          ? u.profiles.find((p) => p && p.id === actProfIdRow)
+                          : null;
+                        const rowAlways = actProfObjRow?.forwarding_always || u.forwarding_always;
+                        const rowBusy = actProfObjRow?.forwarding_busy || u.forwarding_busy;
+                        const rowNoAns = actProfObjRow?.forwarding_no_answer || u.forwarding_no_answer;
+                        if (rowAlways?.active) {
+                          activeFwds.push({ key: "always", label: "Her Zaman", target: rowAlways.target });
                         }
-                        if (u.forwarding_busy?.active) {
-                          activeFwds.push({ key: "busy", label: "Meşgulde", target: u.forwarding_busy.target });
+                        if (rowBusy?.active) {
+                          activeFwds.push({ key: "busy", label: "Meşgulde", target: rowBusy.target });
                         }
-                        if (u.forwarding_no_answer?.active) {
-                          activeFwds.push({ key: "no_answer", label: "Cevapsız", target: u.forwarding_no_answer.target });
+                        if (rowNoAns?.active) {
+                          activeFwds.push({ key: "no_answer", label: "Cevapsız", target: rowNoAns.target });
                         }
                         if (activeFwds.length > 0) {
                           return (
@@ -3038,7 +3089,7 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
                             className={"w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-bold transition-all " + (activeTab === 'profiles' ? ("bg-white dark:bg-slate-800 " + text + " shadow-sm border border-slate-200 dark:border-slate-700") : "text-slate-500 hover:bg-white/50 dark:hover:bg-slate-800/50 hover:text-slate-700 dark:hover:text-slate-300 border border-transparent")}
                         >
                             <Users size={16} />
-                            Profiller
+                            Profiller & Yönlendirme
                         </button>
                         <button
                             type="button"
@@ -3046,7 +3097,7 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
                             className={"w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-bold transition-all " + (activeTab === 'forwarding' ? ("bg-white dark:bg-slate-800 " + text + " shadow-sm border border-slate-200 dark:border-slate-700") : "text-slate-500 hover:bg-white/50 dark:hover:bg-slate-800/50 hover:text-slate-700 dark:hover:text-slate-300 border border-transparent")}
                         >
                             <PhoneCall size={16} />
-                            Yönlendirme & Voicemail
+                            Sesli Posta
                         </button>
                         <button
                             type="button"
@@ -3715,11 +3766,17 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
                             </div>
                         )}
 
-                        {/* TAB: PROFİLLER (Müsait, Dışarıda, Toplantı, Diğer) */}
+                        {/* TAB: PROFİLLER & YÖNLENDİRME (Müsait, Dışarıda, Toplantı, Diğer) */}
                         {activeTab === "profiles" && (() => {
                             const currentProf = userProfiles.find(p => p.id === selectedProfileTab) || userProfiles[0] || DEFAULT_USER_PROFILES[0];
                             const updateCurrentProfile = (patch) => {
                                 setUserProfiles(prev => prev.map(p => p.id === currentProf.id ? { ...p, ...patch } : p));
+                            };
+                            const updateProfileForwarding = (ruleKey, patch) => {
+                                const curRule = currentProf[ruleKey] || { active: false, type: "internal", target: "" };
+                                updateCurrentProfile({
+                                    [ruleKey]: { ...curRule, ...patch }
+                                });
                             };
                             const toggleProfileDevice = (devId) => {
                                 const curDevs = Array.isArray(currentProf.devices) ? currentProf.devices : [];
@@ -3729,16 +3786,21 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
                                 updateCurrentProfile({ devices: nextDevs });
                             };
 
+                            const profAlways = currentProf.forwarding_always || { active: false, type: "internal", target: "" };
+                            const profBusy = currentProf.forwarding_busy || { active: false, type: "internal", target: "" };
+                            const profNoAns = currentProf.forwarding_no_answer || { active: false, type: "internal", target: "" };
+                            const profTimeout = currentProf.timeout ?? 30;
+
                             return (
                                 <div className="space-y-6 animate-in fade-in duration-300">
                                     {/* Top Header & Active Profile Selector */}
                                     <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-slate-100 dark:border-slate-800">
                                         <div>
                                             <h4 className="text-sm font-extrabold text-slate-800 dark:text-white uppercase tracking-wider">
-                                                Kullanıcı Çağrı Profilleri
+                                                Profiller & Çağrı Yönlendirme
                                             </h4>
                                             <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-                                                Her profil için çalacak cihazları ve hızlı geçiş tuşlama kodunu önceden kaydedin.
+                                                Her profil için çalacak cihazları, çalma süresini ve çağrı yönlendirme kurallarını ayrı ayrı yapılandırın.
                                             </p>
                                         </div>
                                         <div className="flex items-center gap-2.5 shrink-0">
@@ -3758,7 +3820,7 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
                                         </div>
                                     </div>
 
-                                    {/* 4 Profile Sub-Tabs (Without device/timeout sub-info) */}
+                                    {/* 4 Profile Sub-Tabs */}
                                     <div className="grid grid-cols-2 sm:grid-cols-4 gap-3.5">
                                         {userProfiles.map((prof) => {
                                             const isSelected = selectedProfileTab === prof.id;
@@ -3870,38 +3932,142 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
                                             </div>
                                             {(!currentProf.devices || currentProf.devices.length === 0) && (
                                                 <p className="text-[11px] text-amber-600 dark:text-amber-400 font-semibold mt-3">
-                                                    Hiçbir cihaz seçilmediğinde telefon çalmaz ve gelen çağrı doğrudan yönlendirme veya sesli mesaj kurallarına aktarılır.
+                                                    Hiçbir cihaz seçilmediğinde telefon çalmaz ve gelen çağrı doğrudan yönlendirme veya sesli posta kurallarına aktarılır.
                                                 </p>
                                             )}
                                         </div>
 
-                                        {/* 2. Digit Switch */}
-                                        <div className="pt-4 border-t border-slate-200/60 dark:border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                                            <div>
-                                                <label className="block text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
-                                                    2. Telefon Tuşlama Kodu (Digit)
-                                                </label>
-                                                <p className="text-[11px] text-slate-400 mt-0.5">
-                                                    IP masa telefonundan veya WebPhone&apos;dan bu kodu tuşlayarak doğrudan {currentProf.name} profiline geçebilirsiniz.
-                                                </p>
+                                        {/* 2. Ring Timeout & Digit Switch */}
+                                        <div className="pt-4 border-t border-slate-200/60 dark:border-slate-800 grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                            {/* Çalma Süresi (sn) */}
+                                            <div className="p-3.5 rounded-xl border border-slate-200/80 dark:border-slate-800 bg-white dark:bg-slate-950/60 flex items-center justify-between gap-3">
+                                                <div>
+                                                    <label className="block text-[10px] font-extrabold text-slate-700 dark:text-slate-200 uppercase tracking-wider">
+                                                        2. Çalma Süresi (sn)
+                                                    </label>
+                                                    <p className="text-[10px] text-slate-400 mt-0.5">
+                                                        Zaman aşımına düşmeden önceki çalma süresi
+                                                    </p>
+                                                </div>
+                                                <div className="flex items-center gap-1.5 shrink-0">
+                                                    <input
+                                                        type="number"
+                                                        min="5"
+                                                        max="120"
+                                                        value={profTimeout}
+                                                        onChange={(e) =>
+                                                            updateCurrentProfile({
+                                                                timeout: Math.max(5, Math.min(120, parseInt(e.target.value, 10) || 30))
+                                                            })
+                                                        }
+                                                        className="w-14 text-xs font-bold px-2 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 text-slate-800 dark:text-slate-100 focus:outline-none text-center"
+                                                    />
+                                                    {[15, 30, 45].map((sec) => (
+                                                        <button
+                                                            key={sec}
+                                                            type="button"
+                                                            onClick={() => updateCurrentProfile({ timeout: sec })}
+                                                            className={`px-2 py-2 rounded-xl text-[10px] font-bold border transition-all ${
+                                                                Number(profTimeout) === sec
+                                                                    ? `${bg} text-white border-transparent`
+                                                                    : "bg-slate-50 dark:bg-slate-900 text-slate-500 border-slate-200 dark:border-slate-800 hover:border-slate-300"
+                                                            }`}
+                                                        >
+                                                            {sec}s
+                                                        </button>
+                                                    ))}
+                                                </div>
                                             </div>
-                                            <div className="flex items-center gap-2 shrink-0">
-                                                <input
-                                                    type="text"
-                                                    inputMode="numeric"
-                                                    maxLength={2}
-                                                    value={currentProf.digit ?? ""}
-                                                    onChange={(e) =>
-                                                        updateCurrentProfile({
-                                                            digit: e.target.value.replace(/\D/g, "").slice(0, 2)
-                                                        })
-                                                    }
-                                                    placeholder="1"
-                                                    className="w-16 text-xs font-mono font-extrabold text-center px-2.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 text-slate-800 dark:text-slate-100 focus:outline-none"
-                                                />
-                                                <span className={`px-2.5 py-2 rounded-xl text-[10px] font-mono font-extrabold ${lightBg} ${text} border ${borderLight} whitespace-nowrap`}>
-                                                    *70*{currentProf.digit || "1"}
-                                                </span>
+
+                                            {/* Telefon Tuşlama Kodu (Digit) */}
+                                            <div className="p-3.5 rounded-xl border border-slate-200/80 dark:border-slate-800 bg-white dark:bg-slate-950/60 flex items-center justify-between gap-3">
+                                                <div>
+                                                    <label className="block text-[10px] font-extrabold text-slate-700 dark:text-slate-200 uppercase tracking-wider">
+                                                        3. Telefon Tuşlama Kodu (Digit)
+                                                    </label>
+                                                    <p className="text-[10px] text-slate-400 mt-0.5">
+                                                        Telefondan hızlı profil geçiş kodu
+                                                    </p>
+                                                </div>
+                                                <div className="flex items-center gap-2 shrink-0">
+                                                    <input
+                                                        type="text"
+                                                        inputMode="numeric"
+                                                        maxLength={2}
+                                                        value={currentProf.digit ?? ""}
+                                                        onChange={(e) =>
+                                                            updateCurrentProfile({
+                                                                digit: e.target.value.replace(/\D/g, "").slice(0, 2)
+                                                            })
+                                                        }
+                                                        placeholder="1"
+                                                        className="w-14 text-xs font-mono font-extrabold text-center px-2 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 text-slate-800 dark:text-slate-100 focus:outline-none"
+                                                    />
+                                                    <span className={`px-2.5 py-2 rounded-xl text-[10px] font-mono font-extrabold ${lightBg} ${text} border ${borderLight} whitespace-nowrap`}>
+                                                        *70*{currentProf.digit || "1"}
+                                                    </span>
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        {/* 4. Per-Profile Call Forwarding Rules */}
+                                        <div className="pt-4 border-t border-slate-200/60 dark:border-slate-800">
+                                            <div className="flex items-center justify-between mb-3">
+                                                <div>
+                                                    <label className="block text-[11px] font-extrabold text-slate-700 dark:text-slate-200 uppercase tracking-wider">
+                                                        4. Çağrı Yönlendirme Kuralları ({currentProf.name} Profili)
+                                                    </label>
+                                                    <p className="text-[11px] text-slate-400 mt-0.5">
+                                                        Kullanıcı <strong>{currentProf.name}</strong> profilindeyken uygulanacak çağrı yönlendirme kuralları.
+                                                    </p>
+                                                </div>
+                                                {(profAlways.active || profBusy.active || profNoAns.active) && (
+                                                    <button
+                                                        type="button"
+                                                        onClick={async () => {
+                                                            updateCurrentProfile({
+                                                                forwarding_always: { ...profAlways, active: false },
+                                                                forwarding_busy: { ...profBusy, active: false },
+                                                                forwarding_no_answer: { ...profNoAns, active: false }
+                                                            });
+                                                            if (activeProfile === currentProf.id && editingUser && editingUser.extension) {
+                                                                await handleQuickCancelForwarding(editingUser.extension, "all");
+                                                            }
+                                                        }}
+                                                        className="px-2.5 py-1 rounded-lg bg-rose-50 dark:bg-rose-950/40 text-rose-600 dark:text-rose-400 border border-rose-200 dark:border-rose-800/60 hover:bg-rose-100 dark:hover:bg-rose-900/50 text-[10px] font-bold flex items-center gap-1 transition-all shrink-0"
+                                                    >
+                                                        <X size={12} /> Yönlendirmeleri Kapat
+                                                    </button>
+                                                )}
+                                            </div>
+                                            <div className="space-y-3">
+                                                {renderForwardingRow(
+                                                    "Her Zaman",
+                                                    !!profAlways.active,
+                                                    (val) => updateProfileForwarding("forwarding_always", { active: val }),
+                                                    profAlways.type || "internal",
+                                                    (val) => updateProfileForwarding("forwarding_always", { type: val }),
+                                                    profAlways.target || "",
+                                                    (val) => updateProfileForwarding("forwarding_always", { target: val })
+                                                )}
+                                                {renderForwardingRow(
+                                                    "Meşgul Durumda",
+                                                    !!profBusy.active,
+                                                    (val) => updateProfileForwarding("forwarding_busy", { active: val }),
+                                                    profBusy.type || "internal",
+                                                    (val) => updateProfileForwarding("forwarding_busy", { type: val }),
+                                                    profBusy.target || "",
+                                                    (val) => updateProfileForwarding("forwarding_busy", { target: val })
+                                                )}
+                                                {renderForwardingRow(
+                                                    "Zaman Aşımında (Cevapsız)",
+                                                    !!profNoAns.active,
+                                                    (val) => updateProfileForwarding("forwarding_no_answer", { active: val }),
+                                                    profNoAns.type || "internal",
+                                                    (val) => updateProfileForwarding("forwarding_no_answer", { type: val }),
+                                                    profNoAns.target || "",
+                                                    (val) => updateProfileForwarding("forwarding_no_answer", { target: val })
+                                                )}
                                             </div>
                                         </div>
                                     </div>
@@ -3909,88 +4075,28 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
                             );
                         })()}
 
-                        {/* TAB 2: YÖNLENDİRME VE VOICEMAIL */}
+                        {/* TAB 2: SESLİ POSTA (VOICEMAIL) */}
                         {activeTab === "forwarding" && (
                             <div className="space-y-6 animate-in fade-in duration-300">
-                                {/* Çalma Süresi (sn) */}
-                                <div className="p-4 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-900/40 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                                    <div>
-                                        <h4 className="text-xs font-extrabold text-slate-800 dark:text-white uppercase tracking-wider">
-                                            Çalma Süresi (sn)
-                                        </h4>
-                                        <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
-                                            Kullanıcıya gelen çağrılarda telefonun zaman aşımına (cevapsız) düşmeden önce kaç saniye boyunca çalacağını belirler.
-                                        </p>
-                                    </div>
-                                    <div className="flex items-center gap-2 shrink-0">
-                                        <input
-                                            type="number"
-                                            min="5"
-                                            max="120"
-                                            value={fwdNoAnswerTimeout ?? 30}
-                                            onChange={(e) => setFwdNoAnswerTimeout(Math.max(5, Math.min(120, parseInt(e.target.value, 10) || 30)))}
-                                            className="w-16 text-xs font-bold px-2.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 text-slate-800 dark:text-slate-100 focus:outline-none text-center"
-                                        />
-                                        <div className="flex items-center gap-1">
-                                            {[15, 30, 45].map((sec) => (
-                                                <button
-                                                    key={sec}
-                                                    type="button"
-                                                    onClick={() => setFwdNoAnswerTimeout(sec)}
-                                                    className={`px-2.5 py-2 rounded-xl text-[10px] font-bold border transition-all ${
-                                                        Number(fwdNoAnswerTimeout) === sec
-                                                            ? `${bg} text-white border-transparent`
-                                                            : "bg-white dark:bg-slate-900 text-slate-500 border-slate-200 dark:border-slate-800 hover:border-slate-300"
-                                                    }`}
-                                                >
-                                                    {sec}s
-                                                </button>
-                                            ))}
-                                        </div>
-                                    </div>
-                                </div>
-
                                 <div>
-                                    <div className="flex items-center justify-between mb-3">
-                                        <h4 className="text-sm font-bold text-slate-800 dark:text-white">Çağrı Yönlendirme Kuralları</h4>
-                                        {(fwdAlwaysActive || fwdBusyActive || fwdNoAnswerActive) && (
-                                            <button
-                                                type="button"
-                                                onClick={async () => {
-                                                    setFwdAlwaysActive(false);
-                                                    setFwdBusyActive(false);
-                                                    setFwdNoAnswerActive(false);
-                                                    if (editingUser && editingUser.extension) {
-                                                        await handleQuickCancelForwarding(editingUser.extension, "all");
-                                                    }
-                                                }}
-                                                className="px-2.5 py-1 rounded-lg bg-rose-50 dark:bg-rose-950/40 text-rose-600 dark:text-rose-400 border border-rose-200 dark:border-rose-800/60 hover:bg-rose-100 dark:hover:bg-rose-900/50 text-[10px] font-bold flex items-center gap-1 transition-all"
-                                            >
-                                                <X size={12} /> Tüm Yönlendirmeleri İptal Et
-                                            </button>
-                                        )}
-                                    </div>
-                                    <div className="space-y-3">
-                                        {renderForwardingRow("Her Zaman", fwdAlwaysActive, setFwdAlwaysActive, fwdAlwaysType, setFwdAlwaysType, fwdAlwaysTarget, setFwdAlwaysTarget)}
-                                        {renderForwardingRow("Meşgul Durumda", fwdBusyActive, setFwdBusyActive, fwdBusyType, setFwdBusyType, fwdBusyTarget, setFwdBusyTarget)}
-                                        {renderForwardingRow("Zaman Aşımında (Cevapsız)", fwdNoAnswerActive, setFwdNoAnswerActive, fwdNoAnswerType, setFwdNoAnswerType, fwdNoAnswerTarget, setFwdNoAnswerTarget)}
-                                    </div>
-                                </div>
-
-                                <div className="border-t border-slate-100 dark:border-slate-800 pt-5">
-                                    <div className="flex items-center justify-between mb-4">
-                                        <h4 className="text-sm font-bold text-slate-800 dark:text-white">Sesli Mesaj (Voicemail)</h4>
-                                        <button type="button" onClick={() => setVoicemailActive(!voicemailActive)} className="text-slate-400 hover:text-slate-700 transition-colors">
+                                    <div className="flex items-center justify-between mb-4 pb-4 border-b border-slate-100 dark:border-slate-800">
+                                        <div>
+                                            <h4 className="text-sm font-extrabold text-slate-800 dark:text-white uppercase tracking-wider">Sesli Posta (Voicemail)</h4>
+                                            <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+                                                Kullanıcıya ulaşılamadığında veya sesli postaya yönlendirildiğinde devreye girecek sesli posta kutusu ayarları.
+                                            </p>
+                                        </div>
+                                        <button type="button" onClick={() => setVoicemailActive(!voicemailActive)} className="text-slate-400 hover:text-slate-700 transition-colors shrink-0">
                                             {voicemailActive ? <ToggleRight size={28} className={`${text}`} /> : <ToggleLeft size={28} />}
                                         </button>
                                     </div>
 
-                                    {voicemailActive && (
-                                        <div className="grid grid-cols-2 gap-4 p-4 bg-slate-50 dark:bg-slate-900/50 rounded-xl border border-slate-100 dark:border-slate-800">
+                                    {voicemailActive ? (
+                                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 p-4 bg-slate-50 dark:bg-slate-900/50 rounded-xl border border-slate-100 dark:border-slate-800">
                                             <div>
-                                                <label className="block text-[10px] font-bold text-slate-500 dark:text-slate-400 mb-1.5">Voicemail Anonsu</label>
+                                                <label className="block text-[10px] font-bold text-slate-500 dark:text-slate-400 mb-1.5">Sesli Posta Karşılama Anonsu</label>
                                                 <select value={voicemailAnnouncement} onChange={(e) => setVoicemailAnnouncement(e.target.value)} className="w-full text-xs px-3 py-2.5 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 focus:outline-none">
-                                                    <option value="Varsayılan Anons">Varsayılan Sistem Sesi (Sesli Mesaj Karşılama)</option>
+                                                    <option value="Varsayılan Anons">Varsayılan Sistem Sesi (Sesli Posta Karşılama)</option>
                                                     {(() => {
                                                         const sysVoicemailAnns = (announcementsList || []).filter(a => String(a?.type || "").toLowerCase() === "system");
                                                         const customVoicemailAnns = (announcementsList || []).filter(a => {
@@ -4027,15 +4133,21 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
                                                 </select>
                                             </div>
                                             <div>
-                                                <label className="block text-[10px] font-bold text-slate-500 dark:text-slate-400 mb-1.5">Voicemail Şifresi (Sadece 4 Rakam)</label>
+                                                <label className="block text-[10px] font-bold text-slate-500 dark:text-slate-400 mb-1.5">Sesli Posta Şifresi (Sadece 4 Rakam)</label>
                                                 <input type="text" maxLength={4} pattern="\d{4}" placeholder="Örn: 1234" value={voicemailPin} onChange={(e) => setVoicemailPin(e.target.value.replace(/\D/g, ''))} className="w-full text-xs px-3 py-2.5 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 focus:outline-none" />
                                             </div>
-                                            <div className="col-span-2 flex items-center justify-between pt-2">
-                                                <span className="text-xs font-bold text-slate-700 dark:text-slate-300">Sesli mesajları e-posta ile gönder</span>
+                                            <div className="sm:col-span-2 flex items-center justify-between pt-2">
+                                                <span className="text-xs font-bold text-slate-700 dark:text-slate-300">Bırakılan sesli postaları e-posta ile gönder</span>
                                                 <button type="button" onClick={() => setVoicemailToEmail(!voicemailToEmail)} className="text-slate-400 hover:text-slate-700 transition-colors">
                                                     {voicemailToEmail ? <ToggleRight size={24} className={`${text}`} /> : <ToggleLeft size={24} />}
                                                 </button>
                                             </div>
+                                        </div>
+                                    ) : (
+                                        <div className="p-6 text-center rounded-xl border border-dashed border-slate-200 dark:border-slate-800 bg-slate-50/40 dark:bg-slate-900/20">
+                                            <p className="text-xs text-slate-400 font-medium">
+                                                Sesli posta şu anda kapalı. Aktif etmek için sağ üstteki anahtarı açabilirsiniz.
+                                            </p>
                                         </div>
                                     )}
                                 </div>

@@ -586,7 +586,10 @@ DEFAULT_USER_PROFILES = [
         "devices": ["desk_phone", "mobile_app", "web_phone", "pc_app"],
         "timeout": 30,
         "timeout_action": "none",
-        "timeout_target": ""
+        "timeout_target": "",
+        "forwarding_always": {"active": False, "type": "internal", "target": ""},
+        "forwarding_busy": {"active": False, "type": "internal", "target": ""},
+        "forwarding_no_answer": {"active": False, "type": "internal", "target": ""}
     },
     {
         "id": "away",
@@ -595,7 +598,10 @@ DEFAULT_USER_PROFILES = [
         "devices": ["mobile_app"],
         "timeout": 25,
         "timeout_action": "external",
-        "timeout_target": ""
+        "timeout_target": "",
+        "forwarding_always": {"active": False, "type": "internal", "target": ""},
+        "forwarding_busy": {"active": False, "type": "internal", "target": ""},
+        "forwarding_no_answer": {"active": False, "type": "internal", "target": ""}
     },
     {
         "id": "meeting",
@@ -604,7 +610,10 @@ DEFAULT_USER_PROFILES = [
         "devices": [],
         "timeout": 15,
         "timeout_action": "voicemail",
-        "timeout_target": ""
+        "timeout_target": "",
+        "forwarding_always": {"active": False, "type": "internal", "target": ""},
+        "forwarding_busy": {"active": False, "type": "internal", "target": ""},
+        "forwarding_no_answer": {"active": False, "type": "internal", "target": ""}
     },
     {
         "id": "other",
@@ -613,7 +622,10 @@ DEFAULT_USER_PROFILES = [
         "devices": ["web_phone"],
         "timeout": 30,
         "timeout_action": "none",
-        "timeout_target": ""
+        "timeout_target": "",
+        "forwarding_always": {"active": False, "type": "internal", "target": ""},
+        "forwarding_busy": {"active": False, "type": "internal", "target": ""},
+        "forwarding_no_answer": {"active": False, "type": "internal", "target": ""}
     }
 ]
 
@@ -629,6 +641,22 @@ def generate_sip_username(length=8):
             any(c.isdigit() for c in uname)):
             return uname
 
+def _normalize_profile_fwd_rule(raw_rule: Any) -> dict:
+    if isinstance(raw_rule, str) and raw_rule.strip().startswith("{"):
+        try:
+            import json
+            raw_rule = json.loads(raw_rule)
+        except Exception:
+            raw_rule = None
+    if not isinstance(raw_rule, dict):
+        return {"active": False, "type": "internal", "target": ""}
+    tgt = str(raw_rule.get("target") or "").strip()
+    return {
+        "active": bool(raw_rule.get("active") and tgt),
+        "type": "external" if raw_rule.get("type") == "external" else "internal",
+        "target": tgt
+    }
+
 def ensure_user_profiles(u: dict) -> dict:
     if not isinstance(u, dict):
         return u
@@ -641,6 +669,7 @@ def ensure_user_profiles(u: dict) -> dict:
         u["max_activations"] = 1
     if not u.get("active_profile"):
         u["active_profile"] = "available"
+    active_prof_id = str(u.get("active_profile") or "available").strip()
     raw_profiles = u.get("profiles")
     if isinstance(raw_profiles, str):
         try:
@@ -651,6 +680,17 @@ def ensure_user_profiles(u: dict) -> dict:
     import copy
     if not raw_profiles or not isinstance(raw_profiles, list) or len(raw_profiles) == 0:
         u["profiles"] = copy.deepcopy(DEFAULT_USER_PROFILES)
+        for p in u["profiles"]:
+            if p["id"] == active_prof_id:
+                p["forwarding_always"] = _normalize_profile_fwd_rule(u.get("forwarding_always"))
+                p["forwarding_busy"] = _normalize_profile_fwd_rule(u.get("forwarding_busy"))
+                p["forwarding_no_answer"] = _normalize_profile_fwd_rule(u.get("forwarding_no_answer"))
+                raw_noans = u.get("forwarding_no_answer")
+                if isinstance(raw_noans, dict) and raw_noans.get("timeout"):
+                    try:
+                        p["timeout"] = max(5, min(120, int(raw_noans.get("timeout"))))
+                    except Exception:
+                        pass
     else:
         existing_by_id = {str(p.get("id")): p for p in raw_profiles if isinstance(p, dict) and p.get("id")}
         merged = []
@@ -660,6 +700,27 @@ def ensure_user_profiles(u: dict) -> dict:
                 ep = existing_by_id[pid]
                 raw_dig = str(ep.get("digit") if ep.get("digit") is not None else def_p.get("digit", "")).strip()
                 clean_dig = re.sub(r"[^0-9]", "", raw_dig)[:2] or def_p.get("digit", "")
+                has_prof_fwd = any(k in ep and isinstance(ep.get(k), dict) for k in ("forwarding_always", "forwarding_busy", "forwarding_no_answer"))
+                if has_prof_fwd:
+                    f_alw = _normalize_profile_fwd_rule(ep.get("forwarding_always"))
+                    f_bsy = _normalize_profile_fwd_rule(ep.get("forwarding_busy"))
+                    f_noa = _normalize_profile_fwd_rule(ep.get("forwarding_no_answer"))
+                elif pid == active_prof_id:
+                    f_alw = _normalize_profile_fwd_rule(u.get("forwarding_always"))
+                    f_bsy = _normalize_profile_fwd_rule(u.get("forwarding_busy"))
+                    f_noa = _normalize_profile_fwd_rule(u.get("forwarding_no_answer"))
+                else:
+                    f_alw = {"active": False, "type": "internal", "target": ""}
+                    f_bsy = {"active": False, "type": "internal", "target": ""}
+                    if ep.get("timeout_action") in ("internal", "external") and ep.get("timeout_target"):
+                        f_noa = {
+                            "active": True,
+                            "type": "external" if ep.get("timeout_action") == "external" else "internal",
+                            "target": str(ep.get("timeout_target") or "").strip()
+                        }
+                    else:
+                        f_noa = {"active": False, "type": "internal", "target": ""}
+
                 merged.append({
                     "id": pid,
                     "name": ep.get("name") or def_p["name"],
@@ -667,11 +728,22 @@ def ensure_user_profiles(u: dict) -> dict:
                     "devices": ep.get("devices") if isinstance(ep.get("devices"), list) else list(def_p["devices"]),
                     "timeout": int(ep.get("timeout") if ep.get("timeout") is not None else def_p["timeout"]),
                     "timeout_action": str(ep.get("timeout_action") or def_p["timeout_action"]),
-                    "timeout_target": str(ep.get("timeout_target") or "")
+                    "timeout_target": str(ep.get("timeout_target") or ""),
+                    "forwarding_always": f_alw,
+                    "forwarding_busy": f_bsy,
+                    "forwarding_no_answer": f_noa
                 })
             else:
                 merged.append(copy.deepcopy(def_p))
         u["profiles"] = merged
+
+    act_p = next((p for p in u["profiles"] if p.get("id") == active_prof_id), None) or (u["profiles"][0] if u["profiles"] else None)
+    if act_p and isinstance(act_p, dict):
+        u["forwarding_always"] = dict(_normalize_profile_fwd_rule(act_p.get("forwarding_always")))
+        u["forwarding_busy"] = dict(_normalize_profile_fwd_rule(act_p.get("forwarding_busy")))
+        noa_dict = dict(_normalize_profile_fwd_rule(act_p.get("forwarding_no_answer")))
+        noa_dict["timeout"] = int(act_p.get("timeout") or 30)
+        u["forwarding_no_answer"] = noa_dict
 
     from backend.services.pbx_enterprise_features import normalize_boss_secretary_config, normalize_hotdesk_config
     u["boss_secretary"] = normalize_boss_secretary_config(u.get("boss_secretary"))
@@ -9617,7 +9689,7 @@ async def switch_user_active_profile_endpoint(user_id: Union[int, str], payload:
         user["active_profile"] = active_profile
         if isinstance(profiles_data, list) and len(profiles_data) > 0:
             user["profiles"] = profiles_data
-            ensure_user_profiles(user)
+        ensure_user_profiles(user)
         save_settings(settings_db)
 
     try:
@@ -9641,6 +9713,13 @@ async def switch_user_active_profile_endpoint(user_id: Union[int, str], payload:
                 elif isinstance(profiles_data, list) and len(profiles_data) > 0:
                     db_u.profiles = profiles_data
                     flag_modified(db_u, "profiles")
+                if user:
+                    db_u.forwarding_always = user.get("forwarding_always")
+                    db_u.forwarding_busy = user.get("forwarding_busy")
+                    db_u.forwarding_no_answer = user.get("forwarding_no_answer")
+                    flag_modified(db_u, "forwarding_always")
+                    flag_modified(db_u, "forwarding_busy")
+                    flag_modified(db_u, "forwarding_no_answer")
                 session.commit()
 
             prof_labels = {
@@ -13074,10 +13153,9 @@ async def resolve_subscriber_forwarding(
         active_prof_id = str(user_dict.get("active_profile") or "available").strip()
         active_prof = next((p for p in user_dict.get("profiles", []) if str(p.get("id")) == active_prof_id), None)
 
-        # Extract timeout for no_answer (default 30 seconds, configured in Yönlendirme & Voicemail tab)
+        # Extract timeout for no_answer (configured per profile in Profiller & Yönlendirme tab, fallback 30s)
         no_ans_obj = user_dict.get("forwarding_no_answer")
         no_ans_timeout = 30
-        has_explicit_fwd_timeout = False
         if isinstance(no_ans_obj, str) and no_ans_obj.strip().startswith("{"):
             try:
                 import json
@@ -13087,7 +13165,6 @@ async def resolve_subscriber_forwarding(
         if isinstance(no_ans_obj, dict) and no_ans_obj.get("timeout"):
             try:
                 no_ans_timeout = max(5, int(no_ans_obj.get("timeout")))
-                has_explicit_fwd_timeout = True
             except Exception:
                 no_ans_timeout = 30
 
@@ -13096,7 +13173,7 @@ async def resolve_subscriber_forwarding(
         prof_target = None
 
         if active_prof and isinstance(active_prof, dict):
-            if not has_explicit_fwd_timeout and active_prof.get("timeout"):
+            if active_prof.get("timeout"):
                 try:
                     no_ans_timeout = max(5, int(active_prof.get("timeout")))
                 except Exception:
@@ -13118,6 +13195,23 @@ async def resolve_subscriber_forwarding(
         if fm_enabled:
             no_ans_timeout = fm_timeout
 
+        # Resolve per-profile forwarding rules first, with fallback to user-level forwarding rules
+        f_always = (
+            extract_target(active_prof.get("forwarding_always"))
+            if (active_prof and isinstance(active_prof, dict) and "forwarding_always" in active_prof)
+            else extract_target(user_dict.get("forwarding_always"))
+        )
+        f_busy = (
+            extract_target(active_prof.get("forwarding_busy"))
+            if (active_prof and isinstance(active_prof, dict) and "forwarding_busy" in active_prof)
+            else extract_target(user_dict.get("forwarding_busy"))
+        )
+        f_noans = (
+            extract_target(active_prof.get("forwarding_no_answer"))
+            if (active_prof and isinstance(active_prof, dict) and "forwarding_no_answer" in active_prof)
+            else extract_target(user_dict.get("forwarding_no_answer"))
+        )
+
         # Rule 1: HER ZAMAN (forwarding_always) - Always forwarded unconditionally
         def log_fwd_action(reason_text: str, target_val: str):
             try:
@@ -13135,7 +13229,6 @@ async def resolve_subscriber_forwarding(
             except Exception as e_lf:
                 print(f"[Forwarding Timeline Log Warning]: {e_lf}")
 
-        f_always = extract_target(user_dict.get("forwarding_always"))
         if f_always and dialstatus == "BEFORE_DIAL":
             print(f"[Forwarding Resolver] Extension {ext_str} -> 1. HER ZAMAN (Always Forward) to: {f_always}")
             log_fwd_action("Her Zaman Yönlendirme", f_always)
@@ -13158,9 +13251,8 @@ async def resolve_subscriber_forwarding(
 
         # Rule 1.5: ACTIVE PROFILE WITH 0 RING DEVICES SELECTED (e.g. Toplantı profile)
         if dialstatus == "BEFORE_DIAL" and len(prof_devices) == 0:
-            f_noans_imm = extract_target(user_dict.get("forwarding_no_answer"))
             vm_imm = "VOICEMAIL" if bool(user_dict.get("voicemail_active", False)) else None
-            imm_target = f_noans_imm or vm_imm or prof_target or "HANGUP"
+            imm_target = f_noans or vm_imm or prof_target or "HANGUP"
             print(f"[Forwarding Resolver] Extension {ext_str} -> Profile '{active_prof_id}' has 0 ring devices. Immediate action -> {imm_target}")
             log_fwd_action(f"Profil ({active_prof_id}) Yönlendirmesi", imm_target)
             return Response(content=f"ALLOW:{imm_target}:{no_ans_timeout}", media_type="text/plain")
@@ -13192,9 +13284,7 @@ async def resolve_subscriber_forwarding(
         if int(step) >= 2:
             return Response(content=f"DENY:NONE:{no_ans_timeout}", media_type="text/plain")
 
-        # Extract remaining targets & mobile transfer settings
-        f_busy = extract_target(user_dict.get("forwarding_busy"))
-        f_noans = extract_target(user_dict.get("forwarding_no_answer"))
+        # Extract mobile transfer settings
         mobile_enabled = bool(user_dict.get("mobile_transfer_enabled", False))
         gsm_num = str(user_dict.get("gsm_number") or user_dict.get("mobile_number") or fm_mobile or "").strip()
 
@@ -13317,6 +13407,37 @@ async def _sync_user_forwarding_state(
                         flag_modified(db_user, col_key)
                     except Exception:
                         pass
+            # Also sync per-profile forwarding inside db_user.profiles
+            raw_db_profs = getattr(db_user, "profiles", None)
+            if isinstance(raw_db_profs, list):
+                act_pid = str(updates.get("active_profile") or getattr(db_user, "active_profile", None) or "available").strip()
+                new_db_profs = []
+                for p in raw_db_profs:
+                    if isinstance(p, dict) and str(p.get("id")) == act_pid:
+                        p_copy = dict(p)
+                        for fk in ("forwarding_always", "forwarding_busy", "forwarding_no_answer"):
+                            if fk in updates and isinstance(updates[fk], dict):
+                                p_copy[fk] = _normalize_profile_fwd_rule(updates[fk])
+                        if "active_profile" in updates:
+                            # Switching active profile -> copy that profile's forwarding rules to top-level columns
+                            db_user.forwarding_always = dict(_normalize_profile_fwd_rule(p_copy.get("forwarding_always")))
+                            db_user.forwarding_busy = dict(_normalize_profile_fwd_rule(p_copy.get("forwarding_busy")))
+                            noa_d = dict(_normalize_profile_fwd_rule(p_copy.get("forwarding_no_answer")))
+                            noa_d["timeout"] = int(p_copy.get("timeout") or 30)
+                            db_user.forwarding_no_answer = noa_d
+                            for fk in ("forwarding_always", "forwarding_busy", "forwarding_no_answer"):
+                                try:
+                                    flag_modified(db_user, fk)
+                                except Exception:
+                                    pass
+                        new_db_profs.append(p_copy)
+                    else:
+                        new_db_profs.append(p)
+                db_user.profiles = new_db_profs
+                try:
+                    flag_modified(db_user, "profiles")
+                except Exception:
+                    pass
             await db.commit()
             found_any = True
     except Exception as e_db:
@@ -13332,6 +13453,14 @@ async def _sync_user_forwarding_state(
         if str(u.get("extension") or "").strip() == ext_clean:
             for col_key, col_val in updates.items():
                 u[col_key] = col_val
+            if isinstance(u.get("profiles"), list):
+                act_pid = str(u.get("active_profile") or "available").strip()
+                for p in u["profiles"]:
+                    if isinstance(p, dict) and str(p.get("id")) == act_pid:
+                        for fk in ("forwarding_always", "forwarding_busy", "forwarding_no_answer"):
+                            if fk in updates and isinstance(updates[fk], dict):
+                                p[fk] = _normalize_profile_fwd_rule(updates[fk])
+            ensure_user_profiles(u)
             found_any = True
     if found_any:
         save_settings(settings_db)

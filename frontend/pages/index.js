@@ -1377,7 +1377,7 @@ export default function Home() {
         (typeof window !== "undefined" ? localStorage.getItem("theme_primary_color") : null)
     );
     const initialProf = currentUser.active_profile || "available";
-    const initialProfiles = normalizeUserProfiles(currentUser.profiles);
+    const initialProfiles = normalizeUserProfiles(currentUser.profiles, currentUser);
     const initialPanelPrefs = loadCallPanelPrefs(currentUser);
     const scopedStoredAvatar =
       typeof window !== "undefined" && userKey
@@ -5458,7 +5458,7 @@ export default function Home() {
                       className={"w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-bold transition-all " + (activeModalTab === "profiles" ? ("bg-white dark:bg-slate-800 " + text + " shadow-sm border border-slate-200 dark:border-slate-700") : "text-slate-500 hover:bg-white/50 dark:hover:bg-slate-800/50 hover:text-slate-700 dark:hover:text-slate-300 border border-transparent")}
                     >
                       <Users size={16} />
-                      Profiller
+                      Profiller & Yönlendirme
                     </button>
                     <button
                       type="button"
@@ -5478,14 +5478,6 @@ export default function Home() {
                         Klavye Kısayolları
                       </span>
                       <kbd className="px-1.5 py-0.5 rounded bg-slate-200/70 dark:bg-slate-800 text-[9px] font-mono font-bold text-slate-500">?</kbd>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setActiveModalTab("forwarding")}
-                      className={"w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-bold transition-all " + (activeModalTab === "forwarding" ? ("bg-white dark:bg-slate-800 " + text + " shadow-sm border border-slate-200 dark:border-slate-700") : "text-slate-500 hover:bg-white/50 dark:hover:bg-slate-800/50 hover:text-slate-700 dark:hover:text-slate-300 border border-transparent")}
-                    >
-                      <PhoneForwarded size={16} />
-                      Yönlendirme
                     </button>
                     {currentUser?.extension && (
                       <button
@@ -7335,11 +7327,17 @@ export default function Home() {
                   );
                 })()}
 
-                {/* Personal Profiles Tab (Müsait, Dışarıda, Toplantı, Diğer) */}
+                {/* Personal Profiles & Forwarding Tab (Müsait, Dışarıda, Toplantı, Diğer) */}
                 {activeModalTab === "profiles" && (() => {
                   const curProf = agentProfiles.find(p => p.id === selectedAgentProfileTab) || agentProfiles[0] || DEFAULT_USER_PROFILES[0];
                   const updateCurProf = (patch) => {
                     setAgentProfiles(prev => prev.map(p => p.id === curProf.id ? { ...p, ...patch } : p));
+                  };
+                  const updateCurProfForwarding = (ruleKey, patch) => {
+                    const curRule = curProf[ruleKey] || { active: false, type: "internal", target: "" };
+                    updateCurProf({
+                      [ruleKey]: { ...curRule, ...patch }
+                    });
                   };
                   const toggleProfDevice = (devId) => {
                     const curDevs = Array.isArray(curProf.devices) ? curProf.devices : [];
@@ -7349,15 +7347,20 @@ export default function Home() {
                     updateCurProf({ devices: nextDevs });
                   };
 
+                  const pAlways = curProf.forwarding_always || { active: false, type: "internal", target: "" };
+                  const pBusy = curProf.forwarding_busy || { active: false, type: "internal", target: "" };
+                  const pNoAns = curProf.forwarding_no_answer || { active: false, type: "internal", target: "" };
+                  const pTimeout = curProf.timeout ?? 30;
+
                   return (
                     <div className="space-y-5 max-h-[65vh] overflow-y-auto pr-1">
                       <div className="flex items-center justify-between gap-3 pb-3 border-b border-slate-100 dark:border-slate-800">
                         <div>
                           <span className="text-xs font-extrabold text-slate-800 dark:text-white uppercase tracking-wider block">
-                            Çağrı Profillerim
+                            Profiller & Çağrı Yönlendirme
                           </span>
                           <span className="text-[11px] text-slate-400 mt-0.5 block">
-                            Her profil için çalacak cihazları ve zaman aşımı davranışını belirleyin.
+                            Her profil için çalacak cihazları, çalma süresini ve yönlendirme kurallarını ayrı ayrı yapılandırın.
                           </span>
                         </div>
                         <div className="flex items-center gap-2 shrink-0">
@@ -7377,7 +7380,7 @@ export default function Home() {
                         </div>
                       </div>
 
-                      {/* 4 Profile Selector Cards (Without device/timeout sub-info) */}
+                      {/* 4 Profile Selector Cards */}
                       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                         {agentProfiles.map((prof) => {
                           const isSel = selectedAgentProfileTab === prof.id;
@@ -7449,10 +7452,10 @@ export default function Home() {
                           </div>
                         </div>
 
-                        {/* Ring Devices */}
+                        {/* 1. Ring Devices */}
                         <div>
                           <label className="block text-[11px] font-extrabold text-slate-600 dark:text-slate-300 uppercase tracking-wider mb-2.5">
-                            Çalacak Cihazlar (Device)
+                            1. Çalacak Cihazlar (Device)
                           </label>
                           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                             {RING_DEVICES_METADATA.map((dev) => {
@@ -7485,103 +7488,49 @@ export default function Home() {
                           </div>
                         </div>
 
-                        {/* Timeout, Post-Timeout Action & Digit */}
-                        <div className="grid grid-cols-1 sm:grid-cols-4 gap-3 pt-3 border-t border-slate-200/60 dark:border-slate-800">
-                          <div>
-                            <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1.5">
-                              Zaman Aşımı (sn)
-                            </label>
-                            <input
-                              type="number"
-                              min="5"
-                              max="120"
-                              value={curProf.timeout ?? 30}
-                              onChange={(e) => updateCurProf({ timeout: Math.max(5, parseInt(e.target.value) || 30) })}
-                              className="w-full text-xs font-bold px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 text-slate-800 dark:text-slate-100 focus:outline-none"
-                            />
-                          </div>
-
-                          <div>
-                            <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1.5">
-                              Zaman Aşımı Sonrası İşlem
-                            </label>
-                            <select
-                              value={curProf.timeout_action || "none"}
-                              onChange={(e) => updateCurProf({ timeout_action: e.target.value, timeout_target: "" })}
-                              className="w-full text-xs font-semibold px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 text-slate-800 dark:text-slate-100 focus:outline-none"
-                            >
-                              <option value="none">Çağrıyı Sonlandır</option>
-                              <option value="voicemail">Sesli Mesaja Aktar</option>
-                              <option value="internal">Başka Dahiliye Yönlendir</option>
-                              <option value="external">Dış Numaraya Yönlendir</option>
-                              <option value="queue">Kuyruğa Aktar</option>
-                              <option value="ai_agent">AI Temsilciye Aktar</option>
-                            </select>
-                          </div>
-
-                          <div>
-                            <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1.5">
-                              Hedef Seçimi / Numara
-                            </label>
-                            {curProf.timeout_action === "internal" ? (
-                              <select
-                                value={curProf.timeout_target || ""}
-                                onChange={(e) => updateCurProf({ timeout_target: e.target.value })}
-                                className="w-full text-xs px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 text-slate-800 dark:text-slate-100 focus:outline-none"
-                              >
-                                <option value="">Dahili Seçiniz...</option>
-                                {agentDirectory.filter(d => d.type === "user" && String(d.number) !== String(currentUser?.extension)).map(u => (
-                                  <option key={u.id || u.number} value={u.number}>
-                                    {u.name} ({u.number})
-                                  </option>
-                                ))}
-                              </select>
-                            ) : curProf.timeout_action === "external" ? (
+                        {/* 2. Ring Timeout & 3. Digit Code */}
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-3 border-t border-slate-200/60 dark:border-slate-800">
+                          <div className="p-3 rounded-xl border border-slate-200/80 dark:border-slate-800 bg-white dark:bg-slate-900/60 flex items-center justify-between gap-2">
+                            <div>
+                              <label className="block text-[10px] font-extrabold text-slate-700 dark:text-slate-200 uppercase">
+                                2. Çalma Süresi (sn)
+                              </label>
+                              <span className="text-[10px] text-slate-400">Zaman aşımı süresi</span>
+                            </div>
+                            <div className="flex items-center gap-1.5 shrink-0">
                               <input
-                                type="text"
-                                placeholder="05321234567"
-                                value={curProf.timeout_target || ""}
-                                onChange={(e) => updateCurProf({ timeout_target: e.target.value })}
-                                className="w-full text-xs px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 text-slate-800 dark:text-slate-100 focus:outline-none"
+                                type="number"
+                                min="5"
+                                max="120"
+                                value={pTimeout}
+                                onChange={(e) => updateCurProf({ timeout: Math.max(5, Math.min(120, parseInt(e.target.value, 10) || 30)) })}
+                                className="w-14 text-xs font-bold px-2 py-1.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 text-slate-800 dark:text-slate-100 focus:outline-none text-center"
                               />
-                            ) : curProf.timeout_action === "queue" ? (
-                              <select
-                                value={curProf.timeout_target || ""}
-                                onChange={(e) => updateCurProf({ timeout_target: e.target.value })}
-                                className="w-full text-xs px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 text-slate-800 dark:text-slate-100 focus:outline-none"
-                              >
-                                <option value="">Kuyruk Seçiniz...</option>
-                                {agentQueuesList.map(q => (
-                                  <option key={q.id || q.extension} value={q.extension || q.name}>
-                                    {q.name} ({q.extension})
-                                  </option>
-                                ))}
-                              </select>
-                            ) : curProf.timeout_action === "ai_agent" ? (
-                              <select
-                                value={curProf.timeout_target || ""}
-                                onChange={(e) => updateCurProf({ timeout_target: e.target.value })}
-                                className="w-full text-xs px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 text-slate-800 dark:text-slate-100 focus:outline-none"
-                              >
-                                <option value="">AI Temsilci Seçiniz...</option>
-                                {agentAiAgentsList.map(ag => (
-                                  <option key={ag.id || ag.extension} value={ag.extension || ag.id}>
-                                    {ag.name} {ag.extension ? `(${ag.extension})` : ""}
-                                  </option>
-                                ))}
-                              </select>
-                            ) : (
-                              <div className="px-3 py-2 rounded-xl border border-slate-200/60 dark:border-slate-800/60 bg-slate-100/60 dark:bg-slate-900/50 text-[11px] text-slate-400">
-                                {curProf.timeout_action === "voicemail" ? "Sesli mesaja aktarılır" : "Ek hedef gerekmiyor"}
-                              </div>
-                            )}
+                              {[15, 30, 45].map((sec) => (
+                                <button
+                                  key={sec}
+                                  type="button"
+                                  onClick={() => updateCurProf({ timeout: sec })}
+                                  className={`px-2 py-1.5 rounded-xl text-[10px] font-bold border transition-all ${
+                                    Number(pTimeout) === sec
+                                      ? `${bg} text-white border-transparent`
+                                      : "bg-slate-50 dark:bg-slate-950 text-slate-500 border-slate-200 dark:border-slate-800"
+                                  }`}
+                                >
+                                  {sec}s
+                                </button>
+                              ))}
+                            </div>
                           </div>
 
-                          <div>
-                            <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1.5">
-                              Tuşlama Kodu (Digit)
-                            </label>
-                            <div className="flex items-center gap-1.5">
+                          <div className="p-3 rounded-xl border border-slate-200/80 dark:border-slate-800 bg-white dark:bg-slate-900/60 flex items-center justify-between gap-2">
+                            <div>
+                              <label className="block text-[10px] font-extrabold text-slate-700 dark:text-slate-200 uppercase">
+                                3. Tuşlama Kodu (Digit)
+                              </label>
+                              <span className="text-[10px] text-slate-400">Hızlı profil geçiş kodu</span>
+                            </div>
+                            <div className="flex items-center gap-1.5 shrink-0">
                               <input
                                 type="text"
                                 inputMode="numeric"
@@ -7591,13 +7540,127 @@ export default function Home() {
                                   updateCurProf({ digit: e.target.value.replace(/\D/g, "").slice(0, 2) })
                                 }
                                 placeholder="1"
-                                className="w-14 text-xs font-mono font-extrabold text-center px-2 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 text-slate-800 dark:text-slate-100 focus:outline-none"
+                                className="w-14 text-xs font-mono font-extrabold text-center px-2 py-1.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 text-slate-800 dark:text-slate-100 focus:outline-none"
                               />
-                              <span className={`px-2 py-2 rounded-xl text-[10px] font-mono font-extrabold ${lightBg} ${text} border ${borderLight} whitespace-nowrap`}>
+                              <span className={`px-2 py-1.5 rounded-xl text-[10px] font-mono font-extrabold ${lightBg} ${text} border ${borderLight} whitespace-nowrap`}>
                                 *70*{curProf.digit || "1"}
                               </span>
                             </div>
                           </div>
+                        </div>
+
+                        {/* 4. Per-Profile Call Forwarding Rules */}
+                        <div className="pt-3 border-t border-slate-200/60 dark:border-slate-800 space-y-3">
+                          <div className="flex items-center justify-between">
+                            <div>
+                              <label className="block text-[11px] font-extrabold text-slate-700 dark:text-slate-200 uppercase tracking-wider">
+                                4. Çağrı Yönlendirme Kuralları ({curProf.name} Profili)
+                              </label>
+                              <span className="text-[10px] text-slate-400">
+                                {curProf.name} profilindeyken uygulanacak yönlendirmeler
+                              </span>
+                            </div>
+                            {(pAlways.active || pBusy.active || pNoAns.active) && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  updateCurProf({
+                                    forwarding_always: { ...pAlways, active: false },
+                                    forwarding_busy: { ...pBusy, active: false },
+                                    forwarding_no_answer: { ...pNoAns, active: false }
+                                  });
+                                }}
+                                className="px-2.5 py-1 rounded-lg bg-rose-50 dark:bg-rose-950/40 text-rose-600 dark:text-rose-400 border border-rose-200 dark:border-rose-800/60 hover:bg-rose-100 text-[10px] font-bold flex items-center gap-1 transition-all"
+                              >
+                                Yönlendirmeleri Kapat
+                              </button>
+                            )}
+                          </div>
+                          <div className="space-y-2.5">
+                            {renderForwardingRow(
+                              "Her Zaman (Koşulsuz)",
+                              !!pAlways.active,
+                              (val) => updateCurProfForwarding("forwarding_always", { active: val }),
+                              pAlways.type || "internal",
+                              (val) => updateCurProfForwarding("forwarding_always", { type: val }),
+                              pAlways.target || "",
+                              (val) => updateCurProfForwarding("forwarding_always", { target: val }),
+                              null,
+                              null
+                            )}
+                            {renderForwardingRow(
+                              "Meşgul Durumda",
+                              !!pBusy.active,
+                              (val) => updateCurProfForwarding("forwarding_busy", { active: val }),
+                              pBusy.type || "internal",
+                              (val) => updateCurProfForwarding("forwarding_busy", { type: val }),
+                              pBusy.target || "",
+                              (val) => updateCurProfForwarding("forwarding_busy", { target: val }),
+                              null,
+                              null
+                            )}
+                            {renderForwardingRow(
+                              "Zaman Aşımında (Cevapsız)",
+                              !!pNoAns.active,
+                              (val) => updateCurProfForwarding("forwarding_no_answer", { active: val }),
+                              pNoAns.type || "internal",
+                              (val) => updateCurProfForwarding("forwarding_no_answer", { type: val }),
+                              pNoAns.target || "",
+                              (val) => updateCurProfForwarding("forwarding_no_answer", { target: val }),
+                              null,
+                              null
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Akıllı Mobil Aktarım (AI GSM) */}
+                        <div className="p-4 bg-white dark:bg-slate-900/80 border border-slate-200/80 dark:border-slate-800 rounded-2xl space-y-3">
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-2">
+                              <Smartphone size={15} className={text} />
+                              <span className="text-[10px] font-extrabold text-slate-800 dark:text-slate-100 uppercase tracking-wide">
+                                Akıllı Mobil Aktarım (AI GSM)
+                              </span>
+                            </div>
+                            {hasMobileTransferPermission ? (
+                              <button
+                                type="button"
+                                onClick={() => setMobileTransferEnabled(!mobileTransferEnabled)}
+                                className={`w-9 h-5 rounded-full p-0.5 transition-all duration-200 focus:outline-none flex items-center ${
+                                  mobileTransferEnabled ? `${bg} justify-end` : "bg-slate-200 dark:bg-slate-800 justify-start"
+                                }`}
+                              >
+                                <span className="w-4 h-4 rounded-full bg-white shadow-sm" />
+                              </button>
+                            ) : (
+                              <span className="text-[9px] font-extrabold text-rose-600 dark:text-rose-400 bg-rose-50 dark:bg-rose-950/40 border border-rose-200/60 dark:border-rose-800/60 px-2.5 py-0.5 rounded-lg">
+                                Yetkisiz
+                              </span>
+                            )}
+                          </div>
+
+                          {hasMobileTransferPermission ? (
+                            <div className="space-y-1.5">
+                              <label className="text-[9px] font-extrabold text-slate-500 dark:text-slate-400 uppercase tracking-widest block">
+                                GSM Numarası
+                              </label>
+                              <input
+                                type="tel"
+                                placeholder="Örn: +905553332211"
+                                value={gsmNumber}
+                                onChange={(e) => setGsmNumber(e.target.value)}
+                                disabled={!mobileTransferEnabled}
+                                className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 text-xs font-semibold text-slate-800 dark:text-white focus:outline-none focus:border-primary disabled:opacity-50"
+                              />
+                              <p className="text-[9px] text-slate-500 dark:text-slate-400 font-medium">
+                                Web Telefon kapalıyken mesai saatlerinde gelen çağrılar bu numaraya aktarılır ve yapay zeka size çağrı özetini fısıldar.
+                              </p>
+                            </div>
+                          ) : (
+                            <p className="text-[9.5px] text-slate-500 dark:text-slate-400 font-medium italic">
+                              Mobil yönlendirme özelliğini yönetmek için &quot;mobile_transfer:write&quot; yetkisine sahip olmalısınız.
+                            </p>
+                          )}
                         </div>
                       </div>
                     </div>
@@ -8984,80 +9047,6 @@ export default function Home() {
                 
               </div>
 
-              {/* Forwarding Selection */}
-              <div className={`space-y-4 max-h-[60vh] overflow-y-auto ${activeModalTab === "forwarding" ? "block" : "hidden"}`}>
-                {(fwdAlwaysActive || fwdBusyActive || fwdNoAnswerActive) && (
-                  <div className="flex justify-end pr-2">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setFwdAlwaysActive(false);
-                        setFwdBusyActive(false);
-                        setFwdNoAnswerActive(false);
-                      }}
-                      className="px-2.5 py-1 rounded-lg bg-rose-50 dark:bg-rose-950/40 text-rose-600 dark:text-rose-400 border border-rose-200 dark:border-rose-800/60 hover:bg-rose-100 text-[10px] font-bold flex items-center gap-1 transition-all"
-                    >
-                      Tüm Yönlendirmeleri İptal Et
-                    </button>
-                  </div>
-                )}
-                <div className="space-y-3 pr-2">
-                    {renderForwardingRow("Her Zaman (Koşulsuz)", fwdAlwaysActive, setFwdAlwaysActive, fwdAlwaysType, setFwdAlwaysType, fwdAlwaysTarget, setFwdAlwaysTarget, null, null)}
-                    {renderForwardingRow("Meşgul Durumda", fwdBusyActive, setFwdBusyActive, fwdBusyType, setFwdBusyType, fwdBusyTarget, setFwdBusyTarget, null, null)}
-                    {renderForwardingRow("Zaman Aşımında (Cevapsız)", fwdNoAnswerActive, setFwdNoAnswerActive, fwdNoAnswerType, setFwdNoAnswerType, fwdNoAnswerTarget, setFwdNoAnswerTarget, fwdNoAnswerTimeout, setFwdNoAnswerTimeout)}
-
-                    {/* Akıllı Mobil Aktarım (AI GSM) */}
-                    <div className="p-4 bg-slate-50/80 dark:bg-slate-900/80 border border-slate-200/80 dark:border-slate-800 rounded-2xl space-y-3">
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-2">
-                          <Smartphone size={15} className={text} />
-                          <span className="text-[10px] font-extrabold text-slate-800 dark:text-slate-100 uppercase tracking-wide">
-                            Akıllı Mobil Aktarım (AI GSM)
-                          </span>
-                        </div>
-                        {hasMobileTransferPermission ? (
-                          <button
-                            type="button"
-                            onClick={() => setMobileTransferEnabled(!mobileTransferEnabled)}
-                            className={`w-9 h-5 rounded-full p-0.5 transition-all duration-200 focus:outline-none flex items-center ${
-                              mobileTransferEnabled ? `${bg} justify-end` : "bg-slate-200 dark:bg-slate-800 justify-start"
-                            }`}
-                          >
-                            <span className="w-4 h-4 rounded-full bg-white shadow-sm" />
-                          </button>
-                        ) : (
-                          <span className="text-[9px] font-extrabold text-rose-600 dark:text-rose-400 bg-rose-50 dark:bg-rose-950/40 border border-rose-200/60 dark:border-rose-800/60 px-2.5 py-0.5 rounded-lg">
-                            Yetkisiz
-                          </span>
-                        )}
-                      </div>
-
-                      {hasMobileTransferPermission ? (
-                        <div className="space-y-1.5">
-                          <label className="text-[9px] font-extrabold text-slate-500 dark:text-slate-400 uppercase tracking-widest block">
-                            GSM Numarası
-                          </label>
-                          <input
-                            type="tel"
-                            placeholder="Örn: +905553332211"
-                            value={gsmNumber}
-                            onChange={(e) => setGsmNumber(e.target.value)}
-                            disabled={!mobileTransferEnabled}
-                            className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 text-xs font-semibold text-slate-800 dark:text-white focus:outline-none focus:border-primary disabled:opacity-50"
-                          />
-                          <p className="text-[9px] text-slate-500 dark:text-slate-400 font-medium">
-                            Web Telefon kapalıyken mesai saatlerinde gelen çağrılar bu numaraya aktarılır ve yapay zeka size çağrı özetini fısıldar.
-                          </p>
-                        </div>
-                      ) : (
-                        <p className="text-[9.5px] text-slate-500 dark:text-slate-400 font-medium italic">
-                          Mobil yönlendirme özelliğini yönetmek için &quot;mobile_transfer:write&quot; yetkisine sahip olmalısınız.
-                        </p>
-                      )}
-                    </div>
-                </div>
-              </div>
-
               {/* Security Selection */}
               <div className={`space-y-4 max-h-[60vh] overflow-y-auto ${activeModalTab === "security" ? "block" : "hidden"}`}>
                 <div className="space-y-4 pr-1">
@@ -10086,6 +10075,11 @@ export default function Home() {
                             const profileUid = encodeURIComponent(
                               String(currentUser.id || currentUser.extension || "admin")
                             );
+                            const activeProfSaveObj = agentProfiles.find(p => p.id === agentActiveProfile) || agentProfiles[0] || DEFAULT_USER_PROFILES[0];
+                            const saveAlways = activeProfSaveObj.forwarding_always || { active: false, type: "internal", target: "" };
+                            const saveBusy = activeProfSaveObj.forwarding_busy || { active: false, type: "internal", target: "" };
+                            const saveNoAns = activeProfSaveObj.forwarding_no_answer || { active: false, type: "internal", target: "" };
+                            const saveRingTimeout = Math.max(5, Math.min(120, parseInt(activeProfSaveObj.timeout, 10) || 30));
                             const res = await fetch(`${protocol}//${backendHost}/api/agent/profile/${profileUid}`, {
                               method: "POST",
                               headers: { "Content-Type": "application/json" },
@@ -10099,9 +10093,9 @@ export default function Home() {
                                 ...mobileTransferPayload,
                                 theme_color: safeSavedColor,
                                 theme_mode: isDarkMode ? "dark" : "light",
-                                forwarding_always: { active: Boolean(fwdAlwaysActive && fwdAlwaysTarget), type: fwdAlwaysType || "internal", target: fwdAlwaysTarget || "" },
-                                forwarding_busy: { active: Boolean(fwdBusyActive && fwdBusyTarget), type: fwdBusyType || "internal", target: fwdBusyTarget || "" },
-                                forwarding_no_answer: { active: Boolean(fwdNoAnswerActive && fwdNoAnswerTarget), type: fwdNoAnswerType || "internal", target: fwdNoAnswerTarget || "", timeout: fwdNoAnswerTimeout || 20 },
+                                forwarding_always: { active: Boolean(saveAlways.active && saveAlways.target), type: saveAlways.type || "internal", target: String(saveAlways.target || "").trim() },
+                                forwarding_busy: { active: Boolean(saveBusy.active && saveBusy.target), type: saveBusy.type || "internal", target: String(saveBusy.target || "").trim() },
+                                forwarding_no_answer: { active: Boolean(saveNoAns.active && saveNoAns.target), type: saveNoAns.type || "internal", target: String(saveNoAns.target || "").trim(), timeout: saveRingTimeout },
                                 active_profile: agentActiveProfile,
                                 profiles: agentProfiles,
                                 hotdesk_config: normalizedSelfHotdesk,
