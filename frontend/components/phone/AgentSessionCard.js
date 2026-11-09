@@ -38,6 +38,7 @@ export default function AgentSessionCard({ backendHost = "localhost:8000", curre
   const [lastEndedCallId, setLastEndedCallId] = useState(null);
   const prevCallStatusRef = useRef("Idle");
 
+  const effectiveUserId = currentUser?.id || agentState?.user_id;
   const API_BASE = `${window.location.protocol}//${backendHost}`;
 
   useEffect(() => {
@@ -368,8 +369,6 @@ export default function AgentSessionCard({ backendHost = "localhost:8000", curre
   const safeUsers = Array.isArray(users) ? users : [];
   const safeRoles = Array.isArray(roles) ? roles : [];
   const safeBreaks = Array.isArray(breaks) ? breaks : [];
-
-  const effectiveUserId = currentUser?.id || agentState?.user_id;
 
   const handleLogin = async () => {
     if (!currentUser) return;
