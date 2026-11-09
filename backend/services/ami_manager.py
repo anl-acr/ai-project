@@ -1474,7 +1474,8 @@ async def toggle_call_recording_pause(
     extension: str = "",
     channel: str = "",
     call_id: str = "",
-    paused: bool = None
+    paused: bool = None,
+    requested_paused: bool = None,
 ) -> dict:
     """
     Masks/pauses or resumes MixMonitor recording on all bridged legs of an active call
@@ -1486,11 +1487,13 @@ async def toggle_call_recording_pause(
 
     state_key = cid_s or ext_s or ch_s
     current_paused = bool(recording_paused_state.get(state_key, False))
-    target_paused = (not current_paused) if paused is None else bool(paused)
+    eff_req = requested_paused if requested_paused is not None else paused
+    target_paused = (not current_paused) if eff_req is None else bool(eff_req)
 
     manager = await get_ami_manager()
     matched_channels = []
     matched_bridges = set()
+    matched_linked_ids = set()
 
     if manager:
         try:
@@ -1533,11 +1536,16 @@ async def toggle_call_recording_pause(
                         matched_channels.append(c_name)
                     if b_id:
                         matched_bridges.add(b_id)
+                    if l_id:
+                        matched_linked_ids.add(l_id)
 
-            # Include bridged peer channels because MixMonitor is frequently attached to the trunk/caller leg!
-            if matched_bridges:
+            # Include bridged/linked peer channels because MixMonitor is frequently attached to the trunk/caller leg!
+            if matched_bridges or matched_linked_ids:
                 for row_obj in all_rows:
-                    if row_obj["bid"] in matched_bridges and row_obj["channel"] not in matched_channels:
+                    if (
+                        (row_obj["bid"] and row_obj["bid"] in matched_bridges)
+                        or (row_obj["lid"] and row_obj["lid"] in matched_linked_ids)
+                    ) and row_obj["channel"] not in matched_channels:
                         matched_channels.append(row_obj["channel"])
 
             for target_ch in matched_channels:

@@ -598,16 +598,23 @@ export default function AgentWebphoneTab({
       if (res.ok && data.status !== "error") {
         const nextState = typeof data.paused === "boolean" ? data.paused : !isRecordingPaused;
         setIsRecordingPaused(nextState);
-        setCallNotification(
-          nextState
+        setCallNotification({
+          type: "info",
+          message: nextState
             ? "Ses kaydı geçici olarak maskeleniyor (KVKK / Kart Bilgisi)"
             : "Ses kaydı tekrar devam ediyor"
-        );
+        });
       } else {
-        setCallNotification(data?.detail || data?.message || "Ses kaydı durumu değiştirilemedi");
+        setCallNotification({
+          type: "error",
+          message: data?.detail || data?.message || "Ses kaydı durumu değiştirilemedi"
+        });
       }
     } catch (err) {
-      setCallNotification("Ses kaydı kontrol bağlantı hatası");
+      setCallNotification({
+        type: "error",
+        message: "Ses kaydı kontrol bağlantı hatası"
+      });
     } finally {
       setRecordingPauseBusy(false);
     }
@@ -871,12 +878,12 @@ export default function AgentWebphoneTab({
             {callNotification && (
               <div
                 className={`w-full mb-3 p-3 rounded-2xl border text-xs font-semibold flex items-start justify-between gap-2 animate-in fade-in duration-200 ${
-                  callNotification.type === "info"
+                  (typeof callNotification === "string" || callNotification.type === "info")
                     ? "bg-emerald-50 dark:bg-emerald-950/30 border-emerald-200 dark:border-emerald-800/60 text-emerald-700 dark:text-emerald-300"
                     : "bg-rose-50 dark:bg-rose-950/30 border-rose-200 dark:border-rose-800/60 text-rose-600 dark:text-rose-400"
                 }`}
               >
-                <span>{callNotification.message}</span>
+                <span>{typeof callNotification === "string" ? callNotification : callNotification.message}</span>
                 <button
                   type="button"
                   onClick={() => setCallNotification(null)}
