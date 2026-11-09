@@ -278,6 +278,8 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
   const [hotdeskLogoutBusy, setHotdeskLogoutBusy] = useState(false);
   const [twoFactorEnabled, setTwoFactorEnabled] = useState(false);
   const [twoFactorMethod, setTwoFactorMethod] = useState("google_auth");
+  const [twoFactorActiveMethods, setTwoFactorActiveMethods] = useState(["google_auth"]);
+  const [twoFactorMultiMode, setTwoFactorMultiMode] = useState("single"); // 'single' | 'all' | 'any'
   const [twoFactorSecret, setTwoFactorSecret] = useState("");
   const [twoFactorEnrolled, setTwoFactorEnrolled] = useState(false);
   const [twoFactorQrSvg, setTwoFactorQrSvg] = useState("");
@@ -332,6 +334,31 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
       base[normM] = { enrolled: enr };
     }
     return base;
+  };
+
+  const extractUser2faActiveConfig = (u, fallbackMethod = "google_auth") => {
+    const tfMeta = u?.call_panel_prefs?.twoFactorMeta && typeof u.call_panel_prefs.twoFactorMeta === "object"
+      ? u.call_panel_prefs.twoFactorMeta
+      : null;
+    const rawList = Array.isArray(u?.two_factor_active_methods)
+      ? u.two_factor_active_methods
+      : Array.isArray(tfMeta?.active_methods)
+        ? tfMeta.active_methods
+        : [];
+    const validIds = ["email", "whatsapp", "google_auth", "microsoft_auth"];
+    const cleaned = [];
+    rawList.forEach((item) => {
+      const s = String(item || "").trim().toLowerCase();
+      const norm = s === "app" ? "google_auth" : s;
+      if (validIds.includes(norm) && !cleaned.includes(norm)) {
+        cleaned.push(norm);
+      }
+    });
+    const fb = validIds.includes(fallbackMethod) ? fallbackMethod : "google_auth";
+    if (cleaned.length === 0) cleaned.push(fb);
+    const rawMode = String(u?.two_factor_multi_mode || tfMeta?.multi_mode || "").trim().toLowerCase();
+    const multiMode = cleaned.length <= 1 ? "single" : (rawMode === "any" ? "any" : "all");
+    return { activeMethods: cleaned, multiMode };
   };
 
   const scrollTwoFactorCardIntoPane = () => {
@@ -1477,6 +1504,10 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
       if (res.ok && data.status === "success") {
         setTwoFactorEnabled(true);
         setTwoFactorMethod("whatsapp");
+        const nextWaActive = twoFactorMultiMode === "single"
+          ? ["whatsapp"]
+          : (twoFactorActiveMethods.includes("whatsapp") ? twoFactorActiveMethods : [...twoFactorActiveMethods, "whatsapp"]);
+        setTwoFactorActiveMethods(nextWaActive);
         if (editingUser && editingUser.id !== undefined) {
           const waPatch = {
             gsm_number: targetPhone,
@@ -1485,7 +1516,9 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
               mobile_number: targetPhone
             },
             two_factor_enabled: true,
-            two_factor_method: "whatsapp"
+            two_factor_method: nextWaActive[0] || "whatsapp",
+            two_factor_active_methods: nextWaActive,
+            two_factor_multi_mode: nextWaActive.length > 1 ? twoFactorMultiMode : "single"
           };
           lastSaveCompletedAtRef.current = Date.now();
           setEditingUser((prev) => (prev ? { ...prev, ...waPatch } : prev));
@@ -1577,9 +1610,16 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
           const targetPhone = (followMeMobileNumber || editingUser?.gsm_number || "").trim();
           const prevCppVer = editingUser.call_panel_prefs && typeof editingUser.call_panel_prefs === "object" ? editingUser.call_panel_prefs : {};
           const prevTfMetaVer = prevCppVer.twoFactorMeta && typeof prevCppVer.twoFactorMeta === "object" ? prevCppVer.twoFactorMeta : {};
+          const nextVerActive = twoFactorMultiMode === "single"
+            ? [verMethod]
+            : (twoFactorActiveMethods.includes(verMethod) ? twoFactorActiveMethods : [...twoFactorActiveMethods, verMethod]);
+          const nextVerMode = nextVerActive.length > 1 ? (twoFactorMultiMode === "any" ? "any" : "all") : "single";
+          setTwoFactorActiveMethods(nextVerActive);
           const verPatch = {
             two_factor_enabled: true,
-            two_factor_method: verMethod,
+            two_factor_method: nextVerActive[0] || verMethod,
+            two_factor_active_methods: nextVerActive,
+            two_factor_multi_mode: nextVerMode,
             two_factor_enrolled: true,
             ...(twoFactorSecret ? { two_factor_secret: twoFactorSecret } : {}),
             ...(data.methods
@@ -1589,7 +1629,9 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
                     twoFactorMeta: {
                       ...prevTfMetaVer,
                       enabled: true,
-                      method: verMethod,
+                      method: nextVerActive[0] || verMethod,
+                      active_methods: nextVerActive,
+                      multi_mode: nextVerMode,
                       enrolled: true,
                       ...(twoFactorSecret ? { secret: twoFactorSecret } : {}),
                       methods: data.methods,
@@ -1678,6 +1720,8 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
     setRecordingActive(false); setTransport("UDP");
     setTwoFactorEnabled(false);
     setTwoFactorMethod("google_auth");
+    setTwoFactorActiveMethods(["google_auth"]);
+    setTwoFactorMultiMode("single");
     activeTwoFactorMethodRef.current = "google_auth";
     setTwoFactorSecret("");
     setTwoFactorEnrolled(false);
@@ -1856,12 +1900,16 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
         ? u.two_factor_enabled
         : Boolean(u.two_factor_enabled ?? tfMeta?.enabled ?? false);
     const initMethodsMap = buildUser2faMethodsMap(u);
+    const { activeMethods: initActiveMethods, multiMode: initMultiMode } = extractUser2faActiveConfig(u, normMethod);
+    const primaryFocusMethod = initActiveMethods[0] || normMethod;
     setTwoFactorEnabled(resolved2faEnabled);
-    setTwoFactorMethod(normMethod);
-    activeTwoFactorMethodRef.current = normMethod;
+    setTwoFactorActiveMethods(initActiveMethods);
+    setTwoFactorMultiMode(initMultiMode);
+    setTwoFactorMethod(primaryFocusMethod);
+    activeTwoFactorMethodRef.current = primaryFocusMethod;
     setTwoFactorMethodsMap(initMethodsMap);
-    setTwoFactorSecret(initMethodsMap[normMethod]?.secret || "");
-    setTwoFactorEnrolled(Boolean(initMethodsMap[normMethod]?.enrolled));
+    setTwoFactorSecret(initMethodsMap[primaryFocusMethod]?.secret || "");
+    setTwoFactorEnrolled(Boolean(initMethodsMap[primaryFocusMethod]?.enrolled));
     setTwoFactorQrSvg("");
     setTwoFactorTestCode("");
     setTwoFactorStatusMsg(null);
@@ -2065,6 +2113,20 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
         ? defaultLandingTab
         : "auto";
 
+    const resolvedSaveActiveMethods =
+      twoFactorMultiMode === "single"
+        ? [twoFactorMethod || "google_auth"]
+        : Array.isArray(twoFactorActiveMethods) && twoFactorActiveMethods.length > 0
+          ? twoFactorActiveMethods
+          : [twoFactorMethod || "google_auth"];
+    const resolvedSaveMultiMode =
+      resolvedSaveActiveMethods.length <= 1
+        ? "single"
+        : twoFactorMultiMode === "any"
+          ? "any"
+          : "all";
+    const primarySave2faMethod = resolvedSaveActiveMethods[0] || twoFactorMethod || "google_auth";
+
     const userData = {
       full_name: fullName.trim(),
       email: email.trim(),
@@ -2092,12 +2154,14 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
       recording_active: recordingActive,
       transport: primarySipDev?.transport || transport || "UDP",
       two_factor_enabled: twoFactorEnabled,
-      two_factor_method: twoFactorMethod || "google_auth",
+      two_factor_method: primarySave2faMethod,
+      two_factor_active_methods: resolvedSaveActiveMethods,
+      two_factor_multi_mode: resolvedSaveMultiMode,
       two_factor_secret:
-        (twoFactorMethod === "google_auth" || twoFactorMethod === "microsoft_auth" || twoFactorMethod === "app")
-          ? (twoFactorSecret || twoFactorMethodsMap[twoFactorMethod === "app" ? "google_auth" : twoFactorMethod]?.secret || null)
-          : null,
-      two_factor_enrolled: Boolean(twoFactorEnrolled),
+        (primarySave2faMethod === "google_auth" || primarySave2faMethod === "microsoft_auth" || primarySave2faMethod === "app")
+          ? ((twoFactorMethod === primarySave2faMethod ? twoFactorSecret : "") || twoFactorMethodsMap[primarySave2faMethod === "app" ? "google_auth" : primarySave2faMethod]?.secret || null)
+          : (twoFactorSecret || null),
+      two_factor_enrolled: Boolean(twoFactorMethodsMap[primarySave2faMethod]?.enrolled ?? twoFactorEnrolled),
       follow_me: {
         enabled: Boolean(followMeEnabled),
         timeout: Math.max(5, Math.min(120, Number(followMeTimeout) || 15)),
@@ -2180,13 +2244,19 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
               extension: extInput,
               email: email.trim(),
               enabled: Boolean(twoFactorEnabled),
-              method: twoFactorMethod || "google_auth",
+              method: primarySave2faMethod,
+              active_methods: resolvedSaveActiveMethods,
+              multi_mode: resolvedSaveMultiMode,
               phone: cleanFmMobile,
               secret:
-                (twoFactorMethod === "google_auth" || twoFactorMethod === "microsoft_auth" || twoFactorMethod === "app")
-                  ? (twoFactorSecret || twoFactorMethodsMap[twoFactorMethod === "app" ? "google_auth" : twoFactorMethod]?.secret || null)
+                (primarySave2faMethod === "google_auth" || primarySave2faMethod === "microsoft_auth" || primarySave2faMethod === "app")
+                  ? ((twoFactorMethod === primarySave2faMethod ? twoFactorSecret : "") || twoFactorMethodsMap[primarySave2faMethod === "app" ? "google_auth" : primarySave2faMethod]?.secret || null)
                   : null,
-              enrolled: Boolean(twoFactorEnrolled)
+              secrets: {
+                google_auth: (twoFactorMethod === "google_auth" ? twoFactorSecret : "") || twoFactorMethodsMap?.google_auth?.secret || "",
+                microsoft_auth: (twoFactorMethod === "microsoft_auth" ? twoFactorSecret : "") || twoFactorMethodsMap?.microsoft_auth?.secret || ""
+              },
+              enrolled: Boolean(twoFactorMethodsMap[primarySave2faMethod]?.enrolled ?? twoFactorEnrolled)
             })
           });
           if (tfRes.ok) {
@@ -2212,14 +2282,16 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
                   String(u.id) === String(savedTargetId);
                 const matchByExt = extInput && String(u.extension) === String(extInput);
                 return matchById || matchByExt
-                  ? {
-                      ...u,
-                      ...userData,
-                      two_factor_enabled: Boolean(twoFactorEnabled),
-                      two_factor_method: twoFactorMethod || "google_auth",
-                      two_factor_enrolled: Boolean(twoFactorEnrolled),
-                      gsm_number: cleanFmMobile || ""
-                    }
+                    ? {
+                        ...u,
+                        ...userData,
+                        two_factor_enabled: Boolean(twoFactorEnabled),
+                        two_factor_method: primarySave2faMethod,
+                        two_factor_active_methods: resolvedSaveActiveMethods,
+                        two_factor_multi_mode: resolvedSaveMultiMode,
+                        two_factor_enrolled: Boolean(twoFactorMethodsMap[primarySave2faMethod]?.enrolled ?? twoFactorEnrolled),
+                        gsm_number: cleanFmMobile || ""
+                      }
                   : u;
               })
             : prev
@@ -4410,10 +4482,108 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
                                     
                                     {twoFactorEnabled && (
                                         <div className="mt-4 pt-4 border-t border-slate-200/80 dark:border-slate-800 space-y-4 animate-in fade-in duration-200">
+                                            {/* DOĞRULAMA MODU (TEK YÖNTEM / 2 AŞAMALI ZORUNLU / YEDEKLİ) */}
+                                            <div className="p-3 rounded-xl bg-white dark:bg-slate-950 border border-slate-200/80 dark:border-slate-800 space-y-2.5">
+                                                <div className="flex flex-wrap items-center justify-between gap-2">
+                                                    <div>
+                                                        <div className="text-xs font-extrabold text-slate-800 dark:text-white">
+                                                            Doğrulama Çalışma Modu (Tek / 2 Aşamalı 2FA)
+                                                        </div>
+                                                        <p className="text-[10px] text-slate-500 dark:text-slate-400">
+                                                            İsterseniz tek bir yöntem, isterseniz aynı anda hem E-Posta hem Google Authenticator (2 Aşamalı) kullanabilirsiniz.
+                                                        </p>
+                                                    </div>
+                                                </div>
+                                                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                                                    {[
+                                                        {
+                                                            mode: "single",
+                                                            title: "Tek Yöntem (Standart)",
+                                                            desc: "Sadece seçili olan tek doğrulama yöntemi sorulur"
+                                                        },
+                                                        {
+                                                            mode: "all",
+                                                            title: "2 Aşamalı Zorunlu (VE Modu)",
+                                                            desc: "Örn: Önce E-Posta kodu, ardından Google Authenticator zorunlu"
+                                                        },
+                                                        {
+                                                            mode: "any",
+                                                            title: "Esnek / Yedekli (VEYA Modu)",
+                                                            desc: "Seçili yöntemlerden herhangi biriyle giriş yapılabilir"
+                                                        }
+                                                    ].map((opt) => {
+                                                        const isModeActive = twoFactorMultiMode === opt.mode;
+                                                        return (
+                                                            <button
+                                                                key={opt.mode}
+                                                                type="button"
+                                                                onClick={() => {
+                                                                    setTwoFactorMultiMode(opt.mode);
+                                                                    if (opt.mode === "single") {
+                                                                        const keepM = twoFactorMethod || twoFactorActiveMethods[0] || "google_auth";
+                                                                        setTwoFactorActiveMethods([keepM]);
+                                                                        setTwoFactorMethod(keepM);
+                                                                        activeTwoFactorMethodRef.current = keepM;
+                                                                    } else {
+                                                                        let nextList = Array.isArray(twoFactorActiveMethods) ? [...twoFactorActiveMethods] : [];
+                                                                        if (nextList.length < 2) {
+                                                                            const curr = nextList[0] || twoFactorMethod || "google_auth";
+                                                                            if (curr === "google_auth" || curr === "microsoft_auth") {
+                                                                                nextList = ["email", curr];
+                                                                            } else {
+                                                                                nextList = [curr, "google_auth"];
+                                                                            }
+                                                                        }
+                                                                        setTwoFactorActiveMethods(nextList);
+                                                                        if (nextList.includes("google_auth") && !twoFactorMethodsMap?.google_auth?.qrSvg) {
+                                                                            fetchTwoFactorSetup(false, "google_auth");
+                                                                        }
+                                                                        if (nextList.includes("microsoft_auth") && !twoFactorMethodsMap?.microsoft_auth?.qrSvg) {
+                                                                            fetchTwoFactorSetup(false, "microsoft_auth");
+                                                                        }
+                                                                    }
+                                                                }}
+                                                                className={`p-2.5 rounded-xl text-left border transition-all ${
+                                                                    isModeActive
+                                                                        ? `${lightBg} ${border} ring-2 ${ring}`
+                                                                        : "bg-slate-50/70 dark:bg-slate-900/50 border-slate-200 dark:border-slate-800 hover:bg-slate-100 dark:hover:bg-slate-900"
+                                                                }`}
+                                                            >
+                                                                <div className="flex items-center justify-between gap-1.5">
+                                                                    <span className={`text-[11px] font-extrabold ${isModeActive ? text : "text-slate-800 dark:text-slate-100"}`}>
+                                                                        {opt.title}
+                                                                    </span>
+                                                                    {isModeActive && <CheckCircle size={13} className={text} />}
+                                                                </div>
+                                                                <p className="text-[10px] text-slate-500 dark:text-slate-400 leading-tight mt-1">
+                                                                    {opt.desc}
+                                                                </p>
+                                                            </button>
+                                                        );
+                                                    })}
+                                                </div>
+                                            </div>
+
                                             <div>
-                                                <label className="block text-xs font-bold text-slate-800 dark:text-white mb-2">
-                                                    2FA Doğrulama Yöntemi Seçiniz
-                                                </label>
+                                                <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
+                                                    <label className="block text-xs font-bold text-slate-800 dark:text-white">
+                                                        {twoFactorMultiMode === "single"
+                                                            ? "2FA Doğrulama Yöntemi Seçiniz"
+                                                            : "Aktif 2FA Doğrulama Yöntemlerini Seçiniz (Birden Fazla Seçilebilir)"}
+                                                    </label>
+                                                    {twoFactorMultiMode !== "single" && twoFactorActiveMethods.length >= 2 && (
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => {
+                                                                setTwoFactorActiveMethods((prev) => [...prev].reverse());
+                                                            }}
+                                                            className="px-2.5 py-1 rounded-lg text-[10px] font-bold bg-slate-200/80 dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-300 dark:hover:bg-slate-700 transition-colors flex items-center gap-1"
+                                                        >
+                                                            <RefreshCw size={11} />
+                                                            Doğrulama Sırasını Değiştir (1 ⇄ 2)
+                                                        </button>
+                                                    )}
+                                                </div>
                                                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5">
                                                     {[
                                                         {
@@ -4442,51 +4612,176 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
                                                         }
                                                     ].map((m) => {
                                                         const IconComp = m.icon;
-                                                        const isSelected = twoFactorMethod === m.id || (m.id === "google_auth" && twoFactorMethod === "app");
+                                                        const isFocused = twoFactorMethod === m.id || (m.id === "google_auth" && twoFactorMethod === "app");
+                                                        const activeIdx = twoFactorActiveMethods.indexOf(m.id);
+                                                        const isActiveMethod = twoFactorMultiMode === "single" ? isFocused : activeIdx !== -1;
+
+                                                        const focusMethodSetup = (methodId) => {
+                                                            activeTwoFactorMethodRef.current = methodId;
+                                                            setTwoFactorMethod(methodId);
+                                                            setTwoFactorStatusMsg(null);
+                                                            setTwoFactorTestCode("");
+                                                            const cachedM = twoFactorMethodsMap[methodId] || {};
+                                                            setTwoFactorEnrolled(Boolean(cachedM.enrolled));
+                                                            if (methodId === "google_auth" || methodId === "microsoft_auth") {
+                                                                setTwoFactorSecret(cachedM.secret || "");
+                                                                setTwoFactorQrSvg(cachedM.qrSvg || "");
+                                                                if (!cachedM.qrSvg) {
+                                                                    fetchTwoFactorSetup(false, methodId);
+                                                                }
+                                                            }
+                                                            scrollTwoFactorCardIntoPane();
+                                                        };
+
                                                         return (
-                                                            <button
+                                                            <div
                                                                 key={m.id}
-                                                                type="button"
+                                                                role="button"
+                                                                tabIndex={0}
                                                                 onClick={() => {
-                                                                    activeTwoFactorMethodRef.current = m.id;
-                                                                    setTwoFactorMethod(m.id);
-                                                                    setTwoFactorStatusMsg(null);
-                                                                    setTwoFactorTestCode("");
-                                                                    const cachedM = twoFactorMethodsMap[m.id] || {};
-                                                                    setTwoFactorEnrolled(Boolean(cachedM.enrolled));
-                                                                    if (m.id === "google_auth" || m.id === "microsoft_auth") {
-                                                                        setTwoFactorSecret(cachedM.secret || "");
-                                                                        setTwoFactorQrSvg(cachedM.qrSvg || "");
-                                                                        if (!cachedM.qrSvg) {
-                                                                            fetchTwoFactorSetup(false, m.id);
+                                                                    if (twoFactorMultiMode === "single") {
+                                                                        setTwoFactorActiveMethods([m.id]);
+                                                                        focusMethodSetup(m.id);
+                                                                    } else {
+                                                                        if (!isActiveMethod) {
+                                                                            const nextAct = [...twoFactorActiveMethods, m.id];
+                                                                            setTwoFactorActiveMethods(nextAct);
                                                                         }
+                                                                        focusMethodSetup(m.id);
                                                                     }
-                                                                    scrollTwoFactorCardIntoPane();
                                                                 }}
-                                                                className={`p-3 rounded-xl text-left border transition-all flex flex-col justify-between gap-2 ${
-                                                                    isSelected
-                                                                        ? `${lightBg} ${border} ring-2 ${ring}`
+                                                                onKeyDown={(e) => {
+                                                                    if (e.key === "Enter" || e.key === " ") {
+                                                                        e.preventDefault();
+                                                                        e.currentTarget.click();
+                                                                    }
+                                                                }}
+                                                                className={`p-3 rounded-xl text-left border transition-all flex flex-col justify-between gap-2 cursor-pointer ${
+                                                                    isActiveMethod
+                                                                        ? `${lightBg} ${border} ${isFocused ? `ring-2 ${ring}` : ""}`
                                                                         : "bg-white dark:bg-slate-950 border-slate-200 dark:border-slate-800 hover:bg-slate-100/70 dark:hover:bg-slate-900"
                                                                 }`}
                                                             >
-                                                                <div className="flex items-center justify-between w-full">
-                                                                    <div className={`w-7 h-7 rounded-lg flex items-center justify-center ${isSelected ? `${bg} text-white` : "bg-slate-100 dark:bg-slate-800 text-slate-500"}`}>
+                                                                <div className="flex items-center justify-between w-full gap-1">
+                                                                    <div className={`w-7 h-7 rounded-lg flex items-center justify-center shrink-0 ${isActiveMethod ? `${bg} text-white` : "bg-slate-100 dark:bg-slate-800 text-slate-500"}`}>
                                                                         <IconComp size={14} />
                                                                     </div>
-                                                                    {isSelected && <CheckCircle size={15} className={text} />}
+                                                                    <div className="flex items-center gap-1">
+                                                                        {twoFactorMultiMode === "all" && isActiveMethod && (
+                                                                            <span className={`px-2 py-0.5 rounded-full text-[9px] font-extrabold text-white ${bg}`}>
+                                                                                {activeIdx + 1}. Aşama
+                                                                            </span>
+                                                                        )}
+                                                                        {twoFactorMultiMode === "any" && isActiveMethod && (
+                                                                            <span className={`px-2 py-0.5 rounded-full text-[9px] font-extrabold text-white ${bg}`}>
+                                                                                Aktif
+                                                                            </span>
+                                                                        )}
+                                                                        {twoFactorMultiMode !== "single" && isActiveMethod && twoFactorActiveMethods.length > 1 && (
+                                                                            <button
+                                                                                type="button"
+                                                                                title="Bu yöntemi zincirden çıkar"
+                                                                                onClick={(e) => {
+                                                                                    e.stopPropagation();
+                                                                                    const filtered = twoFactorActiveMethods.filter((id) => id !== m.id);
+                                                                                    const safeNext = filtered.length > 0 ? filtered : ["google_auth"];
+                                                                                    setTwoFactorActiveMethods(safeNext);
+                                                                                    if (safeNext.length <= 1) {
+                                                                                        setTwoFactorMultiMode("single");
+                                                                                    }
+                                                                                    if (isFocused && safeNext[0]) {
+                                                                                        focusMethodSetup(safeNext[0]);
+                                                                                    }
+                                                                                }}
+                                                                                className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-rose-100 dark:bg-rose-950/60 text-rose-600 dark:text-rose-400 hover:bg-rose-200"
+                                                                            >
+                                                                                Çıkar
+                                                                            </button>
+                                                                        )}
+                                                                        {twoFactorMultiMode === "single" && !isActiveMethod && (
+                                                                            <button
+                                                                                type="button"
+                                                                                title="Mevcut yöntemle birlikte 2 aşamalı olarak kullan"
+                                                                                onClick={(e) => {
+                                                                                    e.stopPropagation();
+                                                                                    const currPrimary = twoFactorMethod || "google_auth";
+                                                                                    const combined = currPrimary === m.id ? [m.id] : [currPrimary, m.id];
+                                                                                    setTwoFactorMultiMode("all");
+                                                                                    setTwoFactorActiveMethods(combined);
+                                                                                    focusMethodSetup(m.id);
+                                                                                }}
+                                                                                className="px-2 py-0.5 rounded-full text-[9px] font-extrabold bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700"
+                                                                            >
+                                                                                + Birlikte Kullan
+                                                                            </button>
+                                                                        )}
+                                                                        {isActiveMethod && <CheckCircle size={14} className={text} />}
+                                                                    </div>
                                                                 </div>
                                                                 <div>
-                                                                    <div className={`text-xs font-extrabold ${isSelected ? text : "text-slate-800 dark:text-slate-100"}`}>
+                                                                    <div className={`text-xs font-extrabold ${isActiveMethod ? text : "text-slate-800 dark:text-slate-100"}`}>
                                                                         {m.title}
                                                                     </div>
                                                                     <div className="text-[10px] text-slate-500 dark:text-slate-400 leading-tight mt-0.5">
                                                                         {m.desc}
                                                                     </div>
                                                                 </div>
-                                                            </button>
+                                                            </div>
                                                         );
                                                     })}
                                                 </div>
+
+                                                {twoFactorMultiMode !== "single" && twoFactorActiveMethods.length > 1 && (
+                                                    <div className="mt-2.5 p-2.5 rounded-xl bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 flex flex-wrap items-center justify-between gap-2">
+                                                        <div className="flex flex-wrap items-center gap-1.5 text-[11px]">
+                                                            <span className="font-bold text-slate-500 dark:text-slate-400">
+                                                                {twoFactorMultiMode === "all" ? "Giriş Doğrulama Sırası:" : "Aktif Alternatif Yöntemler:"}
+                                                            </span>
+                                                            {twoFactorActiveMethods.map((mId, idx) => {
+                                                                const labelMap = {
+                                                                    email: "E-Posta (E-Mail)",
+                                                                    whatsapp: "WhatsApp",
+                                                                    google_auth: "Google Authenticator",
+                                                                    microsoft_auth: "Microsoft Authenticator"
+                                                                };
+                                                                const isCurrFocused = twoFactorMethod === mId;
+                                                                return (
+                                                                    <React.Fragment key={mId}>
+                                                                        {idx > 0 && (
+                                                                            <span className="text-slate-400 font-bold">
+                                                                                {twoFactorMultiMode === "all" ? "➔" : "veya"}
+                                                                            </span>
+                                                                        )}
+                                                                        <button
+                                                                            type="button"
+                                                                            onClick={() => {
+                                                                                activeTwoFactorMethodRef.current = mId;
+                                                                                setTwoFactorMethod(mId);
+                                                                                const cachedM = twoFactorMethodsMap[mId] || {};
+                                                                                setTwoFactorEnrolled(Boolean(cachedM.enrolled));
+                                                                                if (mId === "google_auth" || mId === "microsoft_auth") {
+                                                                                    setTwoFactorSecret(cachedM.secret || "");
+                                                                                    setTwoFactorQrSvg(cachedM.qrSvg || "");
+                                                                                    if (!cachedM.qrSvg) {
+                                                                                        fetchTwoFactorSetup(false, mId);
+                                                                                    }
+                                                                                }
+                                                                            }}
+                                                                            className={`px-2.5 py-1 rounded-lg text-[10px] font-extrabold transition-all ${
+                                                                                isCurrFocused
+                                                                                    ? `${bg} text-white shadow-sm`
+                                                                                    : "bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-200"
+                                                                            }`}
+                                                                        >
+                                                                            {twoFactorMultiMode === "all" ? `${idx + 1}. ${labelMap[mId] || mId}` : (labelMap[mId] || mId)}
+                                                                            {" (Ayarları Göster)"}
+                                                                        </button>
+                                                                    </React.Fragment>
+                                                                );
+                                                            })}
+                                                        </div>
+                                                    </div>
+                                                )}
                                             </div>
 
                                             {/* METHOD 1: E-MAIL OTP DETAILS */}

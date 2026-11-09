@@ -31,6 +31,10 @@ export default function Login({ onLogin, onComplete2FA, error, backendHost }) {
   const [twoFactorCode, setTwoFactorCode] = useState("");
   const [twoFactorUserId, setTwoFactorUserId] = useState(null);
   const [twoFactorMethod, setTwoFactorMethod] = useState("google_auth");
+  const [twoFactorActiveMethods, setTwoFactorActiveMethods] = useState(["google_auth"]);
+  const [twoFactorMultiMode, setTwoFactorMultiMode] = useState("single"); // 'single' | 'all' | 'any'
+  const [twoFactorMethodsMap, setTwoFactorMethodsMap] = useState({});
+  const [twoFactorStepIndex, setTwoFactorStepIndex] = useState(0);
   const [twoFactorEnrolled, setTwoFactorEnrolled] = useState(true);
   const [twoFactorEmail, setTwoFactorEmail] = useState("");
   const [twoFactorPhone, setTwoFactorPhone] = useState("");
@@ -44,6 +48,13 @@ export default function Login({ onLogin, onComplete2FA, error, backendHost }) {
   const [emailCountdown, setEmailCountdown] = useState(0);
   const [twoFactorError, setTwoFactorError] = useState("");
   const [twoFactorInfo, setTwoFactorInfo] = useState("");
+
+  const getMethodShortLabel = (mId) => {
+    if (mId === "email") return "E-Posta";
+    if (mId === "whatsapp") return "WhatsApp";
+    if (mId === "microsoft_auth") return "Microsoft Auth";
+    return "Google Auth";
+  };
 
   // Forgot Password States
   const [isForgotMode, setIsForgotMode] = useState(false);
@@ -197,6 +208,38 @@ export default function Login({ onLogin, onComplete2FA, error, backendHost }) {
     }
   };
 
+  const activate2faMethodStage = (uid, methodKey, methodsMapObj = {}, emailAddr = "", preserveInfoMsg = "") => {
+    const normM = !methodKey || methodKey === "app" ? "google_auth" : methodKey;
+    const mInfo = methodsMapObj && typeof methodsMapObj[normM] === "object" ? methodsMapObj[normM] : null;
+    const isEnr = mInfo !== null && mInfo.enrolled !== undefined ? Boolean(mInfo.enrolled) : true;
+    setTwoFactorMethod(normM);
+    setTwoFactorEnrolled(isEnr);
+    setTwoFactorCode("");
+    setTwoFactorError("");
+    setTwoFactorQrSvg("");
+    setTwoFactorSecret(mInfo?.secret || "");
+    if (preserveInfoMsg) {
+      setTwoFactorInfo(preserveInfoMsg);
+    } else {
+      setTwoFactorInfo("");
+    }
+
+    if (normM === "email") {
+      setShowQrSetup(false);
+      triggerSendEmailOtp(uid, emailAddr);
+    } else if (normM === "whatsapp") {
+      setShowQrSetup(false);
+      setEmailCountdown(0);
+    } else {
+      if (!isEnr) {
+        setShowQrSetup(true);
+        fetchAuthenticatorSetup(uid, normM);
+      } else {
+        setShowQrSetup(false);
+      }
+    }
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (isForgotMode) {
@@ -224,8 +267,21 @@ export default function Login({ onLogin, onComplete2FA, error, backendHost }) {
         });
         const data = await res.json();
         if (res.ok && data.status === "success") {
-          saveRememberedCredentials(username, password, rememberMe);
-          onComplete2FA(twoFactorUserId, rememberMe);
+          const updatedMethodsMap = data.methods && typeof data.methods === "object"
+            ? { ...twoFactorMethodsMap, ...data.methods }
+            : twoFactorMethodsMap;
+          setTwoFactorMethodsMap(updatedMethodsMap);
+
+          if (twoFactorMultiMode === "all" && twoFactorStepIndex + 1 < twoFactorActiveMethods.length) {
+            const nextStepIdx = twoFactorStepIndex + 1;
+            const nextMethod = twoFactorActiveMethods[nextStepIdx];
+            setTwoFactorStepIndex(nextStepIdx);
+            const stageDoneMsg = `✓ ${twoFactorStepIndex + 1}. Aşama (${getMethodShortLabel(twoFactorMethod)}) doğrulandı! Şimdi ${nextStepIdx + 1}. Aşama (${getMethodShortLabel(nextMethod)}) kodunu giriniz.`;
+            activate2faMethodStage(twoFactorUserId, nextMethod, updatedMethodsMap, twoFactorEmail, stageDoneMsg);
+          } else {
+            saveRememberedCredentials(username, password, rememberMe);
+            onComplete2FA(twoFactorUserId, rememberMe);
+          }
         } else {
           setTwoFactorError(data.detail || "Geçersiz veya süresi dolmuş 2FA doğrulama kodu.");
         }
@@ -248,32 +304,26 @@ export default function Login({ onLogin, onComplete2FA, error, backendHost }) {
       if (result && result.requires2fa) {
         const rawMethod = result.method || "google_auth";
         const normMethod = rawMethod === "app" ? "google_auth" : rawMethod;
-        const isEnrolled = Boolean(result.enrolled);
+        const activeList = Array.isArray(result.active_methods) && result.active_methods.length > 0
+          ? result.active_methods
+          : [normMethod];
+        const multiMode = activeList.length <= 1
+          ? "single"
+          : (result.multi_mode === "any" ? "any" : "all");
+        const methodsMapInit = result.methods_map && typeof result.methods_map === "object"
+          ? result.methods_map
+          : { [normMethod]: { enrolled: Boolean(result.enrolled) } };
+        const firstMethod = activeList[0] || normMethod;
+
         setIs2FA(true);
-        setTwoFactorCode("");
-        setTwoFactorError("");
-        setTwoFactorInfo("");
         setTwoFactorUserId(result.user_id);
-        setTwoFactorMethod(normMethod);
-        setTwoFactorEnrolled(isEnrolled);
+        setTwoFactorActiveMethods(activeList);
+        setTwoFactorMultiMode(multiMode);
+        setTwoFactorMethodsMap(methodsMapInit);
+        setTwoFactorStepIndex(0);
         setTwoFactorEmail(result.email || "");
         setTwoFactorPhone(result.phone || "");
-
-        if (normMethod === "email") {
-          setShowQrSetup(false);
-          triggerSendEmailOtp(result.user_id, result.email);
-        } else if (normMethod === "whatsapp") {
-          // Do not overwrite pre-generated WhatsApp 'Giriş Kodu' automatically!
-          setShowQrSetup(false);
-          setEmailCountdown(0);
-        } else {
-          if (!isEnrolled) {
-            setShowQrSetup(true);
-            fetchAuthenticatorSetup(result.user_id, normMethod);
-          } else {
-            setShowQrSetup(false);
-          }
-        }
+        activate2faMethodStage(result.user_id, firstMethod, methodsMapInit, result.email || "");
       }
       setIsLoading(false);
     }, 400);
@@ -550,6 +600,63 @@ export default function Login({ onLogin, onComplete2FA, error, backendHost }) {
               </>
             ) : (
               <div className="animate-in fade-in zoom-in duration-300 space-y-4">
+                {/* 2 AŞAMALI ZORUNLU DOĞRULAMA (MULTI-STEP PROGRESS TRACKER) */}
+                {twoFactorMultiMode === "all" && twoFactorActiveMethods.length > 1 && (
+                  <nav aria-label="2FA Doğrulama Aşamaları" className="p-2.5 rounded-2xl bg-slate-100/80 dark:bg-slate-900/70 border border-slate-200/80 dark:border-slate-800">
+                    <ol className="flex items-center justify-between gap-1.5">
+                      {twoFactorActiveMethods.map((mId, idx) => {
+                        const isDone = idx < twoFactorStepIndex;
+                        const isCurrent = idx === twoFactorStepIndex;
+                        return (
+                          <li
+                            key={mId}
+                            aria-current={isCurrent ? "step" : undefined}
+                            className={`flex-1 px-2.5 py-1.5 rounded-xl text-[11px] font-extrabold text-center transition-all flex items-center justify-center gap-1.5 ${
+                              isDone
+                                ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border border-emerald-500/30"
+                                : isCurrent
+                                  ? "bg-indigo-600 text-white shadow-sm"
+                                  : "bg-white/60 dark:bg-slate-950/50 text-slate-400 border border-slate-200/60 dark:border-slate-800"
+                            }`}
+                          >
+                            {isDone ? (
+                              <Check size={12} className="shrink-0" aria-hidden="true" />
+                            ) : (
+                              <span className="w-4 h-4 rounded-full bg-black/15 dark:bg-white/15 text-[10px] flex items-center justify-center shrink-0">
+                                {idx + 1}
+                              </span>
+                            )}
+                            <span className="truncate">{getMethodShortLabel(mId)}</span>
+                          </li>
+                        );
+                      })}
+                    </ol>
+                  </nav>
+                )}
+
+                {/* ESNEK / YEDEKLİ DOĞRULAMA (ALTERNATIVE METHOD TABS) */}
+                {twoFactorMultiMode === "any" && twoFactorActiveMethods.length > 1 && (
+                  <div className="p-1.5 rounded-2xl bg-slate-100/80 dark:bg-slate-900/70 border border-slate-200/80 dark:border-slate-800 flex items-center gap-1.5">
+                    {twoFactorActiveMethods.map((mId) => {
+                      const isCurr = twoFactorMethod === mId;
+                      return (
+                        <button
+                          key={mId}
+                          type="button"
+                          onClick={() => activate2faMethodStage(twoFactorUserId, mId, twoFactorMethodsMap, twoFactorEmail)}
+                          className={`flex-1 py-1.5 px-2.5 rounded-xl text-[11px] font-extrabold transition-all ${
+                            isCurr
+                              ? "bg-indigo-600 text-white shadow-sm"
+                              : "text-slate-600 dark:text-slate-300 hover:bg-white/60 dark:hover:bg-slate-800"
+                          }`}
+                        >
+                          {getMethodShortLabel(mId)}
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+
                 <div className="text-center">
                   <div className="w-14 h-14 rounded-2xl bg-indigo-100 dark:bg-indigo-900/30 flex items-center justify-center mx-auto mb-2.5 text-indigo-600 dark:text-indigo-400">
                     {twoFactorMethod === "email" ? (
@@ -562,7 +669,11 @@ export default function Login({ onLogin, onComplete2FA, error, backendHost }) {
                       <Smartphone size={26} />
                     )}
                   </div>
-                  <h3 className="text-base font-extrabold text-slate-800 dark:text-white">{methodTitle}</h3>
+                  <h3 className="text-base font-extrabold text-slate-800 dark:text-white">
+                    {twoFactorMultiMode === "all" && twoFactorActiveMethods.length > 1
+                      ? `Aşama ${twoFactorStepIndex + 1}/${twoFactorActiveMethods.length}: ${methodTitle}`
+                      : methodTitle}
+                  </h3>
                   <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
                     {twoFactorMethod === "email"
                       ? `${twoFactorMaskedEmail || "E-posta"} adresinize gönderilen 6 haneli doğrulama kodunu girin.`
@@ -663,22 +774,36 @@ export default function Login({ onLogin, onComplete2FA, error, backendHost }) {
                   </div>
                 )}
 
-                <input
-                  type="text"
-                  inputMode="numeric"
-                  autoComplete="one-time-code"
-                  pattern="\d{6}"
-                  autoCorrect="off"
-                  autoCapitalize="off"
-                  spellCheck={false}
-                  required
-                  maxLength={6}
-                  autoFocus
-                  value={twoFactorCode}
-                  onChange={(e) => setTwoFactorCode(e.target.value.replace(/\D/g, ""))}
-                  className="w-full text-center tracking-[0.5em] text-2xl font-bold py-3.5 bg-white/50 dark:bg-black/20 border border-slate-200/80 dark:border-white/5 rounded-2xl text-slate-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-500/50 transition-all hover:bg-white/80 dark:hover:bg-black/30 shadow-inner dark:shadow-none"
-                  placeholder="••••••"
-                />
+                <div className="space-y-1.5">
+                  <label htmlFor="login-2fa-otp" className="block text-xs font-bold text-slate-700 dark:text-slate-200 text-center">
+                    6 Haneli Doğrulama Kodu
+                  </label>
+                  <p id="login-2fa-otp-hint" className="text-[11px] text-slate-500 dark:text-slate-400 text-center">
+                    {twoFactorMultiMode === "all" && twoFactorActiveMethods.length > 1
+                      ? `${twoFactorStepIndex + 1}. aşama (${getMethodShortLabel(twoFactorMethod)}) için 6 haneli sayısal kodu girin.`
+                      : `${getMethodShortLabel(twoFactorMethod)} doğrulaması için 6 haneli sayısal kodu girin.`}
+                  </p>
+                  <input
+                    id="login-2fa-otp"
+                    name="otp"
+                    type="text"
+                    inputMode="numeric"
+                    autoComplete="one-time-code"
+                    pattern="\d{6}"
+                    autoCorrect="off"
+                    autoCapitalize="off"
+                    spellCheck={false}
+                    enterKeyHint={twoFactorMultiMode === "all" && twoFactorStepIndex + 1 < twoFactorActiveMethods.length ? "next" : "done"}
+                    aria-describedby="login-2fa-otp-hint"
+                    required
+                    maxLength={6}
+                    autoFocus
+                    value={twoFactorCode}
+                    onChange={(e) => setTwoFactorCode(e.target.value.replace(/\D/g, ""))}
+                    className="w-full text-center tracking-[0.5em] text-2xl font-bold py-3.5 bg-white/50 dark:bg-black/20 border border-slate-200/80 dark:border-white/5 rounded-2xl text-slate-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-500/50 transition-all hover:bg-white/80 dark:hover:bg-black/30 shadow-inner dark:shadow-none"
+                    placeholder="••••••"
+                  />
+                </div>
 
                 {/* E-Mail Countdown & Resend Controls */}
                 {twoFactorMethod === "email" && (
@@ -698,7 +823,7 @@ export default function Login({ onLogin, onComplete2FA, error, backendHost }) {
                   </div>
                 )}
 
-                {/* Authenticator Helper Links (Show QR or Switch to WhatsApp/Email Fallback) */}
+                {/* Authenticator Helper Links (Show QR or Switch to WhatsApp/Email Fallback only when not in strict 2-stage 'all' mode) */}
                 {twoFactorMethod !== "email" && twoFactorMethod !== "whatsapp" && (
                   <div className="flex flex-col items-center gap-1.5 pt-1">
                     {!showQrSetup && (
@@ -713,7 +838,7 @@ export default function Login({ onLogin, onComplete2FA, error, backendHost }) {
                         Henüz eşleştirmediniz mi? QR Kurulum Kodunu Göster
                       </button>
                     )}
-                    {twoFactorPhone && twoFactorPhone.replace(/\D/g, "").length >= 10 && (
+                    {!(twoFactorMultiMode === "all" && twoFactorActiveMethods.length > 1) && twoFactorPhone && twoFactorPhone.replace(/\D/g, "").length >= 10 && (
                       <button
                         type="button"
                         onClick={() => {
@@ -728,7 +853,7 @@ export default function Login({ onLogin, onComplete2FA, error, backendHost }) {
                         WhatsApp "Giriş Kodu" ile Doğrula
                       </button>
                     )}
-                    {twoFactorEmail && twoFactorEmail.includes("@") && !twoFactorEmail.endsWith("@localhost") && (
+                    {!(twoFactorMultiMode === "all" && twoFactorActiveMethods.length > 1) && twoFactorEmail && twoFactorEmail.includes("@") && !twoFactorEmail.endsWith("@localhost") && (
                       <button
                         type="button"
                         onClick={() => {
@@ -745,11 +870,27 @@ export default function Login({ onLogin, onComplete2FA, error, backendHost }) {
                   </div>
                 )}
 
-                <div className="pt-1 flex justify-center">
+                <div className="pt-1 flex items-center justify-center gap-4">
+                  {twoFactorMultiMode === "all" && twoFactorStepIndex > 0 && (
+                    <button
+                      type="button"
+                      enterKeyHint="previous"
+                      onClick={() => {
+                        const prevIdx = twoFactorStepIndex - 1;
+                        const prevM = twoFactorActiveMethods[prevIdx];
+                        setTwoFactorStepIndex(prevIdx);
+                        activate2faMethodStage(twoFactorUserId, prevM, twoFactorMethodsMap, twoFactorEmail);
+                      }}
+                      className="text-xs font-semibold text-indigo-600 dark:text-indigo-400 hover:underline transition-colors"
+                    >
+                      ← {twoFactorStepIndex}. Aşamaya Dön
+                    </button>
+                  )}
                   <button
                     type="button"
                     onClick={() => {
                       setIs2FA(false);
+                      setTwoFactorStepIndex(0);
                       setTwoFactorCode("");
                       setTwoFactorError("");
                       setTwoFactorInfo("");
@@ -765,6 +906,7 @@ export default function Login({ onLogin, onComplete2FA, error, backendHost }) {
             {!isForgotMode && (
               <button
                 type="submit"
+                enterKeyHint={is2FA && twoFactorMultiMode === "all" && twoFactorStepIndex + 1 < twoFactorActiveMethods.length ? "next" : "done"}
                 disabled={isLoading || (is2FA && twoFactorCode.length < 6)}
                 className="w-full py-4 mt-2 bg-gradient-to-r from-indigo-500 to-violet-600 hover:from-indigo-400 hover:to-violet-500 text-white rounded-2xl font-bold text-sm flex items-center justify-center gap-2 shadow-[0_4px_15px_rgba(99,102,241,0.3)] dark:shadow-[0_0_20px_rgba(99,102,241,0.3)] hover:shadow-[0_6px_20px_rgba(99,102,241,0.4)] dark:hover:shadow-[0_0_25px_rgba(99,102,241,0.5)] transition-all disabled:opacity-50 disabled:cursor-not-allowed group/btn"
               >
@@ -772,7 +914,12 @@ export default function Login({ onLogin, onComplete2FA, error, backendHost }) {
                   <span className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin"></span>
                 ) : (
                   <>
-                    {is2FA ? "Doğrula ve Giriş Yap" : "Giriş Yap"} <ArrowRight size={18} className="transition-transform group-hover/btn:translate-x-1" />
+                    {is2FA
+                      ? twoFactorMultiMode === "all" && twoFactorStepIndex + 1 < twoFactorActiveMethods.length
+                        ? `${twoFactorStepIndex + 1}. Aşamayı Doğrula ve Devam Et`
+                        : "Doğrula ve Giriş Yap"
+                      : "Giriş Yap"}{" "}
+                    <ArrowRight size={18} className="transition-transform group-hover/btn:translate-x-1" />
                   </>
                 )}
               </button>

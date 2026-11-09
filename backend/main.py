@@ -745,6 +745,8 @@ class UserSchema(BaseModel):
     follow_me: Optional[dict] = None
     two_factor_enabled: Optional[bool] = False
     two_factor_method: Optional[str] = "google_auth"
+    two_factor_active_methods: Optional[List[str]] = None
+    two_factor_multi_mode: Optional[str] = None
     two_factor_secret: Optional[str] = None
     two_factor_enrolled: Optional[bool] = False
     two_factor_updated_ts: Optional[Union[int, float]] = None
@@ -1768,6 +1770,84 @@ def _normalize_2fa_method(raw_method: Any) -> str:
     return "google_auth"
 
 
+def _normalize_2fa_active_methods(raw_methods: Any, fallback_method: Any = "google_auth") -> List[str]:
+    items: List[Any] = []
+    if isinstance(raw_methods, (list, tuple)):
+        items = list(raw_methods)
+    elif isinstance(raw_methods, str) and raw_methods.strip():
+        s_val = raw_methods.strip()
+        if s_val.startswith("["):
+            try:
+                parsed = json.loads(s_val)
+                if isinstance(parsed, list):
+                    items = parsed
+            except Exception:
+                items = [p.strip() for p in s_val.split(",") if p.strip()]
+        else:
+            items = [p.strip() for p in s_val.split(",") if p.strip()]
+    out: List[str] = []
+    for it in items:
+        nm = _normalize_2fa_method(it)
+        if nm not in out:
+            out.append(nm)
+    if not out:
+        out.append(_normalize_2fa_method(fallback_method))
+    return out
+
+
+def _normalize_2fa_multi_mode(raw_mode: Any, active_methods: Optional[List[str]] = None) -> str:
+    if active_methods is not None and len(active_methods) <= 1:
+        return "single"
+    m = str(raw_mode or "").strip().lower()
+    if m == "any":
+        return "any"
+    if m in ("all", "sequential", "chained", "dual"):
+        return "all"
+    if active_methods is not None and len(active_methods) > 1:
+        return "all"
+    return "single"
+
+
+def _extract_2fa_active_config(*sources: Any) -> Tuple[List[str], str]:
+    best_ts = -1
+    best_methods: List[str] = []
+    best_mode: str = ""
+    fallback_m = "google_auth"
+
+    def _get_f(src: Any, key: str) -> Any:
+        if isinstance(src, dict):
+            return src.get(key)
+        return getattr(src, key, None)
+
+    for src in sources:
+        if not src:
+            continue
+        cpp = _get_f(src, "call_panel_prefs")
+        if isinstance(cpp, str) and cpp.strip().startswith("{"):
+            try:
+                cpp = json.loads(cpp)
+            except Exception:
+                cpp = {}
+        tf_meta = cpp.get("twoFactorMeta") if isinstance(cpp, dict) else {}
+        if not isinstance(tf_meta, dict):
+            tf_meta = {}
+        src_ts = max(_norm_2fa_ts(_get_f(src, "two_factor_updated_ts")), _norm_2fa_ts(tf_meta.get("updatedTs")))
+        raw_m = _get_f(src, "two_factor_method") or tf_meta.get("method")
+        if raw_m:
+            fallback_m = _normalize_2fa_method(raw_m)
+        raw_act = _get_f(src, "two_factor_active_methods") or tf_meta.get("active_methods")
+        raw_mode = _get_f(src, "two_factor_multi_mode") or tf_meta.get("multi_mode")
+        if raw_act and (src_ts >= best_ts or not best_methods):
+            best_ts = src_ts
+            best_methods = _normalize_2fa_active_methods(raw_act, fallback_method=fallback_m)
+            best_mode = _normalize_2fa_multi_mode(raw_mode, best_methods)
+
+    if not best_methods:
+        best_methods = [_normalize_2fa_method(fallback_m)]
+    best_mode = _normalize_2fa_multi_mode(best_mode, best_methods)
+    return best_methods, best_mode
+
+
 def _extract_2fa_methods_map(*sources: Any) -> Dict[str, Dict[str, Any]]:
     """
     Builds a per-method 2FA state dictionary across one or more user dicts / ORM objects:
@@ -1853,8 +1933,49 @@ def _sync_active_2fa_fields_with_methods(user_dict: dict, methods_map: Dict[str,
     """Synchronizes top-level active 2FA fields and `call_panel_prefs.twoFactorMeta` with `methods_map`."""
     if now_ts is None:
         now_ts = int(time.time() * 1000)
-    act_m = _normalize_2fa_method(user_dict.get("two_factor_method"))
+    if not isinstance(user_dict.get("call_panel_prefs"), dict):
+        user_dict["call_panel_prefs"] = {}
+    prev_tf_meta = (
+        user_dict["call_panel_prefs"].get("twoFactorMeta")
+        if isinstance(user_dict["call_panel_prefs"].get("twoFactorMeta"), dict)
+        else {}
+    )
+    raw_active = user_dict.get("two_factor_active_methods")
+    if not raw_active and isinstance(prev_tf_meta.get("active_methods"), list):
+        raw_active = prev_tf_meta.get("active_methods")
+    act_m = _normalize_2fa_method(
+        user_dict.get("two_factor_method")
+        or (raw_active[0] if isinstance(raw_active, list) and raw_active else None)
+        or prev_tf_meta.get("method")
+    )
+    active_methods = _normalize_2fa_active_methods(raw_active, fallback_method=act_m)
+    if not user_dict.get("two_factor_active_methods") and len(active_methods) == 1 and active_methods[0] != act_m:
+        active_methods = [act_m]
+    act_m = active_methods[0]
+    multi_mode = _normalize_2fa_multi_mode(
+        user_dict.get("two_factor_multi_mode") or prev_tf_meta.get("multi_mode"),
+        active_methods,
+    )
     user_dict["two_factor_method"] = act_m
+    user_dict["two_factor_active_methods"] = active_methods
+    user_dict["two_factor_multi_mode"] = multi_mode
+
+    for m_key in active_methods:
+        m_slot = methods_map.get(m_key) or {}
+        if m_key in ("google_auth", "microsoft_auth"):
+            sec_val = str(
+                m_slot.get("secret")
+                or (user_dict.get("two_factor_secret") if m_key == act_m else "")
+                or ""
+            ).strip()
+            if not sec_val and bool(user_dict.get("two_factor_enabled", False)):
+                sec_val = generate_totp_secret()
+            enr_val = bool(m_slot.get("enrolled", False))
+            methods_map[m_key] = {"secret": sec_val, "enrolled": enr_val}
+        else:
+            enr_val = bool(m_slot.get("enrolled", False))
+            methods_map[m_key] = {"enrolled": enr_val}
+
     m_info = methods_map.get(act_m) or {}
     if act_m in ("google_auth", "microsoft_auth"):
         act_sec = str(m_info.get("secret") or user_dict.get("two_factor_secret") or "").strip()
@@ -1867,8 +1988,6 @@ def _sync_active_2fa_fields_with_methods(user_dict: dict, methods_map: Dict[str,
         methods_map[act_m] = {"enrolled": act_enr}
         user_dict["two_factor_enrolled"] = act_enr
 
-    if not isinstance(user_dict.get("call_panel_prefs"), dict):
-        user_dict["call_panel_prefs"] = {}
     fm_raw = user_dict.get("follow_me")
     if isinstance(fm_raw, str) and fm_raw.strip().startswith("{"):
         try:
@@ -1878,7 +1997,7 @@ def _sync_active_2fa_fields_with_methods(user_dict: dict, methods_map: Dict[str,
     phone_str = str(
         user_dict.get("gsm_number")
         or ((fm_raw if isinstance(fm_raw, dict) else {}).get("mobile_number"))
-        or ((user_dict["call_panel_prefs"].get("twoFactorMeta") or {}).get("phone") if isinstance(user_dict["call_panel_prefs"].get("twoFactorMeta"), dict) else "")
+        or prev_tf_meta.get("phone")
         or ""
     )
     user_dict["two_factor_updated_ts"] = now_ts
@@ -1887,6 +2006,8 @@ def _sync_active_2fa_fields_with_methods(user_dict: dict, methods_map: Dict[str,
         "twoFactorMeta": {
             "enabled": bool(user_dict.get("two_factor_enabled", False)),
             "method": act_m,
+            "active_methods": active_methods,
+            "multi_mode": multi_mode,
             "secret": str(user_dict.get("two_factor_secret") or ""),
             "enrolled": bool(user_dict.get("two_factor_enrolled", False)),
             "phone": phone_str,
@@ -2101,6 +2222,23 @@ def load_settings(force_reload: bool = False, persist: bool = False):
                                 u_dict["two_factor_enrolled"] = bool(m_slot_load.get("enrolled", False))
                                 if act_m_load in ("google_auth", "microsoft_auth") and m_slot_load.get("secret"):
                                     u_dict["two_factor_secret"] = m_slot_load.get("secret")
+                        u_dict["two_factor_active_methods"] = _normalize_2fa_active_methods(
+                            db_tf_meta_curr.get("active_methods"),
+                            fallback_method=u_dict.get("two_factor_method"),
+                        )
+                        u_dict["two_factor_multi_mode"] = _normalize_2fa_multi_mode(
+                            db_tf_meta_curr.get("multi_mode"),
+                            u_dict["two_factor_active_methods"],
+                        )
+                    else:
+                        u_dict["two_factor_active_methods"] = _normalize_2fa_active_methods(
+                            du.get("two_factor_active_methods") if du else None,
+                            fallback_method=u_dict.get("two_factor_method"),
+                        )
+                        u_dict["two_factor_multi_mode"] = _normalize_2fa_multi_mode(
+                            du.get("two_factor_multi_mode") if du else None,
+                            u_dict["two_factor_active_methods"],
+                        )
                     if isinstance(u_dict.get("call_panel_prefs"), dict) and u_dict["call_panel_prefs"].get("profileAvatar") and not (du and du.get("avatar_updated_ts")):
                         u_dict["avatar"] = u_dict["call_panel_prefs"]["profileAvatar"]
                     if not u_dict["wallboard_layout"] and wb_layouts_map:
@@ -9017,6 +9155,8 @@ class ProfileUpdateSchema(BaseModel):
     auto_logout_duration: Optional[float] = None
     two_factor_enabled: Optional[bool] = None
     two_factor_method: Optional[str] = None
+    two_factor_active_methods: Optional[List[str]] = None
+    two_factor_multi_mode: Optional[str] = None
     two_factor_secret: Optional[str] = None
     two_factor_enrolled: Optional[bool] = None
     password_expiry_enabled: Optional[bool] = None
@@ -9216,10 +9356,33 @@ async def update_agent_profile_endpoint(user_id: Union[int, str], payload: Profi
     if payload.auto_logout_duration is not None:
         user["auto_logout_duration"] = payload.auto_logout_duration
     prev_methods_prof = _extract_2fa_methods_map(user)
+    prev_act_list_prof, prev_mode_prof = _extract_2fa_active_config(user)
     if payload.two_factor_enabled is not None:
         user["two_factor_enabled"] = bool(payload.two_factor_enabled)
     if payload.two_factor_method is not None:
         user["two_factor_method"] = _normalize_2fa_method(payload.two_factor_method)
+    if payload.two_factor_active_methods is not None:
+        user["two_factor_active_methods"] = _normalize_2fa_active_methods(
+            payload.two_factor_active_methods,
+            fallback_method=user.get("two_factor_method") or (prev_act_list_prof[0] if prev_act_list_prof else "google_auth"),
+        )
+        user["two_factor_method"] = user["two_factor_active_methods"][0]
+    elif payload.two_factor_method is not None and len(prev_act_list_prof) <= 1:
+        user["two_factor_active_methods"] = [_normalize_2fa_method(payload.two_factor_method)]
+    else:
+        user["two_factor_active_methods"] = prev_act_list_prof
+
+    if payload.two_factor_multi_mode is not None:
+        user["two_factor_multi_mode"] = _normalize_2fa_multi_mode(
+            payload.two_factor_multi_mode,
+            user.get("two_factor_active_methods"),
+        )
+    else:
+        user["two_factor_multi_mode"] = _normalize_2fa_multi_mode(
+            prev_mode_prof,
+            user.get("two_factor_active_methods"),
+        )
+
     act_prof_m = _normalize_2fa_method(user.get("two_factor_method"))
     if act_prof_m in ("google_auth", "microsoft_auth"):
         other_prof_m = "microsoft_auth" if act_prof_m == "google_auth" else "google_auth"
@@ -9234,11 +9397,17 @@ async def update_agent_profile_endpoint(user_id: Union[int, str], payload: Profi
         if payload.two_factor_enrolled is True:
             prev_methods_prof[act_prof_m]["enrolled"] = True
 
+    for m_k_prof in (user.get("two_factor_active_methods") or []):
+        if m_k_prof in ("google_auth", "microsoft_auth") and not prev_methods_prof[m_k_prof]["secret"] and user.get("two_factor_enabled"):
+            prev_methods_prof[m_k_prof]["secret"] = generate_totp_secret()
+
     touched_2fa = any(
         v is not None
         for v in (
             payload.two_factor_enabled,
             payload.two_factor_method,
+            payload.two_factor_active_methods,
+            payload.two_factor_multi_mode,
             payload.two_factor_secret,
             payload.two_factor_enrolled,
             payload.gsm_number,
@@ -26270,8 +26439,11 @@ class Save2FAConfigSchema(BaseModel):
     email: Optional[str] = None
     enabled: bool = False
     method: Optional[str] = "google_auth"
+    active_methods: Optional[List[str]] = None
+    multi_mode: Optional[str] = None
     phone: Optional[str] = None
     secret: Optional[str] = None
+    secrets: Optional[Dict[str, str]] = None
     enrolled: Optional[bool] = None
 
 def _find_disk_user_for_2fa(user_id: str) -> Optional[dict]:
@@ -26515,6 +26687,8 @@ async def setup_2fa(
             fm_setup_raw = {}
     user_gsm = user.get("gsm_number") or ((fm_setup_raw if isinstance(fm_setup_raw, dict) else {}).get("mobile_number")) or ""
 
+    act_list_setup, multi_mode_setup = _extract_2fa_active_config(db_u_setup, user)
+
     return {
         "status": "success",
         "secret": active_secret,
@@ -26523,6 +26697,8 @@ async def setup_2fa(
         "enrolled": method_enrolled,
         "method": norm_method,
         "active_method": _normalize_2fa_method(user.get("two_factor_method")),
+        "active_methods": act_list_setup,
+        "multi_mode": multi_mode_setup,
         "methods": methods_map,
         "email": user.get("email", ""),
         "masked_email": mask_email_address(user.get("email", "")),
@@ -26603,8 +26779,33 @@ async def save_2fa_config_endpoint(payload: Save2FAConfigSchema):
         db_u_cfg = None
 
     methods_map = _extract_2fa_methods_map(db_u_cfg, user)
+    prev_act_cfg, prev_mode_cfg = _extract_2fa_active_config(db_u_cfg, user)
     user["two_factor_enabled"] = bool(payload.enabled)
+    if payload.active_methods is not None:
+        resolved_act_methods = _normalize_2fa_active_methods(payload.active_methods, fallback_method=norm_m)
+    elif payload.method is not None and len(prev_act_cfg) <= 1:
+        resolved_act_methods = [_normalize_2fa_method(norm_m)]
+    else:
+        resolved_act_methods = prev_act_cfg
+        if norm_m and norm_m not in resolved_act_methods and len(resolved_act_methods) <= 1:
+            resolved_act_methods = [_normalize_2fa_method(norm_m)]
+
+    resolved_multi_mode = _normalize_2fa_multi_mode(
+        payload.multi_mode if payload.multi_mode is not None else prev_mode_cfg,
+        resolved_act_methods,
+    )
+    norm_m = resolved_act_methods[0]
     user["two_factor_method"] = norm_m
+    user["two_factor_active_methods"] = resolved_act_methods
+    user["two_factor_multi_mode"] = resolved_multi_mode
+
+    if isinstance(payload.secrets, dict):
+        for s_mk, s_val in payload.secrets.items():
+            nm_sk = _normalize_2fa_method(s_mk)
+            s_clean = str(s_val or "").strip()
+            if nm_sk in ("google_auth", "microsoft_auth") and s_clean:
+                methods_map[nm_sk]["secret"] = s_clean
+
     if norm_m in ("google_auth", "microsoft_auth"):
         other_m = "microsoft_auth" if norm_m == "google_auth" else "google_auth"
         inc_sec = str(payload.secret or "").strip()
@@ -26617,6 +26818,10 @@ async def save_2fa_config_endpoint(payload: Save2FAConfigSchema):
     else:
         if payload.enrolled is True:
             methods_map[norm_m]["enrolled"] = True
+
+    for act_mk in resolved_act_methods:
+        if act_mk in ("google_auth", "microsoft_auth") and user["two_factor_enabled"] and not methods_map[act_mk]["secret"]:
+            methods_map[act_mk]["secret"] = generate_totp_secret()
 
     if payload.phone is not None:
         clean_ph = str(payload.phone).strip()
@@ -26647,6 +26852,8 @@ async def save_2fa_config_endpoint(payload: Save2FAConfigSchema):
         "user": user,
         "two_factor_enabled": bool(user.get("two_factor_enabled", False)),
         "two_factor_method": user.get("two_factor_method", "google_auth"),
+        "two_factor_active_methods": user.get("two_factor_active_methods", [user.get("two_factor_method", "google_auth")]),
+        "two_factor_multi_mode": user.get("two_factor_multi_mode", "single"),
         "two_factor_enrolled": bool(user.get("two_factor_enrolled", False)),
         "methods": methods_map,
         "gsm_number": user.get("gsm_number", ""),
@@ -26757,6 +26964,7 @@ async def send_whatsapp_otp_endpoint(payload: SendWhatsAppOTPSchema):
 
     # Persist phone number & WhatsApp 2FA state immediately for existing users so sending 'Giriş Kodu' on WhatsApp works right away!
     if user is not None:
+        prev_wa_act, prev_wa_mode = _extract_2fa_active_config(user)
         user["gsm_number"] = target_phone
         if not isinstance(user.get("follow_me"), dict):
             user["follow_me"] = {
@@ -26769,7 +26977,16 @@ async def send_whatsapp_otp_endpoint(payload: SendWhatsAppOTPSchema):
         else:
             user["follow_me"] = {**user["follow_me"], "mobile_number": target_phone}
         user["two_factor_enabled"] = True
-        user["two_factor_method"] = "whatsapp"
+        if len(prev_wa_act) > 1:
+            if "whatsapp" not in prev_wa_act:
+                prev_wa_act = prev_wa_act + ["whatsapp"]
+            user["two_factor_active_methods"] = prev_wa_act
+            user["two_factor_multi_mode"] = prev_wa_mode
+            user["two_factor_method"] = prev_wa_act[0]
+        else:
+            user["two_factor_method"] = "whatsapp"
+            user["two_factor_active_methods"] = ["whatsapp"]
+            user["two_factor_multi_mode"] = "single"
         _sync_user_2fa_to_db(user)
         save_settings(settings_db)
 
@@ -26875,6 +27092,22 @@ async def verify_2fa(payload: Verify2FASchema):
         print(f"[Verify 2FA DB Lookup Notice]: {e_vdb}")
 
     methods_map_v = _extract_2fa_methods_map(*(db_matches_v + [user]))
+    existing_act_v, existing_mode_v = _extract_2fa_active_config(*(db_matches_v + [user]))
+
+    def _preserve_multi_or_set_method(verified_method: str):
+        user["two_factor_enabled"] = True
+        user["two_factor_enrolled"] = True
+        if len(existing_act_v) > 1:
+            act_out = list(existing_act_v)
+            if verified_method not in act_out:
+                act_out.append(verified_method)
+            user["two_factor_active_methods"] = act_out
+            user["two_factor_multi_mode"] = _normalize_2fa_multi_mode(existing_mode_v, act_out)
+            user["two_factor_method"] = act_out[0]
+        else:
+            user["two_factor_method"] = verified_method
+            user["two_factor_active_methods"] = [verified_method]
+            user["two_factor_multi_mode"] = "single"
 
     if eff_method == "email":
         verified = (
@@ -26884,9 +27117,7 @@ async def verify_2fa(payload: Verify2FASchema):
         )
         if verified:
             methods_map_v["email"] = {"enrolled": True}
-            user["two_factor_enrolled"] = True
-            user["two_factor_enabled"] = True
-            user["two_factor_method"] = "email"
+            _preserve_multi_or_set_method("email")
             _sync_user_2fa_to_db(user, explicit_methods_map=methods_map_v)
             save_settings(settings_db)
             return {
@@ -26894,6 +27125,8 @@ async def verify_2fa(payload: Verify2FASchema):
                 "message": "E-Posta 2FA doğrulaması başarılı.",
                 "enrolled": True,
                 "method": "email",
+                "active_methods": user.get("two_factor_active_methods", ["email"]),
+                "multi_mode": user.get("two_factor_multi_mode", "single"),
                 "methods": methods_map_v,
             }
         raise HTTPException(status_code=401, detail="Geçersiz veya süresi dolmuş E-Posta doğrulama kodu.")
@@ -26915,9 +27148,7 @@ async def verify_2fa(payload: Verify2FASchema):
         ]
         if verify_whatsapp_otp(candidate_keys, code):
             methods_map_v["whatsapp"] = {"enrolled": True}
-            user["two_factor_enrolled"] = True
-            user["two_factor_enabled"] = True
-            user["two_factor_method"] = "whatsapp"
+            _preserve_multi_or_set_method("whatsapp")
             if payload.phone and str(payload.phone).strip():
                 clean_ph = str(payload.phone).strip()
                 user["gsm_number"] = clean_ph
@@ -26938,6 +27169,8 @@ async def verify_2fa(payload: Verify2FASchema):
                 "message": "WhatsApp 2FA doğrulaması başarılı.",
                 "enrolled": True,
                 "method": "whatsapp",
+                "active_methods": user.get("two_factor_active_methods", ["whatsapp"]),
+                "multi_mode": user.get("two_factor_multi_mode", "single"),
                 "methods": methods_map_v,
             }
         raise HTTPException(
@@ -27009,10 +27242,8 @@ async def verify_2fa(payload: Verify2FASchema):
 
     if matched_secret:
         methods_map_v[eff_method] = {"secret": matched_secret, "enrolled": True}
-        user["two_factor_method"] = eff_method
         user["two_factor_secret"] = matched_secret
-        user["two_factor_enrolled"] = True
-        user["two_factor_enabled"] = True
+        _preserve_multi_or_set_method(eff_method)
         _sync_user_2fa_to_db(user, explicit_methods_map=methods_map_v)
         save_settings(settings_db)
         return {
@@ -27020,6 +27251,8 @@ async def verify_2fa(payload: Verify2FASchema):
             "message": "Authenticator 2FA doğrulaması başarılı.",
             "enrolled": True,
             "method": eff_method,
+            "active_methods": user.get("two_factor_active_methods", [eff_method]),
+            "multi_mode": user.get("two_factor_multi_mode", "single"),
             "methods": methods_map_v,
         }
     else:
@@ -28166,6 +28399,11 @@ async def new_get_users_endpoint(request: Request, user_info: dict = Depends(get
             u["two_factor_method"] = "google_auth"
         u["two_factor_enabled"] = bool(u.get("two_factor_enabled", False))
         u["two_factor_enrolled"] = bool(u.get("two_factor_enrolled", False))
+        act_get_list, mode_get_val = _extract_2fa_active_config(disk_u, u)
+        methods_get_map = _extract_2fa_methods_map(disk_u, u)
+        u["two_factor_active_methods"] = act_get_list
+        u["two_factor_multi_mode"] = mode_get_val
+        u["two_factor_method"] = act_get_list[0] if act_get_list else _normalize_2fa_method(u.get("two_factor_method"))
         for mk in ("managed_users", "managed_queues", "profiles", "sip_devices", "active_sessions"):
             mval = u.get(mk)
             if isinstance(mval, str) and mval.strip().startswith("["):
@@ -28186,6 +28424,18 @@ async def new_get_users_endpoint(request: Request, user_info: dict = Depends(get
             u["cti_config"] = {}
         if not isinstance(u.get("call_panel_prefs"), dict):
             u["call_panel_prefs"] = {}
+        existing_tf_meta_get = u["call_panel_prefs"].get("twoFactorMeta") if isinstance(u["call_panel_prefs"].get("twoFactorMeta"), dict) else {}
+        u["call_panel_prefs"]["twoFactorMeta"] = {
+            **existing_tf_meta_get,
+            "enabled": u["two_factor_enabled"],
+            "method": u["two_factor_method"],
+            "active_methods": u["two_factor_active_methods"],
+            "multi_mode": u["two_factor_multi_mode"],
+            "secret": str(u.get("two_factor_secret") or existing_tf_meta_get.get("secret") or ""),
+            "enrolled": u["two_factor_enrolled"],
+            "phone": str(u.get("gsm_number") or existing_tf_meta_get.get("phone") or ""),
+            "methods": methods_get_map,
+        }
         if not isinstance(u.get("wallboard_layout"), dict):
             u["wallboard_layout"] = {}
         if not u["wallboard_layout"] and wb_layouts_map:
@@ -28430,8 +28680,27 @@ async def new_save_users_endpoint(payload: Union[List[UserSchema], UserSchema], 
                 prev_hd = (getattr(target_user, "hotdesk_config", None) if target_user else None) or prev_disk.get("hotdesk_config")
                 data["hotdesk_config"] = _norm_hd_save(prev_hd)
             methods_map_save = _extract_2fa_methods_map(target_user, prev_disk) if (target_user or prev_disk) else _extract_2fa_methods_map(data)
+            prev_act_save, prev_mode_save = _extract_2fa_active_config(target_user, prev_disk) if (target_user or prev_disk) else _extract_2fa_active_config(data)
+            raw_act_in_save = item.two_factor_active_methods if hasattr(item, "two_factor_active_methods") else (item.get("two_factor_active_methods") if isinstance(item, dict) else None)
+            raw_mode_in_save = item.two_factor_multi_mode if hasattr(item, "two_factor_multi_mode") else (item.get("two_factor_multi_mode") if isinstance(item, dict) else None)
             norm_save_m = _normalize_2fa_method(data.get("two_factor_method"))
+            if raw_act_in_save is not None:
+                save_active_list = _normalize_2fa_active_methods(raw_act_in_save, fallback_method=norm_save_m)
+            elif len(prev_act_save) > 1 and norm_save_m == prev_act_save[0]:
+                save_active_list = prev_act_save
+            else:
+                save_active_list = [norm_save_m]
+            save_multi_mode = _normalize_2fa_multi_mode(
+                raw_mode_in_save if raw_mode_in_save is not None else prev_mode_save,
+                save_active_list,
+            )
+            norm_save_m = save_active_list[0]
             data["two_factor_method"] = norm_save_m
+            data["two_factor_active_methods"] = save_active_list
+            data["two_factor_multi_mode"] = save_multi_mode
+            for m_save_k in save_active_list:
+                if m_save_k in ("google_auth", "microsoft_auth") and data.get("two_factor_enabled") and not methods_map_save[m_save_k]["secret"]:
+                    methods_map_save[m_save_k]["secret"] = generate_totp_secret()
             if norm_save_m in ("google_auth", "microsoft_auth"):
                 other_save_m = "microsoft_auth" if norm_save_m == "google_auth" else "google_auth"
                 inc_save_sec = str(data.get("two_factor_secret") or "").strip()

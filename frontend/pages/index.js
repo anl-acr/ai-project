@@ -879,6 +879,8 @@ export default function Home() {
   const [autoLogoutDuration, setAutoLogoutDuration] = useState(1); // 1, 2, 3 (Hours)
   const [twoFactorEnabled, setTwoFactorEnabled] = useState(false);
   const [twoFactorMethod, setTwoFactorMethod] = useState("google_auth");
+  const [twoFactorActiveMethods, setTwoFactorActiveMethods] = useState(["google_auth"]);
+  const [twoFactorMultiMode, setTwoFactorMultiMode] = useState("single"); // 'single' | 'all' | 'any'
   const [twoFactorSecret, setTwoFactorSecret] = useState("");
   const [twoFactorEnrolled, setTwoFactorEnrolled] = useState(false);
   const [twoFactorQrSvg, setTwoFactorQrSvg] = useState("");
@@ -932,6 +934,31 @@ export default function Home() {
       base[normM] = { enrolled: enr };
     }
     return base;
+  };
+
+  const extractProfile2faActiveConfig = (u, fallbackMethod = "google_auth") => {
+    const tfMeta = u?.call_panel_prefs?.twoFactorMeta && typeof u.call_panel_prefs.twoFactorMeta === "object"
+      ? u.call_panel_prefs.twoFactorMeta
+      : null;
+    const rawList = Array.isArray(u?.two_factor_active_methods)
+      ? u.two_factor_active_methods
+      : Array.isArray(tfMeta?.active_methods)
+        ? tfMeta.active_methods
+        : [];
+    const validIds = ["email", "whatsapp", "google_auth", "microsoft_auth"];
+    const cleaned = [];
+    rawList.forEach((item) => {
+      const s = String(item || "").trim().toLowerCase();
+      const norm = s === "app" ? "google_auth" : s;
+      if (validIds.includes(norm) && !cleaned.includes(norm)) {
+        cleaned.push(norm);
+      }
+    });
+    const fb = validIds.includes(fallbackMethod) ? fallbackMethod : "google_auth";
+    if (cleaned.length === 0) cleaned.push(fb);
+    const rawMode = String(u?.two_factor_multi_mode || tfMeta?.multi_mode || "").trim().toLowerCase();
+    const multiMode = cleaned.length <= 1 ? "single" : (rawMode === "any" ? "any" : "all");
+    return { activeMethods: cleaned, multiMode };
   };
 
   const scrollProfileTwoFactorIntoPane = () => {
@@ -1129,6 +1156,10 @@ export default function Home() {
       if (res.ok && data.status === "success") {
         setTwoFactorEnabled(true);
         setTwoFactorMethod("whatsapp");
+        const nextWaActiveProf = twoFactorMultiMode === "single"
+          ? ["whatsapp"]
+          : (twoFactorActiveMethods.includes("whatsapp") ? twoFactorActiveMethods : [...twoFactorActiveMethods, "whatsapp"]);
+        setTwoFactorActiveMethods(nextWaActiveProf);
         if (typeof window !== "undefined") {
           localStorage.setItem("two_factor_enabled", "true");
         }
@@ -1139,7 +1170,9 @@ export default function Home() {
             mobile_number: targetPhone
           },
           two_factor_enabled: true,
-          two_factor_method: "whatsapp"
+          two_factor_method: nextWaActiveProf[0] || "whatsapp",
+          two_factor_active_methods: nextWaActiveProf,
+          two_factor_multi_mode: nextWaActiveProf.length > 1 ? twoFactorMultiMode : "single"
         };
         setCurrentUser((prev) => (prev ? { ...prev, ...mergedPatch } : prev));
         setSystemUsers((prev) =>
@@ -1219,9 +1252,16 @@ export default function Home() {
         }
         const prevCppVer = currentUser.call_panel_prefs && typeof currentUser.call_panel_prefs === "object" ? currentUser.call_panel_prefs : {};
         const prevTfMetaVer = prevCppVer.twoFactorMeta && typeof prevCppVer.twoFactorMeta === "object" ? prevCppVer.twoFactorMeta : {};
+        const nextVerActiveProf = twoFactorMultiMode === "single"
+          ? [verMethod]
+          : (twoFactorActiveMethods.includes(verMethod) ? twoFactorActiveMethods : [...twoFactorActiveMethods, verMethod]);
+        const nextVerModeProf = nextVerActiveProf.length > 1 ? (twoFactorMultiMode === "any" ? "any" : "all") : "single";
+        setTwoFactorActiveMethods(nextVerActiveProf);
         const verifiedPatch = {
           two_factor_enabled: true,
-          two_factor_method: verMethod,
+          two_factor_method: nextVerActiveProf[0] || verMethod,
+          two_factor_active_methods: nextVerActiveProf,
+          two_factor_multi_mode: nextVerModeProf,
           two_factor_enrolled: true,
           ...(twoFactorSecret ? { two_factor_secret: twoFactorSecret } : {}),
           ...(data.methods
@@ -1231,7 +1271,9 @@ export default function Home() {
                   twoFactorMeta: {
                     ...prevTfMetaVer,
                     enabled: true,
-                    method: verMethod,
+                    method: nextVerActiveProf[0] || verMethod,
+                    active_methods: nextVerActiveProf,
+                    multi_mode: nextVerModeProf,
                     enrolled: true,
                     ...(twoFactorSecret ? { secret: twoFactorSecret } : {}),
                     methods: data.methods,
@@ -1432,11 +1474,15 @@ export default function Home() {
     const raw2faMethod = currentUser.two_factor_method || initTfMeta?.method;
     const norm2faMethod = (!raw2faMethod || raw2faMethod === "app") ? "google_auth" : raw2faMethod;
     const initProfMethodsMap = buildProfile2faMethodsMap(currentUser);
-    setTwoFactorMethod(norm2faMethod);
-    activeProfileTwoFactorMethodRef.current = norm2faMethod;
+    const { activeMethods: initProfActive, multiMode: initProfMode } = extractProfile2faActiveConfig(currentUser, norm2faMethod);
+    const primaryProfFocus = initProfActive[0] || norm2faMethod;
+    setTwoFactorActiveMethods(initProfActive);
+    setTwoFactorMultiMode(initProfMode);
+    setTwoFactorMethod(primaryProfFocus);
+    activeProfileTwoFactorMethodRef.current = primaryProfFocus;
     setTwoFactorMethodsMap(initProfMethodsMap);
-    setTwoFactorSecret(initProfMethodsMap[norm2faMethod]?.secret || "");
-    setTwoFactorEnrolled(Boolean(initProfMethodsMap[norm2faMethod]?.enrolled));
+    setTwoFactorSecret(initProfMethodsMap[primaryProfFocus]?.secret || "");
+    setTwoFactorEnrolled(Boolean(initProfMethodsMap[primaryProfFocus]?.enrolled));
     setTwoFactorQrSvg("");
     setTwoFactorTestCode("");
     setTwoFactorStatusMsg(null);
@@ -1477,12 +1523,16 @@ export default function Home() {
         const freshRawMethod = freshU.two_factor_method || fMeta?.method;
         const freshMethod = (!freshRawMethod || freshRawMethod === "app") ? "google_auth" : freshRawMethod;
         const freshMethodsMap = buildProfile2faMethodsMap(freshU);
+        const { activeMethods: freshActive, multiMode: freshMode } = extractProfile2faActiveConfig(freshU, freshMethod);
+        const freshFocus = freshActive[0] || freshMethod;
         setTwoFactorEnabled(freshEnabled);
-        setTwoFactorMethod(freshMethod);
-        activeProfileTwoFactorMethodRef.current = freshMethod;
+        setTwoFactorActiveMethods(freshActive);
+        setTwoFactorMultiMode(freshMode);
+        setTwoFactorMethod(freshFocus);
+        activeProfileTwoFactorMethodRef.current = freshFocus;
         setTwoFactorMethodsMap(freshMethodsMap);
-        setTwoFactorSecret(freshMethodsMap[freshMethod]?.secret || "");
-        setTwoFactorEnrolled(Boolean(freshMethodsMap[freshMethod]?.enrolled));
+        setTwoFactorSecret(freshMethodsMap[freshFocus]?.secret || "");
+        setTwoFactorEnrolled(Boolean(freshMethodsMap[freshFocus]?.enrolled));
         const freshPhone = freshU.gsm_number || freshU.follow_me?.mobile_number || fMeta?.phone || "";
         if (freshPhone) setGsmNumber(freshPhone);
         if (freshU.hotdesk_config && typeof freshU.hotdesk_config === "object") {
@@ -9083,10 +9133,87 @@ export default function Home() {
 
                     {twoFactorEnabled && (
                       <div className="pt-3 border-t border-slate-200/70 dark:border-slate-800 space-y-3 animate-in fade-in duration-200">
+                        {/* DOĞRULAMA MODU (TEK YÖNTEM / 2 AŞAMALI ZORUNLU / YEDEKLİ) */}
+                        <div className="p-2.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 space-y-2">
+                          <div className="text-[10px] font-extrabold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                            Doğrulama Çalışma Modu (Tek / 2 Aşamalı 2FA)
+                          </div>
+                          <div className="grid grid-cols-1 sm:grid-cols-3 gap-1.5">
+                            {[
+                              { mode: "single", title: "Tek Yöntem", desc: "Standart tek doğrulama" },
+                              { mode: "all", title: "2 Aşamalı Zorunlu", desc: "Örn: Mail + Authenticator" },
+                              { mode: "any", title: "Esnek / Yedekli", desc: "Seçilenlerden herhangi biri" }
+                            ].map((opt) => {
+                              const isModeActive = twoFactorMultiMode === opt.mode;
+                              return (
+                                <button
+                                  key={opt.mode}
+                                  type="button"
+                                  onClick={() => {
+                                    userTouched2faInModalRef.current = true;
+                                    setTwoFactorMultiMode(opt.mode);
+                                    if (opt.mode === "single") {
+                                      const keepM = twoFactorMethod || twoFactorActiveMethods[0] || "google_auth";
+                                      setTwoFactorActiveMethods([keepM]);
+                                      setTwoFactorMethod(keepM);
+                                      activeProfileTwoFactorMethodRef.current = keepM;
+                                    } else {
+                                      let nextList = Array.isArray(twoFactorActiveMethods) ? [...twoFactorActiveMethods] : [];
+                                      if (nextList.length < 2) {
+                                        const curr = nextList[0] || twoFactorMethod || "google_auth";
+                                        nextList = (curr === "google_auth" || curr === "microsoft_auth") ? ["email", curr] : [curr, "google_auth"];
+                                      }
+                                      setTwoFactorActiveMethods(nextList);
+                                      if (nextList.includes("google_auth") && !twoFactorMethodsMap?.google_auth?.qrSvg) {
+                                        fetchProfile2faSetup(false, "google_auth");
+                                      }
+                                      if (nextList.includes("microsoft_auth") && !twoFactorMethodsMap?.microsoft_auth?.qrSvg) {
+                                        fetchProfile2faSetup(false, "microsoft_auth");
+                                      }
+                                    }
+                                  }}
+                                  className={`p-2 rounded-xl text-left border transition-all ${
+                                    isModeActive
+                                      ? `${lightBg} ${border} ring-2 ${ring}`
+                                      : "bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800 hover:bg-slate-100 dark:hover:bg-slate-800/60"
+                                  }`}
+                                >
+                                  <div className="flex items-center justify-between gap-1">
+                                    <span className={`text-[10px] font-extrabold ${isModeActive ? text : "text-slate-800 dark:text-slate-100"}`}>
+                                      {opt.title}
+                                    </span>
+                                    {isModeActive && <CheckCircle size={12} className={text} />}
+                                  </div>
+                                  <div className="text-[9px] text-slate-500 dark:text-slate-400 mt-0.5 leading-tight">
+                                    {opt.desc}
+                                  </div>
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+
                         <div>
-                          <label className="block text-[10px] font-extrabold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-2">
-                            2FA Doğrulama Yöntemi Seçiniz
-                          </label>
+                          <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
+                            <label className="block text-[10px] font-extrabold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                              {twoFactorMultiMode === "single"
+                                ? "2FA Doğrulama Yöntemi Seçiniz"
+                                : "Aktif 2FA Yöntemlerini Seçiniz (Birden Fazla Seçilebilir)"}
+                            </label>
+                            {twoFactorMultiMode !== "single" && twoFactorActiveMethods.length >= 2 && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  userTouched2faInModalRef.current = true;
+                                  setTwoFactorActiveMethods((prev) => [...prev].reverse());
+                                }}
+                                className="px-2 py-0.5 rounded-lg text-[9px] font-bold bg-slate-200/80 dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-300 flex items-center gap-1"
+                              >
+                                <RefreshCw size={10} />
+                                Sırayı Değiştir (1 ⇄ 2)
+                              </button>
+                            )}
+                          </div>
                           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                             {[
                               { id: "email", title: "E-Posta (E-Mail)", desc: "E-posta adresinize 6 haneli kod gönderilir", icon: Mail },
@@ -9095,49 +9222,117 @@ export default function Home() {
                               { id: "microsoft_auth", title: "Microsoft Authenticator", desc: "Microsoft Authenticator ile 30 sn'lik kod", icon: Key }
                             ].map((m) => {
                               const IconComp = m.icon;
-                              const isSelected = twoFactorMethod === m.id || (m.id === "google_auth" && twoFactorMethod === "app");
+                              const isFocused = twoFactorMethod === m.id || (m.id === "google_auth" && twoFactorMethod === "app");
+                              const activeIdx = twoFactorActiveMethods.indexOf(m.id);
+                              const isActiveMethod = twoFactorMultiMode === "single" ? isFocused : activeIdx !== -1;
+
+                              const focusProfMethod = (methodId) => {
+                                userTouched2faInModalRef.current = true;
+                                activeProfileTwoFactorMethodRef.current = methodId;
+                                setTwoFactorMethod(methodId);
+                                setTwoFactorStatusMsg(null);
+                                setTwoFactorTestCode("");
+                                const cachedM = twoFactorMethodsMap[methodId] || {};
+                                setTwoFactorEnrolled(Boolean(cachedM.enrolled));
+                                if (methodId === "google_auth" || methodId === "microsoft_auth") {
+                                  setTwoFactorSecret(cachedM.secret || "");
+                                  setTwoFactorQrSvg(cachedM.qrSvg || "");
+                                  if (!cachedM.qrSvg) {
+                                    fetchProfile2faSetup(false, methodId);
+                                  }
+                                }
+                                scrollProfileTwoFactorIntoPane();
+                              };
+
                               return (
-                                <button
+                                <div
                                   key={m.id}
-                                  type="button"
+                                  role="button"
+                                  tabIndex={0}
                                   onClick={() => {
-                                    userTouched2faInModalRef.current = true;
-                                    activeProfileTwoFactorMethodRef.current = m.id;
-                                    setTwoFactorMethod(m.id);
-                                    setTwoFactorStatusMsg(null);
-                                    setTwoFactorTestCode("");
-                                    const cachedM = twoFactorMethodsMap[m.id] || {};
-                                    setTwoFactorEnrolled(Boolean(cachedM.enrolled));
-                                    if (m.id === "google_auth" || m.id === "microsoft_auth") {
-                                      setTwoFactorSecret(cachedM.secret || "");
-                                      setTwoFactorQrSvg(cachedM.qrSvg || "");
-                                      if (!cachedM.qrSvg) {
-                                        fetchProfile2faSetup(false, m.id);
+                                    if (twoFactorMultiMode === "single") {
+                                      setTwoFactorActiveMethods([m.id]);
+                                      focusProfMethod(m.id);
+                                    } else {
+                                      if (!isActiveMethod) {
+                                        setTwoFactorActiveMethods([...twoFactorActiveMethods, m.id]);
                                       }
+                                      focusProfMethod(m.id);
                                     }
-                                    scrollProfileTwoFactorIntoPane();
                                   }}
-                                  className={`p-2.5 rounded-xl text-left border transition-all flex flex-col justify-between gap-1.5 ${
-                                    isSelected
-                                      ? `${lightBg} ${border} ring-2 ${ring}`
+                                  onKeyDown={(e) => {
+                                    if (e.key === "Enter" || e.key === " ") {
+                                      e.preventDefault();
+                                      e.currentTarget.click();
+                                    }
+                                  }}
+                                  className={`p-2.5 rounded-xl text-left border transition-all flex flex-col justify-between gap-1.5 cursor-pointer ${
+                                    isActiveMethod
+                                      ? `${lightBg} ${border} ${isFocused ? `ring-2 ${ring}` : ""}`
                                       : "bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 hover:bg-slate-100/70 dark:hover:bg-slate-800/60"
                                   }`}
                                 >
-                                  <div className="flex items-center justify-between w-full">
-                                    <div className={`w-6 h-6 rounded-lg flex items-center justify-center ${isSelected ? `${bg} text-white` : "bg-slate-100 dark:bg-slate-800 text-slate-500"}`}>
+                                  <div className="flex items-center justify-between w-full gap-1">
+                                    <div className={`w-6 h-6 rounded-lg flex items-center justify-center shrink-0 ${isActiveMethod ? `${bg} text-white` : "bg-slate-100 dark:bg-slate-800 text-slate-500"}`}>
                                       <IconComp size={13} />
                                     </div>
-                                    {isSelected && <CheckCircle size={13} className={text} />}
+                                    <div className="flex items-center gap-1">
+                                      {twoFactorMultiMode === "all" && isActiveMethod && (
+                                        <span className={`px-1.5 py-0.5 rounded-full text-[8px] font-extrabold text-white ${bg}`}>
+                                          {activeIdx + 1}. Aşama
+                                        </span>
+                                      )}
+                                      {twoFactorMultiMode === "any" && isActiveMethod && (
+                                        <span className={`px-1.5 py-0.5 rounded-full text-[8px] font-extrabold text-white ${bg}`}>
+                                          Aktif
+                                        </span>
+                                      )}
+                                      {twoFactorMultiMode !== "single" && isActiveMethod && twoFactorActiveMethods.length > 1 && (
+                                        <button
+                                          type="button"
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            userTouched2faInModalRef.current = true;
+                                            const filtered = twoFactorActiveMethods.filter((id) => id !== m.id);
+                                            const safeNext = filtered.length > 0 ? filtered : ["google_auth"];
+                                            setTwoFactorActiveMethods(safeNext);
+                                            if (safeNext.length <= 1) setTwoFactorMultiMode("single");
+                                            if (isFocused && safeNext[0]) focusProfMethod(safeNext[0]);
+                                          }}
+                                          className="px-1.5 py-0.5 rounded text-[8px] font-bold bg-rose-100 dark:bg-rose-950/60 text-rose-600 dark:text-rose-400"
+                                        >
+                                          Çıkar
+                                        </button>
+                                      )}
+                                      {twoFactorMultiMode === "single" && !isActiveMethod && (
+                                        <button
+                                          type="button"
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            userTouched2faInModalRef.current = true;
+                                            const currPrimary = twoFactorMethod || "google_auth";
+                                            const combined = currPrimary === m.id ? [m.id] : [currPrimary, m.id];
+                                            setTwoFactorMultiMode("all");
+                                            setTwoFactorActiveMethods(combined);
+                                            focusProfMethod(m.id);
+                                          }}
+                                          className="px-1.5 py-0.5 rounded-full text-[8px] font-extrabold bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300"
+                                        >
+                                          + Birlikte Kullan
+                                        </button>
+                                      )}
+                                      {isActiveMethod && <CheckCircle size={13} className={text} />}
+                                    </div>
                                   </div>
                                   <div>
-                                    <div className={`text-[11px] font-extrabold ${isSelected ? text : "text-slate-800 dark:text-slate-100"}`}>
+                                    <div className={`text-[11px] font-extrabold ${isActiveMethod ? text : "text-slate-800 dark:text-slate-100"}`}>
                                       {m.title}
                                     </div>
                                     <div className="text-[9px] text-slate-500 dark:text-slate-400 leading-tight mt-0.5">
                                       {m.desc}
                                     </div>
                                   </div>
-                                </button>
+                                </div>
                               );
                             })}
                           </div>
@@ -9655,6 +9850,19 @@ export default function Home() {
                         });
                         setCallPanelPrefs(savedPrefsSnapshot);
                         const cleanedGsmNumber = (gsmNumber || "").trim();
+                        const resolvedProfActiveMethods =
+                          twoFactorMultiMode === "single"
+                            ? [twoFactorMethod || "google_auth"]
+                            : Array.isArray(twoFactorActiveMethods) && twoFactorActiveMethods.length > 0
+                              ? twoFactorActiveMethods
+                              : [twoFactorMethod || "google_auth"];
+                        const resolvedProfMultiMode =
+                          resolvedProfActiveMethods.length <= 1
+                            ? "single"
+                            : twoFactorMultiMode === "any"
+                              ? "any"
+                              : "all";
+                        const primaryProfSaveMethod = resolvedProfActiveMethods[0] || twoFactorMethod || "google_auth";
                         const localProfilePatch = {
                           avatar: agentAvatar,
                           call_panel_prefs: savedPrefsSnapshot,
@@ -9664,9 +9872,11 @@ export default function Home() {
                             mobile_number: cleanedGsmNumber
                           },
                           two_factor_enabled: Boolean(twoFactorEnabled),
-                          two_factor_method: twoFactorMethod || "google_auth",
+                          two_factor_method: primaryProfSaveMethod,
+                          two_factor_active_methods: resolvedProfActiveMethods,
+                          two_factor_multi_mode: resolvedProfMultiMode,
                           ...(twoFactorSecret ? { two_factor_secret: twoFactorSecret } : {}),
-                          two_factor_enrolled: Boolean(twoFactorEnrolled),
+                          two_factor_enrolled: Boolean(twoFactorMethodsMap[primaryProfSaveMethod]?.enrolled ?? twoFactorEnrolled),
                           hotdesk_config: normalizedSelfHotdesk
                         };
                         setCurrentUser((prev) =>
@@ -9733,12 +9943,14 @@ export default function Home() {
                                 auto_logout_enabled: autoLogoutEnabled,
                                 auto_logout_duration: autoLogoutDuration,
                                 two_factor_enabled: twoFactorEnabled,
-                                two_factor_method: twoFactorMethod || "google_auth",
+                                two_factor_method: primaryProfSaveMethod,
+                                two_factor_active_methods: resolvedProfActiveMethods,
+                                two_factor_multi_mode: resolvedProfMultiMode,
                                 two_factor_secret:
-                                  (twoFactorMethod === "google_auth" || twoFactorMethod === "microsoft_auth" || twoFactorMethod === "app")
-                                    ? (twoFactorSecret || twoFactorMethodsMap[twoFactorMethod === "app" ? "google_auth" : twoFactorMethod]?.secret || undefined)
+                                  (primaryProfSaveMethod === "google_auth" || primaryProfSaveMethod === "microsoft_auth" || primaryProfSaveMethod === "app")
+                                    ? ((twoFactorMethod === primaryProfSaveMethod ? twoFactorSecret : "") || twoFactorMethodsMap[primaryProfSaveMethod === "app" ? "google_auth" : primaryProfSaveMethod]?.secret || undefined)
                                     : undefined,
-                                two_factor_enrolled: Boolean(twoFactorEnrolled),
+                                two_factor_enrolled: Boolean(twoFactorMethodsMap[primaryProfSaveMethod]?.enrolled ?? twoFactorEnrolled),
                                 password_expiry_enabled: passwordExpiryEnabled,
                                 password_expiry_months: passwordExpiryMonths,
                                 ...passwordPayload
@@ -9755,13 +9967,19 @@ export default function Home() {
                                     extension: currentUser.extension || "",
                                     email: currentUser.email || "",
                                     enabled: Boolean(twoFactorEnabled),
-                                    method: twoFactorMethod || "google_auth",
+                                    method: primaryProfSaveMethod,
+                                    active_methods: resolvedProfActiveMethods,
+                                    multi_mode: resolvedProfMultiMode,
                                     phone: cleanedGsmNumber,
                                     secret:
-                                      (twoFactorMethod === "google_auth" || twoFactorMethod === "microsoft_auth" || twoFactorMethod === "app")
-                                        ? (twoFactorSecret || twoFactorMethodsMap[twoFactorMethod === "app" ? "google_auth" : twoFactorMethod]?.secret || null)
+                                      (primaryProfSaveMethod === "google_auth" || primaryProfSaveMethod === "microsoft_auth" || primaryProfSaveMethod === "app")
+                                        ? ((twoFactorMethod === primaryProfSaveMethod ? twoFactorSecret : "") || twoFactorMethodsMap[primaryProfSaveMethod === "app" ? "google_auth" : primaryProfSaveMethod]?.secret || null)
                                         : null,
-                                    enrolled: Boolean(twoFactorEnrolled)
+                                    secrets: {
+                                      google_auth: (twoFactorMethod === "google_auth" ? twoFactorSecret : "") || twoFactorMethodsMap?.google_auth?.secret || "",
+                                      microsoft_auth: (twoFactorMethod === "microsoft_auth" ? twoFactorSecret : "") || twoFactorMethodsMap?.microsoft_auth?.secret || ""
+                                    },
+                                    enrolled: Boolean(twoFactorMethodsMap[primaryProfSaveMethod]?.enrolled ?? twoFactorEnrolled)
                                   })
                                 });
                               } catch (e2fa) {}
@@ -9771,8 +9989,10 @@ export default function Home() {
                                   ? data.user.call_panel_prefs.twoFactorMeta
                                   : {
                                       enabled: Boolean(twoFactorEnabled),
-                                      method: twoFactorMethod || "google_auth",
-                                      enrolled: Boolean(twoFactorEnrolled),
+                                      method: primaryProfSaveMethod,
+                                      active_methods: resolvedProfActiveMethods,
+                                      multi_mode: resolvedProfMultiMode,
+                                      enrolled: Boolean(twoFactorMethodsMap[primaryProfSaveMethod]?.enrolled ?? twoFactorEnrolled),
                                       phone: cleanedGsmNumber,
                                       updatedTs: Date.now()
                                     };
@@ -9781,7 +10001,9 @@ export default function Home() {
                                 ...localProfilePatch,
                                 ...(data.user || {}),
                                 two_factor_enabled: Boolean(twoFactorEnabled),
-                                two_factor_method: twoFactorMethod || "google_auth",
+                                two_factor_method: primaryProfSaveMethod,
+                                two_factor_active_methods: resolvedProfActiveMethods,
+                                two_factor_multi_mode: resolvedProfMultiMode,
                                 gsm_number: cleanedGsmNumber,
                                 avatar: agentAvatar,
                                 call_panel_prefs: {

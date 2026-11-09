@@ -11,6 +11,55 @@ export default function LoginPage() {
   const router = useRouter();
   const [error, setError] = useState("");
   const backendHost = getBackendHost();
+  const pending2faUserRef = React.useRef(null);
+
+  const build2faPayloadFromUser = (u, fallbackUid = "admin") => {
+    const tfMeta = u?.call_panel_prefs?.twoFactorMeta && typeof u.call_panel_prefs.twoFactorMeta === "object"
+      ? u.call_panel_prefs.twoFactorMeta
+      : null;
+    const rawMethod = u?.two_factor_method || tfMeta?.method || "google_auth";
+    const normMethod = !rawMethod || rawMethod === "app" ? "google_auth" : rawMethod;
+    const rawList = Array.isArray(u?.two_factor_active_methods)
+      ? u.two_factor_active_methods
+      : Array.isArray(tfMeta?.active_methods)
+        ? tfMeta.active_methods
+        : [];
+    const validIds = ["email", "whatsapp", "google_auth", "microsoft_auth"];
+    const activeMethods = [];
+    rawList.forEach((item) => {
+      const s = String(item || "").trim().toLowerCase();
+      const nm = s === "app" ? "google_auth" : s;
+      if (validIds.includes(nm) && !activeMethods.includes(nm)) {
+        activeMethods.push(nm);
+      }
+    });
+    if (activeMethods.length === 0) {
+      activeMethods.push(validIds.includes(normMethod) ? normMethod : "google_auth");
+    }
+    const rawMode = String(u?.two_factor_multi_mode || tfMeta?.multi_mode || "").trim().toLowerCase();
+    const multiMode = activeMethods.length <= 1 ? "single" : (rawMode === "any" ? "any" : "all");
+    const methodsMap = tfMeta?.methods && typeof tfMeta.methods === "object" ? tfMeta.methods : {};
+    const firstMethod = activeMethods[0];
+    const firstEnrolled =
+      methodsMap[firstMethod] && typeof methodsMap[firstMethod] === "object"
+        ? Boolean(methodsMap[firstMethod].enrolled)
+        : Boolean(u?.two_factor_enrolled ?? tfMeta?.enrolled);
+
+    pending2faUserRef.current = u;
+    return {
+      success: true,
+      requires2fa: true,
+      user_id: String(u?.id ?? fallbackUid),
+      method: firstMethod,
+      active_methods: activeMethods,
+      multi_mode: multiMode,
+      methods_map: methodsMap,
+      enrolled: firstEnrolled,
+      email: u?.email || "",
+      phone: u?.gsm_number || u?.follow_me?.mobile_number || tfMeta?.phone || "",
+      full_name: u?.full_name || "Sistem Yöneticisi"
+    };
+  };
 
   useEffect(() => {
     if (typeof window !== "undefined") {
@@ -54,20 +103,7 @@ export default function LoginPage() {
 
       if (cleanUsername.toLowerCase() === "admin" && (password === validAdminPassword || password === "admin")) {
         if (adminUser?.two_factor_enabled) {
-          const normAdminMethod =
-            !adminUser.two_factor_method || adminUser.two_factor_method === "app"
-              ? "google_auth"
-              : adminUser.two_factor_method;
-          return {
-            success: true,
-            requires2fa: true,
-            user_id: (adminUser.id || "admin").toString(),
-            method: normAdminMethod,
-            enrolled: Boolean(adminUser.two_factor_enrolled),
-            email: adminUser.email || "",
-            phone: adminUser.gsm_number || adminUser.follow_me?.mobile_number || "",
-            full_name: adminUser.full_name || "Sistem Yöneticisi"
-          };
+          return build2faPayloadFromUser(adminUser, "admin");
         }
         persistAuthenticatedSession("admin", rememberMe, adminUser || { id: 1, username: "admin", role: "admin" });
         saveRememberedCredentials(cleanUsername, password, rememberMe);
@@ -99,20 +135,7 @@ export default function LoginPage() {
 
       if (foundUser) {
         if (foundUser.two_factor_enabled) {
-          const normMethod =
-            !foundUser.two_factor_method || foundUser.two_factor_method === "app"
-              ? "google_auth"
-              : foundUser.two_factor_method;
-          return {
-            success: true,
-            requires2fa: true,
-            user_id: foundUser.id.toString(),
-            method: normMethod,
-            enrolled: Boolean(foundUser.two_factor_enrolled),
-            email: foundUser.email || "",
-            phone: foundUser.gsm_number || foundUser.follow_me?.mobile_number || "",
-            full_name: foundUser.full_name || ""
-          };
+          return build2faPayloadFromUser(foundUser, foundUser.id);
         }
         persistAuthenticatedSession(foundUser.id.toString(), rememberMe, foundUser);
         saveRememberedCredentials(cleanUsername, password, rememberMe);
@@ -130,7 +153,7 @@ export default function LoginPage() {
 
   const complete2FALogin = (userId, rememberMe) => {
     const storeId = String(userId);
-    persistAuthenticatedSession(storeId, rememberMe);
+    persistAuthenticatedSession(storeId, rememberMe, pending2faUserRef.current || undefined);
     handleLoginSuccess();
   };
 
