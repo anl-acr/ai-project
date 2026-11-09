@@ -2564,6 +2564,21 @@ def load_settings(force_reload: bool = False, persist: bool = False):
                     new_perms.append("restore_points:write")
                 if r.get("role_code") == "admin" and "restore_points:delete" not in new_perms:
                     new_perms.append("restore_points:delete")
+                for sup_perm in (
+                    "smart_callback:read",
+                    "smart_callback:write",
+                    "customer_360:access",
+                    "callback_tasks:read",
+                    "callback_tasks:write",
+                    "crisis_alerts:access",
+                    "system_version:read",
+                ):
+                    if sup_perm not in new_perms:
+                        new_perms.append(sup_perm)
+            if r.get("role_code") == "agent":
+                for ag_perm in ("customer_360:access", "callback_tasks:read", "callback_tasks:write"):
+                    if ag_perm not in new_perms:
+                        new_perms.append(ag_perm)
 
             # Migrate call_panel granular sub-permissions if role has call_panel:access but no call_panel:tab_* yet
             has_call_panel_subs = any(
@@ -2841,6 +2856,7 @@ async def get_roi_settings():
 @app.post("/settings/roi_settings")
 async def save_roi_settings(payload: dict):
     settings_db["roi_settings"] = payload
+    save_settings(settings_db)
     return {"status": "success"}
 
 @app.get("/api/settings/pbx")
@@ -2852,6 +2868,7 @@ async def get_pbx_settings():
 @app.post("/settings/pbx")
 async def save_pbx_settings(payload: PBXSettingsSchema):
     settings_db["pbx"] = payload.model_dump()
+    save_settings(settings_db)
     os.environ["AMI_HOST"] = payload.ami_host
     os.environ["AMI_PORT"] = str(payload.ami_port)
     os.environ["AMI_USER"] = payload.ami_user
@@ -4033,6 +4050,7 @@ media_use_received_transport=yes
 send_pai=yes
 send_rpid=yes
 rpid_immediate=yes
+mailboxes={cid_ext_val}@default
 {pg_lines}auth={dev_su}-auth
 aors={dev_su}
 callerid="{name}" <{cid_ext_val}>
@@ -4048,6 +4066,7 @@ type=aor
 max_contacts={dev_max_c}
 remove_existing=yes
 qualify_frequency=30
+mailboxes={cid_ext_val}@default
 """
 
     if db_sip_backfill_items:
@@ -4645,6 +4664,7 @@ same => n(pin_ok),Return(ALLOW)
 
 [queue_router_sub]
 exten => s,1,NoOp(Kuyruk Yonlendirme Motoru Basladi: Kuyruk=${{ARG1}}, CallID=${{CALL_UUID}})
+same => n,Set(__DYNAMIC_FEATURES=rec_pause_toggle)
 same => n,Set(CURLOPT(conntimeout)=1)
 same => n,Set(CURLOPT(httptimeout)=2)
 same => n,Set(CUR_Q_EXT=${{ARG1}})
@@ -4735,6 +4755,7 @@ same => n(done_qsub_h),NoOp(Kuyruk Hangup tamamlandi)
 [default]
 ; Operatörden gelen aramaları yakalamak için (Standart numara eşleşmesi)
 exten => _X.,1,NoOp(Gelen arama DID ile yakalandi: ${{EXTEN}} - Arayan: ${{CALLERID(num)}})
+same => n,Set(__DYNAMIC_FEATURES=rec_pause_toggle)
 same => n,Set(RAW_DEF_FROM=${{PJSIP_HEADER(read,From)}})
 same => n,Set(PARSED_DEF_FROM=${{CUT(CUT(CUT(RAW_DEF_FROM,@,1),:,2),>,1)}})
 same => n,Set(CALLERID(num)=${{IF($["${{CALLERID(num)}}" = "" | "${{CALLERID(num)}}" = "${{EXTEN}}" | "${{CALLERID(num)}}" = "908503607390"]?${{IF($["${{PARSED_DEF_FROM}}" != ""]?${{PARSED_DEF_FROM}}:${{CALLERID(num)}})}}:${{CALLERID(num)}})}})
@@ -4754,6 +4775,7 @@ same => n,Hangup(21)
 
 ; Uluslararası / + ile gelen DID numaraları için (+90...)
 exten => _+X.,1,NoOp(Gelen arama +DID ile yakalandi: ${{EXTEN}} - Arayan: ${{CALLERID(num)}})
+same => n,Set(__DYNAMIC_FEATURES=rec_pause_toggle)
 same => n,Set(RAW_DEF_FROM=${{PJSIP_HEADER(read,From)}})
 same => n,Set(PARSED_DEF_FROM=${{CUT(CUT(CUT(RAW_DEF_FROM,@,1),:,2),>,1)}})
 same => n,Set(CALLERID(num)=${{IF($["${{CALLERID(num)}}" = "" | "${{CALLERID(num)}}" = "${{EXTEN}}" | "${{CALLERID(num)}}" = "908503607390"]?${{IF($["${{PARSED_DEF_FROM}}" != ""]?${{PARSED_DEF_FROM}}:${{CALLERID(num)}})}}:${{CALLERID(num)}})}})
@@ -4773,6 +4795,7 @@ same => n,Hangup(21)
 
 ; Fallback (s uzantısı)
 exten => s,1,NoOp(Gelen arama s uzantisi ile yakalandi: ${{CALLERID(num)}})
+same => n,Set(__DYNAMIC_FEATURES=rec_pause_toggle)
 same => n,Set(RAW_DEF_FROM=${{PJSIP_HEADER(read,From)}})
 same => n,Set(PARSED_DEF_FROM=${{CUT(CUT(CUT(RAW_DEF_FROM,@,1),:,2),>,1)}})
 same => n,Set(CALLERID(num)=${{IF($["${{CALLERID(num)}}" = "" | "${{CALLERID(num)}}" = "908503607390"]?${{IF($["${{PARSED_DEF_FROM}}" != ""]?${{PARSED_DEF_FROM}}:${{CALLERID(num)}})}}:${{CALLERID(num)}})}})
@@ -5131,6 +5154,7 @@ same => n(mp_ret),Return()
 [queue_agent_ring]
 ; Kuyruk aramalarında temsilcinin hem WebPhone hem de tüm aktif SIP Cihazlarını Kuyruk CallerID bilgisiyle eşzamanlı çaldırır
 exten => _[1-9]X.,1,NoOp(Kuyruk Temsilci Cihaz Dagitim: Dahili=${{EXTEN}}, CallerID=${{CALLERID(all)}})
+same => n,Set(__DYNAMIC_FEATURES=rec_pause_toggle)
 same => n,Set(CURLOPT(conntimeout)=1)
 same => n,Set(CURLOPT(httptimeout)=2)
 same => n,Set(AG_EP_LIST=${{CURL(http://{backend_host}/api/subscriber/resolve_agent_ring_targets?extension=${{EXTEN}}&format=list)}})
@@ -6042,6 +6066,7 @@ async def get_smart_callback_settings():
 @app.post("/settings/smart-callback")
 async def save_smart_callback_settings(payload: SmartCallbackSettingsSchema):
     settings_db["smart_callback"] = payload.model_dump()
+    save_settings(settings_db)
     return {"status": "success", "message": "Akıllı geri arama (Smart Callback) ayarları kaydedildi."}
 
 # ----------------------------------------------------
@@ -6080,6 +6105,7 @@ async def get_custom_apis_endpoint():
 @app.post("/settings/custom-apis")
 async def save_custom_apis_endpoint(payload: CustomAPIsSavePayload):
     settings_db["custom_apis"] = [api.model_dump() for api in payload.custom_apis]
+    save_settings(settings_db)
     return {"status": "success", "message": "Evrensel API tanımları kaydedildi."}
 
 @app.post("/api/settings/custom-apis/test")
@@ -6202,6 +6228,7 @@ async def get_voice_biometrics_settings():
 @app.post("/settings/voice-biometrics")
 async def save_voice_biometrics_settings(payload: VoiceBiometricsSettingsSchema):
     settings_db["voice_biometrics"] = payload.model_dump()
+    save_settings(settings_db)
     return {"status": "success", "message": "Ses biyometrisi ve deepfake koruma ayarları kaydedildi."}
 
 class RecordingRetentionSettingsSchema(BaseModel):
@@ -13272,12 +13299,49 @@ async def _switch_user_profile_by_digit(
     if not matched_prof:
         return False
     new_prof_id = str(matched_prof.get("id") or "available")
+    prof_name = str(matched_prof.get("name") or new_prof_id)
     ok = await _sync_user_forwarding_state(caller_ext, {"active_profile": new_prof_id}, db, source_label="Masa Telefonu (*70)")
     if ok:
+        try:
+            uid_s = str(user_dict.get("id") or caller_ext)
+            db.add(
+                AgentBreakLog(
+                    user_id=uid_s,
+                    extension=caller_ext,
+                    break_name=f"__ACTION__:profile_change:{prof_name}",
+                    start_time=datetime.datetime.utcnow(),
+                    end_time=datetime.datetime.utcnow(),
+                    duration_seconds=0,
+                )
+            )
+            await db.commit()
+        except Exception:
+            try:
+                await db.rollback()
+            except Exception:
+                pass
+        try:
+            from backend.services.agent_presence import update_agent_state, sync_asterisk_queue_pause
+            prof_devs = matched_prof.get("devices") if isinstance(matched_prof.get("devices"), list) else ["web_phone", "desk_phone"]
+            should_pause = new_prof_id != "available" and len(prof_devs) == 0
+            if new_prof_id == "available":
+                update_agent_state(str(user_dict.get("id") or caller_ext), caller_ext, status="available", is_logged_in=True, current_break=None)
+                await sync_asterisk_queue_pause(caller_ext, paused=False, reason="Profile Available (*70)")
+            elif should_pause:
+                update_agent_state(
+                    str(user_dict.get("id") or caller_ext),
+                    caller_ext,
+                    status="break",
+                    is_logged_in=True,
+                    current_break={"id": new_prof_id, "name": prof_name},
+                )
+                await sync_asterisk_queue_pause(caller_ext, paused=True, reason=f"Profile {prof_name} (*70)")
+        except Exception:
+            pass
         add_system_log(
             "PROFILE_SWITCH",
             "INFO",
-            f"Dahili {caller_ext} tuşlama kodu ({clean_d}) ile profilini '{matched_prof.get('name')}' ({new_prof_id}) olarak değiştirdi.",
+            f"Dahili {caller_ext} tuşlama kodu ({clean_d}) ile profilini '{prof_name}' ({new_prof_id}) olarak değiştirdi.",
         )
     return ok
 
@@ -13431,12 +13495,18 @@ async def resolve_subscriber_feature_code(
             print(f"[Feature Code] Caller extension could not be resolved: caller={raw_caller}, chan={raw_channel}")
             return Response(content="INVALID", media_type="text/plain")
 
-        # B. Voicemail Listen (*97)
+        # B. Voicemail Listen (*97 and universal *98 / *98*<ext>)
         vm_pfx = pbx_feat["voicemail_listen"].rstrip("*")
-        if raw_exten == pbx_feat["voicemail_listen"] or raw_exten == vm_pfx:
+        if raw_exten in (pbx_feat["voicemail_listen"], vm_pfx, "*98"):
             vm_u = await _load_merged_user_by_ext(caller_ext, db=db)
             has_pin = "1" if (vm_u and str(vm_u.get("voicemail_pin") or "").strip()) else "0"
             return Response(content=f"VOICEMAIL_MENU:{caller_ext}:{has_pin}", media_type="text/plain")
+        if raw_exten.startswith("*98*") or raw_exten.startswith(f"{vm_pfx}*"):
+            target_vm_ext = re.sub(r"[^0-9]", "", raw_exten.split("*", 2)[-1])
+            if target_vm_ext:
+                vm_u = await _load_merged_user_by_ext(target_vm_ext, db=db)
+                has_pin = "1" if (target_vm_ext != caller_ext or (vm_u and str(vm_u.get("voicemail_pin") or "").strip())) else "0"
+                return Response(content=f"VOICEMAIL_MENU:{target_vm_ext}:{has_pin}", media_type="text/plain")
 
         # C. Role-Bound Call Recording Pause / Resume (*9)
         rec_pfx = pbx_feat["recording_pause"].rstrip("*")
@@ -24532,11 +24602,13 @@ async def voicemail_ivr_action_endpoint(
         return "ERR"
     target_ext = str(extension or "").strip()
     if act == "delete":
+        audio_p_hint = ""
         try:
             row = await db.get(VoicemailMessage, vid)
             if row:
                 if not target_ext:
                     target_ext = str(row.extension or "")
+                audio_p_hint = str(row.audio_path or "")
                 await db.delete(row)
                 await db.commit()
         except Exception:
@@ -24548,10 +24620,20 @@ async def voicemail_ivr_action_endpoint(
             if str(v.get("id")) == vid:
                 if not target_ext:
                     target_ext = str(v.get("extension") or "")
+                if not audio_p_hint:
+                    audio_p_hint = str(v.get("audio_path") or "")
                 settings_db["voicemails"].remove(v)
         save_settings(settings_db)
-        for p_del in [os.path.join(RECORDINGS_DIR, f"vm_{vid}.wav"), f"/var/spool/asterisk/monitor/vm_{vid}.wav"]:
-            if os.path.exists(p_del):
+        resolved_wav = _resolve_voicemail_wav_path(vid, audio_p_hint)
+        stem_id = vid[3:] if vid.startswith("vm_") else vid
+        for p_del in {
+            resolved_wav,
+            os.path.join(RECORDINGS_DIR, f"vm_{stem_id}.wav"),
+            os.path.join(RECORDINGS_DIR, f"{vid}.wav"),
+            f"/var/spool/asterisk/monitor/vm_{stem_id}.wav",
+            f"/var/spool/asterisk/monitor/{vid}.wav",
+        }:
+            if p_del and os.path.exists(p_del):
                 try:
                     os.remove(p_del)
                 except Exception:
@@ -24974,8 +25056,40 @@ async def logout_hotdesk_session_endpoint(
     return {"status": "success", "removed": removed}
 
 @app.get("/api/agent/history")
-async def get_agent_history(extension: str = None):
-    return []
+async def get_agent_history(
+    extension: Optional[str] = None,
+    limit: int = 100,
+    user_info: dict = Depends(get_user_info),
+    db: AsyncSession = Depends(get_db),
+):
+    from sqlalchemy import select, or_
+    target_tenant = user_info.get("tenant_id") or "tenant-default"
+    ext_clean = str(extension or "").strip()
+    stmt = select(Call).order_by(Call.start_time.desc()).limit(max(1, min(limit, 500)))
+    if not is_default_tenant(target_tenant):
+        stmt = stmt.where(Call.tenant_id == target_tenant)
+    if ext_clean:
+        stmt = stmt.where(
+            or_(
+                Call.caller_number == ext_clean,
+                Call.callee_number == ext_clean,
+                Call.hangup_source.ilike(f"%:{ext_clean}%"),
+            )
+        )
+    res = await db.execute(stmt)
+    rows = res.scalars().all()
+    return [
+        {
+            "id": c.id,
+            "caller_number": c.caller_number,
+            "callee_number": c.callee_number,
+            "status": c.status,
+            "duration_seconds": c.duration_seconds,
+            "start_time": c.start_time.isoformat() if c.start_time else None,
+            "hangup_source": c.hangup_source,
+        }
+        for c in rows
+    ]
 
 @app.get("/api/agent/missed_queue_calls")
 async def get_agent_missed_queue_calls(
@@ -30739,6 +30853,8 @@ async def get_queue_survey_reports(
         if not row.get("created_at"):
             row["created_at"] = row.get("timestamp")
         row["recording_path"] = f"/api/recordings/{row['call_id']}.wav" if row.get("call_id") else None
+        if not row.get("audio_url") and row.get("recording_path"):
+            row["audio_url"] = row["recording_path"]
         filtered.append(row)
 
     total_count = len(filtered)

@@ -63,14 +63,14 @@ export const LANDING_SCREEN_CATALOG = [
     group: "Yapay Zeka & Bilgi",
     label: "Bilgi Bankası (RAG)",
     shortLabel: "Bilgi Bankası",
-    perms: ["rag", "knowledge_base"]
+    perms: ["rag", "rag_kb", "knowledge_base"]
   },
   {
     id: "rule-editor",
     group: "Yapay Zeka & Bilgi",
     label: "Kural & Senaryo Editörü",
     shortLabel: "Senaryolar",
-    perms: ["rules"]
+    perms: ["rules", "rule_editor"]
   },
 
   // 3. Santral

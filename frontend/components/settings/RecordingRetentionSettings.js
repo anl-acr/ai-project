@@ -122,22 +122,35 @@ export default function RecordingRetentionSettings({ backendHost = "localhost:80
     const fetchSettingsAndPermissions = async () => {
       setLoading(true);
       try {
-        const resStatus = await fetch(`${API_BASE}/api/agent/status`);
-        const statusData = await resStatus.json();
-        if (!statusData.is_logged_in) {
+        let currentUserId =
+          typeof window !== "undefined"
+            ? localStorage.getItem("current_user_id") || sessionStorage.getItem("current_user_id")
+            : null;
+        if (!currentUserId) {
+          const resStatus = await fetch(`${API_BASE}/api/agent/status`);
+          const statusData = await resStatus.json();
+          if (statusData.is_logged_in) {
+            currentUserId = statusData.user_id;
+          }
+        }
+        if (!currentUserId) {
           setWritePermission(true);
         } else {
           const resUsers = await fetch(`${API_BASE}/api/settings/users`);
           const usersData = await resUsers.json();
-          const currentUser = usersData.find((u) => u.id === statusData.user_id);
+          const currentUser = usersData.find((u) => u.id === currentUserId);
           if (currentUser) {
-            const resRoles = await fetch(`${API_BASE}/api/settings/roles`);
-            const rolesData = await resRoles.json();
-            const currentRole = rolesData.find((r) => r.role_code === currentUser.role);
-            if (currentRole) {
-              setWritePermission(currentRole.permissions.includes("recording_retention:write"));
-            } else {
+            if (currentUser.role === "admin") {
               setWritePermission(true);
+            } else {
+              const resRoles = await fetch(`${API_BASE}/api/settings/roles`);
+              const rolesData = await resRoles.json();
+              const currentRole = rolesData.find((r) => r.role_code === currentUser.role);
+              if (currentRole) {
+                setWritePermission(currentRole.permissions.includes("recording_retention:write"));
+              } else {
+                setWritePermission(true);
+              }
             }
           } else {
             setWritePermission(true);

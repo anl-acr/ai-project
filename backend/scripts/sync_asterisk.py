@@ -103,6 +103,9 @@ tlsenable=yes
 tlsbindaddr=0.0.0.0:8089
 tlscertfile=/etc/asterisk/keys/asterisk.pem
 tlsprivatekey=/etc/asterisk/keys/webphone_privkey.pem
+sessionlimit=1000
+session_inactivity=30000
+session_keep_alive=15000
 """
     if os.path.exists("/etc/asterisk"):
         try:
@@ -233,6 +236,32 @@ stunaddr=stun.l.google.com:19302
                             continue
                         _merged.append(_du)
                     users_list = _merged
+                try:
+                    from backend.database.models import Trunk, PBXQueue
+                    _db_trunks = _db_s.query(Trunk).all()
+                    if _db_trunks and isinstance(sdata, dict):
+                        _disk_trunks = sdata.get("trunks", []) if isinstance(sdata.get("trunks"), list) else []
+                        _seen_tnames = {str(dt.get("name") or "").strip().lower() for dt in _disk_trunks if isinstance(dt, dict)}
+                        for _tr in _db_trunks:
+                            _td = {c.name: getattr(_tr, c.name) for c in Trunk.__table__.columns}
+                            _tn = str(_td.get("name") or "").strip().lower()
+                            if _tn and _tn not in _seen_tnames:
+                                _disk_trunks.append(_td)
+                                _seen_tnames.add(_tn)
+                        sdata["trunks"] = _disk_trunks
+                    _db_queues = _db_s.query(PBXQueue).all()
+                    if _db_queues and isinstance(sdata, dict):
+                        _disk_queues = sdata.get("queues", []) if isinstance(sdata.get("queues"), list) else []
+                        _seen_qexts = {str(dq.get("extension") or dq.get("name") or "").strip().lower() for dq in _disk_queues if isinstance(dq, dict)}
+                        for _qr in _db_queues:
+                            _qd = {c.name: getattr(_qr, c.name) for c in PBXQueue.__table__.columns}
+                            _qe = str(_qd.get("extension") or _qd.get("name") or "").strip().lower()
+                            if _qe and _qe not in _seen_qexts:
+                                _disk_queues.append(_qd)
+                                _seen_qexts.add(_qe)
+                        sdata["queues"] = _disk_queues
+                except Exception:
+                    pass
         except Exception:
             pass
 
@@ -685,44 +714,50 @@ qualify_frequency=30
 
             pjsip_custom_content += f"\n; --- USER: {safe_nm} ({ext}) ---\n"
 
-            raw_devs = u.get("sip_devices")
-            if isinstance(raw_devs, str):
-                try:
-                    raw_devs = json.loads(raw_devs)
-                except Exception:
-                    raw_devs = None
-            cti_c = u.get("cti_config") if isinstance(u.get("cti_config"), dict) else {}
-            exp_empty = bool(cti_c.get("sip_devices_empty")) and isinstance(raw_devs, list) and len(raw_devs) == 0
+            try:
+                from backend.services.autoprovision_service import normalize_user_sip_devices as _sync_norm_devs
+                ap_all_s = sdata.get("autoprovision") if isinstance(sdata, dict) and isinstance(sdata.get("autoprovision"), list) else []
+                dp_all_s = sdata.get("user_deskphone_configs") if isinstance(sdata, dict) and isinstance(sdata.get("user_deskphone_configs"), dict) else {}
+                dev_items = _sync_norm_devs(u, ap_all_s, dp_all_s, fallback_password_fn=resolve_secure_sip_password)
+            except Exception:
+                raw_devs = u.get("sip_devices")
+                if isinstance(raw_devs, str):
+                    try:
+                        raw_devs = json.loads(raw_devs)
+                    except Exception:
+                        raw_devs = None
+                cti_c = u.get("cti_config") if isinstance(u.get("cti_config"), dict) else {}
+                exp_empty = bool(cti_c.get("sip_devices_empty")) and isinstance(raw_devs, list) and len(raw_devs) == 0
 
-            dev_items = []
-            if isinstance(raw_devs, list) and len(raw_devs) > 0:
-                dev_items = [d for d in raw_devs if isinstance(d, dict)]
-            elif not exp_empty:
-                sip_u_fb = resolve_user_sip_username(ext, u.get("sip_username") or "")
-                if sip_u_fb:
+                dev_items = []
+                if isinstance(raw_devs, list) and len(raw_devs) > 0:
+                    dev_items = [d for d in raw_devs if isinstance(d, dict)]
+                elif not exp_empty:
+                    sip_u_fb = resolve_user_sip_username(ext, u.get("sip_username") or "")
+                    if sip_u_fb:
+                        dev_items = [{
+                            "name": "Masa Telefonu 1",
+                            "device_type": "desk_phone",
+                            "sip_username": sip_u_fb,
+                            "sip_password": pwd,
+                            "max_activations": max_act,
+                            "transport": u.get("transport") or "UDP",
+                            "codecs": ["g722", "alaw", "ulaw", "g729"],
+                            "dtmf_mode": "rfc4733",
+                            "is_active": True,
+                        }]
+
+                has_web_dev_sync = any(str(d.get("device_type") or "").strip().lower() == "web_phone" for d in dev_items)
+                if not has_web_dev_sync:
                     dev_items = [{
-                        "name": "Masa Telefonu 1",
-                        "device_type": "desk_phone",
-                        "sip_username": sip_u_fb,
+                        "name": "Web Telefonu",
+                        "device_type": "web_phone",
+                        "sip_username": resolve_user_webphone_sip_username(ext, ""),
                         "sip_password": pwd,
-                        "max_activations": max_act,
-                        "transport": u.get("transport") or "UDP",
-                        "codecs": ["g722", "alaw", "ulaw", "g729"],
-                        "dtmf_mode": "rfc4733",
+                        "max_activations": 5,
+                        "transport": "WSS",
                         "is_active": True,
-                    }]
-
-            has_web_dev_sync = any(str(d.get("device_type") or "").strip().lower() == "web_phone" for d in dev_items)
-            if not has_web_dev_sync:
-                dev_items = [{
-                    "name": "Web Telefonu",
-                    "device_type": "web_phone",
-                    "sip_username": resolve_user_webphone_sip_username(ext, ""),
-                    "sip_password": pwd,
-                    "max_activations": 5,
-                    "transport": "WSS",
-                    "is_active": True,
-                }] + dev_items
+                    }] + dev_items
 
             for d_idx, dev_obj in enumerate(dev_items):
                 if dev_obj.get("is_active") is False:
@@ -818,6 +853,7 @@ media_use_received_transport=yes
 send_pai=yes
 send_rpid=yes
 rpid_immediate=yes
+mailboxes={ext}@default
 {pg_lines}auth={d_su}-auth
 aors={d_su}
 callerid="{safe_nm}" <{ext}>
@@ -833,6 +869,7 @@ type=aor
 max_contacts={d_max}
 remove_existing=yes
 qualify_frequency=30
+mailboxes={ext}@default
 """
 
         # Ensure pjsip_notify.conf exists for Check-Sync & Reboot NOTIFY actions
@@ -871,30 +908,39 @@ Event=>check-sync;reboot=false
         except Exception:
             pass
 
-        # Write directly to /etc/asterisk/pjsip_custom.conf
-        pjsip_custom_path = "/etc/asterisk/pjsip_custom.conf"
-        with open(pjsip_custom_path, "w", encoding="utf-8") as pf:
-            pf.write(pjsip_custom_content)
+        # Save local copy in asterisk_config/pjsip_custom.conf and write to /etc/asterisk/pjsip_custom.conf if present
+        local_pjsip_custom = os.path.join(os.path.dirname(BASE_DIR), "asterisk_config", "pjsip_custom.conf")
         try:
-            os.chmod(pjsip_custom_path, 0o644)
+            os.makedirs(os.path.dirname(local_pjsip_custom), exist_ok=True)
+            with open(local_pjsip_custom, "w", encoding="utf-8") as lpf:
+                lpf.write(pjsip_custom_content)
         except Exception:
             pass
-        print(f"[Sync Script] pjsip_custom.conf yazıldı -> {pjsip_custom_path}")
 
-        # Clean and reset /etc/asterisk/pjsip.conf to cleanly include pjsip_custom.conf
-        pjsip_main = "/etc/asterisk/pjsip.conf"
-        clean_pjsip_main = """; ==========================================
+        if os.path.exists("/etc/asterisk"):
+            pjsip_custom_path = "/etc/asterisk/pjsip_custom.conf"
+            with open(pjsip_custom_path, "w", encoding="utf-8") as pf:
+                pf.write(pjsip_custom_content)
+            try:
+                os.chmod(pjsip_custom_path, 0o644)
+            except Exception:
+                pass
+            print(f"[Sync Script] pjsip_custom.conf yazıldı -> {pjsip_custom_path}")
+
+            # Clean and reset /etc/asterisk/pjsip.conf to cleanly include pjsip_custom.conf
+            pjsip_main = "/etc/asterisk/pjsip.conf"
+            clean_pjsip_main = """; ==========================================
 ; Asterisk PJSIP Main Configuration
 ; ==========================================
 #include /etc/asterisk/pjsip_custom.conf
 """
-        with open(pjsip_main, "w", encoding="utf-8") as f:
-            f.write(clean_pjsip_main)
-        try:
-            os.chmod(pjsip_main, 0o644)
-        except Exception:
-            pass
-        print("[Sync Script] /etc/asterisk/pjsip.conf temizlendi ve #include pjsip_custom.conf eklendi.")
+            with open(pjsip_main, "w", encoding="utf-8") as f:
+                f.write(clean_pjsip_main)
+            try:
+                os.chmod(pjsip_main, 0o644)
+            except Exception:
+                pass
+            print("[Sync Script] /etc/asterisk/pjsip.conf temizlendi ve #include pjsip_custom.conf eklendi.")
 
         ast_reload_timeout = 10.0 if os.path.exists("/etc/asterisk") else 2.0
         subprocess.run(["asterisk", "-rx", "module reload res_pjsip_notify.so"], check=False, timeout=ast_reload_timeout)
@@ -1231,6 +1277,7 @@ same => n(pin_ok),Return(ALLOW)
 
 [queue_router_sub]
 exten => s,1,NoOp(Kuyruk Yonlendirme Motoru Basladi: Kuyruk=${ARG1}, CallID=${CALL_UUID})
+same => n,Set(__DYNAMIC_FEATURES=rec_pause_toggle)
 same => n,Set(CURLOPT(conntimeout)=1)
 same => n,Set(CURLOPT(httptimeout)=2)
 same => n,Set(CUR_Q_EXT=${ARG1})
@@ -1321,6 +1368,7 @@ same => n(done_qsub_h),NoOp(Kuyruk Hangup tamamlandi)
 [default]
 ; Operatörden gelen aramaları yakalamak için (Standart numara eşleşmesi)
 exten => _X.,1,NoOp(Gelen arama DID ile yakalandi: ${EXTEN} - Arayan: ${CALLERID(num)})
+same => n,Set(__DYNAMIC_FEATURES=rec_pause_toggle)
 same => n,Set(RAW_DEF_FROM=${PJSIP_HEADER(read,From)})
 same => n,Set(PARSED_DEF_FROM=${CUT(CUT(CUT(RAW_DEF_FROM,@,1),:,2),>,1)})
 same => n,Set(CALLERID(num)=${IF($["${CALLERID(num)}" = "" | "${CALLERID(num)}" = "${EXTEN}" | "${CALLERID(num)}" = "908503607390"]?${IF($["${PARSED_DEF_FROM}" != ""]?${PARSED_DEF_FROM}:${CALLERID(num)})}:${CALLERID(num)})})
@@ -1340,6 +1388,7 @@ same => n,Hangup(21)
 
 ; Uluslararası / + ile gelen DID numaraları için (+90...)
 exten => _+X.,1,NoOp(Gelen arama +DID ile yakalandi: ${EXTEN} - Arayan: ${CALLERID(num)})
+same => n,Set(__DYNAMIC_FEATURES=rec_pause_toggle)
 same => n,Set(RAW_DEF_FROM=${PJSIP_HEADER(read,From)})
 same => n,Set(PARSED_DEF_FROM=${CUT(CUT(CUT(RAW_DEF_FROM,@,1),:,2),>,1)})
 same => n,Set(CALLERID(num)=${IF($["${CALLERID(num)}" = "" | "${CALLERID(num)}" = "${EXTEN}" | "${CALLERID(num)}" = "908503607390"]?${IF($["${PARSED_DEF_FROM}" != ""]?${PARSED_DEF_FROM}:${CALLERID(num)})}:${CALLERID(num)})})
@@ -1359,6 +1408,7 @@ same => n,Hangup(21)
 
 ; Fallback (s uzantısı)
 exten => s,1,NoOp(Gelen arama s uzantisi ile yakalandi: ${CALLERID(num)})
+same => n,Set(__DYNAMIC_FEATURES=rec_pause_toggle)
 same => n,Set(RAW_DEF_FROM=${PJSIP_HEADER(read,From)})
 same => n,Set(PARSED_DEF_FROM=${CUT(CUT(CUT(RAW_DEF_FROM,@,1),:,2),>,1)})
 same => n,Set(CALLERID(num)=${IF($["${CALLERID(num)}" = "" | "${CALLERID(num)}" = "908503607390"]?${IF($["${PARSED_DEF_FROM}" != ""]?${PARSED_DEF_FROM}:${CALLERID(num)})}:${CALLERID(num)})})
@@ -1698,12 +1748,13 @@ same => n(mp_ret),Return()
 [queue_agent_ring]
 ; Kuyruk aramalarında temsilcinin WebPhone ve tüm aktif SIP Cihazlarını Kuyruk CallerID bilgisiyle eşzamanlı çaldırır
 exten => _[1-9]X.,1,NoOp(Kuyruk Temsilci Cihaz Dagitim: Dahili=${EXTEN}, CallerID=${CALLERID(all)})
+same => n,Set(__DYNAMIC_FEATURES=rec_pause_toggle)
 same => n,Set(CURLOPT(conntimeout)=1)
 same => n,Set(CURLOPT(httptimeout)=2)
 same => n,Set(AG_EP_LIST=${CURL(http://127.0.0.1:8000/api/subscriber/resolve_agent_ring_targets?extension=${EXTEN}&format=list)})
 same => n,GotoIf($["${AG_EP_LIST}" = "NONE" | "${AG_EP_LIST}" = ""]?ag_unavailable)
 same => n,Gosub(build_multi_pjsip_dial_sub,s,1(${AG_EP_LIST}))
-same => n,GotoIf($["${MULTI_DIAL_STR}" = ""]?ag_unavailable)
+same => n,GotoIf($["${MULTI_DIAL_STR}" = "" | "${MULTI_DIAL_STR}" = "PJSIP/"]?ag_unavailable)
 same => n,NoOp(Kuyruk Temsilcisi Eszamanli Caldiriliyor [Coklu SIP Cihazi]: ${MULTI_DIAL_STR} | CallerID=${CALLERID(all)})
 same => n,Dial(${MULTI_DIAL_STR},,tTg)
 same => n,Hangup()

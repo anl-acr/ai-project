@@ -27,7 +27,8 @@ import {
   Sparkles,
   TrendingUp,
   ChevronRight,
-  Clock
+  Clock,
+  PhoneOutgoing
 } from "lucide-react";
 import dynamic from "next/dynamic";
 import { getTurkishSlugForSubtab, getSubtabFromTurkishSlug } from "../../utils/slugHelper";
@@ -70,6 +71,7 @@ const ChangelogPanel = lazySub(() => import("./ChangelogPanel"));
 const EmailNotificationsPanel = lazySub(() => import("./EmailNotificationsPanel"));
 const RestorePointsPanel = lazySub(() => import("./RestorePointsPanel"));
 const WorkHoursSettingsPanel = lazySub(() => import("./WorkHoursSettingsPanel"));
+const SmartCallbackSettings = lazySub(() => import("./SmartCallbackSettings"));
 import InfoTooltip from "../common/InfoTooltip";
 
 const normalizeSubTab = (subTab) => {
@@ -143,6 +145,7 @@ export default function SettingsPanel({ backendHost = "localhost:8000" }) {
   const [hasApiBudgetsPermission, setHasApiBudgetsPermission] = useState(true);
   const [hasAiTaskRoutingPermission, setHasAiTaskRoutingPermission] = useState(true);
   const [hasWorkHoursPermission, setHasWorkHoursPermission] = useState(true);
+  const [hasSmartCallbackPermission, setHasSmartCallbackPermission] = useState(true);
 
   useEffect(() => {
     const checkPermissions = async () => {
@@ -235,6 +238,10 @@ export default function SettingsPanel({ backendHost = "localhost:8000" }) {
           currentRole.permissions.includes("work_hours:read") ||
             currentRole.permissions.includes("pbx:read")
         );
+        setHasSmartCallbackPermission(
+          currentRole.permissions.includes("smart_callback:read") ||
+            currentRole.permissions.includes("pbx:read")
+        );
       } catch (err) {
         console.error("Settings permission check error:", err);
         setHasCannedPermission(true);
@@ -296,6 +303,13 @@ export default function SettingsPanel({ backendHost = "localhost:8000" }) {
             subtitle: "HTTPS & WSS TLS güvenliği",
             icon: Lock,
             visible: hasSSLPermission
+          },
+          {
+            id: "smart-callback",
+            label: "Akıllı Geri Arama (Callback)",
+            subtitle: "Kuyruk bekleme süresi ve otomatik geri arama",
+            icon: PhoneOutgoing,
+            visible: hasSmartCallbackPermission
           }
         ]
       },
@@ -374,7 +388,7 @@ export default function SettingsPanel({ backendHost = "localhost:8000" }) {
             label: "Çağrı Kalite Kontrol",
             subtitle: "Otomatik değerlendirme kriterleri",
             icon: ShieldAlert,
-            visible: true
+            visible: hasQAPermission
           },
           {
             id: "lang-detect",
@@ -496,6 +510,9 @@ export default function SettingsPanel({ backendHost = "localhost:8000" }) {
   }, [
     hasAutoprovTemplatesPermission,
     hasSSLPermission,
+    hasSmartCallbackPermission,
+    hasWorkHoursPermission,
+    hasQAPermission,
     hasAiTaskRoutingPermission,
     hasBioPermission,
     hasRoiSettingsPermission,
@@ -755,6 +772,9 @@ export default function SettingsPanel({ backendHost = "localhost:8000" }) {
             )}
             {activeSubTab === "roi-settings" && <RoiSettings backendHost={backendHost} />}
             {activeSubTab === "ssl" && <SSLSettings backendHost={backendHost} />}
+            {activeSubTab === "smart-callback" && (
+              <SmartCallbackSettings backendHost={backendHost} />
+            )}
             {activeSubTab === "backup" && <BackupRestorePanel backendHost={backendHost} />}
             {activeSubTab === "recording-retention" && (
               <RecordingRetentionSettings backendHost={backendHost} />

@@ -490,7 +490,7 @@ export default function TenantManagementPanel({ backendHost }) {
 
   const confirmDeleteTenant = (tenant) => {
     if (tenant.id === "tenant-default") {
-      alert("Varsayılan ana müşteri silinemez.");
+      setErrorMsg("Varsayılan ana müşteri silinemez.");
       return;
     }
     setTenantToDelete(tenant);

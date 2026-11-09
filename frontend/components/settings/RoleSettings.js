@@ -227,6 +227,7 @@ const SYSTEM_FEATURES = [
   // 7. Sistem Ayarları
   { id: "pbx", name: "Santral Entegrasyonu", icon: Server, type: "crud", color: "indigo" },
   { id: "nat", name: "NAT ve Dış IP Ayarları", icon: Network, type: "crud", color: "blue" },
+  { id: "smart_callback", name: "Akıllı Geri Arama (Smart Callback)", icon: PhoneCall, type: "crud_partial", color: "emerald" },
   { id: "qa", name: "Çağrı Kalite Kontrol", icon: Shield, type: "crud", color: "indigo" },
   { id: "locations", name: "Lokasyon ve Departmanlar", icon: MapPin, type: "crud", color: "rose" },
   { id: "numbering_plan", name: "Numara Planı", icon: Hash, type: "crud_partial", color: "blue" },

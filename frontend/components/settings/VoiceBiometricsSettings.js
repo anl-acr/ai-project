@@ -29,16 +29,27 @@ export default function VoiceBiometricsSettings({ backendHost = "localhost:8000"
 
   const checkPermissions = async () => {
     try {
-      const resStatus = await fetch(`${API_BASE}/api/agent/status`);
-      const statusData = await resStatus.json();
-      if (!statusData.is_logged_in) {
-        setHasWritePermission(true);
-        return;
+      let currentUserId =
+        typeof window !== "undefined"
+          ? localStorage.getItem("current_user_id") || sessionStorage.getItem("current_user_id")
+          : null;
+      if (!currentUserId) {
+        const resStatus = await fetch(`${API_BASE}/api/agent/status`);
+        const statusData = await resStatus.json();
+        if (!statusData.is_logged_in) {
+          setHasWritePermission(true);
+          return;
+        }
+        currentUserId = statusData.user_id;
       }
       const resUsers = await fetch(`${API_BASE}/api/settings/users`);
       const usersData = await resUsers.json();
-      const currentUser = usersData.find(u => u.id === statusData.user_id);
+      const currentUser = usersData.find(u => u.id === currentUserId);
       if (!currentUser) {
+        setHasWritePermission(true);
+        return;
+      }
+      if (currentUser.role === "admin") {
         setHasWritePermission(true);
         return;
       }

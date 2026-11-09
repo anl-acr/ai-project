@@ -491,6 +491,8 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
   const [filterMissedQueuesSelected, setFilterMissedQueuesSelected] = useState([]);
   const [filterMissedCallbackSelected, setFilterMissedCallbackSelected] = useState([]);
   const [filterTrunksSelected, setFilterTrunksSelected] = useState([]);
+  const [qaSaveError, setQaSaveError] = useState("");
+  const [notesSaveError, setNotesSaveError] = useState("");
 
   const trunkFilterItems = React.useMemo(() => {
     const map = new Map();
@@ -6706,9 +6708,15 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
               </div>
 
               {/* Action Buttons */}
+              {qaSaveError && (
+                <div className="p-2.5 rounded-xl bg-rose-50 dark:bg-rose-950/30 border border-rose-200 dark:border-rose-800/60 text-rose-600 dark:text-rose-400 text-[11px] font-bold">
+                  {qaSaveError}
+                </div>
+              )}
               <div className="flex items-center justify-end gap-3 pt-3 border-t border-slate-100 dark:border-slate-800">
                 <button
                   onClick={() => {
+                    setQaSaveError("");
                     setIsQAPopupOpen(false);
                     setSelectedQACall(null);
                     setQaModalData(null);
@@ -6717,6 +6725,7 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                 >Vazgeç</button>
                 <button
                   onClick={async () => {
+                    setQaSaveError("");
                     try {
                       const protocol = window.location.protocol === "https:" ? "https:" : "http:";
                       const res = await fetch(`${protocol}//${backendHost}/api/calls/${selectedQACall.id}/qa`, {
@@ -6747,11 +6756,11 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                         setSelectedQACall(null);
                         setQaModalData(null);
                       } else {
-                        alert("Kalite değerlendirmesi kaydedilirken hata oluştu.");
+                        setQaSaveError("Kalite değerlendirmesi kaydedilirken hata oluştu.");
                       }
                     } catch (err) {
                       console.error("Save QA error: ", err);
-                      alert("Bağlantı hatası sebebiyle kalite değerlendirmesi kaydedilemedi.");
+                      setQaSaveError("Bağlantı hatası sebebiyle kalite değerlendirmesi kaydedilemedi.");
                     }
                   }}
                   className="px-4 py-2 bg-primary hover:bg-primary/90 text-white text-xs font-bold rounded-xl transition cursor-pointer shadow-sm hover:shadow active:scale-98"
@@ -6841,9 +6850,15 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
               </div>
 
               {/* Action Buttons */}
+              {notesSaveError && (
+                <div className="p-2.5 rounded-xl bg-rose-50 dark:bg-rose-950/30 border border-rose-200 dark:border-rose-800/60 text-rose-600 dark:text-rose-400 text-[11px] font-bold">
+                  {notesSaveError}
+                </div>
+              )}
               <div className="flex items-center justify-end gap-3 pt-3 border-t border-slate-100 dark:border-slate-800">
                 <button
                   onClick={() => {
+                    setNotesSaveError("");
                     setIsNotesPopupOpen(false);
                     setSelectedNotesCall(null);
                   }}
@@ -6851,6 +6866,7 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                 >Vazgeç</button>
                 <button
                   onClick={async () => {
+                    setNotesSaveError("");
                     try {
                       const protocol = window.location.protocol === "https:" ? "https:" : "http:";
                       const res = await fetch(`${protocol}//${backendHost}/api/calls/${selectedNotesCall.id}/notes`, {
@@ -6871,11 +6887,11 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                         setIsNotesPopupOpen(false);
                         setSelectedNotesCall(null);
                       } else {
-                        alert("Not kaydedilirken hata oluştu.");
+                        setNotesSaveError("Not kaydedilirken hata oluştu.");
                       }
                     } catch (err) {
                       console.error("Save Notes error: ", err);
-                      alert("Bağlantı hatası sebebiyle not kaydedilemedi.");
+                      setNotesSaveError("Bağlantı hatası sebebiyle not kaydedilemedi.");
                     }
                   }}
                   className="px-4 py-2 bg-primary hover:bg-primary/90 text-white text-xs font-bold rounded-xl transition cursor-pointer shadow-sm hover:shadow active:scale-98"

@@ -1257,7 +1257,7 @@ export default function GlobalSearchBar({
       const matchedContacts = contacts.filter((c) => {
         if (!q) return false; // Show contacts when user types a search query or selects Rehber filter
         const name = `${c.first_name || ""} ${c.last_name || ""} ${c.name || ""}`.toLowerCase();
-        const phone = String(c.phone || "").toLowerCase();
+        const phone = String(c.phone_number || c.phone || "").toLowerCase();
         const company = (c.company || "").toLowerCase();
         return name.includes(q) || phone.includes(q) || company.includes(q);
       });
@@ -1266,8 +1266,8 @@ export default function GlobalSearchBar({
         !q && activeCategoryFilter === "contact" ? contacts.slice(0, 8) : matchedContacts.slice(0, 6);
 
       contactPool.forEach((c) => {
-        const fullName = `${c.first_name || ""} ${c.last_name || ""}`.trim() || c.name || c.phone || "Kişi";
-        const phone = c.phone || "";
+        const phone = c.phone_number || c.phone || "";
+        const fullName = `${c.first_name || ""} ${c.last_name || ""}`.trim() || c.name || phone || "Kişi";
         list.push({
           id: `contact-${c.id || phone}`,
           category: "contact",

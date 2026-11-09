@@ -29,6 +29,7 @@ export default function UniversalAPISettings({ backendHost = "localhost:8000" })
   const [headers, setHeaders] = useState([]);
   const [parameters, setParameters] = useState([]);
   const [isActive, setIsActive] = useState(true);
+  const [formError, setFormError] = useState("");
 
   // Test Sandbox States (for Middle Column)
   const [testArgs, setTestArgs] = useState({});
@@ -105,17 +106,29 @@ export default function UniversalAPISettings({ backendHost = "localhost:8000" })
 
   const checkPermissions = async () => {
     try {
-      const resStatus = await fetch(`${API_BASE}/api/agent/status`);
-      const statusData = await resStatus.json();
-      if (!statusData.is_logged_in) {
+      let currentUserId =
+        typeof window !== "undefined"
+          ? localStorage.getItem("current_user_id") || sessionStorage.getItem("current_user_id")
+          : null;
+      if (!currentUserId) {
+        const resStatus = await fetch(`${API_BASE}/api/agent/status`);
+        const statusData = await resStatus.json();
+        if (!statusData.is_logged_in) {
+          setHasWritePermission(true);
+          setHasDeletePermission(true);
+          return;
+        }
+        currentUserId = statusData.user_id;
+      }
+      const resUsers = await fetch(`${API_BASE}/api/settings/users`);
+      const usersData = await resUsers.json();
+      const currentUser = usersData.find(u => u.id === currentUserId);
+      if (!currentUser) {
         setHasWritePermission(true);
         setHasDeletePermission(true);
         return;
       }
-      const resUsers = await fetch(`${API_BASE}/api/settings/users`);
-      const usersData = await resUsers.json();
-      const currentUser = usersData.find(u => u.id === statusData.user_id);
-      if (!currentUser) {
+      if (currentUser.role === "admin") {
         setHasWritePermission(true);
         setHasDeletePermission(true);
         return;
@@ -193,6 +206,7 @@ export default function UniversalAPISettings({ backendHost = "localhost:8000" })
     setHeaders([]);
     setParameters([]);
     setIsActive(true);
+    setFormError("");
     setShowModal(true);
   };
 
@@ -207,6 +221,7 @@ export default function UniversalAPISettings({ backendHost = "localhost:8000" })
     setHeaders(api.headers || []);
     setParameters(api.parameters || []);
     setIsActive(api.is_active !== false);
+    setFormError("");
     setShowModal(true);
   };
 
@@ -214,11 +229,12 @@ export default function UniversalAPISettings({ backendHost = "localhost:8000" })
     e.preventDefault();
     if (!hasWritePermission) return;
     if (!apiId.trim() || !apiName.trim() || !apiUrl.trim()) return;
+    setFormError("");
 
     // Validate API ID slug format
     const slugRegex = /^[a-z0-9_]+$/;
     if (!slugRegex.test(apiId.trim())) {
-      alert("API Anahtarı yalnızca küçük harf, rakam ve alt çizgi (_) içerebilir!");
+      setFormError("API Anahtarı yalnızca küçük harf, rakam ve alt çizgi (_) içerebilir!");
       return;
     }
 
@@ -238,7 +254,7 @@ export default function UniversalAPISettings({ backendHost = "localhost:8000" })
       updated = apis.map(a => a.id === editingApi.id ? payload : a);
     } else {
       if (apis.some(a => a.id === payload.id)) {
-        alert("Bu API Anahtarı zaten kullanımda!");
+        setFormError("Bu API Anahtarı zaten kullanımda!");
         return;
       }
       updated = [...apis, payload];
@@ -741,6 +757,12 @@ export default function UniversalAPISettings({ backendHost = "localhost:8000" })
 
             {/* Modal Body (Scrollable) */}
             <div className="p-6 overflow-y-auto space-y-6 flex-1 text-[11px] font-semibold text-slate-700 dark:text-slate-350 scrollbar-thin">
+              {formError && (
+                <div className="p-3 rounded-xl bg-rose-50 dark:bg-rose-950/30 border border-rose-200 dark:border-rose-800/60 text-rose-600 dark:text-rose-400 text-[11px] font-bold flex items-center gap-2">
+                  <AlertCircle size={14} className="shrink-0" />
+                  <span>{formError}</span>
+                </div>
+              )}
               <form id="api-form" onSubmit={handleFormSubmit} className="space-y-5">
                 {/* ID, Name & Method */}
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">

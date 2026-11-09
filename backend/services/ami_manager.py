@@ -530,6 +530,8 @@ def register_event_handlers(manager: Manager):
             if status in ["Reachable", "Created", "Registered", "NonQualified"]:
                 registered_endpoints.add(aor_str, extracted_ip)
                 print(f"[AMI] Endpoint Kaydedildi: {aor_str} (Dahili: {mapped_ext or aor_str}, IP: {extracted_ip})")
+                if not mapped_ext:
+                    asyncio.create_task(_handle_trunk_health_transition(aor_str, True, f"ContactStatus={status}", extracted_ip))
                 try:
                     from backend.services.agent_presence import handle_agent_reconnect_auto_pause
                     asyncio.create_task(handle_agent_reconnect_auto_pause(mapped_ext or aor_str))
@@ -538,6 +540,8 @@ def register_event_handlers(manager: Manager):
             elif status in ["Removed", "Unreachable", "Unknown"]:
                 registered_endpoints.discard(aor_str)
                 print(f"[AMI] Endpoint Koptu: {aor_str} (Dahili: {mapped_ext or aor_str})")
+                if not mapped_ext:
+                    asyncio.create_task(_handle_trunk_health_transition(aor_str, False, f"ContactStatus={status}", extracted_ip))
                 # Only trigger disconnect auto-pause if NEITHER WebRTC NOR SIP hardware username remains registered
                 still_online = False
                 if mapped_ext and mapped_ext in registered_endpoints:
@@ -568,6 +572,15 @@ def register_event_handlers(manager: Manager):
                         asyncio.create_task(schedule_agent_disconnect_auto_pause(mapped_ext or aor_str))
                     except Exception as e_dc:
                         print(f"[AMI AutoPause Disconnect Hook Error]: {e_dc}")
+
+    @manager.register_event('Registry')
+    def handle_registry_event(m, event):
+        domain = str(event.get('Domain') or event.get('Username') or "").strip()
+        reg_status = str(event.get('Status') or "").strip()
+        cause = str(event.get('Cause') or "").strip()
+        if domain and reg_status:
+            is_up = reg_status.lower() == "registered"
+            asyncio.create_task(_handle_trunk_health_transition(domain, is_up, f"Registry={reg_status} {cause}".strip(), ""))
 
     @manager.register_event('DTMFEnd')
     def handle_dtmf_end(m, event):
@@ -1564,10 +1577,75 @@ async def toggle_call_recording_pause(
     }
 
 
+trunk_health_states = {}
+
+
+async def _handle_trunk_health_transition(peer_identifier: str, is_online: bool, reason_str: str = "", ip_addr: str = ""):
+    """
+    Proactively monitors SIP Trunk state transitions (ONLINE <-> UNREACHABLE/REJECTED)
+    and records system alerts & audit logs when a configured trunk drops or recovers.
+    """
+    try:
+        from backend.main import settings_db, add_system_log, log_event
+        import re
+
+        key = str(peer_identifier or "").strip()
+        if not key:
+            return
+
+        # Match against configured trunks in settings_db
+        matched_trunk = None
+        for tr in (settings_db.get("trunks") or []):
+            if not isinstance(tr, dict):
+                continue
+            t_name = str(tr.get("name") or "").strip()
+            t_safe = re.sub(r"[^a-zA-Z0-9_-]", "_", t_name)
+            t_host = str(tr.get("host") or "").strip()
+            t_user = str(tr.get("username") or "").strip()
+            if key.lower() in {t_name.lower(), t_safe.lower(), t_host.lower(), t_user.lower()}:
+                matched_trunk = tr
+                break
+
+        if not matched_trunk:
+            return
+
+        canon_name = str(matched_trunk.get("name") or key).strip()
+        prev_state = trunk_health_states.get(canon_name)
+        trunk_health_states[canon_name] = is_online
+
+        # Only fire transition alert when state actually flips (or first time dropping offline)
+        if prev_state is not None and prev_state == is_online:
+            return
+        if prev_state is None and is_online:
+            return
+
+        host_info = str(matched_trunk.get("host") or ip_addr or "-").strip()
+        if not is_online:
+            msg = f"Dış Hat (SIP Trunk) Bağlantısı Koptu: '{canon_name}' ({host_info}) erişilemez durumda [{reason_str}]. Yedek hat (Failover) devrede."
+            add_system_log("TRUNK_MONITOR", "ERROR", msg)
+            await log_event(
+                user_id="SYSTEM",
+                action="TRUNK_DOWN",
+                module="SIPTrunk",
+                details={"trunk_name": canon_name, "host": host_info, "reason": reason_str, "status": "offline"},
+            )
+        else:
+            msg = f"Dış Hat (SIP Trunk) Yeniden Çevrimiçi: '{canon_name}' ({host_info}) bağlantısı normale döndü [{reason_str}]."
+            add_system_log("TRUNK_MONITOR", "INFO", msg)
+            await log_event(
+                user_id="SYSTEM",
+                action="TRUNK_UP",
+                module="SIPTrunk",
+                details={"trunk_name": canon_name, "host": host_info, "reason": reason_str, "status": "online"},
+            )
+    except Exception as e:
+        print(f"[AMI Trunk Health Monitor Error]: {e}")
+
+
 async def notify_voicemail_mwi(extension: str, unread_count: int = 0, old_count: int = 0) -> bool:
     """
     Publishes MWI (Message Waiting Indicator) state for a user's physical SIP endpoints via AMI/CLI
-    so IP desk phones illuminate or extinguish their voicemail LED.
+    so IP desk phones illuminate or extinguish their voicemail LED (RFC 3842 message-summary).
     """
     ext_s = str(extension or "").strip()
     if not ext_s:
@@ -1576,19 +1654,30 @@ async def notify_voicemail_mwi(extension: str, unread_count: int = 0, old_count:
     if not manager:
         return False
     try:
-        # Trigger Asterisk MWI update via Command if res_mwi_external / pjsip notify is available
-        waiting_str = "yes" if int(unread_count or 0) > 0 else "no"
+        new_cnt = max(0, int(unread_count or 0))
+        old_cnt = max(0, int(old_count or 0))
+        waiting_str = "yes" if new_cnt > 0 else "no"
         await manager.send_action({
             "Action": "Command",
-            "Command": f"dialplan set global VM_MWI_{ext_s} {int(unread_count or 0)}",
+            "Command": f"dialplan set global VM_MWI_{ext_s} {new_cnt}",
+        })
+        await manager.send_action({
+            "Action": "MWIUpdate",
+            "Mailbox": f"{ext_s}@default",
+            "NewMessages": str(new_cnt),
+            "OldMessages": str(old_cnt),
+        })
+        await manager.send_action({
+            "Action": "Command",
+            "Command": f"mwi update mailbox {ext_s}@default {new_cnt} {old_cnt}",
         })
         await manager.send_action({
             "Action": "UserEvent",
             "UserEvent": "VoicemailMWI",
             "Extension": ext_s,
             "MessagesWaiting": waiting_str,
-            "NewMessages": str(int(unread_count or 0)),
-            "OldMessages": str(int(old_count or 0)),
+            "NewMessages": str(new_cnt),
+            "OldMessages": str(old_cnt),
         })
         return True
     except Exception:

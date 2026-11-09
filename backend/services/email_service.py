@@ -379,44 +379,74 @@ def parse_rfc822_email_bytes(raw_bytes: bytes) -> Optional[Dict[str, Any]]:
 
 async def poll_imap_inbox():
     """
-    Background worker loop to poll IMAP inbox for incoming customer emails.
+    Background worker loop to poll IMAP inbox for incoming customer emails
+    across default and multi-tenant channel configurations with socket timeout protection.
     """
     while True:
         try:
             from backend.main import settings_db
             from backend.services.chat_service import handle_inbound_chat_message
-            channels_cfg = settings_db.get("channels", {})
 
-            imap_host = str(channels_cfg.get("email_imap_host") or "").strip()
-            imap_port = int(channels_cfg.get("email_imap_port") or 993)
-            imap_user = str(channels_cfg.get("email_smtp_user") or "").strip()
-            imap_pass = str(channels_cfg.get("email_smtp_pass") or "").strip()
+            tenant_Targets = [("tenant-default", settings_db.get("channels", {}))]
+            t_ch_map = settings_db.get("tenant_channels")
+            if isinstance(t_ch_map, dict):
+                for t_id, t_cfg in t_ch_map.items():
+                    if isinstance(t_cfg, dict) and str(t_id).strip() and str(t_id).strip() != "tenant-default":
+                        tenant_Targets.append((str(t_id).strip(), t_cfg))
 
-            if imap_host and imap_user and imap_pass:
-                def _fetch_unread():
+            seen_accounts = set()
+            for target_tenant_id, channels_cfg in tenant_Targets:
+                if not isinstance(channels_cfg, dict):
+                    continue
+                if channels_cfg.get("email_enabled") is False:
+                    continue
+
+                imap_host = str(channels_cfg.get("email_imap_host") or "").strip()
+                try:
+                    imap_port = int(channels_cfg.get("email_imap_port") or 993)
+                except Exception:
+                    imap_port = 993
+                imap_user = str(channels_cfg.get("email_smtp_user") or "").strip()
+                imap_pass = str(channels_cfg.get("email_smtp_pass") or "").strip()
+
+                if not (imap_host and imap_user and imap_pass):
+                    continue
+
+                acct_key = (imap_host.lower(), imap_port, imap_user.lower())
+                if acct_key in seen_accounts:
+                    continue
+                seen_accounts.add(acct_key)
+
+                def _fetch_unread(h=imap_host, p=imap_port, u=imap_user, pw=imap_pass):
                     emails_list = []
+                    mail = None
                     try:
-                        mail = imaplib.IMAP4_SSL(imap_host, imap_port)
-                        mail.login(imap_user, imap_pass)
+                        mail = imaplib.IMAP4_SSL(h, p, timeout=15)
+                        mail.login(u, pw)
                         mail.select("inbox")
                         status, response = mail.search(None, "UNSEEN")
-                        if status == "OK" and response[0]:
+                        if status == "OK" and response and response[0]:
                             for num in response[0].split():
                                 status, data = mail.fetch(num, "(RFC822)")
-                                if status == "OK":
+                                if status == "OK" and data:
                                     for response_part in data:
                                         if isinstance(response_part, tuple) and response_part[1]:
                                             parsed_mail = parse_rfc822_email_bytes(response_part[1])
                                             if parsed_mail:
                                                 emails_list.append(parsed_mail)
-                        mail.logout()
                     except Exception as ex:
-                        print(f"[IMAP Poll Error]: {ex}")
+                        print(f"[IMAP Poll Error ({u})]: {ex}")
+                    finally:
+                        if mail is not None:
+                            try:
+                                mail.logout()
+                            except Exception:
+                                pass
                     return emails_list
 
                 incoming_emails = await asyncio.to_thread(_fetch_unread)
                 for item in incoming_emails:
-                    print(f"[Email Inbound] Yeni e-posta alındı -> {item['sender']}: {item['subject']}")
+                    print(f"[Email Inbound ({target_tenant_id})] Yeni e-posta alındı -> {item['sender']}: {item['subject']}")
                     msg_parts = []
                     for m_tag in item.get("media_tags", []):
                         msg_parts.append(m_tag)
@@ -431,6 +461,7 @@ async def poll_imap_inbox():
                         text=formatted_text,
                         recipient_phone_num=imap_user,
                         sender_display_name=item.get("sender_name") or None,
+                        tenant_id=target_tenant_id,
                     )
 
         except Exception as e:

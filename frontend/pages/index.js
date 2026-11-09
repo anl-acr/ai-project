@@ -824,6 +824,27 @@ export default function Home() {
   const [micTestLevels, setMicTestLevels] = useState({ inputLevel: 0, outputLevel: 0 });
   const [micTestError, setMicTestError] = useState("");
   const micTesterRef = React.useRef(null);
+  const [quickSpeakerLevel, setQuickSpeakerLevel] = useState(0);
+  const quickSpeakerAnimRef = React.useRef(null);
+
+  const stopQuickSpeakerMeter = () => {
+    if (quickSpeakerAnimRef.current) {
+      clearInterval(quickSpeakerAnimRef.current);
+      quickSpeakerAnimRef.current = null;
+    }
+    setQuickSpeakerLevel(0);
+  };
+
+  const startQuickSpeakerMeter = () => {
+    stopQuickSpeakerMeter();
+    let tick = 0;
+    setQuickSpeakerLevel(64);
+    quickSpeakerAnimRef.current = setInterval(() => {
+      tick += 1;
+      const wave = 52 + Math.round(Math.sin(tick * 0.65) * 26 + Math.cos(tick * 1.1) * 14);
+      setQuickSpeakerLevel(Math.max(18, Math.min(96, wave)));
+    }, 90);
+  };
 
   const stopMicLoopbackTest = () => {
     if (micTesterRef.current) {
@@ -852,6 +873,24 @@ export default function Home() {
       setMicTestError(err?.message || "Mikrofon testi başlatılamadı.");
       setIsTestingMic(false);
     }
+  };
+
+  const handleToggleQuickHardwareCheck = async () => {
+    if (isTestingMic || isTestingSpeaker) {
+      stopMicLoopbackTest();
+      stopSpeakerTestSound();
+      stopQuickSpeakerMeter();
+      setIsTestingSpeaker(false);
+      return;
+    }
+    await startMicLoopbackTest(noiseSuppressionMode, selectedMic, selectedSpeaker);
+    const spkObj = audioDevices.outputs.find((d) => d.deviceId === selectedSpeaker);
+    setIsTestingSpeaker(true);
+    startQuickSpeakerMeter();
+    playSpeakerTestSound(selectedSpeaker, spkObj?.label || "", () => {
+      setIsTestingSpeaker(false);
+      stopQuickSpeakerMeter();
+    });
   };
 
   const handleSelectNoiseMode = (nextMode) => {
@@ -1553,6 +1592,7 @@ export default function Home() {
   const handleCancelSettingsModal = React.useCallback(() => {
     stopRingtoneSound();
     stopSpeakerTestSound();
+    stopQuickSpeakerMeter();
     stopMicLoopbackTest();
     setIsPreviewingRingtone(false);
     setIsTestingSpeaker(false);
@@ -2275,7 +2315,7 @@ export default function Home() {
         const canDashboard = hasPerm('dashboard');
         const canWallboard = hasPerm('wallboard');
         const canCallPanel = hasPerm('call_panel');
-        const canAiModules = hasPerm('ai_agents') || hasPerm('rag') || hasPerm('knowledge_base') || hasPerm('rules');
+        const canAiModules = hasPerm('ai_agents') || hasPerm('rag') || hasPerm('rag_kb') || hasPerm('knowledge_base') || hasPerm('rules') || hasPerm('rule_editor');
         const canPbxOrSysModules =
           canUsers ||
           hasPerm('pbx') ||
@@ -3038,18 +3078,18 @@ export default function Home() {
     { id: "blacklist", group: "Santral & Yönlendirme", label: "Numara Engelleme", shortLabel: "Kara Liste", icon: ShieldAlert, allowed: hasBlacklistPermission },
 
     { id: "ai-agents", group: "Yapay Zeka & Bilgi", label: "AI Temsilcileri", shortLabel: "AI Temsilci", icon: Bot, allowed: hasPermPrefix("ai_agents") },
-    { id: "rag-kb", group: "Yapay Zeka & Bilgi", label: "Bilgi Bankası (RAG)", shortLabel: "Bilgi Bankası", icon: Database, allowed: hasPermPrefix("rag", "knowledge_base") },
-    { id: "rule-editor", group: "Yapay Zeka & Bilgi", label: "Kural & Senaryo Editörü", shortLabel: "Senaryolar", icon: Sliders, allowed: hasPermPrefix("rules") },
+    { id: "rag-kb", group: "Yapay Zeka & Bilgi", label: "Bilgi Bankası (RAG)", shortLabel: "Bilgi Bankası", icon: Database, allowed: hasPermPrefix("rag", "rag_kb", "knowledge_base") },
+    { id: "rule-editor", group: "Yapay Zeka & Bilgi", label: "Kural & Senaryo Editörü", shortLabel: "Senaryolar", icon: Sliders, allowed: hasPermPrefix("rules", "rule_editor") },
     { id: "ai-config-assistant", group: "Yapay Zeka & Bilgi", label: "AI Konfigürasyon Asistanı", shortLabel: "AI Asistan", icon: Sparkles, allowed: !isAgentOnlyUser && !isWallboardOnlyUser && hasPermPrefix("ai_config_assistant") },
 
     { id: "reports-pano", group: "Raporlar, Güvenlik & Sistem", label: "Çağrı Rapor Panosu", shortLabel: "Raporlar", icon: TrendingUp, allowed: hasReportsPermission },
     { id: "reports-cdr", group: "Raporlar, Güvenlik & Sistem", label: "CDR Çağrı Kayıtları", shortLabel: "CDR", icon: ClipboardList, allowed: hasReportsPermission },
     { id: "reports-audio", group: "Raporlar, Güvenlik & Sistem", label: "Ses Kayıtları", shortLabel: "Ses Kaydı", icon: Volume2, allowed: hasReportsPermission },
-    { id: "troubleshooting", group: "Raporlar, Güvenlik & Sistem", label: "Sorun İnceleme & sngrep", shortLabel: "Sorun İncele", icon: Terminal, allowed: hasPermPrefix("sip_debugger", "system_settings") },
+    { id: "troubleshooting", group: "Raporlar, Güvenlik & Sistem", label: "Sorun İnceleme & sngrep", shortLabel: "Sorun İncele", icon: Terminal, allowed: hasPermPrefix("troubleshooting", "sip_debugger", "system_settings") },
     { id: "security", group: "Raporlar, Güvenlik & Sistem", label: "Güvenlik Kalkanı", shortLabel: "Güvenlik", icon: ShieldCheck, allowed: hasPermPrefix("security", "system_settings") },
-    { id: "event-logs", group: "Raporlar, Güvenlik & Sistem", label: "Olay Günlükleri", shortLabel: "Loglar", icon: FileText, allowed: hasPermPrefix("event_logs", "system_settings") },
-    { id: "system-status", group: "Raporlar, Güvenlik & Sistem", label: "Sistem Panosu & Sağlık", shortLabel: "Sistem Sağlığı", icon: Server, allowed: isAdminRole },
-    { id: "settings", group: "Raporlar, Güvenlik & Sistem", label: "Sistem Ayarları", shortLabel: "Ayarlar", icon: Settings, allowed: hasPermPrefix("system_settings", "roles") }
+    { id: "event-logs", group: "Raporlar, Güvenlik & Sistem", label: "Olay Günlükleri", shortLabel: "Loglar", icon: FileText, allowed: hasPermPrefix("logs", "event_logs", "system_settings") },
+    { id: "system-status", group: "Raporlar, Güvenlik & Sistem", label: "Sistem Panosu & Sağlık", shortLabel: "Sistem Sağlığı", icon: Server, allowed: isAdminRole || hasPermPrefix("system_status", "system_settings") },
+    { id: "settings", group: "Raporlar, Güvenlik & Sistem", label: "Sistem Ayarları", shortLabel: "Ayarlar", icon: Settings, allowed: hasPermPrefix("system_settings", "roles", "pbx", "breaks", "channels", "storage", "qa", "smart_callback") }
   ];
 
   const allowedTopbarFeatures = allTopbarFeatureCatalog.filter((f) => f.allowed);
@@ -3370,7 +3410,7 @@ export default function Home() {
           </div>
 
           {/* Group 2: Yapay Zeka & Bilgi */}
-          {(currentUser?.role === "admin" || (Array.isArray(currentRolePermissions) && currentRolePermissions.some(p => p.startsWith("ai_agents:") || p.startsWith("ai_config_assistant:") || p.startsWith("rag:") || p.startsWith("knowledge_base:") || p.startsWith("rules:")))) && (
+          {(currentUser?.role === "admin" || (Array.isArray(currentRolePermissions) && currentRolePermissions.some(p => p.startsWith("ai_agents:") || p.startsWith("ai_config_assistant:") || p.startsWith("rag:") || p.startsWith("rag_kb:") || p.startsWith("knowledge_base:") || p.startsWith("rules:") || p.startsWith("rule_editor:")))) && (
           <div className="aida-sidebar-group flex flex-col gap-1">
             {!isSidebarCollapsed ? (
               <button
@@ -3428,7 +3468,7 @@ export default function Home() {
                 </button>
               )}
 
-              {(currentUser?.role === "admin" || (Array.isArray(currentRolePermissions) && currentRolePermissions.some(p => p.startsWith("rag:") || p.startsWith("knowledge_base:")))) && (
+              {(currentUser?.role === "admin" || (Array.isArray(currentRolePermissions) && currentRolePermissions.some(p => p.startsWith("rag:") || p.startsWith("rag_kb:") || p.startsWith("knowledge_base:")))) && (
                 <button
                   onClick={() => setActiveTab("rag-kb")}
                   aria-current={activeTab === "rag-kb" ? "page" : undefined}
@@ -3444,7 +3484,7 @@ export default function Home() {
                 </button>
               )}
 
-              {(currentUser?.role === "admin" || (Array.isArray(currentRolePermissions) && currentRolePermissions.some(p => p.startsWith("rules:")))) && (
+              {(currentUser?.role === "admin" || (Array.isArray(currentRolePermissions) && currentRolePermissions.some(p => p.startsWith("rules:") || p.startsWith("rule_editor:")))) && (
                 <button
                   onClick={() => setActiveTab("rule-editor")}
                   aria-current={activeTab === "rule-editor" ? "page" : undefined}
@@ -4320,8 +4360,8 @@ export default function Home() {
           </div>
           )}
 
-          {/* Group 5: Yönetim & Ayarlar (Sadece Superadmin / Sistem Yöneticisi) */}
-          {currentUser?.role === 'admin' && (
+          {/* Group 5: Yönetim & Ayarlar */}
+          {(currentUser?.role === 'admin' || hasPermPrefix("system_settings", "roles", "pbx", "breaks", "channels", "storage", "qa", "smart_callback", "logs", "event_logs", "troubleshooting", "sip_debugger", "security", "system_status")) && (
           <div className="aida-sidebar-group flex flex-col gap-1">
             {!isSidebarCollapsed ? (
               <button
@@ -4347,6 +4387,7 @@ export default function Home() {
               {...(!isSidebarCollapsed && !openCategories.system ? { inert: "" } : {})}
               className="aida-sidebar-group-body space-y-1"
             >
+              {(currentUser?.role === "admin" || hasPermPrefix("system_settings", "roles", "pbx", "breaks", "channels", "storage", "qa", "smart_callback", "voice_biometrics", "recording_retention", "universal_api", "canned_responses")) && (
               <button
                 onClick={() => setActiveTab("settings")}
                 aria-current={activeTab === "settings" ? "page" : undefined}
@@ -4360,7 +4401,9 @@ export default function Home() {
                 <Settings size={16} className={`shrink-0 ${activeTab === "settings" ? text : ""}`} />
                 <span className={`whitespace-nowrap overflow-hidden transition-all duration-300 ${isSidebarCollapsed ? "max-w-0 opacity-0" : "max-w-[180px] opacity-100"}`}>Sistem Ayarları</span>
               </button>
+              )}
 
+              {(currentUser?.role === "admin" || hasPermPrefix("system_status", "system_settings")) && (
               <button
                 onClick={() => setActiveTab("system-status")}
                 aria-current={activeTab === "system-status" ? "page" : undefined}
@@ -4374,7 +4417,9 @@ export default function Home() {
                 <Server size={16} className={`shrink-0 ${activeTab === "system-status" ? text : ""}`} />
                 <span className={`whitespace-nowrap overflow-hidden transition-all duration-300 ${isSidebarCollapsed ? "max-w-0 opacity-0" : "max-w-[180px] opacity-100"}`}>Sistem Panosu & Sağlık</span>
               </button>
+              )}
 
+              {(currentUser?.role === "admin" || hasPermPrefix("logs", "event_logs", "system_settings")) && (
               <button
                 onClick={() => setActiveTab("event-logs")}
                 aria-current={activeTab === "event-logs" ? "page" : undefined}
@@ -4388,7 +4433,9 @@ export default function Home() {
                 <FileText size={16} className={`shrink-0 ${activeTab === "event-logs" ? text : ""}`} />
                 <span className={`whitespace-nowrap overflow-hidden transition-all duration-300 ${isSidebarCollapsed ? "max-w-0 opacity-0" : "max-w-[180px] opacity-100"}`}>Olay Günlükleri</span>
               </button>
+              )}
 
+              {(currentUser?.role === "admin" || hasPermPrefix("troubleshooting", "sip_debugger", "system_settings")) && (
               <button
                 onClick={() => setActiveTab("troubleshooting")}
                 aria-current={activeTab === "troubleshooting" || activeTab === "sip-debugger" ? "page" : undefined}
@@ -4412,7 +4459,9 @@ export default function Home() {
                 />
                 <span className={`whitespace-nowrap overflow-hidden transition-all duration-300 ${isSidebarCollapsed ? "max-w-0 opacity-0" : "max-w-[180px] opacity-100"}`}>Sorun İnceleme</span>
               </button>
+              )}
 
+              {(currentUser?.role === "admin" || hasPermPrefix("security", "system_settings")) && (
               <button
                 onClick={() => setActiveTab("security")}
                 aria-current={activeTab === "security" ? "page" : undefined}
@@ -4426,6 +4475,7 @@ export default function Home() {
                 <ShieldAlert size={16} className={`shrink-0 ${activeTab === "security" ? text : ""}`} />
                 <span className={`whitespace-nowrap overflow-hidden transition-all duration-300 ${isSidebarCollapsed ? "max-w-0 opacity-0" : "max-w-[180px] opacity-100"}`}>Güvenlik Kalkanı</span>
               </button>
+              )}
             </div>
           </div>
           )}
@@ -8340,6 +8390,119 @@ export default function Home() {
                   </button>
                 </div>
 
+                {/* Quick Audio Hardware Check (Mikrofon & Hoparlör Hızlı Test Alanı) */}
+                <div className={`p-3.5 rounded-2xl border ${borderLight} bg-white/90 dark:bg-slate-900/90 shadow-xs space-y-3 ${activeModalTab === "hardware" ? "block" : "hidden"}`}>
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <div className={`w-7 h-7 rounded-xl ${lightBg} ${text} flex items-center justify-center shrink-0`}>
+                        <Activity size={14} />
+                      </div>
+                      <div className="min-w-0">
+                        <span className="text-[10.5px] font-extrabold text-slate-800 dark:text-slate-100 uppercase tracking-wide block">
+                          Ses Cihazı Hızlı Test (Mikrofon & Hoparlör)
+                        </span>
+                        <span className="text-[9.5px] text-slate-500 dark:text-slate-400 block truncate">
+                          Çağrıya girmeden önce mikrofon donanımınızı ve kulaklık ses çıkışınızı tek tıkla doğrulayın
+                        </span>
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={handleToggleQuickHardwareCheck}
+                      className={`px-3 py-1.5 rounded-xl text-[10px] font-extrabold flex items-center gap-1.5 shrink-0 cursor-pointer transition-all ${
+                        isTestingMic || isTestingSpeaker
+                          ? "bg-rose-600 hover:bg-rose-500 text-white shadow-xs"
+                          : `${bg} ${hover} text-white shadow-xs`
+                      }`}
+                    >
+                      {isTestingMic || isTestingSpeaker ? (
+                        <>
+                          <Square size={11} className="fill-current animate-pulse" />
+                          <span>Hızlı Testi Durdur</span>
+                        </>
+                      ) : (
+                        <>
+                          <Play size={11} className="fill-current" />
+                          <span>Hızlı Ses Testi Başlat</span>
+                        </>
+                      )}
+                    </button>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                    {/* Single-Piece Smooth Microphone Hardware Bar */}
+                    <div className="p-2.5 rounded-xl bg-slate-50/90 dark:bg-slate-950/70 border border-slate-200/70 dark:border-slate-800/80 space-y-1.5">
+                      <div className="flex items-center justify-between gap-1.5">
+                        <span className="text-[9.5px] font-extrabold text-slate-700 dark:text-slate-200 flex items-center gap-1">
+                          <Mic size={11} className={isTestingMic && micTestLevels.inputLevel > 3 ? "text-emerald-500" : "text-slate-400"} />
+                          <span>Mikrofon Donanımı</span>
+                        </span>
+                        <span className="text-[9px] font-mono font-bold text-slate-500 dark:text-slate-400">
+                          {isTestingMic ? `%${micTestLevels.inputLevel}` : "Beklemede"}
+                        </span>
+                      </div>
+                      <div className="h-2 w-full rounded-full bg-slate-200/90 dark:bg-slate-800 overflow-hidden p-0.5">
+                        <div
+                          className="h-full rounded-full transition-all duration-100 ease-out bg-gradient-to-r from-emerald-400 via-emerald-500 to-teal-500"
+                          style={{
+                            width: `${isTestingMic ? Math.max(micTestLevels.inputLevel > 0 ? 4 : 0, micTestLevels.inputLevel) : 0}%`,
+                            boxShadow: isTestingMic && micTestLevels.inputLevel > 8 ? "0 0 8px rgba(16, 185, 129, 0.45)" : "none"
+                          }}
+                        />
+                      </div>
+                      <p className="text-[8.5px] text-slate-500 dark:text-slate-400 leading-tight">
+                        {isTestingMic
+                          ? micTestLevels.inputLevel > 3
+                            ? "Mikrofonunuzdan canlı ses sinyali alınıyor."
+                            : "Ses algılanmıyor (Kulaklık üzerindeki fiziksel mute tuşunu kontrol edin)."
+                          : "Test başlatıldığında doğrudan mikrofon sinyalini gösterir."}
+                      </p>
+                    </div>
+
+                    {/* Single-Piece Smooth Speaker Output Bar */}
+                    <div className="p-2.5 rounded-xl bg-slate-50/90 dark:bg-slate-950/70 border border-slate-200/70 dark:border-slate-800/80 space-y-1.5">
+                      <div className="flex items-center justify-between gap-1.5">
+                        <span className="text-[9.5px] font-extrabold text-slate-700 dark:text-slate-200 flex items-center gap-1">
+                          <Volume2 size={11} className={isTestingSpeaker || (isTestingMic && micTestLevels.outputLevel > 3) ? "text-sky-500" : "text-slate-400"} />
+                          <span>Hoparlör / Kulaklık Çıkışı</span>
+                        </span>
+                        <span className="text-[9px] font-mono font-bold text-slate-500 dark:text-slate-400">
+                          {isTestingSpeaker
+                            ? `%${quickSpeakerLevel}`
+                            : isTestingMic
+                            ? `%${micTestLevels.outputLevel}`
+                            : "Beklemede"}
+                        </span>
+                      </div>
+                      <div className="h-2 w-full rounded-full bg-slate-200/90 dark:bg-slate-800 overflow-hidden p-0.5">
+                        <div
+                          className="h-full rounded-full transition-all duration-100 ease-out bg-gradient-to-r from-sky-400 via-blue-500 to-indigo-500"
+                          style={{
+                            width: `${
+                              isTestingSpeaker
+                                ? quickSpeakerLevel
+                                : isTestingMic
+                                ? Math.max(micTestLevels.outputLevel > 0 ? 4 : 0, micTestLevels.outputLevel)
+                                : 0
+                            }%`,
+                            boxShadow:
+                              isTestingSpeaker || (isTestingMic && micTestLevels.outputLevel > 8)
+                                ? "0 0 8px rgba(59, 130, 246, 0.45)"
+                                : "none"
+                          }}
+                        />
+                      </div>
+                      <p className="text-[8.5px] text-slate-500 dark:text-slate-400 leading-tight">
+                        {isTestingSpeaker
+                          ? "Seçili kulaklık/hoparlör çıkışına test melodisi gönderiliyor."
+                          : isTestingMic
+                          ? "Mikrofon sesiniz 0.3 sn gecikmeyle kulaklığa iletiliyor."
+                          : "Test başlatıldığında kulaklığa giden ses paketini gösterir."}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
                 {/* Ringtone Selection */}
                 <div className={`space-y-2 ${activeModalTab === "hardware" ? "block" : "hidden"}`}>
                   <label className="text-[9px] font-extrabold text-slate-500 dark:text-slate-400 uppercase tracking-widest block">Çağrı Zil Sesi</label>
@@ -8596,12 +8759,15 @@ export default function Home() {
                       onClick={() => {
                         if (isTestingSpeaker) {
                           stopSpeakerTestSound();
+                          stopQuickSpeakerMeter();
                           setIsTestingSpeaker(false);
                         } else {
                           const spkObj = audioDevices.outputs.find((d) => d.deviceId === selectedSpeaker);
                           setIsTestingSpeaker(true);
+                          startQuickSpeakerMeter();
                           playSpeakerTestSound(selectedSpeaker, spkObj?.label || "", () => {
                             setIsTestingSpeaker(false);
+                            stopQuickSpeakerMeter();
                           });
                         }
                       }}

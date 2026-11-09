@@ -54,25 +54,38 @@ export default function ConferencesPanel({ backendHost = "localhost:8000" }) {
 
   const fetchPermissions = async () => {
     try {
-      const resStatus = await fetch(`${API_BASE}/api/agent/status`);
-      const statusData = await resStatus.json();
-      if (!statusData.is_logged_in) {
-        setPermissions({ write: true, delete: true });
-        return;
-      }
       const resUsers = await fetch(`${API_BASE}/api/settings/users`);
       const usersData = await resUsers.json();
       setUsers(usersData); // Store users for the multi-select
-      
-      const currentUser = usersData.find(u => u.id === statusData.user_id);
-      if (!currentUser) {
+
+      let uid =
+        (typeof window !== "undefined" &&
+          (localStorage.getItem("current_user_id") || sessionStorage.getItem("current_user_id"))) ||
+        "";
+      if (!uid) {
+        const resStatus = await fetch(`${API_BASE}/api/agent/status`);
+        const statusData = await resStatus.json();
+        if (!statusData.is_logged_in) {
+          setPermissions({ write: true, delete: true });
+          return;
+        }
+        uid = statusData.user_id;
+      }
+      if (String(uid) === "admin" || String(uid) === "9999") {
+        setPermissions({ write: true, delete: true });
+        return;
+      }
+      const currentUser = usersData.find(
+        (u) => String(u.id) === String(uid) || String(u.extension) === String(uid) || u.username === uid
+      );
+      if (!currentUser || currentUser.role === "admin") {
         setPermissions({ write: true, delete: true });
         return;
       }
       const resRoles = await fetch(`${API_BASE}/api/settings/roles`);
       const rolesData = await resRoles.json();
-      const currentRole = rolesData.find(r => r.role_code === currentUser.role);
-      if (!currentRole) {
+      const currentRole = rolesData.find((r) => r.role_code === currentUser.role);
+      if (!currentRole || currentRole.role_code === "admin" || currentRole.role_code === "superadmin") {
         setPermissions({ write: true, delete: true });
         return;
       }

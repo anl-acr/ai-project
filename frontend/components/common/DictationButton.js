@@ -16,6 +16,7 @@ export default function DictationButton({
 }) {
   const [isListening, setIsListening] = useState(false);
   const [isStarting, setIsStarting] = useState(false);
+  const [localError, setLocalError] = useState("");
   const recognitionRef = useRef(null);
   const baseTextRef = useRef("");
   const finalTranscriptRef = useRef("");
@@ -68,7 +69,10 @@ export default function DictationButton({
     if (!SpeechRecognition) {
       const msg = "Tarayıcınız sesli dikte (Web Speech API) özelliğini desteklemiyor. Lütfen Chrome, Edge veya Safari kullanın.";
       if (onError) onError(msg);
-      else alert(msg);
+      else {
+        setLocalError(msg);
+        setTimeout(() => setLocalError(""), 4000);
+      }
       return;
     }
 
@@ -197,6 +201,11 @@ export default function DictationButton({
         <span className="absolute -top-8 left-1/2 -translate-x-1/2 px-2 py-0.5 rounded-md bg-rose-600 text-white text-[9px] font-extrabold uppercase tracking-wider whitespace-nowrap shadow-lg animate-bounce pointer-events-none z-30 flex items-center gap-1">
           <span className="w-1.5 h-1.5 rounded-full bg-white animate-ping" />
           Dinleniyor...
+        </span>
+      )}
+      {!isListening && localError && (
+        <span className="absolute -top-9 left-1/2 -translate-x-1/2 px-2.5 py-1 rounded-lg bg-rose-600 text-white text-[9px] font-bold whitespace-nowrap shadow-lg pointer-events-none z-30">
+          {localError}
         </span>
       )}
       <button

@@ -262,9 +262,8 @@ export default function QueueSurveyReportPanel({ backendHost }) {
       audioRef.current.pause();
     }
 
-    const src = item.audio_url?.startsWith("http")
-      ? item.audio_url
-      : `${API_BASE}${item.audio_url || `/api/calls/${item.call_id}/audio`}`;
+    const rawPath = item.audio_url || item.recording_path || `/api/recordings/${item.call_id}.wav`;
+    const src = rawPath.startsWith("http") ? rawPath : `${API_BASE}${rawPath}`;
     const audio = new Audio(src);
     audio.onended = () => setPlayingCallId(null);
     audio.onerror = () => setPlayingCallId(null);
