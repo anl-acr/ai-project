@@ -185,9 +185,14 @@ export default function AgentWebphoneTab({
         const list = Array.isArray(qData) ? qData : qData?.queues || [];
         const codes = new Set();
         let resolvedAcw = 20;
+        let hasPos = false;
         list.forEach((q) => {
-          if (typeof q.acw_time === "number" && q.acw_time > 0) {
-            resolvedAcw = q.acw_time;
+          const qAcw = Number(q.acw_time);
+          if (Number.isFinite(qAcw) && qAcw > 0) {
+            if (!hasPos || qAcw > resolvedAcw) {
+              resolvedAcw = qAcw;
+              hasPos = true;
+            }
           }
           if (Array.isArray(q.disposition_codes)) {
             q.disposition_codes.forEach((c) => {
@@ -195,6 +200,9 @@ export default function AgentWebphoneTab({
             });
           }
         });
+        if (resolvedAcw > 0 && resolvedAcw <= 5) {
+          resolvedAcw = 20;
+        }
         setDefaultAcwSeconds(resolvedAcw);
         if (codes.size > 0) setDispositionCodes(Array.from(codes));
       }
@@ -290,8 +298,23 @@ export default function AgentWebphoneTab({
       const isAct = Boolean(e?.detail?.active);
       const rem = Number(e?.detail?.remaining || 0);
       if (isAct && rem > 0) {
-        setAcwWrapUp((prev) => (prev.active ? { ...prev, remaining: rem } : prev));
-      } else if (!isAct) {
+        setAcwWrapUp((prev) => {
+          if (prev.active) {
+            return { ...prev, remaining: rem };
+          }
+          const snap = lastActiveCallSnapshotRef.current || {};
+          return {
+            active: true,
+            remaining: rem,
+            callId: prev.callId || snap.callId || activeCallId || null,
+            remoteNumber: prev.remoteNumber || snap.remoteNumber || "",
+            displayName: prev.displayName || snap.displayName || "",
+            queueName: prev.queueName || snap.queueName || "",
+            duration: prev.duration || snap.duration || 0,
+            isInternal: Boolean(prev.isInternal || snap.isInternal)
+          };
+        });
+      } else if (!isAct && e?.detail?.explicitEnd) {
         setAcwWrapUp((prev) => (prev.active ? { ...prev, active: false, remaining: 0 } : prev));
       }
     };
@@ -313,21 +336,26 @@ export default function AgentWebphoneTab({
   // Local fallback ACW countdown timer so Post-Call Note Card stays visible for ACW duration even for non-queue calls
   useEffect(() => {
     if (!acwWrapUp.active || callStatus !== "Idle") return;
-    if (acwWrapUp.remaining <= 0) {
-      setAcwWrapUp((prev) => ({ ...prev, active: false, remaining: 0 }));
-      return;
-    }
     const timer = setInterval(() => {
       setAcwWrapUp((prev) => {
-        if (!prev.active || prev.remaining <= 1) {
+        if (!prev.active) {
           clearInterval(timer);
+          return prev;
+        }
+        if (prev.remaining <= 1) {
+          clearInterval(timer);
+          if (typeof window !== "undefined") {
+            setTimeout(() => {
+              window.dispatchEvent(new CustomEvent("FINISH_AGENT_ACW"));
+            }, 0);
+          }
           return { ...prev, active: false, remaining: 0 };
         }
         return { ...prev, remaining: prev.remaining - 1 };
       });
     }, 1000);
     return () => clearInterval(timer);
-  }, [acwWrapUp.active, acwWrapUp.remaining, callStatus]);
+  }, [acwWrapUp.active, callStatus]);
 
   const stopNoteDictation = () => {
     if (noteDictationRecRef.current) {
@@ -1239,21 +1267,20 @@ export default function AgentWebphoneTab({
                           onChange={(e) => setCallNote(e.target.value)}
                           onKeyDown={(e) => e.key === "Enter" && handleSaveCallDispositionAndNote(null, { finishAcw: true })}
                           placeholder="Çağrı sonrası görüşme notunu yazın veya mikrofonla dikte edin..."
-                          className="w-full pl-3.5 pr-24 py-2.5 rounded-xl bg-slate-50 dark:bg-slate-800/70 border border-slate-200/80 dark:border-slate-700/80 text-xs font-medium text-slate-800 dark:text-white focus:outline-none"
+                          className="w-full pl-3.5 pr-10 py-2.5 rounded-xl bg-slate-50 dark:bg-slate-800/70 border border-slate-200/80 dark:border-slate-700/80 text-xs font-medium text-slate-800 dark:text-white focus:outline-none"
                           autoFocus
                         />
                         <button
                           type="button"
                           onClick={toggleNoteDictation}
                           title={isDictatingNote ? "Sesli Dikteyi Durdur" : "Sesle Not Yaz (Dikte - Türkçe)"}
-                          className={`absolute right-1.5 px-2.5 py-1 rounded-lg text-[10px] font-extrabold flex items-center gap-1 transition-all cursor-pointer ${
+                          className={`absolute right-1.5 h-7 w-7 rounded-lg flex items-center justify-center transition-all cursor-pointer ${
                             isDictatingNote
-                              ? "bg-rose-600 text-white animate-pulse"
+                              ? "bg-rose-600 text-white animate-pulse shadow-xs"
                               : "bg-slate-200/80 hover:bg-slate-300 dark:bg-slate-700 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-200"
                           }`}
                         >
-                          {isDictatingNote ? <MicOff size={12} /> : <Mic size={12} />}
-                          <span>{isDictatingNote ? "Dinliyor..." : "Dikte"}</span>
+                          {isDictatingNote ? <MicOff size={14} /> : <Mic size={14} />}
                         </button>
                       </div>
                       <button
@@ -2335,20 +2362,19 @@ export default function AgentWebphoneTab({
                         onChange={(e) => setCallNote(e.target.value)}
                         onKeyDown={(e) => e.key === "Enter" && handleSaveCallDispositionAndNote()}
                         placeholder="Görüşme ile ilgili kısa not ekleyin veya mikrofonla dikte edin..."
-                        className="w-full pl-3.5 pr-24 py-2 rounded-xl bg-slate-50 dark:bg-slate-800/70 border border-slate-200/80 dark:border-slate-700/80 text-xs font-medium text-slate-800 dark:text-white focus:outline-none"
+                        className="w-full pl-3.5 pr-10 py-2 rounded-xl bg-slate-50 dark:bg-slate-800/70 border border-slate-200/80 dark:border-slate-700/80 text-xs font-medium text-slate-800 dark:text-white focus:outline-none"
                       />
                       <button
                         type="button"
                         onClick={toggleNoteDictation}
                         title={isDictatingNote ? "Sesli Dikteyi Durdur" : "Sesle Not Yaz (Dikte - Türkçe)"}
-                        className={`absolute right-1.5 px-2.5 py-1 rounded-lg text-[10px] font-extrabold flex items-center gap-1 transition-all cursor-pointer ${
+                        className={`absolute right-1.5 h-7 w-7 rounded-lg flex items-center justify-center transition-all cursor-pointer ${
                           isDictatingNote
-                            ? "bg-rose-600 text-white animate-pulse"
+                            ? "bg-rose-600 text-white animate-pulse shadow-xs"
                             : "bg-slate-200/80 hover:bg-slate-300 dark:bg-slate-700 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-200"
                         }`}
                       >
-                        {isDictatingNote ? <MicOff size={12} /> : <Mic size={12} />}
-                        <span>{isDictatingNote ? "Dinliyor..." : "Dikte"}</span>
+                        {isDictatingNote ? <MicOff size={14} /> : <Mic size={14} />}
                       </button>
                     </div>
                     <button

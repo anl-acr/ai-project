@@ -37,6 +37,8 @@ export default function AgentSessionCard({ backendHost = "localhost:8000", curre
   const [dispositionSaved, setDispositionSaved] = useState(false);
   const [lastEndedCallId, setLastEndedCallId] = useState(null);
   const prevCallStatusRef = useRef("Idle");
+  const acwActiveRef = useRef(false);
+  const preAcwStateRef = useRef(null);
 
   const effectiveUserId = currentUser?.id || agentState?.user_id;
   const API_BASE = `${window.location.protocol}//${backendHost}`;
@@ -101,12 +103,21 @@ export default function AgentSessionCard({ backendHost = "localhost:8000", curre
     });
 
     const targetQueues = myQueues.length > 0 ? myQueues : safeQueues;
-    let acwTime = 15;
+    let acwTime = 20;
+    let hasPositiveAcw = false;
+    let allExplicitZero = targetQueues.length > 0;
     const dispSet = new Set();
 
     targetQueues.forEach((q) => {
-      if (typeof q.acw_time === "number" && q.acw_time >= 0) {
-        acwTime = q.acw_time;
+      const qAcw = Number(q.acw_time);
+      if (Number.isFinite(qAcw) && qAcw > 0) {
+        allExplicitZero = false;
+        if (!hasPositiveAcw || qAcw > acwTime) {
+          acwTime = qAcw;
+          hasPositiveAcw = true;
+        }
+      } else if (q.acw_time !== 0 && q.acw_time !== "0") {
+        allExplicitZero = false;
       }
       if (Array.isArray(q.disposition_codes)) {
         q.disposition_codes.forEach((c) => {
@@ -114,6 +125,13 @@ export default function AgentSessionCard({ backendHost = "localhost:8000", curre
         });
       }
     });
+
+    if (allExplicitZero && !hasPositiveAcw) {
+      acwTime = 0;
+    } else if (acwTime > 0 && acwTime <= 5) {
+      // Legacy DB default was 5s which is too brief to type/dictate notes; give at least 20s unless disabled (0)
+      acwTime = 20;
+    }
 
     return {
       myQueues,
@@ -129,61 +147,79 @@ export default function AgentSessionCard({ backendHost = "localhost:8000", curre
       const currStatus = wpState?.callStatus || "Idle";
       if (prevCallStatusRef.current === "InCall" && currStatus === "Idle") {
         const { acwTime } = getAgentQueueConfig();
-        if (acwTime > 0) {
-          setAcwRemaining(acwTime);
-          setSelectedDisposition("");
-          setDispositionSaved(false);
-          updateStateOnBackend({
+        const effectiveAcw = acwTime > 0 ? acwTime : 20;
+        acwActiveRef.current = true;
+        preAcwStateRef.current = {
+          is_logged_in: Boolean(agentState?.is_logged_in),
+          status: agentState?.status || "online",
+          current_break: agentState?.current_break || null
+        };
+        setAcwRemaining(effectiveAcw);
+        setSelectedDisposition("");
+        setDispositionSaved(false);
+        setAgentState((prev) => ({
+          ...prev,
+          is_logged_in: true,
+          status: "acw",
+          current_break: null,
+          user_id: currentUser?.id || prev?.user_id,
+          extension: currentUser?.extension || prev?.extension
+        }));
+        if (typeof window !== "undefined") {
+          window.dispatchEvent(
+            new CustomEvent("AGENT_ACW_STATE", {
+              detail: { active: true, remaining: effectiveAcw }
+            })
+          );
+        }
+        updateStateOnBackend(
+          {
             is_logged_in: true,
             status: "acw",
             current_break: null,
             user_id: currentUser?.id || agentState?.user_id,
             extension: currentUser?.extension || agentState?.extension
-          });
-        }
+          },
+          { silent: true }
+        );
       }
       prevCallStatusRef.current = currStatus;
     });
     return () => unsub();
-  }, [currentUser, queues, agentState?.user_id, agentState?.extension]);
+  }, [currentUser, queues, agentState?.user_id, agentState?.extension, agentState?.is_logged_in, agentState?.status]);
 
   // ACW countdown timer
   useEffect(() => {
-    if (agentState?.status !== "acw") {
-      if (typeof window !== "undefined") {
-        window.dispatchEvent(new CustomEvent("AGENT_ACW_STATE", { detail: { active: false, remaining: 0 } }));
-      }
+    if (agentState?.status !== "acw" || !acwActiveRef.current) {
       return;
-    }
-    if (acwRemaining <= 0) {
-      const { acwTime } = getAgentQueueConfig();
-      const nextRem = acwTime > 0 ? acwTime : 15;
-      setAcwRemaining(nextRem);
-      if (typeof window !== "undefined") {
-        window.dispatchEvent(new CustomEvent("AGENT_ACW_STATE", { detail: { active: true, remaining: nextRem } }));
-      }
-      return;
-    }
-    if (typeof window !== "undefined") {
-      window.dispatchEvent(new CustomEvent("AGENT_ACW_STATE", { detail: { active: true, remaining: acwRemaining } }));
     }
     const timer = setInterval(() => {
       setAcwRemaining((prev) => {
         if (prev <= 1) {
           clearInterval(timer);
-          handleEndBreak();
+          setTimeout(() => {
+            finishAcwSession();
+          }, 0);
           return 0;
         }
-        return prev - 1;
+        const nextVal = prev - 1;
+        if (typeof window !== "undefined") {
+          window.dispatchEvent(
+            new CustomEvent("AGENT_ACW_STATE", {
+              detail: { active: true, remaining: nextVal }
+            })
+          );
+        }
+        return nextVal;
       });
     }, 1000);
     return () => clearInterval(timer);
-  }, [agentState?.status, acwRemaining]);
+  }, [agentState?.status]);
 
   useEffect(() => {
     const onFinishAcw = () => {
-      if (agentState?.status === "acw") {
-        handleEndBreak();
+      if (acwActiveRef.current || agentState?.status === "acw") {
+        finishAcwSession();
       }
     };
     const onDispSelected = (e) => {
@@ -245,6 +281,9 @@ export default function AgentSessionCard({ backendHost = "localhost:8000", curre
   };
 
   const fetchAgentStatus = () => {
+    if (acwActiveRef.current) {
+      return;
+    }
     const params = new URLSearchParams();
     if (currentUser?.id) params.set("user_id", String(currentUser.id));
     if (currentUser?.extension) params.set("extension", String(currentUser.extension));
@@ -252,7 +291,7 @@ export default function AgentSessionCard({ backendHost = "localhost:8000", curre
     fetch(`${API_BASE}/api/agent/status${qs}`)
       .then((res) => res.json())
       .then((data) => {
-        if (data) {
+        if (data && !acwActiveRef.current) {
           setAgentState(data.agent_state || data.state || data);
         }
       })
@@ -312,9 +351,12 @@ export default function AgentSessionCard({ backendHost = "localhost:8000", curre
     }
   };
 
-  const updateStateOnBackend = async (newState) => {
-    setLoading(true);
-    setBreakError("");
+  const updateStateOnBackend = async (newState, opts = {}) => {
+    const isSilent = Boolean(opts?.silent);
+    if (!isSilent) {
+      setLoading(true);
+      setBreakError("");
+    }
     try {
       const payload = {
         ...newState,
@@ -329,17 +371,23 @@ export default function AgentSessionCard({ backendHost = "localhost:8000", curre
       const data = await res.json();
       if (res.ok && data.status === "success") {
         const updated = data.agent_state || data.state || payload;
-        setAgentState(updated);
+        if (!acwActiveRef.current || newState.status === "acw") {
+          setAgentState(updated);
+        }
         if (typeof window !== "undefined") {
           window.dispatchEvent(new CustomEvent("AGENT_STATUS_UPDATED", { detail: updated }));
         }
-      } else if (!res.ok) {
+      } else if (!res.ok && !isSilent) {
         setBreakError(data?.detail || "Durum değiştirilemedi (kota/limit dolu olabilir).");
       }
     } catch (err) {
-      console.error("Agent durumu güncellenemedi:", err);
+      if (!isSilent) {
+        console.error("Agent durumu güncellenemedi:", err);
+      }
     } finally {
-      setLoading(false);
+      if (!isSilent) {
+        setLoading(false);
+      }
     }
   };
 
@@ -422,7 +470,46 @@ export default function AgentSessionCard({ backendHost = "localhost:8000", curre
     setShowDropdown(false);
   };
 
+  const finishAcwSession = () => {
+    acwActiveRef.current = false;
+    setAcwRemaining(0);
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(
+        new CustomEvent("AGENT_ACW_STATE", {
+          detail: { active: false, remaining: 0, explicitEnd: true }
+        })
+      );
+    }
+    const { isQueueMember } = getAgentQueueConfig();
+    const wasLoggedIn = preAcwStateRef.current?.is_logged_in;
+    if (wasLoggedIn || isQueueMember) {
+      const nextState = {
+        is_logged_in: true,
+        status: "online",
+        current_break: null,
+        user_id: effectiveUserId,
+        extension: currentUser?.extension
+      };
+      setAgentState((prev) => ({ ...prev, ...nextState }));
+      updateStateOnBackend(nextState, { silent: true });
+    } else {
+      const nextOffline = {
+        is_logged_in: false,
+        status: "offline",
+        current_break: null,
+        user_id: effectiveUserId,
+        extension: currentUser?.extension
+      };
+      setAgentState((prev) => ({ ...prev, ...nextOffline }));
+      updateStateOnBackend(nextOffline, { silent: true });
+    }
+  };
+
   const handleEndBreak = () => {
+    if (acwActiveRef.current || agentState?.status === "acw") {
+      finishAcwSession();
+      return;
+    }
     setAcwRemaining(0);
     const newState = {
       is_logged_in: true,

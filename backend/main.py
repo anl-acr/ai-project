@@ -8412,6 +8412,16 @@ async def get_agent_status_endpoint(
     if not queues_check_list:
         queues_check_list = settings.get("queues", [])
 
+    mem_state = get_agent_state(user_id=uid_str, extension=ext_str)
+    if mem_state and mem_state.get("is_logged_in") and mem_state.get("status") == "acw":
+        elapsed_acw = 0
+        try:
+            dt_acw = datetime.datetime.fromisoformat(str(mem_state.get("status_since_utc") or "").replace("Z", ""))
+            elapsed_acw = max(0, int((now_utc - dt_acw).total_seconds()))
+        except Exception:
+            elapsed_acw = 0
+        return {**mem_state, "elapsed_seconds": elapsed_acw}
+
     if not _is_user_in_any_queue(uid_str, ext_str, queues_check_list):
         st_no_q = update_agent_state(
             is_logged_in=False,
@@ -8422,7 +8432,6 @@ async def get_agent_status_endpoint(
         )
         return st_no_q
 
-    mem_state = get_agent_state(user_id=uid_str, extension=ext_str)
     if mem_state and mem_state.get("status_since_utc") and not mem_state.get("is_logged_in"):
         return mem_state
 
@@ -8560,8 +8569,8 @@ async def update_agent_status_endpoint(payload: AgentStateSchema, db: AsyncSessi
     if not ext_str and user_id_str and user_id_str.isdigit() and len(user_id_str) <= 5:
         ext_str = user_id_str
 
-    # Enforce Queue Membership before allowing login
-    if payload.is_logged_in:
+    # Enforce Queue Membership before allowing login (except post-call ACW wrap-up)
+    if payload.is_logged_in and payload.status != "acw":
         try:
             res_q_login = await db.execute(select(PBXQueue))
             db_queues_login = res_q_login.scalars().all()
@@ -8703,6 +8712,8 @@ async def update_agent_status_endpoint(payload: AgentStateSchema, db: AsyncSessi
         if payload.status == "online" and payload.is_logged_in:
             reset_agent_missed_calls(ext_str)
             asyncio.create_task(sync_asterisk_queue_pause(ext_str, False, reason="AgentAvailable"))
+        elif payload.status == "acw":
+            asyncio.create_task(sync_asterisk_queue_pause(ext_str, True, reason="ACW"))
         elif payload.status == "break":
             b_reason = str((brk_payload or {}).get("name") or "Break")
             asyncio.create_task(sync_asterisk_queue_pause(ext_str, True, reason=b_reason))
