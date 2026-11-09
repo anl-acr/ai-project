@@ -5487,7 +5487,7 @@ export default function Home() {
                       >
                         <span className="flex items-center gap-3">
                           <Phone size={16} />
-                          Hot-Desking
+                          Ortak Masa Telefonu
                         </span>
                         {agentHotdeskConfig?.enabled && (
                           <span className="px-1.5 py-0.5 rounded-md text-[8.5px] font-extrabold bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30">
@@ -9713,7 +9713,7 @@ export default function Home() {
                         <div>
                           <div className="flex items-center gap-2">
                             <h4 className="text-sm font-extrabold text-slate-800 dark:text-white">
-                              Hot-Desking (Ortak Masa Telefonu Oturumu)
+                              Ortak Masa Telefonu (Masa Paylaşımı)
                             </h4>
                             <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${agentHotdeskConfig?.enabled ? `${lightBg} ${text} border ${border}` : "bg-slate-200 dark:bg-slate-800 text-slate-500"}`}>
                               {agentHotdeskConfig?.enabled ? "Aktif" : "Pasif"}
@@ -9745,7 +9745,7 @@ export default function Home() {
                                 htmlFor="self-hotdesk-pin"
                                 className="text-xs font-extrabold text-slate-800 dark:text-white"
                               >
-                                Hot-Desking Özel PIN Şifrem
+                                Ortak Masa Telefonu Özel PIN Şifrem
                               </label>
                               <button
                                 type="button"

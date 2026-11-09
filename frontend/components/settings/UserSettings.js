@@ -2103,8 +2103,8 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
     const cleanHotdeskPin = String(hotdeskConfig?.pin || "").replace(/\D/g, "").slice(0, 8);
     if (hotdeskConfig?.enabled && !/^\d{4,8}$/.test(cleanHotdeskPin)) {
       setHotdeskPinTouched(true);
-      setActiveTab("hotdesk");
-      setError("Hot-Desking aktifken 4 ile 8 haneli sadece rakamlardan oluşan bir PIN şifresi belirlemelisiniz.");
+      setActiveTab("features");
+      setError("Ortak Masa Telefonu (Masa Paylaşımı) aktifken 4 ile 8 haneli sadece rakamlardan oluşan bir PIN şifresi belirlemelisiniz.");
       return;
     }
 
@@ -3070,34 +3070,11 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
                         </button>
                         <button
                             type="button"
-                            onClick={() => setActiveTab("hotdesk")}
-                            className={"w-full flex items-center justify-between gap-2 px-3 py-2.5 rounded-xl text-xs font-bold transition-all " + (activeTab === 'hotdesk' ? ("bg-white dark:bg-slate-800 " + text + " shadow-sm border border-slate-200 dark:border-slate-700") : "text-slate-500 hover:bg-white/50 dark:hover:bg-slate-800/50 hover:text-slate-700 dark:hover:text-slate-300 border border-transparent")}
-                        >
-                            <span className="flex items-center gap-3">
-                                <Monitor size={16} />
-                                Hot-Desking
-                            </span>
-                            {hotdeskConfig?.enabled && (
-                                <span className="px-1.5 py-0.5 rounded-md text-[9px] font-extrabold bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30">
-                                    AKTİF
-                                </span>
-                            )}
-                        </button>
-                        <button
-                            type="button"
                             onClick={() => setActiveTab("profiles")}
                             className={"w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-bold transition-all " + (activeTab === 'profiles' ? ("bg-white dark:bg-slate-800 " + text + " shadow-sm border border-slate-200 dark:border-slate-700") : "text-slate-500 hover:bg-white/50 dark:hover:bg-slate-800/50 hover:text-slate-700 dark:hover:text-slate-300 border border-transparent")}
                         >
                             <Users size={16} />
                             Profiller & Yönlendirme
-                        </button>
-                        <button
-                            type="button"
-                            onClick={() => setActiveTab("forwarding")}
-                            className={"w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-bold transition-all " + (activeTab === 'forwarding' ? ("bg-white dark:bg-slate-800 " + text + " shadow-sm border border-slate-200 dark:border-slate-700") : "text-slate-500 hover:bg-white/50 dark:hover:bg-slate-800/50 hover:text-slate-700 dark:hover:text-slate-300 border border-transparent")}
-                        >
-                            <PhoneCall size={16} />
-                            Sesli Posta
                         </button>
                         <button
                             type="button"
@@ -3528,6 +3505,16 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
                                         <p id="sip-max-concurrent-hint" className="text-[10px] text-slate-500 mt-1">
                                             Sızma durumunda saldırganın aynı anda çoklu dış arama başlatmasını engeller.
                                         </p>
+                                    </div>
+
+                                    <div className="pt-4 border-t border-slate-200/70 dark:border-slate-800/80 flex items-center justify-between gap-4">
+                                        <div>
+                                            <h5 className="text-xs font-extrabold text-slate-800 dark:text-white uppercase tracking-wider">Ses Kayıt</h5>
+                                            <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">Bu kullanıcının tüm görüşmeleri kaydedilsin mi?</p>
+                                        </div>
+                                        <button type="button" onClick={() => setRecordingActive(!recordingActive)} className="text-slate-400 hover:text-slate-700 transition-colors shrink-0">
+                                            {recordingActive ? <ToggleRight size={30} className={`${text}`} /> : <ToggleLeft size={30} />}
+                                        </button>
                                     </div>
                                 </div>
 
@@ -4075,24 +4062,35 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
                             );
                         })()}
 
-                        {/* TAB 2: SESLİ POSTA (VOICEMAIL) */}
-                        {activeTab === "forwarding" && (
+                        {/* TAB 3: ÖZELLİKLER */}
+                        {activeTab === "features" && (
                             <div className="space-y-6 animate-in fade-in duration-300">
-                                <div>
-                                    <div className="flex items-center justify-between mb-4 pb-4 border-b border-slate-100 dark:border-slate-800">
-                                        <div>
-                                            <h4 className="text-sm font-extrabold text-slate-800 dark:text-white uppercase tracking-wider">Sesli Posta (Voicemail)</h4>
-                                            <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-                                                Kullanıcıya ulaşılamadığında veya sesli postaya yönlendirildiğinde devreye girecek sesli posta kutusu ayarları.
-                                            </p>
+                                {/* SESLİ POSTA (VOICEMAIL) */}
+                                <div className={`p-4 bg-slate-50 dark:bg-slate-900/50 rounded-xl border transition-all ${voicemailActive ? border : "border-slate-100 dark:border-slate-800"}`}>
+                                    <div className="flex items-center justify-between">
+                                        <div className="flex items-start gap-3">
+                                            <div className={`p-2 rounded-lg shrink-0 mt-0.5 ${voicemailActive ? (lightBg + " " + text) : "bg-slate-200/70 dark:bg-slate-800 text-slate-500"}`}>
+                                                <PhoneCall size={18} />
+                                            </div>
+                                            <div>
+                                                <div className="flex items-center gap-2">
+                                                    <h5 className="text-sm font-bold text-slate-800 dark:text-white">Sesli Posta</h5>
+                                                    <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${voicemailActive ? `${lightBg} ${text} border ${border}` : "bg-slate-200 dark:bg-slate-800 text-slate-500"}`}>
+                                                        {voicemailActive ? "Aktif" : "Pasif"}
+                                                    </span>
+                                                </div>
+                                                <p className="text-[10px] text-slate-500 mt-0.5 leading-relaxed">
+                                                    Kullanıcıya ulaşılamadığında veya sesli postaya yönlendirildiğinde devreye girecek sesli posta kutusu ayarları.
+                                                </p>
+                                            </div>
                                         </div>
-                                        <button type="button" onClick={() => setVoicemailActive(!voicemailActive)} className="text-slate-400 hover:text-slate-700 transition-colors shrink-0">
-                                            {voicemailActive ? <ToggleRight size={28} className={`${text}`} /> : <ToggleLeft size={28} />}
+                                        <button type="button" onClick={() => setVoicemailActive(!voicemailActive)} className="text-slate-400 hover:text-slate-700 transition-colors shrink-0 ml-3">
+                                            {voicemailActive ? <ToggleRight size={30} className={`${text}`} /> : <ToggleLeft size={30} />}
                                         </button>
                                     </div>
 
-                                    {voicemailActive ? (
-                                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 p-4 bg-slate-50 dark:bg-slate-900/50 rounded-xl border border-slate-100 dark:border-slate-800">
+                                    {voicemailActive && (
+                                        <div className="mt-4 pt-4 border-t border-slate-200/70 dark:border-slate-800 grid grid-cols-1 sm:grid-cols-2 gap-4 animate-in fade-in duration-200">
                                             <div>
                                                 <label className="block text-[10px] font-bold text-slate-500 dark:text-slate-400 mb-1.5">Sesli Posta Karşılama Anonsu</label>
                                                 <select value={voicemailAnnouncement} onChange={(e) => setVoicemailAnnouncement(e.target.value)} className="w-full text-xs px-3 py-2.5 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 focus:outline-none">
@@ -4143,28 +4141,206 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
                                                 </button>
                                             </div>
                                         </div>
-                                    ) : (
-                                        <div className="p-6 text-center rounded-xl border border-dashed border-slate-200 dark:border-slate-800 bg-slate-50/40 dark:bg-slate-900/20">
-                                            <p className="text-xs text-slate-400 font-medium">
-                                                Sesli posta şu anda kapalı. Aktif etmek için sağ üstteki anahtarı açabilirsiniz.
-                                            </p>
-                                        </div>
                                     )}
                                 </div>
-                            </div>
-                        )}
 
-                        {/* TAB 3: ÖZELLİKLER */}
-                        {activeTab === "features" && (
-                            <div className="space-y-6 animate-in fade-in duration-300">
-                                <div className="flex items-center justify-between p-4 bg-slate-50 dark:bg-slate-900/50 rounded-xl border border-slate-100 dark:border-slate-800">
-                                    <div>
-                                        <h5 className="text-sm font-bold text-slate-800 dark:text-white">Ses Kayıt</h5>
-                                        <p className="text-[10px] text-slate-500 mt-0.5">Bu kullanıcının tüm görüşmeleri kaydedilsin mi?</p>
+                                {/* ORTAK MASA TELEFONU (MASA PAYLAŞIMI) */}
+                                <div className={`p-4 bg-slate-50 dark:bg-slate-900/50 rounded-xl border transition-all space-y-4 ${hotdeskConfig?.enabled ? border : "border-slate-100 dark:border-slate-800"}`}>
+                                    <div className="flex items-center justify-between gap-4">
+                                        <div className="flex items-start gap-3">
+                                            <div className={`p-2 rounded-lg shrink-0 mt-0.5 ${hotdeskConfig?.enabled ? `${lightBg} ${text}` : "bg-slate-200/70 dark:bg-slate-800 text-slate-500"}`}>
+                                                <Monitor size={18} />
+                                            </div>
+                                            <div>
+                                                <div className="flex items-center gap-2 flex-wrap">
+                                                    <h5 className="text-sm font-bold text-slate-800 dark:text-white">
+                                                        Ortak Masa Telefonu (Masa Paylaşımı)
+                                                    </h5>
+                                                    <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${hotdeskConfig?.enabled ? `${lightBg} ${text} border ${border}` : "bg-slate-200 dark:bg-slate-800 text-slate-500"}`}>
+                                                        {hotdeskConfig?.enabled ? "Aktif" : "Pasif"}
+                                                    </span>
+                                                </div>
+                                                <p className="text-[10px] text-slate-500 mt-0.5 leading-relaxed">
+                                                    Kullanıcının ofisteki herhangi bir fiziksel IP masa telefonundan kendi dahilisi ve özel PIN şifresiyle oturum açmasını sağlar.
+                                                </p>
+                                            </div>
+                                        </div>
+                                        <button
+                                            type="button"
+                                            onClick={() =>
+                                                setHotdeskConfig((prev) => ({
+                                                    ...prev,
+                                                    enabled: !prev.enabled
+                                                }))
+                                            }
+                                            className={`transition-colors shrink-0 ${hotdeskConfig?.enabled ? text : "text-slate-400"}`}
+                                        >
+                                            {hotdeskConfig?.enabled ? <ToggleRight size={30} /> : <ToggleLeft size={30} />}
+                                        </button>
                                     </div>
-                                    <button type="button" onClick={() => setRecordingActive(!recordingActive)} className="text-slate-400 hover:text-slate-700 transition-colors">
-                                        {recordingActive ? <ToggleRight size={30} className={`${text}`} /> : <ToggleLeft size={30} />}
-                                    </button>
+
+                                    {hotdeskConfig?.enabled && (
+                                        <div className="pt-4 border-t border-slate-200/80 dark:border-slate-800 space-y-4 animate-in fade-in duration-200">
+                                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                                {/* Dedicated PIN */}
+                                                <div className="p-4 rounded-xl bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 space-y-2">
+                                                    <div className="flex items-center justify-between gap-2">
+                                                        <label
+                                                            htmlFor="admin-hotdesk-pin"
+                                                            className="text-xs font-extrabold text-slate-800 dark:text-white"
+                                                        >
+                                                            Ortak Masa Telefonu PIN Şifresi
+                                                        </label>
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => {
+                                                                const rnd = String(Math.floor(100000 + Math.random() * 900000));
+                                                                setHotdeskConfig((prev) => ({ ...prev, pin: rnd }));
+                                                                setShowHotdeskPin(true);
+                                                            }}
+                                                            className={`text-[10px] font-bold px-2.5 py-1 rounded-lg ${lightBg} ${text} border ${borderLight} flex items-center gap-1`}
+                                                        >
+                                                            <RefreshCw size={11} />
+                                                            Rastgele PIN Üret
+                                                        </button>
+                                                    </div>
+                                                    <p
+                                                        id="admin-hotdesk-pin-hint"
+                                                        className="text-[10px] text-slate-500 dark:text-slate-400"
+                                                    >
+                                                        SIP ve Sesli Posta şifresinden bağımsız, 4 ile 8 haneli sadece rakam giriniz.
+                                                    </p>
+                                                    <div className="relative flex items-center">
+                                                        <input
+                                                            id="admin-hotdesk-pin"
+                                                            type={showHotdeskPin ? "text" : "password"}
+                                                            inputMode="numeric"
+                                                            autoComplete="off"
+                                                            pattern="\d{4,8}"
+                                                            maxLength={8}
+                                                            aria-describedby="admin-hotdesk-pin-hint"
+                                                            value={hotdeskConfig?.pin || ""}
+                                                            onChange={(e) =>
+                                                                setHotdeskConfig((prev) => ({
+                                                                    ...prev,
+                                                                    pin: e.target.value.replace(/\D/g, "").slice(0, 8)
+                                                                }))
+                                                            }
+                                                            onBlur={() => setHotdeskPinTouched(true)}
+                                                            placeholder="Örn: 482910"
+                                                            className={`w-full text-xs font-mono font-extrabold tracking-widest px-3.5 py-2.5 pr-10 rounded-xl border bg-slate-50 dark:bg-slate-900 text-slate-800 dark:text-white focus:outline-none focus:ring-2 ${ring} ${
+                                                                hotdeskPinTouched && !/^\d{4,8}$/.test(String(hotdeskConfig?.pin || ""))
+                                                                    ? "border-rose-400 dark:border-rose-600"
+                                                                    : "border-slate-200 dark:border-slate-800"
+                                                            }`}
+                                                        />
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => setShowHotdeskPin((p) => !p)}
+                                                            className="absolute right-3 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
+                                                            title={showHotdeskPin ? "PIN Gizle" : "PIN Göster"}
+                                                        >
+                                                            {showHotdeskPin ? <EyeOff size={15} /> : <Eye size={15} />}
+                                                        </button>
+                                                    </div>
+                                                    {hotdeskPinTouched && !/^\d{4,8}$/.test(String(hotdeskConfig?.pin || "")) && (
+                                                        <p className="text-[11px] font-bold text-rose-600 dark:text-rose-400 flex items-center gap-1">
+                                                            <AlertTriangle size={12} />
+                                                            Lütfen 4 ile 8 haneli rakamlardan oluşan bir PIN belirleyin.
+                                                        </p>
+                                                    )}
+                                                </div>
+
+                                                {/* Midnight Auto-Logout */}
+                                                <div className="p-4 rounded-xl bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 flex flex-col justify-between gap-3">
+                                                    <div className="flex items-start justify-between gap-3">
+                                                        <div>
+                                                            <h5 className="text-xs font-extrabold text-slate-800 dark:text-white">
+                                                                Gece 00:00&apos;da Oturumu Otomatik Kapat
+                                                            </h5>
+                                                            <p className="text-[10px] text-slate-500 dark:text-slate-400 mt-1 leading-relaxed">
+                                                                Açık bırakıldığında vardiya bitiminde unutulan masa telefonu oturumu her gece 00:00&apos;da otomatik olarak sonlandırılır.
+                                                            </p>
+                                                        </div>
+                                                        <button
+                                                            type="button"
+                                                            onClick={() =>
+                                                                setHotdeskConfig((prev) => ({
+                                                                    ...prev,
+                                                                    auto_logout_midnight: !prev.auto_logout_midnight
+                                                                }))
+                                                            }
+                                                            className={`transition-colors shrink-0 ${hotdeskConfig?.auto_logout_midnight ? text : "text-slate-400"}`}
+                                                        >
+                                                            {hotdeskConfig?.auto_logout_midnight ? <ToggleRight size={30} /> : <ToggleLeft size={30} />}
+                                                        </button>
+                                                    </div>
+                                                    <div className={`p-2.5 rounded-xl border ${lightBg} ${borderLight} text-[10px] font-semibold ${text}`}>
+                                                        Telefon yeniden başlatılmaz: Masa telefonundan <span className="font-mono font-extrabold">*75*{extension || "1001"}*PIN</span> ile giriş, <span className="font-mono font-extrabold">*76</span> ile çıkış yapılır.
+                                                    </div>
+                                                </div>
+                                            </div>
+
+                                            {/* Active Sessions */}
+                                            <div className="p-4 rounded-xl bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 space-y-3">
+                                                <div className="flex items-center justify-between">
+                                                    <h5 className="text-xs font-extrabold text-slate-800 dark:text-white">
+                                                        Aktif Masa Telefonu Oturumu
+                                                    </h5>
+                                                    <span className="text-[10px] font-bold text-slate-400">
+                                                        {activeHotdeskSessions.length > 0 ? `${activeHotdeskSessions.length} Aktif Cihaz` : "Aktif Oturum Yok"}
+                                                    </span>
+                                                </div>
+                                                {activeHotdeskSessions.length === 0 ? (
+                                                    <p className="text-[11px] text-slate-400">
+                                                        Bu dahili şu anda herhangi bir ortak masa telefonunda oturum açmamış.
+                                                    </p>
+                                                ) : (
+                                                    <div className="space-y-2">
+                                                        {activeHotdeskSessions.map((sess) => (
+                                                            <div
+                                                                key={sess.device_sip_username}
+                                                                className="flex items-center justify-between gap-3 p-3 rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800"
+                                                            >
+                                                                <div>
+                                                                    <div className="text-xs font-extrabold text-slate-800 dark:text-white font-mono">
+                                                                        SIP Cihaz: {sess.device_sip_username}
+                                                                    </div>
+                                                                    <div className="text-[10px] text-slate-500 mt-0.5">
+                                                                        Giriş Zamanı: {sess.logged_in_at || "-"}
+                                                                    </div>
+                                                                </div>
+                                                                <button
+                                                                    type="button"
+                                                                    disabled={hotdeskLogoutBusy}
+                                                                    onClick={async () => {
+                                                                        setHotdeskLogoutBusy(true);
+                                                                        try {
+                                                                            const res = await safeFetch(
+                                                                                `/api/hotdesk/sessions/${encodeURIComponent(sess.device_sip_username)}`,
+                                                                                { method: "DELETE" }
+                                                                            );
+                                                                            if (res.ok) {
+                                                                                setActiveHotdeskSessions((prev) =>
+                                                                                    prev.filter((x) => x.device_sip_username !== sess.device_sip_username)
+                                                                                );
+                                                                            }
+                                                                        } finally {
+                                                                            setHotdeskLogoutBusy(false);
+                                                                        }
+                                                                    }}
+                                                                    className="px-3 py-1.5 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-[11px] font-bold flex items-center gap-1.5 transition-all disabled:opacity-50"
+                                                                >
+                                                                    <Power size={13} />
+                                                                    Oturumu Kapat
+                                                                </button>
+                                                            </div>
+                                                        ))}
+                                                    </div>
+                                                )}
+                                            </div>
+                                        </div>
+                                    )}
                                 </div>
 
                                 {/* BENİ TAKİP ET (FOLLOW ME) */}
@@ -5087,209 +5263,6 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
                                                     <span>{twoFactorStatusMsg.text}</span>
                                                 </div>
                                             )}
-                                        </div>
-                                    )}
-                                </div>
-                            </div>
-                        )}
-
-                        {/* TAB: HOT-DESKING (MASA PAYLAŞIMI & ÖZEL PIN) */}
-                        {activeTab === "hotdesk" && (
-                            <div className="space-y-5 animate-in fade-in duration-300">
-                                <div className="p-5 bg-slate-50 dark:bg-slate-900/50 rounded-2xl border border-slate-200/80 dark:border-slate-800 space-y-4">
-                                    <div className="flex items-center justify-between gap-4">
-                                        <div className="flex items-center gap-3">
-                                            <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${hotdeskConfig?.enabled ? `${lightBg} ${text}` : "bg-slate-200/70 dark:bg-slate-800 text-slate-500"}`}>
-                                                <Monitor size={18} />
-                                            </div>
-                                            <div>
-                                                <div className="flex items-center gap-2">
-                                                    <h4 className="text-sm font-bold text-slate-800 dark:text-white">
-                                                        Hot-Desking (Ortak Masa Telefonu Oturumu)
-                                                    </h4>
-                                                    <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${hotdeskConfig?.enabled ? `${lightBg} ${text} border ${border}` : "bg-slate-200 dark:bg-slate-800 text-slate-500"}`}>
-                                                        {hotdeskConfig?.enabled ? "Yetki Açık" : "Pasif"}
-                                                    </span>
-                                                </div>
-                                                <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
-                                                    Kullanıcının ofisteki herhangi bir fiziksel IP masa telefonundan kendi dahilisi ve özel Hot-Desk PIN şifresiyle oturum açmasını sağlar.
-                                                </p>
-                                            </div>
-                                        </div>
-                                        <button
-                                            type="button"
-                                            onClick={() =>
-                                                setHotdeskConfig((prev) => ({
-                                                    ...prev,
-                                                    enabled: !prev.enabled
-                                                }))
-                                            }
-                                            className={`transition-colors shrink-0 ${hotdeskConfig?.enabled ? text : "text-slate-400"}`}
-                                        >
-                                            {hotdeskConfig?.enabled ? <ToggleRight size={32} /> : <ToggleLeft size={32} />}
-                                        </button>
-                                    </div>
-
-                                    {hotdeskConfig?.enabled && (
-                                        <div className="pt-4 border-t border-slate-200/80 dark:border-slate-800 space-y-5 animate-in fade-in duration-200">
-                                            <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-                                                {/* Dedicated Hot-Desk PIN */}
-                                                <div className="p-4 rounded-xl bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 space-y-2">
-                                                    <div className="flex items-center justify-between gap-2">
-                                                        <label
-                                                            htmlFor="admin-hotdesk-pin"
-                                                            className="text-xs font-extrabold text-slate-800 dark:text-white"
-                                                        >
-                                                            Hot-Desking Özel PIN Şifresi
-                                                        </label>
-                                                        <button
-                                                            type="button"
-                                                            onClick={() => {
-                                                                const rnd = String(Math.floor(100000 + Math.random() * 900000));
-                                                                setHotdeskConfig((prev) => ({ ...prev, pin: rnd }));
-                                                                setShowHotdeskPin(true);
-                                                            }}
-                                                            className={`text-[10px] font-bold px-2.5 py-1 rounded-lg ${lightBg} ${text} border ${borderLight} flex items-center gap-1`}
-                                                        >
-                                                            <RefreshCw size={11} />
-                                                            Rastgele PIN Üret
-                                                        </button>
-                                                    </div>
-                                                    <p
-                                                        id="admin-hotdesk-pin-hint"
-                                                        className="text-[10px] text-slate-500 dark:text-slate-400"
-                                                    >
-                                                        SIP ve Sesli Posta şifresinden bağımsız, 4 ile 8 haneli sadece rakam giriniz.
-                                                    </p>
-                                                    <div className="relative flex items-center">
-                                                        <input
-                                                            id="admin-hotdesk-pin"
-                                                            type={showHotdeskPin ? "text" : "password"}
-                                                            inputMode="numeric"
-                                                            autoComplete="off"
-                                                            pattern="\d{4,8}"
-                                                            maxLength={8}
-                                                            aria-describedby="admin-hotdesk-pin-hint"
-                                                            value={hotdeskConfig?.pin || ""}
-                                                            onChange={(e) =>
-                                                                setHotdeskConfig((prev) => ({
-                                                                    ...prev,
-                                                                    pin: e.target.value.replace(/\D/g, "").slice(0, 8)
-                                                                }))
-                                                            }
-                                                            onBlur={() => setHotdeskPinTouched(true)}
-                                                            placeholder="Örn: 482910"
-                                                            className={`w-full text-xs font-mono font-extrabold tracking-widest px-3.5 py-2.5 pr-10 rounded-xl border bg-slate-50 dark:bg-slate-900 text-slate-800 dark:text-white focus:outline-none focus:ring-2 ${ring} ${
-                                                                hotdeskPinTouched && !/^\d{4,8}$/.test(String(hotdeskConfig?.pin || ""))
-                                                                    ? "border-rose-400 dark:border-rose-600"
-                                                                    : "border-slate-200 dark:border-slate-800"
-                                                            }`}
-                                                        />
-                                                        <button
-                                                            type="button"
-                                                            onClick={() => setShowHotdeskPin((p) => !p)}
-                                                            className="absolute right-3 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
-                                                            title={showHotdeskPin ? "PIN Gizle" : "PIN Göster"}
-                                                        >
-                                                            {showHotdeskPin ? <EyeOff size={15} /> : <Eye size={15} />}
-                                                        </button>
-                                                    </div>
-                                                    {hotdeskPinTouched && !/^\d{4,8}$/.test(String(hotdeskConfig?.pin || "")) && (
-                                                        <p className="text-[11px] font-bold text-rose-600 dark:text-rose-400 flex items-center gap-1">
-                                                            <AlertTriangle size={12} />
-                                                            Lütfen 4 ile 8 haneli rakamlardan oluşan bir PIN belirleyin.
-                                                        </p>
-                                                    )}
-                                                </div>
-
-                                                {/* Midnight Auto-Logout */}
-                                                <div className="p-4 rounded-xl bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 flex flex-col justify-between gap-3">
-                                                    <div className="flex items-start justify-between gap-3">
-                                                        <div>
-                                                            <h5 className="text-xs font-extrabold text-slate-800 dark:text-white">
-                                                                Gece 00:00&apos;da Oturumu Otomatik Kapat
-                                                            </h5>
-                                                            <p className="text-[10px] text-slate-500 dark:text-slate-400 mt-1 leading-relaxed">
-                                                                Açık bırakıldığında vardiya bitiminde unutulan masa telefonu oturumu her gece 00:00&apos;da otomatik olarak sonlandırılır. Kullanıcı bu ayarı kendi profilinden de değiştirebilir.
-                                                            </p>
-                                                        </div>
-                                                        <button
-                                                            type="button"
-                                                            onClick={() =>
-                                                                setHotdeskConfig((prev) => ({
-                                                                    ...prev,
-                                                                    auto_logout_midnight: !prev.auto_logout_midnight
-                                                                }))
-                                                            }
-                                                            className={`transition-colors shrink-0 ${hotdeskConfig?.auto_logout_midnight ? text : "text-slate-400"}`}
-                                                        >
-                                                            {hotdeskConfig?.auto_logout_midnight ? <ToggleRight size={30} /> : <ToggleLeft size={30} />}
-                                                        </button>
-                                                    </div>
-                                                    <div className={`p-2.5 rounded-xl border ${lightBg} ${borderLight} text-[10px] font-semibold ${text}`}>
-                                                        Telefon yeniden başlatılmaz (Zero-Reboot): Masa telefonundan <span className="font-mono font-extrabold">*75*{extension || "1001"}*PIN</span> ile giriş, <span className="font-mono font-extrabold">*76</span> ile çıkış yapılır.
-                                                    </div>
-                                                </div>
-                                            </div>
-
-                                            {/* Active Hot-Desk Sessions */}
-                                            <div className="p-4 rounded-xl bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 space-y-3">
-                                                <div className="flex items-center justify-between">
-                                                    <h5 className="text-xs font-extrabold text-slate-800 dark:text-white">
-                                                        Aktif Masa Telefonu Oturumu
-                                                    </h5>
-                                                    <span className="text-[10px] font-bold text-slate-400">
-                                                        {activeHotdeskSessions.length > 0 ? `${activeHotdeskSessions.length} Aktif Cihaz` : "Aktif Oturum Yok"}
-                                                    </span>
-                                                </div>
-                                                {activeHotdeskSessions.length === 0 ? (
-                                                    <p className="text-[11px] text-slate-400">
-                                                        Bu dahili şu anda herhangi bir ortak masa telefonunda Hot-Desk oturumu açmamış.
-                                                    </p>
-                                                ) : (
-                                                    <div className="space-y-2">
-                                                        {activeHotdeskSessions.map((sess) => (
-                                                            <div
-                                                                key={sess.device_sip_username}
-                                                                className="flex items-center justify-between gap-3 p-3 rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800"
-                                                            >
-                                                                <div>
-                                                                    <div className="text-xs font-extrabold text-slate-800 dark:text-white font-mono">
-                                                                        SIP Cihaz: {sess.device_sip_username}
-                                                                    </div>
-                                                                    <div className="text-[10px] text-slate-500 mt-0.5">
-                                                                        Giriş Zamanı: {sess.logged_in_at || "-"}
-                                                                    </div>
-                                                                </div>
-                                                                <button
-                                                                    type="button"
-                                                                    disabled={hotdeskLogoutBusy}
-                                                                    onClick={async () => {
-                                                                        setHotdeskLogoutBusy(true);
-                                                                        try {
-                                                                            const res = await safeFetch(
-                                                                                `/api/hotdesk/sessions/${encodeURIComponent(sess.device_sip_username)}`,
-                                                                                { method: "DELETE" }
-                                                                            );
-                                                                            if (res.ok) {
-                                                                                setActiveHotdeskSessions((prev) =>
-                                                                                    prev.filter((x) => x.device_sip_username !== sess.device_sip_username)
-                                                                                );
-                                                                            }
-                                                                        } finally {
-                                                                            setHotdeskLogoutBusy(false);
-                                                                        }
-                                                                    }}
-                                                                    className="px-3 py-1.5 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-[11px] font-bold flex items-center gap-1.5 transition-all disabled:opacity-50"
-                                                                >
-                                                                    <Power size={13} />
-                                                                    Oturumu Kapat
-                                                                </button>
-                                                            </div>
-                                                        ))}
-                                                    </div>
-                                                )}
-                                            </div>
                                         </div>
                                     )}
                                 </div>
