@@ -11,8 +11,93 @@ import {
   renderLinkifiedPlainText,
 } from "../../../utils/emailFormatter";
 
+const DEFAULT_AGENT_SIDEBAR_WIDTH = 384;
+const MIN_AGENT_SIDEBAR_WIDTH = 270;
+const MAX_AGENT_SIDEBAR_WIDTH = 660;
+const MIN_AGENT_THREAD_WIDTH = 340;
+
 export default function AgentChatTab({ backendHost, currentUser, isVisible = true, openPeerRequest = null, onPeerOpened }) {
   const { bg, hover, text, border, ring, lightBg, lightText, borderLight } = useTheme();
+
+  // Resizable Conversation List Sidebar State
+  const splitContainerRef = useRef(null);
+  const sidebarDragRef = useRef({ startX: 0, startWidth: DEFAULT_AGENT_SIDEBAR_WIDTH });
+  const [isResizingSidebar, setIsResizingSidebar] = useState(false);
+  const [sidebarWidth, setSidebarWidth] = useState(() => {
+    if (typeof window !== "undefined") {
+      try {
+        const saved = Number(localStorage.getItem("agent_chat_sidebar_width"));
+        if (Number.isFinite(saved) && saved >= MIN_AGENT_SIDEBAR_WIDTH && saved <= MAX_AGENT_SIDEBAR_WIDTH) {
+          return saved;
+        }
+      } catch (e) {}
+    }
+    return DEFAULT_AGENT_SIDEBAR_WIDTH;
+  });
+
+  const clampSidebarWidth = (nextWidth) => {
+    let maxAllowed = MAX_AGENT_SIDEBAR_WIDTH;
+    if (splitContainerRef.current) {
+      const containerWidth = splitContainerRef.current.getBoundingClientRect().width;
+      if (containerWidth > MIN_AGENT_SIDEBAR_WIDTH + MIN_AGENT_THREAD_WIDTH + 16) {
+        maxAllowed = Math.min(MAX_AGENT_SIDEBAR_WIDTH, Math.floor(containerWidth - MIN_AGENT_THREAD_WIDTH - 16));
+      }
+    }
+    return Math.max(MIN_AGENT_SIDEBAR_WIDTH, Math.min(Math.round(nextWidth), maxAllowed));
+  };
+
+  const updateSidebarWidth = (nextWidth) => {
+    const clamped = clampSidebarWidth(nextWidth);
+    setSidebarWidth(clamped);
+    if (typeof window !== "undefined") {
+      try {
+        localStorage.setItem("agent_chat_sidebar_width", String(clamped));
+      } catch (e) {}
+    }
+  };
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const handleViewportResize = () => {
+      setSidebarWidth((prev) => clampSidebarWidth(prev));
+    };
+    window.addEventListener("resize", handleViewportResize);
+    return () => window.removeEventListener("resize", handleViewportResize);
+  }, []);
+
+  const handleSidebarResizePointerDown = (e) => {
+    if (e.button !== 0) return;
+    sidebarDragRef.current = { startX: e.clientX, startWidth: sidebarWidth };
+    e.currentTarget.setPointerCapture(e.pointerId);
+    setIsResizingSidebar(true);
+  };
+
+  const handleSidebarResizePointerMove = (e) => {
+    if (!e.currentTarget.hasPointerCapture(e.pointerId)) return;
+    const deltaX = e.clientX - sidebarDragRef.current.startX;
+    updateSidebarWidth(sidebarDragRef.current.startWidth + deltaX);
+  };
+
+  const handleSidebarResizeLostCapture = () => {
+    setIsResizingSidebar(false);
+  };
+
+  const handleSidebarResizeKeyDown = (e) => {
+    const step = e.shiftKey ? 40 : 15;
+    if (e.key === "ArrowLeft") {
+      e.preventDefault();
+      updateSidebarWidth(sidebarWidth - step);
+    } else if (e.key === "ArrowRight") {
+      e.preventDefault();
+      updateSidebarWidth(sidebarWidth + step);
+    } else if (e.key === "Home") {
+      e.preventDefault();
+      updateSidebarWidth(MIN_AGENT_SIDEBAR_WIDTH);
+    } else if (e.key === "End") {
+      e.preventDefault();
+      updateSidebarWidth(MAX_AGENT_SIDEBAR_WIDTH);
+    }
+  };
 
   // Primary Tab State: "customer" (Müşteri Sohbetleri) | "internal" (İç Yazışma)
   const [chatTab, setChatTab] = useState("customer");
@@ -853,10 +938,14 @@ export default function AgentChatTab({ backendHost, currentUser, isVisible = tru
           </div>
         </div>
         
-        <div className={`flex-1 bg-white dark:bg-slate-900 border ${borderLight} rounded-2xl shadow-sm flex overflow-hidden`}>
+        <div
+          ref={splitContainerRef}
+          style={{ "--agent-sidebar-w": `${sidebarWidth}px` }}
+          className={`flex-1 bg-white dark:bg-slate-900 border ${borderLight} rounded-2xl shadow-sm flex overflow-hidden`}
+        >
           
           {/* Left Sidebar - Chat List */}
-          <div className={`w-96 shrink-0 border-r ${borderLight} flex flex-col bg-slate-50/30 dark:bg-slate-900/20`}>
+          <div className="w-[var(--agent-sidebar-w)] shrink-0 flex flex-col bg-slate-50/30 dark:bg-slate-900/20">
             {/* Nav Tabs */}
             <div className={`p-5 border-b ${borderLight} space-y-3.5`}>
               <div className="grid grid-cols-2 gap-1.5 bg-slate-100 dark:bg-slate-800/90 p-1.5 rounded-2xl">
@@ -1166,8 +1255,37 @@ export default function AgentChatTab({ backendHost, currentUser, isVisible = tru
             </div>
           </div>
 
+          {/* Vertical Edge Resize Handle (Splitter) */}
+          <div
+            role="separator"
+            tabIndex={0}
+            aria-orientation="vertical"
+            aria-label="Görüşme listesi genişliğini değiştir (Sol ve sağ ok tuşlarını kullanın)"
+            aria-valuemin={MIN_AGENT_SIDEBAR_WIDTH}
+            aria-valuemax={MAX_AGENT_SIDEBAR_WIDTH}
+            aria-valuenow={sidebarWidth}
+            title="Görüşme listesi genişliğini değiştirmek için kenardan sürükleyin (Sıfırlamak için çift tıklayın)"
+            onPointerDown={handleSidebarResizePointerDown}
+            onPointerMove={handleSidebarResizePointerMove}
+            onLostPointerCapture={handleSidebarResizeLostCapture}
+            onKeyDown={handleSidebarResizeKeyDown}
+            onDoubleClick={() => updateSidebarWidth(DEFAULT_AGENT_SIDEBAR_WIDTH)}
+            style={{ WebkitUserSelect: "none", userSelect: "none", touchAction: "pan-y" }}
+            className={`w-2 shrink-0 flex items-center justify-center cursor-col-resize group relative z-20 border-x ${borderLight} bg-slate-100/60 dark:bg-slate-800/40 hover:bg-primary/15 focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-primary before:content-[''] before:absolute before:inset-y-0 before:-left-2.5 before:-right-2.5 ${
+              isResizingSidebar ? "bg-primary/20 cursor-grabbing" : ""
+            }`}
+          >
+            <div
+              className={`w-1 h-16 rounded-full transition-all duration-150 ${
+                isResizingSidebar
+                  ? `${bg} h-28`
+                  : "bg-slate-300 dark:bg-slate-700 group-hover:bg-primary group-focus-visible:bg-primary group-hover:h-24"
+              }`}
+            />
+          </div>
+
           {/* Right Area - Chat Detail View */}
-          <div className="flex-1 flex flex-col bg-white dark:bg-slate-900/50">
+          <div className="flex-1 min-w-0 flex flex-col bg-white dark:bg-slate-900/50">
             {activeChatId && (chatTab === "customer" ? selectedCustomerChat : selectedInternalChat) ? (
               <>
                 {/* Chat Header */}

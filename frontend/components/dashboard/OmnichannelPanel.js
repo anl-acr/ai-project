@@ -87,8 +87,96 @@ function parseUtcTimestampMs(ts) {
   return Number.isFinite(ms) ? ms : 0;
 }
 
+const DEFAULT_SIDEBAR_WIDTH = 340;
+const MIN_SIDEBAR_WIDTH = 260;
+const MAX_SIDEBAR_WIDTH = 680;
+const MIN_THREAD_WIDTH = 360;
+
 export default function OmnichannelPanel({ backendHost = "localhost:8000" }) {
   const { bg, text, border, lightBg, borderLight } = useTheme();
+
+  // Resizable Conversation List Sidebar State
+  const workspaceRef = useRef(null);
+  const sidebarDragStateRef = useRef({ startX: 0, startWidth: DEFAULT_SIDEBAR_WIDTH });
+  const [isResizingSidebar, setIsResizingSidebar] = useState(false);
+  const [sidebarWidth, setSidebarWidth] = useState(() => {
+    if (typeof window !== "undefined") {
+      try {
+        const saved = Number(localStorage.getItem("omnichannel_sidebar_width"));
+        if (Number.isFinite(saved) && saved >= MIN_SIDEBAR_WIDTH && saved <= MAX_SIDEBAR_WIDTH) {
+          return saved;
+        }
+      } catch (e) {}
+    }
+    return DEFAULT_SIDEBAR_WIDTH;
+  });
+
+  const clampSidebarWidth = (nextWidth) => {
+    let maxAllowed = MAX_SIDEBAR_WIDTH;
+    if (workspaceRef.current) {
+      const containerWidth = workspaceRef.current.getBoundingClientRect().width;
+      if (containerWidth > MIN_SIDEBAR_WIDTH + MIN_THREAD_WIDTH + 24) {
+        maxAllowed = Math.min(MAX_SIDEBAR_WIDTH, Math.floor(containerWidth - MIN_THREAD_WIDTH - 24));
+      }
+    }
+    return Math.max(MIN_SIDEBAR_WIDTH, Math.min(Math.round(nextWidth), maxAllowed));
+  };
+
+  const updateSidebarWidth = (nextWidth) => {
+    const clamped = clampSidebarWidth(nextWidth);
+    setSidebarWidth(clamped);
+    if (typeof window !== "undefined") {
+      try {
+        localStorage.setItem("omnichannel_sidebar_width", String(clamped));
+      } catch (e) {}
+    }
+  };
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const handleViewportResize = () => {
+      setSidebarWidth((prev) => clampSidebarWidth(prev));
+    };
+    window.addEventListener("resize", handleViewportResize);
+    return () => window.removeEventListener("resize", handleViewportResize);
+  }, []);
+
+  const handleSidebarResizePointerDown = (e) => {
+    if (e.button !== 0) return;
+    sidebarDragStateRef.current = {
+      startX: e.clientX,
+      startWidth: sidebarWidth,
+    };
+    e.currentTarget.setPointerCapture(e.pointerId);
+    setIsResizingSidebar(true);
+  };
+
+  const handleSidebarResizePointerMove = (e) => {
+    if (!e.currentTarget.hasPointerCapture(e.pointerId)) return;
+    const deltaX = e.clientX - sidebarDragStateRef.current.startX;
+    updateSidebarWidth(sidebarDragStateRef.current.startWidth + deltaX);
+  };
+
+  const handleSidebarResizeLostCapture = () => {
+    setIsResizingSidebar(false);
+  };
+
+  const handleSidebarResizeKeyDown = (e) => {
+    const step = e.shiftKey ? 40 : 15;
+    if (e.key === "ArrowLeft") {
+      e.preventDefault();
+      updateSidebarWidth(sidebarWidth - step);
+    } else if (e.key === "ArrowRight") {
+      e.preventDefault();
+      updateSidebarWidth(sidebarWidth + step);
+    } else if (e.key === "Home") {
+      e.preventDefault();
+      updateSidebarWidth(MIN_SIDEBAR_WIDTH);
+    } else if (e.key === "End") {
+      e.preventDefault();
+      updateSidebarWidth(MAX_SIDEBAR_WIDTH);
+    }
+  };
 
   const [sessions, setSessions] = useState([]);
   const [activeSession, setActiveSession] = useState(null);
@@ -1350,10 +1438,18 @@ export default function OmnichannelPanel({ backendHost = "localhost:8000" }) {
         </div>
       </div>
 
-      {/* Main Grid Workspace */}
-      <div className="grid grid-cols-1 lg:grid-cols-4 gap-6 items-start">
+      {/* Main Resizable Split Workspace */}
+      <div
+        ref={workspaceRef}
+        style={{ "--omnichannel-sidebar-w": `${sidebarWidth}px` }}
+        className="flex flex-col lg:flex-row items-stretch gap-6 lg:gap-0"
+      >
         {/* 1. Left Session List */}
-        <div className="lg:col-span-1 bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-3xl overflow-hidden shadow-sm h-[660px] flex flex-col transition-colors duration-300">
+        <div
+          className={`w-full lg:w-[var(--omnichannel-sidebar-w)] lg:shrink-0 bg-white dark:bg-slate-900 border ${
+            isResizingSidebar ? "border-r-primary dark:border-r-primary border-slate-200/80 dark:border-slate-800" : "border-slate-200/80 dark:border-slate-800"
+          } rounded-3xl overflow-hidden shadow-sm h-[660px] flex flex-col transition-colors duration-300 relative`}
+        >
           <div className="p-3 border-b border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950/20 space-y-2.5">
             {/* Status Filter Segmented Tabs */}
             <div className="grid grid-cols-4 gap-1 p-1 bg-slate-200/60 dark:bg-slate-800/90 rounded-xl text-[10px] font-bold">
@@ -1544,13 +1640,46 @@ export default function OmnichannelPanel({ backendHost = "localhost:8000" }) {
           </div>
         </div>
 
+        {/* Vertical Edge Resize Handle (Splitter) */}
+        <div
+          role="separator"
+          tabIndex={0}
+          aria-orientation="vertical"
+          aria-label="Görüşme listesi genişliğini değiştir (Sol ve sağ ok tuşlarını kullanın)"
+          aria-valuemin={MIN_SIDEBAR_WIDTH}
+          aria-valuemax={MAX_SIDEBAR_WIDTH}
+          aria-valuenow={sidebarWidth}
+          title="Görüşme listesi genişliğini değiştirmek için kenardan sürükleyin (Sıfırlamak için çift tıklayın)"
+          onPointerDown={handleSidebarResizePointerDown}
+          onPointerMove={handleSidebarResizePointerMove}
+          onLostPointerCapture={handleSidebarResizeLostCapture}
+          onKeyDown={handleSidebarResizeKeyDown}
+          onDoubleClick={() => updateSidebarWidth(DEFAULT_SIDEBAR_WIDTH)}
+          style={{ WebkitUserSelect: "none", userSelect: "none", touchAction: "pan-y" }}
+          className={`hidden lg:flex w-6 shrink-0 items-center justify-center cursor-col-resize group relative z-20 before:content-[''] before:absolute before:inset-y-0 before:-left-2 before:-right-1 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary rounded-xl ${
+            isResizingSidebar ? "cursor-grabbing" : ""
+          }`}
+        >
+          <div
+            className={`w-1.5 h-20 rounded-full transition-all duration-150 flex flex-col items-center justify-center gap-1 ${
+              isResizingSidebar
+                ? `${bg} h-32 shadow-sm`
+                : "bg-slate-200/90 dark:bg-slate-800 group-hover:bg-primary/80 group-focus-visible:bg-primary group-hover:h-28"
+            }`}
+          >
+            <span className="w-0.5 h-0.5 rounded-full bg-white/90 dark:bg-slate-400" />
+            <span className="w-0.5 h-0.5 rounded-full bg-white/90 dark:bg-slate-400" />
+            <span className="w-0.5 h-0.5 rounded-full bg-white/90 dark:bg-slate-400" />
+          </div>
+        </div>
+
         {/* 2. Right Message Thread */}
         <div
           onDragEnter={handleChatDragEnter}
           onDragLeave={handleChatDragLeave}
           onDragOver={handleChatDragOver}
           onDrop={handleChatDrop}
-          className="lg:col-span-3 bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-3xl overflow-hidden shadow-sm h-[660px] flex flex-col transition-colors duration-300 relative"
+          className="flex-1 min-w-0 bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-3xl overflow-hidden shadow-sm h-[660px] flex flex-col transition-colors duration-300 relative"
         >
           {/* Drag & Drop File Overlay */}
           {isDraggingFile && activeSession && (
