@@ -93,14 +93,7 @@ export default function AgentMissedCallsTab({ backendHost, currentUser, callPane
   const fetchClaimsAndCallbacks = useCallback(async () => {
     try {
       const protocol = window.location.protocol;
-      const [claimsRes, cbsRes] = await Promise.all([
-        fetch(`${protocol}//${host}/api/workspace/missed-claims`, { headers: buildHeaders() }),
-        fetch(`${protocol}//${host}/api/workspace/callbacks?status=all`, { headers: buildHeaders() }),
-      ]);
-      if (claimsRes.ok) {
-        const cd = await claimsRes.json();
-        setClaimsMap(cd.claims && typeof cd.claims === "object" ? cd.claims : {});
-      }
+      const cbsRes = await fetch(`${protocol}//${host}/api/workspace/callbacks?status=all`, { headers: buildHeaders() });
       if (cbsRes.ok) {
         const cbd = await cbsRes.json();
         setCallbacksList(Array.isArray(cbd.callbacks) ? cbd.callbacks : []);
@@ -323,7 +316,6 @@ export default function AgentMissedCallsTab({ backendHost, currentUser, callPane
 
   const handleCallBack = (number) => {
     if (!number) return;
-    handleSetClaim(number, "claiming");
     window.dispatchEvent(new CustomEvent("TRIGGER_CALL", { detail: number }));
   };
 
@@ -522,7 +514,7 @@ export default function AgentMissedCallsTab({ backendHost, currentUser, callPane
                         <th className="p-4 font-bold">Arayan Numara / Kişi</th>
                         <th className="p-4 font-bold">Kuyruk</th>
                         <th className="p-4 font-bold">Son Kayıp Saati</th>
-                        <th className="p-4 font-bold">Sahiplenme & Deneme</th>
+                        <th className="p-4 font-bold">Deneme</th>
                         <th className="p-4 font-bold text-right">İşlem</th>
                       </tr>
                     </thead>
@@ -562,7 +554,6 @@ export default function AgentMissedCallsTab({ backendHost, currentUser, callPane
                                       {shownPhone}
                                     </div>
                                   )}
-                                  {renderClaimBadge(item.claim)}
                                 </div>
                               </div>
                             </td>
@@ -592,35 +583,16 @@ export default function AgentMissedCallsTab({ backendHost, currentUser, callPane
                             </td>
 
                             <td className="p-4">
-                              <div className="flex flex-col gap-1.5">
-                                <div className="flex items-center gap-1.5">
-                                  <span
-                                    className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-extrabold border ${
-                                      cbCount > 0
-                                        ? "bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-950/40 dark:text-amber-300 dark:border-amber-800"
-                                        : "bg-slate-100 text-slate-500 border-slate-200 dark:bg-slate-800 dark:text-slate-400 dark:border-slate-700"
-                                    }`}
-                                  >
-                                    <RotateCcw size={11} />
-                                    <span>{cbCount} Deneme</span>
-                                  </span>
-
-                                  <select
-                                    value={item.claim?.status || ""}
-                                    onChange={(e) => {
-                                      const val = e.target.value;
-                                      handleSetClaim(item.caller_number, val || "clear");
-                                    }}
-                                    aria-label="Kayıp Çağrı Sahiplenme Durumu"
-                                    className="px-2 py-1 rounded-lg bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-[10px] font-bold text-slate-700 dark:text-slate-200 focus:outline-none cursor-pointer"
-                                  >
-                                    <option value="">Sahiplen...</option>
-                                    <option value="claiming">Ben Arıyorum</option>
-                                    <option value="unreachable">Meşgul / Açmadı</option>
-                                    <option value="reached">Ulaşıldı</option>
-                                  </select>
-                                </div>
-                              </div>
+                              <span
+                                className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-extrabold border ${
+                                  cbCount > 0
+                                    ? "bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-950/40 dark:text-amber-300 dark:border-amber-800"
+                                    : "bg-slate-100 text-slate-500 border-slate-200 dark:bg-slate-800 dark:text-slate-400 dark:border-slate-700"
+                                }`}
+                              >
+                                <RotateCcw size={11} />
+                                <span>{cbCount} Deneme</span>
+                              </span>
                             </td>
 
                             <td className="p-4 text-right">
@@ -655,7 +627,7 @@ export default function AgentMissedCallsTab({ backendHost, currentUser, callPane
                                   type="button"
                                   onClick={() => handleCallBack(item.caller_number)}
                                   className={`inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold text-white shadow-sm transition-all active:scale-95 cursor-pointer ${bg} ${hover}`}
-                                  title="Müşteriyi Geri Ara (Otomatik Sahiplenir)"
+                                  title="Müşteriyi Geri Ara"
                                 >
                                   <Phone size={13} className="fill-current" />
                                   <span>Geri Ara</span>
