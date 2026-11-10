@@ -14018,22 +14018,22 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                                   <Play size={10} />
                                   <span>{activeAudioCall?.id === call.id ? "Oynatılıyor" : "Dinle"}</span>
                                 </button>
-                              ) : call.recording_deleted_reason === "DELETED_BY_DYNAMIC_POLICY" ? (
-                                <span
-                                  className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-amber-50 dark:bg-amber-950/30 text-amber-600 dark:text-amber-400 border border-amber-200 dark:border-amber-800/50 text-[10px] font-bold"
-                                  title="Dinamik Ses Kaydı Politikası gereği bu görüşmenin ses kaydı silindi"
-                                >
-                                  Dinamik Kural: Silindi
-                                </span>
-                              ) : call.recording_deleted_reason === "DISABLED_BY_USER_SETTING" ? (
-                                <span
-                                  className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 border border-slate-200 dark:border-slate-700 text-[10px] font-bold"
-                                  title="Kullanıcı ses kayıt ayarı kapalı olduğu için kayıt alınmadı"
-                                >
-                                  Kayıt Kapalı
-                                </span>
                               ) : (
-                                <span className="text-slate-400 italic">Kayıt Yok</span>
+                                <button
+                                  type="button"
+                                  disabled
+                                  title={
+                                    call.recording_deleted_reason === "DELETED_BY_DYNAMIC_POLICY"
+                                      ? "Dinamik Ses Kaydı Politikası gereği bu görüşmenin ses kaydı silindi"
+                                      : call.recording_deleted_reason === "DISABLED_BY_USER_SETTING"
+                                      ? "Kullanıcı ses kayıt ayarı kapalı olduğu için kayıt alınmadı"
+                                      : "Bu görüşmeye ait ses kaydı bulunmamaktadır"
+                                  }
+                                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-slate-200/70 dark:border-slate-700/50 bg-slate-100/70 dark:bg-slate-800/40 text-slate-400 dark:text-slate-500 font-bold text-[10px] opacity-55 cursor-not-allowed select-none"
+                                >
+                                  <Play size={10} />
+                                  <span>Dinle</span>
+                                </button>
                               )}
                             </td>
                           )}
