@@ -1713,11 +1713,152 @@ async def notify_voicemail_mwi(extension: str, unread_count: int = 0, old_count:
         return False
 
 
-# background task to keep AMI connected
+def _parse_duration_to_seconds(dur_str: str) -> int:
+    """Parses Asterisk CoreShowChannel Duration ('HH:MM:SS' or 'MM:SS' or seconds) into integer seconds."""
+    s = str(dur_str or "").strip()
+    if not s:
+        return 0
+    if s.isdigit():
+        return int(s)
+    parts = s.split(":")
+    try:
+        if len(parts) == 3:
+            return int(parts[0]) * 3600 + int(parts[1]) * 60 + int(float(parts[2]))
+        if len(parts) == 2:
+            return int(parts[0]) * 60 + int(float(parts[1]))
+    except Exception:
+        return 0
+    return 0
+
+
+async def _run_asterisk_watchdog_sweep(manager) -> None:
+    """
+    Periodic 60-second Fortress Watchdog:
+    1. Queries `CoreShowChannels` from Asterisk AMI.
+    2. Reconciles in-memory `active_channels` and `channel_states` against actual live channels in Asterisk
+       so no subscriber extension ever stays stuck in 'Busy (Meşgul)' or 'Ringing (Çalıyor)' state if an AMI Hangup event was missed.
+    3. Hangs up zombie channels stuck in 'Ring' / 'Ringing' / 'Down' state for > 180 seconds (3 minutes).
+    4. Hangs up runaway channels whose total duration exceeds 14400 seconds (4 hours).
+    """
+    if not manager:
+        return
+    try:
+        res = await asyncio.wait_for(manager.send_action({"Action": "CoreShowChannels"}), timeout=5.0)
+        items = res if isinstance(res, list) else ([res] if res else [])
+        live_channel_names = set()
+        live_uniqueids = set()
+        got_complete = False
+
+        for item in items:
+            ev_name = ""
+            ch_name = ""
+            uid_val = ""
+            state_desc = ""
+            dur_str = ""
+            if hasattr(item, "get"):
+                ev_name = str(item.get("Event") or "").strip()
+                ch_name = str(item.get("Channel") or "").strip()
+                uid_val = str(item.get("Uniqueid") or item.get("UniqueID") or "").strip()
+                state_desc = str(item.get("ChannelStateDesc") or "").strip().lower()
+                dur_str = str(item.get("Duration") or "").strip()
+            else:
+                raw_s = str(item)
+                for line in raw_s.splitlines():
+                    if ":" not in line:
+                        continue
+                    k, v = line.split(":", 1)
+                    k_l = k.strip().lower()
+                    v_s = v.strip()
+                    if k_l == "event":
+                        ev_name = v_s
+                    elif k_l == "channel":
+                        ch_name = v_s
+                    elif k_l == "uniqueid":
+                        uid_val = v_s
+                    elif k_l == "channelstatedesc":
+                        state_desc = v_s.lower()
+                    elif k_l == "duration":
+                        dur_str = v_s
+
+            if ev_name == "CoreShowChannelsComplete":
+                got_complete = True
+                continue
+            if not ch_name or ch_name.startswith("Message/"):
+                continue
+
+            live_channel_names.add(ch_name)
+            if uid_val:
+                live_uniqueids.add(uid_val)
+
+            dur_sec = _parse_duration_to_seconds(dur_str)
+            # 1) Zombie Ringing / Down channels (> 180s without answer)
+            if state_desc in ("ring", "ringing", "down", "rsrvd") and dur_sec > 180:
+                print(f"🛡️ [FORTRESS WATCHDOG] Asılı kalan çalma/kurulum kanalı kapatılıyor ({dur_sec}sn, State={state_desc}): {ch_name}")
+                try:
+                    await manager.send_action({"Action": "Hangup", "Channel": ch_name, "Cause": "19"})
+                except Exception:
+                    pass
+            # 2) Runaway calls (> 14400s = 4 hours)
+            elif dur_sec > 14400:
+                print(f"🛡️ [FORTRESS WATCHDOG] Maksimum süre sınırını (4 saat) aşan askıdaki kanal kapatılıyor ({dur_sec}sn): {ch_name}")
+                try:
+                    await manager.send_action({"Action": "Hangup", "Channel": ch_name, "Cause": "16"})
+                except Exception:
+                    pass
+
+        # 3) Reconcile in-memory `active_channels` & `channel_states` if we got a valid response from Asterisk
+        if got_complete or items:
+            stale_uids = []
+            for uid_k, ch_v in list(active_channels.items()):
+                if uid_k not in live_uniqueids and str(ch_v or "") not in live_channel_names:
+                    stale_uids.append(uid_k)
+            for uid_k, st_v in list(channel_states.items()):
+                ch_v = st_v.get("channel") if isinstance(st_v, dict) else ""
+                if uid_k not in live_uniqueids and str(ch_v or "") not in live_channel_names:
+                    if uid_k not in stale_uids:
+                        stale_uids.append(uid_k)
+            for s_uid in stale_uids:
+                active_channels.pop(s_uid, None)
+                removed_st = channel_states.pop(s_uid, None)
+                if removed_st:
+                    print(f"🧹 [FORTRESS WATCHDOG] Hayalet meşguliyet kaydı temizlendi: UID={s_uid} Info={removed_st}")
+    except Exception as e:
+        print(f"[AMI Watchdog Sweep Warning]: {e}")
+
+
+# background task to keep AMI connected & run 60-second Fortress Watchdog
 async def start_ami_listener():
+    tick = 0
+    consecutive_ami_failures = 0
     while True:
         try:
-            await get_ami_manager()
+            mgr = await get_ami_manager()
+            if mgr:
+                consecutive_ami_failures = 0
+                tick += 1
+                if tick >= 6:  # Every 60 seconds (6 * 10s)
+                    tick = 0
+                    await _run_asterisk_watchdog_sweep(mgr)
+            else:
+                consecutive_ami_failures += 1
         except Exception:
-            pass
+            consecutive_ami_failures += 1
+
+        # Self-healing Asterisk service check on production Linux server if AMI is unreachable for >= 60s
+        if consecutive_ami_failures >= 6 and os.path.exists("/etc/asterisk"):
+            consecutive_ami_failures = 0
+            try:
+                import subprocess
+                chk = subprocess.run(
+                    ["asterisk", "-rx", "core show version"],
+                    capture_output=True,
+                    text=True,
+                    timeout=3.0,
+                )
+                if chk.returncode != 0 or "Asterisk" not in (chk.stdout or ""):
+                    print("🚨 [FORTRESS WATCHDOG] Asterisk servisi yanıt vermiyor! Otomatik yeniden başlatılıyor (systemctl restart asterisk)...")
+                    subprocess.run(["systemctl", "restart", "asterisk"], capture_output=True, timeout=10.0)
+            except Exception as heal_err:
+                print(f"[Fortress Self-Heal Error]: {heal_err}")
+
         await asyncio.sleep(10)

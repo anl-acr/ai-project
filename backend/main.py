@@ -3640,14 +3640,25 @@ def regenerate_pjsip_custom_conf(background_tasks: Optional[BackgroundTasks] = N
             custom_global_ua = ua_val
             break
 
-    global_ua_block = ""
-    if custom_global_ua:
-        global_ua_block = f"""[global]
-type=global
-user_agent={custom_global_ua}
-max_forwards=70
-
-"""
+    ua_line_main = f"user_agent={custom_global_ua}\n" if custom_global_ua else ""
+    global_ua_block = (
+        "[global]\n"
+        "type=global\n"
+        f"{ua_line_main}"
+        "max_forwards=70\n"
+        "keep_alive_interval=30\n"
+        "unidentified_request_count=15\n"
+        "unidentified_request_period=60\n"
+        "unidentified_request_prune_interval=30\n\n"
+    )
+    pjsip_ep_safety_lines = (
+        "rtp_timeout=60\n"
+        "rtp_timeout_hold=600\n"
+        "rtp_keepalive=15\n"
+        "timers=yes\n"
+        "timers_min_se=90\n"
+        "timers_sess_expires=1800\n"
+    )
 
     has_ast_cert = os.path.exists("/etc/asterisk/keys/asterisk.pem")
     has_ast_priv = os.path.exists("/etc/asterisk/keys/webphone_privkey.pem")
@@ -3725,7 +3736,7 @@ direct_media=no
 force_rport=yes
 rewrite_contact=yes
 rtp_symmetric=yes
-trust_id_inbound=yes
+{pjsip_ep_safety_lines}trust_id_inbound=yes
 from_user={op_user}
 from_domain={op_from_domain}
 """
@@ -3748,7 +3759,7 @@ direct_media=no
 force_rport=yes
 rewrite_contact=no
 rtp_symmetric=yes
-webrtc=yes
+{pjsip_ep_safety_lines}webrtc=yes
 use_avpf=yes
 media_encryption=dtls
 dtls_auto_generate_cert=yes
@@ -3783,7 +3794,7 @@ direct_media=no
 force_rport=yes
 rewrite_contact=yes
 rtp_symmetric=yes
-send_pai=yes
+{pjsip_ep_safety_lines}send_pai=yes
 send_rpid=yes
 rpid_immediate=yes
 auth={sip_1000}-auth
@@ -3898,7 +3909,7 @@ direct_media=no
 force_rport=yes
 rewrite_contact=yes
 rtp_symmetric=yes
-send_rpid={send_rpid}
+{pjsip_ep_safety_lines}send_rpid={send_rpid}
 send_pai={send_pai}
 send_diversion={send_diversion}
 trust_id_inbound={trust_id_in}
@@ -3933,7 +3944,7 @@ direct_media=no
 force_rport=yes
 rewrite_contact=yes
 rtp_symmetric=yes
-send_rpid={send_rpid}
+{pjsip_ep_safety_lines}send_rpid={send_rpid}
 send_pai={send_pai}
 send_diversion={send_diversion}
 trust_id_inbound={trust_id_in}
@@ -3977,7 +3988,7 @@ direct_media=no
 force_rport=yes
 rewrite_contact=yes
 rtp_symmetric=yes
-send_rpid={send_rpid}
+{pjsip_ep_safety_lines}send_rpid={send_rpid}
 send_pai={send_pai}
 send_diversion={send_diversion}
 trust_id_inbound={trust_id_in}
@@ -4008,7 +4019,7 @@ direct_media=no
 force_rport=yes
 rewrite_contact=yes
 rtp_symmetric=yes
-send_rpid={send_rpid}
+{pjsip_ep_safety_lines}send_rpid={send_rpid}
 send_pai={send_pai}
 send_diversion={send_diversion}
 trust_id_inbound={trust_id_in}
@@ -4122,7 +4133,7 @@ allow=ulaw,alaw,g722,g729,opus
 direct_media=no
 force_rport=yes
 rtp_symmetric=yes
-webrtc=yes
+{pjsip_ep_safety_lines}webrtc=yes
 rewrite_contact=no
 use_avpf=yes
 media_encryption=dtls
@@ -4181,7 +4192,7 @@ direct_media=no
 force_rport=yes
 rewrite_contact=yes
 rtp_symmetric=yes
-media_use_received_transport=yes
+{pjsip_ep_safety_lines}media_use_received_transport=yes
 send_pai=yes
 send_rpid=yes
 rpid_immediate=yes
@@ -4798,15 +4809,17 @@ same => n,Return(DENY)
 same => n(pin_ok),Return(ALLOW)
 
 [queue_router_sub]
-exten => s,1,NoOp(Kuyruk Yonlendirme Motoru Basladi: Kuyruk=${{ARG1}}, CallID=${{CALL_UUID}})
+exten => s,1,NoOp(Kuyruk Yonlendirme Motoru Basladi: Kuyruk=${{ARG1}}, CallID=${{CALL_UUID}}, QChain=${{Q_CHAIN}}, QDepth=${{Q_FB_DEPTH}})
 same => n,Set(__DYNAMIC_FEATURES=rec_pause_toggle)
+same => n,Set(TIMEOUT(absolute)=7200)
 same => n,Set(CURLOPT(conntimeout)=1)
 same => n,Set(CURLOPT(httptimeout)=2)
 same => n,Set(CUR_Q_EXT=${{ARG1}})
-same => n,Set(Q_FB_DEPTH=0)
 same => n,Set(FALLBACK_HANDLED=0)
-same => n(q_eval_entry),Set(Q_FB_DEPTH=$[${{Q_FB_DEPTH}} + 1])
+same => n(q_eval_entry),Set(__Q_FB_DEPTH=$[${{IF($["${{Q_FB_DEPTH}}"=""]?0:${{Q_FB_DEPTH}})}} + 1])
 same => n,GotoIf($[${{Q_FB_DEPTH}} > 5]?q_ret)
+same => n,GotoIf($["${{Q_CHAIN}}" != "" & ${{REGEX("\\|${{CUR_Q_EXT}}\\|" ${{Q_CHAIN}})}} = 1]?q_ret)
+same => n,Set(__Q_CHAIN=${{IF($["${{Q_CHAIN}}"=""]?|${{CUR_Q_EXT}}|:${{Q_CHAIN}}${{CUR_Q_EXT}}|)}})
 same => n,Set(Q_FREE_CNT=${{QUEUE_MEMBER(${{CUR_Q_EXT}},free)}})
 same => n,Set(Q_LOGGED_CNT=${{QUEUE_MEMBER(${{CUR_Q_EXT}},logged)}})
 same => n,Set(Q_PRE_RES=${{CURL(http://{backend_host}/api/queues/evaluate_routing?queue_ext=${{URIENCODE(${{CUR_Q_EXT}})}}&stage=before&free_cnt=${{URIENCODE(${{Q_FREE_CNT}})}}&logged_cnt=${{URIENCODE(${{Q_LOGGED_CNT}})}}&call_id=${{URIENCODE(${{CALL_UUID}})}}&caller=${{URIENCODE(${{CALLERID(num)}})}})}})
@@ -4822,7 +4835,7 @@ same => n,Set(CALLERID(name)=${{IF($["${{Q_DISP_NAME}}" != ""]?[${{Q_DISP_NAME}}
 same => n,GotoIf($["${{Q_MAX_WAIT}}" != ""]?q_with_timeout:q_no_timeout)
 same => n(q_with_timeout),Queue(${{CUR_Q_EXT}},tTc,,,${{Q_MAX_WAIT}})
 same => n,Goto(q_after_queue)
-same => n(q_no_timeout),Queue(${{CUR_Q_EXT}},tTc)
+same => n(q_no_timeout),Queue(${{CUR_Q_EXT}},tTc,,,600)
 same => n(q_after_queue),GotoIf($["${{MEMBERINTERFACE}}" != ""]?q_answered)
 same => n,Set(Q_POST_RES=${{CURL(http://{backend_host}/api/queues/evaluate_routing?queue_ext=${{URIENCODE(${{CUR_Q_EXT}})}}&stage=after&queuestatus=${{URIENCODE(${{QUEUESTATUS}})}}&call_id=${{URIENCODE(${{CALL_UUID}})}}&caller=${{URIENCODE(${{CALLERID(num)}})}})}})
 same => n,Set(Q_MODE=${{CUT(Q_POST_RES,|,1)}})
@@ -4844,7 +4857,7 @@ same => n,GotoIf($["${{Q_ACT_TYPE}}" = "USER"]?q_fb_user)
 same => n,GotoIf($["${{Q_ACT_TYPE}}" = "GSM"]?q_fb_gsm)
 same => n,GotoIf($["${{Q_ACT_TYPE}}" = "AUDIOSOCKET"]?q_fb_audiosocket)
 same => n,Goto(q_fb_hangup)
-same => n(q_cont_queue),Set(Q_FB_DEPTH=$[${{Q_FB_DEPTH}} + 1])
+same => n(q_cont_queue),Set(__Q_FB_DEPTH=$[${{IF($["${{Q_FB_DEPTH}}"=""]?0:${{Q_FB_DEPTH}})}} + 1])
 same => n,GotoIf($[${{Q_FB_DEPTH}} > 6]?q_fb_hangup)
 same => n,Set(FALLBACK_HANDLED=0)
 same => n,Goto(q_do_queue)
@@ -4891,6 +4904,9 @@ same => n(done_qsub_h),NoOp(Kuyruk Hangup tamamlandi)
 ; Operatörden gelen aramaları yakalamak için (Standart numara eşleşmesi)
 exten => _X.,1,NoOp(Gelen arama DID ile yakalandi: ${{EXTEN}} - Arayan: ${{CALLERID(num)}})
 same => n,Set(__DYNAMIC_FEATURES=rec_pause_toggle)
+same => n,Set(TIMEOUT(absolute)=7200)
+same => n,Set(CURLOPT(conntimeout)=1)
+same => n,Set(CURLOPT(httptimeout)=2)
 same => n,Set(RAW_DEF_FROM=${{PJSIP_HEADER(read,From)}})
 same => n,Set(PARSED_DEF_FROM=${{CUT(CUT(CUT(RAW_DEF_FROM,@,1),:,2),>,1)}})
 same => n,Set(CALLERID(num)=${{IF($["${{CALLERID(num)}}" = "" | "${{CALLERID(num)}}" = "${{EXTEN}}" | "${{CALLERID(num)}}" = "908503607390"]?${{IF($["${{PARSED_DEF_FROM}}" != ""]?${{PARSED_DEF_FROM}}:${{CALLERID(num)}})}}:${{CALLERID(num)}})}})
@@ -4911,6 +4927,9 @@ same => n,Hangup(21)
 ; Uluslararası / + ile gelen DID numaraları için (+90...)
 exten => _+X.,1,NoOp(Gelen arama +DID ile yakalandi: ${{EXTEN}} - Arayan: ${{CALLERID(num)}})
 same => n,Set(__DYNAMIC_FEATURES=rec_pause_toggle)
+same => n,Set(TIMEOUT(absolute)=7200)
+same => n,Set(CURLOPT(conntimeout)=1)
+same => n,Set(CURLOPT(httptimeout)=2)
 same => n,Set(RAW_DEF_FROM=${{PJSIP_HEADER(read,From)}})
 same => n,Set(PARSED_DEF_FROM=${{CUT(CUT(CUT(RAW_DEF_FROM,@,1),:,2),>,1)}})
 same => n,Set(CALLERID(num)=${{IF($["${{CALLERID(num)}}" = "" | "${{CALLERID(num)}}" = "${{EXTEN}}" | "${{CALLERID(num)}}" = "908503607390"]?${{IF($["${{PARSED_DEF_FROM}}" != ""]?${{PARSED_DEF_FROM}}:${{CALLERID(num)}})}}:${{CALLERID(num)}})}})
@@ -4931,6 +4950,9 @@ same => n,Hangup(21)
 ; Fallback (s uzantısı)
 exten => s,1,NoOp(Gelen arama s uzantisi ile yakalandi: ${{CALLERID(num)}})
 same => n,Set(__DYNAMIC_FEATURES=rec_pause_toggle)
+same => n,Set(TIMEOUT(absolute)=7200)
+same => n,Set(CURLOPT(conntimeout)=1)
+same => n,Set(CURLOPT(httptimeout)=2)
 same => n,Set(RAW_DEF_FROM=${{PJSIP_HEADER(read,From)}})
 same => n,Set(PARSED_DEF_FROM=${{CUT(CUT(CUT(RAW_DEF_FROM,@,1),:,2),>,1)}})
 same => n,Set(CALLERID(num)=${{IF($["${{CALLERID(num)}}" = "" | "${{CALLERID(num)}}" = "908503607390"]?${{IF($["${{PARSED_DEF_FROM}}" != ""]?${{PARSED_DEF_FROM}}:${{CALLERID(num)}})}}:${{CALLERID(num)}})}})
@@ -5032,7 +5054,7 @@ same => n,Set(SUB_OUT_CNT=${{GROUP_COUNT(${{CALLERID(num)}}@sub_out)}})
 same => n,Set(CURLOPT(conntimeout)=1)
 same => n,Set(CURLOPT(httptimeout)=2)
 same => n,Set(OUT_ACL=${{CURL(http://{backend_host}/api/acl/check_outbound_call?caller=${{CALLERID(num)}}&callee=${{EXTEN}}&sub_active=${{SUB_OUT_CNT}}&channel=${{URIENCODE(${{CHANNEL(name)}})}}&via=${{URIENCODE(${{PJSIP_HEADER(read,Via)}})}}&ua=${{URIENCODE(${{PJSIP_HEADER(read,User-Agent)}})}})}})
-same => n,GotoIf($["${{OUT_ACL}}" = "ALLOW"]?allow_out)
+same => n,GotoIf($["${{OUT_ACL}}" = "ALLOW" | "${{OUT_ACL}}" = ""]?allow_out)
 same => n,GotoIf($["${{CUT(OUT_ACL,:,1)}}" = "PIN_REQUIRED"]?pin_check_out:deny_out)
 same => n(pin_check_out),Gosub(outbound_pin_auth_sub,s,1(${{CUT(OUT_ACL,:,2)}},${{EXTEN}}))
 same => n,GotoIf($["${{GOSUB_RETVAL}}" = "ALLOW"]?allow_out)
@@ -5110,7 +5132,9 @@ same => n(q_ext_already_reg),Answer()
 same => n,MixMonitor(/var/spool/asterisk/monitor/${{CALL_UUID}}.wav,b)
 same => n,Gosub(queue_router_sub,s,1(${{CUT(SPEC_TARGET,|,2)}}))
 same => n,Hangup()
-same => n(speeddial_route_ext),NoOp(HIZLI ARAMA YONLENDIRMESI: Kod=${{EXTEN}} -> Hedef=${{CUT(SPEC_TARGET,|,2)}})
+same => n(speeddial_route_ext),NoOp(HIZLI ARAMA YONLENDIRMESI: Kod=${{EXTEN}} -> Hedef=${{CUT(SPEC_TARGET,|,2)}} Hop=${{SD_HOP}})
+same => n,Set(__SD_HOP=$[${{IF($["${{SD_HOP}}"=""]?0:${{SD_HOP}})}} + 1])
+same => n,GotoIf($[${{SD_HOP}} > 3 | "${{CUT(SPEC_TARGET,|,2)}}" = "${{EXTEN}}" | "${{CUT(SPEC_TARGET,|,2)}}" = ""]?fwd_loop_blocked)
 same => n,Goto(webrtc_agents,${{CUT(SPEC_TARGET,|,2)}},1)
 same => n(emergency_route_ext),NoOp(ACIL DURUM ARAMASI [ACL/LIMIT BYPASS]: Arayan=${{CALLERID(num)}}, Acil=${{EXTEN}})
 same => n,Set(MD5_VAL=${{MD5(${{UNIQUEID}}${{EPOCH}})}})
@@ -5125,7 +5149,7 @@ same => n,Set(SUB_OUT_CNT=${{GROUP_COUNT(${{CALLERID(num)}}@sub_out)}})
 same => n,Set(CURLOPT(conntimeout)=1)
 same => n,Set(CURLOPT(httptimeout)=2)
 same => n,Set(OUT_ACL=${{CURL(http://{backend_host}/api/acl/check_outbound_call?caller=${{CALLERID(num)}}&callee=${{EXTEN}}&sub_active=${{SUB_OUT_CNT}}&channel=${{URIENCODE(${{CHANNEL(name)}})}}&via=${{URIENCODE(${{PJSIP_HEADER(read,Via)}})}}&ua=${{URIENCODE(${{PJSIP_HEADER(read,User-Agent)}})}})}})
-same => n,GotoIf($["${{OUT_ACL}}" = "ALLOW"]?allow_out_ext)
+same => n,GotoIf($["${{OUT_ACL}}" = "ALLOW" | "${{OUT_ACL}}" = ""]?allow_out_ext)
 same => n,GotoIf($["${{CUT(OUT_ACL,:,1)}}" = "PIN_REQUIRED"]?pin_check_out_ext:deny_out_ext)
 same => n(pin_check_out_ext),Gosub(outbound_pin_auth_sub,s,1(${{CUT(OUT_ACL,:,2)}},${{EXTEN}}))
 same => n,GotoIf($["${{GOSUB_RETVAL}}" = "ALLOW"]?allow_out_ext)
@@ -5363,6 +5387,7 @@ same => n,Hangup()
 
 [hotdesk_cid_sub]
 exten => s,1,Set(__DYNAMIC_FEATURES=rec_pause_toggle)
+same => n,Set(TIMEOUT(absolute)=7200)
 same => n,Set(CURLOPT(conntimeout)=1)
 same => n,Set(CURLOPT(httptimeout)=2)
 same => n,Set(HD_ID_RES=${{CURL(http://{backend_host}/api/hotdesk/resolve_channel_identity?channel=${{URIENCODE(${{CHANNEL(name)}})}})}})
@@ -5544,6 +5569,7 @@ same => n,Return()
 exten => s,1,Set(CONF_ROOM=${{ARG1}})
 same => n,Set(CONF_REC=${{ARG2}})
 same => n,Set(CONF_PIN=${{ARG3}})
+same => n,Set(TIMEOUT(absolute)=14400)
 same => n,Answer()
 same => n,Wait(0.3)
 same => n,Set(DIALSTATUS=ANSWER)
@@ -5563,6 +5589,7 @@ same => n(conf_chk_rec),StopMixMonitor()
 same => n,GotoIf($["${{CONF_REC}}" != "1"]?conf_enter)
 same => n,MixMonitor(/var/spool/asterisk/monitor/${{CALL_UUID}}.wav,ab)
 same => n(conf_enter),Playback(/var/spool/asterisk/monitor/tr_konferans_hosgeldiniz)
+same => n,Set(CONFBRIDGE(user,timeout)=14400)
 same => n,Set(CONFBRIDGE(user,announce_only_user)=yes)
 same => n,Set(CONFBRIDGE(user,announce_join_leave)=no)
 same => n,Set(CONFBRIDGE(user,announce_user_count)=no)
@@ -5605,6 +5632,7 @@ same => n(cie_done),Hangup()
 
 [conference_join_context]
 exten => _X.,1,NoOp(Davet Edilen Katilimci Konferansa Baglaniyor: Oda=${{EXTEN}}, Katilimci=${{INVITED_PARTICIPANT}})
+same => n,Set(TIMEOUT(absolute)=14400)
 same => n,Answer()
 same => n,Wait(0.3)
 same => n,Set(INV_PART=${{IF($["${{INVITED_PARTICIPANT}}" != ""]?${{INVITED_PARTICIPANT}}:${{CUT(CUT(CHANNEL(name),/,2),@,1)}})}})
@@ -5617,6 +5645,7 @@ same => n,Set(CONF_JOIN_RES=${{CURL(http://{backend_host}/api/conferences/partic
 same => n,GotoIf($["${{CONF_REC_EN}}" != "1"]?cj_enter)
 same => n,MixMonitor(/var/spool/asterisk/monitor/${{CALL_UUID}}.wav,ab)
 same => n(cj_enter),Playback(/var/spool/asterisk/monitor/tr_konferans_hosgeldiniz)
+same => n,Set(CONFBRIDGE(user,timeout)=14400)
 same => n,Set(CONFBRIDGE(user,announce_only_user)=yes)
 same => n,Set(CONFBRIDGE(user,announce_join_leave)=no)
 same => n,Set(CONFBRIDGE(user,announce_user_count)=no)
