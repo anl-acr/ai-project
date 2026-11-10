@@ -141,18 +141,6 @@ async def on_startup_telemetry():
     except Exception as e:
         print(f"[Telemetry Startup Error]: {e}")
 
-    if os.path.exists("/etc/asterisk"):
-        async def _startup_asterisk_sync():
-            try:
-                await asyncio.sleep(1.0)
-                await asyncio.to_thread(regenerate_pjsip_custom_conf)
-                await asyncio.to_thread(regenerate_queues_conf)
-                await asyncio.to_thread(regenerate_extensions_custom_conf)
-                print("[Asterisk Startup Sync] /etc/asterisk pjsip, queues ve dialplan otomatik senkronize edildi.")
-            except Exception as ast_err:
-                print(f"[Asterisk Startup Sync Warning]: {ast_err}")
-        asyncio.create_task(_startup_asterisk_sync())
-
 # Enable CORS for frontend development
 app.add_middleware(
     CORSMiddleware,
@@ -2389,6 +2377,30 @@ def load_settings(force_reload: bool = False, persist: bool = False):
                 for r in db_roles:
                     roles_list.append({col.name: getattr(r, col.name) for col in SystemRole.__table__.columns})
                 db["roles"] = roles_list
+
+            try:
+                from backend.database.models import Trunk as _TrunkModel
+                db_trunks_rows = session.query(_TrunkModel).order_by(_TrunkModel.id).all()
+                if db_trunks_rows:
+                    disk_trunks = db.get("trunks") if isinstance(db.get("trunks"), list) else []
+                    disk_t_map = {
+                        str(dt.get("trunk_name") or dt.get("name") or dt.get("id") or "").strip().lower(): dt
+                        for dt in disk_trunks
+                        if isinstance(dt, dict)
+                    }
+                    trunks_out = []
+                    for tr in db_trunks_rows:
+                        td = {col.name: getattr(tr, col.name) for col in _TrunkModel.__table__.columns}
+                        tk_low = str(td.get("trunk_name") or td.get("name") or "").strip().lower()
+                        dt_m = disk_t_map.get(tk_low) or disk_t_map.get(str(td.get("id") or "").strip().lower())
+                        if dt_m:
+                            for ek in ("codecs", "call_limit_enabled", "call_limit_direction", "max_channels", "sip_headers"):
+                                if td.get(ek) in (None, {}, []) and dt_m.get(ek) not in (None, {}, []):
+                                    td[ek] = dt_m.get(ek)
+                        trunks_out.append(td)
+                    db["trunks"] = trunks_out
+            except Exception as _e_tr_load:
+                print(f"[Settings DB] Trunks load notice: {_e_tr_load}")
         finally:
             session.close()
     except Exception as e:
@@ -3052,11 +3064,11 @@ def run_pjsip_reload():
         import subprocess
         subprocess.run(["asterisk", "-rx", "module reload http"], capture_output=True, text=True, timeout=ast_timeout)
         subprocess.run(["asterisk", "-rx", "module reload res_pjsip_notify.so"], capture_output=True, text=True, timeout=ast_timeout)
-        subprocess.run(["asterisk", "-rx", "module reload res_pjsip.so"], capture_output=True, text=True, timeout=ast_timeout)
         res = subprocess.run(["asterisk", "-rx", "pjsip reload"], capture_output=True, text=True, timeout=ast_timeout)
+        subprocess.run(["asterisk", "-rx", "pjsip send register *all"], capture_output=True, text=True, timeout=ast_timeout)
         subprocess.run(["asterisk", "-rx", "dialplan reload"], capture_output=True, text=True, timeout=ast_timeout)
         if res.returncode == 0:
-            print("[Asterisk Config] HTTP/WSS, PJSIP ve Dialplan başarıyla yenilendi (host).")
+            print("[Asterisk Config] HTTP/WSS, PJSIP (ve Register) ile Dialplan başarıyla yenilendi (host).")
             return
         elif (res.stderr or res.stdout):
             print(f"[Asterisk Config] PJSIP reload çıktısı (kod={res.returncode}): {(res.stderr or res.stdout).strip()}")
@@ -3066,8 +3078,8 @@ def run_pjsip_reload():
     if not has_host_ast:
         try:
             import subprocess
-            subprocess.run(["docker", "exec", "ai_pbx_asterisk", "asterisk", "-rx", "module reload res_pjsip.so"], check=False, capture_output=True, timeout=ast_timeout)
             subprocess.run(["docker", "exec", "ai_pbx_asterisk", "asterisk", "-rx", "pjsip reload"], check=True, capture_output=True, timeout=ast_timeout)
+            subprocess.run(["docker", "exec", "ai_pbx_asterisk", "asterisk", "-rx", "pjsip send register *all"], check=False, capture_output=True, timeout=ast_timeout)
             subprocess.run(["docker", "exec", "ai_pbx_asterisk", "asterisk", "-rx", "dialplan reload"], check=True, capture_output=True, timeout=ast_timeout)
             print("[Asterisk Config] PJSIP & Dialplan configurations reloaded successfully in Asterisk container.")
         except Exception as e:
@@ -3513,11 +3525,17 @@ def regenerate_pjsip_custom_conf(background_tasks: Optional[BackgroundTasks] = N
     local_nets = nat_cfg.get("local_nets", [])
     if isinstance(local_nets, str):
         local_nets = [net.strip() for net in local_nets.split(",") if net.strip()]
+    if not local_nets:
+        local_nets = ["192.168.0.0/16", "10.0.0.0/8", "172.16.0.0/12", "127.0.0.1/32"]
 
     nat_lines = ""
     if extern_ip:
         nat_lines += f"external_media_address={extern_ip}\nexternal_signaling_address={extern_ip}\n"
-    if nat_enabled and local_nets:
+        for net in local_nets:
+            net_clean = str(net).strip()
+            if net_clean:
+                nat_lines += f"local_net={net_clean}\n"
+    elif nat_enabled and local_nets:
         for net in local_nets:
             net_clean = str(net).strip()
             if net_clean:
@@ -3686,20 +3704,30 @@ bind=0.0.0.0:8089
             _sanitize_trunk_name(primary_trunk_ref.get("trunk_name") or primary_trunk_ref.get("name") or "908503607390")
             if primary_trunk_ref else "908503607390"
         )
+        op_proto = str(primary_trunk_ref.get("protocol") or "udp").lower() if primary_trunk_ref else "udp"
+        op_transport = "transport-tls" if op_proto == "tls" else ("transport-tcp" if op_proto == "tcp" else "transport-udp")
+        op_user = str((primary_trunk_ref.get("username") or primary_trunk_ref.get("did_number") or "908503607390") if primary_trunk_ref else "908503607390").strip()
+        op_host = str((primary_trunk_ref.get("host") or "ikonsip.com") if primary_trunk_ref else "ikonsip.com").strip()
+        op_sh = _parse_trunk_sip_headers(primary_trunk_ref) if primary_trunk_ref else {}
+        op_realm = str(op_sh.get("realm") or "").strip()
+        op_from_domain = op_realm if op_realm else (op_host if op_host != "127.0.0.1" else "ikonsip.com")
         conf_content += f"""
 ; --- OPERATOR TRUNK (OUTBOUND LINK) ---
 [Operator_Trunk]
 type=endpoint
-context=default
+transport={op_transport}
+context=from-trunk-{op_ref_safe_name}
 disallow=all
 allow={op_trunk_codecs}
-direct_media=no
-rtp_symmetric=yes
-force_rport=yes
-rewrite_contact=no
-media_use_received_transport=yes
-outbound_auth={op_ref_safe_name}-auth
 aors={op_ref_safe_name}-aor
+outbound_auth={op_ref_safe_name}-auth
+direct_media=no
+force_rport=yes
+rewrite_contact=yes
+rtp_symmetric=yes
+trust_id_inbound=yes
+from_user={op_user}
+from_domain={op_from_domain}
 """
     if not has_1000_in_users:
         from backend.services.autoprovision_service import (
@@ -14844,7 +14872,9 @@ async def _auto_invite_conference_participants(
                 except Exception as e_cli_i:
                     print(f"[Conference Auto-Invite Internal CLI Error]: {e_cli_i}")
 
-        async def _invite_external_one(ext_num: str):
+        async def _invite_external_one(ext_num: str, delay_sec: float = 0.0):
+            if delay_sec > 0:
+                await asyncio.sleep(delay_sec)
             ext_last10 = ext_num[-10:] if len(ext_num) >= 10 else ext_num
             if ext_num in active_nums or (len(ext_last10) >= 10 and ext_last10 in active_nums):
                 print(f"[Conference Auto-Invite] Harici {ext_num} zaten konferansta aktif, atlaniyor.")
@@ -14895,7 +14925,7 @@ async def _auto_invite_conference_participants(
         for idx_i, t_ext in enumerate(resolved_internal_exts):
             invite_tasks.append(_invite_internal_one(t_ext))
         for idx_e, ext_num in enumerate(resolved_external_nums):
-            invite_tasks.append(_invite_external_one(ext_num))
+            invite_tasks.append(_invite_external_one(ext_num, delay_sec=idx_e * 0.35))
 
         if invite_tasks:
             await asyncio.gather(*invite_tasks, return_exceptions=True)

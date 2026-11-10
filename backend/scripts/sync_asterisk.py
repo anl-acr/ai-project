@@ -1,10 +1,29 @@
 import os
 import sys
+import glob
 import subprocess
 import shutil
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 PROJECT_ROOT = os.path.abspath(os.path.join(BASE_DIR, ".."))
+
+# Ensure virtualenv site-packages (e.g. /opt/ai-project/venv) are available even when invoked via system python3
+for _venv_cand in [
+    os.path.join(PROJECT_ROOT, "venv"),
+    os.path.join(BASE_DIR, "venv"),
+    "/opt/ai-project/venv",
+]:
+    _venv_py = os.path.join(_venv_cand, "bin", "python3")
+    if os.path.isfile(_venv_py) and os.path.realpath(sys.executable) != os.path.realpath(_venv_py):
+        try:
+            import sqlalchemy  # noqa: F401
+        except ImportError:
+            os.execv(_venv_py, [_venv_py] + sys.argv)
+    for _sp in glob.glob(os.path.join(_venv_cand, "lib", "python*", "site-packages")):
+        if os.path.isdir(_sp) and _sp not in sys.path:
+            sys.path.insert(0, _sp)
+if PROJECT_ROOT not in sys.path:
+    sys.path.insert(0, PROJECT_ROOT)
 
 def sync():
     print("[Sync Script] Asterisk konfigürasyonları güncelleniyor...")
@@ -241,14 +260,31 @@ stunaddr=stun.l.google.com:19302
                     _db_trunks = _db_s.query(Trunk).all()
                     if _db_trunks and isinstance(sdata, dict):
                         _disk_trunks = sdata.get("trunks", []) if isinstance(sdata.get("trunks"), list) else []
-                        _seen_tnames = {str(dt.get("name") or "").strip().lower() for dt in _disk_trunks if isinstance(dt, dict)}
+                        _disk_t_map = {
+                            str(dt.get("trunk_name") or dt.get("name") or dt.get("id") or "").strip().lower(): dt
+                            for dt in _disk_trunks
+                            if isinstance(dt, dict)
+                        }
+                        _merged_trunks = []
+                        _seen_tnames = set()
                         for _tr in _db_trunks:
                             _td = {c.name: getattr(_tr, c.name) for c in Trunk.__table__.columns}
-                            _tn = str(_td.get("name") or "").strip().lower()
+                            _tn = str(_td.get("trunk_name") or _td.get("name") or "").strip().lower()
+                            _dt_match = _disk_t_map.get(_tn) or _disk_t_map.get(str(_td.get("id") or "").strip().lower())
+                            if _dt_match:
+                                for _ek in ("codecs", "call_limit_enabled", "call_limit_direction", "max_channels", "sip_headers"):
+                                    if _td.get(_ek) in (None, {}, []) and _dt_match.get(_ek) not in (None, {}, []):
+                                        _td[_ek] = _dt_match.get(_ek)
                             if _tn and _tn not in _seen_tnames:
-                                _disk_trunks.append(_td)
+                                _merged_trunks.append(_td)
                                 _seen_tnames.add(_tn)
-                        sdata["trunks"] = _disk_trunks
+                        for _dt in _disk_trunks:
+                            if isinstance(_dt, dict):
+                                _dtn = str(_dt.get("trunk_name") or _dt.get("name") or "").strip().lower()
+                                if _dtn and _dtn not in _seen_tnames:
+                                    _merged_trunks.append(_dt)
+                                    _seen_tnames.add(_dtn)
+                        sdata["trunks"] = _merged_trunks
                     _db_queues = _db_s.query(PBXQueue).all()
                     if _db_queues and isinstance(sdata, dict):
                         _disk_queues = sdata.get("queues", []) if isinstance(sdata.get("queues"), list) else []
@@ -260,16 +296,18 @@ stunaddr=stun.l.google.com:19302
                                 _disk_queues.append(_qd)
                                 _seen_qexts.add(_qe)
                         sdata["queues"] = _disk_queues
-                except Exception:
-                    pass
-        except Exception:
-            pass
+                except Exception as _e_tq:
+                    print(f"[Sync Script] DB Trunks/Queues merge warning: {_e_tq}")
+        except Exception as _e_db_u:
+            print(f"[Sync Script] DB Users merge warning: {_e_db_u}")
 
         nat_enabled = nat_cfg.get("enabled", False)
         extern_ip = (nat_cfg.get("extern_ip") or "").strip()
         local_nets = nat_cfg.get("local_nets", [])
         if isinstance(local_nets, str):
             local_nets = [net.strip() for net in local_nets.split(",") if net.strip()]
+        if not local_nets:
+            local_nets = ["192.168.0.0/16", "10.0.0.0/8", "172.16.0.0/12", "127.0.0.1/32"]
 
         import hashlib
         def resolve_secure_sip_password(ext_val, raw_pwd=""):
@@ -288,7 +326,11 @@ stunaddr=stun.l.google.com:19302
         nat_lines = ""
         if extern_ip:
             nat_lines += f"external_media_address={extern_ip}\nexternal_signaling_address={extern_ip}\n"
-        if nat_enabled and local_nets:
+            for net in local_nets:
+                net_clean = str(net).strip()
+                if net_clean:
+                    nat_lines += f"local_net={net_clean}\n"
+        elif nat_enabled and local_nets:
             for net in local_nets:
                 net_clean = str(net).strip()
                 if net_clean:
@@ -401,20 +443,30 @@ protocol=wss
 bind=0.0.0.0:8089
 {nat_lines}"""
         if not has_exp_op_t:
+            op_proto_s = str(primary_t_ref.get("protocol") or "udp").lower() if primary_t_ref else "udp"
+            op_tr_s = "transport-tls" if op_proto_s == "tls" else ("transport-tcp" if op_proto_s == "tcp" else "transport-udp")
+            op_user_s = str((primary_t_ref.get("username") or primary_t_ref.get("did_number") or "908503607390") if primary_t_ref else "908503607390").strip()
+            op_host_s = str((primary_t_ref.get("host") or "ikonsip.com") if primary_t_ref else "ikonsip.com").strip()
+            op_sh_s = _parse_sh(primary_t_ref) if primary_t_ref else {}
+            op_realm_s = str(op_sh_s.get("realm") or "").strip()
+            op_domain_s = op_realm_s if op_realm_s else (op_host_s if op_host_s != "127.0.0.1" else "ikonsip.com")
             pjsip_custom_content += f"""
 ; --- OPERATOR TRUNK (OUTBOUND LINK) ---
 [Operator_Trunk]
 type=endpoint
-context=default
+transport={op_tr_s}
+context=from-trunk-{op_ref_safe_s}
 disallow=all
 allow={op_allow_s}
-direct_media=no
-rtp_symmetric=yes
-force_rport=yes
-rewrite_contact=no
-media_use_received_transport=yes
-outbound_auth={op_ref_safe_s}-auth
 aors={op_ref_safe_s}-aor
+outbound_auth={op_ref_safe_s}-auth
+direct_media=no
+force_rport=yes
+rewrite_contact=yes
+rtp_symmetric=yes
+trust_id_inbound=yes
+from_user={op_user_s}
+from_domain={op_domain_s}
 """
         for t in trunks_list:
             if t.get("is_active", True) is False:
@@ -944,9 +996,9 @@ Event=>check-sync;reboot=false
 
         ast_reload_timeout = 10.0 if os.path.exists("/etc/asterisk") else 2.0
         subprocess.run(["asterisk", "-rx", "module reload res_pjsip_notify.so"], check=False, timeout=ast_reload_timeout)
-        subprocess.run(["asterisk", "-rx", "module reload res_pjsip.so"], check=False, timeout=ast_reload_timeout)
         subprocess.run(["asterisk", "-rx", "pjsip reload"], check=False, timeout=ast_reload_timeout)
-        print("[Sync Script] Asterisk PJSIP başarıyla yenilendi (pjsip reload).")
+        subprocess.run(["asterisk", "-rx", "pjsip send register *all"], check=False, timeout=ast_reload_timeout)
+        print("[Sync Script] Asterisk PJSIP başarıyla yenilendi (pjsip reload & register).")
     except Exception as e_pjsip:
         print(f"[Sync Script] PJSIP oluşturma hatası: {e_pjsip}")
 
