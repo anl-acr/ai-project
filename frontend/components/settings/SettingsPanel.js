@@ -486,7 +486,7 @@ export default function SettingsPanel({ backendHost = "localhost:8000" }) {
           {
             id: "recording-retention",
             label: "Kayıt & Saklama Sistemi",
-            subtitle: "Ses kaydı arşiv ve saklama süresi",
+            subtitle: "Ses kaydı arşiv ve engelli IP saklama süresi",
             icon: Database,
             visible: hasRecordingRetentionPermission
           },

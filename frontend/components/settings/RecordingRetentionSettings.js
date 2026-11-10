@@ -67,6 +67,13 @@ export default function RecordingRetentionSettings({ backendHost = "localhost:80
   const [deleteByDays, setDeleteByDays] = useState(false);
   const [keepDays, setKeepDays] = useState(90);
 
+  // Blocked IP Retention States
+  const [autoDeleteBlockedIps, setAutoDeleteBlockedIps] = useState(true);
+  const [blockedIpKeepDays, setBlockedIpKeepDays] = useState(7);
+  const [preserveManualBlockedIps, setPreserveManualBlockedIps] = useState(true);
+  const [cleaningBlockedIps, setCleaningBlockedIps] = useState(false);
+  const [blockedCleanupBanner, setBlockedCleanupBanner] = useState(null);
+
   // Dynamic Voice Recording States
   const [dynamicRecordingEnabled, setDynamicRecordingEnabled] = useState(false);
   const [dynamicMode, setDynamicMode] = useState("keep_on_match"); // "keep_on_match" | "delete_on_match"
@@ -184,6 +191,9 @@ export default function RecordingRetentionSettings({ backendHost = "localhost:80
           setExternalUsername(data.external_username || "");
           setExternalPassword(data.external_password || "");
           setExternalDomain(data.external_domain || "WORKGROUP");
+          setAutoDeleteBlockedIps(data.auto_delete_blocked_ips ?? true);
+          setBlockedIpKeepDays(data.blocked_ip_keep_days ?? 7);
+          setPreserveManualBlockedIps(data.preserve_manual_blocked_ips ?? true);
         }
       } catch (err) {
         console.error("Ses kayıt ayarları yüklenirken hata:", err);
@@ -282,6 +292,34 @@ export default function RecordingRetentionSettings({ backendHost = "localhost:80
     }
   };
 
+  const handleCleanupBlockedIpsNow = async () => {
+    if (!writePermission) return;
+    setCleaningBlockedIps(true);
+    setBlockedCleanupBanner(null);
+    try {
+      const res = await fetch(`${API_BASE}/api/security/fail2ban/cleanup`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          mode: "expired",
+          older_than_days: parseInt(blockedIpKeepDays, 10) || 7,
+        }),
+      });
+      const data = await res.json();
+      setBlockedCleanupBanner({
+        type: res.ok ? "success" : "error",
+        message: data.message || "Engelli IP temizleme işlemi tamamlandı.",
+      });
+    } catch (err) {
+      setBlockedCleanupBanner({
+        type: "error",
+        message: `Engelli IP temizleme sırasında hata: ${err.message}`,
+      });
+    } finally {
+      setCleaningBlockedIps(false);
+    }
+  };
+
   const handleSave = async (e) => {
     e.preventDefault();
     if (!writePermission) return;
@@ -314,6 +352,9 @@ export default function RecordingRetentionSettings({ backendHost = "localhost:80
           external_username: externalUsername,
           external_password: externalPassword,
           external_domain: externalDomain,
+          auto_delete_blocked_ips: autoDeleteBlockedIps,
+          blocked_ip_keep_days: Math.max(1, parseInt(blockedIpKeepDays, 10) || 7),
+          preserve_manual_blocked_ips: preserveManualBlockedIps,
         }),
       });
 
@@ -1519,6 +1560,126 @@ export default function RecordingRetentionSettings({ backendHost = "localhost:80
                   </span>
                 </div>
               </div>
+            </div>
+          )}
+        </div>
+
+        {/* =================================================================== */}
+        {/* SECTION 4: BLOCKED IP AUTO-CLEANUP RETENTION                        */}
+        {/* =================================================================== */}
+        <div className="p-4 bg-slate-50/50 dark:bg-slate-955/20 border border-slate-100 dark:border-slate-850 rounded-2xl flex flex-col gap-4">
+          <div className="flex items-start justify-between gap-4">
+            <div className="flex items-start gap-2.5">
+              <div className={`p-2 rounded-xl ${lightBg} ${text} shrink-0 mt-0.5`}>
+                <ShieldAlert size={16} />
+              </div>
+              <div>
+                <h4 className="font-black text-xs text-slate-800 dark:text-slate-200">
+                  Güvenlik Kalkanı Engellenen IP Otomatik Silme (Periyodik Temizleme)
+                </h4>
+                <p className="text-xs text-slate-400 dark:text-slate-500 mt-1">
+                  Fail2Ban ve SIP güvenlik kalkanı tarafından otomatik engellenen IP adreslerini, belirlenen gün süresi dolduğunda güvenlik duvarından ve listeden otomatik temizler.
+                </p>
+              </div>
+            </div>
+            <input
+              type="checkbox"
+              checked={autoDeleteBlockedIps}
+              disabled={!writePermission}
+              onChange={(e) => setAutoDeleteBlockedIps(e.target.checked)}
+              className="rounded border-slate-300 text-primary focus:ring-rose-500 h-4 w-4 cursor-pointer disabled:opacity-50 mt-1"
+            />
+          </div>
+
+          {autoDeleteBlockedIps && (
+            <div className="flex flex-col gap-4 bg-white dark:bg-slate-900 border border-slate-200/50 dark:border-slate-800 p-4 rounded-xl mt-1 animate-in slide-in-from-top-2 duration-150">
+              <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                <div className="flex flex-col gap-1.5">
+                  <label className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">
+                    Engellenen IP Saklama Süresi (Gün)
+                  </label>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <input
+                      type="number"
+                      min="1"
+                      max="3650"
+                      value={blockedIpKeepDays}
+                      disabled={!writePermission}
+                      onChange={(e) => setBlockedIpKeepDays(e.target.value)}
+                      className="w-28 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-850 text-slate-800 dark:text-slate-100 rounded-xl px-3 py-1.5 text-xs focus:outline-none font-bold"
+                    />
+                    <span className="text-xs font-semibold text-slate-500 dark:text-slate-400">
+                      gün sonra otomatik kaldırılır.
+                    </span>
+                    <div className="flex items-center gap-1 ml-1">
+                      {[1, 3, 7, 15, 30, 90].map((d) => (
+                        <button
+                          key={d}
+                          type="button"
+                          disabled={!writePermission}
+                          onClick={() => setBlockedIpKeepDays(d)}
+                          className={`px-2 py-1 rounded-lg text-[10px] font-bold border transition-all ${
+                            Number(blockedIpKeepDays) === d
+                              ? `${bg} text-white border-transparent`
+                              : "bg-slate-50 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:bg-slate-100"
+                          }`}
+                        >
+                          {d} Gün
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+
+                {writePermission && (
+                  <button
+                    type="button"
+                    onClick={handleCleanupBlockedIpsNow}
+                    disabled={cleaningBlockedIps}
+                    className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 transition-all shrink-0 cursor-pointer disabled:opacity-50"
+                  >
+                    <Trash2 size={13} className="text-rose-500" />
+                    <span>{cleaningBlockedIps ? "Temizleniyor..." : "Süresi Dolanları Şimdi Temizle"}</span>
+                  </button>
+                )}
+              </div>
+
+              <div className="pt-3 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between gap-3">
+                <div>
+                  <span className="text-xs font-bold text-slate-700 dark:text-slate-200">
+                    Manuel Eklenen IP ve Alt Ağ (CIDR) Engellerini Koru
+                  </span>
+                  <p className="text-[11px] text-slate-400 dark:text-slate-500 mt-0.5">
+                    Açık olduğunda, yöneticilerin elle eklediği kalıcı IP engelleri silinmez; yalnızca otomatik saldırı engelleri süresi dolunca kaldırılır.
+                  </p>
+                </div>
+                <input
+                  type="checkbox"
+                  checked={preserveManualBlockedIps}
+                  disabled={!writePermission}
+                  onChange={(e) => setPreserveManualBlockedIps(e.target.checked)}
+                  className="rounded border-slate-300 text-primary focus:ring-rose-500 h-4 w-4 cursor-pointer shrink-0 disabled:opacity-50"
+                />
+              </div>
+
+              {blockedCleanupBanner && (
+                <div
+                  className={`p-3 rounded-xl text-xs font-semibold flex items-center justify-between gap-2 ${
+                    blockedCleanupBanner.type === "success"
+                      ? "bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-800/50 text-emerald-700 dark:text-emerald-300"
+                      : "bg-rose-50 dark:bg-rose-950/30 border border-rose-200 dark:border-rose-800/50 text-rose-700 dark:text-rose-300"
+                  }`}
+                >
+                  <span>{blockedCleanupBanner.message}</span>
+                  <button
+                    type="button"
+                    onClick={() => setBlockedCleanupBanner(null)}
+                    className="text-slate-400 hover:text-slate-600"
+                  >
+                    <X size={13} />
+                  </button>
+                </div>
+              )}
             </div>
           )}
         </div>

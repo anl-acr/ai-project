@@ -59,6 +59,7 @@ export default function SecurityPanel({ backendHost = "localhost:8000" }) {
   const [editingWhitelistOldIp, setEditingWhitelistOldIp] = useState(null);
   const [whitelistIpInput, setWhitelistIpInput] = useState("");
   const [whitelistDescInput, setWhitelistDescInput] = useState("Ofis / Güvenli Sabit IP");
+  const [showCleanupModal, setShowCleanupModal] = useState(false);
 
   // GeoIP States
   const [allowedCountries, setAllowedCountries] = useState(["TR"]);
@@ -384,6 +385,34 @@ export default function SecurityPanel({ backendHost = "localhost:8000" }) {
       setError("Sunucu bağlantı hatası.");
     } finally {
       setServiceLoading(false);
+    }
+  };
+
+  const handleCleanupExpiredBlockedIps = async () => {
+    if (!hasWritePermission) return;
+    setLoading(true);
+    setError("");
+    try {
+      const qs = buildQueryParams(1, blockedPageSize, searchIp);
+      const res = await fetch(`${API_BASE}/api/security/fail2ban/cleanup?${qs}`, {
+        method: "POST",
+        headers: getHeaders(),
+        body: JSON.stringify({ mode: "expired" })
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setBlockedPage(1);
+        setSuccess(data.message || "Süresi dolan engelli IP kayıtları temizlendi.");
+        setTimeout(() => setSuccess(""), 4000);
+        applySecurityPayload(data);
+      } else {
+        setError(data.detail || "Temizleme işlemi başarısız oldu.");
+      }
+    } catch (err) {
+      setError("Bağlantı hatası.");
+    } finally {
+      setShowCleanupModal(false);
+      setLoading(false);
     }
   };
 
@@ -724,15 +753,29 @@ export default function SecurityPanel({ backendHost = "localhost:8000" }) {
                   Hatalı SIP kimlik doğrulaması, PJSIP taraması veya manuel kural ile güvenlik duvarında engellenen IP adresleri.
                 </p>
               </div>
-              <div className="relative">
-                <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-                <input
-                  type="text"
-                  placeholder="IP veya Sebep Ara..."
-                  value={searchIp}
-                  onChange={(e) => handleSearchIpChange(e.target.value)}
-                  className="pl-9 pr-4 py-1.5 text-xs bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 rounded-xl focus:outline-none transition-all w-56 text-slate-800 dark:text-slate-100"
-                />
+              <div className="flex items-center gap-2">
+                {hasWritePermission && effectiveTotalBlockedCount > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => setShowCleanupModal(true)}
+                    disabled={loading}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 transition-all shrink-0"
+                    title="Sistem Ayarları -> Kayıt & Saklama Sistemi altında belirlenen saklama süresini aşmış otomatik IP engellerini temizler"
+                  >
+                    <Trash2 size={13} className="text-rose-500" />
+                    <span>Süresi Dolanları Temizle</span>
+                  </button>
+                )}
+                <div className="relative">
+                  <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                  <input
+                    type="text"
+                    placeholder="IP veya Sebep Ara..."
+                    value={searchIp}
+                    onChange={(e) => handleSearchIpChange(e.target.value)}
+                    className="pl-9 pr-4 py-1.5 text-xs bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 rounded-xl focus:outline-none transition-all w-56 text-slate-800 dark:text-slate-100"
+                  />
+                </div>
               </div>
             </div>
 
@@ -1484,6 +1527,15 @@ export default function SecurityPanel({ backendHost = "localhost:8000" }) {
         message={`${deleteWhitelistIp} adresini Güvenli IP (Fail2Ban ignoreip) listesinden kaldırmak istediğinize emin misiniz?`}
         onConfirm={removeWhitelistIp}
         onCancel={() => setDeleteWhitelistIp(null)}
+        isLoading={loading}
+      />
+
+      <ConfirmDeleteModal
+        isOpen={showCleanupModal}
+        title="Süresi Dolan Engelli IP Kayıtlarını Temizle"
+        message="Sistem Ayarları > Kayıt & Saklama Sistemi altında belirlenen saklama süresini doldurmuş otomatik engelli IP kayıtlarını güvenlik duvarından ve listeden temizlemek istediğinize emin misiniz? (Manuel eklenen kalıcı engeller korunur.)"
+        onConfirm={handleCleanupExpiredBlockedIps}
+        onCancel={() => setShowCleanupModal(false)}
         isLoading={loading}
       />
     </div>

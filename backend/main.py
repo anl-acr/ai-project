@@ -1636,7 +1636,10 @@ DEFAULT_SETTINGS = {
         "external_remote_path": "/recordings",
         "external_username": "",
         "external_password": "",
-        "external_domain": "WORKGROUP"
+        "external_domain": "WORKGROUP",
+        "auto_delete_blocked_ips": True,
+        "blocked_ip_keep_days": 7,
+        "preserve_manual_blocked_ips": True
     },
     "database_disaster_recovery": {
         "external_db_enabled": False,
@@ -6332,6 +6335,9 @@ class RecordingRetentionSettingsSchema(BaseModel):
     external_username: Optional[str] = ""
     external_password: Optional[str] = ""
     external_domain: Optional[str] = "WORKGROUP"
+    auto_delete_blocked_ips: Optional[bool] = True
+    blocked_ip_keep_days: Optional[int] = 7
+    preserve_manual_blocked_ips: Optional[bool] = True
 
 
 def get_effective_recording_retention_settings() -> dict:
@@ -6370,6 +6376,12 @@ def get_effective_recording_retention_settings() -> dict:
     merged["external_username"] = str(merged.get("external_username") or "").strip()
     merged["external_password"] = str(merged.get("external_password") or "")
     merged["external_domain"] = str(merged.get("external_domain") or "WORKGROUP").strip() or "WORKGROUP"
+    merged["auto_delete_blocked_ips"] = bool(merged.get("auto_delete_blocked_ips", True))
+    try:
+        merged["blocked_ip_keep_days"] = max(1, int(merged.get("blocked_ip_keep_days") or 7))
+    except Exception:
+        merged["blocked_ip_keep_days"] = 7
+    merged["preserve_manual_blocked_ips"] = bool(merged.get("preserve_manual_blocked_ips", True))
     return merged
 
 
@@ -6995,6 +7007,8 @@ async def save_recording_retention_settings(payload: RecordingRetentionSettingsS
         if retention.get("delete_by_days"):
             days = retention.get("keep_days", 90)
             print(f"[Retention] Checked files older than {days} days.")
+        if retention.get("auto_delete_blocked_ips"):
+            cleanup_expired_blocked_ips()
     except Exception as e:
         print(f"[Retention] Cleanup check error: {e}")
 
@@ -27004,6 +27018,100 @@ def _refresh_security_system_status_cache():
         _security_live_cache["refreshing"] = False
 
 
+def _is_manual_ban_entry(item: dict) -> bool:
+    if not isinstance(item, dict):
+        return False
+    jail_str = str(item.get("jail") or "").strip().lower()
+    reason_str = str(item.get("reason") or "").strip().lower()
+    if "manual" in jail_str or "manuel" in reason_str:
+        return True
+    return False
+
+
+def cleanup_expired_blocked_ips(force_days: Optional[int] = None, clear_all_auto: bool = False) -> dict:
+    """
+    Sistem Ayarları -> Kayıt & Saklama Sistemi altında yapılandırılan saklama süresine göre
+    süresi dolmuş otomatik engellenen IP adreslerini veritabanından ve çekirdek güvenlik duvarından temizler.
+    """
+    import datetime, subprocess
+    ret_cfg = get_effective_recording_retention_settings()
+    auto_enabled = bool(ret_cfg.get("auto_delete_blocked_ips", True))
+    preserve_manual = bool(ret_cfg.get("preserve_manual_blocked_ips", True))
+    keep_days = max(1, int(force_days if force_days is not None else (ret_cfg.get("blocked_ip_keep_days") or 7)))
+
+    if not clear_all_auto and force_days is None and not auto_enabled:
+        return {"removed_count": 0, "remaining_count": len(settings_db.get("security_blocked_ips", []))}
+
+    existing = settings_db.get("security_blocked_ips", [])
+    if not existing:
+        return {"removed_count": 0, "remaining_count": 0}
+
+    now_dt = datetime.datetime.now()
+    cutoff_dt = now_dt - datetime.timedelta(days=keep_days)
+    kept_items = []
+    removed_ips = []
+
+    for item in existing:
+        if not isinstance(item, dict):
+            continue
+        ip_val = str(item.get("ip") or "").strip()
+        if not ip_val:
+            continue
+        if preserve_manual and _is_manual_ban_entry(item):
+            kept_items.append(item)
+            continue
+        if clear_all_auto:
+            removed_ips.append(ip_val)
+            continue
+
+        banned_at_str = str(item.get("banned_at") or "").strip()
+        parsed_dt = None
+        if banned_at_str:
+            for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M", "%Y-%m-%d"):
+                try:
+                    parsed_dt = datetime.datetime.strptime(banned_at_str[:19], fmt)
+                    break
+                except Exception:
+                    continue
+        if parsed_dt is not None and parsed_dt < cutoff_dt:
+            removed_ips.append(ip_val)
+        else:
+            kept_items.append(item)
+
+    if removed_ips:
+        settings_db["security_blocked_ips"] = kept_items
+        save_settings(settings_db)
+
+        for r_ip in removed_ips:
+            _enforced_kernel_ban_ips.discard(r_ip)
+            _realtime_sip_attack_tracker.pop(r_ip, None)
+
+        # If a small number of IPs expired, unban them individually; if a large batch was purged, flush raw PREROUTING & re-apply active top 40
+        if len(removed_ips) <= 8 and not clear_all_auto:
+            for r_ip in removed_ips:
+                try:
+                    subprocess.run(["iptables", "-t", "raw", "-D", "PREROUTING", "-s", r_ip, "-j", "DROP"], check=False, capture_output=True, timeout=1.0)
+                    subprocess.run(["iptables", "-D", "INPUT", "-s", r_ip, "-j", "DROP"], check=False, capture_output=True, timeout=1.0)
+                except Exception:
+                    pass
+        else:
+            _enforced_kernel_ban_ips.clear()
+            try:
+                subprocess.run(["iptables", "-t", "raw", "-F", "PREROUTING"], check=False, capture_output=True, timeout=2.0)
+                if clear_all_auto:
+                    subprocess.run(["fail2ban-client", "unban", "--all"], check=False, capture_output=True, timeout=2.0)
+            except Exception:
+                pass
+            for item in kept_items[:40]:
+                b_ip = str(item.get("ip") or "").strip()
+                if b_ip and not _is_trusted_or_local_ip(b_ip):
+                    _enforce_kernel_drop_for_ip(b_ip)
+
+        print(f"[Security Auto-Cleanup] {len(removed_ips)} adet süresi dolmuş engelli IP kaydı temizlendi. Kalan: {len(kept_items)}")
+
+    return {"removed_count": len(removed_ips), "remaining_count": len(kept_items)}
+
+
 async def asterisk_sip_ips_guard_loop():
     """
     Arka planda her 4 saniyede bir kesintisiz çalışan Gerçek Zamanlı SIP IPS (Saldırı Önleme) Servisi.
@@ -27012,6 +27120,7 @@ async def asterisk_sip_ips_guard_loop():
     """
     import asyncio, time
     try:
+        await asyncio.to_thread(cleanup_expired_blocked_ips)
         await asyncio.to_thread(configure_and_sync_fail2ban, False)
         await asyncio.to_thread(scan_asterisk_failed_sip_attempts, True)
         await asyncio.to_thread(_refresh_security_system_status_cache)
@@ -27025,6 +27134,8 @@ async def asterisk_sip_ips_guard_loop():
             await asyncio.sleep(4.0)
             cycle_idx += 1
             await asyncio.to_thread(scan_asterisk_failed_sip_attempts, True)
+            if cycle_idx % 45 == 0:
+                await asyncio.to_thread(cleanup_expired_blocked_ips)
             if cycle_idx % 4 == 0 or (time.time() - _security_live_cache.get("last_updated", 0.0) > 20.0):
                 await asyncio.to_thread(_refresh_security_system_status_cache)
         except Exception as e_loop:
@@ -27342,6 +27453,45 @@ async def control_fail2ban_service(request: Request, payload: Fail2banServiceAct
     return {
         "status": "success",
         "message": msg,
+        **get_live_fail2ban_and_ufw_status(
+            client_ip=_extract_request_client_ip(request),
+            page=page,
+            page_size=page_size,
+            search=search,
+            force_refresh=True
+        )
+    }
+
+
+class BlockedIpCleanupSchema(BaseModel):
+    mode: Optional[str] = "expired"  # "expired" | "all_auto"
+    older_than_days: Optional[int] = None
+
+
+@app.post("/api/security/fail2ban/cleanup")
+async def cleanup_fail2ban_blocked_ips_endpoint(
+    request: Request,
+    payload: BlockedIpCleanupSchema = Body(default=BlockedIpCleanupSchema()),
+    user_info: dict = Depends(get_user_info)
+):
+    clear_all = (str(payload.mode or "expired").strip() == "all_auto")
+    res = await asyncio.to_thread(
+        cleanup_expired_blocked_ips,
+        payload.older_than_days,
+        clear_all
+    )
+    removed = res.get("removed_count", 0)
+    remaining = res.get("remaining_count", 0)
+    page, page_size, search = _extract_security_pagination_params(request)
+    return {
+        "status": "success",
+        "removed_count": removed,
+        "remaining_count": remaining,
+        "message": (
+            f"{removed} adet engelli IP kaydı başarıyla temizlendi (Kalan: {remaining})."
+            if removed > 0
+            else "Belirtilen kritere uygun silinecek süresi dolmuş IP kaydı bulunmadı."
+        ),
         **get_live_fail2ban_and_ufw_status(
             client_ip=_extract_request_client_ip(request),
             page=page,
