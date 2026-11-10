@@ -2185,9 +2185,36 @@ def load_settings(force_reload: bool = False, persist: bool = False):
                     session.rollback()
                 _settings_schema_migrated = True
 
+            disk_confs = list(db.get("conferences") or []) if isinstance(db.get("conferences"), list) else []
             settings = session.query(SystemSetting).all()
             for s in settings:
                 db[s.key] = s.value
+            if disk_confs:
+                db_confs = db.get("conferences") if isinstance(db.get("conferences"), list) else []
+                merged_confs_map = {}
+                for dc in db_confs:
+                    if isinstance(dc, dict):
+                        cid = str(dc.get("id") or dc.get("room_number") or dc.get("extension") or "").strip()
+                        if cid:
+                            merged_confs_map[cid] = dict(dc)
+                for fc in disk_confs:
+                    if isinstance(fc, dict):
+                        cid = str(fc.get("id") or fc.get("room_number") or fc.get("extension") or "").strip()
+                        if cid:
+                            if cid in merged_confs_map:
+                                existing_c = merged_confs_map[cid]
+                                if fc.get("externals") and not existing_c.get("externals"):
+                                    existing_c["externals"] = fc["externals"]
+                                elif fc.get("externals") and len(fc.get("externals") or []) >= len(existing_c.get("externals") or []):
+                                    existing_c["externals"] = fc["externals"]
+                                if fc.get("internals") and not existing_c.get("internals"):
+                                    existing_c["internals"] = fc["internals"]
+                                elif fc.get("internals") and len(fc.get("internals") or []) >= len(existing_c.get("internals") or []):
+                                    existing_c["internals"] = fc["internals"]
+                            else:
+                                merged_confs_map[cid] = dict(fc)
+                if merged_confs_map:
+                    db["conferences"] = list(merged_confs_map.values())
 
             db_users = session.query(SystemUser).order_by(SystemUser.id).all()
             if db_users:
@@ -5507,22 +5534,30 @@ same => n(ci_unavail),Hangup()
 
 [conference_invite_external]
 exten => _X.,1,NoOp(Konferans Harici Katilimci Daveti: Hedef=${{EXTEN}})
+same => n,Set(CALLERID(num)=${{IF($["${{CALLERID(num)}}"=""]?908503607390:${{CALLERID(num)}})}})
+same => n,Set(CALLERID(name)=${{IF($["${{CALLERID(name)}}"=""]?908503607390:${{CALLERID(name)}})}})
 same => n,Set(MD5_VAL=${{MD5(${{UNIQUEID}}${{EPOCH}}${{EXTEN}})}})
 same => n,Set(__CALL_UUID=${{MD5_VAL:0:8}}-${{MD5_VAL:8:4}}-4${{MD5_VAL:13:3}}-a${{MD5_VAL:17:3}}-${{MD5_VAL:20:12}})
-same => n,Set(DIAL_NUM=${{IF($["${{EXTEN:0:1}}"="0"]?90${{EXTEN:1}}:${{EXTEN}})}})
-same => n,Gosub(outbound_failover_dial_sub,s,1(${{EXTEN}},${{DIAL_NUM}},45,0))
-same => n,Hangup()
+same => n,Set(RAW_EXT=${{IF($[${{LEN(${{EXTEN}})}}=10]?0${{EXTEN}}:${{EXTEN}})}})
+same => n,Set(DIAL_NUM=${{IF($["${{RAW_EXT:0:1}}"="0"]?90${{RAW_EXT:1}}:${{RAW_EXT}})}})
+same => n,Gosub(outbound_failover_dial_sub,s,1(${{RAW_EXT}},${{DIAL_NUM}},45,0))
+same => n,GotoIf($["${{DIALSTATUS}}" = "CHANUNAVAIL" | "${{DIALSTATUS}}" = "CONGESTION"]?cie_direct:cie_done)
+same => n(cie_direct),Set(CALLERID(num)=908503607390)
+same => n,Set(CALLERID(name)=908503607390)
+same => n,Dial(PJSIP/Operator_Trunk/sip:${{DIAL_NUM}}@ikonsip.com:5060,45,r)
+same => n(cie_done),Hangup()
 
 [conference_join_context]
 exten => _X.,1,NoOp(Davet Edilen Katilimci Konferansa Baglaniyor: Oda=${{EXTEN}}, Katilimci=${{INVITED_PARTICIPANT}})
 same => n,Answer()
 same => n,Wait(0.3)
-same => n,Set(MD5_VAL=${{MD5(${{UNIQUEID}}${{EPOCH}}${{INVITED_PARTICIPANT}})}})
+same => n,Set(INV_PART=${{IF($["${{INVITED_PARTICIPANT}}" != ""]?${{INVITED_PARTICIPANT}}:${{CUT(CUT(CHANNEL(name),/,2),@,1)}})}})
+same => n,Set(MD5_VAL=${{MD5(${{UNIQUEID}}${{EPOCH}}${{INV_PART}})}})
 same => n,Set(__CALL_UUID=${{MD5_VAL:0:8}}-${{MD5_VAL:8:4}}-4${{MD5_VAL:13:3}}-a${{MD5_VAL:17:3}}-${{MD5_VAL:20:12}})
 same => n,Set(CURLOPT(conntimeout)=1)
 same => n,Set(CURLOPT(httptimeout)=2)
-same => n,Set(CURL_RESULT=${{CURL(http://{backend_host}/api/calls/register?call_id=${{CALL_UUID}}&did=${{EXTEN}}&caller=${{URIENCODE(${{INVITED_PARTICIPANT}})}}&asterisk_id=${{UNIQUEID}}&direction=conference)}})
-same => n,Set(CONF_JOIN_RES=${{CURL(http://{backend_host}/api/conferences/participant_joined?room=${{URIENCODE(${{EXTEN}})}}&caller=${{URIENCODE(${{INVITED_PARTICIPANT}})}}&call_id=${{URIENCODE(${{CALL_UUID}})}}&invited=1)}})
+same => n,Set(CURL_RESULT=${{CURL(http://{backend_host}/api/calls/register?call_id=${{CALL_UUID}}&did=${{EXTEN}}&caller=${{URIENCODE(${{INV_PART}})}}&asterisk_id=${{UNIQUEID}}&direction=conference)}})
+same => n,Set(CONF_JOIN_RES=${{CURL(http://{backend_host}/api/conferences/participant_joined?room=${{URIENCODE(${{EXTEN}})}}&caller=${{URIENCODE(${{INV_PART}})}}&call_id=${{URIENCODE(${{CALL_UUID}})}}&invited=1)}})
 same => n,GotoIf($["${{CONF_REC_EN}}" != "1"]?cj_enter)
 same => n,MixMonitor(/var/spool/asterisk/monitor/${{CALL_UUID}}.wav,ab)
 same => n(cj_enter),Playback(/var/spool/asterisk/monitor/tr_konferans_hosgeldiniz)
@@ -5767,7 +5802,7 @@ def _match_and_transform_outbound_number(callee_raw: str, caller_ext: str = "", 
 
     def _is_caller_allowed_in_rule(rule_obj: dict) -> bool:
         raw_allowed = rule_obj.get("allowed_users") or []
-        if not raw_allowed or not caller_str:
+        if not raw_allowed or not caller_str or caller_str == "908503607390":
             return True
         allowed_tokens = set()
         for item in raw_allowed:
@@ -14571,6 +14606,17 @@ async def save_conference(request: Request, user_info: dict = Depends(get_user_i
         settings_db["conferences"].append(data)
         
     save_settings(settings_db)
+    try:
+        from sqlalchemy.orm import Session as _SyncSess
+        with _SyncSess(sync_engine) as _s:
+            _row = _s.get(SystemSetting, "conferences")
+            if _row:
+                _row.value = settings_db["conferences"]
+            else:
+                _s.add(SystemSetting(key="conferences", value=settings_db["conferences"]))
+            _s.commit()
+    except Exception as _e_cs:
+        print(f"[Conference DB Sync Warning]: {_e_cs}")
     return {"status": "success", "conferences": settings_db["conferences"]}
 
 
@@ -14581,10 +14627,32 @@ async def delete_conference(conf_id: str):
         
     settings_db["conferences"] = [c for c in settings_db["conferences"] if c.get("id") != conf_id]
     save_settings(settings_db)
+    try:
+        from sqlalchemy.orm import Session as _SyncSess
+        with _SyncSess(sync_engine) as _s:
+            _row = _s.get(SystemSetting, "conferences")
+            if _row:
+                _row.value = settings_db["conferences"]
+            else:
+                _s.add(SystemSetting(key="conferences", value=settings_db["conferences"]))
+            _s.commit()
+    except Exception as _e_cd:
+        print(f"[Conference Delete DB Sync Warning]: {_e_cd}")
     return {"status": "success", "conferences": settings_db["conferences"]}
 
 
 _RECENT_CONF_INVITES: dict[str, float] = {}
+
+
+def _normalize_turkish_external_num(raw_val: str) -> str:
+    digits = re.sub(r"\D", "", str(raw_val or ""))
+    if not digits:
+        return ""
+    if len(digits) == 10 and digits.startswith("5"):
+        return "0" + digits
+    if len(digits) == 12 and digits.startswith("90") and digits[2] in ("5", "8", "2", "3", "4"):
+        return "0" + digits[2:]
+    return digits
 
 
 async def _auto_invite_conference_participants(
@@ -14597,16 +14665,30 @@ async def _auto_invite_conference_participants(
 ):
     """
     When a conference room is dialed, automatically originates calls to the configured
-    internal extensions and external numbers (skipping the caller and anyone already active).
+    internal extensions and external numbers simultaneously (skipping the caller and anyone already inside ConfBridge).
     """
     try:
-        await asyncio.sleep(0.8)
+        await asyncio.sleep(0.5)
         room_s = str(room_number or "").strip()
         if not room_s:
             return
         caller_s = str(caller_ext or "").strip()
         caller_digits = re.sub(r"\D", "", caller_s)
         caller_last10 = caller_digits[-10:] if len(caller_digits) >= 10 else caller_digits
+
+        # Reload fresh conferences from settings.json if internals/externals appear empty
+        if not internals and not externals:
+            try:
+                if os.path.exists(SETTINGS_FILE):
+                    with open(SETTINGS_FILE, "r", encoding="utf-8") as _f:
+                        _disk = json.load(_f)
+                    for _c in (_disk.get("conferences") or []):
+                        if isinstance(_c, dict) and str(_c.get("room_number") or _c.get("extension") or "").strip() == room_s:
+                            internals = _c.get("internals") or []
+                            externals = _c.get("externals") or []
+                            break
+            except Exception:
+                pass
 
         # Resolve user IDs / extensions for internals
         users_list = list(settings_db.get("users", []) or [])
@@ -14636,112 +14718,187 @@ async def _auto_invite_conference_participants(
 
         resolved_external_nums = []
         for raw_ext in (externals or []):
-            ext_d = re.sub(r"\D", "", str(raw_ext or ""))
+            ext_d = _normalize_turkish_external_num(raw_ext)
             if not ext_d:
                 continue
             ext_last10 = ext_d[-10:] if len(ext_d) >= 10 else ext_d
             if caller_last10 and len(caller_last10) >= 10 and ext_last10 == caller_last10:
                 continue
-            if ext_d not in resolved_external_nums:
+            if ext_d not in resolved_external_nums and all((x[-10:] if len(x) >= 10 else x) != ext_last10 for x in resolved_external_nums):
                 resolved_external_nums.append(ext_d)
 
+        print(
+            f"[Conference Auto-Invite Start] Oda={room_s}, Arayan={caller_s}, "
+            f"Dahililer={resolved_internal_exts}, Hariciler={resolved_external_nums}"
+        )
         if not resolved_internal_exts and not resolved_external_nums:
             return
 
         from backend.services.ami_manager import get_ami_manager, _iter_ami_responses
         manager = await get_ami_manager()
         active_nums = set()
+        stale_invite_channels = []
         if manager:
             try:
-                res = await manager.send_action({"Action": "CoreShowChannels"})
+                res = await asyncio.wait_for(
+                    manager.send_action({"Action": "CoreShowChannels"}),
+                    timeout=2.0,
+                )
                 for r in _iter_ami_responses(res):
                     if not hasattr(r, "get"):
                         continue
+                    ch_n = str(r.get("Channel") or "").strip()
+                    app_n = str(r.get("Application") or "").strip().lower()
+                    app_data = str(r.get("ApplicationData") or "").strip()
                     cid_n = str(r.get("CallerIDNum") or "").strip()
                     con_n = str(r.get("ConnectedLineNum") or "").strip()
-                    ch_n = str(r.get("Channel") or "").strip()
-                    for n_val in (cid_n, con_n):
-                        if n_val:
-                            active_nums.add(n_val)
-                            nd = re.sub(r"\D", "", n_val)
-                            if len(nd) >= 10:
-                                active_nums.add(nd[-10:])
-                    m_loc = re.search(r"Local/([^@]+)@conference_invite", ch_n, re.I)
-                    if m_loc:
-                        active_nums.add(m_loc.group(1))
+
+                    # Only treat a participant as already in the conference if their channel is in ConfBridge
+                    if app_n == "confbridge" and (not app_data or room_s in app_data):
+                        for n_val in (cid_n, con_n):
+                            if n_val:
+                                active_nums.add(n_val)
+                                nd = re.sub(r"\D", "", n_val)
+                                if len(nd) >= 10:
+                                    active_nums.add(nd[-10:])
+                        m_loc_cb = re.search(r"Local/([^@;]+)@conference_invite", ch_n, re.I)
+                        if m_loc_cb:
+                            loc_num = m_loc_cb.group(1)
+                            active_nums.add(loc_num)
+                            loc_d = re.sub(r"\D", "", loc_num)
+                            if len(loc_d) >= 10:
+                                active_nums.add(loc_d[-10:])
+                    else:
+                        # If there is a leftover ringing Local/...@conference_invite channel from an aborted test, collect it to hang up before re-inviting
+                        m_loc_stale = re.search(r"Local/([^@;]+)@conference_invite", ch_n, re.I)
+                        if m_loc_stale and ch_n.endswith(";1"):
+                            stale_invite_channels.append(ch_n)
             except Exception as e_ch:
                 print(f"[Conference Auto-Invite Channel Check Warning]: {e_ch}")
 
+        for stale_ch in stale_invite_channels:
+            try:
+                await asyncio.wait_for(
+                    manager.send_action({"Action": "Hangup", "Channel": stale_ch}, as_list=False),
+                    timeout=1.5,
+                )
+            except Exception:
+                pass
+
         safe_label = re.sub(r'["<>]', "", str(room_name or f"Konferans {room_s}")).strip() or f"Konferans {room_s}"
 
-        for t_ext in resolved_internal_exts:
+        def _is_ami_originate_ok(resp) -> bool:
+            if not resp:
+                return False
+            items = resp if isinstance(resp, list) else [resp]
+            for it in items:
+                r_status = str(getattr(it, "response", "") or (it.get("Response") if hasattr(it, "get") else "") or "").strip().lower()
+                r_msg = str((it.get("Message") if hasattr(it, "get") else "") or "").strip().lower()
+                if r_status == "success" or "successfully queued" in r_msg:
+                    return True
+            return False
+
+        async def _invite_internal_one(t_ext: str):
             if t_ext in active_nums:
-                continue
+                print(f"[Conference Auto-Invite] Dahili {t_ext} zaten konferansta aktif, atlaniyor.")
+                return
             print(f"[Conference Auto-Invite] Dahili abone davet ediliyor: Oda={room_s} -> Dahili={t_ext}")
             originated = False
-            if manager:
+            mgr = manager or await get_ami_manager()
+            if mgr:
                 try:
-                    await manager.send_action({
-                        "Action": "Originate",
-                        "ActionID": f"conf-inv-int-{room_s}-{t_ext}-{int(time.time()*1000)}",
-                        "Channel": f"Local/{t_ext}@conference_invite_internal/n",
-                        "Context": "conference_join_context",
-                        "Exten": room_s,
-                        "Priority": "1",
-                        "CallerID": f'"{safe_label} ({room_s})" <{room_s}>',
-                        "Timeout": "30000",
-                        "Async": "true",
-                        "Variable": f"__INVITED_PARTICIPANT={t_ext},__CONF_REC_EN={rec_enabled}",
-                    })
-                    originated = True
+                    res_orig_i = await asyncio.wait_for(
+                        mgr.send_action(
+                            {
+                                "Action": "Originate",
+                                "ActionID": f"conf-inv-int-{room_s}-{t_ext}-{int(time.time()*1000)}",
+                                "Channel": f"Local/{t_ext}@conference_invite_internal/n",
+                                "Context": "conference_join_context",
+                                "Exten": room_s,
+                                "Priority": "1",
+                                "CallerID": f'"{safe_label} ({room_s})" <{room_s}>',
+                                "Timeout": "30000",
+                                "Async": "true",
+                                "Variable": f"__INVITED_PARTICIPANT={t_ext},__CONF_REC_EN={rec_enabled}",
+                            },
+                            as_list=False,
+                        ),
+                        timeout=2.5,
+                    )
+                    if _is_ami_originate_ok(res_orig_i):
+                        originated = True
+                    else:
+                        print(f"[Conference Auto-Invite Internal AMI Non-Success]: {res_orig_i}")
                 except Exception as e_orig_i:
                     print(f"[Conference Auto-Invite Internal AMI Error]: {e_orig_i}")
             if not originated:
                 try:
                     import subprocess
-                    subprocess.run(
+                    print(f"[Conference Auto-Invite Internal CLI Fallback]: Local/{t_ext}@conference_invite_internal/n")
+                    await asyncio.to_thread(
+                        subprocess.run,
                         ["asterisk", "-rx", f"channel originate Local/{t_ext}@conference_invite_internal/n extension {room_s}@conference_join_context"],
                         check=False,
-                        timeout=2.0,
+                        timeout=2.5,
                     )
-                except Exception:
-                    pass
-            await asyncio.sleep(0.25)
+                except Exception as e_cli_i:
+                    print(f"[Conference Auto-Invite Internal CLI Error]: {e_cli_i}")
 
-        for ext_num in resolved_external_nums:
+        async def _invite_external_one(ext_num: str):
             ext_last10 = ext_num[-10:] if len(ext_num) >= 10 else ext_num
             if ext_num in active_nums or (len(ext_last10) >= 10 and ext_last10 in active_nums):
-                continue
+                print(f"[Conference Auto-Invite] Harici {ext_num} zaten konferansta aktif, atlaniyor.")
+                return
             print(f"[Conference Auto-Invite] Harici numara davet ediliyor: Oda={room_s} -> Harici={ext_num}")
             originated_e = False
-            if manager:
+            mgr = manager or await get_ami_manager()
+            if mgr:
                 try:
-                    await manager.send_action({
-                        "Action": "Originate",
-                        "ActionID": f"conf-inv-ext-{room_s}-{ext_num}-{int(time.time()*1000)}",
-                        "Channel": f"Local/{ext_num}@conference_invite_external/n",
-                        "Context": "conference_join_context",
-                        "Exten": room_s,
-                        "Priority": "1",
-                        "CallerID": '"908503607390" <908503607390>',
-                        "Timeout": "45000",
-                        "Async": "true",
-                        "Variable": f"__INVITED_PARTICIPANT={ext_num},__CONF_REC_EN={rec_enabled}",
-                    })
-                    originated_e = True
+                    res_orig_e = await asyncio.wait_for(
+                        mgr.send_action(
+                            {
+                                "Action": "Originate",
+                                "ActionID": f"conf-inv-ext-{room_s}-{ext_num}-{int(time.time()*1000)}",
+                                "Channel": f"Local/{ext_num}@conference_invite_external/n",
+                                "Context": "conference_join_context",
+                                "Exten": room_s,
+                                "Priority": "1",
+                                "CallerID": '"908503607390" <908503607390>',
+                                "Timeout": "45000",
+                                "Async": "true",
+                                "Variable": f"__INVITED_PARTICIPANT={ext_num},__CONF_REC_EN={rec_enabled}",
+                            },
+                            as_list=False,
+                        ),
+                        timeout=2.5,
+                    )
+                    if _is_ami_originate_ok(res_orig_e):
+                        originated_e = True
+                    else:
+                        print(f"[Conference Auto-Invite External AMI Non-Success]: {res_orig_e}")
                 except Exception as e_orig_e:
                     print(f"[Conference Auto-Invite External AMI Error]: {e_orig_e}")
             if not originated_e:
                 try:
                     import subprocess
-                    subprocess.run(
+                    print(f"[Conference Auto-Invite External CLI Fallback]: Local/{ext_num}@conference_invite_external/n")
+                    await asyncio.to_thread(
+                        subprocess.run,
                         ["asterisk", "-rx", f"channel originate Local/{ext_num}@conference_invite_external/n extension {room_s}@conference_join_context"],
                         check=False,
-                        timeout=2.0,
+                        timeout=2.5,
                     )
-                except Exception:
-                    pass
-            await asyncio.sleep(0.35)
+                except Exception as e_cli_e:
+                    print(f"[Conference Auto-Invite External CLI Error]: {e_cli_e}")
+
+        invite_tasks = []
+        for idx_i, t_ext in enumerate(resolved_internal_exts):
+            invite_tasks.append(_invite_internal_one(t_ext))
+        for idx_e, ext_num in enumerate(resolved_external_nums):
+            invite_tasks.append(_invite_external_one(ext_num))
+
+        if invite_tasks:
+            await asyncio.gather(*invite_tasks, return_exceptions=True)
     except Exception as e_inv:
         print(f"[Conference Auto-Invite Error]: {e_inv}")
 
@@ -14780,7 +14937,7 @@ async def resolve_special_extension_dial(exten: str = "", caller: str = "", call
         last_inv = _RECENT_CONF_INVITES.get(ext_s, 0.0)
         internals = matched_conf.get("internals") or []
         externals = matched_conf.get("externals") or []
-        if (internals or externals) and (now_ts - last_inv >= 15.0):
+        if (internals or externals) and (now_ts - last_inv >= 2.0):
             _RECENT_CONF_INVITES[ext_s] = now_ts
             asyncio.create_task(
                 _auto_invite_conference_participants(
@@ -14831,10 +14988,30 @@ async def conference_participant_joined(room: str = "", caller: str = "", call_i
     if cid_s and room_s:
         try:
             room_name = f"Konferans {room_s}"
+            matched_conf = None
             for c in (settings_db.get("conferences", []) or []):
                 if isinstance(c, dict) and str(c.get("room_number") or c.get("extension") or "").strip() == room_s:
+                    matched_conf = c
                     room_name = str(c.get("room_name") or c.get("name") or room_name).strip()
                     break
+            if int(invited or 0) == 0 and matched_conf:
+                now_ts = time.time()
+                last_inv = _RECENT_CONF_INVITES.get(room_s, 0.0)
+                internals = matched_conf.get("internals") or []
+                externals = matched_conf.get("externals") or []
+                rec_en = "1" if (matched_conf.get("recording_enabled") or matched_conf.get("record")) else "0"
+                if (internals or externals) and (now_ts - last_inv >= 2.0):
+                    _RECENT_CONF_INVITES[room_s] = now_ts
+                    asyncio.create_task(
+                        _auto_invite_conference_participants(
+                            room_number=room_s,
+                            room_name=room_name,
+                            caller_ext=caller_s,
+                            internals=internals,
+                            externals=externals,
+                            rec_enabled=rec_en,
+                        )
+                    )
             async with AsyncSessionLocal() as db:
                 db_call = await db.get(Call, cid_s)
                 if db_call:

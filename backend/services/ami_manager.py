@@ -778,65 +778,86 @@ def ensure_asterisk_alive_sync(force_restart: bool = False) -> bool:
     return False
 
 
+_ami_connect_lock = None
+
+
 async def get_ami_manager() -> Manager:
     """Returns or initializes the active AMI manager connection."""
-    global manager_instance
-    if manager_instance is not None and getattr(manager_instance, "_connected", False):
+    global manager_instance, _ami_connect_lock
+    if manager_instance is not None and getattr(manager_instance, "_connected", False) and getattr(manager_instance, "authenticated", True):
         return manager_instance
 
-    # Close any stale disconnected manager instance before creating a new one
-    if manager_instance is not None:
-        try:
-            manager_instance.close()
-        except Exception:
-            pass
-        manager_instance = None
+    if _ami_connect_lock is None:
+        _ami_connect_lock = asyncio.Lock()
 
-    # Verify AMI socket is responsive (not deadlocked) before connecting panoramisk
-    banner_ok = await asyncio.to_thread(_probe_ami_banner_sync, 1.8)
-    if not banner_ok and os.path.exists("/etc/asterisk"):
-        recovered = await asyncio.to_thread(ensure_asterisk_alive_sync, False)
-        if not recovered:
-            return None
+    async with _ami_connect_lock:
+        if manager_instance is not None and getattr(manager_instance, "_connected", False) and getattr(manager_instance, "authenticated", True):
+            return manager_instance
 
-    print(f"[AMI] Connecting to Asterisk AMI at {AMI_HOST}:{AMI_PORT}...")
-    try:
-        mgr = Manager(
-            host=AMI_HOST,
-            port=AMI_PORT,
-            username=AMI_USER,
-            secret=AMI_SECRET,
-            loop=asyncio.get_event_loop()
-        )
-        await asyncio.wait_for(mgr.connect(), timeout=2.0)
-        register_event_handlers(mgr)
-        try:
-            from backend.services.sip_trapper import sip_trapper
-            sip_trapper.register_ami_hooks(mgr)
-        except Exception as _sip_err:
-            print(f"[AMI] SipTrapper hook warning: {_sip_err}")
-        manager_instance = mgr
-        print("[AMI] Connected successfully and event handlers registered!")
+        # Close any stale disconnected manager instance before creating a new one
+        if manager_instance is not None:
+            try:
+                manager_instance.close()
+            except Exception:
+                pass
+            manager_instance = None
 
-        # Fetch initial SIP registration states with strict timeout so it never hangs
+        # Verify AMI socket is responsive (not deadlocked) before connecting panoramisk
+        banner_ok = await asyncio.to_thread(_probe_ami_banner_sync, 1.8)
+        if not banner_ok and os.path.exists("/etc/asterisk"):
+            recovered = await asyncio.to_thread(ensure_asterisk_alive_sync, False)
+            if not recovered:
+                return None
+
+        print(f"[AMI] Connecting to Asterisk AMI at {AMI_HOST}:{AMI_PORT}...")
         try:
-            res = await asyncio.wait_for(mgr.send_action({"Action": "PJSIPShowContacts"}), timeout=2.5)
-            for r in _iter_ami_responses(res):
-                if hasattr(r, "get") and r.get('Event') == 'ContactList':
-                    aor = r.get('AOR') or r.get('ObjectName')
-                    status = r.get('Status')
-                    uri = r.get('URI') or r.get('ViaAddress') or ""
-                    import re
-                    ip_match = re.search(r'\b(?:\d{1,3}\.){3}\d{1,3}\b', uri)
-                    extracted_ip = ip_match.group(0) if ip_match else ""
-                    if aor and status in ["Reachable", "Created", "Registered"]:
-                        registered_endpoints.add(aor, extracted_ip)
-        except Exception as ex:
-            print(f"[AMI] Error fetching initial contacts: {ex}")
-    except Exception as e:
-        print(f"[AMI] Connection error: {e}")
-        manager_instance = None
-    return manager_instance
+            mgr = Manager(
+                host=AMI_HOST,
+                port=AMI_PORT,
+                username=AMI_USER,
+                secret=AMI_SECRET,
+                loop=asyncio.get_event_loop()
+            )
+            await asyncio.wait_for(mgr.connect(), timeout=2.0)
+            for _ in range(20):
+                if getattr(mgr, "authenticated", False):
+                    break
+                auth_fut = getattr(mgr, "authenticated_future", None)
+                if auth_fut is not None:
+                    try:
+                        await asyncio.wait_for(asyncio.shield(auth_fut), timeout=1.5)
+                    except Exception:
+                        pass
+                    break
+                await asyncio.sleep(0.05)
+            register_event_handlers(mgr)
+            try:
+                from backend.services.sip_trapper import sip_trapper
+                sip_trapper.register_ami_hooks(mgr)
+            except Exception as _sip_err:
+                print(f"[AMI] SipTrapper hook warning: {_sip_err}")
+            manager_instance = mgr
+            print("[AMI] Connected successfully and event handlers registered!")
+
+            # Fetch initial SIP registration states with strict timeout so it never hangs
+            try:
+                res = await asyncio.wait_for(mgr.send_action({"Action": "PJSIPShowContacts"}), timeout=2.5)
+                for r in _iter_ami_responses(res):
+                    if hasattr(r, "get") and r.get('Event') == 'ContactList':
+                        aor = r.get('AOR') or r.get('ObjectName')
+                        status = r.get('Status')
+                        uri = r.get('URI') or r.get('ViaAddress') or ""
+                        import re
+                        ip_match = re.search(r'\b(?:\d{1,3}\.){3}\d{1,3}\b', uri)
+                        extracted_ip = ip_match.group(0) if ip_match else ""
+                        if aor and status in ["Reachable", "Created", "Registered"]:
+                            registered_endpoints.add(aor, extracted_ip)
+            except Exception as ex:
+                print(f"[AMI] Error fetching initial contacts: {ex}")
+        except Exception as e:
+            print(f"[AMI] Connection error: {e}")
+            manager_instance = None
+        return manager_instance
 
 async def redirect_call_to_human(call_id: str, extension: str = "transfer_to_human", context: str = "default", is_direct_route: bool = False) -> bool:
     """

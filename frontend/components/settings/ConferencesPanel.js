@@ -159,6 +159,14 @@ export default function ConferencesPanel({ backendHost = "localhost:8000" }) {
       return;
     }
 
+    let finalExternals = [...externalNumbers];
+    const pendingExt = (currentExternal || "").replace(/\D/g, "");
+    if (pendingExt && pendingExt.length >= 7 && !finalExternals.includes(pendingExt)) {
+      finalExternals.push(pendingExt);
+      setExternalNumbers(finalExternals);
+      setCurrentExternal("");
+    }
+
     try {
       const res = await fetch(`${API_BASE}/api/settings/conferences`, {
         method: "POST",
@@ -168,7 +176,7 @@ export default function ConferencesPanel({ backendHost = "localhost:8000" }) {
           room_number: roomNum,
           room_name: roomName.trim(),
           internals: selectedInternals,
-          externals: externalNumbers,
+          externals: finalExternals,
           recording_enabled: recordingEnabled
         })
       });
