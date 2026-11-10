@@ -223,6 +223,7 @@ export default function OmnichannelPanel({ backendHost = "localhost:8000" }) {
   const [composeModal, setComposeModal] = useState({
     isOpen: false,
     channel: "email",
+    whatsappMode: "single", // "single" | "bulk"
     recipient: "",
     subject: "",
     cc: "",
@@ -1051,10 +1052,14 @@ export default function OmnichannelPanel({ backendHost = "localhost:8000" }) {
   };
 
   // Open Compose New Modal
-  const openComposeModal = (defaultChannel = "email") => {
+  const openComposeModal = (defaultChannel = "email", defaultWhatsappMode = "single") => {
+    setBroadcastResult(null);
+    setBroadcastError(null);
+    setCsvImportNotice("");
     setComposeModal({
       isOpen: true,
       channel: defaultChannel,
+      whatsappMode: defaultWhatsappMode,
       recipient: "",
       subject: "",
       cc: "",
@@ -1069,6 +1074,10 @@ export default function OmnichannelPanel({ backendHost = "localhost:8000" }) {
 
   const handleComposeSubmit = async (e) => {
     e.preventDefault();
+    if (composeModal.channel === "whatsapp" && composeModal.whatsappMode === "bulk") {
+      await handleStartBroadcast(e);
+      return;
+    }
     if (!composeModal.recipient.trim()) {
       setComposeModal((prev) => ({ ...prev, error: "Lütfen alıcı bilgisini giriniz." }));
       return;
@@ -1201,8 +1210,11 @@ export default function OmnichannelPanel({ backendHost = "localhost:8000" }) {
 
   // Handle Bulk WhatsApp Campaign Broadcast
   const handleStartBroadcast = async (e) => {
-    e.preventDefault();
-    if (!broadcastText.trim()) return;
+    if (e && e.preventDefault) e.preventDefault();
+    if (!broadcastText.trim()) {
+      setBroadcastError("Lütfen gönderilecek kampanya veya duyuru metnini yazın.");
+      return;
+    }
 
     let recipientList = [];
     if (broadcastTarget === "all_contacts") {
@@ -1224,13 +1236,14 @@ export default function OmnichannelPanel({ backendHost = "localhost:8000" }) {
     setBroadcastError(null);
 
     try {
+      const effectiveMediaUrl = composeModal.attachedFile?.url || broadcastMediaUrl || null;
       const res = await fetch(`${API_BASE}/api/omnichannel/whatsapp/broadcast`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           recipients: recipientList,
           text: broadcastText,
-          media_url: broadcastMediaUrl || null,
+          media_url: effectiveMediaUrl,
         }),
       });
       const data = await res.json();
@@ -1406,31 +1419,11 @@ export default function OmnichannelPanel({ backendHost = "localhost:8000" }) {
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <button
-            type="button"
-            onClick={() => {
-              setBroadcastResult(null);
-              setBroadcastError(null);
-              setCsvImportNotice("");
-              setShowBroadcastModal(true);
-            }}
-            className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-2xl text-xs font-bold transition flex items-center gap-2 shadow-sm cursor-pointer"
-          >
-            <Megaphone size={15} /> Toplu WhatsApp Gönder
-          </button>
-          <button
-            type="button"
-            onClick={() => fetchSessions(true)}
-            title="Listeyi Yenile"
-            className="p-2 bg-slate-50 hover:bg-slate-100 dark:bg-slate-900 dark:hover:bg-slate-800 border border-slate-200/60 dark:border-slate-800/80 rounded-xl transition duration-200 text-slate-500 dark:text-slate-400 cursor-pointer"
-          >
-            <RefreshCw size={15} className={loading.sessions ? "animate-spin" : ""} />
-          </button>
           {/* Unified Add Button Design Rule */}
           <button
             type="button"
-            onClick={() => openComposeModal("email")}
-            title="Yeni E-Posta / Sohbet Başlat"
+            onClick={() => openComposeModal("email", "single")}
+            title="Yeni E-Posta / WhatsApp İletisi Başlat"
             className="bg-rose-600 hover:bg-rose-500 text-white rounded-xl h-8 w-8 flex items-center justify-center shrink-0 transition shadow-sm cursor-pointer"
           >
             <Plus size={16} />
@@ -2382,181 +2375,399 @@ export default function OmnichannelPanel({ backendHost = "localhost:8000" }) {
               </button>
             </div>
 
-            {/* Quick Contact Picker + Recipient */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-              <div>
-                <label htmlFor="compose-recipient" className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block mb-1">
-                  {composeModal.channel === "email" ? "Alıcı E-Posta Adresi *" : "Alıcı Telefon Numarası *"}
-                </label>
-                <input
-                  id="compose-recipient"
-                  type="text"
-                  autoFocus
-                  required
-                  value={composeModal.recipient}
-                  onChange={(e) => setComposeModal((prev) => ({ ...prev, recipient: e.target.value }))}
-                  placeholder={composeModal.channel === "email" ? "musteri@firma.com" : "+905554443322"}
-                  className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl text-xs text-slate-800 dark:text-slate-200 focus:outline-none focus:border-primary"
-                />
-              </div>
-              <div>
-                <label htmlFor="compose-contact-pick" className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block mb-1">
-                  Rehberden Hızlı Seç (Opsiyonel)
-                </label>
-                <select
-                  id="compose-contact-pick"
-                  value=""
-                  onChange={(e) => {
-                    const val = e.target.value;
-                    if (val) setComposeModal((prev) => ({ ...prev, recipient: val }));
+            {/* WhatsApp Single vs Bulk Sub-Toggle */}
+            {composeModal.channel === "whatsapp" && (
+              <div className="grid grid-cols-2 gap-1.5 p-1 bg-emerald-50/70 dark:bg-emerald-950/30 border border-emerald-200/60 dark:border-emerald-900/50 rounded-xl text-[11px] font-bold">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setBroadcastError(null);
+                    setComposeModal((prev) => ({ ...prev, whatsappMode: "single", error: "" }));
                   }}
-                  className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl text-xs text-slate-800 dark:text-slate-200 focus:outline-none focus:border-primary"
+                  className={`py-1.5 rounded-lg flex items-center justify-center gap-1.5 transition cursor-pointer ${
+                    composeModal.whatsappMode !== "bulk"
+                      ? "bg-white dark:bg-slate-900 text-emerald-700 dark:text-emerald-400 shadow-xs border border-emerald-200/60 dark:border-emerald-800/50"
+                      : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200"
+                  }`}
                 >
-                  <option value="">Kayıtlı kişi seçin...</option>
-                  {contactsList
-                    .filter((c) => (composeModal.channel === "email" ? Boolean(c.email) : Boolean(c.phone_number)))
-                    .map((c) => {
-                      const val = composeModal.channel === "email" ? c.email : c.phone_number;
-                      const fullName = `${c.first_name || ""} ${c.last_name || ""}`.trim();
-                      return (
-                        <option key={c.id} value={val}>
-                          {fullName} ({val})
-                        </option>
-                      );
-                    })}
-                </select>
+                  <MessageSquare size={13} /> Tekil Mesaj Gönder
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setBroadcastResult(null);
+                    setBroadcastError(null);
+                    setComposeModal((prev) => ({ ...prev, whatsappMode: "bulk", error: "" }));
+                  }}
+                  className={`py-1.5 rounded-lg flex items-center justify-center gap-1.5 transition cursor-pointer ${
+                    composeModal.whatsappMode === "bulk"
+                      ? "bg-white dark:bg-slate-900 text-emerald-700 dark:text-emerald-400 shadow-xs border border-emerald-200/60 dark:border-emerald-800/50"
+                      : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200"
+                  }`}
+                >
+                  <Megaphone size={13} /> Toplu Mesaj / Kampanya
+                </button>
               </div>
-            </div>
+            )}
 
-            {composeModal.channel === "email" && (
+            {composeModal.channel === "whatsapp" && composeModal.whatsappMode === "bulk" ? (
               <>
                 <div>
-                  <label htmlFor="compose-subject" className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block mb-1">
-                    E-Posta Konusu *
+                  <label htmlFor="bc-target" className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider block mb-1.5">
+                    Hedef Kitle
                   </label>
-                  <input
-                    id="compose-subject"
-                    type="text"
-                    required
-                    value={composeModal.subject}
-                    onChange={(e) => setComposeModal((prev) => ({ ...prev, subject: e.target.value }))}
-                    placeholder="Örn: Teklif ve Hizmet Bilgilendirmesi"
+                  <select
+                    id="bc-target"
+                    value={broadcastTarget}
+                    onChange={(e) => setBroadcastTarget(e.target.value)}
                     className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl text-xs text-slate-800 dark:text-slate-200 focus:outline-none focus:border-primary"
+                  >
+                    <option value="all_contacts" className="bg-white dark:bg-slate-900 text-slate-800 dark:text-white">
+                      Rehberdeki Tüm Kayıtlı Kişiler
+                    </option>
+                    <option value="custom" className="bg-white dark:bg-slate-900 text-slate-800 dark:text-white">
+                      Özel Numaralar Listesi (CSV / Manuel)
+                    </option>
+                  </select>
+                </div>
+
+                {broadcastTarget === "custom" && (
+                  <div>
+                    <div className="flex items-center justify-between mb-1.5">
+                      <label htmlFor="bc-numbers" className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">
+                        Telefon Numaraları *
+                      </label>
+                      <label className="cursor-pointer px-2.5 py-1 bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/40 dark:hover:bg-emerald-900/40 border border-emerald-200/60 dark:border-emerald-800/50 rounded-lg text-[10px] font-bold text-emerald-700 dark:text-emerald-400 transition flex items-center gap-1">
+                        <Upload size={11} />
+                        <span>CSV / TXT Dosyası Seç</span>
+                        <input type="file" accept=".csv,.txt,.xlsx,.xls" onChange={handleFileUpload} className="hidden" />
+                      </label>
+                    </div>
+                    <textarea
+                      id="bc-numbers"
+                      value={broadcastNumbers}
+                      onChange={(e) => setBroadcastNumbers(e.target.value)}
+                      placeholder="Her satıra bir numara yazın veya yukarıdan CSV/TXT dosyası seçin (Örn: +905554443322)"
+                      rows={3}
+                      className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl text-xs font-mono text-slate-800 dark:text-slate-200 focus:outline-none placeholder:text-slate-400 dark:placeholder:text-slate-500"
+                    />
+                    {csvImportNotice && (
+                      <span className="text-[10px] text-emerald-600 dark:text-emerald-400 font-bold block mt-1">
+                        {csvImportNotice}
+                      </span>
+                    )}
+                    {broadcastNumbers && (
+                      <span className="text-[9px] text-emerald-600 dark:text-emerald-400 font-bold block mt-1">
+                        Toplam {broadcastNumbers.split(/[\n,]+/).filter((n) => n.trim().length >= 10).length} geçerli alıcı numarası tespit edildi.
+                      </span>
+                    )}
+                  </div>
+                )}
+
+                <div>
+                  <label htmlFor="bc-text" className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider block mb-1.5">
+                    Kampanya / Duyuru Mesajı *
+                  </label>
+                  <textarea
+                    id="bc-text"
+                    value={broadcastText}
+                    onChange={(e) => setBroadcastText(e.target.value)}
+                    required
+                    placeholder="Gönderilecek kampanya veya duyuru metnini yazın..."
+                    rows={4}
+                    className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl text-xs text-slate-800 dark:text-slate-200 focus:outline-none placeholder:text-slate-400 dark:placeholder:text-slate-500"
                   />
                 </div>
 
-                <details className="rounded-xl bg-slate-50/70 dark:bg-slate-950/40 border border-slate-200/70 dark:border-slate-800 px-3 py-2">
-                  <summary className="text-[11px] font-bold text-primary cursor-pointer select-none">
-                    CC / BCC Alıcıları Ekle (Opsiyonel)
-                  </summary>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 mt-2">
-                    <div>
-                      <label htmlFor="compose-cc" className="text-[9px] font-bold uppercase text-slate-400 block mb-0.5">
-                        CC (Bilgi)
-                      </label>
-                      <input
-                        id="compose-cc"
-                        type="text"
-                        value={composeModal.cc}
-                        onChange={(e) => setComposeModal((prev) => ({ ...prev, cc: e.target.value }))}
-                        placeholder="ekip@firma.com"
-                        className="w-full px-2.5 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-xs text-slate-800 dark:text-slate-100 focus:outline-none focus:border-primary"
-                      />
-                    </div>
-                    <div>
-                      <label htmlFor="compose-bcc" className="text-[9px] font-bold uppercase text-slate-400 block mb-0.5">
-                        BCC (Gizli)
-                      </label>
-                      <input
-                        id="compose-bcc"
-                        type="text"
-                        value={composeModal.bcc}
-                        onChange={(e) => setComposeModal((prev) => ({ ...prev, bcc: e.target.value }))}
-                        placeholder="arsiv@firma.com"
-                        className="w-full px-2.5 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-xs text-slate-800 dark:text-slate-100 focus:outline-none focus:border-primary"
-                      />
-                    </div>
-                  </div>
-                </details>
-              </>
-            )}
+                <div>
+                  <label htmlFor="bc-media" className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider block mb-1.5">
+                    Medya veya PDF Katalog URL (Opsiyonel)
+                  </label>
+                  <input
+                    id="bc-media"
+                    type="text"
+                    value={broadcastMediaUrl}
+                    onChange={(e) => setBroadcastMediaUrl(e.target.value)}
+                    placeholder="https://example.com/katalog.pdf veya aşağıdan Ek Dosya seçin"
+                    className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl text-xs text-slate-800 dark:text-slate-200 focus:outline-none placeholder:text-slate-400 dark:placeholder:text-slate-500"
+                  />
+                </div>
 
-            <div>
-              <label htmlFor="compose-body" className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block mb-1">
-                İleti İçeriği *
-              </label>
-              <textarea
-                id="compose-body"
-                rows={5}
-                value={composeModal.text}
-                onChange={(e) => setComposeModal((prev) => ({ ...prev, text: e.target.value }))}
-                placeholder="Mesajınızı buraya yazın..."
-                className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl text-xs leading-relaxed text-slate-800 dark:text-slate-200 focus:outline-none focus:border-primary"
-              />
-            </div>
-
-            {/* Attachment Row */}
-            <div className="flex items-center justify-between gap-2">
-              <input
-                type="file"
-                ref={composeFileInputRef}
-                onChange={async (e) => {
-                  const f = e.target.files?.[0];
-                  if (f) await uploadMediaFile(f, true);
-                  if (e.target) e.target.value = "";
-                }}
-                accept="image/*,video/*,audio/*,.pdf,.doc,.docx,.xls,.xlsx,.zip"
-                className="hidden"
-              />
-              <button
-                type="button"
-                disabled={composeModal.uploading}
-                onClick={() => composeFileInputRef.current?.click()}
-                className="px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-100 flex items-center gap-1.5 cursor-pointer"
-              >
-                <Paperclip size={13} className={composeModal.uploading ? "animate-spin text-primary" : "text-primary"} />
-                <span>{composeModal.uploading ? "Yükleniyor..." : "Ek Dosya Ekle"}</span>
-              </button>
-
-              {composeModal.attachedFile && (
-                <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-primary/10 text-primary text-xs font-bold truncate max-w-[260px]">
-                  <FileText size={13} className="shrink-0" />
-                  <span className="truncate">{composeModal.attachedFile.filename}</span>
+                {/* Attachment Row */}
+                <div className="flex items-center justify-between gap-2">
+                  <input
+                    type="file"
+                    ref={composeFileInputRef}
+                    onChange={async (e) => {
+                      const f = e.target.files?.[0];
+                      if (f) await uploadMediaFile(f, true);
+                      if (e.target) e.target.value = "";
+                    }}
+                    accept="image/*,video/*,audio/*,.pdf,.doc,.docx,.xls,.xlsx,.zip"
+                    className="hidden"
+                  />
                   <button
                     type="button"
-                    onClick={() => setComposeModal((prev) => ({ ...prev, attachedFile: null }))}
-                    className="text-slate-400 hover:text-rose-500"
+                    disabled={composeModal.uploading}
+                    onClick={() => composeFileInputRef.current?.click()}
+                    className="px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-100 flex items-center gap-1.5 cursor-pointer"
                   >
-                    <X size={13} />
+                    <Paperclip size={13} className={composeModal.uploading ? "animate-spin text-primary" : "text-primary"} />
+                    <span>{composeModal.uploading ? "Yükleniyor..." : "Ek Dosya Ekle"}</span>
+                  </button>
+
+                  {composeModal.attachedFile && (
+                    <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-primary/10 text-primary text-xs font-bold truncate max-w-[260px]">
+                      <FileText size={13} className="shrink-0" />
+                      <span className="truncate">{composeModal.attachedFile.filename}</span>
+                      <button
+                        type="button"
+                        onClick={() => setComposeModal((prev) => ({ ...prev, attachedFile: null }))}
+                        className="text-slate-400 hover:text-rose-500"
+                      >
+                        <X size={13} />
+                      </button>
+                    </div>
+                  )}
+                </div>
+
+                {broadcastError && (
+                  <div className="p-3 bg-rose-50 dark:bg-rose-950/30 border border-rose-200 dark:border-rose-900/50 rounded-xl text-xs flex items-start gap-2 text-rose-700 dark:text-rose-400">
+                    <AlertTriangle size={16} className="shrink-0 mt-0.5" />
+                    <div className="flex-1 font-medium">{broadcastError}</div>
+                  </div>
+                )}
+
+                {broadcastResult && (
+                  <div
+                    className={`p-3 rounded-xl text-xs flex flex-col gap-1 ${
+                      broadcastResult.successful > 0 && broadcastResult.failed === 0
+                        ? "bg-emerald-50 dark:bg-emerald-950/20 border border-emerald-200 dark:border-emerald-900/40 text-emerald-700 dark:text-emerald-400"
+                        : broadcastResult.successful > 0
+                          ? "bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-900/40 text-amber-700 dark:text-amber-400"
+                          : "bg-rose-50 dark:bg-rose-950/20 border border-rose-200 dark:border-rose-900/40 text-rose-700 dark:text-rose-400"
+                    }`}
+                  >
+                    <div className="flex items-center justify-between font-bold">
+                      <div className="flex items-center gap-2">
+                        {broadcastResult.successful > 0 ? <CheckCircle size={16} /> : <AlertTriangle size={16} />}
+                        <span>
+                          {broadcastResult.successful > 0 && broadcastResult.failed === 0
+                            ? "Kampanya Başarıyla Tamamlandı!"
+                            : broadcastResult.successful > 0
+                              ? "Kampanya Kısmen Tamamlandı"
+                              : "Kampanya Mesajları İletilemedi!"}
+                        </span>
+                      </div>
+                      <span>
+                        Başarılı: {broadcastResult.successful} / Toplam: {broadcastResult.total}
+                      </span>
+                    </div>
+                    {broadcastResult.successful === 0 && (
+                      <p className="text-[11px] opacity-90 mt-1">
+                        Mesajlar WhatsApp API servisine iletilemedi. Lütfen <strong>Sistem Ayarları &gt; Kanal Ayarları</strong> sekmesinden WhatsApp Token ve Phone Number ID bilgilerinizi kontrol ediniz.
+                      </p>
+                    )}
+                  </div>
+                )}
+
+                <div className="pt-2 flex items-center justify-end gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setComposeModal((prev) => ({ ...prev, isOpen: false }))}
+                    className="px-4 py-2 rounded-xl text-xs font-bold border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800"
+                  >
+                    Kapat
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={broadcastLoading || composeModal.uploading || !broadcastText.trim()}
+                    className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold transition disabled:opacity-50 flex items-center gap-1.5 shadow-sm cursor-pointer"
+                  >
+                    <Send size={13} />
+                    <span>{broadcastLoading ? "Gönderiliyor..." : "Kampanyayı Başlat"}</span>
                   </button>
                 </div>
-              )}
-            </div>
+              </>
+            ) : (
+              <>
+                {/* Quick Contact Picker + Recipient */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                  <div>
+                    <label htmlFor="compose-recipient" className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block mb-1">
+                      {composeModal.channel === "email" ? "Alıcı E-Posta Adresi *" : "Alıcı Telefon Numarası *"}
+                    </label>
+                    <input
+                      id="compose-recipient"
+                      type="text"
+                      autoFocus
+                      required
+                      value={composeModal.recipient}
+                      onChange={(e) => setComposeModal((prev) => ({ ...prev, recipient: e.target.value }))}
+                      placeholder={composeModal.channel === "email" ? "musteri@firma.com" : "+905554443322"}
+                      className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl text-xs text-slate-800 dark:text-slate-200 focus:outline-none focus:border-primary"
+                    />
+                  </div>
+                  <div>
+                    <label htmlFor="compose-contact-pick" className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block mb-1">
+                      Rehberden Hızlı Seç (Opsiyonel)
+                    </label>
+                    <select
+                      id="compose-contact-pick"
+                      value=""
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        if (val) setComposeModal((prev) => ({ ...prev, recipient: val }));
+                      }}
+                      className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl text-xs text-slate-800 dark:text-slate-200 focus:outline-none focus:border-primary"
+                    >
+                      <option value="">Kayıtlı kişi seçin...</option>
+                      {contactsList
+                        .filter((c) => (composeModal.channel === "email" ? Boolean(c.email) : Boolean(c.phone_number)))
+                        .map((c) => {
+                          const val = composeModal.channel === "email" ? c.email : c.phone_number;
+                          const fullName = `${c.first_name || ""} ${c.last_name || ""}`.trim();
+                          return (
+                            <option key={c.id} value={val}>
+                              {fullName} ({val})
+                            </option>
+                          );
+                        })}
+                    </select>
+                  </div>
+                </div>
 
-            {composeModal.error && (
-              <div className="p-2.5 bg-rose-50 dark:bg-rose-950/30 border border-rose-200 dark:border-rose-900/50 rounded-xl text-xs text-rose-700 dark:text-rose-400 flex items-center gap-2 font-medium">
-                <AlertCircle size={15} className="shrink-0" />
-                <span>{composeModal.error}</span>
-              </div>
+                {composeModal.channel === "email" && (
+                  <>
+                    <div>
+                      <label htmlFor="compose-subject" className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block mb-1">
+                        E-Posta Konusu *
+                      </label>
+                      <input
+                        id="compose-subject"
+                        type="text"
+                        required
+                        value={composeModal.subject}
+                        onChange={(e) => setComposeModal((prev) => ({ ...prev, subject: e.target.value }))}
+                        placeholder="Örn: Teklif ve Hizmet Bilgilendirmesi"
+                        className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl text-xs text-slate-800 dark:text-slate-200 focus:outline-none focus:border-primary"
+                      />
+                    </div>
+
+                    <details className="rounded-xl bg-slate-50/70 dark:bg-slate-950/40 border border-slate-200/70 dark:border-slate-800 px-3 py-2">
+                      <summary className="text-[11px] font-bold text-primary cursor-pointer select-none">
+                        CC / BCC Alıcıları Ekle (Opsiyonel)
+                      </summary>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 mt-2">
+                        <div>
+                          <label htmlFor="compose-cc" className="text-[9px] font-bold uppercase text-slate-400 block mb-0.5">
+                            CC (Bilgi)
+                          </label>
+                          <input
+                            id="compose-cc"
+                            type="text"
+                            value={composeModal.cc}
+                            onChange={(e) => setComposeModal((prev) => ({ ...prev, cc: e.target.value }))}
+                            placeholder="ekip@firma.com"
+                            className="w-full px-2.5 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-xs text-slate-800 dark:text-slate-100 focus:outline-none focus:border-primary"
+                          />
+                        </div>
+                        <div>
+                          <label htmlFor="compose-bcc" className="text-[9px] font-bold uppercase text-slate-400 block mb-0.5">
+                            BCC (Gizli)
+                          </label>
+                          <input
+                            id="compose-bcc"
+                            type="text"
+                            value={composeModal.bcc}
+                            onChange={(e) => setComposeModal((prev) => ({ ...prev, bcc: e.target.value }))}
+                            placeholder="arsiv@firma.com"
+                            className="w-full px-2.5 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-xs text-slate-800 dark:text-slate-100 focus:outline-none focus:border-primary"
+                          />
+                        </div>
+                      </div>
+                    </details>
+                  </>
+                )}
+
+                <div>
+                  <label htmlFor="compose-body" className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block mb-1">
+                    İleti İçeriği *
+                  </label>
+                  <textarea
+                    id="compose-body"
+                    rows={5}
+                    value={composeModal.text}
+                    onChange={(e) => setComposeModal((prev) => ({ ...prev, text: e.target.value }))}
+                    placeholder="Mesajınızı buraya yazın..."
+                    className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl text-xs leading-relaxed text-slate-800 dark:text-slate-200 focus:outline-none focus:border-primary"
+                  />
+                </div>
+
+                {/* Attachment Row */}
+                <div className="flex items-center justify-between gap-2">
+                  <input
+                    type="file"
+                    ref={composeFileInputRef}
+                    onChange={async (e) => {
+                      const f = e.target.files?.[0];
+                      if (f) await uploadMediaFile(f, true);
+                      if (e.target) e.target.value = "";
+                    }}
+                    accept="image/*,video/*,audio/*,.pdf,.doc,.docx,.xls,.xlsx,.zip"
+                    className="hidden"
+                  />
+                  <button
+                    type="button"
+                    disabled={composeModal.uploading}
+                    onClick={() => composeFileInputRef.current?.click()}
+                    className="px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-100 flex items-center gap-1.5 cursor-pointer"
+                  >
+                    <Paperclip size={13} className={composeModal.uploading ? "animate-spin text-primary" : "text-primary"} />
+                    <span>{composeModal.uploading ? "Yükleniyor..." : "Ek Dosya Ekle"}</span>
+                  </button>
+
+                  {composeModal.attachedFile && (
+                    <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-primary/10 text-primary text-xs font-bold truncate max-w-[260px]">
+                      <FileText size={13} className="shrink-0" />
+                      <span className="truncate">{composeModal.attachedFile.filename}</span>
+                      <button
+                        type="button"
+                        onClick={() => setComposeModal((prev) => ({ ...prev, attachedFile: null }))}
+                        className="text-slate-400 hover:text-rose-500"
+                      >
+                        <X size={13} />
+                      </button>
+                    </div>
+                  )}
+                </div>
+
+                {composeModal.error && (
+                  <div className="p-2.5 bg-rose-50 dark:bg-rose-950/30 border border-rose-200 dark:border-rose-900/50 rounded-xl text-xs text-rose-700 dark:text-rose-400 flex items-center gap-2 font-medium">
+                    <AlertCircle size={15} className="shrink-0" />
+                    <span>{composeModal.error}</span>
+                  </div>
+                )}
+
+                <div className="pt-2 flex items-center justify-end gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setComposeModal((prev) => ({ ...prev, isOpen: false }))}
+                    className="px-4 py-2 rounded-xl text-xs font-bold border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800"
+                  >
+                    Vazgeç
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={composeModal.submitting || composeModal.uploading}
+                    className="px-4 py-2 rounded-xl text-xs font-bold bg-primary hover:opacity-90 text-white flex items-center gap-1.5 disabled:opacity-50 shadow-sm cursor-pointer"
+                  >
+                    <Send size={13} />
+                    <span>{composeModal.submitting ? "Gönderiliyor..." : "Gönder"}</span>
+                  </button>
+                </div>
+              </>
             )}
-
-            <div className="pt-2 flex items-center justify-end gap-2">
-              <button
-                type="button"
-                onClick={() => setComposeModal((prev) => ({ ...prev, isOpen: false }))}
-                className="px-4 py-2 rounded-xl text-xs font-bold border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800"
-              >
-                Vazgeç
-              </button>
-              <button
-                type="submit"
-                disabled={composeModal.submitting || composeModal.uploading}
-                className="px-4 py-2 rounded-xl text-xs font-bold bg-primary hover:opacity-90 text-white flex items-center gap-1.5 disabled:opacity-50 shadow-sm"
-              >
-                <Send size={13} />
-                <span>{composeModal.submitting ? "Gönderiliyor..." : "Gönder"}</span>
-              </button>
-            </div>
           </form>
         </div>
       </NativeModalDialog>
@@ -2800,174 +3011,6 @@ export default function OmnichannelPanel({ backendHost = "localhost:8000" }) {
                 className="px-4 py-2 rounded-xl text-xs font-bold bg-rose-600 hover:bg-rose-500 text-white disabled:opacity-50"
               >
                 {blacklistModal.loading ? "Engelleniyor..." : "Kara Listeye Ekle"}
-              </button>
-            </div>
-          </form>
-        </div>
-      </NativeModalDialog>
-
-      {/* Toplu WhatsApp Gönderim & Kampanya Modalı */}
-      <NativeModalDialog
-        isOpen={showBroadcastModal}
-        onClose={() => setShowBroadcastModal(false)}
-        labelledBy="broadcast-whatsapp-title"
-        maxWidthClass="max-w-lg"
-      >
-        <div className="bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-3xl shadow-2xl w-full overflow-hidden">
-          <div className="p-5 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between bg-slate-50/50 dark:bg-slate-950/20">
-            <div className="flex items-center gap-2">
-              <Megaphone size={18} className="text-emerald-500" />
-              <h3 id="broadcast-whatsapp-title" className="text-sm font-bold text-slate-800 dark:text-white">
-                Toplu WhatsApp Duyurusu &amp; Kampanya
-              </h3>
-            </div>
-            <button
-              type="button"
-              onClick={() => setShowBroadcastModal(false)}
-              className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
-              aria-label="Kapat"
-            >
-              <X size={16} />
-            </button>
-          </div>
-
-          <form onSubmit={handleStartBroadcast} className="p-6 space-y-4 text-left">
-            <div>
-              <label htmlFor="bc-target" className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider block mb-1.5">
-                Hedef Kitle
-              </label>
-              <select
-                id="bc-target"
-                value={broadcastTarget}
-                onChange={(e) => setBroadcastTarget(e.target.value)}
-                className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl text-xs text-slate-800 dark:text-slate-200 focus:outline-none"
-              >
-                <option value="all_contacts" className="bg-white dark:bg-slate-900 text-slate-800 dark:text-white">
-                  Rehberdeki Tüm Kayıtlı Kişiler
-                </option>
-                <option value="custom" className="bg-white dark:bg-slate-900 text-slate-800 dark:text-white">
-                  Özel Numaralar Listesi (CSV / Manuel)
-                </option>
-              </select>
-            </div>
-
-            {broadcastTarget === "custom" && (
-              <div>
-                <div className="flex items-center justify-between mb-1.5">
-                  <label htmlFor="bc-numbers" className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">
-                    Telefon Numaraları
-                  </label>
-                  <label className="cursor-pointer px-2.5 py-1 bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/40 dark:hover:bg-emerald-900/40 border border-emerald-200/60 dark:border-emerald-800/50 rounded-lg text-[10px] font-bold text-emerald-700 dark:text-emerald-400 transition flex items-center gap-1">
-                    <Upload size={11} />
-                    <span>CSV / TXT Dosyası Seç</span>
-                    <input type="file" accept=".csv,.txt,.xlsx,.xls" onChange={handleFileUpload} className="hidden" />
-                  </label>
-                </div>
-                <textarea
-                  id="bc-numbers"
-                  value={broadcastNumbers}
-                  onChange={(e) => setBroadcastNumbers(e.target.value)}
-                  placeholder="Her satıra bir numara yazın veya yukarıdan CSV/TXT dosyası seçin (Örn: +905554443322)"
-                  rows={4}
-                  className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl text-xs font-mono text-slate-800 dark:text-slate-200 focus:outline-none placeholder:text-slate-400 dark:placeholder:text-slate-500"
-                />
-                {csvImportNotice && (
-                  <span className="text-[10px] text-emerald-600 dark:text-emerald-400 font-bold block mt-1">
-                    {csvImportNotice}
-                  </span>
-                )}
-                {broadcastNumbers && (
-                  <span className="text-[9px] text-emerald-600 dark:text-emerald-400 font-bold block mt-1">
-                    Toplam {broadcastNumbers.split("\n").filter((n) => n.trim().length >= 10).length} geçerli alıcı numarası tespit edildi.
-                  </span>
-                )}
-              </div>
-            )}
-
-            <div>
-              <label htmlFor="bc-text" className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider block mb-1.5">
-                Kampanya Mesajı
-              </label>
-              <textarea
-                id="bc-text"
-                value={broadcastText}
-                onChange={(e) => setBroadcastText(e.target.value)}
-                required
-                placeholder="Gönderilecek kampanya veya duyuru metnini yazın..."
-                rows={4}
-                className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl text-xs text-slate-800 dark:text-slate-200 focus:outline-none placeholder:text-slate-400 dark:placeholder:text-slate-500"
-              />
-            </div>
-
-            <div>
-              <label htmlFor="bc-media" className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider block mb-1.5">
-                Medya veya PDF Katalog URL (Opsiyonel)
-              </label>
-              <input
-                id="bc-media"
-                type="text"
-                value={broadcastMediaUrl}
-                onChange={(e) => setBroadcastMediaUrl(e.target.value)}
-                placeholder="https://example.com/katalog.pdf veya gorsel.jpg"
-                className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl text-xs text-slate-800 dark:text-slate-200 focus:outline-none placeholder:text-slate-400 dark:placeholder:text-slate-500"
-              />
-            </div>
-
-            {broadcastError && (
-              <div className="p-3 bg-rose-50 dark:bg-rose-950/30 border border-rose-200 dark:border-rose-900/50 rounded-xl text-xs flex items-start gap-2 text-rose-700 dark:text-rose-400">
-                <AlertTriangle size={16} className="shrink-0 mt-0.5" />
-                <div className="flex-1 font-medium">{broadcastError}</div>
-              </div>
-            )}
-
-            {broadcastResult && (
-              <div
-                className={`p-3 rounded-xl text-xs flex flex-col gap-1 ${
-                  broadcastResult.successful > 0 && broadcastResult.failed === 0
-                    ? "bg-emerald-50 dark:bg-emerald-950/20 border border-emerald-200 dark:border-emerald-900/40 text-emerald-700 dark:text-emerald-400"
-                    : broadcastResult.successful > 0
-                      ? "bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-900/40 text-amber-700 dark:text-amber-400"
-                      : "bg-rose-50 dark:bg-rose-950/20 border border-rose-200 dark:border-rose-900/40 text-rose-700 dark:text-rose-400"
-                }`}
-              >
-                <div className="flex items-center justify-between font-bold">
-                  <div className="flex items-center gap-2">
-                    {broadcastResult.successful > 0 ? <CheckCircle size={16} /> : <AlertTriangle size={16} />}
-                    <span>
-                      {broadcastResult.successful > 0 && broadcastResult.failed === 0
-                        ? "Kampanya Başarıyla Tamamlandı!"
-                        : broadcastResult.successful > 0
-                          ? "Kampanya Kısmen Tamamlandı"
-                          : "Kampanya Mesajları İletilemedi!"}
-                    </span>
-                  </div>
-                  <span>
-                    Başarılı: {broadcastResult.successful} / Toplam: {broadcastResult.total}
-                  </span>
-                </div>
-                {broadcastResult.successful === 0 && (
-                  <p className="text-[11px] opacity-90 mt-1">
-                    Mesajlar WhatsApp API servisine iletilemedi. Lütfen <strong>Sistem Ayarları &gt; Kanal Ayarları</strong> sekmesinden WhatsApp Token ve Phone Number ID bilgilerinizi kontrol ediniz.
-                  </p>
-                )}
-              </div>
-            )}
-
-            <div className="pt-2 flex items-center justify-end gap-2">
-              <button
-                type="button"
-                onClick={() => setShowBroadcastModal(false)}
-                className="px-4 py-2 border border-slate-200 dark:border-slate-800 rounded-xl text-xs font-bold text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800"
-              >
-                Kapat
-              </button>
-              <button
-                type="submit"
-                disabled={broadcastLoading || !broadcastText.trim()}
-                className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold transition disabled:opacity-50 flex items-center gap-1.5"
-              >
-                <Send size={14} />
-                {broadcastLoading ? "Gönderiliyor..." : "Kampanyayı Başlat"}
               </button>
             </div>
           </form>
