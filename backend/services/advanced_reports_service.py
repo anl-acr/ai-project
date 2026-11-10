@@ -2696,7 +2696,7 @@ async def report_conferences(
             continue
         rooms_map[rnum] = {
             "room_number": rnum,
-            "name": cf.get("name") or f"Konferans {rnum}",
+            "name": cf.get("room_name") or cf.get("name") or f"Konferans {rnum}",
             "pin_protected": bool(str(cf.get("pin") or cf.get("admin_pin") or "").strip()),
             "record_enabled": bool(cf.get("record") or cf.get("recording_enabled")),
             "max_members": int(cf.get("max_members") or cf.get("max_participants") or 20),

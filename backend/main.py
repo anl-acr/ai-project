@@ -5004,12 +5004,16 @@ same => n,Set(CURLOPT(httptimeout)=2)
 same => n,Set(CURL_RESULT=${{CURL(http://{backend_host}/api/calls/end?call_id=${{CALL_UUID}}&dialstatus=${{DIALSTATUS}}&hangupcause=${{HANGUPCAUSE}}&queuestatus=${{QUEUESTATUS}}&memberinterface=${{URIENCODE(${{MEMBERINTERFACE}})}}&hangupsource=${{URIENCODE(${{CHANNEL(hangupsource)}})}}&trunk=${{URIENCODE(${{OUT_TRUNK_NAME}})}}&answeredtime=${{ANSWEREDTIME}}&dialedtime=${{DIALEDTIME}})}})
 same => n(done_h),NoOp(Hangup tamamlandi)
 
-; İç hat (Diğer temsilciler & Dahililer: 100-999999), Acil Durum Numaraları (112 vb.) ve Prefix'li Dış Aramalar (>= 7 hane)
+; İç hat (Diğer temsilciler & Dahililer: 100-999999), Konferans Odaları, Kuyruklar, Hızlı Aramalar, Acil Durum (112 vb.) ve Prefix'li Dış Aramalar (>= 7 hane)
 exten => _[1-9]X.,1,Gosub(hotdesk_cid_sub,s,1)
 same => n,Set(CURLOPT(conntimeout)=1)
 same => n,Set(CURLOPT(httptimeout)=2)
 same => n,Set(EM_CHK=${{CURL(http://{backend_host}/api/trunks/check_emergency?callee=${{URIENCODE(${{EXTEN}})}})}})
 same => n,GotoIf($["${{EM_CHK}}" = "EMERGENCY"]?emergency_route_ext)
+same => n,Set(SPEC_TARGET=${{CURL(http://{backend_host}/api/conferences/resolve_dial?exten=${{URIENCODE(${{EXTEN}})}}&caller=${{URIENCODE(${{CALLERID(num)}})}}&call_id=${{URIENCODE(${{CALL_UUID}})}})}})
+same => n,GotoIf($["${{CUT(SPEC_TARGET,|,1)}}" = "CONF"]?conf_route_ext)
+same => n,GotoIf($["${{CUT(SPEC_TARGET,|,1)}}" = "QUEUE"]?queue_route_ext)
+same => n,GotoIf($["${{CUT(SPEC_TARGET,|,1)}}" = "SPEEDDIAL"]?speeddial_route_ext)
 same => n,GotoIf($[${{LEN(${{EXTEN}})}} >= 7]?outbound_route_ext)
 same => n,NoOp(Dahili arama basladi: Arayan=${{CALLERID(num)}}, Aranan=${{EXTEN}})
 same => n,GotoIf($["${{CALL_UUID}}" != ""]?already_registered_int)
@@ -5024,6 +5028,26 @@ same => n,Set(DIALSTATUS=FAILED)
 same => n,Progress()
 same => n,Playback(/var/spool/asterisk/monitor/tr_yetkisiz_arama,noanswer)
 same => n,Hangup(21)
+same => n(conf_route_ext),NoOp(KONFERANS ODASI ARAMASI: Oda=${{EXTEN}}, Arayan=${{CALLERID(num)}})
+same => n,GotoIf($["${{CALL_UUID}}" != ""]?conf_already_reg)
+same => n,Set(MD5_VAL=${{MD5(${{UNIQUEID}}${{EPOCH}})}})
+same => n,Set(__CALL_UUID=${{MD5_VAL:0:8}}-${{MD5_VAL:8:4}}-4${{MD5_VAL:13:3}}-a${{MD5_VAL:17:3}}-${{MD5_VAL:20:12}})
+same => n,Set(CURL_RESULT=${{CURL(http://{backend_host}/api/calls/register?call_id=${{CALL_UUID}}&did=${{EXTEN}}&caller=${{CALLERID(num)}}&asterisk_id=${{UNIQUEID}})}})
+same => n,GotoIf($["${{CURL_RESULT}}" = "BLOCKED"]?deny)
+same => n(conf_already_reg),Gosub(conference_bridge_sub,s,1(${{CUT(SPEC_TARGET,|,2)}},${{CUT(SPEC_TARGET,|,3)}},${{CUT(SPEC_TARGET,|,4)}}))
+same => n,Hangup()
+same => n(queue_route_ext),NoOp(DAHILI KUYRUK ARAMASI: Kuyruk=${{CUT(SPEC_TARGET,|,2)}}, Arayan=${{CALLERID(num)}})
+same => n,GotoIf($["${{CALL_UUID}}" != ""]?q_ext_already_reg)
+same => n,Set(MD5_VAL=${{MD5(${{UNIQUEID}}${{EPOCH}})}})
+same => n,Set(__CALL_UUID=${{MD5_VAL:0:8}}-${{MD5_VAL:8:4}}-4${{MD5_VAL:13:3}}-a${{MD5_VAL:17:3}}-${{MD5_VAL:20:12}})
+same => n,Set(CURL_RESULT=${{CURL(http://{backend_host}/api/calls/register?call_id=${{CALL_UUID}}&did=${{EXTEN}}&caller=${{CALLERID(num)}}&asterisk_id=${{UNIQUEID}})}})
+same => n,GotoIf($["${{CURL_RESULT}}" = "BLOCKED"]?deny)
+same => n(q_ext_already_reg),Answer()
+same => n,MixMonitor(/var/spool/asterisk/monitor/${{CALL_UUID}}.wav,b)
+same => n,Gosub(queue_router_sub,s,1(${{CUT(SPEC_TARGET,|,2)}}))
+same => n,Hangup()
+same => n(speeddial_route_ext),NoOp(HIZLI ARAMA YONLENDIRMESI: Kod=${{EXTEN}} -> Hedef=${{CUT(SPEC_TARGET,|,2)}})
+same => n,Goto(webrtc_agents,${{CUT(SPEC_TARGET,|,2)}},1)
 same => n(emergency_route_ext),NoOp(ACIL DURUM ARAMASI [ACL/LIMIT BYPASS]: Arayan=${{CALLERID(num)}}, Acil=${{EXTEN}})
 same => n,Set(MD5_VAL=${{MD5(${{UNIQUEID}}${{EPOCH}})}})
 same => n,Set(__CALL_UUID=${{MD5_VAL:0:8}}-${{MD5_VAL:8:4}}-4${{MD5_VAL:13:3}}-a${{MD5_VAL:17:3}}-${{MD5_VAL:20:12}})
@@ -5431,6 +5455,99 @@ same => n,Return()
 same => n(rp_resumed),Playback(beep)
 same => n,Playback(beep)
 same => n,Return()
+
+[conference_bridge_sub]
+; ARG1 = room_number, ARG2 = rec_enabled (0/1), ARG3 = pin
+exten => s,1,Set(CONF_ROOM=${{ARG1}})
+same => n,Set(CONF_REC=${{ARG2}})
+same => n,Set(CONF_PIN=${{ARG3}})
+same => n,Answer()
+same => n,Wait(0.3)
+same => n,Set(DIALSTATUS=ANSWER)
+same => n,Set(CURLOPT(conntimeout)=1)
+same => n,Set(CURLOPT(httptimeout)=2)
+same => n,Set(CONF_NOTIF=${{CURL(http://{backend_host}/api/conferences/participant_joined?room=${{URIENCODE(${{CONF_ROOM}})}}&caller=${{URIENCODE(${{CALLERID(num)}})}}&call_id=${{URIENCODE(${{CALL_UUID}})}})}})
+same => n,GotoIf($["${{CONF_PIN}}" = ""]?conf_chk_rec)
+same => n,Set(CONF_PIN_TRY=0)
+same => n(conf_ask_pin),Set(CONF_PIN_TRY=$[${{CONF_PIN_TRY}} + 1])
+same => n,Set(ENTERED_CPIN=)
+same => n,Read(ENTERED_CPIN,/var/spool/asterisk/monitor/tr_giden_parola,10,,,6)
+same => n,GotoIf($["${{ENTERED_CPIN}}" = "${{CONF_PIN}}"]?conf_chk_rec)
+same => n,Playback(/var/spool/asterisk/monitor/tr_hatali_parola)
+same => n,GotoIf($[${{CONF_PIN_TRY}} < 3]?conf_ask_pin)
+same => n,Hangup(21)
+same => n(conf_chk_rec),StopMixMonitor()
+same => n,GotoIf($["${{CONF_REC}}" != "1"]?conf_enter)
+same => n,MixMonitor(/var/spool/asterisk/monitor/${{CALL_UUID}}.wav,ab)
+same => n(conf_enter),Playback(beep)
+same => n,Set(CONFBRIDGE(user,announce_join_leave)=no)
+same => n,Set(CONFBRIDGE(user,music_on_hold_when_empty)=yes)
+same => n,Set(CONFBRIDGE(user,dsp_drop_silence)=yes)
+same => n,ConfBridge(${{CONF_ROOM}})
+same => n,Return()
+
+[conference_invite_internal]
+exten => _[1-9]X.,1,NoOp(Konferans Dahili Katilimci Daveti: Hedef=${{EXTEN}}, Oda=${{CALLERID(num)}})
+same => n,Set(CURLOPT(conntimeout)=1)
+same => n,Set(CURLOPT(httptimeout)=2)
+same => n,Set(AG_EP_LIST=${{CURL(http://{backend_host}/api/subscriber/resolve_agent_ring_targets?extension=${{EXTEN}}&format=list)}})
+same => n,GotoIf($["${{AG_EP_LIST}}" = "NONE" | "${{AG_EP_LIST}}" = ""]?ci_unavail)
+same => n,Gosub(build_multi_pjsip_dial_sub,s,1(${{AG_EP_LIST}}))
+same => n,GotoIf($["${{MULTI_DIAL_STR}}" = ""]?ci_unavail)
+same => n,Dial(${{MULTI_DIAL_STR}},30,tTg)
+same => n(ci_unavail),Hangup()
+
+[conference_invite_external]
+exten => _X.,1,NoOp(Konferans Harici Katilimci Daveti: Hedef=${{EXTEN}})
+same => n,Set(MD5_VAL=${{MD5(${{UNIQUEID}}${{EPOCH}})}})
+same => n,Set(__CALL_UUID=${{MD5_VAL:0:8}}-${{MD5_VAL:8:4}}-4${{MD5_VAL:13:3}}-a${{MD5_VAL:17:3}}-${{MD5_VAL:20:12}})
+same => n,Set(DIAL_NUM=${{IF($["${{EXTEN:0:1}}"="0"]?90${{EXTEN:1}}:${{EXTEN}})}})
+same => n,Gosub(outbound_failover_dial_sub,s,1(${{EXTEN}},${{DIAL_NUM}},45,0))
+same => n,Hangup()
+
+[conference_join_context]
+exten => _X.,1,NoOp(Davet Edilen Katilimci Konferansa Baglaniyor: Oda=${{EXTEN}}, Katilimci=${{INVITED_PARTICIPANT}})
+same => n,Answer()
+same => n,Wait(0.3)
+same => n,Set(MD5_VAL=${{MD5(${{UNIQUEID}}${{EPOCH}})}})
+same => n,Set(__CALL_UUID=${{MD5_VAL:0:8}}-${{MD5_VAL:8:4}}-4${{MD5_VAL:13:3}}-a${{MD5_VAL:17:3}}-${{MD5_VAL:20:12}})
+same => n,Set(CURLOPT(conntimeout)=1)
+same => n,Set(CURLOPT(httptimeout)=2)
+same => n,Set(CURL_RESULT=${{CURL(http://{backend_host}/api/calls/register?call_id=${{CALL_UUID}}&did=${{EXTEN}}&caller=${{URIENCODE(${{INVITED_PARTICIPANT}})}}&asterisk_id=${{UNIQUEID}})}})
+same => n,Set(CONF_JOIN_RES=${{CURL(http://{backend_host}/api/conferences/participant_joined?room=${{URIENCODE(${{EXTEN}})}}&caller=${{URIENCODE(${{INVITED_PARTICIPANT}})}}&call_id=${{URIENCODE(${{CALL_UUID}})}}&invited=1)}})
+same => n,GotoIf($["${{CONF_REC_EN}}" != "1"]?cj_enter)
+same => n,MixMonitor(/var/spool/asterisk/monitor/${{CALL_UUID}}.wav,ab)
+same => n(cj_enter),Playback(beep)
+same => n,Set(CONFBRIDGE(user,announce_join_leave)=no)
+same => n,Set(CONFBRIDGE(user,music_on_hold_when_empty)=yes)
+same => n,Set(CONFBRIDGE(user,dsp_drop_silence)=yes)
+same => n,ConfBridge(${{EXTEN}})
+same => n,Hangup()
+exten => h,1,NoOp(Konferans Katilimci Ayrildi: Oda=${{EXTEN}}, Call=${{CALL_UUID}})
+same => n,StopMixMonitor()
+same => n,GotoIf($["${{CALL_UUID}}" = ""]?cj_h_done)
+same => n,Set(CURLOPT(conntimeout)=1)
+same => n,Set(CURLOPT(httptimeout)=2)
+same => n,Set(CURL_RESULT=${{CURL(http://{backend_host}/api/calls/end?call_id=${{CALL_UUID}}&dialstatus=ANSWER&hangupcause=${{HANGUPCAUSE}}&hangupsource=${{URIENCODE(conference:${{EXTEN}})}}&answeredtime=${{ANSWEREDTIME}}&dialedtime=${{DIALEDTIME}})}})
+same => n(cj_h_done),Hangup()
+"""
+
+    confbridge_conf_content = """; ==========================================
+; Asterisk ConfBridge Configuration
+; ==========================================
+[general]
+
+[default_user]
+type=user
+dsp_drop_silence=yes
+talk_detection_events=yes
+denoise=yes
+
+[default_bridge]
+type=bridge
+max_members=50
+mixing_interval=20
+internal_sample_rate=auto
 """
 
     features_conf_content = f"""; ==========================================
@@ -5502,7 +5619,9 @@ clearglobalvars=no
                 f_main.write(clean_ext_main)
             with open(os.path.join(etc_dir, "features.conf"), "w", encoding="utf-8") as f_etc_feat:
                 f_etc_feat.write(features_conf_content)
-            print(f"[Asterisk Config] /etc/asterisk/extensions.conf ve features.conf güncellendi.")
+            with open(os.path.join(etc_dir, "confbridge.conf"), "w", encoding="utf-8") as f_etc_cb:
+                f_etc_cb.write(confbridge_conf_content)
+            print(f"[Asterisk Config] /etc/asterisk/extensions.conf, features.conf ve confbridge.conf güncellendi.")
         except Exception as e:
             print(f"[Asterisk Config] /etc/asterisk/extensions_custom.conf yazılamadı: {e}")
 
@@ -14436,6 +14555,270 @@ async def delete_conference(conf_id: str):
     save_settings(settings_db)
     return {"status": "success", "conferences": settings_db["conferences"]}
 
+
+_RECENT_CONF_INVITES: dict[str, float] = {}
+
+
+async def _auto_invite_conference_participants(
+    room_number: str,
+    room_name: str,
+    caller_ext: str,
+    internals: list,
+    externals: list,
+    rec_enabled: str = "0",
+):
+    """
+    When a conference room is dialed, automatically originates calls to the configured
+    internal extensions and external numbers (skipping the caller and anyone already active).
+    """
+    try:
+        await asyncio.sleep(0.8)
+        room_s = str(room_number or "").strip()
+        if not room_s:
+            return
+        caller_s = str(caller_ext or "").strip()
+        caller_digits = re.sub(r"\D", "", caller_s)
+        caller_last10 = caller_digits[-10:] if len(caller_digits) >= 10 else caller_digits
+
+        # Resolve user IDs / extensions for internals
+        users_list = list(settings_db.get("users", []) or [])
+        try:
+            async with AsyncSessionLocal() as db:
+                db_u_rows = (await db.execute(select(SystemUser))).scalars().all()
+                for du in db_u_rows:
+                    users_list.append({"id": du.id, "extension": du.extension, "full_name": du.full_name})
+        except Exception:
+            pass
+
+        resolved_internal_exts = []
+        for raw_u in (internals or []):
+            val_s = str(raw_u or "").strip()
+            if not val_s:
+                continue
+            matched_ext = ""
+            for u in users_list:
+                if str(u.get("id") or "") == val_s or str(u.get("extension") or "").strip() == val_s:
+                    matched_ext = str(u.get("extension") or "").strip()
+                    if matched_ext:
+                        break
+            if not matched_ext and val_s.isdigit():
+                matched_ext = val_s
+            if matched_ext and matched_ext != caller_s and matched_ext not in resolved_internal_exts:
+                resolved_internal_exts.append(matched_ext)
+
+        resolved_external_nums = []
+        for raw_ext in (externals or []):
+            ext_d = re.sub(r"\D", "", str(raw_ext or ""))
+            if not ext_d:
+                continue
+            ext_last10 = ext_d[-10:] if len(ext_d) >= 10 else ext_d
+            if caller_last10 and len(caller_last10) >= 10 and ext_last10 == caller_last10:
+                continue
+            if ext_d not in resolved_external_nums:
+                resolved_external_nums.append(ext_d)
+
+        if not resolved_internal_exts and not resolved_external_nums:
+            return
+
+        from backend.services.ami_manager import get_ami_manager, _iter_ami_responses
+        manager = await get_ami_manager()
+        active_nums = set()
+        if manager:
+            try:
+                res = await manager.send_action({"Action": "CoreShowChannels"})
+                for r in _iter_ami_responses(res):
+                    if not hasattr(r, "get"):
+                        continue
+                    cid_n = str(r.get("CallerIDNum") or "").strip()
+                    con_n = str(r.get("ConnectedLineNum") or "").strip()
+                    ch_n = str(r.get("Channel") or "").strip()
+                    for n_val in (cid_n, con_n):
+                        if n_val:
+                            active_nums.add(n_val)
+                            nd = re.sub(r"\D", "", n_val)
+                            if len(nd) >= 10:
+                                active_nums.add(nd[-10:])
+                    m_loc = re.search(r"Local/([^@]+)@conference_invite", ch_n, re.I)
+                    if m_loc:
+                        active_nums.add(m_loc.group(1))
+            except Exception as e_ch:
+                print(f"[Conference Auto-Invite Channel Check Warning]: {e_ch}")
+
+        safe_label = re.sub(r'["<>]', "", str(room_name or f"Konferans {room_s}")).strip() or f"Konferans {room_s}"
+
+        for t_ext in resolved_internal_exts:
+            if t_ext in active_nums:
+                continue
+            print(f"[Conference Auto-Invite] Dahili abone davet ediliyor: Oda={room_s} -> Dahili={t_ext}")
+            originated = False
+            if manager:
+                try:
+                    await manager.send_action({
+                        "Action": "Originate",
+                        "Channel": f"Local/{t_ext}@conference_invite_internal/n",
+                        "Context": "conference_join_context",
+                        "Exten": room_s,
+                        "Priority": "1",
+                        "CallerID": f'"{safe_label} ({room_s})" <{room_s}>',
+                        "Timeout": "30000",
+                        "Async": "true",
+                        "Variable": f"__INVITED_PARTICIPANT={t_ext},__CONF_REC_EN={rec_enabled}",
+                    })
+                    originated = True
+                except Exception as e_orig_i:
+                    print(f"[Conference Auto-Invite Internal AMI Error]: {e_orig_i}")
+            if not originated:
+                try:
+                    import subprocess
+                    subprocess.run(
+                        ["asterisk", "-rx", f"channel originate Local/{t_ext}@conference_invite_internal/n extension {room_s}@conference_join_context"],
+                        check=False,
+                        timeout=2.0,
+                    )
+                except Exception:
+                    pass
+
+        for ext_num in resolved_external_nums:
+            ext_last10 = ext_num[-10:] if len(ext_num) >= 10 else ext_num
+            if ext_num in active_nums or (len(ext_last10) >= 10 and ext_last10 in active_nums):
+                continue
+            print(f"[Conference Auto-Invite] Harici numara davet ediliyor: Oda={room_s} -> Harici={ext_num}")
+            originated_e = False
+            if manager:
+                try:
+                    await manager.send_action({
+                        "Action": "Originate",
+                        "Channel": f"Local/{ext_num}@conference_invite_external/n",
+                        "Context": "conference_join_context",
+                        "Exten": room_s,
+                        "Priority": "1",
+                        "CallerID": '"908503607390" <908503607390>',
+                        "Timeout": "45000",
+                        "Async": "true",
+                        "Variable": f"__INVITED_PARTICIPANT={ext_num},__CONF_REC_EN={rec_enabled}",
+                    })
+                    originated_e = True
+                except Exception as e_orig_e:
+                    print(f"[Conference Auto-Invite External AMI Error]: {e_orig_e}")
+            if not originated_e:
+                try:
+                    import subprocess
+                    subprocess.run(
+                        ["asterisk", "-rx", f"channel originate Local/{ext_num}@conference_invite_external/n extension {room_s}@conference_join_context"],
+                        check=False,
+                        timeout=2.0,
+                    )
+                except Exception:
+                    pass
+    except Exception as e_inv:
+        print(f"[Conference Auto-Invite Error]: {e_inv}")
+
+
+@app.get("/api/conferences/resolve_dial")
+async def resolve_special_extension_dial(exten: str = "", caller: str = "", call_id: str = ""):
+    """
+    Resolves whether a dialed extension in [webrtc_agents] is a Conference Room,
+    an ACD Queue, or a Speed Dial short code before falling through to subscriber PJSIP dial.
+    """
+    ext_s = str(exten or "").strip()
+    caller_s = str(caller or "").strip()
+    cid_s = str(call_id or "").strip()
+    if not ext_s:
+        return PlainTextResponse("SUBSCRIBER")
+
+    # 1. Check Conference Rooms
+    confs = settings_db.get("conferences", []) or []
+    matched_conf = None
+    for c in confs:
+        if not isinstance(c, dict):
+            continue
+        for k in ("room_number", "extension", "number", "conf_no"):
+            if str(c.get(k) or "").strip() == ext_s:
+                matched_conf = c
+                break
+        if matched_conf:
+            break
+
+    if matched_conf:
+        room_name = str(matched_conf.get("room_name") or matched_conf.get("name") or f"Konferans {ext_s}").strip()
+        rec_en = "1" if (matched_conf.get("recording_enabled") or matched_conf.get("record")) else "0"
+        pin_str = str(matched_conf.get("pin") or matched_conf.get("admin_pin") or "").strip()
+
+        now_ts = time.time()
+        last_inv = _RECENT_CONF_INVITES.get(ext_s, 0.0)
+        internals = matched_conf.get("internals") or []
+        externals = matched_conf.get("externals") or []
+        if (internals or externals) and (now_ts - last_inv >= 15.0):
+            _RECENT_CONF_INVITES[ext_s] = now_ts
+            asyncio.create_task(
+                _auto_invite_conference_participants(
+                    room_number=ext_s,
+                    room_name=room_name,
+                    caller_ext=caller_s,
+                    internals=internals,
+                    externals=externals,
+                    rec_enabled=rec_en,
+                )
+            )
+        return PlainTextResponse(f"CONF|{ext_s}|{rec_en}|{pin_str}")
+
+    # 2. Check ACD Queues
+    q_map = _get_queue_extensions_map()
+    if ext_s in q_map:
+        return PlainTextResponse(f"QUEUE|{q_map[ext_s]}")
+    for q in (settings_db.get("queues", []) or []):
+        if isinstance(q, dict) and q.get("is_active") is not False:
+            q_ext = str(q.get("extension") or "").strip()
+            q_name = str(q.get("name") or q_ext).strip()
+            if ext_s in (q_ext, q_name) and q_ext:
+                return PlainTextResponse(f"QUEUE|{q_ext}")
+
+    # 3. Check Speed Dials
+    for sd in (settings_db.get("speed_dials", []) or []):
+        if not isinstance(sd, dict):
+            continue
+        sd_code = str(sd.get("short_code") or sd.get("code") or sd.get("extension") or sd.get("speed_code") or "").strip()
+        if sd_code == ext_s:
+            target_num = str(
+                sd.get("target_number") or sd.get("long_number") or sd.get("number") or sd.get("target") or ""
+            ).strip()
+            if target_num and target_num != ext_s:
+                return PlainTextResponse(f"SPEEDDIAL|{target_num}")
+
+    return PlainTextResponse("SUBSCRIBER")
+
+
+@app.get("/api/conferences/participant_joined")
+async def conference_participant_joined(room: str = "", caller: str = "", call_id: str = "", invited: int = 0):
+    """
+    Marks the Call record as an active conference leg when a participant enters ConfBridge.
+    """
+    room_s = str(room or "").strip()
+    caller_s = str(caller or "").strip()
+    cid_s = str(call_id or "").strip()
+    if cid_s and room_s:
+        try:
+            room_name = f"Konferans {room_s}"
+            for c in (settings_db.get("conferences", []) or []):
+                if isinstance(c, dict) and str(c.get("room_number") or c.get("extension") or "").strip() == room_s:
+                    room_name = str(c.get("room_name") or c.get("name") or room_name).strip()
+                    break
+            async with AsyncSessionLocal() as db:
+                db_call = await db.get(Call, cid_s)
+                if db_call:
+                    db_call.callee_number = room_s
+                    if caller_s and (not db_call.caller_number or db_call.caller_number == room_s):
+                        db_call.caller_number = caller_s
+                    db_call.status = "in-progress"
+                    db_call.hangup_source = f"conference:{room_s}"
+                    db_call.agent_name = room_name
+                    if not db_call.answered_at:
+                        db_call.answered_at = datetime.datetime.utcnow()
+                    await db.commit()
+        except Exception as e_cj:
+            print(f"[Conference Participant Joined DB Warning]: {e_cj}")
+    return PlainTextResponse("OK")
+
 # ----------------------------------------------------
 # API Routes: Rules & Scenarios
 # ----------------------------------------------------
@@ -17721,6 +18104,11 @@ async def end_call_endpoint(
                         db_call.hangup_source = str(hangupsource)
                     else:
                         db_call.hangup_source = f"voicemail:{callee_s or '1000'}"
+            elif hangup_src_val.startswith("conference:") or (hangupsource and str(hangupsource).lower().startswith("conference:")):
+                resolved_status = "completed"
+                if not hangup_src_val.startswith("conference:"):
+                    db_call.hangup_source = str(hangupsource)
+                    hangup_src_val = str(hangupsource)
             elif is_queue_call:
                 q_ext_val = (
                     hangup_src_val.split(":")[1]

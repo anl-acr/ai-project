@@ -1518,12 +1518,16 @@ same => n,Set(CURLOPT(httptimeout)=2)
 same => n,Set(CURL_RESULT=${CURL(http://127.0.0.1:8000/api/calls/end?call_id=${CALL_UUID}&dialstatus=${DIALSTATUS}&hangupcause=${HANGUPCAUSE}&queuestatus=${QUEUESTATUS}&memberinterface=${URIENCODE(${MEMBERINTERFACE})}&hangupsource=${URIENCODE(${CHANNEL(hangupsource)})}&trunk=${URIENCODE(${OUT_TRUNK_NAME})}&answeredtime=${ANSWEREDTIME}&dialedtime=${DIALEDTIME})})
 same => n(done_h),NoOp(Hangup tamamlandi)
 
-; İç hat (Diğer temsilciler & Dahililer: 100-999999) ve Prefix'li Dış Aramalar (99805..., 905..., 507... vb. >= 7 hane)
+; İç hat (Diğer temsilciler & Dahililer: 100-999999), Konferans Odaları, Kuyruklar, Hızlı Aramalar ve Prefix'li Dış Aramalar (>= 7 hane)
 exten => _[1-9]X.,1,Gosub(hotdesk_cid_sub,s,1)
 same => n,Set(CURLOPT(conntimeout)=1)
 same => n,Set(CURLOPT(httptimeout)=2)
 same => n,Set(EM_CHK=${CURL(http://127.0.0.1:8000/api/trunks/check_emergency?callee=${URIENCODE(${EXTEN})})})
 same => n,GotoIf($["${EM_CHK}" = "EMERGENCY"]?emergency_route_ext)
+same => n,Set(SPEC_TARGET=${CURL(http://127.0.0.1:8000/api/conferences/resolve_dial?exten=${URIENCODE(${EXTEN})}&caller=${URIENCODE(${CALLERID(num)})}&call_id=${URIENCODE(${CALL_UUID})})})
+same => n,GotoIf($["${CUT(SPEC_TARGET,|,1)}" = "CONF"]?conf_route_ext)
+same => n,GotoIf($["${CUT(SPEC_TARGET,|,1)}" = "QUEUE"]?queue_route_ext)
+same => n,GotoIf($["${CUT(SPEC_TARGET,|,1)}" = "SPEEDDIAL"]?speeddial_route_ext)
 same => n,GotoIf($[${LEN(${EXTEN})} >= 7]?outbound_route_ext)
 same => n,NoOp(Dahili arama basladi: Arayan=${CALLERID(num)}, Aranan=${EXTEN})
 same => n,GotoIf($["${CALL_UUID}" != ""]?already_registered_int)
@@ -1538,6 +1542,26 @@ same => n,Set(DIALSTATUS=FAILED)
 same => n,Progress()
 same => n,Playback(/var/spool/asterisk/monitor/tr_yetkisiz_arama,noanswer)
 same => n,Hangup(21)
+same => n(conf_route_ext),NoOp(KONFERANS ODASI ARAMASI: Oda=${EXTEN}, Arayan=${CALLERID(num)})
+same => n,GotoIf($["${CALL_UUID}" != ""]?conf_already_reg)
+same => n,Set(MD5_VAL=${MD5(${UNIQUEID}${EPOCH})})
+same => n,Set(__CALL_UUID=${MD5_VAL:0:8}-${MD5_VAL:8:4}-4${MD5_VAL:13:3}-a${MD5_VAL:17:3}-${MD5_VAL:20:12})
+same => n,Set(CURL_RESULT=${CURL(http://127.0.0.1:8000/api/calls/register?call_id=${CALL_UUID}&did=${EXTEN}&caller=${CALLERID(num)}&asterisk_id=${UNIQUEID})})
+same => n,GotoIf($["${CURL_RESULT}" = "BLOCKED"]?deny)
+same => n(conf_already_reg),Gosub(conference_bridge_sub,s,1(${CUT(SPEC_TARGET,|,2)},${CUT(SPEC_TARGET,|,3)},${CUT(SPEC_TARGET,|,4)}))
+same => n,Hangup()
+same => n(queue_route_ext),NoOp(DAHILI KUYRUK ARAMASI: Kuyruk=${CUT(SPEC_TARGET,|,2)}, Arayan=${CALLERID(num)})
+same => n,GotoIf($["${CALL_UUID}" != ""]?q_ext_already_reg)
+same => n,Set(MD5_VAL=${MD5(${UNIQUEID}${EPOCH})})
+same => n,Set(__CALL_UUID=${MD5_VAL:0:8}-${MD5_VAL:8:4}-4${MD5_VAL:13:3}-a${MD5_VAL:17:3}-${MD5_VAL:20:12})
+same => n,Set(CURL_RESULT=${CURL(http://127.0.0.1:8000/api/calls/register?call_id=${CALL_UUID}&did=${EXTEN}&caller=${CALLERID(num)}&asterisk_id=${UNIQUEID})})
+same => n,GotoIf($["${CURL_RESULT}" = "BLOCKED"]?deny)
+same => n(q_ext_already_reg),Answer()
+same => n,MixMonitor(/var/spool/asterisk/monitor/${CALL_UUID}.wav,b)
+same => n,Gosub(queue_router_sub,s,1(${CUT(SPEC_TARGET,|,2)}))
+same => n,Hangup()
+same => n(speeddial_route_ext),NoOp(HIZLI ARAMA YONLENDIRMESI: Kod=${EXTEN} -> Hedef=${CUT(SPEC_TARGET,|,2)})
+same => n,Goto(webrtc_agents,${CUT(SPEC_TARGET,|,2)},1)
 same => n(emergency_route_ext),NoOp(ACIL DURUM ARAMASI [ACL/LIMIT BYPASS]: Arayan=${CALLERID(num)}, Acil=${EXTEN})
 same => n,Set(MD5_VAL=${MD5(${UNIQUEID}${EPOCH})})
 same => n,Set(__CALL_UUID=${MD5_VAL:0:8}-${MD5_VAL:8:4}-4${MD5_VAL:13:3}-a${MD5_VAL:17:3}-${MD5_VAL:20:12})
@@ -1945,6 +1969,99 @@ same => n,Return()
 same => n(rp_resumed),Playback(beep)
 same => n,Playback(beep)
 same => n,Return()
+
+[conference_bridge_sub]
+; ARG1 = room_number, ARG2 = rec_enabled (0/1), ARG3 = pin
+exten => s,1,Set(CONF_ROOM=${ARG1})
+same => n,Set(CONF_REC=${ARG2})
+same => n,Set(CONF_PIN=${ARG3})
+same => n,Answer()
+same => n,Wait(0.3)
+same => n,Set(DIALSTATUS=ANSWER)
+same => n,Set(CURLOPT(conntimeout)=1)
+same => n,Set(CURLOPT(httptimeout)=2)
+same => n,Set(CONF_NOTIF=${CURL(http://127.0.0.1:8000/api/conferences/participant_joined?room=${URIENCODE(${CONF_ROOM})}&caller=${URIENCODE(${CALLERID(num)})}&call_id=${URIENCODE(${CALL_UUID})})})
+same => n,GotoIf($["${CONF_PIN}" = ""]?conf_chk_rec)
+same => n,Set(CONF_PIN_TRY=0)
+same => n(conf_ask_pin),Set(CONF_PIN_TRY=$[${CONF_PIN_TRY} + 1])
+same => n,Set(ENTERED_CPIN=)
+same => n,Read(ENTERED_CPIN,/var/spool/asterisk/monitor/tr_giden_parola,10,,,6)
+same => n,GotoIf($["${ENTERED_CPIN}" = "${CONF_PIN}"]?conf_chk_rec)
+same => n,Playback(/var/spool/asterisk/monitor/tr_hatali_parola)
+same => n,GotoIf($[${CONF_PIN_TRY} < 3]?conf_ask_pin)
+same => n,Hangup(21)
+same => n(conf_chk_rec),StopMixMonitor()
+same => n,GotoIf($["${CONF_REC}" != "1"]?conf_enter)
+same => n,MixMonitor(/var/spool/asterisk/monitor/${CALL_UUID}.wav,ab)
+same => n(conf_enter),Playback(beep)
+same => n,Set(CONFBRIDGE(user,announce_join_leave)=no)
+same => n,Set(CONFBRIDGE(user,music_on_hold_when_empty)=yes)
+same => n,Set(CONFBRIDGE(user,dsp_drop_silence)=yes)
+same => n,ConfBridge(${CONF_ROOM})
+same => n,Return()
+
+[conference_invite_internal]
+exten => _[1-9]X.,1,NoOp(Konferans Dahili Katilimci Daveti: Hedef=${EXTEN}, Oda=${CALLERID(num)})
+same => n,Set(CURLOPT(conntimeout)=1)
+same => n,Set(CURLOPT(httptimeout)=2)
+same => n,Set(AG_EP_LIST=${CURL(http://127.0.0.1:8000/api/subscriber/resolve_agent_ring_targets?extension=${EXTEN}&format=list)})
+same => n,GotoIf($["${AG_EP_LIST}" = "NONE" | "${AG_EP_LIST}" = ""]?ci_unavail)
+same => n,Gosub(build_multi_pjsip_dial_sub,s,1(${AG_EP_LIST}))
+same => n,GotoIf($["${MULTI_DIAL_STR}" = ""]?ci_unavail)
+same => n,Dial(${MULTI_DIAL_STR},30,tTg)
+same => n(ci_unavail),Hangup()
+
+[conference_invite_external]
+exten => _X.,1,NoOp(Konferans Harici Katilimci Daveti: Hedef=${EXTEN})
+same => n,Set(MD5_VAL=${MD5(${UNIQUEID}${EPOCH})})
+same => n,Set(__CALL_UUID=${MD5_VAL:0:8}-${MD5_VAL:8:4}-4${MD5_VAL:13:3}-a${MD5_VAL:17:3}-${MD5_VAL:20:12})
+same => n,Set(DIAL_NUM=${IF($["${EXTEN:0:1}"="0"]?90${EXTEN:1}:${EXTEN})})
+same => n,Gosub(outbound_failover_dial_sub,s,1(${EXTEN},${DIAL_NUM},45,0))
+same => n,Hangup()
+
+[conference_join_context]
+exten => _X.,1,NoOp(Davet Edilen Katilimci Konferansa Baglaniyor: Oda=${EXTEN}, Katilimci=${INVITED_PARTICIPANT})
+same => n,Answer()
+same => n,Wait(0.3)
+same => n,Set(MD5_VAL=${MD5(${UNIQUEID}${EPOCH})})
+same => n,Set(__CALL_UUID=${MD5_VAL:0:8}-${MD5_VAL:8:4}-4${MD5_VAL:13:3}-a${MD5_VAL:17:3}-${MD5_VAL:20:12})
+same => n,Set(CURLOPT(conntimeout)=1)
+same => n,Set(CURLOPT(httptimeout)=2)
+same => n,Set(CURL_RESULT=${CURL(http://127.0.0.1:8000/api/calls/register?call_id=${CALL_UUID}&did=${EXTEN}&caller=${URIENCODE(${INVITED_PARTICIPANT})}&asterisk_id=${UNIQUEID})})
+same => n,Set(CONF_JOIN_RES=${CURL(http://127.0.0.1:8000/api/conferences/participant_joined?room=${URIENCODE(${EXTEN})}&caller=${URIENCODE(${INVITED_PARTICIPANT})}&call_id=${URIENCODE(${CALL_UUID})}&invited=1)})
+same => n,GotoIf($["${CONF_REC_EN}" != "1"]?cj_enter)
+same => n,MixMonitor(/var/spool/asterisk/monitor/${CALL_UUID}.wav,ab)
+same => n(cj_enter),Playback(beep)
+same => n,Set(CONFBRIDGE(user,announce_join_leave)=no)
+same => n,Set(CONFBRIDGE(user,music_on_hold_when_empty)=yes)
+same => n,Set(CONFBRIDGE(user,dsp_drop_silence)=yes)
+same => n,ConfBridge(${EXTEN})
+same => n,Hangup()
+exten => h,1,NoOp(Konferans Katilimci Ayrildi: Oda=${EXTEN}, Call=${CALL_UUID})
+same => n,StopMixMonitor()
+same => n,GotoIf($["${CALL_UUID}" = ""]?cj_h_done)
+same => n,Set(CURLOPT(conntimeout)=1)
+same => n,Set(CURLOPT(httptimeout)=2)
+same => n,Set(CURL_RESULT=${CURL(http://127.0.0.1:8000/api/calls/end?call_id=${CALL_UUID}&dialstatus=ANSWER&hangupcause=${HANGUPCAUSE}&hangupsource=${URIENCODE(conference:${EXTEN})}&answeredtime=${ANSWEREDTIME}&dialedtime=${DIALEDTIME})})
+same => n(cj_h_done),Hangup()
+"""
+
+    confbridge_sync_content = """; ==========================================
+; Asterisk ConfBridge Configuration
+; ==========================================
+[general]
+
+[default_user]
+type=user
+dsp_drop_silence=yes
+talk_detection_events=yes
+denoise=yes
+
+[default_bridge]
+type=bridge
+max_members=50
+mixing_interval=20
+internal_sample_rate=auto
 """
 
     features_sync_content = f"""; ==========================================
@@ -2037,7 +2154,9 @@ rec_pause_toggle => {rec_pause_code},self/both,Gosub(rec_pause_sub,s,1)
                 f.write("[general]\nstatic=yes\nwriteprotect=no\nclearglobalvars=no\n\n#include /etc/asterisk/extensions_custom.conf\n")
             with open("/etc/asterisk/features.conf", "w", encoding="utf-8") as ff:
                 ff.write(features_sync_content)
-            print(f"[Sync Script] Ana extensions.conf ve features.conf guncellendi -> {main_ext_path}")
+            with open("/etc/asterisk/confbridge.conf", "w", encoding="utf-8") as fcb:
+                fcb.write(confbridge_sync_content)
+            print(f"[Sync Script] Ana extensions.conf, features.conf ve confbridge.conf guncellendi -> {main_ext_path}")
         with open(os.path.join(PROJECT_ROOT, "asterisk_config", "features.conf"), "w", encoding="utf-8") as ff_loc:
             ff_loc.write(features_sync_content)
     except Exception as e:
@@ -2045,9 +2164,11 @@ rec_pause_toggle => {rec_pause_code},self/both,Gosub(rec_pause_sub,s,1)
 
     try:
         ast_dp_timeout = 10.0 if os.path.exists("/etc/asterisk") else 2.0
+        subprocess.run(["asterisk", "-rx", "module load app_confbridge.so"], check=False, timeout=2.0)
+        subprocess.run(["asterisk", "-rx", "module reload app_confbridge.so"], check=False, timeout=2.0)
         subprocess.run(["asterisk", "-rx", "dialplan reload"], check=True, timeout=ast_dp_timeout)
         subprocess.run(["asterisk", "-rx", "module reload features"], check=False, timeout=2.0)
-        print("[Sync Script] Asterisk Dialplan başarıyla yenilendi (reload).")
+        print("[Sync Script] Asterisk Dialplan ve ConfBridge başarıyla yenilendi (reload).")
     except Exception as e:
         print(f"[Sync Script] Asterisk reload hatası: {e}")
 
