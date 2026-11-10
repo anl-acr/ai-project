@@ -11851,6 +11851,11 @@ async def download_user_sip_device_cfg(
     pickup_group = str(pickup_cfg.get("group") or "*8").strip() or "*8"
     pickup_directed = str(pickup_cfg.get("directed") or "**").strip() or "**"
     pbx_host = resolve_pbx_sip_server_host(settings_db, request.headers.get("host") or "")
+    u_tid = matched_u.get("tenant_id") or "tenant-default"
+    all_pbs = [
+        pb for pb in (settings_db.get("phonebooks") or [])
+        if isinstance(pb, dict) and (pb.get("tenant_id") == u_tid or (not pb.get("tenant_id") and u_tid == "tenant-default"))
+    ]
 
     content_text, media_type, fname = generate_provisioning_config(
         ext=ext_s,
@@ -11873,6 +11878,7 @@ async def download_user_sip_device_cfg(
         ntp_server=str(matched_dev.get("ntp_server") or "pool.ntp.org"),
         auto_answer=bool(matched_dev.get("auto_answer", False)),
         direct_ip_call_block=matched_dev.get("direct_ip_call_block") is not False,
+        phonebooks=all_pbs,
     )
     return Response(
         content=content_text,
@@ -11919,6 +11925,10 @@ async def serve_sip_device_autoprovision_file(token: str, filename: str, request
             _, dev_mac_hex = normalize_mac_address(dev.get("mac") or "")
             dev_su = str(dev.get("sip_username") or "").strip()
             if (mac_hex and dev_mac_hex == mac_hex) or (dev_su and dev_su.lower() == stem.lower()):
+                all_pbs = [
+                    pb for pb in (settings_db.get("phonebooks") or [])
+                    if isinstance(pb, dict) and (pb.get("tenant_id") == u_tid or (not pb.get("tenant_id") and u_tid == "tenant-default"))
+                ]
                 content_text, media_type, _ = generate_provisioning_config(
                     ext=ext_s,
                     sip_username=dev_su,
@@ -11941,6 +11951,7 @@ async def serve_sip_device_autoprovision_file(token: str, filename: str, request
                     ntp_server=str(dev.get("ntp_server") or "pool.ntp.org"),
                     auto_answer=bool(dev.get("auto_answer", False)),
                     direct_ip_call_block=dev.get("direct_ip_call_block") is not False,
+                    phonebooks=all_pbs,
                 )
                 return Response(content=content_text, media_type=media_type)
 
@@ -12139,6 +12150,253 @@ async def delete_call_pickup_group(group_id: str):
     except Exception:
         pass
     return {"status": "success", "call_pickup_groups": settings_db["call_pickup_groups"]}
+
+
+# ----------------------------------------------------
+# API Routes: Desk Phone Directories (Telefon Rehberi Grupları & XML Phonebook)
+# ----------------------------------------------------
+@app.get("/api/settings/phonebooks")
+@app.get("/api/phonebooks")
+async def get_phonebooks(user_info: dict = Depends(get_user_info)):
+    target_tenant = user_info.get("tenant_id") or "tenant-default"
+    all_pbs = settings_db.get("phonebooks", []) or []
+    if target_tenant in ["all", "global"]:
+        return all_pbs
+    return [
+        pb for pb in all_pbs
+        if isinstance(pb, dict) and (pb.get("tenant_id") == target_tenant or (not pb.get("tenant_id") and target_tenant == "tenant-default"))
+    ]
+
+
+@app.post("/api/settings/phonebooks")
+@app.post("/api/phonebooks")
+async def save_phonebook(request: Request, user_info: dict = Depends(get_user_info)):
+    target_tenant = user_info.get("tenant_id") or "tenant-default"
+    data = await request.json()
+    pb_name = str(data.get("name") or "").strip()
+    if not pb_name:
+        raise HTTPException(status_code=400, detail="Lütfen telefon rehberi adını giriniz.")
+
+    pb_id = str(data.get("id") or "").strip() or None
+    check_name_uniqueness(pb_name, "phonebooks", pb_id, label="Telefon Rehberi")
+
+    if "phonebooks" not in settings_db or not isinstance(settings_db.get("phonebooks"), list):
+        settings_db["phonebooks"] = []
+
+    raw_entries = data.get("entries") if isinstance(data.get("entries"), list) else []
+    expanded_entries = []
+    all_sub_groups = settings_db.get("subscriber_groups", []) or []
+    all_users = settings_db.get("users", []) or []
+    for item in raw_entries:
+        s_item = str(item or "").strip()
+        if not s_item:
+            continue
+        if s_item not in expanded_entries:
+            expanded_entries.append(s_item)
+        if s_item.startswith("group_"):
+            gid = s_item.replace("group_", "", 1)
+            matched_grp = next((g for g in all_sub_groups if isinstance(g, dict) and str(g.get("id")) == gid), None)
+            if matched_grp:
+                for member_val in matched_grp.get("extensions") or []:
+                    u_match = next(
+                        (
+                            u for u in all_users
+                            if isinstance(u, dict) and (str(u.get("id")) == str(member_val) or str(u.get("extension")) == str(member_val))
+                        ),
+                        None,
+                    )
+                    if u_match:
+                        u_token = f"user_{u_match.get('id')}"
+                        if u_token not in expanded_entries:
+                            expanded_entries.append(u_token)
+
+    pb_record = {
+        "id": pb_id or f"pb_{uuid.uuid4().hex[:8]}",
+        "tenant_id": target_tenant,
+        "name": pb_name,
+        "entries": expanded_entries,
+        "updated_at": (datetime.datetime.utcnow() + datetime.timedelta(hours=3)).strftime("%Y-%m-%d %H:%M:%S"),
+    }
+
+    if pb_id:
+        idx = next((i for i, p in enumerate(settings_db["phonebooks"]) if isinstance(p, dict) and str(p.get("id")) == pb_id), None)
+        if idx is not None:
+            settings_db["phonebooks"][idx] = pb_record
+        else:
+            settings_db["phonebooks"].append(pb_record)
+    else:
+        settings_db["phonebooks"].append(pb_record)
+
+    save_settings(settings_db)
+    tenant_pbs = [
+        pb for pb in settings_db["phonebooks"]
+        if isinstance(pb, dict) and (pb.get("tenant_id") == target_tenant or (not pb.get("tenant_id") and target_tenant == "tenant-default"))
+    ]
+    return {"status": "success", "phonebooks": tenant_pbs, "phonebook": pb_record}
+
+
+@app.delete("/api/settings/phonebooks/{pb_id}")
+@app.delete("/api/phonebooks/{pb_id}")
+async def delete_phonebook(pb_id: str, user_info: dict = Depends(get_user_info)):
+    target_tenant = user_info.get("tenant_id") or "tenant-default"
+    if "phonebooks" not in settings_db or not isinstance(settings_db.get("phonebooks"), list):
+        return {"status": "success", "phonebooks": []}
+    settings_db["phonebooks"] = [
+        p for p in settings_db["phonebooks"]
+        if isinstance(p, dict) and str(p.get("id")) != str(pb_id)
+    ]
+    save_settings(settings_db)
+    tenant_pbs = [
+        pb for pb in settings_db["phonebooks"]
+        if isinstance(pb, dict) and (pb.get("tenant_id") == target_tenant or (not pb.get("tenant_id") and target_tenant == "tenant-default"))
+    ]
+    return {"status": "success", "phonebooks": tenant_pbs}
+
+
+async def _resolve_phonebook_directory_items(target_id: str, db: AsyncSession) -> tuple:
+    """
+    Resolves (title_str, list_of_dicts[{'name': str, 'number': str, 'type': 'internal'|'external'}])
+    for a given phonebook ID (`pb_xxx`) or extension (`1000` / `all`).
+    """
+    t_clean = str(target_id or "all").strip()
+    all_pbs = [p for p in (settings_db.get("phonebooks") or []) if isinstance(p, dict)]
+    all_users = [u for u in (settings_db.get("users") or []) if isinstance(u, dict) and u.get("is_active") is not False]
+
+    res_c = await db.execute(select(Contact).order_by(Contact.first_name.asc()))
+    all_contacts = res_c.scalars().all()
+
+    matched_pb = next((p for p in all_pbs if str(p.get("id")) == t_clean), None)
+    selected_pbs = [matched_pb] if matched_pb else all_pbs
+    book_title = matched_pb.get("name") if matched_pb else "AIDA Telefon Rehberi"
+
+    items = []
+    seen_numbers = set()
+
+    if selected_pbs:
+        for pb in selected_pbs:
+            for entry_key in pb.get("entries") or []:
+                s_key = str(entry_key or "").strip()
+                if s_key.startswith("group_"):
+                    continue
+                if s_key.startswith("user_") or s_key.startswith("ext_") or s_key.isdigit():
+                    raw_u = s_key.replace("user_", "", 1).replace("ext_", "", 1)
+                    u_obj = next(
+                        (
+                            u for u in all_users
+                            if str(u.get("id")) == raw_u or str(u.get("extension")) == raw_u
+                        ),
+                        None,
+                    )
+                    if u_obj and u_obj.get("extension"):
+                        num_s = str(u_obj.get("extension")).strip()
+                        nm_s = str(u_obj.get("full_name") or f"Dahili {num_s}").strip()
+                        if num_s and num_s not in seen_numbers:
+                            seen_numbers.add(num_s)
+                            items.append({"name": f"{nm_s} ({num_s})", "first_name": nm_s, "last_name": "", "number": num_s, "type": "internal"})
+                elif s_key.startswith("contact_"):
+                    raw_c = s_key.replace("contact_", "", 1)
+                    c_obj = next((c for c in all_contacts if str(c.id) == raw_c), None)
+                    if c_obj and c_obj.phone_number:
+                        num_s = str(c_obj.phone_number).strip()
+                        fn_s = str(c_obj.first_name or "").strip()
+                        ln_s = str(c_obj.last_name or "").strip()
+                        if ln_s == "-":
+                            ln_s = ""
+                        nm_s = f"{fn_s} {ln_s}".strip() or num_s
+                        if num_s and num_s not in seen_numbers:
+                            seen_numbers.add(num_s)
+                            items.append({"name": nm_s, "first_name": fn_s or nm_s, "last_name": ln_s, "number": num_s, "type": "external"})
+    else:
+        # Henüz özel bir Telefon Rehberi grubu oluşturulmamışsa tüm aktif dahilileri ve rehber kayıtlarını sun
+        for u_obj in all_users:
+            num_s = str(u_obj.get("extension") or "").strip()
+            if not num_s or num_s in seen_numbers:
+                continue
+            seen_numbers.add(num_s)
+            nm_s = str(u_obj.get("full_name") or f"Dahili {num_s}").strip()
+            items.append({"name": f"{nm_s} ({num_s})", "first_name": nm_s, "last_name": "", "number": num_s, "type": "internal"})
+        for c_obj in all_contacts:
+            num_s = str(c_obj.phone_number or "").strip()
+            if not num_s or num_s in seen_numbers:
+                continue
+            seen_numbers.add(num_s)
+            fn_s = str(c_obj.first_name or "").strip()
+            ln_s = str(c_obj.last_name or "").strip()
+            if ln_s == "-":
+                ln_s = ""
+            nm_s = f"{fn_s} {ln_s}".strip() or num_s
+            items.append({"name": nm_s, "first_name": fn_s or nm_s, "last_name": ln_s, "number": num_s, "type": "external"})
+
+    return book_title, items
+
+
+@app.get("/api/phonebook/{target_id}/{vendor_file}")
+async def serve_dynamic_xml_phonebook(target_id: str, vendor_file: str, db: AsyncSession = Depends(get_db)):
+    import html as _html
+    book_title, items = await _resolve_phonebook_directory_items(target_id, db)
+    vf_low = str(vendor_file or "yealink.xml").strip().lower()
+
+    if "grandstream" in vf_low or vf_low == "phonebook.xml":
+        entries_xml = []
+        for idx, it in enumerate(items, start=1):
+            fn = _html.escape(it.get("first_name") or it.get("name") or "")
+            ln = _html.escape(it.get("last_name") or "")
+            num = _html.escape(it.get("number") or "")
+            entries_xml.append(
+                f"  <Contact>\n"
+                f"    <id>{idx}</id>\n"
+                f"    <FirstName>{fn}</FirstName>\n"
+                f"    <LastName>{ln}</LastName>\n"
+                f"    <Phone type=\"Work\">\n"
+                f"      <phonenumber>{num}</phonenumber>\n"
+                f"      <accountindex>1</accountindex>\n"
+                f"    </Phone>\n"
+                f"  </Contact>"
+            )
+        xml_str = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<AddressBook>\n" + "\n".join(entries_xml) + "\n</AddressBook>\n"
+        return Response(content=xml_str, media_type="application/xml; charset=utf-8")
+
+    if "fanvil" in vf_low:
+        entries_xml = [
+            f"  <DirectoryEntry>\n    <Name>{_html.escape(it['name'])}</Name>\n    <Telephone>{_html.escape(it['number'])}</Telephone>\n  </DirectoryEntry>"
+            for it in items
+        ]
+        xml_str = (
+            "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
+            "<FanvilIPPhoneDirectory>\n"
+            f"  <Title>{_html.escape(book_title)}</Title>\n"
+            + "\n".join(entries_xml)
+            + "\n</FanvilIPPhoneDirectory>\n"
+        )
+        return Response(content=xml_str, media_type="application/xml; charset=utf-8")
+
+    if "snom" in vf_low:
+        entries_xml = [
+            f"  <DirectoryEntry>\n    <Name>{_html.escape(it['name'])}</Name>\n    <Telephone>{_html.escape(it['number'])}</Telephone>\n  </DirectoryEntry>"
+            for it in items
+        ]
+        xml_str = (
+            "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
+            "<SnomIPPhoneDirectory>\n"
+            f"  <Title>{_html.escape(book_title)}</Title>\n"
+            + "\n".join(entries_xml)
+            + "\n</SnomIPPhoneDirectory>\n"
+        )
+        return Response(content=xml_str, media_type="application/xml; charset=utf-8")
+
+    # Default: Yealink XML Phonebook (YealinkIPPhoneDirectory)
+    entries_xml = [
+        f"  <DirectoryEntry>\n    <Name>{_html.escape(it['name'])}</Name>\n    <Telephone>{_html.escape(it['number'])}</Telephone>\n  </DirectoryEntry>"
+        for it in items
+    ]
+    xml_str = (
+        "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
+        "<YealinkIPPhoneDirectory>\n"
+        f"  <Title>{_html.escape(book_title)}</Title>\n"
+        + "\n".join(entries_xml)
+        + "\n</YealinkIPPhoneDirectory>\n"
+    )
+    return Response(content=xml_str, media_type="application/xml; charset=utf-8")
 
 # ----------------------------------------------------
 # API Routes: Subscriber Groups (Abone Grupları)
@@ -30125,6 +30383,12 @@ async def delete_single_user_endpoint(user_id: int, user_info: dict = Depends(ge
                             u_val for u_val in rule[r_key]
                             if str(u_val) != str(user_id) and (not deleted_ext or str(u_val) != str(deleted_ext))
                         ]
+        for pb in settings_db.get("phonebooks", []) or []:
+            if isinstance(pb, dict) and isinstance(pb.get("entries"), list):
+                pb["entries"] = [
+                    e_val for e_val in pb["entries"]
+                    if str(e_val) not in (str(user_id), f"user_{user_id}", f"ext_{deleted_ext}")
+                ]
 
         save_settings(settings_db)
 

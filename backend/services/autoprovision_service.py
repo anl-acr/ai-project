@@ -709,6 +709,8 @@ def generate_provisioning_config(
     ntp_server: str = "pool.ntp.org",
     auto_answer: bool = False,
     direct_ip_call_block: bool = True,
+    phonebooks: Optional[List[Dict[str, Any]]] = None,
+    phonebook_base_url: str = "",
 ) -> Tuple[str, str, str]:
     """
     Generates multi-vendor provisioning content using `sip_username` (Kullanıcı > SIP > Kullanıcı Adı)
@@ -722,6 +724,8 @@ def generate_provisioning_config(
     mac_norm, mac_hex = normalize_mac_address(mac_colon)
     tr_up = str(transport or "UDP").strip().upper()
     sip_port = 5061 if tr_up == "TLS" else 5060
+    pb_base = str(phonebook_base_url or f"http://{pbx_host}:8000/api/phonebook").rstrip("/")
+    pb_list = [p for p in (phonebooks or []) if isinstance(p, dict) and p.get("id") and p.get("name")]
 
     dss_list = dss_keys if isinstance(dss_keys, list) else []
     soft_list = soft_keys if isinstance(soft_keys, list) else []
@@ -807,6 +811,9 @@ def generate_provisioning_config(
     <P1347>{html.escape(pickup_directed)}</P1347>
     <P64>TZT-3</P64>
     <P30>pool.ntp.org</P30>
+    <P330>1</P330>
+    <P331>{html.escape(pb_base.replace('http://', '').replace('https://', ''))}/{html.escape(ext_s or 'all')}</P331>
+    <P332>60</P332>
 {mpk_block}
   </config>
 </gs_provision>
@@ -861,6 +868,17 @@ def generate_provisioning_config(
                 fv_lines.append(f"Dsskey{idx} Value        :{kval}@1/f")
                 fv_lines.append(f"Dsskey{idx} Title        :{klbl}")
         fv_lines.append("")
+        fv_lines.append("<TELEPHONE BOOK MODULE>")
+        if pb_list:
+            for pb_idx, pb_item in enumerate(pb_list[:5], start=1):
+                pb_id = str(pb_item.get("id"))
+                pb_nm = str(pb_item.get("name") or f"Rehber {pb_idx}")
+                fv_lines.append(f"Phonebook Cloud{pb_idx} Name :{pb_nm}")
+                fv_lines.append(f"Phonebook Cloud{pb_idx} URL  :{pb_base}/{pb_id}/fanvil.xml")
+        else:
+            fv_lines.append("Phonebook Cloud1 Name :AIDA Telefon Rehberi")
+            fv_lines.append(f"Phonebook Cloud1 URL  :{pb_base}/{ext_s or 'all'}/fanvil.xml")
+        fv_lines.append("")
         fv_lines.append("<<END OF FILE>>")
         fname = f"{mac_hex}.cfg" if mac_hex else f"fanvil_{ext_s}.cfg"
         return "\n".join(fv_lines) + "\n", "text/plain; charset=utf-8", fname
@@ -892,6 +910,7 @@ def generate_provisioning_config(
     <user_mailbox idx="1" perm="">*97</user_mailbox>
     <timezone perm="">TUR+3</timezone>
     <ntp_server perm="">pool.ntp.org</ntp_server>
+    <xml_directory_url perm="">{html.escape(pb_base)}/{html.escape(ext_s or 'all')}/snom.xml</xml_directory_url>
 {fkeys_xml}
   </phone-settings>
 </settings>
@@ -1017,6 +1036,22 @@ def generate_provisioning_config(
         lines.append(f"programablekey.{sidx}.line = 1")
         lines.append(f"programablekey.{sidx}.value = {sval}")
         lines.append(f"programablekey.{sidx}.label = {slabel}")
+
+    lines.append("")
+    lines.append("# --- Uzak XML Telefon Rehberi (Remote Phonebook) ---")
+    lines.append("features.remote_phonebook.enable = 1")
+    lines.append("features.remote_phonebook.flash_time = 3600")
+    lines.append("directory_setting.remote_phone_book.enable = 1")
+    lines.append("directory_setting.remote_phone_book.priority = 1")
+    if pb_list:
+        for pb_idx, pb_item in enumerate(pb_list[:5], start=1):
+            pb_id = str(pb_item.get("id"))
+            pb_nm = str(pb_item.get("name") or f"Rehber {pb_idx}")
+            lines.append(f"remote_phonebook.data.{pb_idx}.url = {pb_base}/{pb_id}/yealink.xml")
+            lines.append(f"remote_phonebook.data.{pb_idx}.name = {pb_nm}")
+    else:
+        lines.append(f"remote_phonebook.data.1.url = {pb_base}/{ext_s or 'all'}/yealink.xml")
+        lines.append("remote_phonebook.data.1.name = Telefon Rehberi")
 
     fname = f"{mac_hex}.cfg" if mac_hex else f"deskphone_{ext_s}.cfg"
     return "\n".join(lines) + "\n", "text/plain; charset=utf-8", fname
