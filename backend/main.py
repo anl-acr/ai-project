@@ -5507,7 +5507,7 @@ same => n(ci_unavail),Hangup()
 
 [conference_invite_external]
 exten => _X.,1,NoOp(Konferans Harici Katilimci Daveti: Hedef=${{EXTEN}})
-same => n,Set(MD5_VAL=${{MD5(${{UNIQUEID}}${{EPOCH}})}})
+same => n,Set(MD5_VAL=${{MD5(${{UNIQUEID}}${{EPOCH}}${{EXTEN}})}})
 same => n,Set(__CALL_UUID=${{MD5_VAL:0:8}}-${{MD5_VAL:8:4}}-4${{MD5_VAL:13:3}}-a${{MD5_VAL:17:3}}-${{MD5_VAL:20:12}})
 same => n,Set(DIAL_NUM=${{IF($["${{EXTEN:0:1}}"="0"]?90${{EXTEN:1}}:${{EXTEN}})}})
 same => n,Gosub(outbound_failover_dial_sub,s,1(${{EXTEN}},${{DIAL_NUM}},45,0))
@@ -5517,11 +5517,11 @@ same => n,Hangup()
 exten => _X.,1,NoOp(Davet Edilen Katilimci Konferansa Baglaniyor: Oda=${{EXTEN}}, Katilimci=${{INVITED_PARTICIPANT}})
 same => n,Answer()
 same => n,Wait(0.3)
-same => n,Set(MD5_VAL=${{MD5(${{UNIQUEID}}${{EPOCH}})}})
+same => n,Set(MD5_VAL=${{MD5(${{UNIQUEID}}${{EPOCH}}${{INVITED_PARTICIPANT}})}})
 same => n,Set(__CALL_UUID=${{MD5_VAL:0:8}}-${{MD5_VAL:8:4}}-4${{MD5_VAL:13:3}}-a${{MD5_VAL:17:3}}-${{MD5_VAL:20:12}})
 same => n,Set(CURLOPT(conntimeout)=1)
 same => n,Set(CURLOPT(httptimeout)=2)
-same => n,Set(CURL_RESULT=${{CURL(http://{backend_host}/api/calls/register?call_id=${{CALL_UUID}}&did=${{EXTEN}}&caller=${{URIENCODE(${{INVITED_PARTICIPANT}})}}&asterisk_id=${{UNIQUEID}})}})
+same => n,Set(CURL_RESULT=${{CURL(http://{backend_host}/api/calls/register?call_id=${{CALL_UUID}}&did=${{EXTEN}}&caller=${{URIENCODE(${{INVITED_PARTICIPANT}})}}&asterisk_id=${{UNIQUEID}}&direction=conference)}})
 same => n,Set(CONF_JOIN_RES=${{CURL(http://{backend_host}/api/conferences/participant_joined?room=${{URIENCODE(${{EXTEN}})}}&caller=${{URIENCODE(${{INVITED_PARTICIPANT}})}}&call_id=${{URIENCODE(${{CALL_UUID}})}}&invited=1)}})
 same => n,GotoIf($["${{CONF_REC_EN}}" != "1"]?cj_enter)
 same => n,MixMonitor(/var/spool/asterisk/monitor/${{CALL_UUID}}.wav,ab)
@@ -14683,6 +14683,7 @@ async def _auto_invite_conference_participants(
                 try:
                     await manager.send_action({
                         "Action": "Originate",
+                        "ActionID": f"conf-inv-int-{room_s}-{t_ext}-{int(time.time()*1000)}",
                         "Channel": f"Local/{t_ext}@conference_invite_internal/n",
                         "Context": "conference_join_context",
                         "Exten": room_s,
@@ -14705,6 +14706,7 @@ async def _auto_invite_conference_participants(
                     )
                 except Exception:
                     pass
+            await asyncio.sleep(0.25)
 
         for ext_num in resolved_external_nums:
             ext_last10 = ext_num[-10:] if len(ext_num) >= 10 else ext_num
@@ -14716,6 +14718,7 @@ async def _auto_invite_conference_participants(
                 try:
                     await manager.send_action({
                         "Action": "Originate",
+                        "ActionID": f"conf-inv-ext-{room_s}-{ext_num}-{int(time.time()*1000)}",
                         "Channel": f"Local/{ext_num}@conference_invite_external/n",
                         "Context": "conference_join_context",
                         "Exten": room_s,
@@ -14738,6 +14741,7 @@ async def _auto_invite_conference_participants(
                     )
                 except Exception:
                     pass
+            await asyncio.sleep(0.35)
     except Exception as e_inv:
         print(f"[Conference Auto-Invite Error]: {e_inv}")
 
@@ -16702,8 +16706,10 @@ def get_tenant_concurrent_call_info(tenant_id: str = "tenant-default", current_s
             mapped_ast = call_id_to_asterisk_id.get(exclude_call_id)
             if mapped_ast:
                 excluded_ast_ids.add(str(mapped_ast))
-        for ch_id in active_channels.keys():
+        for ch_id, ch_name in active_channels.items():
             if str(ch_id) not in excluded_ast_ids:
+                if str(ch_name or "").strip().lower().startswith("local/"):
+                    continue
                 active_voice_count += 1
 
     # 2. Active Outbound Dialer channels
@@ -17481,7 +17487,15 @@ async def register_call_endpoint(call_id: str, did: str, caller: str, asterisk_i
         # Toll-Fraud / SIP Scanner & Hatalı Numara Koruması: Kaydet ve anında sonlandır
         did_str_check = str(did or "").strip()
         dir_hint_top = str(direction or "").strip().lower()
-        if did_str_check.startswith("0") and dir_hint_top != "inbound":
+        is_conference_call = (
+            dir_hint_top == "conference"
+            or any(
+                isinstance(c, dict)
+                and str(c.get("room_number") or c.get("extension") or c.get("number") or c.get("conf_no") or "").strip() == did_str_check
+                for c in (settings_db.get("conferences") or [])
+            )
+        )
+        if did_str_check.startswith("0") and dir_hint_top != "inbound" and not is_conference_call:
             is_fraud, fraud_reason = is_suspicious_or_fraud_outbound_number(did_str_check, allow_international=False)
             if is_fraud and ("FRAUD_SCANNER" in fraud_reason or "INVALID_TR_NATIONAL_LENGTH" in fraud_reason or "INVALID_TR_AREA_CODE" in fraud_reason):
                 from backend.services.ami_manager import hangup_call
@@ -17611,8 +17625,11 @@ async def register_call_endpoint(call_id: str, did: str, caller: str, asterisk_i
 
                 # 1) Gelen Çağrı (Inbound) Tanımsız DID Kontrolü -> Kaydet ve Anında Kapat
                 is_inbound_did_check = (
-                    dir_hint == "inbound"
-                    or (not dir_hint and not is_internal_caller and not is_valid_int_dest and (len(did_digits_only) >= 7 or did_s == "s"))
+                    not is_conference_call
+                    and (
+                        dir_hint == "inbound"
+                        or (not dir_hint and not is_internal_caller and not is_valid_int_dest and (len(did_digits_only) >= 7 or did_s == "s"))
+                    )
                 )
                 if is_inbound_did_check:
                     did_ok, did_err_reason = is_defined_inbound_did(did_s, trunks_list=trunks_for_check)
@@ -17717,7 +17734,7 @@ async def register_call_endpoint(call_id: str, did: str, caller: str, asterisk_i
                 eff_max = call_info["effective_max_concurrent_calls"]
                 used_now = call_info["used_concurrent_calls"]
 
-                if not is_emergency_did and used_now >= eff_max:
+                if not is_emergency_did and not is_conference_call and used_now >= eff_max:
                     from backend.services.ami_manager import hangup_call
                     print(f"[License Concurrent Call Block] Tenant '{call_tenant}' reached total concurrent channel limit ({used_now}/{base_max}+{tol_max}). Rejecting call {call_id} ({caller} -> {did}).")
                     add_system_log("LICENSE", "WARNING", f"Eş Zamanlı Çağrı Kanalı Limiti Doldu ({used_now}/{base_max}" + (f"+{tol_max} Tolerans" if tol_max > 0 else "") + f" Kanal): Çağrı reddedildi ({caller} -> {did})")
@@ -18287,6 +18304,7 @@ async def end_call_endpoint(
                 resolved_status in ["no_answer", "busy", "failed", "cancelled"]
                 and not hangup_src_val.startswith("call_error:")
                 and not hangup_src_val.startswith("blacklist:")
+                and not hangup_src_val.startswith("conference:")
             ):
                 caller_num = str(db_call.caller_number or "").strip()
                 clean_num = re.sub(r"\D", "", caller_num)
