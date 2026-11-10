@@ -10,24 +10,33 @@ export default function TransferList({ items = [], selectedIds = [], onChange })
   const [checkedAvailable, setCheckedAvailable] = useState([]);
   const [checkedSelected, setCheckedSelected] = useState([]);
 
+  const getDisplayName = (item) =>
+    item?.full_name ||
+    `${item?.name || ""} ${item?.surname || ""}`.trim() ||
+    item?.username ||
+    item?.email ||
+    "-";
+
   // Separate items
-  const availableItems = items.filter(item => !selectedIds.includes(item.id));
+  const availableItems = items.filter(
+    (item) => !selectedIds.some((sid) => String(sid) === String(item.id))
+  );
   const selectedItems = selectedIds
-    .map(id => items.find(item => item.id === id))
+    .map((id) => items.find((item) => String(item.id) === String(id)))
     .filter(Boolean);
 
   // Filter by search
-  const filteredAvailable = availableItems.filter(item => {
+  const filteredAvailable = availableItems.filter((item) => {
     const term = availableSearch.toLowerCase();
-    const ext = item.extension || "";
-    const name = `${item.name || ""} ${item.surname || ""}`.toLowerCase();
+    const ext = String(item.extension || "").toLowerCase();
+    const name = getDisplayName(item).toLowerCase();
     return ext.includes(term) || name.includes(term);
   });
 
-  const filteredSelected = selectedItems.filter(item => {
+  const filteredSelected = selectedItems.filter((item) => {
     const term = selectedSearch.toLowerCase();
-    const ext = item.extension || "";
-    const name = `${item.name || ""} ${item.surname || ""}`.toLowerCase();
+    const ext = String(item.extension || "").toLowerCase();
+    const name = getDisplayName(item).toLowerCase();
     return ext.includes(term) || name.includes(term);
   });
 
@@ -157,7 +166,7 @@ export default function TransferList({ items = [], selectedIds = [], onChange })
                 className="rounded border-slate-300 text-rose-500 focus:ring-rose-500 w-4 h-4 justify-self-center cursor-pointer"
               />
               <div className="font-bold">{item.extension || "-"}</div>
-              <div className="truncate">{item.name} {item.surname}</div>
+              <div className="truncate">{getDisplayName(item)}</div>
             </label>
           ))}
           {filteredAvailable.length === 0 && (
@@ -234,7 +243,7 @@ export default function TransferList({ items = [], selectedIds = [], onChange })
                 className="rounded border-slate-300 text-rose-500 focus:ring-rose-500 w-4 h-4 justify-self-center cursor-pointer"
               />
               <div className="font-bold">{item.extension || "-"}</div>
-              <div className="truncate">{item.name} {item.surname}</div>
+              <div className="truncate">{getDisplayName(item)}</div>
             </label>
           ))}
           {filteredSelected.length === 0 && (

@@ -219,7 +219,10 @@ export default function ConferencesPanel({ backendHost = "localhost:8000" }) {
     setEditingId(item.id);
     setRoomNumber(item.room_number || "");
     setRoomName(item.room_name || "");
-    setSelectedInternals(item.internals || []);
+    const validInternals = (item.internals || []).filter((uid) =>
+      (users || []).some((u) => String(u.id) === String(uid) || String(u.extension) === String(uid))
+    );
+    setSelectedInternals(validInternals);
     setExternalNumbers(item.externals || []);
     setCurrentExternal("");
     setShowContactPicker(false);
