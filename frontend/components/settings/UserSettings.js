@@ -1,9 +1,32 @@
 import React, { useState, useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
-import { Plus, Trash2, Edit2, X, User, Mail, Phone, Shield, Check, CheckCircle, ToggleLeft, ToggleRight, Search, Copy, RefreshCw, KeyRound, PhoneCall, Settings, Image as ImageIcon, Monitor, Smartphone, AlertTriangle, PhoneOutgoing, Users, Forward, Mic, MicOff, Download, Upload, Building2, Eye, EyeOff, Cable, ExternalLink, Database, Play, LayoutGrid, ChevronRight, Lock, Unlock, Terminal, Wifi, Cpu, ArrowUp, ArrowDown, Power } from "lucide-react";
+import { Plus, Trash2, Edit2, X, User, Mail, Phone, Shield, Check, CheckCircle, ToggleLeft, ToggleRight, Search, Copy, RefreshCw, KeyRound, PhoneCall, Settings, Image as ImageIcon, Monitor, Smartphone, AlertTriangle, PhoneOutgoing, Users, Forward, Mic, MicOff, Download, Upload, Building2, Eye, EyeOff, Cable, ExternalLink, Database, Play, LayoutGrid, ChevronRight, Lock, Unlock, Terminal, Wifi, Cpu, ArrowUp, ArrowDown, Power, Sparkles, Layers, Palette, Sun, Moon, Clock, Volume2, Square, BellRing, GripVertical, RotateCcw, List, PanelTop, Keyboard, Pin } from "lucide-react";
 import * as XLSX from "xlsx";
 import ConfirmDeleteModal from "../dashboard/ConfirmDeleteModal";
-import { useTheme } from "../../utils/theme";
+import {
+  useTheme,
+  SYSTEM_THEME_PRESETS,
+  SYSTEM_UI_TEMPLATES,
+  getSafeThemeColor,
+  rgbStringToHex,
+  normalizeUiTemplate,
+  applyDocumentUiTemplate
+} from "../../utils/theme";
+import { normalizeUiMotionMode, applyDocumentMotionMode } from "../../utils/uiMotion";
+import { resolveEffectiveDarkMode, applyDocumentDarkClass } from "../../utils/themeSchedule";
+import { playRingtoneSound, stopRingtoneSound, setSavedRingtoneVolume } from "../../utils/audioHelper";
+import {
+  ALL_TABS as CALL_PANEL_ALL_TABS,
+  loadCallPanelPrefs,
+  saveCallPanelPrefs,
+  DEFAULT_CALL_PANEL_PREFS,
+  DEFAULT_TOPBAR_PREFS,
+  DEFAULT_TOPBAR_ZONES,
+  normalizeTopbarPrefs
+} from "../callcenter/AgentPanel";
+import { CallPanelAgentsAppearanceSettings } from "../callcenter/tabs/AgentQueuePeersTab";
+import { WallboardStudioSettings } from "../dashboard/WallboardPanel";
+import KeyboardShortcutsModal from "../common/KeyboardShortcutsModal";
 import SearchableSelect from "../ui/SearchableSelect";
 
 import { getApiBaseUrl, tenantFetch } from "../../utils/apiHost";
@@ -389,6 +412,36 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
   const [selectedProfileTab, setSelectedProfileTab] = useState("available");
   const [defaultLandingTab, setDefaultLandingTab] = useState("auto");
   const [defaultAgentSubTab, setDefaultAgentSubTab] = useState("auto");
+
+  // Extended User Personal, Security, Audio, Theme & Layout Preferences (Admin-Configurable)
+  const [themeColor, setThemeColor] = useState("225, 29, 72");
+  const [themeMode, setThemeMode] = useState("light");
+  const [mobileTransferEnabled, setMobileTransferEnabled] = useState(false);
+  const [autoLogoutEnabled, setAutoLogoutEnabled] = useState(false);
+  const [autoLogoutDuration, setAutoLogoutDuration] = useState(1);
+  const [passwordExpiryEnabled, setPasswordExpiryEnabled] = useState(false);
+  const [passwordExpiryMonths, setPasswordExpiryMonths] = useState(3);
+  const [userCallPanelPrefs, setUserCallPanelPrefs] = useState(() => ({
+    ...DEFAULT_CALL_PANEL_PREFS,
+    uiTemplate: "classic",
+    uiMotionMode: "fluid",
+    autoThemeConfig: { mode: "manual", darkStart: "19:00", darkEnd: "07:00" },
+    autoOpenCustomer360OnCall: false,
+    ringtone: "classic",
+    ringtoneVolume: 0.85,
+    noiseSuppressionMode: "ai",
+    desktopPrefs: {
+      osNotifications: true,
+      popWindowOnCall: true,
+      minimizeToTray: true,
+      startOnBoot: false
+    }
+  }));
+  const [userWallboardLayout, setUserWallboardLayout] = useState({});
+  const [uiLayoutSubTab, setUiLayoutSubTab] = useState("call_panel");
+  const [isPreviewingUserRingtone, setIsPreviewingUserRingtone] = useState(false);
+  const [draggedUserPanelTabIdx, setDraggedUserPanelTabIdx] = useState(null);
+  const [pinCatalogSearch, setPinCatalogSearch] = useState("");
   const [queuesList, setQueuesList] = useState([]);
   const [aiAgentsList, setAiAgentsList] = useState([]);
 
@@ -1764,6 +1817,36 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
     setSupQueueSearch("");
     setCtiConfig(DEFAULT_CTI_CONFIG);
     setCtiTestResult(null);
+
+    stopRingtoneSound();
+    setIsPreviewingUserRingtone(false);
+    setThemeColor("225, 29, 72");
+    setThemeMode("light");
+    setMobileTransferEnabled(false);
+    setAutoLogoutEnabled(false);
+    setAutoLogoutDuration(1);
+    setPasswordExpiryEnabled(false);
+    setPasswordExpiryMonths(3);
+    setUserCallPanelPrefs({
+      ...DEFAULT_CALL_PANEL_PREFS,
+      uiTemplate: "classic",
+      uiMotionMode: "fluid",
+      autoThemeConfig: { mode: "manual", darkStart: "19:00", darkEnd: "07:00" },
+      autoOpenCustomer360OnCall: false,
+      ringtone: "classic",
+      ringtoneVolume: 0.85,
+      noiseSuppressionMode: "ai",
+      desktopPrefs: {
+        osNotifications: true,
+        popWindowOnCall: true,
+        minimizeToTray: true,
+        startOnBoot: false
+      }
+    });
+    setUserWallboardLayout({});
+    setUiLayoutSubTab("call_panel");
+    setDraggedUserPanelTabIdx(null);
+    setPinCatalogSearch("");
   };
 
   const getNextAvailableExtension = (targetTenantId = null) => {
@@ -2023,6 +2106,60 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
     });
     setCtiTestResult(null);
 
+    // Hydrate Extended Personal, Theme, Audio, Security & Layout Preferences
+    let rawCpp = u.call_panel_prefs;
+    if (typeof rawCpp === "string") {
+      try { rawCpp = JSON.parse(rawCpp); } catch (e) { rawCpp = {}; }
+    }
+    const safeCpp = rawCpp && typeof rawCpp === "object" ? rawCpp : {};
+    const secPol = safeCpp.securityPolicy && typeof safeCpp.securityPolicy === "object" ? safeCpp.securityPolicy : {};
+
+    setThemeColor(getSafeThemeColor(u.theme_color || "rose"));
+    setThemeMode(u.theme_mode === "dark" ? "dark" : "light");
+    setMobileTransferEnabled(Boolean(u.mobile_transfer_enabled));
+    setAutoLogoutEnabled(Boolean(u.auto_logout_enabled ?? secPol.auto_logout_enabled ?? false));
+    setAutoLogoutDuration(Number(u.auto_logout_duration ?? secPol.auto_logout_duration ?? 1) || 1);
+    setPasswordExpiryEnabled(Boolean(u.password_expiry_enabled ?? secPol.password_expiry_enabled ?? false));
+    setPasswordExpiryMonths(Number(u.password_expiry_months ?? secPol.password_expiry_months ?? 3) || 3);
+
+    const loadedBasePrefs = loadCallPanelPrefs(u);
+    setUserCallPanelPrefs({
+      ...DEFAULT_CALL_PANEL_PREFS,
+      ...loadedBasePrefs,
+      ...safeCpp,
+      uiTemplate: normalizeUiTemplate(safeCpp.uiTemplate || loadedBasePrefs?.uiTemplate || "classic"),
+      uiMotionMode: normalizeUiMotionMode(safeCpp.uiMotionMode || loadedBasePrefs?.uiMotionMode || "fluid"),
+      autoThemeConfig: {
+        mode: "manual",
+        darkStart: "19:00",
+        darkEnd: "07:00",
+        ...(loadedBasePrefs?.autoThemeConfig || {}),
+        ...(safeCpp.autoThemeConfig && typeof safeCpp.autoThemeConfig === "object" ? safeCpp.autoThemeConfig : {})
+      },
+      autoOpenCustomer360OnCall: Boolean(safeCpp.autoOpenCustomer360OnCall ?? loadedBasePrefs?.autoOpenCustomer360OnCall ?? false),
+      topbar: normalizeTopbarPrefs(safeCpp.topbar || loadedBasePrefs?.topbar),
+      keyboardShortcuts: safeCpp.keyboardShortcuts && typeof safeCpp.keyboardShortcuts === "object"
+        ? safeCpp.keyboardShortcuts
+        : (loadedBasePrefs?.keyboardShortcuts || {}),
+      ringtone: String(safeCpp.ringtone || "classic"),
+      ringtoneVolume: typeof safeCpp.ringtoneVolume === "number" ? Math.max(0.1, Math.min(1, safeCpp.ringtoneVolume)) : 0.85,
+      noiseSuppressionMode: ["ai", "standard", "off"].includes(safeCpp.noiseSuppressionMode) ? safeCpp.noiseSuppressionMode : "ai",
+      desktopPrefs: {
+        osNotifications: true,
+        popWindowOnCall: true,
+        minimizeToTray: true,
+        startOnBoot: false,
+        ...(safeCpp.desktopPrefs && typeof safeCpp.desktopPrefs === "object" ? safeCpp.desktopPrefs : {})
+      }
+    });
+
+    let rawWbLayout = u.wallboard_layout;
+    if (typeof rawWbLayout === "string") {
+      try { rawWbLayout = JSON.parse(rawWbLayout); } catch (e) { rawWbLayout = {}; }
+    }
+    setUserWallboardLayout(rawWbLayout && typeof rawWbLayout === "object" ? rawWbLayout : {});
+    setUiLayoutSubTab("call_panel");
+
     setShowModal(true);
   };
 
@@ -2224,11 +2361,29 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
       department_id: selectedDepartment || null,
       active_profile: activeProfile || "available",
       profiles: sanitizedProfiles,
+      theme_color: getSafeThemeColor(themeColor),
+      theme_mode: themeMode === "dark" ? "dark" : "light",
+      mobile_transfer_enabled: Boolean(mobileTransferEnabled),
+      auto_logout_enabled: Boolean(autoLogoutEnabled),
+      auto_logout_duration: Number(autoLogoutDuration) || 1,
+      password_expiry_enabled: Boolean(passwordExpiryEnabled),
+      password_expiry_months: Number(passwordExpiryMonths) || 3,
+      wallboard_layout: userWallboardLayout && typeof userWallboardLayout === "object" ? userWallboardLayout : {},
       call_panel_prefs: {
         ...prevCallPanelPrefs,
+        ...(userCallPanelPrefs && typeof userCallPanelPrefs === "object" ? userCallPanelPrefs : {}),
         defaultLandingTab: sanitizedLandingTab || "auto",
         defaultAgentSubTab: defaultAgentSubTab || "auto",
-        profileAvatar: avatar || ""
+        profileAvatar: avatar || "",
+        uiTemplate: normalizeUiTemplate(userCallPanelPrefs?.uiTemplate || prevCallPanelPrefs?.uiTemplate || "classic"),
+        uiMotionMode: normalizeUiMotionMode(userCallPanelPrefs?.uiMotionMode || prevCallPanelPrefs?.uiMotionMode || "fluid"),
+        topbar: normalizeTopbarPrefs(userCallPanelPrefs?.topbar || prevCallPanelPrefs?.topbar),
+        securityPolicy: {
+          auto_logout_enabled: Boolean(autoLogoutEnabled),
+          auto_logout_duration: Number(autoLogoutDuration) || 1,
+          password_expiry_enabled: Boolean(passwordExpiryEnabled),
+          password_expiry_months: Number(passwordExpiryMonths) || 3
+        }
       },
       managed_users: managedUsers,
       managed_queues: managedQueues,
@@ -2306,7 +2461,11 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
               userData.two_factor_secret = tfData.user.two_factor_secret;
             }
             if (tfData?.user?.call_panel_prefs) {
-              userData.call_panel_prefs = tfData.user.call_panel_prefs;
+              userData.call_panel_prefs = {
+                ...tfData.user.call_panel_prefs,
+                ...userData.call_panel_prefs,
+                twoFactorMeta: tfData.user.call_panel_prefs.twoFactorMeta || userData.call_panel_prefs?.twoFactorMeta
+              };
             }
           }
         } catch (tfErr) {
@@ -2342,6 +2501,19 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
       setSubmitting(false);
     }
     if (ok) {
+      stopRingtoneSound();
+      setIsPreviewingUserRingtone(false);
+      if (typeof window !== "undefined") {
+        try {
+          saveCallPanelPrefs({ id: savedTargetId, extension: extInput }, userData.call_panel_prefs);
+          if (userData.wallboard_layout && typeof userData.wallboard_layout === "object") {
+            const wbKey = String(savedTargetId || extInput || "");
+            if (wbKey) {
+              localStorage.setItem(`wallboard_layout_${wbKey}`, JSON.stringify(userData.wallboard_layout));
+            }
+          }
+        } catch (e) {}
+      }
       if (editingUser && typeof window !== "undefined") {
         if (avatar) {
           window.dispatchEvent(
@@ -3115,7 +3287,15 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
                             className={"w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-bold transition-all " + (activeTab === 'avatar' ? ("bg-white dark:bg-slate-800 " + text + " shadow-sm border border-slate-200 dark:border-slate-700") : "text-slate-500 hover:bg-white/50 dark:hover:bg-slate-800/50 hover:text-slate-700 dark:hover:text-slate-300 border border-transparent")}
                         >
                             <ImageIcon size={16} />
-                            Avatar Seçimi
+                            Avatar & Tema
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => setActiveTab("ui_layout")}
+                            className={"w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-bold transition-all " + (activeTab === 'ui_layout' ? ("bg-white dark:bg-slate-800 " + text + " shadow-sm border border-slate-200 dark:border-slate-700") : "text-slate-500 hover:bg-white/50 dark:hover:bg-slate-800/50 hover:text-slate-700 dark:hover:text-slate-300 border border-transparent")}
+                        >
+                            <Monitor size={16} />
+                            Arayüz & Panel Düzeni
                         </button>
                         {hasSupervisorPerm && (
                             <button
@@ -4042,6 +4222,59 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
                                                     profNoAns.target || "",
                                                     (val) => updateProfileForwarding("forwarding_no_answer", { target: val })
                                                 )}
+                                            </div>
+                                        </div>
+
+                                        {/* 5. Akıllı Mobil Aktarım (AI GSM) */}
+                                        <div className="pt-4 border-t border-slate-200/70 dark:border-slate-800">
+                                            <div className={`p-4 bg-white dark:bg-slate-900 rounded-xl border transition-all space-y-3 ${mobileTransferEnabled ? border : "border-slate-200/80 dark:border-slate-800"}`}>
+                                                <div className="flex items-center justify-between gap-3">
+                                                    <div className="flex items-center gap-2.5">
+                                                        <div className={`p-2 rounded-lg shrink-0 ${mobileTransferEnabled ? `${lightBg} ${text}` : "bg-slate-100 dark:bg-slate-800 text-slate-500"}`}>
+                                                            <Smartphone size={16} />
+                                                        </div>
+                                                        <div>
+                                                            <div className="flex items-center gap-2">
+                                                                <span className="text-xs font-extrabold text-slate-800 dark:text-white uppercase tracking-wider">
+                                                                    5. Akıllı Mobil Aktarım (AI GSM)
+                                                                </span>
+                                                                <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${mobileTransferEnabled ? `${lightBg} ${text} border ${border}` : "bg-slate-100 dark:bg-slate-800 text-slate-500"}`}>
+                                                                    {mobileTransferEnabled ? "Aktif" : "Pasif"}
+                                                                </span>
+                                                            </div>
+                                                            <p className="text-[11px] text-slate-400 mt-0.5">
+                                                                Web Telefon kapalıyken mesai saatlerinde gelen çağrılar kullanıcının GSM numarasına aktarılır ve yapay zeka çağrı özetini fısıldar.
+                                                            </p>
+                                                        </div>
+                                                    </div>
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => setMobileTransferEnabled(!mobileTransferEnabled)}
+                                                        className={`transition-colors shrink-0 ${mobileTransferEnabled ? text : "text-slate-400"}`}
+                                                    >
+                                                        {mobileTransferEnabled ? <ToggleRight size={30} /> : <ToggleLeft size={30} />}
+                                                    </button>
+                                                </div>
+
+                                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+                                                    <div>
+                                                        <label className="block text-[10px] font-extrabold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1">
+                                                            Kullanıcı GSM / Cep Telefonu Numarası
+                                                        </label>
+                                                        <input
+                                                            type="tel"
+                                                            placeholder="Örn: 0532 123 45 67"
+                                                            value={followMeMobileNumber}
+                                                            onChange={(e) => setFollowMeMobileNumber(e.target.value)}
+                                                            className="w-full px-3.5 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 text-xs font-semibold text-slate-800 dark:text-white focus:outline-none"
+                                                        />
+                                                    </div>
+                                                    <div className="flex items-end">
+                                                        <div className={`w-full p-2.5 rounded-xl border ${lightBg} ${borderLight} text-[10px] font-semibold ${text}`}>
+                                                            Bu numara aynı zamanda <strong>Beni Takip Et (Follow-Me)</strong> ve <strong>WhatsApp 2FA</strong> doğrulama numarası olarak kullanılır.
+                                                        </div>
+                                                    </div>
+                                                </div>
                                             </div>
                                         </div>
                                     </div>
@@ -5253,6 +5486,334 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
                                         </div>
                                     )}
                                 </div>
+
+                                {/* ARAYÜZ OTURUM SÜRESİ & OTOMATİK EKRAN KAPATMA */}
+                                <div className={`p-4 bg-slate-50 dark:bg-slate-900/50 rounded-xl border transition-all ${autoLogoutEnabled ? border : "border-slate-100 dark:border-slate-800"}`}>
+                                    <div className="flex items-center justify-between gap-3">
+                                        <div className="flex items-start gap-3">
+                                            <div className={`p-2 rounded-lg shrink-0 mt-0.5 ${autoLogoutEnabled ? `${lightBg} ${text}` : "bg-slate-200/70 dark:bg-slate-800 text-slate-500"}`}>
+                                                <Clock size={18} />
+                                            </div>
+                                            <div>
+                                                <div className="flex items-center gap-2">
+                                                    <h5 className="text-sm font-bold text-slate-800 dark:text-white">Arayüz Oturum Süresi & Otomatik Ekran Kapatma</h5>
+                                                    <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${autoLogoutEnabled ? `${lightBg} ${text} border ${border}` : "bg-slate-200 dark:bg-slate-800 text-slate-500"}`}>
+                                                        {autoLogoutEnabled ? `${autoLogoutDuration} Saat` : "Pasif"}
+                                                    </span>
+                                                </div>
+                                                <p className="text-xs text-slate-400 mt-0.5">
+                                                    Belirtilen süre boyunca işlem yapılmadığında kullanıcının web/masaüstü oturumu otomatik olarak sonlandırılır.
+                                                </p>
+                                            </div>
+                                        </div>
+                                        <button
+                                            type="button"
+                                            onClick={() => setAutoLogoutEnabled(!autoLogoutEnabled)}
+                                            className={`transition-colors shrink-0 ${autoLogoutEnabled ? text : "text-slate-400"}`}
+                                        >
+                                            {autoLogoutEnabled ? <ToggleRight size={28} /> : <ToggleLeft size={28} />}
+                                        </button>
+                                    </div>
+                                    {autoLogoutEnabled && (
+                                        <div className="mt-3 pt-3 border-t border-slate-200/70 dark:border-slate-800 grid grid-cols-3 gap-2.5 animate-in fade-in duration-200">
+                                            {[
+                                                { label: "1 Saat", value: 1, desc: "60 dakika hareketsizlik" },
+                                                { label: "2 Saat", value: 2, desc: "120 dakika hareketsizlik" },
+                                                { label: "3 Saat", value: 3, desc: "180 dakika hareketsizlik" }
+                                            ].map((opt) => {
+                                                const isSel = Number(autoLogoutDuration) === opt.value;
+                                                return (
+                                                    <button
+                                                        key={opt.value}
+                                                        type="button"
+                                                        onClick={() => setAutoLogoutDuration(opt.value)}
+                                                        className={`p-3 rounded-xl border text-left transition-all flex flex-col justify-between ${
+                                                            isSel
+                                                                ? `${lightBg} ${border} ring-2 ${ring}`
+                                                                : "bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400"
+                                                        }`}
+                                                    >
+                                                        <div className="flex items-center justify-between w-full mb-1">
+                                                            <span className={`text-xs font-extrabold ${isSel ? text : "text-slate-800 dark:text-white"}`}>{opt.label}</span>
+                                                            {isSel && <CheckCircle size={14} className={text} />}
+                                                        </div>
+                                                        <span className="text-[10px] text-slate-400">{opt.desc}</span>
+                                                    </button>
+                                                );
+                                            })}
+                                        </div>
+                                    )}
+                                </div>
+
+                                {/* ŞİFRE GEÇERLİLİK SÜRESİ (ZORUNLU ŞİFRE DEĞİŞİMİ) */}
+                                <div className={`p-4 bg-slate-50 dark:bg-slate-900/50 rounded-xl border transition-all ${passwordExpiryEnabled ? border : "border-slate-100 dark:border-slate-800"}`}>
+                                    <div className="flex items-center justify-between gap-3">
+                                        <div className="flex items-start gap-3">
+                                            <div className={`p-2 rounded-lg shrink-0 mt-0.5 ${passwordExpiryEnabled ? `${lightBg} ${text}` : "bg-slate-200/70 dark:bg-slate-800 text-slate-500"}`}>
+                                                <Lock size={18} />
+                                            </div>
+                                            <div>
+                                                <div className="flex items-center gap-2">
+                                                    <h5 className="text-sm font-bold text-slate-800 dark:text-white">Şifre Geçerlilik Süresi (Zorunlu Değişim)</h5>
+                                                    <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${passwordExpiryEnabled ? `${lightBg} ${text} border ${border}` : "bg-slate-200 dark:bg-slate-800 text-slate-500"}`}>
+                                                        {passwordExpiryEnabled ? `${passwordExpiryMonths} Ay` : "Süresiz"}
+                                                    </span>
+                                                </div>
+                                                <p className="text-xs text-slate-400 mt-0.5">
+                                                    Kullanıcı şifresinin belirli periyotlarla zorunlu olarak yenilenmesini sağlar.
+                                                </p>
+                                            </div>
+                                        </div>
+                                        <button
+                                            type="button"
+                                            onClick={() => setPasswordExpiryEnabled(!passwordExpiryEnabled)}
+                                            className={`transition-colors shrink-0 ${passwordExpiryEnabled ? text : "text-slate-400"}`}
+                                        >
+                                            {passwordExpiryEnabled ? <ToggleRight size={28} /> : <ToggleLeft size={28} />}
+                                        </button>
+                                    </div>
+                                    {passwordExpiryEnabled && (
+                                        <div className="mt-3 pt-3 border-t border-slate-200/70 dark:border-slate-800 grid grid-cols-2 sm:grid-cols-4 gap-2.5 animate-in fade-in duration-200">
+                                            {[
+                                                { label: "1 Ay", value: 1, desc: "30 günde bir" },
+                                                { label: "3 Ay", value: 3, desc: "90 günde bir" },
+                                                { label: "6 Ay", value: 6, desc: "180 günde bir" },
+                                                { label: "12 Ay", value: 12, desc: "365 günde bir" }
+                                            ].map((opt) => {
+                                                const isSel = Number(passwordExpiryMonths) === opt.value;
+                                                return (
+                                                    <button
+                                                        key={opt.value}
+                                                        type="button"
+                                                        onClick={() => setPasswordExpiryMonths(opt.value)}
+                                                        className={`p-2.5 rounded-xl border text-left transition-all flex flex-col justify-between ${
+                                                            isSel
+                                                                ? `${lightBg} ${border} ring-2 ${ring}`
+                                                                : "bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400"
+                                                        }`}
+                                                    >
+                                                        <div className="flex items-center justify-between w-full mb-0.5">
+                                                            <span className={`text-xs font-extrabold ${isSel ? text : "text-slate-800 dark:text-white"}`}>{opt.label}</span>
+                                                            {isSel && <CheckCircle size={13} className={text} />}
+                                                        </div>
+                                                        <span className="text-[10px] text-slate-400">{opt.desc}</span>
+                                                    </button>
+                                                );
+                                            })}
+                                        </div>
+                                    )}
+                                </div>
+
+                                {/* GELEN ÇAĞRIDA MÜŞTERİ 360° KARTINI OTOMATİK AÇ */}
+                                <div className={`p-4 bg-slate-50 dark:bg-slate-900/50 rounded-xl border transition-all ${userCallPanelPrefs?.autoOpenCustomer360OnCall ? border : "border-slate-100 dark:border-slate-800"}`}>
+                                    <div className="flex items-center justify-between gap-3">
+                                        <div className="flex items-start gap-3">
+                                            <div className={`p-2 rounded-lg shrink-0 mt-0.5 ${userCallPanelPrefs?.autoOpenCustomer360OnCall ? `${lightBg} ${text}` : "bg-slate-200/70 dark:bg-slate-800 text-slate-500"}`}>
+                                                <Sparkles size={18} />
+                                            </div>
+                                            <div>
+                                                <div className="flex items-center gap-2">
+                                                    <h5 className="text-sm font-bold text-slate-800 dark:text-white">Gelen Çağrıda Müşteri 360° Kartını Otomatik Aç</h5>
+                                                    <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${userCallPanelPrefs?.autoOpenCustomer360OnCall ? `${lightBg} ${text} border ${border}` : "bg-slate-200 dark:bg-slate-800 text-slate-500"}`}>
+                                                        {userCallPanelPrefs?.autoOpenCustomer360OnCall ? "Aktif" : "Pasif"}
+                                                    </span>
+                                                </div>
+                                                <p className="text-xs text-slate-400 mt-0.5">
+                                                    Web Telefon çaldığında arayan müşterinin geçmiş çağrı, WhatsApp ve VIP notlarını otomatik olarak sağ çekmecede açar.
+                                                </p>
+                                            </div>
+                                        </div>
+                                        <button
+                                            type="button"
+                                            onClick={() =>
+                                                setUserCallPanelPrefs((prev) => ({
+                                                    ...(prev || {}),
+                                                    autoOpenCustomer360OnCall: !Boolean(prev?.autoOpenCustomer360OnCall)
+                                                }))
+                                            }
+                                            className={`transition-colors shrink-0 ${userCallPanelPrefs?.autoOpenCustomer360OnCall ? text : "text-slate-400"}`}
+                                        >
+                                            {userCallPanelPrefs?.autoOpenCustomer360OnCall ? <ToggleRight size={28} /> : <ToggleLeft size={28} />}
+                                        </button>
+                                    </div>
+                                </div>
+
+                                {/* WEB TELEFON ZİL SESİ, AI GÜRÜLTÜ ENGELLEME & MASAÜSTÜ BİLDİRİMLERİ */}
+                                <div className="p-4 bg-slate-50 dark:bg-slate-900/50 rounded-xl border border-slate-100 dark:border-slate-800 space-y-4">
+                                    <div className="flex items-start gap-3">
+                                        <div className={`p-2 rounded-lg shrink-0 mt-0.5 ${lightBg} ${text}`}>
+                                            <Volume2 size={18} />
+                                        </div>
+                                        <div>
+                                            <h5 className="text-sm font-bold text-slate-800 dark:text-white">
+                                                Web Telefon Zil Sesi, AI Gürültü Engelleme & Masaüstü Bildirim Tercihleri
+                                            </h5>
+                                            <p className="text-xs text-slate-400 mt-0.5">
+                                                Kullanıcının varsayılan çağrı zil melodisini, ses seviyesini, mikrofon AI gürültü filtresini ve masaüstü bildirimlerini yapılandırın.
+                                            </p>
+                                        </div>
+                                    </div>
+
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2 border-t border-slate-200/70 dark:border-slate-800">
+                                        {/* Çağrı Zil Sesi */}
+                                        <div className="p-3.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 space-y-2.5">
+                                            <label className="block text-[10px] font-extrabold text-slate-500 uppercase tracking-wider">
+                                                Çağrı Zil Sesi Melodisi
+                                            </label>
+                                            <div className="flex items-center gap-2">
+                                                <select
+                                                    value={userCallPanelPrefs?.ringtone || "classic"}
+                                                    onChange={(e) => {
+                                                        const nextRing = e.target.value;
+                                                        stopRingtoneSound();
+                                                        setIsPreviewingUserRingtone(false);
+                                                        setUserCallPanelPrefs((prev) => ({ ...(prev || {}), ringtone: nextRing }));
+                                                    }}
+                                                    className="flex-1 px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 text-xs font-bold text-slate-800 dark:text-white focus:outline-none"
+                                                >
+                                                    <option value="classic">Klasik Telefon Melodisi</option>
+                                                    <option value="digital">Dijital Zil Sesi</option>
+                                                    <option value="melody">Yumuşak Melodi</option>
+                                                    <option value="futuristic">Gelecekçi Uyarı Sesi</option>
+                                                    <option value="marimba">Klasik Akıllı Telefon (Marimba)</option>
+                                                    <option value="vintage">Eski Tip Mekanik Zil</option>
+                                                    <option value="echo">Yankılı Bildirim Sesi</option>
+                                                    <option value="organ">Sıcak Akortlu Melodi</option>
+                                                </select>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => {
+                                                        if (isPreviewingUserRingtone) {
+                                                            stopRingtoneSound();
+                                                            setIsPreviewingUserRingtone(false);
+                                                        } else {
+                                                            setIsPreviewingUserRingtone(true);
+                                                            playRingtoneSound(userCallPanelPrefs?.ringtone || "classic");
+                                                        }
+                                                    }}
+                                                    className="px-3 py-2 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-xs font-extrabold text-slate-700 dark:text-slate-200 flex items-center gap-1.5 shrink-0"
+                                                >
+                                                    {isPreviewingUserRingtone ? (
+                                                        <>
+                                                            <Square size={12} className="text-rose-500 fill-rose-500" />
+                                                            <span>Durdur</span>
+                                                        </>
+                                                    ) : (
+                                                        <>
+                                                            <Play size={12} className={text} />
+                                                            <span>Dinle</span>
+                                                        </>
+                                                    )}
+                                                </button>
+                                            </div>
+                                            <div className="flex items-center gap-3 pt-1">
+                                                <span className="text-[10px] font-bold text-slate-500 shrink-0">Zil Ses Seviyesi:</span>
+                                                <input
+                                                    type="range"
+                                                    min="0.1"
+                                                    max="1"
+                                                    step="0.05"
+                                                    value={userCallPanelPrefs?.ringtoneVolume ?? 0.85}
+                                                    onChange={(e) => {
+                                                        const vol = Math.max(0.1, Math.min(1, parseFloat(e.target.value) || 0.85));
+                                                        setSavedRingtoneVolume(vol);
+                                                        setUserCallPanelPrefs((prev) => ({ ...(prev || {}), ringtoneVolume: vol }));
+                                                    }}
+                                                    className="flex-1 accent-primary cursor-pointer h-1.5 rounded-lg"
+                                                />
+                                                <span className={`text-[11px] font-extrabold font-mono w-10 text-right ${text}`}>
+                                                    %{Math.round((userCallPanelPrefs?.ringtoneVolume ?? 0.85) * 100)}
+                                                </span>
+                                            </div>
+                                        </div>
+
+                                        {/* AI Gürültü Engelleme */}
+                                        <div className="p-3.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 space-y-2.5">
+                                            <label className="block text-[10px] font-extrabold text-slate-500 uppercase tracking-wider">
+                                                Yapay Zeka (AI) Mikrofon Gürültü Engelleme
+                                            </label>
+                                            <div className="grid grid-cols-3 gap-2">
+                                                {[
+                                                    { id: "ai", title: "Yapay Zeka (AI)", desc: "RNNoise + Yan Ses Kesici" },
+                                                    { id: "standard", title: "Standart", desc: "Tarayıcı Filtresi" },
+                                                    { id: "off", title: "Kapalı", desc: "Ham Mikrofon" }
+                                                ].map((opt) => {
+                                                    const active = (userCallPanelPrefs?.noiseSuppressionMode || "ai") === opt.id;
+                                                    return (
+                                                        <button
+                                                            key={opt.id}
+                                                            type="button"
+                                                            onClick={() =>
+                                                                setUserCallPanelPrefs((prev) => ({
+                                                                    ...(prev || {}),
+                                                                    noiseSuppressionMode: opt.id
+                                                                }))
+                                                            }
+                                                            className={`p-2.5 rounded-xl border text-left transition-all flex flex-col justify-between gap-1 ${
+                                                                active
+                                                                    ? `${lightBg} ${border} ring-1 ${ring}`
+                                                                    : "bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800"
+                                                            }`}
+                                                        >
+                                                            <div className="flex items-center justify-between gap-1">
+                                                                <span className={`text-[10px] font-extrabold ${active ? text : "text-slate-700 dark:text-slate-200"}`}>
+                                                                    {opt.title}
+                                                                </span>
+                                                                {active && <Check size={12} className={text} />}
+                                                            </div>
+                                                            <span className="text-[9px] text-slate-400 leading-tight">{opt.desc}</span>
+                                                        </button>
+                                                    );
+                                                })}
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    {/* Masaüstü & Gelen Çağrı Bildirimleri */}
+                                    <div className="p-3.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 space-y-2.5">
+                                        <div className="flex items-center gap-2">
+                                            <BellRing size={14} className={text} />
+                                            <span className="text-[11px] font-extrabold text-slate-800 dark:text-white uppercase tracking-wider">
+                                                Masaüstü & Gelen Çağrı Bildirim Tercihleri
+                                            </span>
+                                        </div>
+                                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                                            {[
+                                                { key: "osNotifications", label: "Sistem Bildirimlerini Göster (Arka Plan Çağrı & Mesaj)" },
+                                                { key: "popWindowOnCall", label: "Çağrı Geldiğinde Pencereyi Otomatik Öne Getir" },
+                                                { key: "minimizeToTray", label: "Pencere Kapatıldığında (X) Sistem Tepsisinde Açık Tut" },
+                                                { key: "startOnBoot", label: "Bilgisayar Açıldığında AIDA Agent Otomatik Başlasın" }
+                                            ].map((dpItem) => {
+                                                const checked = Boolean(userCallPanelPrefs?.desktopPrefs?.[dpItem.key]);
+                                                return (
+                                                    <label
+                                                        key={dpItem.key}
+                                                        className="flex items-center justify-between gap-3 p-2.5 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200/70 dark:border-slate-800 cursor-pointer"
+                                                    >
+                                                        <span className="text-[11px] font-semibold text-slate-700 dark:text-slate-200">
+                                                            {dpItem.label}
+                                                        </span>
+                                                        <input
+                                                            type="checkbox"
+                                                            checked={checked}
+                                                            onChange={(e) => {
+                                                                const val = e.target.checked;
+                                                                setUserCallPanelPrefs((prev) => ({
+                                                                    ...(prev || {}),
+                                                                    desktopPrefs: {
+                                                                        ...(prev?.desktopPrefs || {}),
+                                                                        [dpItem.key]: val
+                                                                    }
+                                                                }));
+                                                            }}
+                                                            className="h-4 w-4 rounded accent-primary cursor-pointer shrink-0"
+                                                        />
+                                                    </label>
+                                                );
+                                            })}
+                                        </div>
+                                    </div>
+                                </div>
                             </div>
                         )}
 
@@ -5401,8 +5962,989 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
                                         })}
                                     </div>
                                 </div>
+
+                                {/* 1. Arayüz Görünüm Şablonu (UI Template) */}
+                                <div className="p-4 bg-slate-50 dark:bg-slate-900/50 rounded-2xl border border-slate-200/80 dark:border-slate-800 space-y-3">
+                                    <div className="flex flex-wrap items-center justify-between gap-2">
+                                        <div className="flex items-center gap-2.5">
+                                            <div className={`p-2 rounded-xl ${lightBg} ${text}`}>
+                                                <Layers size={16} />
+                                            </div>
+                                            <div>
+                                                <h5 className="text-xs font-extrabold text-slate-800 dark:text-white uppercase tracking-wider">
+                                                    Arayüz Görünüm Şablonu
+                                                </h5>
+                                                <p className="text-[11px] text-slate-400 mt-0.5">
+                                                    Kullanıcının panelde göreceği tasarım şablonunu seçin (Klasik, Executive, Aurora, Bento, Linear, OLED).
+                                                </p>
+                                            </div>
+                                        </div>
+                                        <span className={`px-2.5 py-1 rounded-full text-[10px] font-extrabold border ${lightBg} ${text} ${border}`}>
+                                            Aktif: {(SYSTEM_UI_TEMPLATES.find((t) => t.id === normalizeUiTemplate(userCallPanelPrefs?.uiTemplate)) || SYSTEM_UI_TEMPLATES[0]).name}
+                                        </span>
+                                    </div>
+
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5">
+                                        {SYSTEM_UI_TEMPLATES.map((tpl) => {
+                                            const isSelected = normalizeUiTemplate(userCallPanelPrefs?.uiTemplate) === tpl.id;
+                                            return (
+                                                <button
+                                                    key={tpl.id}
+                                                    type="button"
+                                                    onClick={() => {
+                                                        setUserCallPanelPrefs((prev) => ({
+                                                            ...(prev || {}),
+                                                            uiTemplate: tpl.id
+                                                        }));
+                                                        if (tpl.autoDark && themeMode !== "dark") {
+                                                            setThemeMode("dark");
+                                                        }
+                                                    }}
+                                                    className={`p-3 rounded-xl border text-left transition-all flex flex-col justify-between gap-1.5 ${
+                                                        isSelected
+                                                            ? `${lightBg} ${border} ring-2 ${ring} shadow-sm`
+                                                            : "bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 hover:border-slate-300"
+                                                    }`}
+                                                >
+                                                    <div className="flex items-center justify-between gap-2">
+                                                        <div className="flex items-center gap-1.5 min-w-0">
+                                                            <span className={`text-xs font-extrabold truncate ${isSelected ? text : "text-slate-800 dark:text-white"}`}>
+                                                                {tpl.name}
+                                                            </span>
+                                                            {tpl.badge && (
+                                                                <span className={`px-1.5 py-0.5 rounded text-[9px] font-extrabold ${lightBg} ${text}`}>
+                                                                    {tpl.badge}
+                                                                </span>
+                                                            )}
+                                                        </div>
+                                                        {isSelected && <CheckCircle size={14} className={`${text} shrink-0`} />}
+                                                    </div>
+                                                    <p className="text-[10px] text-slate-400 leading-snug">
+                                                        {tpl.desc}
+                                                    </p>
+                                                </button>
+                                            );
+                                        })}
+                                    </div>
+                                </div>
+
+                                {/* 2. Sistem Tema Rengi Seçimi */}
+                                {(() => {
+                                    const safeThemeVal = getSafeThemeColor(themeColor);
+                                    const currentThemeHex = rgbStringToHex(safeThemeVal);
+                                    const matchedPreset = SYSTEM_THEME_PRESETS.find((t) => t.value === safeThemeVal);
+                                    const isCustomTheme = !matchedPreset;
+                                    return (
+                                        <div className="p-4 bg-slate-50 dark:bg-slate-900/50 rounded-2xl border border-slate-200/80 dark:border-slate-800 space-y-3">
+                                            <div className="flex flex-wrap items-center justify-between gap-2">
+                                                <div className="flex items-center gap-2.5">
+                                                    <div className={`p-2 rounded-xl ${lightBg} ${text}`}>
+                                                        <Palette size={16} />
+                                                    </div>
+                                                    <div>
+                                                        <h5 className="text-xs font-extrabold text-slate-800 dark:text-white uppercase tracking-wider">
+                                                            Sistem Tema Rengi
+                                                        </h5>
+                                                        <p className="text-[11px] text-slate-400 mt-0.5">
+                                                            Kullanıcının ekranındaki birincil vurgu ve buton rengini belirleyin.
+                                                        </p>
+                                                    </div>
+                                                </div>
+                                                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-extrabold border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-200">
+                                                    <span className="w-3 h-3 rounded-full border border-black/10" style={{ backgroundColor: currentThemeHex }} />
+                                                    <span>{matchedPreset ? matchedPreset.name : `Özel (${currentThemeHex.toUpperCase()})`}</span>
+                                                </span>
+                                            </div>
+
+                                            <div className="grid grid-cols-4 sm:grid-cols-7 md:grid-cols-9 gap-2">
+                                                {SYSTEM_THEME_PRESETS.map((t) => (
+                                                    <button
+                                                        key={t.value}
+                                                        type="button"
+                                                        onClick={() => setThemeColor(getSafeThemeColor(t.value))}
+                                                        className={`p-2 rounded-xl border flex flex-col items-center gap-1.5 transition-all cursor-pointer ${
+                                                            safeThemeVal === t.value
+                                                                ? "border-slate-800 dark:border-white ring-2 ring-slate-800/10 dark:ring-white/10 bg-white dark:bg-slate-800"
+                                                                : "bg-white/70 dark:bg-slate-900 border-slate-200/70 dark:border-slate-800 hover:border-slate-300"
+                                                        }`}
+                                                        title={`${t.name} (${t.hex.toUpperCase()})`}
+                                                    >
+                                                        <span className="w-5 h-5 rounded-full shrink-0 shadow-sm border border-black/10" style={{ backgroundColor: t.hex }} />
+                                                        <span className="text-[9px] font-bold text-slate-600 dark:text-slate-300 truncate w-full text-center">
+                                                            {t.name}
+                                                        </span>
+                                                    </button>
+                                                ))}
+
+                                                <label
+                                                    title="Renk Paletinden İstediğiniz Rengi Seçin"
+                                                    className={`relative p-2 rounded-xl border flex flex-col items-center gap-1.5 transition-all cursor-pointer ${
+                                                        isCustomTheme
+                                                            ? "border-slate-800 dark:border-white ring-2 ring-slate-800/10 dark:ring-white/10 bg-white dark:bg-slate-800"
+                                                            : "border-dashed border-slate-300 dark:border-slate-700 bg-white/70 dark:bg-slate-900"
+                                                    }`}
+                                                >
+                                                    <span
+                                                        className="w-5 h-5 rounded-full shrink-0 shadow-sm border border-black/15 flex items-center justify-center"
+                                                        style={{
+                                                            background: isCustomTheme
+                                                                ? currentThemeHex
+                                                                : "conic-gradient(from 0deg, #ef4444, #f59e0b, #10b981, #06b6d4, #3b82f6, #a855f7, #ec4899, #ef4444)"
+                                                        }}
+                                                    >
+                                                        <Palette size={10} className="text-white drop-shadow" />
+                                                    </span>
+                                                    <span className="text-[9px] font-extrabold text-slate-700 dark:text-slate-200 truncate w-full text-center">
+                                                        {isCustomTheme ? currentThemeHex.toUpperCase() : "Özel Seç"}
+                                                    </span>
+                                                    <input
+                                                        type="color"
+                                                        value={currentThemeHex}
+                                                        onChange={(e) => setThemeColor(getSafeThemeColor(e.target.value))}
+                                                        className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                                                    />
+                                                </label>
+                                            </div>
+                                        </div>
+                                    );
+                                })()}
+
+                                {/* 3. Görünüm Modu (Aydınlık / Karanlık) & Otomatik Karanlık Mod Zamanlaması */}
+                                {(() => {
+                                    const autoCfg = userCallPanelPrefs?.autoThemeConfig || { mode: "manual", darkStart: "19:00", darkEnd: "07:00" };
+                                    const updateUserAutoTheme = (patch) => {
+                                        setUserCallPanelPrefs((prev) => ({
+                                            ...(prev || {}),
+                                            autoThemeConfig: {
+                                                mode: "manual",
+                                                darkStart: "19:00",
+                                                darkEnd: "07:00",
+                                                ...(prev?.autoThemeConfig || {}),
+                                                ...patch
+                                            }
+                                        }));
+                                    };
+                                    return (
+                                        <div className="p-4 bg-slate-50 dark:bg-slate-900/50 rounded-2xl border border-slate-200/80 dark:border-slate-800 space-y-4">
+                                            <div className="flex flex-wrap items-center justify-between gap-3">
+                                                <div className="flex items-center gap-2.5">
+                                                    <div className={`p-2 rounded-xl ${lightBg} ${text}`}>
+                                                        {themeMode === "dark" ? <Moon size={16} /> : <Sun size={16} />}
+                                                    </div>
+                                                    <div>
+                                                        <h5 className="text-xs font-extrabold text-slate-800 dark:text-white uppercase tracking-wider">
+                                                            Görünüm Modu & Karanlık Mod Zamanlaması
+                                                        </h5>
+                                                        <p className="text-[11px] text-slate-400 mt-0.5">
+                                                            Kullanıcının varsayılan Aydınlık / Karanlık modunu ve otomatik zamanlama kuralını belirleyin.
+                                                        </p>
+                                                    </div>
+                                                </div>
+
+                                                <div className="flex items-center gap-1.5 bg-white dark:bg-slate-900 p-1 rounded-xl border border-slate-200 dark:border-slate-800">
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => setThemeMode("light")}
+                                                        className={`px-3 py-1.5 rounded-lg text-[11px] font-extrabold flex items-center gap-1.5 transition-all ${
+                                                            themeMode !== "dark" ? `${bg} text-white shadow-sm` : "text-slate-500 hover:text-slate-800 dark:hover:text-white"
+                                                        }`}
+                                                    >
+                                                        <Sun size={13} />
+                                                        <span>Aydınlık</span>
+                                                    </button>
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => setThemeMode("dark")}
+                                                        className={`px-3 py-1.5 rounded-lg text-[11px] font-extrabold flex items-center gap-1.5 transition-all ${
+                                                            themeMode === "dark" ? `${bg} text-white shadow-sm` : "text-slate-500 hover:text-slate-800 dark:hover:text-white"
+                                                        }`}
+                                                    >
+                                                        <Moon size={13} />
+                                                        <span>Karanlık</span>
+                                                    </button>
+                                                </div>
+                                            </div>
+
+                                            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                                                {[
+                                                    { id: "manual", title: "Manuel Seçim", desc: "Kullanıcı üst bardaki Güneş/Ay ikonundan değiştirir." },
+                                                    { id: "system", title: "İşletim Sistemiyle Eşitle", desc: "Bilgisayarın gece/gündüz temasını takip eder." },
+                                                    { id: "schedule", title: "Saate Göre Otomatik", desc: "Belirlenen akşam saatinde otomatik Karanlık Moda geçer." }
+                                                ].map((opt) => {
+                                                    const active = (autoCfg.mode || "manual") === opt.id;
+                                                    return (
+                                                        <button
+                                                            key={opt.id}
+                                                            type="button"
+                                                            onClick={() => updateUserAutoTheme({ mode: opt.id })}
+                                                            className={`p-3 rounded-xl border text-left transition-all ${
+                                                                active
+                                                                    ? `${border} ${lightBg} shadow-sm`
+                                                                    : "bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800"
+                                                            }`}
+                                                        >
+                                                            <div className="flex items-center justify-between gap-1">
+                                                                <span className="text-xs font-extrabold text-slate-800 dark:text-white">{opt.title}</span>
+                                                                {active && <Check size={13} className={text} />}
+                                                            </div>
+                                                            <p className="text-[10px] text-slate-400 mt-1 leading-relaxed">{opt.desc}</p>
+                                                        </button>
+                                                    );
+                                                })}
+                                            </div>
+
+                                            {autoCfg.mode === "schedule" && (
+                                                <div className="grid grid-cols-2 gap-3 p-3 rounded-xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800">
+                                                    <div>
+                                                        <label className="text-[10px] font-bold text-slate-500 uppercase block mb-1">
+                                                            Karanlık Mod Başlangıcı
+                                                        </label>
+                                                        <input
+                                                            type="time"
+                                                            value={autoCfg.darkStart || "19:00"}
+                                                            onChange={(e) => updateUserAutoTheme({ darkStart: e.target.value })}
+                                                            className="w-full px-3 py-1.5 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-xs font-mono font-bold text-slate-800 dark:text-slate-200"
+                                                        />
+                                                    </div>
+                                                    <div>
+                                                        <label className="text-[10px] font-bold text-slate-500 uppercase block mb-1">
+                                                            Aydınlık Moda Dönüş
+                                                        </label>
+                                                        <input
+                                                            type="time"
+                                                            value={autoCfg.darkEnd || "07:00"}
+                                                            onChange={(e) => updateUserAutoTheme({ darkEnd: e.target.value })}
+                                                            className="w-full px-3 py-1.5 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-xs font-mono font-bold text-slate-800 dark:text-slate-200"
+                                                        />
+                                                    </div>
+                                                </div>
+                                            )}
+
+                                            {/* 4. Arayüz Geçiş & Grafik Animasyonları */}
+                                            <div className="pt-3 border-t border-slate-200/70 dark:border-slate-800 space-y-2.5">
+                                                <div className="flex items-center justify-between gap-2">
+                                                    <span className="text-xs font-extrabold text-slate-800 dark:text-white flex items-center gap-1.5">
+                                                        <Sparkles size={14} className={text} />
+                                                        <span>Arayüz Geçiş & Grafik Animasyonları</span>
+                                                    </span>
+                                                    <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-extrabold border ${lightBg} ${text} ${borderLight}`}>
+                                                        {normalizeUiMotionMode(userCallPanelPrefs?.uiMotionMode) === "minimal"
+                                                            ? "Minimal (Hızlı)"
+                                                            : normalizeUiMotionMode(userCallPanelPrefs?.uiMotionMode) === "off"
+                                                            ? "Kapalı"
+                                                            : "Akıcı (Varsayılan)"}
+                                                    </span>
+                                                </div>
+                                                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                                                    {[
+                                                        { id: "fluid", title: "Akıcı (Varsayılan)", desc: "Yumuşak pencere süzülmesi ve canlı grafik animasyonu." },
+                                                        { id: "minimal", title: "Minimal (Hızlı)", desc: "Yalnızca 200ms hafif netleşme; seri sekme geçişi." },
+                                                        { id: "off", title: "Kapalı (Anında)", desc: "Tüm geçiş efektlerini kapatarak anında statik yükleme yapar." }
+                                                    ].map((mOpt) => {
+                                                        const isMotionSel = normalizeUiMotionMode(userCallPanelPrefs?.uiMotionMode) === mOpt.id;
+                                                        return (
+                                                            <button
+                                                                key={mOpt.id}
+                                                                type="button"
+                                                                onClick={() =>
+                                                                    setUserCallPanelPrefs((prev) => ({
+                                                                        ...(prev || {}),
+                                                                        uiMotionMode: mOpt.id
+                                                                    }))
+                                                                }
+                                                                className={`p-3 rounded-xl border text-left transition-all ${
+                                                                    isMotionSel
+                                                                        ? `${border} ${lightBg} shadow-sm`
+                                                                        : "bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800"
+                                                                }`}
+                                                            >
+                                                                <div className="flex items-center justify-between gap-1">
+                                                                    <span className="text-xs font-extrabold text-slate-800 dark:text-white">{mOpt.title}</span>
+                                                                    {isMotionSel && <Check size={13} className={text} />}
+                                                                </div>
+                                                                <p className="text-[10px] text-slate-400 mt-1 leading-relaxed">{mOpt.desc}</p>
+                                                            </button>
+                                                        );
+                                                    })}
+                                                </div>
+                                            </div>
+                                        </div>
+                                    );
+                                })()}
                             </div>
                         )}
+
+                        {/* TAB: ARAYÜZ & PANEL DÜZENİ (Çağrı Paneli, Üst Bar, Wallboard, Klavye Kısayolları) */}
+                        {activeTab === "ui_layout" && (() => {
+                            const matchedRoleObj = systemRoles.find(
+                                (r) => String(r.role_code || "").toLowerCase() === String(role || "").toLowerCase()
+                            );
+                            const rolePerms = role === "admin" ? ["*"] : (Array.isArray(matchedRoleObj?.permissions) ? matchedRoleObj.permissions : []);
+                            const hasConfiguredRoleTabs = role !== "admin" && rolePerms.some((p) => p.startsWith("call_panel:tab_"));
+                            const isTabAllowedByUserRole = (tabObj) => {
+                                if (!tabObj) return false;
+                                if (role === "admin" || !hasConfiguredRoleTabs) return true;
+                                return rolePerms.includes(tabObj.perm);
+                            };
+
+                            const currentOrder =
+                                Array.isArray(userCallPanelPrefs?.tabOrder) && userCallPanelPrefs.tabOrder.length > 0
+                                    ? userCallPanelPrefs.tabOrder
+                                    : DEFAULT_CALL_PANEL_PREFS.tabOrder;
+
+                            const orderedTabItems = currentOrder
+                                .map((id) => CALL_PANEL_ALL_TABS.find((t) => t.id === id))
+                                .filter((t) => isTabAllowedByUserRole(t));
+
+                            CALL_PANEL_ALL_TABS.forEach((t) => {
+                                if (isTabAllowedByUserRole(t) && !orderedTabItems.some((item) => item.id === t.id)) {
+                                    orderedTabItems.push(t);
+                                }
+                            });
+
+                            const updateUserPanelPrefs = (patch) => {
+                                setUserCallPanelPrefs((prev) => ({
+                                    ...(prev || {}),
+                                    ...patch
+                                }));
+                            };
+
+                            const moveUserTabItem = (index, direction) => {
+                                const targetIndex = index + direction;
+                                if (targetIndex < 0 || targetIndex >= orderedTabItems.length) return;
+                                const nextIds = orderedTabItems.map((t) => t.id);
+                                const [moved] = nextIds.splice(index, 1);
+                                nextIds.splice(targetIndex, 0, moved);
+                                updateUserPanelPrefs({ tabOrder: nextIds });
+                            };
+
+                            const topbarPrefs = normalizeTopbarPrefs(userCallPanelPrefs?.topbar);
+                            const updateUserTopbarPrefs = (patchOrUpdater) => {
+                                setUserCallPanelPrefs((prev) => {
+                                    const curTop = normalizeTopbarPrefs(prev?.topbar);
+                                    const rawPatch =
+                                        typeof patchOrUpdater === "function" ? patchOrUpdater(curTop) : patchOrUpdater;
+                                    const nextTop = normalizeTopbarPrefs({
+                                        ...curTop,
+                                        ...(rawPatch || {})
+                                    });
+                                    return {
+                                        ...(prev || {}),
+                                        topbar: nextTop
+                                    };
+                                });
+                            };
+
+                            const allowedTopbarScreens = getAllowedLandingScreensForRole(role, rolePerms);
+
+                            return (
+                                <div className="space-y-5 animate-in fade-in duration-300">
+                                    {/* Sub-navigation Pills */}
+                                    <div className="flex flex-wrap items-center gap-2 pb-3 border-b border-slate-100 dark:border-slate-800">
+                                        {[
+                                            { id: "call_panel", label: "Çağrı Paneli Düzeni", icon: LayoutGrid },
+                                            { id: "topbar", label: "Üst Bar Özelleştirme", icon: PanelTop },
+                                            { id: "wallboard", label: "Canlı İzleme Paneli (Wallboard)", icon: Monitor },
+                                            { id: "shortcuts", label: "Klavye Kısayolları", icon: Keyboard }
+                                        ].map((st) => {
+                                            const StIcon = st.icon;
+                                            const active = uiLayoutSubTab === st.id;
+                                            return (
+                                                <button
+                                                    key={st.id}
+                                                    type="button"
+                                                    onClick={() => setUiLayoutSubTab(st.id)}
+                                                    className={`px-3.5 py-2 rounded-xl text-xs font-extrabold flex items-center gap-2 border transition-all ${
+                                                        active
+                                                            ? `${bg} text-white border-transparent shadow-sm`
+                                                            : "bg-slate-50 dark:bg-slate-900 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-800 hover:bg-slate-100 dark:hover:bg-slate-800"
+                                                    }`}
+                                                >
+                                                    <StIcon size={14} />
+                                                    <span>{st.label}</span>
+                                                </button>
+                                            );
+                                        })}
+                                    </div>
+
+                                    {/* SUBTAB 1: ÇAĞRI PANELİ DÜZENİ */}
+                                    {uiLayoutSubTab === "call_panel" && (
+                                        <div className="space-y-5">
+                                            {/* Menü Konumu */}
+                                            <div className="p-4 bg-slate-50 dark:bg-slate-900/50 border border-slate-200/80 dark:border-slate-800 rounded-2xl space-y-3">
+                                                <div className="flex items-center justify-between gap-2">
+                                                    <div>
+                                                        <h5 className="text-xs font-extrabold text-slate-800 dark:text-white uppercase tracking-wider">
+                                                            Menü Konumu & Ekran Yerleşimi
+                                                        </h5>
+                                                        <p className="text-[11px] text-slate-400 mt-0.5">
+                                                            Çağrı paneli sekmelerinin sol dikey menüde mi yoksa üst barda yatay mı yer alacağını seçin.
+                                                        </p>
+                                                    </div>
+                                                    <span className={`px-2.5 py-1 rounded-full text-[10px] font-extrabold border ${lightBg} ${text} ${borderLight}`}>
+                                                        {userCallPanelPrefs?.navPosition === "top" ? "Üst Bar (Yatay)" : "Sol Menü (Klasik)"}
+                                                    </span>
+                                                </div>
+                                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                                    {[
+                                                        { id: "left", title: "Sol Menü (Dikey Yerleşim)", desc: "Sekmeler ve kuyruk oturum kartı sol sütunda yer alır." },
+                                                        { id: "top", title: "Üst Bar (Yatay Tam Genişlik)", desc: "Sekmeler ve mola/oturum kontrolü üst bara taşınır." }
+                                                    ].map((opt) => {
+                                                        const active = (userCallPanelPrefs?.navPosition || "left") === opt.id;
+                                                        return (
+                                                            <button
+                                                                key={opt.id}
+                                                                type="button"
+                                                                onClick={() => updateUserPanelPrefs({ navPosition: opt.id })}
+                                                                className={`p-3.5 rounded-xl border text-left transition-all flex items-start justify-between gap-2 ${
+                                                                    active
+                                                                        ? `${lightBg} ${border} ring-2 ${ring}`
+                                                                        : "bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800"
+                                                                }`}
+                                                            >
+                                                                <div>
+                                                                    <div className="text-xs font-extrabold text-slate-800 dark:text-white">{opt.title}</div>
+                                                                    <p className="text-[10px] text-slate-400 mt-1">{opt.desc}</p>
+                                                                </div>
+                                                                {active && <CheckCircle size={15} className={`${text} shrink-0 mt-0.5`} />}
+                                                            </button>
+                                                        );
+                                                    })}
+                                                </div>
+                                            </div>
+
+                                            {/* Temsilci Ekranı Görünüm Düzeni (Liste / Kutucuk) */}
+                                            <div className="p-4 bg-slate-50 dark:bg-slate-900/50 border border-slate-200/80 dark:border-slate-800 rounded-2xl space-y-3">
+                                                <div className="flex items-center justify-between gap-2">
+                                                    <div>
+                                                        <h5 className="text-xs font-extrabold text-slate-800 dark:text-white uppercase tracking-wider">
+                                                            Temsilci Ekranı Görünüm Düzeni
+                                                        </h5>
+                                                        <p className="text-[11px] text-slate-400 mt-0.5">
+                                                            Temsilci ekranının ve çağrı paneli seçeneklerinin liste veya kutucuk şeklinde görünmesini belirleyin.
+                                                        </p>
+                                                    </div>
+                                                </div>
+                                                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                                                    {[
+                                                        { id: "list", mode: "list", size: userCallPanelPrefs?.boxSize || "large", title: "Liste Görünümü", desc: "Tablo/satır listesi ve yatay şerit görünümü", icon: List },
+                                                        { id: "box_large", mode: "box", size: "large", title: "Büyük Kutucuk", desc: "Ferah kart kutucukları görünümü", icon: LayoutGrid },
+                                                        { id: "box_small", mode: "box", size: "small", title: "Küçük Kutucuk", desc: "Kompakt kart kutucukları görünümü", icon: LayoutGrid }
+                                                    ].map((vOpt) => {
+                                                        const VIcon = vOpt.icon;
+                                                        const active =
+                                                            vOpt.mode === "list"
+                                                                ? (userCallPanelPrefs?.viewMode || "list") === "list"
+                                                                : userCallPanelPrefs?.viewMode === "box" && (userCallPanelPrefs?.boxSize || "large") === vOpt.size;
+                                                        return (
+                                                            <button
+                                                                key={vOpt.id}
+                                                                type="button"
+                                                                onClick={() => updateUserPanelPrefs({ viewMode: vOpt.mode, boxSize: vOpt.size })}
+                                                                className={`p-3 rounded-xl border text-left transition-all flex items-start gap-2.5 ${
+                                                                    active
+                                                                        ? `${lightBg} ${border} ring-2 ${ring}`
+                                                                        : "bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800"
+                                                                }`}
+                                                            >
+                                                                <div className={`p-2 rounded-lg shrink-0 ${active ? `${bg} text-white` : "bg-slate-100 dark:bg-slate-800 text-slate-500"}`}>
+                                                                    <VIcon size={15} />
+                                                                </div>
+                                                                <div className="min-w-0 flex-1">
+                                                                    <div className="flex items-center justify-between gap-1">
+                                                                        <span className="text-xs font-extrabold text-slate-800 dark:text-white">{vOpt.title}</span>
+                                                                        {active && <CheckCircle size={13} className={text} />}
+                                                                    </div>
+                                                                    <p className="text-[10px] text-slate-400 mt-0.5">{vOpt.desc}</p>
+                                                                </div>
+                                                            </button>
+                                                        );
+                                                    })}
+                                                </div>
+                                            </div>
+
+                                            {/* Temsilciler Sekmesi Kutucuk Boyutu, Sıralama & Durum/Mola Renkleri */}
+                                            <CallPanelAgentsAppearanceSettings
+                                                backendHost={backendHost}
+                                                currentUserId={editingUser?.id || extension || "admin"}
+                                                currentUser={{ ...(editingUser || {}), wallboard_layout: userWallboardLayout }}
+                                                deferPersist
+                                                draftLayout={userWallboardLayout}
+                                                onDraftLayoutChange={setUserWallboardLayout}
+                                            />
+
+                                            {/* Temsilci Çağrı Paneli Seçenek Sıralaması */}
+                                            <div className="p-4 bg-slate-50 dark:bg-slate-900/50 border border-slate-200/80 dark:border-slate-800 rounded-2xl space-y-3">
+                                                <div className="flex flex-wrap items-center justify-between gap-2">
+                                                    <div>
+                                                        <h5 className="text-xs font-extrabold text-slate-800 dark:text-white uppercase tracking-wider">
+                                                            Temsilci Çağrı Paneli Seçenek Sıralaması
+                                                        </h5>
+                                                        <p className="text-[11px] text-slate-400 mt-0.5">
+                                                            Seçenekleri sürükleyerek veya yukarı/aşağı oklarla sıralayın.
+                                                        </p>
+                                                    </div>
+                                                    <button
+                                                        type="button"
+                                                        onClick={() =>
+                                                            updateUserPanelPrefs({
+                                                                navPosition: DEFAULT_CALL_PANEL_PREFS.navPosition,
+                                                                viewMode: DEFAULT_CALL_PANEL_PREFS.viewMode,
+                                                                boxSize: DEFAULT_CALL_PANEL_PREFS.boxSize,
+                                                                tabOrder: [...DEFAULT_CALL_PANEL_PREFS.tabOrder]
+                                                            })
+                                                        }
+                                                        className="px-2.5 py-1.5 rounded-xl text-[10px] font-bold text-slate-600 dark:text-slate-300 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 hover:bg-slate-100 flex items-center gap-1.5"
+                                                    >
+                                                        <RotateCcw size={12} />
+                                                        <span>Varsayılana Sıfırla</span>
+                                                    </button>
+                                                </div>
+
+                                                <div className="grid grid-cols-1 gap-1.5">
+                                                    {orderedTabItems.map((tabItem, idx) => {
+                                                        const IconComp = tabItem.icon;
+                                                        return (
+                                                            <div
+                                                                key={tabItem.id}
+                                                                draggable
+                                                                onDragStart={() => setDraggedUserPanelTabIdx(idx)}
+                                                                onDragOver={(e) => {
+                                                                    e.preventDefault();
+                                                                    if (draggedUserPanelTabIdx === null || draggedUserPanelTabIdx === idx) return;
+                                                                    const nextIds = orderedTabItems.map((t) => t.id);
+                                                                    const [moved] = nextIds.splice(draggedUserPanelTabIdx, 1);
+                                                                    nextIds.splice(idx, 0, moved);
+                                                                    setDraggedUserPanelTabIdx(idx);
+                                                                    updateUserPanelPrefs({ tabOrder: nextIds });
+                                                                }}
+                                                                onDragEnd={() => setDraggedUserPanelTabIdx(null)}
+                                                                className="flex items-center justify-between px-3 py-2 rounded-xl border bg-white dark:bg-slate-900 border-slate-200/80 dark:border-slate-800 cursor-move select-none"
+                                                            >
+                                                                <div className="flex items-center gap-2.5 min-w-0">
+                                                                    <GripVertical size={14} className="text-slate-400 shrink-0" />
+                                                                    <span className={`w-5 h-5 rounded-lg text-[10px] font-black flex items-center justify-center shrink-0 ${lightBg} ${text}`}>
+                                                                        {idx + 1}
+                                                                    </span>
+                                                                    <div className="p-1.5 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 shrink-0">
+                                                                        <IconComp size={13} />
+                                                                    </div>
+                                                                    <span className="text-xs font-bold text-slate-800 dark:text-slate-100 truncate">
+                                                                        {tabItem.name || tabItem.label}
+                                                                    </span>
+                                                                </div>
+                                                                <div className="flex items-center gap-1 shrink-0">
+                                                                    <button
+                                                                        type="button"
+                                                                        disabled={idx === 0}
+                                                                        onClick={() => moveUserTabItem(idx, -1)}
+                                                                        className="p-1.5 rounded-lg border border-slate-200 dark:border-slate-800 text-slate-500 hover:text-slate-800 disabled:opacity-30"
+                                                                    >
+                                                                        <ArrowUp size={12} />
+                                                                    </button>
+                                                                    <button
+                                                                        type="button"
+                                                                        disabled={idx === orderedTabItems.length - 1}
+                                                                        onClick={() => moveUserTabItem(idx, 1)}
+                                                                        className="p-1.5 rounded-lg border border-slate-200 dark:border-slate-800 text-slate-500 hover:text-slate-800 disabled:opacity-30"
+                                                                    >
+                                                                        <ArrowDown size={12} />
+                                                                    </button>
+                                                                </div>
+                                                            </div>
+                                                        );
+                                                    })}
+                                                </div>
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    {/* SUBTAB 2: ÜST BAR ÖZELLEŞTİRME */}
+                                    {uiLayoutSubTab === "topbar" && (() => {
+                                        const effectiveAvatarOnly =
+                                            Boolean(topbarPrefs.avatarOnly) ||
+                                            !(topbarPrefs.showName || topbarPrefs.showExtension || topbarPrefs.showProfile || topbarPrefs.showRole);
+
+                                        const togglePinItem = (screenId) => {
+                                            const curPins = Array.isArray(topbarPrefs.pinnedItems) ? topbarPrefs.pinnedItems : [];
+                                            const nextPins = curPins.includes(screenId)
+                                                ? curPins.filter((x) => x !== screenId)
+                                                : [...curPins, screenId];
+                                            updateUserTopbarPrefs({ pinnedItems: nextPins });
+                                        };
+
+                                        const movePinItem = (idx, dir) => {
+                                            const curPins = [...(topbarPrefs.pinnedItems || [])];
+                                            const targetIdx = idx + dir;
+                                            if (targetIdx < 0 || targetIdx >= curPins.length) return;
+                                            const [moved] = curPins.splice(idx, 1);
+                                            curPins.splice(targetIdx, 0, moved);
+                                            updateUserTopbarPrefs({ pinnedItems: curPins });
+                                        };
+
+                                        const qPin = pinCatalogSearch.trim().toLowerCase();
+                                        const filteredScreens = allowedTopbarScreens.filter((s) => {
+                                            if (!qPin) return true;
+                                            return (
+                                                s.label.toLowerCase().includes(qPin) ||
+                                                (s.shortLabel || "").toLowerCase().includes(qPin) ||
+                                                (s.group || "").toLowerCase().includes(qPin)
+                                            );
+                                        });
+                                        const screenGroups = Array.from(new Set(filteredScreens.map((s) => s.group)));
+
+                                        return (
+                                            <div className="space-y-5">
+                                                {/* 1. Global Arama Görünümü */}
+                                                <div className="p-4 bg-slate-50 dark:bg-slate-900/50 border border-slate-200/80 dark:border-slate-800 rounded-2xl space-y-3">
+                                                    <div className="flex items-center justify-between">
+                                                        <div>
+                                                            <h5 className="text-xs font-extrabold text-slate-800 dark:text-white uppercase tracking-wider">
+                                                                Global Arama (Search) Görünümü
+                                                            </h5>
+                                                            <p className="text-[11px] text-slate-400 mt-0.5">
+                                                                Üst bardaki menü, ayar, kişi ve hızlı işlem arama alanının boyutunu belirleyin.
+                                                            </p>
+                                                        </div>
+                                                    </div>
+                                                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+                                                        {[
+                                                            { id: "icon", title: "Sadece İkon", desc: "Kompakt büyüteç (🔍) butonu" },
+                                                            { id: "normal", title: "Geniş (Standart)", desc: "Standart arama kutusu" },
+                                                            { id: "wide", title: "Daha Geniş", desc: "Ferah komut arama alanı" },
+                                                            { id: "hidden", title: "Kapalı", desc: "Üst bardan gizler" }
+                                                        ].map((opt) => {
+                                                            const isSel = topbarPrefs.searchMode === opt.id;
+                                                            return (
+                                                                <button
+                                                                    key={opt.id}
+                                                                    type="button"
+                                                                    onClick={() => updateUserTopbarPrefs({ searchMode: opt.id })}
+                                                                    className={`p-3 rounded-xl border text-left transition-all ${
+                                                                        isSel
+                                                                            ? `${lightBg} ${border} ring-2 ${ring}`
+                                                                            : "bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800"
+                                                                    }`}
+                                                                >
+                                                                    <div className="flex items-center justify-between">
+                                                                        <span className="text-xs font-extrabold text-slate-800 dark:text-white">{opt.title}</span>
+                                                                        {isSel && <CheckCircle size={13} className={text} />}
+                                                                    </div>
+                                                                    <p className="text-[10px] text-slate-400 mt-1">{opt.desc}</p>
+                                                                </button>
+                                                            );
+                                                        })}
+                                                    </div>
+                                                </div>
+
+                                                {/* 2. Avatar & Profil Kapsülü Özelleştirme */}
+                                                <div className="p-4 bg-slate-50 dark:bg-slate-900/50 border border-slate-200/80 dark:border-slate-800 rounded-2xl space-y-3">
+                                                    <div>
+                                                        <h5 className="text-xs font-extrabold text-slate-800 dark:text-white uppercase tracking-wider">
+                                                            Avatar & Profil Alanı Özelleştirme
+                                                        </h5>
+                                                        <p className="text-[11px] text-slate-400 mt-0.5">
+                                                            Sağ üstteki kullanıcı kapsülünde hangi bilgilerin görüneceğini belirleyin.
+                                                        </p>
+                                                    </div>
+
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => {
+                                                            updateUserTopbarPrefs((prevTop) =>
+                                                                effectiveAvatarOnly
+                                                                    ? { avatarOnly: false, showName: true, showProfile: true }
+                                                                    : { avatarOnly: true }
+                                                            );
+                                                        }}
+                                                        className={`w-full p-3 rounded-xl border text-left transition-all flex items-center justify-between gap-3 ${
+                                                            effectiveAvatarOnly
+                                                                ? `${lightBg} ${border}`
+                                                                : "bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800"
+                                                        }`}
+                                                    >
+                                                        <div>
+                                                            <div className="text-xs font-extrabold text-slate-800 dark:text-white">
+                                                                Sadece Avatar Göster (Minimal Görünüm)
+                                                            </div>
+                                                            <div className="text-[10px] text-slate-400">
+                                                                İsim, rol, dahili ve profil yazısını gizleyip yalnızca yuvarlak avatarı gösterir.
+                                                            </div>
+                                                        </div>
+                                                        {effectiveAvatarOnly ? <ToggleRight size={28} className={text} /> : <ToggleLeft size={28} className="text-slate-400" />}
+                                                    </button>
+
+                                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                                                        {[
+                                                            { key: "showName", title: "Ad Soyad Göster", desc: "Kullanıcı adını kapsülde gösterir" },
+                                                            { key: "showExtension", title: "Dahili Numarası Göster", desc: "Dahili numarasını (#1000) rozet olarak gösterir" },
+                                                            { key: "showProfile", title: "Aktif Profil Göster", desc: "Müsait / Dışarıda / Toplantı durumunu gösterir" },
+                                                            { key: "showRole", title: "Kullanıcı Rolü Göster", desc: "Kullanıcı rol ünvanını gösterir" }
+                                                        ].map((f) => {
+                                                            const isChecked = !effectiveAvatarOnly && Boolean(topbarPrefs[f.key]);
+                                                            return (
+                                                                <button
+                                                                    key={f.key}
+                                                                    type="button"
+                                                                    onClick={() => {
+                                                                        updateUserTopbarPrefs((prevTop) => {
+                                                                            if (effectiveAvatarOnly) {
+                                                                                return {
+                                                                                    avatarOnly: false,
+                                                                                    showName: f.key === "showName",
+                                                                                    showExtension: f.key === "showExtension",
+                                                                                    showProfile: f.key === "showProfile",
+                                                                                    showRole: f.key === "showRole"
+                                                                                };
+                                                                            }
+                                                                            return {
+                                                                                ...prevTop,
+                                                                                avatarOnly: false,
+                                                                                [f.key]: !Boolean(prevTop[f.key])
+                                                                            };
+                                                                        });
+                                                                    }}
+                                                                    className={`p-3 rounded-xl border text-left transition-all flex items-center justify-between gap-2 ${
+                                                                        isChecked
+                                                                            ? `${lightBg} ${border}`
+                                                                            : "bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800"
+                                                                    }`}
+                                                                >
+                                                                    <div>
+                                                                        <div className="text-xs font-extrabold text-slate-800 dark:text-white">{f.title}</div>
+                                                                        <div className="text-[10px] text-slate-400">{f.desc}</div>
+                                                                    </div>
+                                                                    {isChecked ? <ToggleRight size={26} className={text} /> : <ToggleLeft size={26} className="text-slate-400" />}
+                                                                </button>
+                                                            );
+                                                        })}
+                                                    </div>
+                                                </div>
+
+                                                {/* 3. Sık Kullanılan Özellik Kısayolları */}
+                                                <div className="p-4 bg-slate-50 dark:bg-slate-900/50 border border-slate-200/80 dark:border-slate-800 rounded-2xl space-y-4">
+                                                    <div className="flex flex-wrap items-center justify-between gap-2">
+                                                        <div>
+                                                            <h5 className="text-xs font-extrabold text-slate-800 dark:text-white uppercase tracking-wider">
+                                                                Sık Kullanılan Özellik Kısayolları (Üst Bar Pinleri)
+                                                            </h5>
+                                                            <p className="text-[11px] text-slate-400 mt-0.5">
+                                                                Kullanıcının üst barda göreceği hızlı erişim kısayollarını seçin ve sıralayın.
+                                                            </p>
+                                                        </div>
+                                                        <div className="flex items-center gap-1.5">
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => {
+                                                                    const suggested = ["dashboard", "call-center", "users", "acd-queues", "inbound-rules", "reports-pano"].filter(
+                                                                        (cid) => allowedTopbarScreens.some((s) => s.id === cid)
+                                                                    );
+                                                                    updateUserTopbarPrefs({ pinnedItems: suggested.slice(0, 5) });
+                                                                }}
+                                                                className={`px-2.5 py-1.5 rounded-xl border text-[10px] font-extrabold ${lightBg} ${text} ${borderLight}`}
+                                                            >
+                                                                Önerilenleri Ekle
+                                                            </button>
+                                                            {(topbarPrefs.pinnedItems || []).length > 0 && (
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={() => updateUserTopbarPrefs({ pinnedItems: [] })}
+                                                                    className="px-2.5 py-1.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-[10px] font-bold text-slate-500 hover:text-rose-600"
+                                                                >
+                                                                    Tümünü Kaldır
+                                                                </button>
+                                                            )}
+                                                        </div>
+                                                    </div>
+
+                                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 p-3 rounded-xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800">
+                                                        <div className="space-y-1.5">
+                                                            <span className="text-[10px] font-extrabold uppercase tracking-wider text-slate-500 block">
+                                                                Kısayol Buton Stili
+                                                            </span>
+                                                            <div className="flex items-center gap-1.5">
+                                                                {[
+                                                                    { id: "icon_label", label: "İkon + Başlık" },
+                                                                    { id: "icon", label: "Sadece İkon" }
+                                                                ].map((st) => (
+                                                                    <button
+                                                                        key={st.id}
+                                                                        type="button"
+                                                                        onClick={() => updateUserTopbarPrefs({ pinStyle: st.id })}
+                                                                        className={`flex-1 px-3 py-1.5 rounded-xl text-[11px] font-extrabold border ${
+                                                                            topbarPrefs.pinStyle === st.id
+                                                                                ? `${bg} text-white border-transparent`
+                                                                                : "bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-300"
+                                                                        }`}
+                                                                    >
+                                                                        {st.label}
+                                                                    </button>
+                                                                ))}
+                                                            </div>
+                                                        </div>
+                                                        <div className="space-y-1.5">
+                                                            <span className="text-[10px] font-extrabold uppercase tracking-wider text-slate-500 block">
+                                                                Üst Barda Görünür Adet
+                                                            </span>
+                                                            <div className="flex items-center gap-1.5">
+                                                                {[3, 4, 5, 6, 8].map((cnt) => (
+                                                                    <button
+                                                                        key={cnt}
+                                                                        type="button"
+                                                                        onClick={() => updateUserTopbarPrefs({ maxVisiblePins: cnt })}
+                                                                        className={`flex-1 py-1.5 rounded-xl text-[11px] font-extrabold border ${
+                                                                            topbarPrefs.maxVisiblePins === cnt
+                                                                                ? `${bg} text-white border-transparent`
+                                                                                : "bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-300"
+                                                                        }`}
+                                                                    >
+                                                                        {cnt}
+                                                                    </button>
+                                                                ))}
+                                                            </div>
+                                                        </div>
+                                                    </div>
+
+                                                    {(topbarPrefs.pinnedItems || []).length > 0 && (
+                                                        <div className="space-y-1.5">
+                                                            <span className="text-[10px] font-extrabold uppercase tracking-wider text-slate-500 block">
+                                                                Sabitlenen Kısayol Sıralaması ({(topbarPrefs.pinnedItems || []).length})
+                                                            </span>
+                                                            <div className="space-y-1.5">
+                                                                {(topbarPrefs.pinnedItems || []).map((pid, idx) => {
+                                                                    const sc = allowedTopbarScreens.find((s) => s.id === pid);
+                                                                    const label = sc ? sc.label : pid;
+                                                                    return (
+                                                                        <div
+                                                                            key={pid}
+                                                                            className="flex items-center justify-between gap-2 px-3 py-2 rounded-xl border bg-white dark:bg-slate-900 border-slate-200/80 dark:border-slate-800"
+                                                                        >
+                                                                            <div className="flex items-center gap-2.5 min-w-0">
+                                                                                <span className={`w-5 h-5 rounded-md text-[10px] font-black flex items-center justify-center shrink-0 ${lightBg} ${text}`}>
+                                                                                    {idx + 1}
+                                                                                </span>
+                                                                                <span className="text-xs font-bold text-slate-800 dark:text-white truncate">
+                                                                                    {label}
+                                                                                </span>
+                                                                            </div>
+                                                                            <div className="flex items-center gap-1 shrink-0">
+                                                                                <button
+                                                                                    type="button"
+                                                                                    disabled={idx === 0}
+                                                                                    onClick={() => movePinItem(idx, -1)}
+                                                                                    className="p-1 rounded-lg text-slate-400 hover:text-slate-700 disabled:opacity-30"
+                                                                                >
+                                                                                    <ArrowUp size={13} />
+                                                                                </button>
+                                                                                <button
+                                                                                    type="button"
+                                                                                    disabled={idx === (topbarPrefs.pinnedItems || []).length - 1}
+                                                                                    onClick={() => movePinItem(idx, 1)}
+                                                                                    className="p-1 rounded-lg text-slate-400 hover:text-slate-700 disabled:opacity-30"
+                                                                                >
+                                                                                    <ArrowDown size={13} />
+                                                                                </button>
+                                                                                <button
+                                                                                    type="button"
+                                                                                    onClick={() => togglePinItem(pid)}
+                                                                                    className="p-1 rounded-lg text-slate-400 hover:text-rose-500"
+                                                                                >
+                                                                                    <X size={13} />
+                                                                                </button>
+                                                                            </div>
+                                                                        </div>
+                                                                    );
+                                                                })}
+                                                            </div>
+                                                        </div>
+                                                    )}
+
+                                                    <div className="space-y-3 pt-1">
+                                                        <div className="relative">
+                                                            <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                                                            <input
+                                                                type="text"
+                                                                value={pinCatalogSearch}
+                                                                onChange={(e) => setPinCatalogSearch(e.target.value)}
+                                                                placeholder="Üst bara eklenecek ekran veya modül ara..."
+                                                                className="w-full pl-8 pr-3 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-xs font-semibold text-slate-800 dark:text-white focus:outline-none"
+                                                            />
+                                                        </div>
+
+                                                        <div className="space-y-3 max-h-60 overflow-y-auto pr-1">
+                                                            {screenGroups.map((grp) => {
+                                                                const grpItems = filteredScreens.filter((s) => s.group === grp);
+                                                                return (
+                                                                    <div key={grp} className="space-y-1.5">
+                                                                        <div className="text-[10px] font-extrabold uppercase tracking-wider text-slate-400 px-1">
+                                                                            {grp}
+                                                                        </div>
+                                                                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+                                                                            {grpItems.map((sc) => {
+                                                                                const isPinned = (topbarPrefs.pinnedItems || []).includes(sc.id);
+                                                                                return (
+                                                                                    <button
+                                                                                        key={sc.id}
+                                                                                        type="button"
+                                                                                        onClick={() => togglePinItem(sc.id)}
+                                                                                        className={`px-3 py-2 rounded-xl border text-left transition-all flex items-center justify-between gap-2 ${
+                                                                                            isPinned
+                                                                                                ? `${lightBg} ${border} shadow-sm`
+                                                                                                : "bg-white dark:bg-slate-900 border-slate-200/80 dark:border-slate-800"
+                                                                                        }`}
+                                                                                    >
+                                                                                        <span className="text-[11px] font-bold text-slate-800 dark:text-white truncate">
+                                                                                            {sc.label}
+                                                                                        </span>
+                                                                                        {isPinned ? (
+                                                                                            <Pin size={13} className={`${text} shrink-0`} />
+                                                                                        ) : (
+                                                                                            <Plus size={13} className="text-slate-400 shrink-0" />
+                                                                                        )}
+                                                                                    </button>
+                                                                                );
+                                                                            })}
+                                                                        </div>
+                                                                    </div>
+                                                                );
+                                                            })}
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        );
+                                    })()}
+
+                                    {/* SUBTAB 3: CANLI İZLEME PANELİ (WALLBOARD) */}
+                                    {uiLayoutSubTab === "wallboard" && (
+                                        <WallboardStudioSettings
+                                            backendHost={backendHost}
+                                            currentUserId={editingUser?.id || extension || "admin"}
+                                            currentUser={{ ...(editingUser || {}), wallboard_layout: userWallboardLayout }}
+                                            deferPersist
+                                            draftLayout={userWallboardLayout}
+                                            onDraftLayoutChange={setUserWallboardLayout}
+                                        />
+                                    )}
+
+                                    {/* SUBTAB 4: KLAVYE KISAYOLLARI */}
+                                    {uiLayoutSubTab === "shortcuts" && (
+                                        <KeyboardShortcutsModal
+                                            embedded
+                                            isOpen={showModal && activeTab === "ui_layout" && uiLayoutSubTab === "shortcuts"}
+                                            onClose={() => {}}
+                                            customShortcuts={userCallPanelPrefs?.keyboardShortcuts || {}}
+                                            onSaveShortcuts={(nextShortcuts) => {
+                                                setUserCallPanelPrefs((prev) => ({
+                                                    ...(prev || {}),
+                                                    keyboardShortcuts: nextShortcuts
+                                                }));
+                                            }}
+                                        />
+                                    )}
+                                </div>
+                            );
+                        })()}
 
                         {/* TAB 5: MÜŞTERİ / TENANT (ADMIN ONLY) */}
                         {activeTab === "tenant_select" && isAdmin && (

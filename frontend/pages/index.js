@@ -2015,9 +2015,68 @@ export default function Home() {
           (detail.userId !== undefined && detail.userId !== null && String(prev.id) === String(detail.userId)) ||
           (detail.extension && String(prev.extension) === String(detail.extension));
         if (!matchesSelf) return prev;
-        if (typeof window !== "undefined" && patch.two_factor_enabled !== undefined) {
+        if (typeof window !== "undefined") {
           try {
-            localStorage.setItem("two_factor_enabled", String(Boolean(patch.two_factor_enabled)));
+            if (patch.two_factor_enabled !== undefined) {
+              localStorage.setItem("two_factor_enabled", String(Boolean(patch.two_factor_enabled)));
+            }
+            if (patch.theme_color) {
+              const safeCol = getSafeThemeColor(patch.theme_color);
+              document.documentElement.style.setProperty("--color-primary", safeCol);
+              localStorage.setItem("theme_primary_color", safeCol);
+              setTempThemeColor(safeCol);
+            }
+            if (patch.theme_mode === "dark" || patch.theme_mode === "light") {
+              const wantDark = patch.theme_mode === "dark";
+              setIsDarkMode(wantDark);
+              localStorage.setItem("theme", patch.theme_mode);
+              applyDocumentDarkClass(wantDark);
+            }
+            if (patch.auto_logout_enabled !== undefined) {
+              setAutoLogoutEnabled(Boolean(patch.auto_logout_enabled));
+              localStorage.setItem("auto_logout_enabled", patch.auto_logout_enabled ? "true" : "false");
+            }
+            if (patch.auto_logout_duration !== undefined) {
+              setAutoLogoutDuration(Number(patch.auto_logout_duration) || 1);
+              localStorage.setItem("auto_logout_duration", String(Number(patch.auto_logout_duration) || 1));
+            }
+            if (patch.password_expiry_enabled !== undefined) {
+              setPasswordExpiryEnabled(Boolean(patch.password_expiry_enabled));
+              localStorage.setItem("password_expiry_enabled", patch.password_expiry_enabled ? "true" : "false");
+            }
+            if (patch.password_expiry_months !== undefined) {
+              setPasswordExpiryMonths(Number(patch.password_expiry_months) || 3);
+              localStorage.setItem("password_expiry_months", String(Number(patch.password_expiry_months) || 3));
+            }
+            if (patch.mobile_transfer_enabled !== undefined) {
+              setMobileTransferEnabled(Boolean(patch.mobile_transfer_enabled));
+            }
+            if (patch.call_panel_prefs && typeof patch.call_panel_prefs === "object") {
+              const nextCpp = saveCallPanelPrefs({ ...prev, ...patch }, patch.call_panel_prefs);
+              setCallPanelPrefs(nextCpp);
+              if (nextCpp.uiTemplate) applyDocumentUiTemplate(normalizeUiTemplate(nextCpp.uiTemplate));
+              if (nextCpp.uiMotionMode) applyDocumentMotionMode(normalizeUiMotionMode(nextCpp.uiMotionMode));
+              if (nextCpp.ringtone) {
+                setAgentRingtone(nextCpp.ringtone);
+                localStorage.setItem("ringtone", nextCpp.ringtone);
+              }
+              if (typeof nextCpp.ringtoneVolume === "number") {
+                const v = setSavedRingtoneVolume(nextCpp.ringtoneVolume);
+                setRingtoneVolume(v);
+              }
+              if (nextCpp.noiseSuppressionMode) {
+                const nm = saveNoiseSuppressionMode(nextCpp.noiseSuppressionMode);
+                setNoiseSuppressionMode(nm);
+              }
+              if (nextCpp.desktopPrefs && typeof nextCpp.desktopPrefs === "object") {
+                setDesktopPrefs((dpPrev) => ({ ...(dpPrev || {}), ...nextCpp.desktopPrefs }));
+              }
+            }
+            if (patch.wallboard_layout && typeof patch.wallboard_layout === "object") {
+              const wbUid = String(prev.id || prev.extension || "admin");
+              localStorage.setItem(`wallboard_layout_${wbUid}`, JSON.stringify(patch.wallboard_layout));
+              window.dispatchEvent(new CustomEvent("wallboard-layout-updated", { detail: patch.wallboard_layout }));
+            }
           } catch (err) {}
         }
         return { ...prev, ...patch };
@@ -2159,6 +2218,55 @@ export default function Home() {
         ? { ...resolvedPanelPrefs, profileAvatar: resolvedPanelPrefs?.profileAvatar || resolvedAvatar }
         : resolvedPanelPrefs;
       setCallPanelPrefs(hydratedPanelPrefs);
+      if (hydratedPanelPrefs?.uiTemplate) {
+        applyDocumentUiTemplate(normalizeUiTemplate(hydratedPanelPrefs.uiTemplate));
+      }
+      if (hydratedPanelPrefs?.uiMotionMode) {
+        applyDocumentMotionMode(normalizeUiMotionMode(hydratedPanelPrefs.uiMotionMode));
+      }
+      if (hydratedPanelPrefs?.ringtone) {
+        setAgentRingtone(hydratedPanelPrefs.ringtone);
+        try { localStorage.setItem("ringtone", hydratedPanelPrefs.ringtone); } catch (e) {}
+      }
+      if (typeof hydratedPanelPrefs?.ringtoneVolume === "number") {
+        const vol = setSavedRingtoneVolume(hydratedPanelPrefs.ringtoneVolume);
+        setRingtoneVolume(vol);
+      }
+      if (hydratedPanelPrefs?.noiseSuppressionMode) {
+        const nm = saveNoiseSuppressionMode(hydratedPanelPrefs.noiseSuppressionMode);
+        setNoiseSuppressionMode(nm);
+      }
+      if (hydratedPanelPrefs?.desktopPrefs && typeof hydratedPanelPrefs.desktopPrefs === "object") {
+        setDesktopPrefs((prevDp) => ({ ...(prevDp || {}), ...hydratedPanelPrefs.desktopPrefs }));
+      }
+      const secPolHydrate =
+        currentUserData?.call_panel_prefs?.securityPolicy &&
+        typeof currentUserData.call_panel_prefs.securityPolicy === "object"
+          ? currentUserData.call_panel_prefs.securityPolicy
+          : {};
+      if (currentUserData.auto_logout_enabled !== undefined || secPolHydrate.auto_logout_enabled !== undefined) {
+        const alEnabled = Boolean(currentUserData.auto_logout_enabled ?? secPolHydrate.auto_logout_enabled);
+        setAutoLogoutEnabled(alEnabled);
+        try { localStorage.setItem("auto_logout_enabled", alEnabled ? "true" : "false"); } catch (e) {}
+      }
+      if (currentUserData.auto_logout_duration !== undefined || secPolHydrate.auto_logout_duration !== undefined) {
+        const alDur = Number(currentUserData.auto_logout_duration ?? secPolHydrate.auto_logout_duration) || 1;
+        setAutoLogoutDuration(alDur);
+        try { localStorage.setItem("auto_logout_duration", String(alDur)); } catch (e) {}
+      }
+      if (currentUserData.password_expiry_enabled !== undefined || secPolHydrate.password_expiry_enabled !== undefined) {
+        const peEnabled = Boolean(currentUserData.password_expiry_enabled ?? secPolHydrate.password_expiry_enabled);
+        setPasswordExpiryEnabled(peEnabled);
+        try { localStorage.setItem("password_expiry_enabled", peEnabled ? "true" : "false"); } catch (e) {}
+      }
+      if (currentUserData.password_expiry_months !== undefined || secPolHydrate.password_expiry_months !== undefined) {
+        const peMonths = Number(currentUserData.password_expiry_months ?? secPolHydrate.password_expiry_months) || 3;
+        setPasswordExpiryMonths(peMonths);
+        try { localStorage.setItem("password_expiry_months", String(peMonths)); } catch (e) {}
+      }
+      if (currentUserData.mobile_transfer_enabled !== undefined) {
+        setMobileTransferEnabled(Boolean(currentUserData.mobile_transfer_enabled));
+      }
       currentUserData = {
         ...currentUserData,
         avatar: resolvedAvatar,
@@ -10002,7 +10110,17 @@ export default function Home() {
                         localStorage.setItem("password_expiry_months", passwordExpiryMonths.toString());
                         const savedPrefsSnapshot = saveCallPanelPrefs(currentUser, {
                           ...(callPanelPrefs || {}),
-                          profileAvatar: agentAvatar
+                          profileAvatar: agentAvatar,
+                          ringtone: agentRingtone,
+                          ringtoneVolume,
+                          noiseSuppressionMode: savedNoise,
+                          desktopPrefs,
+                          securityPolicy: {
+                            auto_logout_enabled: Boolean(autoLogoutEnabled),
+                            auto_logout_duration: Number(autoLogoutDuration) || 1,
+                            password_expiry_enabled: Boolean(passwordExpiryEnabled),
+                            password_expiry_months: Number(passwordExpiryMonths) || 3
+                          }
                         });
                         setCallPanelPrefs(savedPrefsSnapshot);
                         const cleanedGsmNumber = (gsmNumber || "").trim();

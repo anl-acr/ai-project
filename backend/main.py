@@ -833,6 +833,10 @@ class UserSchema(BaseModel):
     sip_devices: Optional[List[dict]] = None
     boss_secretary: Optional[dict] = None
     hotdesk_config: Optional[dict] = None
+    auto_logout_enabled: Optional[bool] = None
+    auto_logout_duration: Optional[Union[int, float]] = None
+    password_expiry_enabled: Optional[bool] = None
+    password_expiry_months: Optional[int] = None
 
 def generate_strong_sip_password(length=24):
     alphabet = string.ascii_letters + string.digits + "!@#$%^&*"
@@ -9466,6 +9470,29 @@ async def update_agent_profile_endpoint(user_id: Union[int, str], payload: Profi
         user["auto_logout_enabled"] = payload.auto_logout_enabled
     if payload.auto_logout_duration is not None:
         user["auto_logout_duration"] = payload.auto_logout_duration
+    if payload.password_expiry_enabled is not None:
+        user["password_expiry_enabled"] = payload.password_expiry_enabled
+    if payload.password_expiry_months is not None:
+        user["password_expiry_months"] = payload.password_expiry_months
+    if any(
+        v is not None
+        for v in (
+            payload.auto_logout_enabled,
+            payload.auto_logout_duration,
+            payload.password_expiry_enabled,
+            payload.password_expiry_months,
+        )
+    ):
+        if not isinstance(user.get("call_panel_prefs"), dict):
+            user["call_panel_prefs"] = {}
+        existing_sec_pol = user["call_panel_prefs"].get("securityPolicy") if isinstance(user["call_panel_prefs"].get("securityPolicy"), dict) else {}
+        user["call_panel_prefs"]["securityPolicy"] = {
+            **existing_sec_pol,
+            "auto_logout_enabled": bool(user.get("auto_logout_enabled", False)),
+            "auto_logout_duration": user.get("auto_logout_duration", 1),
+            "password_expiry_enabled": bool(user.get("password_expiry_enabled", False)),
+            "password_expiry_months": int(user.get("password_expiry_months") or 3),
+        }
     prev_methods_prof = _extract_2fa_methods_map(user)
     prev_act_list_prof, prev_mode_prof = _extract_2fa_active_config(user)
     if payload.two_factor_enabled is not None:
@@ -9608,7 +9635,15 @@ async def update_agent_profile_endpoint(user_id: Union[int, str], payload: Profi
                 if payload.hotdesk_config is not None and isinstance(user.get("hotdesk_config"), dict):
                     target_db_u.hotdesk_config = copy.deepcopy(user["hotdesk_config"])
                     flag_modified(target_db_u, "hotdesk_config")
-                if payload.call_panel_prefs is not None or payload.avatar is not None or touched_2fa:
+                if payload.call_panel_prefs is not None or payload.avatar is not None or touched_2fa or any(
+                    v is not None
+                    for v in (
+                        payload.auto_logout_enabled,
+                        payload.auto_logout_duration,
+                        payload.password_expiry_enabled,
+                        payload.password_expiry_months,
+                    )
+                ):
                     target_db_u.call_panel_prefs = copy.deepcopy(user.get("call_panel_prefs") or {})
                     flag_modified(target_db_u, "call_panel_prefs")
                 if payload.wallboard_layout is not None:
@@ -29036,6 +29071,38 @@ async def new_get_users_endpoint(request: Request, user_info: dict = Depends(get
             u["cti_config"] = {}
         if not isinstance(u.get("call_panel_prefs"), dict):
             u["call_panel_prefs"] = {}
+        sec_pol_get = u["call_panel_prefs"].get("securityPolicy") if isinstance(u["call_panel_prefs"].get("securityPolicy"), dict) else {}
+        if u.get("auto_logout_enabled") is None:
+            u["auto_logout_enabled"] = bool(
+                sec_pol_get.get("auto_logout_enabled")
+                if sec_pol_get.get("auto_logout_enabled") is not None
+                else (disk_u.get("auto_logout_enabled", False) if disk_u else False)
+            )
+        if u.get("auto_logout_duration") is None:
+            u["auto_logout_duration"] = (
+                sec_pol_get.get("auto_logout_duration")
+                if sec_pol_get.get("auto_logout_duration") is not None
+                else (disk_u.get("auto_logout_duration", 1) if disk_u else 1)
+            )
+        if u.get("password_expiry_enabled") is None:
+            u["password_expiry_enabled"] = bool(
+                sec_pol_get.get("password_expiry_enabled")
+                if sec_pol_get.get("password_expiry_enabled") is not None
+                else (disk_u.get("password_expiry_enabled", False) if disk_u else False)
+            )
+        if u.get("password_expiry_months") is None:
+            u["password_expiry_months"] = int(
+                sec_pol_get.get("password_expiry_months")
+                if sec_pol_get.get("password_expiry_months") is not None
+                else (disk_u.get("password_expiry_months", 3) if disk_u else 3)
+            )
+        u["call_panel_prefs"]["securityPolicy"] = {
+            **sec_pol_get,
+            "auto_logout_enabled": bool(u.get("auto_logout_enabled", False)),
+            "auto_logout_duration": u.get("auto_logout_duration", 1),
+            "password_expiry_enabled": bool(u.get("password_expiry_enabled", False)),
+            "password_expiry_months": int(u.get("password_expiry_months") or 3),
+        }
         existing_tf_meta_get = u["call_panel_prefs"].get("twoFactorMeta") if isinstance(u["call_panel_prefs"].get("twoFactorMeta"), dict) else {}
         u["call_panel_prefs"]["twoFactorMeta"] = {
             **existing_tf_meta_get,
@@ -29451,11 +29518,76 @@ async def new_save_users_endpoint(payload: Union[List[UserSchema], UserSchema], 
             if data.get("avatar"):
                 data["call_panel_prefs"] = {**data["call_panel_prefs"], "profileAvatar": data["avatar"]}
                 data["avatar_updated_ts"] = int(datetime.datetime.now().timestamp())
+            prev_cpp_sec = (
+                ((getattr(target_user, "call_panel_prefs", None) or {}).get("securityPolicy") if target_user and isinstance(getattr(target_user, "call_panel_prefs", None), dict) else None)
+                or ((prev_disk.get("call_panel_prefs") or {}).get("securityPolicy") if isinstance(prev_disk.get("call_panel_prefs"), dict) else None)
+                or {}
+            )
+            inc_cpp_sec = data["call_panel_prefs"].get("securityPolicy") if isinstance(data["call_panel_prefs"].get("securityPolicy"), dict) else {}
+            if data.get("auto_logout_enabled") is None:
+                data["auto_logout_enabled"] = bool(
+                    inc_cpp_sec.get("auto_logout_enabled")
+                    if inc_cpp_sec.get("auto_logout_enabled") is not None
+                    else (
+                        prev_cpp_sec.get("auto_logout_enabled")
+                        if prev_cpp_sec.get("auto_logout_enabled") is not None
+                        else prev_disk.get("auto_logout_enabled", False)
+                    )
+                )
+            if data.get("auto_logout_duration") is None:
+                data["auto_logout_duration"] = (
+                    inc_cpp_sec.get("auto_logout_duration")
+                    if inc_cpp_sec.get("auto_logout_duration") is not None
+                    else (
+                        prev_cpp_sec.get("auto_logout_duration")
+                        if prev_cpp_sec.get("auto_logout_duration") is not None
+                        else prev_disk.get("auto_logout_duration", 1)
+                    )
+                )
+            if data.get("password_expiry_enabled") is None:
+                data["password_expiry_enabled"] = bool(
+                    inc_cpp_sec.get("password_expiry_enabled")
+                    if inc_cpp_sec.get("password_expiry_enabled") is not None
+                    else (
+                        prev_cpp_sec.get("password_expiry_enabled")
+                        if prev_cpp_sec.get("password_expiry_enabled") is not None
+                        else prev_disk.get("password_expiry_enabled", False)
+                    )
+                )
+            if data.get("password_expiry_months") is None:
+                data["password_expiry_months"] = int(
+                    inc_cpp_sec.get("password_expiry_months")
+                    if inc_cpp_sec.get("password_expiry_months") is not None
+                    else (
+                        prev_cpp_sec.get("password_expiry_months")
+                        if prev_cpp_sec.get("password_expiry_months") is not None
+                        else prev_disk.get("password_expiry_months", 3)
+                    )
+                )
+            data["call_panel_prefs"] = {
+                **data["call_panel_prefs"],
+                "securityPolicy": {
+                    **prev_cpp_sec,
+                    **inc_cpp_sec,
+                    "auto_logout_enabled": bool(data.get("auto_logout_enabled", False)),
+                    "auto_logout_duration": data.get("auto_logout_duration", 1),
+                    "password_expiry_enabled": bool(data.get("password_expiry_enabled", False)),
+                    "password_expiry_months": int(data.get("password_expiry_months") or 3),
+                },
+            }
             now_2fa_ts = int(time.time() * 1000)
             _sync_active_2fa_fields_with_methods(data, methods_map_save, now_ts=now_2fa_ts)
+            raw_wb_in = item.wallboard_layout if hasattr(item, "wallboard_layout") else (item.get("wallboard_layout") if isinstance(item, dict) else None)
             if data.get("wallboard_layout") is None or not isinstance(data.get("wallboard_layout"), dict):
                 prev_wb = (getattr(target_user, "wallboard_layout", None) if target_user else None) or prev_disk.get("wallboard_layout")
                 data["wallboard_layout"] = prev_wb if isinstance(prev_wb, dict) else {}
+            if isinstance(raw_wb_in, dict) and raw_wb_in:
+                if not isinstance(settings_db.get("wallboard_layouts"), dict):
+                    settings_db["wallboard_layouts"] = {}
+                t_id_wb = str(data.get("tenant_id") or "tenant-default")
+                for wb_alias in filter(None, [str(data.get("id") or ""), ext_str, "admin" if str(data.get("role") or "").lower() == "admin" else ""]):
+                    settings_db["wallboard_layouts"][f"{t_id_wb}:{wb_alias}"] = data["wallboard_layout"]
+                    settings_db["wallboard_layouts"][wb_alias] = data["wallboard_layout"]
             if data.get("theme_mode") is None:
                 data["theme_mode"] = (getattr(target_user, "theme_mode", None) if target_user else None) or prev_disk.get("theme_mode") or "light"
             if data.get("max_concurrent_outbound") is None:
@@ -29612,7 +29744,7 @@ async def new_save_users_endpoint(payload: Union[List[UserSchema], UserSchema], 
                             u_dict["sip_username"] = p_match.get("sip_username")
                         if p_match.get("sip_devices") is not None:
                             u_dict["sip_devices"] = p_match.get("sip_devices")
-                        for tf_k in ("two_factor_enabled", "two_factor_method", "two_factor_secret", "two_factor_enrolled", "two_factor_updated_ts", "managed_users", "managed_queues", "cti_config", "call_panel_prefs", "max_concurrent_outbound", "outbound_quarantined", "avatar_updated_ts", "boss_secretary", "hotdesk_config"):
+                        for tf_k in ("two_factor_enabled", "two_factor_method", "two_factor_secret", "two_factor_enrolled", "two_factor_updated_ts", "managed_users", "managed_queues", "cti_config", "call_panel_prefs", "wallboard_layout", "theme_color", "theme_mode", "mobile_transfer_enabled", "auto_logout_enabled", "auto_logout_duration", "password_expiry_enabled", "password_expiry_months", "max_concurrent_outbound", "outbound_quarantined", "avatar_updated_ts", "boss_secretary", "hotdesk_config"):
                             if p_match.get(tf_k) is not None:
                                 u_dict[tf_k] = p_match.get(tf_k)
                     u_dict["sip_password"] = resolve_secure_sip_password(ext_u, u_dict.get("sip_password") or "")
