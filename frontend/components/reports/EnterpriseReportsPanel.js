@@ -2120,9 +2120,9 @@ export default function EnterpriseReportsPanel({ backendHost, reportType = "brea
                     rows={filteredVmItems}
                     renderRow={(r) => {
                       const audioSrc = r.audio_url
-                        ? `${API_URL}${r.audio_url}`
+                        ? `${API_BASE}${r.audio_url}`
                         : r.recording_path
-                        ? `${API_URL}/api/calls/${r.id}/recording`
+                        ? `${API_BASE}/api/calls/${r.id}/recording`
                         : "";
                       return (
                         <tr key={r.id} className="hover:bg-slate-50/80 dark:hover:bg-slate-800/40">
