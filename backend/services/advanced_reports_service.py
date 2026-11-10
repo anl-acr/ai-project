@@ -2702,6 +2702,7 @@ async def report_conferences(
             "max_members": int(cf.get("max_members") or cf.get("max_participants") or 20),
             "sessions_count": 0,
             "participants_count": 0,
+            "unique_participants_count": 0,
             "total_seconds": 0,
             "last_used_at": "-",
         }
@@ -2718,6 +2719,7 @@ async def report_conferences(
     for c in calls_asc:
         callee_s = str(c.callee_number or "").strip()
         hsrc_l = str(c.hangup_source or "").strip().lower()
+        st_l = str(c.status or "").strip().lower()
 
         matched_room = ""
         if callee_s in rooms_map:
@@ -2731,6 +2733,13 @@ async def report_conferences(
         if not matched_room:
             continue
 
+        # Exclude failed, unanswered, or rejected dial attempts that never joined ConfBridge
+        talk_sec_val = _call_talk_sec(c)
+        if st_l in ("failed", "busy", "no_answer", "cancelled", "missed", "blocked", "rejected_limit") and talk_sec_val <= 0:
+            continue
+        if not hsrc_l.startswith("conference:") and talk_sec_val <= 0 and st_l not in ("in-progress", "talking", "answered", "completed"):
+            continue
+
         if matched_room not in rooms_map:
             rooms_map[matched_room] = {
                 "room_number": matched_room,
@@ -2740,19 +2749,42 @@ async def report_conferences(
                 "max_members": 20,
                 "sessions_count": 0,
                 "participants_count": 0,
+                "unique_participants_count": 0,
                 "total_seconds": 0,
                 "last_used_at": "-",
             }
         legs_by_room.setdefault(matched_room, []).append(c)
 
+    def _norm_part_num(raw_num: str) -> str:
+        s = str(raw_num or "").strip()
+        if not s or s == "-":
+            return "-"
+        digits = re.sub(r"\D", "", s)
+        if len(digits) >= 10:
+            return "0" + digits[-10:]
+        return digits or s
+
+    def _leg_end_dt(x: Call) -> Optional[datetime.datetime]:
+        if not x.start_time:
+            return None
+        t_sec = _call_talk_sec(x)
+        if x.end_time:
+            return x.end_time
+        if t_sec > 0:
+            return x.start_time + datetime.timedelta(seconds=t_sec)
+        return x.start_time + datetime.timedelta(seconds=15)
+
     sessions: List[Dict[str, Any]] = []
     peak_participants = 0
     total_leg_sec_all = 0
     total_legs_all = 0
+    all_unique_participants: set = set()
 
     for rnum, rlegs in legs_by_room.items():
         rm = rooms_map[rnum]
-        # Cluster legs into sessions when start_time gap <= 30 minutes from current session window
+        rm.setdefault("unique_participants_count", 0)
+        room_unique_parts: set = set()
+        # Cluster legs into the same conference session only while the bridge is active (overlap or <= 5s grace)
         clusters: List[List[Call]] = []
         for lg in rlegs:
             if not clusters:
@@ -2760,10 +2792,10 @@ async def report_conferences(
                 continue
             prev_cluster = clusters[-1]
             prev_end = max(
-                (x.end_time or (x.start_time + datetime.timedelta(seconds=_call_talk_sec(x))) for x in prev_cluster if x.start_time),
+                (_leg_end_dt(x) for x in prev_cluster if x.start_time),
                 default=prev_cluster[-1].start_time,
             )
-            if lg.start_time and prev_end and (lg.start_time - prev_end).total_seconds() <= 1800:
+            if lg.start_time and prev_end and (lg.start_time - prev_end).total_seconds() <= 5:
                 prev_cluster.append(lg)
             else:
                 clusters.append([lg])
@@ -2771,13 +2803,23 @@ async def report_conferences(
         for idx, cl in enumerate(clusters, start=1):
             s_dt = min((x.start_time for x in cl if x.start_time), default=None)
             e_dt = max(
-                (x.end_time or (x.start_time + datetime.timedelta(seconds=_call_talk_sec(x))) for x in cl if x.start_time),
+                (_leg_end_dt(x) for x in cl if x.start_time),
                 default=s_dt,
             )
             wall_sec = max(0, int((e_dt - s_dt).total_seconds())) if (s_dt and e_dt and e_dt >= s_dt) else 0
             leg_sec = sum(_call_talk_sec(x) for x in cl)
-            parts = list(dict.fromkeys(str(x.caller_number or "-").strip() for x in cl))
-            p_cnt = len(cl)
+            parts = []
+            seen_norm = set()
+            for x in cl:
+                raw_p = str(x.caller_number or "-").strip()
+                norm_p = _norm_part_num(raw_p)
+                if norm_p != "-":
+                    room_unique_parts.add(norm_p)
+                    all_unique_participants.add(norm_p)
+                if norm_p not in seen_norm:
+                    seen_norm.add(norm_p)
+                    parts.append(norm_p if len(norm_p) == 11 and norm_p.startswith("0") else raw_p)
+            p_cnt = len(parts) if parts else len(cl)
             peak_participants = max(peak_participants, p_cnt)
             total_legs_all += p_cnt
             total_leg_sec_all += leg_sec
@@ -2802,6 +2844,7 @@ async def report_conferences(
                     "total_leg_seconds": leg_sec,
                 }
             )
+        rm["unique_participants_count"] = len(room_unique_parts)
 
     sessions.sort(key=lambda s: s["sort_dt"], reverse=True)
     for s in sessions:
@@ -2822,6 +2865,7 @@ async def report_conferences(
             "active_rooms_count": sum(1 for r in room_rows if r["sessions_count"] > 0),
             "total_sessions": tot_sess,
             "total_participant_legs": total_legs_all,
+            "unique_participants_count": len(all_unique_participants),
             "peak_participants": peak_participants,
             "total_conference_minutes": tot_conf_min,
             "avg_session_minutes": avg_sess_min,

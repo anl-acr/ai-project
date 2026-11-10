@@ -2238,7 +2238,11 @@ export default function EnterpriseReportsPanel({ backendHost, reportType = "brea
                 <KpiCard
                   label="Toplam Katılımcı Girişi"
                   value={summary.total_participant_legs || 0}
-                  sub="Dahili & dış hat katılımcılar"
+                  sub={
+                    summary.unique_participants_count
+                      ? `${summary.unique_participants_count} tekil kişi / numara`
+                      : "Dahili & dış hat katılımcılar"
+                  }
                   icon={Users}
                   theme={{ lightBg, lightText }}
                 />
@@ -2270,7 +2274,11 @@ export default function EnterpriseReportsPanel({ backendHost, reportType = "brea
                     <td className="px-4 py-3">{r.record_enabled ? "Aktif" : "Pasif"}</td>
                     <td className="px-4 py-3 text-center">{r.max_members} Kişi</td>
                     <td className="px-4 py-3 text-center font-bold">{r.sessions_count}</td>
-                    <td className="px-4 py-3 text-center">{r.participants_count}</td>
+                    <td className="px-4 py-3 text-center">
+                      {r.unique_participants_count && r.unique_participants_count !== r.participants_count
+                        ? `${r.unique_participants_count} Kişi (${r.participants_count} Giriş)`
+                        : r.participants_count}
+                    </td>
                     <td className="px-4 py-3 whitespace-nowrap font-semibold">{r.total_minutes} dk</td>
                     <td className="px-4 py-3 whitespace-nowrap text-slate-500">{r.last_used_at}</td>
                   </tr>
