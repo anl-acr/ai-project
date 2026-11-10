@@ -16,6 +16,39 @@ const COUNTRIES = [
   { code: "CN", name: "Çin" },
 ];
 
+const formatSecurityReasonTr = (rawReason) => {
+  if (!rawReason) return "SIP Güvenlik Duvarı Engeli";
+  let txt = String(rawReason).trim();
+  const replacements = [
+    ["AMI InvalidAccountID", "Geçersiz SIP Hesabı / Dahili Denemesi"],
+    ["InvalidAccountID", "Geçersiz SIP Hesabı / Dahili Denemesi"],
+    ["AMI ChallengeResponseFailed", "Hatalı SIP Şifre / Kimlik Doğrulama"],
+    ["ChallengeResponseFailed", "Hatalı SIP Şifre / Kimlik Doğrulama"],
+    ["AMI InvalidPassword", "Hatalı SIP Parolası"],
+    ["InvalidPassword", "Hatalı SIP Parolası"],
+    ["AMI FailedACL", "Yetkisiz IP / Erişim Listesi İhlali (ACL)"],
+    ["FailedACL", "Yetkisiz IP / Erişim Listesi İhlali (ACL)"],
+    ["AMI RequestNotSupported", "Desteklenmeyen SIP İsteği"],
+    ["RequestNotSupported", "Desteklenmeyen SIP İsteği"],
+    ["AMI UnexpectedAddress", "Beklenmeyen Kaynak Adres İhlali"],
+    ["UnexpectedAddress", "Beklenmeyen Kaynak Adres İhlali"],
+    ["No matching endpoint found", "Tanımsız Dahili / Bot Tarama İsteği"],
+    ["Failed to authenticate", "Başarısız SIP Kimlik Doğrulama"],
+    ["Method not allowed", "İzin Verilmeyen SIP Metodu"],
+    ["(<unknown>)", "(Bilinmeyen)"],
+    ["<unknown>", "Bilinmeyen"],
+    ["(scan)", "(Bot Taraması)"],
+    ["(censysinspect)", "(Port Taraması: censysinspect)"],
+    ["()", ""],
+  ];
+  for (const [eng, tr] of replacements) {
+    if (txt.includes(eng)) {
+      txt = txt.split(eng).join(tr);
+    }
+  }
+  return txt.replace(/\s{2,}/g, " ").trim();
+};
+
 export default function SecurityPanel({ backendHost = "localhost:8000" }) {
   const { bg, hover, text, border, ring, lightBg, lightText, borderLight } = useTheme();
   const [activeTab, setActiveTab] = useState("fail2ban");
@@ -707,7 +740,7 @@ export default function SecurityPanel({ backendHost = "localhost:8000" }) {
                     <div key={th.ip || idx} className="flex items-center justify-between px-3 py-2 rounded-lg bg-white dark:bg-slate-900 border border-amber-200/70 dark:border-amber-900/40 text-xs gap-2">
                       <div className="min-w-0">
                         <span className="font-bold text-rose-600 dark:text-rose-400 font-mono">{th.ip}</span>
-                        <span className="ml-2 text-[11px] text-slate-500 truncate">({th.attempts} deneme - {th.reason})</span>
+                        <span className="ml-2 text-[11px] text-slate-500 truncate">({th.attempts} deneme - {formatSecurityReasonTr(th.reason)})</span>
                       </div>
                       {hasWritePermission && (
                         <div className="flex items-center gap-1.5 shrink-0">
@@ -719,7 +752,7 @@ export default function SecurityPanel({ backendHost = "localhost:8000" }) {
                             Güvenli Ekle
                           </button>
                           <button
-                            onClick={() => handleManualBan(th.ip, `${th.reason} (${th.attempts} deneme)`)}
+                            onClick={() => handleManualBan(th.ip, `${formatSecurityReasonTr(th.reason)} (${th.attempts} deneme)`)}
                             className="px-2.5 py-1 rounded-lg bg-rose-600 hover:bg-rose-500 text-white text-[11px] font-bold transition-all"
                           >
                             Engelle
@@ -809,7 +842,7 @@ export default function SecurityPanel({ backendHost = "localhost:8000" }) {
                             </span>
                           </td>
                           <td className="py-3 px-4 text-xs text-slate-600 dark:text-slate-300">
-                            {b.reason || "SIP Güvenlik Duvarı Engeli"}
+                            {formatSecurityReasonTr(b.reason)}
                           </td>
                           <td className="py-3 px-4 text-[11px] text-slate-500 dark:text-slate-400 font-medium">{b.banned_at}</td>
                           {hasWritePermission && (

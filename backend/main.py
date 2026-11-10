@@ -26783,6 +26783,46 @@ ignoreip = {ignore_ip_str}
     return {"maxretry": max_retry, "bantime_minutes": ban_minutes, "ignoreip": ignore_ip_str}
 
 
+def _translate_security_reason_tr(raw_reason: str) -> str:
+    """
+    Asterisk PJSIP, AMI SecurityEvent ve Fail2Ban tarafından üretilen İngilizce engellenme sebeplerini
+    anlaşılır Türkçe açıklamalara dönüştürür.
+    """
+    if not raw_reason:
+        return "SIP Güvenlik Duvarı Engeli"
+    txt = str(raw_reason).strip()
+
+    replacements = [
+        ("AMI InvalidAccountID", "Geçersiz SIP Hesabı / Dahili Denemesi"),
+        ("InvalidAccountID", "Geçersiz SIP Hesabı / Dahili Denemesi"),
+        ("AMI ChallengeResponseFailed", "Hatalı SIP Şifre / Kimlik Doğrulama"),
+        ("ChallengeResponseFailed", "Hatalı SIP Şifre / Kimlik Doğrulama"),
+        ("AMI InvalidPassword", "Hatalı SIP Parolası"),
+        ("InvalidPassword", "Hatalı SIP Parolası"),
+        ("AMI FailedACL", "Yetkisiz IP / Erişim Listesi İhlali (ACL)"),
+        ("FailedACL", "Yetkisiz IP / Erişim Listesi İhlali (ACL)"),
+        ("AMI RequestNotSupported", "Desteklenmeyen SIP İsteği"),
+        ("RequestNotSupported", "Desteklenmeyen SIP İsteği"),
+        ("AMI UnexpectedAddress", "Beklenmeyen Kaynak Adres İhlali"),
+        ("UnexpectedAddress", "Beklenmeyen Kaynak Adres İhlali"),
+        ("No matching endpoint found", "Tanımsız Dahili / Bot Tarama İsteği"),
+        ("Failed to authenticate", "Başarısız SIP Kimlik Doğrulama"),
+        ("Method not allowed", "İzin Verilmeyen SIP Metodu"),
+        ("(<unknown>)", "(Bilinmeyen)"),
+        ("<unknown>", "Bilinmeyen"),
+        ("(scan)", "(Bot Taraması)"),
+        ("(censysinspect)", "(Port Taraması: censysinspect)"),
+        ("()", ""),
+    ]
+    for eng, tr in replacements:
+        if eng in txt:
+            txt = txt.replace(eng, tr)
+
+    while "  " in txt:
+        txt = txt.replace("  ", " ")
+    return txt.strip()
+
+
 def record_and_ban_realtime_sip_attack(ip_addr: str, event_type: str = "InvalidAccountID", account_id: str = "", service: str = "PJSIP"):
     """
     AMI üzerinden gelen gerçek zamanlı SecurityEvent (InvalidAccountID, ChallengeResponseFailed vb.)
@@ -26798,6 +26838,8 @@ def record_and_ban_realtime_sip_attack(ip_addr: str, event_type: str = "InvalidA
     adv = settings_db.get("security_advanced", {})
     max_retry = max(1, int(adv.get("login_rate_limit") or 3))
     now_str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    target_label = f" ({account_id})" if account_id else ""
+    reason_tr = _translate_security_reason_tr(f"{event_type}{target_label}")
 
     entry = _realtime_sip_attack_tracker.setdefault(ip_clean, {
         "ip": ip_clean,
@@ -26805,11 +26847,11 @@ def record_and_ban_realtime_sip_attack(ip_addr: str, event_type: str = "InvalidA
         "last_seen": now_str,
         "req_type": service,
         "from_uri": account_id,
-        "reason": f"{event_type} ({account_id})"
+        "reason": reason_tr
     })
     entry["attempts"] += 1
     entry["last_seen"] = now_str
-    entry["reason"] = f"AMI {event_type} ({account_id or service})"
+    entry["reason"] = reason_tr
 
     # Instant ban for known scanner probing accounts (<sip:1@1>, NonExistent unknown account brute-force) or >= max_retry
     is_instant_scanner = ("1@1" in str(account_id)) or (event_type == "InvalidAccountID" and entry["attempts"] >= min(2, max_retry))
@@ -26887,12 +26929,12 @@ def scan_asterisk_failed_sip_attempts(auto_ban: bool = True) -> list:
                     "last_seen": ts_str,
                     "req_type": req_type,
                     "from_uri": from_uri,
-                    "reason": fail_reason.strip(),
+                    "reason": _translate_security_reason_tr(fail_reason.strip()),
                     "is_scanner": False
                 })
                 entry["attempts"] += 1
                 entry["last_seen"] = ts_str
-                entry["reason"] = f"{fail_reason.strip()} ({req_type} {from_uri})"
+                entry["reason"] = _translate_security_reason_tr(f"{fail_reason.strip()} ({req_type} {from_uri})")
                 if "<sip:1@1>" in from_uri or call_id.strip() == "1" or "No matching endpoint found" in fail_reason:
                     entry["is_scanner"] = True
         elif "SecurityEvent=" in line:
@@ -26902,18 +26944,20 @@ def scan_asterisk_failed_sip_attempts(auto_ban: bool = True) -> list:
                 ts_str = ts_a or ts_b or ""
                 if _is_trusted_or_local_ip(ip_addr):
                     continue
+                acc_suffix = f" ({acc_id})" if acc_id else ""
+                reason_sec_tr = _translate_security_reason_tr(f"{sec_ev}{acc_suffix}")
                 entry = ip_stats.setdefault(ip_addr, {
                     "ip": ip_addr,
                     "attempts": 0,
                     "last_seen": ts_str,
                     "req_type": "SIP",
                     "from_uri": acc_id,
-                    "reason": sec_ev,
+                    "reason": reason_sec_tr,
                     "is_scanner": False
                 })
                 entry["attempts"] += 1
                 entry["last_seen"] = ts_str
-                entry["reason"] = f"{sec_ev} ({acc_id})"
+                entry["reason"] = reason_sec_tr
                 if sec_ev in ("InvalidAccountID", "FailedACL"):
                     entry["is_scanner"] = True
 
@@ -27039,7 +27083,19 @@ def cleanup_expired_blocked_ips(force_days: Optional[int] = None, clear_all_auto
     preserve_manual = bool(ret_cfg.get("preserve_manual_blocked_ips", True))
     keep_days = max(1, int(force_days if force_days is not None else (ret_cfg.get("blocked_ip_keep_days") or 7)))
 
+    # Normalize any legacy English reasons in existing blocked_ips list
+    reasons_translated = False
+    for item in existing:
+        if isinstance(item, dict) and item.get("reason"):
+            old_r = str(item.get("reason") or "")
+            new_r = _translate_security_reason_tr(old_r)
+            if new_r != old_r:
+                item["reason"] = new_r
+                reasons_translated = True
+
     if not clear_all_auto and force_days is None and not auto_enabled:
+        if reasons_translated:
+            save_settings(settings_db)
         return {"removed_count": 0, "remaining_count": len(settings_db.get("security_blocked_ips", []))}
 
     existing = settings_db.get("security_blocked_ips", [])
@@ -27108,6 +27164,8 @@ def cleanup_expired_blocked_ips(force_days: Optional[int] = None, clear_all_auto
                     _enforce_kernel_drop_for_ip(b_ip)
 
         print(f"[Security Auto-Cleanup] {len(removed_ips)} adet süresi dolmuş engelli IP kaydı temizlendi. Kalan: {len(kept_items)}")
+    elif reasons_translated:
+        save_settings(settings_db)
 
     return {"removed_count": len(removed_ips), "remaining_count": len(kept_items)}
 
@@ -27205,6 +27263,7 @@ def get_live_fail2ban_and_ufw_status(
         filtered_list = [
             b for b in blocked_list
             if search_q in str(b.get("ip") or "").lower()
+            or search_q in _translate_security_reason_tr(str(b.get("reason") or "")).lower()
             or search_q in str(b.get("reason") or "").lower()
             or search_q in str(b.get("jail") or "").lower()
             or search_q in str(b.get("banned_at") or "").lower()
@@ -27220,9 +27279,15 @@ def get_live_fail2ban_and_ufw_status(
         p = total_pages
     start_idx = (p - 1) * ps
     end_idx = start_idx + ps
-    paginated_blocked_ips = filtered_list[start_idx:end_idx]
+    paginated_blocked_ips = [
+        {**b, "reason": _translate_security_reason_tr(str(b.get("reason") or ""))}
+        for b in filtered_list[start_idx:end_idx]
+    ]
 
-    detected_threats = _security_live_cache.get("detected_threats") or []
+    detected_threats = [
+        {**t, "reason": _translate_security_reason_tr(str(t.get("reason") or ""))}
+        for t in (_security_live_cache.get("detected_threats") or [])[:200]
+    ]
 
     return {
         "status": "success",
@@ -27235,8 +27300,8 @@ def get_live_fail2ban_and_ufw_status(
         "page_size": ps,
         "total_pages": total_pages,
         "whitelisted_ips": wl_entries,
-        "detected_threats": detected_threats[:200],
-        "total_detected_threats": len(detected_threats),
+        "detected_threats": detected_threats,
+        "total_detected_threats": len(_security_live_cache.get("detected_threats") or []),
         "client_ip": client_ip
     }
 
