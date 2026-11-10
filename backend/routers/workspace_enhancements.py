@@ -1171,15 +1171,55 @@ async def get_dashboard_widgets_summary(
     today_calls = res_tc.scalars().all()
 
     caller_freq: Dict[str, int] = {}
+    topic_freq: Dict[str, int] = {}
     missed_today = 0
     ai_handled_today = 0
+    ai_autonomous_today = 0
+    ai_handover_today = 0
+    ai_dur_sum = 0
+    ai_dur_cnt = 0
+    sentiment_counts = {"positive": 0, "neutral": 0, "negative": 0}
+
     for c in today_calls:
         st_str = str(c.status or "").lower()
         if st_str in ("no_answer", "missed", "busy", "failed", "cancelled", "abandoned"):
             missed_today += 1
         ag = str(c.agent_name or "").lower()
-        if not ag or "ai" in ag or "asistan" in ag or "bot" in ag:
+        h_src = str(getattr(c, "hangup_source", "") or "").lower()
+        is_ai_call = not ag or "ai" in ag or "asistan" in ag or "bot" in ag
+        if is_ai_call:
             ai_handled_today += 1
+            if "transfer" in h_src or "queue" in h_src or "agent" in h_src:
+                ai_handover_today += 1
+            elif st_str not in ("no_answer", "missed", "busy", "failed", "cancelled", "abandoned"):
+                ai_autonomous_today += 1
+            dur_v = int(getattr(c, "talk_duration", None) or getattr(c, "duration", None) or 0)
+            if dur_v > 0:
+                ai_dur_sum += dur_v
+                ai_dur_cnt += 1
+        else:
+            if "transfer" in h_src:
+                ai_handover_today += 1
+
+        sent_val = getattr(c, "sentiment_score", None)
+        if sent_val is not None:
+            try:
+                sf = float(sent_val)
+                if sf > 0.2:
+                    sentiment_counts["positive"] += 1
+                elif sf < -0.2:
+                    sentiment_counts["negative"] += 1
+                else:
+                    sentiment_counts["neutral"] += 1
+            except Exception:
+                sentiment_counts["neutral"] += 1
+        else:
+            sentiment_counts["neutral"] += 1
+
+        top_str = str(getattr(c, "agent_topic", "") or "").strip()
+        if top_str:
+            topic_freq[top_str] = topic_freq.get(top_str, 0) + 1
+
         cn = str(c.caller_number or "").strip()
         if cn and cn != "s":
             caller_freq[cn] = caller_freq.get(cn, 0) + 1
@@ -1188,6 +1228,16 @@ async def get_dashboard_widgets_summary(
         {"caller_number": num, "count": cnt}
         for num, cnt in sorted(caller_freq.items(), key=lambda kv: kv[1], reverse=True)[:5]
     ]
+    top_topics = [
+        {"topic": t_name, "count": t_cnt}
+        for t_name, t_cnt in sorted(topic_freq.items(), key=lambda kv: kv[1], reverse=True)[:5]
+    ]
+    ai_autonomous_rate = (
+        round((ai_autonomous_today / ai_handled_today) * 100, 1)
+        if ai_handled_today > 0
+        else 100.0
+    )
+    avg_ai_duration = round(ai_dur_sum / ai_dur_cnt) if ai_dur_cnt > 0 else 0
 
     # 2. Queues Summary
     stmt_q = _apply_tenant_filter(select(PBXQueue), PBXQueue, tenant_id).limit(12)
@@ -1236,9 +1286,15 @@ async def get_dashboard_widgets_summary(
             "total_calls": len(today_calls),
             "missed_calls": missed_today,
             "ai_handled_calls": ai_handled_today,
+            "ai_autonomous_calls": ai_autonomous_today,
+            "ai_autonomous_rate": ai_autonomous_rate,
+            "ai_handover_calls": ai_handover_today,
+            "avg_ai_duration_seconds": avg_ai_duration,
+            "sentiment_counts": sentiment_counts,
             "answered_rate": round(((len(today_calls) - missed_today) / len(today_calls)) * 100, 1) if today_calls else 100.0,
         },
         "top_callers_today": top_callers,
+        "top_topics_today": top_topics,
         "queues_summary": queues_summary,
         "today_appointments": today_appointments,
         "upcoming_callbacks": pending_cbs[:6],
