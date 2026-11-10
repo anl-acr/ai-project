@@ -1921,9 +1921,9 @@ same => n,Set(VM_DEL=${CURL(http://127.0.0.1:8000/api/voicemail/ivr_action?vm_id
 same => n,Playback(beep)
 same => n(vm_next_msg),Set(VM_IDX=$[${VM_IDX} + 1])
 same => n,Goto(vm_msg_loop)
-same => n(vm_empty),Playback(vm-nomore)
+same => n(vm_empty),Playback(/var/spool/asterisk/monitor/tr_sesli_mesaj_yok)
 same => n,Return()
-same => n(vm_done_all),Playback(vm-goodbye)
+same => n(vm_done_all),Playback(/var/spool/asterisk/monitor/tr_gule_gule)
 same => n,Return()
 
 [profile_prompt_sub]
@@ -1944,10 +1944,10 @@ same => n,Return()
 exten => s,1,Answer()
 same => n,Wait(0.2)
 same => n,Set(HD_IN_EXT=)
-same => n,Read(HD_IN_EXT,vm-extension,6,,,6)
+same => n,Read(HD_IN_EXT,/var/spool/asterisk/monitor/tr_dahili_no_girin,6,,,6)
 same => n,GotoIf($["${HD_IN_EXT}" = ""]?hd_p_err)
 same => n,Set(HD_IN_PIN=)
-same => n,Read(HD_IN_PIN,vm-password,8,,,6)
+same => n,Read(HD_IN_PIN,/var/spool/asterisk/monitor/tr_giden_parola,8,,,6)
 same => n,GotoIf($["${HD_IN_PIN}" = ""]?hd_p_err)
 same => n,Set(HD_L_RES=${CURL(http://127.0.0.1:8000/api/hotdesk/dialplan_login?channel=${URIENCODE(${CHANNEL(name)})}&extension=${URIENCODE(${HD_IN_EXT})}&pin=${URIENCODE(${HD_IN_PIN})})})
 same => n,GotoIf($["${HD_L_RES}" = "ALLOW"]?hd_p_ok:hd_p_err)
@@ -1993,10 +1993,18 @@ same => n,Hangup(21)
 same => n(conf_chk_rec),StopMixMonitor()
 same => n,GotoIf($["${CONF_REC}" != "1"]?conf_enter)
 same => n,MixMonitor(/var/spool/asterisk/monitor/${CALL_UUID}.wav,ab)
-same => n(conf_enter),Playback(beep)
+same => n(conf_enter),Playback(/var/spool/asterisk/monitor/tr_konferans_hosgeldiniz)
+same => n,Set(CONFBRIDGE(user,announce_only_user)=yes)
 same => n,Set(CONFBRIDGE(user,announce_join_leave)=no)
+same => n,Set(CONFBRIDGE(user,announce_user_count)=no)
 same => n,Set(CONFBRIDGE(user,music_on_hold_when_empty)=yes)
 same => n,Set(CONFBRIDGE(user,dsp_drop_silence)=yes)
+same => n,Set(CONFBRIDGE(bridge,sound_only_person)=/var/spool/asterisk/monitor/tr_konferans_tek_kisi)
+same => n,Set(CONFBRIDGE(bridge,sound_only_one)=/var/spool/asterisk/monitor/tr_konferans_tek_kisi)
+same => n,Set(CONFBRIDGE(bridge,sound_get_pin)=/var/spool/asterisk/monitor/tr_giden_parola)
+same => n,Set(CONFBRIDGE(bridge,sound_invalid_pin)=/var/spool/asterisk/monitor/tr_hatali_parola)
+same => n,Set(CONFBRIDGE(bridge,sound_locked)=/var/spool/asterisk/monitor/tr_konferans_kilitli)
+same => n,Set(CONFBRIDGE(bridge,sound_kicked)=/var/spool/asterisk/monitor/tr_konferans_cikis)
 same => n,ConfBridge(${CONF_ROOM})
 same => n,Return()
 
@@ -2031,10 +2039,18 @@ same => n,Set(CURL_RESULT=${CURL(http://127.0.0.1:8000/api/calls/register?call_i
 same => n,Set(CONF_JOIN_RES=${CURL(http://127.0.0.1:8000/api/conferences/participant_joined?room=${URIENCODE(${EXTEN})}&caller=${URIENCODE(${INVITED_PARTICIPANT})}&call_id=${URIENCODE(${CALL_UUID})}&invited=1)})
 same => n,GotoIf($["${CONF_REC_EN}" != "1"]?cj_enter)
 same => n,MixMonitor(/var/spool/asterisk/monitor/${CALL_UUID}.wav,ab)
-same => n(cj_enter),Playback(beep)
+same => n(cj_enter),Playback(/var/spool/asterisk/monitor/tr_konferans_hosgeldiniz)
+same => n,Set(CONFBRIDGE(user,announce_only_user)=yes)
 same => n,Set(CONFBRIDGE(user,announce_join_leave)=no)
+same => n,Set(CONFBRIDGE(user,announce_user_count)=no)
 same => n,Set(CONFBRIDGE(user,music_on_hold_when_empty)=yes)
 same => n,Set(CONFBRIDGE(user,dsp_drop_silence)=yes)
+same => n,Set(CONFBRIDGE(bridge,sound_only_person)=/var/spool/asterisk/monitor/tr_konferans_tek_kisi)
+same => n,Set(CONFBRIDGE(bridge,sound_only_one)=/var/spool/asterisk/monitor/tr_konferans_tek_kisi)
+same => n,Set(CONFBRIDGE(bridge,sound_get_pin)=/var/spool/asterisk/monitor/tr_giden_parola)
+same => n,Set(CONFBRIDGE(bridge,sound_invalid_pin)=/var/spool/asterisk/monitor/tr_hatali_parola)
+same => n,Set(CONFBRIDGE(bridge,sound_locked)=/var/spool/asterisk/monitor/tr_konferans_kilitli)
+same => n,Set(CONFBRIDGE(bridge,sound_kicked)=/var/spool/asterisk/monitor/tr_konferans_cikis)
 same => n,ConfBridge(${EXTEN})
 same => n,Hangup()
 exten => h,1,NoOp(Konferans Katilimci Ayrildi: Oda=${EXTEN}, Call=${CALL_UUID})
@@ -2047,7 +2063,7 @@ same => n(cj_h_done),Hangup()
 """
 
     confbridge_sync_content = """; ==========================================
-; Asterisk ConfBridge Configuration
+; Asterisk ConfBridge Configuration (Turkish Sounds)
 ; ==========================================
 [general]
 
@@ -2056,12 +2072,24 @@ type=user
 dsp_drop_silence=yes
 talk_detection_events=yes
 denoise=yes
+announce_only_user=yes
+announce_join_leave=no
+announce_user_count=no
+music_on_hold_when_empty=yes
 
 [default_bridge]
 type=bridge
 max_members=50
 mixing_interval=20
 internal_sample_rate=auto
+sound_only_person=/var/spool/asterisk/monitor/tr_konferans_tek_kisi
+sound_only_one=/var/spool/asterisk/monitor/tr_konferans_tek_kisi
+sound_get_pin=/var/spool/asterisk/monitor/tr_giden_parola
+sound_invalid_pin=/var/spool/asterisk/monitor/tr_hatali_parola
+sound_locked=/var/spool/asterisk/monitor/tr_konferans_kilitli
+sound_kicked=/var/spool/asterisk/monitor/tr_konferans_cikis
+sound_has_joined=beep
+sound_has_left=beeperr
 """
 
     features_sync_content = f"""; ==========================================
