@@ -170,7 +170,7 @@ export default function WaveformAudioPlayer({
   return (
     <div
       onClick={(e) => e.stopPropagation()}
-      className={`flex items-center gap-3 min-w-0 px-3 py-1.5 rounded-2xl bg-slate-50/80 dark:bg-slate-800/50 border border-slate-200/70 dark:border-slate-700/60 ${className}`}
+      className={`flex items-center gap-2.5 min-w-0 overflow-hidden px-3.5 py-1.5 rounded-2xl bg-slate-50/80 dark:bg-slate-800/50 border border-slate-200/70 dark:border-slate-700/60 ${className}`}
     >
       <audio
         ref={audioRef}
@@ -218,7 +218,7 @@ export default function WaveformAudioPlayer({
       <div
         onClick={handleSeek}
         title="Konuma gitmek için tıklayın"
-        className={`flex items-center justify-between ${waveHeightClass} flex-1 min-w-[90px] mx-1 cursor-pointer select-none`}
+        className={`flex items-center justify-between ${waveHeightClass} flex-1 min-w-0 overflow-hidden mx-1 cursor-pointer select-none`}
       >
         {bars.map((h, i) => {
           const barRatio = i / bars.length;
@@ -226,7 +226,7 @@ export default function WaveformAudioPlayer({
           return (
             <div
               key={i}
-              className={`w-1 mx-[1px] rounded-full ${bg} transition-all duration-150`}
+              className={`w-1 mx-[1px] rounded-full shrink-0 ${bg} transition-all duration-150`}
               style={{
                 height: `${Math.max(18, h * 10)}%`,
                 opacity: isActiveBar ? 0.92 : 0.25,
@@ -236,13 +236,11 @@ export default function WaveformAudioPlayer({
         })}
       </div>
 
-      <div className="flex items-center gap-2 shrink-0">
-        <span className={`text-[11px] font-bold ${text} font-mono tracking-wider opacity-90`}>
-          {isPlaying
-            ? `${formatWaveformDuration(currentTime)} / ${formatWaveformDuration(totalDur)}`
-            : `${formatWaveformDuration(currentTime)} / ${formatWaveformDuration(totalDur)}`}
+      <div className="flex items-center gap-2 shrink-0 whitespace-nowrap pr-0.5">
+        <span className={`text-[11px] font-bold ${text} font-mono tracking-tight opacity-90`}>
+          {formatWaveformDuration(currentTime)} / {formatWaveformDuration(totalDur)}
         </span>
-        <Volume2 size={isSmall ? 14 : 16} className={`${text} opacity-80`} aria-hidden="true" />
+        <Volume2 size={isSmall ? 14 : 16} className={`${text} opacity-80 shrink-0`} aria-hidden="true" />
       </div>
     </div>
   );

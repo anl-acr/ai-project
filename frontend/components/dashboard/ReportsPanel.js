@@ -14506,7 +14506,7 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
       )}
       {/* Floating Audio Player Sticky Tray */}
       {isAudioMode && activeAudioCall && (
-        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 w-full max-w-xl bg-white/95 dark:bg-slate-900/95 backdrop-blur-md border border-slate-200/80 dark:border-slate-800 rounded-3xl p-4 shadow-2xl z-50 flex items-center justify-between gap-4 animate-in slide-in-from-bottom-5 duration-300">
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 w-[95%] max-w-2xl bg-white/95 dark:bg-slate-900/95 backdrop-blur-md border border-slate-200/80 dark:border-slate-800 rounded-3xl p-4 shadow-2xl z-50 flex items-center justify-between gap-4 animate-in slide-in-from-bottom-5 duration-300">
           <div className="flex items-center gap-3 min-w-0 shrink-0">
             <div className={`h-10 w-10 rounded-2xl ${lightBg} ${text} flex items-center justify-center shrink-0`}>
               <Phone size={18} />
