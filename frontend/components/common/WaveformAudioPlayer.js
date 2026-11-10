@@ -39,6 +39,7 @@ export default function WaveformAudioPlayer({
   initialDuration = 0,
   autoPlay = false,
   onPlay,
+  onDurationLoaded,
   size = "md",
   barCount = 36,
   className = "",
@@ -180,6 +181,9 @@ export default function WaveformAudioPlayer({
           const d = e.currentTarget.duration;
           if (Number.isFinite(d) && d > 0) {
             setDuration(d);
+            if (typeof onDurationLoaded === "function") {
+              onDurationLoaded(Math.round(d));
+            }
           }
         }}
         onTimeUpdate={(e) => {

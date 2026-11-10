@@ -30,6 +30,7 @@ export default function AgentVoicemailTab({
   const maskPhoneNumbers = Boolean(callPanelPerms?.maskPhoneNumbers);
 
   const [messages, setMessages] = useState([]);
+  const [loadedDurations, setLoadedDurations] = useState({});
   const [unreadCount, setUnreadCount] = useState(0);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -296,6 +297,10 @@ export default function AgentVoicemailTab({
               const displayCaller = maskPhoneNumbers ? maskPhoneLast4(rawCaller) : rawCaller;
               const audioSrc = `${getApiBase()}/api/voicemail/${vm.id}/audio`;
               const downloadUrl = `${getApiBase()}/api/voicemail/${vm.id}/audio?download=1`;
+              const resolvedDuration =
+                loadedDurations[vm.id] ||
+                Number(vm.duration || vm.duration_seconds || 0) ||
+                0;
 
               return (
                 <div
@@ -341,7 +346,7 @@ export default function AgentVoicemailTab({
                           </span>
                           <span className="inline-flex items-center gap-1 font-mono">
                             <Clock size={12} />
-                            Süre: {formatDuration(vm.duration)}
+                            Süre: {formatDuration(resolvedDuration)}
                           </span>
                         </div>
                       </div>
@@ -351,7 +356,12 @@ export default function AgentVoicemailTab({
                     <div className="flex flex-col sm:flex-row sm:items-center gap-2.5 lg:justify-end flex-1 max-w-2xl">
                       <WaveformAudioPlayer
                         src={audioSrc}
-                        initialDuration={vm.duration}
+                        initialDuration={resolvedDuration}
+                        onDurationLoaded={(sec) => {
+                          setLoadedDurations((prev) =>
+                            prev[vm.id] === sec ? prev : { ...prev, [vm.id]: sec }
+                          );
+                        }}
                         title={`${displayCaller} sesli mesajı`}
                         onPlay={() => {
                           if (!vm.is_read) handleToggleRead(vm, true);
