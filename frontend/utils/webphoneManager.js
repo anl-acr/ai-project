@@ -42,6 +42,8 @@ class WebphoneManager {
     this.groupRingingInterval = null;
     this.notifiedGroupCallIds = new Set();
     this.activeUserKey = null;
+    this._initInFlight = false;
+    this._uaGeneration = 0;
     this.confAudioCtx = null;
     this.confMicStream = null;
     this.acquiredMicBundles = new Set();
@@ -373,10 +375,14 @@ class WebphoneManager {
     if (!targetUserId) return;
 
     const userKey = `${backendHost || "localhost:8000"}_${targetUserId}_${targetExt}`;
-    if (this.activeUserKey === userKey && this.userAgent && this.state.registered) {
+    if (
+      this.activeUserKey === userKey &&
+      (this._initInFlight || (this.userAgent && this.state.registered))
+    ) {
       return;
     }
     this.activeUserKey = userKey;
+    this._initInFlight = true;
 
     this.setState({ isLoadingConfig: true });
     try {
@@ -397,7 +403,7 @@ class WebphoneManager {
       if (res.ok) {
         const config = await res.json();
         this.setState({ webrtcConfig: config, isLoadingConfig: false });
-        this.startUserAgent(config);
+        await this.startUserAgent(config);
       } else {
         this.setState({ isLoadingConfig: false });
         this.scheduleReconnect(null, true);
@@ -406,11 +412,21 @@ class WebphoneManager {
       console.error("[WebphoneManager] Config fetch error:", err);
       this.setState({ isLoadingConfig: false });
       this.scheduleReconnect(null, true);
+    } finally {
+      this._initInFlight = false;
     }
   }
 
   reloadWebrtcConfig() {
     this.activeUserKey = null;
+    this._initInFlight = false;
+    this._uaGeneration = (this._uaGeneration || 0) + 1;
+    if (this.registerer) {
+      try {
+        this.registerer.unregister().catch(() => {});
+      } catch (e) {}
+      this.registerer = null;
+    }
     if (this.userAgent) {
       try {
         this.userAgent.stop();
@@ -447,9 +463,18 @@ class WebphoneManager {
     if (!config?.asteriskWssUrl || !config?.agentExtension) return;
     if (typeof window === "undefined") return;
 
+    const myGen = (this._uaGeneration = (this._uaGeneration || 0) + 1);
+
     if (this.reconnectTimer) {
       clearTimeout(this.reconnectTimer);
       this.reconnectTimer = null;
+    }
+
+    if (this.registerer) {
+      try {
+        this.registerer.unregister().catch(() => {});
+      } catch (e) {}
+      this.registerer = null;
     }
 
     if (this.userAgent) {
@@ -469,7 +494,14 @@ class WebphoneManager {
     }
 
     await ensureSipLoaded();
-    if (!SIP) return;
+    if (!SIP || myGen !== this._uaGeneration) return;
+
+    if (this.userAgent) {
+      try {
+        this.userAgent.stop();
+      } catch (e) {}
+      this.userAgent = null;
+    }
 
     const { asteriskWssUrl, agentExtension, password, agentName } = config;
     const sipAuthUser = String(config.sipUsername || agentExtension).trim();
@@ -507,7 +539,12 @@ class WebphoneManager {
       displayName: displayLabel,
       hackIpInContact: resolvedViaHost || true,
       delegate: {
-        onInvite: (invite) => this.handleIncomingInvite(invite)
+        onInvite: (invite) => {
+          if (this.userAgent !== ua) {
+            return;
+          }
+          this.handleIncomingInvite(invite);
+        }
       }
     };
 
@@ -1660,11 +1697,31 @@ class WebphoneManager {
       cleanedDisplayName = (qMatch[2] || "").trim();
     }
 
+    // Deduplicate simultaneous forked/duplicate INVITEs for the same incoming call
+    const existingDuplicateLine = Array.from(this.linesMap.values()).find(
+      (l) =>
+        l.direction === "inbound" &&
+        (l.sipCallId === sipCallId ||
+          (l.remoteNumber === callerNum &&
+            (l.callStatus === "Ringing" || (l.createdAt && Date.now() - l.createdAt < 4000))))
+    );
+    if (existingDuplicateLine) {
+      if (!Array.isArray(existingDuplicateLine.siblingInvites)) {
+        existingDuplicateLine.siblingInvites = [];
+      }
+      if (existingDuplicateLine.session !== invite && !existingDuplicateLine.siblingInvites.includes(invite)) {
+        existingDuplicateLine.siblingInvites.push(invite);
+      }
+      return;
+    }
+
     const lineId = `line-${++this.lineCounter}-${Date.now()}`;
     const lineObj = {
       id: lineId,
       lineNumber: this.getNextLineNumber(),
       session: invite,
+      siblingInvites: [],
+      createdAt: Date.now(),
       remoteNumber: callerNum,
       remoteDisplayName: cleanedDisplayName && cleanedDisplayName !== callerNum ? cleanedDisplayName : "",
       queueName: parsedQueueName,
@@ -2570,6 +2627,13 @@ class WebphoneManager {
       } else if (line.callStatus === "Ringing") {
         this.recordTimelineEvent("call_rejected", `${remoteNum} gelen çağrısı meşgule/redde atıldı`);
         line.session.reject();
+        if (Array.isArray(line.siblingInvites)) {
+          line.siblingInvites.forEach((sib) => {
+            try {
+              sib.reject();
+            } catch (e) {}
+          });
+        }
       } else {
         this.collectAndSendLineQosStats(line);
         line.session.bye();
