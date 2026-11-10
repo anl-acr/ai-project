@@ -5325,11 +5325,8 @@ same => n,GotoIf($["${{CUT(VM_PREP,|,1)}}" != "ALLOW"]?vm_rec_fallback)
 same => n,Set(VM_ID=${{CUT(VM_PREP,|,2)}})
 same => n,Set(VM_GREET_WAV=${{CUT(VM_PREP,|,3)}})
 same => n,Set(VM_REC_FILE=${{CUT(VM_PREP,|,4)}})
-same => n,GotoIf($[${{STAT(e,${{VM_GREET_WAV}}.wav)}}]?vm_play_custom:vm_chk_def_wav)
+same => n,GotoIf($["${{VM_GREET_WAV}}" != ""]?vm_play_custom:vm_play_def_tr)
 same => n(vm_play_custom),Playback(${{VM_GREET_WAV}})
-same => n,Goto(vm_do_rec)
-same => n(vm_chk_def_wav),GotoIf($[${{STAT(e,/var/spool/asterisk/monitor/tr_sesli_mesaj.wav)}}]?vm_play_def_tr)
-same => n,Playback(vm-intro)
 same => n,Goto(vm_do_rec)
 same => n(vm_play_def_tr),Playback(/var/spool/asterisk/monitor/tr_sesli_mesaj)
 same => n(vm_do_rec),Playback(beep)
@@ -5350,7 +5347,7 @@ same => n,GotoIf($["${{VM_NEED_PIN}}" != "1"]?vm_load_msgs)
 same => n,Set(VM_PIN_TRY=0)
 same => n(vm_ask_pin),Set(VM_PIN_TRY=$[${{VM_PIN_TRY}} + 1])
 same => n,Set(VM_IN_PIN=)
-same => n,Read(VM_IN_PIN,vm-password,8,,,6)
+same => n,Read(VM_IN_PIN,/var/spool/asterisk/monitor/tr_giden_parola,8,,,6)
 same => n,Set(VM_PIN_OK=${{CURL(http://{backend_host}/api/voicemail/check_pin?extension=${{URIENCODE(${{VM_EXT}})}}&pin=${{URIENCODE(${{VM_IN_PIN}})}})}})
 same => n,GotoIf($["${{VM_PIN_OK}}" = "ALLOW"]?vm_load_msgs)
 same => n,Playback(beeperr)
@@ -24980,9 +24977,29 @@ async def prepare_voicemail_endpoint(
     cid_clean = str(call_id or "").strip()
     user_dict = await _load_merged_user_by_ext(ext_clean, db=db)
 
-    greeting_pb = "/var/spool/asterisk/monitor/tr_ulanilamiyor"
+    greeting_pb = "/var/spool/asterisk/monitor/tr_sesli_mesaj"
+    # Ensure default Turkish voicemail greeting exists in /var/spool/asterisk/monitor/tr_sesli_mesaj.wav
+    default_tr_candidates = [
+        os.path.join(PROJECT_ROOT, "uploads", "announcements", "tr_sesli_mesaj.wav"),
+        os.path.join(ASTERISK_CONFIG_DIR, "sounds_tr", "tr_sesli_mesaj.wav"),
+    ]
+    for def_wav in default_tr_candidates:
+        if os.path.exists(def_wav):
+            if os.path.isdir("/var/spool/asterisk/monitor") or os.path.exists("/var/spool/asterisk"):
+                try:
+                    os.makedirs("/var/spool/asterisk/monitor", exist_ok=True)
+                    dst_def = "/var/spool/asterisk/monitor/tr_sesli_mesaj.wav"
+                    shutil.copy2(def_wav, dst_def)
+                    os.chmod(dst_def, 0o644)
+                    greeting_pb = "/var/spool/asterisk/monitor/tr_sesli_mesaj"
+                except Exception:
+                    greeting_pb = os.path.splitext(def_wav)[0]
+            else:
+                greeting_pb = os.path.splitext(def_wav)[0]
+            break
+
     ann_ref = str((user_dict or {}).get("voicemail_announcement") or "").strip()
-    if ann_ref and ann_ref.lower() not in ("default", "none", "null", "varsayilan"):
+    if ann_ref and ann_ref.lower() not in ("default", "none", "null", "varsayilan", "tr_sesli_mesaj"):
         matched_ann = next(
             (
                 a for a in (settings_db.get("announcements") or [])

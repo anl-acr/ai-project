@@ -25,6 +25,7 @@ import {
 import { useTheme } from "../../utils/theme";
 import { getApiBaseUrl } from "../../utils/apiHost";
 import { webphoneManager } from "../../utils/webphoneManager";
+import WaveformAudioPlayer from "./WaveformAudioPlayer";
 
 const PRESET_TAGS = ["VIP", "Kurumsal", "Potansiyel Satış", "Teknik Destek", "Öncelikli", "Hassas Müşteri"];
 
@@ -748,11 +749,13 @@ export default function Customer360Drawer({
 
                         {item.has_recording && (
                           <div className="pt-1">
-                            <audio
-                              controls
-                              preload="none"
-                              className="w-full h-8"
+                            <WaveformAudioPlayer
                               src={`${API_BASE}/api/calls/${encodeURIComponent(item.call_id)}/recording`}
+                              initialDuration={item.duration}
+                              size="sm"
+                              barCount={28}
+                              title="Çağrı Ses Kaydı"
+                              className="w-full"
                             />
                           </div>
                         )}

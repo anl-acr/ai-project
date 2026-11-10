@@ -16,6 +16,7 @@ import {
 } from "lucide-react";
 import { useTheme } from "../../../utils/theme";
 import { maskPhoneLast4 } from "../../../utils/contactUtils";
+import WaveformAudioPlayer from "../../common/WaveformAudioPlayer";
 
 export default function AgentVoicemailTab({
   backendHost = "localhost:8000",
@@ -347,15 +348,15 @@ export default function AgentVoicemailTab({
                     </div>
 
                     {/* Audio Player & Action Buttons */}
-                    <div className="flex flex-col sm:flex-row sm:items-center gap-2.5 lg:justify-end">
-                      <audio
-                        controls
-                        preload="none"
+                    <div className="flex flex-col sm:flex-row sm:items-center gap-2.5 lg:justify-end flex-1 max-w-2xl">
+                      <WaveformAudioPlayer
                         src={audioSrc}
+                        initialDuration={vm.duration}
+                        title={`${displayCaller} sesli mesajı`}
                         onPlay={() => {
                           if (!vm.is_read) handleToggleRead(vm, true);
                         }}
-                        className="h-9 w-full sm:w-64 rounded-lg"
+                        className="w-full sm:w-80 md:w-96 flex-1"
                       />
 
                       <div className="flex items-center gap-1.5 shrink-0">

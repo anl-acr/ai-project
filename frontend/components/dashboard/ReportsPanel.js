@@ -62,6 +62,7 @@ import {
 } from "lucide-react";
 import { useTheme } from "../../utils/theme";
 import DateTimePickerInput from "../common/DateTimePickerInput";
+import WaveformAudioPlayer from "../common/WaveformAudioPlayer";
 import {
   AnimatedNumber,
   PanelShimmerSkeleton,
@@ -14003,19 +14004,16 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                           )}
                           {/* Ses Kaydı Oynatıcı Column */}
                           {isAudioMode && visibleColumns.audioRecord && (
-                            <td className="p-4 text-xs">
+                            <td className="p-3 text-xs min-w-[270px]" onClick={(e) => e.stopPropagation()}>
                               {call.recording_path ? (
-                                <button
-                                  onClick={() => setActiveAudioCall(call)}
-                                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border font-bold text-[10px] cursor-pointer transition-all ${
-                                    activeAudioCall?.id === call.id
-                                      ? `${bg} ${border} text-white shadow-sm`
-                                      : `${lightBg} ${text} ${borderLight} ${hover} hover:text-white`
-                                  }`}
-                                >
-                                  <Play size={10} />
-                                  <span>{activeAudioCall?.id === call.id ? "Oynatılıyor" : "Dinle"}</span>
-                                </button>
+                                <WaveformAudioPlayer
+                                  src={`${window.location.protocol}//${backendHost}${call.recording_path}`}
+                                  initialDuration={call.talk_duration || call.duration || durations.talk}
+                                  size="sm"
+                                  barCount={24}
+                                  title={`${getCustomerNumber(call)} ses kaydı`}
+                                  className="w-full max-w-[320px]"
+                                />
                               ) : call.recording_deleted_reason === "DELETED_BY_DYNAMIC_POLICY" ? (
                                 <span
                                   className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-amber-50 dark:bg-amber-950/30 text-amber-600 dark:text-amber-400 border border-amber-200 dark:border-amber-800/50 text-[10px] font-bold"
@@ -14339,10 +14337,11 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                         <p className="text-[9px] text-slate-400 dark:text-slate-500 font-mono">Tür: Asterisk PCM/WAV (16-bit Mono 8kHz)</p>
                       </div>
                     </div>
-                    <audio 
-                      src={`${window.location.protocol}//${backendHost}${selectedCall.recording_path}`} 
-                      controls 
-                      className="w-full h-9 mt-1 opacity-90 hover:opacity-100 dark:filter dark:invert transition"
+                    <WaveformAudioPlayer
+                      src={`${window.location.protocol}//${backendHost}${selectedCall.recording_path}`}
+                      initialDuration={selectedCall.talk_duration || selectedCall.duration}
+                      title={`${getCustomerNumber(selectedCall)} ses kaydı`}
+                      className="w-full mt-1"
                     />
                   </div>
                 )}
@@ -14513,12 +14512,15 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
               <p className="text-[9px] text-slate-450 dark:text-slate-500 font-mono mt-0.5">ID: {activeAudioCall.id.slice(0, 12)}...</p>
             </div>
           </div>
-          <div className="flex-1 flex items-center gap-3">
-            <audio 
-              src={`${window.location.protocol}//${backendHost}${activeAudioCall.recording_path}`} 
-              controls 
+          <div className="flex-1 flex items-center gap-3 min-w-0">
+            <WaveformAudioPlayer
+              src={`${window.location.protocol}//${backendHost}${activeAudioCall.recording_path}`}
+              initialDuration={activeAudioCall.talk_duration || activeAudioCall.duration}
               autoPlay
-              className="w-full h-8 accent-purple-600"
+              size="sm"
+              barCount={24}
+              title={`${getCustomerNumber(activeAudioCall)} ses kaydı`}
+              className="w-full"
             />
           </div>
           <button 

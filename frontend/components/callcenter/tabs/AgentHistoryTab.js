@@ -22,6 +22,7 @@ import {
 } from "lucide-react";
 import { useTheme } from "../../../utils/theme";
 import { findContactByPhone, maskPhoneLast4 } from "../../../utils/contactUtils";
+import WaveformAudioPlayer from "../../common/WaveformAudioPlayer";
 
 function parseBilingualTurnText(rawText) {
   const str = String(rawText || "");
@@ -941,11 +942,14 @@ export default function AgentHistoryTab({ backendHost, currentUser, callPanelPer
               </button>
             </div>
 
-            <audio
+            <WaveformAudioPlayer
               src={`${window.location.protocol}//${backendHost}${activeAudio.recording_path}`}
-              controls
+              initialDuration={activeAudio.talk_duration || activeAudio.duration}
               autoPlay
-              className="w-full h-8 outline-none [&::-webkit-media-controls-panel]:bg-slate-800 [&::-webkit-media-controls-panel]:text-white"
+              size="sm"
+              barCount={28}
+              title="Görüşme Kaydı"
+              className="w-full"
             />
           </div>,
           document.body
