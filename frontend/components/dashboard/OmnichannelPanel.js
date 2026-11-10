@@ -207,6 +207,7 @@ export default function OmnichannelPanel({ backendHost = "localhost:8000" }) {
   const [cannedResponses, setCannedResponses] = useState([]);
   const [systemUsers, setSystemUsers] = useState([]);
   const [contactsList, setContactsList] = useState([]);
+  const [channelSettings, setChannelSettings] = useState(null);
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [showCannedPopover, setShowCannedPopover] = useState(false);
   const [showAssignPopover, setShowAssignPopover] = useState(false);
@@ -326,10 +327,11 @@ export default function OmnichannelPanel({ backendHost = "localhost:8000" }) {
   useEffect(() => {
     const fetchInitialSupportData = async () => {
       try {
-        const [resCanned, resUsers, resContacts] = await Promise.all([
+        const [resCanned, resUsers, resContacts, resChannels] = await Promise.all([
           fetch(`${API_BASE}/api/canned-responses`).catch(() => null),
           fetch(`${API_BASE}/api/settings/users`).catch(() => null),
           fetch(`${API_BASE}/api/contacts`).catch(() => null),
+          fetch(`${API_BASE}/api/settings/channels?t=${Date.now()}`, { cache: "no-store" }).catch(() => null),
         ]);
         if (resCanned && resCanned.ok) {
           setCannedResponses(await resCanned.json());
@@ -342,6 +344,12 @@ export default function OmnichannelPanel({ backendHost = "localhost:8000" }) {
         if (resContacts && resContacts.ok) {
           const cData = await resContacts.json();
           setContactsList(Array.isArray(cData) ? cData : []);
+        }
+        if (resChannels && resChannels.ok) {
+          const chData = await resChannels.json();
+          if (chData && typeof chData === "object") {
+            setChannelSettings(chData);
+          }
         }
       } catch (err) {
         console.error("[Omnichannel] Error fetching initial support data:", err);
@@ -1386,6 +1394,36 @@ export default function OmnichannelPanel({ backendHost = "localhost:8000" }) {
     (s) => matchesStatusFilter(s, statusFilter) && matchesChannelFilter(s, channelFilter) && matchesSearchQuery(s)
   );
 
+  const isChannelConnected = (chId) => {
+    if (chId === "all") return true;
+    if (chId === "whatsapp") {
+      if (channelSettings === null) return true;
+      return Boolean(
+        (channelSettings?.whatsapp_token && String(channelSettings.whatsapp_token).trim()) ||
+          (channelSettings?.whatsapp_phone_number_id && String(channelSettings.whatsapp_phone_number_id).trim()) ||
+          (Array.isArray(channelSettings?.whatsapp_accounts) && channelSettings.whatsapp_accounts.length > 0) ||
+          sessions.some((s) => matchesChannelFilter(s, "whatsapp"))
+      );
+    }
+    if (chId === "email") {
+      if (channelSettings === null) return true;
+      return Boolean(
+        (channelSettings?.email_smtp_user && String(channelSettings.email_smtp_user).trim()) ||
+          sessions.some((s) => matchesChannelFilter(s, "email"))
+      );
+    }
+    if (chId === "instagram") {
+      return Boolean(channelSettings?.instagram_token && String(channelSettings.instagram_token).trim());
+    }
+    if (chId === "telegram") {
+      return Boolean(channelSettings?.telegram_token && String(channelSettings.telegram_token).trim());
+    }
+    if (chId === "facebook") {
+      return Boolean(channelSettings?.facebook_token && String(channelSettings.facebook_token).trim());
+    }
+    return false;
+  };
+
   const CHANNEL_PILLS = [
     { id: "all", label: "Tümü" },
     { id: "whatsapp", label: "WhatsApp" },
@@ -1393,7 +1431,15 @@ export default function OmnichannelPanel({ backendHost = "localhost:8000" }) {
     { id: "instagram", label: "Instagram" },
     { id: "telegram", label: "Telegram" },
     { id: "facebook", label: "Facebook" },
-  ];
+  ].filter((pill) => isChannelConnected(pill.id));
+
+  const activeChannelLabels = CHANNEL_PILLS.filter((p) => p.id !== "all").map((p) => p.label);
+  const channelSubtitleText =
+    activeChannelLabels.length > 1
+      ? `${activeChannelLabels.slice(0, -1).join(", ")} ve ${activeChannelLabels[activeChannelLabels.length - 1]} kanallarını tek merkezden filtreleyin, atayın ve yanıtlayın.`
+      : activeChannelLabels.length === 1
+        ? `${activeChannelLabels[0]} kanalını tek merkezden filtreleyin, atayın ve yanıtlayın.`
+        : "Bağlı iletişim kanallarınızı tek merkezden filtreleyin, atayın ve yanıtlayın.";
 
   const activeCallDigits =
     activeSession && !isEmailChannel(activeSession.channel)
@@ -1415,7 +1461,7 @@ export default function OmnichannelPanel({ backendHost = "localhost:8000" }) {
             )}
           </h2>
           <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-            WhatsApp, Instagram, Telegram, Facebook ve E-Posta kanallarını tek merkezden filtreleyin, atayın ve yanıtlayın.
+            {channelSubtitleText}
           </p>
         </div>
         <div className="flex items-center gap-2">
