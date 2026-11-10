@@ -14004,16 +14004,39 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                           )}
                           {/* Ses Kaydı Oynatıcı Column */}
                           {isAudioMode && visibleColumns.audioRecord && (
-                            <td className="p-3 text-xs min-w-[270px]" onClick={(e) => e.stopPropagation()}>
+                            <td className="p-3 text-xs" onClick={(e) => e.stopPropagation()}>
                               {call.recording_path ? (
-                                <WaveformAudioPlayer
-                                  src={`${window.location.protocol}//${backendHost}${call.recording_path}`}
-                                  initialDuration={call.talk_duration || call.duration || durations.talk}
-                                  size="sm"
-                                  barCount={24}
-                                  title={`${getCustomerNumber(call)} ses kaydı`}
-                                  className="w-full max-w-[320px]"
-                                />
+                                activeAudioCall?.id === call.id ? (
+                                  <div className="flex items-center gap-1.5 min-w-[270px] animate-in fade-in duration-150">
+                                    <WaveformAudioPlayer
+                                      key={call.id}
+                                      src={`${window.location.protocol}//${backendHost}${call.recording_path}`}
+                                      initialDuration={call.talk_duration || call.duration || durations.talk}
+                                      autoPlay
+                                      size="sm"
+                                      barCount={24}
+                                      title={`${getCustomerNumber(call)} ses kaydı`}
+                                      className="w-full max-w-[300px]"
+                                    />
+                                    <button
+                                      type="button"
+                                      onClick={() => setActiveAudioCall(null)}
+                                      className="p-1.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition shrink-0 cursor-pointer"
+                                      title="Oynatıcıyı Kapat"
+                                    >
+                                      <X size={13} />
+                                    </button>
+                                  </div>
+                                ) : (
+                                  <button
+                                    type="button"
+                                    onClick={() => setActiveAudioCall(call)}
+                                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border font-bold text-[10px] cursor-pointer transition-all ${lightBg} ${text} ${borderLight} ${hover} hover:text-white`}
+                                  >
+                                    <Play size={10} />
+                                    <span>Dinle</span>
+                                  </button>
+                                )
                               ) : call.recording_deleted_reason === "DELETED_BY_DYNAMIC_POLICY" ? (
                                 <span
                                   className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-amber-50 dark:bg-amber-950/30 text-amber-600 dark:text-amber-400 border border-amber-200 dark:border-amber-800/50 text-[10px] font-bold"
@@ -14498,37 +14521,6 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
               <p className="text-xs text-slate-450 dark:text-slate-600 mt-1 font-medium">Sol menüden çağrı detaylarını incelemek için bir görüşme seçebilirsiniz.</p>
             </div>
           )}
-        </div>
-      )}
-      {/* Floating Audio Player Sticky Tray */}
-      {isAudioMode && activeAudioCall && (
-        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 w-full max-w-lg bg-white/95 dark:bg-slate-900/95 backdrop-blur-md border border-slate-200/80 dark:border-slate-800 rounded-3xl p-4 shadow-2xl z-50 flex items-center justify-between gap-4 animate-in slide-in-from-bottom-5 duration-300">
-          <div className="flex items-center gap-3 min-w-0">
-            <div className="h-10 w-10 rounded-2xl bg-purple-50 dark:bg-primary/20 text-primary dark:text-purple-400 flex items-center justify-center shrink-0">
-              <Phone size={18} />
-            </div>
-            <div className="min-w-0">
-              <p className="text-xs font-black text-slate-800 dark:text-slate-100 truncate">{getCustomerNumber(activeAudioCall)} ile Görüşme</p>
-              <p className="text-[9px] text-slate-450 dark:text-slate-500 font-mono mt-0.5">ID: {activeAudioCall.id.slice(0, 12)}...</p>
-            </div>
-          </div>
-          <div className="flex-1 flex items-center gap-3 min-w-0">
-            <WaveformAudioPlayer
-              src={`${window.location.protocol}//${backendHost}${activeAudioCall.recording_path}`}
-              initialDuration={activeAudioCall.talk_duration || activeAudioCall.duration}
-              autoPlay
-              size="sm"
-              barCount={24}
-              title={`${getCustomerNumber(activeAudioCall)} ses kaydı`}
-              className="w-full"
-            />
-          </div>
-          <button 
-            onClick={() => setActiveAudioCall(null)}
-            className="p-1.5 bg-slate-50 hover:bg-slate-100 dark:bg-slate-850 dark:hover:bg-slate-800 text-slate-500 dark:text-slate-400 rounded-xl transition cursor-pointer shrink-0"
-          >
-            <X size={14} />
-          </button>
         </div>
       )}
       {/* Agent Details Modal */}
