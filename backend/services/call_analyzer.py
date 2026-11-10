@@ -200,10 +200,16 @@ async def analyze_call(call_id: str) -> dict:
     """
     print(f"[Call Analyzer] Analyzing call_id={call_id}")
     async with AsyncSessionLocal() as session:
-        # 1. Fetch transcripts
+        # 1. Fetch transcripts (and auto-transcribe from .wav recording if not yet transcribed)
         stmt = select(Transcript).where(Transcript.call_id == call_id).order_by(Transcript.timestamp.asc())
         result = await session.execute(stmt)
-        turns = result.scalars().all()
+        turns = list(result.scalars().all())
+        if not turns:
+            try:
+                from backend.main import _auto_transcribe_call_recording
+                turns = await _auto_transcribe_call_recording(call_id, session)
+            except Exception as tr_ex:
+                print(f"[Call Analyzer] Auto-transcribe before analyze warning ({call_id}): {tr_ex}")
         
         if not turns:
             print(f"[Call Analyzer] No transcripts found for call_id={call_id}")

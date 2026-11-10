@@ -7526,22 +7526,36 @@ async def process_call_recording_and_retention(call_id: str):
                     await session.commit()
                 return
 
-            # 1. Check per-user `recording_active` setting (Kullanıcılar > Özellikler > Ses Kayıt)
-            user_rec_enabled = await _is_user_recording_enabled_for_call(db_call, session)
-            if not user_rec_enabled:
-                _delete_call_recording_files_sync(call_id)
-                db_call.recording_path = "DISABLED_BY_USER_SETTING"
-                await session.commit()
-                add_system_log("RECORDING", "INFO", f"Kullanıcı ses kayıt ayarı kapalı olduğu için ses kaydı saklanmadı: ID={call_id}")
-                return
-
-            # 2. Sync recording from /var/spool/asterisk/monitor to project recordings/ directory
+            # 1. Sync recording from /var/spool/asterisk/monitor to project recordings/ directory first
+            #    so transcription & Local LLM analysis can ALWAYS run before any retention deletion.
             wav_path = await asyncio.to_thread(_sync_spool_recording_to_project_sync, call_id)
             if wav_path:
                 wav_sec = await asyncio.to_thread(_get_call_wav_duration_seconds, call_id)
                 if wav_sec is not None and wav_sec > 0 and db_call.talk_duration != wav_sec:
                     db_call.talk_duration = wav_sec
                     await session.commit()
+
+            # 2. Check per-user `recording_active` setting (Kullanıcılar > Özellikler > Ses Kayıt)
+            user_rec_enabled = await _is_user_recording_enabled_for_call(db_call, session)
+            if not user_rec_enabled:
+                # Generate call transcript & Local LLM summary/QA score BEFORE removing the .wav file
+                res_tr_u = await session.execute(
+                    select(Transcript).where(Transcript.call_id == call_id).order_by(Transcript.timestamp.asc())
+                )
+                turns_u = list(res_tr_u.scalars().all())
+                if not turns_u and wav_path:
+                    turns_u = await _auto_transcribe_call_recording(call_id, session)
+                if not db_call.summary or any(k in str(db_call.summary).lower() for k in ("çıkartılamadı", "algılanmadı", "dahili görüşme")):
+                    try:
+                        from backend.services.call_analyzer import analyze_call
+                        await analyze_call(call_id)
+                    except Exception as ex_an_u:
+                        print(f"[Post-Call Analyzer Warning ({call_id})]: {ex_an_u}")
+                _delete_call_recording_files_sync(call_id)
+                db_call.recording_path = "DISABLED_BY_USER_SETTING"
+                await session.commit()
+                add_system_log("RECORDING", "INFO", f"Kullanıcı ses kayıt ayarı kapalı olduğu için transkript çıkarıldıktan sonra ses kaydı silindi: ID={call_id}")
+                return
 
             # 3. Check Dynamic Voice Recording setting
             retention = get_effective_recording_retention_settings()
@@ -7568,7 +7582,7 @@ async def process_call_recording_and_retention(call_id: str):
                 if retention.get("external_storage_enabled", False):
                     await asyncio.to_thread(_transfer_recording_to_external_storage_sync, call_id, retention)
 
-                if not db_call.summary or "çıkartılamadı" in str(db_call.summary).lower() or "algılanmadı" in str(db_call.summary).lower():
+                if not db_call.summary or any(k in str(db_call.summary).lower() for k in ("çıkartılamadı", "algılanmadı", "dahili görüşme")):
                     try:
                         from backend.services.call_analyzer import analyze_call
                         await analyze_call(call_id)
@@ -20020,17 +20034,61 @@ async def _auto_transcribe_call_recording(call_id: str, db: AsyncSession) -> lis
     saves the turns to PostgreSQL `transcripts`, and returns them.
     """
     try:
-        filename = f"{call_id}.wav"
-        candidates = [
-            os.path.join(RECORDINGS_DIR, filename),
-            os.path.join("/var/spool/asterisk/monitor", filename),
-            os.path.join("/mnt/nas/ai-recordings", filename),
-        ]
+        db_call = await db.get(Call, call_id)
+        base_time = (db_call.start_time if db_call and db_call.start_time else datetime.datetime.utcnow())
+        target_tenant = (getattr(db_call, "tenant_id", None) or "tenant-default") if db_call else "tenant-default"
+
+        # Ensure any fresh recording in /var/spool/asterisk/monitor is synced first
+        await asyncio.to_thread(_sync_spool_recording_to_project_sync, call_id)
+
+        candidate_ids = [call_id]
+        if db_call and db_call.recording_path and "/api/recordings/" in str(db_call.recording_path):
+            rec_fn = str(db_call.recording_path).split("/api/recordings/")[-1].split("?")[0].strip()
+            if rec_fn.endswith(".wav"):
+                rec_cid = rec_fn[:-4]
+                if rec_cid and rec_cid not in candidate_ids:
+                    candidate_ids.append(rec_cid)
+
+        # Also check sibling Call rows within ±30s (e.g. webphone- ID vs Asterisk CALL_UUID)
+        if db_call and db_call.start_time:
+            try:
+                win_start = db_call.start_time - datetime.timedelta(seconds=30)
+                win_end = db_call.start_time + datetime.timedelta(seconds=30)
+                sib_stmt = (
+                    select(Call.id)
+                    .where(
+                        and_(
+                            Call.id != call_id,
+                            Call.caller_number == db_call.caller_number,
+                            Call.callee_number == db_call.callee_number,
+                            Call.start_time >= win_start,
+                            Call.start_time <= win_end,
+                        )
+                    )
+                    .order_by(Call.start_time.desc())
+                )
+                sib_res = await db.execute(sib_stmt)
+                for s_id in sib_res.scalars().all():
+                    if s_id and s_id not in candidate_ids:
+                        candidate_ids.append(s_id)
+            except Exception:
+                pass
+
         wav_path = None
-        for p in candidates:
-            if os.path.exists(p) and os.path.getsize(p) > 800:
-                wav_path = p
+        for cid in candidate_ids:
+            await asyncio.to_thread(_sync_spool_recording_to_project_sync, cid)
+            fn = f"{cid}.wav"
+            for p in (
+                os.path.join(RECORDINGS_DIR, fn),
+                os.path.join("/var/spool/asterisk/monitor", fn),
+                os.path.join("/mnt/nas/ai-recordings", fn),
+            ):
+                if os.path.exists(p) and os.path.getsize(p) > 800:
+                    wav_path = p
+                    break
+            if wav_path:
                 break
+
         if not wav_path:
             return []
 
@@ -20038,10 +20096,6 @@ async def _auto_transcribe_call_recording(call_id: str, db: AsyncSession) -> lis
             audio_bytes = f.read()
         if not audio_bytes or len(audio_bytes) < 800:
             return []
-
-        db_call = await db.get(Call, call_id)
-        base_time = (db_call.start_time if db_call and db_call.start_time else datetime.datetime.utcnow())
-        target_tenant = (getattr(db_call, "tenant_id", None) or "tenant-default") if db_call else "tenant-default"
 
         extracted_turns = []
 
@@ -20054,8 +20108,11 @@ async def _auto_transcribe_call_recording(call_id: str, db: AsyncSession) -> lis
                 audio_bytes=audio_bytes,
                 tenant_id=target_tenant,
             )
-            if prov_used != "gemini_delegate":
-                extracted_turns = list(routed_turns or [])
+            if routed_turns:
+                extracted_turns = list(routed_turns)
+                should_run_gemini = False
+            elif prov_used == "local_stt_fallback":
+                # Cloud fallback is disabled; skip Gemini and go directly to zero-token Keyless STT + Local Ollama LLM
                 should_run_gemini = False
         except Exception as r_tr_err:
             print(f"[AutoTranscribe Router Error]: {r_tr_err}")
@@ -20131,26 +20188,38 @@ async def _auto_transcribe_call_recording(call_id: str, db: AsyncSession) -> lis
                 except Exception as g_err:
                     print(f"[AutoTranscribe Gemini ({model_name}) Warning]: {g_err}")
 
-        # 2. Fallback: Built-in Keyless Google Chromium Speech API v2 over 10-second WAV chunks
+        # 2. Fallback: Built-in Keyless Google Chromium Speech API v2 over 10-second WAV chunks + Local Ollama Diarization
         if not extracted_turns:
             try:
                 import struct
                 sample_rate = 8000
+                num_channels = 1
+                bits_per_sample = 16
                 if audio_bytes[:4] == b"RIFF" and b"WAVE" in audio_bytes[:16]:
                     try:
+                        num_channels = struct.unpack("<H", audio_bytes[22:24])[0]
+                        if num_channels not in (1, 2):
+                            num_channels = 1
                         sample_rate = struct.unpack("<I", audio_bytes[24:28])[0]
                         if sample_rate < 8000 or sample_rate > 48000:
                             sample_rate = 8000
+                        bits_per_sample = struct.unpack("<H", audio_bytes[34:36])[0]
+                        if bits_per_sample not in (8, 16, 24, 32):
+                            bits_per_sample = 16
                     except Exception:
                         sample_rate = 8000
+                        num_channels = 1
+                        bits_per_sample = 16
                     data_idx = audio_bytes.find(b"data")
                     pcm_all = audio_bytes[data_idx + 8:] if data_idx != -1 else audio_bytes[44:]
                 else:
                     pcm_all = audio_bytes[44:]
 
-                bytes_per_sec = sample_rate * 2  # 16-bit mono
+                bytes_per_sample = max(1, bits_per_sample // 8)
+                frame_align = max(2, num_channels * bytes_per_sample)
+                bytes_per_sec = sample_rate * frame_align
                 chunk_bytes_len = bytes_per_sec * 10  # 10s chunks
-                max_chunks = 12  # up to 2 minutes
+                max_chunks = 30  # up to 5 minutes
 
                 for c_idx in range(min(max_chunks, max(1, (len(pcm_all) + chunk_bytes_len - 1) // chunk_bytes_len))):
                     chunk_pcm = pcm_all[c_idx * chunk_bytes_len : (c_idx + 1) * chunk_bytes_len]
@@ -20166,11 +20235,11 @@ async def _auto_transcribe_call_recording(call_id: str, db: AsyncSession) -> lis
                         b"fmt ",
                         16,
                         1,
-                        1,
+                        num_channels,
                         sample_rate,
-                        sample_rate * 2,
-                        2,
-                        16,
+                        bytes_per_sec,
+                        frame_align,
+                        bits_per_sample,
                         b"data",
                         data_size,
                     )
@@ -20196,6 +20265,13 @@ async def _auto_transcribe_call_recording(call_id: str, db: AsyncSession) -> lis
                             extracted_turns.append((spk, en_res))
                     else:
                         extracted_turns.append((spk, tr_res))
+
+                if extracted_turns:
+                    try:
+                        from backend.services.ai_task_router import diarize_turns_with_local_ollama
+                        extracted_turns = await diarize_turns_with_local_ollama(extracted_turns, target_tenant)
+                    except Exception:
+                        pass
             except Exception as fb_err:
                 print(f"[AutoTranscribe Chromium Fallback Warning]: {fb_err}")
 

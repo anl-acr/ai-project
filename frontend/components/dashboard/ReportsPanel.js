@@ -3146,9 +3146,11 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
     const lower = s.trim().toLocaleLowerCase("tr-TR");
     if (!lower) return true;
     return (
+      lower === "dahili görüşme" ||
       lower.includes("çıkartılamadı") ||
       lower.includes("oluşturulamadı") ||
-      lower.includes("bulunmamaktadır")
+      lower.includes("bulunmamaktadır") ||
+      lower.includes("algılanmadı")
     );
   };
 

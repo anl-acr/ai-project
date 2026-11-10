@@ -43,28 +43,28 @@ DEFAULT_AI_TASK_ROUTING = {
     # Task-specific routing matrix (Voice AI, WhatsApp & Live Translator intentionally excluded)
     "tasks": {
         "call_transcription": {
-            "provider": "gemini",
-            "model": "gemini-2.5-flash",
+            "provider": "local_whisper",
+            "model": "base",
             "enabled": True,
         },
         "call_summary_sentiment": {
-            "provider": "gemini",
-            "model": "gemini-2.5-flash",
+            "provider": "ollama",
+            "model": "qwen2.5:1.5b",
             "enabled": True,
         },
         "agent_call_note_assistant": {
-            "provider": "gemini",
-            "model": "gemini-2.5-flash",
+            "provider": "ollama",
+            "model": "qwen2.5:1.5b",
             "enabled": True,
         },
         "call_qa_scoring": {
-            "provider": "gemini",
-            "model": "gemini-2.5-flash",
+            "provider": "ollama",
+            "model": "qwen2.5:1.5b",
             "enabled": True,
         },
         "chat_qa_scoring": {
-            "provider": "gemini",
-            "model": "gemini-2.5-flash",
+            "provider": "ollama",
+            "model": "qwen2.5:1.5b",
             "enabled": True,
         },
         "rag_embeddings": {
@@ -73,8 +73,8 @@ DEFAULT_AI_TASK_ROUTING = {
             "enabled": True,
         },
         "rag_knowledge_synthesis": {
-            "provider": "gemini",
-            "model": "gemini-2.5-flash",
+            "provider": "ollama",
+            "model": "qwen2.5:1.5b",
             "enabled": True,
         },
         "scenario_generator": {
@@ -296,6 +296,23 @@ async def _call_ollama_chat(
             return (data.get("choices", [{}])[0].get("message", {}).get("content") or "").strip()
         else:
             resp = await client.post(f"{base_url}/api/chat", json=body, headers=headers)
+            if resp.status_code == 404:
+                # If requested model tag is not installed, auto-discover the first installed non-embedding model on Ollama
+                try:
+                    tags_resp = await client.get(f"{base_url}/api/tags", headers=headers, timeout=5.0)
+                    if tags_resp.status_code == 200:
+                        models_list = (tags_resp.json() or {}).get("models") or []
+                        alt_model = None
+                        for m_obj in models_list:
+                            m_name = str((m_obj or {}).get("name") or "").strip()
+                            if m_name and "embed" not in m_name.lower():
+                                alt_model = m_name
+                                break
+                        if alt_model and alt_model != body.get("model"):
+                            body["model"] = alt_model
+                            resp = await client.post(f"{base_url}/api/chat", json=body, headers=headers)
+                except Exception:
+                    pass
             resp.raise_for_status()
             data = resp.json()
             return ((data.get("message") or {}).get("content") or "").strip()
@@ -556,6 +573,7 @@ def _run_local_faster_whisper_sync(wav_path: str, model_size: str, cpu_threads: 
     """
     Runs faster-whisper in CPU/GPU auto mode with int8 quantization, then immediately
     destroys the model instance and runs gc.collect() to free 100% of RAM on 4GB hosts.
+    Automatically retries with vad_filter=False if Silero VAD filters out 8kHz telephony audio.
     """
     from faster_whisper import WhisperModel  # Optional package installed on server only
 
@@ -570,7 +588,12 @@ def _run_local_faster_whisper_sync(wav_path: str, model_size: str, cpu_threads: 
             cpu_threads=max(1, min(16, int(cpu_threads or 2))),
             num_workers=1,
         )
-        segments, info = model.transcribe(wav_path, beam_size=2, vad_filter=True)
+        segments, info = model.transcribe(
+            wav_path,
+            beam_size=2,
+            vad_filter=True,
+            vad_parameters=dict(min_silence_duration_ms=400, speech_pad_ms=250, threshold=0.35),
+        )
         detected_lang = str(getattr(info, "language", "tr") or "tr").upper()
         for idx, seg in enumerate(segments):
             txt = (seg.text or "").strip()
@@ -581,11 +604,91 @@ def _run_local_faster_whisper_sync(wav_path: str, model_size: str, cpu_threads: 
                 turns.append((spk, f"{txt}\n[[ORIG:{detected_lang}]] {txt}"))
             else:
                 turns.append((spk, txt))
+
+        # On 8kHz narrowband Asterisk telephony WAV files, Silero VAD can return 0 segments. Retry with vad_filter=False:
+        if not turns:
+            segments_no_vad, info_no_vad = model.transcribe(wav_path, beam_size=2, vad_filter=False)
+            detected_lang = str(getattr(info_no_vad, "language", "tr") or "tr").upper()
+            for idx, seg in enumerate(segments_no_vad):
+                txt = (seg.text or "").strip()
+                if not txt:
+                    continue
+                spk = "customer" if idx % 2 == 0 else "human"
+                if detected_lang != "TR":
+                    turns.append((spk, f"{txt}\n[[ORIG:{detected_lang}]] {txt}"))
+                else:
+                    turns.append((spk, txt))
         return turns
     finally:
         if model is not None:
             del model
         gc.collect()
+
+
+async def diarize_turns_with_local_ollama(
+    raw_turns: List[Tuple[str, str]],
+    tenant_id: str = "tenant-default",
+) -> List[Tuple[str, str]]:
+    """
+    Uses Local LLM (Ollama) when online to accurately assign speaker roles ('customer' vs 'human')
+    and split/clean raw STT transcript segments without consuming any cloud API tokens.
+    Falls back immediately to `raw_turns` if Ollama is offline or unreachable.
+    """
+    if not raw_turns:
+        return []
+    try:
+        cfg = get_ai_task_routing_config(tenant_id)
+        sum_task = (cfg.get("tasks") or {}).get("call_summary_sentiment") or {}
+        tr_task = (cfg.get("tasks") or {}).get("call_transcription") or {}
+        if str(sum_task.get("provider") or "").lower() != "ollama" and str(tr_task.get("provider") or "").lower() not in ("local_whisper", "ollama"):
+            return raw_turns
+
+        ollama_model = str(sum_task.get("model") or "qwen2.5:1.5b").strip()
+        if not ollama_model or "whisper" in ollama_model.lower() or "gemini" in ollama_model.lower():
+            ollama_model = "qwen2.5:1.5b"
+
+        lines_input = []
+        for idx, (spk, txt) in enumerate(raw_turns[:40]):
+            lines_input.append({"index": idx, "speaker_hint": spk, "text": txt})
+
+        prompt = (
+            "Aşağıdaki telefon görüşmesi ses tanıma (STT) metin satırlarını incele. "
+            "Her satırın konuşmacısını çağrı merkezi temsilcisi ise \"human\", arayan müşteri/dış kişi ise \"customer\" olarak belirle. "
+            "Metinlerin orijinal anlamını ve varsa [[ORIG:...]] etiketlerini koru.\n"
+            "SADECE aşağıdaki JSON formatında yanıt ver:\n"
+            "{\"turns\": [{\"speaker\": \"customer\", \"text\": \"...\"}, {\"speaker\": \"human\", \"text\": \"...\"}]}\n\n"
+            f"Giriş Satırları:\n{json.dumps(lines_input, ensure_ascii=False)}"
+        )
+        cfg_fast = dict(cfg)
+        cfg_fast["request_timeout_seconds"] = min(20, int(cfg.get("request_timeout_seconds") or 20))
+        out_str = await _call_ollama_chat(
+            cfg=cfg_fast,
+            model_name=ollama_model,
+            prompt=prompt,
+            json_mode=True,
+        )
+        if out_str:
+            cleaned = out_str.strip().removeprefix("```json").removeprefix("```").removesuffix("```").strip()
+            parsed = json.loads(cleaned)
+            t_list = parsed.get("turns") if isinstance(parsed, dict) else (parsed if isinstance(parsed, list) else [])
+            if isinstance(t_list, list) and t_list:
+                refined: List[Tuple[str, str]] = []
+                for idx, item in enumerate(t_list):
+                    if not isinstance(item, dict):
+                        continue
+                    spk = str(item.get("speaker") or "").strip().lower()
+                    if spk not in ("customer", "human"):
+                        spk = "customer" if idx % 2 == 0 else "human"
+                    txt = str(item.get("text") or "").strip()
+                    if txt:
+                        refined.append((spk, txt))
+                if refined:
+                    if len(raw_turns) > 40:
+                        refined.extend(raw_turns[40:])
+                    return refined
+    except Exception as e:
+        print(f"[AITaskRouter] Local Ollama diarization skipped: {e}")
+    return raw_turns
 
 
 async def transcribe_routed_audio(
@@ -598,16 +701,18 @@ async def transcribe_routed_audio(
     If 'gemini' is configured (or fallback triggers), returns ('gemini_delegate', []) so caller runs Gemini/Chromium pipeline.
     """
     cfg = get_ai_task_routing_config(tenant_id)
-    task_cfg = (cfg.get("tasks") or {}).get("call_transcription") or {"provider": "gemini"}
-    provider = str(task_cfg.get("provider") or "gemini").lower()
+    task_cfg = (cfg.get("tasks") or {}).get("call_transcription") or {"provider": "local_whisper"}
+    provider = str(task_cfg.get("provider") or "local_whisper").lower()
     model_name = str(task_cfg.get("model") or "").strip()
 
     if provider == "gemini":
         return ("gemini_delegate", [])
 
-    if provider == "local_whisper":
+    if provider in ("local_whisper", "ollama"):
         w_mode = str(cfg.get("whisper_mode") or "local_python").lower()
         w_size = str(model_name or cfg.get("whisper_model_size") or "base").strip()
+        if w_size not in ("tiny", "base", "small", "medium", "large-v3"):
+            w_size = str(cfg.get("whisper_model_size") or "base").strip()
         num_threads = max(1, min(16, int(cfg.get("max_cpu_threads") or 2)))
         target_url = "http://127.0.0.1" if w_mode == "local_python" else str(cfg.get("whisper_remote_url") or "")
 
@@ -650,11 +755,15 @@ async def transcribe_routed_audio(
                                     turns.append(("customer" if idx % 2 == 0 else "human", t))
                         elif rj.get("text"):
                             turns.append(("customer", str(rj["text"]).strip()))
+                        if turns:
+                            turns = await diarize_turns_with_local_ollama(turns, tenant_id)
                         AI_ROUTER_STATS["total_local_jobs"] += 1
                         AI_ROUTER_STATS["estimated_saved_tokens"] += 600
                         return ("local_whisper_remote", turns)
                 else:
                     turns = await asyncio.to_thread(_run_local_faster_whisper_sync, wav_path, w_size, num_threads)
+                    if turns:
+                        turns = await diarize_turns_with_local_ollama(turns, tenant_id)
                     AI_ROUTER_STATS["total_local_jobs"] += 1
                     AI_ROUTER_STATS["estimated_saved_tokens"] += 600
                     AI_ROUTER_STATS["last_completed_at"] = time.strftime("%H:%M:%S")
@@ -665,7 +774,7 @@ async def transcribe_routed_audio(
             if cfg.get("cloud_fallback_enabled", True):
                 AI_ROUTER_STATS["total_cloud_fallbacks"] += 1
                 return ("gemini_delegate", [])
-            raise
+            return ("local_stt_fallback", [])
         finally:
             AI_ROUTER_STATS["active_task"] = None
             AI_ROUTER_STATS["active_since"] = None
