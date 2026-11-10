@@ -1853,6 +1853,12 @@ same => n,Set(FALLBACK_HANDLED=1)
 same => n,Return()
 same => n(vm_rec_fallback),Playback(/var/spool/asterisk/monitor/tr_sesli_mesaj)
 same => n,Return()
+exten => h,1,NoOp(Voicemail Hangup Finalize: VM_ID=${VM_ID} Call=${CALL_UUID})
+same => n,Set(CURLOPT(conntimeout)=1)
+same => n,Set(CURLOPT(httptimeout)=3)
+same => n,Set(VM_FIN_H=${CURL(http://127.0.0.1:8000/api/voicemail/complete?vm_id=${URIENCODE(${VM_ID})}&call_id=${URIENCODE(${CALL_UUID})}&extension=${URIENCODE(${VM_TARGET_EXT})}&caller=${URIENCODE(${CALLERID(num)})})})
+same => n,Set(END_RES=${CURL(http://127.0.0.1:8000/api/calls/end?call_id=${URIENCODE(${CALL_UUID})}&dialstatus=VOICEMAIL&hangupcause=${URIENCODE(${HANGUPCAUSE})}&status=voicemail&hangupsource=${URIENCODE(voicemail:${VM_TARGET_EXT})})})
+same => n,Hangup()
 
 [voicemail_ivr_sub]
 ; ARG1 = extension, ARG2 = has_pin (0/1)

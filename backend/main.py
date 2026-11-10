@@ -5339,6 +5339,12 @@ same => n,Set(FALLBACK_HANDLED=1)
 same => n,Return()
 same => n(vm_rec_fallback),Playback(/var/spool/asterisk/monitor/tr_sesli_mesaj)
 same => n,Return()
+exten => h,1,NoOp(Voicemail Hangup Finalize: VM_ID=${{VM_ID}} Call=${{CALL_UUID}})
+same => n,Set(CURLOPT(conntimeout)=1)
+same => n,Set(CURLOPT(httptimeout)=3)
+same => n,Set(VM_FIN_H=${{CURL(http://{backend_host}/api/voicemail/complete?vm_id=${{URIENCODE(${{VM_ID}})}}&call_id=${{URIENCODE(${{CALL_UUID}})}}&extension=${{URIENCODE(${{VM_TARGET_EXT}})}}&caller=${{URIENCODE(${{CALLERID(num)}})}})}})
+same => n,Set(END_RES=${{CURL(http://{backend_host}/api/calls/end?call_id=${{URIENCODE(${{CALL_UUID}})}}&dialstatus=VOICEMAIL&hangupcause=${{URIENCODE(${{HANGUPCAUSE}})}}&status=voicemail&hangupsource=${{URIENCODE(voicemail:${{VM_TARGET_EXT}})}})}})
+same => n,Hangup()
 
 [voicemail_ivr_sub]
 ; ARG1 = extension, ARG2 = has_pin (0/1)
@@ -13619,8 +13625,8 @@ async def resolve_subscriber_forwarding(
                 log_fwd_action("Meşgul / Mobil GSM Aktarımı", gsm_num)
                 return Response(content=f"ALLOW:{gsm_num}:{no_ans_timeout}", media_type="text/plain")
 
-        # Rule 3: ZAMAN AŞIMINDA (CEVAPSIZ) (forwarding_no_answer & voicemail) - When line rings and times out
-        if dialstatus in ["NOANSWER", "CANCEL"]:
+        # Rule 3: ZAMAN AŞIMINDA (CEVAPSIZ) (forwarding_no_answer & voicemail) - When line rings and times out or is unreachable
+        if dialstatus in ["NOANSWER", "CANCEL", "BUSY", "CHANUNAVAIL", "CONGESTION", ""]:
             if f_noans:
                 print(f"[Forwarding Resolver] Extension {ext_str} ({dialstatus}) -> 3. ZAMAN AŞIMINDA (Cevapsız) Forward to: {f_noans}")
                 log_fwd_action("Cevapsız Zaman Aşımı Yönlendirmesi", f_noans)
@@ -13665,6 +13671,10 @@ async def resolve_subscriber_forwarding(
                 print(f"[Forwarding Resolver] Extension {ext_str} (OFFLINE) -> Mobile Transfer GSM: {gsm_num}")
                 log_fwd_action("Çevrimdışı Mobil GSM Aktarımı", gsm_num)
                 return Response(content=f"ALLOW:{gsm_num}:{no_ans_timeout}", media_type="text/plain")
+            if bool(user_dict.get("voicemail_active", False)):
+                print(f"[Forwarding Resolver] Extension {ext_str} (OFFLINE) -> Voicemail Active -> VOICEMAIL")
+                log_fwd_action("Çevrimdışı Sesli Mesaj (Voicemail)", "VOICEMAIL")
+                return Response(content=f"ALLOW:VOICEMAIL:{no_ans_timeout}", media_type="text/plain")
 
         # Return default timeout for Dial execution
         return Response(content=f"DENY:NONE:{no_ans_timeout}", media_type="text/plain")
@@ -17704,7 +17714,14 @@ async def end_call_endpoint(
                 clean_member_ext = _extract_clean_agent_ext(str(memberinterface))
 
             resolved_status = "completed"
-            if is_queue_call:
+            if db_call.status == "voicemail" or hangup_src_val.startswith("voicemail") or str(status or "").lower() == "voicemail" or str(dialstatus or "").upper() == "VOICEMAIL":
+                resolved_status = "voicemail"
+                if not hangup_src_val.startswith("voicemail"):
+                    if hangupsource and str(hangupsource).lower().startswith("voicemail"):
+                        db_call.hangup_source = str(hangupsource)
+                    else:
+                        db_call.hangup_source = f"voicemail:{callee_s or '1000'}"
+            elif is_queue_call:
                 q_ext_val = (
                     hangup_src_val.split(":")[1]
                     if hangup_src_val.startswith("queue:") and ":" in hangup_src_val
@@ -25096,7 +25113,16 @@ async def _finalize_voicemail_recording(
                     pending = p_obj
                     break
 
-    if pending and pending.get("finalized"):
+    if not pending and vm_id:
+        meta_json_path = os.path.join(RECORDINGS_DIR, f"vm_{re.sub(r'[^a-zA-Z0-9_-]', '', str(vm_id))}.json")
+        if os.path.exists(meta_json_path):
+            try:
+                with open(meta_json_path, "r", encoding="utf-8") as mf:
+                    pending = json.load(mf)
+            except Exception:
+                pending = None
+
+    if pending and pending.get("finalized") and pending.get("result"):
         return pending.get("result")
 
     eff_vm_id = re.sub(r"[^a-zA-Z0-9_-]", "", str(vm_id or (pending or {}).get("vm_id") or "").strip())
@@ -25113,7 +25139,7 @@ async def _finalize_voicemail_recording(
     local_wav = os.path.join(RECORDINGS_DIR, f"vm_{eff_vm_id}.wav")
 
     active_wav = ""
-    if os.path.exists(spool_wav) and os.path.getsize(spool_wav) > 200:
+    if os.path.exists(spool_wav) and os.path.getsize(spool_wav) > 44:
         active_wav = spool_wav
         try:
             if os.path.abspath(spool_wav) != os.path.abspath(local_wav):
@@ -25121,7 +25147,7 @@ async def _finalize_voicemail_recording(
                 active_wav = local_wav
         except Exception:
             pass
-    elif os.path.exists(local_wav) and os.path.getsize(local_wav) > 200:
+    elif os.path.exists(local_wav) and os.path.getsize(local_wav) > 44:
         active_wav = local_wav
         try:
             if os.path.isdir("/var/spool/asterisk/monitor") and not os.path.exists(spool_wav):
@@ -25134,6 +25160,21 @@ async def _finalize_voicemail_recording(
         pending["finalized"] = True
 
     if not active_wav:
+        if eff_call_id:
+            try:
+                async def _mark_call_vm_only(sess: AsyncSession):
+                    db_call = await sess.get(Call, eff_call_id)
+                    if db_call:
+                        db_call.status = "voicemail"
+                        db_call.hangup_source = f"voicemail:{eff_ext}"
+                        await sess.commit()
+                if db is not None:
+                    await _mark_call_vm_only(db)
+                else:
+                    async with AsyncSessionLocal() as own_s:
+                        await _mark_call_vm_only(own_s)
+            except Exception:
+                pass
         if pending is not None:
             pending["result"] = None
         return None
@@ -25237,6 +25278,226 @@ async def _finalize_voicemail_recording(
     return vm_record
 
 
+async def reconcile_orphan_voicemails(db: AsyncSession):
+    """
+    Auto-recovers any voicemail .wav recordings on disk (e.g. when a caller hung up mid-recording
+    before /api/voicemail/complete was triggered) and links them to VoicemailMessage, settings_db['voicemails'],
+    and the corresponding Call record in PostgreSQL.
+    """
+    from backend.services.pbx_enterprise_features import compute_wav_duration_seconds
+
+    try:
+        known_vm_ids = set()
+        for v_item in (settings_db.get("voicemails") or []):
+            if isinstance(v_item, dict) and v_item.get("id"):
+                known_vm_ids.add(str(v_item.get("id")))
+
+        res_vms = await db.execute(select(VoicemailMessage))
+        db_vms = res_vms.scalars().all()
+        for r_vm in db_vms:
+            if r_vm.id:
+                known_vm_ids.add(str(r_vm.id))
+
+        # 1. Finalize any unfinalized sessions in _PENDING_VOICEMAIL_SESSIONS whose wav file exists and is >= 3s old
+        now_ts = datetime.datetime.utcnow().timestamp()
+        for p_key, p_meta in list(_PENDING_VOICEMAIL_SESSIONS.items()):
+            if not isinstance(p_meta, dict) or p_meta.get("finalized"):
+                continue
+            vid = str(p_meta.get("vm_id") or "")
+            if not vid or vid in known_vm_ids:
+                continue
+            rec_t = str(p_meta.get("rec_target") or f"/var/spool/asterisk/monitor/vm_{vid}.wav")
+            if os.path.exists(rec_t) and os.path.getsize(rec_t) > 44:
+                if (now_ts - os.path.getmtime(rec_t)) >= 3.0:
+                    saved = await _finalize_voicemail_recording(
+                        vm_id=vid,
+                        call_id=str(p_meta.get("call_id") or ""),
+                        extension=str(p_meta.get("extension") or ""),
+                        caller=str(p_meta.get("caller") or ""),
+                        db=db,
+                    )
+                    if saved:
+                        known_vm_ids.add(vid)
+
+        # 2. Scan /var/spool/asterisk/monitor and RECORDINGS_DIR for orphaned vm_*.wav files
+        scan_dirs = [RECORDINGS_DIR]
+        if os.path.isdir("/var/spool/asterisk/monitor"):
+            scan_dirs.insert(0, "/var/spool/asterisk/monitor")
+
+        orphan_wavs: Dict[str, str] = {}
+        for s_dir in scan_dirs:
+            if not os.path.isdir(s_dir):
+                continue
+            for fname in os.listdir(s_dir):
+                if fname.startswith("vm_") and fname.endswith(".wav"):
+                    vid = fname[3:-4].strip()
+                    if vid and vid not in known_vm_ids and vid not in orphan_wavs:
+                        full_p = os.path.join(s_dir, fname)
+                        if os.path.isfile(full_p) and os.path.getsize(full_p) > 44:
+                            if (now_ts - os.path.getmtime(full_p)) >= 3.0:
+                                orphan_wavs[vid] = full_p
+
+        settings_changed = False
+        for vid, wav_p in orphan_wavs.items():
+            mtime_utc = datetime.datetime.utcfromtimestamp(os.path.getmtime(wav_p))
+            dur_sec = max(1, compute_wav_duration_seconds(wav_p))
+            local_wav = os.path.join(RECORDINGS_DIR, f"vm_{vid}.wav")
+            active_wav = wav_p
+            try:
+                os.makedirs(RECORDINGS_DIR, exist_ok=True)
+                if os.path.abspath(wav_p) != os.path.abspath(local_wav):
+                    shutil.copy2(wav_p, local_wav)
+                    active_wav = local_wav
+            except Exception:
+                pass
+
+            meta_json_p = os.path.join(RECORDINGS_DIR, f"vm_{vid}.json")
+            meta_d = {}
+            if os.path.exists(meta_json_p):
+                try:
+                    with open(meta_json_p, "r", encoding="utf-8") as mf:
+                        meta_d = json.load(mf) or {}
+                except Exception:
+                    meta_d = {}
+
+            eff_call_id = str(meta_d.get("call_id") or "").strip()
+            eff_ext = str(meta_d.get("extension") or "").strip()
+            eff_caller = str(meta_d.get("caller") or "").strip()
+            eff_tenant = str(meta_d.get("tenant_id") or "tenant-default").strip()
+
+            # Match Call and AgentBreakLog around mtime_utc if metadata was not saved on disk
+            win_start = mtime_utc - datetime.timedelta(seconds=360)
+            win_end = mtime_utc + datetime.timedelta(seconds=60)
+            matched_call = None
+            if eff_call_id:
+                matched_call = await db.get(Call, eff_call_id)
+
+            if not eff_ext:
+                stmt_brk = (
+                    select(AgentBreakLog)
+                    .where(AgentBreakLog.start_time >= win_start, AgentBreakLog.start_time <= win_end)
+                    .order_by(AgentBreakLog.start_time.desc())
+                )
+                brk_rows = (await db.execute(stmt_brk)).scalars().all()
+                for b_row in brk_rows:
+                    b_nm = str(b_row.break_name or "")
+                    if "VOICEMAIL" in b_nm.upper() and b_row.extension:
+                        eff_ext = str(b_row.extension).strip()
+                        break
+
+            if not matched_call:
+                stmt_c = (
+                    select(Call)
+                    .where(Call.start_time >= win_start, Call.start_time <= win_end)
+                    .order_by(Call.start_time.desc())
+                )
+                cand_calls = (await db.execute(stmt_c)).scalars().all()
+                for c_row in cand_calls:
+                    if eff_ext and str(c_row.callee_number or "").strip() == eff_ext:
+                        matched_call = c_row
+                        break
+                if not matched_call and cand_calls:
+                    matched_call = cand_calls[0]
+
+            if matched_call:
+                if not eff_call_id:
+                    eff_call_id = str(matched_call.id)
+                if not eff_caller:
+                    eff_caller = str(matched_call.caller_number or "Bilinmeyen").strip()
+                if not eff_ext:
+                    eff_ext = str(matched_call.callee_number or "1000").strip()
+                if matched_call.tenant_id:
+                    eff_tenant = str(matched_call.tenant_id)
+                matched_call.status = "voicemail"
+                matched_call.hangup_source = f"voicemail:{eff_ext or '1000'}"
+                matched_call.recording_path = f"/api/voicemail/{vid}/audio"
+                matched_call.talk_duration = dur_sec
+                if not matched_call.end_time:
+                    matched_call.end_time = mtime_utc
+                if not matched_call.answered_at:
+                    matched_call.answered_at = mtime_utc - datetime.timedelta(seconds=dur_sec)
+
+            if not eff_ext:
+                eff_ext = "1000"
+            if not eff_caller:
+                eff_caller = "Bilinmeyen"
+
+            audio_api_url = f"/api/voicemail/{vid}/audio"
+            existing_vm = await db.get(VoicemailMessage, vid)
+            if not existing_vm:
+                db.add(VoicemailMessage(
+                    id=vid,
+                    tenant_id=eff_tenant,
+                    call_id=eff_call_id or None,
+                    extension=eff_ext,
+                    caller_number=eff_caller,
+                    duration_seconds=dur_sec,
+                    audio_path=active_wav,
+                    is_read=False,
+                    created_at=mtime_utc,
+                ))
+
+            vm_rec = {
+                "id": vid,
+                "tenant_id": eff_tenant,
+                "call_id": eff_call_id,
+                "extension": eff_ext,
+                "caller_number": eff_caller,
+                "duration_seconds": dur_sec,
+                "audio_path": active_wav,
+                "audio_url": audio_api_url,
+                "is_read": False,
+                "transcript": None,
+                "created_at": mtime_utc.isoformat(),
+            }
+            if not isinstance(settings_db.get("voicemails"), list):
+                settings_db["voicemails"] = []
+            if not any(str(v.get("id")) == vid for v in settings_db["voicemails"] if isinstance(v, dict)):
+                settings_db["voicemails"].insert(0, vm_rec)
+                settings_changed = True
+
+        # 3. Also link any recent AgentBreakLog VOICEMAIL forwarding events whose Call status was left as ringing/no_answer
+        recent_cut = datetime.datetime.utcnow() - datetime.timedelta(days=14)
+        stmt_vbrk = (
+            select(AgentBreakLog)
+            .where(
+                AgentBreakLog.start_time >= recent_cut,
+                AgentBreakLog.break_name.ilike("%VOICEMAIL%"),
+            )
+            .order_by(AgentBreakLog.start_time.desc())
+        )
+        vbrk_rows = (await db.execute(stmt_vbrk)).scalars().all()
+        for vb in vbrk_rows:
+            if not vb.start_time or not vb.extension:
+                continue
+            b_ext = str(vb.extension).strip()
+            w_s = vb.start_time - datetime.timedelta(seconds=90)
+            w_e = vb.start_time + datetime.timedelta(seconds=30)
+            stmt_mc = (
+                select(Call)
+                .where(Call.start_time >= w_s, Call.start_time <= w_e, Call.callee_number == b_ext)
+                .order_by(Call.start_time.desc())
+            )
+            mc_rows = (await db.execute(stmt_mc)).scalars().all()
+            for mc in mc_rows:
+                if str(mc.status or "").lower() != "voicemail" and "voicemail" not in str(mc.hangup_source or "").lower():
+                    mc.status = "voicemail"
+                    mc.hangup_source = f"voicemail:{b_ext}"
+                    if not mc.end_time:
+                        mc.end_time = vb.start_time + datetime.timedelta(seconds=5)
+                break
+
+        await db.commit()
+        if settings_changed:
+            save_settings(settings_db)
+    except Exception as e_rec:
+        print(f"[Voicemail Reconcile Warning]: {e_rec}")
+        try:
+            await db.rollback()
+        except Exception:
+            pass
+
+
 @app.get("/api/voicemail/prepare", response_class=PlainTextResponse)
 async def prepare_voicemail_endpoint(
     extension: str = "",
@@ -25319,6 +25580,26 @@ async def prepare_voicemail_endpoint(
     _PENDING_VOICEMAIL_SESSIONS[vm_id] = sess_meta
     if cid_clean:
         _PENDING_VOICEMAIL_SESSIONS[cid_clean] = sess_meta
+
+    try:
+        os.makedirs(RECORDINGS_DIR, exist_ok=True)
+        with open(os.path.join(RECORDINGS_DIR, f"vm_{vm_id}.json"), "w", encoding="utf-8") as mf:
+            json.dump(sess_meta, mf, ensure_ascii=False)
+    except Exception:
+        pass
+
+    if cid_clean:
+        try:
+            db_call = await db.get(Call, cid_clean)
+            if db_call:
+                db_call.status = "voicemail"
+                db_call.hangup_source = f"voicemail:{ext_clean}"
+                await db.commit()
+        except Exception:
+            try:
+                await db.rollback()
+            except Exception:
+                pass
 
     return f"ALLOW|{vm_id}|{greeting_pb}|{rec_target}"
 
@@ -25495,6 +25776,7 @@ async def get_agent_voicemails(
     user_info: dict = Depends(get_user_info),
     db: AsyncSession = Depends(get_db),
 ):
+    await reconcile_orphan_voicemails(db)
     target_tenant = user_info.get("tenant_id") or "tenant-default"
     req_ext = str(extension or "").strip()
     role_low = str(user_info.get("role") or "agent").strip().lower()
@@ -31454,7 +31736,7 @@ async def evaluate_queue_routing_for_dialplan(
         if eff_type == "continue_queue":
             return (ann_wav, "CONTINUE_QUEUE", "")
         if eff_type == "voicemail":
-            return (ann_wav, "VOICEMAIL", "")
+            return (ann_wav, "VOICEMAIL", eff_target)
         if eff_type == "user":
             u_match = next(
                 (u for u in users_list if str(u.get("id")) == eff_target or str(u.get("extension")) == eff_target),

@@ -33,6 +33,7 @@ from backend.database.models import (
     SystemUser,
     Transcript,
     Trunk,
+    VoicemailMessage,
     VoipQualityLog,
 )
 
@@ -2375,12 +2376,14 @@ async def report_voicemail(
     start_time: Optional[str] = "00:00",
     end_time: Optional[str] = "23:59",
 ):
-    from backend.main import settings_db
+    from backend.main import reconcile_orphan_voicemails, settings_db
 
     tenant_id = _extract_tenant_id(request)
     start_utc, end_utc = _parse_tr_date_range(start_date, end_date, start_time, end_time)
 
     async with AsyncSessionLocal() as db:
+        await reconcile_orphan_voicemails(db)
+
         stmt_users = _apply_tenant_clause(select(SystemUser).order_by(SystemUser.extension), SystemUser, tenant_id)
         db_users = (await db.execute(stmt_users)).scalars().all()
 
@@ -2390,6 +2393,15 @@ async def report_voicemail(
             tenant_id,
         )
         calls_asc = (await db.execute(stmt_calls)).scalars().all()
+
+        stmt_vms = _apply_tenant_clause(
+            select(VoicemailMessage)
+            .where(VoicemailMessage.created_at >= start_utc, VoicemailMessage.created_at <= end_utc)
+            .order_by(VoicemailMessage.created_at.desc()),
+            VoicemailMessage,
+            tenant_id,
+        )
+        db_vms = (await db.execute(stmt_vms)).scalars().all()
 
     vm_boxes: Dict[str, Dict[str, Any]] = {}
     for u in db_users:
@@ -2407,6 +2419,41 @@ async def report_voicemail(
             "pending_count": 0,
         }
 
+    # Merge settings_db['users'] so voicemail_active / voicemail_to_email / full_name are always up-to-date
+    for su in (settings_db.get("users") or []):
+        if not isinstance(su, dict):
+            continue
+        su_tenant = str(su.get("tenant_id") or "tenant-default")
+        if not _is_global_tenant(tenant_id):
+            if _is_default_tenant(tenant_id):
+                if not _is_default_tenant(su_tenant):
+                    continue
+            elif su_tenant != tenant_id:
+                continue
+        ext = str(su.get("extension") or "").strip()
+        if not ext:
+            continue
+        if ext in vm_boxes:
+            if su.get("full_name"):
+                vm_boxes[ext]["full_name"] = str(su.get("full_name"))
+            if su.get("email"):
+                vm_boxes[ext]["email"] = str(su.get("email"))
+            if "voicemail_active" in su:
+                vm_boxes[ext]["voicemail_active"] = bool(su.get("voicemail_active"))
+            if "voicemail_to_email" in su:
+                vm_boxes[ext]["voicemail_to_email"] = bool(su.get("voicemail_to_email"))
+        else:
+            vm_boxes[ext] = {
+                "extension": ext,
+                "full_name": str(su.get("full_name") or f"Dahili {ext}"),
+                "email": str(su.get("email") or "-"),
+                "voicemail_active": bool(su.get("voicemail_active", False)),
+                "voicemail_to_email": bool(su.get("voicemail_to_email", False)),
+                "messages_count": 0,
+                "returned_count": 0,
+                "pending_count": 0,
+            }
+
     # Build lookup of answered callbacks per external L10 number
     answered_touches_by_l10: Dict[str, List[Tuple[datetime.datetime, str]]] = {}
     for c in calls_asc:
@@ -2418,10 +2465,119 @@ async def report_voicemail(
                 who = c.agent_name or str(c.caller_number or c.callee_number or "-")
                 answered_touches_by_l10.setdefault(l10, []).append((c.start_time, who))
 
+    def _resolve_cb_status(caller_str: str, msg_dt_utc: Optional[datetime.datetime]) -> Tuple[bool, str, str]:
+        l10_val = _last10(caller_str)
+        if len(l10_val) >= 10 and msg_dt_utc:
+            for t_dt, t_who in answered_touches_by_l10.get(l10_val, []):
+                if t_dt > msg_dt_utc:
+                    return True, t_who, (_to_tr_iso(t_dt) or "-")
+        return False, "-", "-"
+
+    # 1. Collect explicit VoicemailMessage rows & settings_db['voicemails']
+    raw_vm_records: Dict[str, Dict[str, Any]] = {}
+    seen_call_ids = set()
+
+    for v_row in db_vms:
+        vid = str(v_row.id or "").strip()
+        if not vid:
+            continue
+        cid = str(v_row.call_id or "").strip()
+        if cid:
+            seen_call_ids.add(cid)
+        raw_vm_records[vid] = {
+            "id": vid,
+            "call_id": cid,
+            "dt_utc": v_row.created_at,
+            "caller_number": str(v_row.caller_number or "-").strip() or "-",
+            "extension": str(v_row.extension or "-").strip() or "-",
+            "duration_seconds": int(v_row.duration_seconds or 0),
+            "recording_path": f"/api/voicemail/{vid}/audio",
+            "is_read": bool(v_row.is_read),
+        }
+
+    for vm_d in (settings_db.get("voicemails") or []):
+        if not isinstance(vm_d, dict):
+            continue
+        vid = str(vm_d.get("id") or "").strip()
+        if not vid or vid in raw_vm_records:
+            continue
+        v_tenant = str(vm_d.get("tenant_id") or "tenant-default")
+        if not _is_global_tenant(tenant_id):
+            if _is_default_tenant(tenant_id):
+                if not _is_default_tenant(v_tenant):
+                    continue
+            elif v_tenant != tenant_id:
+                continue
+        created_raw = str(vm_d.get("created_at") or "").strip()
+        dt_utc = None
+        if created_raw:
+            try:
+                dt_utc = datetime.datetime.fromisoformat(created_raw.replace("Z", "+00:00")).replace(tzinfo=None)
+            except Exception:
+                dt_utc = None
+        if not dt_utc or dt_utc < start_utc or dt_utc > end_utc:
+            continue
+        cid = str(vm_d.get("call_id") or "").strip()
+        if cid:
+            seen_call_ids.add(cid)
+        raw_vm_records[vid] = {
+            "id": vid,
+            "call_id": cid,
+            "dt_utc": dt_utc,
+            "caller_number": str(vm_d.get("caller_number") or "-").strip() or "-",
+            "extension": str(vm_d.get("extension") or "-").strip() or "-",
+            "duration_seconds": int(vm_d.get("duration_seconds") or vm_d.get("duration") or 0),
+            "recording_path": str(vm_d.get("audio_url") or f"/api/voicemail/{vid}/audio"),
+            "is_read": bool(vm_d.get("is_read", False)),
+        }
+
     vm_items: List[Dict[str, Any]] = []
     durations: List[int] = []
 
+    for rec in raw_vm_records.values():
+        target_ext = rec["extension"] if rec["extension"] in vm_boxes else (rec["extension"] or "-")
+        dur_s = max(0, int(rec["duration_seconds"] or 0))
+        durations.append(dur_s)
+        cb_done, cb_by, cb_at = _resolve_cb_status(rec["caller_number"], rec["dt_utc"])
+
+        box = vm_boxes.get(target_ext)
+        if box:
+            box["messages_count"] += 1
+            if cb_done:
+                box["returned_count"] += 1
+            else:
+                box["pending_count"] += 1
+
+        vm_items.append(
+            {
+                "id": rec["id"],
+                "call_id": rec["call_id"],
+                "sort_dt": rec["dt_utc"] or datetime.datetime.min,
+                "timestamp": _to_tr_iso(rec["dt_utc"]),
+                "caller_number": rec["caller_number"],
+                "extension": target_ext,
+                "agent_name": box["full_name"] if box else f"Dahili {target_ext}",
+                "duration_seconds": dur_s,
+                "email_forwarded": bool(box and box["voicemail_to_email"]),
+                "callback_done": cb_done,
+                "callback_by": cb_by,
+                "callback_at": cb_at,
+                "recording_path": rec["recording_path"],
+                "audio_url": rec["recording_path"],
+                "is_read": rec.get("is_read", False),
+            }
+        )
+
+    # 2. Also include any Call rows marked as voicemail that were not already in raw_vm_records
     for c in reversed(calls_asc):
+        if str(c.id) in seen_call_ids:
+            continue
+        rec_p_str = str(c.recording_path or "").strip()
+        if rec_p_str.startswith("/api/voicemail/"):
+            extracted_vid = rec_p_str.split("/api/voicemail/", 1)[1].split("/", 1)[0].strip()
+            if extracted_vid in raw_vm_records:
+                continue
+
         caller_s = str(c.caller_number or "").strip()
         callee_s = str(c.callee_number or "").strip()
         hsrc_l = str(c.hangup_source or "").strip().lower()
@@ -2437,7 +2593,7 @@ async def report_voicemail(
         if not is_vm:
             continue
 
-        target_ext = callee_s if callee_s in vm_boxes else "-"
+        target_ext = callee_s if callee_s in vm_boxes else (callee_s or "-")
         for tok in re.findall(r"\b\d{3,5}\b", hsrc_l):
             if tok in vm_boxes:
                 target_ext = tok
@@ -2448,17 +2604,7 @@ async def report_voicemail(
             dur_s = max(0, int((c.end_time - c.start_time).total_seconds()))
         durations.append(dur_s)
 
-        l10 = _last10(caller_s)
-        cb_done = False
-        cb_by = "-"
-        cb_at = "-"
-        if len(l10) >= 10 and c.start_time:
-            for t_dt, t_who in answered_touches_by_l10.get(l10, []):
-                if t_dt > c.start_time:
-                    cb_done = True
-                    cb_by = t_who
-                    cb_at = _to_tr_iso(t_dt) or "-"
-                    break
+        cb_done, cb_by, cb_at = _resolve_cb_status(caller_s, c.start_time)
 
         box = vm_boxes.get(target_ext)
         if box:
@@ -2471,6 +2617,8 @@ async def report_voicemail(
         vm_items.append(
             {
                 "id": c.id,
+                "call_id": c.id,
+                "sort_dt": c.start_time or datetime.datetime.min,
                 "timestamp": _to_tr_iso(c.start_time),
                 "caller_number": caller_s or "-",
                 "extension": target_ext,
@@ -2481,8 +2629,14 @@ async def report_voicemail(
                 "callback_by": cb_by,
                 "callback_at": cb_at,
                 "recording_path": c.recording_path or "",
+                "audio_url": c.recording_path or "",
+                "is_read": False,
             }
         )
+
+    vm_items.sort(key=lambda x: x.get("sort_dt") or datetime.datetime.min, reverse=True)
+    for it in vm_items:
+        it.pop("sort_dt", None)
 
     tot_vm = len(vm_items)
     ret_cnt = sum(1 for v in vm_items if v["callback_done"])

@@ -32,6 +32,12 @@ import {
   Lock,
   Award,
   Sliders,
+  ChevronRight,
+  ChevronLeft,
+  ArrowDown,
+  ArrowUp,
+  Play,
+  Phone,
   X
 } from "lucide-react";
 import * as XLSX from "xlsx";
@@ -43,6 +49,215 @@ import {
   useStageRevealObserver
 } from "../../utils/uiMotion";
 import DateTimePickerInput from "../common/DateTimePickerInput";
+import WaveformAudioPlayer from "../common/WaveformAudioPlayer";
+
+const DualListBox = ({
+  title,
+  availableItems,
+  selectedIds,
+  onChangeSelectedIds,
+  columns,
+  renderRow,
+  bg,
+  hover,
+  text,
+  border,
+  lightBg,
+  ring,
+  borderLight,
+}) => {
+  const [availableSearch, setAvailableSearch] = useState("");
+  const [selectedSearch, setSelectedSearch] = useState("");
+  const [checkedAvailable, setCheckedAvailable] = useState([]);
+  const [checkedSelected, setCheckedSelected] = useState([]);
+
+  const unselectedItems = (availableItems || []).filter((i) => !selectedIds.includes(i.id));
+  const selectedItems = selectedIds
+    .map((id) => (availableItems || []).find((i) => i.id === id))
+    .filter(Boolean);
+
+  const filteredAvailable = unselectedItems.filter((i) =>
+    Object.values(i).some((v) => String(v).toLowerCase().includes(availableSearch.toLowerCase()))
+  );
+  const filteredSelected = selectedItems.filter((i) =>
+    Object.values(i).some((v) => String(v).toLowerCase().includes(selectedSearch.toLowerCase()))
+  );
+
+  const toggleAvailable = (id) => {
+    setCheckedAvailable((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
+  };
+
+  const toggleSelected = (id) => {
+    setCheckedSelected((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
+  };
+
+  const moveRight = (e) => {
+    e.preventDefault();
+    onChangeSelectedIds([...selectedIds, ...checkedAvailable]);
+    setCheckedAvailable([]);
+  };
+
+  const moveLeft = (e) => {
+    e.preventDefault();
+    onChangeSelectedIds(selectedIds.filter((id) => !checkedSelected.includes(id)));
+    setCheckedSelected([]);
+  };
+
+  return (
+    <div className="flex flex-col gap-2.5">
+      <h4 className="text-xs font-bold text-slate-800 dark:text-white">{title}</h4>
+      <div className="flex flex-col md:flex-row items-stretch gap-3 w-full">
+        {/* Available List */}
+        <div className={"flex-1 rounded-xl flex flex-col overflow-hidden h-[220px] border " + borderLight + " " + lightBg}>
+          <div className={"flex items-center justify-between p-2.5 border-b bg-slate-50 dark:bg-slate-900/50 " + borderLight}>
+            <label className="flex items-center gap-2 text-xs font-bold text-slate-600 dark:text-slate-400">
+              <input
+                type="checkbox"
+                checked={checkedAvailable.length === filteredAvailable.length && filteredAvailable.length > 0}
+                onChange={(e) => setCheckedAvailable(e.target.checked ? filteredAvailable.map((i) => i.id) : [])}
+                className={"w-4 h-4 rounded border-slate-300 text-" + ring.replace("ring-", "") + " focus:" + ring}
+              />
+              {filteredAvailable.length} Öğe
+            </label>
+            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Müsait</span>
+          </div>
+          <div className={"p-2 border-b " + borderLight}>
+            <div className="relative">
+              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" size={13} />
+              <input
+                type="text"
+                placeholder="Arama..."
+                value={availableSearch}
+                onChange={(e) => setAvailableSearch(e.target.value)}
+                className={"w-full pl-8 pr-3 py-1 text-xs rounded-lg border focus:outline-none bg-white dark:bg-slate-950 text-slate-800 dark:text-slate-200 " + borderLight}
+              />
+            </div>
+          </div>
+          <div className="flex-1 overflow-y-auto px-2 pb-2 pt-1">
+            <table className="w-full text-left text-xs border-collapse">
+              {columns && columns.length > 1 && (
+                <thead className="sticky top-0 z-10 bg-slate-50 dark:bg-slate-900 border-b border-slate-200/70 dark:border-slate-800">
+                  <tr>
+                    <th className="p-1.5 w-7 bg-slate-50 dark:bg-slate-900"></th>
+                    {columns.map((col, idx) => (
+                      <th key={idx} className="p-1.5 font-semibold text-slate-500 bg-slate-50 dark:bg-slate-900">
+                        {col}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+              )}
+              <tbody className="divide-y divide-slate-100/60 dark:divide-slate-800/60">
+                {filteredAvailable.map((item) => (
+                  <tr
+                    key={item.id}
+                    className={`cursor-pointer transition-colors duration-150 hover:bg-slate-100/80 dark:hover:bg-slate-800/60 ${checkedAvailable.includes(item.id) ? lightBg : ""}`}
+                    onClick={() => toggleAvailable(item.id)}
+                  >
+                    <td className="p-1.5 w-7">
+                      <input
+                        type="checkbox"
+                        checked={checkedAvailable.includes(item.id)}
+                        onChange={() => toggleAvailable(item.id)}
+                        onClick={(e) => e.stopPropagation()}
+                        className={"w-4 h-4 rounded border-slate-300 text-" + ring.replace("ring-", "") + " focus:" + ring}
+                      />
+                    </td>
+                    {renderRow(item)}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        {/* Transfer Buttons */}
+        <div className="flex flex-row md:flex-col items-center justify-center gap-2 px-1">
+          <button
+            onClick={moveRight}
+            disabled={checkedAvailable.length === 0}
+            className={`p-2 rounded-lg border ${checkedAvailable.length > 0 ? "text-slate-800 dark:text-white cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-700" : "text-slate-300 dark:text-slate-600 cursor-not-allowed"} transition-colors bg-slate-50 dark:bg-slate-800 ` + borderLight}
+          >
+            <ChevronRight size={16} className="hidden md:block" />
+            <ArrowDown size={16} className="block md:hidden" />
+          </button>
+          <button
+            onClick={moveLeft}
+            disabled={checkedSelected.length === 0}
+            className={`p-2 rounded-lg border ${checkedSelected.length > 0 ? "text-slate-800 dark:text-white cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-700" : "text-slate-300 dark:text-slate-600 cursor-not-allowed"} transition-colors bg-slate-50 dark:bg-slate-800 ` + borderLight}
+          >
+            <ChevronLeft size={16} className="hidden md:block" />
+            <ArrowUp size={16} className="block md:hidden" />
+          </button>
+        </div>
+
+        {/* Selected List */}
+        <div className={"flex-1 rounded-xl flex flex-col overflow-hidden h-[220px] border " + borderLight + " " + lightBg}>
+          <div className={"flex items-center justify-between p-2.5 border-b bg-slate-50 dark:bg-slate-900/50 " + borderLight}>
+            <label className="flex items-center gap-2 text-xs font-bold text-slate-600 dark:text-slate-400">
+              <input
+                type="checkbox"
+                checked={checkedSelected.length === filteredSelected.length && filteredSelected.length > 0}
+                onChange={(e) => setCheckedSelected(e.target.checked ? filteredSelected.map((i) => i.id) : [])}
+                className={"w-4 h-4 rounded border-slate-300 text-" + ring.replace("ring-", "") + " focus:" + ring}
+              />
+              {filteredSelected.length} Öğe
+            </label>
+            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Seçili</span>
+          </div>
+          <div className={"p-2 border-b " + borderLight}>
+            <div className="relative">
+              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" size={13} />
+              <input
+                type="text"
+                placeholder="Arama..."
+                value={selectedSearch}
+                onChange={(e) => setSelectedSearch(e.target.value)}
+                className={"w-full pl-8 pr-3 py-1 text-xs rounded-lg border focus:outline-none bg-white dark:bg-slate-950 text-slate-800 dark:text-slate-200 " + borderLight}
+              />
+            </div>
+          </div>
+          <div className="flex-1 overflow-y-auto px-2 pb-2 pt-1">
+            <table className="w-full text-left text-xs border-collapse">
+              {columns && columns.length > 1 && (
+                <thead className="sticky top-0 z-10 bg-slate-50 dark:bg-slate-900 border-b border-slate-200/70 dark:border-slate-800">
+                  <tr>
+                    <th className="p-1.5 w-7 bg-slate-50 dark:bg-slate-900"></th>
+                    {columns.map((col, idx) => (
+                      <th key={idx} className="p-1.5 font-semibold text-slate-500 bg-slate-50 dark:bg-slate-900">
+                        {col}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+              )}
+              <tbody className="divide-y divide-slate-100/60 dark:divide-slate-800/60">
+                {filteredSelected.map((item) => (
+                  <tr
+                    key={item.id}
+                    className={`cursor-pointer transition-colors duration-150 hover:bg-slate-100/80 dark:hover:bg-slate-800/60 ${checkedSelected.includes(item.id) ? lightBg : ""}`}
+                    onClick={() => toggleSelected(item.id)}
+                  >
+                    <td className="p-1.5 w-7">
+                      <input
+                        type="checkbox"
+                        checked={checkedSelected.includes(item.id)}
+                        onChange={() => toggleSelected(item.id)}
+                        onClick={(e) => e.stopPropagation()}
+                        className={"w-4 h-4 rounded border-slate-300 text-" + ring.replace("ring-", "") + " focus:" + ring}
+                      />
+                    </td>
+                    {renderRow(item)}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
 
 const REPORT_META = {
   "breaks-attendance": {
@@ -176,62 +391,132 @@ export default function EnterpriseReportsPanel({ backendHost, reportType = "brea
   const [minuteRateTl, setMinuteRateTl] = useState(0.85);
   const [activeSubView, setActiveSubView] = useState("primary");
 
+  // Unified Detailed Filter Modal states
+  const [usersList, setUsersList] = useState([]);
+  const [selectedExtensions, setSelectedExtensions] = useState([]);
+  const [vmCallbackStatus, setVmCallbackStatus] = useState("All");
+  const [vmEmailStatus, setVmEmailStatus] = useState("All");
+  const [callerFilter, setCallerFilter] = useState("");
+  const [activePlayingVm, setActivePlayingVm] = useState(null);
+
   useEffect(() => {
     setActiveSubView("primary");
     setSearchQuery("");
+    setSelectedExtensions([]);
+    setVmCallbackStatus("All");
+    setVmEmailStatus("All");
+    setCallerFilter("");
+    setActivePlayingVm(null);
   }, [reportType]);
 
-  const datePresets = useMemo(
-    () => [
+  useEffect(() => {
+    let mounted = true;
+    tenantFetch(`${API_BASE}/api/settings/users`)
+      .then((res) => (res.ok ? res.json() : []))
+      .then((uData) => {
+        if (!mounted) return;
+        const arr = Array.isArray(uData) ? uData : uData?.users || [];
+        setUsersList(arr);
+      })
+      .catch(() => {});
+    return () => {
+      mounted = false;
+    };
+  }, [API_BASE]);
+
+  const extensionFilterItems = useMemo(() => {
+    const map = new Map();
+    (data?.by_extension || []).forEach((b) => {
+      const ext = String(b.extension || "").trim();
+      if (ext) {
+        map.set(ext, {
+          id: ext,
+          extension: ext,
+          name: b.full_name ? `${b.full_name} (${ext})` : `Dahili ${ext}`,
+        });
+      }
+    });
+    (usersList || []).forEach((u) => {
+      const ext = String(u.extension || "").trim();
+      if (ext && !map.has(ext)) {
+        const nm = u.full_name || u.name || `Dahili ${ext}`;
+        map.set(ext, {
+          id: ext,
+          extension: ext,
+          name: `${nm} (${ext})`,
+        });
+      }
+    });
+    return Array.from(map.values());
+  }, [data?.by_extension, usersList]);
+
+  const datePresets = useMemo(() => {
+    const todayStr = formatLocalYMD(new Date());
+    const y = new Date();
+    y.setDate(y.getDate() - 1);
+    const yestStr = formatLocalYMD(y);
+    const w = new Date();
+    w.setDate(w.getDate() - 6);
+    const sevenAgoStr = formatLocalYMD(w);
+    const m = new Date();
+    m.setDate(m.getDate() - 29);
+    const thirtyAgoStr = formatLocalYMD(m);
+
+    const setRange = (s, e) => {
+      setStartDate(s);
+      setEndDate(e);
+      setStartTime("00:00");
+      setEndTime("23:59");
+    };
+
+    return [
       {
         label: "Bugün",
-        apply: () => {
-          const t = formatLocalYMD(new Date());
-          setStartDate(t);
-          setEndDate(t);
-          setStartTime("00:00");
-          setEndTime("23:59");
-        }
+        isActive: startDate === todayStr && endDate === todayStr && startTime === "00:00" && endTime === "23:59",
+        apply: () => setRange(todayStr, todayStr),
+        onSelect: () => setRange(todayStr, todayStr),
       },
       {
         label: "Dün",
-        apply: () => {
-          const y = new Date();
-          y.setDate(y.getDate() - 1);
-          const ys = formatLocalYMD(y);
-          setStartDate(ys);
-          setEndDate(ys);
-          setStartTime("00:00");
-          setEndTime("23:59");
-        }
+        isActive: startDate === yestStr && endDate === yestStr && startTime === "00:00" && endTime === "23:59",
+        apply: () => setRange(yestStr, yestStr),
+        onSelect: () => setRange(yestStr, yestStr),
       },
       {
         label: "Son 7 Gün",
-        apply: () => {
-          const now = new Date();
-          const w = new Date();
-          w.setDate(w.getDate() - 6);
-          setStartDate(formatLocalYMD(w));
-          setEndDate(formatLocalYMD(now));
-          setStartTime("00:00");
-          setEndTime("23:59");
-        }
+        isActive: startDate === sevenAgoStr && endDate === todayStr && startTime === "00:00" && endTime === "23:59",
+        apply: () => setRange(sevenAgoStr, todayStr),
+        onSelect: () => setRange(sevenAgoStr, todayStr),
       },
       {
         label: "Son 30 Gün",
-        apply: () => {
-          const now = new Date();
-          const m = new Date();
-          m.setDate(m.getDate() - 29);
-          setStartDate(formatLocalYMD(m));
-          setEndDate(formatLocalYMD(now));
-          setStartTime("00:00");
-          setEndTime("23:59");
-        }
-      }
-    ],
-    []
-  );
+        isActive: startDate === thirtyAgoStr && endDate === todayStr && startTime === "00:00" && endTime === "23:59",
+        apply: () => setRange(thirtyAgoStr, todayStr),
+        onSelect: () => setRange(thirtyAgoStr, todayStr),
+      },
+    ];
+  }, [startDate, endDate, startTime, endTime]);
+
+  const handleClearFilters = () => {
+    const now = new Date();
+    const w = new Date();
+    w.setDate(w.getDate() - 6);
+    setStartDate(formatLocalYMD(w));
+    setEndDate(formatLocalYMD(now));
+    setStartTime("00:00");
+    setEndTime("23:59");
+    setSelectedExtensions([]);
+    setVmCallbackStatus("All");
+    setVmEmailStatus("All");
+    setCallerFilter("");
+    setSearchQuery("");
+    setMaxBreakMinutes(60);
+    setSelectedChannel("all");
+    setSlaSeconds(20);
+    setShortAbandonSeconds(5);
+    setMinRepeatCalls(2);
+    setMinuteRateTl(0.85);
+  };
 
   const fetchReport = async () => {
     setLoading(true);
@@ -365,108 +650,181 @@ export default function EnterpriseReportsPanel({ backendHost, reportType = "brea
 
   return (
     <div ref={reportStageRef} key={reportType} className="w-full space-y-5 aida-panel-enter">
-      {/* Header Card */}
-      <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 shadow-sm">
+      {/* Header Card (Unified with ReportsPanel) */}
+      <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 shadow-sm">
         <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
           <div className="flex items-start gap-3.5">
-            <div className={`p-3 rounded-2xl ${lightBg} ${lightText} border ${borderLight} shrink-0`}>
-              <HeaderIcon size={22} />
+            <div className={`p-2.5 rounded-2xl ${lightBg} ${lightText} border ${borderLight} shrink-0`}>
+              <HeaderIcon size={20} />
             </div>
             <div>
-              <h2 className="text-base font-bold text-slate-800 dark:text-white tracking-tight">
+              <h2 className="text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300">
                 {meta.title}
               </h2>
-              <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+              <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
                 {meta.subtitle}
               </p>
             </div>
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
-            {/* Quick Date Presets */}
-            <div className="flex items-center bg-slate-100 dark:bg-slate-800/80 p-1 rounded-xl border border-slate-200/70 dark:border-slate-700/60">
-              {datePresets.map((pr) => {
-                const isTodayActive =
-                  pr.label === "Bugün" &&
-                  startDate === formatLocalYMD(new Date()) &&
-                  endDate === formatLocalYMD(new Date());
-                return (
-                  <button
-                    key={pr.label}
-                    type="button"
-                    onClick={pr.apply}
-                    className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold transition cursor-pointer ${
-                      isTodayActive
-                        ? `${bg} text-white shadow-sm`
-                        : "text-slate-600 dark:text-slate-300 hover:bg-white/70 dark:hover:bg-slate-700"
-                    }`}
-                  >
-                    {pr.label}
-                  </button>
-                );
-              })}
-            </div>
-
-            <button
-              type="button"
-              onClick={() => setIsFilterOpen((v) => !v)}
-              className={`px-3 py-2 rounded-xl text-xs font-semibold border transition flex items-center gap-1.5 cursor-pointer ${
-                isFilterOpen
-                  ? `${lightBg} ${lightText} ${borderLight}`
-                  : "bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700"
-              }`}
-            >
-              <Filter size={14} />
-              <span>Tarih & Parametre</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={fetchReport}
-              disabled={loading}
-              className="p-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700 transition cursor-pointer"
-              title="Yenile"
-            >
-              <RefreshCw size={15} className={loading ? "animate-spin" : ""} />
-            </button>
-
+            {/* Excel Export Button */}
             <button
               type="button"
               onClick={handleExportExcel}
               disabled={!data || loading}
-              className={`px-3.5 py-2 rounded-xl text-xs font-bold text-white transition flex items-center gap-1.5 shadow-sm cursor-pointer disabled:opacity-50 ${bg} ${hover}`}
+              className="flex items-center gap-1.5 text-[10px] px-3 py-1.5 rounded-xl border font-bold bg-emerald-50 dark:bg-primary/20 text-primary dark:text-emerald-450 border-emerald-100 dark:border-emerald-800/40 hover:bg-primary hover:text-white transition cursor-pointer disabled:opacity-50"
             >
-              <Download size={14} />
-              <span>Excel İndir</span>
+              <Download size={10} />
+              <span>Excel&apos;e Aktar</span>
+            </button>
+
+            {/* Filter Button (Opens Detaylı Filtreleme Modal like all other reports) */}
+            <button
+              type="button"
+              onClick={() => setIsFilterOpen(true)}
+              className={`flex items-center gap-1.5 text-[10px] px-3 py-1.5 rounded-xl border font-bold cursor-pointer transition-all duration-200 ${bg} ${hover} text-white ${border} shadow-sm`}
+            >
+              <Filter size={10} />
+              <span>Filtrele</span>
             </button>
           </div>
         </div>
+      </div>
 
-        {/* Expandable Filter & Threshold Bar */}
-        {isFilterOpen && (
-          <div className="mt-4 pt-4 border-t border-slate-100 dark:border-slate-800 grid grid-cols-1 md:grid-cols-3 gap-3">
-            <DateTimePickerInput
-              label="Başlangıç Tarihi & Saati"
-              dateValue={startDate}
-              timeValue={startTime}
-              onDateChange={setStartDate}
-              onTimeChange={setStartTime}
-              placeholder="Başlangıç"
-              allowClear={false}
-              presets={datePresets}
-            />
-            <DateTimePickerInput
-              label="Bitiş Tarihi & Saati"
-              dateValue={endDate}
-              timeValue={endTime}
-              onDateChange={setEndDate}
-              onTimeChange={setEndTime}
-              placeholder="Bitiş"
-              allowClear={false}
-              presets={datePresets}
-            />
+      {/* Modal Popup (Detaylı Filtreleme - Unified with ReportsPanel) */}
+      {isFilterOpen && (
+        <div className="fixed inset-0 bg-slate-955/65 backdrop-blur-sm z-50 flex items-center justify-center animate-in fade-in duration-200">
+          <div className="bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-850 rounded-3xl p-6 shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto flex flex-col gap-4 animate-in zoom-in-95 duration-200">
+            {/* Modal Header */}
+            <div className="flex items-center justify-between pb-2 border-b border-slate-150 dark:border-slate-800">
+              <h3 className="font-extrabold text-sm text-slate-900 dark:text-slate-100 flex items-center gap-2">
+                <Filter size={16} className="text-primary" />
+                <span>Detaylı Filtreleme</span>
+              </h3>
+              <button
+                type="button"
+                onClick={() => setIsFilterOpen(false)}
+                className="p-1.5 bg-slate-50 hover:bg-slate-100 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-500 dark:text-slate-400 rounded-lg transition cursor-pointer"
+              >
+                <X size={14} />
+              </button>
+            </div>
 
-            <div className="flex flex-col justify-end gap-2">
+            {/* Modal Body */}
+            <div className="flex flex-col gap-4">
+              {/* Unified Date & Time Range */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 bg-slate-50/50 dark:bg-slate-955/20 p-3 rounded-2xl border border-slate-100 dark:border-slate-800/50">
+                <DateTimePickerInput
+                  label="Başlangıç Tarihi & Saati"
+                  dateValue={startDate}
+                  timeValue={startTime}
+                  defaultTime="00:00"
+                  onDateChange={(newDate) => {
+                    setStartDate(newDate);
+                    if (endDate && newDate > endDate) {
+                      setEndDate(newDate);
+                    }
+                  }}
+                  onTimeChange={setStartTime}
+                  placeholder="Başlangıç"
+                  allowClear={false}
+                  presets={datePresets}
+                />
+                <DateTimePickerInput
+                  label="Bitiş Tarihi & Saati"
+                  dateValue={endDate}
+                  timeValue={endTime}
+                  defaultTime="23:59"
+                  onDateChange={(newDate) => {
+                    setEndDate(newDate);
+                    if (startDate && newDate < startDate) {
+                      setStartDate(newDate);
+                    }
+                  }}
+                  onTimeChange={setEndTime}
+                  placeholder="Bitiş"
+                  allowClear={false}
+                  presets={datePresets}
+                />
+              </div>
+
+              {reportType === "voicemail" && (
+                <>
+                  <DualListBox
+                    title="Kullanıcılar / Posta Kutusu (Dahili)"
+                    availableItems={extensionFilterItems}
+                    selectedIds={selectedExtensions}
+                    onChangeSelectedIds={setSelectedExtensions}
+                    columns={["Dahili", "Kullanıcı / Abone"]}
+                    bg={bg}
+                    hover={hover}
+                    text={text}
+                    border={border}
+                    lightBg={lightBg}
+                    ring={ring}
+                    borderLight={borderLight}
+                    renderRow={(item) => (
+                      <>
+                        <td className="p-1.5 text-slate-600 dark:text-slate-400 font-mono text-xs">{item.extension}</td>
+                        <td className="p-1.5 text-slate-800 dark:text-slate-200 font-medium">{item.name}</td>
+                      </>
+                    )}
+                  />
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div className="flex flex-col gap-1">
+                      <label className="text-[10px] font-bold text-slate-400 dark:text-slate-555 uppercase tracking-wider">
+                        Geri Dönüş Durumu
+                      </label>
+                      <select
+                        value={vmCallbackStatus}
+                        onChange={(e) => setVmCallbackStatus(e.target.value)}
+                        className="w-full bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-slate-800 dark:text-slate-100 rounded-xl px-2.5 py-2 text-xs focus:outline-none focus:border-primary font-bold"
+                      >
+                        <option value="All">Tümü (Durum)</option>
+                        <option value="returned">Geri Arandı</option>
+                        <option value="pending">Bekliyor</option>
+                      </select>
+                    </div>
+
+                    <div className="flex flex-col gap-1">
+                      <label className="text-[10px] font-bold text-slate-400 dark:text-slate-555 uppercase tracking-wider">
+                        E-Posta İletimi
+                      </label>
+                      <select
+                        value={vmEmailStatus}
+                        onChange={(e) => setVmEmailStatus(e.target.value)}
+                        className="w-full bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-slate-800 dark:text-slate-100 rounded-xl px-2.5 py-2 text-xs focus:outline-none focus:border-primary font-bold"
+                      >
+                        <option value="All">Tümü (E-Posta İletimi)</option>
+                        <option value="enabled">Gönderildi / Açık</option>
+                        <option value="disabled">Kapalı</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  <div className="flex flex-col gap-1">
+                    <label className="text-[10px] font-bold text-slate-400 dark:text-slate-555 uppercase tracking-wider">
+                      Numara Ara
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="örn. 0532..."
+                      value={callerFilter}
+                      onChange={(e) => setCallerFilter(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          fetchReport();
+                          setIsFilterOpen(false);
+                        }
+                      }}
+                      className="w-full bg-white dark:bg-slate-955 border border-slate-200 dark:border-slate-800 text-slate-800 dark:text-slate-100 rounded-xl px-3 py-2 text-xs focus:outline-none focus:border-primary font-semibold"
+                    />
+                  </div>
+                </>
+              )}
+
               {reportType === "breaks-attendance" && (
                 <div>
                   <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">
@@ -475,7 +833,7 @@ export default function EnterpriseReportsPanel({ backendHost, reportType = "brea
                   <select
                     value={maxBreakMinutes}
                     onChange={(e) => setMaxBreakMinutes(Number(e.target.value))}
-                    className={`w-full px-3 py-2 rounded-xl text-xs bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-2 ${ring}`}
+                    className={`w-full px-3 py-2 rounded-xl text-xs bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-slate-800 dark:text-slate-100 font-bold focus:outline-none focus:ring-2 ${ring}`}
                   >
                     <option value={15}>15 Dakika</option>
                     <option value={30}>30 Dakika</option>
@@ -493,7 +851,7 @@ export default function EnterpriseReportsPanel({ backendHost, reportType = "brea
                   <select
                     value={selectedChannel}
                     onChange={(e) => setSelectedChannel(e.target.value)}
-                    className={`w-full px-3 py-2 rounded-xl text-xs bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-2 ${ring}`}
+                    className={`w-full px-3 py-2 rounded-xl text-xs bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-slate-800 dark:text-slate-100 font-bold focus:outline-none focus:ring-2 ${ring}`}
                   >
                     <option value="all">Tüm Dijital Kanallar</option>
                     <option value="whatsapp">WhatsApp</option>
@@ -506,7 +864,7 @@ export default function EnterpriseReportsPanel({ backendHost, reportType = "brea
               )}
 
               {reportType === "queue-sla" && (
-                <div className="grid grid-cols-2 gap-2">
+                <div className="grid grid-cols-2 gap-3">
                   <div>
                     <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">
                       Hedef SLA Süresi
@@ -514,7 +872,7 @@ export default function EnterpriseReportsPanel({ backendHost, reportType = "brea
                     <select
                       value={slaSeconds}
                       onChange={(e) => setSlaSeconds(Number(e.target.value))}
-                      className={`w-full px-2.5 py-2 rounded-xl text-xs bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200`}
+                      className="w-full px-2.5 py-2 rounded-xl text-xs bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-slate-800 dark:text-slate-100 font-bold"
                     >
                       <option value={15}>15 Saniye</option>
                       <option value={20}>20 Saniye (80/20)</option>
@@ -529,7 +887,7 @@ export default function EnterpriseReportsPanel({ backendHost, reportType = "brea
                     <select
                       value={shortAbandonSeconds}
                       onChange={(e) => setShortAbandonSeconds(Number(e.target.value))}
-                      className={`w-full px-2.5 py-2 rounded-xl text-xs bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200`}
+                      className="w-full px-2.5 py-2 rounded-xl text-xs bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-slate-800 dark:text-slate-100 font-bold"
                     >
                       <option value={3}>&lt; 3 Saniye</option>
                       <option value={5}>&lt; 5 Saniye</option>
@@ -547,7 +905,7 @@ export default function EnterpriseReportsPanel({ backendHost, reportType = "brea
                   <select
                     value={minRepeatCalls}
                     onChange={(e) => setMinRepeatCalls(Number(e.target.value))}
-                    className={`w-full px-3 py-2 rounded-xl text-xs bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200`}
+                    className="w-full px-3 py-2 rounded-xl text-xs bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-slate-800 dark:text-slate-100 font-bold"
                   >
                     <option value={2}>2 ve üzeri arayanlar (2+)</option>
                     <option value={3}>3 ve üzeri arayanlar (3+)</option>
@@ -567,14 +925,50 @@ export default function EnterpriseReportsPanel({ backendHost, reportType = "brea
                     min="0"
                     value={minuteRateTl}
                     onChange={(e) => setMinuteRateTl(Math.max(0, Number(e.target.value) || 0))}
-                    className={`w-full px-3 py-2 rounded-xl text-xs bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-2 ${ring}`}
+                    className={`w-full px-3 py-2 rounded-xl text-xs bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-slate-800 dark:text-slate-100 font-bold focus:outline-none focus:ring-2 ${ring}`}
+                  />
+                </div>
+              )}
+
+              {reportType !== "voicemail" && (
+                <div className="flex flex-col gap-1">
+                  <label className="text-[10px] font-bold text-slate-400 dark:text-slate-555 uppercase tracking-wider">
+                    Tabloda Temsilci, Dahili veya Numara Ara
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="Örn: 1000, 0532..."
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    className="w-full bg-white dark:bg-slate-955 border border-slate-200 dark:border-slate-800 text-slate-800 dark:text-slate-100 rounded-xl px-3 py-2 text-xs focus:outline-none focus:border-primary font-semibold"
                   />
                 </div>
               )}
             </div>
+
+            {/* Modal Footer */}
+            <div className="flex items-center gap-3 pt-3 border-t border-slate-150 dark:border-slate-800">
+              <button
+                type="button"
+                onClick={handleClearFilters}
+                className="flex-1 py-2 bg-slate-50 hover:bg-slate-100 dark:bg-slate-800 dark:hover:bg-slate-750 text-slate-550 dark:text-slate-200 border border-slate-200 dark:border-slate-700 font-bold text-xs rounded-xl transition cursor-pointer"
+              >
+                Filtreleri Temizle
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  fetchReport();
+                  setIsFilterOpen(false);
+                }}
+                className="flex-1 py-2 bg-primary hover:bg-primary/90 text-white font-bold text-xs rounded-xl shadow-md transition cursor-pointer"
+              >
+                Uygula
+              </button>
+            </div>
           </div>
-        )}
-      </div>
+        </div>
+      )}
 
       {/* Search Bar */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
@@ -1640,121 +2034,186 @@ export default function EnterpriseReportsPanel({ backendHost, reportType = "brea
           {/* ============================================================== */}
           {/* 13. VOICEMAIL & CALLBACK FOLLOW-UP REPORT                      */}
           {/* ============================================================== */}
-          {reportType === "voicemail" && (
-            <div className="space-y-5">
-              <div className="grid grid-cols-2 lg:grid-cols-5 gap-3.5">
-                <KpiCard
-                  label="Sesli Posta Aktif Dahili"
-                  value={`${summary.voicemail_enabled_users || 0} / ${summary.total_extensions || 0}`}
-                  sub={`${summary.voicemail_email_users || 0} e-posta iletimi açık`}
-                  icon={Mail}
-                  theme={{ lightBg, lightText }}
-                />
-                <KpiCard
-                  label="Bırakılan Sesli Mesaj"
-                  value={summary.total_voicemails || 0}
-                  sub={`Ort. süre: ${formatDuration(summary.avg_duration_sec || 0)}`}
-                  icon={PhoneIncoming}
-                  theme={{ lightBg, lightText }}
-                />
-                <KpiCard
-                  label="Geri Dönüş Yapılan"
-                  value={summary.returned_callbacks || 0}
-                  sub="Müşteriye geri arandı"
-                  icon={CheckCircle2}
-                  theme={{ lightBg, lightText }}
-                />
-                <KpiCard
-                  label="Bekleyen Sesli Mesaj"
-                  value={summary.pending_callbacks || 0}
-                  sub="Henüz geri dönüş yapılmadı"
-                  icon={AlertTriangle}
-                  alert={(summary.pending_callbacks || 0) > 0}
-                  theme={{ lightBg, lightText }}
-                />
-                <KpiCard
-                  label="Geri Dönüş Oranı"
-                  value={`%${summary.callback_rate_pct ?? 100}`}
-                  sub="Sesli mesaj SLA takibi"
-                  icon={Award}
-                  theme={{ lightBg, lightText }}
-                />
-              </div>
+          {reportType === "voicemail" && (() => {
+            const filteredVmItems = (data?.items || []).filter((r) => {
+              if (!matchSearch(r, ["caller_number", "extension", "agent_name", "callback_by"])) return false;
+              if (selectedExtensions.length > 0 && !selectedExtensions.includes(String(r.extension || ""))) return false;
+              if (vmCallbackStatus === "done" && !r.callback_done) return false;
+              if (vmCallbackStatus === "pending" && r.callback_done) return false;
+              if (vmEmailStatus === "sent" && !r.email_forwarded) return false;
+              if (vmEmailStatus === "off" && r.email_forwarded) return false;
+              if (callerFilter.trim() && !String(r.caller_number || "").toLowerCase().includes(callerFilter.trim().toLowerCase())) return false;
+              return true;
+            });
 
-              <div className="flex flex-wrap items-center gap-2">
-                <SubTabButton active={activeSubView === "primary"} onClick={() => setActiveSubView("primary")} bg={bg}>
-                  Bırakılan Sesli Mesajlar ({(data?.items || []).length})
-                </SubTabButton>
-                <SubTabButton active={activeSubView === "boxes"} onClick={() => setActiveSubView("boxes")} bg={bg}>
-                  Dahili Posta Kutusu Durumu ({(data?.by_extension || []).length})
-                </SubTabButton>
-              </div>
+            const filteredVmBoxes = (data?.by_extension || []).filter((r) => {
+              if (!matchSearch(r, ["extension", "full_name", "email"])) return false;
+              if (selectedExtensions.length > 0 && !selectedExtensions.includes(String(r.extension || ""))) return false;
+              if (vmEmailStatus === "sent" && !r.voicemail_to_email) return false;
+              if (vmEmailStatus === "off" && r.voicemail_to_email) return false;
+              return true;
+            });
 
-              {activeSubView === "primary" ? (
-                <DataTable
-                  ariaLabel="Bırakılan Sesli Posta Kayıtları"
-                  headers={["Tarih / Saat", "Arayan Numara", "Posta Kutusu (Dahili)", "Mesaj Süresi", "E-Posta İletimi", "Geri Dönüş Durumu", "Dönüş Yapan / Zaman"]}
-                  rows={(data?.items || []).filter((r) =>
-                    matchSearch(r, ["caller_number", "extension", "agent_name", "callback_by"])
-                  )}
-                  renderRow={(r) => (
-                    <tr key={r.id} className="hover:bg-slate-50/80 dark:hover:bg-slate-800/40">
-                      <td className="px-4 py-3 whitespace-nowrap">{r.timestamp}</td>
-                      <td className="px-4 py-3 font-mono font-semibold text-slate-800 dark:text-white">{r.caller_number}</td>
-                      <td className="px-4 py-3">
-                        {r.agent_name} {r.extension !== "-" ? `(${r.extension})` : ""}
-                      </td>
-                      <td className="px-4 py-3 whitespace-nowrap">{formatDuration(r.duration_seconds)}</td>
-                      <td className="px-4 py-3">{r.email_forwarded ? "Gönderildi" : "Kapalı"}</td>
-                      <td className="px-4 py-3">
-                        <span
-                          className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
-                            r.callback_done
-                              ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300"
-                              : "bg-amber-100 text-amber-700 dark:bg-amber-950/60 dark:text-amber-300"
-                          }`}
-                        >
-                          {r.callback_done ? "Geri Arandı" : "Bekliyor"}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3 text-[11px]">
-                        {r.callback_done ? `${r.callback_by} (${r.callback_at})` : "-"}
-                      </td>
-                    </tr>
-                  )}
-                />
-              ) : (
-                <DataTable
-                  ariaLabel="Dahili Sesli Posta Kutuları"
-                  headers={["Dahili / Abone", "E-Posta Adresi", "Sesli Posta", "E-Postaya İlet", "Gelen Mesaj", "Dönüş Yapılan", "Bekleyen"]}
-                  rows={(data?.by_extension || []).filter((r) => matchSearch(r, ["extension", "full_name", "email"]))}
-                  renderRow={(r) => (
-                    <tr key={r.extension} className="hover:bg-slate-50/80 dark:hover:bg-slate-800/40">
-                      <td className="px-4 py-3 font-semibold text-slate-800 dark:text-white">
-                        {r.full_name} <span className="text-[11px] text-slate-400">({r.extension})</span>
-                      </td>
-                      <td className="px-4 py-3">{r.email}</td>
-                      <td className="px-4 py-3">
-                        <span
-                          className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
-                            r.voicemail_active
-                              ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300"
-                              : "bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400"
-                          }`}
-                        >
-                          {r.voicemail_active ? "Aktif" : "Pasif"}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3">{r.voicemail_to_email ? "Açık" : "Kapalı"}</td>
-                      <td className="px-4 py-3 text-center font-bold">{r.messages_count}</td>
-                      <td className="px-4 py-3 text-center text-emerald-600 font-semibold">{r.returned_count}</td>
-                      <td className="px-4 py-3 text-center text-amber-600 font-semibold">{r.pending_count}</td>
-                    </tr>
-                  )}
-                />
-              )}
-            </div>
-          )}
+            return (
+              <div className="space-y-5">
+                <div className="grid grid-cols-2 lg:grid-cols-5 gap-3.5">
+                  <KpiCard
+                    label="Sesli Posta Aktif Dahili"
+                    value={`${summary.voicemail_enabled_users || 0} / ${summary.total_extensions || 0}`}
+                    sub={`${summary.voicemail_email_users || 0} e-posta iletimi açık`}
+                    icon={Mail}
+                    theme={{ lightBg, lightText }}
+                  />
+                  <KpiCard
+                    label="Bırakılan Sesli Mesaj"
+                    value={summary.total_voicemails || 0}
+                    sub={`Ort. süre: ${formatDuration(summary.avg_duration_sec || 0)}`}
+                    icon={PhoneIncoming}
+                    theme={{ lightBg, lightText }}
+                  />
+                  <KpiCard
+                    label="Geri Dönüş Yapılan"
+                    value={summary.returned_callbacks || 0}
+                    sub="Müşteriye geri arandı"
+                    icon={CheckCircle2}
+                    theme={{ lightBg, lightText }}
+                  />
+                  <KpiCard
+                    label="Bekleyen Sesli Mesaj"
+                    value={summary.pending_callbacks || 0}
+                    sub="Henüz geri dönüş yapılmadı"
+                    icon={AlertTriangle}
+                    alert={(summary.pending_callbacks || 0) > 0}
+                    theme={{ lightBg, lightText }}
+                  />
+                  <KpiCard
+                    label="Geri Dönüş Oranı"
+                    value={`%${summary.callback_rate_pct ?? 100}`}
+                    sub="Sesli mesaj SLA takibi"
+                    icon={Award}
+                    theme={{ lightBg, lightText }}
+                  />
+                </div>
+
+                <div className="flex flex-wrap items-center gap-2">
+                  <SubTabButton active={activeSubView === "primary"} onClick={() => setActiveSubView("primary")} bg={bg}>
+                    Bırakılan Sesli Mesajlar ({filteredVmItems.length})
+                  </SubTabButton>
+                  <SubTabButton active={activeSubView === "boxes"} onClick={() => setActiveSubView("boxes")} bg={bg}>
+                    Dahili Posta Kutusu Durumu ({filteredVmBoxes.length})
+                  </SubTabButton>
+                </div>
+
+                {activeSubView === "primary" ? (
+                  <DataTable
+                    ariaLabel="Bırakılan Sesli Posta Kayıtları"
+                    headers={[
+                      "Tarih / Saat",
+                      "Arayan Numara",
+                      "Posta Kutusu (Dahili)",
+                      "Mesaj Süresi",
+                      "Ses Kaydı",
+                      "E-Posta İletimi",
+                      "Geri Dönüş Durumu",
+                      "Dönüş Yapan / Zaman",
+                    ]}
+                    rows={filteredVmItems}
+                    renderRow={(r) => {
+                      const audioSrc = r.audio_url
+                        ? `${API_URL}${r.audio_url}`
+                        : r.recording_path
+                        ? `${API_URL}/api/calls/${r.id}/recording`
+                        : "";
+                      return (
+                        <tr key={r.id} className="hover:bg-slate-50/80 dark:hover:bg-slate-800/40">
+                          <td className="px-4 py-3 whitespace-nowrap">{r.timestamp}</td>
+                          <td className="px-4 py-3 font-mono font-semibold text-slate-800 dark:text-white">{r.caller_number}</td>
+                          <td className="px-4 py-3">
+                            {r.agent_name} {r.extension !== "-" ? `(${r.extension})` : ""}
+                          </td>
+                          <td className="px-4 py-3 whitespace-nowrap">{formatDuration(r.duration_seconds)}</td>
+                          <td className="px-4 py-3 whitespace-nowrap">
+                            {audioSrc ? (
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setActivePlayingVm(
+                                    activePlayingVm?.id === r.id ? null : { ...r, resolvedAudioSrc: audioSrc }
+                                  )
+                                }
+                                className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl font-bold text-xs transition shadow-sm border ${
+                                  activePlayingVm?.id === r.id
+                                    ? `${bg} text-white border-transparent`
+                                    : `${lightBg} ${lightText} ${borderLight} hover:opacity-90`
+                                }`}
+                              >
+                                <Play size={12} />
+                                {activePlayingVm?.id === r.id ? "Oynatılıyor" : "Dinle"}
+                              </button>
+                            ) : (
+                              <button
+                                type="button"
+                                disabled
+                                title="Ses kaydı bulunmuyor"
+                                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl font-bold text-xs bg-slate-100 dark:bg-slate-800/60 text-slate-400 dark:text-slate-600 border border-slate-200/70 dark:border-slate-700/50 opacity-50 cursor-not-allowed select-none"
+                              >
+                                <Play size={12} />
+                                Dinle
+                              </button>
+                            )}
+                          </td>
+                          <td className="px-4 py-3">{r.email_forwarded ? "Gönderildi" : "Kapalı"}</td>
+                          <td className="px-4 py-3">
+                            <span
+                              className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                                r.callback_done
+                                  ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300"
+                                  : "bg-amber-100 text-amber-700 dark:bg-amber-950/60 dark:text-amber-300"
+                              }`}
+                            >
+                              {r.callback_done ? "Geri Arandı" : "Bekliyor"}
+                            </span>
+                          </td>
+                          <td className="px-4 py-3 text-[11px]">
+                            {r.callback_done ? `${r.callback_by} (${r.callback_at})` : "-"}
+                          </td>
+                        </tr>
+                      );
+                    }}
+                  />
+                ) : (
+                  <DataTable
+                    ariaLabel="Dahili Sesli Posta Kutuları"
+                    headers={["Dahili / Abone", "E-Posta Adresi", "Sesli Posta", "E-Postaya İlet", "Gelen Mesaj", "Dönüş Yapılan", "Bekleyen"]}
+                    rows={filteredVmBoxes}
+                    renderRow={(r) => (
+                      <tr key={r.extension} className="hover:bg-slate-50/80 dark:hover:bg-slate-800/40">
+                        <td className="px-4 py-3 font-semibold text-slate-800 dark:text-white">
+                          {r.full_name} <span className="text-[11px] text-slate-400">({r.extension})</span>
+                        </td>
+                        <td className="px-4 py-3">{r.email}</td>
+                        <td className="px-4 py-3">
+                          <span
+                            className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                              r.voicemail_active
+                                ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300"
+                                : "bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400"
+                            }`}
+                          >
+                            {r.voicemail_active ? "Aktif" : "Pasif"}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3">{r.voicemail_to_email ? "Açık" : "Kapalı"}</td>
+                        <td className="px-4 py-3 text-center font-bold">{r.messages_count}</td>
+                        <td className="px-4 py-3 text-center text-emerald-600 font-semibold">{r.returned_count}</td>
+                        <td className="px-4 py-3 text-center text-amber-600 font-semibold">{r.pending_count}</td>
+                      </tr>
+                    )}
+                  />
+                )}
+              </div>
+            );
+          })()}
 
           {/* ============================================================== */}
           {/* 14. CONFERENCE ROOM UTILIZATION REPORT                         */}
@@ -1843,6 +2302,41 @@ export default function EnterpriseReportsPanel({ backendHost, reportType = "brea
             </div>
           )}
         </>
+      )}
+
+      {/* Floating Bottom Audio Player Popup */}
+      {activePlayingVm && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 bg-white/95 dark:bg-slate-900/95 backdrop-blur-xl border border-slate-200 dark:border-slate-700 shadow-2xl rounded-3xl px-5 py-3 flex items-center gap-4 animate-in slide-in-from-bottom-5">
+          <div className="flex items-center gap-3">
+            <div className={`w-9 h-9 rounded-full ${lightBg} flex items-center justify-center ${lightText} shrink-0`}>
+              <Phone size={16} />
+            </div>
+            <div>
+              <p className="text-xs font-extrabold text-slate-900 dark:text-white leading-tight">
+                {activePlayingVm.caller_number} — Sesli Posta
+              </p>
+              <p className="text-[10px] font-mono text-slate-400">
+                Dahili: {activePlayingVm.extension || "-"} • {activePlayingVm.timestamp || ""}
+              </p>
+            </div>
+          </div>
+
+          <WaveformAudioPlayer
+            key={activePlayingVm.id}
+            src={activePlayingVm.resolvedAudioSrc}
+            durationSeconds={activePlayingVm.duration_seconds || 0}
+            autoPlay
+          />
+
+          <button
+            type="button"
+            onClick={() => setActivePlayingVm(null)}
+            className="p-2 rounded-full bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-500 transition cursor-pointer shrink-0"
+            title="Kapat"
+          >
+            <X size={15} />
+          </button>
+        </div>
       )}
     </div>
   );
