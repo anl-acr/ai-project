@@ -1822,6 +1822,13 @@ async def _run_asterisk_watchdog_sweep(manager) -> None:
                 removed_st = channel_states.pop(s_uid, None)
                 if removed_st:
                     print(f"🧹 [FORTRESS WATCHDOG] Hayalet meşguliyet kaydı temizlendi: UID={s_uid} Info={removed_st}")
+
+        # 4) Sweep idle Omnichannel (WhatsApp/Email) engagements (> 3 min idle) to auto-restore voice availability
+        try:
+            from backend.services.agent_presence import sweep_expired_omnichannel_engagements
+            await sweep_expired_omnichannel_engagements()
+        except Exception:
+            pass
     except Exception as e:
         print(f"[AMI Watchdog Sweep Warning]: {e}")
 

@@ -429,6 +429,20 @@ async def handle_inbound_chat_message(
                 }
             })
 
+            # If this session is assigned to a human representative, mark them busy on omnichannel
+            if str(assigned_agent or "").lower() == "human" and getattr(chat_session, "assigned_user", None):
+                try:
+                    from backend.services.agent_presence import mark_agent_omnichannel_activity
+                    await mark_agent_omnichannel_activity(
+                        agent_identifier=str(chat_session.assigned_user),
+                        session_id=session_id,
+                        channel=channel,
+                        sender_info=sender_info,
+                        direction="inbound",
+                    )
+                except Exception as e_om:
+                    print(f"[Chat Service Omnichannel Busy Mark Warning]: {e_om}")
+
             # Check for direct representative takeover request
             text_clean = text.strip().lower()
             if text_clean in ["canlı temsilci", "temsilci", "btn_human", "canlı temsilciye bağlan"] or "canlı temsilci" in text_clean:

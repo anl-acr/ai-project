@@ -154,7 +154,9 @@ export default function AgentDirectoryTab({ backendHost, currentUser, callPanelP
         const cState = u.call_state || (u.is_registered ? "online" : "offline");
         stateMap[key] = {
           call_state: cState,
-          is_registered: !!u.is_registered
+          is_registered: !!u.is_registered,
+          omnichannel_busy: !!u.omnichannel_busy,
+          omnichannel_label: u.omnichannel_label || null
         };
       });
 
@@ -164,7 +166,9 @@ export default function AgentDirectoryTab({ backendHost, currentUser, callPanelP
             return {
               ...item,
               call_state: stateMap[item.id].call_state,
-              is_registered: stateMap[item.id].is_registered
+              is_registered: stateMap[item.id].is_registered,
+              omnichannel_busy: stateMap[item.id].omnichannel_busy,
+              omnichannel_label: stateMap[item.id].omnichannel_label
             };
           }
           return item;
@@ -201,6 +205,8 @@ export default function AgentDirectoryTab({ backendHost, currentUser, callPanelP
           type: "internal",
           call_state: cState,
           is_registered: !!u.is_registered,
+          omnichannel_busy: !!u.omnichannel_busy,
+          omnichannel_label: u.omnichannel_label || null,
           avatar:
             u.avatar ||
             `https://ui-avatars.com/api/?name=${encodeURIComponent(displayName)}&background=random`
@@ -433,7 +439,7 @@ export default function AgentDirectoryTab({ backendHost, currentUser, callPanelP
     }
   };
 
-  const getUserLedMeta = (callState) => {
+  const getUserLedMeta = (callState, contactItem = null) => {
     switch (callState) {
       case "ringing":
         return {
@@ -447,7 +453,9 @@ export default function AgentDirectoryTab({ backendHost, currentUser, callPanelP
           dotClass: "bg-rose-500 shadow-[0_0_8px_rgba(244,63,94,0.6)]",
           badgeClass:
             "bg-rose-50 text-rose-600 dark:bg-rose-500/10 dark:text-rose-400 border-rose-200 dark:border-rose-500/20",
-          label: "Meşgul"
+          label: contactItem?.omnichannel_busy
+            ? `Meşgul (${contactItem.omnichannel_label || "Yazışmada"})`
+            : "Meşgul"
         };
       case "online":
         return {
@@ -739,7 +747,7 @@ export default function AgentDirectoryTab({ backendHost, currentUser, callPanelP
             <div className="divide-y divide-slate-100 dark:divide-slate-800/60">
               {visibleList.map((contact, idx) => {
                 const resolvedCallState = resolveContactCallState(contact);
-                const ledMeta = contact.type === "internal" ? getUserLedMeta(resolvedCallState) : null;
+                const ledMeta = contact.type === "internal" ? getUserLedMeta(resolvedCallState, contact) : null;
                 const isFav = favoriteIds.includes(contact.id);
 
                 return (

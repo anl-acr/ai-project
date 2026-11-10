@@ -5204,6 +5204,7 @@ same => n,GotoIf($["${{FWD_STATUS}}"="ALLOW"]?forward_call:end_call)
 
 ; 4. Yönlendirme ve Beni Takip Et Uygulama Bağlamı
 same => n(forward_call),NoOp(Yonlendirme Aktif [Adim=${{FWD_STEP}}]! Hedef: ${{FWD_TARGET}} Timeout: ${{STEP_TIMEOUT}}s)
+same => n,GotoIf($["${{FWD_TARGET}}"="BUSY"]?mark_omni_busy)
 same => n,GotoIf($["${{FWD_TARGET}}"="HANGUP" | "${{FWD_TARGET}}"="NONE"]?end_call)
 same => n,GotoIf($["${{FWD_TARGET}}"="VOICEMAIL"]?voicemail_fwd)
 same => n,GotoIf($["${{FWD_TARGET:0:6}}"="QUEUE_"]?queue_fwd)
@@ -5261,6 +5262,8 @@ same => n,Playback(beeperr,noanswer)
 same => n,Hangup(20)
 same => n(play_loop_wav),Playback(/var/spool/asterisk/monitor/tr_abone_ulasilamiyor,noanswer)
 same => n,Hangup(20)
+same => n(mark_omni_busy),Set(DIALSTATUS=BUSY)
+same => n,Goto(end_call)
 
 same => n(end_call),NoOp(Cagri tamamlandi veya yanitlanmadi: Status=${{DIALSTATUS}})
 same => n,GotoIf($["${{DIALSTATUS}}"="ANSWER"]?check_post_call_survey)
@@ -5368,7 +5371,7 @@ exten => _[1-9]X.,1,NoOp(Kuyruk Temsilci Cihaz Dagitim: Dahili=${{EXTEN}}, Calle
 same => n,Set(__DYNAMIC_FEATURES=rec_pause_toggle)
 same => n,Set(CURLOPT(conntimeout)=1)
 same => n,Set(CURLOPT(httptimeout)=2)
-same => n,Set(AG_EP_LIST=${{CURL(http://{backend_host}/api/subscriber/resolve_agent_ring_targets?extension=${{EXTEN}}&format=list)}})
+same => n,Set(AG_EP_LIST=${{CURL(http://{backend_host}/api/subscriber/resolve_agent_ring_targets?extension=${{EXTEN}}&format=list&for_queue=1)}})
 same => n,GotoIf($["${{AG_EP_LIST}}" = "NONE" | "${{AG_EP_LIST}}" = ""]?ag_unavailable)
 same => n,Gosub(build_multi_pjsip_dial_sub,s,1(${{AG_EP_LIST}}))
 same => n,GotoIf($["${{MULTI_DIAL_STR}}" = "" | "${{MULTI_DIAL_STR}}" = "PJSIP/"]?ag_unavailable)
@@ -8742,15 +8745,33 @@ async def get_agent_status_endpoint(
     extension: Optional[str] = None,
     db: AsyncSession = Depends(get_db)
 ):
-    from backend.services.agent_presence import get_agent_state, update_agent_state, is_auto_break_name, AUTO_BREAK_DEFAULT_COLOR
+    from backend.services.agent_presence import (
+        get_agent_state,
+        update_agent_state,
+        is_auto_break_name,
+        AUTO_BREAK_DEFAULT_COLOR,
+        get_agent_omnichannel_busy_info,
+    )
     from backend.database.models import AgentBreakLog, PBXQueue
     from sqlalchemy import select, or_
 
     uid_str = str(user_id).strip() if user_id and str(user_id).strip() not in ("undefined", "null", "") else None
     ext_str = str(extension).strip() if extension and str(extension).strip() not in ("undefined", "null", "") else None
 
+    def _enrich_with_omni(st_obj: dict) -> dict:
+        if not isinstance(st_obj, dict):
+            return st_obj
+        om = get_agent_omnichannel_busy_info(extension=ext_str or st_obj.get("extension"), user_id=uid_str or st_obj.get("user_id"))
+        return {
+            **st_obj,
+            "omnichannel_busy": bool(om.get("is_busy")),
+            "omnichannel_channel": om.get("channel"),
+            "omnichannel_label": om.get("label"),
+            "omnichannel_active_chats": int(om.get("active_count") or 0),
+        }
+
     if not uid_str and not ext_str:
-        return get_agent_state()
+        return _enrich_with_omni(get_agent_state())
 
     now_utc = datetime.datetime.utcnow()
     now_tr = now_utc + datetime.timedelta(hours=3)
@@ -8878,7 +8899,7 @@ async def get_agent_status_endpoint(
             elapsed_online = max(0, int((now_utc - dt_m).total_seconds()))
         except Exception:
             elapsed_online = 0
-        return {**mem_state, "elapsed_seconds": elapsed_online}
+        return _enrich_with_omni({**mem_state, "elapsed_seconds": elapsed_online})
 
     # Restore online state after backend restart only if the agent had logged in today and not logged out
     if all_today_logs and str(all_today_logs[0].break_name or "") != "__LOGOUT__":
@@ -8893,9 +8914,9 @@ async def get_agent_status_endpoint(
             extension=ext_str,
             status_since_utc=last_iso
         )
-        return {**auto_state, "elapsed_seconds": elapsed_online}
+        return _enrich_with_omni({**auto_state, "elapsed_seconds": elapsed_online})
 
-    return get_agent_state(user_id=uid_str, extension=ext_str)
+    return _enrich_with_omni(get_agent_state(user_id=uid_str, extension=ext_str))
 
 @app.post("/api/agent/status")
 @app.post("/agent/status")
@@ -13433,7 +13454,7 @@ async def log_invalid_dialplan_call(
     return Response(content="LOGGED", media_type="text/plain")
 
 @app.get("/api/subscriber/resolve_agent_ring_targets")
-async def resolve_agent_ring_targets(extension: str = "", format: str = "", db: AsyncSession = Depends(get_db)):
+async def resolve_agent_ring_targets(extension: str = "", format: str = "", for_queue: int = 0, db: AsyncSession = Depends(get_db)):
     """
     Resolves the WebRTC endpoint and all active SIP Devices (`sip_devices`) for a subscriber
     according to their active profile's enabled devices (`web_phone`, `desk_phone`, `pc_app`, `mobile_app`).
@@ -13451,6 +13472,15 @@ async def resolve_agent_ring_targets(extension: str = "", format: str = "", db: 
     fmt_clean = str(format or "").strip().lower()
     if not ext_str:
         return Response(content="NONE", media_type="text/plain")
+
+    # If called from a Queue (`for_queue=1`) and the agent is busy in an Omnichannel chat (WhatsApp/Email/etc.), do not ring!
+    if int(for_queue or 0) == 1:
+        try:
+            from backend.services.agent_presence import get_agent_omnichannel_busy_info
+            if get_agent_omnichannel_busy_info(extension=ext_str).get("is_busy"):
+                return Response(content="NONE", media_type="text/plain")
+        except Exception:
+            pass
 
     user_dict = None
     try:
@@ -14029,15 +14059,24 @@ async def resolve_subscriber_forwarding(
         mobile_enabled = bool(user_dict.get("mobile_transfer_enabled", False))
         gsm_num = str(user_dict.get("gsm_number") or user_dict.get("mobile_number") or fm_mobile or "").strip()
 
-        # Rule 1.9: Check if agent is currently on Break (Manual or Auto-Pause) during BEFORE_DIAL
+        # Rule 1.9: Check if agent is currently on Break (Manual or Auto-Pause) or Omnichannel Busy (WhatsApp/Email) during BEFORE_DIAL
         if dialstatus == "BEFORE_DIAL":
             try:
-                from backend.services.agent_presence import get_agent_state
+                from backend.services.agent_presence import get_agent_state, get_agent_omnichannel_busy_info
                 ag_st = get_agent_state(user_id=str(user_dict.get("id") or ""), extension=ext_str)
                 if ag_st and ag_st.get("is_logged_in") and ag_st.get("status") == "break":
                     brk_target = f_busy or prof_target or (gsm_num if mobile_enabled and gsm_num else "HANGUP")
                     print(f"[Forwarding Resolver] Extension {ext_str} is on BREAK -> Action: {brk_target}")
                     return _finalize_fwd_response(brk_target, no_ans_timeout, "Mola Yönlendirmesi")
+                omni_info = get_agent_omnichannel_busy_info(extension=ext_str, user_id=str(user_dict.get("id") or ""))
+                if omni_info and omni_info.get("is_busy"):
+                    omni_target = f_busy or prof_target or (gsm_num if mobile_enabled and gsm_num else "BUSY")
+                    omni_lbl = omni_info.get("label") or "Omnichannel Yazışmada"
+                    print(f"[Forwarding Resolver] Extension {ext_str} is OMNICHANNEL BUSY ({omni_lbl}) -> Action: {omni_target}")
+                    if omni_target == "BUSY":
+                        log_fwd_action(f"Meşgul ({omni_lbl})", "BUSY")
+                        return Response(content=f"ALLOW:BUSY:{no_ans_timeout}", media_type="text/plain")
+                    return _finalize_fwd_response(omni_target, no_ans_timeout, f"Meşgul Yönlendirmesi ({omni_lbl})")
             except Exception:
                 pass
 
@@ -18447,6 +18486,13 @@ def get_live_user_call_state(ext_val: str, is_reg: bool) -> str:
 
         if ami_st in ("busy", "ringing"):
             return ami_st
+
+        try:
+            from backend.services.agent_presence import get_agent_omnichannel_busy_info
+            if get_agent_omnichannel_busy_info(extension=ext_s).get("is_busy"):
+                return "busy"
+        except Exception:
+            pass
 
     return "online" if is_reg else "offline"
 
@@ -23034,6 +23080,19 @@ async def takeover_chat(session_id: str, payload: Optional[TakeoverSchema] = Non
         session.add(sys_msg)
         await session.commit()
         await session.refresh(sys_msg)
+
+        try:
+            from backend.services.agent_presence import mark_agent_omnichannel_activity
+            await mark_agent_omnichannel_activity(
+                agent_identifier=agent_name,
+                session_id=session_id,
+                channel=chat.channel or "whatsapp",
+                sender_info=chat.sender_info or "",
+                direction="takeover",
+                user_id=uid_str,
+            )
+        except Exception as e_om_tk:
+            print(f"[Omnichannel Takeover Busy Mark Warning]: {e_om_tk}")
         
         # Broadcast system message turn
         await ws_manager.broadcast_omnichannel_event({
@@ -23082,6 +23141,7 @@ async def release_chat_to_ai(session_id: str):
         chat = result.scalar_one_or_none()
         if not chat:
             raise HTTPException(status_code=404, detail="Sohbet oturumu bulunamadı")
+        prev_assigned_user = str(chat.assigned_user or "").strip()
         chat.assigned_agent = "ai"
         chat.assigned_user = None
         chat.last_message_time = datetime.datetime.utcnow()
@@ -23095,6 +23155,12 @@ async def release_chat_to_ai(session_id: str):
         session.add(sys_msg)
         await session.commit()
         await session.refresh(sys_msg)
+
+        try:
+            from backend.services.agent_presence import release_agent_omnichannel_session
+            await release_agent_omnichannel_session(session_id, agent_identifier=prev_assigned_user)
+        except Exception as e_om_rel:
+            print(f"[Omnichannel Release Busy Warning]: {e_om_rel}")
         
         # Broadcast system message turn
         await ws_manager.broadcast_omnichannel_event({
@@ -23185,6 +23251,17 @@ async def send_representative_message(session_id: str, payload: ChatMessageSendS
             
         chat.last_message_time = datetime.datetime.utcnow()
         ch_lower = (chat.channel or "").lower()
+        req_uid = str(request.headers.get("X-User-ID") or "").strip()
+        if str(chat.assigned_agent or "").lower() != "human":
+            chat.assigned_agent = "human"
+        if not chat.assigned_user and req_uid:
+            try:
+                from backend.services.agent_presence import resolve_agent_identity_for_omnichannel
+                _, _, resolved_rep_name = resolve_agent_identity_for_omnichannel("", req_uid, "")
+                if resolved_rep_name:
+                    chat.assigned_user = resolved_rep_name
+            except Exception:
+                pass
         
         # Load contacts to resolve names
         stmt_contacts = select(Contact)
@@ -23242,6 +23319,19 @@ async def send_representative_message(session_id: str, payload: ChatMessageSendS
         session.add(db_message)
         await session.commit()
         await session.refresh(db_message)
+
+        try:
+            from backend.services.agent_presence import mark_agent_omnichannel_activity
+            await mark_agent_omnichannel_activity(
+                agent_identifier=str(chat.assigned_user or req_uid or ""),
+                session_id=session_id,
+                channel=ch_lower or "whatsapp",
+                sender_info=chat.sender_info or "",
+                direction="outbound",
+                user_id=req_uid,
+            )
+        except Exception as e_om_send:
+            print(f"[Omnichannel Send Busy Mark Warning]: {e_om_send}")
         
         msg_payload = {
             "id": db_message.id,
@@ -23451,6 +23541,21 @@ async def update_omnichannel_chat_status(
         await session.commit()
         await session.refresh(sys_msg)
 
+        try:
+            from backend.services.agent_presence import mark_agent_omnichannel_activity, release_agent_omnichannel_session
+            if new_status == "closed":
+                await release_agent_omnichannel_session(session_id, agent_identifier=str(chat.assigned_user or ""))
+            elif str(chat.assigned_agent or "").lower() == "human" and chat.assigned_user:
+                await mark_agent_omnichannel_activity(
+                    agent_identifier=str(chat.assigned_user),
+                    session_id=session_id,
+                    channel=chat.channel or "whatsapp",
+                    sender_info=chat.sender_info or "",
+                    direction="takeover",
+                )
+        except Exception as e_om_st:
+            print(f"[Omnichannel Status Busy Sync Warning]: {e_om_st}")
+
         await ws_manager.broadcast_omnichannel_event({
             "type": "message",
             "message": {
@@ -23519,6 +23624,19 @@ async def assign_omnichannel_chat(
         await session.commit()
         await session.refresh(sys_msg)
 
+        try:
+            from backend.services.agent_presence import mark_agent_omnichannel_activity
+            await mark_agent_omnichannel_activity(
+                agent_identifier=target_user,
+                session_id=session_id,
+                channel=chat.channel or "whatsapp",
+                sender_info=chat.sender_info or "",
+                direction="takeover",
+                extension=str(payload.assigned_ext or "").strip(),
+            )
+        except Exception as e_om_asg:
+            print(f"[Omnichannel Assign Busy Mark Warning]: {e_om_asg}")
+
         await ws_manager.broadcast_omnichannel_event({
             "type": "message",
             "message": {
@@ -23572,6 +23690,11 @@ async def delete_omnichannel_chat(
         await session.commit()
 
     add_system_log("OMNICHANNEL_DELETE", "INFO", f"Omnichannel görüşmesi silindi: {channel_ref} / {sender_ref}")
+    try:
+        from backend.services.agent_presence import release_agent_omnichannel_session
+        await release_agent_omnichannel_session(session_id)
+    except Exception:
+        pass
     await ws_manager.broadcast_omnichannel_event({
         "type": "session_deleted",
         "session_id": session_id,
@@ -23735,6 +23858,19 @@ async def compose_new_omnichannel_message(
         session.add(db_msg)
         await session.commit()
         await session.refresh(db_msg)
+
+        try:
+            from backend.services.agent_presence import mark_agent_omnichannel_activity
+            await mark_agent_omnichannel_activity(
+                agent_identifier=agent_name,
+                session_id=str(chat.id),
+                channel=ch_norm,
+                sender_info=sender_key,
+                direction="outbound",
+                user_id=str(user_info.get("user_id") or ""),
+            )
+        except Exception as e_om_cmp:
+            print(f"[Omnichannel Compose Busy Mark Warning]: {e_om_cmp}")
 
         stmt_contacts = select(Contact)
         res_contacts = await session.execute(stmt_contacts)
@@ -25181,7 +25317,7 @@ async def get_intent_analysis_report(
 @app.get("/api/agent/directory")
 async def get_agent_directory(db: AsyncSession = Depends(get_db)):
     from backend.services.ami_manager import registered_endpoints
-    from backend.services.agent_presence import get_agent_state
+    from backend.services.agent_presence import get_agent_state, get_agent_omnichannel_busy_info
     settings = load_settings()
     users = settings.get("users", [])
     queues = settings.get("queues", [])
@@ -25200,6 +25336,7 @@ async def get_agent_directory(db: AsyncSession = Depends(get_db)):
             uid_str = str(su.id or "")
             is_reg = bool(ext_val in registered_endpoints or uid_str in registered_endpoints)
             c_state = get_live_user_call_state(ext_val, is_reg)
+            om_info = get_agent_omnichannel_busy_info(extension=ext_val, user_id=uid_str)
             if c_state in ("ringing", "busy"):
                 is_reg = True
             directory.append({
@@ -25212,7 +25349,11 @@ async def get_agent_directory(db: AsyncSession = Depends(get_db)):
                 "avatar": getattr(su, "avatar_url", None),
                 "is_registered": is_reg,
                 "call_state": c_state,
-                "status": c_state
+                "status": c_state,
+                "omnichannel_busy": bool(om_info.get("is_busy")),
+                "omnichannel_channel": om_info.get("channel"),
+                "omnichannel_label": om_info.get("label"),
+                "omnichannel_active_chats": int(om_info.get("active_count") or 0),
             })
     except Exception:
         pass
@@ -25226,6 +25367,7 @@ async def get_agent_directory(db: AsyncSession = Depends(get_db)):
         uid_str = str(u.get("id") or "")
         is_reg = bool(ext_val in registered_endpoints or uid_str in registered_endpoints)
         c_state = get_live_user_call_state(ext_val, is_reg)
+        om_info = get_agent_omnichannel_busy_info(extension=ext_val, user_id=uid_str)
         if c_state in ("ringing", "busy"):
             is_reg = True
         directory.append({
@@ -25238,7 +25380,11 @@ async def get_agent_directory(db: AsyncSession = Depends(get_db)):
             "avatar": u.get("avatar_url") or u.get("avatar"),
             "is_registered": is_reg,
             "call_state": c_state,
-            "status": c_state
+            "status": c_state,
+            "omnichannel_busy": bool(om_info.get("is_busy")),
+            "omnichannel_channel": om_info.get("channel"),
+            "omnichannel_label": om_info.get("label"),
+            "omnichannel_active_chats": int(om_info.get("active_count") or 0),
         })
     for q in queues:
         directory.append({
@@ -31201,6 +31347,18 @@ async def new_get_users_endpoint(request: Request, user_info: dict = Depends(get
         u["web_online"] = bool(_is_internal_chat_online(uid, ext))
         u["call_state"] = c_state
         u["ip_address"] = reg_ip if is_reg else ""
+        try:
+            from backend.services.agent_presence import get_agent_omnichannel_busy_info
+            om_u = get_agent_omnichannel_busy_info(extension=ext, user_id=uid)
+            u["omnichannel_busy"] = bool(om_u.get("is_busy"))
+            u["omnichannel_channel"] = om_u.get("channel")
+            u["omnichannel_label"] = om_u.get("label")
+            u["omnichannel_active_chats"] = int(om_u.get("active_count") or 0)
+        except Exception:
+            u["omnichannel_busy"] = False
+            u["omnichannel_channel"] = None
+            u["omnichannel_label"] = None
+            u["omnichannel_active_chats"] = 0
 
     return raw_users
 

@@ -58,7 +58,318 @@ def update_agent_state(is_logged_in: bool, status: str, current_break: dict = No
 
 def is_agent_available(user_id=None, extension=None) -> bool:
     state = get_agent_state(user_id=user_id, extension=extension)
-    return state.get("is_logged_in", False) and state.get("status") == "online"
+    if not (state.get("is_logged_in", False) and state.get("status") == "online"):
+        return False
+    omni = get_agent_omnichannel_busy_info(extension=extension, user_id=user_id)
+    if omni.get("is_busy"):
+        return False
+    return True
+
+
+# ============================================================================
+# OMNICHANNEL CHANNEL BLENDING & ACTIVE CHAT BUSY ENGINE
+# ============================================================================
+import re as _re
+
+# { extension_str: { session_id: {"session_id": str, "channel": str, "sender_info": str, "last_activity_utc": datetime, "direction": str, "agent_name": str} } }
+active_omnichannel_engagements = {}
+# Track which extensions are currently queue-paused specifically due to omnichannel chat
+_omnichannel_paused_extensions = set()
+
+CHANNEL_BUSY_LABELS_TR = {
+    "whatsapp": "WhatsApp Yazışmasında",
+    "email": "E-Posta Yanıtlıyor",
+    "mail": "E-Posta Yanıtlıyor",
+    "instagram": "Instagram DM Yazışmasında",
+    "facebook": "Facebook Messenger Yazışmasında",
+    "telegram": "Telegram Yazışmasında",
+}
+
+
+def format_omnichannel_busy_label(channel: str) -> str:
+    ch_l = str(channel or "whatsapp").strip().lower()
+    return CHANNEL_BUSY_LABELS_TR.get(ch_l, f"{ch_l.capitalize()} Yazışmasında")
+
+
+def _get_omnichannel_blending_config() -> tuple[int, int]:
+    """Returns (max_concurrent_chats, idle_timeout_sec) from settings_db['channels']."""
+    max_chats = 1
+    idle_sec = 180  # 3 minutes default auto-release when customer stops replying
+    try:
+        from backend.main import settings_db
+        ch_cfg = (settings_db.get("channels") or {}) if isinstance(settings_db, dict) else {}
+        if ch_cfg.get("omnichannel_max_concurrent_chats") is not None:
+            max_chats = max(1, int(ch_cfg.get("omnichannel_max_concurrent_chats") or 1))
+        if ch_cfg.get("omnichannel_idle_timeout_sec") is not None:
+            idle_sec = max(30, int(ch_cfg.get("omnichannel_idle_timeout_sec") or 180))
+    except Exception:
+        pass
+    return max_chats, idle_sec
+
+
+def resolve_agent_identity_for_omnichannel(identifier: str = "", user_id: str = "", extension: str = "") -> tuple[str, str, str]:
+    """
+    Resolves (extension, user_id, full_name) from any agent identifier such as:
+    - '1000'
+    - 'Anıl ACAR'
+    - 'Anıl ACAR (1000)'
+    - email or user_id
+    """
+    ext_in = str(extension or "").strip()
+    uid_in = str(user_id or "").strip()
+    ident_in = str(identifier or "").strip()
+
+    # Check if identifier contains parenthesized extension e.g. "Anıl ACAR (1000)"
+    if not ext_in and ident_in:
+        m_paren = _re.search(r"\((\d{2,6})\)", ident_in)
+        if m_paren:
+            ext_in = m_paren.group(1)
+        elif ident_in.isdigit() and len(ident_in) <= 6:
+            ext_in = ident_in
+
+    clean_ident_name = _re.sub(r"\s*\(\d{2,6}\)\s*", "", ident_in).strip().lower()
+
+    try:
+        from backend.main import settings_db, load_settings
+        settings = settings_db if isinstance(settings_db, dict) and settings_db.get("users") else load_settings()
+        for u in settings.get("users", []) or []:
+            if not isinstance(u, dict):
+                continue
+            u_ext = str(u.get("extension") or "").strip()
+            u_id = str(u.get("id") or "").strip()
+            u_name = str(u.get("full_name") or u.get("name") or "").strip()
+            u_email = str(u.get("email") or "").strip()
+            u_uname = str(u.get("username") or "").strip()
+
+            if ext_in and u_ext == ext_in:
+                return (u_ext, u_id or u_ext, u_name or f"Dahili {u_ext}")
+            if uid_in and (u_id == uid_in or u_ext == uid_in):
+                return (u_ext, u_id or u_ext, u_name or f"Dahili {u_ext}")
+            if clean_ident_name:
+                if clean_ident_name in (
+                    u_name.lower(),
+                    u_email.lower(),
+                    u_uname.lower(),
+                    u_ext.lower(),
+                    u_id.lower(),
+                ):
+                    return (u_ext, u_id or u_ext, u_name or ident_in)
+    except Exception:
+        pass
+
+    try:
+        from backend.database.config import SyncSessionLocal
+        from backend.database.models import SystemUser
+        with SyncSessionLocal() as session:
+            for su in session.query(SystemUser).all():
+                u_ext = str(getattr(su, "extension", "") or "").strip()
+                u_id = str(getattr(su, "id", "") or "").strip()
+                u_name = str(getattr(su, "full_name", "") or "").strip()
+                u_email = str(getattr(su, "email", "") or "").strip()
+                if ext_in and u_ext == ext_in:
+                    return (u_ext, u_id or u_ext, u_name or f"Dahili {u_ext}")
+                if uid_in and (u_id == uid_in or u_ext == uid_in):
+                    return (u_ext, u_id or u_ext, u_name or f"Dahili {u_ext}")
+                if clean_ident_name and clean_ident_name in (u_name.lower(), u_email.lower(), u_ext.lower(), u_id.lower()):
+                    return (u_ext, u_id or u_ext, u_name or ident_in)
+    except Exception:
+        pass
+
+    return (ext_in, uid_in or ext_in, ident_in or ext_in)
+
+
+def get_agent_omnichannel_busy_info(extension: str = None, user_id: str = None, agent_name: str = None) -> dict:
+    """
+    Evaluates whether the agent is currently busy in an active Omnichannel session (WhatsApp, Email, Instagram, Telegram, etc.).
+    Automatically prunes sessions that have been idle for longer than `idle_timeout_sec` (default 180s)
+    so an abandoned customer chat never locks the agent out of voice calls forever.
+    """
+    max_chats, idle_timeout_sec = _get_omnichannel_blending_config()
+    ext_s = str(extension or "").strip()
+    if not ext_s and (user_id or agent_name):
+        ext_s, _, _ = resolve_agent_identity_for_omnichannel(
+            identifier=str(agent_name or ""),
+            user_id=str(user_id or ""),
+            extension="",
+        )
+
+    if not ext_s:
+        return {
+            "is_busy": False,
+            "active_count": 0,
+            "channel": None,
+            "label": None,
+            "sender_info": None,
+            "sessions": [],
+        }
+
+    now_utc = datetime.datetime.utcnow()
+    sess_map = active_omnichannel_engagements.get(ext_s)
+    if not sess_map:
+        return {
+            "is_busy": False,
+            "active_count": 0,
+            "channel": None,
+            "label": None,
+            "sender_info": None,
+            "sessions": [],
+        }
+
+    expired_sids = []
+    valid_sessions = []
+    for sid, s_info in list(sess_map.items()):
+        last_dt = s_info.get("last_activity_utc") or now_utc
+        direction = str(s_info.get("direction") or "outbound").lower()
+        # Allow slightly longer window (300s) when customer just messaged and agent is reading/typing,
+        # and `idle_timeout_sec` (180s) after agent replied and is waiting for customer
+        eff_timeout = max(idle_timeout_sec, 300) if direction == "inbound" else idle_timeout_sec
+        age_sec = (now_utc - last_dt).total_seconds()
+        if age_sec > eff_timeout:
+            expired_sids.append(sid)
+        else:
+            valid_sessions.append({
+                "session_id": sid,
+                "channel": s_info.get("channel") or "whatsapp",
+                "sender_info": s_info.get("sender_info") or "",
+                "direction": direction,
+                "elapsed_seconds": max(0, int(age_sec)),
+                "last_activity_utc": last_dt.isoformat() + "Z",
+            })
+
+    for sid in expired_sids:
+        sess_map.pop(sid, None)
+
+    if not sess_map:
+        active_omnichannel_engagements.pop(ext_s, None)
+        if ext_s in _omnichannel_paused_extensions:
+            _omnichannel_paused_extensions.discard(ext_s)
+            try:
+                loop = asyncio.get_running_loop()
+                st = get_agent_state(extension=ext_s)
+                if not (st and st.get("status") in ("break", "acw")):
+                    loop.create_task(sync_asterisk_queue_pause(ext_s, False, reason="OmnichannelIdleTimeout"))
+            except Exception:
+                pass
+        return {
+            "is_busy": False,
+            "active_count": 0,
+            "channel": None,
+            "label": None,
+            "sender_info": None,
+            "sessions": [],
+        }
+
+    valid_sessions.sort(key=lambda x: x["last_activity_utc"], reverse=True)
+    primary = valid_sessions[0]
+    ch_name = str(primary.get("channel") or "whatsapp").lower()
+    is_busy = len(valid_sessions) >= max_chats
+    return {
+        "is_busy": is_busy,
+        "active_count": len(valid_sessions),
+        "channel": ch_name,
+        "label": format_omnichannel_busy_label(ch_name),
+        "sender_info": primary.get("sender_info") or "",
+        "sessions": valid_sessions,
+    }
+
+
+async def mark_agent_omnichannel_activity(
+    agent_identifier: str = "",
+    session_id: str = "",
+    channel: str = "whatsapp",
+    sender_info: str = "",
+    direction: str = "outbound",
+    user_id: str = "",
+    extension: str = "",
+) -> dict:
+    """
+    Marks an agent as actively engaged in an Omnichannel conversation (WhatsApp, Email, Instagram, Telegram, etc.),
+    pauses their Asterisk Queue membership so no voice call interrupts them, and updates their live busy state.
+    """
+    sid_s = str(session_id or "").strip()
+    if not sid_s:
+        return {"is_busy": False}
+
+    ext_s, uid_s, full_name = await asyncio.to_thread(
+        resolve_agent_identity_for_omnichannel,
+        str(agent_identifier or ""),
+        str(user_id or ""),
+        str(extension or ""),
+    )
+    if not ext_s:
+        return {"is_busy": False}
+
+    # Remove this session_id from any other agent if it was transferred/reassigned
+    for other_ext, other_map in list(active_omnichannel_engagements.items()):
+        if other_ext != ext_s and sid_s in other_map:
+            other_map.pop(sid_s, None)
+            if not other_map:
+                active_omnichannel_engagements.pop(other_ext, None)
+                if other_ext in _omnichannel_paused_extensions:
+                    _omnichannel_paused_extensions.discard(other_ext)
+                    st_other = get_agent_state(extension=other_ext)
+                    if not (st_other and st_other.get("status") in ("break", "acw")):
+                        await sync_asterisk_queue_pause(other_ext, False, reason="OmnichannelReassigned")
+
+    now_utc = datetime.datetime.utcnow()
+    ch_clean = str(channel or "whatsapp").strip().lower()
+    ext_map = active_omnichannel_engagements.setdefault(ext_s, {})
+    ext_map[sid_s] = {
+        "session_id": sid_s,
+        "channel": ch_clean,
+        "sender_info": str(sender_info or "").strip(),
+        "last_activity_utc": now_utc,
+        "direction": str(direction or "outbound").strip().lower(),
+        "agent_name": full_name,
+    }
+
+    info = get_agent_omnichannel_busy_info(extension=ext_s)
+    if info.get("is_busy"):
+        _omnichannel_paused_extensions.add(ext_s)
+        await sync_asterisk_queue_pause(ext_s, True, reason=f"Omnichannel:{ch_clean}")
+    return info
+
+
+async def release_agent_omnichannel_session(session_id: str, agent_identifier: str = "") -> None:
+    """
+    Immediately releases an Omnichannel session when the conversation is closed, resolved, deleted,
+    or transferred back to AI, restoring the agent's voice availability if no other hot chat remains.
+    """
+    sid_s = str(session_id or "").strip()
+    affected_exts = set()
+
+    if sid_s:
+        for ext_k, sess_map in list(active_omnichannel_engagements.items()):
+            if sid_s in sess_map:
+                sess_map.pop(sid_s, None)
+                affected_exts.add(ext_k)
+                if not sess_map:
+                    active_omnichannel_engagements.pop(ext_k, None)
+
+    if agent_identifier and not affected_exts:
+        ext_s, _, _ = await asyncio.to_thread(
+            resolve_agent_identity_for_omnichannel,
+            str(agent_identifier or ""),
+            "",
+            "",
+        )
+        if ext_s:
+            affected_exts.add(ext_s)
+
+    for ext_k in affected_exts:
+        info = get_agent_omnichannel_busy_info(extension=ext_k)
+        if not info.get("is_busy"):
+            _omnichannel_paused_extensions.discard(ext_k)
+            st = get_agent_state(extension=ext_k)
+            if not (st and st.get("status") in ("break", "acw")):
+                await sync_asterisk_queue_pause(ext_k, False, reason="OmnichannelCompleted")
+
+
+async def sweep_expired_omnichannel_engagements() -> None:
+    """Periodic sweeper to unpause agents whose omnichannel chats became idle (> 3 min without reply)."""
+    for ext_k in list(active_omnichannel_engagements.keys()):
+        get_agent_omnichannel_busy_info(extension=ext_k)
+
 
 
 # ============================================================================
@@ -84,34 +395,39 @@ def reset_agent_missed_calls(extension: str):
 
 
 async def sync_asterisk_queue_pause(extension: str, paused: bool, reason: str = "AutoPause"):
-    """Pauses or unpauses PJSIP/{extension} across Asterisk queues via AMI and CLI fallback."""
+    """Pauses or unpauses Local/{extension}@queue_agent_ring/n and PJSIP/{extension} across Asterisk queues via AMI and CLI fallback."""
     ext_s = str(extension or "").strip()
     if not ext_s or not ext_s.isdigit():
         return
-    interface_str = f"PJSIP/{ext_s}"
+    interfaces = [
+        f"Local/{ext_s}@queue_agent_ring/n",
+        f"PJSIP/{ext_s}",
+    ]
     pause_val = "true" if paused else "false"
     try:
         from backend.services.ami_manager import get_ami_manager
         manager = await get_ami_manager()
         if manager:
-            await manager.send_action({
-                "Action": "QueuePause",
-                "Interface": interface_str,
-                "Paused": pause_val,
-                "Reason": reason
-            })
+            for iface in interfaces:
+                await manager.send_action({
+                    "Action": "QueuePause",
+                    "Interface": iface,
+                    "Paused": pause_val,
+                    "Reason": reason
+                })
     except Exception as e_ami:
         print(f"[AutoPause AMI QueuePause Warning]: {e_ami}")
 
     try:
         import subprocess
         cmd_verb = "pause" if paused else "unpause"
-        await asyncio.to_thread(
-            subprocess.run,
-            ["asterisk", "-rx", f"queue {cmd_verb} member {interface_str}"],
-            check=False,
-            timeout=1.5
-        )
+        for iface in interfaces:
+            await asyncio.to_thread(
+                subprocess.run,
+                ["asterisk", "-rx", f"queue {cmd_verb} member {iface}"],
+                check=False,
+                timeout=1.5
+            )
     except Exception:
         pass
 

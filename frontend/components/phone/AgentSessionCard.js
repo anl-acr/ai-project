@@ -553,6 +553,14 @@ export default function AgentSessionCard({ backendHost = "localhost:8000", curre
       };
     }
     if (agentState?.status === "online") {
+      if (agentState?.omnichannel_busy) {
+        const omniLabel = agentState.omnichannel_label || "Yazışmada";
+        return {
+          text: `Meşgul (${omniLabel})`,
+          badgeClass: "bg-rose-50 dark:bg-rose-950/30 text-rose-600 dark:text-rose-400 border-rose-200/70 dark:border-rose-800/60",
+          indicatorClass: "bg-rose-500 animate-pulse"
+        };
+      }
       return {
         text: `Müsait (Çağrı Alabilir) • ${formatTimer(liveBreakSeconds)}`,
         badgeClass: "bg-emerald-50 dark:bg-emerald-950/20 text-primary dark:text-emerald-400 border-emerald-200/50 dark:border-emerald-900/30",
@@ -603,9 +611,11 @@ export default function AgentSessionCard({ backendHost = "localhost:8000", curre
               className={`h-2 w-2 rounded-full shrink-0 ${statusDisplay.customColor ? "" : statusDisplay.indicatorClass}`}
               style={statusDisplay.customColor ? { backgroundColor: statusDisplay.customColor } : {}}
             />
-            <span className="truncate max-w-[140px]">
+            <span className="truncate max-w-[180px]" title={statusDisplay.text}>
               {agentState.status === "online"
-                ? `Müsait • ${formatTimer(liveBreakSeconds)}`
+                ? (agentState.omnichannel_busy
+                    ? `Meşgul (${agentState.omnichannel_label || "Yazışmada"})`
+                    : `Müsait • ${formatTimer(liveBreakSeconds)}`)
                 : statusDisplay.text}
             </span>
           </span>
