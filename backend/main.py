@@ -26282,18 +26282,28 @@ async def get_agent_missed_queue_calls(
 
 
 # ----------------- SECURITY SHIELD & FAIL2BAN / UFW ENGINE -----------------
+_trusted_ip_cache = {
+    "ts": 0.0,
+    "wl_hash": None,
+    "exact_ips": set(),
+    "cidr_nets": []
+}
+
+
 def _normalize_whitelist_entries() -> list:
     import datetime
     raw = settings_db.get("security_whitelisted_ips", [])
     normalized = []
     seen = set()
     now_str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    needs_update = False
     for item in raw:
         if isinstance(item, str):
             ip_val = item.strip()
             if ip_val and ip_val not in seen:
                 seen.add(ip_val)
                 normalized.append({"ip": ip_val, "description": "Güvenli IP / Otomatik Beyaz Liste", "added_at": now_str})
+                needs_update = True
         elif isinstance(item, dict):
             ip_val = str(item.get("ip") or "").strip()
             if ip_val and ip_val not in seen:
@@ -26303,62 +26313,59 @@ def _normalize_whitelist_entries() -> list:
                     "description": str(item.get("description") or "Güvenli IP / Blok"),
                     "added_at": str(item.get("added_at") or now_str)
                 })
-    settings_db["security_whitelisted_ips"] = normalized
+            else:
+                needs_update = True
+        else:
+            needs_update = True
+    if needs_update or len(normalized) != len(raw):
+        settings_db["security_whitelisted_ips"] = normalized
     return normalized
 
 
-def _is_trusted_or_local_ip(ip_str: str) -> bool:
-    import re, ipaddress
-    ip_clean = str(ip_str or "").strip()
-    if not ip_clean or ip_clean in {"127.0.0.1", "0.0.0.0", "::1", "localhost"}:
-        return True
-    base_ip = ip_clean.split("/")[0].strip()
-    if base_ip.startswith("127.") or base_ip.startswith("10.") or base_ip.startswith("192.168.") or re.match(r"^172\.(1[6-9]|2\d|3[0-1])\.", base_ip):
-        return True
-
-    # Whitelisted IPs & CIDR Blocks (ignoreip)
+def _get_compiled_trusted_ip_sets():
+    import time, re, ipaddress, socket
+    now_ts = time.time()
     wl_entries = _normalize_whitelist_entries()
-    try:
-        target_net = ipaddress.ip_network(ip_clean, strict=False)
-    except Exception:
-        target_net = None
+    wl_sig = tuple(w.get("ip", "") for w in wl_entries)
+    if (now_ts - _trusted_ip_cache["ts"] < 5.0) and (_trusted_ip_cache["wl_hash"] == wl_sig):
+        return _trusted_ip_cache["exact_ips"], _trusted_ip_cache["cidr_nets"]
+
+    exact_ips = {"127.0.0.1", "0.0.0.0", "::1", "localhost"}
+    cidr_nets = []
 
     for w in wl_entries:
-        w_ip = w.get("ip", "").strip()
+        w_ip = str(w.get("ip") or "").strip()
         if not w_ip:
             continue
-        if w_ip == ip_clean or w_ip == base_ip:
-            return True
-        if target_net is not None:
+        exact_ips.add(w_ip)
+        if "/" in w_ip:
             try:
-                w_net = ipaddress.ip_network(w_ip, strict=False)
-                if target_net.subnet_of(w_net):
-                    return True
+                cidr_nets.append(ipaddress.ip_network(w_ip, strict=False))
             except Exception:
                 pass
+        else:
+            exact_ips.add(w_ip.split("/")[0].strip())
 
-    # NAT extern_ip
     nat_ip = str((settings_db.get("nat") or {}).get("extern_ip") or "").strip()
-    if nat_ip and base_ip == nat_ip:
-        return True
-    # Active WebPhone registered agent IPs
+    if nat_ip:
+        exact_ips.add(nat_ip)
+
     try:
         from backend.services.ami_manager import registered_endpoints
         for ext_k in list(registered_endpoints.keys()):
-            if registered_endpoints.get_ip(ext_k) == base_ip:
-                return True
+            ep_ip = registered_endpoints.get_ip(ext_k)
+            if ep_ip:
+                exact_ips.add(str(ep_ip).strip())
     except Exception:
         pass
-    # Configured SIP Trunk hosts (e.g. ikonsip.com) + cached DNS resolution
+
     if not hasattr(_is_trusted_or_local_ip, "_dns_cache"):
         _is_trusted_or_local_ip._dns_cache = {}
-    import socket
     for t in settings_db.get("trunks", []):
         h = str(t.get("host") or "").strip()
         if not h:
             continue
-        if h == base_ip:
-            return True
+        exact_ips.add(h)
         if not re.match(r"^\d{1,3}(?:\.\d{1,3}){3}$", h):
             resolved_ips = _is_trusted_or_local_ip._dns_cache.get(h)
             if resolved_ips is None:
@@ -26368,13 +26375,55 @@ def _is_trusted_or_local_ip(ip_str: str) -> bool:
                 except Exception:
                     resolved_ips = set()
                 _is_trusted_or_local_ip._dns_cache[h] = resolved_ips
-            if base_ip in resolved_ips:
-                return True
+            exact_ips.update(resolved_ips)
+
+    _trusted_ip_cache["ts"] = now_ts
+    _trusted_ip_cache["wl_hash"] = wl_sig
+    _trusted_ip_cache["exact_ips"] = exact_ips
+    _trusted_ip_cache["cidr_nets"] = cidr_nets
+    return exact_ips, cidr_nets
+
+
+def _is_trusted_or_local_ip(ip_str: str) -> bool:
+    import re, ipaddress
+    ip_clean = str(ip_str or "").strip()
+    if not ip_clean:
+        return True
+    base_ip = ip_clean.split("/")[0].strip()
+    if (
+        base_ip.startswith("127.")
+        or base_ip.startswith("10.")
+        or base_ip.startswith("192.168.")
+        or (base_ip.startswith("172.") and re.match(r"^172\.(1[6-9]|2\d|3[0-1])\.", base_ip))
+    ):
+        return True
+
+    exact_ips, cidr_nets = _get_compiled_trusted_ip_sets()
+    if ip_clean in exact_ips or base_ip in exact_ips:
+        return True
+
+    if cidr_nets:
+        try:
+            target_net = ipaddress.ip_network(ip_clean, strict=False)
+            for w_net in cidr_nets:
+                if target_net.version == w_net.version and target_net.subnet_of(w_net):
+                    return True
+        except Exception:
+            pass
+
     return False
 
 
 _enforced_kernel_ban_ips = set()
 _realtime_sip_attack_tracker = {}
+_security_live_cache = {
+    "service_status": "active",
+    "ufw_active": True,
+    "external_blocked_map": {},
+    "detected_threats": [],
+    "last_updated": 0.0,
+    "refreshing": False
+}
 
 
 def _enforce_kernel_drop_for_ip(ip_clean: str):
@@ -26422,7 +26471,13 @@ def _enforce_kernel_drop_for_ip(ip_clean: str):
     _enforced_kernel_ban_ips.add(ip_clean)
 
 
-def _execute_firewall_ban(ip_str: str, jail: str = "asterisk", reason: str = "SIP Brute-Force / Yetkisiz Deneme", force_manual: bool = False) -> bool:
+def _execute_firewall_ban(
+    ip_str: str,
+    jail: str = "asterisk",
+    reason: str = "SIP Brute-Force / Yetkisiz Deneme",
+    force_manual: bool = False,
+    save_now: bool = True
+) -> bool:
     import subprocess, datetime, re, ipaddress
     ip_clean = str(ip_str or "").strip()
     try:
@@ -26464,7 +26519,8 @@ def _execute_firewall_ban(ip_str: str, jail: str = "asterisk", reason: str = "SI
             "reason": reason
         })
         print(f"[SIP IPS AUTO-BAN] Saldırgan IP Engellendi: {ip_clean} -> {reason}")
-    save_settings(settings_db)
+    if save_now:
+        save_settings(settings_db)
     return True
 
 
@@ -26478,6 +26534,7 @@ def _execute_firewall_unban(ip_str: str, add_to_whitelist: bool = False) -> bool
 
     _enforced_kernel_ban_ips.discard(ip_clean)
     _realtime_sip_attack_tracker.pop(ip_clean, None)
+    _security_live_cache["external_blocked_map"].pop(ip_clean, None)
 
     # 1. Remove from UFW
     try:
@@ -26848,25 +26905,103 @@ def scan_asterisk_failed_sip_attempts(auto_ban: bool = True) -> list:
 
     already_banned = {item.get("ip") for item in settings_db.get("security_blocked_ips", [])}
     detected_list = []
+    banned_any_new = False
+    kernel_enforce_budget = 5
 
     for ip_addr, info in ip_stats.items():
         should_ban = info["attempts"] >= max_retry or (info.get("is_scanner") and info["attempts"] >= min(2, max_retry)) or ("<sip:1@1>" in str(info.get("from_uri", "")))
         if auto_ban and should_ban:
             if ip_addr not in already_banned:
-                _execute_firewall_ban(
+                if _execute_firewall_ban(
                     ip_addr,
                     jail="asterisk-pjsip",
-                    reason=f"{info['reason']} ({info['attempts']} deneme)"
-                )
+                    reason=f"{info['reason']} ({info['attempts']} deneme)",
+                    save_now=False
+                ):
+                    banned_any_new = True
                 already_banned.add(ip_addr)
-            else:
-                # Ensure kernel raw PREROUTING drop is active even if IP was already in settings_db
+            elif ip_addr not in _enforced_kernel_ban_ips and kernel_enforce_budget > 0:
+                # Enforce kernel raw PREROUTING drop in small bounded batches so startup/loops never stall
                 _enforce_kernel_drop_for_ip(ip_addr)
+                kernel_enforce_budget -= 1
         elif ip_addr not in already_banned:
             detected_list.append(info)
 
+    if banned_any_new:
+        save_settings(settings_db)
+
     detected_list.sort(key=lambda x: x["attempts"], reverse=True)
+    _security_live_cache["detected_threats"] = detected_list
     return detected_list
+
+
+def _refresh_security_system_status_cache():
+    """
+    Fail2Ban ve UFW servis durumlarını ve harici (Fail2Ban / UFW) engelli IP listesini
+    arka planda tarayarak _security_live_cache belleğini günceller.
+    HTTP isteklerini bloklamamak için arka plan döngüsünde veya gerektiğinde çağrılır.
+    """
+    import subprocess, shutil, re, datetime, time
+    if _security_live_cache.get("refreshing"):
+        return
+    _security_live_cache["refreshing"] = True
+    try:
+        f2b_installed = bool(shutil.which("fail2ban-client"))
+        f2b_active = False
+        if f2b_installed:
+            try:
+                res = subprocess.run(["systemctl", "is-active", "fail2ban"], check=False, capture_output=True, text=True, timeout=1.5)
+                f2b_active = (res.stdout.strip() == "active")
+            except Exception:
+                pass
+
+        ext_map = {}
+        now_str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        if f2b_installed and f2b_active:
+            for jail_name in ["asterisk", "asterisk-pjsip"]:
+                try:
+                    res_j = subprocess.run(["fail2ban-client", "status", jail_name], check=False, capture_output=True, text=True, timeout=2.0)
+                    if res_j.returncode == 0 and "Banned IP list:" in res_j.stdout:
+                        after = res_j.stdout.split("Banned IP list:", 1)[1].strip()
+                        ips_line = after.splitlines()[0].strip() if after else ""
+                        for bip in ips_line.split():
+                            bip_clean = bip.strip()
+                            if bip_clean and bip_clean not in ext_map and not _is_trusted_or_local_ip(bip_clean):
+                                ext_map[bip_clean] = {
+                                    "ip": bip_clean,
+                                    "jail": jail_name,
+                                    "banned_at": now_str,
+                                    "reason": "Fail2Ban Otomatik Engelleme"
+                                }
+                except Exception:
+                    pass
+
+        ufw_active = False
+        try:
+            res_ufw = subprocess.run(["ufw", "status"], check=False, capture_output=True, text=True, timeout=2.0)
+            if res_ufw.returncode == 0:
+                ufw_active = ("Status: active" in res_ufw.stdout)
+                for line in res_ufw.stdout.splitlines():
+                    if "DENY" in line:
+                        m_ip = re.search(r"(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}(?:/\d{1,2})?)", line)
+                        if m_ip:
+                            u_ip = m_ip.group(1)
+                            if u_ip not in ext_map and not _is_trusted_or_local_ip(u_ip):
+                                ext_map[u_ip] = {
+                                    "ip": u_ip,
+                                    "jail": "ufw-firewall",
+                                    "banned_at": now_str,
+                                    "reason": "UFW Güvenlik Duvarı Kuralı"
+                                }
+        except Exception:
+            pass
+
+        _security_live_cache["service_status"] = "active" if f2b_active else ("inactive" if f2b_installed else "not_installed")
+        _security_live_cache["ufw_active"] = ufw_active
+        _security_live_cache["external_blocked_map"] = ext_map
+        _security_live_cache["last_updated"] = time.time()
+    finally:
+        _security_live_cache["refreshing"] = False
 
 
 async def asterisk_sip_ips_guard_loop():
@@ -26875,94 +27010,122 @@ async def asterisk_sip_ips_guard_loop():
     Asterisk loglarını ve PJSIP yetkisiz REGISTER / INVITE / OPTIONS taramalarını yakalayıp
     saldırgan IP'leri raw PREROUTING + INPUT + Fail2Ban üzerinden otomatik engeller.
     """
-    import asyncio
+    import asyncio, time
     try:
         await asyncio.to_thread(configure_and_sync_fail2ban, False)
         await asyncio.to_thread(scan_asterisk_failed_sip_attempts, True)
+        await asyncio.to_thread(_refresh_security_system_status_cache)
         print("[SIP IPS Guard] Gerçek zamanlı Asterisk PJSIP & Fail2Ban koruma kalkanı aktif.")
     except Exception as e_init:
         print(f"[SIP IPS Guard Init Error]: {e_init}")
 
+    cycle_idx = 0
     while True:
         try:
             await asyncio.sleep(4.0)
+            cycle_idx += 1
             await asyncio.to_thread(scan_asterisk_failed_sip_attempts, True)
+            if cycle_idx % 4 == 0 or (time.time() - _security_live_cache.get("last_updated", 0.0) > 20.0):
+                await asyncio.to_thread(_refresh_security_system_status_cache)
         except Exception as e_loop:
             print(f"[SIP IPS Guard Loop Error]: {e_loop}")
             await asyncio.sleep(5.0)
 
 
+def _extract_security_pagination_params(request: Request):
+    qp = request.query_params
+    try:
+        page = max(1, int(qp.get("page") or 1))
+    except Exception:
+        page = 1
+    try:
+        page_size = max(1, min(1000, int(qp.get("page_size") or 50)))
+    except Exception:
+        page_size = 50
+    search = str(qp.get("search") or "").strip()
+    return page, page_size, search
 
-def get_live_fail2ban_and_ufw_status(client_ip: str = "") -> dict:
-    import subprocess, shutil, re, datetime
-    f2b_installed = bool(shutil.which("fail2ban-client"))
-    f2b_active = False
-    if f2b_installed:
-        try:
-            res = subprocess.run(["systemctl", "is-active", "fail2ban"], check=False, capture_output=True, text=True, timeout=1.5)
-            f2b_active = (res.stdout.strip() == "active")
-        except Exception:
-            pass
 
+def get_live_fail2ban_and_ufw_status(
+    client_ip: str = "",
+    page: int = 1,
+    page_size: int = 50,
+    search: str = "",
+    force_refresh: bool = False
+) -> dict:
+    import time, threading
     wl_entries = _normalize_whitelist_entries()
 
-    # Scan Asterisk logs and auto-ban repeat offenders
-    detected_threats = scan_asterisk_failed_sip_attempts(auto_ban=True)
+    if force_refresh:
+        _refresh_security_system_status_cache()
+    elif time.time() - _security_live_cache.get("last_updated", 0.0) > 20.0 and not _security_live_cache.get("refreshing"):
+        threading.Thread(target=_refresh_security_system_status_cache, daemon=True).start()
 
-    blocked_map = {}
+    exact_trusted_ips, cidr_nets = _get_compiled_trusted_ip_sets()
+    has_cidrs = bool(cidr_nets)
+
+    blocked_list = []
+    seen_ips = set()
+
     for item in settings_db.get("security_blocked_ips", []):
-        ip_k = item.get("ip")
-        if ip_k and not _is_trusted_or_local_ip(ip_k):
-            blocked_map[ip_k] = dict(item)
+        if not isinstance(item, dict):
+            continue
+        ip_k = str(item.get("ip") or "").strip()
+        if not ip_k or ip_k in seen_ips:
+            continue
+        if ip_k in exact_trusted_ips:
+            continue
+        if has_cidrs and _is_trusted_or_local_ip(ip_k):
+            continue
+        seen_ips.add(ip_k)
+        blocked_list.append(item)
 
-    # Query fail2ban-client status asterisk
-    if f2b_installed and f2b_active:
-        for jail_name in ["asterisk", "asterisk-pjsip"]:
-            try:
-                res_j = subprocess.run(["fail2ban-client", "status", jail_name], check=False, capture_output=True, text=True, timeout=2.0)
-                if res_j.returncode == 0 and "Banned IP list:" in res_j.stdout:
-                    after = res_j.stdout.split("Banned IP list:", 1)[1].strip()
-                    ips_line = after.splitlines()[0].strip() if after else ""
-                    for bip in ips_line.split():
-                        bip_clean = bip.strip()
-                        if bip_clean and bip_clean not in blocked_map and not _is_trusted_or_local_ip(bip_clean):
-                            blocked_map[bip_clean] = {
-                                "ip": bip_clean,
-                                "jail": jail_name,
-                                "banned_at": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                                "reason": "Fail2Ban Otomatik Engelleme"
-                            }
-            except Exception:
-                pass
+    for ext_ip, ext_item in (_security_live_cache.get("external_blocked_map") or {}).items():
+        if ext_ip not in seen_ips and ext_ip not in exact_trusted_ips:
+            if has_cidrs and _is_trusted_or_local_ip(ext_ip):
+                continue
+            seen_ips.add(ext_ip)
+            blocked_list.append(ext_item)
 
-    # Query UFW status for DENY IN rules
-    ufw_active = False
-    try:
-        res_ufw = subprocess.run(["ufw", "status"], check=False, capture_output=True, text=True, timeout=2.0)
-        if res_ufw.returncode == 0:
-            ufw_active = ("Status: active" in res_ufw.stdout)
-            for line in res_ufw.stdout.splitlines():
-                if "DENY" in line:
-                    m_ip = re.search(r"(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}(?:/\d{1,2})?)", line)
-                    if m_ip:
-                        u_ip = m_ip.group(1)
-                        if u_ip not in blocked_map and not _is_trusted_or_local_ip(u_ip):
-                            blocked_map[u_ip] = {
-                                "ip": u_ip,
-                                "jail": "ufw-firewall",
-                                "banned_at": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                                "reason": "UFW Güvenlik Duvarı Kuralı"
-                            }
-    except Exception:
-        pass
+    total_blocked_ips = len(blocked_list)
+
+    search_q = (search or "").strip().lower()
+    if search_q:
+        filtered_list = [
+            b for b in blocked_list
+            if search_q in str(b.get("ip") or "").lower()
+            or search_q in str(b.get("reason") or "").lower()
+            or search_q in str(b.get("jail") or "").lower()
+            or search_q in str(b.get("banned_at") or "").lower()
+        ]
+    else:
+        filtered_list = blocked_list
+
+    filtered_count = len(filtered_list)
+    p = max(1, int(page or 1))
+    ps = max(1, min(1000, int(page_size or 50)))
+    total_pages = max(1, (filtered_count + ps - 1) // ps)
+    if p > total_pages:
+        p = total_pages
+    start_idx = (p - 1) * ps
+    end_idx = start_idx + ps
+    paginated_blocked_ips = filtered_list[start_idx:end_idx]
+
+    detected_threats = _security_live_cache.get("detected_threats") or []
 
     return {
         "status": "success",
-        "service_status": "active" if f2b_active else ("inactive" if f2b_installed else "not_installed"),
-        "ufw_active": ufw_active,
-        "blocked_ips": list(blocked_map.values()),
+        "service_status": _security_live_cache.get("service_status") or "active",
+        "ufw_active": bool(_security_live_cache.get("ufw_active", True)),
+        "blocked_ips": paginated_blocked_ips,
+        "total_blocked_ips": total_blocked_ips,
+        "filtered_blocked_ips_count": filtered_count,
+        "page": p,
+        "page_size": ps,
+        "total_pages": total_pages,
         "whitelisted_ips": wl_entries,
-        "detected_threats": detected_threats,
+        "detected_threats": detected_threats[:200],
+        "total_detected_threats": len(detected_threats),
         "client_ip": client_ip
     }
 
@@ -26979,7 +27142,13 @@ def _extract_request_client_ip(request: Request) -> str:
 
 @app.get("/api/security/fail2ban")
 async def get_fail2ban_ips(request: Request, user_info: dict = Depends(get_user_info)):
-    return get_live_fail2ban_and_ufw_status(client_ip=_extract_request_client_ip(request))
+    page, page_size, search = _extract_security_pagination_params(request)
+    return get_live_fail2ban_and_ufw_status(
+        client_ip=_extract_request_client_ip(request),
+        page=page,
+        page_size=page_size,
+        search=search
+    )
 
 
 @app.get("/api/security/whitelist")
@@ -27068,6 +27237,7 @@ async def add_security_whitelist_ip(request: Request, payload: WhitelistIpSchema
         pass
     configure_and_sync_fail2ban(install_if_missing=False)
 
+    page, page_size, search = _extract_security_pagination_params(request)
     return {
         "status": "success",
         "message": (
@@ -27075,7 +27245,7 @@ async def add_security_whitelist_ip(request: Request, payload: WhitelistIpSchema
             if old_ip_str
             else f"{clean_ip} güvenli listeye (Fail2Ban ignoreip & UFW Allow) eklendi."
         ),
-        **get_live_fail2ban_and_ufw_status(client_ip=_extract_request_client_ip(request))
+        **get_live_fail2ban_and_ufw_status(client_ip=_extract_request_client_ip(request), page=page, page_size=page_size, search=search)
     }
 
 
@@ -27093,10 +27263,11 @@ async def delete_security_whitelist_ip(request: Request, ip: str, user_info: dic
         pass
     configure_and_sync_fail2ban(install_if_missing=False)
 
+    page, page_size, search = _extract_security_pagination_params(request)
     return {
         "status": "success",
         "message": f"{ip_clean} güvenli listeden (ignoreip) kaldırıldı.",
-        **get_live_fail2ban_and_ufw_status(client_ip=_extract_request_client_ip(request))
+        **get_live_fail2ban_and_ufw_status(client_ip=_extract_request_client_ip(request), page=page, page_size=page_size, search=search)
     }
 
 
@@ -27116,10 +27287,11 @@ async def manual_ban_fail2ban_ip(request: Request, payload: ManualBanIpSchema, u
     ok = _execute_firewall_ban(ip_str, jail=payload.jail or "manual-ufw", reason=payload.reason or "Manuel Engelleme", force_manual=True)
     if not ok:
         raise HTTPException(status_code=400, detail="Geçersiz IP adresi veya CIDR formatı (Örn: 31.70.90.134).")
+    page, page_size, search = _extract_security_pagination_params(request)
     return {
         "status": "success",
         "message": f"{ip_str} IP adresi güvenlik duvarında (UFW & Fail2Ban) başarıyla engellendi.",
-        **get_live_fail2ban_and_ufw_status(client_ip=_extract_request_client_ip(request))
+        **get_live_fail2ban_and_ufw_status(client_ip=_extract_request_client_ip(request), page=page, page_size=page_size, search=search)
     }
 
 
@@ -27128,10 +27300,11 @@ async def unban_fail2ban_ip(request: Request, ip: str, user_info: dict = Depends
     ok = _execute_firewall_unban(ip, add_to_whitelist=True)
     if not ok:
         raise HTTPException(status_code=400, detail="Geçersiz IP adresi.")
+    page, page_size, search = _extract_security_pagination_params(request)
     return {
         "status": "success",
         "message": f"{ip} adresi engellenenler listesinden ve güvenlik duvarından kaldırıldı.",
-        **get_live_fail2ban_and_ufw_status(client_ip=_extract_request_client_ip(request))
+        **get_live_fail2ban_and_ufw_status(client_ip=_extract_request_client_ip(request), page=page, page_size=page_size, search=search)
     }
 
 
@@ -27155,16 +27328,27 @@ async def control_fail2ban_service(request: Request, payload: Fail2banServiceAct
         msg = "Fail2Ban servisi yeniden başlatıldı ve kurallar güncellendi."
     elif act == "scan_and_ban":
         threats = scan_asterisk_failed_sip_attempts(auto_ban=True)
+        banned_any = False
         for t in threats:
-            _execute_firewall_ban(t["ip"], jail="asterisk-pjsip", reason=f"{t['reason']} ({t['attempts']} deneme)")
+            if _execute_firewall_ban(t["ip"], jail="asterisk-pjsip", reason=f"{t['reason']} ({t['attempts']} deneme)", save_now=False):
+                banned_any = True
+        if banned_any:
+            save_settings(settings_db)
         msg = "Asterisk loglarındaki tüm şüpheli IP adresleri tarandı ve güvenlik duvarında engellendi."
     else:
         raise HTTPException(status_code=400, detail="Geçersiz servis işlemi.")
 
+    page, page_size, search = _extract_security_pagination_params(request)
     return {
         "status": "success",
         "message": msg,
-        **get_live_fail2ban_and_ufw_status(client_ip=_extract_request_client_ip(request))
+        **get_live_fail2ban_and_ufw_status(
+            client_ip=_extract_request_client_ip(request),
+            page=page,
+            page_size=page_size,
+            search=search,
+            force_refresh=True
+        )
     }
 
 

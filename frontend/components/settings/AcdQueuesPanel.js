@@ -3,6 +3,7 @@ import { Users, Search, Plus, Trash2, Edit2, CheckCircle, HeadphonesIcon, Shield
 import * as XLSX from "xlsx";
 import ConfirmDeleteModal from "../dashboard/ConfirmDeleteModal";
 import QueueEditModal from "./QueueEditModal";
+import TablePagination from "../ui/TablePagination";
 import { useTheme } from "../../utils/theme";
 import { getBackendHost, getApiBaseUrl } from "../../utils/apiHost";
 
@@ -285,6 +286,13 @@ export default function AcdQueuesPanel({ backendHost }) {
     );
   });
 
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(25);
+  const paginatedQueues = filteredQueues.slice(
+    (currentPage - 1) * pageSize,
+    currentPage * pageSize
+  );
+
   return (
     <div className="w-full space-y-6">
       {/* Header and Search & Add Action */}
@@ -310,7 +318,10 @@ export default function AcdQueuesPanel({ backendHost }) {
                 type="text"
                 placeholder="Kuyruk ara..."
                 value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
+                onChange={(e) => {
+                  setSearchQuery(e.target.value);
+                  setCurrentPage(1);
+                }}
                 onBlur={() => {
                   if (!searchQuery) setIsSearchOpen(false);
                 }}
@@ -424,7 +435,7 @@ export default function AcdQueuesPanel({ backendHost }) {
             <div className="w-24 text-right shrink-0">İşlem</div>
           </div>
 
-          {filteredQueues.map((q, index) => (
+          {paginatedQueues.map((q, index) => (
             <div
               key={q.id}
               className={`p-4 bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800/85 rounded-2xl shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-4 transition-all duration-200 hover:scale-[1.005] relative hover:z-50 w-full ${
@@ -542,6 +553,19 @@ export default function AcdQueuesPanel({ backendHost }) {
               </div>
             </div>
           ))}
+
+          <TablePagination
+            currentPage={currentPage}
+            totalItems={filteredQueues.length}
+            pageSize={pageSize}
+            onPageChange={setCurrentPage}
+            onPageSizeChange={(sz) => {
+              setPageSize(sz);
+              setCurrentPage(1);
+            }}
+            pageSizeOptions={[10, 25, 50, 100]}
+            itemLabel="kuyruk"
+          />
         </div>
       )}
 

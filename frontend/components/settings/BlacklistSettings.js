@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from "react";
 import { Shield, Plus, Trash2, Edit2, Search, X, Check, AlertCircle, AlertTriangle, FileText, Type, Download, Upload } from "lucide-react";
 import * as XLSX from "xlsx";
 import ConfirmDeleteModal from "../dashboard/ConfirmDeleteModal";
+import TablePagination from "../ui/TablePagination";
 import { useTheme } from "../../utils/theme";
 import { getApiBaseUrl } from "../../utils/apiHost";
 
@@ -376,6 +377,20 @@ export default function BlacklistSettings({ backendHost }) {
     item.word.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
+  const [listPage, setListPage] = useState(1);
+  const [listPageSize, setListPageSize] = useState(25);
+  const paginatedList = filteredList.slice(
+    (listPage - 1) * listPageSize,
+    listPage * listPageSize
+  );
+
+  const [wordsPage, setWordsPage] = useState(1);
+  const [wordsPageSize, setWordsPageSize] = useState(25);
+  const paginatedWords = filteredWords.slice(
+    (wordsPage - 1) * wordsPageSize,
+    wordsPage * wordsPageSize
+  );
+
   return (
     <div className="w-full space-y-6 transition-all duration-300">
       {/* Title & Tabs Header Card */}
@@ -425,7 +440,11 @@ export default function BlacklistSettings({ backendHost }) {
                 type="text"
                 placeholder={activeTab === "list" ? "Numara veya e-posta ara..." : "Kelime veya cümle ara..."}
                 value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
+                onChange={(e) => {
+                  setSearchQuery(e.target.value);
+                  setListPage(1);
+                  setWordsPage(1);
+                }}
                 className={`w-48 text-xs pl-8 pr-3.5 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950 text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 ${ring} dark:focus:ring-rose-400/25 transition-all`}
               />
               <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 dark:text-slate-555" />
@@ -508,7 +527,7 @@ export default function BlacklistSettings({ backendHost }) {
                   </td>
                 </tr>
               ) : (
-                filteredList.map((item) => (
+                paginatedList.map((item) => (
                   <tr key={item.id} className="hover:bg-slate-50/30 dark:hover:bg-slate-950/10">
                     <td className="px-4 py-3.5">
                       <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
@@ -557,6 +576,22 @@ export default function BlacklistSettings({ backendHost }) {
               )}
             </tbody>
           </table>
+          {filteredList.length > 0 && (
+            <div className="mt-4">
+              <TablePagination
+                currentPage={listPage}
+                totalItems={filteredList.length}
+                pageSize={listPageSize}
+                onPageChange={setListPage}
+                onPageSizeChange={(sz) => {
+                  setListPageSize(sz);
+                  setListPage(1);
+                }}
+                pageSizeOptions={[10, 25, 50, 100]}
+                itemLabel="kara liste kaydın"
+              />
+            </div>
+          )}
         </div>
       ) : (
         /* Block Words Table */
@@ -577,7 +612,7 @@ export default function BlacklistSettings({ backendHost }) {
                   </td>
                 </tr>
               ) : (
-                filteredWords.map((item) => (
+                paginatedWords.map((item) => (
                   <tr key={item.id} className="hover:bg-slate-50/30 dark:hover:bg-slate-950/10">
                     <td className="px-4 py-3.5 font-bold text-slate-850 dark:text-slate-200">
                       "{item.word}"
@@ -614,6 +649,22 @@ export default function BlacklistSettings({ backendHost }) {
               )}
             </tbody>
           </table>
+          {filteredWords.length > 0 && (
+            <div className="mt-4">
+              <TablePagination
+                currentPage={wordsPage}
+                totalItems={filteredWords.length}
+                pageSize={wordsPageSize}
+                onPageChange={setWordsPage}
+                onPageSizeChange={(sz) => {
+                  setWordsPageSize(sz);
+                  setWordsPage(1);
+                }}
+                pageSizeOptions={[10, 25, 50, 100]}
+                itemLabel="yasaklı kelime kaydın"
+              />
+            </div>
+          )}
         </div>
       )}
 

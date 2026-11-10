@@ -1,6 +1,7 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { Shield, ShieldAlert, ShieldCheck, Globe, Trash2, Edit2, CheckCircle, Search, Save, AlertTriangle, Check, Plus, RefreshCw, Zap, X, Lock, Unlock, PhoneOutgoing } from "lucide-react";
 import ConfirmDeleteModal from "../dashboard/ConfirmDeleteModal";
+import TablePagination from "../ui/TablePagination";
 import { useTheme } from "../../utils/theme";
 
 const COUNTRIES = [
@@ -28,13 +29,25 @@ export default function SecurityPanel({ backendHost = "localhost:8000" }) {
   const [serviceStatus, setServiceStatus] = useState("active");
   const [ufwActive, setUfwActive] = useState(true);
   const [blockedIps, setBlockedIps] = useState([]);
+  const [totalBlockedCount, setTotalBlockedCount] = useState(0);
+  const [filteredBlockedCount, setFilteredBlockedCount] = useState(0);
+  const [blockedPage, setBlockedPage] = useState(1);
+  const [blockedPageSize, setBlockedPageSize] = useState(50);
+
   const [whitelistedIps, setWhitelistedIps] = useState([]);
+  const [whitelistPage, setWhitelistPage] = useState(1);
+  const [whitelistPageSize, setWhitelistPageSize] = useState(25);
+
   const [detectedThreats, setDetectedThreats] = useState([]);
+  const [threatsPage, setThreatsPage] = useState(1);
+  const [threatsPageSize, setThreatsPageSize] = useState(10);
+
   const [clientIp, setClientIp] = useState("");
   const [searchIp, setSearchIp] = useState("");
   const [searchWhitelist, setSearchWhitelist] = useState("");
   const [deleteTargetIp, setDeleteTargetIp] = useState(null);
   const [deleteWhitelistIp, setDeleteWhitelistIp] = useState(null);
+  const searchDebounceRef = useRef(null);
 
   // Manual IP Ban Modal States
   const [isBanModalOpen, setIsBanModalOpen] = useState(false);
@@ -118,9 +131,32 @@ export default function SecurityPanel({ backendHost = "localhost:8000" }) {
     }
   };
 
+  const buildQueryParams = (p = blockedPage, ps = blockedPageSize, s = searchIp) => {
+    const params = new URLSearchParams();
+    params.set("page", String(p || 1));
+    params.set("page_size", String(ps || 50));
+    if (s && s.trim()) {
+      params.set("search", s.trim());
+    }
+    return params.toString();
+  };
+
   const applySecurityPayload = (data) => {
     if (!data) return;
-    if (Array.isArray(data.blocked_ips)) setBlockedIps(data.blocked_ips);
+    if (Array.isArray(data.blocked_ips)) {
+      setBlockedIps(data.blocked_ips);
+      if (typeof data.total_blocked_ips === "number") {
+        setTotalBlockedCount(data.total_blocked_ips);
+      } else {
+        setTotalBlockedCount(data.blocked_ips.length);
+      }
+      if (typeof data.filtered_blocked_ips_count === "number") {
+        setFilteredBlockedCount(data.filtered_blocked_ips_count);
+      } else {
+        setFilteredBlockedCount(data.blocked_ips.length);
+      }
+    }
+    if (typeof data.page === "number") setBlockedPage(data.page);
     if (Array.isArray(data.whitelisted_ips)) setWhitelistedIps(data.whitelisted_ips);
     if (Array.isArray(data.detected_threats)) setDetectedThreats(data.detected_threats);
     if (data.service_status) setServiceStatus(data.service_status);
@@ -128,9 +164,10 @@ export default function SecurityPanel({ backendHost = "localhost:8000" }) {
     if (data.client_ip) setClientIp(data.client_ip);
   };
 
-  const fetchBlockedIps = async () => {
+  const fetchBlockedIps = async (pageArg = blockedPage, sizeArg = blockedPageSize, searchArg = searchIp) => {
     try {
-      const res = await fetch(`${API_BASE}/api/security/fail2ban`, { headers: getHeaders() });
+      const qs = buildQueryParams(pageArg, sizeArg, searchArg);
+      const res = await fetch(`${API_BASE}/api/security/fail2ban?${qs}`, { headers: getHeaders() });
       if (res.ok) {
         const data = await res.json();
         applySecurityPayload(data);
@@ -138,6 +175,15 @@ export default function SecurityPanel({ backendHost = "localhost:8000" }) {
     } catch (err) {
       console.error("Fail2ban IP hatası:", err);
     }
+  };
+
+  const handleSearchIpChange = (val) => {
+    setSearchIp(val);
+    setBlockedPage(1);
+    if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
+    searchDebounceRef.current = setTimeout(() => {
+      fetchBlockedIps(1, blockedPageSize, val);
+    }, 250);
   };
 
   const fetchGeoRules = async () => {
@@ -221,7 +267,8 @@ export default function SecurityPanel({ backendHost = "localhost:8000" }) {
     setLoading(true);
     setError("");
     try {
-      const res = await fetch(`${API_BASE}/api/security/fail2ban/ban`, {
+      const qs = buildQueryParams(blockedPage, blockedPageSize, searchIp);
+      const res = await fetch(`${API_BASE}/api/security/fail2ban/ban?${qs}`, {
         method: "POST",
         headers: getHeaders(),
         body: JSON.stringify({
@@ -264,7 +311,8 @@ export default function SecurityPanel({ backendHost = "localhost:8000" }) {
       if (!ipToTrust && editingWhitelistOldIp) {
         payloadBody.old_ip = editingWhitelistOldIp;
       }
-      const res = await fetch(`${API_BASE}/api/security/whitelist`, {
+      const qs = buildQueryParams(blockedPage, blockedPageSize, searchIp);
+      const res = await fetch(`${API_BASE}/api/security/whitelist?${qs}`, {
         method: "POST",
         headers: getHeaders(),
         body: JSON.stringify(payloadBody)
@@ -292,7 +340,8 @@ export default function SecurityPanel({ backendHost = "localhost:8000" }) {
     setLoading(true);
     setError("");
     try {
-      const res = await fetch(`${API_BASE}/api/security/whitelist/${encodeURIComponent(deleteWhitelistIp)}`, {
+      const qs = buildQueryParams(blockedPage, blockedPageSize, searchIp);
+      const res = await fetch(`${API_BASE}/api/security/whitelist/${encodeURIComponent(deleteWhitelistIp)}?${qs}`, {
         method: "DELETE",
         headers: getHeaders()
       });
@@ -317,7 +366,8 @@ export default function SecurityPanel({ backendHost = "localhost:8000" }) {
     setServiceLoading(true);
     setError("");
     try {
-      const res = await fetch(`${API_BASE}/api/security/fail2ban/service`, {
+      const qs = buildQueryParams(blockedPage, blockedPageSize, searchIp);
+      const res = await fetch(`${API_BASE}/api/security/fail2ban/service?${qs}`, {
         method: "POST",
         headers: getHeaders(),
         body: JSON.stringify({ action: actionType })
@@ -341,7 +391,8 @@ export default function SecurityPanel({ backendHost = "localhost:8000" }) {
     if (!hasWritePermission || !deleteTargetIp) return;
     setLoading(true);
     try {
-      const res = await fetch(`${API_BASE}/api/security/fail2ban/${encodeURIComponent(deleteTargetIp)}`, {
+      const qs = buildQueryParams(blockedPage, blockedPageSize, searchIp);
+      const res = await fetch(`${API_BASE}/api/security/fail2ban/${encodeURIComponent(deleteTargetIp)}?${qs}`, {
         method: "DELETE",
         headers: getHeaders()
       });
@@ -398,7 +449,7 @@ export default function SecurityPanel({ backendHost = "localhost:8000" }) {
         const data = await res.json();
         setSuccess(data.message || "Gelişmiş güvenlik ayarları başarıyla kaydedildi ve Fail2Ban'a uygulandı.");
         setTimeout(() => setSuccess(""), 3500);
-        await fetchBlockedIps();
+        await fetchBlockedIps(blockedPage, blockedPageSize, searchIp);
       } else {
         setError("Ayarlar kaydedilirken bir hata oluştu.");
       }
@@ -416,15 +467,23 @@ export default function SecurityPanel({ backendHost = "localhost:8000" }) {
     );
   };
 
-  const filteredIps = blockedIps.filter(ipObj =>
-    (ipObj.ip || "").toLowerCase().includes(searchIp.toLowerCase()) ||
-    (ipObj.reason || "").toLowerCase().includes(searchIp.toLowerCase()) ||
-    (ipObj.jail || "").toLowerCase().includes(searchIp.toLowerCase())
-  );
+  // Server already filters and slices blockedIps; keep client fallback if needed
+  const filteredIps = blockedIps;
+  const effectiveFilteredBlockedCount = filteredBlockedCount || blockedIps.length;
+  const effectiveTotalBlockedCount = totalBlockedCount || blockedIps.length;
 
   const filteredWhitelist = whitelistedIps.filter(wObj =>
     (wObj.ip || "").toLowerCase().includes(searchWhitelist.toLowerCase()) ||
     (wObj.description || "").toLowerCase().includes(searchWhitelist.toLowerCase())
+  );
+  const paginatedWhitelist = filteredWhitelist.slice(
+    (whitelistPage - 1) * whitelistPageSize,
+    whitelistPage * whitelistPageSize
+  );
+
+  const paginatedThreats = detectedThreats.slice(
+    (threatsPage - 1) * threatsPageSize,
+    threatsPage * threatsPageSize
   );
 
   const isClientIpWhitelisted = Boolean(
@@ -545,7 +604,7 @@ export default function SecurityPanel({ backendHost = "localhost:8000" }) {
           }`}
         >
           <ShieldAlert size={14} />
-          <span>Engellenen IP'ler ({blockedIps.length})</span>
+          <span>Engellenen IP&apos;ler ({effectiveTotalBlockedCount.toLocaleString("tr-TR")})</span>
           {activeTab === "fail2ban" && (
             <div className={`absolute bottom-0 left-0 right-0 h-0.5 ${bg} rounded-t-full`} />
           )}
@@ -560,7 +619,7 @@ export default function SecurityPanel({ backendHost = "localhost:8000" }) {
           }`}
         >
           <ShieldCheck size={15} />
-          <span>Güvenli IP / Blok Listesi ({whitelistedIps.length})</span>
+          <span>Güvenli IP / Blok Listesi ({whitelistedIps.length.toLocaleString("tr-TR")})</span>
           {activeTab === "whitelist" && (
             <div className={`absolute bottom-0 left-0 right-0 h-0.5 ${bg} rounded-t-full`} />
           )}
@@ -615,8 +674,8 @@ export default function SecurityPanel({ backendHost = "localhost:8000" }) {
                   </div>
                 </div>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-                  {detectedThreats.map((th, idx) => (
-                    <div key={idx} className="flex items-center justify-between px-3 py-2 rounded-lg bg-white dark:bg-slate-900 border border-amber-200/70 dark:border-amber-900/40 text-xs gap-2">
+                  {paginatedThreats.map((th, idx) => (
+                    <div key={th.ip || idx} className="flex items-center justify-between px-3 py-2 rounded-lg bg-white dark:bg-slate-900 border border-amber-200/70 dark:border-amber-900/40 text-xs gap-2">
                       <div className="min-w-0">
                         <span className="font-bold text-rose-600 dark:text-rose-400 font-mono">{th.ip}</span>
                         <span className="ml-2 text-[11px] text-slate-500 truncate">({th.attempts} deneme - {th.reason})</span>
@@ -641,6 +700,20 @@ export default function SecurityPanel({ backendHost = "localhost:8000" }) {
                     </div>
                   ))}
                 </div>
+                {detectedThreats.length > threatsPageSize && (
+                  <TablePagination
+                    currentPage={threatsPage}
+                    totalItems={detectedThreats.length}
+                    pageSize={threatsPageSize}
+                    onPageChange={setThreatsPage}
+                    onPageSizeChange={(sz) => {
+                      setThreatsPageSize(sz);
+                      setThreatsPage(1);
+                    }}
+                    pageSizeOptions={[10, 20, 50]}
+                    itemLabel="şüpheli deneme"
+                  />
+                )}
               </div>
             )}
 
@@ -657,7 +730,7 @@ export default function SecurityPanel({ backendHost = "localhost:8000" }) {
                   type="text"
                   placeholder="IP veya Sebep Ara..."
                   value={searchIp}
-                  onChange={(e) => setSearchIp(e.target.value)}
+                  onChange={(e) => handleSearchIpChange(e.target.value)}
                   className="pl-9 pr-4 py-1.5 text-xs bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 rounded-xl focus:outline-none transition-all w-56 text-slate-800 dark:text-slate-100"
                 />
               </div>
@@ -671,45 +744,64 @@ export default function SecurityPanel({ backendHost = "localhost:8000" }) {
                 <span className="text-xs font-semibold">Engellenen IP adresi bulunmamaktadır.</span>
               </div>
             ) : (
-              <div className="border border-slate-200/80 dark:border-slate-800/80 rounded-xl overflow-hidden">
-                <table className="w-full text-left border-collapse">
-                  <thead>
-                    <tr className="bg-slate-50/80 dark:bg-slate-800/50 border-b border-slate-200 dark:border-slate-800/60">
-                      <th className="py-3 px-4 text-[10px] font-black text-slate-500 dark:text-slate-400 uppercase tracking-wider">IP Adresi</th>
-                      <th className="py-3 px-4 text-[10px] font-black text-slate-500 dark:text-slate-400 uppercase tracking-wider">Kural (Jail)</th>
-                      <th className="py-3 px-4 text-[10px] font-black text-slate-500 dark:text-slate-400 uppercase tracking-wider">Engellenme Sebebi</th>
-                      <th className="py-3 px-4 text-[10px] font-black text-slate-500 dark:text-slate-400 uppercase tracking-wider">Tarih</th>
-                      {hasWritePermission && <th className="py-3 px-4 text-[10px] font-black text-slate-500 dark:text-slate-400 uppercase tracking-wider text-right">İşlem</th>}
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100 dark:divide-slate-800/60">
-                    {filteredIps.map((b, i) => (
-                      <tr key={i} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/30 transition-colors">
-                        <td className="py-3 px-4 text-xs font-bold text-rose-600 dark:text-rose-400 font-mono">{b.ip}</td>
-                        <td className="py-3 px-4 text-xs text-slate-600 dark:text-slate-300 font-medium">
-                          <span className="px-2 py-0.5 bg-slate-100 dark:bg-slate-800 rounded text-[10px] uppercase font-bold text-slate-500 dark:text-slate-400">
-                            {b.jail || "asterisk"}
-                          </span>
-                        </td>
-                        <td className="py-3 px-4 text-xs text-slate-600 dark:text-slate-300">
-                          {b.reason || "SIP Güvenlik Duvarı Engeli"}
-                        </td>
-                        <td className="py-3 px-4 text-[11px] text-slate-500 dark:text-slate-400 font-medium">{b.banned_at}</td>
-                        {hasWritePermission && (
-                          <td className="py-3 px-4 text-right">
-                            <button
-                              onClick={() => setDeleteTargetIp(b.ip)}
-                              className="text-slate-400 hover:text-rose-500 dark:text-slate-500 dark:hover:text-rose-400 transition-colors p-1.5 hover:bg-rose-50 dark:hover:bg-rose-950/30 rounded-lg"
-                              title="Engeli Kaldır (Unban)"
-                            >
-                              <Trash2 size={14} />
-                            </button>
-                          </td>
-                        )}
+              <div className="space-y-3">
+                <div className="border border-slate-200/80 dark:border-slate-800/80 rounded-xl overflow-hidden">
+                  <table className="w-full text-left border-collapse">
+                    <thead>
+                      <tr className="bg-slate-50/80 dark:bg-slate-800/50 border-b border-slate-200 dark:border-slate-800/60">
+                        <th className="py-3 px-4 text-[10px] font-black text-slate-500 dark:text-slate-400 uppercase tracking-wider">IP Adresi</th>
+                        <th className="py-3 px-4 text-[10px] font-black text-slate-500 dark:text-slate-400 uppercase tracking-wider">Kural (Jail)</th>
+                        <th className="py-3 px-4 text-[10px] font-black text-slate-500 dark:text-slate-400 uppercase tracking-wider">Engellenme Sebebi</th>
+                        <th className="py-3 px-4 text-[10px] font-black text-slate-500 dark:text-slate-400 uppercase tracking-wider">Tarih</th>
+                        {hasWritePermission && <th className="py-3 px-4 text-[10px] font-black text-slate-500 dark:text-slate-400 uppercase tracking-wider text-right">İşlem</th>}
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100 dark:divide-slate-800/60">
+                      {filteredIps.map((b, i) => (
+                        <tr key={b.ip || i} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/30 transition-colors">
+                          <td className="py-3 px-4 text-xs font-bold text-rose-600 dark:text-rose-400 font-mono">{b.ip}</td>
+                          <td className="py-3 px-4 text-xs text-slate-600 dark:text-slate-300 font-medium">
+                            <span className="px-2 py-0.5 bg-slate-100 dark:bg-slate-800 rounded text-[10px] uppercase font-bold text-slate-500 dark:text-slate-400">
+                              {b.jail || "asterisk"}
+                            </span>
+                          </td>
+                          <td className="py-3 px-4 text-xs text-slate-600 dark:text-slate-300">
+                            {b.reason || "SIP Güvenlik Duvarı Engeli"}
+                          </td>
+                          <td className="py-3 px-4 text-[11px] text-slate-500 dark:text-slate-400 font-medium">{b.banned_at}</td>
+                          {hasWritePermission && (
+                            <td className="py-3 px-4 text-right">
+                              <button
+                                onClick={() => setDeleteTargetIp(b.ip)}
+                                className="text-slate-400 hover:text-rose-500 dark:text-slate-500 dark:hover:text-rose-400 transition-colors p-1.5 hover:bg-rose-50 dark:hover:bg-rose-950/30 rounded-lg"
+                                title="Engeli Kaldır (Unban)"
+                              >
+                                <Trash2 size={14} />
+                              </button>
+                            </td>
+                          )}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+
+                <TablePagination
+                  currentPage={blockedPage}
+                  totalItems={effectiveFilteredBlockedCount}
+                  pageSize={blockedPageSize}
+                  onPageChange={(nextPage) => {
+                    setBlockedPage(nextPage);
+                    fetchBlockedIps(nextPage, blockedPageSize, searchIp);
+                  }}
+                  onPageSizeChange={(nextSize) => {
+                    setBlockedPageSize(nextSize);
+                    setBlockedPage(1);
+                    fetchBlockedIps(1, nextSize, searchIp);
+                  }}
+                  pageSizeOptions={[25, 50, 100, 250]}
+                  itemLabel="engellenen IP kaydın"
+                />
               </div>
             )}
           </div>
@@ -733,7 +825,7 @@ export default function SecurityPanel({ backendHost = "localhost:8000" }) {
                     title="Şu anda bağlandığınız IP adresini güvenli listeye ekler"
                   >
                     <ShieldCheck size={14} />
-                    <span>Mevcut IP'mi Ekle ({clientIp})</span>
+                    <span>Mevcut IP&apos;mi Ekle ({clientIp})</span>
                   </button>
                 )}
                 <div className="relative">
@@ -742,7 +834,10 @@ export default function SecurityPanel({ backendHost = "localhost:8000" }) {
                     type="text"
                     placeholder="Güvenli IP Ara..."
                     value={searchWhitelist}
-                    onChange={(e) => setSearchWhitelist(e.target.value)}
+                    onChange={(e) => {
+                      setSearchWhitelist(e.target.value);
+                      setWhitelistPage(1);
+                    }}
                     className="pl-9 pr-4 py-1.5 text-xs bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 rounded-xl focus:outline-none transition-all w-48 text-slate-800 dark:text-slate-100"
                   />
                 </div>
@@ -756,57 +851,72 @@ export default function SecurityPanel({ backendHost = "localhost:8000" }) {
                 <span className="text-[11px] text-slate-400 mt-1">Sağ üstteki (+) butonuna tıklayarak sabit ofis IP adresinizi veya alt ağ bloğunuzu ekleyebilirsiniz.</span>
               </div>
             ) : (
-              <div className="border border-slate-200/80 dark:border-slate-800/80 rounded-xl overflow-hidden">
-                <table className="w-full text-left border-collapse">
-                  <thead>
-                    <tr className="bg-slate-50/80 dark:bg-slate-800/50 border-b border-slate-200 dark:border-slate-800/60">
-                      <th className="py-3 px-4 text-[10px] font-black text-slate-500 dark:text-slate-400 uppercase tracking-wider">Güvenli IP / CIDR Bloğu</th>
-                      <th className="py-3 px-4 text-[10px] font-black text-slate-500 dark:text-slate-400 uppercase tracking-wider">Açıklama</th>
-                      <th className="py-3 px-4 text-[10px] font-black text-slate-500 dark:text-slate-400 uppercase tracking-wider">Eklenme Tarihi</th>
-                      {hasWritePermission && <th className="py-3 px-4 text-[10px] font-black text-slate-500 dark:text-slate-400 uppercase tracking-wider text-right">İşlem</th>}
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100 dark:divide-slate-800/60">
-                    {filteredWhitelist.map((w, idx) => (
-                      <tr key={idx} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/30 transition-colors">
-                        <td className="py-3 px-4 text-xs font-bold text-emerald-600 dark:text-emerald-400 font-mono">
-                          {w.ip}
-                        </td>
-                        <td className="py-3 px-4 text-xs text-slate-700 dark:text-slate-300 font-medium">
-                          {w.description || "Güvenli IP / Blok"}
-                        </td>
-                        <td className="py-3 px-4 text-[11px] text-slate-500 dark:text-slate-400 font-medium">
-                          {w.added_at}
-                        </td>
-                        {hasWritePermission && (
-                          <td className="py-3 px-4 text-right">
-                            <div className="inline-flex items-center justify-end gap-1">
-                              <button
-                                onClick={() => {
-                                  setEditingWhitelistOldIp(w.ip);
-                                  setWhitelistIpInput(w.ip || "");
-                                  setWhitelistDescInput(w.description || "Güvenli IP / Blok");
-                                  setIsWhitelistModalOpen(true);
-                                }}
-                                className="text-slate-400 hover:text-indigo-600 dark:text-slate-500 dark:hover:text-indigo-400 transition-colors p-1.5 hover:bg-indigo-50 dark:hover:bg-indigo-950/30 rounded-lg"
-                                title="Güvenli IP Kaydını Düzenle"
-                              >
-                                <Edit2 size={14} />
-                              </button>
-                              <button
-                                onClick={() => setDeleteWhitelistIp(w.ip)}
-                                className="text-slate-400 hover:text-rose-500 dark:text-slate-500 dark:hover:text-rose-400 transition-colors p-1.5 hover:bg-rose-50 dark:hover:bg-rose-950/30 rounded-lg"
-                                title="Güvenli Listeden Kaldır"
-                              >
-                                <Trash2 size={14} />
-                              </button>
-                            </div>
-                          </td>
-                        )}
+              <div className="space-y-3">
+                <div className="border border-slate-200/80 dark:border-slate-800/80 rounded-xl overflow-hidden">
+                  <table className="w-full text-left border-collapse">
+                    <thead>
+                      <tr className="bg-slate-50/80 dark:bg-slate-800/50 border-b border-slate-200 dark:border-slate-800/60">
+                        <th className="py-3 px-4 text-[10px] font-black text-slate-500 dark:text-slate-400 uppercase tracking-wider">Güvenli IP / CIDR Bloğu</th>
+                        <th className="py-3 px-4 text-[10px] font-black text-slate-500 dark:text-slate-400 uppercase tracking-wider">Açıklama</th>
+                        <th className="py-3 px-4 text-[10px] font-black text-slate-500 dark:text-slate-400 uppercase tracking-wider">Eklenme Tarihi</th>
+                        {hasWritePermission && <th className="py-3 px-4 text-[10px] font-black text-slate-500 dark:text-slate-400 uppercase tracking-wider text-right">İşlem</th>}
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100 dark:divide-slate-800/60">
+                      {paginatedWhitelist.map((w, idx) => (
+                        <tr key={w.ip || idx} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/30 transition-colors">
+                          <td className="py-3 px-4 text-xs font-bold text-emerald-600 dark:text-emerald-400 font-mono">
+                            {w.ip}
+                          </td>
+                          <td className="py-3 px-4 text-xs text-slate-700 dark:text-slate-300 font-medium">
+                            {w.description || "Güvenli IP / Blok"}
+                          </td>
+                          <td className="py-3 px-4 text-[11px] text-slate-500 dark:text-slate-400 font-medium">
+                            {w.added_at}
+                          </td>
+                          {hasWritePermission && (
+                            <td className="py-3 px-4 text-right">
+                              <div className="inline-flex items-center justify-end gap-1">
+                                <button
+                                  onClick={() => {
+                                    setEditingWhitelistOldIp(w.ip);
+                                    setWhitelistIpInput(w.ip || "");
+                                    setWhitelistDescInput(w.description || "Güvenli IP / Blok");
+                                    setIsWhitelistModalOpen(true);
+                                  }}
+                                  className="text-slate-400 hover:text-indigo-600 dark:text-slate-500 dark:hover:text-indigo-400 transition-colors p-1.5 hover:bg-indigo-50 dark:hover:bg-indigo-950/30 rounded-lg"
+                                  title="Güvenli IP Kaydını Düzenle"
+                                >
+                                  <Edit2 size={14} />
+                                </button>
+                                <button
+                                  onClick={() => setDeleteWhitelistIp(w.ip)}
+                                  className="text-slate-400 hover:text-rose-500 dark:text-slate-500 dark:hover:text-rose-400 transition-colors p-1.5 hover:bg-rose-50 dark:hover:bg-rose-950/30 rounded-lg"
+                                  title="Güvenli Listeden Kaldır"
+                                >
+                                  <Trash2 size={14} />
+                                </button>
+                              </div>
+                            </td>
+                          )}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+
+                <TablePagination
+                  currentPage={whitelistPage}
+                  totalItems={filteredWhitelist.length}
+                  pageSize={whitelistPageSize}
+                  onPageChange={setWhitelistPage}
+                  onPageSizeChange={(sz) => {
+                    setWhitelistPageSize(sz);
+                    setWhitelistPage(1);
+                  }}
+                  pageSizeOptions={[10, 25, 50, 100]}
+                  itemLabel="güvenli IP kaydın"
+                />
               </div>
             )}
           </div>

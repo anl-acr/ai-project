@@ -28,6 +28,7 @@ import { CallPanelAgentsAppearanceSettings } from "../callcenter/tabs/AgentQueue
 import { WallboardStudioSettings } from "../dashboard/WallboardPanel";
 import KeyboardShortcutsModal from "../common/KeyboardShortcutsModal";
 import SearchableSelect from "../ui/SearchableSelect";
+import TablePagination from "../ui/TablePagination";
 
 import { getApiBaseUrl, tenantFetch } from "../../utils/apiHost";
 import { webphoneManager } from "../../utils/webphoneManager";
@@ -2680,6 +2681,13 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
     );
   });
 
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(25);
+  const paginatedUsers = filteredUsers.slice(
+    (currentPage - 1) * pageSize,
+    currentPage * pageSize
+  );
+
   const renderForwardingRow = (label, active, setActive, type, setType, target, setTarget) => (
     <div className={`grid grid-cols-12 gap-3 items-end p-3 rounded-xl border transition-all ${active ? 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800' : 'bg-slate-50 dark:bg-slate-900/30 border-slate-100 dark:border-slate-800/40 opacity-70'}`}>
         <div className="col-span-12 flex items-center justify-between mb-1 pb-2 border-b border-slate-100 dark:border-slate-800/60">
@@ -2804,7 +2812,10 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
                 type="text"
                 placeholder="Kullanıcı ara..."
                 value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
+                onChange={(e) => {
+                  setSearchQuery(e.target.value);
+                  setCurrentPage(1);
+                }}
                 onBlur={() => {
                   if (!searchQuery) setIsSearchOpen(false);
                 }}
@@ -2944,7 +2955,7 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
             <div className="w-24 text-right shrink-0">İşlem</div>
           </div>
 
-          {filteredUsers.map((u) => (
+          {paginatedUsers.map((u) => (
             <div
               key={u.id}
               className={`p-4 bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800/85 rounded-2xl shadow-sm flex flex-col sm:flex-row sm:items-center gap-3 transition-all duration-200 hover:scale-[1.005] w-full ${
@@ -3195,6 +3206,19 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
                 </div>
               </div>
           ))}
+
+          <TablePagination
+            currentPage={currentPage}
+            totalItems={filteredUsers.length}
+            pageSize={pageSize}
+            onPageChange={setCurrentPage}
+            onPageSizeChange={(sz) => {
+              setPageSize(sz);
+              setCurrentPage(1);
+            }}
+            pageSizeOptions={[10, 25, 50, 100]}
+            itemLabel="kullanıcı"
+          />
         </div>
       )}
 

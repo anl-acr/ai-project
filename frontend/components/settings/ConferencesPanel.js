@@ -4,6 +4,7 @@ import * as XLSX from "xlsx";
 
 import ConfirmDeleteModal from "../dashboard/ConfirmDeleteModal";
 import TransferList from "../ui/TransferList";
+import TablePagination from "../ui/TablePagination";
 import { useTheme } from "../../utils/theme";
 
 export default function ConferencesPanel({ backendHost = "localhost:8000" }) {
@@ -17,6 +18,8 @@ export default function ConferencesPanel({ backendHost = "localhost:8000" }) {
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(25);
   const fileInputRef = useRef(null);
 
   // Modals
@@ -377,6 +380,10 @@ export default function ConferencesPanel({ backendHost = "localhost:8000" }) {
     (item.room_number && item.room_number.toLowerCase().includes(searchQuery.toLowerCase())) ||
     (item.room_name && item.room_name.toLowerCase().includes(searchQuery.toLowerCase()))
   );
+  const paginatedList = filteredList.slice(
+    (currentPage - 1) * pageSize,
+    currentPage * pageSize
+  );
 
   return (
     <div className="w-full space-y-6 transition-all duration-300">
@@ -401,7 +408,7 @@ export default function ConferencesPanel({ backendHost = "localhost:8000" }) {
               type="text"
               placeholder="Oda Ara..."
               value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
+              onChange={(e) => { setSearchQuery(e.target.value); setCurrentPage(1); }}
               className={`w-48 text-xs pl-8 pr-3.5 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950 text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 ${ring} transition-all`}
             />
             <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 dark:text-slate-555" />
@@ -482,7 +489,7 @@ export default function ConferencesPanel({ backendHost = "localhost:8000" }) {
                   </td>
                 </tr>
               ) : (
-                filteredList.map((item) => (
+                paginatedList.map((item) => (
                   <tr key={item.id} className="hover:bg-slate-50/30 dark:hover:bg-slate-950/10">
                     <td className="px-4 py-3.5 font-bold text-slate-700 dark:text-slate-200">
                       {item.room_number}
@@ -536,6 +543,13 @@ export default function ConferencesPanel({ backendHost = "localhost:8000" }) {
               )}
             </tbody>
           </table>
+          <TablePagination
+            currentPage={currentPage}
+            totalItems={filteredList.length}
+            pageSize={pageSize}
+            onPageChange={(p) => setCurrentPage(p)}
+            onPageSizeChange={(s) => { setPageSize(s); setCurrentPage(1); }}
+          />
         </div>
       )}
 

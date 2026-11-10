@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from "react";
 import { Plus, Search, Edit2, Trash2, X, Users, CheckCircle, ChevronRight, ChevronLeft, AlertTriangle, Download, Upload } from "lucide-react";
 import * as XLSX from "xlsx";
 import ConfirmDeleteModal from "../dashboard/ConfirmDeleteModal";
+import TablePagination from "../ui/TablePagination";
 import { useTheme } from "../../utils/theme";
 import { getApiBaseUrl } from "../../utils/apiHost";
 
@@ -199,6 +200,8 @@ export default function CallPickupGroupsPanel({ backendHost }) {
   
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(25);
   const [success, setSuccess] = useState(false);
   const [error, setError] = useState(null);
   const fileInputRef = useRef(null);
@@ -530,6 +533,10 @@ export default function CallPickupGroupsPanel({ backendHost }) {
   const filteredGroups = groups.filter(g => 
     g.name && g.name.toLowerCase().includes(searchQuery.toLowerCase())
   );
+  const paginatedGroups = filteredGroups.slice(
+    (currentPage - 1) * pageSize,
+    currentPage * pageSize
+  );
 
   return (
     <div className="space-y-6 w-full">
@@ -550,7 +557,7 @@ export default function CallPickupGroupsPanel({ backendHost }) {
               type="text"
               placeholder="Grup ara..."
               value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
+              onChange={(e) => { setSearchQuery(e.target.value); setCurrentPage(1); }}
               className={`w-full pl-9 pr-4 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-sm focus:outline-none focus:ring-2 ${ring} text-slate-800 dark:text-white transition-all`}
             />
           </div>
@@ -622,7 +629,7 @@ export default function CallPickupGroupsPanel({ backendHost }) {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 dark:divide-slate-800/60">
-                {filteredGroups.map(group => {
+                {paginatedGroups.map(group => {
                   return (
                     <tr key={group.id} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/30 transition-colors">
                       <td className="py-3 px-4">
@@ -715,6 +722,13 @@ export default function CallPickupGroupsPanel({ backendHost }) {
               </tbody>
             </table>
           </div>
+          <TablePagination
+            currentPage={currentPage}
+            totalItems={filteredGroups.length}
+            pageSize={pageSize}
+            onPageChange={(p) => setCurrentPage(p)}
+            onPageSizeChange={(s) => { setPageSize(s); setCurrentPage(1); }}
+          />
         </div>
       )}
 

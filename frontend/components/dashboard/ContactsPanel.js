@@ -23,6 +23,7 @@ import {
 } from "lucide-react";
 import * as XLSX from "xlsx";
 import ConfirmDeleteModal from "./ConfirmDeleteModal";
+import TablePagination from "../ui/TablePagination";
 import { useTheme } from "../../utils/theme";
 import { getApiBaseUrl } from "../../utils/apiHost";
 
@@ -597,6 +598,7 @@ export default function ContactsPanel({ backendHost }) {
   const handleSearchChange = (e) => {
     const val = e.target.value;
     setSearchQuery(val);
+    setContactsPage(1);
     fetchContacts(val);
   };
 
@@ -949,6 +951,20 @@ export default function ContactsPanel({ backendHost }) {
       : String(pb.name || "").toLowerCase().includes(pbSearchQuery.toLowerCase().trim())
   );
 
+  const [contactsPage, setContactsPage] = useState(1);
+  const [contactsPageSize, setContactsPageSize] = useState(25);
+  const paginatedContacts = contacts.slice(
+    (contactsPage - 1) * contactsPageSize,
+    contactsPage * contactsPageSize
+  );
+
+  const [pbPage, setPbPage] = useState(1);
+  const [pbPageSize, setPbPageSize] = useState(25);
+  const paginatedPhonebooks = filteredPhonebooks.slice(
+    (pbPage - 1) * pbPageSize,
+    pbPage * pbPageSize
+  );
+
   return (
     <div className="w-full space-y-6 animate-in fade-in duration-200">
       {/* Standalone Header Card with Top Sub-Tabs */}
@@ -1114,7 +1130,7 @@ export default function ContactsPanel({ backendHost }) {
                   </td>
                 </tr>
               ) : (
-                contacts.map((contact) => (
+                paginatedContacts.map((contact) => (
                   <tr key={contact.id} className="hover:bg-slate-50/40 dark:hover:bg-slate-850/20 transition">
                     <td className="p-4 text-xs font-bold text-slate-850 dark:text-slate-200">
                       {contact.first_name} {contact.last_name}
@@ -1165,6 +1181,23 @@ export default function ContactsPanel({ backendHost }) {
               )}
             </tbody>
           </table>
+
+          {contacts.length > 0 && (
+            <div className="mt-4">
+              <TablePagination
+                currentPage={contactsPage}
+                totalItems={contacts.length}
+                pageSize={contactsPageSize}
+                onPageChange={setContactsPage}
+                onPageSizeChange={(sz) => {
+                  setContactsPageSize(sz);
+                  setContactsPage(1);
+                }}
+                pageSizeOptions={[10, 25, 50, 100]}
+                itemLabel="rehber kaydın"
+              />
+            </div>
+          )}
         </div>
       ) : (
         /* TAB 2: Telefon Rehberi (Desk Phone Directories) */
@@ -1201,7 +1234,7 @@ export default function ContactsPanel({ backendHost }) {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 dark:divide-slate-800/60">
-                  {filteredPhonebooks.map((pb) => {
+                  {paginatedPhonebooks.map((pb) => {
                     const entries = pb.entries || [];
                     const validInternalUsers = entries
                       .filter((e) => String(e).startsWith("user_"))
@@ -1341,6 +1374,20 @@ export default function ContactsPanel({ backendHost }) {
                   })}
                 </tbody>
               </table>
+              <div className="p-4 border-t border-slate-100 dark:border-slate-800/60">
+                <TablePagination
+                  currentPage={pbPage}
+                  totalItems={filteredPhonebooks.length}
+                  pageSize={pbPageSize}
+                  onPageChange={setPbPage}
+                  onPageSizeChange={(sz) => {
+                    setPbPageSize(sz);
+                    setPbPage(1);
+                  }}
+                  pageSizeOptions={[10, 25, 50]}
+                  itemLabel="telefon rehberin"
+                />
+              </div>
             </div>
           )}
         </div>
