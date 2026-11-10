@@ -2303,6 +2303,74 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
       sanitizedProfiles[0] ||
       {};
 
+    // Yönlendirme Döngüsü (Forwarding Loop) ve Kendine Yönlendirme (Self-Forwarding) Kontrolü
+    const getUserActiveForwardTargets = (u) => {
+      if (!u) return [];
+      const targets = new Set();
+      const addRule = (r) => {
+        if (!r) return;
+        let parsed = r;
+        if (typeof parsed === "string") {
+          try { parsed = JSON.parse(parsed); } catch (e) { return; }
+        }
+        if (parsed && parsed.active && String(parsed.target || "").trim()) {
+          targets.add(String(parsed.target || "").trim());
+        }
+      };
+      addRule(u.forwarding_always);
+      addRule(u.forwarding_busy);
+      addRule(u.forwarding_no_answer);
+      if (Array.isArray(u.profiles)) {
+        const actId = u.active_profile || "available";
+        const prof = u.profiles.find((pr) => pr.id === actId) || u.profiles[0];
+        if (prof) {
+          addRule(prof.forwarding_always);
+          addRule(prof.forwarding_busy);
+          addRule(prof.forwarding_no_answer);
+        }
+      }
+      return Array.from(targets);
+    };
+
+    const fwdRuleLabels = {
+      forwarding_always: "Her Zaman Yönlendir",
+      forwarding_busy: "Meşgulde Yönlendir",
+      forwarding_no_answer: "Cevapsızda Yönlendir"
+    };
+
+    for (const prof of sanitizedProfiles) {
+      for (const ruleKey of ["forwarding_always", "forwarding_busy", "forwarding_no_answer"]) {
+        const ruleObj = prof[ruleKey];
+        if (!ruleObj || !ruleObj.active || !ruleObj.target) continue;
+        const targetExt = String(ruleObj.target).trim();
+        if (targetExt === extInput) {
+          setActiveTab("forwarding");
+          setError(`Yönlendirme Hatası (${prof.name || prof.id} - ${fwdRuleLabels[ruleKey]}): Bir abone (${extInput}) kendi dahili numarasına yönlendirilemez.`);
+          return;
+        }
+        // Çok adımlı dairesel yönlendirme (Circular Loop: 1000 -> 1001 -> 1000) kontrolü
+        const visitedChain = [extInput];
+        let currExt = targetExt;
+        for (let hop = 0; hop < 6; hop++) {
+          if (visitedChain.includes(currExt)) {
+            const loopStr = [...visitedChain, currExt].join(" ➔ ");
+            setActiveTab("forwarding");
+            setError(`Dairesel Yönlendirme Döngüsü Tespit Edildi (${loopStr}): ${targetExt} dahilisinin yönlendirme zinciri tekrar ${currExt} abonesine dönüyor. Sonsuz döngüyü önlemek için bu yönlendirme kaydedilemez.`);
+            return;
+          }
+          visitedChain.push(currExt);
+          const nextUser = (users || []).find(
+            (u) => String(u.extension).trim() === currExt && (!editingUser || u.id !== editingUser.id)
+          );
+          if (!nextUser) break;
+          const nextTargets = getUserActiveForwardTargets(nextUser);
+          if (nextTargets.length === 0) break;
+          const loopMatch = nextTargets.find((t) => visitedChain.includes(t));
+          currExt = loopMatch || nextTargets[0];
+        }
+      }
+    }
+
     const userData = {
       full_name: fullName.trim(),
       email: email.trim(),

@@ -5070,8 +5070,17 @@ same => n,GotoIf($["${{CUT(SPEC_TARGET,|,1)}}" = "CONF"]?conf_route_ext)
 same => n,GotoIf($["${{CUT(SPEC_TARGET,|,1)}}" = "QUEUE"]?queue_route_ext)
 same => n,GotoIf($["${{CUT(SPEC_TARGET,|,1)}}" = "SPEEDDIAL"]?speeddial_route_ext)
 same => n,GotoIf($[${{LEN(${{EXTEN}})}} >= 7]?outbound_route_ext)
-same => n,NoOp(Dahili arama basladi: Arayan=${{CALLERID(num)}}, Aranan=${{EXTEN}})
-same => n,GotoIf($["${{CALL_UUID}}" != ""]?already_registered_int)
+same => n,NoOp(Dahili arama basladi: Arayan=${{CALLERID(num)}}, Aranan=${{EXTEN}}, FwdChain=${{FWD_CHAIN}}, FwdHop=${{FWD_HOP}}, RDNIS=${{CALLERID(rdnis)}})
+same => n,GotoIf($["${{FWD_CHAIN}}" != ""]?check_fwd_chain_hop)
+same => n,GotoIf($["${{CALLERID(rdnis)}}" != "" & "${{CALLERID(rdnis)}}" = "${{EXTEN}}"]?fwd_loop_blocked)
+same => n,Set(__FWD_HOP=0)
+same => n,Set(__FWD_CHAIN=|${{CALLERID(num)}}|${{EXTEN}}|)
+same => n,Goto(after_fwd_chain_guard)
+same => n(check_fwd_chain_hop),Set(__FWD_HOP=$[${{IF($["${{FWD_HOP}}"=""]?0:${{FWD_HOP}})}} + 1])
+same => n,GotoIf($[${{FWD_HOP}} > 5]?fwd_loop_blocked)
+same => n,GotoIf($[${{REGEX("\\|${{EXTEN}}\\|" ${{FWD_CHAIN}})}} = 1]?fwd_loop_blocked)
+same => n,Set(__FWD_CHAIN=${{FWD_CHAIN}}${{EXTEN}}|)
+same => n(after_fwd_chain_guard),GotoIf($["${{CALL_UUID}}" != ""]?already_registered_int)
 same => n,Set(MD5_VAL=${{MD5(${{UNIQUEID}}${{EPOCH}})}})
 same => n,Set(__CALL_UUID=${{MD5_VAL:0:8}}-${{MD5_VAL:8:4}}-4${{MD5_VAL:13:3}}-a${{MD5_VAL:17:3}}-${{MD5_VAL:20:12}})
 same => n,Set(CURL_RESULT=${{CURL(http://{backend_host}/api/calls/register?call_id=${{CALL_UUID}}&did=${{EXTEN}}&caller=${{CALLERID(num)}}&asterisk_id=${{UNIQUEID}})}})
@@ -5140,11 +5149,12 @@ same => n,StopMixMonitor()
 same => n,MixMonitor(/var/spool/asterisk/monitor/${{CALL_UUID}}.wav,${{IF($["${{APPEND_REC}}"="1"]?ab:b)}})
 
 ; 1. Ön Yönlendirme, Yönetici-Sekreter Filtresi ve Aktif Profil Kontrolü
-same => n,Set(FWD_PRE=${{CURL(http://{backend_host}/api/subscriber/resolve_forwarding?extension=${{EXTEN}}&dialstatus=BEFORE_DIAL&caller=${{URIENCODE(${{CALLERID(num)}})}}&channel=${{URIENCODE(${{CHANNEL(name)}})}})}})
+same => n,Set(FWD_PRE=${{CURL(http://{backend_host}/api/subscriber/resolve_forwarding?extension=${{EXTEN}}&dialstatus=BEFORE_DIAL&caller=${{URIENCODE(${{CALLERID(num)}})}}&channel=${{URIENCODE(${{CHANNEL(name)}})}}&chain=${{URIENCODE(${{FWD_CHAIN}})}})}})
 same => n,Set(FWD_STATUS=${{CUT(FWD_PRE,:,1)}})
 same => n,Set(FWD_TARGET=${{CUT(FWD_PRE,:,2)}})
 same => n,Set(FWD_TIMEOUT=${{CUT(FWD_PRE,:,3)}})
 same => n,Set(DIAL_TIMEOUT=${{IF($[${{ISNULL(${{FWD_TIMEOUT}})}} | "${{FWD_TIMEOUT}}"=""]?30:${{FWD_TIMEOUT}})}})
+same => n,GotoIf($["${{FWD_STATUS}}"="LOOP"]?fwd_loop_blocked)
 same => n,GotoIf($["${{FWD_STATUS}}"="ALLOW"]?forward_call:dial_pjsip)
 
 ; 2. PJSIP Dahili Arama (WebPhone + Tüm Aktif SIP Cihazları Eşzamanlı)
@@ -5160,11 +5170,12 @@ same => n,GotoIf($["${{DIALSTATUS}}"="ANSWER"]?end_call)
 ; 3. Sonrası Yönlendirme / Beni Takip Et (1. Adım) ve Profil Zaman Aşımı Kontrolü
 same => n,Set(ORIG_EXTEN=${{EXTEN}})
 same => n,Set(FWD_STEP=1)
-same => n,Set(FWD_POST=${{CURL(http://{backend_host}/api/subscriber/resolve_forwarding?extension=${{ORIG_EXTEN}}&dialstatus=${{DIALSTATUS}}&step=1)}})
+same => n,Set(FWD_POST=${{CURL(http://{backend_host}/api/subscriber/resolve_forwarding?extension=${{ORIG_EXTEN}}&dialstatus=${{DIALSTATUS}}&step=1&caller=${{URIENCODE(${{CALLERID(num)}})}}&chain=${{URIENCODE(${{FWD_CHAIN}})}})}})
 same => n,Set(FWD_STATUS=${{CUT(FWD_POST,:,1)}})
 same => n,Set(FWD_TARGET=${{CUT(FWD_POST,:,2)}})
 same => n,Set(FWD_TIMEOUT=${{CUT(FWD_POST,:,3)}})
 same => n,Set(STEP_TIMEOUT=${{IF($[${{ISNULL(${{FWD_TIMEOUT}})}} | "${{FWD_TIMEOUT}}"=""]?25:${{FWD_TIMEOUT}})}})
+same => n,GotoIf($["${{FWD_STATUS}}"="LOOP"]?fwd_loop_blocked)
 same => n,GotoIf($["${{FWD_STATUS}}"="ALLOW"]?forward_call:end_call)
 
 ; 4. Yönlendirme ve Beni Takip Et Uygulama Bağlamı
@@ -5184,7 +5195,11 @@ same => n(voicemail_fwd),NoOp(Sesli Mesaj / Voicemail Kaydi Baslatiliyor: ${{ORI
 same => n,Gosub(voicemail_record_sub,s,1(${{IF($["${{ORIG_EXTEN}}" != ""]?${{ORIG_EXTEN}}:${{EXTEN}})}}))
 same => n,Hangup()
 
-same => n(dial_internal_fwd),NoOp(Ic Dahili / SIP Cihazlari Yonlendirme: ${{FWD_TARGET}} Timeout=${{STEP_TIMEOUT}}s)
+same => n(dial_internal_fwd),NoOp(Ic Dahili / SIP Cihazlari Yonlendirme: ${{FWD_TARGET}} Timeout=${{STEP_TIMEOUT}}s Chain=${{FWD_CHAIN}} Hop=${{FWD_HOP}})
+same => n,Set(__FWD_HOP=$[${{IF($["${{FWD_HOP}}"=""]?0:${{FWD_HOP}})}} + 1])
+same => n,GotoIf($[${{FWD_HOP}} > 5]?fwd_loop_blocked)
+same => n,GotoIf($["${{FWD_TARGET}}" != "${{ORIG_EXTEN}}" & ${{REGEX("\\|${{FWD_TARGET}}\\|" ${{FWD_CHAIN}})}} = 1]?fwd_loop_blocked)
+same => n,Set(__FWD_CHAIN=${{IF($["${{FWD_CHAIN}}"=""]?|${{CALLERID(num)}}|${{ORIG_EXTEN}}|:${{FWD_CHAIN}})}}${{FWD_TARGET}}|)
 same => n,Set(FWD_EP_LIST=${{CURL(http://{backend_host}/api/subscriber/resolve_agent_ring_targets?extension=${{FWD_TARGET}}&format=list)}})
 same => n,GotoIf($["${{FWD_EP_LIST}}" != "" & "${{FWD_EP_LIST}}" != "NONE"]?fwd_build_multi)
 same => n,Set(FWD_EP_LIST=${{FWD_TARGET}})
@@ -5203,12 +5218,25 @@ same => n,GotoIf($["${{DIALSTATUS}}"="ANSWER"]?end_call:check_step2)
 ; 5. Beni Takip Et (2. Adım) Kontrolü
 same => n(check_step2),GotoIf($["${{FWD_STEP}}"="1"]?resolve_step2:end_call)
 same => n(resolve_step2),Set(FWD_STEP=2)
-same => n,Set(FWD_POST2=${{CURL(http://{backend_host}/api/subscriber/resolve_forwarding?extension=${{ORIG_EXTEN}}&dialstatus=${{DIALSTATUS}}&step=2)}})
+same => n,Set(FWD_POST2=${{CURL(http://{backend_host}/api/subscriber/resolve_forwarding?extension=${{ORIG_EXTEN}}&dialstatus=${{DIALSTATUS}}&step=2&caller=${{URIENCODE(${{CALLERID(num)}})}}&chain=${{URIENCODE(${{FWD_CHAIN}})}})}})
 same => n,Set(FWD_STATUS=${{CUT(FWD_POST2,:,1)}})
 same => n,Set(FWD_TARGET=${{CUT(FWD_POST2,:,2)}})
 same => n,Set(FWD_TIMEOUT=${{CUT(FWD_POST2,:,3)}})
 same => n,Set(STEP_TIMEOUT=${{IF($[${{ISNULL(${{FWD_TIMEOUT}})}} | "${{FWD_TIMEOUT}}"=""]?30:${{FWD_TIMEOUT}})}})
+same => n,GotoIf($["${{FWD_STATUS}}"="LOOP"]?fwd_loop_blocked)
 same => n,GotoIf($["${{FWD_STATUS}}"="ALLOW"]?forward_call:end_call)
+
+same => n(fwd_loop_blocked),NoOp(YONLENDIRME DONGUSU ENGELLENDI [LOOP PROTECTION]: Arayan=${{CALLERID(num)}}, Aranan=${{EXTEN}}, Hedef=${{FWD_TARGET}}, Zincir=${{FWD_CHAIN}}, Hop=${{FWD_HOP}})
+same => n,Set(CURLOPT(conntimeout)=1)
+same => n,Set(CURLOPT(httptimeout)=2)
+same => n,Set(LOOP_LOG=${{CURL(http://{backend_host}/api/calls/log_invalid?caller=${{URIENCODE(${{CALLERID(num)}})}}&callee=${{URIENCODE(${{IF($["${{FWD_TARGET}}" != "" & "${{FWD_TARGET}}" != "NONE"]?${{FWD_TARGET}}:${{EXTEN}})}})}}&category=forwarding_loop&chain=${{URIENCODE(${{FWD_CHAIN}})}}&asterisk_id=${{UNIQUEID}})}})
+same => n,Set(DIALSTATUS=CONGESTION)
+same => n,Progress()
+same => n,GotoIf($[${{STAT(e,/var/spool/asterisk/monitor/tr_abone_ulasilamiyor.wav)}}]?play_loop_wav)
+same => n,Playback(beeperr,noanswer)
+same => n,Hangup(20)
+same => n(play_loop_wav),Playback(/var/spool/asterisk/monitor/tr_abone_ulasilamiyor,noanswer)
+same => n,Hangup(20)
 
 same => n(end_call),NoOp(Cagri tamamlandi veya yanitlanmadi: Status=${{DIALSTATUS}})
 same => n,GotoIf($["${{DIALSTATUS}}"="ANSWER"]?check_post_call_survey)
@@ -13344,16 +13372,26 @@ async def log_invalid_dialplan_call(
     caller: str = "",
     callee: str = "",
     category: str = "invalid_dialplan",
+    chain: str = "",
     asterisk_id: Optional[str] = None,
 ):
     from fastapi import Response
     c_str = str(caller or "").strip()
     d_str = str(callee or "").strip()
-    cat_s = category if category in ("invalid_extension", "invalid_dialplan", "unmapped_did", "unauthorized") else "invalid_dialplan"
-    if len(d_str) == 1 and d_str.isdigit():
-        rsn = f"Eksik / tek haneli hatalı tuşlama ({d_str})"
+    if category == "forwarding_loop":
+        chain_parts = [p.strip() for p in str(chain or "").split("|") if p.strip()]
+        if d_str and (not chain_parts or chain_parts[-1] != d_str):
+            chain_parts.append(d_str)
+        chain_pretty = " ➔ ".join(chain_parts) if chain_parts else f"{c_str} ➔ {d_str}"
+        rsn = f"Çağrı yönlendirme döngüsü (Loop) engellendi ({chain_pretty})"
+        cat_s = "invalid_dialplan"
+        add_system_log("CALL_FORWARD_LOOP", "WARNING", rsn)
     else:
-        rsn = f"Arama planıyla eşleşmeyen geçersiz tuşlama ({d_str or 'Belirsiz'})"
+        cat_s = category if category in ("invalid_extension", "invalid_dialplan", "unmapped_did", "unauthorized") else "invalid_dialplan"
+        if len(d_str) == 1 and d_str.isdigit():
+            rsn = f"Eksik / tek haneli hatalı tuşlama ({d_str})"
+        else:
+            rsn = f"Arama planıyla eşleşmeyen geçersiz tuşlama ({d_str or 'Belirsiz'})"
     await record_call_error_event(
         caller=c_str,
         callee=d_str or "i",
@@ -13540,6 +13578,135 @@ async def resolve_agent_ring_targets(extension: str = "", format: str = "", db: 
     return Response(content=f"{web_ep}:{desk_ep}", media_type="text/plain")
 
 
+def _extract_active_fwd_rule_target(f_obj: Any) -> Optional[str]:
+    if not f_obj:
+        return None
+    if isinstance(f_obj, str):
+        s = f_obj.strip()
+        if s.startswith("{") and s.endswith("}"):
+            try:
+                f_obj = json.loads(s)
+            except Exception:
+                return None
+        else:
+            if s and s not in ["Seçiniz...", "select", "none", "null", "undefined"]:
+                return s
+            return None
+    if isinstance(f_obj, dict):
+        active_val = None
+        if "active" in f_obj:
+            active_val = bool(f_obj["active"])
+        elif "enabled" in f_obj:
+            active_val = bool(f_obj["enabled"])
+        elif "status" in f_obj:
+            active_val = f_obj["status"] in [True, "active", "enabled", 1]
+        if active_val is False:
+            return None
+        target = f_obj.get("target") or f_obj.get("number") or f_obj.get("destination") or f_obj.get("value")
+        if target and str(target).strip() and str(target).strip() not in ["Seçiniz...", "select", "none", "null", "undefined"]:
+            return str(target).strip()
+    return None
+
+
+def _get_user_active_always_forward_target(u_dict: dict) -> Optional[str]:
+    if not isinstance(u_dict, dict):
+        return None
+    act_pid = str(u_dict.get("active_profile") or "available").strip()
+    profs = u_dict.get("profiles") if isinstance(u_dict.get("profiles"), list) else []
+    act_p = next((p for p in profs if isinstance(p, dict) and str(p.get("id")) == act_pid), None)
+    if act_p and "forwarding_always" in act_p:
+        return _extract_active_fwd_rule_target(act_p.get("forwarding_always"))
+    return _extract_active_fwd_rule_target(u_dict.get("forwarding_always"))
+
+
+def _get_user_any_active_forward_targets(u_dict: dict) -> List[str]:
+    if not isinstance(u_dict, dict):
+        return []
+    act_pid = str(u_dict.get("active_profile") or "available").strip()
+    profs = u_dict.get("profiles") if isinstance(u_dict.get("profiles"), list) else []
+    act_p = next((p for p in profs if isinstance(p, dict) and str(p.get("id")) == act_pid), None)
+    targets = []
+    for k in ("forwarding_always", "forwarding_busy", "forwarding_no_answer"):
+        src = act_p.get(k) if (act_p and k in act_p) else u_dict.get(k)
+        t = _extract_active_fwd_rule_target(src)
+        if t and t not in targets:
+            targets.append(t)
+    return targets
+
+
+def _evaluate_forwarding_chain_and_detect_loop(
+    ext_str: str,
+    candidate_target: str,
+    caller_str: str = "",
+    chain_str: str = "",
+    users_by_ext: Optional[Dict[str, dict]] = None,
+) -> Tuple[str, str, str]:
+    """
+    Evaluates a proposed forwarding target against:
+    1. Self-forwarding (1000 -> 1000)
+    2. Caller-back loop (1002 -> 1000 -> 1002)
+    3. Multi-hop circular forwarding loops (1000 -> 1001 -> 1000 or 1000 -> 1001 -> 1002 -> 1000)
+    4. Maximum hop limit (5 hops)
+    Returns (status, resolved_target, chain_display) where status is 'ALLOW' or 'LOOP'.
+    """
+    t_clean = str(candidate_target or "").strip()
+    if not t_clean or t_clean in ("NONE", "HANGUP", "VOICEMAIL") or t_clean.startswith("QUEUE_"):
+        return ("ALLOW", t_clean, "")
+
+    visited_order: List[str] = []
+    for part in str(chain_str or "").split("|"):
+        p_s = part.strip()
+        if p_s and p_s not in visited_order:
+            visited_order.append(p_s)
+    c_clean = str(caller_str or "").strip()
+    if c_clean and len(c_clean) < 6 and c_clean.isdigit() and c_clean not in visited_order:
+        visited_order.insert(0, c_clean)
+    if ext_str and ext_str not in visited_order:
+        visited_order.append(ext_str)
+
+    # 1. Self-Forwarding check (1000 -> 1000)
+    if t_clean == ext_str:
+        chain_disp = " ➔ ".join(visited_order + [t_clean])
+        return ("LOOP", t_clean, chain_disp)
+
+    # 2. If external GSM number (>= 6 digits), allow unless already in visited_order
+    if len(t_clean) >= 6 or not t_clean.isdigit():
+        if t_clean in visited_order:
+            return ("LOOP", t_clean, " ➔ ".join(visited_order + [t_clean]))
+        return ("ALLOW", t_clean, " ➔ ".join(visited_order + [t_clean]))
+
+    # 3. Internal extension: walk up to 5 hops of forwarding_always
+    u_map = users_by_ext or {
+        str(u.get("extension") or "").strip(): u
+        for u in (settings_db.get("users") or [])
+        if isinstance(u, dict) and u.get("extension")
+    }
+    curr = t_clean
+    hops = len([x for x in visited_order if x != c_clean])
+    while hops <= 5:
+        if curr in visited_order:
+            chain_disp = " ➔ ".join(visited_order + [curr])
+            return ("LOOP", curr, chain_disp)
+        visited_order.append(curr)
+        hops += 1
+        if hops > 5:
+            return ("LOOP", curr, " ➔ ".join(visited_order))
+        target_u = u_map.get(curr)
+        if not target_u:
+            break
+        next_always = _get_user_active_always_forward_target(target_u)
+        if not next_always or next_always in ("NONE", "HANGUP", "VOICEMAIL") or next_always.startswith("QUEUE_"):
+            break
+        if len(next_always) >= 6 or not next_always.isdigit():
+            # Multi-hop ends at an external GSM number
+            curr = next_always
+            visited_order.append(curr)
+            break
+        curr = next_always
+
+    return ("ALLOW", curr, " ➔ ".join(visited_order))
+
+
 @app.get("/api/subscriber/resolve_forwarding")
 async def resolve_subscriber_forwarding(
     extension: str,
@@ -13547,6 +13714,7 @@ async def resolve_subscriber_forwarding(
     step: int = 1,
     caller: str = "",
     channel: str = "",
+    chain: str = "",
     db: AsyncSession = Depends(get_db),
 ):
     """
@@ -13555,33 +13723,35 @@ async def resolve_subscriber_forwarding(
     2. BENİ TAKİP ET (follow_me: 1. Hedef & 2. Hedef - Mobil Uygulama / Mobil Telefon Numarası)
     3. MEŞGUL DURUMDA (forwarding_busy)
     4. ZAMAN AŞIMINDA / CEVAPSIZ (forwarding_no_answer)
-    Returns 'ALLOW:target_number:timeout' if forwarding should occur, or 'DENY:NONE:30' if no forwarding.
+    Includes multi-hop circular loop detection & self-forward prevention.
+    Returns 'ALLOW:target_number:timeout', 'LOOP:target:timeout', or 'DENY:NONE:30'.
     """
     try:
         ext_str = str(extension).strip()
         
-        # 1. Fetch from DB
-        user = None
+        # 1. Fetch all users map from DB + settings_db for multi-hop loop detection
+        users_by_ext: Dict[str, dict] = {
+            str(u.get("extension") or "").strip(): copy.deepcopy(u)
+            for u in (settings_db.get("users") or [])
+            if isinstance(u, dict) and u.get("extension")
+        }
         try:
-            stmt = select(SystemUser).where(or_(SystemUser.extension == ext_str, SystemUser.email == ext_str))
-            res = await db.execute(stmt)
-            user = res.scalars().first()
+            stmt_all_u = select(SystemUser)
+            res_all_u = await db.execute(stmt_all_u)
+            for db_u_row in res_all_u.scalars().all():
+                r_ext = str(getattr(db_u_row, "extension", "") or "").strip()
+                if not r_ext:
+                    continue
+                row_d = {c.name: getattr(db_u_row, c.name) for c in db_u_row.__table__.columns}
+                if r_ext in users_by_ext:
+                    for k, val in users_by_ext[r_ext].items():
+                        if val is not None and val != "" and val != {} and val != []:
+                            row_d[k] = val
+                users_by_ext[r_ext] = row_d
         except Exception:
-            user = None
-        
-        user_dict = {}
-        if user:
-            user_dict = {c.name: getattr(user, c.name) for c in user.__table__.columns}
-            
-        # 2. Merge with disk user from settings_db
-        all_users = settings_db.get("users", [])
-        for u in all_users:
-            if str(u.get("extension")) == ext_str or str(u.get("id")) == ext_str or u.get("email") == ext_str:
-                for k in ["forwarding_always", "forwarding_busy", "forwarding_no_answer", "gsm_number", "mobile_number", "mobile_transfer_enabled", "voicemail_active", "active_profile", "profiles", "follow_me", "sip_devices", "sip_username", "boss_secretary", "hotdesk_config"]:
-                    val = u.get(k)
-                    if val is not None and val != "" and val != {} and val != []:
-                        user_dict[k] = val
-                break
+            pass
+
+        user_dict = dict(users_by_ext.get(ext_str) or {})
 
         if not user_dict:
             if dialstatus == "BEFORE_DIAL":
@@ -13758,10 +13928,26 @@ async def resolve_subscriber_forwarding(
             except Exception as e_lf:
                 print(f"[Forwarding Timeline Log Warning]: {e_lf}")
 
+        def _finalize_fwd_response(raw_target_val: str, timeout_val: int, reason_label: str) -> Response:
+            st_code, resolved_t, chain_disp = _evaluate_forwarding_chain_and_detect_loop(
+                ext_str=ext_str,
+                candidate_target=raw_target_val,
+                caller_str=caller,
+                chain_str=chain,
+                users_by_ext=users_by_ext,
+            )
+            if st_code == "LOOP":
+                msg = f"Yönlendirme döngüsü (Loop) engellendi [{reason_label}]: {chain_disp}"
+                print(f"[Forwarding Loop Guard] {msg}")
+                add_system_log("CALL_FORWARD_LOOP", "WARNING", msg)
+                log_fwd_action(f"Döngü Engellendi ({reason_label})", chain_disp)
+                return Response(content=f"LOOP:{resolved_t}:{timeout_val}", media_type="text/plain")
+            log_fwd_action(reason_label, resolved_t)
+            return Response(content=f"ALLOW:{resolved_t}:{timeout_val}", media_type="text/plain")
+
         if f_always and dialstatus == "BEFORE_DIAL":
             print(f"[Forwarding Resolver] Extension {ext_str} -> 1. HER ZAMAN (Always Forward) to: {f_always}")
-            log_fwd_action("Her Zaman Yönlendirme", f_always)
-            return Response(content=f"ALLOW:{f_always}:{no_ans_timeout}", media_type="text/plain")
+            return _finalize_fwd_response(f_always, no_ans_timeout, "Her Zaman Yönlendirme")
 
         # Rule 1.2: YÖNETİCİ - SEKRETER FİLTRESİ (Boss / Secretary Mode)
         if dialstatus == "BEFORE_DIAL":
@@ -13775,16 +13961,14 @@ async def resolve_subscriber_forwarding(
             )
             if sec_target:
                 print(f"[Boss/Secretary Filter] Boss {ext_str} intercepted (caller={caller or '-'}) -> Secretary {sec_target}")
-                log_fwd_action("Yönetici-Sekreter Filtresi", sec_target)
-                return Response(content=f"ALLOW:{sec_target}:{no_ans_timeout}", media_type="text/plain")
+                return _finalize_fwd_response(sec_target, no_ans_timeout, "Yönetici-Sekreter Filtresi")
 
         # Rule 1.5: ACTIVE PROFILE WITH 0 RING DEVICES SELECTED (e.g. Toplantı profile)
         if dialstatus == "BEFORE_DIAL" and len(prof_devices) == 0:
             vm_imm = "VOICEMAIL" if bool(user_dict.get("voicemail_active", False)) else None
             imm_target = f_noans or vm_imm or prof_target or "HANGUP"
             print(f"[Forwarding Resolver] Extension {ext_str} -> Profile '{active_prof_id}' has 0 ring devices. Immediate action -> {imm_target}")
-            log_fwd_action(f"Profil ({active_prof_id}) Yönlendirmesi", imm_target)
-            return Response(content=f"ALLOW:{imm_target}:{no_ans_timeout}", media_type="text/plain")
+            return _finalize_fwd_response(imm_target, no_ans_timeout, f"Profil ({active_prof_id}) Yönlendirmesi")
 
         # Trigger per-queue Auto-Pause evaluation if agent did not answer or rejected the call on Step 1
         if int(step) == 1 and dialstatus in ["NOANSWER", "BUSY"]:
@@ -13804,8 +13988,7 @@ async def resolve_subscriber_forwarding(
                 return Response(content=f"ALLOW:{ext_str}:{fm_timeout}", media_type="text/plain")
             elif chosen_target_type == "mobile_number" and fm_mobile:
                 print(f"[Follow Me Resolver] Extension {ext_str} ({dialstatus}) -> Beni Takip Et ({step_label}: Mobil Telefon {fm_mobile}) Timeout={fm_timeout}s")
-                log_fwd_action(f"Beni Takip Et ({step_label} - Mobil Telefon)", fm_mobile)
-                return Response(content=f"ALLOW:{fm_mobile}:{fm_timeout}", media_type="text/plain")
+                return _finalize_fwd_response(fm_mobile, fm_timeout, f"Beni Takip Et ({step_label} - Mobil Telefon)")
             elif int(step) == 2 and chosen_target_type in ["none", "", "null"]:
                 return Response(content=f"DENY:NONE:{fm_timeout}", media_type="text/plain")
 
@@ -13825,7 +14008,7 @@ async def resolve_subscriber_forwarding(
                 if ag_st and ag_st.get("is_logged_in") and ag_st.get("status") == "break":
                     brk_target = f_busy or prof_target or (gsm_num if mobile_enabled and gsm_num else "HANGUP")
                     print(f"[Forwarding Resolver] Extension {ext_str} is on BREAK -> Action: {brk_target}")
-                    return Response(content=f"ALLOW:{brk_target}:{no_ans_timeout}", media_type="text/plain")
+                    return _finalize_fwd_response(brk_target, no_ans_timeout, "Mola Yönlendirmesi")
             except Exception:
                 pass
 
@@ -13833,63 +14016,51 @@ async def resolve_subscriber_forwarding(
         if dialstatus in ["BUSY", "CHANUNAVAIL", "CONGESTION"]:
             if f_busy:
                 print(f"[Forwarding Resolver] Extension {ext_str} ({dialstatus}) -> 2. MEŞGUL DURUMDA Forward to: {f_busy}")
-                log_fwd_action("Meşgul Durumda Yönlendirme", f_busy)
-                return Response(content=f"ALLOW:{f_busy}:{no_ans_timeout}", media_type="text/plain")
+                return _finalize_fwd_response(f_busy, no_ans_timeout, "Meşgul Durumda Yönlendirme")
             if prof_target:
                 print(f"[Forwarding Resolver] Extension {ext_str} ({dialstatus}) -> Profile '{active_prof_id}' Timeout/Fallback Action ({prof_action}) to: {prof_target}")
-                log_fwd_action(f"Meşgul / Profil ({active_prof_id}) Yönlendirmesi", prof_target)
-                return Response(content=f"ALLOW:{prof_target}:{no_ans_timeout}", media_type="text/plain")
+                return _finalize_fwd_response(prof_target, no_ans_timeout, f"Meşgul / Profil ({active_prof_id}) Yönlendirmesi")
             if mobile_enabled and gsm_num:
                 print(f"[Forwarding Resolver] Extension {ext_str} ({dialstatus}) -> Mobile Transfer GSM: {gsm_num}")
-                log_fwd_action("Meşgul / Mobil GSM Aktarımı", gsm_num)
-                return Response(content=f"ALLOW:{gsm_num}:{no_ans_timeout}", media_type="text/plain")
+                return _finalize_fwd_response(gsm_num, no_ans_timeout, "Meşgul / Mobil GSM Aktarımı")
 
         # Rule 3: ZAMAN AŞIMINDA (CEVAPSIZ) (forwarding_no_answer & voicemail) - When line rings and times out or is unreachable
         if dialstatus in ["NOANSWER", "CANCEL", "BUSY", "CHANUNAVAIL", "CONGESTION", ""]:
             if f_noans:
                 print(f"[Forwarding Resolver] Extension {ext_str} ({dialstatus}) -> 3. ZAMAN AŞIMINDA (Cevapsız) Forward to: {f_noans}")
-                log_fwd_action("Cevapsız Zaman Aşımı Yönlendirmesi", f_noans)
-                return Response(content=f"ALLOW:{f_noans}:{no_ans_timeout}", media_type="text/plain")
+                return _finalize_fwd_response(f_noans, no_ans_timeout, "Cevapsız Zaman Aşımı Yönlendirmesi")
             if bool(user_dict.get("voicemail_active", False)):
                 print(f"[Forwarding Resolver] Extension {ext_str} ({dialstatus}) -> Voicemail Active -> VOICEMAIL")
                 log_fwd_action("Cevapsız Sesli Mesaj (Voicemail)", "VOICEMAIL")
                 return Response(content=f"ALLOW:VOICEMAIL:{no_ans_timeout}", media_type="text/plain")
             if prof_target:
                 print(f"[Forwarding Resolver] Extension {ext_str} ({dialstatus}) -> Profile '{active_prof_id}' Timeout Action ({prof_action}) to: {prof_target}")
-                log_fwd_action(f"Cevapsız Zaman Aşımı ({active_prof_id})", prof_target)
-                return Response(content=f"ALLOW:{prof_target}:{no_ans_timeout}", media_type="text/plain")
+                return _finalize_fwd_response(prof_target, no_ans_timeout, f"Cevapsız Zaman Aşımı ({active_prof_id})")
             if mobile_enabled and gsm_num:
                 print(f"[Forwarding Resolver] Extension {ext_str} ({dialstatus}) -> Mobile Transfer GSM: {gsm_num}")
-                log_fwd_action("Cevapsız / Mobil GSM Aktarımı", gsm_num)
-                return Response(content=f"ALLOW:{gsm_num}:{no_ans_timeout}", media_type="text/plain")
+                return _finalize_fwd_response(gsm_num, no_ans_timeout, "Cevapsız / Mobil GSM Aktarımı")
 
         # Offline / Unreachable check for BEFORE_DIAL when extension is NOT SIP registered
         if dialstatus == "BEFORE_DIAL" and not is_registered:
             if fm_enabled:
                 if fm_first == "mobile_number" and fm_mobile:
                     print(f"[Follow Me Resolver] Extension {ext_str} (OFFLINE) -> Beni Takip Et (Mobil Telefon: {fm_mobile})")
-                    log_fwd_action("Beni Takip Et (Çevrimdışı -> Mobil Telefon)", fm_mobile)
-                    return Response(content=f"ALLOW:{fm_mobile}:{fm_timeout}", media_type="text/plain")
+                    return _finalize_fwd_response(fm_mobile, fm_timeout, "Beni Takip Et (Çevrimdışı -> Mobil Telefon)")
                 elif fm_second == "mobile_number" and fm_mobile:
                     print(f"[Follow Me Resolver] Extension {ext_str} (OFFLINE) -> Beni Takip Et (2. Hedef Mobil Telefon: {fm_mobile})")
-                    log_fwd_action("Beni Takip Et (Çevrimdışı -> Mobil Telefon)", fm_mobile)
-                    return Response(content=f"ALLOW:{fm_mobile}:{fm_timeout}", media_type="text/plain")
+                    return _finalize_fwd_response(fm_mobile, fm_timeout, "Beni Takip Et (Çevrimdışı -> Mobil Telefon)")
             if prof_target:
                 print(f"[Forwarding Resolver] Extension {ext_str} (OFFLINE) -> Profile '{active_prof_id}' Fallback ({prof_action}) to: {prof_target}")
-                log_fwd_action(f"Çevrimdışı Profil ({active_prof_id}) Yönlendirmesi", prof_target)
-                return Response(content=f"ALLOW:{prof_target}:{no_ans_timeout}", media_type="text/plain")
+                return _finalize_fwd_response(prof_target, no_ans_timeout, f"Çevrimdışı Profil ({active_prof_id}) Yönlendirmesi")
             if f_busy:
                 print(f"[Forwarding Resolver] Extension {ext_str} (OFFLINE) -> 2. MEŞGUL/OFFLINE Forward to: {f_busy}")
-                log_fwd_action("Çevrimdışı Yönlendirme", f_busy)
-                return Response(content=f"ALLOW:{f_busy}:{no_ans_timeout}", media_type="text/plain")
+                return _finalize_fwd_response(f_busy, no_ans_timeout, "Çevrimdışı Yönlendirme")
             if f_noans:
                 print(f"[Forwarding Resolver] Extension {ext_str} (OFFLINE) -> 3. CEVAPSIZ/OFFLINE Forward to: {f_noans}")
-                log_fwd_action("Çevrimdışı (Cevapsız Kuralı) Yönlendirme", f_noans)
-                return Response(content=f"ALLOW:{f_noans}:{no_ans_timeout}", media_type="text/plain")
+                return _finalize_fwd_response(f_noans, no_ans_timeout, "Çevrimdışı (Cevapsız Kuralı) Yönlendirme")
             if mobile_enabled and gsm_num:
                 print(f"[Forwarding Resolver] Extension {ext_str} (OFFLINE) -> Mobile Transfer GSM: {gsm_num}")
-                log_fwd_action("Çevrimdışı Mobil GSM Aktarımı", gsm_num)
-                return Response(content=f"ALLOW:{gsm_num}:{no_ans_timeout}", media_type="text/plain")
+                return _finalize_fwd_response(gsm_num, no_ans_timeout, "Çevrimdışı Mobil GSM Aktarımı")
             if bool(user_dict.get("voicemail_active", False)):
                 print(f"[Forwarding Resolver] Extension {ext_str} (OFFLINE) -> Voicemail Active -> VOICEMAIL")
                 log_fwd_action("Çevrimdışı Sesli Mesaj (Voicemail)", "VOICEMAIL")
@@ -14511,6 +14682,44 @@ async def resolve_subscriber_feature_code(
 
         target_num = re.sub(r"[^\d+]", "", target_raw)
         if len(target_num) < 2:
+            return Response(content="INVALID", media_type="text/plain")
+
+        # Prevent Self-Forwarding (1000 -> 1000) and Circular Forwarding Loops (1000 -> 1001 -> 1000) via Desk Phone Feature Codes
+        if target_num == caller_ext:
+            rsn_self = f"Kendi dahili numarasına ({caller_ext} ➔ {target_num}) çağrı yönlendirme engellendi ({raw_exten})"
+            add_system_log("CALL_FORWARD_LOOP", "WARNING", rsn_self)
+            await record_call_error_event(
+                caller=caller_ext,
+                callee=raw_exten,
+                category="invalid_dialplan",
+                direction="internal",
+                reason_msg=rsn_self,
+                status_val="failed",
+            )
+            return Response(content="INVALID", media_type="text/plain")
+
+        st_chk, _, loop_chain_str = _evaluate_forwarding_chain_and_detect_loop(
+            ext_str=caller_ext,
+            candidate_target=target_num,
+        )
+        # Also check if target_num has ANY active forwarding rule (always, busy, no_answer) pointing back to caller_ext
+        if st_chk != "LOOP" and len(target_num) < 6 and target_num.isdigit():
+            t_user_obj = await _load_merged_user_by_ext(target_num, db=db)
+            if t_user_obj and caller_ext in _get_user_any_active_forward_targets(t_user_obj):
+                st_chk = "LOOP"
+                loop_chain_str = f"{caller_ext} ➔ {target_num} ➔ {caller_ext}"
+
+        if st_chk == "LOOP":
+            rsn_loop = f"Masa telefonundan döngüsel çağrı yönlendirme engellendi ({loop_chain_str})"
+            add_system_log("CALL_FORWARD_LOOP", "WARNING", rsn_loop)
+            await record_call_error_event(
+                caller=caller_ext,
+                callee=raw_exten,
+                category="invalid_dialplan",
+                direction="internal",
+                reason_msg=rsn_loop,
+                status_val="failed",
+            )
             return Response(content="INVALID", media_type="text/plain")
 
         target_type = "internal" if (target_num in known_exts or len(target_num) < 6) else "external"
