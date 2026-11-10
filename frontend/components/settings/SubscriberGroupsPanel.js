@@ -246,9 +246,12 @@ export default function SubscriberGroupsPanel({ backendHost }) {
     setError(null);
     if (group) {
       setSelectedGroup(group);
+      const validExts = (group.extensions || []).filter(uid =>
+        (users || []).some(u => String(u.id) === String(uid) || String(u.extension) === String(uid))
+      );
       setFormData({
         name: group.name || "",
-        extensions: group.extensions || [],
+        extensions: validExts,
         allowed_outbound_groups: group.allowed_outbound_groups || [],
         allowed_inbound_groups: group.allowed_inbound_groups || []
       });
@@ -517,27 +520,38 @@ export default function SubscriberGroupsPanel({ backendHost }) {
                       </td>
                       <td className="py-3 px-4">
                         <div className="flex -space-x-2 overflow-hidden">
-                          {group.extensions && group.extensions.length > 0 ? (
-                            group.extensions.slice(0, 5).map((uid) => {
-                              const u = users.find(x => x.id === uid);
-                              return (
-                                <div key={uid} className="inline-block h-7 w-7 rounded-full ring-2 ring-white dark:ring-slate-900 bg-slate-200 dark:bg-slate-700 flex items-center justify-center shrink-0" title={u ? u.full_name : uid}>
-                                  {u?.avatar ? (
-                                    <img src={u.avatar} alt={u.full_name} className="w-full h-full rounded-full object-cover" />
-                                  ) : (
-                                    <span className="text-[10px] font-bold text-slate-600 dark:text-slate-300">{u ? u.full_name.charAt(0) : '?'}</span>
-                                  )}
-                                </div>
-                              );
-                            })
-                          ) : (
-                            <span className="text-xs text-slate-400 italic">Abone Yok</span>
-                          )}
-                          {group.extensions && group.extensions.length > 5 && (
-                            <div className="inline-block h-7 w-7 rounded-full ring-2 ring-white dark:ring-slate-900 bg-slate-100 dark:bg-slate-800 flex items-center justify-center shrink-0">
-                              <span className="text-[10px] font-bold text-slate-500">+{group.extensions.length - 5}</span>
-                            </div>
-                          )}
+                          {(() => {
+                            const validUsers = [];
+                            const seenIds = new Set();
+                            (group.extensions || []).forEach(uid => {
+                              const u = users.find(x => String(x.id) === String(uid) || String(x.extension) === String(uid));
+                              if (u && !seenIds.has(String(u.id))) {
+                                seenIds.add(String(u.id));
+                                validUsers.push(u);
+                              }
+                            });
+                            if (validUsers.length === 0) {
+                              return <span className="text-xs text-slate-400 italic">Abone Yok</span>;
+                            }
+                            return (
+                              <>
+                                {validUsers.slice(0, 5).map((u) => (
+                                  <div key={u.id} className="inline-block h-7 w-7 rounded-full ring-2 ring-white dark:ring-slate-900 bg-slate-200 dark:bg-slate-700 flex items-center justify-center shrink-0" title={`${u.full_name} (${u.extension})`}>
+                                    {u?.avatar ? (
+                                      <img src={u.avatar} alt={u.full_name} className="w-full h-full rounded-full object-cover" />
+                                    ) : (
+                                      <span className="text-[10px] font-bold text-slate-600 dark:text-slate-300">{(u.full_name || "?").charAt(0)}</span>
+                                    )}
+                                  </div>
+                                ))}
+                                {validUsers.length > 5 && (
+                                  <div className="inline-block h-7 w-7 rounded-full ring-2 ring-white dark:ring-slate-900 bg-slate-100 dark:bg-slate-800 flex items-center justify-center shrink-0">
+                                    <span className="text-[10px] font-bold text-slate-500">+{validUsers.length - 5}</span>
+                                  </div>
+                                )}
+                              </>
+                            );
+                          })()}
                         </div>
                       </td>
                       <td className="py-3 px-4 text-right">

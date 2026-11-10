@@ -459,7 +459,13 @@ export default function OutboundRulesPanel({ backendHost }) {
         }
       }
     });
-    return hydrated;
+    return hydrated.filter(id => {
+      if (String(id).startsWith("group_")) {
+        const grpId = String(id).replace("group_", "");
+        return (subscriberGroups || []).some(g => String(g.id) === grpId);
+      }
+      return (users || []).some(u => String(u.id) === String(id) || String(u.extension) === String(id));
+    });
   };
 
   const handleOpenModal = (rule = null) => {
@@ -866,40 +872,55 @@ export default function OutboundRulesPanel({ backendHost }) {
                       <td className="py-3 px-4">
                         <div className="flex flex-wrap items-center gap-1.5">
                           {rule.allowed_users && rule.allowed_users.length > 0 ? (() => {
-                            const groupIds = rule.allowed_users.filter(uid => String(uid).startsWith("group_"));
-                            const userIds = rule.allowed_users.filter(uid => !String(uid).startsWith("group_"));
+                            const validGroups = rule.allowed_users
+                              .filter(uid => String(uid).startsWith("group_"))
+                              .map(gid => {
+                                const rawId = String(gid).replace("group_", "");
+                                return subscriberGroups.find(g => String(g.id) === rawId);
+                              })
+                              .filter(Boolean);
+
+                            const validUsers = [];
+                            const seenIds = new Set();
+                            rule.allowed_users
+                              .filter(uid => !String(uid).startsWith("group_"))
+                              .forEach(uid => {
+                                const u = users.find(x => String(x.id) === String(uid) || String(x.extension) === String(uid));
+                                if (u && !seenIds.has(String(u.id))) {
+                                  seenIds.add(String(u.id));
+                                  validUsers.push(u);
+                                }
+                              });
+
+                            if (validGroups.length === 0 && validUsers.length === 0) {
+                              return <span className="text-xs text-slate-400 italic">Tümü veya Yok</span>;
+                            }
+
                             return (
                               <>
-                                {groupIds.map(gid => {
-                                  const rawId = String(gid).replace("group_", "");
-                                  const grp = subscriberGroups.find(g => String(g.id) === rawId);
-                                  return (
-                                    <span
-                                      key={gid}
-                                      className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-[10px] font-bold ${lightBg} ${text} border ${borderLight}`}
-                                      title={grp ? `Abone Grubu: ${grp.name}` : gid}
-                                    >
-                                      <Users size={11} />
-                                      {grp ? grp.name : gid}
-                                    </span>
-                                  );
-                                })}
+                                {validGroups.map(grp => (
+                                  <span
+                                    key={`group_${grp.id}`}
+                                    className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-[10px] font-bold ${lightBg} ${text} border ${borderLight}`}
+                                    title={`Abone Grubu: ${grp.name}`}
+                                  >
+                                    <Users size={11} />
+                                    {grp.name}
+                                  </span>
+                                ))}
                                 <div className="flex -space-x-2 overflow-hidden">
-                                  {userIds.slice(0, 5).map((uid) => {
-                                    const u = users.find(x => String(x.id) === String(uid));
-                                    return (
-                                      <div key={uid} className="inline-block h-7 w-7 rounded-full ring-2 ring-white dark:ring-slate-900 bg-slate-200 dark:bg-slate-700 flex items-center justify-center shrink-0" title={u ? `${u.full_name} (${u.extension})` : uid}>
-                                        {u?.avatar ? (
-                                          <img src={u.avatar} alt={u.full_name} className="w-full h-full rounded-full object-cover" />
-                                        ) : (
-                                          <span className="text-[10px] font-bold text-slate-600 dark:text-slate-300">{u ? u.full_name.charAt(0) : '?'}</span>
-                                        )}
-                                      </div>
-                                    );
-                                  })}
-                                  {userIds.length > 5 && (
+                                  {validUsers.slice(0, 5).map((u) => (
+                                    <div key={u.id} className="inline-block h-7 w-7 rounded-full ring-2 ring-white dark:ring-slate-900 bg-slate-200 dark:bg-slate-700 flex items-center justify-center shrink-0" title={`${u.full_name} (${u.extension})`}>
+                                      {u?.avatar ? (
+                                        <img src={u.avatar} alt={u.full_name} className="w-full h-full rounded-full object-cover" />
+                                      ) : (
+                                        <span className="text-[10px] font-bold text-slate-600 dark:text-slate-300">{(u.full_name || "?").charAt(0)}</span>
+                                      )}
+                                    </div>
+                                  ))}
+                                  {validUsers.length > 5 && (
                                     <div className="inline-block h-7 w-7 rounded-full ring-2 ring-white dark:ring-slate-900 bg-slate-100 dark:bg-slate-800 flex items-center justify-center shrink-0">
-                                      <span className="text-[10px] font-bold text-slate-500">+{userIds.length - 5}</span>
+                                      <span className="text-[10px] font-bold text-slate-500">+{validUsers.length - 5}</span>
                                     </div>
                                   )}
                                 </div>

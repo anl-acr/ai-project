@@ -30108,6 +30108,24 @@ async def delete_single_user_endpoint(user_id: int, user_info: dict = Depends(ge
         new_users = [u for u in current_users if u.get("id") != user_id or u.get("role") == "admin"]
         settings_db["needs_apply"] = True
         settings_db["users"] = new_users
+
+        # Silinen kullanıcının ID bilgisini çağrı toplama grupları, abone grupları ve dış arama kurallarından temizle
+        for grp_key in ["call_pickup_groups", "subscriber_groups"]:
+            for grp in settings_db.get(grp_key, []) or []:
+                if isinstance(grp, dict) and isinstance(grp.get("extensions"), list):
+                    grp["extensions"] = [
+                        ext_val for ext_val in grp["extensions"]
+                        if str(ext_val) != str(user_id) and (not deleted_ext or str(ext_val) != str(deleted_ext))
+                    ]
+        for rule in settings_db.get("outbound_rules", []) or []:
+            if isinstance(rule, dict):
+                for r_key in ["allowed_users", "pin_exempt_users"]:
+                    if isinstance(rule.get(r_key), list):
+                        rule[r_key] = [
+                            u_val for u_val in rule[r_key]
+                            if str(u_val) != str(user_id) and (not deleted_ext or str(u_val) != str(deleted_ext))
+                        ]
+
         save_settings(settings_db)
 
         asyncio.create_task(log_event(
