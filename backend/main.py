@@ -5059,8 +5059,8 @@ same => n,Set(CURLOPT(httptimeout)=2)
 same => n,Set(CURL_RESULT=${{CURL(http://{backend_host}/api/calls/end?call_id=${{CALL_UUID}}&dialstatus=${{DIALSTATUS}}&hangupcause=${{HANGUPCAUSE}}&queuestatus=${{QUEUESTATUS}}&memberinterface=${{URIENCODE(${{MEMBERINTERFACE}})}}&hangupsource=${{URIENCODE(${{CHANNEL(hangupsource)}})}}&trunk=${{URIENCODE(${{OUT_TRUNK_NAME}})}}&answeredtime=${{ANSWEREDTIME}}&dialedtime=${{DIALEDTIME}})}})
 same => n(done_h),NoOp(Hangup tamamlandi)
 
-; İç hat (Diğer temsilciler & Dahililer: 100-999999), Konferans Odaları, Kuyruklar, Hızlı Aramalar, Acil Durum (112 vb.) ve Prefix'li Dış Aramalar (>= 7 hane)
-exten => _[1-9]X.,1,Gosub(hotdesk_cid_sub,s,1)
+; İç hat (Diğer temsilciler & Dahililer: 10-999999), Konferans Odaları, Kuyruklar, Hızlı Aramalar, Acil Durum (112 vb.) ve Prefix'li Dış Aramalar (>= 7 hane)
+exten => _[1-9]X!,1,Gosub(hotdesk_cid_sub,s,1)
 same => n,Set(CURLOPT(conntimeout)=1)
 same => n,Set(CURLOPT(httptimeout)=2)
 same => n,Set(EM_CHK=${{CURL(http://{backend_host}/api/trunks/check_emergency?callee=${{URIENCODE(${{EXTEN}})}})}})
@@ -5259,8 +5259,8 @@ same => n,GotoIf($["${{SURVEY_ANY_ANS}}" != "1"]?final_hangup)
 same => n,Playback(/var/spool/asterisk/monitor/${{SURVEY_TY_WAV}})
 same => n(final_hangup),Hangup()
 
-; Tek haneli hatalı tuşlama veya eşleşmeyen uzantı yakalayıcı (1-9, i)
-exten => _[1-9],1,NoOp(Hatali Tek Haneli Tuslama: Arayan=${{CALLERID(num)}}, Aranan=${{EXTEN}})
+; Tek haneli hatalı tuşlama veya eşleşmeyen uzantı yakalayıcı (0-9, i)
+exten => _[0-9],1,NoOp(Hatali Tek Haneli Tuslama: Arayan=${{CALLERID(num)}}, Aranan=${{EXTEN}})
 same => n,Set(CURLOPT(conntimeout)=1)
 same => n,Set(CURLOPT(httptimeout)=2)
 same => n,Set(INV_LOG=${{CURL(http://{backend_host}/api/calls/log_invalid?caller=${{URIENCODE(${{CALLERID(num)}})}}&callee=${{URIENCODE(${{EXTEN}})}}&category=invalid_dialplan&asterisk_id=${{UNIQUEID}})}})
@@ -5941,11 +5941,6 @@ def _match_and_transform_outbound_number(callee_raw: str, caller_ext: str = "", 
             if re.match(r"^(?:0?[2345]\d{9}|0?850\d{7}|0?800\d{7}|0?444\d{4}|90[23458]\d{9}|00\d{7,15})$", rem):
                 working = rem
                 stripped_done = True
-
-    # Smart prefix strip even if no pattern specified strip: e.g. 1-4 digit prefix + '05071796372' (12-15 digits total)
-    m_pref_tr = re.match(r"^(\d{1,4})(0(?:[2345]\d{9}|850\d{7}|800\d{7}|444\d{4}))$", working)
-    if m_pref_tr and not working.startswith("00") and not working.startswith("90"):
-        working = m_pref_tr.group(2)
 
     if prepend_val:
         working = prepend_val + working
@@ -18744,6 +18739,31 @@ async def log_webrtc_call_endpoint(payload: dict = Body(...), user_info: dict = 
                     if (event_type == "end" and eff_duration == 0 and resolved_init_status in ("no_answer", "cancelled", "busy", "failed", "missed", "blocked"))
                     else ("webrtc:answered" if (event_type == "end" and eff_duration > 0) else None)
                 )
+                if event_type == "end" and eff_duration == 0 and leg_direction != "inbound":
+                    callee_dig_w = re.sub(r"\D", "", callee)
+                    if callee and len(callee) < 7 and not callee.startswith(("0", "+", "*", "#", "%23")) and callee not in ("s", "transfer_to_human"):
+                        if not is_defined_internal_destination(callee, queues_map=q_map):
+                            if len(callee) == 1 and callee.isdigit():
+                                init_hsrc = f"call_error:invalid_dialplan:internal:Eksik / tek haneli hatalı tuşlama ({callee})"
+                            else:
+                                init_hsrc = f"call_error:invalid_extension:internal:Aranan dahili numara ({callee}) sistemde tanımlı değil"
+                            resolved_init_status = "failed"
+                    elif callee and (callee.startswith(("0", "+")) or len(callee_dig_w) >= 7):
+                        t_inf_w = _match_and_transform_outbound_number(callee, caller_ext=caller)
+                        if t_inf_w.get("has_defined_patterns") and not t_inf_w.get("pattern_matched_any_rule"):
+                            cat_w, rsn_w = humanize_outbound_error_reason("OUTBOUND_RULE_MISMATCH", callee)
+                            init_hsrc = f"call_error:{cat_w}:outbound:{rsn_w}"
+                            resolved_init_status = "failed"
+                        elif t_inf_w.get("has_defined_patterns") and not t_inf_w.get("pattern_matched_allowed_rule"):
+                            cat_w, rsn_w = humanize_outbound_error_reason("OUTBOUND_RULE_UNAUTHORIZED", callee)
+                            init_hsrc = f"call_error:{cat_w}:outbound:{rsn_w}"
+                            resolved_init_status = "failed"
+                        else:
+                            is_blk_w, rsn_code_w = is_suspicious_or_fraud_outbound_number(t_inf_w.get("acl_number") or callee, allow_international=True)
+                            if is_blk_w:
+                                cat_w, rsn_w = humanize_outbound_error_reason(rsn_code_w, callee)
+                                init_hsrc = f"call_error:{cat_w}:outbound:{rsn_w}"
+                                resolved_init_status = "failed"
                 init_start = now_utc - datetime.timedelta(seconds=max(0, duration)) if event_type == "end" else now_utc
                 db_call = Call(
                     id=call_id,
@@ -18837,6 +18857,41 @@ async def log_webrtc_call_endpoint(payload: dict = Body(...), user_info: dict = 
                             db_call.hangup_source = f"webrtc:unanswered:{status}"
                     elif db_call.status not in ("completed", "transferred", "blocked"):
                         db_call.status = status if status not in ("in_progress", "ringing") else "no_answer"
+
+                    if (
+                        not is_err_or_bl
+                        and leg_direction != "inbound"
+                        and (duration == 0 or is_false_unbridged_internal)
+                        and db_call.status in ("no_answer", "cancelled", "busy", "failed", "missed", "blocked")
+                    ):
+                        callee_dig_we = re.sub(r"\D", "", callee)
+                        if callee and len(callee) < 7 and not callee.startswith(("0", "+", "*", "#", "%23")) and callee not in ("s", "transfer_to_human"):
+                            if not is_defined_internal_destination(callee, queues_map=q_map):
+                                if len(callee) == 1 and callee.isdigit():
+                                    db_call.hangup_source = f"call_error:invalid_dialplan:internal:Eksik / tek haneli hatalı tuşlama ({callee})"
+                                else:
+                                    db_call.hangup_source = f"call_error:invalid_extension:internal:Aranan dahili numara ({callee}) sistemde tanımlı değil"
+                                db_call.status = "failed"
+                                is_err_or_bl = True
+                        elif callee and (callee.startswith(("0", "+")) or len(callee_dig_we) >= 7):
+                            t_inf_we = _match_and_transform_outbound_number(callee, caller_ext=caller)
+                            if t_inf_we.get("has_defined_patterns") and not t_inf_we.get("pattern_matched_any_rule"):
+                                cat_we, rsn_we = humanize_outbound_error_reason("OUTBOUND_RULE_MISMATCH", callee)
+                                db_call.hangup_source = f"call_error:{cat_we}:outbound:{rsn_we}"
+                                db_call.status = "failed"
+                                is_err_or_bl = True
+                            elif t_inf_we.get("has_defined_patterns") and not t_inf_we.get("pattern_matched_allowed_rule"):
+                                cat_we, rsn_we = humanize_outbound_error_reason("OUTBOUND_RULE_UNAUTHORIZED", callee)
+                                db_call.hangup_source = f"call_error:{cat_we}:outbound:{rsn_we}"
+                                db_call.status = "failed"
+                                is_err_or_bl = True
+                            else:
+                                is_blk_we, rsn_code_we = is_suspicious_or_fraud_outbound_number(t_inf_we.get("acl_number") or callee, allow_international=True)
+                                if is_blk_we:
+                                    cat_we, rsn_we = humanize_outbound_error_reason(rsn_code_we, callee)
+                                    db_call.hangup_source = f"call_error:{cat_we}:outbound:{rsn_we}"
+                                    db_call.status = "failed"
+                                    is_err_or_bl = True
 
                     if (
                         duration > 0
@@ -19680,7 +19735,7 @@ async def list_calls(
                     err_cat_val = ce_parts[1] if len(ce_parts) > 1 else "invalid_dialplan"
                     err_dir_val = ce_parts[2] if len(ce_parts) > 2 else "outbound"
                     err_rsn_val = ce_parts[3] if len(ce_parts) > 3 else "Hatalı veya eşleşmeyen arama"
-                elif c_hsrc_i.startswith("blacklist:") or st_norm == "blocked":
+                elif c_hsrc_i.startswith("blacklist:"):
                     bl_detail = c_hsrc_i.split(":", 1)[1].strip() if ":" in c_hsrc_i else "Kara Liste Engeli"
                     caller_dig_bl = re.sub(r"\D", "", c_caller)
                     callee_dig_bl = re.sub(r"\D", "", c_callee)
@@ -19702,9 +19757,14 @@ async def list_calls(
                     )
                     if is_int_caller_h and c_callee and len(c_callee) < 7 and not c_callee.startswith(("0", "+", "*", "#", "%23")) and c_callee not in ("s", "transfer_to_human"):
                         if not is_defined_internal_destination(c_callee, users_list=all_users_cfg, queues_map=q_map, db_exts=all_db_exts_set):
-                            err_cat_val = "invalid_extension"
-                            err_dir_val = "internal"
-                            err_rsn_val = f"Aranan dahili numara ({c_callee}) sistemde tanımlı değil"
+                            if len(c_callee) == 1 and c_callee.isdigit():
+                                err_cat_val = "invalid_dialplan"
+                                err_dir_val = "internal"
+                                err_rsn_val = f"Eksik / tek haneli hatalı tuşlama ({c_callee})"
+                            else:
+                                err_cat_val = "invalid_extension"
+                                err_dir_val = "internal"
+                                err_rsn_val = f"Aranan dahili numara ({c_callee}) sistemde tanımlı değil"
                     elif is_int_caller_h and (c_callee.startswith(("0", "+")) or len(c_callee_dig) >= 7):
                         t_inf_h = _match_and_transform_outbound_number(c_callee, caller_ext=c_caller, users_list=all_users_cfg)
                         if t_inf_h.get("has_defined_patterns") and not t_inf_h.get("pattern_matched_any_rule"):
@@ -19724,6 +19784,17 @@ async def list_calls(
                             err_cat_val = "unmapped_did"
                             err_dir_val = "inbound"
                             err_rsn_val = did_err_h
+                    if not err_cat_val and st_norm == "blocked":
+                        caller_dig_bl = re.sub(r"\D", "", c_caller)
+                        callee_dig_bl = re.sub(r"\D", "", c_callee)
+                        if len(caller_dig_bl) <= 6 and len(callee_dig_bl) < 7:
+                            err_dir_val = "internal"
+                        elif len(caller_dig_bl) <= 6:
+                            err_dir_val = "outbound"
+                        else:
+                            err_dir_val = "inbound"
+                        err_cat_val = "unauthorized"
+                        err_rsn_val = f"Yetkisiz veya güvenlik politikası tarafından engellenen arama ({c_callee})"
 
                 c.error_category = err_cat_val
                 c.error_direction = err_dir_val

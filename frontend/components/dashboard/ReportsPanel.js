@@ -2945,6 +2945,13 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
   }, [backendHost, viewMode, filterStartDate, filterEndDate, filterStartTime, filterEndTime, filterCallerNumber, filterCallId]);
 
   useEffect(() => {
+    const todayStr = getTodayDateString();
+    if (filterEndDate && filterEndDate < todayStr) {
+      if (filterStartDate === filterEndDate) {
+        setFilterStartDate(todayStr);
+      }
+      setFilterEndDate(todayStr);
+    }
     if (filterCallerNumber || filterCallId) {
       fetchCalls(false);
     }
