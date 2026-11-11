@@ -40908,6 +40908,7 @@ async def ext_api_v1_originate_call(
     Tıkla-Ara (Click-to-Call) Başlatma (POST):
     Önce 'extension' (dahili abone) çaldırılır, cevaplandığında 'destination' (hedef numara) aranır.
     """
+    from backend.services.ami_manager import get_ami_manager
     auth = verify_external_api_request(request, settings_db, save_settings, "calls:write")
     payload = _parse_lenient_api_json(await request.body())
     ext = str(payload.get("extension") or request.query_params.get("extension") or "").strip()
@@ -40919,26 +40920,41 @@ async def ext_api_v1_originate_call(
     ).strip()
     # ÖNEMLİ: webrtc_agents context'inde giden arama kuralı (ACL) arayan dahiliyi CALLERID(num)
     # üzerinden kontrol ettiği için numara kısmında her zaman dahili abone numarası (<1000>) yer almalıdır.
-    caller_id = f"Tikla-Ara: {dest} <{ext}>"
+    caller_id = f'"Tikla-Ara: {dest}" <{ext}>'
     timeout_sec = int(payload.get("timeout") or 30)
 
     if not ext or not dest:
         raise HTTPException(status_code=400, detail="'extension' (dahili numara) ve 'destination' (aranacak numara) alanları zorunludur.")
 
-    ami = get_ami_manager()
     try:
-        if not ami.connected:
-            await ami.connect()
-        action_res = await ami.protocol.send_action({
-            "Action": "Originate",
-            "Channel": f"PJSIP/{ext}",
-            "Exten": dest,
-            "Context": "webrtc_agents",
-            "Priority": "1",
-            "CallerID": caller_id,
-            "Timeout": str(timeout_sec * 1000),
-            "Async": "true",
-        })
+        mgr = await get_ami_manager()
+        action_res = None
+        if mgr:
+            action_res = await asyncio.wait_for(
+                mgr.send_action(
+                    {
+                        "Action": "Originate",
+                        "ActionID": f"api-c2c-{ext}-{int(time.time()*1000)}",
+                        "Channel": f"Local/{ext}@conference_invite_internal/n",
+                        "Exten": dest,
+                        "Context": "webrtc_agents",
+                        "Priority": "1",
+                        "CallerID": caller_id,
+                        "Timeout": str(timeout_sec * 1000),
+                        "Async": "true",
+                    },
+                    as_list=False,
+                ),
+                timeout=3.0,
+            )
+        else:
+            await asyncio.to_thread(
+                subprocess.run,
+                ["asterisk", "-rx", f"channel originate Local/{ext}@conference_invite_internal/n extension {dest}@webrtc_agents"],
+                check=False,
+                timeout=3.0,
+            )
+            action_res = "CLI Originate Queued"
         save_settings(settings_db)
         return {
             "status": "success",
@@ -40965,17 +40981,17 @@ async def ext_api_v1_get_active_calls(
 async def ext_api_v1_transfer_call(
     call_id: str,
     request: Request,
-    payload: Dict[str, Any] = Body(...),
 ):
     """Canlı Çağrıyı Başka Dahiliye veya Kuyruğa Aktarma (POST)"""
+    from backend.services.ami_manager import redirect_call_to_human
     auth = verify_external_api_request(request, settings_db, save_settings, "calls:write")
+    payload = _parse_lenient_api_json(await request.body())
     target_ext = str(payload.get("target_extension") or payload.get("extension") or "").strip()
     context = str(payload.get("context") or "webrtc_agents").strip()
     if not target_ext:
         raise HTTPException(status_code=400, detail="'target_extension' (aktarılacak hedef dahili/kuyruk) alanı zorunludur.")
 
-    ami = get_ami_manager()
-    ok = await ami.redirect_call_to_human(call_id, extension=target_ext, context=context)
+    ok = await redirect_call_to_human(call_id, extension=target_ext, context=context)
     if not ok:
         raise HTTPException(status_code=400, detail=f"Çağrı ({call_id}) aktarılamadı veya aktif kanal bulunamadı.")
     asyncio.create_task(dispatch_external_api_webhook_event(
@@ -41487,25 +41503,29 @@ async def ext_api_v1_send_whatsapp(
 @app.post("/api/v1/ai-calls/originate")
 async def ext_api_v1_originate_ai_call(
     request: Request,
-    payload: Dict[str, Any] = Body(...),
 ):
     """Yapay Zeka Asistanı ile Otomatik Dış Arama Başlatma (POST)"""
+    from backend.services.ami_manager import get_ami_manager
     verify_external_api_request(request, settings_db, save_settings, "ai_omnichannel:write")
+    payload = _parse_lenient_api_json(await request.body())
     phone = str(payload.get("phone_number") or payload.get("destination") or "").strip()
     if not phone:
         raise HTTPException(status_code=400, detail="'phone_number' (aranacak numara) alanı zorunludur.")
-    ami = get_ami_manager()
-    if not ami.connected:
-        await ami.connect()
-    res = await ami.protocol.send_action({
-        "Action": "Originate",
-        "Channel": f"PJSIP/Operator_Trunk/sip:{phone}",
-        "Context": "from-internal-ai",
-        "Exten": "s",
-        "Priority": "1",
-        "CallerID": str(payload.get("caller_id") or "908503607390"),
-        "Async": "true",
-    })
+    mgr = await get_ami_manager()
+    if not mgr:
+        raise HTTPException(status_code=500, detail="Asterisk AMI bağlantısı kurulamadı.")
+    res = await mgr.send_action(
+        {
+            "Action": "Originate",
+            "Channel": f"PJSIP/Operator_Trunk/sip:{phone}",
+            "Context": "from-internal-ai",
+            "Exten": "s",
+            "Priority": "1",
+            "CallerID": str(payload.get("caller_id") or "908503607390"),
+            "Async": "true",
+        },
+        as_list=False,
+    )
     return {"status": "success", "action": "POST (AI Dış Arama Başlatıldı)", "phone_number": phone, "result": str(res)}
 
 
@@ -41515,16 +41535,18 @@ async def ext_api_v1_originate_ai_call(
 async def ext_api_v1_recording_pause_resume(
     call_id: str,
     request: Request,
-    payload: Dict[str, Any] = Body(...),
 ):
     """
     Canlı Çağrıda Ses Kaydını Duraklatma / Devam Ettirme (KVKK & Kredi Kartı Maskeleme) (POST)
     """
     verify_external_api_request(request, settings_db, save_settings, "calls:write")
     from backend.services.ami_manager import toggle_call_recording_pause
+    payload = _parse_lenient_api_json(await request.body())
     ext = str(payload.get("extension") or "").strip()
     channel = str(payload.get("channel") or "").strip()
     paused = payload.get("paused")
+    if paused is None and payload.get("action"):
+        paused = str(payload.get("action")).strip().lower() == "pause"
     res = await toggle_call_recording_pause(
         extension=ext,
         channel=channel,
@@ -41544,31 +41566,36 @@ async def ext_api_v1_recording_pause_resume(
 async def ext_api_v1_hold_unhold_call(
     call_id: str,
     request: Request,
-    payload: Dict[str, Any] = Body(...),
 ):
     """
     Canlı Çağrıyı Beklemeye Alma (Hold / Bekleme Müziği) veya Beklemeden Çıkarma (Unhold) (POST)
     """
+    from backend.services.ami_manager import get_ami_manager, active_channels, _get_ext_channel_prefixes
     verify_external_api_request(request, settings_db, save_settings, "calls:write")
+    payload = _parse_lenient_api_json(await request.body())
     hold_flag = bool(payload.get("hold", True))
+    if "action" in payload:
+        hold_flag = str(payload.get("action")).strip().lower() != "unhold"
     ext = str(payload.get("extension") or "").strip()
     channel = str(payload.get("channel") or "").strip()
-    ami = get_ami_manager()
     try:
-        if not ami.connected:
-            await ami.connect()
+        mgr = await get_ami_manager()
         target_ch = channel
         if not target_ch and ext:
-            from backend.services.ami_manager import active_channels
+            prefixes = _get_ext_channel_prefixes(ext)
             for uid, ch_name in list(active_channels.items()):
-                if str(ch_name).lower().startswith(f"pjsip/{ext.lower()}-"):
+                ch_low = str(ch_name).lower()
+                if any(ch_low.startswith(p) for p in prefixes):
                     target_ch = ch_name
                     break
-        if target_ch and ami.protocol:
-            await ami.protocol.send_action({
-                "Action": "Command",
-                "Command": f"channel request {'hold' if hold_flag else 'unhold'} {target_ch}",
-            })
+        if target_ch and mgr:
+            await mgr.send_action(
+                {
+                    "Action": "Command",
+                    "Command": f"channel request {'hold' if hold_flag else 'unhold'} {target_ch}",
+                },
+                as_list=False,
+            )
         return {
             "status": "success",
             "action": f"POST (Çağrı {'Beklemeye Alındı / Hold' if hold_flag else 'Beklemeden Çıkarıldı / Unhold'})",
@@ -41583,12 +41610,13 @@ async def ext_api_v1_hold_unhold_call(
 @app.post("/api/v1/calls/monitor")
 async def ext_api_v1_supervisor_monitor(
     request: Request,
-    payload: Dict[str, Any] = Body(...),
 ):
     """
     Süpervizör Canlı Çağrı Dinleme (listen), Fısıldama/Sufle (whisper) ve Araya Girme (barge) (POST)
     """
+    from backend.services.ami_manager import get_ami_manager
     verify_external_api_request(request, settings_db, save_settings, "calls:write")
+    payload = _parse_lenient_api_json(await request.body())
     sup_ext = str(payload.get("supervisor_extension") or "").strip()
     target_ext = str(payload.get("target_extension") or "").strip()
     mode = str(payload.get("mode") or "listen").strip().lower()
@@ -41601,18 +41629,20 @@ async def ext_api_v1_supervisor_monitor(
     elif mode in ("barge", "barge_in"):
         spy_opts = "qB"
 
-    ami = get_ami_manager()
     try:
-        if not ami.connected:
-            await ami.connect()
-        await ami.protocol.send_action({
-            "Action": "Originate",
-            "Channel": f"PJSIP/{sup_ext}",
-            "Application": "ChanSpy",
-            "Data": f"PJSIP/{target_ext},{spy_opts}",
-            "CallerID": f"Monitor {target_ext} <{sup_ext}>",
-            "Async": "true",
-        })
+        mgr = await get_ami_manager()
+        if mgr:
+            await mgr.send_action(
+                {
+                    "Action": "Originate",
+                    "Channel": f"Local/{sup_ext}@conference_invite_internal/n",
+                    "Application": "ChanSpy",
+                    "Data": f"PJSIP/{target_ext},{spy_opts}",
+                    "CallerID": f'"Monitor {target_ext}" <{sup_ext}>',
+                    "Async": "true",
+                },
+                as_list=False,
+            )
         return {
             "status": "success",
             "action": f"POST (Canlı Çağrı Müdahalesi Başlatıldı: {mode.upper()})",
