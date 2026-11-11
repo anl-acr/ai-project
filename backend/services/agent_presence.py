@@ -75,6 +75,13 @@ import re as _re
 active_omnichannel_engagements = {}
 # Track which extensions are currently queue-paused specifically due to omnichannel chat
 _omnichannel_paused_extensions = set()
+# Round-robin / Least-recent & Fewest-calls tracking for Omnichannel ACD Queue distribution
+_last_omnichannel_assigned_at = {}   # { ext_str: datetime }
+_omnichannel_assigned_count = {}     # { ext_str: int }
+# SLA First-Reply Watchdog: { session_id: {"extension": str, "assigned_user": str, "queue_ext": str, "queue_name": str, "assigned_at_utc": datetime, "channel": str, "sender_info": str} }
+_pending_first_reply_sla = {}
+# Waiting Pool when all queue members are busy: { session_id: {"session_id": str, "queue_ext": str, "queue_name": str, "channel": str, "sender_info": str, "enqueued_at_utc": datetime} }
+_waiting_omnichannel_queue = {}
 
 CHANNEL_BUSY_LABELS_TR = {
     "whatsapp": "WhatsApp Yazışmasında",
@@ -313,13 +320,19 @@ async def mark_agent_omnichannel_activity(
 
     now_utc = datetime.datetime.utcnow()
     ch_clean = str(channel or "whatsapp").strip().lower()
+    dir_clean = str(direction or "outbound").strip().lower()
+    # If representative replied or manually took over, clear the 2-minute first-reply SLA timer and waiting pool
+    if dir_clean in ("outbound", "takeover"):
+        _pending_first_reply_sla.pop(sid_s, None)
+        _waiting_omnichannel_queue.pop(sid_s, None)
+
     ext_map = active_omnichannel_engagements.setdefault(ext_s, {})
     ext_map[sid_s] = {
         "session_id": sid_s,
         "channel": ch_clean,
         "sender_info": str(sender_info or "").strip(),
         "last_activity_utc": now_utc,
-        "direction": str(direction or "outbound").strip().lower(),
+        "direction": dir_clean,
         "agent_name": full_name,
     }
 
@@ -339,6 +352,8 @@ async def release_agent_omnichannel_session(session_id: str, agent_identifier: s
     affected_exts = set()
 
     if sid_s:
+        _pending_first_reply_sla.pop(sid_s, None)
+        _waiting_omnichannel_queue.pop(sid_s, None)
         for ext_k, sess_map in list(active_omnichannel_engagements.items()):
             if sid_s in sess_map:
                 sess_map.pop(sid_s, None)
@@ -356,13 +371,614 @@ async def release_agent_omnichannel_session(session_id: str, agent_identifier: s
         if ext_s:
             affected_exts.add(ext_s)
 
+    freed_any = False
     for ext_k in affected_exts:
         info = get_agent_omnichannel_busy_info(extension=ext_k)
         if not info.get("is_busy"):
+            freed_any = True
             _omnichannel_paused_extensions.discard(ext_k)
             st = get_agent_state(extension=ext_k)
             if not (st and st.get("status") in ("break", "acw")):
                 await sync_asterisk_queue_pause(ext_k, False, reason="OmnichannelCompleted")
+
+    if freed_any and _waiting_omnichannel_queue:
+        try:
+            asyncio.create_task(process_omnichannel_acd_queue_and_sla())
+        except Exception:
+            pass
+
+
+def _load_queues_and_candidates_sync(
+    channel: str = "whatsapp",
+    target_queue: str = "",
+    target_agent: str = "",
+    matched_account: dict = None,
+):
+    """
+    Synchronously loads existing PBXQueue definitions, users, and today's active break logs
+    to resolve the target Call Queue and its candidate member extensions.
+    """
+    from backend.database.config import SyncSessionLocal
+    from backend.database.models import PBXQueue, SystemUser, AgentBreakLog
+    from backend.main import settings_db, load_settings
+
+    settings = settings_db if isinstance(settings_db, dict) and settings_db.get("users") else load_settings()
+    ch_cfg = (settings.get("channels") or {}) if isinstance(settings, dict) else {}
+    all_groups = settings.get("subscriber_groups", []) or []
+
+    db_users_list = []
+    queues_list = []
+    active_break_exts = set()
+
+    now_utc = datetime.datetime.utcnow()
+    today_start_utc = (now_utc + datetime.timedelta(hours=3)).replace(hour=0, minute=0, second=0, microsecond=0) - datetime.timedelta(hours=3)
+
+    try:
+        with SyncSessionLocal() as session:
+            for u in session.query(SystemUser).all():
+                db_users_list.append({col.name: getattr(u, col.name) for col in SystemUser.__table__.columns})
+            for q in session.query(PBXQueue).all():
+                queues_list.append({col.name: getattr(q, col.name) for col in PBXQueue.__table__.columns})
+            open_brks = (
+                session.query(AgentBreakLog)
+                .filter(AgentBreakLog.start_time >= today_start_utc, AgentBreakLog.end_time.is_(None))
+                .all()
+            )
+            for b in open_brks:
+                b_nm = str(b.break_name or "")
+                if not b_nm.startswith("__"):
+                    if b.extension:
+                        active_break_exts.add(str(b.extension).strip())
+                    if b.user_id:
+                        active_break_exts.add(str(b.user_id).strip())
+    except Exception as e_sync:
+        print(f"[Omnichannel ACD Sync Load Warning]: {e_sync}")
+
+    if not queues_list:
+        queues_list = list(settings.get("queues", []) or [])
+
+    # Merge users by extension
+    users_by_ext = {}
+    for u_d in (settings.get("users", []) or []) + db_users_list:
+        if not isinstance(u_d, dict):
+            continue
+        if u_d.get("is_active") is False:
+            continue
+        ext_v = str(u_d.get("extension") or "").strip()
+        if not ext_v:
+            continue
+        if ext_v not in users_by_ext:
+            users_by_ext[ext_v] = dict(u_d)
+        else:
+            for k, v in u_d.items():
+                if v not in (None, "", []):
+                    users_by_ext[ext_v][k] = v
+
+    # Resolve target queue from existing Call Queues (PBXQueue)
+    active_queues = [q for q in queues_list if isinstance(q, dict) and q.get("is_active", True) is not False]
+    chosen_queue = None
+
+    tq_candidates = []
+    if target_queue and str(target_queue).strip():
+        tq_candidates.append(str(target_queue).strip())
+    if isinstance(matched_account, dict):
+        acc_q = matched_account.get("target_queue") or matched_account.get("queue") or matched_account.get("default_queue")
+        if acc_q and str(acc_q).strip():
+            tq_candidates.append(str(acc_q).strip())
+    ch_low = str(channel or "whatsapp").strip().lower()
+    ch_q = ch_cfg.get(f"{ch_low}_target_queue") or ch_cfg.get("omnichannel_target_queue") or ch_cfg.get("default_omnichannel_queue")
+    if ch_q and str(ch_q).strip():
+        tq_candidates.append(str(ch_q).strip())
+
+    for cand_q in tq_candidates:
+        cq_l = cand_q.lower()
+        # 1. Exact extension or name match
+        for q in active_queues:
+            q_ext = str(q.get("extension") or "").strip().lower()
+            q_nm = str(q.get("name") or "").strip().lower()
+            if cq_l in (q_ext, q_nm):
+                chosen_queue = q
+                break
+        if chosen_queue:
+            break
+        # 2. Substring match (e.g. "satış" -> "Satış Kuyruğu")
+        for q in active_queues:
+            q_nm = str(q.get("name") or "").strip().lower()
+            if cq_l and (cq_l in q_nm or q_nm in cq_l):
+                chosen_queue = q
+                break
+        if chosen_queue:
+            break
+
+    if not chosen_queue and active_queues:
+        chosen_queue = active_queues[0]
+
+    queue_ext = str((chosen_queue or {}).get("extension") or "2000").strip()
+    queue_name = str((chosen_queue or {}).get("name") or "Temsilci Kuyruğu").strip()
+    queue_strategy = str((chosen_queue or {}).get("strategy") or "rrmemory").strip().lower()
+
+    # Extract member extensions of chosen_queue
+    member_exts = []
+    if chosen_queue:
+        raw_members = chosen_queue.get("queueMembers") if chosen_queue.get("queueMembers") is not None else chosen_queue.get("members")
+        if isinstance(raw_members, str):
+            try:
+                raw_members = json.loads(raw_members)
+            except Exception:
+                raw_members = []
+        if isinstance(raw_members, list):
+            for m in raw_members:
+                m_val = (m.get("extension") or m.get("user_id") or m.get("id")) if isinstance(m, dict) else m
+                s_val = str(m_val or "").strip()
+                if not s_val:
+                    continue
+                if s_val.startswith("group_"):
+                    gid = s_val.replace("group_", "", 1)
+                    grp = next((g for g in all_groups if str(g.get("id")) == gid), None)
+                    if grp:
+                        for gx in (grp.get("extensions") or grp.get("members") or []):
+                            gx_s = str(gx or "").strip()
+                            if gx_s and gx_s not in member_exts:
+                                member_exts.append(gx_s)
+                else:
+                    # Map user_id to extension if needed
+                    if s_val in users_by_ext:
+                        if s_val not in member_exts:
+                            member_exts.append(s_val)
+                    else:
+                        for u_ext_k, u_obj in users_by_ext.items():
+                            if str(u_obj.get("id") or "").strip() == s_val:
+                                if u_ext_k not in member_exts:
+                                    member_exts.append(u_ext_k)
+                                break
+
+    if not member_exts:
+        member_exts = list(users_by_ext.keys())
+
+    return {
+        "queue_ext": queue_ext,
+        "queue_name": queue_name,
+        "queue_strategy": queue_strategy,
+        "member_exts": member_exts,
+        "users_by_ext": users_by_ext,
+        "active_break_exts": active_break_exts,
+    }
+
+
+def _select_best_available_agent_from_queue_data(
+    q_data: dict,
+    target_agent: str = "",
+    exclude_extensions: set = None,
+) -> dict:
+    """
+    Filters and ranks queue members to pick the best available agent:
+    - Not on Break / ACW
+    - Not in an active or ringing Voice Call
+    - Not already Omnichannel Busy
+    - Online (logged into queue OR SIP/WebPhone registered OR Web panel active)
+    """
+    from backend.services.ami_manager import registered_endpoints, get_extension_call_state
+    from backend.main import get_live_user_call_state, _is_internal_chat_online
+
+    users_by_ext = q_data.get("users_by_ext") or {}
+    member_exts = q_data.get("member_exts") or []
+    active_break_exts = q_data.get("active_break_exts") or set()
+    strategy = q_data.get("queue_strategy") or "rrmemory"
+    excl = {str(x).strip() for x in (exclude_extensions or set()) if x}
+
+    def _is_ext_eligible(ext_s: str, require_online: bool = True) -> tuple[bool, int]:
+        if not ext_s or ext_s in excl:
+            return (False, 0)
+        u_obj = users_by_ext.get(ext_s) or {}
+        uid_s = str(u_obj.get("id") or "").strip()
+
+        # 1. Check break / ACW state
+        if ext_s in active_break_exts or (uid_s and uid_s in active_break_exts):
+            return (False, 0)
+        st = get_agent_state(user_id=uid_s, extension=ext_s)
+        if st and st.get("status") in ("break", "acw"):
+            return (False, 0)
+
+        # 2. Check active profile (skip if DND / Offline / Out of office with 0 devices)
+        act_prof_id = str(u_obj.get("active_profile") or "available").strip().lower()
+        if act_prof_id in ("dnd", "offline", "out_of_office"):
+            return (False, 0)
+
+        # 3. Check voice call state (must not be talking or ringing on phone)
+        if get_extension_call_state(ext_s) in ("busy", "ringing"):
+            return (False, 0)
+        is_sip_reg = bool(ext_s in registered_endpoints or (uid_s and uid_s in registered_endpoints))
+        if get_live_user_call_state(ext_s, is_sip_reg) in ("busy", "ringing"):
+            return (False, 0)
+
+        # 4. Check Omnichannel busy capacity
+        om_info = get_agent_omnichannel_busy_info(extension=ext_s, user_id=uid_s)
+        if om_info.get("is_busy"):
+            return (False, 0)
+
+        # 5. Check Online / Logged-in presence
+        is_q_logged_in = bool(st and st.get("is_logged_in") and st.get("status") == "online")
+        is_web_on = bool(_is_internal_chat_online(uid_s, ext_s))
+        if require_online and not (is_q_logged_in or is_sip_reg or is_web_on):
+            return (False, 0)
+
+        # Priority tier: 0 if explicitly queue-logged-in, 1 if SIP/Web online
+        tier = 0 if is_q_logged_in else 1
+        return (True, tier)
+
+    # A) If customer/AI requested a specific target_agent by name or extension, check them first
+    if target_agent and str(target_agent).strip():
+        t_ext, t_uid, t_name = resolve_agent_identity_for_omnichannel(str(target_agent).strip())
+        if t_ext:
+            ok, _ = _is_ext_eligible(t_ext, require_online=False)
+            if ok:
+                u_obj = users_by_ext.get(t_ext) or {}
+                f_name = str(u_obj.get("full_name") or u_obj.get("name") or t_name or f"Dahili {t_ext}").strip()
+                return {
+                    "extension": t_ext,
+                    "user_id": str(u_obj.get("id") or t_uid or t_ext),
+                    "full_name": f_name,
+                    "assigned_label": f"{f_name} ({t_ext})",
+                }
+
+    # B) Filter eligible members in the target queue
+    candidates = []
+    for m_ext in member_exts:
+        ok, tier = _is_ext_eligible(m_ext, require_online=True)
+        if ok:
+            u_obj = users_by_ext.get(m_ext) or {}
+            f_name = str(u_obj.get("full_name") or u_obj.get("name") or f"Dahili {m_ext}").strip()
+            om_cnt = int(get_agent_omnichannel_busy_info(extension=m_ext).get("active_count") or 0)
+            last_dt = _last_omnichannel_assigned_at.get(m_ext, datetime.datetime.min)
+            tot_cnt = _omnichannel_assigned_count.get(m_ext, 0)
+            candidates.append({
+                "extension": m_ext,
+                "user_id": str(u_obj.get("id") or m_ext),
+                "full_name": f_name,
+                "assigned_label": f"{f_name} ({m_ext})",
+                "tier": tier,
+                "active_chats": om_cnt,
+                "last_assigned": last_dt,
+                "total_assigned": tot_cnt,
+            })
+
+    if not candidates:
+        return None
+
+    # Sort according to queue strategy:
+    # Primary: tier (logged-in queue agents first), then active_chats ascending
+    if strategy == "fewestcalls":
+        candidates.sort(key=lambda c: (c["tier"], c["active_chats"], c["total_assigned"], c["last_assigned"]))
+    else:
+        # rrmemory / leastrecent / ringall -> longest idle (round-robin)
+        candidates.sort(key=lambda c: (c["tier"], c["active_chats"], c["last_assigned"], c["total_assigned"]))
+
+    return candidates[0]
+
+
+async def auto_assign_chat_session_from_queue(
+    session_id: str,
+    channel: str = "whatsapp",
+    sender_info: str = "",
+    target_queue: str = "",
+    target_agent: str = "",
+    matched_account: dict = None,
+    exclude_extensions: set = None,
+    is_sla_reroute: bool = False,
+    prev_agent_label: str = "",
+) -> dict:
+    """
+    Automatically routes an Omnichannel chat session (WhatsApp, Email, Instagram, Telegram, etc.)
+    through the existing Call Queues (`PBXQueue`):
+    - If an eligible agent is available in the queue, assigns immediately, marks them Omnichannel Busy,
+      pauses their Asterisk voice queue member, and starts the 2-minute first-reply SLA timer.
+    - If all queue agents are currently busy (in voice calls, other chats, or on break), places the session
+      into the Queue Waiting Pool so it is automatically assigned the second an agent becomes free.
+    """
+    from backend.database.config import AsyncSessionLocal
+    from backend.database.models import ChatSession, ChatMessage
+    from backend.services.websocket_manager import ws_manager
+
+    sid_s = str(session_id or "").strip()
+    if not sid_s:
+        return {"status": "error", "assigned_user": None}
+
+    q_data = await asyncio.to_thread(
+        _load_queues_and_candidates_sync,
+        channel,
+        target_queue,
+        target_agent,
+        matched_account,
+    )
+    queue_ext = q_data["queue_ext"]
+    queue_name = q_data["queue_name"]
+
+    chosen = _select_best_available_agent_from_queue_data(
+        q_data=q_data,
+        target_agent=target_agent,
+        exclude_extensions=exclude_extensions,
+    )
+
+    now_utc = datetime.datetime.utcnow()
+
+    async with AsyncSessionLocal() as db_sess:
+        chat = await db_sess.get(ChatSession, sid_s)
+        if not chat or chat.status == "closed":
+            _waiting_omnichannel_queue.pop(sid_s, None)
+            _pending_first_reply_sla.pop(sid_s, None)
+            return {"status": "closed", "assigned_user": None}
+
+        ch_val = str(chat.channel or channel or "whatsapp").strip().lower()
+        snd_val = str(chat.sender_info or sender_info or "").strip()
+
+        if chosen:
+            ext_s = chosen["extension"]
+            uid_s = chosen["user_id"]
+            assigned_label = chosen["assigned_label"]
+
+            chat.assigned_agent = "human"
+            chat.assigned_user = assigned_label
+            chat.last_message_time = now_utc
+
+            if is_sla_reroute and prev_agent_label:
+                sys_text = (
+                    f"⏱️ Yanıt süresi (2 dk) aşıldığı için görüşme '{queue_name}' kuyruğundaki "
+                    f"sıradaki müsait temsilciye ({assigned_label}) otomatik devredildi."
+                )
+            else:
+                sys_text = f"Görüşme '{queue_name}' kuyruğundan otomatik olarak {assigned_label} temsilcisine atandı."
+
+            sys_msg = ChatMessage(
+                session_id=sid_s,
+                direction="outbound",
+                sender="system",
+                text=sys_text,
+            )
+            db_sess.add(sys_msg)
+            await db_sess.commit()
+            await db_sess.refresh(sys_msg)
+
+            _last_omnichannel_assigned_at[ext_s] = now_utc
+            _omnichannel_assigned_count[ext_s] = _omnichannel_assigned_count.get(ext_s, 0) + 1
+            _waiting_omnichannel_queue.pop(sid_s, None)
+            _pending_first_reply_sla[sid_s] = {
+                "session_id": sid_s,
+                "extension": ext_s,
+                "assigned_user": assigned_label,
+                "queue_ext": queue_ext,
+                "queue_name": queue_name,
+                "assigned_at_utc": now_utc,
+                "channel": ch_val,
+                "sender_info": snd_val,
+            }
+
+            await mark_agent_omnichannel_activity(
+                agent_identifier=assigned_label,
+                session_id=sid_s,
+                channel=ch_val,
+                sender_info=snd_val,
+                direction="inbound",
+                user_id=uid_s,
+                extension=ext_s,
+            )
+
+            await ws_manager.broadcast_omnichannel_event({
+                "type": "message",
+                "message": {
+                    "id": sys_msg.id,
+                    "session_id": sid_s,
+                    "direction": sys_msg.direction,
+                    "sender": sys_msg.sender,
+                    "text": sys_msg.text,
+                    "timestamp": sys_msg.timestamp.isoformat() + "Z",
+                },
+            })
+            await ws_manager.broadcast_omnichannel_event({
+                "type": "takeover_changed",
+                "session_id": sid_s,
+                "assigned_agent": "human",
+                "assigned_user": assigned_label,
+            })
+            await ws_manager.broadcast_omnichannel_event({
+                "type": "session_update",
+                "session": {
+                    "id": sid_s,
+                    "channel": chat.channel,
+                    "sender_info": chat.sender_info,
+                    "recipient_info": chat.recipient_info,
+                    "status": chat.status,
+                    "assigned_agent": "human",
+                    "assigned_user": assigned_label,
+                    "last_message_time": chat.last_message_time.isoformat() + "Z",
+                    "last_message_text": sys_msg.text,
+                    "last_message_direction": "outbound",
+                    "last_message_sender": "system",
+                },
+            })
+            print(f"🎯 [Omnichannel ACD] Session {sid_s} ({ch_val}) -> Queue '{queue_name}' -> Assigned to {assigned_label}")
+            return {
+                "status": "assigned",
+                "assigned_user": assigned_label,
+                "extension": ext_s,
+                "queue_ext": queue_ext,
+                "queue_name": queue_name,
+            }
+
+        # No available agent right now -> Place in Queue Waiting Pool
+        already_waiting = sid_s in _waiting_omnichannel_queue
+        waiting_label = f"⏳ Kuyrukta Bekliyor ({queue_name})"
+        chat.assigned_agent = "human"
+        if not chat.assigned_user or str(chat.assigned_user).startswith("⏳"):
+            chat.assigned_user = waiting_label
+        chat.last_message_time = now_utc
+
+        if not already_waiting:
+            _waiting_omnichannel_queue[sid_s] = {
+                "session_id": sid_s,
+                "queue_ext": queue_ext,
+                "queue_name": queue_name,
+                "channel": ch_val,
+                "sender_info": snd_val,
+                "enqueued_at_utc": now_utc,
+            }
+            wait_text = (
+                f"⏳ '{queue_name}' kuyruğundaki tüm temsilcilerimiz şu an görüşmede olduğu için "
+                f"yazışma sıraya alındı. İlk müsait temsilcimize otomatik olarak atanacaktır."
+            )
+            sys_msg = ChatMessage(
+                session_id=sid_s,
+                direction="outbound",
+                sender="system",
+                text=wait_text,
+            )
+            db_sess.add(sys_msg)
+            await db_sess.commit()
+            await db_sess.refresh(sys_msg)
+
+            await ws_manager.broadcast_omnichannel_event({
+                "type": "message",
+                "message": {
+                    "id": sys_msg.id,
+                    "session_id": sid_s,
+                    "direction": sys_msg.direction,
+                    "sender": sys_msg.sender,
+                    "text": sys_msg.text,
+                    "timestamp": sys_msg.timestamp.isoformat() + "Z",
+                },
+            })
+            await ws_manager.broadcast_omnichannel_event({
+                "type": "takeover_changed",
+                "session_id": sid_s,
+                "assigned_agent": "human",
+                "assigned_user": waiting_label,
+            })
+            await ws_manager.broadcast_omnichannel_event({
+                "type": "session_update",
+                "session": {
+                    "id": sid_s,
+                    "channel": chat.channel,
+                    "sender_info": chat.sender_info,
+                    "recipient_info": chat.recipient_info,
+                    "status": chat.status,
+                    "assigned_agent": "human",
+                    "assigned_user": waiting_label,
+                    "last_message_time": chat.last_message_time.isoformat() + "Z",
+                    "last_message_text": sys_msg.text,
+                    "last_message_direction": "outbound",
+                    "last_message_sender": "system",
+                },
+            })
+            print(f"⏳ [Omnichannel ACD] Session {sid_s} ({ch_val}) queued in '{queue_name}' (all agents currently busy).")
+        else:
+            await db_sess.commit()
+
+        return {
+            "status": "queued",
+            "assigned_user": waiting_label,
+            "queue_ext": queue_ext,
+            "queue_name": queue_name,
+        }
+
+
+async def process_omnichannel_acd_queue_and_sla() -> None:
+    """
+    1. Dispatches any waiting sessions in `_waiting_omnichannel_queue` (or unassigned `human` sessions in DB)
+       to newly available queue agents in FIFO order.
+    2. Checks `_pending_first_reply_sla` for sessions where the assigned agent hasn't replied within 120 seconds (2 min)
+       and re-routes them to the next available agent in the same Call Queue.
+    """
+    now_utc = datetime.datetime.utcnow()
+
+    # 1. Also recover any active DB sessions with assigned_agent='human' and empty/waiting assigned_user
+    try:
+        from backend.database.config import AsyncSessionLocal
+        from backend.database.models import ChatSession
+        from sqlalchemy import select
+        async with AsyncSessionLocal() as db_sess:
+            stmt = select(ChatSession).where(
+                ChatSession.status == "active",
+                ChatSession.assigned_agent == "human",
+            )
+            res = await db_sess.execute(stmt)
+            for cs in res.scalars().all():
+                au = str(cs.assigned_user or "").strip()
+                if (not au or au.startswith("⏳")) and cs.id not in _waiting_omnichannel_queue:
+                    _waiting_omnichannel_queue[cs.id] = {
+                        "session_id": cs.id,
+                        "queue_ext": "",
+                        "queue_name": "",
+                        "channel": cs.channel or "whatsapp",
+                        "sender_info": cs.sender_info or "",
+                        "enqueued_at_utc": cs.last_message_time or now_utc,
+                    }
+    except Exception:
+        pass
+
+    # 2. Dispatch waiting queue in FIFO order
+    waiting_items = sorted(
+        list(_waiting_omnichannel_queue.values()),
+        key=lambda x: x.get("enqueued_at_utc") or now_utc,
+    )
+    for w_item in waiting_items:
+        sid = w_item.get("session_id")
+        if not sid:
+            continue
+        try:
+            await auto_assign_chat_session_from_queue(
+                session_id=sid,
+                channel=w_item.get("channel") or "whatsapp",
+                sender_info=w_item.get("sender_info") or "",
+                target_queue=w_item.get("queue_ext") or w_item.get("queue_name") or "",
+            )
+        except Exception as e_wq:
+            print(f"[Omnichannel ACD Waiting Dispatch Warning]: {e_wq}")
+
+    # 3. Check 2-Minute (120s) First-Reply SLA Timeout for assigned chats
+    sla_timeout_sec = 120
+    try:
+        from backend.main import settings_db
+        ch_cfg = (settings_db.get("channels") or {}) if isinstance(settings_db, dict) else {}
+        if ch_cfg.get("omnichannel_sla_timeout_sec") is not None:
+            sla_timeout_sec = max(30, int(ch_cfg.get("omnichannel_sla_timeout_sec") or 120))
+    except Exception:
+        pass
+
+    for sid, sla_info in list(_pending_first_reply_sla.items()):
+        asg_dt = sla_info.get("assigned_at_utc") or now_utc
+        if (now_utc - asg_dt).total_seconds() < sla_timeout_sec:
+            continue
+
+        cur_ext = str(sla_info.get("extension") or "").strip()
+        prev_label = str(sla_info.get("assigned_user") or cur_ext).strip()
+        q_target = str(sla_info.get("queue_ext") or sla_info.get("queue_name") or "").strip()
+
+        # Check if there is ANOTHER available agent in the queue before releasing
+        q_data = await asyncio.to_thread(
+            _load_queues_and_candidates_sync,
+            sla_info.get("channel") or "whatsapp",
+            q_target,
+            "",
+            None,
+        )
+        alt_agent = _select_best_available_agent_from_queue_data(
+            q_data=q_data,
+            target_agent="",
+            exclude_extensions={cur_ext} if cur_ext else set(),
+        )
+        if alt_agent:
+            await release_agent_omnichannel_session(sid, agent_identifier=prev_label)
+            await auto_assign_chat_session_from_queue(
+                session_id=sid,
+                channel=sla_info.get("channel") or "whatsapp",
+                sender_info=sla_info.get("sender_info") or "",
+                target_queue=q_target,
+                exclude_extensions={cur_ext} if cur_ext else set(),
+                is_sla_reroute=True,
+                prev_agent_label=prev_label,
+            )
+        else:
+            # Reset timer so we check again in another 120s if another agent logs in
+            sla_info["assigned_at_utc"] = now_utc
 
 
 async def sweep_expired_omnichannel_engagements() -> None:

@@ -14,6 +14,7 @@ export default function ChannelSettings({ backendHost = "localhost:8000" }) {
     whatsapp_after_hours_enabled: true,
     whatsapp_work_hours_start: "09:00",
     whatsapp_work_hours_end: "18:00",
+    whatsapp_target_queue: "",
     whatsapp_accounts: [],
     telegram_token: "",
     instagram_token: "",
@@ -23,9 +24,12 @@ export default function ChannelSettings({ backendHost = "localhost:8000" }) {
     email_smtp_user: "",
     email_smtp_pass: "",
     email_imap_host: "imap.gmail.com",
-    email_imap_port: "993"
+    email_imap_port: "993",
+    email_target_queue: "",
+    omnichannel_target_queue: ""
   });
   
+  const [queuesList, setQueuesList] = useState([]);
   const [success, setSuccess] = useState(false);
   const [saveError, setSaveError] = useState("");
   const [loading, setLoading] = useState(false);
@@ -45,6 +49,7 @@ export default function ChannelSettings({ backendHost = "localhost:8000" }) {
     phone_number_id: "",
     access_token: "",
     persona: "samimi",
+    target_queue: "",
     welcome_menu_enabled: true
   });
   const [deleteAccountTarget, setDeleteAccountTarget] = useState(null);
@@ -57,6 +62,7 @@ export default function ChannelSettings({ backendHost = "localhost:8000" }) {
       phone_number_id: "",
       access_token: "",
       persona: "samimi",
+      target_queue: "",
       welcome_menu_enabled: true
     });
     setShowAccountModal(true);
@@ -138,6 +144,20 @@ export default function ChannelSettings({ backendHost = "localhost:8000" }) {
         }
       })
       .catch((err) => console.error("[Channels Settings] Ayarlar yuklenemedi:", err));
+
+    fetch(`/api/settings/queues?t=${Date.now()}`, {
+      cache: "no-store",
+      headers: getRequestHeaders()
+    })
+      .then((res) => (res.ok ? res.json() : []))
+      .then((qData) => {
+        if (Array.isArray(qData)) {
+          setQueuesList(qData);
+        } else if (qData && Array.isArray(qData.queues)) {
+          setQueuesList(qData.queues);
+        }
+      })
+      .catch(() => {});
   }, [backendHost]);
 
   const handleChange = (e) => {
@@ -374,22 +394,43 @@ export default function ChannelSettings({ backendHost = "localhost:8000" }) {
                     <Sparkles size={14} className={text} /> WhatsApp Yapay Zeka Davranış & Özelleştirme Ayarları
                   </h4>
 
-                  {/* Persona Selector */}
-                  <div className="flex flex-col gap-1.5">
-                    <label className="text-[10px] text-slate-400 dark:text-slate-500 font-bold uppercase tracking-wider">
-                      Yapay Zeka Temsilci Personası & Konuşma Üslubu
-                    </label>
-                    <select
-                      name="whatsapp_persona"
-                      value={channels.whatsapp_persona || "samimi"}
-                      onChange={handleChange}
-                      className="px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl text-xs text-slate-800 dark:text-slate-200 font-semibold focus:outline-none"
-                    >
-                      <option value="samimi">😃 Samimi & Emoji Destekli (Varsayılan - Sıcakkanlı & Dostça)</option>
-                      <option value="satis">🎯 Satış & Randevu Odaklı (İkna Edici & Teklif Odaklı)</option>
-                      <option value="destek">🛠️ Çözüm & Teknik Destek Odaklı (Sakin & Adım Adım Rehber)</option>
-                      <option value="kurumsal">💼 Resmi & Kurumsal (Ciddi, Saygılı - Siz/Efendim)</option>
-                    </select>
+                  {/* Persona Selector & Target Call Queue */}
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    <div className="flex flex-col gap-1.5">
+                      <label className="text-[10px] text-slate-400 dark:text-slate-500 font-bold uppercase tracking-wider">
+                        Yapay Zeka Temsilci Personası & Konuşma Üslubu
+                      </label>
+                      <select
+                        name="whatsapp_persona"
+                        value={channels.whatsapp_persona || "samimi"}
+                        onChange={handleChange}
+                        className="px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl text-xs text-slate-800 dark:text-slate-200 font-semibold focus:outline-none"
+                      >
+                        <option value="samimi">😃 Samimi & Emoji Destekli (Varsayılan)</option>
+                        <option value="satis">🎯 Satış & Randevu Odaklı</option>
+                        <option value="destek">🛠️ Çözüm & Teknik Destek Odaklı</option>
+                        <option value="kurumsal">💼 Resmi & Kurumsal (Siz/Efendim)</option>
+                      </select>
+                    </div>
+
+                    <div className="flex flex-col gap-1.5">
+                      <label className="text-[10px] text-slate-400 dark:text-slate-500 font-bold uppercase tracking-wider">
+                        Canlı Temsilci Aktarım Kuyruğu (Çağrı Kuyruğu)
+                      </label>
+                      <select
+                        name="whatsapp_target_queue"
+                        value={channels.whatsapp_target_queue || ""}
+                        onChange={handleChange}
+                        className="px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl text-xs text-slate-800 dark:text-slate-200 font-semibold focus:outline-none"
+                      >
+                        <option value="">🤖 Otomatik (AI Konu Analizi / İlk Aktif Kuyruk)</option>
+                        {queuesList.map((q) => (
+                          <option key={q.id || q.extension} value={q.extension || q.name}>
+                            📞 {q.name} ({q.extension}) — {q.strategy === "fewestcalls" ? "En Az Çağrı Alan" : "Sıralı Dağıtım"}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
                   </div>
 
                   {/* Interactive Welcome Menu Toggle */}
@@ -510,6 +551,11 @@ export default function ChannelSettings({ backendHost = "localhost:8000" }) {
                             </div>
 
                             <div className="flex items-center gap-2">
+                              {acc.target_queue && (
+                                <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-slate-200/70 dark:bg-slate-800 text-slate-700 dark:text-slate-300">
+                                  📞 Kuyruk: {acc.target_queue}
+                                </span>
+                              )}
                               <span className={"px-2 py-0.5 rounded-md text-[10px] font-bold uppercase tracking-wider border " + lightBg + " " + text + " " + borderLight}>
                                 {acc.persona === "satis" ? "🎯 Satış" : acc.persona === "destek" ? "🛠️ Destek" : acc.persona === "kurumsal" ? "💼 Kurumsal" : "😃 Samimi"}
                               </span>
@@ -758,6 +804,25 @@ export default function ChannelSettings({ backendHost = "localhost:8000" }) {
                   </div>
                 </div>
 
+                <div className="flex flex-col gap-1.5 pt-1">
+                  <label className="text-[10px] text-slate-400 dark:text-slate-500 font-bold uppercase tracking-wider">
+                    E-Posta Canlı Temsilci Aktarım Kuyruğu (Çağrı Kuyruğu)
+                  </label>
+                  <select
+                    name="email_target_queue"
+                    value={channels.email_target_queue || ""}
+                    onChange={handleChange}
+                    className="px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl text-xs text-slate-800 dark:text-slate-200 font-semibold focus:outline-none"
+                  >
+                    <option value="">🤖 Otomatik (AI Konu Analizi / İlk Aktif Kuyruk)</option>
+                    {queuesList.map((q) => (
+                      <option key={q.id || q.extension} value={q.extension || q.name}>
+                        📞 {q.name} ({q.extension}) — {q.strategy === "fewestcalls" ? "En Az Çağrı Alan" : "Sıralı Dağıtım"}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
                 {emailTestStatus && (
                   <div
                     role="status"
@@ -944,6 +1009,22 @@ export default function ChannelSettings({ backendHost = "localhost:8000" }) {
                   <option value="satis">🎯 Satış & Randevu Odaklı</option>
                   <option value="destek">🛠️ Çözüm & Teknik Destek Odaklı</option>
                   <option value="kurumsal">💼 Resmi & Kurumsal</option>
+                </select>
+              </div>
+
+              <div className="flex flex-col gap-1">
+                <label className="text-[10px] text-slate-400 dark:text-slate-500 font-bold uppercase">Canlı Temsilci Aktarım Kuyruğu (Çağrı Kuyruğu)</label>
+                <select
+                  value={accountForm.target_queue || ""}
+                  onChange={(e) => setAccountForm({ ...accountForm, target_queue: e.target.value })}
+                  className="px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl text-xs font-semibold focus:outline-none"
+                >
+                  <option value="">🤖 Otomatik (AI Konu Analizi / Genel Kuyruk)</option>
+                  {queuesList.map((q) => (
+                    <option key={q.id || q.extension} value={q.extension || q.name}>
+                      📞 {q.name} ({q.extension})
+                    </option>
+                  ))}
                 </select>
               </div>
 

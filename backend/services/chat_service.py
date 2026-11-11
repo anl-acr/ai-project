@@ -445,11 +445,37 @@ async def handle_inbound_chat_message(
 
             # Check for direct representative takeover request
             text_clean = text.strip().lower()
-            if text_clean in ["canlı temsilci", "temsilci", "btn_human", "canlı temsilciye bağlan"] or "canlı temsilci" in text_clean:
+            if (str(assigned_agent or "ai").lower() == "ai" or not getattr(chat_session, "assigned_user", None)) and (
+                text_clean in ["canlı temsilci", "temsilci", "btn_human", "canlı temsilciye bağlan"]
+                or "canlı temsilci" in text_clean
+            ):
                 chat_session.assigned_agent = "human"
                 await session.commit()
-                
-                transfer_text = "Talebiniz alındı. Sizi canlı müşteri temsilcimize aktarıyorum, lütfen temsilcimiz sizinle iletişime geçene kadar bekleyin."
+
+                acd_res = {}
+                try:
+                    from backend.services.agent_presence import auto_assign_chat_session_from_queue
+                    acd_res = await auto_assign_chat_session_from_queue(
+                        session_id=session_id,
+                        channel=channel,
+                        sender_info=sender_info,
+                        matched_account=matched_account,
+                    )
+                except Exception as e_acd:
+                    print(f"[Chat Service ACD Error]: {e_acd}")
+
+                await session.refresh(chat_session)
+
+                if acd_res.get("status") == "assigned" and acd_res.get("assigned_user"):
+                    transfer_text = (
+                        f"Talebiniz alındı. Sizi {acd_res.get('queue_name') or 'Müşteri Hizmetleri'} birimimizden "
+                        f"temsilcimiz {acd_res.get('assigned_user')} ile görüştürüyorum, lütfen bekleyin."
+                    )
+                else:
+                    transfer_text = (
+                        "Talebiniz alındı. Sizi canlı müşteri temsilcisi kuyruğumuza aktardım, "
+                        "ilk müsait temsilcimiz en kısa sürede sizinle iletişime geçecektir."
+                    )
                 
                 db_reply = ChatMessage(
                     session_id=session_id,
@@ -607,14 +633,37 @@ Yanıtını kesinlikle Türkçe olarak yaz.
                     client = get_genai_client()
                     
                     # Define base tools
+                    active_queues_list = settings_data.get("queues", []) or []
+                    queue_desc_items = [
+                        f"{q.get('name')} ({q.get('extension')})"
+                        for q in active_queues_list
+                        if isinstance(q, dict) and q.get("name")
+                    ]
+                    queues_hint = ", ".join(queue_desc_items) if queue_desc_items else "Varsayılan Çağrı Kuyruğu"
+
                     base_declarations = [
                         {
                             "name": "transfer_to_human",
-                            "description": "Sohbeti canlı müşteri temsilcisine transfer eder. Yapay zeka cevaplayamadığında veya müşteri talep ettiğinde çağrılır.",
+                            "description": (
+                                "Sohbeti mevcut Çağrı Kuyrukları (PBXQueue) üzerinden en uygun ve müsait canlı müşteri temsilcisine "
+                                "otomatik olarak transfer eder. Yapay zeka cevaplayamadığında, karmaşık işlem gerektiğinde veya müşteri "
+                                f"canlı temsilci talep ettiğinde çağrılır. Mevcut kuyruklar: {queues_hint}"
+                            ),
                             "parameters": {
                                 "type": "OBJECT",
-                                "properties": {}
-                            }
+                                "properties": {
+                                    "target_queue": {
+                                        "type": "STRING",
+                                        "description": f"Aktarılacak hedef çağrı kuyruğu adı veya numarası (örn: {queues_hint}). Belirtilmezse kanalın varsayılan kuyruğu kullanılır.",
+                                        "nullable": True,
+                                    },
+                                    "target_agent": {
+                                        "type": "STRING",
+                                        "description": "Müşteri özellikle belirli bir temsilcinin adını veya dahili numarasını istediyse (örn: 'Ahmet', '1001') buraya yazılır.",
+                                        "nullable": True,
+                                    },
+                                },
+                            },
                         },
                         {
                             "name": "book_appointment",
@@ -777,12 +826,47 @@ Yanıtını kesinlikle Türkçe olarak yaz.
                                         email=call_args.get("email")
                                     )
                                 elif call_name == "transfer_to_human":
-                                    async with AsyncSessionLocal() as session_write:
-                                        sess_obj = await session_write.get(ChatSession, session_id)
-                                        if sess_obj:
-                                            sess_obj.assigned_agent = "human"
-                                            await session_write.commit()
-                                    tool_result = {"status": "success", "message": "Sohbet canlı müşteri temsilcisine aktarıldı."}
+                                    t_queue = (call_args or {}).get("target_queue") or ""
+                                    t_agent = (call_args or {}).get("target_agent") or ""
+                                    acd_res = {}
+                                    try:
+                                        from backend.services.agent_presence import auto_assign_chat_session_from_queue
+                                        acd_res = await auto_assign_chat_session_from_queue(
+                                            session_id=session_id,
+                                            channel=channel,
+                                            sender_info=sender_info,
+                                            target_queue=str(t_queue),
+                                            target_agent=str(t_agent),
+                                            matched_account=matched_account,
+                                        )
+                                    except Exception as e_tr:
+                                        print(f"[Chat Service transfer_to_human ACD Error]: {e_tr}")
+                                        async with AsyncSessionLocal() as session_write:
+                                            sess_obj = await session_write.get(ChatSession, session_id)
+                                            if sess_obj:
+                                                sess_obj.assigned_agent = "human"
+                                                await session_write.commit()
+                                    if acd_res.get("status") == "assigned" and acd_res.get("assigned_user"):
+                                        tool_result = {
+                                            "status": "success",
+                                            "assigned_user": acd_res.get("assigned_user"),
+                                            "queue_name": acd_res.get("queue_name"),
+                                            "message": (
+                                                f"Sohbet '{acd_res.get('queue_name')}' kuyruğundan müsait temsilci "
+                                                f"'{acd_res.get('assigned_user')}' üzerine başarıyla atandı. "
+                                                f"Müşteriye ilgili temsilciye aktarıldığını nazikçe bildir."
+                                            ),
+                                        }
+                                    else:
+                                        tool_result = {
+                                            "status": "queued",
+                                            "queue_name": acd_res.get("queue_name") or "Müşteri Hizmetleri",
+                                            "message": (
+                                                f"Sohbet '{acd_res.get('queue_name') or 'Müşteri Hizmetleri'}' kuyruğunda sıraya alındı "
+                                                f"(şu an tüm temsilciler görüşmede). İlk müsait temsilciye otomatik düşecek. "
+                                                f"Müşteriye sıraya alındığını ve ilk müsait temsilcinin dönüş yapacağını nazikçe bildir."
+                                            ),
+                                        }
                                 elif call_name == "query_knowledge_base":
                                     tool_result = await execute_query_knowledge_base(call_args.get("query"))
                                 elif call_name == "send_media_file":

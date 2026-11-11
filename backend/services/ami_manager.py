@@ -1825,8 +1825,12 @@ async def _run_asterisk_watchdog_sweep(manager) -> None:
 
         # 4) Sweep idle Omnichannel (WhatsApp/Email) engagements (> 3 min idle) to auto-restore voice availability
         try:
-            from backend.services.agent_presence import sweep_expired_omnichannel_engagements
+            from backend.services.agent_presence import (
+                sweep_expired_omnichannel_engagements,
+                process_omnichannel_acd_queue_and_sla,
+            )
             await sweep_expired_omnichannel_engagements()
+            await process_omnichannel_acd_queue_and_sla()
         except Exception:
             pass
     except Exception as e:
@@ -1839,6 +1843,11 @@ async def start_ami_listener():
     consecutive_ami_failures = 0
     while True:
         try:
+            try:
+                from backend.services.agent_presence import process_omnichannel_acd_queue_and_sla
+                await process_omnichannel_acd_queue_and_sla()
+            except Exception:
+                pass
             mgr = await get_ami_manager()
             if mgr:
                 consecutive_ami_failures = 0

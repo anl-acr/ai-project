@@ -9102,6 +9102,11 @@ async def update_agent_status_endpoint(payload: AgentStateSchema, db: AsyncSessi
         if payload.status == "online" and payload.is_logged_in:
             reset_agent_missed_calls(ext_str)
             asyncio.create_task(sync_asterisk_queue_pause(ext_str, False, reason="AgentAvailable"))
+            try:
+                from backend.services.agent_presence import process_omnichannel_acd_queue_and_sla
+                asyncio.create_task(process_omnichannel_acd_queue_and_sla())
+            except Exception:
+                pass
         elif payload.status == "acw":
             asyncio.create_task(sync_asterisk_queue_pause(ext_str, True, reason="ACW"))
         elif payload.status == "break":
@@ -18612,6 +18617,11 @@ async def end_call_endpoint(
             if hangup_src_val.startswith("pickup:"):
                 picker_ext_val = hangup_src_val.split(":", 1)[1].strip()
                 set_live_extension_call_state(picker_ext_val, None)
+            try:
+                from backend.services.agent_presence import process_omnichannel_acd_queue_and_sla
+                asyncio.create_task(process_omnichannel_acd_queue_and_sla())
+            except Exception:
+                pass
 
             db_call.end_time = datetime.datetime.utcnow()
             if trunk and str(trunk).strip() and not db_call.trunk_name:
