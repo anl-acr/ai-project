@@ -104,6 +104,16 @@ API_PERMISSION_MODULES = [
             {"code": "ai_omnichannel:write", "label": "Ekleme & Gönderim Başlatma (POST / PUT)", "http_methods": ["POST", "PUT"], "desc": "WhatsApp/E-Posta mesajı gönderme, AI araması başlatma, AI asistan güncelleme"},
         ],
     },
+    {
+        "id": "pbx_features",
+        "title": "Konferans Odaları, Hızlı Arama, Sesli Posta (Voicemail), Anonslar & Sistem Kapasitesi",
+        "description": "Konferans odası yönetimi, hızlı arama kodları, sesli posta mesajları, sesli anonslar, Webhook abonelikleri ve sistem kapasite/sağlık bilgileri.",
+        "actions": [
+            {"code": "pbx_features:read", "label": "Okuma / Görüntüleme (GET)", "http_methods": ["GET"], "desc": "Konferans, hızlı arama, sesli posta, anons ve sistem kapasite bilgilerini okuma"},
+            {"code": "pbx_features:write", "label": "Ekleme & Düzenleme (POST / PUT)", "http_methods": ["POST", "PUT"], "desc": "Konferans odası, hızlı arama ve Webhook aboneliği oluşturma/güncelleme"},
+            {"code": "pbx_features:delete", "label": "Silme (DELETE)", "http_methods": ["DELETE"], "desc": "Konferans odası, hızlı arama veya sesli posta kaydı silme"},
+        ],
+    },
 ]
 
 ALL_SCOPE_CODES = [
@@ -493,6 +503,43 @@ API_ENDPOINTS_CATALOG = [
                 "description": "Belirtilen çağrı kimliğine (call_id) veya kanala ait aktif görüşmeyi sonlandırır.",
                 "sample_body": {},
             },
+            {
+                "method": "POST",
+                "method_tr": "İşlem Başlatma (POST)",
+                "path": "/api/v1/calls/{call_id}/recording-pause",
+                "scope": "calls:write",
+                "title": "Canlı Çağrıda Ses Kaydını Duraklatma / Devam Ettirme (KVKK & Kredi Kartı Maskeleme)",
+                "description": "Görüşme esnasında müşteri kredi kartı veya KVKK hassas bilgisi söylerken ses kaydını (MixMonitor) duraklatır (`paused: true`) ve işlem bitince tekrar başlatır (`paused: false`).",
+                "sample_body": {
+                    "extension": "1000",
+                    "paused": True
+                },
+            },
+            {
+                "method": "POST",
+                "method_tr": "İşlem Başlatma (POST)",
+                "path": "/api/v1/calls/{call_id}/hold",
+                "scope": "calls:write",
+                "title": "Canlı Çağrıyı Beklemeye Alma / Beklemeden Çıkarma (Hold / Unhold)",
+                "description": "Aktif görüşmedeki müşteriyi bekleme müziğine (MoH) alır (`hold: true`) veya beklemeden çıkarıp görüşmeye geri döndürür (`hold: false`).",
+                "sample_body": {
+                    "extension": "1000",
+                    "hold": True
+                },
+            },
+            {
+                "method": "POST",
+                "method_tr": "İşlem Başlatma (POST)",
+                "path": "/api/v1/calls/monitor",
+                "scope": "calls:write",
+                "title": "Süpervizör Canlı Çağrı Dinleme, Fısıldama (Whisper) ve Araya Girme (Barge-In)",
+                "description": "Yöneticinin (`supervisor_extension`) seçilen temsilcinin (`target_extension`) aktif görüşmesini sessiz dinlemesini (`listen`), sadece temsilciye sufle vermesini (`whisper`) veya konferans olarak araya girmesini (`barge`) başlatır.",
+                "sample_body": {
+                    "supervisor_extension": "1000",
+                    "target_extension": "1001",
+                    "mode": "whisper"
+                },
+            },
         ],
     },
     {
@@ -691,6 +738,34 @@ API_ENDPOINTS_CATALOG = [
                     "changes": {"recording_active": False}
                 },
             },
+            {
+                "method": "POST",
+                "method_tr": "Yeni Kayıt Ekleme (POST)",
+                "path": "/api/v1/inbound-rules",
+                "scope": "routing:write",
+                "title": "Yeni Gelen Arama (DID) Yönlendirme Kuralı Ekleme",
+                "description": "Belirtilen DID numarasına gelen çağrıları seçilen kuyruk, dahili veya AI asistana yönlendiren yeni kural oluşturur.",
+                "sample_body": {
+                    "did_number": "908503607390",
+                    "destination_type": "queue",
+                    "destination_value": "2000",
+                    "description": "Ana Hat -> Satış Kuyruğu"
+                },
+            },
+            {
+                "method": "POST",
+                "method_tr": "Yeni Kayıt Ekleme (POST)",
+                "path": "/api/v1/outbound-rules",
+                "scope": "routing:write",
+                "title": "Yeni Giden Arama Kuralı Ekleme",
+                "description": "Belirtilen önek (prefix) ve SIP Trunk üzerinden dış arama kuralı oluşturur.",
+                "sample_body": {
+                    "name": "Yurtiçi GSM Aramaları",
+                    "prefix": "05",
+                    "trunk_id": 1,
+                    "caller_id": "908503607390"
+                },
+            },
         ],
     },
     {
@@ -807,4 +882,168 @@ API_ENDPOINTS_CATALOG = [
             },
         ],
     },
+    {
+        "category": "8. Konferans Odaları, Hızlı Arama, Sesli Posta (Voicemail), Webhook & Sistem Kapasitesi",
+        "scope_module": "pbx_features",
+        "items": [
+            {
+                "method": "GET",
+                "method_tr": "Okuma / Görüntüleme (GET)",
+                "path": "/api/v1/system/capacity",
+                "scope": "pbx_features:read",
+                "title": "Santral Kapasite, Lisans ve Anlık Kanal Sağlığı Sorgulama",
+                "description": "Toplam dahili abone sayısını, çevrimiçi SIP cihazlarını, aktif çağrı kanallarını, kuyrukları, SIP Trunk durumunu ve lisans kapasitesini döndürür.",
+                "sample_body": None,
+            },
+            {
+                "method": "GET",
+                "method_tr": "Okuma / Görüntüleme (GET)",
+                "path": "/api/v1/conferences",
+                "scope": "pbx_features:read",
+                "title": "Konferans Odalarını Listeleme",
+                "description": "Santraldeki tüm konferans odalarını, oda numaralarını ve PIN ayarlarını döndürür.",
+                "sample_body": None,
+            },
+            {
+                "method": "POST",
+                "method_tr": "Yeni Kayıt Ekleme (POST)",
+                "path": "/api/v1/conferences",
+                "scope": "pbx_features:write",
+                "title": "Yeni Konferans Odası Oluşturma",
+                "description": "Yeni bir sesli konferans odası oluşturur.",
+                "sample_body": {
+                    "name": "Yönetim Kurulu Konferansı",
+                    "room_number": "3010",
+                    "pin": "1453"
+                },
+            },
+            {
+                "method": "GET",
+                "method_tr": "Okuma / Görüntüleme (GET)",
+                "path": "/api/v1/speed-dials",
+                "scope": "pbx_features:read",
+                "title": "Hızlı Arama (Speed Dial) Kodlarını Listeleme",
+                "description": "Tanımlı hızlı arama kodlarını ve hedef numaralarını listeler.",
+                "sample_body": None,
+            },
+            {
+                "method": "GET",
+                "method_tr": "Okuma / Görüntüleme (GET)",
+                "path": "/api/v1/voicemails",
+                "scope": "pbx_features:read",
+                "title": "Sesli Posta (Voicemail) Kayıtlarını Listeleme",
+                "description": "Bırakılan sesli posta mesajlarını, arayan numarayı, süreyi ve ses dosyası bağlantılarını listeler.",
+                "sample_body": None,
+            },
+            {
+                "method": "GET",
+                "method_tr": "Okuma / Görüntüleme (GET)",
+                "path": "/api/v1/announcements",
+                "scope": "pbx_features:read",
+                "title": "Santral Sesli Anonslarını (Prompts) Listeleme",
+                "description": "Karşılama, mesai dışı ve IVR anons dosyalarını listeler.",
+                "sample_body": None,
+            },
+            {
+                "method": "POST",
+                "method_tr": "Yeni Abonelik / Güncelleme (POST)",
+                "path": "/api/v1/webhooks/subscribe",
+                "scope": "pbx_features:write",
+                "title": "Gerçek Zamanlı Çağrı Olay Bildirimi (Webhook / Event Push) Tanımlama",
+                "description": "Santralde çağrı başladığında (`call.ringing`), cevaplandığında (`call.answered`), aktarıldığında (`call.transferred`) veya kapandığında (`call.ended`) dış CRM/ERP adresinize (`webhook_url`) anlık HTTP POST bildirimi gönderilmesini sağlar.",
+                "sample_body": {
+                    "webhook_url": "https://crm.sirketiniz.com/api/pbx-events",
+                    "secret": "gizli_imza_anahtari_123",
+                    "events": ["call.ringing", "call.answered", "call.transferred", "call.ended"]
+                },
+            },
+        ],
+    },
 ]
+
+
+async def dispatch_external_api_webhook_event(
+    settings_db: dict,
+    event_name: str,
+    payload_data: Dict[str, Any],
+    tenant_id: str = "tenant-default",
+):
+    """
+    Santralde bir çağrı olayı ('call.ringing', 'call.answered', 'call.transferred', 'call.ended')
+    gerçekleştiğinde, o müşteriye (tenant) ait API anahtarlarında veya genel webhook aboneliklerinde
+    tanımlı URL adreslerine HMAC-SHA256 imzalı HTTP POST bildirimi gönderir.
+    """
+    import hmac
+    import json
+    import httpx
+
+    targets = []
+    # 1. API anahtarlarının içindeki webhook_url tanımları
+    for k in (settings_db.get("external_api_keys") or []):
+        if not isinstance(k, dict) or not k.get("is_active", True):
+            continue
+        k_ten = k.get("tenant_id") or "tenant-default"
+        if tenant_id not in ("all", "global") and k_ten != tenant_id:
+            continue
+        wh_url = str(k.get("webhook_url") or "").strip()
+        if not wh_url:
+            continue
+        wh_events = k.get("webhook_events") if isinstance(k.get("webhook_events"), list) else []
+        if wh_events and event_name not in wh_events and "*" not in wh_events:
+            continue
+        targets.append({
+            "url": wh_url,
+            "secret": str(k.get("webhook_secret") or k.get("masked_preview") or "aida_webhook"),
+            "key_name": k.get("name") or "API Webhook",
+        })
+
+    # 2. Bağımsız Webhook abonelikleri
+    for sub in (settings_db.get("external_api_webhooks") or []):
+        if not isinstance(sub, dict) or not sub.get("is_active", True):
+            continue
+        s_ten = sub.get("tenant_id") or "tenant-default"
+        if tenant_id not in ("all", "global") and s_ten != tenant_id:
+            continue
+        wh_url = str(sub.get("webhook_url") or "").strip()
+        if not wh_url:
+            continue
+        wh_events = sub.get("events") if isinstance(sub.get("events"), list) else []
+        if wh_events and event_name not in wh_events and "*" not in wh_events:
+            continue
+        targets.append({
+            "url": wh_url,
+            "secret": str(sub.get("secret") or "aida_webhook"),
+            "key_name": sub.get("name") or "Webhook Aboneliği",
+        })
+
+    if not targets:
+        return
+
+    body_dict = {
+        "event": event_name,
+        "timestamp": datetime.now().isoformat(),
+        "tenant_id": tenant_id,
+        "data": payload_data,
+    }
+    body_bytes = json.dumps(body_dict, ensure_ascii=False).encode("utf-8")
+
+    async with httpx.AsyncClient(timeout=5.0, verify=False) as client:
+        for t in targets:
+            sig = hmac.new(
+                t["secret"].encode("utf-8"),
+                body_bytes,
+                hashlib.sha256,
+            ).hexdigest()
+            try:
+                await client.post(
+                    t["url"],
+                    content=body_bytes,
+                    headers={
+                        "Content-Type": "application/json",
+                        "User-Agent": "AIDA-PBX-Webhook/1.0",
+                        "X-AIDA-Event": event_name,
+                        "X-AIDA-Signature": f"sha256={sig}",
+                    },
+                )
+            except Exception as e_wh:
+                print(f"[ExternalAPI Webhook Error] {t['url']} -> {e_wh}")

@@ -40541,6 +40541,7 @@ from backend.services.external_api_service import (
     generate_api_token_pair,
     verify_external_api_request,
     record_api_access_log,
+    dispatch_external_api_webhook_event,
 )
 
 
@@ -40551,6 +40552,9 @@ class ExternalApiKeyCreatePayload(BaseModel):
     expires_days: Optional[int] = 0  # 0 = Süresiz, >0 = gün sayısı
     rate_limit_per_minute: Optional[int] = 120
     scopes: Optional[List[str]] = []
+    webhook_url: Optional[str] = ""
+    webhook_secret: Optional[str] = ""
+    webhook_events: Optional[List[str]] = []
 
 
 class ExternalApiKeyUpdatePayload(BaseModel):
@@ -40560,6 +40564,9 @@ class ExternalApiKeyUpdatePayload(BaseModel):
     allowed_ips: Optional[List[str]] = None
     rate_limit_per_minute: Optional[int] = None
     scopes: Optional[List[str]] = None
+    webhook_url: Optional[str] = None
+    webhook_secret: Optional[str] = None
+    webhook_events: Optional[List[str]] = None
 
 
 @app.get("/api/settings/api-keys")
@@ -40632,6 +40639,9 @@ async def create_external_api_key(
         "allowed_ips": cleaned_ips,
         "rate_limit_per_minute": max(10, min(5000, int(payload.rate_limit_per_minute or 120))),
         "scopes": scopes,
+        "webhook_url": (payload.webhook_url or "").strip(),
+        "webhook_secret": (payload.webhook_secret or "").strip(),
+        "webhook_events": list(dict.fromkeys(payload.webhook_events or ["call.ringing", "call.answered", "call.transferred", "call.ended"])),
         "created_at": now_dt.strftime("%Y-%m-%d %H:%M:%S"),
         "created_by": actor,
         "expires_at": expires_at,
@@ -40714,6 +40724,12 @@ async def update_external_api_key(
         found["rate_limit_per_minute"] = max(10, min(5000, int(payload.rate_limit_per_minute)))
     if payload.scopes is not None:
         found["scopes"] = list(dict.fromkeys(payload.scopes))
+    if payload.webhook_url is not None:
+        found["webhook_url"] = payload.webhook_url.strip()
+    if payload.webhook_secret is not None:
+        found["webhook_secret"] = payload.webhook_secret.strip()
+    if payload.webhook_events is not None:
+        found["webhook_events"] = list(dict.fromkeys(payload.webhook_events))
 
     save_settings(settings_db)
     try:
@@ -40921,6 +40937,12 @@ async def ext_api_v1_transfer_call(
     ok = await ami.redirect_call_to_human(call_id, extension=target_ext, context=context)
     if not ok:
         raise HTTPException(status_code=400, detail=f"Çağrı ({call_id}) aktarılamadı veya aktif kanal bulunamadı.")
+    asyncio.create_task(dispatch_external_api_webhook_event(
+        settings_db,
+        event_type="call.transferred",
+        payload={"call_id": call_id, "target_extension": target_ext, "context": context},
+        tenant_id=auth["tenant_id"],
+    ))
     return {
         "status": "success",
         "action": "POST (Çağrı Transfer Edildi)",
@@ -40939,6 +40961,12 @@ async def ext_api_v1_hangup_call(
     auth = verify_external_api_request(request, settings_db, save_settings, "calls:write")
     end_req = CallEndRequest(call_id=call_id, status="completed")
     res = await end_call_endpoint(req=end_req, db=db)
+    asyncio.create_task(dispatch_external_api_webhook_event(
+        settings_db,
+        event_type="call.ended",
+        payload={"call_id": call_id, "status": "completed"},
+        tenant_id=auth["tenant_id"],
+    ))
     return {"status": "success", "action": "POST (Çağrı Sonlandırıldı)", "call_id": call_id, "result": res}
 
 
@@ -41058,14 +41086,14 @@ async def ext_api_v1_list_extensions(
 @app.post("/api/v1/extensions")
 async def ext_api_v1_create_extension(
     request: Request,
+    background_tasks: BackgroundTasks,
     payload: Dict[str, Any] = Body(...),
     db: AsyncSession = Depends(get_db),
 ):
     """Yeni Dahili Abone (Kullanıcı) Oluşturma (POST)"""
     auth = verify_external_api_request(request, settings_db, save_settings, "extensions:write")
-    user_payload = UserPayload(
-        username=str(payload.get("username") or payload.get("extension") or ""),
-        full_name=str(payload.get("full_name") or payload.get("name") or ""),
+    user_payload = UserSchema(
+        full_name=str(payload.get("full_name") or payload.get("name") or payload.get("username") or "Yeni Abone"),
         email=str(payload.get("email") or f"{payload.get('extension', 'user')}@localhost"),
         extension=str(payload.get("extension") or ""),
         role=str(payload.get("role") or "agent"),
@@ -41073,9 +41101,9 @@ async def ext_api_v1_create_extension(
         password=str(payload.get("password") or "123456"),
         sip_password=str(payload.get("sip_password") or ""),
         recording_active=bool(payload.get("recording_active", True)),
-        outbound_caller_id=str(payload.get("outbound_caller_id") or ""),
+        caller_id_number=str(payload.get("outbound_caller_id") or payload.get("caller_id_number") or ""),
     )
-    res = await new_create_user_endpoint(payload=user_payload, request=request, user_info=auth["user_info"], db=db)
+    res = await new_save_users_endpoint(payload=user_payload, background_tasks=background_tasks, user_info=auth["user_info"], db=db)
     return {"status": "success", "action": "POST (Yeni Abone Oluşturuldu)", "extension": res}
 
 
@@ -41083,6 +41111,7 @@ async def ext_api_v1_create_extension(
 async def ext_api_v1_update_extension(
     extension_or_id: str,
     request: Request,
+    background_tasks: BackgroundTasks,
     payload: Dict[str, Any] = Body(...),
     db: AsyncSession = Depends(get_db),
 ):
@@ -41098,24 +41127,23 @@ async def ext_api_v1_update_extension(
         raise HTTPException(status_code=404, detail=f"Dahili abone ({extension_or_id}) bulunamadı.")
 
     merged = {**target_u, **payload}
-    upd_payload = UserPayload(
-        username=str(merged.get("username") or merged.get("extension") or ""),
+    upd_payload = UserSchema(
+        id=int(target_u["id"]),
         full_name=str(merged.get("full_name") or ""),
         email=str(merged.get("email") or ""),
         extension=str(merged.get("extension") or ""),
         role=str(merged.get("role") or "agent"),
         is_active=bool(merged.get("is_active", True)),
         recording_active=bool(merged.get("recording_active", True)),
-        outbound_caller_id=str(merged.get("outbound_caller_id") or ""),
-        forwarding_always=merged.get("forwarding_always"),
-        forwarding_busy=merged.get("forwarding_busy"),
-        forwarding_no_answer=merged.get("forwarding_no_answer"),
+        caller_id_number=str(merged.get("outbound_caller_id") or merged.get("caller_id_number") or ""),
+        forwarding_always=merged.get("forwarding_always") if isinstance(merged.get("forwarding_always"), dict) else {"active": False, "destination": ""},
+        forwarding_busy=merged.get("forwarding_busy") if isinstance(merged.get("forwarding_busy"), dict) else {"active": False, "destination": ""},
+        forwarding_no_answer=merged.get("forwarding_no_answer") if isinstance(merged.get("forwarding_no_answer"), dict) else {"active": False, "destination": "", "timeout": 20},
         voicemail_active=bool(merged.get("voicemail_active", False)),
     )
-    res = await new_update_user_endpoint(
-        user_id=int(target_u["id"]),
+    res = await new_save_users_endpoint(
         payload=upd_payload,
-        request=request,
+        background_tasks=background_tasks,
         user_info=auth["user_info"],
         db=db,
     )
@@ -41131,12 +41159,17 @@ async def ext_api_v1_set_extension_status(
 ):
     """Temsilci Durumunu Değiştirme - Müsait / Molaya Çıkar (POST)"""
     verify_external_api_request(request, settings_db, save_settings, "extensions:write")
-    status_req = AgentStatusUpdate(
+    req_status = str(payload.get("status") or "available").strip().lower()
+    brk_reason = str(payload.get("break_reason") or "Mola").strip()
+    is_brk = req_status in ("break", "paused", "away")
+    schema_obj = AgentStateSchema(
+        is_logged_in=req_status != "offline",
+        status="break" if is_brk else ("online" if req_status in ("available", "online", "ready") else req_status),
+        current_break={"name": brk_reason} if is_brk else None,
         extension=str(extension),
-        status=str(payload.get("status") or "available"),
-        break_reason=payload.get("break_reason"),
+        by_supervisor=True,
     )
-    res = await update_agent_status(req=status_req, db=db)
+    res = await update_agent_status_endpoint(payload=schema_obj, db=db)
     return {"status": "success", "action": "POST (Temsilci Durumu Güncellendi)", "result": res}
 
 
@@ -41155,7 +41188,7 @@ async def ext_api_v1_delete_extension(
     )
     if not target_u:
         raise HTTPException(status_code=404, detail=f"Silinecek abone ({extension_or_id}) bulunamadı.")
-    res = await new_delete_user_endpoint(user_id=int(target_u["id"]), request=request, user_info=auth["user_info"], db=db)
+    res = await delete_single_user_endpoint(user_id=int(target_u["id"]), user_info=auth["user_info"], db=db)
     return {"status": "success", "action": "DELETE (Abone Silindi)", "deleted_extension": extension_or_id, "result": res}
 
 
@@ -41175,22 +41208,36 @@ async def ext_api_v1_list_queues(
 @app.post("/api/v1/queues")
 async def ext_api_v1_create_queue(
     request: Request,
+    background_tasks: BackgroundTasks,
     payload: Dict[str, Any] = Body(...),
     db: AsyncSession = Depends(get_db),
 ):
     """Yeni ACD Çağrı Kuyruğu Oluşturma (POST)"""
     auth = verify_external_api_request(request, settings_db, save_settings, "queues:write")
-    q_payload = QueuePayload(
-        name=str(payload.get("name") or "Yeni Kuyruk"),
-        extension=str(payload.get("extension") or "2000"),
-        strategy=str(payload.get("strategy") or "ringall"),
-        timeout=int(payload.get("timeout") or 15),
-        wrapup_time=int(payload.get("wrapup_time") or 5),
-        max_wait_time=int(payload.get("max_wait_time") or 300),
-        members=payload.get("members") if isinstance(payload.get("members"), list) else [],
-    )
-    res = await new_create_queue_endpoint(payload=q_payload, request=request, user_info=auth["user_info"], db=db)
+    q_dict = {
+        "name": str(payload.get("name") or "Yeni Kuyruk"),
+        "extension": str(payload.get("extension") or "2000"),
+        "strategy": str(payload.get("strategy") or "ringall"),
+        "timeout": int(payload.get("timeout") or 15),
+        "wrapup_time": int(payload.get("wrapup_time") or 5),
+        "max_wait_time": int(payload.get("max_wait_time") or 300),
+        "members": payload.get("members") if isinstance(payload.get("members"), list) else [],
+    }
+    res = await new_save_queues_endpoint(payload=q_dict, background_tasks=background_tasks, user_info=auth["user_info"], db=db)
     return {"status": "success", "action": "POST (Kuyruk Oluşturuldu)", "queue": res}
+
+
+@app.delete("/api/v1/queues/{queue_id}")
+async def ext_api_v1_delete_queue(
+    queue_id: int,
+    request: Request,
+    background_tasks: BackgroundTasks,
+    db: AsyncSession = Depends(get_db),
+):
+    """ACD Çağrı Kuyruğu Silme (DELETE)"""
+    auth = verify_external_api_request(request, settings_db, save_settings, "queues:delete")
+    res = await delete_single_queue_endpoint(queue_id=queue_id, background_tasks=background_tasks, user_info=auth["user_info"], db=db)
+    return {"status": "success", "action": "DELETE (Kuyruk Silindi)", "deleted_id": queue_id, "result": res}
 
 
 @app.put("/api/v1/queues/{queue_id}")
@@ -41391,6 +41438,338 @@ async def ext_api_v1_originate_ai_call(
     verify_external_api_request(request, settings_db, save_settings, "ai_omnichannel:write")
     res = await originate_outbound_ai_call(req=payload)
     return {"status": "success", "action": "POST (AI Dış Arama Başlatıldı)", "result": res}
+
+
+# --- 8. GELİŞMİŞ ÇAĞRI KONTROLÜ (SES KAYDI MASKELEME, HOLD/UNHOLD, DİNLEME/WHISPER/BARGE) ---
+
+@app.post("/api/v1/calls/{call_id}/recording-pause")
+async def ext_api_v1_recording_pause_resume(
+    call_id: str,
+    request: Request,
+    payload: Dict[str, Any] = Body(...),
+):
+    """
+    Canlı Çağrıda Ses Kaydını Duraklatma / Devam Ettirme (KVKK & Kredi Kartı Maskeleme) (POST)
+    """
+    verify_external_api_request(request, settings_db, save_settings, "calls:write")
+    from backend.services.ami_manager import toggle_call_recording_pause
+    ext = str(payload.get("extension") or "").strip()
+    channel = str(payload.get("channel") or "").strip()
+    paused = payload.get("paused")
+    res = await toggle_call_recording_pause(
+        extension=ext,
+        channel=channel,
+        call_id=call_id if call_id not in ("active", "0", "-") else "",
+        requested_paused=bool(paused) if paused is not None else None,
+    )
+    return {
+        "status": "success",
+        "action": "POST (Ses Kaydı Duraklatma / Devam Ettirme - KVKK/PCI-DSS)",
+        "call_id": call_id,
+        "recording_paused": res.get("paused"),
+        "affected_channels": res.get("channels", []),
+    }
+
+
+@app.post("/api/v1/calls/{call_id}/hold")
+async def ext_api_v1_hold_unhold_call(
+    call_id: str,
+    request: Request,
+    payload: Dict[str, Any] = Body(...),
+):
+    """
+    Canlı Çağrıyı Beklemeye Alma (Hold / Bekleme Müziği) veya Beklemeden Çıkarma (Unhold) (POST)
+    """
+    verify_external_api_request(request, settings_db, save_settings, "calls:write")
+    hold_flag = bool(payload.get("hold", True))
+    ext = str(payload.get("extension") or "").strip()
+    channel = str(payload.get("channel") or "").strip()
+    ami = get_ami_manager()
+    try:
+        if not ami.connected:
+            await ami.connect()
+        target_ch = channel
+        if not target_ch and ext:
+            from backend.services.ami_manager import active_channels
+            for uid, ch_name in list(active_channels.items()):
+                if str(ch_name).lower().startswith(f"pjsip/{ext.lower()}-"):
+                    target_ch = ch_name
+                    break
+        if target_ch and ami.protocol:
+            await ami.protocol.send_action({
+                "Action": "Command",
+                "Command": f"channel request {'hold' if hold_flag else 'unhold'} {target_ch}",
+            })
+        return {
+            "status": "success",
+            "action": f"POST (Çağrı {'Beklemeye Alındı / Hold' if hold_flag else 'Beklemeden Çıkarıldı / Unhold'})",
+            "call_id": call_id,
+            "hold": hold_flag,
+            "channel": target_ch,
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Çağrı beklemeye alınamadı: {e}")
+
+
+@app.post("/api/v1/calls/monitor")
+async def ext_api_v1_supervisor_monitor(
+    request: Request,
+    payload: Dict[str, Any] = Body(...),
+):
+    """
+    Süpervizör Canlı Çağrı Dinleme (listen), Fısıldama/Sufle (whisper) ve Araya Girme (barge) (POST)
+    """
+    verify_external_api_request(request, settings_db, save_settings, "calls:write")
+    sup_ext = str(payload.get("supervisor_extension") or "").strip()
+    target_ext = str(payload.get("target_extension") or "").strip()
+    mode = str(payload.get("mode") or "listen").strip().lower()
+    if not sup_ext or not target_ext:
+        raise HTTPException(status_code=400, detail="'supervisor_extension' ve 'target_extension' alanları zorunludur.")
+
+    spy_opts = "q"
+    if mode == "whisper":
+        spy_opts = "qw"
+    elif mode in ("barge", "barge_in"):
+        spy_opts = "qB"
+
+    ami = get_ami_manager()
+    try:
+        if not ami.connected:
+            await ami.connect()
+        await ami.protocol.send_action({
+            "Action": "Originate",
+            "Channel": f"PJSIP/{sup_ext}",
+            "Application": "ChanSpy",
+            "Data": f"PJSIP/{target_ext},{spy_opts}",
+            "CallerID": f"Monitor {target_ext} <{sup_ext}>",
+            "Async": "true",
+        })
+        return {
+            "status": "success",
+            "action": f"POST (Canlı Çağrı Müdahalesi Başlatıldı: {mode.upper()})",
+            "supervisor_extension": sup_ext,
+            "target_extension": target_ext,
+            "mode": mode,
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Dinleme/Müdahale başlatılamadı: {e}")
+
+
+# --- 9. ARAMA KURALLARI EKLEME/SİLME, KONFERANS, HIZLI ARAMA, SESLİ POSTA, WEBHOOK & SİSTEM KAPASİTESİ ---
+
+@app.post("/api/v1/inbound-rules")
+async def ext_api_v1_create_inbound_rule(
+    request: Request,
+    payload: Dict[str, Any] = Body(...),
+):
+    """Yeni Gelen Arama (DID) Yönlendirme Kuralı Ekleme (POST)"""
+    auth = verify_external_api_request(request, settings_db, save_settings, "routing:write")
+    rules = settings_db.get("inbound_rules") if isinstance(settings_db.get("inbound_rules"), list) else []
+    new_rule = {
+        "id": int(time.time() * 1000) % 100000000,
+        "tenant_id": auth["tenant_id"],
+        "did_number": str(payload.get("did_number") or payload.get("did") or "").strip(),
+        "destination_type": str(payload.get("destination_type") or "queue").strip(),
+        "destination_value": str(payload.get("destination_value") or payload.get("destination") or "2000").strip(),
+        "description": str(payload.get("description") or payload.get("name") or "API Gelen Kuralı").strip(),
+        "is_active": bool(payload.get("is_active", True)),
+    }
+    rules.append(new_rule)
+    settings_db["inbound_rules"] = rules
+    save_settings(settings_db)
+    try:
+        regenerate_extensions_custom_conf()
+    except Exception:
+        pass
+    return {"status": "success", "action": "POST (Gelen Arama Kuralı Eklendi)", "rule": new_rule}
+
+
+@app.delete("/api/v1/inbound-rules/{rule_id}")
+async def ext_api_v1_delete_inbound_rule(
+    rule_id: str,
+    request: Request,
+):
+    """Gelen Arama Kuralı Silme (DELETE)"""
+    auth = verify_external_api_request(request, settings_db, save_settings, "routing:delete")
+    rules = settings_db.get("inbound_rules") if isinstance(settings_db.get("inbound_rules"), list) else []
+    settings_db["inbound_rules"] = [
+        r for r in rules
+        if not (str(r.get("id")) == str(rule_id) and (r.get("tenant_id") or "tenant-default") == auth["tenant_id"])
+    ]
+    save_settings(settings_db)
+    return {"status": "success", "action": "DELETE (Gelen Arama Kuralı Silindi)", "deleted_id": rule_id}
+
+
+@app.post("/api/v1/outbound-rules")
+async def ext_api_v1_create_outbound_rule(
+    request: Request,
+    payload: Dict[str, Any] = Body(...),
+):
+    """Yeni Giden Arama Kuralı Ekleme (POST)"""
+    auth = verify_external_api_request(request, settings_db, save_settings, "routing:write")
+    rules = settings_db.get("outbound_rules") if isinstance(settings_db.get("outbound_rules"), list) else []
+    new_rule = {
+        "id": int(time.time() * 1000) % 100000000,
+        "tenant_id": auth["tenant_id"],
+        "name": str(payload.get("name") or "API Giden Arama Kuralı").strip(),
+        "prefix": str(payload.get("prefix") or "0").strip(),
+        "trunk_id": payload.get("trunk_id") or 1,
+        "caller_id": str(payload.get("caller_id") or "").strip(),
+        "pin_mode": str(payload.get("pin_mode") or "none").strip(),
+        "pin_code": str(payload.get("pin_code") or "").strip(),
+    }
+    rules.append(new_rule)
+    settings_db["outbound_rules"] = rules
+    save_settings(settings_db)
+    try:
+        regenerate_extensions_custom_conf()
+    except Exception:
+        pass
+    return {"status": "success", "action": "POST (Giden Arama Kuralı Eklendi)", "rule": new_rule}
+
+
+@app.delete("/api/v1/outbound-rules/{rule_id}")
+async def ext_api_v1_delete_outbound_rule(
+    rule_id: str,
+    request: Request,
+):
+    """Giden Arama Kuralı Silme (DELETE)"""
+    auth = verify_external_api_request(request, settings_db, save_settings, "routing:delete")
+    rules = settings_db.get("outbound_rules") if isinstance(settings_db.get("outbound_rules"), list) else []
+    settings_db["outbound_rules"] = [
+        r for r in rules
+        if not (str(r.get("id")) == str(rule_id) and (r.get("tenant_id") or "tenant-default") == auth["tenant_id"])
+    ]
+    save_settings(settings_db)
+    return {"status": "success", "action": "DELETE (Giden Arama Kuralı Silindi)", "deleted_id": rule_id}
+
+
+@app.get("/api/v1/system/capacity")
+async def ext_api_v1_system_capacity(
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+):
+    """Santral Kapasite, Lisans ve Anlık Kanal Sağlığı Sorgulama (GET)"""
+    auth = verify_external_api_request(request, settings_db, save_settings, "pbx_features:read")
+    users = await new_get_users_endpoint(request=request, user_info=auth["user_info"], db=db)
+    queues = await new_get_queues_endpoint(request=request, user_info=auth["user_info"], db=db)
+    trunks = await new_list_trunks(request=request, user_info=auth["user_info"], db=db)
+    active_calls = await get_active_calls_endpoint(user_info=auth["user_info"], db=db)
+
+    online_ext_count = sum(1 for u in (users or []) if isinstance(u, dict) and u.get("is_registered"))
+    return {
+        "status": "success",
+        "action": "GET (Sistem Kapasite ve Sağlık Sorgulama)",
+        "system_version": SYSTEM_VERSION_INFO.get("version", "v2.5.0"),
+        "tenant_id": auth["tenant_id"],
+        "capacity": {
+            "total_extensions": len(users or []),
+            "online_extensions": online_ext_count,
+            "offline_extensions": max(0, len(users or []) - online_ext_count),
+            "total_queues": len(queues or []),
+            "total_trunks": len(trunks or []),
+            "active_calls_count": len(active_calls or []) if isinstance(active_calls, list) else 0,
+        },
+    }
+
+
+@app.get("/api/v1/conferences")
+async def ext_api_v1_list_conferences(request: Request):
+    """Konferans Odalarını Listeleme (GET)"""
+    auth = verify_external_api_request(request, settings_db, save_settings, "pbx_features:read")
+    confs = [
+        c for c in (settings_db.get("conferences") or [])
+        if isinstance(c, dict) and (c.get("tenant_id") or "tenant-default") == auth["tenant_id"]
+    ]
+    return {"status": "success", "action": "GET (Konferans Odalarını Listeleme)", "conferences": confs}
+
+
+@app.post("/api/v1/conferences")
+async def ext_api_v1_create_conference(
+    request: Request,
+    payload: Dict[str, Any] = Body(...),
+):
+    """Yeni Konferans Odası Oluşturma (POST)"""
+    auth = verify_external_api_request(request, settings_db, save_settings, "pbx_features:write")
+    confs = settings_db.get("conferences") if isinstance(settings_db.get("conferences"), list) else []
+    new_conf = {
+        "id": int(time.time() * 1000) % 100000000,
+        "tenant_id": auth["tenant_id"],
+        "name": str(payload.get("name") or "Yeni Konferans Odası").strip(),
+        "room_number": str(payload.get("room_number") or payload.get("extension") or "3000").strip(),
+        "pin": str(payload.get("pin") or "").strip(),
+        "record": bool(payload.get("record", False)),
+    }
+    confs.append(new_conf)
+    settings_db["conferences"] = confs
+    save_settings(settings_db)
+    return {"status": "success", "action": "POST (Konferans Odası Oluşturuldu)", "conference": new_conf}
+
+
+@app.get("/api/v1/speed-dials")
+async def ext_api_v1_list_speed_dials(request: Request):
+    """Hızlı Arama (Speed Dial) Kodlarını Listeleme (GET)"""
+    auth = verify_external_api_request(request, settings_db, save_settings, "pbx_features:read")
+    items = [
+        s for s in (settings_db.get("speed_dials") or [])
+        if isinstance(s, dict) and (s.get("tenant_id") or "tenant-default") == auth["tenant_id"]
+    ]
+    return {"status": "success", "action": "GET (Hızlı Arama Kodları)", "speed_dials": items}
+
+
+@app.get("/api/v1/voicemails")
+async def ext_api_v1_list_voicemails(request: Request):
+    """Sesli Posta (Voicemail) Kayıtlarını Listeleme (GET)"""
+    auth = verify_external_api_request(request, settings_db, save_settings, "pbx_features:read")
+    vms = [
+        v for v in (settings_db.get("voicemail_records") or [])
+        if isinstance(v, dict) and (v.get("tenant_id") or "tenant-default") == auth["tenant_id"]
+    ]
+    return {"status": "success", "action": "GET (Sesli Posta Kayıtları)", "voicemails": vms}
+
+
+@app.get("/api/v1/announcements")
+async def ext_api_v1_list_announcements(request: Request):
+    """Santral Sesli Anonslarını (Prompts) Listeleme (GET)"""
+    auth = verify_external_api_request(request, settings_db, save_settings, "pbx_features:read")
+    anns = [
+        a for a in (settings_db.get("announcements") or [])
+        if isinstance(a, dict) and (a.get("tenant_id") or "tenant-default") == auth["tenant_id"]
+    ]
+    return {"status": "success", "action": "GET (Sesli Anons Listesi)", "announcements": anns}
+
+
+@app.post("/api/v1/webhooks/subscribe")
+async def ext_api_v1_subscribe_webhook(
+    request: Request,
+    payload: Dict[str, Any] = Body(...),
+):
+    """
+    Gerçek Zamanlı Çağrı Olay Bildirimi (Webhook / Event Push) Tanımlama (POST)
+    """
+    auth = verify_external_api_request(request, settings_db, save_settings, "pbx_features:write")
+    wh_url = str(payload.get("webhook_url") or payload.get("url") or "").strip()
+    if not wh_url:
+        raise HTTPException(status_code=400, detail="'webhook_url' alanı zorunludur.")
+
+    subs = settings_db.get("external_api_webhooks")
+    if not isinstance(subs, list):
+        subs = []
+    new_sub = {
+        "id": f"wh_{int(time.time() * 1000)}",
+        "tenant_id": auth["tenant_id"],
+        "name": str(payload.get("name") or auth["key_name"]),
+        "webhook_url": wh_url,
+        "secret": str(payload.get("secret") or "aida_webhook_secret"),
+        "events": payload.get("events") if isinstance(payload.get("events"), list) else ["call.ringing", "call.answered", "call.transferred", "call.ended"],
+        "is_active": True,
+        "created_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+    }
+    subs.append(new_sub)
+    settings_db["external_api_webhooks"] = subs
+    save_settings(settings_db)
+    return {"status": "success", "action": "POST (Webhook Olay Aboneliği Oluşturuldu)", "subscription": new_sub}
+
 
 
 

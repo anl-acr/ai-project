@@ -45,6 +45,8 @@ export default function ApiManagementPanel({ backendHost = "localhost:8000" }) {
   const [formAllowedIps, setFormAllowedIps] = useState("");
   const [formExpiresDays, setFormExpiresDays] = useState("0");
   const [formRateLimit, setFormRateLimit] = useState("120");
+  const [formWebhookUrl, setFormWebhookUrl] = useState("");
+  const [formWebhookSecret, setFormWebhookSecret] = useState("");
   const [formScopes, setFormScopes] = useState(["calls:read", "cdr:read"]);
   const [submitting, setSubmitting] = useState(false);
 
@@ -125,6 +127,8 @@ export default function ApiManagementPanel({ backendHost = "localhost:8000" }) {
     setFormAllowedIps("");
     setFormExpiresDays("0");
     setFormRateLimit("120");
+    setFormWebhookUrl("");
+    setFormWebhookSecret("");
     setFormScopes(["calls:read", "cdr:read"]);
     setIsModalOpen(true);
   };
@@ -138,6 +142,8 @@ export default function ApiManagementPanel({ backendHost = "localhost:8000" }) {
     );
     setFormExpiresDays("0");
     setFormRateLimit(String(k.rate_limit_per_minute || 120));
+    setFormWebhookUrl(k.webhook_url || "");
+    setFormWebhookSecret(k.webhook_secret || "");
     setFormScopes(Array.isArray(k.scopes) ? [...k.scopes] : []);
     setIsModalOpen(true);
   };
@@ -191,6 +197,8 @@ export default function ApiManagementPanel({ backendHost = "localhost:8000" }) {
             description: formDesc.trim(),
             allowed_ips: ipList,
             rate_limit_per_minute: Number(formRateLimit) || 120,
+            webhook_url: formWebhookUrl.trim(),
+            webhook_secret: formWebhookSecret.trim(),
             scopes: formScopes
           })
         });
@@ -208,6 +216,8 @@ export default function ApiManagementPanel({ backendHost = "localhost:8000" }) {
             allowed_ips: ipList,
             expires_days: Number(formExpiresDays) || 0,
             rate_limit_per_minute: Number(formRateLimit) || 120,
+            webhook_url: formWebhookUrl.trim(),
+            webhook_secret: formWebhookSecret.trim(),
             scopes: formScopes
           })
         });
@@ -1018,6 +1028,38 @@ export default function ApiManagementPanel({ backendHost = "localhost:8000" }) {
                     className="w-full px-3 py-2 text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950"
                   />
                 </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                  Canlı Olay Bildirimi (Webhook URL - Opsiyonel)
+                </label>
+                <input
+                  type="url"
+                  value={formWebhookUrl}
+                  onChange={(e) => setFormWebhookUrl(e.target.value)}
+                  placeholder="Örn: https://crm.sirketiniz.com/api/pbx-events"
+                  className="w-full px-3.5 py-2 text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950"
+                />
+                <span className="text-[10px] text-slate-400">
+                  Çağrı çaldığında, açıldığında veya kapandığında anlık bildirim (POST) gönderilir.
+                </span>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                  Webhook Güvenlik İmzası (HMAC Secret - Opsiyonel)
+                </label>
+                <input
+                  type="text"
+                  value={formWebhookSecret}
+                  onChange={(e) => setFormWebhookSecret(e.target.value)}
+                  placeholder="Örn: whsec_gizli_imza_anahtari_2026"
+                  className="w-full px-3.5 py-2 text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950"
+                />
+                <span className="text-[10px] text-slate-400">
+                  X-AIDA-Signature başlığıyla HMAC-SHA256 doğrulaması sağlar.
+                </span>
               </div>
             </div>
 

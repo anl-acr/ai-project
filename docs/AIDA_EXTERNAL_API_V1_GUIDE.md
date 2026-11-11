@@ -60,6 +60,9 @@ Her API Anahtarı sadece kendisine izin verilen modüllere ve işlem türlerine 
 | `crm:delete` | Rehber Kişisi Silme (`DELETE`) |
 | `ai_omnichannel:read` | Yapay Zeka Asistanlarını Listeleme (`GET`) |
 | `ai_omnichannel:write` | WhatsApp Mesajı Gönderme ve AI Dış Arama Başlatma (`POST`) |
+| `pbx_features:read` | Konferans Odaları, Hızlı Aramalar, Sesli Mesajlar, Anonslar ve Sistem Kapasitesi Okuma (`GET`) |
+| `pbx_features:write` | Yeni Konferans Odası Açma, Hızlı Arama Tanımlama ve Canlı Olay Bildirimi (Webhook) Aboneliği (`POST / PUT`) |
+| `pbx_features:delete` | Konferans, Hızlı Arama veya Sesli Mesaj Kaydı Silme (`DELETE`) |
 
 ---
 
@@ -100,6 +103,36 @@ curl -X POST "https://SANTRAL_ADRESINIZ/api/v1/calls/originate" \
 #### D) Aktif Çağrıyı Sonlandırma — İşlem Başlatma (`POST`)
 - **Adres**: `POST /api/v1/calls/{call_id}/hangup`
 - **Gereken Yetki**: `calls:write`
+
+#### E) Canlı Görüşmede Ses Kaydını Duraklatma / Devam Ettirme (KVKK & Kredi Kartı Güvenliği) — İşlem Başlatma (`POST`)
+- **Adres**: `POST /api/v1/calls/{call_id}/recording-pause`
+- **Gereken Yetki**: `calls:write`
+- **Açıklama**: Müşteri kredi kartı numarası veya T.C. Kimlik bilgisi söylerken ses kaydını geçici olarak durdurur (`pause`), işlem bitince devam ettirir (`resume`).
+```json
+{
+  "action": "pause"
+}
+```
+
+#### F) Canlı Görüşmeyi Beklemeye Alma / Beklemeden Çıkarma (Hold / Unhold) — İşlem Başlatma (`POST`)
+- **Adres**: `POST /api/v1/calls/{call_id}/hold`
+- **Gereken Yetki**: `calls:write`
+```json
+{
+  "action": "hold"
+}
+```
+
+#### G) Süpervizör Canlı Dinleme / Fısıldama / Araya Girme (Listen / Whisper / Barge-In) — İşlem Başlatma (`POST`)
+- **Adres**: `POST /api/v1/calls/monitor`
+- **Gereken Yetki**: `calls:write`
+```json
+{
+  "supervisor_extension": "1000",
+  "target_extension": "1002",
+  "mode": "whisper"
+}
+```
 
 ---
 
@@ -173,3 +206,21 @@ curl -X POST "https://SANTRAL_ADRESINIZ/api/v1/calls/originate" \
   }
   ```
 - **AI Sesli Asistan ile Otomatik Arama Başlatma (`POST`)**: `POST /api/v1/ai-calls/originate`
+
+---
+
+### 4.6. Konferans, Hızlı Arama, Sesli Mesaj, Sistem Kapasitesi & Canlı Olay Bildirimi (Webhooks)
+
+- **Santral Sistem Kapasitesi & Anlık Hat Durumu (`GET`)**: `GET /api/v1/system/capacity`
+- **Konferans Odalarını Listeleme (`GET`) & Yeni Konferans Odası Açma (`POST`)**: `/api/v1/conferences`
+- **Kurumsal Hızlı Arama (Speed Dial) Kodlarını Listeleme (`GET`)**: `GET /api/v1/speed-dials`
+- **Sesli Posta (Voicemail) Kayıtlarını Listeleme (`GET`)**: `GET /api/v1/voicemails`
+- **Santral Karşılama & IVR Ses Anonslarını Listeleme (`GET`)**: `GET /api/v1/announcements`
+- **Canlı Olay Bildirimi (Webhook / Event Push) Aboneliği (`POST`)**: `POST /api/v1/webhooks/subscribe`
+  ```json
+  {
+    "webhook_url": "https://crm.sirketiniz.com/api/pbx-events",
+    "secret": "whsec_gizli_imza_anahtari",
+    "events": ["call.ringing", "call.answered", "call.transferred", "call.ended"]
+  }
+  ```
