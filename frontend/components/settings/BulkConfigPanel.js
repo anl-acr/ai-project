@@ -147,8 +147,7 @@ export default function BulkConfigPanel({
 
   const [activeModule, setActiveModule] = useState(initialModule || "users");
   const [targetMode, setTargetMode] = useState(
-    initialTargetMode ||
-      (initialSelectedIds && initialSelectedIds.length > 0 ? "selected" : "all")
+    initialTargetMode || "selected"
   );
   const [selectedIds, setSelectedIds] = useState(
     Array.isArray(initialSelectedIds) ? initialSelectedIds.map((x) => String(x)) : []
@@ -716,11 +715,31 @@ export default function BulkConfigPanel({
     return [...list, idVal];
   };
 
-  const toggleSelectedTarget = (idVal) => {
-    const sId = String(idVal);
-    setSelectedIds((prev) =>
-      prev.includes(sId) ? prev.filter((x) => x !== sId) : [...prev, sId]
-    );
+  const matchedTargetIdSet = useMemo(
+    () => new Set((matchedTargets || []).map((t) => String(t.id))),
+    [matchedTargets]
+  );
+
+  const toggleSelectedTarget = (item) => {
+    const sId = String(item.id);
+    const extStr = String(item.extension || item.queue_number || "");
+    if (targetMode !== "selected") {
+      const currentIds = (matchedTargets || []).map((t) => String(t.id));
+      const exists = currentIds.includes(sId);
+      const nextIds = exists
+        ? currentIds.filter((x) => x !== sId && (!extStr || x !== extStr))
+        : [...currentIds, sId];
+      setSelectedIds(nextIds);
+      setTargetMode("selected");
+      return;
+    }
+    setSelectedIds((prev) => {
+      const exists = prev.includes(sId) || (extStr && prev.includes(extStr));
+      if (exists) {
+        return prev.filter((x) => x !== sId && (!extStr || x !== extStr));
+      }
+      return [...prev, sId];
+    });
   };
 
   const selectableItemsForManualPicker = useMemo(() => {
@@ -1235,82 +1254,90 @@ export default function BulkConfigPanel({
           </div>
         )}
 
-        {/* Manual Multi-Select Checkbox Grid */}
-        {targetMode === "selected" && (
-          <div className="p-3.5 rounded-xl bg-slate-50 dark:bg-slate-800/40 border border-slate-200/80 dark:border-slate-800">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-3">
-              <div className="relative flex-1 max-w-xs">
-                <Search
-                  size={14}
-                  className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
-                />
-                <input
-                  type="text"
-                  value={targetSearch}
-                  onChange={(e) => setTargetSearch(e.target.value)}
-                  placeholder="İsim veya dahili numara ile filtrele..."
-                  className="w-full pl-8 pr-3 py-1.5 text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900"
-                />
-              </div>
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() =>
-                    setSelectedIds(
-                      selectableItemsForManualPicker.map((it) => String(it.id))
-                    )
-                  }
-                  className="px-2.5 py-1 rounded-lg text-[11px] font-bold bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-100"
-                >
-                  Tümünü Seç ({selectableItemsForManualPicker.length})
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setSelectedIds([])}
-                  className="px-2.5 py-1 rounded-lg text-[11px] font-bold bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-500 hover:bg-slate-100"
-                >
-                  Seçimi Temizle
-                </button>
-              </div>
-            </div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2 max-h-52 overflow-y-auto pr-1">
-              {selectableItemsForManualPicker.map((item) => {
-                const idStr = String(item.id);
-                const extStr = String(item.extension || item.queue_number || "");
-                const isChecked =
-                  selectedIds.includes(idStr) ||
-                  (extStr && selectedIds.includes(extStr));
-                const label =
+        {/* Interactive Multi-Select Checkbox Grid (Always Visible) */}
+        <div className="mt-3 p-3.5 rounded-xl bg-slate-50 dark:bg-slate-800/40 border border-slate-200/80 dark:border-slate-800">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-3">
+            <div className="relative flex-1 max-w-xs">
+              <Search
+                size={14}
+                className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
+              />
+              <input
+                type="text"
+                value={targetSearch}
+                onChange={(e) => setTargetSearch(e.target.value)}
+                placeholder={
                   activeModule === "users"
-                    ? `${item.full_name} (${item.extension})`
-                    : activeModule === "subscriber_groups"
-                    ? `${item.name} (${(item.extensions || []).length} Abone)`
-                    : activeModule === "queues"
-                    ? `${item.name} (${item.extension || item.queue_number || "-"})`
-                    : `${item.name} (${item.prefix || "Genel"})`;
-                return (
-                  <label
-                    key={idStr}
-                    onClick={() => toggleSelectedTarget(idStr)}
-                    className={`flex items-center gap-2.5 p-2 rounded-xl border text-xs cursor-pointer transition-all ${
-                      isChecked
-                        ? `${lightBg} ${border} font-bold text-slate-900 dark:text-white`
-                        : "bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-300"
-                    }`}
-                  >
-                    <input
-                      type="checkbox"
-                      checked={isChecked}
-                      onChange={() => {}}
-                      className="w-4 h-4 rounded"
-                    />
-                    <span className="truncate">{label}</span>
-                  </label>
-                );
-              })}
+                    ? "Abone adı veya dahili no ile ara..."
+                    : "Kayıt adı ile ara..."
+                }
+                className="w-full pl-8 pr-3 py-1.5 text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900"
+              />
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setSelectedIds(
+                    selectableItemsForManualPicker.map((it) => String(it.id))
+                  );
+                  setTargetMode("selected");
+                }}
+                className="px-2.5 py-1 rounded-lg text-[11px] font-bold bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-100 cursor-pointer"
+              >
+                Tümünü Seç ({selectableItemsForManualPicker.length})
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setSelectedIds([]);
+                  setTargetMode("selected");
+                }}
+                className="px-2.5 py-1 rounded-lg text-[11px] font-bold bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-500 hover:bg-slate-100 cursor-pointer"
+              >
+                Seçimi Temizle
+              </button>
             </div>
           </div>
-        )}
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2 max-h-56 overflow-y-auto pr-1">
+            {selectableItemsForManualPicker.map((item) => {
+              const idStr = String(item.id);
+              const extStr = String(item.extension || item.queue_number || "");
+              const isChecked =
+                targetMode === "selected"
+                  ? selectedIds.includes(idStr) ||
+                    (extStr && selectedIds.includes(extStr))
+                  : matchedTargetIdSet.has(idStr);
+              const label =
+                activeModule === "users"
+                  ? `${item.full_name} (${item.extension})`
+                  : activeModule === "subscriber_groups"
+                  ? `${item.name} (${(item.extensions || []).length} Abone)`
+                  : activeModule === "queues"
+                  ? `${item.name} (${item.extension || item.queue_number || "-"})`
+                  : `${item.name} (${item.prefix || "Genel"})`;
+              return (
+                <div
+                  key={idStr}
+                  onClick={() => toggleSelectedTarget(item)}
+                  className={`flex items-center gap-2.5 p-2 rounded-xl border text-xs cursor-pointer transition-all select-none ${
+                    isChecked
+                      ? `${lightBg} ${border} font-bold text-slate-900 dark:text-white`
+                      : "bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-300 hover:border-slate-300"
+                  }`}
+                >
+                  <input
+                    type="checkbox"
+                    checked={isChecked}
+                    readOnly
+                    className="w-4 h-4 rounded pointer-events-none"
+                  />
+                  <span className="truncate">{label}</span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
       </div>
 
       {/* Step 2: Module-Specific Bulk Property Editors */}
