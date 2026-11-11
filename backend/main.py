@@ -18,7 +18,7 @@ import shutil
 import socket
 import base64
 import httpx
-from fastapi import FastAPI, UploadFile, File, Form, Depends, HTTPException, WebSocket, WebSocketDisconnect, BackgroundTasks, Request, Body
+from fastapi import FastAPI, UploadFile, File, Form, Depends, HTTPException, WebSocket, WebSocketDisconnect, BackgroundTasks, Request, Body, Query
 from fastapi.responses import FileResponse, Response, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
@@ -40618,10 +40618,10 @@ async def create_external_api_key(
     actor = user_info.get("user_id") or "admin"
 
     token_pair = generate_api_token_pair(target_tenant)
-    now_dt = datetime.now()
+    now_dt = datetime.datetime.now()
     expires_at = None
     if payload.expires_days and int(payload.expires_days) > 0:
-        expires_at = (now_dt + timedelta(days=int(payload.expires_days))).strftime("%Y-%m-%d %H:%M:%S")
+        expires_at = (now_dt + datetime.timedelta(days=int(payload.expires_days))).strftime("%Y-%m-%d %H:%M:%S")
 
     cleaned_ips = [str(ip).strip() for ip in (payload.allowed_ips or []) if str(ip).strip()]
     scopes = list(dict.fromkeys(payload.scopes or []))
@@ -40774,7 +40774,7 @@ async def regenerate_external_api_key(
     token_pair = generate_api_token_pair(found.get("tenant_id") or "tenant-default")
     found["token_hash"] = token_pair["token_hash"]
     found["masked_preview"] = token_pair["masked_preview"]
-    found["regenerated_at"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    found["regenerated_at"] = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     save_settings(settings_db)
 
     try:
@@ -40855,11 +40855,11 @@ async def ext_api_v1_status(request: Request):
     return {
         "status": "ok",
         "api_version": "v1",
-        "system_version": SYSTEM_VERSION_INFO.get("version", "v2.5.0"),
+        "system_version": "v2.5.0",
         "authenticated_key": auth["key_name"],
         "tenant_id": auth["tenant_id"],
         "scopes": auth["scopes"],
-        "timestamp": datetime.now().isoformat(),
+        "timestamp": datetime.datetime.now().isoformat(),
     }
 
 
@@ -40912,11 +40912,10 @@ async def ext_api_v1_originate_call(
 @app.get("/api/v1/calls/active")
 async def ext_api_v1_get_active_calls(
     request: Request,
-    db: AsyncSession = Depends(get_db),
 ):
     """Aktif (Canlı) Çağrıları Listeleme (GET)"""
     auth = verify_external_api_request(request, settings_db, save_settings, "calls:read")
-    res = await get_active_calls_endpoint(user_info=auth["user_info"], db=db)
+    res = await get_active_calls(user_info=auth["user_info"])
     return {"status": "success", "action": "GET (Okuma / Görüntüleme)", "active_calls": res}
 
 
@@ -40955,12 +40954,10 @@ async def ext_api_v1_transfer_call(
 async def ext_api_v1_hangup_call(
     call_id: str,
     request: Request,
-    db: AsyncSession = Depends(get_db),
 ):
     """Aktif Çağrıyı Sonlandırma (POST)"""
     auth = verify_external_api_request(request, settings_db, save_settings, "calls:write")
-    end_req = CallEndRequest(call_id=call_id, status="completed")
-    res = await end_call_endpoint(req=end_req, db=db)
+    res = await end_call_endpoint(call_id=call_id, status="completed")
     asyncio.create_task(dispatch_external_api_webhook_event(
         settings_db,
         event_type="call.ended",
@@ -40983,7 +40980,7 @@ async def ext_api_v1_list_cdr(
 ):
     """Detaylı Çağrı Geçmişi (CDR) ve Transfer/Pickup Zinciri Sorgulama (GET)"""
     auth = verify_external_api_request(request, settings_db, save_settings, "cdr:read")
-    calls_data = await get_calls_history(limit=limit, user_info=auth["user_info"], db=db)
+    calls_data = await list_calls(limit=limit, user_info=auth["user_info"], db=db)
     if isinstance(calls_data, list):
         if direction:
             calls_data = [c for c in calls_data if str(c.get("direction") or "").lower() == direction.lower()]
@@ -41014,7 +41011,7 @@ async def ext_api_v1_get_cdr_detail(
 ):
     """Tekil Çağrı Detayı, Bacak Kayıtları & Transkript (GET)"""
     auth = verify_external_api_request(request, settings_db, save_settings, "cdr:read")
-    calls_data = await get_calls_history(limit=300, user_info=auth["user_info"], db=db)
+    calls_data = await list_calls(limit=300, user_info=auth["user_info"], db=db)
     matched = None
     if isinstance(calls_data, list):
         for c in calls_data:
@@ -41056,13 +41053,14 @@ async def ext_api_v1_download_recording(
     call_id: str,
     request: Request,
     leg_index: Optional[int] = Query(None),
-    db: AsyncSession = Depends(get_db),
 ):
     """Çağrı Ses Kaydı Dosyasını (WAV) İndirme veya Dinleme (GET)"""
     verify_external_api_request(request, settings_db, save_settings, "cdr:read")
+    fname = f"{call_id}.wav" if not str(call_id).endswith(".wav") else str(call_id)
     if leg_index is not None:
-        return await stream_call_leg_recording(call_id=call_id, leg_index=leg_index, request=request, db=db)
-    return await stream_call_recording(call_id=call_id, request=request, db=db)
+        base_id = str(call_id).replace(".wav", "")
+        fname = f"{base_id}_leg{leg_index}.wav"
+    return await get_recording_file(filename=fname)
 
 
 # --- 3. DAHİLİ ABONELER (KULLANICILAR) & MOLA YÖNETİMİ ---
@@ -41313,23 +41311,21 @@ async def ext_api_v1_apply_bulk_config(
 @app.get("/api/v1/contacts")
 async def ext_api_v1_list_contacts(
     request: Request,
-    db: AsyncSession = Depends(get_db),
 ):
     """Rehber Kişilerini Listeleme (GET)"""
     auth = verify_external_api_request(request, settings_db, save_settings, "crm:read")
-    contacts = await list_contacts(user_info=auth["user_info"], db=db)
+    contacts = await list_contacts(user_info=auth["user_info"])
     return {"status": "success", "action": "GET (Rehber Kişilerini Listeleme)", "contacts": contacts}
 
 
 @app.post("/api/v1/contacts")
 async def ext_api_v1_create_contact(
     request: Request,
-    payload: ContactCreate,
-    db: AsyncSession = Depends(get_db),
+    payload: ContactSchema,
 ):
     """Rehbere Yeni Kişi Ekleme (POST)"""
-    auth = verify_external_api_request(request, settings_db, save_settings, "crm:write")
-    res = await create_contact(contact=payload, user_info=auth["user_info"], db=db)
+    verify_external_api_request(request, settings_db, save_settings, "crm:write")
+    res = await create_contact(payload=payload)
     return {"status": "success", "action": "POST (Rehbere Kişi Eklendi)", "contact": res}
 
 
@@ -41337,34 +41333,31 @@ async def ext_api_v1_create_contact(
 async def ext_api_v1_delete_contact(
     contact_id: int,
     request: Request,
-    db: AsyncSession = Depends(get_db),
 ):
     """Rehberden Kişi Silme (DELETE)"""
     verify_external_api_request(request, settings_db, save_settings, "crm:delete")
-    res = await delete_contact(contact_id=contact_id, db=db)
+    res = await delete_contact(contact_id=contact_id)
     return {"status": "success", "action": "DELETE (Rehber Kişisi Silindi)", "result": res}
 
 
 @app.get("/api/v1/blacklist")
 async def ext_api_v1_list_blacklist(
     request: Request,
-    db: AsyncSession = Depends(get_db),
 ):
     """Kara Listedeki Numaraları Listeleme (GET)"""
-    auth = verify_external_api_request(request, settings_db, save_settings, "crm:read")
-    items = await get_blacklist_items(user_info=auth["user_info"], db=db)
+    verify_external_api_request(request, settings_db, save_settings, "crm:read")
+    items = await list_blacklist()
     return {"status": "success", "action": "GET (Kara Liste Sorgulama)", "blacklist": items}
 
 
 @app.post("/api/v1/blacklist")
 async def ext_api_v1_add_blacklist(
     request: Request,
-    payload: BlacklistItemCreate,
-    db: AsyncSession = Depends(get_db),
+    payload: BlacklistItemSchema,
 ):
     """Numarayı Kara Listeye Ekleme (POST)"""
-    auth = verify_external_api_request(request, settings_db, save_settings, "crm:write")
-    res = await add_blacklist_item(item=payload, user_info=auth["user_info"], db=db)
+    verify_external_api_request(request, settings_db, save_settings, "crm:write")
+    res = await add_to_blacklist(payload=payload)
     return {"status": "success", "action": "POST (Kara Listeye Eklendi)", "item": res}
 
 
@@ -41375,20 +41368,40 @@ async def ext_api_v1_list_appointments(
 ):
     """Randevu Takvimini Listeleme (GET)"""
     auth = verify_external_api_request(request, settings_db, save_settings, "crm:read")
-    appts = await get_appointments(user_info=auth["user_info"], db=db)
+    appts = await list_appointments(user_info=auth["user_info"], db=db)
     return {"status": "success", "action": "GET (Randevuları Listeleme)", "appointments": appts}
 
 
 @app.post("/api/v1/appointments")
 async def ext_api_v1_create_appointment(
     request: Request,
-    payload: AppointmentCreate,
+    payload: Dict[str, Any] = Body(...),
     db: AsyncSession = Depends(get_db),
 ):
     """Yeni Randevu Oluşturma (POST)"""
     auth = verify_external_api_request(request, settings_db, save_settings, "crm:write")
-    res = await create_appointment_endpoint(req=payload, user_info=auth["user_info"], db=db)
-    return {"status": "success", "action": "POST (Randevu Oluşturuldu)", "appointment": res}
+    new_appt = Appointment(
+        tenant_id=auth["tenant_id"],
+        customer_name=str(payload.get("customer_name") or payload.get("name") or "Müşteri"),
+        customer_phone=str(payload.get("customer_phone") or payload.get("phone") or ""),
+        appointment_date=str(payload.get("appointment_date") or payload.get("date") or datetime.datetime.now().strftime("%Y-%m-%d %H:%M")),
+        notes=str(payload.get("notes") or ""),
+        status=str(payload.get("status") or "confirmed"),
+    )
+    db.add(new_appt)
+    await db.commit()
+    await db.refresh(new_appt)
+    return {
+        "status": "success",
+        "action": "POST (Randevu Oluşturuldu)",
+        "appointment": {
+            "id": new_appt.id,
+            "customer_name": new_appt.customer_name,
+            "customer_phone": new_appt.customer_phone,
+            "appointment_date": str(new_appt.appointment_date),
+            "status": new_appt.status,
+        },
+    }
 
 
 # --- 7. YAPAY ZEKA ASİSTANLARI & OMNICHANNEL (WHATSAPP / DIŞ ARAMA) ---
@@ -41397,7 +41410,7 @@ async def ext_api_v1_create_appointment(
 async def ext_api_v1_list_ai_agents(request: Request):
     """Yapay Zeka Sesli Asistanlarını Listeleme (GET)"""
     auth = verify_external_api_request(request, settings_db, save_settings, "ai_omnichannel:read")
-    agents = await get_ai_agents_settings(user_info=auth["user_info"])
+    agents = await get_ai_agents(request=request, user_info=auth["user_info"])
     return {"status": "success", "action": "GET (AI Asistanları Listeleme)", "ai_agents": agents}
 
 
@@ -41432,12 +41445,26 @@ async def ext_api_v1_send_whatsapp(
 @app.post("/api/v1/ai-calls/originate")
 async def ext_api_v1_originate_ai_call(
     request: Request,
-    payload: OutboundCallRequest,
+    payload: Dict[str, Any] = Body(...),
 ):
     """Yapay Zeka Asistanı ile Otomatik Dış Arama Başlatma (POST)"""
     verify_external_api_request(request, settings_db, save_settings, "ai_omnichannel:write")
-    res = await originate_outbound_ai_call(req=payload)
-    return {"status": "success", "action": "POST (AI Dış Arama Başlatıldı)", "result": res}
+    phone = str(payload.get("phone_number") or payload.get("destination") or "").strip()
+    if not phone:
+        raise HTTPException(status_code=400, detail="'phone_number' (aranacak numara) alanı zorunludur.")
+    ami = get_ami_manager()
+    if not ami.connected:
+        await ami.connect()
+    res = await ami.protocol.send_action({
+        "Action": "Originate",
+        "Channel": f"PJSIP/Operator_Trunk/sip:{phone}",
+        "Context": "from-internal-ai",
+        "Exten": "s",
+        "Priority": "1",
+        "CallerID": str(payload.get("caller_id") or "908503607390"),
+        "Async": "true",
+    })
+    return {"status": "success", "action": "POST (AI Dış Arama Başlatıldı)", "phone_number": phone, "result": str(res)}
 
 
 # --- 8. GELİŞMİŞ ÇAĞRI KONTROLÜ (SES KAYDI MASKELEME, HOLD/UNHOLD, DİNLEME/WHISPER/BARGE) ---
@@ -41654,13 +41681,13 @@ async def ext_api_v1_system_capacity(
     users = await new_get_users_endpoint(request=request, user_info=auth["user_info"], db=db)
     queues = await new_get_queues_endpoint(request=request, user_info=auth["user_info"], db=db)
     trunks = await new_list_trunks(request=request, user_info=auth["user_info"], db=db)
-    active_calls = await get_active_calls_endpoint(user_info=auth["user_info"], db=db)
+    active_calls = await get_active_calls(user_info=auth["user_info"])
 
     online_ext_count = sum(1 for u in (users or []) if isinstance(u, dict) and u.get("is_registered"))
     return {
         "status": "success",
         "action": "GET (Sistem Kapasite ve Sağlık Sorgulama)",
-        "system_version": SYSTEM_VERSION_INFO.get("version", "v2.5.0"),
+        "system_version": "v2.5.0",
         "tenant_id": auth["tenant_id"],
         "capacity": {
             "total_extensions": len(users or []),
@@ -41763,7 +41790,7 @@ async def ext_api_v1_subscribe_webhook(
         "secret": str(payload.get("secret") or "aida_webhook_secret"),
         "events": payload.get("events") if isinstance(payload.get("events"), list) else ["call.ringing", "call.answered", "call.transferred", "call.ended"],
         "is_active": True,
-        "created_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "created_at": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
     }
     subs.append(new_sub)
     settings_db["external_api_webhooks"] = subs
