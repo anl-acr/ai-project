@@ -1553,3 +1553,446 @@ async def handle_agent_reconnect_auto_pause(extension: str):
     except Exception as e_rec:
         print(f"[AutoPause Reconnect Error]: {e_rec}")
 
+
+# ============================================================================
+# QUEUE AUTO-LOGOUT (OTOMATİK ÇIKIŞ) SCHEDULER ENGINE
+# ============================================================================
+# Tracks when a queue's auto-logout has already fired for a given local date + time slot
+# Key: f"{queue_id}:{local_date}:{slot_key}"
+_queue_auto_logout_fired_slots = set()
+# Tracks agents who were in an active call when auto-logout triggered so they are logged out right after hangup
+# Key: ext_str -> {"queue_cfg": dict, "reason": str, "queued_at_utc": str}
+pending_graceful_auto_logouts = {}
+# Last auto-logout notification per agent extension/user_id so UI can display banner/toast
+last_agent_auto_logout_info = {}
+
+
+def _parse_hhmm_safe(val_str: str, default_min: int = 1080) -> int:
+    try:
+        parts = str(val_str or "").strip().split(":")
+        if len(parts) >= 2:
+            h = max(0, min(23, int(parts[0])))
+            m = max(0, min(59, int(parts[1])))
+            return h * 60 + m
+    except Exception:
+        pass
+    return default_min
+
+
+def evaluate_queue_auto_logout_state(queue_cfg: dict, settings_dict: dict = None, now_dt=None) -> dict:
+    """
+    Evaluates whether a queue's auto-logout schedule is currently at or past its logout time
+    (or outside allowed work hours).
+    Returns:
+      {
+        "enabled": bool,
+        "mode": "system_work_hours" | "custom_schedule",
+        "should_logout_now": bool,
+        "is_off_hours": bool,
+        "logout_time_hhmm": str,
+        "slot_key": str,
+        "reason": str,
+        "local_date": str,
+        "local_time": str,
+        "day_key": str,
+      }
+    """
+    if not isinstance(queue_cfg, dict) or not bool(queue_cfg.get("auto_logout_enabled", False)):
+        return {
+            "enabled": False,
+            "mode": str((queue_cfg or {}).get("auto_logout_mode") or "system_work_hours"),
+            "should_logout_now": False,
+            "is_off_hours": False,
+            "logout_time_hhmm": "",
+            "slot_key": "",
+            "reason": "Otomatik çıkış kapalı",
+        }
+
+    from backend.main import settings_db, get_tenant_work_hours_config, evaluate_system_work_hours
+    s_db = settings_dict if isinstance(settings_dict, dict) else settings_db
+    tenant_id = str(queue_cfg.get("tenant_id") or "tenant-default").strip()
+    wh_cfg = get_tenant_work_hours_config(s_db, tenant_id)
+    tz_name = str(wh_cfg.get("timezone") or "Europe/Istanbul").strip()
+    try:
+        from zoneinfo import ZoneInfo
+        tz_obj = ZoneInfo(tz_name)
+    except Exception:
+        tz_obj = datetime.timezone(datetime.timedelta(hours=3))
+
+    local_now = now_dt.astimezone(tz_obj) if now_dt is not None else datetime.datetime.now(tz_obj)
+    today_iso = local_now.strftime("%Y-%m-%d")
+    cur_hhmm = local_now.strftime("%H:%M")
+    cur_min = local_now.hour * 60 + local_now.minute
+
+    day_keys = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]
+    day_labels_tr = ["Pazartesi", "Salı", "Çarşamba", "Perşembe", "Cuma", "Cumartesi", "Pazar"]
+    w_idx = local_now.weekday()
+    today_key = day_keys[w_idx]
+    today_label_tr = day_labels_tr[w_idx]
+
+    mode = str(queue_cfg.get("auto_logout_mode") or "system_work_hours").strip()
+    q_name = str(queue_cfg.get("name") or queue_cfg.get("extension") or "Kuyruk").strip()
+
+    if mode == "system_work_hours":
+        wh_eval = evaluate_system_work_hours(s_db, tenant_id, now_dt=local_now)
+        weekly = wh_cfg.get("weekly_schedule") or {}
+        day_cfg = weekly.get(today_key) or {"enabled": w_idx < 5, "start": "09:00", "end": "18:00"}
+        end_hhmm = str(day_cfg.get("end") or "18:00").strip()
+        start_hhmm = str(day_cfg.get("start") or "09:00").strip()
+        end_min = _parse_hhmm_safe(end_hhmm, 1080)
+        start_min = _parse_hhmm_safe(start_hhmm, 540)
+
+        # If today is a holiday or closed day or outside work hours (excluding lunch break unless desired)
+        state_str = str(wh_eval.get("state") or "")
+        is_open = bool(wh_eval.get("is_open", True))
+
+        # Do not log agents out during lunch break; only when shift ends or on closed day / holiday
+        if state_str == "lunch":
+            return {
+                "enabled": True,
+                "mode": mode,
+                "should_logout_now": False,
+                "is_off_hours": False,
+                "logout_time_hhmm": end_hhmm,
+                "slot_key": "",
+                "reason": "Öğle arası (Otomatik çıkış uygulanmaz)",
+                "local_date": today_iso,
+                "local_time": cur_hhmm,
+                "day_key": today_key,
+            }
+
+        is_off = not is_open
+        # Determine if we reached end of shift today
+        reached_shift_end = False
+        if not day_cfg.get("enabled", False) or state_str in ("holiday", "closed_day"):
+            reached_shift_end = True
+            slot_key = f"sys_closed_{today_iso}"
+        elif start_min <= end_min:
+            if cur_min >= end_min:
+                reached_shift_end = True
+                slot_key = f"sys_end_{today_iso}_{end_hhmm}"
+            else:
+                slot_key = ""
+        else:
+            # Overnight shift
+            if not is_open:
+                reached_shift_end = True
+                slot_key = f"sys_overnight_end_{today_iso}_{end_hhmm}"
+            else:
+                slot_key = ""
+
+        return {
+            "enabled": True,
+            "mode": mode,
+            "should_logout_now": reached_shift_end,
+            "is_off_hours": is_off,
+            "logout_time_hhmm": end_hhmm,
+            "slot_key": slot_key,
+            "reason": f"'{q_name}' kuyruğu mesai bitiş saati ({end_hhmm}) geldiği için otomatik çıkış yapıldı.",
+            "local_date": today_iso,
+            "local_time": cur_hhmm,
+            "day_key": today_key,
+            "day_label": today_label_tr,
+        }
+
+    # Mode: custom_schedule (Özel Saat ve Gün Ayarı)
+    raw_days = queue_cfg.get("auto_logout_days")
+    if isinstance(raw_days, str):
+        try:
+            raw_days = json.loads(raw_days)
+        except Exception:
+            raw_days = ["monday", "tuesday", "wednesday", "thursday", "friday"]
+    if not isinstance(raw_days, list):
+        raw_days = ["monday", "tuesday", "wednesday", "thursday", "friday"]
+    active_days = [str(d).strip().lower() for d in raw_days if d]
+
+    custom_sched = queue_cfg.get("auto_logout_custom_schedule")
+    if isinstance(custom_sched, str):
+        try:
+            custom_sched = json.loads(custom_sched)
+        except Exception:
+            custom_sched = {}
+    if not isinstance(custom_sched, dict):
+        custom_sched = {}
+
+    default_logout_hhmm = str(queue_cfg.get("auto_logout_time") or "18:00").strip()
+    day_override = custom_sched.get(today_key) if isinstance(custom_sched.get(today_key), dict) else {}
+    target_hhmm = str(day_override.get("logout_time") or default_logout_hhmm or "18:00").strip()
+    start_hhmm = str(day_override.get("start_time") or custom_sched.get("start_time") or "08:00").strip()
+
+    target_min = _parse_hhmm_safe(target_hhmm, 1080)
+    start_min = _parse_hhmm_safe(start_hhmm, 480)
+
+    is_day_enabled = today_key in active_days
+    if not is_day_enabled:
+        return {
+            "enabled": True,
+            "mode": mode,
+            "should_logout_now": False,
+            "is_off_hours": True,
+            "logout_time_hhmm": target_hhmm,
+            "slot_key": "",
+            "reason": f"{today_label_tr} günü bu kuyruk için otomatik çıkış kuralı pasif.",
+            "local_date": today_iso,
+            "local_time": cur_hhmm,
+            "day_key": today_key,
+            "day_label": today_label_tr,
+        }
+
+    # Trigger when current time is >= target_min (and within the post-logout window of the day)
+    should_fire = cur_min >= target_min
+    is_off_hours = cur_min >= target_min or cur_min < start_min
+    slot_key = f"custom_{today_iso}_{target_hhmm}" if should_fire else ""
+
+    return {
+        "enabled": True,
+        "mode": mode,
+        "should_logout_now": should_fire,
+        "is_off_hours": is_off_hours,
+        "logout_time_hhmm": target_hhmm,
+        "slot_key": slot_key,
+        "reason": f"'{q_name}' kuyruğu özel otomatik çıkış saati ({target_hhmm}) geldiği için oturum kapatıldı.",
+        "local_date": today_iso,
+        "local_time": cur_hhmm,
+        "day_key": today_key,
+        "day_label": today_label_tr,
+    }
+
+
+async def execute_agent_auto_logout(
+    extension_or_uid: str,
+    queue_cfg: dict,
+    reason_text: str,
+    force_immediate: bool = False
+) -> bool:
+    """
+    Logs out (or pauses) an agent from the queue/system when the queue's Auto-Logout schedule triggers.
+    - Respects `auto_logout_graceful_incall`: if True and agent is currently on a call, defers until hangup.
+    - Respects `auto_logout_close_breaks`: closes any open AgentBreakLog so breaks don't run overnight.
+    - Respects `auto_logout_action`: 'full_logout' (sets status offline & writes __LOGOUT__) or 'queue_pause'.
+    """
+    user_dict, member_queues, active_break_row = await asyncio.to_thread(_resolve_user_and_queues_sync, extension_or_uid)
+    if not user_dict:
+        return False
+
+    u_id_str = str(user_dict.get("id") or "").strip()
+    u_ext_str = str(user_dict.get("extension") or "").strip()
+    full_name = str(user_dict.get("full_name") or user_dict.get("name") or f"Dahili {u_ext_str}").strip()
+    q_name = str((queue_cfg or {}).get("name") or (queue_cfg or {}).get("extension") or "Kuyruk").strip()
+
+    mem_state = get_agent_state(user_id=u_id_str, extension=u_ext_str)
+    is_mem_logged_in = bool(mem_state and mem_state.get("is_logged_in"))
+    if user_dict.get("_is_logged_out") and not is_mem_logged_in and active_break_row is None:
+        return False
+    if not is_mem_logged_in and not user_dict.get("_has_login_today") and active_break_row is None:
+        return False
+
+    graceful_incall = bool((queue_cfg or {}).get("auto_logout_graceful_incall", True))
+    if graceful_incall and not force_immediate and u_ext_str:
+        try:
+            from backend.services.ami_manager import get_extension_call_state
+            if get_extension_call_state(u_ext_str) == "busy":
+                pending_graceful_auto_logouts[u_ext_str] = {
+                    "queue_cfg": dict(queue_cfg or {}),
+                    "reason": reason_text,
+                    "queued_at_utc": datetime.datetime.utcnow().isoformat() + "Z",
+                }
+                print(f"[QueueAutoLogout] {full_name} ({u_ext_str}) aktif görüşmede -> Görüşme bitiminde otomatik çıkış yapılacak.")
+                return False
+        except Exception:
+            pass
+
+    pending_graceful_auto_logouts.pop(u_ext_str, None)
+
+    action_mode = str((queue_cfg or {}).get("auto_logout_action") or "full_logout").strip()
+    close_breaks = bool((queue_cfg or {}).get("auto_logout_close_breaks", True))
+    now_utc = datetime.datetime.utcnow()
+    now_iso = now_utc.isoformat() + "Z"
+
+    if action_mode == "queue_pause":
+        if u_ext_str:
+            await sync_asterisk_queue_pause(u_ext_str, True, reason="AutoLogoutQueuePause")
+        info_payload = {
+            "timestamp_utc": now_iso,
+            "queue_name": q_name,
+            "action": "queue_pause",
+            "reason": reason_text,
+        }
+        if u_ext_str:
+            last_agent_auto_logout_info[u_ext_str] = info_payload
+        if u_id_str:
+            last_agent_auto_logout_info[u_id_str] = info_payload
+        return True
+
+    # Full Logout: close any open breaks + insert __LOGOUT__ record + set agent state offline
+    def _apply_db_logout():
+        from backend.database.config import SyncSessionLocal
+        from backend.database.models import AgentBreakLog
+        with SyncSessionLocal() as session:
+            if close_breaks:
+                open_logs = (
+                    session.query(AgentBreakLog)
+                    .filter(
+                        AgentBreakLog.end_time.is_(None),
+                        (AgentBreakLog.extension == u_ext_str) | (AgentBreakLog.user_id == u_id_str)
+                    )
+                    .all()
+                )
+                for ol in open_logs:
+                    ol.end_time = now_utc
+                    ol.duration_seconds = max(0, int((now_utc - ol.start_time).total_seconds()))
+
+            session.add(AgentBreakLog(
+                tenant_id=str(user_dict.get("tenant_id") or "tenant-default"),
+                user_id=u_id_str,
+                extension=u_ext_str,
+                agent_name=full_name,
+                break_name="__LOGOUT__",
+                start_time=now_utc,
+                end_time=now_utc,
+                duration_seconds=0,
+            ))
+            session.commit()
+
+    try:
+        await asyncio.to_thread(_apply_db_logout)
+    except Exception as e_db_out:
+        print(f"[QueueAutoLogout DB Error]: {e_db_out}")
+
+    st_updated = update_agent_state(
+        is_logged_in=False,
+        status="offline",
+        current_break=None,
+        user_id=u_id_str,
+        extension=u_ext_str,
+        status_since_utc=now_iso,
+    )
+    info_payload = {
+        "timestamp_utc": now_iso,
+        "queue_name": q_name,
+        "action": "full_logout",
+        "reason": reason_text,
+    }
+    st_updated["auto_logout_info"] = info_payload
+    if u_ext_str:
+        last_agent_auto_logout_info[u_ext_str] = info_payload
+        await sync_asterisk_queue_pause(u_ext_str, True, reason="AutoLogout")
+    if u_id_str:
+        last_agent_auto_logout_info[u_id_str] = info_payload
+
+    try:
+        from backend.main import log_event, add_system_log
+        add_system_log("QUEUE_AUTO_LOGOUT", "INFO", f"Otomatik Kuyruk Çıkışı: {full_name} ({u_ext_str}) -> {reason_text}")
+        asyncio.create_task(log_event(
+            user_id=f"{full_name} ({u_ext_str})",
+            action="QUEUE_AUTO_LOGOUT",
+            module="QueueAutoLogout",
+            details={"summary": reason_text, "queue": q_name, "action": action_mode}
+        ))
+    except Exception:
+        pass
+
+    print(f"[QueueAutoLogout] {full_name} ({u_ext_str}) otomatik çıkış yapıldı -> {reason_text}")
+    return True
+
+
+async def process_queue_auto_logout_schedules() -> dict:
+    """
+    Periodically checks all queues with `auto_logout_enabled=True` and logs out any active/on-break agents
+    when the queue's shift end time or custom logout schedule is reached.
+    Also flushes any `pending_graceful_auto_logouts` whose calls have ended.
+    """
+    from backend.database.config import SyncSessionLocal
+    from backend.database.models import PBXQueue
+    from backend.main import settings_db, load_settings
+
+    s_db = settings_db if isinstance(settings_db, dict) and settings_db.get("users") else load_settings()
+    all_groups = s_db.get("subscriber_groups", [])
+
+    # 1. Flush any deferred in-call graceful logouts whose call has finished
+    if pending_graceful_auto_logouts:
+        from backend.services.ami_manager import get_extension_call_state
+        for ext_k, p_info in list(pending_graceful_auto_logouts.items()):
+            try:
+                if get_extension_call_state(ext_k) != "busy":
+                    await execute_agent_auto_logout(
+                        extension_or_uid=ext_k,
+                        queue_cfg=p_info.get("queue_cfg") or {},
+                        reason_text=p_info.get("reason") or "Mesai süresi dolduğu için görüşme sonunda otomatik çıkış yapıldı.",
+                        force_immediate=True,
+                    )
+            except Exception as e_gr:
+                print(f"[QueueAutoLogout Graceful Flush Error]: {e_gr}")
+
+    def _load_queues_sync():
+        q_list = []
+        try:
+            with SyncSessionLocal() as session:
+                for q in session.query(PBXQueue).all():
+                    q_list.append({col.name: getattr(q, col.name) for col in PBXQueue.__table__.columns})
+        except Exception:
+            pass
+        if not q_list:
+            q_list = s_db.get("queues", [])
+        return q_list
+
+    queues_list = await asyncio.to_thread(_load_queues_sync)
+    logged_out_agents = []
+
+    for q in queues_list:
+        if not bool(q.get("auto_logout_enabled", False)):
+            continue
+        eval_res = evaluate_queue_auto_logout_state(q, s_db)
+        if not eval_res.get("should_logout_now"):
+            continue
+
+        q_id = q.get("id") or q.get("extension") or q.get("name")
+        slot_key = eval_res.get("slot_key") or ""
+        dedup_token = f"{q_id}:{slot_key}"
+        if slot_key and dedup_token in _queue_auto_logout_fired_slots:
+            continue
+
+        # Extract all member keys (extensions / user_ids / subscriber groups)
+        raw_members = q.get("queueMembers") or q.get("members") or []
+        if isinstance(raw_members, str):
+            try:
+                raw_members = json.loads(raw_members)
+            except Exception:
+                raw_members = []
+
+        member_keys = set()
+        for m in raw_members:
+            if isinstance(m, dict) and m.get("is_ai"):
+                continue
+            m_val = m.get("user_id") or m.get("extension") or m.get("id") if isinstance(m, dict) else m
+            s_val = str(m_val or "").strip()
+            if not s_val:
+                continue
+            if s_val.startswith("group_"):
+                gid = s_val.replace("group_", "", 1)
+                grp = next((g for g in all_groups if str(g.get("id")) == gid), None)
+                if grp:
+                    for gx in (grp.get("extensions") or grp.get("members") or []):
+                        if gx:
+                            member_keys.add(str(gx).strip())
+            else:
+                member_keys.add(s_val)
+
+        for mk in member_keys:
+            did_logout = await execute_agent_auto_logout(
+                extension_or_uid=mk,
+                queue_cfg=q,
+                reason_text=eval_res.get("reason") or "Mesai sonu otomatik çıkış",
+            )
+            if did_logout:
+                logged_out_agents.append(mk)
+
+        if slot_key:
+            _queue_auto_logout_fired_slots.add(dedup_token)
+            if len(_queue_auto_logout_fired_slots) > 1000:
+                _queue_auto_logout_fired_slots.clear()
+                _queue_auto_logout_fired_slots.add(dedup_token)
+
+    return {"logged_out_count": len(logged_out_agents), "agents": logged_out_agents}
+
+

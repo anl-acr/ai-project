@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from "react";
-import { Users, Search, Plus, Trash2, Edit2, CheckCircle, HeadphonesIcon, ShieldAlert, X, Settings, Download, Upload, Shuffle, Star, Sliders } from "lucide-react";
+import { Users, Search, Plus, Trash2, Edit2, CheckCircle, HeadphonesIcon, ShieldAlert, X, Settings, Download, Upload, Shuffle, Star, Sliders, LogOut } from "lucide-react";
 import * as XLSX from "xlsx";
 import ConfirmDeleteModal from "../dashboard/ConfirmDeleteModal";
 import QueueEditModal from "./QueueEditModal";
@@ -531,6 +531,21 @@ export default function AcdQueuesPanel({ backendHost }) {
                         title={`Memnuniyet Anketi Aktif (Ölçek: ${q.survey_scale || '1-5'}, Süre: ${q.survey_timeout_sec || 10}sn)`}
                       >
                         <Star size={10} className="fill-amber-500 text-amber-500" /> Anket Aktif
+                      </span>
+                    )}
+                    {q.auto_logout_enabled && (
+                      <span
+                        className={`px-2 py-0.5 rounded-lg text-[9px] font-bold flex items-center gap-1 shrink-0 ${lightBg} ${text} border ${borderLight}`}
+                        title={
+                          q.auto_logout_mode === "custom_schedule"
+                            ? `Otomatik Logout Aktif (Özel Saat: ${q.auto_logout_time || "18:00"})`
+                            : "Otomatik Logout Aktif (Sistem Mesai Saatlerine Göre)"
+                        }
+                      >
+                        <LogOut size={10} />{" "}
+                        {q.auto_logout_mode === "custom_schedule"
+                          ? `Oto. Çıkış (${q.auto_logout_time || "18:00"})`
+                          : "Oto. Çıkış (Mesai)"}
                       </span>
                     )}
                   </div>

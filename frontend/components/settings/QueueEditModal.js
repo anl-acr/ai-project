@@ -1,9 +1,19 @@
 import React, { useState, useEffect, useRef } from "react";
-import { X, Settings, Volume2, Users, ChevronRight, ChevronLeft, Check, Search, PhoneCall, Music, AlertCircle, AlertTriangle, PhoneForwarded, Bot, Shield, Clock, Shuffle, Repeat, BarChart2, HelpCircle, Star, Plus, Trash2, Play, Square, Sparkles, RefreshCw } from "lucide-react";
+import { X, Settings, Volume2, Users, ChevronRight, ChevronLeft, Check, Search, PhoneCall, Music, AlertCircle, AlertTriangle, PhoneForwarded, Bot, Shield, Clock, Shuffle, Repeat, BarChart2, HelpCircle, Star, Plus, Trash2, Play, Square, Sparkles, RefreshCw, LogOut, Calendar } from "lucide-react";
 import { createPortal } from "react-dom";
 import ConfirmDeleteModal from "../dashboard/ConfirmDeleteModal";
 import { useTheme } from "../../utils/theme";
 import { tenantFetch } from "../../utils/apiHost";
+
+const AUTO_LOGOUT_WEEK_DAYS = [
+  { key: "monday", label: "Pazartesi", short: "Pzt" },
+  { key: "tuesday", label: "Salı", short: "Sal" },
+  { key: "wednesday", label: "Çarşamba", short: "Çar" },
+  { key: "thursday", label: "Perşembe", short: "Per" },
+  { key: "friday", label: "Cuma", short: "Cum" },
+  { key: "saturday", label: "Cumartesi", short: "Cmt" },
+  { key: "sunday", label: "Pazar", short: "Paz" }
+];
 
 const DEFAULT_SURVEY_QUESTION = {
   id: "q_1",
@@ -172,7 +182,18 @@ export default function QueueEditModal({ isOpen, onClose, onSave, queueData = nu
     auto_pause_disconnect_grace_sec: 15,
     auto_pause_reconnect_mode: "manual",
     auto_pause_notify_user: true,
-    auto_pause_notify_channels: "both"
+    auto_pause_notify_channels: "both",
+
+    // Per-Queue Automatic Logout (Mesai Sonu & Özel Saat/Gün Otomatik Çıkış)
+    auto_logout_enabled: false,
+    auto_logout_mode: "system_work_hours", // 'system_work_hours' | 'custom_schedule'
+    auto_logout_time: "18:00",
+    auto_logout_days: ["monday", "tuesday", "wednesday", "thursday", "friday"],
+    auto_logout_custom_schedule: {},
+    auto_logout_action: "full_logout", // 'full_logout' | 'queue_pause'
+    auto_logout_graceful_incall: true,
+    auto_logout_close_breaks: true,
+    auto_logout_block_offhours_login: false
   });
 
   // State for Members & Supervisors
@@ -181,6 +202,7 @@ export default function QueueEditModal({ isOpen, onClose, onSave, queueData = nu
   const [queueMembers, setQueueMembers] = useState([]); // { user_id, type: 'dynamic' | 'static', priority: 1, is_ai: boolean }
   const [supervisors, setSupervisors] = useState([]);
   const [systemRoles, setSystemRoles] = useState([]);
+  const [systemWorkHoursCfg, setSystemWorkHoursCfg] = useState(null);
 
   useEffect(() => {
     if (isOpen) {
@@ -294,6 +316,20 @@ export default function QueueEditModal({ isOpen, onClose, onSave, queueData = nu
       };
       fetchTrunks();
 
+      // Fetch System Work Hours for Auto-Logout preview
+      const fetchWorkHours = async () => {
+        try {
+          const res = await tenantFetch(`${API_BASE}/api/settings/work-hours`);
+          if (res.ok) {
+            const data = await res.json();
+            setSystemWorkHoursCfg(data?.work_hours || data || null);
+          }
+        } catch (err) {
+          console.error("Work hours fetch error:", err);
+        }
+      };
+      fetchWorkHours();
+
       if (queueData) {
         const existingQuestions =
           Array.isArray(queueData.survey_questions) && queueData.survey_questions.length > 0
@@ -347,7 +383,23 @@ export default function QueueEditModal({ isOpen, onClose, onSave, queueData = nu
           auto_pause_reconnect_mode: "manual",
           auto_pause_notify_user: true,
           auto_pause_notify_channels: "both",
+          auto_logout_enabled: false,
+          auto_logout_mode: "system_work_hours",
+          auto_logout_time: "18:00",
+          auto_logout_days: ["monday", "tuesday", "wednesday", "thursday", "friday"],
+          auto_logout_custom_schedule: {},
+          auto_logout_action: "full_logout",
+          auto_logout_graceful_incall: true,
+          auto_logout_close_breaks: true,
+          auto_logout_block_offhours_login: false,
           ...queueData,
+          auto_logout_days: Array.isArray(queueData.auto_logout_days)
+            ? queueData.auto_logout_days
+            : ["monday", "tuesday", "wednesday", "thursday", "friday"],
+          auto_logout_custom_schedule:
+            queueData.auto_logout_custom_schedule && typeof queueData.auto_logout_custom_schedule === "object"
+              ? queueData.auto_logout_custom_schedule
+              : {},
           periodic_announcement_interval: Number(queueData.periodic_announcement_interval) > 0
             ? Number(queueData.periodic_announcement_interval)
             : 30,
@@ -422,7 +474,16 @@ export default function QueueEditModal({ isOpen, onClose, onSave, queueData = nu
           auto_pause_disconnect_grace_sec: 15,
           auto_pause_reconnect_mode: "manual",
           auto_pause_notify_user: true,
-          auto_pause_notify_channels: "both"
+          auto_pause_notify_channels: "both",
+          auto_logout_enabled: false,
+          auto_logout_mode: "system_work_hours",
+          auto_logout_time: "18:00",
+          auto_logout_days: ["monday", "tuesday", "wednesday", "thursday", "friday"],
+          auto_logout_custom_schedule: {},
+          auto_logout_action: "full_logout",
+          auto_logout_graceful_incall: true,
+          auto_logout_close_breaks: true,
+          auto_logout_block_offhours_login: false
         });
         setQueueMembers([]);
         setSupervisors([]);
@@ -592,6 +653,18 @@ export default function QueueEditModal({ isOpen, onClose, onSave, queueData = nu
           </span>
           {(formData.auto_pause_missed_enabled || formData.auto_pause_disconnect_enabled) && (
             <span className={"w-2 h-2 rounded-full " + bg + " shrink-0"} title="Otomatik Mola Aktif" />
+          )}
+        </button>
+        <button 
+          type="button"
+          onClick={() => setActiveTab("auto_logout")}
+          className={"w-full flex items-center justify-between gap-2 px-3.5 py-2.5 rounded-xl text-xs font-bold transition-all " + (activeTab === 'auto_logout' ? ("bg-white dark:bg-slate-800 " + text + " shadow-sm border border-slate-200 dark:border-slate-700") : "text-slate-500 hover:bg-white/50 dark:hover:bg-slate-800/50 hover:text-slate-700 dark:hover:text-slate-300 border border-transparent")}
+        >
+          <span className="flex items-center gap-3">
+            <LogOut size={16} /> Otomatik Logout
+          </span>
+          {formData.auto_logout_enabled && (
+            <span className={"w-2 h-2 rounded-full " + bg + " shrink-0"} title="Otomatik Logout Aktif" />
           )}
         </button>
         <button 
@@ -1089,6 +1162,432 @@ export default function QueueEditModal({ isOpen, onClose, onSave, queueData = nu
       </div>
     </div>
   );
+
+  const renderAutoLogoutTab = () => {
+    const activeDaysList = Array.isArray(formData.auto_logout_days)
+      ? formData.auto_logout_days
+      : ["monday", "tuesday", "wednesday", "thursday", "friday"];
+    const customScheduleMap =
+      formData.auto_logout_custom_schedule && typeof formData.auto_logout_custom_schedule === "object"
+        ? formData.auto_logout_custom_schedule
+        : {};
+    const usePerDayCustomTimes = Boolean(customScheduleMap._per_day_enabled);
+
+    const toggleAutoLogoutDay = (dayKey) => {
+      setFormData((prev) => {
+        const cur = Array.isArray(prev.auto_logout_days)
+          ? prev.auto_logout_days
+          : ["monday", "tuesday", "wednesday", "thursday", "friday"];
+        const exists = cur.includes(dayKey);
+        const nextDays = exists ? cur.filter((d) => d !== dayKey) : [...cur, dayKey];
+        return { ...prev, auto_logout_days: nextDays };
+      });
+    };
+
+    const updatePerDayLogoutTime = (dayKey, timeVal) => {
+      setFormData((prev) => {
+        const curMap =
+          prev.auto_logout_custom_schedule && typeof prev.auto_logout_custom_schedule === "object"
+            ? { ...prev.auto_logout_custom_schedule }
+            : {};
+        curMap[dayKey] = {
+          ...(curMap[dayKey] || {}),
+          logout_time: timeVal
+        };
+        return { ...prev, auto_logout_custom_schedule: curMap };
+      });
+    };
+
+    return (
+      <div className="p-6 space-y-5 animate-in fade-in slide-in-from-bottom-2 duration-300 overflow-y-auto max-h-[68vh]">
+        <div className="p-5 rounded-2xl border border-slate-200/80 dark:border-slate-800 bg-slate-50/40 dark:bg-slate-900/40 space-y-5">
+          {/* Üst Başlık ve Aç/Kapat Toggle */}
+          <div className="p-4 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 flex items-center justify-between gap-4">
+            <div className="min-w-0">
+              <h4 className="text-xs font-bold text-slate-800 dark:text-white flex items-center gap-2">
+                <LogOut size={15} className={text} />
+                Kuyruk Otomatik Çıkış (Mesai Sonu Otomatik Logout)
+              </h4>
+              <p className="text-[11px] text-slate-500 mt-1">
+                Vardiya veya mesai bittiğinde tarayıcısını açık unutan temsilcileri otomatik olarak kuyruktan çıkarır ve açık unutulan molaları sonlandırır.
+              </p>
+            </div>
+            <label className="relative inline-flex items-center cursor-pointer shrink-0">
+              <input
+                type="checkbox"
+                name="auto_logout_enabled"
+                checked={Boolean(formData.auto_logout_enabled)}
+                onChange={handleChange}
+                className="sr-only peer"
+              />
+              <div className={`w-11 h-6 bg-slate-200 dark:bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:${bg}`}></div>
+            </label>
+          </div>
+
+          {formData.auto_logout_enabled && (
+            <>
+              {/* 1. Zamanlama Modu Seçimi */}
+              <div className="space-y-3">
+                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300">
+                  Otomatik Çıkış Zamanlama Modu
+                </label>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
+                  {/* Mod A: Sistem Mesai Saatlerine Göre */}
+                  <button
+                    type="button"
+                    onClick={() => setFormData((prev) => ({ ...prev, auto_logout_mode: "system_work_hours" }))}
+                    className={`p-4 rounded-2xl border text-left transition-all flex items-start gap-3.5 cursor-pointer ${
+                      (formData.auto_logout_mode || "system_work_hours") === "system_work_hours"
+                        ? `${lightBg} ${border} ring-2 ${ring}`
+                        : "bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700"
+                    }`}
+                  >
+                    <div
+                      className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 mt-0.5 ${
+                        (formData.auto_logout_mode || "system_work_hours") === "system_work_hours"
+                          ? `${bg} text-white`
+                          : "bg-slate-100 dark:bg-slate-800 text-slate-500"
+                      }`}
+                    >
+                      <Clock size={17} />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-xs font-extrabold text-slate-800 dark:text-white">
+                          Sistem Mesai Saatlerine Göre
+                        </span>
+                        {(formData.auto_logout_mode || "system_work_hours") === "system_work_hours" && (
+                          <span className={`text-[10px] font-bold px-2 py-0.5 rounded-md ${bg} text-white`}>
+                            Seçili
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-[11px] text-slate-500 mt-1 leading-relaxed">
+                        Merkezi <strong>Mesai &amp; Tatil Takvimi</strong> ayarlarını baz alır. Her günün mesai bitiş saatinde ve resmi tatillerde otomatik çıkış yapar.
+                      </p>
+                    </div>
+                  </button>
+
+                  {/* Mod B: Özel Saat ve Gün Ayarı */}
+                  <button
+                    type="button"
+                    onClick={() => setFormData((prev) => ({ ...prev, auto_logout_mode: "custom_schedule" }))}
+                    className={`p-4 rounded-2xl border text-left transition-all flex items-start gap-3.5 cursor-pointer ${
+                      formData.auto_logout_mode === "custom_schedule"
+                        ? `${lightBg} ${border} ring-2 ${ring}`
+                        : "bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700"
+                    }`}
+                  >
+                    <div
+                      className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 mt-0.5 ${
+                        formData.auto_logout_mode === "custom_schedule"
+                          ? `${bg} text-white`
+                          : "bg-slate-100 dark:bg-slate-800 text-slate-500"
+                      }`}
+                    >
+                      <Calendar size={17} />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-xs font-extrabold text-slate-800 dark:text-white">
+                          Özel Saat ve Gün Ayarı
+                        </span>
+                        {formData.auto_logout_mode === "custom_schedule" && (
+                          <span className={`text-[10px] font-bold px-2 py-0.5 rounded-md ${bg} text-white`}>
+                            Seçili
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-[11px] text-slate-500 mt-1 leading-relaxed">
+                        Bu kuyruğa özel vardiya bitiş saati ve aktif günler tanımlayın (Örn: Hafta içi 18:00, Cumartesi 14:00 veya Gece Vardiyası).
+                      </p>
+                    </div>
+                  </button>
+                </div>
+              </div>
+
+              {/* 2. Mod Detay Paneli */}
+              {(formData.auto_logout_mode || "system_work_hours") === "system_work_hours" ? (
+                <div className="p-4 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold text-slate-800 dark:text-white flex items-center gap-2">
+                      <Clock size={14} className={text} />
+                      Merkezi Sistem Mesai Takvimi Özeti
+                    </span>
+                    <span className="text-[10px] font-semibold text-slate-400">
+                      Sistem Ayarları &gt; Mesai &amp; Tatil Takvimi
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-7 gap-2">
+                    {AUTO_LOGOUT_WEEK_DAYS.map((d) => {
+                      const dayCfg = systemWorkHoursCfg?.weekly_schedule?.[d.key] || {
+                        enabled: !["saturday", "sunday"].includes(d.key),
+                        start: "09:00",
+                        end: "18:00"
+                      };
+                      return (
+                        <div
+                          key={d.key}
+                          className={`p-2.5 rounded-xl border text-center ${
+                            dayCfg.enabled
+                              ? "border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-950/60"
+                              : "border-slate-100 dark:border-slate-800/50 bg-slate-100/40 dark:bg-slate-900/30 opacity-60"
+                          }`}
+                        >
+                          <div className="text-[11px] font-bold text-slate-700 dark:text-slate-200">{d.short}</div>
+                          {dayCfg.enabled ? (
+                            <div className={`text-[11px] font-extrabold mt-1 ${text}`}>
+                              Çıkış: {dayCfg.end || "18:00"}
+                            </div>
+                          ) : (
+                            <div className="text-[10px] font-semibold text-slate-400 mt-1">Kapalı</div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              ) : (
+                <div className="p-4 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 space-y-4">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-100 dark:border-slate-800 pb-3.5">
+                    <div>
+                      <div className="text-xs font-bold text-slate-800 dark:text-white">
+                        Kuyruğa Özel Otomatik Çıkış Günleri &amp; Saati
+                      </div>
+                      <div className="text-[11px] text-slate-500 mt-0.5">
+                        Seçili günlerde belirtilen saat geldiğinde kuyruktaki temsilciler otomatik olarak çıkarılır.
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2 shrink-0">
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setFormData((prev) => ({
+                            ...prev,
+                            auto_logout_days: ["monday", "tuesday", "wednesday", "thursday", "friday"]
+                          }))
+                        }
+                        className="px-2.5 py-1 rounded-lg text-[11px] font-bold border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-all"
+                      >
+                        Hafta İçi
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setFormData((prev) => ({
+                            ...prev,
+                            auto_logout_days: AUTO_LOGOUT_WEEK_DAYS.map((d) => d.key)
+                          }))
+                        }
+                        className="px-2.5 py-1 rounded-lg text-[11px] font-bold border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-all"
+                      >
+                        Tüm Günler
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Gün Seçim Butonları */}
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-2">
+                      Otomatik Çıkış Uygulanacak Günler
+                    </label>
+                    <div className="flex flex-wrap gap-2">
+                      {AUTO_LOGOUT_WEEK_DAYS.map((day) => {
+                        const isSelected = activeDaysList.includes(day.key);
+                        return (
+                          <button
+                            key={day.key}
+                            type="button"
+                            onClick={() => toggleAutoLogoutDay(day.key)}
+                            className={`px-3.5 py-2 rounded-xl text-xs font-bold border transition-all cursor-pointer flex items-center gap-1.5 ${
+                              isSelected
+                                ? `${bg} text-white border-transparent shadow-sm`
+                                : "bg-slate-50 dark:bg-slate-950 text-slate-600 dark:text-slate-400 border-slate-200 dark:border-slate-800 hover:border-slate-300"
+                            }`}
+                          >
+                            {isSelected && <Check size={12} />}
+                            <span>{day.label}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  {/* Genel Çıkış Saati & Gün Bazlı Farklı Saat Seçeneği */}
+                  <div className="pt-2 border-t border-slate-100 dark:border-slate-800 space-y-3">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                      <div className="flex items-center gap-3">
+                        <div>
+                          <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1">
+                            Varsayılan Otomatik Çıkış Saati
+                          </label>
+                          <input
+                            type="time"
+                            name="auto_logout_time"
+                            value={formData.auto_logout_time || "18:00"}
+                            onChange={handleChange}
+                            className={`text-xs px-3.5 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 text-slate-800 dark:text-white font-bold focus:outline-none focus:ring-2 ${ring}`}
+                          />
+                        </div>
+                        <div className="flex flex-wrap items-center gap-1.5 pt-4">
+                          {["17:30", "18:00", "18:30", "19:00", "20:00", "22:00", "23:59"].map((presetTime) => (
+                            <button
+                              key={presetTime}
+                              type="button"
+                              onClick={() => setFormData((prev) => ({ ...prev, auto_logout_time: presetTime }))}
+                              className={`px-2.5 py-1.5 rounded-lg text-[11px] font-bold border transition-all ${
+                                (formData.auto_logout_time || "18:00") === presetTime
+                                  ? `${lightBg} ${text} ${borderLight}`
+                                  : "border-slate-200 dark:border-slate-800 text-slate-500 hover:text-slate-800 dark:hover:text-white"
+                              }`}
+                            >
+                              {presetTime}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
+                      <label className="inline-flex items-center gap-2 cursor-pointer select-none">
+                        <input
+                          type="checkbox"
+                          checked={usePerDayCustomTimes}
+                          onChange={(e) => {
+                            const checked = e.target.checked;
+                            setFormData((prev) => ({
+                              ...prev,
+                              auto_logout_custom_schedule: {
+                                ...(prev.auto_logout_custom_schedule || {}),
+                                _per_day_enabled: checked
+                              }
+                            }));
+                          }}
+                          className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                        />
+                        <span className="text-[11px] font-bold text-slate-600 dark:text-slate-300">
+                          Her gün için ayrı çıkış saati belirle
+                        </span>
+                      </label>
+                    </div>
+
+                    {usePerDayCustomTimes && (
+                      <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-7 gap-2.5 pt-2">
+                        {AUTO_LOGOUT_WEEK_DAYS.map((day) => {
+                          const isDayActive = activeDaysList.includes(day.key);
+                          const dayTime =
+                            customScheduleMap?.[day.key]?.logout_time ||
+                            formData.auto_logout_time ||
+                            "18:00";
+                          return (
+                            <div
+                              key={day.key}
+                              className={`p-2.5 rounded-xl border ${
+                                isDayActive
+                                  ? "border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950"
+                                  : "border-slate-100 dark:border-slate-900 opacity-45 pointer-events-none"
+                              }`}
+                            >
+                              <div className="text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1.5">
+                                {day.short}
+                              </div>
+                              <input
+                                type="time"
+                                value={dayTime}
+                                onChange={(e) => updatePerDayLogoutTime(day.key, e.target.value)}
+                                className="w-full text-[11px] px-2 py-1 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-800 dark:text-white font-bold"
+                              />
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* 3. Otomatik Çıkış Davranışı & Güvenlik Kuralları */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="p-4 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 space-y-3">
+                  <div>
+                    <label className="block text-xs font-bold text-slate-800 dark:text-white">
+                      Otomatik Çıkış Kapsamı (Aksiyon)
+                    </label>
+                    <p className="text-[11px] text-slate-500 mt-0.5">
+                      Saat geldiğinde temsilci oturumunun nasıl sonlandırılacağını seçin.
+                    </p>
+                  </div>
+                  <select
+                    name="auto_logout_action"
+                    value={formData.auto_logout_action || "full_logout"}
+                    onChange={handleChange}
+                    className={`w-full text-xs px-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 text-slate-800 dark:text-white font-bold focus:outline-none focus:ring-2 ${ring}`}
+                  >
+                    <option value="full_logout">Tam Çevrimdışı Yap (Kuyruk Oturumunu Kapat - Önerilen)</option>
+                    <option value="queue_pause">Sadece Kuyrukta Pasife Al (Çağrı Dağıtımını Durdur)</option>
+                  </select>
+                </div>
+
+                <div className="p-4 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 space-y-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <div className="text-xs font-bold text-slate-800 dark:text-white">
+                        Aktif Görüşmeyi Kesme (Graceful Logout)
+                      </div>
+                      <div className="text-[11px] text-slate-500">
+                        Temsilci o anda müşteriyle konuşuyorsa çağrıyı kesmez; görüşme biter bitmez çıkış yapar.
+                      </div>
+                    </div>
+                    <input
+                      type="checkbox"
+                      name="auto_logout_graceful_incall"
+                      checked={Boolean(formData.auto_logout_graceful_incall ?? true)}
+                      onChange={handleChange}
+                      className="h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 shrink-0"
+                    />
+                  </div>
+
+                  <div className="flex items-center justify-between gap-3 pt-2 border-t border-slate-100 dark:border-slate-800">
+                    <div>
+                      <div className="text-xs font-bold text-slate-800 dark:text-white">
+                        Açık Unutulan Molaları Otomatik Bitir
+                      </div>
+                      <div className="text-[11px] text-slate-500">
+                        Mesai sonunda açık kalmış mola sürelerini otomatik kapatarak ertesi güne sarkmasını önler.
+                      </div>
+                    </div>
+                    <input
+                      type="checkbox"
+                      name="auto_logout_close_breaks"
+                      checked={Boolean(formData.auto_logout_close_breaks ?? true)}
+                      onChange={handleChange}
+                      className="h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 shrink-0"
+                    />
+                  </div>
+
+                  <div className="flex items-center justify-between gap-3 pt-2 border-t border-slate-100 dark:border-slate-800">
+                    <div>
+                      <div className="text-xs font-bold text-slate-800 dark:text-white">
+                        Mesai Saatleri Dışında Oturum Açmayı Kısıtla
+                      </div>
+                      <div className="text-[11px] text-slate-500">
+                        Kuyruk mesai saatleri dışındayken temsilcilerin tekrar Müsait (Online) olmasını engeller.
+                      </div>
+                    </div>
+                    <input
+                      type="checkbox"
+                      name="auto_logout_block_offhours_login"
+                      checked={Boolean(formData.auto_logout_block_offhours_login)}
+                      onChange={handleChange}
+                      className="h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 shrink-0"
+                    />
+                  </div>
+                </div>
+              </div>
+            </>
+          )}
+        </div>
+      </div>
+    );
+  };
 
   const renderAnnouncementsTab = () => (
     <div className="p-6 space-y-5 animate-in fade-in slide-in-from-bottom-2 duration-300 overflow-y-auto max-h-[68vh]">
@@ -3431,6 +3930,7 @@ export default function QueueEditModal({ isOpen, onClose, onSave, queueData = nu
             {activeTab === "general" && renderGeneralTab()}
             {activeTab === "disposition" && renderDispositionTab()}
             {activeTab === "auto_pause" && renderAutoPauseTab()}
+            {activeTab === "auto_logout" && renderAutoLogoutTab()}
             {activeTab === "announcements" && renderAnnouncementsTab()}
             {activeTab === "max_wait_time" && renderMaxWaitTimeTab()}
             {activeTab === "ivr" && renderIvrTab()}

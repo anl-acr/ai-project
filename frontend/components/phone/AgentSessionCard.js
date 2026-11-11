@@ -913,6 +913,27 @@ export default function AgentSessionCard({ backendHost = "localhost:8000", curre
         </div>
       )}
 
+      {/* Automatic Queue Logout (End of Shift) Info Banner */}
+      {!agentState?.is_logged_in && agentState?.auto_logout_info?.reason && (
+        <div className="mb-3 p-3 rounded-xl bg-amber-50 dark:bg-amber-950/30 text-amber-800 dark:text-amber-300 border border-amber-200 dark:border-amber-800/60 flex items-start gap-2.5 text-[11px] font-semibold shadow-sm">
+          <Clock size={16} className="shrink-0 mt-0.5 text-amber-500" />
+          <div className="flex-1">
+            <div className="font-extrabold">Otomatik Çıkış Yapıldı</div>
+            <div className="text-[10px] opacity-90 mt-0.5">
+              {agentState.auto_logout_info.reason}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Pending Graceful Auto-Logout (While In Call) Info Banner */}
+      {agentState?.is_logged_in && agentState?.pending_auto_logout && (
+        <div className="mb-3 p-2.5 rounded-xl bg-amber-500/15 border border-amber-500/40 flex items-center gap-2 text-amber-700 dark:text-amber-300 text-[11px] font-bold">
+          <Clock size={15} className="shrink-0" />
+          <span>Mesai süresi doldu; mevcut görüşmeniz bittiğinde oturumunuz otomatik kapatılacaktır.</span>
+        </div>
+      )}
+
       {/* Queue Membership / Break Quota Warning Popup Modal (Portal) */}
       {breakError && typeof document !== "undefined" && createPortal(
         <div

@@ -8927,6 +8927,8 @@ async def get_agent_status_endpoint(
         is_auto_break_name,
         AUTO_BREAK_DEFAULT_COLOR,
         get_agent_omnichannel_busy_info,
+        last_agent_auto_logout_info,
+        pending_graceful_auto_logouts,
     )
     from backend.database.models import AgentBreakLog, PBXQueue
     from sqlalchemy import select, or_
@@ -8938,12 +8940,21 @@ async def get_agent_status_endpoint(
         if not isinstance(st_obj, dict):
             return st_obj
         om = get_agent_omnichannel_busy_info(extension=ext_str or st_obj.get("extension"), user_id=uid_str or st_obj.get("user_id"))
+        auto_out_info = (
+            last_agent_auto_logout_info.get(ext_str or "")
+            or last_agent_auto_logout_info.get(uid_str or "")
+            or st_obj.get("auto_logout_info")
+        )
+        pending_out = pending_graceful_auto_logouts.get(ext_str or "")
         return {
             **st_obj,
             "omnichannel_busy": bool(om.get("is_busy")),
             "omnichannel_channel": om.get("channel"),
             "omnichannel_label": om.get("label"),
             "omnichannel_active_chats": int(om.get("active_count") or 0),
+            "auto_logout_info": auto_out_info,
+            "pending_auto_logout": bool(pending_out),
+            "pending_auto_logout_reason": (pending_out or {}).get("reason") if pending_out else None,
         }
 
     if not uid_str and not ext_str:
@@ -8999,7 +9010,7 @@ async def get_agent_status_endpoint(
         return st_no_q
 
     if mem_state and mem_state.get("status_since_utc") and not mem_state.get("is_logged_in"):
-        return mem_state
+        return _enrich_with_omni(mem_state)
 
     try:
         conds = []
@@ -9023,7 +9034,7 @@ async def get_agent_status_endpoint(
                     user_id=uid_str,
                     extension=ext_str
                 )
-                return st_out
+                return _enrich_with_omni(st_out)
 
             active_brk = next(
                 (b for b in all_today_logs if b.end_time is None and not str(b.break_name or "").startswith("__")),
@@ -9152,6 +9163,53 @@ async def update_agent_status_endpoint(payload: AgentStateSchema, db: AsyncSessi
                 detail="Herhangi bir çağrı kuyruğuna üye olmadığınız için oturum açamazsınız. Lütfen yöneticinizle iletişime geçiniz."
             )
 
+        # Enforce Queue Auto-Logout Off-Hours Login Block (if ALL member queues block off-hours login)
+        if not getattr(payload, "by_supervisor", False):
+            from backend.services.agent_presence import evaluate_queue_auto_logout_state
+            my_keys_login = {k for k in (user_id_str, ext_str) if k}
+            all_groups_login = settings.get("subscriber_groups", [])
+            my_member_queues = []
+            for q_item in queues_login_list:
+                raw_m = q_item.get("queueMembers") or q_item.get("members") or []
+                matched_m = False
+                for m_entry in raw_m:
+                    m_val = m_entry.get("user_id") or m_entry.get("extension") or m_entry.get("id") if isinstance(m_entry, dict) else m_entry
+                    s_val = str(m_val or "").strip()
+                    if not s_val:
+                        continue
+                    if s_val in my_keys_login:
+                        matched_m = True
+                        break
+                    if s_val.startswith("group_"):
+                        gid = s_val.replace("group_", "", 1)
+                        grp = next((g for g in all_groups_login if str(g.get("id")) == gid), None)
+                        if grp:
+                            grp_exts = {str(x).strip() for x in (grp.get("extensions") or grp.get("members") or []) if x}
+                            if my_keys_login & grp_exts:
+                                matched_m = True
+                                break
+                if matched_m:
+                    my_member_queues.append(q_item)
+
+            if my_member_queues:
+                blocking_reasons = []
+                allowed_any_queue = False
+                for mq in my_member_queues:
+                    if bool(mq.get("auto_logout_enabled", False)) and bool(mq.get("auto_logout_block_offhours_login", False)):
+                        ev_q = evaluate_queue_auto_logout_state(mq, settings)
+                        if ev_q.get("is_off_hours"):
+                            q_lbl = mq.get("name") or mq.get("extension") or "Kuyruk"
+                            blocking_reasons.append(f"{q_lbl} ({ev_q.get('logout_time_hhmm') or 'Mesai Dışı'})")
+                        else:
+                            allowed_any_queue = True
+                    else:
+                        allowed_any_queue = True
+                if blocking_reasons and not allowed_any_queue:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"Mesai saatleri dışında kuyruk oturumu açılması yönetici tarafından kısıtlanmıştır: {', '.join(blocking_reasons)}"
+                    )
+
     now_utc = datetime.datetime.utcnow()
     now_tr = now_utc + datetime.timedelta(hours=3)
     today_start_utc = (now_tr.replace(hour=0, minute=0, second=0, microsecond=0)) - datetime.timedelta(hours=3)
@@ -9277,6 +9335,14 @@ async def update_agent_status_endpoint(payload: AgentStateSchema, db: AsyncSessi
     if ext_str:
         if payload.status == "online" and payload.is_logged_in:
             reset_agent_missed_calls(ext_str)
+            try:
+                from backend.services.agent_presence import last_agent_auto_logout_info, pending_graceful_auto_logouts
+                last_agent_auto_logout_info.pop(ext_str, None)
+                if user_id_str:
+                    last_agent_auto_logout_info.pop(user_id_str, None)
+                pending_graceful_auto_logouts.pop(ext_str, None)
+            except Exception:
+                pass
             asyncio.create_task(sync_asterisk_queue_pause(ext_str, False, reason="AgentAvailable"))
             try:
                 from backend.services.agent_presence import process_omnichannel_acd_queue_and_sla
@@ -17271,7 +17337,16 @@ def clone_tenant_config(source_tenant_id: str, target_tenant_id: str):
                     auto_pause_disconnect_grace_sec=getattr(q, "auto_pause_disconnect_grace_sec", 15),
                     auto_pause_reconnect_mode=getattr(q, "auto_pause_reconnect_mode", "manual"),
                     auto_pause_notify_user=getattr(q, "auto_pause_notify_user", True),
-                    auto_pause_notify_channels=getattr(q, "auto_pause_notify_channels", "both")
+                    auto_pause_notify_channels=getattr(q, "auto_pause_notify_channels", "both"),
+                    auto_logout_enabled=getattr(q, "auto_logout_enabled", False),
+                    auto_logout_mode=getattr(q, "auto_logout_mode", "system_work_hours"),
+                    auto_logout_time=getattr(q, "auto_logout_time", "18:00"),
+                    auto_logout_days=getattr(q, "auto_logout_days", ["monday", "tuesday", "wednesday", "thursday", "friday"]),
+                    auto_logout_custom_schedule=getattr(q, "auto_logout_custom_schedule", {}),
+                    auto_logout_action=getattr(q, "auto_logout_action", "full_logout"),
+                    auto_logout_graceful_incall=getattr(q, "auto_logout_graceful_incall", True),
+                    auto_logout_close_breaks=getattr(q, "auto_logout_close_breaks", True),
+                    auto_logout_block_offhours_login=getattr(q, "auto_logout_block_offhours_login", False)
                 )
                 db.add(new_q)
 
@@ -31365,6 +31440,15 @@ async def startup_event():
                 "ALTER TABLE pbx_queues ADD COLUMN IF NOT EXISTS auto_pause_reconnect_mode VARCHAR DEFAULT 'manual';",
                 "ALTER TABLE pbx_queues ADD COLUMN IF NOT EXISTS auto_pause_notify_user BOOLEAN DEFAULT TRUE;",
                 "ALTER TABLE pbx_queues ADD COLUMN IF NOT EXISTS auto_pause_notify_channels VARCHAR DEFAULT 'both';",
+                "ALTER TABLE pbx_queues ADD COLUMN IF NOT EXISTS auto_logout_enabled BOOLEAN DEFAULT FALSE;",
+                "ALTER TABLE pbx_queues ADD COLUMN IF NOT EXISTS auto_logout_mode VARCHAR DEFAULT 'system_work_hours';",
+                "ALTER TABLE pbx_queues ADD COLUMN IF NOT EXISTS auto_logout_time VARCHAR DEFAULT '18:00';",
+                "ALTER TABLE pbx_queues ADD COLUMN IF NOT EXISTS auto_logout_days JSON DEFAULT '[\"monday\", \"tuesday\", \"wednesday\", \"thursday\", \"friday\"]';",
+                "ALTER TABLE pbx_queues ADD COLUMN IF NOT EXISTS auto_logout_custom_schedule JSON DEFAULT '{}';",
+                "ALTER TABLE pbx_queues ADD COLUMN IF NOT EXISTS auto_logout_action VARCHAR DEFAULT 'full_logout';",
+                "ALTER TABLE pbx_queues ADD COLUMN IF NOT EXISTS auto_logout_graceful_incall BOOLEAN DEFAULT TRUE;",
+                "ALTER TABLE pbx_queues ADD COLUMN IF NOT EXISTS auto_logout_close_breaks BOOLEAN DEFAULT TRUE;",
+                "ALTER TABLE pbx_queues ADD COLUMN IF NOT EXISTS auto_logout_block_offhours_login BOOLEAN DEFAULT FALSE;",
                 "ALTER TABLE pbx_queues ADD COLUMN IF NOT EXISTS show_queue_name BOOLEAN DEFAULT FALSE;",
                 "ALTER TABLE pbx_queues ADD COLUMN IF NOT EXISTS periodic_announcement_interval INTEGER DEFAULT 30;",
                 "ALTER TABLE pbx_queues ADD COLUMN IF NOT EXISTS all_busy_post_announcement_action VARCHAR DEFAULT 'hangup';",
@@ -31634,6 +31718,17 @@ async def startup_event():
             await asyncio.sleep(20)
 
     asyncio.create_task(hotdesk_midnight_cleanup_loop())
+
+    async def queue_auto_logout_scheduler_loop():
+        from backend.services.agent_presence import process_queue_auto_logout_schedules
+        while True:
+            try:
+                await process_queue_auto_logout_schedules()
+            except Exception as e_qal:
+                print(f"[QueueAutoLogout Loop Warning]: {e_qal}")
+            await asyncio.sleep(15)
+
+    asyncio.create_task(queue_auto_logout_scheduler_loop())
 
     try:
         from backend.audiosocket_server import start_server as start_audiosocket_server
@@ -40382,6 +40477,15 @@ async def apply_bulk_configuration(
             if _has_qval("auto_pause_disconnect_grace_sec"):
                 q["auto_pause_disconnect_grace_sec"] = max(5, min(300, int(changes["auto_pause_disconnect_grace_sec"])))
                 summary_labels.add(f"Kopma Tolerans Süresi: {q['auto_pause_disconnect_grace_sec']} sn")
+            if _has_qval("auto_logout_enabled"):
+                q["auto_logout_enabled"] = bool(changes["auto_logout_enabled"])
+                summary_labels.add(f"Otomatik Logout: {'Açık' if q['auto_logout_enabled'] else 'Kapalı'}")
+            if _has_qval("auto_logout_mode"):
+                q["auto_logout_mode"] = str(changes["auto_logout_mode"]).strip()
+                summary_labels.add(f"Otomatik Logout Modu: {q['auto_logout_mode']}")
+            if _has_qval("auto_logout_time"):
+                q["auto_logout_time"] = str(changes["auto_logout_time"]).strip()
+                summary_labels.add(f"Otomatik Logout Saati: {q['auto_logout_time']}")
             if _has_qval("survey_enabled"):
                 q["survey_enabled"] = bool(changes["survey_enabled"])
                 summary_labels.add(f"Memnuniyet Anketi: {'Açık' if q['survey_enabled'] else 'Kapalı'}")

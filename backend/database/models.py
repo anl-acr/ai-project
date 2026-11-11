@@ -392,6 +392,17 @@ class PBXQueue(Base):
     auto_pause_notify_user = Column(Boolean, default=True)
     auto_pause_notify_channels = Column(String, default="both")  # both | whatsapp | email
 
+    # Per-Queue Auto-Logout (Otomatik Çıkış - Mesai Sonu & Özel Saat/Gün Takvimi)
+    auto_logout_enabled = Column(Boolean, default=False)
+    auto_logout_mode = Column(String, default="system_work_hours")  # system_work_hours | custom_schedule
+    auto_logout_time = Column(String, default="18:00")
+    auto_logout_days = Column(JSON, default=lambda: ["monday", "tuesday", "wednesday", "thursday", "friday"])
+    auto_logout_custom_schedule = Column(JSON, default=dict)
+    auto_logout_action = Column(String, default="full_logout")  # full_logout | queue_pause
+    auto_logout_graceful_incall = Column(Boolean, default=True)
+    auto_logout_close_breaks = Column(Boolean, default=True)
+    auto_logout_block_offhours_login = Column(Boolean, default=False)
+
 class AIAgent(Base):
     __tablename__ = "ai_agents"
     id = Column(String, primary_key=True, index=True) # UUID or string ID
