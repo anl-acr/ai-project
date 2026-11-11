@@ -925,6 +925,8 @@ class GraphNodeSchema(BaseModel):
     value: Optional[str] = ""
     options: Optional[List[str]] = None
     extra_fields: Optional[dict] = None
+    variable: Optional[str] = None
+    operator: Optional[str] = None
 
 class GraphConnectionSchema(BaseModel):
     id: str
@@ -6064,6 +6066,53 @@ async def check_emergency_endpoint(callee: str = ""):
     return "NORMAL"
 
 
+_callflow_outbound_overrides = {}
+
+
+def set_callflow_outbound_override(call_id: str, callee: str, trunk_id: str = "", caller_id_mode: str = "trunk_did", custom_cid: str = ""):
+    import time as _t_mod
+    now_ts = _t_mod.time()
+    # Clean expired entries older than 5 minutes
+    for k in list(_callflow_outbound_overrides.keys()):
+        if now_ts - _callflow_outbound_overrides[k].get("ts", 0) > 300:
+            _callflow_outbound_overrides.pop(k, None)
+    entry = {
+        "call_id": str(call_id or "").strip(),
+        "callee": re.sub(r"\D", "", str(callee or "")),
+        "trunk_id": str(trunk_id or "").strip(),
+        "caller_id_mode": str(caller_id_mode or "trunk_did").strip(),
+        "custom_cid": str(custom_cid or "").strip(),
+        "ts": now_ts,
+    }
+    if call_id:
+        _callflow_outbound_overrides[f"cid:{str(call_id).strip()}"] = entry
+    if entry["callee"]:
+        _callflow_outbound_overrides[f"num:{entry['callee']}"] = entry
+        if len(entry["callee"]) >= 10:
+            _callflow_outbound_overrides[f"last10:{entry['callee'][-10:]}"] = entry
+
+
+def _get_callflow_outbound_override(call_id: str = "", callee: str = "") -> Optional[dict]:
+    import time as _t_mod
+    now_ts = _t_mod.time()
+    cid_s = str(call_id or "").strip()
+    if cid_s and f"cid:{cid_s}" in _callflow_outbound_overrides:
+        ov = _callflow_outbound_overrides[f"cid:{cid_s}"]
+        if now_ts - ov.get("ts", 0) <= 300:
+            return ov
+    num_d = re.sub(r"\D", "", str(callee or ""))
+    if num_d:
+        if f"num:{num_d}" in _callflow_outbound_overrides:
+            ov = _callflow_outbound_overrides[f"num:{num_d}"]
+            if now_ts - ov.get("ts", 0) <= 300:
+                return ov
+        if len(num_d) >= 10 and f"last10:{num_d[-10:]}" in _callflow_outbound_overrides:
+            ov = _callflow_outbound_overrides[f"last10:{num_d[-10:]}"]
+            if now_ts - ov.get("ts", 0) <= 300:
+                return ov
+    return None
+
+
 @app.get("/api/trunks/resolve_outbound_dial", response_class=PlainTextResponse)
 async def resolve_outbound_dial_endpoint(
     call_id: str = "",
@@ -6162,11 +6211,25 @@ async def resolve_outbound_dial_endpoint(
             em_cfg = normalize_emergency_config(num_plan.get("emergency_numbers"))
             em_pref_trunk = em_cfg.get("preferred_trunk") or ""
 
+        cf_override = _get_callflow_outbound_override(call_id, callee or dial_num)
+        cf_pref_trunk = str(cf_override.get("trunk_id") or "").strip() if cf_override else ""
+
         ordered_candidates = build_ordered_outbound_trunks(
             active_trunks,
             matched_rule=None if is_em else matched_rule,
-            preferred_trunk=em_pref_trunk if is_em else "",
+            preferred_trunk=em_pref_trunk if is_em else cf_pref_trunk,
         )
+        if cf_pref_trunk and ordered_candidates:
+            exact_cf_t = next(
+                (
+                    t for t in active_trunks
+                    if str(t.get("id") or "") == cf_pref_trunk
+                    or str(t.get("trunk_name") or "").lower() == cf_pref_trunk.lower()
+                ),
+                None,
+            )
+            if exact_cf_t:
+                ordered_candidates = [exact_cf_t] + [t for t in ordered_candidates if t is not exact_cf_t]
         idx_clean = max(0, int(try_idx or 0))
         if idx_clean >= len(ordered_candidates):
             return "EXHAUSTED"
@@ -6258,6 +6321,12 @@ async def resolve_outbound_dial_endpoint(
         else:
             default_cid_num = rule_cid if (matched_rule and (matched_rule.get("caller_id") or matched_rule.get("outbound_caller_id"))) else t_did
         cid_num = _resolve_num_val(out_from_user_mode, out_from_user_custom, default_cid_num)
+        if cf_override:
+            cf_cid_mode = str(cf_override.get("caller_id_mode") or "").lower()
+            if cf_cid_mode == "orig_caller" and orig_num:
+                cid_num = orig_num
+            elif cf_cid_mode == "custom" and cf_override.get("custom_cid"):
+                cid_num = str(cf_override.get("custom_cid")).strip()
 
         # 2. Outbound From Display Name (CID Name)
         out_from_name_mode = str(sip_hdrs.get("outbound_from_name") or "trunk_name").strip().lower()
@@ -8160,6 +8229,83 @@ async def delete_workflow(wf_id: str):
     settings_db["workflows"] = filtered
     save_settings(settings_db)
     return {"status": "success", "message": "İş akışı silindi."}
+
+
+@app.post("/api/settings/call-flow/simulate")
+@app.post("/settings/call-flow/simulate")
+async def simulate_call_flow_endpoint(payload: dict = Body(default={})):
+    from backend.audiosocket_server import simulate_call_flow_execution
+    workflow_obj = payload.get("workflow") or {}
+    caller_number = str(payload.get("caller_number") or "05321234567").strip()
+    did = str(payload.get("did") or "08503607390").strip()
+    raw_inputs = payload.get("dtmf_inputs")
+    if isinstance(raw_inputs, list):
+        dtmf_list = [str(x).strip() for x in raw_inputs if str(x).strip()]
+    else:
+        single_in = str(payload.get("dtmf_input") or "").strip()
+        dtmf_list = [x.strip() for x in single_in.split(",") if x.strip()] if "," in single_in else ([single_in] if single_in else [])
+    return await simulate_call_flow_execution(
+        workflow=workflow_obj,
+        caller_number=caller_number,
+        did=did,
+        dtmf_inputs=dtmf_list,
+        settings=settings_db,
+    )
+
+
+@app.post("/api/v1/demo/order-lookup")
+@app.get("/api/v1/demo/order-lookup")
+async def demo_callflow_order_lookup_service(request: Request):
+    """
+    Örnek Web Servis / Script (API) uç noktası:
+    Arama Akış Yönetimi (Call Flow Designer) içindeki 'Web Servis / Script (API)' düğümünü
+    canlı test etmek için tuşlanan sipariş/müşteri numarasına göre dinamik telefon numarası döner.
+    """
+    body_data = {}
+    try:
+        if request.method == "POST":
+            body_data = await request.json()
+    except Exception:
+        body_data = {}
+    q_params = dict(request.query_params)
+    tuslanan = str(
+        body_data.get("tuslanan_numara")
+        or body_data.get("dtmf_input")
+        or body_data.get("order_id")
+        or q_params.get("tuslanan_numara")
+        or ""
+    ).strip()
+    arayan = str(body_data.get("arayan_numara") or q_params.get("arayan_numara") or "").strip()
+
+    if not tuslanan or tuslanan in ("0000", "9999", "hata"):
+        return JSONResponse(
+            status_code=404,
+            content={
+                "status": "error",
+                "target_number": "",
+                "message": "Girdiğiniz sipariş veya abone numarasına ait aktif kayıt bulunamadı.",
+            },
+        )
+
+    # Return a realistic target phone number & message
+    demo_map = {
+        "1": {"target_number": "1000", "message": "Sizi müşteri temsilcimiz dahili 1000 hattına aktarıyorum."},
+        "2": {"target_number": "2000", "message": "Sizi satış kuyruğuna aktarıyorum."},
+        "12345": {"target_number": "05388102829", "message": "12345 numaralı siparişiniz dağıtımda, sizi saha kuryemize bağlıyorum."},
+    }
+    matched = demo_map.get(tuslanan, {
+        "target_number": "05388102829",
+        "message": f"{tuslanan} numaralı kaydınız doğrulandı, sizi ilgili saha sorumlusuna aktarıyorum.",
+    })
+    return {
+        "status": "success",
+        "tuslanan_numara": tuslanan,
+        "arayan_numara": arayan,
+        "target_number": matched["target_number"],
+        "number": matched["target_number"],
+        "phone": matched["target_number"],
+        "message": matched["message"],
+    }
 
 @app.get("/api/dialer/records")
 async def get_dialer_records():
@@ -13058,8 +13204,10 @@ async def check_outbound_call(
     matched_rule = transform_info.get("matched_rule")
     matched_trunk_nm = str(matched_rule.get("trunk_name") or matched_rule.get("trunk") or "").strip() if isinstance(matched_rule, dict) else None
 
-    # 0.05 Giden Arama Kuralı desen & kullanıcı yetkisi kontrolü
-    if transform_info.get("has_defined_patterns"):
+    cf_ov_acl = _get_callflow_outbound_override("", callee_str)
+
+    # 0.05 Giden Arama Kuralı desen & kullanıcı yetkisi kontrolü (CallFlow dinamik transferleri hariç)
+    if not cf_ov_acl and transform_info.get("has_defined_patterns"):
         if not transform_info.get("pattern_matched_any_rule"):
             if transform_info.get("has_catchall_rule"):
                 if not transform_info.get("catchall_allowed_rule"):
@@ -13158,6 +13306,9 @@ async def check_outbound_call(
             trunk_name=matched_trunk_nm or None,
         )
         return Response(content=f"DENY:{reason}", media_type="text/plain")
+
+    if cf_ov_acl:
+        return Response(content="ALLOW", media_type="text/plain")
 
     # 3. WebRTC dahilisi üzerinden UDP/TCP 5060 portu ile sızma kontrolü
     if ("SIP/2.0/UDP" in via_upper or "SIP/2.0/TCP" in via_upper) and "WS" not in via_upper:

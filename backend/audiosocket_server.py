@@ -348,6 +348,335 @@ async def get_call_did(call_id: str) -> str:
         print(f"Error querying call DID from DB: {e}")
     return "s"
 
+def _create_default_flow_vars(call_id: str = "", did: str = "", caller_number: str = "") -> dict:
+    c_num = str(caller_number or "").strip()
+    d_num = str(did or "").strip()
+    cid = str(call_id or "").strip()
+    return {
+        "call_id": cid,
+        "cagri_id": cid,
+        "did": d_num,
+        "aranan_hat": d_num,
+        "caller_number": c_num,
+        "arayan_numara": c_num,
+        "dtmf_input": "",
+        "tuslanan_numara": "",
+        "input_length": 0,
+        "api_number": "",
+        "api_numara": "",
+        "target_number": "",
+        "api_message": "",
+        "api_mesaj": "",
+        "api_status": 0,
+        "api_response": {},
+        "loop_counts": {},
+        "retry_counts": {},
+        "visited_workflows": set(),
+    }
+
+
+def _render_flow_vars(template_str: str, flow_vars: dict) -> str:
+    if not template_str or not isinstance(template_str, str):
+        return ""
+    if not flow_vars or not isinstance(flow_vars, dict):
+        return template_str
+    out = template_str
+    replacements = {
+        "tuslanan_numara": str(flow_vars.get("tuslanan_numara") or flow_vars.get("dtmf_input") or ""),
+        "dtmf_input": str(flow_vars.get("dtmf_input") or flow_vars.get("tuslanan_numara") or ""),
+        "dtmf": str(flow_vars.get("dtmf_input") or flow_vars.get("tuslanan_numara") or ""),
+        "input": str(flow_vars.get("dtmf_input") or flow_vars.get("tuslanan_numara") or ""),
+        "arayan_numara": str(flow_vars.get("arayan_numara") or flow_vars.get("caller_number") or ""),
+        "caller_number": str(flow_vars.get("caller_number") or flow_vars.get("arayan_numara") or ""),
+        "caller": str(flow_vars.get("caller_number") or flow_vars.get("arayan_numara") or ""),
+        "aranan_hat": str(flow_vars.get("aranan_hat") or flow_vars.get("did") or ""),
+        "did": str(flow_vars.get("did") or flow_vars.get("aranan_hat") or ""),
+        "cagri_id": str(flow_vars.get("cagri_id") or flow_vars.get("call_id") or ""),
+        "call_id": str(flow_vars.get("call_id") or flow_vars.get("cagri_id") or ""),
+        "api_numara": str(flow_vars.get("api_numara") or flow_vars.get("api_number") or ""),
+        "api_number": str(flow_vars.get("api_number") or flow_vars.get("api_numara") or ""),
+        "target_number": str(flow_vars.get("target_number") or flow_vars.get("api_numara") or ""),
+        "api_mesaj": str(flow_vars.get("api_mesaj") or flow_vars.get("api_message") or ""),
+        "api_message": str(flow_vars.get("api_message") or flow_vars.get("api_mesaj") or ""),
+    }
+    for k, v in replacements.items():
+        out = out.replace(f"{{{{{k}}}}}", v).replace(f"{{{k}}}", v)
+    return out
+
+
+def _extract_json_path(obj: any, path_str: str) -> any:
+    if obj is None or not path_str:
+        return None
+    parts = [p.strip() for p in str(path_str).split(".") if p.strip()]
+    cur = obj
+    for p in parts:
+        if isinstance(cur, dict):
+            if p in cur:
+                cur = cur[p]
+            else:
+                p_low = p.lower()
+                matched_k = next((k for k in cur.keys() if str(k).lower() == p_low), None)
+                if matched_k is not None:
+                    cur = cur[matched_k]
+                else:
+                    return None
+        elif isinstance(cur, list) and p.isdigit():
+            idx = int(p)
+            if 0 <= idx < len(cur):
+                cur = cur[idx]
+            else:
+                return None
+        else:
+            return None
+    return cur
+
+
+def _smart_extract_phone_and_msg(resp_data: any, resp_text: str, response_key: str = "", response_tts_key: str = "") -> tuple[str, str]:
+    extracted_phone = ""
+    extracted_msg = ""
+
+    if isinstance(resp_data, dict):
+        if response_key and response_key.strip().lower() not in ("auto", "otomatik"):
+            val = _extract_json_path(resp_data, response_key.strip())
+            if val is not None and str(val).strip():
+                extracted_phone = str(val).strip()
+
+        if not extracted_phone:
+            common_phone_keys = [
+                "target_number", "number", "phone", "phone_number", "telefon", "tel",
+                "gsm", "mobile", "extension", "dahili", "agent_ext", "hedef_numara",
+                "numara", "kurye_tel", "hedef", "transfer_to", "destination",
+                "data.target_number", "data.number", "data.phone", "data.telefon",
+                "result.target_number", "result.number", "result.phone",
+            ]
+            for ck in common_phone_keys:
+                val = _extract_json_path(resp_data, ck)
+                if val is not None and str(val).strip() and not isinstance(val, (dict, list)):
+                    cand = str(val).strip()
+                    if re.search(r"\d{3,}", cand):
+                        extracted_phone = cand
+                        break
+
+        if response_tts_key and response_tts_key.strip():
+            m_val = _extract_json_path(resp_data, response_tts_key.strip())
+            if m_val is not None and str(m_val).strip():
+                extracted_msg = str(m_val).strip()
+
+        if not extracted_msg:
+            for mk in ("message", "mesaj", "tts_text", "aciklama", "announcement", "data.message", "data.mesaj"):
+                m_val = _extract_json_path(resp_data, mk)
+                if m_val is not None and isinstance(m_val, str) and m_val.strip():
+                    extracted_msg = m_val.strip()
+                    break
+
+    if not extracted_phone and resp_text:
+        clean_txt = str(resp_text).strip().strip('"').strip("'")
+        if re.match(r"^\+?\d[\d\s\-]{2,16}$", clean_txt):
+            extracted_phone = re.sub(r"[^\d+]", "", clean_txt)
+
+    if extracted_phone:
+        extracted_phone = re.sub(r"[^\d+*#]", "", extracted_phone)
+
+    return extracted_phone, extracted_msg
+
+
+def _evaluate_compare_node(node: dict, flow_vars: dict) -> tuple[bool, str]:
+    ef = node.get("extra_fields") if isinstance(node.get("extra_fields"), dict) else {}
+    src_key = str(ef.get("source") or node.get("variable") or "tuslanan_numara").strip().lower()
+    operator = str(ef.get("operator") or node.get("operator") or "equals").strip().lower()
+    raw_target = str(node.get("value") if node.get("value") is not None else (ef.get("target_value") or "")).strip()
+    target_val = _render_flow_vars(raw_target, flow_vars)
+
+    if src_key in ("tuslanan_numara", "dtmf_input", "dtmf", "input", "digit"):
+        left_val = str(flow_vars.get("tuslanan_numara") or flow_vars.get("dtmf_input") or "")
+    elif src_key in ("api_numara", "api_number", "target_number"):
+        left_val = str(flow_vars.get("api_numara") or flow_vars.get("api_number") or "")
+    elif src_key in ("api_mesaj", "api_message"):
+        left_val = str(flow_vars.get("api_mesaj") or flow_vars.get("api_message") or "")
+    elif src_key in ("arayan_numara", "caller_number", "caller"):
+        left_val = str(flow_vars.get("arayan_numara") or flow_vars.get("caller_number") or "")
+    elif src_key in ("aranan_hat", "did"):
+        left_val = str(flow_vars.get("aranan_hat") or flow_vars.get("did") or "")
+    elif src_key in ("input_length", "hane_uzunlugu", "length"):
+        left_val = str(len(str(flow_vars.get("tuslanan_numara") or flow_vars.get("dtmf_input") or "")))
+    else:
+        left_val = str(flow_vars.get(src_key) or "")
+
+    left_s = left_val.strip()
+    right_s = target_val.strip()
+
+    matched = False
+    if operator in ("equals", "==", "eq", "esittir"):
+        matched = (left_s.lower() == right_s.lower())
+    elif operator in ("not_equals", "!=", "neq", "esit_degildir"):
+        matched = (left_s.lower() != right_s.lower())
+    elif operator in ("starts_with", "ile_baslar"):
+        matched = bool(right_s) and left_s.lower().startswith(right_s.lower())
+    elif operator in ("ends_with", "ile_biter"):
+        matched = bool(right_s) and left_s.lower().endswith(right_s.lower())
+    elif operator in ("contains", "icerir"):
+        matched = bool(right_s) and (right_s.lower() in left_s.lower())
+    elif operator in ("length_equals", "hane_esittir"):
+        try:
+            matched = (len(left_s) == int(right_s))
+        except Exception:
+            matched = False
+    elif operator in ("greater_than", ">", "buyuktur"):
+        try:
+            matched = float(left_s or 0) > float(right_s or 0)
+        except Exception:
+            matched = False
+    elif operator in ("less_than", "<", "kucuktur"):
+        try:
+            matched = float(left_s or 0) < float(right_s or 0)
+        except Exception:
+            matched = False
+    elif operator in ("not_empty", "dolu"):
+        matched = bool(left_s)
+    elif operator in ("is_empty", "bos"):
+        matched = not bool(left_s)
+    else:
+        matched = (left_s.lower() == right_s.lower())
+
+    summary = f"{src_key} ('{left_s}') {operator} '{right_s}' -> {'EVET (True)' if matched else 'HAYIR (False)'}"
+    return matched, summary
+
+
+async def _execute_http_request_node(node: dict, flow_vars: dict) -> tuple[str, dict]:
+    """Executes the Web Service / Script (http_request) node and updates flow_vars with returned phone/message."""
+    import httpx
+    ef = node.get("extra_fields") if isinstance(node.get("extra_fields"), dict) else {}
+    raw_url = str(node.get("value") or ef.get("url") or "").strip()
+    resolved_url = _render_flow_vars(raw_url, flow_vars)
+    if resolved_url.startswith("/"):
+        resolved_url = f"http://127.0.0.1:8000{resolved_url}"
+    method = str(ef.get("method") or "POST").upper().strip()
+    response_key = str(ef.get("response_key") or "target_number").strip()
+    response_tts_key = str(ef.get("response_tts_key") or "message").strip()
+    timeout_sec = max(1.0, min(20.0, float(ef.get("timeout_seconds") or 5.0)))
+    require_phone = ef.get("require_phone", True) is not False
+
+    headers = {"Accept": "application/json", "User-Agent": "AIDA-CallFlow-WebService/2.5"}
+    auth_token = _render_flow_vars(str(ef.get("auth_token") or "").strip(), flow_vars)
+    auth_header = str(ef.get("auth_header") or "Authorization").strip() or "Authorization"
+    if auth_token:
+        if auth_header.lower() == "authorization" and not auth_token.lower().startswith(("bearer ", "basic ")):
+            headers["Authorization"] = f"Bearer {auth_token}"
+        else:
+            headers[auth_header] = auth_token
+
+    raw_headers_json = str(ef.get("headers_json") or "").strip()
+    if raw_headers_json:
+        try:
+            parsed_h = json.loads(_render_flow_vars(raw_headers_json, flow_vars))
+            if isinstance(parsed_h, dict):
+                for hk, hv in parsed_h.items():
+                    if hk and hv is not None:
+                        headers[str(hk)] = str(hv)
+        except Exception:
+            pass
+
+    default_body_tpl = json.dumps({
+        "arayan_numara": "{{arayan_numara}}",
+        "tuslanan_numara": "{{tuslanan_numara}}",
+        "aranan_hat": "{{aranan_hat}}",
+        "cagri_id": "{{cagri_id}}"
+    }, ensure_ascii=False)
+    raw_body_tpl = str(ef.get("body_template") or default_body_tpl).strip()
+    rendered_body_str = _render_flow_vars(raw_body_tpl, flow_vars)
+    parsed_body = None
+    try:
+        parsed_body = json.loads(rendered_body_str)
+    except Exception:
+        parsed_body = {
+            "arayan_numara": flow_vars.get("arayan_numara", ""),
+            "tuslanan_numara": flow_vars.get("tuslanan_numara", ""),
+            "aranan_hat": flow_vars.get("aranan_hat", ""),
+            "cagri_id": flow_vars.get("cagri_id", ""),
+            "raw_payload": rendered_body_str,
+        }
+
+    trace_info = {
+        "url": resolved_url,
+        "method": method,
+        "request_body": parsed_body,
+        "response_key": response_key,
+        "http_status": 0,
+        "extracted_phone": "",
+        "extracted_message": "",
+        "response_preview": "",
+        "error": "",
+    }
+
+    if not resolved_url:
+        trace_info["error"] = "Web Servis URL adresi boş"
+        return "error", trace_info
+
+    try:
+        async with httpx.AsyncClient(timeout=timeout_sec, verify=False) as client:
+            if method == "GET":
+                q_params = parsed_body if isinstance(parsed_body, dict) else {}
+                resp = await client.get(resolved_url, headers=headers, params=q_params)
+            else:
+                headers["Content-Type"] = "application/json"
+                resp = await client.request(method, resolved_url, headers=headers, json=parsed_body)
+
+            trace_info["http_status"] = resp.status_code
+            resp_text = resp.text or ""
+            trace_info["response_preview"] = resp_text[:600]
+            try:
+                resp_json = resp.json()
+            except Exception:
+                resp_json = None
+
+            flow_vars["api_status"] = resp.status_code
+            flow_vars["api_response"] = resp_json if isinstance(resp_json, dict) else {"raw": resp_text[:500]}
+
+            if 200 <= resp.status_code < 400:
+                ext_phone, ext_msg = _smart_extract_phone_and_msg(resp_json, resp_text, response_key, response_tts_key)
+                trace_info["extracted_phone"] = ext_phone
+                trace_info["extracted_message"] = ext_msg
+                if ext_phone:
+                    flow_vars["api_numara"] = ext_phone
+                    flow_vars["api_number"] = ext_phone
+                    flow_vars["target_number"] = ext_phone
+                if ext_msg:
+                    flow_vars["api_mesaj"] = ext_msg
+                    flow_vars["api_message"] = ext_msg
+
+                if ext_phone or not require_phone:
+                    return "success", trace_info
+                trace_info["error"] = f"HTTP {resp.status_code} döndü ancak '{response_key}' alanında geçerli bir telefon numarası bulunamadı."
+                return "error", trace_info
+            else:
+                trace_info["error"] = f"HTTP {resp.status_code} hatası"
+                return "error", trace_info
+    except Exception as exc:
+        trace_info["error"] = f"Bağlantı / Zaman aşımı hatası: {str(exc)}"
+        return "error", trace_info
+
+
+async def _execute_whatsapp_notify_node(node: dict, flow_vars: dict) -> dict:
+    """Dispatches an automated WhatsApp message mid-call using configured WhatsApp Cloud API settings."""
+    ef = node.get("extra_fields") if isinstance(node.get("extra_fields"), dict) else {}
+    raw_to = str(ef.get("recipient") or "{{arayan_numara}}").strip()
+    to_phone = _render_flow_vars(raw_to, flow_vars)
+    msg_body = _render_flow_vars(str(node.get("value") or "").strip(), flow_vars)
+    clean_digits = re.sub(r"\D", "", to_phone)
+    if clean_digits.startswith("0") and len(clean_digits) == 11:
+        clean_digits = "90" + clean_digits[1:]
+    elif len(clean_digits) == 10 and clean_digits.startswith("5"):
+        clean_digits = "90" + clean_digits
+    if not clean_digits or not msg_body:
+        return {"sent": False, "to": clean_digits, "message": msg_body, "reason": "Numara veya mesaj boş"}
+    try:
+        from backend.services.whatsapp_service import send_whatsapp_message
+        asyncio.create_task(send_whatsapp_message(clean_digits, msg_body))
+        return {"sent": True, "to": clean_digits, "message": msg_body}
+    except Exception as e_wa:
+        return {"sent": False, "to": clean_digits, "message": msg_body, "reason": str(e_wa)}
+
+
 def _describe_workflow_target_node(target_node: dict, settings: dict) -> tuple[str, str, str]:
     """Returns (target_type, target_value, human_readable_label) for a CallFlow node."""
     if not target_node or not isinstance(target_node, dict):
@@ -360,9 +689,22 @@ def _describe_workflow_target_node(target_node: dict, settings: dict) -> tuple[s
         or ""
     ).strip()
     title = str(target_node.get("title") or "").strip()
+    ef = target_node.get("extra_fields") if isinstance(target_node.get("extra_fields"), dict) else {}
 
     if ntype == "menu":
         return ("menu", str(target_node.get("id") or ""), title or "Alt Menü")
+    if ntype == "user_input":
+        return ("user_input", str(target_node.get("id") or ""), title or "Tuşlama Al (Digit)")
+    if ntype == "http_request":
+        return ("http_request", val, title or "Web Servis / Script (API)")
+    if ntype == "compare":
+        return ("compare", val, title or "Karşılaştırma (Koşul)")
+    if ntype == "loop":
+        return ("loop", val, title or "Döngü / Sayaç")
+    if ntype == "tts":
+        return ("tts", val, title or "Dinamik Sesli Okuma (TTS)")
+    if ntype == "whatsapp_notify":
+        return ("whatsapp_notify", val, title or "WhatsApp Bildirim")
     if ntype == "hangup":
         return ("hangup", "hangup", title or "Çağrıyı Sonlandır")
     if ntype in ("ai", "ai_agent"):
@@ -371,6 +713,15 @@ def _describe_workflow_target_node(target_node: dict, settings: dict) -> tuple[s
         ag_name = (ag.get("name") if ag else "") or title or "AI Asistan"
         return ("ai_agent", val, f"AI: {ag_name}")
     if ntype in ("transfer", "extension", "user", "queue", "agent_transfer"):
+        t_type = str(ef.get("transfer_type") or "").lower()
+        if t_type == "call_flow":
+            wfs = settings.get("workflows", [])
+            wf_m = next((w for w in wfs if str(w.get("id")) == val), None)
+            wf_nm = (wf_m.get("name") if wf_m else "") or val or "Alt Arama Akışı"
+            return ("call_flow", val, f"Akış: {wf_nm}")
+        if t_type == "api_dynamic":
+            t_id = str(ef.get("trunk_id") or "Otomatik Trunk")
+            return ("api_dynamic", "{{api_numara}}", f"API Numarası ({t_id})")
         all_queues = settings.get("queues", [])
         all_users = settings.get("users", [])
         q_match = next(
@@ -393,24 +744,118 @@ def _describe_workflow_target_node(target_node: dict, settings: dict) -> tuple[s
     return (ntype or "step", val, title or val or "Sonraki Adım")
 
 
-def _resolve_terminal_workflow_node(node: dict, settings: dict) -> dict:
+def _resolve_terminal_workflow_node(node: dict, settings: dict, flow_vars: dict = None) -> dict:
     """Converts a terminal CallFlow node (transfer/queue/ai/hangup) into a route_action dict."""
     if not node or not isinstance(node, dict):
         return None
     ntype = str(node.get("type", "")).lower()
     all_queues = settings.get("queues", [])
+    fv = flow_vars if isinstance(flow_vars, dict) else {}
+
     if ntype in ["transfer", "extension", "user", "queue", "agent_transfer"]:
-        val = node.get("value") or node.get("target") or (node.get("data", {}).get("target") if isinstance(node.get("data"), dict) else None)
+        extra = node.get("extra_fields") if isinstance(node.get("extra_fields"), dict) else {}
+        t_type = str(extra.get("transfer_type") or "").lower()
+        raw_val = node.get("value") or node.get("target") or (node.get("data", {}).get("target") if isinstance(node.get("data"), dict) else None)
+        val = _render_flow_vars(str(raw_val or "").strip(), fv)
+
+        # 1. Sub-CallFlow Transfer (Başka Bir Arama Akışına Bağla)
+        if t_type == "call_flow":
+            return {
+                "action": "sub_workflow",
+                "workflow_id": str(raw_val or "").strip(),
+            }
+
+        # 2. Dynamic API Phone Transfer (Web Servis / API'den Dönen Numaraya Trunk İle Transfer)
+        if t_type == "api_dynamic":
+            api_num = str(fv.get("api_numara") or fv.get("api_number") or val or "").strip()
+            if not api_num or api_num in ("{{api_numara}}", "{{target_number}}"):
+                api_num = str(extra.get("fallback_target") or "").strip()
+            if not api_num:
+                return {"action": "hangup", "reason": "API'den geçerli bir hedef numara dönmedi"}
+
+            clean_digits = re.sub(r"[^\d+]", "", api_num)
+            prefix = str(extra.get("prefix") or "").strip()
+            trunk_id = str(extra.get("trunk_id") or "").strip()
+            cid_mode = str(extra.get("caller_id_mode") or "trunk_did").strip()
+            custom_cid = str(extra.get("custom_cid") or "").strip()
+
+            # Check if returned number is actually an internal extension or queue (3-5 digits)
+            q_match = next(
+                (q for q in all_queues if str(q.get("extension")) == clean_digits or str(q.get("id")) == clean_digits),
+                None,
+            )
+            if q_match and not prefix:
+                return {
+                    "action": "transfer",
+                    "target": str(q_match.get("extension") or clean_digits),
+                    "context": "webrtc_agents",
+                    "is_queue": True,
+                }
+            if len(clean_digits) <= 5 and not prefix and not trunk_id:
+                return {
+                    "action": "transfer",
+                    "target": clean_digits,
+                    "context": "webrtc_agents",
+                    "is_queue": False,
+                }
+
+            dial_target = f"{prefix}{clean_digits.lstrip('+')}" if prefix else clean_digits
+            return {
+                "action": "transfer",
+                "target": dial_target,
+                "raw_target": clean_digits,
+                "context": "webrtc_agents",
+                "is_queue": False,
+                "is_external": True,
+                "transfer_type": "api_dynamic",
+                "trunk_id": trunk_id,
+                "prefix": prefix,
+                "caller_id_mode": cid_mode,
+                "custom_cid": custom_cid,
+            }
+
+        # 3. Static External Number Transfer (Dış Numara / GSM)
+        if t_type == "external":
+            if val:
+                clean_digits = re.sub(r"[^\d+]", "", val)
+                prefix = str(extra.get("prefix") or "").strip()
+                trunk_id = str(extra.get("trunk_id") or "").strip()
+                cid_mode = str(extra.get("caller_id_mode") or "trunk_did").strip()
+                custom_cid = str(extra.get("custom_cid") or "").strip()
+                dial_target = f"{prefix}{clean_digits.lstrip('+')}" if prefix else clean_digits
+                return {
+                    "action": "transfer",
+                    "target": dial_target,
+                    "raw_target": clean_digits,
+                    "context": "webrtc_agents",
+                    "is_queue": False,
+                    "is_external": True,
+                    "transfer_type": "external",
+                    "trunk_id": trunk_id,
+                    "prefix": prefix,
+                    "caller_id_mode": cid_mode,
+                    "custom_cid": custom_cid,
+                }
+
+        # 4. Internal Extension or Queue Transfer
         if val:
-            extra = node.get("extra_fields") if isinstance(node.get("extra_fields"), dict) else {}
-            t_type = str(extra.get("transfer_type") or "").lower()
             q_match = next(
                 (q for q in all_queues if str(q.get("extension")) == str(val) or str(q.get("id")) == str(val) or str(q.get("name")) == str(val)),
                 None,
             )
             is_q = bool(ntype == "queue" or t_type in ("kuyruk", "queue") or q_match)
             resolved_target = str(q_match.get("extension") or val) if q_match else str(val)
-            return {"action": "transfer", "target": resolved_target, "context": "webrtc_agents", "is_queue": is_q}
+            is_ext_num = bool(not is_q and len(re.sub(r"\D", "", resolved_target)) >= 7)
+            return {
+                "action": "transfer",
+                "target": resolved_target,
+                "context": "webrtc_agents",
+                "is_queue": is_q,
+                "is_external": is_ext_num,
+                "trunk_id": str(extra.get("trunk_id") or "").strip(),
+                "prefix": str(extra.get("prefix") or "").strip(),
+                "caller_id_mode": str(extra.get("caller_id_mode") or "trunk_did").strip(),
+            }
     elif ntype in ["ai", "ai_agent"]:
         val = node.get("value") or node.get("agent_id") or (node.get("data", {}).get("agent_id") if isinstance(node.get("data"), dict) else None)
         ai_agents = settings.get("ai_agents", [])
@@ -421,30 +866,61 @@ def _resolve_terminal_workflow_node(node: dict, settings: dict) -> dict:
     return None
 
 
-def _advance_workflow_from_node(workflow: dict, start_node: dict, settings: dict) -> dict:
-    """Advances along non-interactive pass-through nodes until hitting a Menu node or a terminal action."""
+def _advance_workflow_from_node(workflow: dict, start_node: dict, settings: dict, flow_vars: dict = None) -> dict:
+    """Advances along non-interactive pass-through nodes until hitting an interactive/async node or a terminal action."""
+    if flow_vars is None:
+        flow_vars = _create_default_flow_vars()
     nodes = workflow.get("nodes", []) or []
     conns = workflow.get("connections", []) or []
     node_map = {n.get("id"): n for n in nodes if isinstance(n, dict) and n.get("id")}
     visited = set()
     cur = start_node
     pre_announcements = []
+    wf_id_cur = str(workflow.get("id") or "")
+    if wf_id_cur:
+        flow_vars.setdefault("visited_workflows", set()).add(wf_id_cur)
 
-    while cur and cur.get("id") not in visited:
+    while cur and (cur.get("id") not in visited or str(cur.get("type") or "").lower() == "loop"):
         visited.add(cur.get("id"))
         ntype = str(cur.get("type") or "").lower()
 
-        if ntype == "menu":
+        if ntype in ("menu", "user_input", "http_request", "tts", "whatsapp_notify"):
             return {
                 "action": "interactive_workflow",
                 "workflow": workflow,
                 "menu_node": cur,
                 "pre_announcements": pre_announcements,
+                "flow_vars": flow_vars,
             }
 
-        term = _resolve_terminal_workflow_node(cur, settings)
+        term = _resolve_terminal_workflow_node(cur, settings, flow_vars)
         if term:
+            if term.get("action") == "sub_workflow":
+                target_wf_id = str(term.get("workflow_id") or "").strip()
+                visited_wfs = flow_vars.setdefault("visited_workflows", set())
+                if target_wf_id and target_wf_id not in visited_wfs:
+                    all_wfs = settings.get("workflows", [])
+                    next_wf = next((w for w in all_wfs if str(w.get("id")) == target_wf_id), None)
+                    if next_wf:
+                        visited_wfs.add(target_wf_id)
+                        n_nodes = next_wf.get("nodes", []) or []
+                        n_conns = next_wf.get("connections", []) or []
+                        in_ids = {c.get("toNode") for c in n_conns if c.get("toNode")}
+                        next_start = (
+                            next((n for n in n_nodes if str(n.get("type") or "").lower() in ("start", "did", "inbound")), None)
+                            or next((n for n in n_nodes if n.get("id") not in in_ids), None)
+                            or (n_nodes[0] if n_nodes else None)
+                        )
+                        if next_start:
+                            sub_res = _advance_workflow_from_node(next_wf, next_start, settings, flow_vars)
+                            if sub_res:
+                                if pre_announcements:
+                                    sub_res["pre_announcements"] = pre_announcements + (sub_res.get("pre_announcements") or [])
+                                return sub_res
+                return {"action": "hangup", "pre_announcements": pre_announcements}
+
             term["pre_announcements"] = pre_announcements
+            term["flow_vars"] = flow_vars
             return term
 
         if ntype in ("announcement", "play", "playback"):
@@ -471,7 +947,24 @@ def _advance_workflow_from_node(workflow: dict, start_node: dict, settings: dict
             break
 
         chosen_conn = None
-        if ntype == "timerule":
+        if ntype == "compare":
+            matched_cond, _ = _evaluate_compare_node(cur, flow_vars)
+            desired_port = "true" if matched_cond else "false"
+            chosen_conn = next((c for c in out_conns if str(c.get("fromPort")) == desired_port), None)
+        elif ntype == "loop":
+            ef_loop = cur.get("extra_fields") if isinstance(cur.get("extra_fields"), dict) else {}
+            try:
+                max_loops = max(1, int(cur.get("value") or ef_loop.get("max_loops") or 3))
+            except Exception:
+                max_loops = 3
+            l_counts = flow_vars.setdefault("loop_counts", {})
+            nid = str(cur.get("id"))
+            l_counts[nid] = l_counts.get(nid, 0) + 1
+            desired_port = "loop" if l_counts[nid] <= max_loops else "completed"
+            chosen_conn = next((c for c in out_conns if str(c.get("fromPort")) == desired_port), None)
+            if desired_port == "loop" and chosen_conn:
+                visited.discard(chosen_conn.get("toNode"))
+        elif ntype == "timerule":
             ef = cur.get("extra_fields") if isinstance(cur.get("extra_fields"), dict) else {}
             use_central = ef.get("use_system_work_hours", True) is not False
             pref_port = "active"
@@ -482,7 +975,6 @@ def _advance_workflow_from_node(workflow: dict, start_node: dict, settings: dict
                 sys_eval = None
 
             now_tr = datetime.datetime.utcnow() + datetime.timedelta(hours=3)
-            # Check node-specific holidays (e.g. "29.10 - Cumhuriyet Bayramı" or "15.07.2026")
             node_holidays = ef.get("holidays") or []
             matched_node_holiday = False
             today_dd_mm = now_tr.strftime("%d.%m")
@@ -528,7 +1020,9 @@ def _advance_workflow_from_node(workflow: dict, start_node: dict, settings: dict
     return None
 
 
-def _evaluate_workflow_object(workflow: dict, settings: dict) -> dict:
+def _evaluate_workflow_object(workflow: dict, settings: dict, flow_vars: dict = None) -> dict:
+    if flow_vars is None:
+        flow_vars = _create_default_flow_vars()
     nodes = workflow.get("nodes", []) or []
     conns = workflow.get("connections", []) or []
     if conns and nodes:
@@ -538,35 +1032,39 @@ def _evaluate_workflow_object(workflow: dict, settings: dict) -> dict:
             or next((n for n in nodes if n.get("id") not in incoming_ids), None)
             or nodes[0]
         )
-        step_res = _advance_workflow_from_node(workflow, start_node, settings)
+        step_res = _advance_workflow_from_node(workflow, start_node, settings, flow_vars)
         if step_res:
             return step_res
 
-    menu_node = next((n for n in nodes if str(n.get("type") or "").lower() == "menu"), None)
-    if menu_node:
+    interactive_node = next((n for n in nodes if str(n.get("type") or "").lower() in ("menu", "user_input", "http_request", "tts", "whatsapp_notify")), None)
+    if interactive_node:
         return {
             "action": "interactive_workflow",
             "workflow": workflow,
-            "menu_node": menu_node,
+            "menu_node": interactive_node,
             "pre_announcements": [],
+            "flow_vars": flow_vars,
         }
 
     for node in nodes:
-        term = _resolve_terminal_workflow_node(node, settings)
+        term = _resolve_terminal_workflow_node(node, settings, flow_vars)
         if term:
             return term
     return None
 
 
-def _load_menu_prompt_pcm_8k(node: dict, settings: dict) -> bytes:
-    """Loads or synthesizes 8kHz mono 16-bit signed PCM audio bytes for a CallFlow menu/announcement node."""
+def _load_menu_prompt_pcm_8k(node: dict, settings: dict, flow_vars: dict = None) -> bytes:
+    """Loads or synthesizes 8kHz mono 16-bit signed PCM audio bytes for a CallFlow menu/announcement/tts node."""
     import hashlib
     import subprocess
     if not node or not isinstance(node, dict):
         return b""
+    ntype = str(node.get("type") or "").lower()
     extra = node.get("extra_fields") if isinstance(node.get("extra_fields"), dict) else {}
-    ann_type = str(extra.get("announcement_type") or "recorded").lower()
+    ann_type = "tts" if ntype == "tts" else str(extra.get("announcement_type") or "recorded").lower()
     raw_val = str(node.get("value") or "").strip()
+    if flow_vars and isinstance(flow_vars, dict):
+        raw_val = _render_flow_vars(raw_val, flow_vars)
     if not raw_val:
         return b""
 
@@ -651,16 +1149,39 @@ async def run_interactive_callflow_menus(
     reader: asyncio.StreamReader,
     writer: asyncio.StreamWriter,
     settings: dict,
+    flow_vars: dict = None,
 ) -> dict:
     """
-    Executes interactive Arama Akış Yönetimi (CallFlow) Menu nodes over AudioSocket:
-      - Plays menu greeting audio (8kHz slin frames) with instant DTMF barge-in
-      - Captures DTMF digits from BOTH AudioSocket 0x03 frames AND Asterisk AMI DTMFEnd events
-      - Persists every menu visit (pressed digit, invalid digit, timeout, or caller abandon) to Call.ivr_events
-      - Routes to the connected next node (supporting multi-level sub-menus, queues, extensions, AI, hangup)
+    Executes interactive & dynamic Arama Akış Yönetimi (CallFlow) nodes over AudioSocket:
+      - Plays menu / user_input / dynamic TTS audio (8kHz slin frames) with instant DTMF barge-in
+      - Collects single-digit (menu) or multi-digit (user_input) DTMF with configurable Retry Counter (Hata Sayıcı)
+      - Executes external Web Service / Script (http_request) JSON queries and extracts dynamic target numbers
+      - Evaluates Compare (Karşılaştırma), Loop (Döngü), WhatsApp Notification, and Sub-CallFlow transfers
     """
     from backend.services.ami_manager import register_dtmf_waiter, unregister_dtmf_waiter
     from backend.main import append_call_ivr_event
+
+    caller_num_db = ""
+    try:
+        async with AsyncSessionLocal() as session:
+            db_call = await session.get(Call, call_id)
+            if db_call and db_call.caller_number:
+                caller_num_db = str(db_call.caller_number).strip()
+    except Exception:
+        pass
+
+    if flow_vars is None:
+        flow_vars = _create_default_flow_vars(call_id=call_id, did=did, caller_number=caller_num_db)
+    else:
+        if call_id and not flow_vars.get("call_id"):
+            flow_vars["call_id"] = str(call_id)
+            flow_vars["cagri_id"] = str(call_id)
+        if did and not flow_vars.get("did"):
+            flow_vars["did"] = str(did)
+            flow_vars["aranan_hat"] = str(did)
+        if caller_num_db and not flow_vars.get("arayan_numara"):
+            flow_vars["caller_number"] = caller_num_db
+            flow_vars["arayan_numara"] = caller_num_db
 
     dtmf_q = register_dtmf_waiter(call_id)
     incoming_dtmf_q = asyncio.Queue()
@@ -672,7 +1193,7 @@ async def run_interactive_callflow_menus(
         if not d_s:
             return
         now_m = asyncio.get_event_loop().time()
-        if last_digit_seen["digit"] == d_s and (now_m - last_digit_seen["ts"]) < 0.35:
+        if last_digit_seen["digit"] == d_s and (now_m - last_digit_seen["ts"]) < 0.28:
             return
         last_digit_seen["digit"] = d_s
         last_digit_seen["ts"] = now_m
@@ -692,7 +1213,7 @@ async def run_interactive_callflow_menus(
                 if m_type == 0x03 and payload:
                     digit_ch = payload.decode("ascii", errors="ignore").strip()
                     if digit_ch:
-                        print(f"[CallFlow Menu DTMF - AudioSocket] Call {call_id} pressed '{digit_ch}'")
+                        print(f"[CallFlow DTMF - AudioSocket] Call {call_id} pressed '{digit_ch}'")
                         _push_unique_digit(digit_ch[0])
         except (asyncio.IncompleteReadError, ConnectionResetError, BrokenPipeError):
             hungup_flag["closed"] = True
@@ -700,7 +1221,7 @@ async def run_interactive_callflow_menus(
         except asyncio.CancelledError:
             pass
         except Exception as r_err:
-            print(f"[CallFlow Menu Reader Warning]: {r_err}")
+            print(f"[CallFlow Reader Warning]: {r_err}")
             hungup_flag["closed"] = True
             incoming_dtmf_q.put_nowait("__HANGUP__")
 
@@ -709,7 +1230,7 @@ async def run_interactive_callflow_menus(
             while not hungup_flag["closed"]:
                 d_ami = await dtmf_q.get()
                 if d_ami:
-                    print(f"[CallFlow Menu DTMF - AMI] Call {call_id} pressed '{d_ami}'")
+                    print(f"[CallFlow DTMF - AMI] Call {call_id} pressed '{d_ami}'")
                     _push_unique_digit(str(d_ami)[0])
         except asyncio.CancelledError:
             pass
@@ -761,34 +1282,227 @@ async def run_interactive_callflow_menus(
             return incoming_dtmf_q.get_nowait()
         return "__TIMEOUT__"
 
+    async def _play_tts_text_inline(tts_text: str):
+        if not tts_text or not str(tts_text).strip():
+            return
+        temp_node = {"type": "tts", "value": str(tts_text).strip(), "extra_fields": {"announcement_type": "tts"}}
+        pcm_tts = await asyncio.to_thread(_load_menu_prompt_pcm_8k, temp_node, settings, flow_vars)
+        if pcm_tts:
+            await _play_pcm_or_wait(pcm_tts, wait_after_sec=0.1, allow_barge_in=False)
+
+    async def _follow_next_node(cur_wf_obj: dict, target_node_obj: dict) -> tuple[dict, dict, dict]:
+        """Advances from target_node_obj; returns (next_wf, next_interactive_node, terminal_result)."""
+        if not target_node_obj:
+            return cur_wf_obj, None, {"action": "hangup"}
+        nxt = _advance_workflow_from_node(cur_wf_obj, target_node_obj, settings, flow_vars)
+        if not nxt:
+            return cur_wf_obj, None, {"action": "hangup"}
+        for pa in (nxt.get("pre_announcements") or []):
+            pcm_pa = await asyncio.to_thread(_load_menu_prompt_pcm_8k, pa, settings, flow_vars)
+            if pcm_pa:
+                res_pa = await _play_pcm_or_wait(pcm_pa, wait_after_sec=0.1, allow_barge_in=False)
+                if res_pa == "__HANGUP__":
+                    return cur_wf_obj, None, {"action": "already_hungup"}
+        if nxt.get("action") == "interactive_workflow":
+            return nxt.get("workflow") or cur_wf_obj, nxt.get("menu_node"), None
+        return cur_wf_obj, None, nxt
+
     try:
         for pre_ann in (pre_announcements or []):
-            pcm_pre = await asyncio.to_thread(_load_menu_prompt_pcm_8k, pre_ann, settings)
+            pcm_pre = await asyncio.to_thread(_load_menu_prompt_pcm_8k, pre_ann, settings, flow_vars)
             if pcm_pre:
                 res_pre = await _play_pcm_or_wait(pcm_pre, wait_after_sec=0.1, allow_barge_in=False)
                 if res_pre == "__HANGUP__":
                     return {"action": "already_hungup"}
 
-        wf_id = str(workflow.get("id") or "")
-        wf_name = str(workflow.get("name") or "Arama Akışı")
-        nodes = workflow.get("nodes", []) or []
-        conns = workflow.get("connections", []) or []
-        node_map = {n.get("id"): n for n in nodes if isinstance(n, dict) and n.get("id")}
-
+        cur_wf = workflow
         cur_menu = start_menu_node
         menu_hops = 0
         invalid_retries = 0
 
-        while cur_menu and menu_hops < 8:
+        while cur_menu and menu_hops < 25:
             menu_hops += 1
+            wf_id = str(cur_wf.get("id") or "")
+            wf_name = str(cur_wf.get("name") or "Arama Akışı")
+            nodes = cur_wf.get("nodes", []) or []
+            conns = cur_wf.get("connections", []) or []
+            node_map = {n.get("id"): n for n in nodes if isinstance(n, dict) and n.get("id")}
+
             m_id = str(cur_menu.get("id") or "")
-            m_name = str(cur_menu.get("title") or "IVR Menü")
+            m_type = str(cur_menu.get("type") or "menu").lower()
+            m_name = str(cur_menu.get("title") or "IVR Adımı")
             m_extra = cur_menu.get("extra_fields") if isinstance(cur_menu.get("extra_fields"), dict) else {}
-            wait_secs = float(m_extra.get("timeout_seconds") or m_extra.get("timeout") or 8.0)
-            active_opts = [str(o) for o in (cur_menu.get("options") or [])]
             out_conns = [c for c in conns if c.get("fromNode") == m_id]
 
-            # Drain any stale digit queued prior to entering menu
+            # 1. Dynamic TTS Node ('tts')
+            if m_type == "tts":
+                pcm_tts = await asyncio.to_thread(_load_menu_prompt_pcm_8k, cur_menu, settings, flow_vars)
+                if pcm_tts:
+                    res_t = await _play_pcm_or_wait(pcm_tts, wait_after_sec=0.1, allow_barge_in=False)
+                    if res_t == "__HANGUP__":
+                        return {"action": "already_hungup"}
+                out_c = next((c for c in out_conns if c.get("fromPort") in ("output", None, "")), out_conns[0] if out_conns else None)
+                next_n = node_map.get(out_c.get("toNode")) if out_c else None
+                cur_wf, cur_menu, term_res = await _follow_next_node(cur_wf, next_n)
+                invalid_retries = 0
+                if term_res:
+                    return term_res
+                continue
+
+            # 2. WhatsApp Notification Node ('whatsapp_notify')
+            if m_type == "whatsapp_notify":
+                await _execute_whatsapp_notify_node(cur_menu, flow_vars)
+                out_c = next((c for c in out_conns if c.get("fromPort") in ("output", None, "")), out_conns[0] if out_conns else None)
+                next_n = node_map.get(out_c.get("toNode")) if out_c else None
+                cur_wf, cur_menu, term_res = await _follow_next_node(cur_wf, next_n)
+                invalid_retries = 0
+                if term_res:
+                    return term_res
+                continue
+
+            # 3. External Web Service / Script Node ('http_request')
+            if m_type == "http_request":
+                req_start_ts = asyncio.get_event_loop().time()
+                keepalive_task = asyncio.create_task(send_initial_silence(writer))
+                try:
+                    port_res, trace_info = await _execute_http_request_node(cur_menu, flow_vars)
+                finally:
+                    keepalive_task.cancel()
+                    try:
+                        await keepalive_task
+                    except Exception:
+                        pass
+                spent_http = max(1, int(round(asyncio.get_event_loop().time() - req_start_ts)))
+                chosen_c = (
+                    next((c for c in out_conns if str(c.get("fromPort")) == port_res), None)
+                    or next((c for c in out_conns if str(c.get("fromPort")) in ("output", None, "")), None)
+                )
+                target_n = node_map.get(chosen_c.get("toNode")) if chosen_c else None
+                t_type, t_val, t_label = _describe_workflow_target_node(target_n, settings) if target_n else ("hangup", "", "Hedef Yok")
+                await append_call_ivr_event(call_id, {
+                    "workflow_id": wf_id,
+                    "workflow_name": wf_name,
+                    "menu_id": m_id,
+                    "menu_name": m_name,
+                    "digit": f"API:{trace_info.get('http_status')} ({trace_info.get('extracted_phone') or 'NoNum'})",
+                    "outcome": "pressed" if port_res == "success" else "invalid",
+                    "target_type": t_type,
+                    "target_value": trace_info.get("extracted_phone") or t_val,
+                    "target_label": t_label,
+                    "duration_sec": spent_http,
+                })
+                cur_wf, cur_menu, term_res = await _follow_next_node(cur_wf, target_n)
+                invalid_retries = 0
+                if term_res:
+                    return term_res
+                continue
+
+            # 4. Multi-Digit DTMF Input Collector ('user_input' — Tuşlama Al + Hata Sayıcı)
+            if m_type == "user_input":
+                wait_secs = float(m_extra.get("timeout_seconds") or m_extra.get("timeout") or 8.0)
+                inter_digit_secs = float(m_extra.get("inter_digit_timeout") or 4.0)
+                min_digits = max(1, int(m_extra.get("min_digits") or 1))
+                max_digits = max(min_digits, int(m_extra.get("max_digits") or 11))
+                submit_key = str(m_extra.get("submit_key") if m_extra.get("submit_key") is not None else "#").strip()
+                max_retries = max(1, int(m_extra.get("max_retries") or 3))
+                retry_prompt = str(m_extra.get("retry_prompt") or "Eksik veya hatalı tuşlama yaptınız, lütfen tekrar tuşlayınız.").strip()
+
+                while not incoming_dtmf_q.empty():
+                    stale = incoming_dtmf_q.get_nowait()
+                    if stale == "__HANGUP__":
+                        hungup_flag["closed"] = True
+                        break
+
+                enter_ts = asyncio.get_event_loop().time()
+                pcm_prompt = await asyncio.to_thread(_load_menu_prompt_pcm_8k, cur_menu, settings, flow_vars)
+                first_tok = await _play_pcm_or_wait(pcm_prompt, wait_after_sec=wait_secs, allow_barge_in=True)
+
+                if first_tok == "__HANGUP__":
+                    return {"action": "already_hungup"}
+
+                collected = ""
+                if first_tok not in ("__TIMEOUT__", "__HANGUP__"):
+                    if submit_key and first_tok == submit_key:
+                        pass
+                    else:
+                        collected += str(first_tok)
+                        while len(collected) < max_digits:
+                            nxt_tok = await _play_pcm_or_wait(b"", wait_after_sec=inter_digit_secs, allow_barge_in=True)
+                            if nxt_tok == "__HANGUP__":
+                                return {"action": "already_hungup"}
+                            if nxt_tok == "__TIMEOUT__":
+                                break
+                            if submit_key and nxt_tok == submit_key:
+                                break
+                            collected += str(nxt_tok)
+
+                spent_sec = max(1, int(round(asyncio.get_event_loop().time() - enter_ts)))
+
+                if len(collected) >= min_digits:
+                    flow_vars["tuslanan_numara"] = collected
+                    flow_vars["dtmf_input"] = collected
+                    flow_vars["input_length"] = len(collected)
+                    ok_conn = (
+                        next((c for c in out_conns if str(c.get("fromPort")) in ("output", "success", None, "")), None)
+                        or (out_conns[0] if out_conns else None)
+                    )
+                    target_node = node_map.get(ok_conn.get("toNode")) if ok_conn else None
+                    t_type, t_val, t_label = _describe_workflow_target_node(target_node, settings) if target_node else ("unconnected", "", "Hedef Bağlı Değil")
+                    await append_call_ivr_event(call_id, {
+                        "workflow_id": wf_id,
+                        "workflow_name": wf_name,
+                        "menu_id": m_id,
+                        "menu_name": m_name,
+                        "digit": collected,
+                        "outcome": "pressed",
+                        "target_type": t_type,
+                        "target_value": t_val,
+                        "target_label": t_label,
+                        "duration_sec": spent_sec,
+                    })
+                    cur_wf, cur_menu, term_res = await _follow_next_node(cur_wf, target_node)
+                    invalid_retries = 0
+                    if term_res:
+                        return term_res
+                    continue
+
+                # Incomplete or timeout input -> increment Error/Retry Counter (Hata Sayıcı)
+                invalid_retries += 1
+                await append_call_ivr_event(call_id, {
+                    "workflow_id": wf_id,
+                    "workflow_name": wf_name,
+                    "menu_id": m_id,
+                    "menu_name": m_name,
+                    "digit": collected or "timeout",
+                    "outcome": "timeout" if not collected else "invalid",
+                    "target_type": "retry" if invalid_retries < max_retries else "error",
+                    "target_value": f"{invalid_retries}/{max_retries}",
+                    "target_label": f"Hatalı/Eksik Tuşlama ({invalid_retries}/{max_retries})",
+                    "duration_sec": spent_sec,
+                })
+                if invalid_retries < max_retries:
+                    if retry_prompt:
+                        await _play_tts_text_inline(retry_prompt)
+                    menu_hops -= 1
+                    continue
+
+                err_conn = (
+                    next((c for c in out_conns if str(c.get("fromPort")) == "error"), None)
+                    or next((c for c in out_conns if str(c.get("fromPort")) == "timeout"), None)
+                )
+                err_node = node_map.get(err_conn.get("toNode")) if err_conn else None
+                cur_wf, cur_menu, term_res = await _follow_next_node(cur_wf, err_node)
+                invalid_retries = 0
+                if term_res:
+                    return term_res
+                continue
+
+            # 5. Standard IVR Menu Node ('menu' — with configurable Hata Sayıcı / max_retries)
+            wait_secs = float(m_extra.get("timeout_seconds") or m_extra.get("timeout") or 8.0)
+            max_retries = max(1, int(m_extra.get("max_retries") or 2))
+            retry_prompt = str(m_extra.get("retry_prompt") or "").strip()
+            active_opts = [str(o) for o in (cur_menu.get("options") or [])]
+
             while not incoming_dtmf_q.empty():
                 stale = incoming_dtmf_q.get_nowait()
                 if stale == "__HANGUP__":
@@ -796,7 +1510,7 @@ async def run_interactive_callflow_menus(
                     break
 
             menu_enter_ts = asyncio.get_event_loop().time()
-            pcm_prompt = await asyncio.to_thread(_load_menu_prompt_pcm_8k, cur_menu, settings)
+            pcm_prompt = await asyncio.to_thread(_load_menu_prompt_pcm_8k, cur_menu, settings, flow_vars)
             token = await _play_pcm_or_wait(pcm_prompt, wait_after_sec=wait_secs, allow_barge_in=True)
             spent_sec = max(1, int(round(asyncio.get_event_loop().time() - menu_enter_ts)))
 
@@ -828,6 +1542,25 @@ async def run_interactive_callflow_menus(
             if token == "__TIMEOUT__":
                 to_conn = next((c for c in out_conns if str(c.get("fromPort")) == "timeout"), None)
                 to_node = node_map.get(to_conn.get("toNode")) if to_conn else None
+                if not to_node and invalid_retries + 1 < max_retries:
+                    invalid_retries += 1
+                    await append_call_ivr_event(call_id, {
+                        "workflow_id": wf_id,
+                        "workflow_name": wf_name,
+                        "menu_id": m_id,
+                        "menu_name": m_name,
+                        "digit": "timeout",
+                        "outcome": "timeout",
+                        "target_type": "retry",
+                        "target_value": f"{invalid_retries}/{max_retries}",
+                        "target_label": f"Zaman Aşımı Tekrarı ({invalid_retries}/{max_retries})",
+                        "duration_sec": spent_sec,
+                    })
+                    if retry_prompt:
+                        await _play_tts_text_inline(retry_prompt)
+                    menu_hops -= 1
+                    continue
+
                 t_type, t_val, t_label = _describe_workflow_target_node(to_node, settings) if to_node else ("hangup", "", "Zaman Aşımı (Kapandı)")
                 await append_call_ivr_event(call_id, {
                     "workflow_id": wf_id,
@@ -841,25 +1574,20 @@ async def run_interactive_callflow_menus(
                     "target_label": t_label,
                     "duration_sec": spent_sec,
                 })
-                if to_node:
-                    nxt = _advance_workflow_from_node(workflow, to_node, settings)
-                    if nxt and nxt.get("action") == "interactive_workflow":
-                        for pa in (nxt.get("pre_announcements") or []):
-                            pcm_pa = await asyncio.to_thread(_load_menu_prompt_pcm_8k, pa, settings)
-                            if pcm_pa:
-                                await _play_pcm_or_wait(pcm_pa, wait_after_sec=0.1, allow_barge_in=False)
-                        cur_menu = nxt.get("menu_node")
-                        invalid_retries = 0
-                        continue
-                    if nxt:
-                        return nxt
-                return {"action": "hangup"}
+                cur_wf, cur_menu, term_res = await _follow_next_node(cur_wf, to_node)
+                invalid_retries = 0
+                if term_res:
+                    return term_res
+                continue
 
             # Customer pressed a real DTMF digit ('0'-'9', '*', '#')
             pressed_digit = str(token).strip()
             digit_conn = next((c for c in out_conns if str(c.get("fromPort")) == pressed_digit), None)
 
             if digit_conn or pressed_digit in active_opts:
+                flow_vars["tuslanan_numara"] = pressed_digit
+                flow_vars["dtmf_input"] = pressed_digit
+                flow_vars["input_length"] = len(pressed_digit)
                 target_node = node_map.get(digit_conn.get("toNode")) if digit_conn else None
                 t_type, t_val, t_label = _describe_workflow_target_node(target_node, settings) if target_node else ("unconnected", "", "Hedef Bağlı Değil")
                 await append_call_ivr_event(call_id, {
@@ -874,27 +1602,39 @@ async def run_interactive_callflow_menus(
                     "target_label": t_label,
                     "duration_sec": spent_sec,
                 })
-                if target_node:
-                    nxt = _advance_workflow_from_node(workflow, target_node, settings)
-                    if nxt and nxt.get("action") == "interactive_workflow":
-                        for pa in (nxt.get("pre_announcements") or []):
-                            pcm_pa = await asyncio.to_thread(_load_menu_prompt_pcm_8k, pa, settings)
-                            if pcm_pa:
-                                await _play_pcm_or_wait(pcm_pa, wait_after_sec=0.1, allow_barge_in=False)
-                        cur_menu = nxt.get("menu_node")
-                        invalid_retries = 0
-                        continue
-                    if nxt:
-                        return nxt
-                return {"action": "hangup"}
+                cur_wf, cur_menu, term_res = await _follow_next_node(cur_wf, target_node)
+                invalid_retries = 0
+                if term_res:
+                    return term_res
+                continue
 
-            # Invalid / unmapped digit pressed!
+            # Invalid / unmapped digit pressed! Check Hata Sayıcı (max_retries)
+            invalid_retries += 1
             err_conn = next((c for c in out_conns if str(c.get("fromPort")) == "error"), None)
             err_node = node_map.get(err_conn.get("toNode")) if err_conn else None
+
+            if invalid_retries < max_retries:
+                await append_call_ivr_event(call_id, {
+                    "workflow_id": wf_id,
+                    "workflow_name": wf_name,
+                    "menu_id": m_id,
+                    "menu_name": m_name,
+                    "digit": pressed_digit,
+                    "outcome": "invalid",
+                    "target_type": "retry",
+                    "target_value": f"{invalid_retries}/{max_retries}",
+                    "target_label": f"Hatalı Tuşlama Tekrarı ({invalid_retries}/{max_retries})",
+                    "duration_sec": spent_sec,
+                })
+                if retry_prompt:
+                    await _play_tts_text_inline(retry_prompt)
+                menu_hops -= 1
+                continue
+
             t_type, t_val, t_label = (
                 _describe_workflow_target_node(err_node, settings)
                 if err_node
-                else ("retry" if invalid_retries < 1 else "hangup", "", "Menü Tekrarı" if invalid_retries < 1 else "Hatalı Tuşlama (Kapandı)")
+                else ("hangup", "", f"Hata Sayıcı Limiti Doldu ({invalid_retries}/{max_retries})")
             )
             await append_call_ivr_event(call_id, {
                 "workflow_id": wf_id,
@@ -908,18 +1648,10 @@ async def run_interactive_callflow_menus(
                 "target_label": t_label,
                 "duration_sec": spent_sec,
             })
-            if err_node:
-                nxt = _advance_workflow_from_node(workflow, err_node, settings)
-                if nxt and nxt.get("action") == "interactive_workflow":
-                    cur_menu = nxt.get("menu_node")
-                    invalid_retries = 0
-                    continue
-                if nxt:
-                    return nxt
-            if invalid_retries < 1:
-                invalid_retries += 1
-                continue
-            return {"action": "hangup"}
+            cur_wf, cur_menu, term_res = await _follow_next_node(cur_wf, err_node)
+            invalid_retries = 0
+            if term_res:
+                return term_res
 
         return {"action": "hangup"}
     finally:
@@ -927,6 +1659,237 @@ async def run_interactive_callflow_menus(
         unregister_dtmf_waiter(call_id)
         reader_task.cancel()
         ami_task.cancel()
+
+
+async def simulate_call_flow_execution(
+    workflow: dict,
+    caller_number: str = "05321234567",
+    did: str = "08503607390",
+    dtmf_inputs: list = None,
+    settings: dict = None,
+) -> dict:
+    """
+    Simulates a CallFlow workflow step-by-step (including live Web Service HTTP requests,
+    multi-digit input, error counters, compare conditions, loops, and sub-workflows)
+    and returns the full execution trace for the UI Simulator modal.
+    """
+    if settings is None:
+        settings = load_settings()
+    flow_vars = _create_default_flow_vars(call_id="sim-call-001", did=did, caller_number=caller_number)
+    inputs_queue = [str(x).strip() for x in (dtmf_inputs or []) if str(x).strip()]
+    trace_steps = []
+    visited_node_ids = []
+
+    cur_wf = workflow or {}
+    nodes = cur_wf.get("nodes", []) or []
+    conns = cur_wf.get("connections", []) or []
+    if not nodes:
+        return {"status": "error", "message": "Akış içinde düğüm bulunamadı.", "steps": [], "final_action": {"action": "hangup"}}
+
+    incoming_ids = {c.get("toNode") for c in conns if c.get("toNode")}
+    cur_node = (
+        next((n for n in nodes if str(n.get("type") or "").lower() in ("start", "did", "inbound")), None)
+        or next((n for n in nodes if n.get("id") not in incoming_ids), None)
+        or nodes[0]
+    )
+
+    hops = 0
+    while cur_node and hops < 40:
+        hops += 1
+        nodes = cur_wf.get("nodes", []) or []
+        conns = cur_wf.get("connections", []) or []
+        node_map = {n.get("id"): n for n in nodes if isinstance(n, dict) and n.get("id")}
+
+        nid = str(cur_node.get("id") or "")
+        ntype = str(cur_node.get("type") or "").lower()
+        ntitle = str(cur_node.get("title") or ntype)
+        ef = cur_node.get("extra_fields") if isinstance(cur_node.get("extra_fields"), dict) else {}
+        out_conns = [c for c in conns if c.get("fromNode") == nid]
+        visited_node_ids.append(nid)
+
+        # Check terminal node first
+        term = _resolve_terminal_workflow_node(cur_node, settings, flow_vars)
+        if term:
+            if term.get("action") == "sub_workflow":
+                target_wf_id = str(term.get("workflow_id") or "").strip()
+                all_wfs = settings.get("workflows", [])
+                next_wf = next((w for w in all_wfs if str(w.get("id")) == target_wf_id), None)
+                if next_wf and target_wf_id not in flow_vars["visited_workflows"]:
+                    flow_vars["visited_workflows"].add(target_wf_id)
+                    trace_steps.append({
+                        "node_id": nid,
+                        "node_type": "transfer",
+                        "title": ntitle,
+                        "detail": f"Başka Arama Akışına Geçiş -> '{next_wf.get('name')}'",
+                        "port": "sub_workflow",
+                    })
+                    cur_wf = next_wf
+                    n_nodes = cur_wf.get("nodes", []) or []
+                    n_conns = cur_wf.get("connections", []) or []
+                    in_ids = {c.get("toNode") for c in n_conns if c.get("toNode")}
+                    cur_node = (
+                        next((n for n in n_nodes if str(n.get("type") or "").lower() in ("start", "did", "inbound")), None)
+                        or next((n for n in n_nodes if n.get("id") not in in_ids), None)
+                        or (n_nodes[0] if n_nodes else None)
+                    )
+                    continue
+                trace_steps.append({
+                    "node_id": nid,
+                    "node_type": ntype,
+                    "title": ntitle,
+                    "detail": f"Alt Arama Akışı bulunamadı veya döngü engellendi ({target_wf_id})",
+                    "port": "hangup",
+                })
+                return {
+                    "status": "success",
+                    "steps": trace_steps,
+                    "visited_node_ids": visited_node_ids,
+                    "flow_vars": {k: v for k, v in flow_vars.items() if k != "visited_workflows"},
+                    "final_action": {"action": "hangup"},
+                }
+
+            t_desc = f"Hedef: {term.get('target') or term.get('agent_id') or term.get('action')}"
+            if term.get("trunk_id"):
+                t_desc += f" (Trunk: {term.get('trunk_id')})"
+            trace_steps.append({
+                "node_id": nid,
+                "node_type": ntype,
+                "title": ntitle,
+                "detail": t_desc,
+                "port": "terminal",
+            })
+            return {
+                "status": "success",
+                "steps": trace_steps,
+                "visited_node_ids": visited_node_ids,
+                "flow_vars": {k: v for k, v in flow_vars.items() if k != "visited_workflows"},
+                "final_action": term,
+            }
+
+        chosen_conn = None
+        step_detail = ""
+        chosen_port = "output"
+
+        if ntype in ("start", "did", "inbound"):
+            step_detail = f"Çağrı Başladı (Arayan: {caller_number}, Hat: {did})"
+            chosen_conn = next((c for c in out_conns if c.get("fromPort") in ("output", None, "")), out_conns[0] if out_conns else None)
+
+        elif ntype in ("announcement", "play", "playback", "tts"):
+            rendered_txt = _render_flow_vars(str(cur_node.get("value") or ""), flow_vars)
+            step_detail = f"Sesli Okuma / Anons: '{rendered_txt}'"
+            chosen_conn = next((c for c in out_conns if c.get("fromPort") in ("output", None, "")), out_conns[0] if out_conns else None)
+
+        elif ntype == "whatsapp_notify":
+            rendered_txt = _render_flow_vars(str(cur_node.get("value") or ""), flow_vars)
+            to_rec = _render_flow_vars(str(ef.get("recipient") or "{{arayan_numara}}"), flow_vars)
+            step_detail = f"WhatsApp Mesajı ({to_rec}): '{rendered_txt}'"
+            chosen_conn = next((c for c in out_conns if c.get("fromPort") in ("output", None, "")), out_conns[0] if out_conns else None)
+
+        elif ntype == "user_input":
+            sim_input = inputs_queue.pop(0) if inputs_queue else ""
+            min_d = max(1, int(ef.get("min_digits") or 1))
+            max_r = max(1, int(ef.get("max_retries") or 3))
+            if len(sim_input) >= min_d:
+                flow_vars["tuslanan_numara"] = sim_input
+                flow_vars["dtmf_input"] = sim_input
+                flow_vars["input_length"] = len(sim_input)
+                chosen_port = "output"
+                step_detail = f"Müşteri '{sim_input}' tuşladı ({len(sim_input)} hane) -> {{tuslanan_numara}} kaydedildi"
+                chosen_conn = next((c for c in out_conns if str(c.get("fromPort")) in ("output", "success", None, "")), out_conns[0] if out_conns else None)
+            else:
+                chosen_port = "error"
+                step_detail = f"Eksik/Boş tuşlama ('{sim_input}') -> Hata Sayıcı ({max_r} deneme) doldu, Hata çıkışına yönlendirildi"
+                chosen_conn = (
+                    next((c for c in out_conns if str(c.get("fromPort")) == "error"), None)
+                    or next((c for c in out_conns if str(c.get("fromPort")) == "timeout"), None)
+                )
+
+        elif ntype == "menu":
+            sim_digit = inputs_queue.pop(0) if inputs_queue else ""
+            max_r = max(1, int(ef.get("max_retries") or 2))
+            if not sim_digit or sim_digit.lower() == "timeout":
+                chosen_port = "timeout"
+                step_detail = f"Tuşlama yapılmadı (Zaman Aşımı)"
+                chosen_conn = next((c for c in out_conns if str(c.get("fromPort")) == "timeout"), None)
+            else:
+                d_conn = next((c for c in out_conns if str(c.get("fromPort")) == sim_digit), None)
+                if d_conn:
+                    flow_vars["tuslanan_numara"] = sim_digit
+                    flow_vars["dtmf_input"] = sim_digit
+                    flow_vars["input_length"] = len(sim_digit)
+                    chosen_port = sim_digit
+                    step_detail = f"Menüde '{sim_digit}' tuşlandı"
+                    chosen_conn = d_conn
+                else:
+                    chosen_port = "error"
+                    step_detail = f"Geçersiz tuşlama ('{sim_digit}') -> Hata Sayıcı ({max_r} tekrar) sonrası Hata çıkışına yönlendirildi"
+                    chosen_conn = next((c for c in out_conns if str(c.get("fromPort")) == "error"), None)
+
+        elif ntype == "compare":
+            matched_cond, cond_summary = _evaluate_compare_node(cur_node, flow_vars)
+            chosen_port = "true" if matched_cond else "false"
+            step_detail = f"Karşılaştırma: {cond_summary}"
+            chosen_conn = next((c for c in out_conns if str(c.get("fromPort")) == chosen_port), None)
+
+        elif ntype == "http_request":
+            port_res, trace_info = await _execute_http_request_node(cur_node, flow_vars)
+            chosen_port = port_res
+            if port_res == "success":
+                step_detail = f"Web Servis Başarılı (HTTP {trace_info.get('http_status')}) -> Dönen Numara: '{trace_info.get('extracted_phone')}'"
+                if trace_info.get("extracted_message"):
+                    step_detail += f" | Mesaj: '{trace_info.get('extracted_message')}'"
+            else:
+                step_detail = f"Web Servis Hatası: {trace_info.get('error')}"
+            chosen_conn = next((c for c in out_conns if str(c.get("fromPort")) == port_res), None)
+            trace_steps.append({
+                "node_id": nid,
+                "node_type": ntype,
+                "title": ntitle,
+                "detail": step_detail,
+                "port": chosen_port,
+                "http_trace": trace_info,
+            })
+            cur_node = node_map.get(chosen_conn.get("toNode")) if chosen_conn else None
+            continue
+
+        elif ntype == "loop":
+            try:
+                max_loops = max(1, int(cur_node.get("value") or ef.get("max_loops") or 3))
+            except Exception:
+                max_loops = 3
+            l_counts = flow_vars.setdefault("loop_counts", {})
+            l_counts[nid] = l_counts.get(nid, 0) + 1
+            chosen_port = "loop" if l_counts[nid] <= max_loops else "completed"
+            step_detail = f"Döngü Sayacı: {l_counts[nid]} / {max_loops} -> {'Tekrarla' if chosen_port == 'loop' else 'Limit Doldu'}"
+            chosen_conn = next((c for c in out_conns if str(c.get("fromPort")) == chosen_port), None)
+
+        elif ntype == "timerule":
+            now_tr = datetime.datetime.utcnow() + datetime.timedelta(hours=3)
+            is_work_time = (now_tr.weekday() < 5) and (9 <= now_tr.hour < 18)
+            chosen_port = "active" if is_work_time else "inactive"
+            step_detail = f"Zaman Kuralı: {'Mesai İçi (active)' if is_work_time else 'Mesai Dışı (inactive)'}"
+            chosen_conn = next((c for c in out_conns if str(c.get("fromPort")) == chosen_port), out_conns[0] if out_conns else None)
+
+        else:
+            step_detail = f"Adım çalıştırıldı ({ntype})"
+            chosen_conn = next((c for c in out_conns if c.get("fromPort") in ("output", None, "")), out_conns[0] if out_conns else None)
+
+        trace_steps.append({
+            "node_id": nid,
+            "node_type": ntype,
+            "title": ntitle,
+            "detail": step_detail,
+            "port": chosen_port,
+        })
+        cur_node = node_map.get(chosen_conn.get("toNode")) if chosen_conn else None
+
+    return {
+        "status": "success",
+        "steps": trace_steps,
+        "visited_node_ids": visited_node_ids,
+        "flow_vars": {k: v for k, v in flow_vars.items() if k != "visited_workflows"},
+        "final_action": {"action": "hangup", "reason": "Akış sonuna ulaşıldı"},
+    }
 
 
 def _did_pattern_matches_as(did_val: str, pat_val: str) -> bool:
@@ -1793,7 +2756,7 @@ async def handle_audiosocket_connection(reader: asyncio.StreamReader, writer: as
         if route_action == "interactive_workflow":
             wf_obj = call_eval.get("workflow") or {}
             m_node = call_eval.get("menu_node") or {}
-            print(f"[Call Flow Interactive Menu] Call {call_id} entering Workflow '{wf_obj.get('name')}' -> Menu '{m_node.get('title')}'")
+            print(f"[Call Flow Interactive Menu] Call {call_id} entering Workflow '{wf_obj.get('name')}' -> Node '{m_node.get('title')}'")
             call_eval = await run_interactive_callflow_menus(
                 call_id=call_id,
                 did=did,
@@ -1803,6 +2766,7 @@ async def handle_audiosocket_connection(reader: asyncio.StreamReader, writer: as
                 reader=reader,
                 writer=writer,
                 settings=load_settings(),
+                flow_vars=call_eval.get("flow_vars"),
             )
             route_action = call_eval.get("action")
             if route_action == "already_hungup":
@@ -1812,20 +2776,65 @@ async def handle_audiosocket_connection(reader: asyncio.StreamReader, writer: as
                 except Exception:
                     pass
                 return
+        elif call_eval.get("pre_announcements"):
+            st_pre = load_settings()
+            fv_pre = call_eval.get("flow_vars") or _create_default_flow_vars(call_id=call_id, did=did)
+            for pa_node in (call_eval.get("pre_announcements") or []):
+                pcm_pa = await asyncio.to_thread(_load_menu_prompt_pcm_8k, pa_node, st_pre, fv_pre)
+                if pcm_pa:
+                    total_pa_frames = len(pcm_pa) // 320
+                    for f_i in range(total_pa_frames):
+                        try:
+                            writer.write(b"\x10\x01\x40" + pcm_pa[f_i * 320 : (f_i + 1) * 320])
+                            await writer.drain()
+                            await asyncio.sleep(0.02)
+                        except Exception:
+                            break
 
         print(f"[Call Flow Route] DID: {did} -> Action: {route_action}, Target/Agent: {call_eval.get('target') or call_eval.get('agent_id')}")
 
         if route_action == "transfer":
             target_ext = str(call_eval.get("target", "1000")).strip()
             is_queue_route = bool(call_eval.get("is_queue"))
-            print(f"[Call Flow Route] DID: {did} -> Transfer to {'Queue' if is_queue_route else 'Extension'}: {target_ext}")
+            is_ext_route = bool(call_eval.get("is_external")) or (not is_queue_route and len(re.sub(r"\D", "", target_ext)) >= 7)
+            trunk_id_sel = str(call_eval.get("trunk_id") or "").strip()
+            prefix_sel = str(call_eval.get("prefix") or "").strip()
+            cid_mode_sel = str(call_eval.get("caller_id_mode") or "trunk_did").strip()
+            custom_cid_sel = str(call_eval.get("custom_cid") or "").strip()
+
+            if is_ext_route:
+                clean_d = re.sub(r"[^\d]", "", target_ext)
+                if not prefix_sel:
+                    if len(clean_d) == 10 and clean_d[0] in ("2", "3", "4", "5", "8"):
+                        target_ext = "0" + clean_d
+                    elif len(clean_d) == 12 and clean_d.startswith("90"):
+                        target_ext = "0" + clean_d[2:]
+                    else:
+                        target_ext = clean_d
+                else:
+                    target_ext = clean_d
+                try:
+                    from backend.main import set_callflow_outbound_override
+                    set_callflow_outbound_override(
+                        call_id=call_id,
+                        callee=target_ext,
+                        trunk_id=trunk_id_sel,
+                        caller_id_mode=cid_mode_sel,
+                        custom_cid=custom_cid_sel,
+                    )
+                except Exception as ov_err:
+                    print(f"[Call Flow Outbound Override Warning]: {ov_err}")
+
+            print(f"[Call Flow Route] DID: {did} -> Transfer to {'Queue' if is_queue_route else ('External Trunk (' + (trunk_id_sel or 'Auto') + ')' if is_ext_route else 'Extension')}: {target_ext}")
             try:
                 async with AsyncSessionLocal() as session:
                     db_call = await session.get(Call, call_id)
                     if db_call:
                         db_call.callee_number = target_ext
                         db_call.answered_at = None
-                        db_call.hangup_source = f"queue:{target_ext}" if is_queue_route else f"direct:{target_ext}"
+                        if trunk_id_sel:
+                            db_call.trunk_name = trunk_id_sel
+                        db_call.hangup_source = f"queue:{target_ext}" if is_queue_route else (f"callflow_external:{target_ext}" if is_ext_route else f"direct:{target_ext}")
                         await session.commit()
             except Exception as e_upd:
                 print(f"[Call Flow Route DB Update Warning]: {e_upd}")

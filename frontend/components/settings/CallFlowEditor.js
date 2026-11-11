@@ -82,6 +82,42 @@ export default function CallFlowEditor({ backendHost = "localhost:8000", onEditS
   const [deleteTargetId, setDeleteTargetId] = useState(null);
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
 
+  // Live CallFlow Simulator states
+  const [isSimulatorOpen, setIsSimulatorOpen] = useState(false);
+  const [simCallerNumber, setSimCallerNumber] = useState("05321234567");
+  const [simDidNumber, setSimDidNumber] = useState("08503607390");
+  const [simDtmfInput, setSimDtmfInput] = useState("12345");
+  const [simRunning, setSimRunning] = useState(false);
+  const [simResult, setSimResult] = useState(null);
+  const [simVisitedNodeIds, setSimVisitedNodeIds] = useState([]);
+
+  const handleRunSimulation = async () => {
+    setSimRunning(true);
+    setSimResult(null);
+    try {
+      const res = await tenantFetch(`${API_BASE}/api/settings/call-flow/simulate`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          nodes,
+          connections,
+          caller_number: simCallerNumber,
+          did_number: simDidNumber,
+          dtmf_input: simDtmfInput
+        })
+      });
+      const data = await res.json();
+      setSimResult(data);
+      if (Array.isArray(data.visited_node_ids)) {
+        setSimVisitedNodeIds(data.visited_node_ids);
+      }
+    } catch (err) {
+      setSimResult({ status: "error", message: String(err) });
+    } finally {
+      setSimRunning(false);
+    }
+  };
+
   // Interaction states for Canvas Editor
   const [selectedNodeId, setSelectedNodeId] = useState(null);
   const [selectedConnectionId, setSelectedConnectionId] = useState(null);
@@ -429,16 +465,20 @@ export default function CallFlowEditor({ backendHost = "localhost:8000", onEditS
       case "menu": {
         const hasBadge = !!node.value;
         const baseHeight = 48 + (hasBadge ? 16 : 0);
-        return { w: 150, h: baseHeight + (node.options?.length || 14) * 34 };
+        return { w: 155, h: baseHeight + (node.options?.length || 14) * 34 };
       }
+      case "user_input": return { w: 185, h: 138 };
+      case "http_request": return { w: 195, h: 138 };
       case "setvalue": return { w: 170, h: 70 };
       case "transfer": {
         const hasBadge = !!node.extra_fields?.play_announcement;
-        return { w: 170, h: hasBadge ? 86 : 70 };
+        return { w: 185, h: hasBadge ? 92 : 74 };
       }
-      case "tts": return { w: 220, h: 140 };
+      case "tts": return { w: 210, h: 120 };
+      case "whatsapp_notify": return { w: 185, h: 92 };
       case "sr": return { w: 180, h: 215 };
-      case "compare": return { w: 180, h: 120 };
+      case "compare": return { w: 185, h: 132 };
+      case "loop": return { w: 180, h: 132 };
       case "start": return { w: 185, h: 80 };
       case "timerule": return { w: 180, h: 176 };
       case "ai_agent": {
@@ -459,14 +499,39 @@ export default function CallFlowEditor({ backendHost = "localhost:8000", onEditS
     
     const dims = getNodeDimensions(node);
 
-    const headerHeight = 32;
-
     // If port is left input port
     if (portId === "input") {
       return { x: node.x, y: node.y + dims.h / 2 };
     }
 
-    // If port is output port
+    // Option ports for USER_INPUT node (output = Tuşlandı, error = Hata / Limit)
+    if (node.type === "user_input") {
+      const opts = ["output", "error"];
+      const idx = opts.indexOf(portId);
+      if (idx !== -1) {
+        return { x: node.x + dims.w, y: node.y + 72 + idx * 34 };
+      }
+    }
+
+    // Option ports for HTTP_REQUEST node (success = Başarılı, error = Hata / Yok)
+    if (node.type === "http_request") {
+      const opts = ["success", "error"];
+      const idx = opts.indexOf(portId);
+      if (idx !== -1) {
+        return { x: node.x + dims.w, y: node.y + 72 + idx * 34 };
+      }
+    }
+
+    // Option ports for LOOP node (loop = Tekrarla, completed = Limit Doldu)
+    if (node.type === "loop") {
+      const opts = ["loop", "completed"];
+      const idx = opts.indexOf(portId);
+      if (idx !== -1) {
+        return { x: node.x + dims.w, y: node.y + 68 + idx * 34 };
+      }
+    }
+
+    // If port is single right output port
     if (portId === "output") {
       return { x: node.x + dims.w, y: node.y + dims.h / 2 };
     }
@@ -495,7 +560,7 @@ export default function CallFlowEditor({ backendHost = "localhost:8000", onEditS
       const opts = ["true", "false"];
       const idx = opts.indexOf(portId);
       if (idx !== -1) {
-        return { x: node.x + dims.w, y: node.y + 50 + idx * 30 + 15 };
+        return { x: node.x + dims.w, y: node.y + 68 + idx * 34 };
       }
     }
 
@@ -645,7 +710,64 @@ export default function CallFlowEditor({ backendHost = "localhost:8000", onEditS
       play: { title: "Anons", value: "Anons1" },
       menu: { 
         title: "Menü", 
-        options: ["1", "2", "timeout"] 
+        options: ["1", "2", "timeout", "error"],
+        extra_fields: { max_retries: 3, timeout_seconds: 8, retry_prompt: "Hatalı tuşlama yaptınız, lütfen tekrar deneyin." }
+      },
+      user_input: {
+        title: "Tuşlama Al",
+        value: "Lütfen sipariş veya abone numaranızı tuşlayıp kareye basın.",
+        options: ["output", "error"],
+        extra_fields: {
+          announcement_type: "tts",
+          min_digits: 1,
+          max_digits: 11,
+          submit_key: "#",
+          timeout_seconds: 6,
+          max_retries: 3,
+          retry_prompt: "Geçersiz veya eksik tuşlama yaptınız, lütfen tekrar tuşlayın.",
+          variable_name: "tuslanan_numara"
+        }
+      },
+      http_request: {
+        title: "Web Servis (API)",
+        value: "http://127.0.0.1:8000/api/v1/demo/order-lookup",
+        options: ["success", "error"],
+        extra_fields: {
+          method: "POST",
+          auth_header: "",
+          body_template: '{\n  "siparis_no": "{{tuslanan_numara}}",\n  "arayan": "{{arayan_numara}}",\n  "hat": "{{aranan_hat}}"\n}',
+          response_key: "target_number",
+          response_tts_key: "message",
+          timeout_seconds: 8
+        }
+      },
+      compare: {
+        title: "Karşılaştırma",
+        value: "0",
+        options: ["true", "false"],
+        extra_fields: {
+          source: "tuslanan_numara",
+          operator: "equals"
+        }
+      },
+      loop: {
+        title: "Döngü (Sayaç)",
+        value: "3",
+        options: ["loop", "completed"],
+        extra_fields: {
+          max_loops: 3
+        }
+      },
+      tts: {
+        title: "Dinamik TTS",
+        value: "{{api_mesaj}}"
+      },
+      whatsapp_notify: {
+        title: "WhatsApp Gönder",
+        value: "Merhaba, {{tuslanan_numara}} numaralı işleminiz alınmıştır.",
+        extra_fields: {
+          recipient: "{{arayan_numara}}"
+        }
       },
       transfer: { title: "Transfer", value: "1000" },
       timerule: { 
@@ -1056,6 +1178,26 @@ export default function CallFlowEditor({ backendHost = "localhost:8000", onEditS
         </div>
 
         <div className="flex items-center gap-3">
+          {simVisitedNodeIds.length > 0 && (
+            <button
+              type="button"
+              onClick={() => setSimVisitedNodeIds([])}
+              className="px-2.5 py-1.5 bg-emerald-50 dark:bg-emerald-950/30 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800/60 rounded-xl text-[10px] font-bold hover:bg-emerald-100/60 transition flex items-center gap-1 cursor-pointer shrink-0"
+              title="Kanvastaki simülasyon izini temizle"
+            >
+              <X size={11} /> İzi Temizle ({simVisitedNodeIds.length} adım)
+            </button>
+          )}
+
+          <button
+            type="button"
+            onClick={() => setIsSimulatorOpen(true)}
+            className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-extrabold flex items-center gap-1.5 shadow-sm transition duration-200 cursor-pointer shrink-0"
+            title="Akışı canlı olarak test et / simüle et"
+          >
+            <Play size={12} className="fill-current" /> Akışı Test Et (Simülatör)
+          </button>
+
           {selectedConnectionId && (
             <button
               onClick={() => {
@@ -1123,49 +1265,94 @@ export default function CallFlowEditor({ backendHost = "localhost:8000", onEditS
             <div className="flex flex-wrap gap-1.5">
               <button 
                 onClick={() => addNode("play")}
-                className="px-2.5 py-1 bg-primary hover:bg-amber-400 text-white text-[10px] font-extrabold rounded-lg transition"
+                className="px-2.5 py-1 bg-primary hover:bg-amber-400 text-white text-[10px] font-extrabold rounded-lg transition cursor-pointer"
+                title="Sesli anons veya TTS karşılama ekle"
               >
                 + Anons
               </button>
               <button 
                 onClick={() => addNode("menu")}
-                className="px-2.5 py-1 bg-sky-500 hover:bg-sky-400 text-white text-[10px] font-extrabold rounded-lg transition"
+                className="px-2.5 py-1 bg-sky-500 hover:bg-sky-400 text-white text-[10px] font-extrabold rounded-lg transition cursor-pointer"
+                title="Tek haneli IVR menü (1, 2, 0 vb. + Hata Sayıcı)"
               >
                 + Menü
               </button>
               <button 
+                onClick={() => addNode("user_input")}
+                className="px-2.5 py-1 bg-violet-600 hover:bg-violet-500 text-white text-[10px] font-extrabold rounded-lg transition cursor-pointer"
+                title="Çok haneli numara tuşlatma (Sipariş No, Abone No, T.C. No + Hata Sayıcı)"
+              >
+                + Tuşlama Al (Digit)
+              </button>
+              <button 
+                onClick={() => addNode("http_request")}
+                className="px-2.5 py-1 bg-amber-600 hover:bg-amber-500 text-white text-[10px] font-extrabold rounded-lg transition cursor-pointer"
+                title="Müşteri Web Servisine (API / Script) JSON gönder ve dönen telefon numarasını al"
+              >
+                + Web Servis (API)
+              </button>
+              <button 
+                onClick={() => addNode("compare")}
+                className="px-2.5 py-1 bg-cyan-600 hover:bg-cyan-500 text-white text-[10px] font-extrabold rounded-lg transition cursor-pointer"
+                title="Tuşlanan numarayı veya API yanıtını karşılaştır (Evet / Hayır çıkışı)"
+              >
+                + Karşılaştırma
+              </button>
+              <button 
+                onClick={() => addNode("loop")}
+                className="px-2.5 py-1 bg-orange-600 hover:bg-orange-500 text-white text-[10px] font-extrabold rounded-lg transition cursor-pointer"
+                title="Belirli sayıda tekrarlayan döngü / sayaç kontrolü"
+              >
+                + Döngü (Sayaç)
+              </button>
+              <button 
                 onClick={() => addNode("transfer")}
-                className="px-2.5 py-1 bg-slate-600 hover:bg-slate-500 text-white text-[10px] font-extrabold rounded-lg transition"
+                className="px-2.5 py-1 bg-slate-600 hover:bg-slate-500 text-white text-[10px] font-extrabold rounded-lg transition cursor-pointer"
+                title="Dahili, Kuyruk, Harici Numara, API'den Dönen Numara veya Başka Arama Akışına (Alt IVR) aktar"
               >
                 + Transfer
               </button>
               <button 
+                onClick={() => addNode("tts")}
+                className="px-2.5 py-1 bg-fuchsia-600 hover:bg-fuchsia-500 text-white text-[10px] font-extrabold rounded-lg transition cursor-pointer"
+                title="API'den dönen mesajı veya tuşlanan numarayı arayana sesli oku"
+              >
+                + Dinamik TTS
+              </button>
+              <button 
+                onClick={() => addNode("whatsapp_notify")}
+                className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-500 text-white text-[10px] font-extrabold rounded-lg transition cursor-pointer"
+                title="Görüşme sırasında arayana anında WhatsApp mesajı gönder"
+              >
+                + WhatsApp
+              </button>
+              <button 
                 onClick={() => addNode("timerule")}
-                className="px-2.5 py-1 bg-primary hover:bg-primary text-white text-[10px] font-extrabold rounded-lg transition"
+                className="px-2.5 py-1 bg-primary hover:bg-primary text-white text-[10px] font-extrabold rounded-lg transition cursor-pointer"
               >
                 + Senaryo
               </button>
               <button 
                 onClick={() => addNode("ai_agent")}
-                className="px-2.5 py-1 bg-primary hover:bg-primary text-white text-[10px] font-extrabold rounded-lg transition"
+                className="px-2.5 py-1 bg-primary hover:bg-primary text-white text-[10px] font-extrabold rounded-lg transition cursor-pointer"
               >
                 + AI Agent
               </button>
               <button 
                 onClick={() => addNode("hangup")}
-                className="px-2.5 py-1 bg-primary hover:bg-primary text-white text-[10px] font-extrabold rounded-lg transition"
+                className="px-2.5 py-1 bg-primary hover:bg-primary text-white text-[10px] font-extrabold rounded-lg transition cursor-pointer"
               >
                 + Kapat
               </button>
               <button 
                 onClick={() => addNode("stargate_in")}
-                className="px-2.5 py-1 bg-cyan-600 hover:bg-cyan-500 text-white text-[10px] font-extrabold rounded-lg transition"
+                className="px-2.5 py-1 bg-cyan-600 hover:bg-cyan-500 text-white text-[10px] font-extrabold rounded-lg transition cursor-pointer"
               >
                 + YG Girişi
               </button>
               <button 
                 onClick={() => addNode("stargate_out")}
-                className="px-2.5 py-1 bg-teal-600 hover:bg-teal-500 text-white text-[10px] font-extrabold rounded-lg transition"
+                className="px-2.5 py-1 bg-teal-600 hover:bg-teal-500 text-white text-[10px] font-extrabold rounded-lg transition cursor-pointer"
               >
                 + YG Çıkışı
               </button>
@@ -1190,6 +1377,7 @@ export default function CallFlowEditor({ backendHost = "localhost:8000", onEditS
                 const start = getPortCoords(c.fromNode, c.fromPort);
                 const end = getPortCoords(c.toNode, c.toPort);
                 const isSelected = selectedConnectionId === c.id;
+                const isSimActive = simVisitedNodeIds.includes(c.fromNode) && simVisitedNodeIds.includes(c.toNode);
                 
                 // SVG Bezier Curve
                 const midX = (start.x + end.x) / 2;
@@ -1212,8 +1400,8 @@ export default function CallFlowEditor({ backendHost = "localhost:8000", onEditS
                     <path
                       d={pathData}
                       fill="none"
-                      stroke={isSelected ? "#ec4899" : "#94a3b8"}
-                      strokeWidth={isSelected ? 3.5 : 2.2}
+                      stroke={isSelected ? "#ec4899" : isSimActive ? "#10b981" : "#94a3b8"}
+                      strokeWidth={isSelected ? 3.5 : isSimActive ? 3.2 : 2.2}
                       className="transition-all"
                     />
                   </g>
@@ -1241,6 +1429,7 @@ export default function CallFlowEditor({ backendHost = "localhost:8000", onEditS
             <div className="absolute top-0 left-0 w-[2000px] h-[2000px] pointer-events-none z-10">
                {nodes.map((node) => {
                 const isSelected = selectedNodeId === node.id;
+                const isSimVisited = simVisitedNodeIds.includes(node.id);
                 const dims = getNodeDimensions(node);
 
                 // Check stargate pairing
@@ -1265,11 +1454,13 @@ export default function CallFlowEditor({ backendHost = "localhost:8000", onEditS
                     className={`absolute pointer-events-auto bg-white dark:bg-slate-900 border rounded-xl shadow-lg flex flex-col select-none ${
                       isSelected 
                         ? "border-pink-500 shadow-pink-500/5 ring-1 ring-pink-500" 
-                        : isPortalPaired
-                          ? node.type === "stargate_in"
-                            ? "border-cyan-400 dark:border-cyan-600 shadow-[0_0_12px_rgba(34,211,238,0.25)] ring-1 ring-cyan-400/30"
-                            : "border-teal-400 dark:border-teal-600 shadow-[0_0_12px_rgba(45,212,191,0.25)] ring-1 ring-teal-400/30"
-                          : "border-slate-200 dark:border-slate-800"
+                        : isSimVisited
+                          ? "border-emerald-500 shadow-[0_0_16px_rgba(16,185,129,0.3)] ring-2 ring-emerald-500/60"
+                          : isPortalPaired
+                            ? node.type === "stargate_in"
+                              ? "border-cyan-400 dark:border-cyan-600 shadow-[0_0_12px_rgba(34,211,238,0.25)] ring-1 ring-cyan-400/30"
+                              : "border-teal-400 dark:border-teal-600 shadow-[0_0_12px_rgba(45,212,191,0.25)] ring-1 ring-teal-400/30"
+                            : "border-slate-200 dark:border-slate-800"
                     }`}
                   >
                     
@@ -1289,7 +1480,7 @@ export default function CallFlowEditor({ backendHost = "localhost:8000", onEditS
                     )}
 
                     {/* Right side output port connector dot */}
-                    {["start", "play", "setvalue", "transfer", "tts", "did", "stargate_out"].includes(node.type) && (
+                    {["start", "play", "setvalue", "transfer", "tts", "whatsapp_notify", "did", "stargate_out"].includes(node.type) && (
                       <div
                         className={`port absolute right-0 top-1/2 transform translate-x-1/2 -translate-y-1/2 w-3.5 h-3.5 ${node.type === "start" ? "bg-emerald-500" : "bg-primary"} border-2 border-white dark:border-slate-900 rounded-full cursor-pointer z-20 hover:scale-125 transition`}
                         onMouseDown={(e) => {
@@ -1299,7 +1490,7 @@ export default function CallFlowEditor({ backendHost = "localhost:8000", onEditS
                           handlePortMouseUp(e, node.id, "output");
                         }}
                         onClick={(e) => handlePortClick(e, node.id, "output", false)}
-                        title="Çıkış Portu (Akışı Başlat)"
+                        title="Çıkış Portu (Devam)"
                       />
                     )}
                     
@@ -1309,11 +1500,15 @@ export default function CallFlowEditor({ backendHost = "localhost:8000", onEditS
                         node.type === "start" ? "bg-emerald-600" :
                         node.type === "play" ? "bg-primary" :
                         node.type === "menu" ? "bg-sky-500" :
+                        node.type === "user_input" ? "bg-violet-600" :
+                        node.type === "http_request" ? "bg-amber-600" :
                         node.type === "setvalue" ? "bg-primary" :
                         node.type === "transfer" ? "bg-slate-600" :
-                        node.type === "tts" ? "bg-primary" :
+                        node.type === "tts" ? "bg-fuchsia-600" :
+                        node.type === "whatsapp_notify" ? "bg-emerald-600" :
                         node.type === "sr" ? "bg-primary" :
                         node.type === "compare" ? "bg-cyan-600" :
+                        node.type === "loop" ? "bg-orange-600" :
                         node.type === "timerule" ? "bg-primary" :
                         node.type === "ai_agent" ? "bg-primary" :
                         node.type === "hangup" ? "bg-primary" :
@@ -1325,11 +1520,15 @@ export default function CallFlowEditor({ backendHost = "localhost:8000", onEditS
                         {node.type === "start" && <Play size={11} className="fill-current" />}
                         {node.type === "play" && <Volume2 size={11} />}
                         {node.type === "menu" && <Shuffle size={11} />}
+                        {node.type === "user_input" && <Hash size={11} />}
+                        {node.type === "http_request" && <Server size={11} />}
                         {node.type === "setvalue" && <Database size={11} />}
                         {node.type === "transfer" && <ArrowRight size={11} />}
-                        {node.type === "tts" && <Bot size={11} />}
+                        {node.type === "tts" && <Volume2 size={11} />}
+                        {node.type === "whatsapp_notify" && <FileText size={11} />}
                         {node.type === "sr" && <Layers size={11} />}
-                        {node.type === "compare" && <Settings size={11} />}
+                        {node.type === "compare" && <GitBranch size={11} />}
+                        {node.type === "loop" && <Activity size={11} />}
                         {node.type === "timerule" && <Clock size={11} />}
                         {node.type === "ai_agent" && <Bot size={11} />}
                         {node.type === "hangup" && <PhoneOff size={11} />}
@@ -1394,14 +1593,19 @@ export default function CallFlowEditor({ backendHost = "localhost:8000", onEditS
                         const currentType = node.extra_fields?.transfer_type || "dahili";
                         const isQueue = currentType === "kuyruk";
                         const isExternal = currentType === "external";
+                        const isApiDynamic = currentType === "api_dynamic";
+                        const isCallFlow = currentType === "call_flow";
 
                         const matchedUser = currentType === "dahili" && systemUsers.find((u) => String(u.extension || u.id) === String(node.value));
                         const matchedQueue = isQueue && queues.find((q) => String(q.extension || q.id) === String(node.value));
-                        const matchedTrunk = isExternal && trunks.find((t) => String(t.id) === String(node.extra_fields?.trunk_id));
+                        const matchedTrunk = (isExternal || isApiDynamic) && trunks.find((t) => String(t.id) === String(node.extra_fields?.trunk_id));
+                        const matchedWf = isCallFlow && workflows.find((w) => String(w.id) === String(node.value));
 
                         let label = "Dahili";
                         if (isQueue) label = "Kuyruk";
                         if (isExternal) label = "Harici";
+                        if (isApiDynamic) label = "API Numarası";
+                        if (isCallFlow) label = "Alt Akış";
 
                         let displayVal = node.value || "Belirlenmedi";
                         if (matchedUser) {
@@ -1410,7 +1614,14 @@ export default function CallFlowEditor({ backendHost = "localhost:8000", onEditS
                           displayVal = `${matchedQueue.extension || matchedQueue.id} - ${matchedQueue.name || ''}`;
                         } else if (isExternal) {
                           const tName = matchedTrunk ? (matchedTrunk.name || `Trunk #${matchedTrunk.id}`) : "Dış Hat";
-                          displayVal = `${node.value || 'Numara Yok'} (${tName})`;
+                          const pfx = node.extra_fields?.prefix ? `[${node.extra_fields.prefix}] ` : "";
+                          displayVal = `${pfx}${node.value || 'Numara Yok'} (${tName})`;
+                        } else if (isApiDynamic) {
+                          const tName = matchedTrunk ? (matchedTrunk.name || `Trunk #${matchedTrunk.id}`) : "Dış Hat";
+                          const pfx = node.extra_fields?.prefix ? `[${node.extra_fields.prefix}] ` : "";
+                          displayVal = `${pfx}{{api_numara}} (${tName})`;
+                        } else if (isCallFlow) {
+                          displayVal = matchedWf ? matchedWf.name : `Akış #${node.value || '?'}`;
                         }
 
                         return (
@@ -1431,8 +1642,88 @@ export default function CallFlowEditor({ backendHost = "localhost:8000", onEditS
                       })()}
 
                       {node.type === "tts" && (
-                        <div className="text-[9px] font-semibold text-primary dark:text-rose-400 border border-rose-50 dark:border-slate-800/60 rounded bg-rose-50/25 dark:bg-slate-950/40 p-2 leading-relaxed overflow-hidden h-[90px] text-justify select-text whitespace-normal break-words italic">
-                          {node.value || "Metin girilmedi"}
+                        <div className="text-[9px] font-semibold text-fuchsia-700 dark:text-fuchsia-300 border border-fuchsia-100 dark:border-slate-800/60 rounded bg-fuchsia-50/30 dark:bg-slate-950/40 p-2 leading-relaxed overflow-hidden h-[70px] text-justify select-text whitespace-normal break-words italic">
+                          {node.value || "{{api_mesaj}}"}
+                        </div>
+                      )}
+
+                      {node.type === "whatsapp_notify" && (
+                        <div className="flex flex-col gap-1 w-full text-left">
+                          <div className="text-[8px] font-bold text-emerald-700 dark:text-emerald-300 bg-emerald-50/50 dark:bg-emerald-950/30 border border-emerald-200/60 dark:border-emerald-800/40 rounded px-1.5 py-0.5 truncate">
+                            Alıcı: {node.extra_fields?.recipient || "{{arayan_numara}}"}
+                          </div>
+                          <div className="text-[8px] text-slate-500 dark:text-slate-400 truncate italic px-1">
+                            {node.value || "WhatsApp Mesajı"}
+                          </div>
+                        </div>
+                      )}
+
+                      {node.type === "user_input" && (
+                        <div className="flex flex-col gap-1 w-full text-[10px] font-bold">
+                          <div className="text-[8px] font-bold text-violet-700 dark:text-violet-300 bg-violet-50/50 dark:bg-violet-950/30 border border-violet-200/60 dark:border-violet-800/40 rounded px-1.5 py-0.5 text-center truncate">
+                            {node.extra_fields?.min_digits || 1}-{node.extra_fields?.max_digits || 11} Hane ({node.extra_fields?.submit_key || "#"}) | Hata: {node.extra_fields?.max_retries || 3}x
+                          </div>
+                          {[
+                            { id: "output", label: "Tuşlandı (Başarılı)" },
+                            { id: "error", label: "Hata / Limit Doldu" }
+                          ].map((opt) => (
+                            <div key={opt.id} className="h-[30px] flex items-center justify-end pr-2 bg-slate-50/65 dark:bg-slate-950/30 border border-slate-100/60 dark:border-slate-850 rounded-lg relative select-none">
+                              <span className="text-slate-600 dark:text-slate-400 font-mono text-[8px]">{opt.label}</span>
+                              <div
+                                className={`port absolute right-0 top-1/2 transform translate-x-1/2 -translate-y-1/2 w-3 h-3 ${opt.id === "error" ? "bg-rose-500" : "bg-emerald-500"} border-2 border-white dark:border-slate-900 rounded-full cursor-pointer z-20 hover:scale-125 transition`}
+                                onMouseDown={(e) => handlePortMouseDown(e, node.id, opt.id)}
+                                onMouseUp={(e) => handlePortMouseUp(e, node.id, opt.id)}
+                                onClick={(e) => handlePortClick(e, node.id, opt.id, false)}
+                                title={opt.label}
+                              />
+                            </div>
+                          ))}
+                        </div>
+                      )}
+
+                      {node.type === "http_request" && (
+                        <div className="flex flex-col gap-1 w-full text-[10px] font-bold">
+                          <div className="text-[8px] font-bold text-amber-700 dark:text-amber-300 bg-amber-50/50 dark:bg-amber-950/30 border border-amber-200/60 dark:border-amber-800/40 rounded px-1.5 py-0.5 text-center truncate font-mono" title={node.value}>
+                            {node.extra_fields?.method || "POST"} • {node.extra_fields?.response_key || "target_number"}
+                          </div>
+                          {[
+                            { id: "success", label: "Başarılı (Numara)" },
+                            { id: "error", label: "Bulunamadı / Hata" }
+                          ].map((opt) => (
+                            <div key={opt.id} className="h-[30px] flex items-center justify-end pr-2 bg-slate-50/65 dark:bg-slate-950/30 border border-slate-100/60 dark:border-slate-850 rounded-lg relative select-none">
+                              <span className="text-slate-600 dark:text-slate-400 font-mono text-[8px]">{opt.label}</span>
+                              <div
+                                className={`port absolute right-0 top-1/2 transform translate-x-1/2 -translate-y-1/2 w-3 h-3 ${opt.id === "error" ? "bg-rose-500" : "bg-emerald-500"} border-2 border-white dark:border-slate-900 rounded-full cursor-pointer z-20 hover:scale-125 transition`}
+                                onMouseDown={(e) => handlePortMouseDown(e, node.id, opt.id)}
+                                onMouseUp={(e) => handlePortMouseUp(e, node.id, opt.id)}
+                                onClick={(e) => handlePortClick(e, node.id, opt.id, false)}
+                                title={opt.label}
+                              />
+                            </div>
+                          ))}
+                        </div>
+                      )}
+
+                      {node.type === "loop" && (
+                        <div className="flex flex-col gap-1 w-full text-[10px] font-bold">
+                          <div className="text-[8px] font-bold text-orange-700 dark:text-orange-300 bg-orange-50/50 dark:bg-orange-950/30 border border-orange-200/60 dark:border-orange-800/40 rounded px-1.5 py-0.5 text-center truncate">
+                            Maksimum Tekrar: {node.extra_fields?.max_loops || node.value || 3} Kez
+                          </div>
+                          {[
+                            { id: "loop", label: "Tekrarla (Döngü)" },
+                            { id: "completed", label: "Limit Doldu (Çıkış)" }
+                          ].map((opt) => (
+                            <div key={opt.id} className="h-[30px] flex items-center justify-end pr-2 bg-slate-50/65 dark:bg-slate-950/30 border border-slate-100/60 dark:border-slate-850 rounded-lg relative select-none">
+                              <span className="text-slate-600 dark:text-slate-400 font-mono text-[8px]">{opt.label}</span>
+                              <div
+                                className={`port absolute right-0 top-1/2 transform translate-x-1/2 -translate-y-1/2 w-3 h-3 ${opt.id === "completed" ? "bg-rose-500" : "bg-orange-500"} border-2 border-white dark:border-slate-900 rounded-full cursor-pointer z-20 hover:scale-125 transition`}
+                                onMouseDown={(e) => handlePortMouseDown(e, node.id, opt.id)}
+                                onMouseUp={(e) => handlePortMouseUp(e, node.id, opt.id)}
+                                onClick={(e) => handlePortClick(e, node.id, opt.id, false)}
+                                title={opt.label}
+                              />
+                            </div>
+                          ))}
                         </div>
                       )}
 
@@ -1441,7 +1732,7 @@ export default function CallFlowEditor({ backendHost = "localhost:8000", onEditS
                         <div className="flex flex-col gap-1 w-full text-[10px] font-bold">
                           {node.value && (
                             <div className="text-[8px] font-bold text-sky-650 dark:text-sky-400 bg-sky-50/40 dark:bg-sky-950/20 border border-sky-100/40 rounded px-1.5 py-0.5 text-center truncate italic mb-0.5">
-                              {node.extra_fields?.announcement_type === "tts" ? "Anons (TTS)" : "Anons (Ses Dosyası)"}
+                              {node.extra_fields?.announcement_type === "tts" ? "TTS" : "Ses"} • Hata: {node.extra_fields?.max_retries || 3}x
                             </div>
                           )}
                           {node.options?.map((opt) => (
@@ -1461,16 +1752,21 @@ export default function CallFlowEditor({ backendHost = "localhost:8000", onEditS
 
                       {node.type === "compare" && (
                         <div className="flex flex-col gap-1 w-full text-[10px] font-bold">
-                          <div className="text-[9px] font-bold text-cyan-600 dark:text-cyan-400 p-1 text-center truncate italic">
-                            {node.value || "Karşılaştırma"}
+                          <div className="text-[8px] font-bold text-cyan-700 dark:text-cyan-300 bg-cyan-50/50 dark:bg-cyan-950/30 border border-cyan-200/60 dark:border-cyan-800/40 rounded px-1.5 py-0.5 text-center truncate font-mono">
+                            {node.extra_fields?.source || "tuslanan"} {node.extra_fields?.operator === "not_equals" ? "!=" : node.extra_fields?.operator === "starts_with" ? "başlar" : node.extra_fields?.operator === "contains" ? "içerir" : "=="} {node.value || "0"}
                           </div>
-                          {["true", "false"].map((opt) => (
-                            <div key={opt} className="h-[30px] flex items-center justify-end pr-2 bg-slate-50/65 dark:bg-slate-950/30 border border-slate-100/60 dark:border-slate-850 rounded-lg relative select-none">
-                              <span className="text-slate-500 dark:text-slate-400 font-mono text-[9px]">{opt}</span>
+                          {[
+                            { id: "true", label: "Evet (Doğru)" },
+                            { id: "false", label: "Hayır (Yanlış)" }
+                          ].map((opt) => (
+                            <div key={opt.id} className="h-[30px] flex items-center justify-end pr-2 bg-slate-50/65 dark:bg-slate-950/30 border border-slate-100/60 dark:border-slate-850 rounded-lg relative select-none">
+                              <span className="text-slate-600 dark:text-slate-400 font-mono text-[8px]">{opt.label}</span>
                               <div
-                                className="port absolute right-0 top-1/2 transform translate-x-1/2 -translate-y-1/2 w-3 h-3 bg-primary border-2 border-white dark:border-slate-900 rounded-full cursor-pointer z-20 hover:scale-125 transition"
-                                onClick={(e) => handlePortClick(e, node.id, opt, false)}
-                                title={`Koşul ${opt} çıkışı`}
+                                className={`port absolute right-0 top-1/2 transform translate-x-1/2 -translate-y-1/2 w-3 h-3 ${opt.id === "false" ? "bg-rose-500" : "bg-emerald-500"} border-2 border-white dark:border-slate-900 rounded-full cursor-pointer z-20 hover:scale-125 transition`}
+                                onMouseDown={(e) => handlePortMouseDown(e, node.id, opt.id)}
+                                onMouseUp={(e) => handlePortMouseUp(e, node.id, opt.id)}
+                                onClick={(e) => handlePortClick(e, node.id, opt.id, false)}
+                                title={`${opt.label} çıkışı`}
                               />
                             </div>
                           ))}
@@ -1611,11 +1907,15 @@ export default function CallFlowEditor({ backendHost = "localhost:8000", onEditS
                     node.type === "start" ? "bg-emerald-600" :
                     node.type === "play" ? "bg-primary" :
                     node.type === "menu" ? "bg-sky-500" :
+                    node.type === "user_input" ? "bg-violet-600" :
+                    node.type === "http_request" ? "bg-amber-600" :
                     node.type === "setvalue" ? "bg-primary" :
                     node.type === "transfer" ? "bg-slate-600" :
-                    node.type === "tts" ? "bg-primary" :
+                    node.type === "tts" ? "bg-fuchsia-600" :
+                    node.type === "whatsapp_notify" ? "bg-emerald-600" :
                     node.type === "sr" ? "bg-primary" :
                     node.type === "compare" ? "bg-cyan-600" :
+                    node.type === "loop" ? "bg-orange-600" :
                     node.type === "timerule" ? "bg-primary" :
                     node.type === "ai_agent" ? "bg-primary" :
                     node.type === "hangup" ? "bg-primary" :
@@ -1625,11 +1925,15 @@ export default function CallFlowEditor({ backendHost = "localhost:8000", onEditS
                     {node.type === "start" && <Play size={16} className="fill-current" />}
                     {node.type === "play" && <Volume2 size={16} />}
                     {node.type === "menu" && <Shuffle size={16} />}
+                    {node.type === "user_input" && <Hash size={16} />}
+                    {node.type === "http_request" && <Server size={16} />}
                     {node.type === "setvalue" && <Database size={16} />}
                     {node.type === "transfer" && <ArrowRight size={16} />}
-                    {node.type === "tts" && <Bot size={16} />}
+                    {node.type === "tts" && <Volume2 size={16} />}
+                    {node.type === "whatsapp_notify" && <FileText size={16} />}
                     {node.type === "sr" && <Layers size={16} />}
-                    {node.type === "compare" && <Settings size={16} />}
+                    {node.type === "compare" && <GitBranch size={16} />}
+                    {node.type === "loop" && <Activity size={16} />}
                     {node.type === "timerule" && <Clock size={16} />}
                     {node.type === "ai_agent" && <Bot size={16} />}
                     {node.type === "hangup" && <PhoneOff size={16} />}
@@ -1957,9 +2261,336 @@ export default function CallFlowEditor({ backendHost = "localhost:8000", onEditS
                       </div>
                     </div>
 
+                    {/* Error / Retry Counter (Hata Sayıcı) Section */}
+                    <div className="flex flex-col gap-3 p-3 bg-rose-50/40 dark:bg-rose-950/20 border border-rose-200/60 dark:border-rose-900/40 rounded-2xl">
+                      <div className="flex items-center justify-between">
+                        <span className="text-[10px] text-rose-700 dark:text-rose-300 font-extrabold uppercase tracking-wider">Hata Sayıcı & Tekrar Deneme (Retry Counter)</span>
+                        <span className="text-[9px] font-mono bg-white dark:bg-slate-900 px-2 py-0.5 rounded border border-rose-200 dark:border-rose-800 text-rose-600 dark:text-rose-400 font-bold">
+                          Maks: {node.extra_fields?.max_retries || 3} Deneme
+                        </span>
+                      </div>
+                      <div className="grid grid-cols-2 gap-2">
+                        <div className="flex flex-col gap-1">
+                          <span className="text-[9px] text-slate-500 font-bold">Hatalı Tuşlama / Zaman Aşımı Tekrar Sayısı</span>
+                          <input
+                            type="number"
+                            min={1}
+                            max={10}
+                            value={node.extra_fields?.max_retries ?? 3}
+                            onChange={(e) => handleUpdateNodeExtraField("max_retries", Number(e.target.value) || 1)}
+                            className="px-3 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl text-xs font-bold text-slate-850 dark:text-white focus:outline-none"
+                          />
+                        </div>
+                        <div className="flex flex-col gap-1">
+                          <span className="text-[9px] text-slate-500 font-bold">Tuşlama Bekleme Süresi (Sn)</span>
+                          <input
+                            type="number"
+                            min={2}
+                            max={30}
+                            value={node.extra_fields?.timeout_seconds ?? 8}
+                            onChange={(e) => handleUpdateNodeExtraField("timeout_seconds", Number(e.target.value) || 8)}
+                            className="px-3 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl text-xs font-bold text-slate-850 dark:text-white focus:outline-none"
+                          />
+                        </div>
+                      </div>
+                      <div className="flex flex-col gap-1">
+                        <span className="text-[9px] text-slate-500 font-bold">Hatalı Tuşlamada Okunacak Uyarı Mesajı (TTS)</span>
+                        <input
+                          type="text"
+                          value={node.extra_fields?.retry_prompt ?? "Hatalı tuşlama yaptınız, lütfen tekrar deneyin."}
+                          onChange={(e) => handleUpdateNodeExtraField("retry_prompt", e.target.value)}
+                          placeholder="Hatalı tuşlama yaptınız, lütfen tekrar deneyin."
+                          className="px-3 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl text-xs text-slate-850 dark:text-white focus:outline-none"
+                        />
+                      </div>
+                    </div>
+
                   </div>
                 );
               })()}
+
+              {/* User Input (Multi-Digit Collector + Error Counter) Node parameter */}
+              {node.type === "user_input" && (() => {
+                const customMenuList = announcements
+                  .filter((a) => {
+                    const v = String(a?.type || "").trim().toLowerCase();
+                    return v !== "moh" && v !== "music" && v !== "hold_music" && v !== "system" && v !== "sistem";
+                  })
+                  .map((a) => ({ id: a.filename || a.id, name: a.name || a.title || a.filename || "Anons" }));
+                const announcementsList = customMenuList.length > 0
+                  ? customMenuList
+                  : [{ id: "default_announcement.wav", name: "Varsayılan Anons" }];
+                const announcementType = node.extra_fields?.announcement_type || "tts";
+
+                return (
+                  <div className="flex flex-col gap-4 text-left">
+                    <div className="p-3 rounded-2xl bg-violet-50/60 dark:bg-violet-950/25 border border-violet-200/70 dark:border-violet-800/50 space-y-1">
+                      <div className="text-xs font-extrabold text-violet-800 dark:text-violet-300 flex items-center gap-1.5">
+                        <Hash size={13} /> Çok Haneli Numara Tuşlatma (Sipariş / Abone / T.C. No)
+                      </div>
+                      <p className="text-[10px] text-violet-700/90 dark:text-violet-300/80 leading-relaxed">
+                        Arayanın tuşladığı numara otomatik olarak <code className="font-mono font-bold bg-white/80 dark:bg-slate-900 px-1.5 py-0.5 rounded">{"{{tuslanan_numara}}"}</code> değişkenine kaydedilir ve bir sonraki <strong>Web Servis (API)</strong> veya <strong>Karşılaştırma</strong> düğümünde kullanılır.
+                      </p>
+                    </div>
+
+                    {/* Prompt Announcement */}
+                    <div className="flex flex-col gap-3 p-3 bg-slate-50 dark:bg-slate-950/40 border border-slate-150 dark:border-slate-800/80 rounded-2xl">
+                      <div className="text-[10px] text-slate-450 dark:text-slate-550 font-bold uppercase tracking-wider">Karşılama / Tuşlama İsteme Anonsu</div>
+                      <div className="flex gap-2">
+                        {[
+                          { id: "tts", label: "Ses Sentezleme (TTS)" },
+                          { id: "recorded", label: "Kayıtlı Anons Dosyası" }
+                        ].map((t) => {
+                          const active = announcementType === t.id;
+                          return (
+                            <button
+                              key={t.id}
+                              type="button"
+                              onClick={() => handleUpdateNodeExtraField("announcement_type", t.id)}
+                              className={`flex-1 py-1.5 rounded-lg border text-center text-xs font-bold transition cursor-pointer ${
+                                active
+                                  ? "bg-indigo-50 dark:bg-indigo-950/20 text-primary border-indigo-250"
+                                  : "bg-white dark:bg-slate-900 text-slate-400 border-slate-200 dark:border-slate-800"
+                              }`}
+                            >
+                              {t.label}
+                            </button>
+                          );
+                        })}
+                      </div>
+
+                      {announcementType === "tts" ? (
+                        <textarea
+                          value={node.value || ""}
+                          onChange={(e) => handleUpdateNodeField("value", e.target.value)}
+                          placeholder="Örn: Lütfen sipariş numaranızı tuşlayıp kare tuşuna basınız..."
+                          rows={2}
+                          className="px-3 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl text-xs text-slate-850 dark:text-white focus:outline-none leading-relaxed italic"
+                        />
+                      ) : (
+                        <select
+                          value={node.value || ""}
+                          onChange={(e) => handleUpdateNodeField("value", e.target.value)}
+                          className="px-3 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl text-xs font-bold text-slate-850 dark:text-white focus:outline-none"
+                        >
+                          <option value="">-- Özel Anons Seçin --</option>
+                          {announcementsList.map((a) => (
+                            <option key={a.id} value={a.id}>{a.name} ({a.id})</option>
+                          ))}
+                        </select>
+                      )}
+                    </div>
+
+                    {/* Digit Constraints */}
+                    <div className="grid grid-cols-3 gap-2 p-3 bg-slate-50 dark:bg-slate-950/40 border border-slate-150 dark:border-slate-800/80 rounded-2xl">
+                      <div className="flex flex-col gap-1">
+                        <span className="text-[9px] text-slate-500 font-bold">Min. Hane Sayısı</span>
+                        <input
+                          type="number"
+                          min={1}
+                          max={20}
+                          value={node.extra_fields?.min_digits ?? 1}
+                          onChange={(e) => handleUpdateNodeExtraField("min_digits", Number(e.target.value) || 1)}
+                          className="px-2.5 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl text-xs font-bold text-slate-850 dark:text-white focus:outline-none"
+                        />
+                      </div>
+                      <div className="flex flex-col gap-1">
+                        <span className="text-[9px] text-slate-500 font-bold">Maks. Hane Sayısı</span>
+                        <input
+                          type="number"
+                          min={1}
+                          max={24}
+                          value={node.extra_fields?.max_digits ?? 11}
+                          onChange={(e) => handleUpdateNodeExtraField("max_digits", Number(e.target.value) || 11)}
+                          className="px-2.5 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl text-xs font-bold text-slate-850 dark:text-white focus:outline-none"
+                        />
+                      </div>
+                      <div className="flex flex-col gap-1">
+                        <span className="text-[9px] text-slate-500 font-bold">Onay / Bitirme Tuşu</span>
+                        <select
+                          value={node.extra_fields?.submit_key ?? "#"}
+                          onChange={(e) => handleUpdateNodeExtraField("submit_key", e.target.value)}
+                          className="px-2.5 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl text-xs font-bold text-slate-850 dark:text-white focus:outline-none"
+                        >
+                          <option value="#"># (Kare Tuşu)</option>
+                          <option value="*">* (Yıldız Tuşu)</option>
+                          <option value="none">Tuşsuz (Süre Sonunda)</option>
+                        </select>
+                      </div>
+                    </div>
+
+                    {/* Error Counter / Retry Settings */}
+                    <div className="flex flex-col gap-2.5 p-3 bg-rose-50/40 dark:bg-rose-950/20 border border-rose-200/60 dark:border-rose-900/40 rounded-2xl">
+                      <div className="text-[10px] text-rose-700 dark:text-rose-300 font-extrabold uppercase tracking-wider">
+                        Hata Sayıcı (Eksik veya Yanlış Tuşlama Yönetimi)
+                      </div>
+                      <div className="grid grid-cols-2 gap-2">
+                        <div className="flex flex-col gap-1">
+                          <span className="text-[9px] text-slate-500 font-bold">Maksimum Hatalı Deneme Hakkı</span>
+                          <input
+                            type="number"
+                            min={1}
+                            max={10}
+                            value={node.extra_fields?.max_retries ?? 3}
+                            onChange={(e) => handleUpdateNodeExtraField("max_retries", Number(e.target.value) || 1)}
+                            className="px-2.5 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl text-xs font-bold text-slate-850 dark:text-white focus:outline-none"
+                          />
+                        </div>
+                        <div className="flex flex-col gap-1">
+                          <span className="text-[9px] text-slate-500 font-bold">Tuşlama Zaman Aşımı (Sn)</span>
+                          <input
+                            type="number"
+                            min={2}
+                            max={25}
+                            value={node.extra_fields?.timeout_seconds ?? 6}
+                            onChange={(e) => handleUpdateNodeExtraField("timeout_seconds", Number(e.target.value) || 6)}
+                            className="px-2.5 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl text-xs font-bold text-slate-850 dark:text-white focus:outline-none"
+                          />
+                        </div>
+                      </div>
+                      <div className="flex flex-col gap-1">
+                        <span className="text-[9px] text-slate-500 font-bold">Hatalı / Eksik Girişte Okunacak Uyarı Mesajı</span>
+                        <input
+                          type="text"
+                          value={node.extra_fields?.retry_prompt ?? "Eksik veya hatalı tuşlama yaptınız, lütfen tekrar deneyin."}
+                          onChange={(e) => handleUpdateNodeExtraField("retry_prompt", e.target.value)}
+                          className="px-2.5 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl text-xs text-slate-850 dark:text-white focus:outline-none"
+                        />
+                      </div>
+                    </div>
+                  </div>
+                );
+              })()}
+
+              {/* HTTP Request / Web Service / Script Node parameter */}
+              {node.type === "http_request" && (
+                <div className="flex flex-col gap-3.5 text-left">
+                  <div className="p-3 rounded-2xl bg-amber-50/70 dark:bg-amber-950/25 border border-amber-200/70 dark:border-amber-800/50 space-y-1.5">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-extrabold text-amber-800 dark:text-amber-300 flex items-center gap-1.5">
+                        <Server size={13} /> Dış Web Servis / Script (JSON Webhook)
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          handleUpdateNodeField("value", "http://127.0.0.1:8000/api/v1/demo/order-lookup");
+                          handleUpdateNodeExtraField("method", "POST");
+                          handleUpdateNodeExtraField("body_template", '{\n  "siparis_no": "{{tuslanan_numara}}",\n  "arayan": "{{arayan_numara}}",\n  "hat": "{{aranan_hat}}"\n}');
+                          handleUpdateNodeExtraField("response_key", "target_number");
+                          handleUpdateNodeExtraField("response_tts_key", "message");
+                        }}
+                        className="px-2 py-0.5 bg-amber-600 hover:bg-amber-500 text-white rounded-lg text-[9px] font-bold transition cursor-pointer"
+                        title="Dahili test servisini otomatik doldur (12345 -> 05321112233 döner)"
+                      >
+                        Örnek Test Servisi Doldur
+                      </button>
+                    </div>
+                    <p className="text-[10px] text-amber-700/90 dark:text-amber-300/80 leading-relaxed">
+                      Müşterinin API adresine JSON gönderir, dönen yanıttaki telefon numarasını <code className="font-mono font-bold">{"{{api_numara}}"}</code> değişkenine kaydeder.
+                    </p>
+                  </div>
+
+                  {/* Method & URL */}
+                  <div className="flex gap-2">
+                    <div className="w-24 flex flex-col gap-1">
+                      <span className="text-[9px] text-slate-400 font-bold uppercase">Metot</span>
+                      <select
+                        value={node.extra_fields?.method || "POST"}
+                        onChange={(e) => handleUpdateNodeExtraField("method", e.target.value)}
+                        className="px-2.5 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl text-xs font-extrabold text-slate-850 dark:text-white focus:outline-none"
+                      >
+                        <option value="POST">POST</option>
+                        <option value="GET">GET</option>
+                      </select>
+                    </div>
+                    <div className="flex-1 flex flex-col gap-1">
+                      <span className="text-[9px] text-slate-400 font-bold uppercase">Müşteri Web Servis (API) URL Adresi</span>
+                      <input
+                        type="text"
+                        value={node.value || ""}
+                        onChange={(e) => handleUpdateNodeField("value", e.target.value)}
+                        placeholder="https://musteri.com/api/siparis-sorgula"
+                        className="px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl text-xs font-mono text-slate-850 dark:text-white focus:outline-none"
+                      />
+                    </div>
+                  </div>
+
+                  {/* Optional Auth Header */}
+                  <div className="flex flex-col gap-1">
+                    <span className="text-[9px] text-slate-400 font-bold uppercase">Yetkilendirme Başlığı / Bearer Token (Opsiyonel)</span>
+                    <input
+                      type="text"
+                      value={node.extra_fields?.auth_header || ""}
+                      onChange={(e) => handleUpdateNodeExtraField("auth_header", e.target.value)}
+                      placeholder="Örn: Bearer eyJhbGci... veya X-API-Key: gizli_anahtar"
+                      className="px-3 py-1.5 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl text-xs font-mono text-slate-850 dark:text-white focus:outline-none"
+                    />
+                  </div>
+
+                  {/* JSON Body Template */}
+                  {(node.extra_fields?.method || "POST") === "POST" && (
+                    <div className="flex flex-col gap-1.5 p-3 bg-slate-50 dark:bg-slate-950/40 border border-slate-150 dark:border-slate-800/80 rounded-2xl">
+                      <div className="flex items-center justify-between">
+                        <span className="text-[9px] text-slate-500 font-bold uppercase">Karşı Tarafa Gönderilecek JSON Şablonu</span>
+                        <span className="text-[8px] text-slate-400">Değişken eklemek için tıklayın:</span>
+                      </div>
+                      <div className="flex flex-wrap gap-1 mb-1">
+                        {[
+                          { tag: "{{tuslanan_numara}}", label: "Tuşlanan Numara" },
+                          { tag: "{{arayan_numara}}", label: "Arayan Numara (ANI)" },
+                          { tag: "{{aranan_hat}}", label: "Aranan Hat (DID)" },
+                          { tag: "{{cagri_id}}", label: "Çağrı ID" }
+                        ].map((chip) => (
+                          <button
+                            key={chip.tag}
+                            type="button"
+                            onClick={() => {
+                              const cur = node.extra_fields?.body_template || "";
+                              handleUpdateNodeExtraField("body_template", cur + chip.tag);
+                            }}
+                            className="px-2 py-0.5 bg-indigo-50 dark:bg-indigo-950/40 border border-indigo-200 dark:border-indigo-800 rounded text-[9px] font-mono font-bold text-primary hover:bg-indigo-100 transition cursor-pointer"
+                            title={`${chip.label} değişkenini ekle`}
+                          >
+                            + {chip.tag}
+                          </button>
+                        ))}
+                      </div>
+                      <textarea
+                        rows={4}
+                        value={node.extra_fields?.body_template ?? '{\n  "girilen_kod": "{{tuslanan_numara}}",\n  "arayan": "{{arayan_numara}}"\n}'}
+                        onChange={(e) => handleUpdateNodeExtraField("body_template", e.target.value)}
+                        className="px-3 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl text-xs font-mono text-slate-850 dark:text-white focus:outline-none leading-relaxed"
+                      />
+                    </div>
+                  )}
+
+                  {/* Response Mapping */}
+                  <div className="grid grid-cols-2 gap-2 p-3 bg-emerald-50/40 dark:bg-emerald-950/20 border border-emerald-200/60 dark:border-emerald-900/40 rounded-2xl">
+                    <div className="flex flex-col gap-1">
+                      <span className="text-[9px] text-emerald-800 dark:text-emerald-300 font-bold">Dönen JSON&apos;daki Telefon Alanı</span>
+                      <input
+                        type="text"
+                        value={node.extra_fields?.response_key ?? "target_number"}
+                        onChange={(e) => handleUpdateNodeExtraField("response_key", e.target.value)}
+                        placeholder="Örn: target_number, number, data.phone"
+                        className="px-2.5 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl text-xs font-mono font-bold text-slate-850 dark:text-white focus:outline-none"
+                      />
+                      <span className="text-[8px] text-slate-400">Örn: <code className="font-mono">target_number</code>, <code className="font-mono">number</code>, <code className="font-mono">data.phone</code></span>
+                    </div>
+                    <div className="flex flex-col gap-1">
+                      <span className="text-[9px] text-emerald-800 dark:text-emerald-300 font-bold">Dönen Mesaj Alanı (Opsiyonel TTS)</span>
+                      <input
+                        type="text"
+                        value={node.extra_fields?.response_tts_key ?? "message"}
+                        onChange={(e) => handleUpdateNodeExtraField("response_tts_key", e.target.value)}
+                        placeholder="Örn: message veya aciklama"
+                        className="px-2.5 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl text-xs font-mono font-bold text-slate-850 dark:text-white focus:outline-none"
+                      />
+                      <span className="text-[8px] text-slate-400">Dinamik TTS düğümünde <code className="font-mono">{"{{api_mesaj}}"}</code> ile okunur.</span>
+                    </div>
+                  </div>
+                </div>
+              )}
 
               {/* Setvalue Node parameter */}
               {node.type === "setvalue" && (
@@ -1999,6 +2630,10 @@ export default function CallFlowEditor({ backendHost = "localhost:8000", onEditS
                     }))
                   : [{ id: "1", name: "Operator_Trunk (İkon Telekom)", username: "908503607390" }];
 
+                const otherWorkflowsList = workflows
+                  .filter((w) => String(w.id) !== String(currentWfId))
+                  .map((w) => ({ id: String(w.id), name: `${w.name} (#${w.id})` }));
+
                 const transferSystemAnns = announcements
                   .filter((a) => {
                     const v = String(a?.type || "").trim().toLowerCase();
@@ -2034,14 +2669,16 @@ export default function CallFlowEditor({ backendHost = "localhost:8000", onEditS
                     <div className="flex flex-col gap-3 p-3 bg-slate-50 dark:bg-slate-950/40 border border-slate-150 dark:border-slate-800/80 rounded-2xl">
                       <div className="text-[10px] text-slate-450 dark:text-slate-555 font-bold uppercase tracking-wider">Transfer Hedefi</div>
                       
-                      {/* Transfer Target Type Select */}
+                      {/* Transfer Target Type Select (5 Modes) */}
                       <div className="flex flex-col gap-1">
                         <span className="text-[9px] text-slate-400 font-bold">Hedef Türü</span>
-                        <div className="flex gap-2">
+                        <div className="grid grid-cols-3 gap-1.5">
                           {[
                             { id: "dahili", label: "Dahili Abone" },
                             { id: "kuyruk", label: "Kuyruk" },
-                            { id: "external", label: "Harici Numara" }
+                            { id: "external", label: "Harici Numara" },
+                            { id: "api_dynamic", label: "API Numarası (Trunk)" },
+                            { id: "call_flow", label: "Başka Arama Akışı" }
                           ].map((t) => {
                             const active = currentType === t.id;
                             return (
@@ -2050,11 +2687,17 @@ export default function CallFlowEditor({ backendHost = "localhost:8000", onEditS
                                 type="button"
                                 onClick={() => {
                                   handleUpdateNodeExtraField("transfer_type", t.id);
-                                  // Auto set default value based on choice
                                   if (t.id === "dahili") {
                                     handleUpdateNodeField("value", extensionsList[0]?.id || "1000");
                                   } else if (t.id === "kuyruk") {
                                     handleUpdateNodeField("value", queuesList[0]?.id || "2000");
+                                  } else if (t.id === "call_flow") {
+                                    handleUpdateNodeField("value", otherWorkflowsList[0]?.id || "");
+                                  } else if (t.id === "api_dynamic") {
+                                    handleUpdateNodeField("value", "{{api_numara}}");
+                                    if (!node.extra_fields?.trunk_id && trunksList.length > 0) {
+                                      handleUpdateNodeExtraField("trunk_id", trunksList[0].id);
+                                    }
                                   } else {
                                     handleUpdateNodeField("value", "");
                                     if (!node.extra_fields?.trunk_id && trunksList.length > 0) {
@@ -2062,7 +2705,7 @@ export default function CallFlowEditor({ backendHost = "localhost:8000", onEditS
                                     }
                                   }
                                 }}
-                                className={`flex-1 py-1.5 rounded-lg border text-center text-xs font-bold transition cursor-pointer ${
+                                className={`py-1.5 px-2 rounded-lg border text-center text-[11px] font-bold transition cursor-pointer ${
                                   active
                                     ? "bg-indigo-50 dark:bg-indigo-950/20 text-primary border-indigo-250"
                                     : "bg-white dark:bg-slate-900 text-slate-400 border-slate-200 dark:border-slate-800"
@@ -2076,23 +2719,28 @@ export default function CallFlowEditor({ backendHost = "localhost:8000", onEditS
                       </div>
 
                       {/* Controls for specific destination */}
-                      {currentType === "external" ? (
+                      {(currentType === "external" || currentType === "api_dynamic") ? (
                         <div className="flex flex-col gap-3">
-                          {/* External Phone Number Input */}
-                          <div className="flex flex-col gap-1">
-                            <span className="text-[9px] text-slate-400 font-bold">Harici Telefon Numarası</span>
-                            <input
-                              type="text"
-                              value={node.value || ""}
-                              onChange={(e) => handleUpdateNodeField("value", e.target.value)}
-                              placeholder="Örn: 05321234567 veya 02129998877"
-                              className="px-3 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl text-xs font-bold font-mono text-slate-850 dark:text-white focus:outline-none"
-                            />
-                          </div>
+                          {currentType === "api_dynamic" ? (
+                            <div className="p-2.5 rounded-xl bg-amber-50/70 dark:bg-amber-950/25 border border-amber-200/70 dark:border-amber-800/50 text-[10px] text-amber-800 dark:text-amber-300 leading-relaxed">
+                              <strong>Web Servis (API) Düğümünden</strong> dönen telefon numarası (<code className="font-mono font-bold">{"{{api_numara}}"}</code>) aşağıda seçtiğiniz <strong>Çıkış Trunk (Dış Hat)</strong> üzerinden otomatik aranır ve çağrı aktarılır.
+                            </div>
+                          ) : (
+                            <div className="flex flex-col gap-1">
+                              <span className="text-[9px] text-slate-400 font-bold">Harici Telefon Numarası</span>
+                              <input
+                                type="text"
+                                value={node.value || ""}
+                                onChange={(e) => handleUpdateNodeField("value", e.target.value)}
+                                placeholder="Örn: 05321234567 veya {{api_numara}}"
+                                className="px-3 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl text-xs font-bold font-mono text-slate-850 dark:text-white focus:outline-none"
+                              />
+                            </div>
+                          )}
 
                           {/* Outbound Trunk Selector */}
                           <div className="flex flex-col gap-1">
-                            <span className="text-[9px] text-slate-400 font-bold">Çıkış Trunk (Dış Hat) Seçin</span>
+                            <span className="text-[9px] text-slate-400 font-bold">Çıkış Yapılacak SIP Trunk (Dış Hat) Seçin</span>
                             <select
                               value={node.extra_fields?.trunk_id || (trunksList[0]?.id || "")}
                               onChange={(e) => handleUpdateNodeExtraField("trunk_id", e.target.value)}
@@ -2105,6 +2753,64 @@ export default function CallFlowEditor({ backendHost = "localhost:8000", onEditS
                               ))}
                             </select>
                           </div>
+
+                          {/* Optional Prefix & Caller ID Mode */}
+                          <div className="grid grid-cols-2 gap-2">
+                            <div className="flex flex-col gap-1">
+                              <span className="text-[9px] text-slate-400 font-bold">Numara Ön Eki / Prefix (Opsiyonel)</span>
+                              <input
+                                type="text"
+                                value={node.extra_fields?.prefix || ""}
+                                onChange={(e) => handleUpdateNodeExtraField("prefix", e.target.value)}
+                                placeholder="Örn: 9 veya +90 (Boş bırakılabilir)"
+                                className="px-2.5 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl text-xs font-mono text-slate-850 dark:text-white focus:outline-none"
+                              />
+                            </div>
+                            <div className="flex flex-col gap-1">
+                              <span className="text-[9px] text-slate-400 font-bold">Giden Arayan Kimliği (Caller ID)</span>
+                              <select
+                                value={node.extra_fields?.caller_id_mode || "trunk_did"}
+                                onChange={(e) => handleUpdateNodeExtraField("caller_id_mode", e.target.value)}
+                                className="px-2.5 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl text-xs font-bold text-slate-850 dark:text-white focus:outline-none"
+                              >
+                                <option value="trunk_did">Santral / Trunk Numarası (Önerilen)</option>
+                                <option value="orig_caller">Arayan Müşterinin Numarası</option>
+                              </select>
+                            </div>
+                          </div>
+
+                          {currentType === "api_dynamic" && (
+                            <div className="flex flex-col gap-1">
+                              <span className="text-[9px] text-slate-400 font-bold">API Numara Döndürmezse Yedek Hedef (Dahili / Kuyruk)</span>
+                              <input
+                                type="text"
+                                value={node.extra_fields?.fallback_target || "1000"}
+                                onChange={(e) => handleUpdateNodeExtraField("fallback_target", e.target.value)}
+                                placeholder="Örn: 1000 veya 2000"
+                                className="px-2.5 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl text-xs font-mono text-slate-850 dark:text-white focus:outline-none"
+                              />
+                            </div>
+                          )}
+                        </div>
+                      ) : currentType === "call_flow" ? (
+                        <div className="flex flex-col gap-2">
+                          <span className="text-[9px] text-slate-400 font-bold">Bağlanacak Arama Akışı (Alt IVR Şeması) Seçin</span>
+                          {otherWorkflowsList.length === 0 ? (
+                            <div className="p-3 rounded-xl bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 text-[10px] text-amber-700 dark:text-amber-300">
+                              Henüz başka bir arama akışı bulunmuyor. Büyük IVR&apos;ları bölmek için yeni bir arama akışı oluşturup buradan birbirine bağlayabilirsiniz.
+                            </div>
+                          ) : (
+                            <select
+                              value={node.value || (otherWorkflowsList[0]?.id || "")}
+                              onChange={(e) => handleUpdateNodeField("value", e.target.value)}
+                              className="px-3 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl text-xs font-bold text-slate-850 dark:text-white focus:outline-none"
+                            >
+                              <option value="">-- Arama Akışı Seçin --</option>
+                              {otherWorkflowsList.map((wf) => (
+                                <option key={wf.id} value={wf.id}>{wf.name}</option>
+                              ))}
+                            </select>
+                          )}
                         </div>
                       ) : (
                         <div className="flex flex-col gap-1">
@@ -2236,15 +2942,65 @@ export default function CallFlowEditor({ backendHost = "localhost:8000", onEditS
 
               {/* TTS Node parameter */}
               {node.type === "tts" && (
-                <div className="flex flex-col gap-1.5 text-left">
-                  <label className="text-[10px] text-slate-400 dark:text-slate-555 font-bold uppercase tracking-wider">Seslendirilecek Mesaj Metni (TTS)</label>
+                <div className="flex flex-col gap-2 text-left">
+                  <label className="text-[10px] text-slate-400 dark:text-slate-555 font-bold uppercase tracking-wider">Seslendirilecek Dinamik Mesaj Metni (TTS)</label>
+                  <div className="flex flex-wrap gap-1">
+                    {["{{api_mesaj}}", "{{tuslanan_numara}}", "{{api_numara}}", "{{arayan_numara}}"].map((tag) => (
+                      <button
+                        key={tag}
+                        type="button"
+                        onClick={() => handleUpdateNodeField("value", (node.value || "") + " " + tag)}
+                        className="px-2 py-0.5 bg-fuchsia-50 dark:bg-fuchsia-950/40 border border-fuchsia-200 dark:border-fuchsia-800 rounded text-[9px] font-mono font-bold text-fuchsia-700 dark:text-fuchsia-300 hover:bg-fuchsia-100 transition cursor-pointer"
+                      >
+                        + {tag}
+                      </button>
+                    ))}
+                  </div>
                   <textarea
                     value={node.value}
                     onChange={(e) => handleUpdateNodeField("value", e.target.value)}
-                    placeholder="Metin veya dinamik parametreler yazın, örn: Sayın ${CUSTOMER_NAME}..."
-                    rows={5}
+                    placeholder="Örn: {{api_mesaj}} veya Girdiğiniz {{tuslanan_numara}} numarası için işleminiz yapılıyor..."
+                    rows={4}
                     className="px-3 py-2 bg-slate-50 dark:bg-slate-955 border border-slate-200/65 dark:border-slate-800 rounded-xl text-xs text-slate-850 dark:text-white focus:outline-none leading-relaxed italic"
                   />
+                </div>
+              )}
+
+              {/* WhatsApp Notification Node parameter */}
+              {node.type === "whatsapp_notify" && (
+                <div className="flex flex-col gap-3 text-left">
+                  <div className="flex flex-col gap-1">
+                    <label className="text-[10px] text-slate-400 dark:text-slate-555 font-bold uppercase tracking-wider">Alıcı Telefon Numarası</label>
+                    <input
+                      type="text"
+                      value={node.extra_fields?.recipient ?? "{{arayan_numara}}"}
+                      onChange={(e) => handleUpdateNodeExtraField("recipient", e.target.value)}
+                      placeholder="{{arayan_numara}} veya 05321234567"
+                      className="px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200/65 dark:border-slate-800 rounded-xl text-xs font-mono font-bold text-slate-850 dark:text-white focus:outline-none"
+                    />
+                  </div>
+                  <div className="flex flex-col gap-1.5">
+                    <label className="text-[10px] text-slate-400 dark:text-slate-555 font-bold uppercase tracking-wider">Gönderilecek WhatsApp Mesajı</label>
+                    <div className="flex flex-wrap gap-1">
+                      {["{{tuslanan_numara}}", "{{api_mesaj}}", "{{api_numara}}", "{{arayan_numara}}"].map((tag) => (
+                        <button
+                          key={tag}
+                          type="button"
+                          onClick={() => handleUpdateNodeField("value", (node.value || "") + " " + tag)}
+                          className="px-2 py-0.5 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 rounded text-[9px] font-mono font-bold text-emerald-700 dark:text-emerald-300 hover:bg-emerald-100 transition cursor-pointer"
+                        >
+                          + {tag}
+                        </button>
+                      ))}
+                    </div>
+                    <textarea
+                      value={node.value || ""}
+                      onChange={(e) => handleUpdateNodeField("value", e.target.value)}
+                      placeholder="Merhaba, {{tuslanan_numara}} numaralı talebiniz alınmıştır."
+                      rows={3}
+                      className="px-3 py-2 bg-slate-50 dark:bg-slate-955 border border-slate-200/65 dark:border-slate-800 rounded-xl text-xs text-slate-850 dark:text-white focus:outline-none leading-relaxed"
+                    />
+                  </div>
                 </div>
               )}
 
@@ -2288,17 +3044,83 @@ export default function CallFlowEditor({ backendHost = "localhost:8000", onEditS
                 </div>
               )}
 
-              {/* Compare Node parameter */}
+              {/* Compare (Karşılaştırma / Koşul) Node parameter */}
               {node.type === "compare" && (
-                <div className="flex flex-col gap-1.5 text-left">
-                  <label className="text-[10px] text-slate-400 dark:text-slate-555 font-bold uppercase tracking-wider">Karşılaştırma Koşulu</label>
-                  <input
-                    type="text"
-                    value={node.value}
-                    onChange={(e) => handleUpdateNodeField("value", e.target.value)}
-                    placeholder="Örn: SR_DENE == 1 veya BORC > 100"
-                    className="px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200/65 dark:border-slate-800 rounded-xl text-xs text-slate-850 dark:text-white focus:outline-none font-mono"
-                  />
+                <div className="flex flex-col gap-3 text-left">
+                  <div className="p-3 rounded-2xl bg-cyan-50/60 dark:bg-cyan-950/25 border border-cyan-200/70 dark:border-cyan-800/50 text-[10px] text-cyan-800 dark:text-cyan-300 leading-relaxed">
+                    Seçilen değişkeni belirttiğiniz değerle karşılaştırır. Koşul sağlanırsa <strong>Evet (true)</strong> portundan, sağlanmazsa <strong>Hayır (false)</strong> portundan devam eder.
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div className="flex flex-col gap-1">
+                      <label className="text-[9px] text-slate-400 font-bold uppercase">Kontrol Edilecek Değer</label>
+                      <select
+                        value={node.extra_fields?.source || "tuslanan_numara"}
+                        onChange={(e) => handleUpdateNodeExtraField("source", e.target.value)}
+                        className="px-2.5 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl text-xs font-bold text-slate-850 dark:text-white focus:outline-none"
+                      >
+                        <option value="tuslanan_numara">Tuşlanan Numara (DTMF)</option>
+                        <option value="api_numara">API&apos;den Dönen Numara</option>
+                        <option value="api_mesaj">API&apos;den Dönen Mesaj</option>
+                        <option value="arayan_numara">Arayan Numara (Caller ID)</option>
+                        <option value="aranan_hat">Aranan Hat (DID)</option>
+                        <option value="input_length">Tuşlanan Hane Uzunluğu</option>
+                      </select>
+                    </div>
+                    <div className="flex flex-col gap-1">
+                      <label className="text-[9px] text-slate-400 font-bold uppercase">Karşılaştırma Operatörü</label>
+                      <select
+                        value={node.extra_fields?.operator || "equals"}
+                        onChange={(e) => handleUpdateNodeExtraField("operator", e.target.value)}
+                        className="px-2.5 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl text-xs font-bold text-slate-850 dark:text-white focus:outline-none"
+                      >
+                        <option value="equals">Eşittir (==)</option>
+                        <option value="not_equals">Eşit Değildir (!=)</option>
+                        <option value="starts_with">İle Başlar</option>
+                        <option value="contains">İçerir</option>
+                        <option value="length_equals">Hane Sayısı Eşittir</option>
+                        <option value="greater_than">Büyüktür (&gt;)</option>
+                        <option value="less_than">Küçüktür (&lt;)</option>
+                        <option value="not_empty">Dolu / Boş Değil</option>
+                        <option value="is_empty">Boş</option>
+                      </select>
+                    </div>
+                  </div>
+                  {!["not_empty", "is_empty"].includes(node.extra_fields?.operator) && (
+                    <div className="flex flex-col gap-1">
+                      <label className="text-[9px] text-slate-400 font-bold uppercase">Karşılaştırılacak Değer (Örn: 0, 100, VIP)</label>
+                      <input
+                        type="text"
+                        value={node.value || ""}
+                        onChange={(e) => handleUpdateNodeField("value", e.target.value)}
+                        placeholder="Örn: 0"
+                        className="px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200/65 dark:border-slate-800 rounded-xl text-xs text-slate-850 dark:text-white focus:outline-none font-mono font-bold"
+                      />
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Loop / Counter (Döngü / Sayaç) Node parameter */}
+              {node.type === "loop" && (
+                <div className="flex flex-col gap-3 text-left">
+                  <div className="p-3 rounded-2xl bg-orange-50/60 dark:bg-orange-950/25 border border-orange-200/70 dark:border-orange-800/50 text-[10px] text-orange-800 dark:text-orange-300 leading-relaxed">
+                    Çağrı bu düğüme her geldiğinde sayacı 1 artırır. Belirttiğiniz limite kadar <strong>Tekrarla (loop)</strong> çıkışına, limit dolduğunda ise <strong>Limit Doldu (completed)</strong> çıkışına yönlendirir.
+                  </div>
+                  <div className="flex flex-col gap-1">
+                    <label className="text-[9px] text-slate-400 font-bold uppercase">Maksimum Tekrar Sayısı</label>
+                    <input
+                      type="number"
+                      min={1}
+                      max={20}
+                      value={node.extra_fields?.max_loops ?? (Number(node.value) || 3)}
+                      onChange={(e) => {
+                        const v = Number(e.target.value) || 1;
+                        handleUpdateNodeField("value", String(v));
+                        handleUpdateNodeExtraField("max_loops", v);
+                      }}
+                      className="px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200/65 dark:border-slate-800 rounded-xl text-xs font-bold text-slate-850 dark:text-white focus:outline-none"
+                    />
+                  </div>
                 </div>
               )}
 
@@ -2670,6 +3492,190 @@ export default function CallFlowEditor({ backendHost = "localhost:8000", onEditS
           </dialog>
         );
       })()}
+
+      {/* Live CallFlow Simulator Modal */}
+      {isSimulatorOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 backdrop-blur-sm p-4 animate-in fade-in duration-150"
+          onClick={() => setIsSimulatorOpen(false)}
+        >
+          <div
+            className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl shadow-2xl max-w-2xl w-full max-h-[88vh] overflow-y-auto p-6 flex flex-col gap-4 text-slate-800 dark:text-slate-100"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Header */}
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800">
+              <div className="flex items-center gap-2.5">
+                <div className="p-2 rounded-xl bg-emerald-600 text-white">
+                  <Play size={16} className="fill-current" />
+                </div>
+                <div className="text-left">
+                  <h3 className="text-sm font-extrabold text-slate-900 dark:text-white">
+                    Canlı Akış Simülatörü (Call Flow Test Aracı)
+                  </h3>
+                  <p className="text-[10px] text-slate-400">
+                    Gerçek telefon araması yapmadan tuşlamaları, karşılaştırmaları ve müşteri Web Servis (API) sorgularını adım adım test edin.
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsSimulatorOpen(false)}
+                className="p-1.5 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 hover:text-slate-600 dark:hover:text-white rounded-lg transition cursor-pointer"
+              >
+                <X size={16} />
+              </button>
+            </div>
+
+            {/* Simulation Inputs */}
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 p-3.5 bg-slate-50 dark:bg-slate-950/50 border border-slate-150 dark:border-slate-800 rounded-2xl text-left">
+              <div className="flex flex-col gap-1">
+                <label className="text-[9px] text-slate-400 font-bold uppercase">Arayan Numara (Caller ID)</label>
+                <input
+                  type="text"
+                  value={simCallerNumber}
+                  onChange={(e) => setSimCallerNumber(e.target.value)}
+                  placeholder="05321234567"
+                  className="px-3 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl text-xs font-mono font-bold text-slate-850 dark:text-white focus:outline-none"
+                />
+              </div>
+              <div className="flex flex-col gap-1">
+                <label className="text-[9px] text-slate-400 font-bold uppercase">Aranan Hat (DID)</label>
+                <input
+                  type="text"
+                  value={simDidNumber}
+                  onChange={(e) => setSimDidNumber(e.target.value)}
+                  placeholder="08503607390"
+                  className="px-3 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl text-xs font-mono font-bold text-slate-850 dark:text-white focus:outline-none"
+                />
+              </div>
+              <div className="flex flex-col gap-1">
+                <label className="text-[9px] text-emerald-700 dark:text-emerald-400 font-bold uppercase">Tuşlanan Numara / Kod (DTMF)</label>
+                <input
+                  type="text"
+                  value={simDtmfInput}
+                  onChange={(e) => setSimDtmfInput(e.target.value)}
+                  placeholder="Örn: 12345 veya 0"
+                  className="px-3 py-2 bg-white dark:bg-slate-900 border border-emerald-300 dark:border-emerald-800 rounded-xl text-xs font-mono font-extrabold text-emerald-700 dark:text-emerald-300 focus:outline-none"
+                />
+              </div>
+            </div>
+
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex flex-wrap gap-1.5 text-[10px]">
+                <span className="text-slate-400 self-center font-bold">Hızlı Test Kodları:</span>
+                {[
+                  { val: "12345", label: "12345 (Kurye: 05321112233)" },
+                  { val: "99999", label: "99999 (Mağaza: 05449998877)" },
+                  { val: "100", label: "100 (VIP: 1000)" },
+                  { val: "0", label: "0 (Operatör)" }
+                ].map((preset) => (
+                  <button
+                    key={preset.val}
+                    type="button"
+                    onClick={() => setSimDtmfInput(preset.val)}
+                    className="px-2 py-1 bg-slate-100 dark:bg-slate-800 hover:bg-indigo-50 dark:hover:bg-indigo-950/40 text-slate-600 dark:text-slate-300 rounded-lg font-mono text-[9px] font-bold transition cursor-pointer"
+                  >
+                    {preset.label}
+                  </button>
+                ))}
+              </div>
+              <button
+                type="button"
+                onClick={handleRunSimulation}
+                disabled={simRunning}
+                className="px-5 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-extrabold shadow-md transition flex items-center gap-1.5 cursor-pointer shrink-0"
+              >
+                <Play size={13} className="fill-current" />
+                {simRunning ? "Simüle Ediliyor..." : "Simülasyonu Başlat"}
+              </button>
+            </div>
+
+            {/* Simulation Results */}
+            {simResult && (
+              <div className="flex flex-col gap-3 border-t border-slate-100 dark:border-slate-800 pt-3 text-left">
+                {/* Final Destination Summary Banner */}
+                <div className={`p-3.5 rounded-2xl border flex items-center justify-between gap-3 ${
+                  simResult.final_result?.status === "ok"
+                    ? "bg-emerald-50/70 dark:bg-emerald-950/30 border-emerald-200 dark:border-emerald-800/60"
+                    : "bg-rose-50/70 dark:bg-rose-950/30 border-rose-200 dark:border-rose-800/60"
+                }`}>
+                  <div className="flex flex-col gap-0.5">
+                    <span className="text-[10px] font-extrabold uppercase tracking-wider text-emerald-700 dark:text-emerald-300">
+                      Simülasyon Nihai Sonucu
+                    </span>
+                    <span className="text-xs font-extrabold text-slate-900 dark:text-white">
+                      {simResult.final_result?.target_label || simResult.message || "Tamamlandı"}
+                    </span>
+                    {simResult.final_result?.trunk_id && (
+                      <span className="text-[10px] font-mono text-amber-700 dark:text-amber-300 font-bold">
+                        Çıkış Trunk ID: #{simResult.final_result.trunk_id} | Hedef Numara: {simResult.final_result.extension}
+                      </span>
+                    )}
+                  </div>
+                  <span className="px-2.5 py-1 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 font-mono text-[10px] font-bold text-slate-600 dark:text-slate-300 shrink-0">
+                    {simResult.steps?.length || 0} Adım İşlendi
+                  </span>
+                </div>
+
+                {/* Flow Variables Snapshot */}
+                {simResult.flow_vars && (
+                  <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200/80 dark:border-slate-800 flex flex-wrap gap-2 text-[10px] font-mono">
+                    <span className="font-bold text-slate-400">Değişkenler:</span>
+                    <span className="px-2 py-0.5 rounded bg-violet-50 dark:bg-violet-950/40 text-violet-700 dark:text-violet-300 font-bold">
+                      tuslanan_numara = &quot;{simResult.flow_vars.tuslanan_numara || ""}&quot;
+                    </span>
+                    <span className="px-2 py-0.5 rounded bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 font-bold">
+                      api_numara = &quot;{simResult.flow_vars.api_numara || ""}&quot;
+                    </span>
+                    {simResult.flow_vars.api_mesaj && (
+                      <span className="px-2 py-0.5 rounded bg-fuchsia-50 dark:bg-fuchsia-950/40 text-fuchsia-700 dark:text-fuchsia-300 font-bold">
+                        api_mesaj = &quot;{simResult.flow_vars.api_mesaj}&quot;
+                      </span>
+                    )}
+                  </div>
+                )}
+
+                {/* Step-by-Step Trace */}
+                <div className="flex flex-col gap-1.5 max-h-[260px] overflow-y-auto pr-1">
+                  {(simResult.steps || []).map((st, idx) => (
+                    <div
+                      key={idx}
+                      className="p-2.5 rounded-xl bg-white dark:bg-slate-950/60 border border-slate-150 dark:border-slate-800/80 flex flex-col gap-1 text-xs"
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="flex items-center gap-2">
+                          <span className="w-5 h-5 rounded-full bg-emerald-600 text-white text-[10px] font-extrabold flex items-center justify-center shrink-0">
+                            {st.step}
+                          </span>
+                          <span className="font-extrabold text-slate-800 dark:text-slate-100">{st.title}</span>
+                          <span className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-500 uppercase">
+                            {st.node_type}
+                          </span>
+                        </div>
+                        {st.port && (
+                          <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded bg-indigo-50 dark:bg-indigo-950/40 text-primary">
+                            Çıkış: {st.port}
+                          </span>
+                        )}
+                      </div>
+                      <div className="text-[11px] text-slate-600 dark:text-slate-300 pl-7">
+                        {st.detail}
+                      </div>
+                      {st.http_detail && (
+                        <div className="ml-7 mt-1 p-2 rounded-lg bg-slate-900 text-emerald-300 font-mono text-[10px] overflow-x-auto">
+                          <div>HTTP {st.http_detail.status_code} ({st.http_detail.elapsed_ms} ms) — Çıkarılan Numara: <strong>{st.http_detail.extracted_number || "Yok"}</strong></div>
+                          <div className="text-slate-400 truncate mt-0.5">Yanıt: {st.http_detail.raw_preview}</div>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
     </div>
   );
