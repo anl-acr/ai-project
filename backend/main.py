@@ -40865,19 +40865,61 @@ async def ext_api_v1_status(request: Request):
 
 # --- 1. CANLI ÇAĞRI & SANTRAL KONTROLÜ (CLICK-TO-CALL / TRANSFER / HANGUP) ---
 
+def _parse_lenient_api_json(raw_bytes: bytes) -> Dict[str, Any]:
+    """
+    Postman veya dış istemcilerden gönderilen JSON gövdesinde unutulmuş kapanış tırnağı
+    veya fazladan virgül gibi ufak yazım hatalarını otomatik onararak JSON sözlüğüne çevirir.
+    """
+    import json
+    text = (raw_bytes or b"").decode("utf-8", errors="replace").strip()
+    if not text:
+        return {}
+    try:
+        data = json.loads(text)
+        return data if isinstance(data, dict) else {}
+    except Exception:
+        # Satır sonlarında unutulmuş kapanış tırnaklarını onarmayı dene (Örn: "destination": "99805388102829)
+        fixed_lines = []
+        for line in text.splitlines():
+            s = line.rstrip()
+            if ":" in s and s.count('"') == 3 and not s.endswith('"') and not s.endswith('",'):
+                if s.endswith(","):
+                    s = s[:-1] + '",'
+                else:
+                    s = s + '"'
+            fixed_lines.append(s)
+        repaired = "\n".join(fixed_lines)
+        repaired = re.sub(r",\s*([}\]])", r"\1", repaired)
+        try:
+            data = json.loads(repaired)
+            return data if isinstance(data, dict) else {}
+        except Exception as e:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Gönderilen JSON formatında yazım hatası var (Lütfen tırnak işaretlerinin kapatıldığından emin olun): {e}",
+            )
+
+
 @app.post("/api/v1/calls/originate")
 async def ext_api_v1_originate_call(
     request: Request,
-    payload: Dict[str, Any] = Body(...),
 ):
     """
     Tıkla-Ara (Click-to-Call) Başlatma (POST):
     Önce 'extension' (dahili abone) çaldırılır, cevaplandığında 'destination' (hedef numara) aranır.
     """
     auth = verify_external_api_request(request, settings_db, save_settings, "calls:write")
-    ext = str(payload.get("extension") or "").strip()
-    dest = str(payload.get("destination") or payload.get("phone_number") or "").strip()
-    caller_id = str(payload.get("caller_id") or f"{ext} <{ext}>").strip()
+    payload = _parse_lenient_api_json(await request.body())
+    ext = str(payload.get("extension") or request.query_params.get("extension") or "").strip()
+    dest = str(
+        payload.get("destination")
+        or payload.get("phone_number")
+        or request.query_params.get("destination")
+        or ""
+    ).strip()
+    # ÖNEMLİ: webrtc_agents context'inde giden arama kuralı (ACL) arayan dahiliyi CALLERID(num)
+    # üzerinden kontrol ettiği için numara kısmında her zaman dahili abone numarası (<1000>) yer almalıdır.
+    caller_id = f"Tikla-Ara: {dest} <{ext}>"
     timeout_sec = int(payload.get("timeout") or 30)
 
     if not ext or not dest:

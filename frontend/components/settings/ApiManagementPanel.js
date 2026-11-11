@@ -364,6 +364,103 @@ export default function ApiManagementPanel({ backendHost = "localhost:8000" }) {
     URL.revokeObjectURL(url);
   };
 
+  const downloadPostmanCollection = (preFilledToken = "") => {
+    const originUrl =
+      typeof window !== "undefined" && window.location?.origin
+        ? window.location.origin
+        : "https://aida.saphira.com.tr";
+    const apiKeyValue =
+      typeof preFilledToken === "string" && preFilledToken.trim()
+        ? preFilledToken.trim()
+        : "BURAYA_API_TOKEN_YAPISTIRIN";
+
+    const folderItems = (endpointsCatalog || []).map((cat) => ({
+      name: cat.category,
+      item: (cat.items || []).map((ep) => {
+        const cleanPath = String(ep.path || "").replace(/^\/+/, "");
+        const pathParts = cleanPath.split("/").filter(Boolean);
+        const reqObj = {
+          method: ep.method,
+          header: [
+            {
+              key: "X-API-Key",
+              value: "{{api_key}}",
+              type: "text",
+              description: "AIDA PBX Kurumsal API Anahtarı (Token)"
+            },
+            {
+              key: "Content-Type",
+              value: "application/json",
+              type: "text"
+            }
+          ],
+          url: {
+            raw: `{{base_url}}${ep.path}`,
+            host: ["{{base_url}}"],
+            path: pathParts
+          },
+          description: `${ep.description}\n\nİşlem Türü: ${ep.method_tr}\nGereken Yetki (Scope): ${ep.scope}`
+        };
+
+        if (ep.sample_body) {
+          reqObj.body = {
+            mode: "raw",
+            raw: JSON.stringify(ep.sample_body, null, 2),
+            options: {
+              raw: {
+                language: "json"
+              }
+            }
+          };
+        }
+
+        return {
+          name: `${ep.title} — [${ep.method_tr}]`,
+          request: reqObj,
+          response: []
+        };
+      })
+    }));
+
+    const collectionJson = {
+      info: {
+        _postman_id: "aida-pbx-external-api-v1-collection",
+        name: "AIDA PBX — Kurumsal Dış API (v1) Hazır Test Koleksiyonu",
+        description:
+          "AIDA PBX santral sisteminin tüm dış API (v1) uç noktalarını (Okuma/GET, Ekleme-Başlatma/POST, Güncelleme/PUT, Silme/DELETE) içeren hazır Postman koleksiyonu.",
+        schema:
+          "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+      },
+      variable: [
+        {
+          key: "base_url",
+          value: originUrl,
+          type: "string"
+        },
+        {
+          key: "api_key",
+          value: apiKeyValue,
+          type: "string"
+        }
+      ],
+      item: folderItems
+    };
+
+    const blob = new Blob([JSON.stringify(collectionJson, null, 2)], {
+      type: "application/json;charset=utf-8"
+    });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "AIDA_PBX_Postman_Collection_v1.json";
+    a.click();
+    URL.revokeObjectURL(url);
+    showToast(
+      "success",
+      "Postman Koleksiyonu (.json) indirildi! Postman'de Sol Üstten 'Import' butonuna basıp dosyayı seçebilirsiniz."
+    );
+  };
+
   const getMethodBadgeStyle = (method) => {
     const m = String(method || "").toUpperCase();
     if (m === "GET")
@@ -405,7 +502,16 @@ export default function ApiManagementPanel({ backendHost = "localhost:8000" }) {
             </div>
           </div>
 
-          <div className="flex items-center gap-2.5 shrink-0">
+          <div className="flex items-center gap-2.5 flex-wrap shrink-0">
+            <button
+              type="button"
+              onClick={() => downloadPostmanCollection("")}
+              className={`px-3.5 py-2 rounded-xl text-xs font-extrabold border ${borderLight} ${lightBg} ${text} hover:opacity-90 flex items-center gap-1.5 transition-all shadow-sm`}
+              title="Postman programına tek tıkla aktarmak (Import) için hazır JSON koleksiyonunu indir"
+            >
+              <Download size={14} />
+              <span>Postman Koleksiyonu İndir (.json)</span>
+            </button>
             <button
               type="button"
               onClick={downloadMarkdownDoc}
@@ -1202,11 +1308,19 @@ export default function ApiManagementPanel({ backendHost = "localhost:8000" }) {
               </button>
             </div>
 
-            <div className="flex justify-end pt-2">
+            <div className="flex flex-col sm:flex-row items-center justify-between gap-2.5 pt-2">
+              <button
+                type="button"
+                onClick={() => downloadPostmanCollection(revealedTokenObj.raw_token)}
+                className="w-full sm:w-auto px-4 py-2 rounded-xl text-xs font-extrabold border border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-500/20 flex items-center justify-center gap-1.5"
+              >
+                <Download size={14} />
+                <span>Bu Token İle Hazır Postman Koleksiyonu İndir (.json)</span>
+              </button>
               <button
                 type="button"
                 onClick={() => setRevealedTokenObj(null)}
-                className={`px-5 py-2 rounded-xl text-xs font-extrabold text-white ${bg} ${hover}`}
+                className={`w-full sm:w-auto px-5 py-2 rounded-xl text-xs font-extrabold text-white ${bg} ${hover}`}
               >
                 Kopyaladım, Pencereyi Kapat
               </button>
