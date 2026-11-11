@@ -39900,9 +39900,17 @@ async def apply_bulk_configuration(
         if target_mode == "all":
             matched_users = list(tenant_users)
         elif target_mode == "selected":
+            expanded_tokens = set(target_set_ids)
+            for tok in list(target_set_ids):
+                if tok.startswith("group_"):
+                    gid_tok = tok.replace("group_", "", 1)
+                    for sg in _filter_tenant_items(settings_db.get("subscriber_groups", []), target_tenant):
+                        if str(sg.get("id")) == gid_tok:
+                            for m in (sg.get("extensions") or sg.get("members") or []):
+                                expanded_tokens.add(str(m).strip())
             matched_users = [
                 u for u in tenant_users
-                if str(u.get("id")) in target_set_ids or str(u.get("extension")) in target_set_ids
+                if str(u.get("id")) in expanded_tokens or str(u.get("extension")) in expanded_tokens
             ]
         elif target_mode == "subscriber_group":
             sg_target_ids = set(target_set_ids)

@@ -162,6 +162,7 @@ export default function BulkConfigPanel({
   const [extStart, setExtStart] = useState("1000");
   const [extEnd, setExtEnd] = useState("1099");
   const [targetSearch, setTargetSearch] = useState("");
+  const [selectedTargetSearch, setSelectedTargetSearch] = useState("");
 
   const [metadata, setMetadata] = useState({
     users: [],
@@ -256,6 +257,32 @@ export default function BulkConfigPanel({
     }, 5000);
   };
 
+  const getRoleLabel = (roleCode) => {
+    const r = (metadata.roles || []).find((x) => x.role_code === roleCode);
+    if (r) return r.name || r.role_name || roleCode;
+    if (roleCode === "admin") return "Sistem Yöneticisi";
+    if (roleCode === "supervisor") return "Takım Lideri";
+    if (roleCode === "agent") return "Müşteri Temsilcisi";
+    return roleCode || "Kullanıcı";
+  };
+
+  const getGroupMemberUserIds = (group, usersList = metadata.users) => {
+    const rawExts = group?.extensions || group?.members || [];
+    const matchedIds = [];
+    rawExts.forEach((val) => {
+      const u = (usersList || []).find(
+        (usr) =>
+          usr.id === val ||
+          String(usr.id) === String(val) ||
+          String(usr.extension) === String(val)
+      );
+      if (u && !matchedIds.includes(String(u.id))) {
+        matchedIds.push(String(u.id));
+      }
+    });
+    return matchedIds;
+  };
+
   // Compute matched targets preview
   const matchedTargets = useMemo(() => {
     if (activeModule === "users") {
@@ -263,6 +290,20 @@ export default function BulkConfigPanel({
       if (targetMode === "all") return allUsers;
       if (targetMode === "selected") {
         const setIds = new Set(selectedIds.map(String));
+        selectedIds.forEach((tok) => {
+          const sTok = String(tok);
+          if (sTok.startsWith("group_")) {
+            const gid = sTok.replace("group_", "");
+            const grp = (metadata.subscriber_groups || []).find(
+              (g) => String(g.id) === gid
+            );
+            if (grp) {
+              getGroupMemberUserIds(grp, allUsers).forEach((uid) =>
+                setIds.add(String(uid))
+              );
+            }
+          }
+        });
         return allUsers.filter(
           (u) => setIds.has(String(u.id)) || setIds.has(String(u.extension))
         );
@@ -720,62 +761,213 @@ export default function BulkConfigPanel({
     [matchedTargets]
   );
 
+  // Combined available items for the Queue-style 2-column transfer picker
+  const allDualPickerItems = useMemo(() => {
+    if (activeModule === "users") {
+      const groupItems = (metadata.subscriber_groups || []).map((g) => {
+        const memberUserIds = getGroupMemberUserIds(g, metadata.users || []);
+        return {
+          id: `group_${g.id}`,
+          group_id: g.id,
+          full_name: g.name,
+          extension: `Abone Grubu (${memberUserIds.length} Abone)`,
+          role: "subscriber_group",
+          is_subscriber_group: true,
+          memberUserIds
+        };
+      });
+      const userItems = (metadata.users || []).map((u) => ({
+        ...u,
+        id: String(u.id),
+        is_subscriber_group: false
+      }));
+      return [...groupItems, ...userItems];
+    }
+    if (activeModule === "subscriber_groups") {
+      return (metadata.subscriber_groups || []).map((g) => ({
+        ...g,
+        id: String(g.id),
+        full_name: g.name,
+        extension: `${(g.extensions || []).length} Abone`,
+        is_subscriber_group: true,
+        memberUserIds: getGroupMemberUserIds(g, metadata.users || [])
+      }));
+    }
+    if (activeModule === "queues") {
+      return (metadata.queues || []).map((q) => ({
+        ...q,
+        id: String(q.id),
+        full_name: q.name,
+        extension: String(q.extension || q.queue_number || "-")
+      }));
+    }
+    if (activeModule === "outbound_rules") {
+      return (metadata.outbound_rules || []).map((r) => ({
+        ...r,
+        id: String(r.id),
+        full_name: r.name,
+        extension: r.prefix ? `Önek: ${r.prefix}` : "Genel Kural"
+      }));
+    }
+    return [];
+  }, [activeModule, metadata]);
+
+  // Effective selected IDs set (includes group_X tokens and matched target IDs)
+  const effectiveSelectedIdSet = useMemo(() => {
+    if (targetMode === "selected") {
+      const set = new Set(selectedIds.map(String));
+      // Also resolve extensions to user/queue IDs
+      if (activeModule === "users") {
+        (metadata.users || []).forEach((u) => {
+          if (set.has(String(u.extension))) set.add(String(u.id));
+        });
+        selectedIds.forEach((tok) => {
+          const sTok = String(tok);
+          if (sTok.startsWith("group_")) {
+            const gid = sTok.replace("group_", "");
+            const grp = (metadata.subscriber_groups || []).find(
+              (g) => String(g.id) === gid
+            );
+            if (grp) {
+              getGroupMemberUserIds(grp, metadata.users || []).forEach((uid) =>
+                set.add(String(uid))
+              );
+            }
+          }
+        });
+      } else if (activeModule === "queues") {
+        (metadata.queues || []).forEach((q) => {
+          const qExt = String(q.extension || q.queue_number || "");
+          if (qExt && set.has(qExt)) set.add(String(q.id));
+        });
+      }
+      return set;
+    }
+    const set = new Set((matchedTargets || []).map((t) => String(t.id)));
+    if (
+      activeModule === "users" &&
+      targetMode === "subscriber_group" &&
+      filterSubGroupId
+    ) {
+      set.add(`group_${filterSubGroupId}`);
+    }
+    return set;
+  }, [targetMode, selectedIds, matchedTargets, activeModule, metadata, filterSubGroupId]);
+
+  const unassignedPickerItems = useMemo(() => {
+    const q = targetSearch.trim().toLowerCase();
+    return allDualPickerItems.filter((item) => {
+      if (effectiveSelectedIdSet.has(String(item.id))) return false;
+      if (!q) return true;
+      return (
+        String(item.full_name || item.name || "").toLowerCase().includes(q) ||
+        String(item.extension || "").toLowerCase().includes(q) ||
+        (item.is_subscriber_group && "abone grubu".includes(q))
+      );
+    });
+  }, [allDualPickerItems, effectiveSelectedIdSet, targetSearch]);
+
+  const selectedPickerItems = useMemo(() => {
+    const q = selectedTargetSearch.trim().toLowerCase();
+    return allDualPickerItems.filter((item) => {
+      if (!effectiveSelectedIdSet.has(String(item.id))) return false;
+      if (!q) return true;
+      return (
+        String(item.full_name || item.name || "").toLowerCase().includes(q) ||
+        String(item.extension || "").toLowerCase().includes(q) ||
+        (item.is_subscriber_group && "abone grubu".includes(q))
+      );
+    });
+  }, [allDualPickerItems, effectiveSelectedIdSet, selectedTargetSearch]);
+
   const toggleSelectedTarget = (item) => {
     const sId = String(item.id);
     const extStr = String(item.extension || item.queue_number || "");
-    if (targetMode !== "selected") {
-      const currentIds = (matchedTargets || []).map((t) => String(t.id));
-      const exists = currentIds.includes(sId);
-      const nextIds = exists
-        ? currentIds.filter((x) => x !== sId && (!extStr || x !== extStr))
-        : [...currentIds, sId];
-      setSelectedIds(nextIds);
-      setTargetMode("selected");
+    const isSubGroup =
+      activeModule === "users" &&
+      (!!item.is_subscriber_group || sId.startsWith("group_"));
+
+    const getBaseIds = () => {
+      if (targetMode === "selected") {
+        return Array.from(effectiveSelectedIdSet);
+      }
+      const list = (matchedTargets || []).map((t) => String(t.id));
+      if (
+        activeModule === "users" &&
+        targetMode === "subscriber_group" &&
+        filterSubGroupId
+      ) {
+        list.push(`group_${filterSubGroupId}`);
+      }
+      return list;
+    };
+
+    const baseIds = getBaseIds();
+    setTargetMode("selected");
+
+    if (isSubGroup) {
+      const grpKey = sId;
+      const grpId = grpKey.replace("group_", "");
+      const grpObj = (metadata.subscriber_groups || []).find(
+        (g) => String(g.id) === grpId
+      );
+      const memberUserIds =
+        item.memberUserIds ||
+        (grpObj ? getGroupMemberUserIds(grpObj, metadata.users || []) : []);
+      const exists = baseIds.includes(grpKey);
+
+      if (exists) {
+        // Abone grubu çıkarıldığında hem grubu hem de içindeki kullanıcıları (başka seçili grupta değillerse) çıkar
+        const remainingGroupKeys = baseIds.filter(
+          (uid) => String(uid).startsWith("group_") && String(uid) !== grpKey
+        );
+        const protectedUserIds = new Set();
+        remainingGroupKeys.forEach((rk) => {
+          const otherGid = String(rk).replace("group_", "");
+          const otherGrp = (metadata.subscriber_groups || []).find(
+            (g) => String(g.id) === otherGid
+          );
+          if (otherGrp) {
+            getGroupMemberUserIds(otherGrp, metadata.users || []).forEach((uid) =>
+              protectedUserIds.add(String(uid))
+            );
+          }
+        });
+        const next = baseIds.filter((qid) => {
+          const sQid = String(qid);
+          if (sQid === grpKey) return false;
+          if (
+            memberUserIds.some((uid) => String(uid) === sQid) &&
+            !protectedUserIds.has(sQid)
+          ) {
+            return false;
+          }
+          return true;
+        });
+        setSelectedIds(next);
+      } else {
+        // Abone grubu eklendiğinde hem abone grubunu hem de içindeki tüm aboneleri ekle
+        const next = [...baseIds];
+        if (!next.includes(grpKey)) next.push(grpKey);
+        memberUserIds.forEach((uid) => {
+          const sUid = String(uid);
+          if (!next.includes(sUid)) next.push(sUid);
+        });
+        setSelectedIds(next);
+      }
       return;
     }
-    setSelectedIds((prev) => {
-      const exists = prev.includes(sId) || (extStr && prev.includes(extStr));
-      if (exists) {
-        return prev.filter((x) => x !== sId && (!extStr || x !== extStr));
-      }
-      return [...prev, sId];
-    });
-  };
 
-  const selectableItemsForManualPicker = useMemo(() => {
-    const q = targetSearch.trim().toLowerCase();
-    if (activeModule === "users") {
-      return (metadata.users || []).filter(
-        (u) =>
-          !q ||
-          String(u.full_name || "").toLowerCase().includes(q) ||
-          String(u.extension || "").toLowerCase().includes(q) ||
-          String(u.email || "").toLowerCase().includes(q)
+    const exists =
+      baseIds.includes(sId) || (!isSubGroup && extStr && baseIds.includes(extStr));
+    if (exists) {
+      setSelectedIds(
+        baseIds.filter((x) => x !== sId && (!extStr || x !== extStr))
       );
+    } else {
+      setSelectedIds([...baseIds, sId]);
     }
-    if (activeModule === "subscriber_groups") {
-      return (metadata.subscriber_groups || []).filter(
-        (g) => !q || String(g.name || "").toLowerCase().includes(q)
-      );
-    }
-    if (activeModule === "queues") {
-      return (metadata.queues || []).filter(
-        (item) =>
-          !q ||
-          String(item.name || "").toLowerCase().includes(q) ||
-          String(item.extension || item.queue_number || "").toLowerCase().includes(q)
-      );
-    }
-    if (activeModule === "outbound_rules") {
-      return (metadata.outbound_rules || []).filter(
-        (r) =>
-          !q ||
-          String(r.name || "").toLowerCase().includes(q) ||
-          String(r.prefix || "").toLowerCase().includes(q)
-      );
-    }
-    return [];
-  }, [activeModule, metadata, targetSearch]);
+  };
 
   const contentBody = (
     <div className="flex flex-col gap-5">
@@ -1254,88 +1446,303 @@ export default function BulkConfigPanel({
           </div>
         )}
 
-        {/* Interactive Multi-Select Checkbox Grid (Always Visible) */}
-        <div className="mt-3 p-3.5 rounded-xl bg-slate-50 dark:bg-slate-800/40 border border-slate-200/80 dark:border-slate-800">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-3">
-            <div className="relative flex-1 max-w-xs">
-              <Search
-                size={14}
-                className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
-              />
-              <input
-                type="text"
-                value={targetSearch}
-                onChange={(e) => setTargetSearch(e.target.value)}
-                placeholder={
-                  activeModule === "users"
-                    ? "Abone adı veya dahili no ile ara..."
-                    : "Kayıt adı ile ara..."
-                }
-                className="w-full pl-8 pr-3 py-1.5 text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900"
-              />
+        {/* Queue-Style 2-Column Member & Subscriber Group Transfer Picker */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-3">
+          {/* Sol: Uygun Kullanıcılar & Abone Grupları / Kayıtlar */}
+          <div className="flex flex-col border border-slate-200 dark:border-slate-800 rounded-2xl overflow-hidden bg-slate-50/50 dark:bg-slate-900/50 h-[320px]">
+            <div className="p-3 border-b border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/80 flex flex-col gap-2">
+              <div className="flex justify-between items-center gap-2">
+                <h4 className="text-xs font-bold text-slate-800 dark:text-white">
+                  {activeModule === "users"
+                    ? "Kullanıcılar & Abone Grupları"
+                    : activeModule === "subscriber_groups"
+                    ? "Abone Grupları"
+                    : activeModule === "queues"
+                    ? "ACD Kuyrukları"
+                    : "Giden Arama Kuralları"}
+                </h4>
+                <div className="flex items-center gap-1.5">
+                  <span className="px-2 py-0.5 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 text-[10px] font-bold">
+                    {unassignedPickerItems.length} Uygun
+                  </span>
+                  {unassignedPickerItems.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const addIds = new Set(Array.from(effectiveSelectedIdSet));
+                        unassignedPickerItems.forEach((it) => {
+                          addIds.add(String(it.id));
+                          if (it.is_subscriber_group && Array.isArray(it.memberUserIds)) {
+                            it.memberUserIds.forEach((uid) => addIds.add(String(uid)));
+                          }
+                        });
+                        setSelectedIds(Array.from(addIds));
+                        setTargetMode("selected");
+                      }}
+                      className={`px-2 py-0.5 rounded-lg text-[10px] font-bold ${lightBg} ${text} border ${borderLight} hover:opacity-90 cursor-pointer`}
+                    >
+                      Tümünü Ekle
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              <div className="relative">
+                <Search
+                  size={13}
+                  className="absolute left-2.5 top-2.5 text-slate-400 pointer-events-none"
+                />
+                <input
+                  type="text"
+                  autoComplete="off"
+                  placeholder={
+                    activeModule === "users"
+                      ? "Temsilci, dahili veya abone grubu ara..."
+                      : "Kayıt ara..."
+                  }
+                  value={targetSearch}
+                  onChange={(e) => setTargetSearch(e.target.value)}
+                  className={`w-full pl-8 pr-7 py-1.5 text-[11px] bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-2 ${ring} transition-all`}
+                />
+                {targetSearch && (
+                  <button
+                    type="button"
+                    onClick={() => setTargetSearch("")}
+                    className="absolute right-2 top-2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
+                  >
+                    <X size={13} />
+                  </button>
+                )}
+              </div>
             </div>
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={() => {
-                  setSelectedIds(
-                    selectableItemsForManualPicker.map((it) => String(it.id))
-                  );
-                  setTargetMode("selected");
-                }}
-                className="px-2.5 py-1 rounded-lg text-[11px] font-bold bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-100 cursor-pointer"
-              >
-                Tümünü Seç ({selectableItemsForManualPicker.length})
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setSelectedIds([]);
-                  setTargetMode("selected");
-                }}
-                className="px-2.5 py-1 rounded-lg text-[11px] font-bold bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-500 hover:bg-slate-100 cursor-pointer"
-              >
-                Seçimi Temizle
-              </button>
-            </div>
-          </div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2 max-h-56 overflow-y-auto pr-1">
-            {selectableItemsForManualPicker.map((item) => {
-              const idStr = String(item.id);
-              const extStr = String(item.extension || item.queue_number || "");
-              const isChecked =
-                targetMode === "selected"
-                  ? selectedIds.includes(idStr) ||
-                    (extStr && selectedIds.includes(extStr))
-                  : matchedTargetIdSet.has(idStr);
-              const label =
-                activeModule === "users"
-                  ? `${item.full_name} (${item.extension})`
-                  : activeModule === "subscriber_groups"
-                  ? `${item.name} (${(item.extensions || []).length} Abone)`
-                  : activeModule === "queues"
-                  ? `${item.name} (${item.extension || item.queue_number || "-"})`
-                  : `${item.name} (${item.prefix || "Genel"})`;
-              return (
+
+            <div className="flex-1 overflow-y-auto p-2 space-y-1 custom-scrollbar">
+              {unassignedPickerItems.map((u) => (
                 <div
-                  key={idStr}
-                  onClick={() => toggleSelectedTarget(item)}
-                  className={`flex items-center gap-2.5 p-2 rounded-xl border text-xs cursor-pointer transition-all select-none ${
-                    isChecked
-                      ? `${lightBg} ${border} font-bold text-slate-900 dark:text-white`
-                      : "bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-300 hover:border-slate-300"
+                  key={u.id}
+                  onClick={() => toggleSelectedTarget(u)}
+                  className={`flex items-center gap-3 p-2 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer transition-all border border-transparent hover:border-slate-200 dark:hover:border-slate-700 ${
+                    u.is_subscriber_group ? `${lightBg} border ${borderLight}` : ""
                   }`}
                 >
-                  <input
-                    type="checkbox"
-                    checked={isChecked}
-                    readOnly
-                    className="w-4 h-4 rounded pointer-events-none"
-                  />
-                  <span className="truncate">{label}</span>
+                  {u.is_subscriber_group ? (
+                    <div
+                      className={`w-8 h-8 rounded-lg ${lightBg} ${text} flex items-center justify-center shrink-0 border ${borderLight}`}
+                    >
+                      <Users size={16} />
+                    </div>
+                  ) : activeModule === "users" ? (
+                    <img
+                      src={
+                        u.avatar ||
+                        `https://ui-avatars.com/api/?name=${encodeURIComponent(
+                          u.full_name || "U"
+                        )}&background=random`
+                      }
+                      alt=""
+                      className="w-8 h-8 rounded-lg bg-slate-200 shrink-0"
+                    />
+                  ) : (
+                    <div
+                      className={`w-8 h-8 rounded-lg ${lightBg} ${text} flex items-center justify-center shrink-0 border ${borderLight}`}
+                    >
+                      {activeModule === "queues" ? (
+                        <PhoneCall size={15} />
+                      ) : (
+                        <ArrowUpRight size={15} />
+                      )}
+                    </div>
+                  )}
+
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-1.5">
+                      <p className="text-xs font-bold text-slate-700 dark:text-slate-200 truncate">
+                        {u.full_name || u.name}
+                      </p>
+                      {u.is_subscriber_group && (
+                        <span
+                          className={`px-1.5 py-0.5 rounded text-[9px] font-bold ${lightBg} ${text} border ${borderLight}`}
+                        >
+                          Abone Grubu
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-[10px] text-slate-400 truncate">
+                      {u.is_subscriber_group
+                        ? `${(u.memberUserIds || []).length} Abone`
+                        : activeModule === "users"
+                        ? `${getRoleLabel(u.role)} • Dahili: ${u.extension}`
+                        : activeModule === "queues"
+                        ? `Kuyruk Dahili: ${u.extension}`
+                        : u.extension}
+                    </p>
+                  </div>
+                  <ChevronRight size={14} className="text-slate-300 shrink-0" />
                 </div>
-              );
-            })}
+              ))}
+              {unassignedPickerItems.length === 0 && (
+                <div className="p-4 text-center text-xs text-slate-400">
+                  {targetSearch
+                    ? "Aramayla eşleşen kayıt bulunamadı."
+                    : "Eklenebilecek başka kayıt kalmadı."}
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Sağ: Seçili Aboneler, Abone Grupları veya Kayıtlar */}
+          <div className="flex flex-col border border-slate-200 dark:border-slate-800 rounded-2xl overflow-hidden bg-slate-50/50 dark:bg-slate-900/50 h-[320px]">
+            <div className="p-3 border-b border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/80 flex flex-col gap-2">
+              <div className="flex justify-between items-center gap-2">
+                <h4 className="text-xs font-bold text-slate-800 dark:text-white">
+                  {activeModule === "users"
+                    ? "Seçili Aboneler & Abone Grupları"
+                    : "Seçili Hedef Kayıtlar"}
+                </h4>
+                <div className="flex items-center gap-1.5">
+                  <span
+                    className={`px-2 py-0.5 rounded-lg ${lightBg} ${text} text-[10px] font-bold`}
+                  >
+                    {matchedTargets.length} Seçili
+                  </span>
+                  {selectedPickerItems.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSelectedIds([]);
+                        setTargetMode("selected");
+                      }}
+                      className="px-2 py-0.5 rounded-lg text-[10px] font-bold bg-slate-100 dark:bg-slate-800 text-slate-500 hover:text-rose-500 cursor-pointer"
+                    >
+                      Tümünü Çıkar
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              <div className="relative">
+                <Search
+                  size={13}
+                  className="absolute left-2.5 top-2.5 text-slate-400 pointer-events-none"
+                />
+                <input
+                  type="text"
+                  autoComplete="off"
+                  placeholder={
+                    activeModule === "users"
+                      ? "Seçili üyelerde veya dahilide ara..."
+                      : "Seçili kayıtlarda ara..."
+                  }
+                  value={selectedTargetSearch}
+                  onChange={(e) => setSelectedTargetSearch(e.target.value)}
+                  className={`w-full pl-8 pr-7 py-1.5 text-[11px] bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-2 ${ring} transition-all`}
+                />
+                {selectedTargetSearch && (
+                  <button
+                    type="button"
+                    onClick={() => setSelectedTargetSearch("")}
+                    className="absolute right-2 top-2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
+                  >
+                    <X size={13} />
+                  </button>
+                )}
+              </div>
+            </div>
+
+            <div className="flex-1 overflow-y-auto p-2 space-y-1.5 custom-scrollbar">
+              {selectedPickerItems.map((u) => (
+                <div
+                  key={u.id}
+                  onClick={() => toggleSelectedTarget(u)}
+                  className={`flex items-center justify-between gap-2 p-2.5 rounded-xl border shadow-sm transition-all cursor-pointer group ${
+                    u.is_subscriber_group
+                      ? `${lightBg} border ${borderLight}`
+                      : "bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-700"
+                  }`}
+                >
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    {u.is_subscriber_group ? (
+                      <div
+                        className={`w-7 h-7 rounded-lg ${lightBg} ${text} border ${borderLight} flex items-center justify-center shrink-0`}
+                      >
+                        <Users size={15} />
+                      </div>
+                    ) : activeModule === "users" ? (
+                      <img
+                        src={
+                          u.avatar ||
+                          `https://ui-avatars.com/api/?name=${encodeURIComponent(
+                            u.full_name || "U"
+                          )}&background=random`
+                        }
+                        alt=""
+                        className="w-7 h-7 rounded-lg bg-slate-200 shrink-0"
+                      />
+                    ) : (
+                      <div
+                        className={`w-7 h-7 rounded-lg ${lightBg} ${text} border ${borderLight} flex items-center justify-center shrink-0`}
+                      >
+                        {activeModule === "queues" ? (
+                          <PhoneCall size={14} />
+                        ) : (
+                          <ArrowUpRight size={14} />
+                        )}
+                      </div>
+                    )}
+
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-1.5">
+                        <p className="text-xs font-bold text-slate-800 dark:text-white truncate">
+                          {u.full_name || u.name}
+                        </p>
+                        {u.is_subscriber_group && (
+                          <span
+                            className={`px-1.5 py-0.5 rounded text-[9px] font-bold ${lightBg} ${text} border ${borderLight}`}
+                          >
+                            Abone Grubu
+                          </span>
+                        )}
+                      </div>
+                      <span className="text-[10px] text-slate-400">
+                        {u.is_subscriber_group
+                          ? activeModule === "users"
+                            ? `${(u.memberUserIds || []).length} Abone (Grup çıkarıldığında üyeleri de çıkarılır)`
+                            : `${(u.memberUserIds || []).length} Abone`
+                          : activeModule === "users"
+                          ? `${getRoleLabel(u.role)} • Dahili: ${u.extension || "-"}`
+                          : activeModule === "queues"
+                          ? `Kuyruk Dahili: ${u.extension}`
+                          : u.extension}
+                      </span>
+                    </div>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      toggleSelectedTarget(u);
+                    }}
+                    className="w-6 h-6 rounded-md hover:bg-rose-50 hover:text-rose-500 text-slate-300 flex items-center justify-center transition-all shrink-0"
+                    title={
+                      u.is_subscriber_group
+                        ? "Abone Grubunu ve Üyelerini Çıkar"
+                        : "Çıkar"
+                    }
+                  >
+                    <X size={13} />
+                  </button>
+                </div>
+              ))}
+
+              {selectedPickerItems.length === 0 && (
+                <div className="p-4 text-center text-xs text-slate-400">
+                  {selectedTargetSearch
+                    ? "Aramayla eşleşen seçili kayıt bulunamadı."
+                    : "Henüz kayıt seçilmedi. Sol listeden abone veya abone grubu tıklayarak ekleyebilirsiniz."}
+                </div>
+              )}
+            </div>
           </div>
         </div>
       </div>
