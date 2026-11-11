@@ -79,6 +79,7 @@ export const SUBTAB_TURKISH_SLUGS = {
   "breaks": "mola-tanimlari",
   "work-hours": "mesai-ve-tatiller",
   "bulk-config": "toplu-konfigurasyon",
+  "api-management": "dis-api-ve-anahtar-yonetimi",
   "users": "kullanici-yonetimi",
   "roles": "rol-ve-yetkiler",
   "tenants": "musteri-lisanslari",

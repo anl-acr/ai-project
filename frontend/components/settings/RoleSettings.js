@@ -242,6 +242,7 @@ const SYSTEM_FEATURES = [
   { id: "roles", name: "Roller", icon: Shield, type: "crud", color: "purple" },
   { id: "canned_responses", name: "Hızlı Cevaplar", icon: FileText, type: "crud", color: "pink" },
   { id: "universal_api", name: "Evrensel API Sihirbazı", icon: Cable, type: "crud", color: "indigo" },
+  { id: "api_management", name: "Kurumsal Dış API & Anahtar (Token) Yönetimi", icon: Lock, type: "crud", color: "indigo" },
   { id: "autoprovision_templates", name: "Otoprovizyon Şablonları", icon: FileText, type: "crud", color: "amber" },
   { id: "roi_settings", name: "ROI Rapor Ayarları", icon: FileText, type: "crud", color: "amber" },
   { id: "ssl", name: "SSL Sertifikaları", icon: Lock, type: "crud_partial", color: "emerald" },
@@ -329,6 +330,20 @@ export const normalizeRolePermissionsList = (rawPerms = []) => {
     }
     if (perms.includes("users:delete") || perms.includes("pbx:delete")) {
       perms.push("bulk_config:delete");
+    }
+  }
+
+  // External API Management permission fallback from universal_api / pbx
+  const hasApiMgmtPerm = perms.some((p) => p.startsWith("api_management:"));
+  if (!hasApiMgmtPerm) {
+    if (perms.includes("universal_api:read") || perms.includes("pbx:read")) {
+      perms.push("api_management:read");
+    }
+    if (perms.includes("universal_api:write") || perms.includes("pbx:write")) {
+      perms.push("api_management:write");
+    }
+    if (perms.includes("universal_api:delete") || perms.includes("pbx:delete")) {
+      perms.push("api_management:delete");
     }
   }
 

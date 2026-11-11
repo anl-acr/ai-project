@@ -74,6 +74,7 @@ const RestorePointsPanel = lazySub(() => import("./RestorePointsPanel"));
 const WorkHoursSettingsPanel = lazySub(() => import("./WorkHoursSettingsPanel"));
 const SmartCallbackSettings = lazySub(() => import("./SmartCallbackSettings"));
 const BulkConfigPanel = lazySub(() => import("./BulkConfigPanel"));
+const ApiManagementPanel = lazySub(() => import("./ApiManagementPanel"));
 import InfoTooltip from "../common/InfoTooltip";
 
 const normalizeSubTab = (subTab) => {
@@ -464,6 +465,13 @@ export default function SettingsPanel({ backendHost = "localhost:8000" }) {
             visible: hasAPIPermission
           },
           {
+            id: "api-management",
+            label: "Kurumsal Dış API & Token Yönetimi",
+            subtitle: "Dış yazılımlar için API Anahtarı (Token), GET/POST/PUT/DELETE yetkileri ve doküman",
+            icon: KeyRound,
+            visible: hasAPIPermission
+          },
+          {
             id: "email-notifications",
             label: "E-Mail Bildirimleri",
             subtitle: "SMTP uyarı ve sistem bildirimleri",
@@ -769,6 +777,9 @@ export default function SettingsPanel({ backendHost = "localhost:8000" }) {
             {activeSubTab === "qa" && <QASettings backendHost={backendHost} />}
             {activeSubTab === "universal-api" && (
               <UniversalAPISettings backendHost={backendHost} />
+            )}
+            {activeSubTab === "api-management" && (
+              <ApiManagementPanel backendHost={backendHost} />
             )}
             {activeSubTab === "voice-biometrics" && (
               <VoiceBiometricsSettings backendHost={backendHost} />
