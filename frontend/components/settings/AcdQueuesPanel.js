@@ -401,11 +401,10 @@ export default function AcdQueuesPanel({ backendHost }) {
           <button
             type="button"
             onClick={() => setShowBulkModal(true)}
-            className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 h-8 shrink-0 border border-slate-200 dark:border-slate-700"
-            title="Kuyrukları Toplu Konfigüre Et"
+            className={`p-2 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 ${text} rounded-xl transition-all flex items-center justify-center h-8 w-8 shrink-0 border border-slate-200 dark:border-slate-700`}
+            title="Toplu Konfigürasyon (Kuyrukları Toplu Düzenle)"
           >
-            <Sliders size={14} className={text} />
-            <span className="hidden md:inline">Toplu Konfigürasyon</span>
+            <Sliders size={16} />
           </button>
 
           <button

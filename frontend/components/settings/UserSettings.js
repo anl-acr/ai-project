@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
-import { Plus, Trash2, Edit2, X, User, Mail, Phone, Shield, Check, CheckCircle, ToggleLeft, ToggleRight, Search, Copy, RefreshCw, KeyRound, PhoneCall, Settings, Image as ImageIcon, Monitor, Smartphone, AlertTriangle, PhoneOutgoing, Users, Forward, Mic, MicOff, Download, Upload, Building2, Eye, EyeOff, Cable, ExternalLink, Database, Play, LayoutGrid, ChevronRight, Lock, Unlock, Terminal, Wifi, Cpu, ArrowUp, ArrowDown, Power, Sparkles, Layers, Palette, Sun, Moon, Clock, Volume2, Square, BellRing, GripVertical, RotateCcw, List, PanelTop, Keyboard, Pin } from "lucide-react";
+import { Plus, Trash2, Edit2, X, User, Mail, Phone, Shield, Check, CheckCircle, ToggleLeft, ToggleRight, Search, Copy, RefreshCw, KeyRound, PhoneCall, Settings, Image as ImageIcon, Monitor, Smartphone, AlertTriangle, PhoneOutgoing, Users, Forward, Mic, MicOff, Download, Upload, Building2, Eye, EyeOff, Cable, ExternalLink, Database, Play, LayoutGrid, ChevronRight, Lock, Unlock, Terminal, Wifi, Cpu, ArrowUp, ArrowDown, Power, Sparkles, Layers, Sliders, Palette, Sun, Moon, Clock, Volume2, Square, BellRing, GripVertical, RotateCcw, List, PanelTop, Keyboard, Pin } from "lucide-react";
 import * as XLSX from "xlsx";
 import ConfirmDeleteModal from "../dashboard/ConfirmDeleteModal";
 import {
@@ -3017,11 +3017,10 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
           <button
             type="button"
             onClick={() => setShowBulkConfigModal(true)}
-            className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 h-8 shrink-0 border border-slate-200/80 dark:border-slate-700"
+            className={`p-2 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 ${text} rounded-xl transition-all flex items-center justify-center h-8 w-8 shrink-0 border border-slate-200/80 dark:border-slate-700`}
             title="Toplu Konfigürasyon & Kitle Yönetimi"
           >
-            <Layers size={14} className={text} />
-            <span className="hidden md:inline">Toplu Konfigürasyon</span>
+            <Sliders size={16} />
           </button>
 
           <button
