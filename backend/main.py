@@ -40114,6 +40114,21 @@ async def apply_bulk_configuration(
             _apply_user_associations_bulk(group_users, merged_member_changes, summary_labels, affected_queue_ids)
 
     elif module == "queues":
+        # Ensure PostgreSQL PBXQueue rows are synced into settings_db["queues"] so no queue is missed
+        try:
+            res_q_sync = await db.execute(select(PBXQueue).order_by(PBXQueue.id))
+            db_q_rows = res_q_sync.scalars().all()
+            disk_queues = settings_db.get("queues")
+            if not isinstance(disk_queues, list):
+                disk_queues = []
+                settings_db["queues"] = disk_queues
+            existing_q_ids = {str(dq.get("id")) for dq in disk_queues if isinstance(dq, dict) and dq.get("id") is not None}
+            for dbq in db_q_rows:
+                if str(dbq.id) not in existing_q_ids:
+                    disk_queues.append({c.name: getattr(dbq, c.name) for c in dbq.__table__.columns})
+        except Exception as eq_sync:
+            print(f"[BulkConfig Queue Sync Warning]: {eq_sync}")
+
         tenant_queues = _filter_tenant_items(settings_db.get("queues", []), target_tenant)
         target_set_ids = {str(x).strip() for x in (payload.target_ids or []) if x is not None and str(x).strip()}
         matched_queues = tenant_queues if target_mode == "all" else [
@@ -40129,22 +40144,41 @@ async def apply_bulk_configuration(
         for q in matched_queues:
             if _has_qval("strategy"):
                 q["strategy"] = str(changes["strategy"]).strip()
-                summary_labels.add(f"Strateji: {q['strategy']}")
+                summary_labels.add(f"Çalma Düzeni: {q['strategy']}")
             if _has_qval("timeout"):
-                q["timeout"] = max(5, min(300, int(changes["timeout"])))
-                summary_labels.add(f"Çaldırma Süresi: {q['timeout']} sn")
+                t_val = max(5, min(300, int(changes["timeout"])))
+                q["timeout"] = t_val
+                q["ring_time"] = t_val
+                summary_labels.add(f"Temsilci Çalma Süresi: {t_val} sn")
             if _has_qval("retry"):
                 q["retry"] = max(1, min(60, int(changes["retry"])))
                 summary_labels.add(f"Tekrar Deneme: {q['retry']} sn")
             if _has_qval("wrapup_time"):
-                q["wrapup_time"] = max(0, min(600, int(changes["wrapup_time"])))
-                summary_labels.add(f"Toparlanma Süresi: {q['wrapup_time']} sn")
+                w_val = max(0, min(600, int(changes["wrapup_time"])))
+                q["wrapup_time"] = w_val
+                q["acw_time"] = w_val
+                summary_labels.add(f"ACW / Toparlanma Süresi: {w_val} sn")
+            if _has_qval("max_wait_time_enabled"):
+                q["max_wait_time_enabled"] = bool(changes["max_wait_time_enabled"])
+                summary_labels.add(f"Maks. Bekleme Sınırı: {'Açık' if q['max_wait_time_enabled'] else 'Kapalı'}")
             if _has_qval("max_wait_time"):
                 q["max_wait_time"] = max(10, min(7200, int(changes["max_wait_time"])))
-                summary_labels.add(f"Maks. Bekleme: {q['max_wait_time']} sn")
+                summary_labels.add(f"Maks. Bekleme Süresi: {q['max_wait_time']} sn")
             if _has_qval("max_len"):
-                q["max_len"] = max(0, min(500, int(changes["max_len"])))
-                summary_labels.add(f"Maks. Sıra Kapasitesi: {q['max_len']}")
+                ml_val = max(0, min(500, int(changes["max_len"])))
+                q["max_len"] = ml_val
+                q["max_calls"] = ml_val
+                summary_labels.add(f"Maks. Bekleyen Çağrı: {ml_val}")
+            if _has_qval("max_concurrent_breaks"):
+                mcb_val = max(0, min(100, int(changes["max_concurrent_breaks"])))
+                q["max_concurrent_breaks"] = mcb_val
+                summary_labels.add(f"Eşzamanlı Mola Limiti: {mcb_val}")
+            if _has_qval("show_queue_name"):
+                q["show_queue_name"] = bool(changes["show_queue_name"])
+                summary_labels.add(f"Kuyruk İsmini Göster: {'Açık' if q['show_queue_name'] else 'Kapalı'}")
+            if _has_qval("notify_missed_calls"):
+                q["notify_missed_calls"] = bool(changes["notify_missed_calls"])
+                summary_labels.add(f"Cevapsız Bildirimi: {'Açık' if q['notify_missed_calls'] else 'Kapalı'}")
             if _has_qval("service_level"):
                 q["service_level"] = max(5, min(600, int(changes["service_level"])))
                 summary_labels.add(f"SLA Hedefi: {q['service_level']} sn")
@@ -40154,21 +40188,54 @@ async def apply_bulk_configuration(
             if _has_qval("ring_in_use"):
                 q["ring_in_use"] = bool(changes["ring_in_use"])
                 summary_labels.add(f"Meşgul Temsilciyi Çaldır: {'Evet' if q['ring_in_use'] else 'Hayır'}")
+            if _has_qval("hold_music_class"):
+                hm_val = str(changes["hold_music_class"]).strip()
+                q["hold_music_class"] = hm_val
+                q["music_on_hold"] = hm_val
+                summary_labels.add(f"Bekleme Müziği: {hm_val}")
             if _has_qval("announce_position"):
-                q["announce_position"] = bool(changes["announce_position"])
-                summary_labels.add(f"Sıra Anonsu: {'Açık' if q['announce_position'] else 'Kapalı'}")
+                ap_val = bool(changes["announce_position"])
+                q["announce_position"] = ap_val
+                q["position_announcement_enabled"] = ap_val
+                summary_labels.add(f"Sıra Anonsu: {'Açık' if ap_val else 'Kapalı'}")
             if _has_qval("announce_holdtime"):
-                q["announce_holdtime"] = bool(changes["announce_holdtime"])
-                summary_labels.add(f"Bekleme Süresi Anonsu: {'Açık' if q['announce_holdtime'] else 'Kapalı'}")
+                ah_val = bool(changes["announce_holdtime"])
+                q["announce_holdtime"] = ah_val
+                q["estimated_hold_time_enabled"] = ah_val
+                summary_labels.add(f"Tahmini Bekleme Anonsu: {'Açık' if ah_val else 'Kapalı'}")
+            if _has_qval("periodic_announcement_enabled"):
+                q["periodic_announcement_enabled"] = bool(changes["periodic_announcement_enabled"])
+                summary_labels.add(f"Periyodik Anons: {'Açık' if q['periodic_announcement_enabled'] else 'Kapalı'}")
             if _has_qval("periodic_announcement_interval"):
                 q["periodic_announcement_interval"] = max(5, min(600, int(changes["periodic_announcement_interval"])))
-                summary_labels.add(f"Periyodik Anons: {q['periodic_announcement_interval']} sn")
+                summary_labels.add(f"Periyodik Anons Süresi: {q['periodic_announcement_interval']} sn")
+            if _has_qval("all_busy_routing_enabled"):
+                q["all_busy_routing_enabled"] = bool(changes["all_busy_routing_enabled"])
+                summary_labels.add(f"Tüm Temsilciler Meşgul Yönlendirme: {'Açık' if q['all_busy_routing_enabled'] else 'Kapalı'}")
+            if _has_qval("auto_pause_missed_enabled"):
+                q["auto_pause_missed_enabled"] = bool(changes["auto_pause_missed_enabled"])
+                summary_labels.add(f"Otomatik Mola (RONA): {'Açık' if q['auto_pause_missed_enabled'] else 'Kapalı'}")
+            if _has_qval("auto_pause_missed_count"):
+                q["auto_pause_missed_count"] = max(1, min(20, int(changes["auto_pause_missed_count"])))
+                summary_labels.add(f"RONA Cevapsız Sayısı: {q['auto_pause_missed_count']}")
+            if _has_qval("auto_pause_disconnect_enabled"):
+                q["auto_pause_disconnect_enabled"] = bool(changes["auto_pause_disconnect_enabled"])
+                summary_labels.add(f"Bağlantı Kopma Otomatik Mola: {'Açık' if q['auto_pause_disconnect_enabled'] else 'Kapalı'}")
+            if _has_qval("auto_pause_disconnect_grace_sec"):
+                q["auto_pause_disconnect_grace_sec"] = max(5, min(300, int(changes["auto_pause_disconnect_grace_sec"])))
+                summary_labels.add(f"Kopma Tolerans Süresi: {q['auto_pause_disconnect_grace_sec']} sn")
             if _has_qval("survey_enabled"):
                 q["survey_enabled"] = bool(changes["survey_enabled"])
                 summary_labels.add(f"Memnuniyet Anketi: {'Açık' if q['survey_enabled'] else 'Kapalı'}")
+            if _has_qval("survey_scale"):
+                q["survey_scale"] = str(changes["survey_scale"]).strip()
+                summary_labels.add(f"Anket Ölçeği: {q['survey_scale']}")
             if _has_qval("smart_callback_enabled"):
                 q["smart_callback_enabled"] = bool(changes["smart_callback_enabled"])
-                summary_labels.add(f"Akıllı Geri Arama: {'Açık' if q['smart_callback_enabled'] else 'Kapalı'}")
+                summary_labels.add(f"Otomatik Geri Arama: {'Açık' if q['smart_callback_enabled'] else 'Kapalı'}")
+            if _has_qval("smart_callback_max_wait_seconds"):
+                q["smart_callback_max_wait_seconds"] = max(10, min(1800, int(changes["smart_callback_max_wait_seconds"])))
+                summary_labels.add(f"Geri Arama Eşik Süresi: {q['smart_callback_max_wait_seconds']} sn")
             if _has_qval("omnichannel_enabled"):
                 q["omnichannel_enabled"] = bool(changes["omnichannel_enabled"])
                 summary_labels.add(f"Omnichannel Dağıtım: {'Açık' if q['omnichannel_enabled'] else 'Kapalı'}")
@@ -40186,16 +40253,32 @@ async def apply_bulk_configuration(
             m_exts = [str(x).strip() for x in (changes.get("member_extensions") or []) if str(x).strip()]
             if m_action in ("add", "remove") and m_exts:
                 cur_members = list(q.get("members") or [])
+                cur_qm = list(q.get("queueMembers") or [])
+                # Map extension -> user_id for queueMembers
+                ext_to_uid = {
+                    str(u.get("extension")): u.get("id")
+                    for u in tenant_users
+                    if u.get("extension") and u.get("id") is not None
+                }
                 if m_action == "add":
                     for me in m_exts:
                         if not any((isinstance(cm, dict) and str(cm.get("extension") or "") == me) or str(cm) == me for cm in cur_members):
                             cur_members.append(me)
+                        uid_for_ext = ext_to_uid.get(me)
+                        if uid_for_ext is not None and not any(str(qm.get("user_id")) == str(uid_for_ext) for qm in cur_qm if isinstance(qm, dict)):
+                            cur_qm.append({"user_id": uid_for_ext, "type": "dynamic", "is_ai": False, "priority": 1})
                 elif m_action == "remove":
+                    rem_uids = {str(ext_to_uid[me]) for me in m_exts if me in ext_to_uid}
                     cur_members = [
                         cm for cm in cur_members
                         if (str(cm.get("extension") or "") if isinstance(cm, dict) else str(cm)) not in set(m_exts)
                     ]
+                    cur_qm = [
+                        qm for qm in cur_qm
+                        if isinstance(qm, dict) and str(qm.get("user_id")) not in rem_uids and str(qm.get("user_id")) not in set(m_exts)
+                    ]
                 q["members"] = cur_members
+                q["queueMembers"] = cur_qm
                 summary_labels.add(f"Kuyruk Temsilcileri ({'Eklendi' if m_action == 'add' else 'Çıkarıldı'})")
 
             affected_count += 1

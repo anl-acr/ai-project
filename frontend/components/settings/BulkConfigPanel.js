@@ -99,16 +99,29 @@ const INITIAL_QUEUE_CHANGES = {
   timeout: "",
   retry: "",
   wrapup_time: "",
+  max_wait_time_enabled: UNCHANGED,
   max_wait_time: "",
   max_len: "",
+  max_concurrent_breaks: "",
+  show_queue_name: UNCHANGED,
+  notify_missed_calls: UNCHANGED,
   service_level: "",
   weight: "",
   ring_in_use: UNCHANGED,
+  hold_music_class: UNCHANGED,
   announce_position: UNCHANGED,
   announce_holdtime: UNCHANGED,
+  periodic_announcement_enabled: UNCHANGED,
   periodic_announcement_interval: "",
+  all_busy_routing_enabled: UNCHANGED,
+  auto_pause_missed_enabled: UNCHANGED,
+  auto_pause_missed_count: "",
+  auto_pause_disconnect_enabled: UNCHANGED,
+  auto_pause_disconnect_grace_sec: "",
   survey_enabled: UNCHANGED,
+  survey_scale: UNCHANGED,
   smart_callback_enabled: UNCHANGED,
+  smart_callback_max_wait_seconds: "",
   omnichannel_enabled: UNCHANGED,
   omnichannel_channels_mode: UNCHANGED, // UNCHANGED | "set"
   omnichannel_channels: ["whatsapp", "email", "instagram", "facebook", "telegram"],
@@ -681,26 +694,60 @@ export default function BulkConfigPanel({
       if (queueChanges.retry !== "") out.retry = Number(queueChanges.retry);
       if (queueChanges.wrapup_time !== "")
         out.wrapup_time = Number(queueChanges.wrapup_time);
+      if (queueChanges.max_wait_time_enabled !== UNCHANGED)
+        out.max_wait_time_enabled = queueChanges.max_wait_time_enabled === "true";
       if (queueChanges.max_wait_time !== "")
         out.max_wait_time = Number(queueChanges.max_wait_time);
       if (queueChanges.max_len !== "") out.max_len = Number(queueChanges.max_len);
+      if (queueChanges.max_concurrent_breaks !== "")
+        out.max_concurrent_breaks = Number(queueChanges.max_concurrent_breaks);
+      if (queueChanges.show_queue_name !== UNCHANGED)
+        out.show_queue_name = queueChanges.show_queue_name === "true";
+      if (queueChanges.notify_missed_calls !== UNCHANGED)
+        out.notify_missed_calls = queueChanges.notify_missed_calls === "true";
       if (queueChanges.service_level !== "")
         out.service_level = Number(queueChanges.service_level);
       if (queueChanges.weight !== "") out.weight = Number(queueChanges.weight);
       if (queueChanges.ring_in_use !== UNCHANGED)
         out.ring_in_use = queueChanges.ring_in_use === "true";
+      if (queueChanges.hold_music_class !== UNCHANGED)
+        out.hold_music_class = queueChanges.hold_music_class;
       if (queueChanges.announce_position !== UNCHANGED)
         out.announce_position = queueChanges.announce_position === "true";
       if (queueChanges.announce_holdtime !== UNCHANGED)
         out.announce_holdtime = queueChanges.announce_holdtime === "true";
+      if (queueChanges.periodic_announcement_enabled !== UNCHANGED)
+        out.periodic_announcement_enabled =
+          queueChanges.periodic_announcement_enabled === "true";
       if (queueChanges.periodic_announcement_interval !== "")
         out.periodic_announcement_interval = Number(
           queueChanges.periodic_announcement_interval
         );
+      if (queueChanges.all_busy_routing_enabled !== UNCHANGED)
+        out.all_busy_routing_enabled =
+          queueChanges.all_busy_routing_enabled === "true";
+      if (queueChanges.auto_pause_missed_enabled !== UNCHANGED)
+        out.auto_pause_missed_enabled =
+          queueChanges.auto_pause_missed_enabled === "true";
+      if (queueChanges.auto_pause_missed_count !== "")
+        out.auto_pause_missed_count = Number(queueChanges.auto_pause_missed_count);
+      if (queueChanges.auto_pause_disconnect_enabled !== UNCHANGED)
+        out.auto_pause_disconnect_enabled =
+          queueChanges.auto_pause_disconnect_enabled === "true";
+      if (queueChanges.auto_pause_disconnect_grace_sec !== "")
+        out.auto_pause_disconnect_grace_sec = Number(
+          queueChanges.auto_pause_disconnect_grace_sec
+        );
       if (queueChanges.survey_enabled !== UNCHANGED)
         out.survey_enabled = queueChanges.survey_enabled === "true";
+      if (queueChanges.survey_scale !== UNCHANGED)
+        out.survey_scale = queueChanges.survey_scale;
       if (queueChanges.smart_callback_enabled !== UNCHANGED)
         out.smart_callback_enabled = queueChanges.smart_callback_enabled === "true";
+      if (queueChanges.smart_callback_max_wait_seconds !== "")
+        out.smart_callback_max_wait_seconds = Number(
+          queueChanges.smart_callback_max_wait_seconds
+        );
       if (queueChanges.omnichannel_enabled !== UNCHANGED)
         out.omnichannel_enabled = queueChanges.omnichannel_enabled === "true";
       if (queueChanges.omnichannel_channels_mode === "set")
@@ -765,17 +812,17 @@ export default function BulkConfigPanel({
   // Quick One-Click Presets
   const applyPresetTemplate = (presetKey) => {
     if (presetKey === "disable_all_recordings") {
-      setActiveModule("users");
+      if (!isModal) setActiveModule("users");
       if (!isModal) setTargetMode("all");
       setUserChanges({ ...INITIAL_USER_CHANGES, recording_active: "false" });
-      showToast("success", "Şablon yüklendi: Tüm kullanıcılarda Ses Kayıt -> Kapalı. 'Toplu Değişiklikleri Uygula' butonuna basarak onaylayın.");
+      showToast("success", "Şablon yüklendi: Seçili kullanıcılarda Ses Kayıt -> Kapalı.");
     } else if (presetKey === "enable_all_recordings") {
-      setActiveModule("users");
+      if (!isModal) setActiveModule("users");
       if (!isModal) setTargetMode("all");
       setUserChanges({ ...INITIAL_USER_CHANGES, recording_active: "true" });
-      showToast("success", "Şablon yüklendi: Tüm kullanıcılarda Ses Kayıt -> Açık.");
+      showToast("success", "Şablon yüklendi: Seçili kullanıcılarda Ses Kayıt -> Açık.");
     } else if (presetKey === "change_subgroup_outbound_rule") {
-      setActiveModule("subscriber_groups");
+      if (!isModal) setActiveModule("subscriber_groups");
       setTargetMode("selected");
       if (selectedIds.length === 0 && metadata.subscriber_groups.length > 0) {
         setSelectedIds([String(metadata.subscriber_groups[0].id)]);
@@ -787,25 +834,76 @@ export default function BulkConfigPanel({
         outbound_rule_ids: firstRuleId ? [firstRuleId] : []
       });
       showToast("success", "Şablon yüklendi: Abone Grubu Giden Arama Kuralı Değiştirme.");
+    } else if (presetKey === "enable_subgroup_recordings") {
+      if (!isModal) setActiveModule("subscriber_groups");
+      setSubGroupChanges({ ...INITIAL_SUBGROUP_CHANGES, recording_active: "true" });
+      showToast("success", "Şablon yüklendi: Seçili abone gruplarındaki abonelerde Ses Kayıt -> Açık.");
+    } else if (presetKey === "disable_subgroup_recordings") {
+      if (!isModal) setActiveModule("subscriber_groups");
+      setSubGroupChanges({ ...INITIAL_SUBGROUP_CHANGES, recording_active: "false" });
+      showToast("success", "Şablon yüklendi: Seçili abone gruplarındaki abonelerde Ses Kayıt -> Kapalı.");
     } else if (presetKey === "reset_all_forwardings") {
-      setActiveModule("users");
+      if (!isModal) setActiveModule("users");
       if (!isModal) setTargetMode("all");
       setUserChanges({ ...INITIAL_USER_CHANGES, forwarding_reset: true });
-      showToast("success", "Şablon yüklendi: Tüm kullanıcılarda çağrı yönlendirmeleri sıfırlanacak.");
+      showToast("success", "Şablon yüklendi: Seçili kullanıcılarda çağrı yönlendirmeleri sıfırlanacak.");
     } else if (presetKey === "clear_all_quarantines") {
-      setActiveModule("users");
+      if (!isModal) setActiveModule("users");
       if (!isModal) setTargetMode("all");
       setUserChanges({ ...INITIAL_USER_CHANGES, outbound_quarantined: "false" });
-      showToast("success", "Şablon yüklendi: Tüm kullanıcılarda dış arama karantinası kaldırılacak.");
+      showToast("success", "Şablon yüklendi: Seçili kullanıcılarda dış arama karantinası kaldırılacak.");
     } else if (presetKey === "enable_queue_omnichannel") {
-      setActiveModule("queues");
+      if (!isModal) setActiveModule("queues");
       if (!isModal) setTargetMode("all");
       setQueueChanges({
         ...INITIAL_QUEUE_CHANGES,
         omnichannel_enabled: "true",
         omnichannel_sla_sec: "180"
       });
-      showToast("success", "Şablon yüklendi: Tüm kuyruklarda Omnichannel otomatik dağıtım (180 sn SLA) açılacak.");
+      showToast("success", "Şablon yüklendi: Seçili kuyruklarda Omnichannel otomatik dağıtım (180 sn SLA) açılacak.");
+    } else if (presetKey === "queue_strategy_rrmemory") {
+      if (!isModal) setActiveModule("queues");
+      setQueueChanges({
+        ...INITIAL_QUEUE_CHANGES,
+        strategy: "rrmemory",
+        timeout: "20",
+        wrapup_time: "15"
+      });
+      showToast("success", "Şablon yüklendi: Kuyruklarda Sırayla Hatırlamalı (rrmemory), 20 sn Çaldırma ve 15 sn ACW seçildi.");
+    } else if (presetKey === "queue_enable_rona") {
+      if (!isModal) setActiveModule("queues");
+      setQueueChanges({
+        ...INITIAL_QUEUE_CHANGES,
+        auto_pause_missed_enabled: "true",
+        auto_pause_missed_count: "2",
+        auto_pause_disconnect_enabled: "true",
+        auto_pause_disconnect_grace_sec: "45"
+      });
+      showToast("success", "Şablon yüklendi: Kuyruklarda Otomatik Mola (RONA) ve Bağlantı Kopma Koruması açılacak.");
+    } else if (presetKey === "queue_enable_survey_callback") {
+      if (!isModal) setActiveModule("queues");
+      setQueueChanges({
+        ...INITIAL_QUEUE_CHANGES,
+        survey_enabled: "true",
+        survey_scale: "1-5",
+        smart_callback_enabled: "true",
+        smart_callback_max_wait_seconds: "120"
+      });
+      showToast("success", "Şablon yüklendi: Kuyruklarda Memnuniyet Anketi (1-5) ve Otomatik Geri Arama (120 sn) açılacak.");
+    } else if (presetKey === "outbound_clear_pins") {
+      if (!isModal) setActiveModule("outbound_rules");
+      setOutboundRuleChanges({
+        ...INITIAL_OUTBOUND_RULE_CHANGES,
+        pin_mode: "none"
+      });
+      showToast("success", "Şablon yüklendi: Seçili giden arama kurallarında PIN zorunluluğu kaldırılacak.");
+    } else if (presetKey === "outbound_outside_work_hours_pin") {
+      if (!isModal) setActiveModule("outbound_rules");
+      setOutboundRuleChanges({
+        ...INITIAL_OUTBOUND_RULE_CHANGES,
+        pin_mode: "outside_work_hours"
+      });
+      showToast("success", "Şablon yüklendi: Seçili giden arama kurallarında Mesai Dışı PIN zorunluluğu seçildi.");
     }
   };
 
@@ -1121,14 +1219,28 @@ export default function BulkConfigPanel({
             <div>
               <div className="flex items-center gap-2.5 flex-wrap">
                 <h2 className="text-base sm:text-lg font-extrabold text-slate-900 dark:text-white tracking-tight">
-                  Toplu Konfigürasyon & Kitle Yönetimi Merkezi
+                  {activeModule === "queues"
+                    ? "ACD Arama Kuyrukları — Toplu Konfigürasyon"
+                    : activeModule === "subscriber_groups"
+                    ? "Abone Grupları & Kuralları — Toplu Konfigürasyon"
+                    : activeModule === "outbound_rules"
+                    ? "Giden Arama Kuralları — Toplu Konfigürasyon"
+                    : isModal
+                    ? "Kullanıcılar & Aboneler — Toplu Konfigürasyon"
+                    : "Toplu Konfigürasyon & Kitle Yönetimi Merkezi"}
                 </h2>
                 <span className={`text-[10px] font-bold px-2.5 py-0.5 rounded-full ${lightBg} ${text} border ${borderLight}`}>
                   Tek Seferde Çoklu Güncelleme & Geri Alma (Undo)
                 </span>
               </div>
               <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-                Kullanıcılar, Abone Grupları, ACD Kuyruklar ve Arama Kuralları üzerinde istediğiniz tüm özellikleri tek seferde topluca değiştirin.
+                {activeModule === "queues"
+                  ? "Seçtiğiniz ACD arama kuyruklarında çalma stratejisi, kapasite, otomatik mola (RONA), anonslar, geri arama, anket, Omnichannel ve kuyruk temsilcilerini tek seferde topluca yapılandırın."
+                  : activeModule === "subscriber_groups"
+                  ? "Seçtiğiniz abone gruplarında giden arama kurallarını ve gruptaki abonelerin ses kayıt / yönlendirme politikalarını tek seferde topluca değiştirin."
+                  : activeModule === "outbound_rules"
+                  ? "Seçtiğiniz giden arama kurallarında birincil dış hat (SIP Trunk), giden CallerID ve PIN şifre zorunluluğu ayarlarını tek seferde topluca değiştirin."
+                  : "Seçtiğiniz kullanıcılar ve abone grupları üzerinde ses kaydı, dış arama, yönlendirme, sesli posta ve SIP güvenlik özelliklerini tek seferde topluca değiştirin."}
               </p>
             </div>
           </div>
@@ -1154,61 +1266,136 @@ export default function BulkConfigPanel({
           </div>
         </div>
 
-        {/* Hızlı Tek Tık Şablonları */}
+        {/* Hızlı Tek Tık Şablonları (Aktif Sekmeye Özel) */}
         <div className="mt-4">
           <div className="text-[11px] font-extrabold uppercase tracking-wider text-slate-400 dark:text-slate-500 mb-2.5 flex items-center gap-1.5">
             <Sparkles size={13} className={text} />
             Hızlı İşlem Şablonları (Tek Tıkla Doldur)
           </div>
           <div className="flex flex-wrap gap-2">
-            <button
-              type="button"
-              onClick={() => applyPresetTemplate("disable_all_recordings")}
-              className="px-3 py-1.5 rounded-xl text-xs font-semibold border border-slate-200 dark:border-slate-800 bg-slate-50/80 dark:bg-slate-800/60 hover:bg-rose-50 dark:hover:bg-rose-950/30 hover:border-rose-300 text-slate-700 dark:text-slate-200 transition-all flex items-center gap-1.5"
-            >
-              <Volume2 size={13} className="text-rose-500" />
-              Tüm Kullanıcılarda Ses Kaydını Kapat
-            </button>
-            <button
-              type="button"
-              onClick={() => applyPresetTemplate("enable_all_recordings")}
-              className="px-3 py-1.5 rounded-xl text-xs font-semibold border border-slate-200 dark:border-slate-800 bg-slate-50/80 dark:bg-slate-800/60 hover:bg-emerald-50 dark:hover:bg-emerald-950/30 hover:border-emerald-300 text-slate-700 dark:text-slate-200 transition-all flex items-center gap-1.5"
-            >
-              <Volume2 size={13} className="text-emerald-500" />
-              Tüm Kullanıcılarda Ses Kaydını Aç
-            </button>
-            <button
-              type="button"
-              onClick={() => applyPresetTemplate("change_subgroup_outbound_rule")}
-              className="px-3 py-1.5 rounded-xl text-xs font-semibold border border-slate-200 dark:border-slate-800 bg-slate-50/80 dark:bg-slate-800/60 hover:bg-indigo-50 dark:hover:bg-indigo-950/30 hover:border-indigo-300 text-slate-700 dark:text-slate-200 transition-all flex items-center gap-1.5"
-            >
-              <ArrowUpRight size={13} className="text-indigo-500" />
-              1 Abone Grubunun Arama Kuralını Değiştir
-            </button>
-            <button
-              type="button"
-              onClick={() => applyPresetTemplate("reset_all_forwardings")}
-              className="px-3 py-1.5 rounded-xl text-xs font-semibold border border-slate-200 dark:border-slate-800 bg-slate-50/80 dark:bg-slate-800/60 hover:bg-amber-50 dark:hover:bg-amber-950/30 hover:border-amber-300 text-slate-700 dark:text-slate-200 transition-all flex items-center gap-1.5"
-            >
-              <RotateCcw size={13} className="text-amber-500" />
-              Tüm Kullanıcılarda Yönlendirmeleri Sıfırla
-            </button>
-            <button
-              type="button"
-              onClick={() => applyPresetTemplate("clear_all_quarantines")}
-              className="px-3 py-1.5 rounded-xl text-xs font-semibold border border-slate-200 dark:border-slate-800 bg-slate-50/80 dark:bg-slate-800/60 hover:bg-blue-50 dark:hover:bg-blue-950/30 hover:border-blue-300 text-slate-700 dark:text-slate-200 transition-all flex items-center gap-1.5"
-            >
-              <Shield size={13} className="text-blue-500" />
-              Dış Arama Karantinalarını Kaldır
-            </button>
-            <button
-              type="button"
-              onClick={() => applyPresetTemplate("enable_queue_omnichannel")}
-              className="px-3 py-1.5 rounded-xl text-xs font-semibold border border-slate-200 dark:border-slate-800 bg-slate-50/80 dark:bg-slate-800/60 hover:bg-purple-50 dark:hover:bg-purple-950/30 hover:border-purple-300 text-slate-700 dark:text-slate-200 transition-all flex items-center gap-1.5"
-            >
-              <MessageSquare size={13} className="text-purple-500" />
-              Kuyruklarda Omnichannel Dağıtımı Aç
-            </button>
+            {activeModule === "users" && (
+              <>
+                <button
+                  type="button"
+                  onClick={() => applyPresetTemplate("disable_all_recordings")}
+                  className="px-3 py-1.5 rounded-xl text-xs font-semibold border border-slate-200 dark:border-slate-800 bg-slate-50/80 dark:bg-slate-800/60 hover:bg-rose-50 dark:hover:bg-rose-950/30 hover:border-rose-300 text-slate-700 dark:text-slate-200 transition-all flex items-center gap-1.5"
+                >
+                  <Volume2 size={13} className="text-rose-500" />
+                  Ses Kaydını Kapat
+                </button>
+                <button
+                  type="button"
+                  onClick={() => applyPresetTemplate("enable_all_recordings")}
+                  className="px-3 py-1.5 rounded-xl text-xs font-semibold border border-slate-200 dark:border-slate-800 bg-slate-50/80 dark:bg-slate-800/60 hover:bg-emerald-50 dark:hover:bg-emerald-950/30 hover:border-emerald-300 text-slate-700 dark:text-slate-200 transition-all flex items-center gap-1.5"
+                >
+                  <Volume2 size={13} className="text-emerald-500" />
+                  Ses Kaydını Aç
+                </button>
+                <button
+                  type="button"
+                  onClick={() => applyPresetTemplate("reset_all_forwardings")}
+                  className="px-3 py-1.5 rounded-xl text-xs font-semibold border border-slate-200 dark:border-slate-800 bg-slate-50/80 dark:bg-slate-800/60 hover:bg-amber-50 dark:hover:bg-amber-950/30 hover:border-amber-300 text-slate-700 dark:text-slate-200 transition-all flex items-center gap-1.5"
+                >
+                  <RotateCcw size={13} className="text-amber-500" />
+                  Çağrı Yönlendirmelerini Sıfırla
+                </button>
+                <button
+                  type="button"
+                  onClick={() => applyPresetTemplate("clear_all_quarantines")}
+                  className="px-3 py-1.5 rounded-xl text-xs font-semibold border border-slate-200 dark:border-slate-800 bg-slate-50/80 dark:bg-slate-800/60 hover:bg-blue-50 dark:hover:bg-blue-950/30 hover:border-blue-300 text-slate-700 dark:text-slate-200 transition-all flex items-center gap-1.5"
+                >
+                  <Shield size={13} className="text-blue-500" />
+                  Dış Arama Karantinalarını Kaldır
+                </button>
+              </>
+            )}
+
+            {activeModule === "subscriber_groups" && (
+              <>
+                <button
+                  type="button"
+                  onClick={() => applyPresetTemplate("change_subgroup_outbound_rule")}
+                  className="px-3 py-1.5 rounded-xl text-xs font-semibold border border-slate-200 dark:border-slate-800 bg-slate-50/80 dark:bg-slate-800/60 hover:bg-indigo-50 dark:hover:bg-indigo-950/30 hover:border-indigo-300 text-slate-700 dark:text-slate-200 transition-all flex items-center gap-1.5"
+                >
+                  <ArrowUpRight size={13} className="text-indigo-500" />
+                  Giden Arama Kuralını Değiştir
+                </button>
+                <button
+                  type="button"
+                  onClick={() => applyPresetTemplate("enable_subgroup_recordings")}
+                  className="px-3 py-1.5 rounded-xl text-xs font-semibold border border-slate-200 dark:border-slate-800 bg-slate-50/80 dark:bg-slate-800/60 hover:bg-emerald-50 dark:hover:bg-emerald-950/30 hover:border-emerald-300 text-slate-700 dark:text-slate-200 transition-all flex items-center gap-1.5"
+                >
+                  <Volume2 size={13} className="text-emerald-500" />
+                  Gruptaki Abonelerde Ses Kaydını Aç
+                </button>
+                <button
+                  type="button"
+                  onClick={() => applyPresetTemplate("disable_subgroup_recordings")}
+                  className="px-3 py-1.5 rounded-xl text-xs font-semibold border border-slate-200 dark:border-slate-800 bg-slate-50/80 dark:bg-slate-800/60 hover:bg-rose-50 dark:hover:bg-rose-950/30 hover:border-rose-300 text-slate-700 dark:text-slate-200 transition-all flex items-center gap-1.5"
+                >
+                  <Volume2 size={13} className="text-rose-500" />
+                  Gruptaki Abonelerde Ses Kaydını Kapat
+                </button>
+              </>
+            )}
+
+            {activeModule === "queues" && (
+              <>
+                <button
+                  type="button"
+                  onClick={() => applyPresetTemplate("queue_strategy_rrmemory")}
+                  className="px-3 py-1.5 rounded-xl text-xs font-semibold border border-slate-200 dark:border-slate-800 bg-slate-50/80 dark:bg-slate-800/60 hover:bg-indigo-50 dark:hover:bg-indigo-950/30 hover:border-indigo-300 text-slate-700 dark:text-slate-200 transition-all flex items-center gap-1.5"
+                >
+                  <PhoneCall size={13} className="text-indigo-500" />
+                  Sırayla Hatırlamalı (rrmemory) & 20sn Çaldırma
+                </button>
+                <button
+                  type="button"
+                  onClick={() => applyPresetTemplate("queue_enable_rona")}
+                  className="px-3 py-1.5 rounded-xl text-xs font-semibold border border-slate-200 dark:border-slate-800 bg-slate-50/80 dark:bg-slate-800/60 hover:bg-amber-50 dark:hover:bg-amber-950/30 hover:border-amber-300 text-slate-700 dark:text-slate-200 transition-all flex items-center gap-1.5"
+                >
+                  <Clock size={13} className="text-amber-500" />
+                  Otomatik Mola (RONA) & Kopma Korumasını Aç
+                </button>
+                <button
+                  type="button"
+                  onClick={() => applyPresetTemplate("queue_enable_survey_callback")}
+                  className="px-3 py-1.5 rounded-xl text-xs font-semibold border border-slate-200 dark:border-slate-800 bg-slate-50/80 dark:bg-slate-800/60 hover:bg-emerald-50 dark:hover:bg-emerald-950/30 hover:border-emerald-300 text-slate-700 dark:text-slate-200 transition-all flex items-center gap-1.5"
+                >
+                  <Sparkles size={13} className="text-emerald-500" />
+                  Memnuniyet Anketi & Otomatik Geri Aramayı Aç
+                </button>
+                <button
+                  type="button"
+                  onClick={() => applyPresetTemplate("enable_queue_omnichannel")}
+                  className="px-3 py-1.5 rounded-xl text-xs font-semibold border border-slate-200 dark:border-slate-800 bg-slate-50/80 dark:bg-slate-800/60 hover:bg-purple-50 dark:hover:bg-purple-950/30 hover:border-purple-300 text-slate-700 dark:text-slate-200 transition-all flex items-center gap-1.5"
+                >
+                  <MessageSquare size={13} className="text-purple-500" />
+                  Kuyruklarda Omnichannel Dağıtımı Aç
+                </button>
+              </>
+            )}
+
+            {activeModule === "outbound_rules" && (
+              <>
+                <button
+                  type="button"
+                  onClick={() => applyPresetTemplate("outbound_clear_pins")}
+                  className="px-3 py-1.5 rounded-xl text-xs font-semibold border border-slate-200 dark:border-slate-800 bg-slate-50/80 dark:bg-slate-800/60 hover:bg-emerald-50 dark:hover:bg-emerald-950/30 hover:border-emerald-300 text-slate-700 dark:text-slate-200 transition-all flex items-center gap-1.5"
+                >
+                  <Lock size={13} className="text-emerald-500" />
+                  PIN Şifre Zorunluluğunu Kaldır (Serbest)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => applyPresetTemplate("outbound_outside_work_hours_pin")}
+                  className="px-3 py-1.5 rounded-xl text-xs font-semibold border border-slate-200 dark:border-slate-800 bg-slate-50/80 dark:bg-slate-800/60 hover:bg-amber-50 dark:hover:bg-amber-950/30 hover:border-amber-300 text-slate-700 dark:text-slate-200 transition-all flex items-center gap-1.5"
+                >
+                  <Lock size={13} className="text-amber-500" />
+                  Mesai Saatleri Dışında PIN Sor
+                </button>
+              </>
+            )}
           </div>
         </div>
       </div>
@@ -1310,72 +1497,74 @@ export default function BulkConfigPanel({
         </div>
       )}
 
-      {/* Module Selector Tabs */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5">
-        {[
-          {
-            id: "users",
-            title: "Kullanıcılar & Aboneler",
-            desc: `${metadata.users?.length || 0} Dahili Abone`,
-            icon: Users
-          },
-          {
-            id: "subscriber_groups",
-            title: "Abone Grupları & Kuralları",
-            desc: `${metadata.subscriber_groups?.length || 0} Abone Grubu`,
-            icon: Layers
-          },
-          {
-            id: "queues",
-            title: "ACD Arama Kuyrukları",
-            desc: `${metadata.queues?.length || 0} Çağrı Kuyruğu`,
-            icon: PhoneCall
-          },
-          {
-            id: "outbound_rules",
-            title: "Giden Arama Kuralları",
-            desc: `${metadata.outbound_rules?.length || 0} Dış Arama Kuralı`,
-            icon: ArrowUpRight
-          }
-        ].map((tab) => {
-          const Icon = tab.icon;
-          const isAct = activeModule === tab.id;
-          return (
-            <button
-              key={tab.id}
-              type="button"
-              onClick={() => {
-                setActiveModule(tab.id);
-                setSelectedIds([]);
-                setTargetMode("all");
-              }}
-              className={`p-3.5 rounded-2xl border text-left transition-all flex items-center gap-3 ${
-                isAct
-                  ? `${lightBg} ${border} ring-2 ${ring} shadow-sm`
-                  : "bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 hover:border-slate-300"
-              }`}
-            >
-              <div
-                className={`p-2.5 rounded-xl shrink-0 ${
+      {/* Module Selector Tabs (Sadece merkezi ekranda göster, sekme içinden açılan popup'ta gizle) */}
+      {!isModal && (
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5">
+          {[
+            {
+              id: "users",
+              title: "Kullanıcılar & Aboneler",
+              desc: `${metadata.users?.length || 0} Dahili Abone`,
+              icon: Users
+            },
+            {
+              id: "subscriber_groups",
+              title: "Abone Grupları & Kuralları",
+              desc: `${metadata.subscriber_groups?.length || 0} Abone Grubu`,
+              icon: Layers
+            },
+            {
+              id: "queues",
+              title: "ACD Arama Kuyrukları",
+              desc: `${metadata.queues?.length || 0} Çağrı Kuyruğu`,
+              icon: PhoneCall
+            },
+            {
+              id: "outbound_rules",
+              title: "Giden Arama Kuralları",
+              desc: `${metadata.outbound_rules?.length || 0} Dış Arama Kuralı`,
+              icon: ArrowUpRight
+            }
+          ].map((tab) => {
+            const Icon = tab.icon;
+            const isAct = activeModule === tab.id;
+            return (
+              <button
+                key={tab.id}
+                type="button"
+                onClick={() => {
+                  setActiveModule(tab.id);
+                  setSelectedIds([]);
+                  setTargetMode("all");
+                }}
+                className={`p-3.5 rounded-2xl border text-left transition-all flex items-center gap-3 ${
                   isAct
-                    ? `${bg} text-white`
-                    : "bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300"
+                    ? `${lightBg} ${border} ring-2 ${ring} shadow-sm`
+                    : "bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 hover:border-slate-300"
                 }`}
               >
-                <Icon size={18} />
-              </div>
-              <div className="min-w-0">
-                <div className="text-xs font-extrabold text-slate-900 dark:text-white truncate">
-                  {tab.title}
+                <div
+                  className={`p-2.5 rounded-xl shrink-0 ${
+                    isAct
+                      ? `${bg} text-white`
+                      : "bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300"
+                  }`}
+                >
+                  <Icon size={18} />
                 </div>
-                <div className="text-[11px] font-medium text-slate-500 dark:text-slate-400 truncate">
-                  {tab.desc}
+                <div className="min-w-0">
+                  <div className="text-xs font-extrabold text-slate-900 dark:text-white truncate">
+                    {tab.title}
+                  </div>
+                  <div className="text-[11px] font-medium text-slate-500 dark:text-slate-400 truncate">
+                    {tab.desc}
+                  </div>
                 </div>
-              </div>
-            </button>
-          );
-        })}
-      </div>
+              </button>
+            );
+          })}
+        </div>
+      )}
 
       {/* Step 1: Target Scope Selection */}
       <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 shadow-sm">
@@ -2816,16 +3005,17 @@ export default function BulkConfigPanel({
       {/* Module 3: ACD Queues */}
       {activeModule === "queues" && (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          {/* Card 1: Genel, Dağıtım Stratejisi, Kapasite & Ekran */}
           <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 shadow-sm space-y-4">
             <h4 className="text-xs font-extrabold uppercase tracking-wider text-slate-800 dark:text-white flex items-center gap-2 pb-2 border-b border-slate-100 dark:border-slate-800">
               <PhoneCall size={15} className={text} />
-              Kuyruk Çalma Stratejisi, Süreler & SLA
+              Çağrı Dağıtım Stratejisi, Kapasite & Ekran Ayarları
             </h4>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div>
                 <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                  Çalma Stratejisi
+                  Çağrı Dağıtım Stratejisi
                 </label>
                 <select
                   value={queueChanges.strategy}
@@ -2846,7 +3036,7 @@ export default function BulkConfigPanel({
 
               <div>
                 <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                  Temsilci Çaldırma Süresi (Timeout - sn)
+                  Temsilci Çaldırma Süresi (sn)
                 </label>
                 <input
                   type="number"
@@ -2863,7 +3053,7 @@ export default function BulkConfigPanel({
 
               <div>
                 <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                  Toparlanma Süresi (Wrapup Time - sn)
+                  Toparlanma / ACW Süresi (sn)
                 </label>
                 <input
                   type="number"
@@ -2873,26 +3063,103 @@ export default function BulkConfigPanel({
                   onChange={(e) =>
                     setQueueChanges({ ...queueChanges, wrapup_time: e.target.value })
                   }
-                  placeholder="Değiştirme (Örn: 10)"
+                  placeholder="Değiştirme (Örn: 15)"
                   className="w-full px-3 py-2 text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950"
                 />
               </div>
 
               <div>
                 <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                  Maksimum Bekleme Süresi (sn)
+                  Kuyruk Maksimum Çağrı Sayısı
                 </label>
                 <input
                   type="number"
-                  min={10}
-                  max={7200}
-                  value={queueChanges.max_wait_time}
+                  min={0}
+                  max={500}
+                  value={queueChanges.max_len}
                   onChange={(e) =>
-                    setQueueChanges({ ...queueChanges, max_wait_time: e.target.value })
+                    setQueueChanges({ ...queueChanges, max_len: e.target.value })
                   }
-                  placeholder="Değiştirme (Örn: 300)"
+                  placeholder="Değiştirme (0 = Sınırsız)"
                   className="w-full px-3 py-2 text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950"
                 />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                  Aynı Anda Molaya Çıkacak Kişi Sayısı
+                </label>
+                <input
+                  type="number"
+                  min={0}
+                  max={100}
+                  value={queueChanges.max_concurrent_breaks}
+                  onChange={(e) =>
+                    setQueueChanges({
+                      ...queueChanges,
+                      max_concurrent_breaks: e.target.value
+                    })
+                  }
+                  placeholder="Değiştirme (0 = Sınırsız)"
+                  className="w-full px-3 py-2 text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                  Kuyruk Adını Ekranda Göster
+                </label>
+                <select
+                  value={queueChanges.show_queue_name}
+                  onChange={(e) =>
+                    setQueueChanges({
+                      ...queueChanges,
+                      show_queue_name: e.target.value
+                    })
+                  }
+                  className="w-full px-3 py-2 text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950"
+                >
+                  <option value={UNCHANGED}>— Değiştirme —</option>
+                  <option value="true">Açık (Göster)</option>
+                  <option value="false">Kapalı</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                  Cevapsız Çağrıları Bildir
+                </label>
+                <select
+                  value={queueChanges.notify_missed_calls}
+                  onChange={(e) =>
+                    setQueueChanges({
+                      ...queueChanges,
+                      notify_missed_calls: e.target.value
+                    })
+                  }
+                  className="w-full px-3 py-2 text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950"
+                >
+                  <option value={UNCHANGED}>— Değiştirme —</option>
+                  <option value="true">Açık (Bildir)</option>
+                  <option value="false">Kapalı</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                  Meşguldeki Temsilciyi Çaldır
+                </label>
+                <select
+                  value={queueChanges.ring_in_use}
+                  onChange={(e) =>
+                    setQueueChanges({ ...queueChanges, ring_in_use: e.target.value })
+                  }
+                  className="w-full px-3 py-2 text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950"
+                >
+                  <option value={UNCHANGED}>— Değiştirme —</option>
+                  <option value="true">Evet</option>
+                  <option value="false">Hayır</option>
+                </select>
               </div>
 
               <div>
@@ -2914,30 +3181,200 @@ export default function BulkConfigPanel({
 
               <div>
                 <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                  Meşguldeki Temsilciyi Çaldır
+                  Kuyruk Öncelik Ağırlığı (Weight)
+                </label>
+                <input
+                  type="number"
+                  min={0}
+                  max={100}
+                  value={queueChanges.weight}
+                  onChange={(e) =>
+                    setQueueChanges({ ...queueChanges, weight: e.target.value })
+                  }
+                  placeholder="Değiştirme (Örn: 0)"
+                  className="w-full px-3 py-2 text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950"
+                />
+              </div>
+            </div>
+          </div>
+
+          {/* Card 2: Otomatik Mola (RONA) & Bağlantı Kopma Koruması */}
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 shadow-sm space-y-4">
+            <h4 className="text-xs font-extrabold uppercase tracking-wider text-slate-800 dark:text-white flex items-center gap-2 pb-2 border-b border-slate-100 dark:border-slate-800">
+              <Clock size={15} className={text} />
+              Otomatik Mola (RONA) & Bağlantı Kopma Koruması
+            </h4>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                  Cevapsız Çağrıda Otomatik Mola (RONA)
                 </label>
                 <select
-                  value={queueChanges.ring_in_use}
+                  value={queueChanges.auto_pause_missed_enabled}
                   onChange={(e) =>
-                    setQueueChanges({ ...queueChanges, ring_in_use: e.target.value })
+                    setQueueChanges({
+                      ...queueChanges,
+                      auto_pause_missed_enabled: e.target.value
+                    })
                   }
                   className="w-full px-3 py-2 text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950"
                 >
                   <option value={UNCHANGED}>— Değiştirme —</option>
-                  <option value="true">Evet</option>
-                  <option value="false">Hayır</option>
+                  <option value="true">Aktif (Molaya Al)</option>
+                  <option value="false">Pasif</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                  Üst Üste Kaç Cevapsızda Molaya Alınsın?
+                </label>
+                <input
+                  type="number"
+                  min={1}
+                  max={10}
+                  value={queueChanges.auto_pause_missed_count}
+                  onChange={(e) =>
+                    setQueueChanges({
+                      ...queueChanges,
+                      auto_pause_missed_count: e.target.value
+                    })
+                  }
+                  placeholder="Değiştirme (Örn: 2)"
+                  className="w-full px-3 py-2 text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                  Bağlantı Kopmasında (Offline) Otomatik Mola
+                </label>
+                <select
+                  value={queueChanges.auto_pause_disconnect_enabled}
+                  onChange={(e) =>
+                    setQueueChanges({
+                      ...queueChanges,
+                      auto_pause_disconnect_enabled: e.target.value
+                    })
+                  }
+                  className="w-full px-3 py-2 text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950"
+                >
+                  <option value={UNCHANGED}>— Değiştirme —</option>
+                  <option value="true">Aktif (Koruma Açık)</option>
+                  <option value="false">Pasif</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                  Yeniden Bağlanma Toleransı (Grace - sn)
+                </label>
+                <input
+                  type="number"
+                  min={5}
+                  max={300}
+                  value={queueChanges.auto_pause_disconnect_grace_sec}
+                  onChange={(e) =>
+                    setQueueChanges({
+                      ...queueChanges,
+                      auto_pause_disconnect_grace_sec: e.target.value
+                    })
+                  }
+                  placeholder="Değiştirme (Örn: 45)"
+                  className="w-full px-3 py-2 text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                  Maksimum Bekleme Süresi Kuralı
+                </label>
+                <select
+                  value={queueChanges.max_wait_time_enabled}
+                  onChange={(e) =>
+                    setQueueChanges({
+                      ...queueChanges,
+                      max_wait_time_enabled: e.target.value
+                    })
+                  }
+                  className="w-full px-3 py-2 text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950"
+                >
+                  <option value={UNCHANGED}>— Değiştirme —</option>
+                  <option value="true">Aktif</option>
+                  <option value="false">Pasif</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                  Maksimum Bekleme Süresi (sn)
+                </label>
+                <input
+                  type="number"
+                  min={10}
+                  max={7200}
+                  value={queueChanges.max_wait_time}
+                  onChange={(e) =>
+                    setQueueChanges({ ...queueChanges, max_wait_time: e.target.value })
+                  }
+                  placeholder="Değiştirme (Örn: 180)"
+                  className="w-full px-3 py-2 text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950"
+                />
+              </div>
+
+              <div className="sm:col-span-2">
+                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                  Tüm Temsilciler Meşgulse / Çevrimdışıysa Yönlendirme
+                </label>
+                <select
+                  value={queueChanges.all_busy_routing_enabled}
+                  onChange={(e) =>
+                    setQueueChanges({
+                      ...queueChanges,
+                      all_busy_routing_enabled: e.target.value
+                    })
+                  }
+                  className="w-full px-3 py-2 text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950"
+                >
+                  <option value={UNCHANGED}>— Değiştirme —</option>
+                  <option value="true">Aktif</option>
+                  <option value="false">Pasif</option>
                 </select>
               </div>
             </div>
           </div>
 
+          {/* Card 3: Anonslar, Bekleme Müziği, Geri Arama & Anket */}
           <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 shadow-sm space-y-4">
             <h4 className="text-xs font-extrabold uppercase tracking-wider text-slate-800 dark:text-white flex items-center gap-2 pb-2 border-b border-slate-100 dark:border-slate-800">
-              <Sparkles size={15} className={text} />
-              Anonslar, Anket, Geri Arama & Omnichannel
+              <Volume2 size={15} className={text} />
+              Anonslar, Bekleme Müziği, Otomatik Geri Arama & Anket
             </h4>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                  Bekleme Müziği Sınıfı (MoH)
+                </label>
+                <select
+                  value={queueChanges.hold_music_class}
+                  onChange={(e) =>
+                    setQueueChanges({
+                      ...queueChanges,
+                      hold_music_class: e.target.value
+                    })
+                  }
+                  className="w-full px-3 py-2 text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950"
+                >
+                  <option value={UNCHANGED}>— Değiştirme —</option>
+                  <option value="default">Varsayılan (Default)</option>
+                  <option value="kurumsal_klasik">Kurumsal Klasik</option>
+                  <option value="modern_jazz">Modern Jazz</option>
+                  <option value="relax_piano">Relax Piyano</option>
+                </select>
+              </div>
+
               <div>
                 <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
                   Sıra Numarası Anonsu
@@ -2960,12 +3397,15 @@ export default function BulkConfigPanel({
 
               <div>
                 <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                  Çağrı Sonu Memnuniyet Anketi
+                  Tahmini Bekleme Süresi Anonsu
                 </label>
                 <select
-                  value={queueChanges.survey_enabled}
+                  value={queueChanges.announce_holdtime}
                   onChange={(e) =>
-                    setQueueChanges({ ...queueChanges, survey_enabled: e.target.value })
+                    setQueueChanges({
+                      ...queueChanges,
+                      announce_holdtime: e.target.value
+                    })
                   }
                   className="w-full px-3 py-2 text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950"
                 >
@@ -2977,7 +3417,47 @@ export default function BulkConfigPanel({
 
               <div>
                 <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                  Akıllı Geri Arama (Smart Callback)
+                  Periyodik Bekleme Anonsu
+                </label>
+                <select
+                  value={queueChanges.periodic_announcement_enabled}
+                  onChange={(e) =>
+                    setQueueChanges({
+                      ...queueChanges,
+                      periodic_announcement_enabled: e.target.value
+                    })
+                  }
+                  className="w-full px-3 py-2 text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950"
+                >
+                  <option value={UNCHANGED}>— Değiştirme —</option>
+                  <option value="true">Açık</option>
+                  <option value="false">Kapalı</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                  Periyodik Anons Sıklığı (sn)
+                </label>
+                <input
+                  type="number"
+                  min={15}
+                  max={600}
+                  value={queueChanges.periodic_announcement_interval}
+                  onChange={(e) =>
+                    setQueueChanges({
+                      ...queueChanges,
+                      periodic_announcement_interval: e.target.value
+                    })
+                  }
+                  placeholder="Değiştirme (Örn: 45)"
+                  className="w-full px-3 py-2 text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                  Otomatik Geri Arama (Smart Callback)
                 </label>
                 <select
                   value={queueChanges.smart_callback_enabled}
@@ -2997,7 +3477,71 @@ export default function BulkConfigPanel({
 
               <div>
                 <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                  Omnichannel (WhatsApp/Mail) Otomatik Dağıtım
+                  Geri Arama Teklif Süresi (sn)
+                </label>
+                <input
+                  type="number"
+                  min={15}
+                  max={1800}
+                  value={queueChanges.smart_callback_max_wait_seconds}
+                  onChange={(e) =>
+                    setQueueChanges({
+                      ...queueChanges,
+                      smart_callback_max_wait_seconds: e.target.value
+                    })
+                  }
+                  placeholder="Değiştirme (Örn: 120)"
+                  className="w-full px-3 py-2 text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                  Çağrı Sonu Memnuniyet Anketi
+                </label>
+                <select
+                  value={queueChanges.survey_enabled}
+                  onChange={(e) =>
+                    setQueueChanges({ ...queueChanges, survey_enabled: e.target.value })
+                  }
+                  className="w-full px-3 py-2 text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950"
+                >
+                  <option value={UNCHANGED}>— Değiştirme —</option>
+                  <option value="true">Açık</option>
+                  <option value="false">Kapalı</option>
+                </select>
+              </div>
+
+              <div className="sm:col-span-2">
+                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                  Anket Puanlama Ölçeği
+                </label>
+                <select
+                  value={queueChanges.survey_scale}
+                  onChange={(e) =>
+                    setQueueChanges({ ...queueChanges, survey_scale: e.target.value })
+                  }
+                  className="w-full px-3 py-2 text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950"
+                >
+                  <option value={UNCHANGED}>— Değiştirme —</option>
+                  <option value="1-5">1 - 5 Puanlama</option>
+                  <option value="1-10">1 - 10 (NPS) Puanlama</option>
+                </select>
+              </div>
+            </div>
+          </div>
+
+          {/* Card 4: Omnichannel & Kuyruk Temsilcileri (Toplu Ekle / Çıkar) */}
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 shadow-sm space-y-4">
+            <h4 className="text-xs font-extrabold uppercase tracking-wider text-slate-800 dark:text-white flex items-center gap-2 pb-2 border-b border-slate-100 dark:border-slate-800">
+              <MessageSquare size={15} className={text} />
+              Omnichannel Dağıtım & Kuyruk Temsilcisi Yönetimi
+            </h4>
+
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <div>
+                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                  Omnichannel Dağıtım
                 </label>
                 <select
                   value={queueChanges.omnichannel_enabled}
@@ -3017,7 +3561,7 @@ export default function BulkConfigPanel({
 
               <div>
                 <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                  Omnichannel SLA / Devretme Süresi (sn)
+                  Omnichannel SLA (sn)
                 </label>
                 <input
                   type="number"
@@ -3030,14 +3574,14 @@ export default function BulkConfigPanel({
                       omnichannel_sla_sec: e.target.value
                     })
                   }
-                  placeholder="Değiştirme (Örn: 180)"
+                  placeholder="Örn: 180"
                   className="w-full px-3 py-2 text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950"
                 />
               </div>
 
               <div>
                 <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                  Temsilci Başı Maks. Eşzamanlı Sohbet
+                  Maks. Eşzamanlı Sohbet
                 </label>
                 <input
                   type="number"
@@ -3050,10 +3594,69 @@ export default function BulkConfigPanel({
                       omnichannel_max_chats_per_agent: e.target.value
                     })
                   }
-                  placeholder="Değiştirme (Örn: 3)"
+                  placeholder="Örn: 3"
                   className="w-full px-3 py-2 text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950"
                 />
               </div>
+            </div>
+
+            <div className="pt-2 border-t border-slate-100 dark:border-slate-800 space-y-2.5">
+              <label className="block text-xs font-bold text-slate-700 dark:text-slate-300">
+                Seçili Kuyruklarda Temsilci (Abone) Ekleme / Çıkarma İşlemi
+              </label>
+              <select
+                value={queueChanges.member_action}
+                onChange={(e) =>
+                  setQueueChanges({
+                    ...queueChanges,
+                    member_action: e.target.value
+                  })
+                }
+                className="w-full px-3 py-2 text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950"
+              >
+                <option value={UNCHANGED}>— Kuyruk Temsilcilerine Dokunma —</option>
+                <option value="add">Seçilen Temsilcileri Kuyruklara Ekle</option>
+                <option value="remove">Seçilen Temsilcileri Kuyruklardan Çıkar</option>
+                <option value="replace">Kuyruk Temsilcilerini Sadece Seçilenlerle Değiştir</option>
+              </select>
+
+              {queueChanges.member_action !== UNCHANGED && (
+                <div className="p-3 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-950/60 max-h-44 overflow-y-auto grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+                  {(metadata.users || []).map((u) => {
+                    const extStr = String(u.extension || "");
+                    if (!extStr) return null;
+                    const checked = (queueChanges.member_extensions || []).includes(extStr);
+                    return (
+                      <label
+                        key={u.id}
+                        className={`flex items-center gap-2 p-2 rounded-lg border text-xs cursor-pointer transition-all ${
+                          checked
+                            ? `${lightBg} ${border}`
+                            : "bg-white dark:bg-slate-900 border-slate-200/70 dark:border-slate-800"
+                        }`}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={() =>
+                            setQueueChanges({
+                              ...queueChanges,
+                              member_extensions: toggleIdInList(
+                                queueChanges.member_extensions || [],
+                                extStr
+                              )
+                            })
+                          }
+                          className="rounded"
+                        />
+                        <span className="font-bold text-slate-800 dark:text-slate-200 truncate">
+                          {u.full_name} ({extStr})
+                        </span>
+                      </label>
+                    );
+                  })}
+                </div>
+              )}
             </div>
           </div>
         </div>
