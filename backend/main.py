@@ -39432,9 +39432,14 @@ async def _sync_users_and_queues_to_postgres_after_bulk(
 
 @app.get("/api/settings/bulk-config/metadata")
 @app.get("/settings/bulk-config/metadata")
-async def get_bulk_config_metadata(user_info: dict = Depends(get_user_info), db: AsyncSession = Depends(get_db)):
-    target_tenant = user_info.get("tenant_id") or "tenant-default"
-    users_raw = await new_get_users_endpoint(user_info=user_info, db=db)
+async def get_bulk_config_metadata(request: Request, user_info: dict = Depends(get_user_info), db: AsyncSession = Depends(get_db)):
+    target_tenant = user_info.get("tenant_id") or request.headers.get("X-Tenant-ID") or request.headers.get("Tenant-ID") or request.query_params.get("tenant_id") or "tenant-default"
+    try:
+        users_raw = await new_get_users_endpoint(request=request, user_info=user_info, db=db)
+    except Exception as eu_meta:
+        print(f"[BulkConfig Metadata Users Fallback]: {eu_meta}")
+        users_raw = _filter_tenant_items(settings_db.get("users", []), target_tenant)
+
     users_filtered = [
         {
             "id": u.get("id"),
@@ -39442,6 +39447,7 @@ async def get_bulk_config_metadata(user_info: dict = Depends(get_user_info), db:
             "extension": str(u.get("extension") or ""),
             "email": u.get("email") or "",
             "role": u.get("role") or "agent",
+            "avatar": u.get("avatar") or "",
             "is_active": u.get("is_active") is not False,
             "recording_active": bool(u.get("recording_active", False)),
             "voicemail_active": bool(u.get("voicemail_active", False)),
@@ -39463,8 +39469,17 @@ async def get_bulk_config_metadata(user_info: dict = Depends(get_user_info), db:
     pickup_groups = _filter_tenant_items(settings_db.get("call_pickup_groups", []), target_tenant)
     outbound_rules = _filter_tenant_items(settings_db.get("outbound_rules", []), target_tenant)
     inbound_rules = _filter_tenant_items(settings_db.get("inbound_rules", []), target_tenant)
-    queues = _filter_tenant_items(settings_db.get("queues", []), target_tenant)
-    trunks = _filter_tenant_items(settings_db.get("trunks", []), target_tenant)
+
+    try:
+        queues = await new_get_queues_endpoint(request=request, user_info=user_info, db=db)
+    except Exception:
+        queues = _filter_tenant_items(settings_db.get("queues", []), target_tenant)
+
+    try:
+        trunks = await new_list_trunks(request=request, user_info=user_info, db=db)
+    except Exception:
+        trunks = _filter_tenant_items(settings_db.get("trunks", []), target_tenant)
+
     roles = _filter_tenant_items(settings_db.get("roles", []), target_tenant)
     locations = _filter_tenant_items(settings_db.get("locations", []), target_tenant)
     departments = _filter_tenant_items(settings_db.get("departments", []), target_tenant)

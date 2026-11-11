@@ -194,39 +194,179 @@ export default function BulkConfigPanel({
   const getHeaders = () => ({
     "Content-Type": "application/json",
     "X-User-ID":
-      (typeof window !== "undefined" && localStorage.getItem("current_user_id")) || "admin",
+      (typeof window !== "undefined" &&
+        (localStorage.getItem("current_user_id") ||
+          localStorage.getItem("user_id"))) ||
+      "admin",
     "X-Tenant-ID":
-      (typeof window !== "undefined" && localStorage.getItem("selected_tenant_id")) ||
+      (typeof window !== "undefined" &&
+        (localStorage.getItem("active_tenant_id") ||
+          localStorage.getItem("selected_tenant_id"))) ||
       "tenant-default"
   });
 
   const fetchMetadata = async () => {
     setLoading(true);
     try {
-      const res = await fetch(`${API_BASE}/api/settings/bulk-config/metadata`, {
-        headers: getHeaders()
-      });
-      if (res.ok) {
-        const data = await res.json();
-        setMetadata({
-          users: data.users || [],
-          subscriber_groups: data.subscriber_groups || [],
-          call_pickup_groups: data.call_pickup_groups || [],
-          outbound_rules: data.outbound_rules || [],
-          inbound_rules: data.inbound_rules || [],
-          queues: data.queues || [],
-          trunks: data.trunks || [],
-          roles: data.roles || [],
-          locations: data.locations || [],
-          departments: data.departments || [],
-          history: data.history || []
+      const headers = getHeaders();
+      let metaObj = {
+        users: [],
+        subscriber_groups: [],
+        call_pickup_groups: [],
+        outbound_rules: [],
+        inbound_rules: [],
+        queues: [],
+        trunks: [],
+        roles: [],
+        locations: [],
+        departments: [],
+        history: []
+      };
+
+      try {
+        const res = await fetch(`${API_BASE}/api/settings/bulk-config/metadata`, {
+          headers
         });
-        if (!filterSubGroupId && data.subscriber_groups?.length > 0) {
-          setFilterSubGroupId(String(data.subscriber_groups[0].id));
+        if (res.ok) {
+          const data = await res.json();
+          metaObj = {
+            users: Array.isArray(data.users) ? data.users : [],
+            subscriber_groups: Array.isArray(data.subscriber_groups)
+              ? data.subscriber_groups
+              : [],
+            call_pickup_groups: Array.isArray(data.call_pickup_groups)
+              ? data.call_pickup_groups
+              : [],
+            outbound_rules: Array.isArray(data.outbound_rules)
+              ? data.outbound_rules
+              : [],
+            inbound_rules: Array.isArray(data.inbound_rules)
+              ? data.inbound_rules
+              : [],
+            queues: Array.isArray(data.queues) ? data.queues : [],
+            trunks: Array.isArray(data.trunks) ? data.trunks : [],
+            roles: Array.isArray(data.roles) ? data.roles : [],
+            locations: Array.isArray(data.locations) ? data.locations : [],
+            departments: Array.isArray(data.departments) ? data.departments : [],
+            history: Array.isArray(data.history) ? data.history : []
+          };
         }
-        if (!filterPickupGroupId && data.call_pickup_groups?.length > 0) {
-          setFilterPickupGroupId(String(data.call_pickup_groups[0].id));
+      } catch (eMeta) {
+        console.warn("Bulk metadata endpoint fallback devrede:", eMeta);
+      }
+
+      // Fallback / enrichment from direct settings endpoints if any primary list is empty
+      const needsFallback =
+        metaObj.users.length === 0 ||
+        metaObj.subscriber_groups.length === 0 ||
+        metaObj.queues.length === 0 ||
+        metaObj.outbound_rules.length === 0;
+
+      if (needsFallback) {
+        const safeJson = async (url) => {
+          try {
+            const r = await fetch(url, { headers });
+            if (r.ok) return await r.json();
+          } catch (_) {}
+          return null;
+        };
+
+        const [
+          rawUsers,
+          rawGroups,
+          rawPickup,
+          rawOutRules,
+          rawQueues,
+          rawTrunks,
+          rawRoles,
+          rawLocations,
+          rawDepartments
+        ] = await Promise.all([
+          metaObj.users.length === 0
+            ? safeJson(`${API_BASE}/api/settings/users`)
+            : null,
+          metaObj.subscriber_groups.length === 0
+            ? safeJson(`${API_BASE}/api/settings/subscriber_groups`)
+            : null,
+          metaObj.call_pickup_groups.length === 0
+            ? safeJson(`${API_BASE}/api/settings/call_pickup_groups`)
+            : null,
+          metaObj.outbound_rules.length === 0
+            ? safeJson(`${API_BASE}/api/settings/outbound_rules`)
+            : null,
+          metaObj.queues.length === 0
+            ? safeJson(`${API_BASE}/api/settings/queues`)
+            : null,
+          metaObj.trunks.length === 0
+            ? safeJson(`${API_BASE}/api/settings/trunks`)
+            : null,
+          metaObj.roles.length === 0
+            ? safeJson(`${API_BASE}/api/settings/roles`)
+            : null,
+          metaObj.locations.length === 0
+            ? safeJson(`${API_BASE}/api/settings/locations`)
+            : null,
+          metaObj.departments.length === 0
+            ? safeJson(`${API_BASE}/api/settings/departments`)
+            : null
+        ]);
+
+        if (rawUsers) {
+          const uList = Array.isArray(rawUsers)
+            ? rawUsers
+            : rawUsers?.users || [];
+          metaObj.users = uList.filter(
+            (u) => String(u?.username || "").toLowerCase() !== "admin"
+          );
         }
+        if (rawGroups) {
+          metaObj.subscriber_groups = Array.isArray(rawGroups)
+            ? rawGroups
+            : rawGroups?.subscriber_groups || [];
+        }
+        if (rawPickup) {
+          metaObj.call_pickup_groups = Array.isArray(rawPickup)
+            ? rawPickup
+            : rawPickup?.call_pickup_groups || [];
+        }
+        if (rawOutRules) {
+          metaObj.outbound_rules = Array.isArray(rawOutRules)
+            ? rawOutRules
+            : rawOutRules?.outbound_rules || [];
+        }
+        if (rawQueues) {
+          metaObj.queues = Array.isArray(rawQueues)
+            ? rawQueues
+            : rawQueues?.queues || [];
+        }
+        if (rawTrunks) {
+          metaObj.trunks = Array.isArray(rawTrunks)
+            ? rawTrunks
+            : rawTrunks?.trunks || [];
+        }
+        if (rawRoles) {
+          metaObj.roles = Array.isArray(rawRoles)
+            ? rawRoles
+            : rawRoles?.roles || [];
+        }
+        if (rawLocations) {
+          metaObj.locations = Array.isArray(rawLocations)
+            ? rawLocations
+            : rawLocations?.locations || [];
+        }
+        if (rawDepartments) {
+          metaObj.departments = Array.isArray(rawDepartments)
+            ? rawDepartments
+            : rawDepartments?.departments || [];
+        }
+      }
+
+      setMetadata(metaObj);
+      if (!filterSubGroupId && metaObj.subscriber_groups?.length > 0) {
+        setFilterSubGroupId(String(metaObj.subscriber_groups[0].id));
+      }
+      if (!filterPickupGroupId && metaObj.call_pickup_groups?.length > 0) {
+        setFilterPickupGroupId(String(metaObj.call_pickup_groups[0].id));
       }
     } catch (err) {
       console.error("Toplu konfigürasyon verisi çekilemedi:", err);
