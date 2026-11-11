@@ -169,6 +169,7 @@ import {
 const NotificationCenterBell = dynamic(() => import("../components/common/NotificationCenterBell"), { ssr: false });
 const KeyboardShortcutsModal = dynamic(() => import("../components/common/KeyboardShortcutsModal"), { ssr: false });
 const Customer360Drawer = dynamic(() => import("../components/common/Customer360Drawer"), { ssr: false });
+const WebPhoneDiagnosticsModal = dynamic(() => import("../components/common/WebPhoneDiagnosticsModal"), { ssr: false });
 import AgentPanel, {
   ALL_TABS as CALL_PANEL_ALL_TABS,
   loadCallPanelPrefs,
@@ -10702,6 +10703,9 @@ export default function Home() {
             }}
           />
         )}
+
+        {/* Global WebPhone Health & Readiness Diagnostics Popup */}
+        {isLoggedIn && <WebPhoneDiagnosticsModal />}
 
         {/* Global License Verification & Renewal Modal */}
         {isLicenseModalOpen && (

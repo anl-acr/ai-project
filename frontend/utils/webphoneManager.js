@@ -75,11 +75,22 @@ class WebphoneManager {
       // Group ringing calls alert state (visual only, no ringtone)
       groupRingingCalls: [],
       // CTI & CRM Customer Card / Screen Pop state
-      ctiCustomerInfo: null
+      ctiCustomerInfo: null,
+      // WebPhone System Health & Readiness Diagnostics state
+      diagnosticsModalOpen: false,
+      diagnosticsDismissedKey: "",
+      memorySaverDetected: false,
+      memorySaverFreezeCount: 0,
+      lastFreezeDurationSec: 0,
+      webLockActive: false,
+      lastMicErrorCode: "",
+      initStartedAt: 0,
+      healthReport: null
     };
 
     this.startGlobalDurationLoop();
     this.initAudioDeviceHotSwapListeners();
+    this.initSystemHealthWatchers();
   }
 
   initAudioDeviceHotSwapListeners() {
@@ -92,6 +103,7 @@ class WebphoneManager {
       if (this._deviceSwapDebounce) clearTimeout(this._deviceSwapDebounce);
       this._deviceSwapDebounce = setTimeout(() => {
         this.applyAudioDevicePreferences();
+        this.runDiagnosticsCheck({ reason: "devicechange" });
       }, 300);
     };
     const handleNoiseModeEvent = (e) => {
@@ -114,6 +126,476 @@ class WebphoneManager {
     if (navigator.mediaDevices && typeof navigator.mediaDevices.addEventListener === "function") {
       navigator.mediaDevices.addEventListener("devicechange", handleUpdate);
     }
+  }
+
+  initSystemHealthWatchers() {
+    if (typeof window === "undefined") return;
+    if (this._healthWatchersBound) return;
+    this._healthWatchersBound = true;
+
+    // 1. Acquire a perpetual Web Lock so Chrome/Edge Memory Saver treats this tab as active
+    this.acquireBackgroundWakeLock();
+
+    // 2. Network online/offline listeners
+    window.addEventListener("online", () => {
+      this.runDiagnosticsCheck({ reason: "network_online" });
+      if (!this.state.registered && this.state.currentUser) {
+        this.reloadWebrtcConfig();
+      }
+    });
+    window.addEventListener("offline", () => {
+      this.runDiagnosticsCheck({ reason: "network_offline", autoOpenIfCritical: true });
+    });
+
+    // 3. Page Lifecycle API: detect Chrome/Edge "Memory Saver" freeze & resume
+    this._freezeStartedAt = 0;
+    document.addEventListener("freeze", () => {
+      this._freezeStartedAt = Date.now();
+    });
+    document.addEventListener("resume", () => {
+      const frozenSec = this._freezeStartedAt ? Math.round((Date.now() - this._freezeStartedAt) / 1000) : 5;
+      this._freezeStartedAt = 0;
+      this.setState({
+        memorySaverDetected: true,
+        memorySaverFreezeCount: (this.state.memorySaverFreezeCount || 0) + 1,
+        lastFreezeDurationSec: Math.max(1, frozenSec)
+      });
+      if (!this.state.registered && this.state.currentUser) {
+        this.reloadWebrtcConfig();
+      }
+      this.runDiagnosticsCheck({ reason: "memory_saver_resume", autoOpenIfCritical: true });
+    });
+
+    // 4. Visibility & Timer Drift detector (catches aggressive background tab throttling / sleeping tabs)
+    this._lastDriftTickAt = Date.now();
+    if (this._driftInterval) clearInterval(this._driftInterval);
+    this._driftInterval = setInterval(() => {
+      const now = Date.now();
+      const elapsedMs = now - (this._lastDriftTickAt || now);
+      this._lastDriftTickAt = now;
+      // Expected 4000ms; if > 22000ms elapsed in a single tick while hidden, browser throttled/froze the tab
+      if (elapsedMs > 22000 && document.hidden) {
+        this.setState({
+          memorySaverDetected: true,
+          memorySaverFreezeCount: (this.state.memorySaverFreezeCount || 0) + 1,
+          lastFreezeDurationSec: Math.round(elapsedMs / 1000)
+        });
+      }
+      // Periodic health refresh when user is logged in
+      if (this.state.currentUser) {
+        this.runDiagnosticsCheck({ reason: "periodic" });
+      }
+    }, 4000);
+
+    document.addEventListener("visibilitychange", () => {
+      if (!document.hidden && this.state.currentUser) {
+        if (!this.state.registered && !this._initInFlight) {
+          this.reloadWebrtcConfig();
+        }
+        this.runDiagnosticsCheck({ reason: "visibility_visible", autoOpenIfCritical: true });
+      }
+    });
+
+    // 5. Microphone permission live watcher
+    if (navigator.permissions && typeof navigator.permissions.query === "function") {
+      navigator.permissions
+        .query({ name: "microphone" })
+        .then((permStatus) => {
+          permStatus.onchange = () => {
+            if (permStatus.state === "granted") {
+              this.setState({ lastMicErrorCode: "" });
+            }
+            this.runDiagnosticsCheck({ reason: "mic_permission_change", autoOpenIfCritical: true });
+          };
+        })
+        .catch(() => {});
+    }
+  }
+
+  acquireBackgroundWakeLock() {
+    if (typeof window === "undefined") return;
+    if (this._webLockHeld) return;
+    if (navigator.locks && typeof navigator.locks.request === "function") {
+      this._webLockHeld = true;
+      this.setState({ webLockActive: true });
+      navigator.locks
+        .request("aida_webphone_keepalive_lock", { mode: "shared" }, () => {
+          return new Promise(() => {
+            // Never resolves while page is open — prevents Chromium Memory Saver from discarding tab
+          });
+        })
+        .catch(() => {
+          this._webLockHeld = false;
+          this.setState({ webLockActive: false });
+        });
+    }
+  }
+
+  openDiagnosticsModal() {
+    this.setState({ diagnosticsModalOpen: true });
+    this.runDiagnosticsCheck({ reason: "manual_open", autoOpenIfCritical: false });
+  }
+
+  closeDiagnosticsModal(dismissSignature = "") {
+    const patch = { diagnosticsModalOpen: false };
+    if (dismissSignature) {
+      patch.diagnosticsDismissedKey = dismissSignature;
+    }
+    this.setState(patch);
+  }
+
+  acknowledgeMemorySaverWarning() {
+    this.setState({ memorySaverDetected: false });
+    this.runDiagnosticsCheck({ reason: "ack_memory_saver", autoOpenIfCritical: false });
+  }
+
+  async requestMicrophonePermissionNow() {
+    if (typeof window === "undefined") return false;
+    this.getUnlockedAudioContext();
+    if (!navigator.mediaDevices || typeof navigator.mediaDevices.getUserMedia !== "function") {
+      await this.runDiagnosticsCheck({ reason: "mic_request_failed" });
+      return false;
+    }
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+      stream.getTracks().forEach((t) => {
+        try {
+          t.stop();
+        } catch (e) {}
+      });
+      this.setState({ lastMicErrorCode: "" });
+      await this.runDiagnosticsCheck({ reason: "mic_request_granted" });
+      return true;
+    } catch (err) {
+      const errName = String(err?.name || "UnknownError");
+      this.setState({ lastMicErrorCode: errName });
+      await this.runDiagnosticsCheck({ reason: "mic_request_error", autoOpenIfCritical: true });
+      return false;
+    }
+  }
+
+  async unlockAudioAndTestSpeaker() {
+    if (typeof window === "undefined") return false;
+    try {
+      const ctx = this.getUnlockedAudioContext();
+      if (ctx && ctx.state === "suspended") {
+        await ctx.resume();
+      }
+      if (ctx) {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = "sine";
+        osc.frequency.setValueAtTime(587.33, ctx.currentTime); // D5
+        osc.frequency.setValueAtTime(880, ctx.currentTime + 0.12); // A5
+        gain.gain.setValueAtTime(0.15, ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.35);
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.start();
+        osc.stop(ctx.currentTime + 0.36);
+      }
+      await this.runDiagnosticsCheck({ reason: "speaker_tested" });
+      return true;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  async runDiagnosticsCheck(options = {}) {
+    if (typeof window === "undefined") return null;
+
+    const curUser = this.state.currentUser;
+    const savedUserId =
+      sessionStorage.getItem("current_user_id") || localStorage.getItem("current_user_id") || "";
+    const isSuperAdminWithoutExt =
+      (curUser?.username === "admin" || curUser?.id === "admin" || (!curUser && savedUserId === "admin")) &&
+      !curUser?.extension &&
+      !this.state.webrtcConfig?.agentExtension;
+
+    const items = [];
+    let criticalCount = 0;
+    let warningCount = 0;
+
+    // 1. Network Connectivity
+    const isOnline = navigator.onLine !== false;
+    if (!isOnline) {
+      criticalCount++;
+      items.push({
+        id: "network",
+        title: "İnternet & Ağ Bağlantısı",
+        status: "error",
+        summary: "Bilgisayarınızın internet veya yerel ağ bağlantısı kesildi.",
+        solution: "Wi-Fi veya Ethernet kablo bağlantınızı kontrol edin. Bağlantı geldiğinde santral otomatik bağlanacaktır.",
+        actionType: "retry_all",
+        actionLabel: "Yeniden Kontrol Et"
+      });
+    } else {
+      items.push({
+        id: "network",
+        title: "İnternet & Ağ Bağlantısı",
+        status: "ok",
+        summary: "Ağ bağlantısı aktif ve çevrimiçi.",
+        solution: ""
+      });
+    }
+
+    // 2. Secure Context (HTTPS / localhost requirement for WebRTC getUserMedia)
+    const isSecure = Boolean(window.isSecureContext) && Boolean(navigator.mediaDevices);
+    if (!isSecure) {
+      criticalCount++;
+      items.push({
+        id: "secure_context",
+        title: "Güvenli Bağlantı (HTTPS / WebRTC)",
+        status: "error",
+        summary: "Tarayıcı güvenlik kuralları gereği HTTP bağlantıda mikrofon erişimi engelleniyor.",
+        solution: "Web Telefon'un mikrofonu kullanabilmesi için sayfaya güvenli bağlantı (https://) üzerinden erişmelisiniz.",
+        actionType: "switch_https",
+        actionLabel: "HTTPS Bağlantısına Geç"
+      });
+    } else {
+      items.push({
+        id: "secure_context",
+        title: "Güvenli Bağlantı (HTTPS / WebRTC)",
+        status: "ok",
+        summary: "Güvenli WebRTC medya ortamı (HTTPS) doğrulandı.",
+        solution: ""
+      });
+    }
+
+    // 3. Microphone Hardware & Browser Permission
+    let micPermState = "unknown";
+    if (navigator.permissions && typeof navigator.permissions.query === "function") {
+      try {
+        const p = await navigator.permissions.query({ name: "microphone" });
+        micPermState = p.state; // "granted" | "prompt" | "denied"
+      } catch (e) {}
+    }
+
+    let audioInputs = [];
+    let audioOutputs = [];
+    if (navigator.mediaDevices && typeof navigator.mediaDevices.enumerateDevices === "function") {
+      try {
+        const devs = await navigator.mediaDevices.enumerateDevices();
+        audioInputs = devs.filter((d) => d.kind === "audioinput");
+        audioOutputs = devs.filter((d) => d.kind === "audiooutput");
+      } catch (e) {}
+    }
+
+    const lastMicErr = this.state.lastMicErrorCode || "";
+    if (!isSecure) {
+      items.push({
+        id: "microphone",
+        title: "Mikrofon Donanımı & İzin",
+        status: "error",
+        summary: "HTTPS bağlantısı olmadığı için mikrofon API'si kullanılamıyor.",
+        solution: "Lütfen önce HTTPS bağlantısına geçin."
+      });
+    } else if (micPermState === "denied" || lastMicErr === "NotAllowedError" || lastMicErr === "PermissionDeniedError") {
+      criticalCount++;
+      items.push({
+        id: "microphone",
+        title: "Mikrofon İzni Engellenmiş",
+        status: "error",
+        summary: "Tarayıcıda bu site için mikrofon kullanım izni reddedilmiş.",
+        solution: "Adres çubuğunun solundaki Kilit / Site Ayarları (🔒) ikonuna tıklayıp 'Mikrofon -> İzin Ver' olarak değiştirin ve sayfayı yenileyin.",
+        actionType: "request_mic",
+        actionLabel: "İzni Tekrar Dene"
+      });
+    } else if (audioInputs.length === 0 || lastMicErr === "NotFoundError" || lastMicErr === "DevicesNotFoundError") {
+      criticalCount++;
+      items.push({
+        id: "microphone",
+        title: "Mikrofon / Kulaklık Bulunamadı",
+        status: "error",
+        summary: "Bilgisayarınıza takılı aktif bir mikrofon veya kulaklık tespit edilemedi.",
+        solution: "Kulaklığınızın USB veya Jak kablosunun takılı olduğundan ve işletim sistemi ses ayarlarında etkin olduğundan emin olun.",
+        actionType: "rescan_devices",
+        actionLabel: "Cihazları Yeniden Tara"
+      });
+    } else if (lastMicErr === "NotReadableError" || lastMicErr === "TrackStartError") {
+      criticalCount++;
+      items.push({
+        id: "microphone",
+        title: "Mikrofon Başka Uygulamada Kilitli",
+        status: "error",
+        summary: "Mikrofon donanımına şu anda erişilemiyor (Başka bir uygulama kullanıyor olabilir).",
+        solution: "Zoom, Teams veya mikrofonu özel modda kilitleyen diğer uygulamaları kapatıp tekrar deneyin.",
+        actionType: "request_mic",
+        actionLabel: "Mikrofonu Tekrar Dene"
+      });
+    } else if (micPermState === "prompt") {
+      warningCount++;
+      items.push({
+        id: "microphone",
+        title: "Mikrofon İzni Bekleniyor",
+        status: "warning",
+        summary: `${audioInputs.length} mikrofon bulundu ancak tarayıcı izni henüz onaylanmadı.`,
+        solution: "Çağrı geldiğinde sesinizin karşı tarafa gitmesi için aşağıdaki butona tıklayıp 'İzin Ver' seçeneğini onaylayın.",
+        actionType: "request_mic",
+        actionLabel: "Mikrofon İznini Şimdi Ver"
+      });
+    } else {
+      const activeMicName =
+        audioInputs.find((d) => d.label)?.label || `${audioInputs.length} Mikrofon Cihazı Hazır`;
+      items.push({
+        id: "microphone",
+        title: "Mikrofon Donanımı & İzin",
+        status: "ok",
+        summary: `Mikrofon hazır ve izin verildi (${activeMicName}).`,
+        solution: ""
+      });
+    }
+
+    // 4. PBX / Asterisk WSS SIP Connection Status
+    const ext = this.state.webrtcConfig?.agentExtension || curUser?.extension || "";
+    const webPhoneDisabled = this.state.webrtcConfig?.webPhoneEnabled === false;
+    const elapsedSinceInitMs = this.state.initStartedAt ? Date.now() - this.state.initStartedAt : 99999;
+    const isInitialConnecting =
+      !this.state.registered &&
+      !this.state.error &&
+      (this.state.isLoadingConfig || this._initInFlight || elapsedSinceInitMs < 6500);
+
+    if (isSuperAdminWithoutExt) {
+      items.push({
+        id: "pbx_connection",
+        title: "Santral (WSS / SIP) Bağlantısı",
+        status: "ok",
+        summary: "Sistem Yöneticisi (Admin) hesabı — Dahili telefon kaydı gerekmiyor.",
+        solution: ""
+      });
+    } else if (webPhoneDisabled) {
+      warningCount++;
+      items.push({
+        id: "pbx_connection",
+        title: "Web Telefon Devre Dışı",
+        status: "warning",
+        summary: "Bu kullanıcı veya profil için Web Telefon özelliği kapatılmış.",
+        solution: "Kullanıcı ayarlarından Web Telefon yetkisini veya aktif profil cihaz seçimini kontrol edin."
+      });
+    } else if (!ext) {
+      warningCount++;
+      items.push({
+        id: "pbx_connection",
+        title: "Dahili Numara (Extension) Tanımsız",
+        status: "warning",
+        summary: "Kullanıcı hesabınıza atanmış bir dahili abone numarası (Örn: 1000) bulunmuyor.",
+        solution: "Sistem Ayarları > Kullanıcılar ekranından bu hesaba bir dahili numara tanımlayın."
+      });
+    } else if (this.state.registered) {
+      items.push({
+        id: "pbx_connection",
+        title: "Santral (WSS / SIP) Bağlantısı",
+        status: "ok",
+        summary: `Santral bağlantısı aktif — Dahili ${ext} çevrimiçi (Kayıtlı).`,
+        solution: ""
+      });
+    } else if (isInitialConnecting) {
+      items.push({
+        id: "pbx_connection",
+        title: "Santral (WSS / SIP) Bağlantısı",
+        status: "connecting",
+        summary: `Dahili ${ext} için santral bağlantısı kuruluyor, lütfen bekleyin...`,
+        solution: ""
+      });
+    } else {
+      criticalCount++;
+      items.push({
+        id: "pbx_connection",
+        title: "Santral Bağlantısı Yok (Çevrimdışı)",
+        status: "error",
+        summary:
+          this.state.error ||
+          `Dahili ${ext} şu anda santrale kayıtlı değil. Gelen aramalar size düşmeyecektir.`,
+        solution:
+          "Santral ses sunucusu (WSS 8089 portu) erişimini veya ağ güvenlik duvarını kontrol edin ve 'Yeniden Bağlan' butonuna tıklayın.",
+        actionType: "reconnect_pbx",
+        actionLabel: "Santrale Yeniden Bağlan"
+      });
+    }
+
+    // 5. Browser Memory Saver / Background Tab Sleep Protection
+    if (this.state.memorySaverDetected) {
+      warningCount++;
+      items.push({
+        id: "memory_saver",
+        title: "Tarayıcı Bellek Tasarrufu (Sekme Uyutma) Algılandı!",
+        status: "warning",
+        summary: `Tarayıcınız arka planda bu sekmeyi ${this.state.lastFreezeDurationSec || ""} sn boyunca uyuttuğu tespit edildi.`,
+        solution:
+          "Chrome/Edge 'Bellek Tasarrufu (Memory Saver)' modu açık olduğunda arka plandaki sekmeler dondurulur ve santral bağlantınız kopabilir. Lütfen aşağıdaki butondan Performans ayarlarını açıp bu siteyi 'Her zaman etkin tut' listesine ekleyin.",
+        actionType: "copy_memory_saver_url",
+        actionLabel: "Ayar Adresini Kopyala & Kapat"
+      });
+    } else {
+      items.push({
+        id: "memory_saver",
+        title: "Arka Plan & Bellek Tasarrufu Koruması",
+        status: "ok",
+        summary: this.state.webLockActive
+          ? "Web Lock & Akıllı Uyanık Tutma Koruması aktif (Sekme uyutulmaya karşı korumalı)."
+          : "Arka plan sekme izleme aktif.",
+        solution: ""
+      });
+    }
+
+    // 6. Speaker & Ringtone Autoplay Readiness
+    const spkCount = audioOutputs.length;
+    const audioSuspended =
+      this.sharedAudioCtx && this.sharedAudioCtx.state === "suspended";
+    if (audioSuspended) {
+      warningCount++;
+      items.push({
+        id: "audio_output",
+        title: "Zil Sesi & Hoparlör Etkinleştirme",
+        status: "warning",
+        summary: "Tarayıcı otomatik ses çalma kısıtlaması nedeniyle ses motoru etkileşim bekliyor.",
+        solution: "Gelen aramalarda zil sesinin çalması için aşağıdaki test butonuna bir kez tıklayın.",
+        actionType: "test_speaker",
+        actionLabel: "Hoparlörü Etkinleştir & Test Et"
+      });
+    } else {
+      items.push({
+        id: "audio_output",
+        title: "Hoparlör & Zil Sesi Çıkışı",
+        status: "ok",
+        summary: spkCount > 0 ? `${spkCount} ses çıkış cihazı hazır.` : "Sistem varsayılan ses çıkışı hazır.",
+        solution: "",
+        actionType: "test_speaker",
+        actionLabel: "Test Sesi Çal"
+      });
+    }
+
+    const issueSignature = items
+      .filter((i) => i.status === "error" || (i.id === "memory_saver" && i.status === "warning"))
+      .map((i) => `${i.id}:${i.status}`)
+      .join("|");
+
+    const report = {
+      checkedAt: Date.now(),
+      criticalCount,
+      warningCount,
+      isHealthy: criticalCount === 0 && warningCount === 0,
+      hasBlockingIssue: criticalCount > 0 || Boolean(this.state.memorySaverDetected),
+      issueSignature,
+      items
+    };
+
+    const nextPatch = { healthReport: report };
+
+    // Auto-open popup when a blocking issue is present for an active agent (and not manually dismissed for the exact same issue signature)
+    if (
+      !isSuperAdminWithoutExt &&
+      curUser &&
+      report.hasBlockingIssue &&
+      options.autoOpenIfCritical !== false &&
+      issueSignature &&
+      this.state.diagnosticsDismissedKey !== issueSignature
+    ) {
+      nextPatch.diagnosticsModalOpen = true;
+    }
+
+    this.setState(nextPatch);
+    return report;
   }
 
   ensureAudioElement(lineId = "global") {
@@ -384,7 +866,8 @@ class WebphoneManager {
     this.activeUserKey = userKey;
     this._initInFlight = true;
 
-    this.setState({ isLoadingConfig: true });
+    this.setState({ isLoadingConfig: true, initStartedAt: Date.now() });
+    this.acquireBackgroundWakeLock();
     try {
       const apiBase = this.getApiBase();
       const queryParams = new URLSearchParams();
@@ -404,13 +887,22 @@ class WebphoneManager {
         const config = await res.json();
         this.setState({ webrtcConfig: config, isLoadingConfig: false });
         await this.startUserAgent(config);
+        this.runDiagnosticsCheck({ reason: "init_ok", autoOpenIfCritical: true });
       } else {
-        this.setState({ isLoadingConfig: false });
+        this.setState({
+          isLoadingConfig: false,
+          error: `Santral yapılandırması alınamadı (HTTP ${res.status})`
+        });
+        this.runDiagnosticsCheck({ reason: "init_http_error", autoOpenIfCritical: true });
         this.scheduleReconnect(null, true);
       }
     } catch (err) {
       console.error("[WebphoneManager] Config fetch error:", err);
-      this.setState({ isLoadingConfig: false });
+      this.setState({
+        isLoadingConfig: false,
+        error: `Santral API sunucusuna ulaşılamadı (${err?.message || "Ağ Hatası"})`
+      });
+      this.runDiagnosticsCheck({ reason: "init_network_error", autoOpenIfCritical: true });
       this.scheduleReconnect(null, true);
     } finally {
       this._initInFlight = false;
@@ -619,6 +1111,7 @@ class WebphoneManager {
             error: `Asterisk WSS Bağlantı Hatası (${err.message || "Bağlantı Kesildi"})`,
             registered: false
           });
+          this.runDiagnosticsCheck({ reason: "wss_disconnect", autoOpenIfCritical: true });
           this.scheduleReconnect(config, false);
         }
       };
@@ -629,12 +1122,14 @@ class WebphoneManager {
         this._reconnectAttempt = 0;
         this.setState({ registered: true, error: "" });
         this.startRegisterNotifyLoop();
+        this.runDiagnosticsCheck({ reason: "sip_registered", autoOpenIfCritical: true });
         const registerer = new SIP.Registerer(ua);
         this.registerer = registerer;
         registerer.stateChange.addListener((st) => {
           if (st === SIP.RegistererState.Registered) {
             this._reconnectAttempt = 0;
             this.setState({ registered: true, error: "" });
+            this.runDiagnosticsCheck({ reason: "sip_registered_event", autoOpenIfCritical: false });
           }
         });
         return registerer.register();
@@ -645,6 +1140,7 @@ class WebphoneManager {
           error: `WebRTC Bağlantı Hatası: ${err.message || "Sunucu Yanıt Vermedi"}`,
           registered: false
         });
+        this.runDiagnosticsCheck({ reason: "sip_register_failed", autoOpenIfCritical: true });
         this.scheduleReconnect(config, false);
       });
   }
@@ -2202,7 +2698,9 @@ class WebphoneManager {
         return await processAndTrack(rawBasic);
       } catch (err3) {
         console.warn("[WebphoneManager] Default getUserMedia failed, using silent fallback stream:", err3);
-        const errName = String(err3?.name || "");
+        const errName = String(err3?.name || "NotAllowedError");
+        this.setState({ lastMicErrorCode: errName });
+        this.runDiagnosticsCheck({ reason: "mic_acquire_failed", autoOpenIfCritical: true });
         const silentStream = this.createSilentFallbackAudioStream();
         if (silentStream) {
           if (errName === "NotFoundError" || errName === "DevicesNotFoundError") {

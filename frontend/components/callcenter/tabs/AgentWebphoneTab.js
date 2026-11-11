@@ -897,28 +897,35 @@ export default function AgentWebphoneTab({
             {/* Digital Number Screen with Backspace */}
             <div className="w-full">
               <div className="flex items-center justify-between mb-2 px-1">
-                <span className="inline-flex items-center gap-1.5 text-[10px] font-extrabold uppercase tracking-wider text-slate-400 dark:text-slate-500">
+                <button
+                  type="button"
+                  onClick={() => webphoneManager.openDiagnosticsModal()}
+                  title="Web Telefon Sistem Kontrolü & Sorun Giderme Ekranını Aç"
+                  className="inline-flex items-center gap-1.5 text-[10px] font-extrabold uppercase tracking-wider text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-white transition cursor-pointer"
+                >
                   <span
                     className={`h-2 w-2 rounded-full ${
                       callStatus !== "Idle"
                         ? "bg-emerald-500 animate-pulse"
-                        : isRegistered
+                        : isRegistered && (!wpState.healthReport || wpState.healthReport.criticalCount === 0)
                         ? "bg-emerald-500"
-                        : "bg-rose-500"
+                        : "bg-rose-500 animate-ping"
                     }`}
                   />
-                  {isConferenceActive
-                    ? `Konferans (${lines.length} Hat)`
-                    : callStatus === "InCall"
-                    ? "Görüşme Aktif"
-                    : callStatus === "Calling"
-                    ? "Aranıyor..."
-                    : callStatus === "Ringing"
-                    ? "Gelen Çağrı..."
-                    : isRegistered
-                    ? `Web Telefon Hazır (${currentUser?.extension || "1000"})`
-                    : "Bağlantı Bekleniyor"}
-                </span>
+                  <span>
+                    {isConferenceActive
+                      ? `Konferans (${lines.length} Hat)`
+                      : callStatus === "InCall"
+                      ? "Görüşme Aktif"
+                      : callStatus === "Calling"
+                      ? "Aranıyor..."
+                      : callStatus === "Ringing"
+                      ? "Gelen Çağrı..."
+                      : isRegistered
+                      ? `Web Telefon Hazır (${currentUser?.extension || "1000"})`
+                      : "Bağlantı / Sistem Kontrolü"}
+                  </span>
+                </button>
                 <div className="flex items-center gap-2">
                   <button
                     type="button"
