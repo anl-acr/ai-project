@@ -66,6 +66,7 @@ class Call(Base):
     answered_at = Column(DateTime, nullable=True)
     talk_duration = Column(Integer, nullable=True)
     ivr_events = Column(JSON, nullable=True)
+    transfer_details = Column(JSON, nullable=True)
 
     transcripts = relationship("Transcript", back_populates="call", cascade="all, delete-orphan")
     appointments = relationship("Appointment", back_populates="call")

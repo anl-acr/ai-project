@@ -673,6 +673,79 @@ def register_event_handlers(manager: Manager):
                 except Exception as e_ac:
                     print(f"[AMI AgentConnect Hook Error]: {e_ac}")
 
+    @manager.register_event('Pickup')
+    def handle_ami_pickup(m, event):
+        try:
+            picker_chan = str(event.get('Channel') or "").strip()
+            target_chan = str(event.get('TargetChannel') or "").strip()
+            picker_ext = _extract_ext_from_channel(picker_chan) or _resolve_sip_peer_to_ext(str(event.get('CallerIDNum') or "").strip())
+            ringing_ext = _extract_ext_from_channel(target_chan) or _resolve_sip_peer_to_ext(str(event.get('TargetCallerIDNum') or "").strip())
+            caller_num = str(event.get('TargetConnectedLineNum') or event.get('ConnectedLineNum') or "").strip()
+            if picker_ext and ringing_ext:
+                print(f"[AMI Pickup Event]: Picker={picker_ext} ({picker_chan}) -> Ringing={ringing_ext} ({target_chan}), Caller={caller_num}")
+                from backend.main import _record_call_pickup_in_db
+                asyncio.create_task(
+                    _record_call_pickup_in_db(
+                        picker_ext=picker_ext,
+                        ringing_ext=ringing_ext,
+                        caller_num=caller_num,
+                        channel=picker_chan
+                    )
+                )
+        except Exception as e_pk_ami:
+            print(f"[AMI Pickup Event Error]: {e_pk_ami}")
+
+    @manager.register_event('BlindTransfer')
+    def handle_ami_blind_transfer(m, event):
+        try:
+            tr_chan = str(event.get('TransfererChannel') or event.get('Channel') or "").strip()
+            from_ext = _extract_ext_from_channel(tr_chan) or _resolve_sip_peer_to_ext(str(event.get('TransfererCallerIDNum') or "").strip())
+            target_ext = str(event.get('Extension') or "").strip()
+            cust_num = str(event.get('TransfereeCallerIDNum') or event.get('TransfererConnectedLineNum') or "").strip()
+            if target_ext and (from_ext or cust_num):
+                print(f"[AMI BlindTransfer Event]: From={from_ext} -> Target={target_ext}, Customer={cust_num}, Chan={tr_chan}")
+                from backend.main import record_call_transfer_event
+                asyncio.create_task(
+                    record_call_transfer_event(
+                        from_ext=from_ext,
+                        target_ext=target_ext,
+                        remote_number=cust_num,
+                        transfer_type="blind",
+                        channel=tr_chan
+                    )
+                )
+        except Exception as e_bt_ami:
+            print(f"[AMI BlindTransfer Event Error]: {e_bt_ami}")
+
+    @manager.register_event('AttendedTransfer')
+    def handle_ami_attended_transfer(m, event):
+        try:
+            orig_chan = str(event.get('OrigTransfererChannel') or event.get('SecondTransfererChannel') or "").strip()
+            target_chan = str(event.get('TransferTargetChannel') or "").strip()
+            from_ext = (
+                _extract_ext_from_channel(orig_chan)
+                or _resolve_sip_peer_to_ext(str(event.get('OrigTransfererCallerIDNum') or event.get('SecondTransfererCallerIDNum') or "").strip())
+            )
+            target_ext = (
+                _extract_ext_from_channel(target_chan)
+                or _resolve_sip_peer_to_ext(str(event.get('TransferTargetCallerIDNum') or event.get('DestExten') or event.get('SecondTransfererConnectedLineNum') or "").strip())
+            )
+            cust_num = str(event.get('TransfereeCallerIDNum') or event.get('OrigTransfererConnectedLineNum') or "").strip()
+            if from_ext or target_ext:
+                print(f"[AMI AttendedTransfer Event]: From={from_ext} -> Target={target_ext}, Customer={cust_num}, OrigChan={orig_chan}")
+                from backend.main import record_call_transfer_event
+                asyncio.create_task(
+                    record_call_transfer_event(
+                        from_ext=from_ext,
+                        target_ext=target_ext,
+                        remote_number=cust_num,
+                        transfer_type="attended",
+                        channel=orig_chan
+                    )
+                )
+        except Exception as e_at_ami:
+            print(f"[AMI AttendedTransfer Event Error]: {e_at_ami}")
+
     def _handle_ami_security_event(m, event):
         import re
         ev_name = str(event.get('Event') or "Security").strip()

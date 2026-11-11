@@ -4036,24 +4036,28 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
   const getPickupMetadata = (call) => {
     if (!call) return null;
     const hs = String(call.hangup_source || "");
-    const isPickedUp = Boolean(call.is_picked_up || hs.startsWith("pickup:"));
+    const pkInfo = call.pickup_info || call.transfer_details?.pickup_info || null;
+    const isPickedUp = Boolean(call.is_picked_up || hs.startsWith("pickup:") || pkInfo?.is_picked_up);
     if (!isPickedUp) return null;
 
     const pickerExt = String(
-      call.picked_up_by_ext || (hs.startsWith("pickup:") ? hs.split(":", 2)[1] : "") || ""
+      pkInfo?.picker_ext || call.picked_up_by_ext || (hs.startsWith("pickup:") ? hs.split(":", 2)[1] : "") || ""
     ).trim();
     const pickerUser = Array.isArray(users)
       ? users.find((u) => String(u.extension || "").trim() === pickerExt)
       : null;
     const pickerName =
-      call.picked_up_by_name || pickerUser?.full_name || pickerUser?.name || "";
+      pkInfo?.picker_name || call.picked_up_by_name || pickerUser?.full_name || pickerUser?.name || "";
 
-    const origCallee = String(call.original_callee || call.callee_number || "").trim();
+    const origCallee = String(pkInfo?.original_callee_ext || call.original_callee || call.callee_number || "").trim();
     const origCalleeUser = Array.isArray(users)
       ? users.find((u) => String(u.extension || "").trim() === origCallee)
       : null;
     const origCalleeName =
-      call.original_callee_name || origCalleeUser?.full_name || origCalleeUser?.name || "";
+      pkInfo?.original_callee_name || call.original_callee_name || origCalleeUser?.full_name || origCalleeUser?.name || "";
+
+    const deviceSource = String(pkInfo?.device_source || call.pickup_device_source || "Masa Telefonu / Web Phone").trim();
+    const pickupMethod = String(pkInfo?.pickup_method || "Çağrı Çekme (Pickup)").trim();
 
     return {
       isPickedUp: true,
@@ -4062,8 +4066,129 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
       pickerDisplay: pickerName ? `${pickerName} (${pickerExt})` : `Dahili ${pickerExt}`,
       origCallee,
       origCalleeName,
-      origCalleeDisplay: origCalleeName ? `${origCallee} (${origCalleeName})` : origCallee
+      origCalleeDisplay: origCalleeName ? `${origCallee} (${origCalleeName})` : origCallee,
+      deviceSource,
+      pickupMethod
     };
+  };
+
+  const getTransferMetadata = (call) => {
+    if (!call) return null;
+    const hs = String(call.hangup_source || "").trim();
+    const chain = Array.isArray(call.transfer_chain)
+      ? call.transfer_chain
+      : Array.isArray(call.transfer_details?.transfer_chain)
+      ? call.transfer_details.transfer_chain
+      : [];
+    const isTransferred = Boolean(
+      chain.length > 0 ||
+        call.is_transferred ||
+        String(call.status || "").toLowerCase() === "transferred" ||
+        hs.startsWith("transfer:")
+    );
+    if (!isTransferred) return null;
+
+    const firstHop = chain.length > 0 ? chain[0] : null;
+    const lastHop = chain.length > 0 ? chain[chain.length - 1] : null;
+
+    let rawTarget = String(lastHop?.to_ext || call.transfer_target || "").trim();
+    if (!rawTarget && hs.startsWith("transfer:")) {
+      rawTarget = hs.slice(9).trim();
+    }
+    const fromExt = String(firstHop?.from_ext || "").trim();
+    const fromUser = fromExt && Array.isArray(users)
+      ? users.find((u) => String(u.extension || "").trim() === fromExt)
+      : null;
+    const fromName = String(firstHop?.from_name || fromUser?.full_name || fromUser?.name || "").trim();
+    const fromDisplay = fromExt
+      ? fromName
+        ? `${fromName} (${fromExt})`
+        : `Dahili ${fromExt}`
+      : "";
+
+    const toUser = rawTarget && Array.isArray(users)
+      ? users.find((u) => String(u.extension || "").trim() === rawTarget)
+      : null;
+    const toName = String(lastHop?.to_name || toUser?.full_name || toUser?.name || "").trim();
+    const toDisplay = rawTarget
+      ? toName
+        ? `${toName} (${rawTarget})`
+        : resolveTargetName(rawTarget)
+      : "Canlı Temsilci";
+
+    const rawType = String(lastHop?.type || call.transfer_type || "").toLowerCase();
+    const isAttended = Boolean(
+      rawType.includes("attended") ||
+        lastHop?.consult_call_id ||
+        lastHop?.consult_recording_path
+    );
+    const typeLabel = isAttended ? "Ön Görüşmeli (Attended) Transfer" : "Kör (Blind) Transfer";
+    const shortTypeLabel = isAttended ? "Ön Görüşmeli Transfer" : "Kör Transfer";
+    const deviceSource = String(
+      lastHop?.device_source || call.transfer_device_source || "Masa Telefonu / Web Phone"
+    ).trim();
+
+    return {
+      isTransferred: true,
+      isAttended,
+      typeLabel,
+      shortTypeLabel,
+      fromExt,
+      fromName,
+      fromDisplay,
+      toExt: rawTarget,
+      toName,
+      toDisplay,
+      deviceSource,
+      chain,
+      consultCallId: lastHop?.consult_call_id || null,
+      consultRecordingPath: lastHop?.consult_recording_path || null,
+      consultDurationSec: Number(lastHop?.consult_duration_sec || 0)
+    };
+  };
+
+  const getCallAudioSegments = (call) => {
+    if (!call) return [];
+    const rawSegs = Array.isArray(call.audio_segments)
+      ? call.audio_segments
+      : Array.isArray(call.transfer_details?.audio_segments)
+      ? call.transfer_details.audio_segments
+      : [];
+    const validSegs = rawSegs.filter((s) => s && s.recording_path);
+    if (validSegs.length > 0) {
+      const hasMaster = validSegs.some((s) => s.kind === "master" || s.id === "master");
+      if (!hasMaster && call.recording_path && !String(call.recording_path).includes("DELETED") && !String(call.recording_path).includes("DISABLED")) {
+        return [
+          {
+            id: "master",
+            kind: "master",
+            label: "Tüm Görüşme (Tek Birleşik Ana Kayıt)",
+            participants: `${getCustomerNumber(call)} ↔ ${getConversant(call) || "Temsilci"}`,
+            recording_path: call.recording_path,
+            duration_sec: Number(call.talk_duration || call.duration || 0)
+          },
+          ...validSegs
+        ];
+      }
+      return validSegs;
+    }
+    if (
+      call.recording_path &&
+      !String(call.recording_path).includes("DELETED") &&
+      !String(call.recording_path).includes("DISABLED")
+    ) {
+      return [
+        {
+          id: "master",
+          kind: "master",
+          label: "Tüm Görüşme (Tek Birleşik Ana Kayıt)",
+          participants: `${getCustomerNumber(call)} ↔ ${getConversant(call) || "Temsilci"}`,
+          recording_path: call.recording_path,
+          duration_sec: Number(call.talk_duration || call.duration || 0)
+        }
+      ];
+    }
+    return [];
   };
 
   const getConversant = (call) => {
@@ -4615,21 +4740,52 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
       }
 
       const isTransferred = Boolean(
-        call.is_transferred || stLower === "transferred" || hs.startsWith("transfer:")
+        call.is_transferred || stLower === "transferred" || hs.startsWith("transfer:") || (Array.isArray(call.transfer_chain) && call.transfer_chain.length > 0)
       );
       if (isTransferred) {
-        let rawTarget = String(call.transfer_target || "").trim();
-        if (!rawTarget && hs.startsWith("transfer:")) {
-          rawTarget = hs.slice(9).trim();
+        const trMeta = getTransferMetadata(call);
+        if (trMeta && Array.isArray(trMeta.chain) && trMeta.chain.length > 0) {
+          trMeta.chain.forEach((hop, hIdx) => {
+            const hFrom = hop.from_name ? `${hop.from_name} (${hop.from_ext})` : `Dahili ${hop.from_ext || "-"}`;
+            const hTo = hop.to_name ? `${hop.to_name} (${hop.to_ext})` : resolveTargetName(hop.to_ext || "");
+            const hDev = hop.device_source || trMeta.deviceSource || "Masa Telefonu / Web Phone";
+            if (hop.type === "attended" || hop.consult_recording_path || hop.consult_call_id) {
+              curOffset += 2;
+              timeline.push({
+                time: formatOffsetTime(curOffset),
+                title: `Transfer Ön Görüşmesi (Ara Görüşme #${hIdx + 1})`,
+                description: `${hFrom} müşteriyi beklemeye alarak ${hTo} ile ön görüşme (danışma) gerçekleştirdi${hop.consult_duration_sec ? ` (${hop.consult_duration_sec} sn)` : ""}. Cihaz: ${hDev}.`,
+                status: "warning"
+              });
+            }
+            curOffset += 2;
+            timeline.push({
+              time: hop.timestamp
+                ? parseUtcSafeDate(hop.timestamp).toLocaleTimeString("tr-TR", {
+                    hour: "2-digit",
+                    minute: "2-digit",
+                    second: "2-digit"
+                  })
+                : formatOffsetTime(curOffset),
+              title: `${hop.type_label || "Çağrı Aktarıldı (Transfer)"}`,
+              description: `${hFrom} tarafından görüşme ${hDev} üzerinden ${hTo} hedefine aktarıldı.`,
+              status: "info"
+            });
+          });
+        } else {
+          let rawTarget = String(call.transfer_target || "").trim();
+          if (!rawTarget && hs.startsWith("transfer:")) {
+            rawTarget = hs.slice(9).trim();
+          }
+          const targetLabel = rawTarget ? resolveTargetName(rawTarget) : "Canlı Temsilci";
+          curOffset += 2;
+          timeline.push({
+            time: formatOffsetTime(curOffset),
+            title: trMeta?.typeLabel || "Çağrı Aktarıldı (Transfer)",
+            description: `Görüşme ${trMeta?.fromDisplay ? `${trMeta.fromDisplay} tarafından ` : ""}${targetLabel} hedefine aktarıldı${trMeta?.deviceSource ? ` (Cihaz: ${trMeta.deviceSource})` : ""}.`,
+            status: "info"
+          });
         }
-        const targetLabel = rawTarget ? resolveTargetName(rawTarget) : "Canlı Temsilci";
-        curOffset += 2;
-        timeline.push({
-          time: formatOffsetTime(curOffset),
-          title: "Çağrı Aktarıldı (Transfer)",
-          description: `Görüşme ${targetLabel} hedefine aktarıldı.`,
-          status: "info"
-        });
       }
     };
 
@@ -4643,8 +4799,8 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
       });
       timeline.push({
         time: formatOffsetTime(pkAnsOffset),
-        title: "Pickup ile Çağrı Çekildi",
-        description: `Aranan dahili (${pickupMeta.origCalleeDisplay}) çalarken, aynı abone grubundaki ${pickupMeta.pickerDisplay} tarafından çağrı Pickup ile çekilerek yanıtlandı.`,
+        title: `Pickup ile Çağrı Çekildi (${pickupMeta.deviceSource})`,
+        description: `Aranan dahili (${pickupMeta.origCalleeDisplay}) çalarken, ${pickupMeta.pickerDisplay} tarafından ${pickupMeta.deviceSource} (${pickupMeta.pickupMethod}) kullanılarak çağrı Pickup ile çekildi ve yanıtlandı.`,
         status: "success"
       });
       appendMidCallEvents(pkAnsOffset + 1);
@@ -6222,10 +6378,13 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
           const endedByInfo = resolveCallEndedByDetail(selectedTimelineCall);
           const hangupLabel = endedByInfo.label;
           const modalIvrEvents = getCallIvrMenuEvents(selectedTimelineCall);
+          const modalPickup = getPickupMetadata(selectedTimelineCall);
+          const modalTransfer = getTransferMetadata(selectedTimelineCall);
+          const modalAudioSegments = getCallAudioSegments(selectedTimelineCall);
 
           return (
-          <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-sm z-50 flex items-center justify-center animate-in fade-in duration-200">
-            <div className="bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-3xl p-6 shadow-2xl w-full max-w-lg max-h-[85vh] overflow-y-auto flex flex-col gap-4 animate-in zoom-in-95 duration-200">
+          <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-sm z-50 flex items-center justify-center animate-in fade-in duration-200 p-4">
+            <div className="bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-3xl p-6 shadow-2xl w-full max-w-2xl max-h-[88vh] overflow-y-auto flex flex-col gap-4 animate-in zoom-in-95 duration-200">
               {/* Header */}
               <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800">
                 <div className="flex items-center gap-2.5">
@@ -6233,8 +6392,8 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                     <Search size={16} />
                   </div>
                   <div>
-                    <h3 className="font-extrabold text-sm text-slate-900 dark:text-slate-100">Detaylı Arama Akışı</h3>
-                    <p className="text-[9px] text-slate-400 dark:text-slate-500 font-bold uppercase tracking-wider mt-0.5">Çağrı Yönlendirme Zaman Çizelgesi</p>
+                    <h3 className="font-extrabold text-sm text-slate-900 dark:text-slate-100">Detaylı Arama Akışı & Ses Kayıtları</h3>
+                    <p className="text-[9px] text-slate-400 dark:text-slate-500 font-bold uppercase tracking-wider mt-0.5">Çağrı Yönlendirme, Transfer, Pickup ve Ses Kayıt Bölümleri</p>
                   </div>
                 </div>
                 <button 
@@ -6275,6 +6434,152 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                   <p className="text-[10px] font-mono font-bold text-slate-550 dark:text-slate-400 mt-0.5 break-all">{selectedTimelineCall.id}</p>
                 </div>
               </div>
+
+              {/* Pickup & Transfer Detailed Summary Cards */}
+              {(modalPickup || modalTransfer) && (
+                <div className="flex flex-col gap-2.5">
+                  {modalPickup && (
+                    <div className="p-3 rounded-2xl border border-amber-300/70 dark:border-amber-800/60 bg-amber-50/70 dark:bg-amber-950/30 flex flex-col gap-1.5">
+                      <div className="flex items-center justify-between gap-2 flex-wrap">
+                        <span className="text-[10px] font-extrabold uppercase tracking-wider text-amber-800 dark:text-amber-300 flex items-center gap-1.5">
+                          <PhoneIncoming size={13} />
+                          Çağrı Çekme (Pickup) Detayı
+                        </span>
+                        <span className="px-2 py-0.5 rounded-lg text-[9px] font-extrabold bg-amber-200/70 dark:bg-amber-900/60 text-amber-900 dark:text-amber-200">
+                          Cihaz: {modalPickup.deviceSource}
+                        </span>
+                      </div>
+                      <p className="text-xs font-bold text-slate-800 dark:text-slate-100">
+                        Çalan Dahili: <span className="text-amber-700 dark:text-amber-300">{modalPickup.origCalleeDisplay}</span>
+                        {" ➔ "}
+                        Pickup ile Çeken: <span className="text-emerald-700 dark:text-emerald-300">{modalPickup.pickerDisplay}</span>
+                      </p>
+                      <p className="text-[10px] font-semibold text-slate-500 dark:text-slate-400">
+                        Yöntem: {modalPickup.pickupMethod}
+                      </p>
+                    </div>
+                  )}
+
+                  {modalTransfer && (
+                    <div className={"p-3 rounded-2xl border flex flex-col gap-2 " + borderLight + " " + lightBg}>
+                      <div className="flex items-center justify-between gap-2 flex-wrap">
+                        <span className={"text-[10px] font-extrabold uppercase tracking-wider flex items-center gap-1.5 " + text}>
+                          <PhoneForwarded size={13} />
+                          {modalTransfer.typeLabel} Detayı
+                        </span>
+                        <span className="px-2 py-0.5 rounded-lg text-[9px] font-extrabold bg-white/80 dark:bg-slate-800 text-slate-700 dark:text-slate-200 border border-slate-200/70 dark:border-slate-700">
+                          Cihaz: {modalTransfer.deviceSource}
+                        </span>
+                      </div>
+                      {modalTransfer.chain && modalTransfer.chain.length > 0 ? (
+                        <div className="flex flex-col gap-1.5">
+                          {modalTransfer.chain.map((hop, hIdx) => (
+                            <div
+                              key={hIdx}
+                              className="px-3 py-2 rounded-xl bg-white/90 dark:bg-slate-900/90 border border-slate-200/70 dark:border-slate-800 flex flex-wrap items-center justify-between gap-2"
+                            >
+                              <div className="flex items-center gap-1.5 text-xs font-bold text-slate-800 dark:text-slate-100 flex-wrap">
+                                <span className="px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-[10px] font-mono">
+                                  #{hIdx + 1}
+                                </span>
+                                <span>{hop.from_name ? `${hop.from_name} (${hop.from_ext})` : `Dahili ${hop.from_ext || "-"}`}</span>
+                                <span className={text}>➔</span>
+                                <span>{hop.to_name ? `${hop.to_name} (${hop.to_ext})` : resolveTargetName(hop.to_ext || "")}</span>
+                              </div>
+                              <div className="flex items-center gap-1.5">
+                                <span className={"px-2 py-0.5 rounded text-[9px] font-extrabold text-white " + bg}>
+                                  {hop.type === "attended" ? "Ön Görüşmeli (Attended)" : "Kör (Blind)"}
+                                </span>
+                                {hop.device_source && (
+                                  <span className="text-[9px] font-bold text-slate-500 dark:text-slate-400">
+                                    {hop.device_source}
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <p className="text-xs font-bold text-slate-800 dark:text-slate-100">
+                          {modalTransfer.fromDisplay ? `${modalTransfer.fromDisplay} ➔ ` : "Aktarılan Hedef: "}
+                          <span className={text}>{modalTransfer.toDisplay}</span>
+                        </p>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Görüşme Ses Kayıtları (Tek Birleşik Ana Kayıt + Bölüm & Ara Görüşme Kayıtları) */}
+              {modalAudioSegments.length > 0 && (
+                <div className="p-3.5 rounded-2xl border border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-900/60 flex flex-col gap-3">
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-2">
+                      <div className={"h-7 w-7 rounded-xl flex items-center justify-center text-white shrink-0 " + bg}>
+                        <Play size={12} />
+                      </div>
+                      <div>
+                        <h4 className="text-xs font-extrabold text-slate-800 dark:text-slate-100">
+                          Görüşme Ses Kayıtları {modalAudioSegments.length > 1 ? `(${modalAudioSegments.length} Kayıt)` : ""}
+                        </h4>
+                        <p className="text-[9px] text-slate-500 dark:text-slate-400 font-semibold">
+                          Tek birleşik ana ses kaydı ve transfer / ara görüşme (danışma) kayıtları
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="flex flex-col gap-2.5">
+                    {modalAudioSegments.map((seg, sIdx) => (
+                      <div
+                        key={seg.id || sIdx}
+                        className={`p-3 rounded-xl border flex flex-col gap-2 ${
+                          seg.kind === "master"
+                            ? `${borderLight} ${lightBg}`
+                            : seg.kind === "consult"
+                            ? "border-amber-300/70 dark:border-amber-800/60 bg-amber-50/50 dark:bg-amber-950/25"
+                            : "border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900"
+                        }`}
+                      >
+                        <div className="flex items-center justify-between gap-2 flex-wrap">
+                          <div className="flex items-center gap-2">
+                            <span
+                              className={`px-2 py-0.5 rounded-md text-[9px] font-black uppercase ${
+                                seg.kind === "master"
+                                  ? `text-white ${bg}`
+                                  : seg.kind === "consult"
+                                  ? "bg-amber-500 text-white"
+                                  : "bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-200"
+                              }`}
+                            >
+                              {seg.kind === "master"
+                                ? "Tek Birleşik Kayıt"
+                                : seg.kind === "consult"
+                                ? "Ara Görüşme"
+                                : `Bölüm ${sIdx}`}
+                            </span>
+                            <span className="text-xs font-extrabold text-slate-800 dark:text-slate-100">
+                              {seg.label}
+                            </span>
+                          </div>
+                          {seg.participants && (
+                            <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400">
+                              {seg.participants}
+                            </span>
+                          )}
+                        </div>
+                        <WaveformAudioPlayer
+                          src={`${window.location.protocol}//${backendHost}${seg.recording_path}`}
+                          initialDuration={seg.duration_sec || selectedTimelineCall.talk_duration || selectedTimelineCall.duration}
+                          size="sm"
+                          barCount={28}
+                          title={seg.label}
+                          className="w-full"
+                        />
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
 
               {/* Arama Akış Yönetimi — Menü & Basılan Digit (DTMF) Özeti */}
               {modalIvrEvents.length > 0 && (
@@ -11362,23 +11667,31 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                                   {visibleColumns.caller && <th className={"p-4 text-xs font-bold uppercase tracking-wider " + text}>Numara</th>}
                                   {visibleColumns.firstAgent && <th className={"p-4 text-xs font-bold uppercase tracking-wider " + text}>İlk Temsilci</th>}
                                   {visibleColumns.hold && <th className={"p-4 text-xs font-bold uppercase tracking-wider text-center " + text}>Hold (Bekletme)</th>}
-                                  {visibleColumns.transfer && <th className={"p-4 text-xs font-bold uppercase tracking-wider text-center " + text}>Transfer</th>}
+                                  {visibleColumns.transfer && <th className={"p-4 text-xs font-bold uppercase tracking-wider text-center " + text}>Transfer Türü & Cihaz</th>}
                                   {visibleColumns.target && <th className={"p-4 text-xs font-bold uppercase tracking-wider " + text}>Aktarılan Birim / Hedef</th>}
+                                  <th className={"p-4 text-xs font-bold uppercase tracking-wider text-center " + text}>Ses Kayıtları & Akış</th>
                                 </tr>
                               </thead>
                               <tbody>
                                 {topEvents.length === 0 ? (
                                   <tr>
-                                    <td colSpan="6" className="p-8 text-center text-slate-500 dark:text-slate-400 font-medium">
+                                    <td colSpan="7" className="p-8 text-center text-slate-500 dark:text-slate-400 font-medium">
                                       Seçili tarih aralığında bekletme (Hold) veya aktarım (Transfer) olayı kaydedilmemiştir.
                                     </td>
                                   </tr>
                                 ) : (
-                                  topEvents.map((c, idx) => (
+                                  topEvents.map((c, idx) => {
+                                    const trInfo = getTransferMetadata(c);
+                                    const segList = getCallAudioSegments(c);
+                                    return (
                                     <tr key={idx} className={"border-b " + borderLight + " transition-colors duration-150 " + hover}>
                                       {visibleColumns.startTime && <td className="p-4 text-xs font-semibold text-slate-800 dark:text-slate-200 whitespace-nowrap">{formatDate(c.start_time)}</td>}
                                       {visibleColumns.caller && <td className="p-4 font-bold text-slate-800 dark:text-slate-200">{getCustomerNumber(c)}</td>}
-                                      {visibleColumns.firstAgent && <td className="p-4 font-medium text-slate-600 dark:text-slate-400">{getConversant(c) || "Bilinmiyor"}</td>}
+                                      {visibleColumns.firstAgent && (
+                                        <td className="p-4 font-medium text-slate-600 dark:text-slate-400">
+                                          {trInfo?.fromDisplay || getConversant(c) || "Bilinmiyor"}
+                                        </td>
+                                      )}
                                       {visibleColumns.hold && (
                                         <td className="p-4 text-center">
                                           {c.hasHold ? (
@@ -11391,13 +11704,42 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                                       {visibleColumns.transfer && (
                                         <td className="p-4 text-center">
                                           {c.isTransferred ? (
-                                            <PhoneForwarded size={16} className="mx-auto text-blue-500" />
+                                            <div className="flex flex-col items-center gap-1">
+                                              <span className={"inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-[10px] font-extrabold text-white " + bg}>
+                                                <PhoneForwarded size={11} />
+                                                {trInfo?.isAttended ? "Ön Görüşmeli" : "Kör Transfer"}
+                                              </span>
+                                              {trInfo?.deviceSource && (
+                                                <span className="text-[9px] font-bold text-slate-500 dark:text-slate-400">
+                                                  {trInfo.deviceSource}
+                                                </span>
+                                              )}
+                                            </div>
                                           ) : <span className="text-slate-300">-</span>}
                                         </td>
                                       )}
-                                      {visibleColumns.target && <td className="p-4 font-medium text-slate-500 dark:text-slate-400 text-sm">{c.transferTarget}</td>}
+                                      {visibleColumns.target && (
+                                        <td className="p-4 font-bold text-slate-700 dark:text-slate-200 text-xs">
+                                          {trInfo?.toDisplay || c.transferTarget}
+                                        </td>
+                                      )}
+                                      <td className="p-4 text-center">
+                                        <button
+                                          type="button"
+                                          onClick={() => {
+                                            setSelectedTimelineCall(c);
+                                            setIsTimelineOpen(true);
+                                          }}
+                                          className={"inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-[10px] font-extrabold cursor-pointer transition " + lightBg + " " + text + " " + borderLight + " " + hover + " hover:text-white"}
+                                          title="Ana Ses Kaydı, Ara Görüşme Kayıtları ve Akışı Aç"
+                                        >
+                                          <Play size={10} />
+                                          <span>{segList.length > 1 ? `Kayıtlar (${segList.length})` : "Detay & Kayıt"}</span>
+                                        </button>
+                                      </td>
                                     </tr>
-                                  ))
+                                    );
+                                  })
                                 )}
                               </tbody>
                             </table>
@@ -13948,43 +14290,71 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                           {/* Çağrı Durumu */}
                           {visibleColumns.status && (
                             <td className="p-4 text-xs">
-                              <div className="flex flex-col items-start gap-1">
-                                <span className={`px-2.5 py-0.5 rounded text-[10px] font-bold border ${
-                                  statusLabel === "Başarılı"
-                                    ? "bg-emerald-50 dark:bg-emerald-955/20 text-primary dark:text-emerald-400 border-emerald-100 dark:border-emerald-900/30"
-                                    : "bg-rose-50 dark:bg-rose-955/20 text-primary dark:text-rose-400 border-rose-100 dark:border-rose-900/30"
-                                }`}>
-                                  {statusLabel}
-                                </span>
-                                {pickupMeta && (
-                                  <span className="px-2 py-0.5 rounded text-[9px] font-extrabold bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800/60">
-                                    Pickup ({pickupMeta.origCallee} → {pickupMeta.pickerExt})
-                                  </span>
-                                )}
-                              </div>
+                              {(() => {
+                                const transferMeta = getTransferMetadata(call);
+                                return (
+                                  <div className="flex flex-col items-start gap-1">
+                                    <span className={`px-2.5 py-0.5 rounded text-[10px] font-bold border ${
+                                      statusLabel === "Başarılı"
+                                        ? "bg-emerald-50 dark:bg-emerald-955/20 text-primary dark:text-emerald-400 border-emerald-100 dark:border-emerald-900/30"
+                                        : "bg-rose-50 dark:bg-rose-955/20 text-primary dark:text-rose-400 border-rose-100 dark:border-rose-900/30"
+                                    }`}>
+                                      {statusLabel}
+                                    </span>
+                                    {pickupMeta && (
+                                      <span className="px-2 py-0.5 rounded text-[9px] font-extrabold bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800/60" title={`Cihaz: ${pickupMeta.deviceSource} | Yöntem: ${pickupMeta.pickupMethod}`}>
+                                        Pickup ({pickupMeta.origCallee} → {pickupMeta.pickerExt}) • {pickupMeta.deviceSource}
+                                      </span>
+                                    )}
+                                    {transferMeta && (
+                                      <span className={"px-2 py-0.5 rounded text-[9px] font-extrabold border " + lightBg + " " + text + " " + borderLight} title={`${transferMeta.typeLabel} | Cihaz: ${transferMeta.deviceSource}`}>
+                                        {transferMeta.shortTypeLabel}: {transferMeta.fromExt ? `${transferMeta.fromExt} → ` : ""}{transferMeta.toExt || transferMeta.toDisplay}
+                                      </span>
+                                    )}
+                                  </div>
+                                );
+                              })()}
                             </td>
                           )}
                           {/* Görüşen Kişi */}
                           {visibleColumns.conversant && (
                             <td className="p-4 text-xs">
-                              {pickupMeta ? (
-                                <div className="space-y-1">
-                                  <span className="inline-block px-2.5 py-0.5 rounded text-[10px] font-extrabold bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800/60">
-                                    Pickup: {pickupMeta.pickerDisplay}
+                              {(() => {
+                                const transferMeta = getTransferMetadata(call);
+                                if (pickupMeta) {
+                                  return (
+                                    <div className="space-y-1">
+                                      <span className="inline-block px-2.5 py-0.5 rounded text-[10px] font-extrabold bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800/60">
+                                        Pickup: {pickupMeta.pickerDisplay}
+                                      </span>
+                                      <div className="text-[10px] text-slate-500 dark:text-slate-400">
+                                        Aranan Dahili: {pickupMeta.origCalleeDisplay} ({pickupMeta.deviceSource})
+                                      </div>
+                                    </div>
+                                  );
+                                }
+                                if (transferMeta) {
+                                  return (
+                                    <div className="space-y-1">
+                                      <span className={"inline-block px-2.5 py-0.5 rounded text-[10px] font-extrabold border " + lightBg + " " + text + " " + borderLight}>
+                                        {transferMeta.fromDisplay ? `${transferMeta.fromDisplay} ➔ ${transferMeta.toDisplay}` : `Transfer ➔ ${transferMeta.toDisplay}`}
+                                      </span>
+                                      <div className="text-[10px] text-slate-500 dark:text-slate-400">
+                                        {transferMeta.shortTypeLabel} • {transferMeta.deviceSource}
+                                      </div>
+                                    </div>
+                                  );
+                                }
+                                return (
+                                  <span className={`px-2.5 py-0.5 rounded text-[10px] font-bold ${
+                                    conversant === "AI Asistan" 
+                                      ? "bg-purple-50 dark:bg-purple-950/30 text-primary dark:text-purple-405 border border-purple-100 dark:border-purple-900/30"
+                                      : "bg-blue-50 dark:bg-blue-950/30 text-primary dark:text-blue-400 border border-blue-100 dark:border-blue-900/30"
+                                  }`}>
+                                    {conversant}
                                   </span>
-                                  <div className="text-[10px] text-slate-500 dark:text-slate-400">
-                                    Aranan Dahili: {pickupMeta.origCalleeDisplay}
-                                  </div>
-                                </div>
-                              ) : (
-                                <span className={`px-2.5 py-0.5 rounded text-[10px] font-bold ${
-                                  conversant === "AI Asistan" 
-                                    ? "bg-purple-50 dark:bg-purple-950/30 text-primary dark:text-purple-405 border border-purple-100 dark:border-purple-900/30"
-                                    : "bg-blue-50 dark:bg-blue-950/30 text-primary dark:text-blue-400 border border-blue-100 dark:border-blue-900/30"
-                                }`}>
-                                  {conversant}
-                                </span>
-                              )}
+                                );
+                              })()}
                             </td>
                           )}
                           {/* Görüşme Süresi */}
@@ -14014,36 +14384,58 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                           {/* Ses Kaydı Oynatıcı Column */}
                           {isAudioMode && visibleColumns.audioRecord && (
                             <td className="p-4 text-xs" onClick={(e) => e.stopPropagation()}>
-                              {call.recording_path ? (
-                                <button
-                                  type="button"
-                                  onClick={() => setActiveAudioCall(call)}
-                                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border font-bold text-[10px] cursor-pointer transition-all ${
-                                    activeAudioCall?.id === call.id
-                                      ? `${bg} ${border} text-white shadow-sm`
-                                      : `${lightBg} ${text} ${borderLight} ${hover} hover:text-white`
-                                  }`}
-                                >
-                                  <Play size={10} />
-                                  <span>{activeAudioCall?.id === call.id ? "Oynatılıyor" : "Dinle"}</span>
-                                </button>
-                              ) : (
-                                <button
-                                  type="button"
-                                  disabled
-                                  title={
-                                    call.recording_deleted_reason === "DELETED_BY_DYNAMIC_POLICY"
-                                      ? "Dinamik Ses Kaydı Politikası gereği bu görüşmenin ses kaydı silindi"
-                                      : call.recording_deleted_reason === "DISABLED_BY_USER_SETTING"
-                                      ? "Kullanıcı ses kayıt ayarı kapalı olduğu için kayıt alınmadı"
-                                      : "Bu görüşmeye ait ses kaydı bulunmamaktadır"
-                                  }
-                                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-slate-200/70 dark:border-slate-700/50 bg-slate-100/70 dark:bg-slate-800/40 text-slate-400 dark:text-slate-500 font-bold text-[10px] opacity-55 cursor-not-allowed select-none"
-                                >
-                                  <Play size={10} />
-                                  <span>Dinle</span>
-                                </button>
-                              )}
+                              {(() => {
+                                const segs = getCallAudioSegments(call);
+                                if (call.recording_path) {
+                                  return (
+                                    <div className="flex items-center gap-1.5 flex-wrap">
+                                      <button
+                                        type="button"
+                                        onClick={() => setActiveAudioCall(call)}
+                                        className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border font-bold text-[10px] cursor-pointer transition-all ${
+                                          activeAudioCall?.id === call.id
+                                            ? `${bg} ${border} text-white shadow-sm`
+                                            : `${lightBg} ${text} ${borderLight} ${hover} hover:text-white`
+                                        }`}
+                                      >
+                                        <Play size={10} />
+                                        <span>{activeAudioCall?.id === call.id ? "Oynatılıyor" : "Ana Kayıt"}</span>
+                                      </button>
+                                      {segs.length > 1 && (
+                                        <button
+                                          type="button"
+                                          onClick={() => {
+                                            setSelectedTimelineCall(call);
+                                            setIsTimelineOpen(true);
+                                          }}
+                                          className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl border border-amber-300/80 dark:border-amber-800/60 bg-amber-50 dark:bg-amber-950/40 text-amber-800 dark:text-amber-300 font-extrabold text-[10px] cursor-pointer hover:bg-amber-100 transition"
+                                          title="Tek Birleşik Ana Kayıt + Ara Görüşme ve Bölüm Kayıtlarını Dinle"
+                                        >
+                                          <GitMerge size={10} />
+                                          <span>+{segs.length - 1} Bölüm/Ara Kayıt</span>
+                                        </button>
+                                      )}
+                                    </div>
+                                  );
+                                }
+                                return (
+                                  <button
+                                    type="button"
+                                    disabled
+                                    title={
+                                      call.recording_deleted_reason === "DELETED_BY_DYNAMIC_POLICY"
+                                        ? "Dinamik Ses Kaydı Politikası gereği bu görüşmenin ses kaydı silindi"
+                                        : call.recording_deleted_reason === "DISABLED_BY_USER_SETTING"
+                                        ? "Kullanıcı ses kayıt ayarı kapalı olduğu için kayıt alınmadı"
+                                        : "Bu görüşmeye ait ses kaydı bulunmamaktadır"
+                                    }
+                                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-slate-200/70 dark:border-slate-700/50 bg-slate-100/70 dark:bg-slate-800/40 text-slate-400 dark:text-slate-500 font-bold text-[10px] opacity-55 cursor-not-allowed select-none"
+                                  >
+                                    <Play size={10} />
+                                    <span>Dinle</span>
+                                  </button>
+                                );
+                              })()}
                             </td>
                           )}
                           {/* Detay/Akış Magnifier Column */}
@@ -14346,16 +14738,26 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                         <Play size={14} />
                       </div>
                       <div>
-                        <p className="text-xs font-bold text-slate-800 dark:text-slate-200">Çağrı Ses Kayıt Oynatıcısı</p>
+                        <p className="text-xs font-bold text-slate-800 dark:text-slate-200">Çağrı Ses Kayıt Oynatıcısı (Tek Ana Kayıt + Ara Görüşmeler)</p>
                         <p className="text-[9px] text-slate-400 dark:text-slate-500 font-mono">Tür: Asterisk PCM/WAV (16-bit Mono 8kHz)</p>
                       </div>
                     </div>
-                    <WaveformAudioPlayer
-                      src={`${window.location.protocol}//${backendHost}${selectedCall.recording_path}`}
-                      initialDuration={selectedCall.talk_duration || selectedCall.duration}
-                      title={`${getCustomerNumber(selectedCall)} ses kaydı`}
-                      className="w-full mt-1"
-                    />
+                    {getCallAudioSegments(selectedCall).map((seg, idx) => (
+                      <div key={seg.id || idx} className="flex flex-col gap-1.5 pt-1 border-t first:border-t-0 border-slate-200/60 dark:border-slate-800">
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="text-[11px] font-extrabold text-slate-800 dark:text-slate-100">{seg.label}</span>
+                          {seg.participants && (
+                            <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400">{seg.participants}</span>
+                          )}
+                        </div>
+                        <WaveformAudioPlayer
+                          src={`${window.location.protocol}//${backendHost}${seg.recording_path}`}
+                          initialDuration={seg.duration_sec || selectedCall.talk_duration || selectedCall.duration}
+                          title={seg.label}
+                          className="w-full"
+                        />
+                      </div>
+                    ))}
                   </div>
                 )}
 
@@ -14514,38 +14916,75 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
         </div>
       )}
       {/* Floating Audio Player Sticky Tray */}
-      {isAudioMode && activeAudioCall && (
-        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 w-[95%] max-w-2xl bg-white/95 dark:bg-slate-900/95 backdrop-blur-md border border-slate-200/80 dark:border-slate-800 rounded-3xl p-4 shadow-2xl z-50 flex items-center justify-between gap-4 animate-in slide-in-from-bottom-5 duration-300">
-          <div className="flex items-center gap-3 min-w-0 shrink-0">
-            <div className={`h-10 w-10 rounded-2xl ${lightBg} ${text} flex items-center justify-center shrink-0`}>
-              <Phone size={18} />
-            </div>
-            <div className="min-w-0">
-              <p className="text-xs font-black text-slate-800 dark:text-slate-100 truncate">{getCustomerNumber(activeAudioCall)} ile Görüşme</p>
-              <p className="text-[9px] text-slate-450 dark:text-slate-500 font-mono mt-0.5">ID: {activeAudioCall.id.slice(0, 12)}...</p>
+      {isAudioMode && activeAudioCall && (() => {
+        const traySegments = getCallAudioSegments(activeAudioCall);
+        const activeSeg = traySegments.find((s) => s.id === (activeAudioCall._selectedSegId || "master")) || traySegments[0] || {
+          id: "master",
+          label: "Tüm Görüşme (Tek Birleşik Ana Kayıt)",
+          recording_path: activeAudioCall.recording_path,
+          duration_sec: activeAudioCall.talk_duration || activeAudioCall.duration
+        };
+        return (
+          <div className="fixed bottom-6 left-1/2 -translate-x-1/2 w-[95%] max-w-3xl bg-white/95 dark:bg-slate-900/95 backdrop-blur-md border border-slate-200/80 dark:border-slate-800 rounded-3xl p-4 shadow-2xl z-50 flex flex-col gap-3 animate-in slide-in-from-bottom-5 duration-300">
+            {traySegments.length > 1 && (
+              <div className="flex items-center gap-1.5 flex-wrap pb-2 border-b border-slate-100 dark:border-slate-800">
+                <span className="text-[10px] font-extrabold text-slate-400 uppercase tracking-wider mr-1">Kayıt Bölümleri:</span>
+                {traySegments.map((seg) => {
+                  const isSegActive = activeSeg.id === seg.id;
+                  return (
+                    <button
+                      key={seg.id}
+                      type="button"
+                      onClick={() => setActiveAudioCall({ ...activeAudioCall, _selectedSegId: seg.id })}
+                      className={`px-2.5 py-1 rounded-xl text-[10px] font-extrabold border transition cursor-pointer ${
+                        isSegActive
+                          ? `${bg} ${border} text-white shadow-xs`
+                          : "bg-slate-50 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:bg-slate-100"
+                      }`}
+                    >
+                      {seg.label}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+            <div className="flex items-center justify-between gap-4">
+              <div className="flex items-center gap-3 min-w-0 shrink-0">
+                <div className={`h-10 w-10 rounded-2xl ${lightBg} ${text} flex items-center justify-center shrink-0`}>
+                  <Phone size={18} />
+                </div>
+                <div className="min-w-0">
+                  <p className="text-xs font-black text-slate-800 dark:text-slate-100 truncate">
+                    {getCustomerNumber(activeAudioCall)} — {activeSeg.label}
+                  </p>
+                  <p className="text-[9px] text-slate-450 dark:text-slate-500 font-mono mt-0.5">
+                    {activeSeg.participants || `ID: ${activeAudioCall.id.slice(0, 12)}...`}
+                  </p>
+                </div>
+              </div>
+              <div className="flex-1 flex items-center gap-3 min-w-0">
+                <WaveformAudioPlayer
+                  key={`${activeAudioCall.id}_${activeSeg.id}`}
+                  src={`${window.location.protocol}//${backendHost}${activeSeg.recording_path}`}
+                  initialDuration={activeSeg.duration_sec || activeAudioCall.talk_duration || activeAudioCall.duration}
+                  autoPlay
+                  size="sm"
+                  barCount={24}
+                  title={`${getCustomerNumber(activeAudioCall)} - ${activeSeg.label}`}
+                  className="w-full"
+                />
+              </div>
+              <button 
+                onClick={() => setActiveAudioCall(null)}
+                className="p-1.5 bg-slate-50 hover:bg-slate-100 dark:bg-slate-850 dark:hover:bg-slate-800 text-slate-500 dark:text-slate-400 rounded-xl transition cursor-pointer shrink-0"
+                title="Kapat"
+              >
+                <X size={14} />
+              </button>
             </div>
           </div>
-          <div className="flex-1 flex items-center gap-3 min-w-0">
-            <WaveformAudioPlayer
-              key={activeAudioCall.id}
-              src={`${window.location.protocol}//${backendHost}${activeAudioCall.recording_path}`}
-              initialDuration={activeAudioCall.talk_duration || activeAudioCall.duration}
-              autoPlay
-              size="sm"
-              barCount={24}
-              title={`${getCustomerNumber(activeAudioCall)} ses kaydı`}
-              className="w-full"
-            />
-          </div>
-          <button 
-            onClick={() => setActiveAudioCall(null)}
-            className="p-1.5 bg-slate-50 hover:bg-slate-100 dark:bg-slate-850 dark:hover:bg-slate-800 text-slate-500 dark:text-slate-400 rounded-xl transition cursor-pointer shrink-0"
-            title="Kapat"
-          >
-            <X size={14} />
-          </button>
-        </div>
-      )}
+        );
+      })()}
       {/* Agent Details Modal */}
       {isAgentDetailsOpen && selectedAgentDetails && (
         <div className="fixed inset-0 bg-slate-955/65 backdrop-blur-sm z-50 flex items-center justify-center animate-in fade-in duration-200">

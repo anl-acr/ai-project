@@ -333,7 +333,7 @@ os.makedirs(RECORDINGS_DIR, exist_ok=True)
 async def get_recording_file(filename: str):
     """Dynamically serves call audio recording files from project recordings directory, Asterisk spool directory, or configured external NAS/File Server storage."""
     safe_name = os.path.basename(filename)
-    call_id_part = os.path.splitext(safe_name)[0]
+    call_id_part = os.path.splitext(safe_name)[0].split("_")[0]
     ret_cfg = settings_db.get("recording_retention") or {}
     custom_ext_dir = str(ret_cfg.get("external_mount_path") or "/mnt/nas/ai-recordings").strip() or "/mnt/nas/ai-recordings"
     sub_remote = str(ret_cfg.get("external_remote_path") or "").strip().strip("/")
@@ -5028,7 +5028,7 @@ same => n(hangup_transfer),Hangup()
 exten => _{pickup_directed}X.,1,NoOp(Hedefli Cagri Cekme: Ceken=${{CALLERID(num)}} -> Calan=${{EXTEN:{pickup_dir_len}}})
 same => n,Set(CURLOPT(conntimeout)=1)
 same => n,Set(CURLOPT(httptimeout)=2)
-same => n,Set(PICKUP_CHAN=${{CURL(http://{backend_host}/api/webrtc/resolve_pickup_channel?target_ext=${{EXTEN:{pickup_dir_len}}}&picker_ext=${{CALLERID(num)}})}})
+same => n,Set(PICKUP_CHAN=${{CURL(http://{backend_host}/api/webrtc/resolve_pickup_channel?target_ext=${{EXTEN:{pickup_dir_len}}}&picker_ext=${{CALLERID(num)}}&channel=${{URIENCODE(${{CHANNEL(name)}})}})}})
 same => n,GotoIf($["${{PICKUP_CHAN}}" != "" & "${{PICKUP_CHAN}}" != "NONE"]?do_pickupchan:do_std_pickup)
 same => n(do_pickupchan),NoOp(PickupChan ile cagri cekiliyor: ${{PICKUP_CHAN}})
 same => n,PickupChan(${{PICKUP_CHAN}})
@@ -5037,6 +5037,9 @@ same => n,Pickup(${{EXTEN:{pickup_dir_len}}}@default)
 same => n,Hangup()
 
 exten => {pickup_group},1,NoOp(Grup Cagri Cekme ({pickup_group}): Ceken=${{CALLERID(num)}})
+same => n,Set(CURLOPT(conntimeout)=1)
+same => n,Set(CURLOPT(httptimeout)=2)
+same => n,Set(PK_GRP=${{CURL(http://{backend_host}/api/webrtc/resolve_pickup_channel?target_ext=GROUP&picker_ext=${{CALLERID(num)}}&channel=${{URIENCODE(${{CHANNEL(name)}})}})}})
 same => n,Pickup()
 same => n,Hangup()
 
@@ -5107,7 +5110,10 @@ same => n,Set(MD5_VAL=${{MD5(${{UNIQUEID}}${{EPOCH}})}})
 same => n,Set(__CALL_UUID=${{MD5_VAL:0:8}}-${{MD5_VAL:8:4}}-4${{MD5_VAL:13:3}}-a${{MD5_VAL:17:3}}-${{MD5_VAL:20:12}})
 same => n,Set(CURL_RESULT=${{CURL(http://{backend_host}/api/calls/register?call_id=${{CALL_UUID}}&did=${{EXTEN}}&caller=${{CALLERID(num)}}&asterisk_id=${{UNIQUEID}})}})
 same => n,GotoIf($["${{CURL_RESULT}}" = "BLOCKED"]?deny)
-same => n(already_registered_int),Set(ACL_RESULT=${{CURL(http://{backend_host}/api/acl/check_subscriber_call?caller=${{CALLERID(num)}}&callee=${{EXTEN}})}})
+same => n,Goto(check_int_acl)
+same => n(already_registered_int),Set(__APPEND_REC=1)
+same => n,Set(TR_MARK=${{CURL(http://{backend_host}/api/calls/mark_transfer_leg?call_id=${{URIENCODE(${{CALL_UUID}})}}&target_ext=${{URIENCODE(${{EXTEN}})}}&caller=${{URIENCODE(${{CALLERID(num)}})}}&channel=${{URIENCODE(${{CHANNEL(name)}})}})}})
+same => n(check_int_acl),Set(ACL_RESULT=${{CURL(http://{backend_host}/api/acl/check_subscriber_call?caller=${{CALLERID(num)}}&callee=${{EXTEN}})}})
 same => n,GotoIf($["${{ACL_RESULT}}" = "DENY"]?deny:allow)
 same => n(deny),NoOp(ACL REDDEDILDI: Yetkisiz arama)
 same => n,Set(DIALSTATUS=FAILED)
@@ -5128,8 +5134,12 @@ same => n,Set(MD5_VAL=${{MD5(${{UNIQUEID}}${{EPOCH}})}})
 same => n,Set(__CALL_UUID=${{MD5_VAL:0:8}}-${{MD5_VAL:8:4}}-4${{MD5_VAL:13:3}}-a${{MD5_VAL:17:3}}-${{MD5_VAL:20:12}})
 same => n,Set(CURL_RESULT=${{CURL(http://{backend_host}/api/calls/register?call_id=${{CALL_UUID}}&did=${{EXTEN}}&caller=${{CALLERID(num)}}&asterisk_id=${{UNIQUEID}})}})
 same => n,GotoIf($["${{CURL_RESULT}}" = "BLOCKED"]?deny)
-same => n(q_ext_already_reg),Answer()
-same => n,MixMonitor(/var/spool/asterisk/monitor/${{CALL_UUID}}.wav,b)
+same => n,Goto(q_ext_do_mix)
+same => n(q_ext_already_reg),Set(__APPEND_REC=1)
+same => n,Set(TR_MARK=${{CURL(http://{backend_host}/api/calls/mark_transfer_leg?call_id=${{URIENCODE(${{CALL_UUID}})}}&target_ext=${{URIENCODE(${{EXTEN}})}}&caller=${{URIENCODE(${{CALLERID(num)}})}}&channel=${{URIENCODE(${{CHANNEL(name)}})}})}})
+same => n(q_ext_do_mix),Answer()
+same => n,StopMixMonitor()
+same => n,MixMonitor(/var/spool/asterisk/monitor/${{CALL_UUID}}.wav,${{IF($["${{APPEND_REC}}"="1"]?ab:b)}})
 same => n,Gosub(queue_router_sub,s,1(${{CUT(SPEC_TARGET,|,2)}}))
 same => n,Hangup()
 same => n(speeddial_route_ext),NoOp(HIZLI ARAMA YONLENDIRMESI: Kod=${{EXTEN}} -> Hedef=${{CUT(SPEC_TARGET,|,2)}} Hop=${{SD_HOP}})
@@ -7589,6 +7599,11 @@ async def process_call_recording_and_retention(call_id: str):
             # 1. Sync recording from /var/spool/asterisk/monitor to project recordings/ directory first
             #    so transcription & Local LLM analysis can ALWAYS run before any retention deletion.
             wav_path = await asyncio.to_thread(_sync_spool_recording_to_project_sync, call_id)
+            try:
+                await _finalize_transfer_audio_segments(call_id)
+                await session.refresh(db_call)
+            except Exception as ex_seg:
+                print(f"[Transfer Audio Segment Finalize Warning ({call_id})]: {ex_seg}")
             if wav_path:
                 wav_sec = await asyncio.to_thread(_get_call_wav_duration_seconds, call_id)
                 if wav_sec is not None and wav_sec > 0 and db_call.talk_duration != wav_sec:
@@ -19423,21 +19438,208 @@ async def get_agent_group_ringing(
     return {"ringing_calls": ringing_calls}
 
 
-async def _record_call_pickup_in_db(picker_ext: str, ringing_ext: str, caller_num: str = "", call_id: str = ""):
+def _resolve_device_source_from_channel_or_ext(channel: str = "", ext: str = "", explicit_source: str = "") -> str:
+    exp = str(explicit_source or "").strip().lower()
+    if exp in ("webphone", "webrtc", "web phone"):
+        return "Web Phone"
+    if exp in ("deskphone", "sip", "softphone", "masa telefonu"):
+        return "Masa Telefonu / SIP Uygulama"
+    ch_s = str(channel or "").strip()
+    if ch_s:
+        m = re.search(r"PJSIP/([A-Za-z0-9_\-.]+)", ch_s, re.IGNORECASE)
+        peer = m.group(1).strip() if m else ""
+        if peer:
+            try:
+                from backend.services.autoprovision_service import resolve_user_webphone_sip_username
+                for u in (settings_db.get("users") or []):
+                    if not isinstance(u, dict):
+                        continue
+                    u_ext = str(u.get("extension") or "").strip()
+                    wp_user = str(u.get("webphone_sip_username") or resolve_user_webphone_sip_username(u_ext, "")).strip()
+                    if wp_user and peer.lower() == wp_user.lower():
+                        return "Web Phone"
+                    hw_user = str(u.get("sip_username") or "").strip()
+                    if hw_user and peer.lower() == hw_user.lower():
+                        return "Masa Telefonu / SIP Uygulama"
+                    for sd in (u.get("sip_devices") or []):
+                        if isinstance(sd, dict) and str(sd.get("sip_username") or "").strip().lower() == peer.lower():
+                            lbl = str(sd.get("label") or sd.get("device_type") or "").strip()
+                            return f"Masa Telefonu / SIP ({lbl})" if lbl else "Masa Telefonu / SIP Uygulama"
+                if peer.startswith("W") and len(peer) >= 6:
+                    return "Web Phone"
+            except Exception:
+                pass
+            return "Masa Telefonu / SIP Uygulama"
+    return "Masa Telefonu / SIP Uygulama"
+
+
+def _find_existing_wav_file_sync(stem: str) -> Optional[str]:
+    clean_stem = os.path.basename(str(stem or "").strip())
+    if not clean_stem:
+        return None
+    if clean_stem.endswith(".wav"):
+        clean_stem = clean_stem[:-4]
+    for fp in (
+        f"/var/spool/asterisk/monitor/{clean_stem}.wav",
+        os.path.join(RECORDINGS_DIR, f"{clean_stem}.wav"),
+        f"/mnt/nas/ai-recordings/{clean_stem}.wav",
+    ):
+        try:
+            if os.path.exists(fp) and os.path.getsize(fp) > 44:
+                return fp
+        except Exception:
+            continue
+    return None
+
+
+def _read_wav_pcm_and_params_sync(wav_path: str) -> tuple[bytes, int, int, int]:
+    """Returns (pcm_bytes, nchannels, sampwidth, framerate) safely even if RIFF size header is still open."""
+    if not wav_path or not os.path.exists(wav_path):
+        return b"", 1, 2, 8000
+    try:
+        import wave
+        with wave.open(wav_path, "rb") as wf:
+            nch = wf.getnchannels() or 1
+            sw = wf.getsampwidth() or 2
+            rate = wf.getframerate() or 8000
+            nframes = wf.getnframes()
+            pcm = wf.readframes(nframes) if nframes > 0 else b""
+        if len(pcm) == 0 and os.path.getsize(wav_path) > 44:
+            with open(wav_path, "rb") as rf:
+                raw = rf.read()
+            pcm = raw[44:] if raw[:4] == b"RIFF" else raw
+        return pcm, nch, sw, rate
+    except Exception:
+        try:
+            with open(wav_path, "rb") as rf:
+                raw = rf.read()
+            pcm = raw[44:] if len(raw) > 44 else b""
+            return pcm, 1, 2, 8000
+        except Exception:
+            return b"", 1, 2, 8000
+
+
+def _write_wav_pcm_sync(out_filename: str, pcm_bytes: bytes, nch: int = 1, sw: int = 2, rate: int = 8000) -> tuple[Optional[str], int]:
+    if not pcm_bytes or len(pcm_bytes) < (nch * sw * rate // 4):
+        return None, 0
+    safe_name = os.path.basename(str(out_filename or "").strip())
+    if not safe_name.endswith(".wav"):
+        safe_name += ".wav"
+    os.makedirs(RECORDINGS_DIR, exist_ok=True)
+    frame_align = max(1, nch * sw)
+    aligned_len = (len(pcm_bytes) // frame_align) * frame_align
+    pcm_clean = pcm_bytes[:aligned_len]
+    dur_sec = max(1, int(round(aligned_len / float(frame_align * max(1, rate)))))
+    out_paths = [os.path.join(RECORDINGS_DIR, safe_name)]
+    if os.path.isdir("/var/spool/asterisk/monitor"):
+        out_paths.append(os.path.join("/var/spool/asterisk/monitor", safe_name))
+    import wave
+    wrote_any = False
+    for p in out_paths:
+        try:
+            with wave.open(p, "wb") as wf:
+                wf.setnchannels(nch)
+                wf.setsampwidth(sw)
+                wf.setframerate(rate)
+                wf.writeframes(pcm_clean)
+            wrote_any = True
+        except Exception as e_w:
+            print(f"[WAV Segment Write Warning ({p})]: {e_w}")
+    return (f"/api/recordings/{safe_name}" if wrote_any else None), (dur_sec if wrote_any else 0)
+
+
+def _extract_wav_segment_sync(src_wav_path: str, out_filename: str, start_sec: float = 0.0, end_sec: Optional[float] = None) -> tuple[Optional[str], int]:
+    pcm, nch, sw, rate = _read_wav_pcm_and_params_sync(src_wav_path)
+    if not pcm:
+        return None, 0
+    bytes_per_sec = max(1, nch * sw * rate)
+    frame_align = max(1, nch * sw)
+    start_b = max(0, int(start_sec * bytes_per_sec))
+    start_b = (start_b // frame_align) * frame_align
+    if end_sec is not None and end_sec > start_sec:
+        end_b = min(len(pcm), int(end_sec * bytes_per_sec))
+        end_b = (end_b // frame_align) * frame_align
+    else:
+        end_b = len(pcm)
+    if end_b <= start_b:
+        return None, 0
+    return _write_wav_pcm_sync(out_filename, pcm[start_b:end_b], nch=nch, sw=sw, rate=rate)
+
+
+def _concat_wav_files_sync(wav_paths: list[str], out_filename: str) -> tuple[Optional[str], int]:
+    combined = bytearray()
+    nch, sw, rate = 1, 2, 8000
+    for wp in wav_paths:
+        if not wp or not os.path.exists(wp):
+            continue
+        pcm, c_nch, c_sw, c_rate = _read_wav_pcm_and_params_sync(wp)
+        if pcm:
+            nch, sw, rate = c_nch, c_sw, c_rate
+            combined.extend(pcm)
+    if not combined:
+        return None, 0
+    return _write_wav_pcm_sync(out_filename, bytes(combined), nch=nch, sw=sw, rate=rate)
+
+
+async def _record_call_pickup_in_db(
+    picker_ext: str,
+    ringing_ext: str,
+    caller_num: str = "",
+    call_id: str = "",
+    channel: str = "",
+    device_source: str = "",
+    pickup_method: str = ""
+):
     picker_s = str(picker_ext or "").strip()
     ringing_s = str(ringing_ext or "").strip()
     caller_s = str(caller_num or "").strip()
     cid_s = str(call_id or "").strip()
 
-    if not picker_s or not ringing_s:
+    if not picker_s:
         return None
 
-    set_live_extension_call_state(ringing_s, None)
+    now_utc = datetime.datetime.utcnow()
+
+    # Resolve GROUP (*8) pickup or missing ringing_ext from live ringing state or recent ringing Call
+    if not ringing_s or ringing_s.upper() == "GROUP":
+        resolved_ring_ext = ""
+        for cand_ext, st_info in list(live_extension_call_state.items()):
+            if cand_ext != picker_s and isinstance(st_info, dict) and st_info.get("state") == "ringing":
+                resolved_ring_ext = cand_ext
+                if not caller_s:
+                    caller_s = str(st_info.get("caller_number") or "").strip()
+                if not cid_s:
+                    cid_s = str(st_info.get("call_id") or "").strip()
+                break
+        if not resolved_ring_ext:
+            try:
+                from backend.services.ami_manager import channel_states, _extract_ext_from_channel
+                for _, ch_d in list(channel_states.items()):
+                    if str(ch_d.get("state") or "").lower() in ("ringing", "ring", "5", "4"):
+                        ext_c = _extract_ext_from_channel(str(ch_d.get("channel") or ""))
+                        if ext_c and ext_c != picker_s:
+                            resolved_ring_ext = ext_c
+                            break
+            except Exception:
+                pass
+        ringing_s = resolved_ring_ext or ringing_s
+
+    if not ringing_s:
+        return None
+
+    if ringing_s != "GROUP":
+        set_live_extension_call_state(ringing_s, None)
     set_live_extension_call_state(picker_s, "busy")
+
+    resolved_device = _resolve_device_source_from_channel_or_ext(channel=channel, ext=picker_s, explicit_source=device_source)
+    method_label = pickup_method or (
+        "Web Phone Pickup" if resolved_device == "Web Phone" else (
+            "Grup Çağrı Çekme (*8)" if str(ringing_ext or "").upper() == "GROUP" else "Masa Telefonu / Tuşlama (*8 / BLF)"
+        )
+    )
 
     picker_name = resolve_user_name_by_ext_or_id(picker_s) or f"Dahili {picker_s}"
     ringing_name = resolve_user_name_by_ext_or_id(ringing_s) or f"Dahili {ringing_s}"
-    now_utc = datetime.datetime.utcnow()
 
     async with AsyncSessionLocal() as session:
         db_call = None
@@ -19445,16 +19647,41 @@ async def _record_call_pickup_in_db(picker_ext: str, ringing_ext: str, caller_nu
             db_call = await session.get(Call, cid_s)
 
         if not db_call:
-            stmt = (
-                select(Call)
-                .where(
-                    Call.callee_number == ringing_s,
-                    Call.start_time >= now_utc - datetime.timedelta(seconds=120)
+            if ringing_s != "GROUP":
+                stmt = (
+                    select(Call)
+                    .where(
+                        Call.callee_number == ringing_s,
+                        Call.start_time >= now_utc - datetime.timedelta(seconds=120)
+                    )
+                    .order_by(Call.start_time.desc())
                 )
-                .order_by(Call.start_time.desc())
-            )
+            else:
+                stmt = (
+                    select(Call)
+                    .where(
+                        Call.start_time >= now_utc - datetime.timedelta(seconds=90),
+                        Call.status.in_(["in_progress", "ringing", "completed", "no_answer"])
+                    )
+                    .order_by(Call.start_time.desc())
+                )
             res = await session.execute(stmt)
             db_call = res.scalars().first()
+            if db_call and ringing_s == "GROUP" and db_call.callee_number:
+                ringing_s = str(db_call.callee_number).strip()
+                ringing_name = resolve_user_name_by_ext_or_id(ringing_s) or f"Dahili {ringing_s}"
+
+        pickup_info = {
+            "is_picked_up": True,
+            "picker_ext": picker_s,
+            "picker_name": picker_name,
+            "original_callee_ext": ringing_s,
+            "original_callee_name": ringing_name,
+            "caller_number": caller_s,
+            "pickup_method": method_label,
+            "device_source": resolved_device,
+            "timestamp": now_utc.isoformat() + "Z",
+        }
 
         if not db_call:
             new_id = cid_s if (cid_s and not cid_s.startswith("ring-")) else str(uuid.uuid4())
@@ -19467,50 +19694,530 @@ async def _record_call_pickup_in_db(picker_ext: str, ringing_ext: str, caller_nu
                 start_time=now_utc,
                 hangup_source=f"pickup:{picker_s}",
                 agent_name=f"{picker_name} ({picker_s})",
-                summary=f"Çağrı Çekme (Pickup): Arayan {caller_s or 'Bilinmeyen'} -> Aranan {ringing_s} ({ringing_name}) | Pickup ile Çeken: {picker_s} ({picker_name})"
+                summary=f"Çağrı Çekme (Pickup - {resolved_device}): Arayan {caller_s or 'Bilinmeyen'} -> Çalan Dahili {ringing_s} ({ringing_name}) | Çeken: {picker_s} ({picker_name})",
+                transfer_details={"pickup_info": pickup_info, "transfer_chain": [], "audio_segments": []}
             )
             session.add(db_call)
         else:
             if caller_s and (not db_call.caller_number or db_call.caller_number == "Bilinmeyen"):
                 db_call.caller_number = caller_s
             else:
-                caller_s = db_call.caller_number
-            db_call.callee_number = ringing_s
+                caller_s = str(db_call.caller_number or "").strip()
+            pickup_info["caller_number"] = caller_s or "Bilinmeyen"
+            if ringing_s and ringing_s != "GROUP":
+                db_call.callee_number = ringing_s
             db_call.hangup_source = f"pickup:{picker_s}"
             db_call.status = "completed"
             db_call.agent_name = f"{picker_name} ({picker_s})"
-            db_call.summary = f"Çağrı Çekme (Pickup): Arayan {caller_s or 'Bilinmeyen'} -> Aranan {ringing_s} ({ringing_name}) | Pickup ile Çeken: {picker_s} ({picker_name})"
+            db_call.summary = f"Çağrı Çekme (Pickup - {resolved_device}): Arayan {caller_s or 'Bilinmeyen'} -> Çalan Dahili {ringing_s} ({ringing_name}) | Çeken: {picker_s} ({picker_name})"
+            td = dict(db_call.transfer_details) if isinstance(db_call.transfer_details, dict) else {}
+            td["pickup_info"] = pickup_info
+            db_call.transfer_details = td
 
-        session.add(AgentBreakLog(
-            user_id=picker_s,
-            extension=picker_s,
-            agent_name=picker_name,
-            break_name=f"__ACTION__:call_pickup:{caller_s or 'Bilinmeyen'}->{ringing_s}->{picker_s}:{picker_name}",
-            start_time=now_utc,
-            end_time=now_utc,
-            duration_seconds=0
-        ))
+        # Avoid duplicate AgentBreakLog if already logged within the last 8 seconds
+        dup_stmt = select(AgentBreakLog).where(
+            AgentBreakLog.extension == picker_s,
+            AgentBreakLog.break_name.like("__ACTION__:call_pickup:%"),
+            AgentBreakLog.start_time >= now_utc - datetime.timedelta(seconds=8)
+        )
+        dup_res = await session.execute(dup_stmt)
+        if not dup_res.scalars().first():
+            session.add(AgentBreakLog(
+                user_id=picker_s,
+                extension=picker_s,
+                agent_name=picker_name,
+                break_name=f"__ACTION__:call_pickup:{caller_s or 'Bilinmeyen'}->{ringing_s}->{picker_s}:{picker_name} [{resolved_device}]",
+                start_time=now_utc,
+                end_time=now_utc,
+                duration_seconds=0
+            ))
         await session.commit()
         return db_call.id
 
 
+async def record_call_transfer_event(
+    from_ext: str = "",
+    target_ext: str = "",
+    remote_number: str = "",
+    transfer_type: str = "blind",
+    call_id: str = "",
+    consult_call_id: str = "",
+    channel: str = "",
+    device_source: str = ""
+) -> Optional[str]:
+    from_s = str(from_ext or "").strip()
+    target_s = str(target_ext or "").strip()
+    remote_s = str(remote_number or "").strip()
+    cid_s = str(call_id or "").strip()
+    consult_cid_s = str(consult_call_id or "").strip()
+    ttype = "attended" if "attend" in str(transfer_type or "").lower() else "blind"
+    now_utc = datetime.datetime.utcnow()
+
+    resolved_device = _resolve_device_source_from_channel_or_ext(channel=channel, ext=from_s, explicit_source=device_source)
+
+    async with AsyncSessionLocal() as session:
+        db_call = None
+        if cid_s and not cid_s.startswith("webphone-"):
+            db_call = await session.get(Call, cid_s)
+
+        # Find the primary call if call_id wasn't provided directly
+        if not db_call:
+            stmt_recent = (
+                select(Call)
+                .where(Call.start_time >= now_utc - datetime.timedelta(minutes=60))
+                .order_by(Call.start_time.desc())
+                .limit(30)
+            )
+            res_rec = await session.execute(stmt_recent)
+            recent_calls = list(res_rec.scalars().all())
+            for rc in recent_calls:
+                rc_caller = str(rc.caller_number or "").strip()
+                rc_callee = str(rc.callee_number or "").strip()
+                rc_hsrc = str(rc.hangup_source or "").strip()
+                # Prefer external customer call or the earliest active leg involving from_s / remote_s
+                if remote_s and remote_s in (rc_caller, rc_callee):
+                    # Avoid picking the internal consultation call if another external call exists
+                    if not (rc_caller in (from_s, target_s) and rc_callee in (from_s, target_s)):
+                        db_call = rc
+                        break
+                if from_s and (from_s in (rc_caller, rc_callee) or f":answered:{from_s}" in rc_hsrc or rc_hsrc == f"pickup:{from_s}"):
+                    if not (rc_caller in (from_s, target_s) and rc_callee in (from_s, target_s)):
+                        db_call = rc
+                        break
+            if not db_call and recent_calls:
+                for rc in recent_calls:
+                    if from_s and from_s in (str(rc.caller_number or "").strip(), str(rc.callee_number or "").strip()):
+                        db_call = rc
+                        break
+
+        if not db_call:
+            return None
+
+        cid_main = str(db_call.id)
+        c_caller = str(db_call.caller_number or "").strip()
+        c_callee = str(db_call.callee_number or "").strip()
+        c_hsrc = str(db_call.hangup_source or "").strip()
+
+        # Infer from_s if missing (e.g., dialplan mark_transfer_leg where CALLERID(num) is customer)
+        if not from_s or from_s == c_caller:
+            td_prev = db_call.transfer_details if isinstance(db_call.transfer_details, dict) else {}
+            prev_chain = td_prev.get("transfer_chain") if isinstance(td_prev.get("transfer_chain"), list) else []
+            if prev_chain:
+                from_s = str(prev_chain[-1].get("to_ext") or from_s).strip()
+            elif ":answered:" in c_hsrc:
+                from_s = c_hsrc.split(":answered:", 1)[1].split(":", 1)[0].strip()
+            elif c_hsrc.startswith("pickup:"):
+                from_s = c_hsrc.split(":", 1)[1].strip()
+            elif c_callee and c_callee != target_s and len(c_callee) <= 6:
+                from_s = c_callee
+            elif c_caller and c_caller != target_s and len(c_caller) <= 6:
+                from_s = c_caller
+
+        if not remote_s:
+            remote_s = c_caller if c_caller != from_s else c_callee
+
+        from_name = resolve_user_name_by_ext_or_id(from_s) or (f"Dahili {from_s}" if from_s else "Temsilci")
+        target_name = resolve_user_name_by_ext_or_id(target_s) or (f"Dahili {target_s}" if target_s else "Hedef")
+
+        # Look for an internal consultation call between from_s and target_s (Attended Transfer Ara Görüşmesi)
+        consult_call = None
+        if consult_cid_s:
+            consult_call = await session.get(Call, consult_cid_s)
+        if not consult_call and from_s and target_s:
+            stmt_cons = (
+                select(Call)
+                .where(
+                    Call.id != cid_main,
+                    Call.start_time >= (db_call.start_time or (now_utc - datetime.timedelta(minutes=30))) - datetime.timedelta(seconds=15),
+                    or_(
+                        and_(Call.caller_number == from_s, Call.callee_number == target_s),
+                        and_(Call.caller_number == target_s, Call.callee_number == from_s),
+                    )
+                )
+                .order_by(Call.start_time.desc())
+            )
+            res_cons = await session.execute(stmt_cons)
+            consult_call = res_cons.scalars().first()
+
+        if consult_call:
+            ttype = "attended"
+
+        td = dict(db_call.transfer_details) if isinstance(db_call.transfer_details, dict) else {}
+        chain = list(td.get("transfer_chain") or []) if isinstance(td.get("transfer_chain"), list) else []
+
+        # Deduplicate if the same transfer hop (from_s -> target_s) was already recorded within the last 12 seconds
+        if chain:
+            last_hop = chain[-1]
+            if str(last_hop.get("to_ext") or "") == target_s:
+                try:
+                    last_ts = datetime.datetime.fromisoformat(str(last_hop.get("timestamp") or "").replace("Z", ""))
+                    if abs((now_utc - last_ts).total_seconds()) <= 12:
+                        if ttype == "attended" and last_hop.get("type") != "attended":
+                            last_hop["type"] = "attended"
+                            last_hop["type_label"] = "Ön Görüşmeli (Attended) Transfer"
+                        if consult_call and not last_hop.get("consult_call_id"):
+                            last_hop["consult_call_id"] = consult_call.id
+                        if device_source and last_hop.get("device_source") != resolved_device:
+                            last_hop["device_source"] = resolved_device
+                        td["transfer_chain"] = chain
+                        db_call.transfer_details = td
+                        await session.commit()
+                        return cid_main
+                except Exception:
+                    pass
+
+        hop_idx = len(chain) + 1
+        prev_offset_sec = float(chain[-1].get("pre_transfer_wav_offset_sec") or 0.0) if chain else 0.0
+
+        # Snapshot pre-transfer audio segment ({call_id}_seg{hop_idx}.wav) from current master .wav on disk
+        src_wav = await asyncio.to_thread(_find_existing_wav_file_sync, cid_main)
+        seg1_path = None
+        seg1_dur = 0
+        cur_wav_total_sec = 0.0
+        if src_wav:
+            pcm_bytes, nch, sw, rate = await asyncio.to_thread(_read_wav_pcm_and_params_sync, src_wav)
+            if pcm_bytes:
+                cur_wav_total_sec = round(len(pcm_bytes) / float(max(1, nch * sw * rate)), 2)
+                if cur_wav_total_sec > prev_offset_sec + 0.4:
+                    seg1_path, seg1_dur = await asyncio.to_thread(
+                        _extract_wav_segment_sync,
+                        src_wav,
+                        f"{cid_main}_seg{hop_idx}.wav",
+                        prev_offset_sec,
+                        cur_wav_total_sec
+                    )
+
+        # Snapshot consultation call audio ({call_id}_consult{hop_idx}.wav) if present
+        consult_rec_path = None
+        consult_dur_sec = 0
+        if consult_call:
+            c_wav = await asyncio.to_thread(_find_existing_wav_file_sync, str(consult_call.id))
+            if c_wav:
+                consult_rec_path, consult_dur_sec = await asyncio.to_thread(
+                    _extract_wav_segment_sync,
+                    c_wav,
+                    f"{cid_main}_consult{hop_idx}.wav",
+                    0.0,
+                    None
+                )
+            if not consult_rec_path:
+                consult_rec_path = f"/api/recordings/{consult_call.id}.wav"
+                consult_dur_sec = int(consult_call.talk_duration or 0)
+
+        hop_entry = {
+            "hop": hop_idx,
+            "type": ttype,
+            "type_label": "Ön Görüşmeli (Attended) Transfer" if ttype == "attended" else "Kör (Blind) Transfer",
+            "from_ext": from_s,
+            "from_name": from_name,
+            "to_ext": target_s,
+            "to_name": target_name,
+            "customer_number": remote_s,
+            "device_source": resolved_device,
+            "timestamp": now_utc.isoformat() + "Z",
+            "pre_transfer_wav_offset_sec": cur_wav_total_sec,
+            "leg1_recording_path": seg1_path,
+            "leg1_duration_sec": seg1_dur,
+            "consult_call_id": str(consult_call.id) if consult_call else None,
+            "consult_recording_path": consult_rec_path,
+            "consult_duration_sec": consult_dur_sec,
+        }
+        chain.append(hop_entry)
+        td["transfer_chain"] = chain
+
+        # Build live audio_segments preview (will be finalized when call ends)
+        segs = []
+        segs.append({
+            "id": "master",
+            "kind": "master",
+            "label": "Tüm Görüşme (Tek Birleşik Ana Kayıt)",
+            "participants": f"{remote_s or c_caller} ↔ {from_name} ({from_s}) ➔ {target_name} ({target_s})",
+            "recording_path": f"/api/recordings/{cid_main}.wav",
+            "duration_sec": int(cur_wav_total_sec) or int(db_call.talk_duration or 0),
+        })
+        if seg1_path:
+            segs.append({
+                "id": f"seg{hop_idx}",
+                "kind": "leg1",
+                "label": f"{hop_idx}. Bölüm (Transfer Öncesi Görüşme: {from_name})",
+                "participants": f"{remote_s or c_caller} ↔ {from_name} ({from_s})",
+                "recording_path": seg1_path,
+                "duration_sec": seg1_dur,
+            })
+        if consult_rec_path:
+            segs.append({
+                "id": f"consult{hop_idx}",
+                "kind": "consult",
+                "label": f"Ara Görüşme (Ön Görüşme / Danışma: {from_s} ↔ {target_s})",
+                "participants": f"{from_name} ({from_s}) ↔ {target_name} ({target_s})",
+                "recording_path": consult_rec_path,
+                "duration_sec": consult_dur_sec,
+                "call_id": str(consult_call.id) if consult_call else None,
+            })
+        td["audio_segments"] = segs
+        db_call.transfer_details = td
+
+        db_call.status = "transferred"
+        if target_s:
+            db_call.hangup_source = f"transfer:{target_s}"
+        db_call.agent_name = f"{from_name} ({from_s}) ➔ {target_name} ({target_s})"
+        type_tr = "Ön Görüşmeli Transfer" if ttype == "attended" else "Kör Transfer"
+        db_call.summary = (
+            f"{type_tr} ({resolved_device}): {remote_s or c_caller} ile görüşen {from_name} ({from_s}), "
+            f"çağrıyı {target_name} ({target_s}) dahilisine aktardı."
+        )
+
+        # Also annotate the consultation call so it links back to the parent customer call
+        if consult_call:
+            ctd = dict(consult_call.transfer_details) if isinstance(consult_call.transfer_details, dict) else {}
+            ctd["is_consultation_leg"] = True
+            ctd["parent_call_id"] = cid_main
+            ctd["customer_number"] = remote_s or c_caller
+            ctd["device_source"] = resolved_device
+            consult_call.transfer_details = ctd
+            if not consult_call.summary or "dahili görüşme" in str(consult_call.summary).lower():
+                consult_call.summary = (
+                    f"Transfer Ara Görüşmesi (Ön Görüşme - {resolved_device}): {from_name} ({from_s}) ↔ {target_name} ({target_s}) "
+                    f"[Ana Çağrı: {remote_s or c_caller}]"
+                )
+
+        # Avoid duplicate AgentBreakLog within 8 seconds
+        act_prefix = "call_attended_transfer" if ttype == "attended" else "call_blind_transfer"
+        dup_stmt = select(AgentBreakLog).where(
+            AgentBreakLog.extension == (from_s or target_s),
+            AgentBreakLog.break_name.like(f"__ACTION__:{act_prefix}:%"),
+            AgentBreakLog.start_time >= now_utc - datetime.timedelta(seconds=8)
+        )
+        dup_res = await session.execute(dup_stmt)
+        if not dup_res.scalars().first():
+            session.add(AgentBreakLog(
+                user_id=from_s or target_s,
+                extension=from_s or target_s,
+                agent_name=from_name,
+                break_name=f"__ACTION__:{act_prefix}:{remote_s or c_caller} -> Hedef {target_s} ({target_name}) [{resolved_device}]",
+                start_time=now_utc,
+                end_time=now_utc,
+                duration_seconds=0
+            ))
+
+        await session.commit()
+        return cid_main
+
+
+async def _finalize_transfer_audio_segments(call_id: str):
+    if not call_id:
+        return
+    async with AsyncSessionLocal() as session:
+        db_call = await session.get(Call, call_id)
+        if not db_call:
+            return
+        td = dict(db_call.transfer_details) if isinstance(db_call.transfer_details, dict) else {}
+        chain = list(td.get("transfer_chain") or []) if isinstance(td.get("transfer_chain"), list) else []
+        if not chain:
+            return
+
+        src_wav = await asyncio.to_thread(_find_existing_wav_file_sync, call_id)
+        total_wav_sec = 0.0
+        if src_wav:
+            pcm_bytes, nch, sw, rate = await asyncio.to_thread(_read_wav_pcm_and_params_sync, src_wav)
+            if pcm_bytes:
+                total_wav_sec = round(len(pcm_bytes) / float(max(1, nch * sw * rate)), 2)
+
+        c_caller = str(db_call.caller_number or "").strip()
+        segs = []
+        first_hop = chain[0]
+        last_hop = chain[-1]
+        from_ext = str(first_hop.get("from_ext") or "").strip()
+        from_name = str(first_hop.get("from_name") or f"Dahili {from_ext}").strip()
+        to_ext = str(last_hop.get("to_ext") or "").strip()
+        to_name = str(last_hop.get("to_name") or f"Dahili {to_ext}").strip()
+        cust_num = str(first_hop.get("customer_number") or c_caller).strip()
+
+        # Check each hop and extract post-transfer segments
+        leg_segments = []
+        for idx, hop in enumerate(chain):
+            h_num = idx + 1
+            h_from_ext = str(hop.get("from_ext") or "").strip()
+            h_from_name = str(hop.get("from_name") or f"Dahili {h_from_ext}").strip()
+            h_to_ext = str(hop.get("to_ext") or "").strip()
+            h_to_name = str(hop.get("to_name") or f"Dahili {h_to_ext}").strip()
+            offset_sec = float(hop.get("pre_transfer_wav_offset_sec") or 0.0)
+            prev_off = float(chain[idx - 1].get("pre_transfer_wav_offset_sec") or 0.0) if idx > 0 else 0.0
+
+            # Ensure Leg 1 exists if src_wav has offset_sec > prev_off
+            leg1_path = hop.get("leg1_recording_path")
+            leg1_dur = int(hop.get("leg1_duration_sec") or 0)
+            if not leg1_path and src_wav and offset_sec > prev_off + 0.4:
+                leg1_path, leg1_dur = await asyncio.to_thread(
+                    _extract_wav_segment_sync,
+                    src_wav,
+                    f"{call_id}_seg{h_num}.wav",
+                    prev_off,
+                    offset_sec
+                )
+                hop["leg1_recording_path"] = leg1_path
+                hop["leg1_duration_sec"] = leg1_dur
+
+            if leg1_path:
+                leg_segments.append({
+                    "id": f"seg{h_num}",
+                    "kind": "leg1",
+                    "label": f"{h_num}. Bölüm (İlk Görüşme: {h_from_name} - {h_from_ext})",
+                    "participants": f"{cust_num} ↔ {h_from_name} ({h_from_ext})",
+                    "recording_path": leg1_path,
+                    "duration_sec": max(1, leg1_dur),
+                })
+
+            # Consultation (Ara Görüşme) leg if Attended Transfer
+            cons_cid = str(hop.get("consult_call_id") or "").strip()
+            cons_path = hop.get("consult_recording_path")
+            cons_dur = int(hop.get("consult_duration_sec") or 0)
+            if cons_cid:
+                c_wav = await asyncio.to_thread(_find_existing_wav_file_sync, cons_cid)
+                if c_wav:
+                    cons_path, cons_dur = await asyncio.to_thread(
+                        _extract_wav_segment_sync,
+                        c_wav,
+                        f"{call_id}_consult{h_num}.wav",
+                        0.0,
+                        None
+                    )
+                    hop["consult_recording_path"] = cons_path
+                    hop["consult_duration_sec"] = cons_dur
+            if cons_path:
+                leg_segments.append({
+                    "id": f"consult{h_num}",
+                    "kind": "consult",
+                    "label": f"Ara Görüşme (Ön Görüşme / Danışma: {h_from_ext} ↔ {h_to_ext})",
+                    "participants": f"{h_from_name} ({h_from_ext}) ↔ {h_to_name} ({h_to_ext})",
+                    "recording_path": cons_path,
+                    "duration_sec": max(1, cons_dur),
+                    "call_id": cons_cid or None,
+                })
+
+            # Extract Post-Transfer Leg (from this hop's offset to next hop's offset or end of master WAV)
+            next_off = float(chain[idx + 1].get("pre_transfer_wav_offset_sec") or total_wav_sec) if (idx + 1 < len(chain)) else total_wav_sec
+            if src_wav and next_off > offset_sec + 0.4 and offset_sec > 0:
+                seg_next_idx = h_num + 1
+                leg2_path, leg2_dur = await asyncio.to_thread(
+                    _extract_wav_segment_sync,
+                    src_wav,
+                    f"{call_id}_seg{seg_next_idx}.wav",
+                    offset_sec,
+                    next_off
+                )
+                if leg2_path:
+                    hop["leg2_recording_path"] = leg2_path
+                    hop["leg2_duration_sec"] = leg2_dur
+                    leg_segments.append({
+                        "id": f"seg{seg_next_idx}",
+                        "kind": "leg2",
+                        "label": f"{seg_next_idx}. Bölüm (Transfer Sonrası Görüşme: {h_to_name} - {h_to_ext})",
+                        "participants": f"{cust_num} ↔ {h_to_name} ({h_to_ext})",
+                        "recording_path": leg2_path,
+                        "duration_sec": max(1, leg2_dur),
+                    })
+            elif cons_cid and (not src_wav or total_wav_sec <= offset_sec + 0.5):
+                # Attended transfer bridge fallback: if Asterisk bridged customer onto the consultation channel's MixMonitor,
+                # concatenate Leg 1 + Consultation/Post-Transfer WAV into the master {call_id}.wav so master recording is 100% unified!
+                c_wav = await asyncio.to_thread(_find_existing_wav_file_sync, cons_cid)
+                if src_wav and c_wav and src_wav != c_wav:
+                    if not leg1_path:
+                        leg1_path, leg1_dur = await asyncio.to_thread(
+                            _extract_wav_segment_sync,
+                            src_wav,
+                            f"{call_id}_seg{h_num}.wav",
+                            0.0,
+                            None
+                        )
+                        if leg1_path:
+                            hop["leg1_recording_path"] = leg1_path
+                            hop["leg1_duration_sec"] = leg1_dur
+                            leg_segments.insert(0, {
+                                "id": f"seg{h_num}",
+                                "kind": "leg1",
+                                "label": f"{h_num}. Bölüm (İlk Görüşme: {h_from_name} - {h_from_ext})",
+                                "participants": f"{cust_num} ↔ {h_from_name} ({h_from_ext})",
+                                "recording_path": leg1_path,
+                                "duration_sec": max(1, leg1_dur),
+                            })
+                    seg1_disk = await asyncio.to_thread(_find_existing_wav_file_sync, f"{call_id}_seg{h_num}")
+                    if seg1_disk:
+                        _, merged_dur = await asyncio.to_thread(
+                            _concat_wav_files_sync,
+                            [seg1_disk, c_wav],
+                            f"{call_id}.wav"
+                        )
+                        if merged_dur > 0:
+                            total_wav_sec = float(merged_dur)
+                            _WAV_DURATION_CACHE.clear()
+
+        master_dur_int = max(1, int(round(total_wav_sec))) if total_wav_sec > 0 else int(db_call.talk_duration or 0)
+        segs.append({
+            "id": "master",
+            "kind": "master",
+            "label": "Tüm Görüşme (Tek Birleşik Ana Kayıt)",
+            "participants": f"{cust_num} ↔ {from_name} ({from_ext}) ➔ {to_name} ({to_ext})",
+            "recording_path": f"/api/recordings/{call_id}.wav",
+            "duration_sec": master_dur_int,
+        })
+        segs.extend(leg_segments)
+        td["transfer_chain"] = chain
+        td["audio_segments"] = segs
+        db_call.transfer_details = td
+        if master_dur_int > int(db_call.talk_duration or 0):
+            db_call.talk_duration = master_dur_int
+        await session.commit()
+
+
+@app.get("/api/calls/mark_transfer_leg")
+async def mark_transfer_leg_endpoint(
+    call_id: str = "",
+    target_ext: str = "",
+    caller: str = "",
+    channel: str = ""
+):
+    try:
+        if call_id and target_ext:
+            await record_call_transfer_event(
+                from_ext="",
+                target_ext=target_ext,
+                remote_number=caller,
+                transfer_type="blind",
+                call_id=call_id,
+                channel=channel,
+            )
+    except Exception as e_mt:
+        print(f"[Mark Transfer Leg Warning]: {e_mt}")
+    return Response(content="OK", media_type="text/plain")
+
+
 @app.get("/api/webrtc/resolve_pickup_channel")
-async def webrtc_resolve_pickup_channel(target_ext: str = "", picker_ext: str = ""):
+async def webrtc_resolve_pickup_channel(target_ext: str = "", picker_ext: str = "", channel: str = ""):
     target_s = str(target_ext or "").strip()
     picker_s = str(picker_ext or "").strip()
     if not target_s:
         return Response(content="NONE", media_type="text/plain")
 
-    info = live_extension_call_state.get(target_s) or {}
+    info = live_extension_call_state.get(target_s) or {} if target_s != "GROUP" else {}
     caller_num = str(info.get("caller_number") or "").strip()
     call_id_val = str(info.get("call_id") or "").strip()
 
-    from backend.services.ami_manager import find_ringing_channel_for_extension
-    ch_name = await find_ringing_channel_for_extension(target_s)
+    ch_name = None
+    if target_s != "GROUP":
+        from backend.services.ami_manager import find_ringing_channel_for_extension
+        ch_name = await find_ringing_channel_for_extension(target_s)
 
     if picker_s:
         try:
-            await _record_call_pickup_in_db(picker_s, target_s, caller_num=caller_num, call_id=call_id_val)
+            await _record_call_pickup_in_db(
+                picker_s,
+                target_s,
+                caller_num=caller_num,
+                call_id=call_id_val,
+                channel=channel,
+                pickup_method="Grup Çağrı Çekme (*8)" if target_s == "GROUP" else "Hedefli Çağrı Çekme (*8 / BLF)"
+            )
         except Exception as e_pk:
             print(f"[Resolve Pickup DB Error]: {e_pk}")
 
@@ -19531,7 +20238,9 @@ async def webrtc_pickup_call_endpoint(payload: dict = Body(...)):
         picker_extension,
         ringing_extension,
         caller_num=caller_number,
-        call_id=call_id
+        call_id=call_id,
+        device_source="webphone",
+        pickup_method="Web Phone Çağrı Çekme (Pickup)"
     )
     picker_name = resolve_user_name_by_ext_or_id(picker_extension) or f"Dahili {picker_extension}"
     return {
@@ -19547,29 +20256,27 @@ async def webrtc_blind_transfer_endpoint(payload: dict = Body(...)):
     agent_extension = str(payload.get("agent_extension") or "").strip()
     target = str(payload.get("target") or "").strip()
     remote_number = str(payload.get("remote_number") or "").strip()
+    call_id = str(payload.get("call_id") or "").strip()
     if not agent_extension or not target:
         raise HTTPException(status_code=400, detail="Eksik transfer parametreleri.")
+
+    try:
+        await record_call_transfer_event(
+            from_ext=agent_extension,
+            target_ext=target,
+            remote_number=remote_number,
+            transfer_type="blind",
+            call_id=call_id,
+            device_source="webphone"
+        )
+    except Exception as e_rec:
+        print(f"[WebRTC Blind Transfer Pre-Record Warning]: {e_rec}")
 
     from backend.services.ami_manager import blind_transfer_agent_call
     ok = await blind_transfer_agent_call(agent_extension, target, remote_number=remote_number)
 
     set_live_extension_call_state(agent_extension, None)
     set_live_extension_call_state(target, "ringing", caller_number=remote_number)
-
-    try:
-        async with AsyncSessionLocal() as session:
-            session.add(AgentBreakLog(
-                user_id=agent_extension,
-                extension=agent_extension,
-                agent_name=resolve_user_name_by_ext_or_id(agent_extension) or None,
-                break_name=f"__ACTION__:call_blind_transfer:{remote_number or 'Çağrı'} -> Hedef {target}",
-                start_time=datetime.datetime.utcnow(),
-                end_time=datetime.datetime.utcnow(),
-                duration_seconds=0
-            ))
-            await session.commit()
-    except Exception as e_tr:
-        print(f"[WebRTC Blind Transfer Log Error]: {e_tr}")
 
     return {"status": "success" if ok else "fallback_refer", "transferred_via_ami": bool(ok)}
 
@@ -19579,8 +20286,25 @@ async def webrtc_attended_transfer_endpoint(payload: dict = Body(...)):
     agent_extension = str(payload.get("agent_extension") or "").strip()
     remote_1 = str(payload.get("remote_number_1") or "").strip()
     remote_2 = str(payload.get("remote_number_2") or "").strip()
+    call_id = str(payload.get("call_id") or "").strip()
     if not agent_extension or (not remote_1 and not remote_2):
         raise HTTPException(status_code=400, detail="Eksik kontrollü transfer parametreleri.")
+
+    # Identify which remote number is the target internal extension vs the customer number
+    target_ext = remote_2 if (remote_2 and len(remote_2) <= 6) else (remote_1 if (remote_1 and len(remote_1) <= 6) else remote_2)
+    cust_num = remote_1 if target_ext == remote_2 else remote_2
+
+    try:
+        await record_call_transfer_event(
+            from_ext=agent_extension,
+            target_ext=target_ext,
+            remote_number=cust_num,
+            transfer_type="attended",
+            call_id=call_id,
+            device_source="webphone"
+        )
+    except Exception as e_rec:
+        print(f"[WebRTC Attended Transfer Pre-Record Warning]: {e_rec}")
 
     from backend.services.ami_manager import attended_transfer_agent_calls
     ok = await attended_transfer_agent_calls(agent_extension, remote_1, remote_2)
@@ -19590,21 +20314,6 @@ async def webrtc_attended_transfer_endpoint(payload: dict = Body(...)):
         set_live_extension_call_state(remote_1, "busy")
     if remote_2 and len(remote_2) <= 5:
         set_live_extension_call_state(remote_2, "busy")
-
-    try:
-        async with AsyncSessionLocal() as session:
-            session.add(AgentBreakLog(
-                user_id=agent_extension,
-                extension=agent_extension,
-                agent_name=resolve_user_name_by_ext_or_id(agent_extension) or None,
-                break_name=f"__ACTION__:call_attended_transfer:{remote_1 or 'Hat 1'} <-> {remote_2 or 'Hat 2'}",
-                start_time=datetime.datetime.utcnow(),
-                end_time=datetime.datetime.utcnow(),
-                duration_seconds=0
-            ))
-            await session.commit()
-    except Exception as e_tr:
-        print(f"[WebRTC Attended Transfer Log Error]: {e_tr}")
 
     return {"status": "success" if ok else "fallback_refer", "transferred_via_ami": bool(ok)}
 
@@ -19676,7 +20385,9 @@ async def list_calls(
                 Call.caller_number == extension,
                 Call.callee_number == extension,
                 Call.hangup_source == f"pickup:{extension}",
-                Call.hangup_source.like(f"queue:%:answered:{extension}")
+                Call.hangup_source == f"transfer:{extension}",
+                Call.hangup_source.like(f"queue:%:answered:{extension}"),
+                Call.agent_name.ilike(f"%({extension})%")
             )
         )
         
@@ -19783,6 +20494,31 @@ async def list_calls(
                 picked_up_by_name = resolve_user_name_by_ext_or_id(picked_up_by_ext) if picked_up_by_ext else ""
                 original_callee_name = resolve_user_name_by_ext_or_id(callee_str) if callee_str else ""
 
+                raw_td = getattr(c, "transfer_details", None)
+                if isinstance(raw_td, str):
+                    try:
+                        raw_td = json.loads(raw_td)
+                    except Exception:
+                        raw_td = {}
+                td_dict = raw_td if isinstance(raw_td, dict) else {}
+                td_chain = td_dict.get("transfer_chain") if isinstance(td_dict.get("transfer_chain"), list) else []
+                td_pickup = td_dict.get("pickup_info") if isinstance(td_dict.get("pickup_info"), dict) else {}
+                td_segments = td_dict.get("audio_segments") if isinstance(td_dict.get("audio_segments"), list) else []
+
+                if td_chain:
+                    is_transferred = True
+                    last_hop = td_chain[-1]
+                    if isinstance(last_hop, dict):
+                        if not transfer_target and last_hop.get("to_ext"):
+                            transfer_target = str(last_hop.get("to_ext")).strip()
+                        hop_t = str(last_hop.get("type") or "").strip().lower()
+                        transfer_type = "call_attended_transfer" if hop_t == "attended" else "call_blind_transfer"
+
+                if td_pickup and td_pickup.get("is_picked_up"):
+                    is_picked_up = True
+                    picked_up_by_ext = str(td_pickup.get("picker_ext") or picked_up_by_ext or "").strip()
+                    picked_up_by_name = str(td_pickup.get("picker_name") or picked_up_by_name or "").strip()
+
                 hold_duration = 0
                 hold_count = 0
                 active_hold_start = None
@@ -19827,10 +20563,13 @@ async def list_calls(
                         picked_up_by_name = log.agent_name or resolve_user_name_by_ext_or_id(picked_up_by_ext) or ""
                     elif act_key in ("call_transfer", "call_blind_transfer", "call_attended_transfer", "call_forwarded"):
                         is_transferred = True
-                        transfer_type = act_key
-                        if "->" in act_detail:
+                        if not td_chain:
+                            transfer_type = act_key
+                        if "->" in act_detail and not transfer_target:
                             tgt = act_detail.split("->", 1)[1]
                             tgt = tgt.replace("(Ön Görüşmeli)", "").replace("Hedef", "").strip()
+                            if "[" in tgt:
+                                tgt = tgt.split("[", 1)[0].strip()
                             if tgt:
                                 transfer_target = tgt
                         elif act_detail and not transfer_target:
@@ -19849,8 +20588,14 @@ async def list_calls(
                 c.is_picked_up = is_picked_up
                 c.picked_up_by_ext = picked_up_by_ext
                 c.picked_up_by_name = picked_up_by_name
-                c.original_callee = callee_str
-                c.original_callee_name = original_callee_name
+                c.original_callee = str(td_pickup.get("original_callee_ext") or callee_str)
+                c.original_callee_name = str(td_pickup.get("original_callee_name") or original_callee_name)
+                c.transfer_details = td_dict
+                c.transfer_chain = td_chain
+                c.pickup_info = td_pickup if td_pickup else None
+                c.audio_segments = td_segments
+                c.transfer_device_source = str(td_chain[-1].get("device_source") or "") if td_chain and isinstance(td_chain[-1], dict) else ""
+                c.pickup_device_source = str(td_pickup.get("device_source") or "") if td_pickup else ""
                 c.is_queue_call = is_queue_call
                 c.is_direct_call = not is_queue_call
 
@@ -30498,6 +31243,7 @@ async def startup_event():
                 "ALTER TABLE calls ADD COLUMN IF NOT EXISTS answered_at TIMESTAMP;",
                 "ALTER TABLE calls ADD COLUMN IF NOT EXISTS talk_duration INTEGER;",
                 "ALTER TABLE calls ADD COLUMN IF NOT EXISTS ivr_events JSON;",
+                "ALTER TABLE calls ADD COLUMN IF NOT EXISTS transfer_details JSON;",
                 "ALTER TABLE agent_break_logs ADD COLUMN IF NOT EXISTS agent_name VARCHAR;",
                 "ALTER TABLE internal_chat_messages ADD COLUMN IF NOT EXISTS delivered_at TIMESTAMP;",
                 "ALTER TABLE internal_chat_messages ADD COLUMN IF NOT EXISTS read_at TIMESTAMP;",

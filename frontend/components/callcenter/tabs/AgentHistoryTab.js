@@ -702,9 +702,18 @@ export default function AgentHistoryTab({ backendHost, currentUser, callPanelPer
                           )}
                         </td>
                         <td className="p-4">
-                          <div className={`flex items-center gap-1.5 text-xs font-bold uppercase ${isPickedUp || call.status === "completed" || call.status === "answered" || call.status === "in_progress" ? "text-emerald-600 dark:text-emerald-400" : "text-rose-600 dark:text-rose-400"}`}>
-                            {isPickedUp || call.status === "completed" || call.status === "answered" || call.status === "in_progress" ? <CheckCircle2 size={14} /> : <XCircle size={14} />}
-                            {isPickedUp ? "Tamamlandı (Pickup)" : translateStatus(call.status)}
+                          <div className="flex flex-col items-start gap-1">
+                            <div className={`flex items-center gap-1.5 text-xs font-bold uppercase ${isPickedUp || call.status === "completed" || call.status === "answered" || call.status === "in_progress" || call.status === "transferred" ? "text-emerald-600 dark:text-emerald-400" : "text-rose-600 dark:text-rose-400"}`}>
+                              {isPickedUp || call.status === "completed" || call.status === "answered" || call.status === "in_progress" || call.status === "transferred" ? <CheckCircle2 size={14} /> : <XCircle size={14} />}
+                              {isPickedUp ? "Tamamlandı (Pickup)" : translateStatus(call.status)}
+                            </div>
+                            {(call.is_transferred || call.status === "transferred" || String(call.hangup_source || "").startsWith("transfer:")) && (
+                              <span className={`px-2 py-0.5 rounded text-[10px] font-extrabold border ${lightBg} ${text}`}>
+                                {Array.isArray(call.transfer_chain) && call.transfer_chain.length > 0
+                                  ? `${call.transfer_chain[call.transfer_chain.length - 1].type === "attended" ? "Ön Görüşmeli" : "Kör"} Transfer: ${call.transfer_chain[0].from_ext || ""} ➔ ${call.transfer_chain[call.transfer_chain.length - 1].to_ext || call.transfer_target || ""}`
+                                  : `Transfer ➔ ${call.transfer_target || String(call.hangup_source || "").replace("transfer:", "")}`}
+                              </span>
+                            )}
                           </div>
                         </td>
                         <td className="p-4 text-sm font-semibold text-slate-600 dark:text-slate-400">
@@ -915,45 +924,90 @@ export default function AgentHistoryTab({ backendHost, currentUser, callPanelPer
         canListenRecords &&
         activeAudio &&
         activeAudio.recording_path &&
-        createPortal(
-          <div className="fixed bottom-6 left-1/2 -translate-x-1/2 bg-slate-900 dark:bg-slate-950 border border-slate-700 dark:border-slate-800 shadow-2xl rounded-2xl p-4 w-[400px] z-[9999] flex flex-col gap-3 animate-in slide-in-from-bottom-10 fade-in duration-300">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <div className="h-10 w-10 bg-emerald-500/20 text-emerald-400 rounded-full flex items-center justify-center shrink-0">
-                  <Headphones size={18} />
+        (() => {
+          const rawSegs = Array.isArray(activeAudio.audio_segments)
+            ? activeAudio.audio_segments
+            : Array.isArray(activeAudio.transfer_details?.audio_segments)
+            ? activeAudio.transfer_details.audio_segments
+            : [];
+          const validSegs = rawSegs.filter((s) => s && s.recording_path);
+          const segments =
+            validSegs.length > 0
+              ? validSegs
+              : [
+                  {
+                    id: "master",
+                    label: "Tüm Görüşme (Tek Birleşik Ana Kayıt)",
+                    recording_path: activeAudio.recording_path,
+                    duration_sec: activeAudio.talk_duration || activeAudio.duration
+                  }
+                ];
+          const curSeg =
+            segments.find((s) => s.id === (activeAudio._selectedSegId || "master")) || segments[0];
+          return createPortal(
+            <div className="fixed bottom-6 left-1/2 -translate-x-1/2 bg-slate-900 dark:bg-slate-950 border border-slate-700 dark:border-slate-800 shadow-2xl rounded-2xl p-4 w-[92%] max-w-lg z-[9999] flex flex-col gap-3 animate-in slide-in-from-bottom-10 fade-in duration-300">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3 min-w-0">
+                  <div className="h-10 w-10 bg-emerald-500/20 text-emerald-400 rounded-full flex items-center justify-center shrink-0">
+                    <Headphones size={18} />
+                  </div>
+                  <div className="min-w-0">
+                    <p className="text-xs font-bold text-white tracking-wide truncate">
+                      {curSeg.label} ({maskPhoneLast4(activeAudio.caller_number === currentUser?.extension ? activeAudio.callee_number : activeAudio.caller_number, maskPhoneNumbers)})
+                    </p>
+                    <p className="text-[10px] text-slate-400 font-mono mt-0.5 truncate">
+                      {curSeg.participants ||
+                        (activeAudio.start_time
+                          ? new Date(activeAudio.start_time + (activeAudio.start_time.endsWith("Z") ? "" : "Z")).toLocaleString("tr-TR")
+                          : "")}
+                    </p>
+                  </div>
                 </div>
-                <div>
-                  <p className="text-xs font-bold text-white tracking-wide truncate">
-                    Görüşme Kaydı ({maskPhoneLast4(activeAudio.caller_number === currentUser?.extension ? activeAudio.callee_number : activeAudio.caller_number, maskPhoneNumbers)})
-                  </p>
-                  <p className="text-[10px] text-slate-400 font-mono mt-0.5">
-                    {activeAudio.start_time
-                      ? new Date(activeAudio.start_time + (activeAudio.start_time.endsWith("Z") ? "" : "Z")).toLocaleString("tr-TR")
-                      : ""}
-                  </p>
-                </div>
+                <button
+                  onClick={() => setActiveAudio(null)}
+                  className="h-8 w-8 bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white rounded-full flex items-center justify-center transition-colors shrink-0"
+                  title="Kapat"
+                >
+                  <X size={16} />
+                </button>
               </div>
-              <button
-                onClick={() => setActiveAudio(null)}
-                className="h-8 w-8 bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white rounded-full flex items-center justify-center transition-colors shrink-0"
-                title="Kapat"
-              >
-                <X size={16} />
-              </button>
-            </div>
 
-            <WaveformAudioPlayer
-              src={`${window.location.protocol}//${backendHost}${activeAudio.recording_path}`}
-              initialDuration={activeAudio.talk_duration || activeAudio.duration}
-              autoPlay
-              size="sm"
-              barCount={28}
-              title="Görüşme Kaydı"
-              className="w-full"
-            />
-          </div>,
-          document.body
-        )}
+              {segments.length > 1 && (
+                <div className="flex items-center gap-1.5 flex-wrap pb-1 border-b border-slate-800">
+                  {segments.map((seg) => {
+                    const isAct = curSeg.id === seg.id;
+                    return (
+                      <button
+                        key={seg.id}
+                        type="button"
+                        onClick={() => setActiveAudio({ ...activeAudio, _selectedSegId: seg.id })}
+                        className={`px-2.5 py-1 rounded-lg text-[10px] font-bold transition cursor-pointer ${
+                          isAct
+                            ? `${bg} text-white`
+                            : "bg-slate-800 text-slate-300 hover:bg-slate-700"
+                        }`}
+                      >
+                        {seg.label}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+
+              <WaveformAudioPlayer
+                key={`${activeAudio.id}_${curSeg.id}`}
+                src={`${window.location.protocol}//${backendHost}${curSeg.recording_path}`}
+                initialDuration={curSeg.duration_sec || activeAudio.talk_duration || activeAudio.duration}
+                autoPlay
+                size="sm"
+                barCount={28}
+                title={curSeg.label}
+                className="w-full"
+              />
+            </div>,
+            document.body
+          );
+        })()}
     </div>
   );
 }
