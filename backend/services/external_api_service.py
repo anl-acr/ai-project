@@ -18,23 +18,7 @@ import time
 import ipaddress
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional
-from fastapi import APIRouter, Depends, HTTPException, Request, Query, Body
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, desc
-
-from backend.database.db import get_db
-from backend.database.models import (
-    Call,
-    Transcript,
-    Appointment,
-    Contact,
-    Blacklist,
-    SystemUser,
-    PBXQueue,
-    Trunk,
-    ChatSession,
-    ChatMessage,
-)
+from fastapi import HTTPException, Request
 
 # Yetki Kategorileri (Türkçe + Parantez İçinde Teknik HTTP Metot Karşılıkları)
 API_PERMISSION_MODULES = [
@@ -964,9 +948,11 @@ API_ENDPOINTS_CATALOG = [
 
 async def dispatch_external_api_webhook_event(
     settings_db: dict,
-    event_name: str,
-    payload_data: Dict[str, Any],
+    event_name: str = "",
+    payload_data: Optional[Dict[str, Any]] = None,
     tenant_id: str = "tenant-default",
+    event_type: str = "",
+    payload: Optional[Dict[str, Any]] = None,
 ):
     """
     Santralde bir çağrı olayı ('call.ringing', 'call.answered', 'call.transferred', 'call.ended')
@@ -976,6 +962,9 @@ async def dispatch_external_api_webhook_event(
     import hmac
     import json
     import httpx
+
+    event_name = event_name or event_type
+    payload_data = payload_data if payload_data is not None else (payload or {})
 
     targets = []
     # 1. API anahtarlarının içindeki webhook_url tanımları
