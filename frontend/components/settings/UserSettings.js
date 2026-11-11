@@ -29,6 +29,7 @@ import { WallboardStudioSettings } from "../dashboard/WallboardPanel";
 import KeyboardShortcutsModal from "../common/KeyboardShortcutsModal";
 import SearchableSelect from "../ui/SearchableSelect";
 import TablePagination from "../ui/TablePagination";
+import BulkConfigPanel from "./BulkConfigPanel";
 
 import { getApiBaseUrl, tenantFetch } from "../../utils/apiHost";
 import { webphoneManager } from "../../utils/webphoneManager";
@@ -2751,10 +2752,63 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
 
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(25);
+  const [selectedUserIds, setSelectedUserIds] = useState([]);
+  const [showBulkConfigModal, setShowBulkConfigModal] = useState(false);
+  const [bulkQuickBusy, setBulkQuickBusy] = useState(false);
   const paginatedUsers = filteredUsers.slice(
     (currentPage - 1) * pageSize,
     currentPage * pageSize
   );
+
+  const toggleSelectUser = (userId) => {
+    const idStr = String(userId);
+    setSelectedUserIds((prev) =>
+      prev.includes(idStr) ? prev.filter((x) => x !== idStr) : [...prev, idStr]
+    );
+  };
+
+  const toggleSelectAllUsers = () => {
+    const allIds = filteredUsers.map((u) => String(u.id));
+    const allSelected =
+      allIds.length > 0 && allIds.every((id) => selectedUserIds.includes(id));
+    if (allSelected) {
+      setSelectedUserIds([]);
+    } else {
+      setSelectedUserIds(allIds);
+    }
+  };
+
+  const handleQuickBulkUserAction = async (changesObj) => {
+    if (selectedUserIds.length === 0 || bulkQuickBusy) return;
+    setBulkQuickBusy(true);
+    try {
+      const res = await safeFetch("/api/settings/bulk-config/apply", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-User-ID": localStorage.getItem("current_user_id") || "admin"
+        },
+        body: JSON.stringify({
+          module: "users",
+          target_mode: "selected",
+          target_ids: selectedUserIds,
+          changes: changesObj
+        })
+      });
+      if (res.ok) {
+        setSuccess(true);
+        setTimeout(() => setSuccess(false), 3000);
+        await fetchUsers(true);
+      } else {
+        const errData = await res.json().catch(() => ({}));
+        setError(errData.detail || "Toplu işlem uygulanırken hata oluştu.");
+      }
+    } catch (e) {
+      setError("Toplu işlem sırasında sunucu hatası oluştu.");
+    } finally {
+      setBulkQuickBusy(false);
+    }
+  };
 
   const renderForwardingRow = (label, active, setActive, type, setType, target, setTarget) => (
     <div className={`grid grid-cols-12 gap-3 items-end p-3 rounded-xl border transition-all ${active ? 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800' : 'bg-slate-50 dark:bg-slate-900/30 border-slate-100 dark:border-slate-800/40 opacity-70'}`}>
@@ -2961,6 +3015,16 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
           </div>
 
           <button
+            type="button"
+            onClick={() => setShowBulkConfigModal(true)}
+            className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 h-8 shrink-0 border border-slate-200/80 dark:border-slate-700"
+            title="Toplu Konfigürasyon & Kitle Yönetimi"
+          >
+            <Layers size={14} className={text} />
+            <span className="hidden md:inline">Toplu Konfigürasyon</span>
+          </button>
+
+          <button
             onClick={openAddModal}
             className={`p-2 ${bg} ${hover} text-white rounded-xl font-bold transition-all shadow-sm flex items-center justify-center h-8 w-8 shrink-0`}
             title="Yeni Kullanıcı Ekle"
@@ -3004,9 +3068,79 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
         </div>
       ) : (
         <div className="space-y-3.5 w-full">
+          {/* In-Place Multi-Select Bulk Action Bar */}
+          {selectedUserIds.length > 0 && (
+            <div className={`p-3 rounded-2xl border ${border} ${lightBg} flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-sm`}>
+              <div className="flex items-center gap-2.5 flex-wrap">
+                <span className={`px-2.5 py-1 rounded-xl text-xs font-extrabold text-white ${bg}`}>
+                  {selectedUserIds.length} Kullanıcı Seçildi
+                </span>
+                <span className="text-xs font-semibold text-slate-600 dark:text-slate-300">
+                  Seçili abonelere tek tıkla toplu işlem uygulayın:
+                </span>
+              </div>
+              <div className="flex items-center gap-2 flex-wrap">
+                <button
+                  type="button"
+                  disabled={bulkQuickBusy}
+                  onClick={() => handleQuickBulkUserAction({ recording_active: true })}
+                  className="px-2.5 py-1.5 rounded-xl text-xs font-bold bg-white dark:bg-slate-900 border border-emerald-300 dark:border-emerald-800 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-50 flex items-center gap-1.5"
+                >
+                  <Mic size={13} />
+                  Ses Kaydını Aç
+                </button>
+                <button
+                  type="button"
+                  disabled={bulkQuickBusy}
+                  onClick={() => handleQuickBulkUserAction({ recording_active: false })}
+                  className="px-2.5 py-1.5 rounded-xl text-xs font-bold bg-white dark:bg-slate-900 border border-rose-300 dark:border-rose-800 text-rose-700 dark:text-rose-300 hover:bg-rose-50 flex items-center gap-1.5"
+                >
+                  <MicOff size={13} />
+                  Ses Kaydını Kapat
+                </button>
+                <button
+                  type="button"
+                  disabled={bulkQuickBusy}
+                  onClick={() => handleQuickBulkUserAction({ forwarding_reset: true })}
+                  className="px-2.5 py-1.5 rounded-xl text-xs font-bold bg-white dark:bg-slate-900 border border-amber-300 dark:border-amber-800 text-amber-700 dark:text-amber-300 hover:bg-amber-50 flex items-center gap-1.5"
+                >
+                  <RotateCcw size={13} />
+                  Yönlendirmeleri Sıfırla
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowBulkConfigModal(true)}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-extrabold text-white ${bg} ${hover} flex items-center gap-1.5 shadow-sm`}
+                >
+                  <Layers size={13} />
+                  Tüm Özellikleri Toplu Düzenle
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setSelectedUserIds([])}
+                  className="px-2.5 py-1.5 rounded-xl text-xs font-bold bg-white/80 dark:bg-slate-800 text-slate-500 hover:text-slate-700"
+                >
+                  Seçimi Temizle
+                </button>
+              </div>
+            </div>
+          )}
+
           {/* Column Header Row */}
           <div className="hidden sm:flex items-center justify-between px-4 py-2 text-[10px] font-extrabold text-slate-400 dark:text-slate-500 uppercase tracking-wider select-none border-b border-slate-100 dark:border-slate-800/40 pb-2.5">
             <div className="flex items-center gap-4 flex-1 min-w-0">
+              <div className="w-5 flex items-center justify-center shrink-0">
+                <input
+                  type="checkbox"
+                  checked={
+                    filteredUsers.length > 0 &&
+                    filteredUsers.every((u) => selectedUserIds.includes(String(u.id)))
+                  }
+                  onChange={toggleSelectAllUsers}
+                  title="Tüm Kullanıcıları Seç / Bırak"
+                  className="w-4 h-4 rounded border-slate-300 cursor-pointer"
+                />
+              </div>
               {visibleColumns.status && <div className="w-10 text-center shrink-0 min-w-0">Durum</div>}
               {visibleColumns.profile && <div className="w-12 text-center shrink-0 min-w-0">Profil</div>}
               {visibleColumns.username && <div className="min-w-0 truncate" style={{ flex: '2 2 0%' }}>Kullanıcı Adı</div>}
@@ -3026,11 +3160,24 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
           {paginatedUsers.map((u) => (
             <div
               key={u.id}
-              className={`p-4 bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800/85 rounded-2xl shadow-sm flex flex-col sm:flex-row sm:items-center gap-3 transition-all duration-200 hover:scale-[1.005] w-full ${
+              className={`p-4 bg-white dark:bg-slate-900 border ${
+                selectedUserIds.includes(String(u.id))
+                  ? `${border} ring-1 ${ring}`
+                  : "border-slate-200/80 dark:border-slate-800/85"
+              } rounded-2xl shadow-sm flex flex-col sm:flex-row sm:items-center gap-3 transition-all duration-200 hover:scale-[1.005] w-full ${
                 !checkIsUserActive(u) ? "opacity-60" : ""
               }`}
             >
               <div className="flex items-center gap-4 flex-1 min-w-0">
+                  <div className="w-5 flex items-center justify-center shrink-0">
+                    <input
+                      type="checkbox"
+                      checked={selectedUserIds.includes(String(u.id))}
+                      onChange={() => toggleSelectUser(u.id)}
+                      onClick={(e) => e.stopPropagation()}
+                      className="w-4 h-4 rounded border-slate-300 cursor-pointer"
+                    />
+                  </div>
                   {visibleColumns.status && (
                     <div className="w-10 flex items-center justify-center shrink-0 min-w-0">
                       <div className="relative group flex items-center justify-center cursor-pointer">
@@ -3288,6 +3435,21 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
             itemLabel="kullanıcı"
           />
         </div>
+      )}
+
+      {showBulkConfigModal && (
+        <BulkConfigPanel
+          backendHost={backendHost}
+          isModal={true}
+          initialModule="users"
+          initialTargetMode={selectedUserIds.length > 0 ? "selected" : "all"}
+          initialSelectedIds={selectedUserIds}
+          onClose={() => setShowBulkConfigModal(false)}
+          onApplied={() => {
+            fetchUsers(true);
+            fetchRelations();
+          }}
+        />
       )}
 
       {/* POPUP MODAL (Add / Edit Form with Tabs) */}

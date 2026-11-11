@@ -2,10 +2,11 @@ import React, { useState, useEffect, useRef } from "react";
 import {
   Plus, Search, Edit2, Trash2, X, PhoneForwarded, Users, CheckCircle,
   ChevronRight, ChevronLeft, ArrowUp, ArrowDown, Download, Upload,
-  Lock, Eye, EyeOff, RefreshCw, Clock, Calendar, ShieldCheck, AlertCircle, ChevronDown
+  Lock, Eye, EyeOff, RefreshCw, Clock, Calendar, ShieldCheck, AlertCircle, ChevronDown, Sliders
 } from "lucide-react";
 import * as XLSX from "xlsx";
 import ConfirmDeleteModal from "../dashboard/ConfirmDeleteModal";
+import BulkConfigPanel from "./BulkConfigPanel";
 import { useTheme } from "../../utils/theme";
 import { getBackendHost } from "../../utils/apiHost";
 
@@ -242,6 +243,8 @@ export default function OutboundRulesPanel({ backendHost }) {
   const [showModal, setShowModal] = useState(false);
   const [selectedRule, setSelectedRule] = useState(null);
   const [deleteConfirm, setDeleteConfirm] = useState({ show: false, id: null });
+  const [selectedRuleIds, setSelectedRuleIds] = useState([]);
+  const [showBulkModal, setShowBulkModal] = useState(false);
   const [showPin, setShowPin] = useState(false);
   const [showExemptSelector, setShowExemptSelector] = useState(false);
   const [pinError, setPinError] = useState("");
@@ -801,6 +804,16 @@ export default function OutboundRulesPanel({ backendHost }) {
           </button>
 
           <button
+            type="button"
+            onClick={() => setShowBulkModal(true)}
+            className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 h-8 shrink-0 border border-slate-200 dark:border-slate-700"
+            title="Giden Arama Kurallarını Toplu Düzenle"
+          >
+            <Sliders size={14} className={text} />
+            <span className="hidden md:inline">Toplu Konfigürasyon</span>
+          </button>
+
+          <button
             onClick={() => handleOpenModal()}
             className="bg-rose-600 hover:bg-rose-500 rounded-xl h-8 w-8 flex items-center justify-center shrink-0 text-white transition-all shadow-sm"
             title="Yeni Kural Ekle"
@@ -831,10 +844,54 @@ export default function OutboundRulesPanel({ backendHost }) {
         </div>
       ) : (
         <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 overflow-hidden shadow-sm">
+          {selectedRuleIds.length > 0 && (
+            <div className={`p-3 border-b ${border} ${lightBg} flex items-center justify-between gap-3 flex-wrap`}>
+              <div className="flex items-center gap-2">
+                <span className={`px-2.5 py-1 rounded-xl text-xs font-extrabold text-white ${bg}`}>
+                  {selectedRuleIds.length} Kural Seçildi
+                </span>
+                <span className="text-xs font-semibold text-slate-600 dark:text-slate-300">
+                  Seçili kuralların dış hat (trunk), CallerID ve parola ayarlarını tek seferde değiştirin:
+                </span>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setShowBulkModal(true)}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-extrabold text-white ${bg} ${hover} flex items-center gap-1.5`}
+                >
+                  <Sliders size={13} />
+                  Seçili Kuralları Toplu Düzenle
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setSelectedRuleIds([])}
+                  className="px-2.5 py-1.5 rounded-xl text-xs font-bold bg-white/80 dark:bg-slate-800 text-slate-500"
+                >
+                  Seçimi Temizle
+                </button>
+              </div>
+            </div>
+          )}
           <div className="overflow-x-auto">
             <table className="w-full text-left border-collapse">
               <thead>
                 <tr className="border-b border-slate-200 dark:border-slate-800 bg-slate-50/80 dark:bg-slate-900/50">
+                  <th scope="col" className="py-3 px-4 w-10">
+                    <input
+                      type="checkbox"
+                      checked={
+                        filteredRules.length > 0 &&
+                        filteredRules.every((r) => selectedRuleIds.includes(String(r.id)))
+                      }
+                      onChange={(e) =>
+                        setSelectedRuleIds(
+                          e.target.checked ? filteredRules.map((r) => String(r.id)) : []
+                        )
+                      }
+                      className="w-4 h-4 rounded border-slate-300 cursor-pointer"
+                    />
+                  </th>
                   <th scope="col" className="py-3 px-4 text-xs font-bold text-slate-500 dark:text-slate-400">Kural Adı & Desen</th>
                   <th scope="col" className="py-3 px-4 text-xs font-bold text-slate-500 dark:text-slate-400">Dış Hat (Trunks)</th>
                   <th scope="col" className="py-3 px-4 text-xs font-bold text-slate-500 dark:text-slate-400">İzin Verilen Aboneler</th>
@@ -848,9 +905,24 @@ export default function OutboundRulesPanel({ backendHost }) {
                   const trunkIds = rule.trunk_ids || (rule.trunk_id ? [rule.trunk_id] : []);
                   const assignedTrunks = trunkIds.map(id => trunks.find(t => t.id === id)).filter(Boolean);
                   const pinMode = rule.pin_mode || "none";
+                  const isRuleChecked = selectedRuleIds.includes(String(rule.id));
                   
                   return (
-                    <tr key={rule.id} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/30 transition-colors">
+                    <tr key={rule.id} className={`hover:bg-slate-50/50 dark:hover:bg-slate-800/30 transition-colors ${isRuleChecked ? lightBg : ""}`}>
+                      <td className="py-3 px-4 w-10">
+                        <input
+                          type="checkbox"
+                          checked={isRuleChecked}
+                          onChange={() =>
+                            setSelectedRuleIds((prev) =>
+                              prev.includes(String(rule.id))
+                                ? prev.filter((x) => x !== String(rule.id))
+                                : [...prev, String(rule.id)]
+                            )
+                          }
+                          className="w-4 h-4 rounded border-slate-300 cursor-pointer"
+                        />
+                      </td>
                       <td className="py-3 px-4">
                         <div className="flex flex-col">
                           <span className="text-sm font-bold text-slate-800 dark:text-slate-200">{rule.name}</span>
@@ -1472,6 +1544,20 @@ export default function OutboundRulesPanel({ backendHost }) {
         onConfirm={handleDelete}
         onCancel={() => setDeleteConfirm({ show: false, id: null })}
       />
+
+      {showBulkModal && (
+        <BulkConfigPanel
+          backendHost={backendHost}
+          isModal={true}
+          initialModule="outbound_rules"
+          initialTargetMode={selectedRuleIds.length > 0 ? "selected" : "all"}
+          initialSelectedIds={selectedRuleIds}
+          onClose={() => setShowBulkModal(false)}
+          onApplied={() => {
+            fetchData();
+          }}
+        />
+      )}
     </div>
   );
 }

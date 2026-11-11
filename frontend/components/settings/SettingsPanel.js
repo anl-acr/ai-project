@@ -28,7 +28,8 @@ import {
   TrendingUp,
   ChevronRight,
   Clock,
-  PhoneOutgoing
+  PhoneOutgoing,
+  Sliders
 } from "lucide-react";
 import dynamic from "next/dynamic";
 import { getTurkishSlugForSubtab, getSubtabFromTurkishSlug } from "../../utils/slugHelper";
@@ -72,6 +73,7 @@ const EmailNotificationsPanel = lazySub(() => import("./EmailNotificationsPanel"
 const RestorePointsPanel = lazySub(() => import("./RestorePointsPanel"));
 const WorkHoursSettingsPanel = lazySub(() => import("./WorkHoursSettingsPanel"));
 const SmartCallbackSettings = lazySub(() => import("./SmartCallbackSettings"));
+const BulkConfigPanel = lazySub(() => import("./BulkConfigPanel"));
 import InfoTooltip from "../common/InfoTooltip";
 
 const normalizeSubTab = (subTab) => {
@@ -310,6 +312,13 @@ export default function SettingsPanel({ backendHost = "localhost:8000" }) {
             subtitle: "Kuyruk bekleme süresi ve otomatik geri arama",
             icon: PhoneOutgoing,
             visible: hasSmartCallbackPermission
+          },
+          {
+            id: "bulk-config",
+            label: "Toplu Konfigürasyon Merkezi",
+            subtitle: "Kullanıcı, abone grubu, kuyruk ve kurallarda tek seferde toplu güncelleme",
+            icon: Sliders,
+            visible: true
           }
         ]
       },
@@ -774,6 +783,9 @@ export default function SettingsPanel({ backendHost = "localhost:8000" }) {
             {activeSubTab === "ssl" && <SSLSettings backendHost={backendHost} />}
             {activeSubTab === "smart-callback" && (
               <SmartCallbackSettings backendHost={backendHost} />
+            )}
+            {activeSubTab === "bulk-config" && (
+              <BulkConfigPanel backendHost={backendHost} />
             )}
             {activeSubTab === "backup" && <BackupRestorePanel backendHost={backendHost} />}
             {activeSubTab === "recording-retention" && (

@@ -1437,6 +1437,7 @@ DEFAULT_SETTINGS = {
                 "inbound_rules:read", "inbound_rules:write", "inbound_rules:delete",
                 "call_pickup_groups:read", "call_pickup_groups:write", "call_pickup_groups:delete",
                 "subscriber_groups:read", "subscriber_groups:write", "subscriber_groups:delete",
+                "bulk_config:read", "bulk_config:write", "bulk_config:delete",
                 "contacts:read", "contacts:write", "contacts:delete",
                 "trunks:read", "trunks:write", "trunks:delete",
                 "conferences:read", "conferences:write", "conferences:delete",
@@ -1523,6 +1524,7 @@ DEFAULT_SETTINGS = {
                 "outbound_rules:read", "inbound_rules:read",
                 "call_pickup_groups:read", "call_pickup_groups:write",
                 "subscriber_groups:read", "subscriber_groups:write",
+                "bulk_config:read", "bulk_config:write",
                 "contacts:read", "contacts:write", "contacts:delete",
                 "conferences:read", "conferences:write",
                 "speed_dials:read", "speed_dials:write",
@@ -2558,7 +2560,7 @@ def load_settings(force_reload: bool = False, persist: bool = False):
                 if "omnichannel:access" not in new_perms:
                     new_perms.append("omnichannel:access")
 
-            # Auto assign contacts to admin, supervisor, and agent if missing
+            # Auto assign contacts and bulk_config to admin, supervisor, and agent if missing
             if r.get("role_code") in ["admin", "supervisor"]:
                 if "contacts:read" not in new_perms:
                     new_perms.append("contacts:read")
@@ -2566,6 +2568,12 @@ def load_settings(force_reload: bool = False, persist: bool = False):
                     new_perms.append("contacts:write")
                 if "contacts:delete" not in new_perms:
                     new_perms.append("contacts:delete")
+                if "bulk_config:read" not in new_perms:
+                    new_perms.append("bulk_config:read")
+                if "bulk_config:write" not in new_perms:
+                    new_perms.append("bulk_config:write")
+                if r.get("role_code") == "admin" and "bulk_config:delete" not in new_perms:
+                    new_perms.append("bulk_config:delete")
             elif r.get("role_code") == "agent":
                 if "contacts:read" not in new_perms:
                     new_perms.append("contacts:read")
@@ -39269,6 +39277,1144 @@ async def live_translator_tts_endpoint(payload: LiveTranslateTtsPayload, user_in
     return {
         "tts_audio_base64": tts_b64,
         "tts_mime_type": tts_mime
+    }
+
+
+# ==============================================================================
+# BULK CONFIGURATION & MASS MANAGEMENT ENGINE (TOPLU KONFİGÜRASYON MERKEZİ)
+# ==============================================================================
+
+class BulkConfigApplyPayload(BaseModel):
+    module: str = "users"  # "users", "subscriber_groups", "queues", "outbound_rules"
+    target_mode: str = "selected"  # "selected", "all", "subscriber_group", "pickup_group", "role", "department", "location", "range"
+    target_ids: Optional[List[Any]] = []
+    subscriber_group_id: Optional[Any] = None
+    pickup_group_id: Optional[Any] = None
+    role_code: Optional[str] = None
+    department_id: Optional[Any] = None
+    location_id: Optional[Any] = None
+    ext_start: Optional[str] = None
+    ext_end: Optional[str] = None
+    changes: Dict[str, Any] = {}
+    member_changes: Optional[Dict[str, Any]] = None
+    description: Optional[str] = None
+
+
+class BulkConfigUndoPayload(BaseModel):
+    operation_id: Optional[str] = None
+
+
+def _filter_tenant_items(items_list: list, target_tenant: str) -> list:
+    if not isinstance(items_list, list):
+        return []
+    if target_tenant in ("all", "global"):
+        return [x for x in items_list if isinstance(x, dict)]
+    out = []
+    for x in items_list:
+        if not isinstance(x, dict):
+            continue
+        x_ten = x.get("tenant_id") or "tenant-default"
+        if x_ten == target_tenant or (not x.get("tenant_id") and target_tenant == "tenant-default"):
+            out.append(x)
+    return out
+
+
+async def _sync_users_and_queues_to_postgres_after_bulk(
+    db: AsyncSession,
+    affected_user_ids: set,
+    affected_user_exts: set,
+    affected_queue_ids: set,
+):
+    from sqlalchemy.orm.attributes import flag_modified
+    try:
+        if affected_user_ids or affected_user_exts:
+            res_u = await db.execute(select(SystemUser))
+            db_users = res_u.scalars().all()
+            disk_by_id = {
+                str(u.get("id")): u
+                for u in (settings_db.get("users") or [])
+                if isinstance(u, dict) and u.get("id") is not None
+            }
+            disk_by_ext = {
+                str(u.get("extension")): u
+                for u in (settings_db.get("users") or [])
+                if isinstance(u, dict) and u.get("extension")
+            }
+            for dbu in db_users:
+                uid_s = str(dbu.id) if dbu.id is not None else ""
+                uext_s = str(dbu.extension or "")
+                if uid_s not in affected_user_ids and uext_s not in affected_user_exts:
+                    continue
+                du = disk_by_id.get(uid_s) or disk_by_ext.get(uext_s)
+                if not du:
+                    continue
+                dbu.role = du.get("role", dbu.role)
+                dbu.is_active = bool(du.get("is_active", True))
+                dbu.recording_active = bool(du.get("recording_active", False))
+                dbu.voicemail_active = bool(du.get("voicemail_active", False))
+                dbu.voicemail_to_email = bool(du.get("voicemail_to_email", False))
+                if du.get("voicemail_pin") is not None:
+                    dbu.voicemail_pin = str(du.get("voicemail_pin") or "")
+                if du.get("voicemail_announcement") is not None:
+                    dbu.voicemail_announcement = du.get("voicemail_announcement")
+                dbu.mobile_transfer_enabled = bool(du.get("mobile_transfer_enabled", False))
+                if "outbound_caller_id" in du:
+                    dbu.outbound_caller_id = du.get("outbound_caller_id")
+                if "location_id" in du:
+                    dbu.location_id = str(du.get("location_id")) if du.get("location_id") is not None else None
+                if "department_id" in du:
+                    dbu.department_id = str(du.get("department_id")) if du.get("department_id") is not None else None
+                if "transport" in du and du.get("transport"):
+                    dbu.transport = du.get("transport")
+                if hasattr(dbu, "max_activations") and du.get("max_activations") is not None:
+                    dbu.max_activations = int(du.get("max_activations") or 1)
+                if hasattr(dbu, "max_concurrent_outbound") and du.get("max_concurrent_outbound") is not None:
+                    dbu.max_concurrent_outbound = int(du.get("max_concurrent_outbound") or 0)
+                if hasattr(dbu, "outbound_quarantined") and du.get("outbound_quarantined") is not None:
+                    dbu.outbound_quarantined = bool(du.get("outbound_quarantined"))
+                for json_col in (
+                    "forwarding_always",
+                    "forwarding_busy",
+                    "forwarding_no_answer",
+                    "follow_me",
+                    "profiles",
+                    "call_panel_prefs",
+                    "boss_secretary",
+                    "hotdesk_config",
+                ):
+                    if hasattr(dbu, json_col) and json_col in du:
+                        setattr(dbu, json_col, du.get(json_col))
+                        try:
+                            flag_modified(dbu, json_col)
+                        except Exception:
+                            pass
+            await db.commit()
+    except Exception as eu:
+        print(f"[BulkConfig DB User Sync Warning]: {eu}")
+        try:
+            await db.rollback()
+        except Exception:
+            pass
+
+    try:
+        if affected_queue_ids:
+            res_q = await db.execute(select(PBXQueue))
+            db_queues = res_q.scalars().all()
+            disk_q_by_id = {
+                str(q.get("id")): q
+                for q in (settings_db.get("queues") or [])
+                if isinstance(q, dict) and q.get("id") is not None
+            }
+            valid_q_cols = {c.name for c in PBXQueue.__table__.columns if c.name != "id"}
+            for dbq in db_queues:
+                qid_s = str(dbq.id)
+                if qid_s not in affected_queue_ids:
+                    continue
+                dq = disk_q_by_id.get(qid_s)
+                if not dq:
+                    continue
+                for col_k in valid_q_cols:
+                    if col_k in dq:
+                        setattr(dbq, col_k, dq.get(col_k))
+                        if isinstance(dq.get(col_k), (list, dict)):
+                            try:
+                                flag_modified(dbq, col_k)
+                            except Exception:
+                                pass
+            await db.commit()
+    except Exception as eq:
+        print(f"[BulkConfig DB Queue Sync Warning]: {eq}")
+        try:
+            await db.rollback()
+        except Exception:
+            pass
+
+
+@app.get("/api/settings/bulk-config/metadata")
+@app.get("/settings/bulk-config/metadata")
+async def get_bulk_config_metadata(user_info: dict = Depends(get_user_info), db: AsyncSession = Depends(get_db)):
+    target_tenant = user_info.get("tenant_id") or "tenant-default"
+    users_raw = await new_get_users_endpoint(user_info=user_info, db=db)
+    users_filtered = [
+        {
+            "id": u.get("id"),
+            "full_name": u.get("full_name") or u.get("username") or f"Dahili {u.get('extension')}",
+            "extension": str(u.get("extension") or ""),
+            "email": u.get("email") or "",
+            "role": u.get("role") or "agent",
+            "is_active": u.get("is_active") is not False,
+            "recording_active": bool(u.get("recording_active", False)),
+            "voicemail_active": bool(u.get("voicemail_active", False)),
+            "mobile_transfer_enabled": bool(u.get("mobile_transfer_enabled", False)),
+            "outbound_caller_id": u.get("outbound_caller_id") or "",
+            "location_id": u.get("location_id"),
+            "department_id": u.get("department_id"),
+            "outbound_quarantined": bool(u.get("outbound_quarantined", False)),
+            "max_concurrent_outbound": int(u.get("max_concurrent_outbound") or 0),
+            "forwarding_no_answer": u.get("forwarding_no_answer") or {},
+            "forwarding_always": u.get("forwarding_always") or {},
+            "forwarding_busy": u.get("forwarding_busy") or {},
+        }
+        for u in (users_raw or [])
+        if isinstance(u, dict) and str(u.get("username") or "").lower() != "admin"
+    ]
+
+    sub_groups = _filter_tenant_items(settings_db.get("subscriber_groups", []), target_tenant)
+    pickup_groups = _filter_tenant_items(settings_db.get("call_pickup_groups", []), target_tenant)
+    outbound_rules = _filter_tenant_items(settings_db.get("outbound_rules", []), target_tenant)
+    inbound_rules = _filter_tenant_items(settings_db.get("inbound_rules", []), target_tenant)
+    queues = _filter_tenant_items(settings_db.get("queues", []), target_tenant)
+    trunks = _filter_tenant_items(settings_db.get("trunks", []), target_tenant)
+    roles = _filter_tenant_items(settings_db.get("roles", []), target_tenant)
+    locations = _filter_tenant_items(settings_db.get("locations", []), target_tenant)
+    departments = _filter_tenant_items(settings_db.get("departments", []), target_tenant)
+    announcements = _filter_tenant_items(settings_db.get("announcements", []), target_tenant)
+
+    history_all = settings_db.get("bulk_config_history", [])
+    if not isinstance(history_all, list):
+        history_all = []
+    history_tenant = [
+        {k: v for k, v in h.items() if k != "snapshot"}
+        for h in history_all
+        if isinstance(h, dict) and (target_tenant in ("all", "global") or (h.get("tenant_id") or "tenant-default") == target_tenant)
+    ][:15]
+
+    return {
+        "status": "success",
+        "users": users_filtered,
+        "subscriber_groups": sub_groups,
+        "call_pickup_groups": pickup_groups,
+        "outbound_rules": outbound_rules,
+        "inbound_rules": inbound_rules,
+        "queues": queues,
+        "trunks": trunks,
+        "roles": roles,
+        "locations": locations,
+        "departments": departments,
+        "announcements": announcements,
+        "history": history_tenant,
+    }
+
+
+def _apply_user_changes_to_dict(u: dict, changes: dict, summary_labels: set):
+    if not isinstance(u, dict) or not isinstance(changes, dict):
+        return False
+    modified = False
+
+    def _has_val(key: str) -> bool:
+        return key in changes and changes[key] is not None and changes[key] != "__UNCHANGED__"
+
+    if _has_val("recording_active"):
+        val = bool(changes["recording_active"])
+        u["recording_active"] = val
+        modified = True
+        summary_labels.add(f"Ses Kayıt: {'Açık' if val else 'Kapalı'}")
+
+    if _has_val("is_active"):
+        val = bool(changes["is_active"])
+        u["is_active"] = val
+        u["status"] = "active" if val else "pasif"
+        modified = True
+        summary_labels.add(f"Hesap Durumu: {'Aktif' if val else 'Pasif'}")
+
+    if _has_val("role"):
+        val = str(changes["role"]).strip()
+        if val:
+            u["role"] = val
+            modified = True
+            summary_labels.add(f"Rol: {val}")
+
+    if _has_val("department_id"):
+        val = changes["department_id"]
+        u["department_id"] = None if val in ("__CLEAR__", "") else val
+        modified = True
+        summary_labels.add("Departman Güncellendi")
+
+    if _has_val("location_id"):
+        val = changes["location_id"]
+        u["location_id"] = None if val in ("__CLEAR__", "") else val
+        modified = True
+        summary_labels.add("Lokasyon Güncellendi")
+
+    if _has_val("outbound_caller_id"):
+        val = str(changes["outbound_caller_id"]).strip()
+        u["outbound_caller_id"] = "" if val == "__CLEAR__" else val
+        modified = True
+        summary_labels.add(f"Giden CallerID: {'Sıfırlandı' if val == '__CLEAR__' else val}")
+
+    if _has_val("max_concurrent_outbound"):
+        try:
+            val = max(0, min(50, int(changes["max_concurrent_outbound"])))
+            u["max_concurrent_outbound"] = val
+            modified = True
+            summary_labels.add(f"Eşzamanlı Dış Arama Limiti: {val}")
+        except Exception:
+            pass
+
+    if _has_val("outbound_quarantined"):
+        val = bool(changes["outbound_quarantined"])
+        u["outbound_quarantined"] = val
+        ext_s = str(u.get("extension") or "").strip()
+        if not val and ext_s:
+            adv = settings_db.get("security_advanced")
+            if isinstance(adv, dict) and isinstance(adv.get("quarantined_subscribers"), dict):
+                adv["quarantined_subscribers"].pop(ext_s, None)
+        modified = True
+        summary_labels.add(f"Dış Arama Karantinası: {'Kilitli' if val else 'Temizlendi'}")
+
+    if _has_val("voicemail_active"):
+        val = bool(changes["voicemail_active"])
+        u["voicemail_active"] = val
+        modified = True
+        summary_labels.add(f"Sesli Posta: {'Açık' if val else 'Kapalı'}")
+
+    if _has_val("voicemail_to_email"):
+        val = bool(changes["voicemail_to_email"])
+        u["voicemail_to_email"] = val
+        modified = True
+        summary_labels.add(f"Sesli Posta E-Posta Bildirimi: {'Açık' if val else 'Kapalı'}")
+
+    if _has_val("voicemail_pin"):
+        val = re.sub(r"\D", "", str(changes["voicemail_pin"] or ""))[:8]
+        if val:
+            u["voicemail_pin"] = val
+            modified = True
+            summary_labels.add("Sesli Posta PIN Güncellendi")
+
+    if _has_val("voicemail_announcement"):
+        val = str(changes["voicemail_announcement"]).strip()
+        u["voicemail_announcement"] = "" if val == "__CLEAR__" else val
+        modified = True
+        summary_labels.add("Sesli Posta Anonsu Güncellendi")
+
+    if _has_val("mobile_transfer_enabled"):
+        val = bool(changes["mobile_transfer_enabled"])
+        u["mobile_transfer_enabled"] = val
+        modified = True
+        summary_labels.add(f"Mobil Aktarım Yetkisi: {'Açık' if val else 'Kapalı'}")
+
+    if _has_val("transport"):
+        val = str(changes["transport"]).strip().upper()
+        if val in ("UDP", "TCP", "TLS", "WSS"):
+            u["transport"] = val
+            if isinstance(u.get("sip_devices"), list):
+                for dev in u["sip_devices"]:
+                    if isinstance(dev, dict) and str(dev.get("device_type") or "") != "web_phone":
+                        dev["transport"] = val
+            modified = True
+            summary_labels.add(f"SIP Transport: {val}")
+
+    if _has_val("max_activations"):
+        try:
+            val = max(1, min(10, int(changes["max_activations"])))
+            u["max_activations"] = val
+            modified = True
+            summary_labels.add(f"Maks. SIP Cihaz Kaydı: {val}")
+        except Exception:
+            pass
+
+    if _has_val("ring_timeout"):
+        try:
+            t_val = max(5, min(120, int(changes["ring_timeout"])))
+            fno = u.get("forwarding_no_answer")
+            if not isinstance(fno, dict):
+                fno = {"active": False, "type": "internal", "target": ""}
+            else:
+                fno = dict(fno)
+            fno["timeout"] = t_val
+            u["forwarding_no_answer"] = fno
+            if isinstance(u.get("profiles"), list):
+                for prof in u["profiles"]:
+                    if isinstance(prof, dict):
+                        prof["timeout"] = t_val
+                        if isinstance(prof.get("forwarding_no_answer"), dict):
+                            prof["forwarding_no_answer"]["timeout"] = t_val
+            modified = True
+            summary_labels.add(f"Çaldırma Süresi: {t_val} sn")
+        except Exception:
+            pass
+
+    if changes.get("forwarding_reset") is True:
+        cur_timeout = 30
+        if isinstance(u.get("forwarding_no_answer"), dict):
+            cur_timeout = int(u["forwarding_no_answer"].get("timeout") or 30)
+        u["forwarding_always"] = {"active": False, "type": "internal", "target": ""}
+        u["forwarding_busy"] = {"active": False, "type": "internal", "target": ""}
+        u["forwarding_no_answer"] = {"active": False, "type": "internal", "target": "", "timeout": cur_timeout}
+        if isinstance(u.get("profiles"), list):
+            for prof in u["profiles"]:
+                if isinstance(prof, dict):
+                    prof["forwarding_always"] = {"active": False, "type": "internal", "target": ""}
+                    prof["forwarding_busy"] = {"active": False, "type": "internal", "target": ""}
+                    prof["forwarding_no_answer"] = {"active": False, "type": "internal", "target": "", "timeout": cur_timeout}
+        modified = True
+        summary_labels.add("Tüm Çağrı Yönlendirmeleri Sıfırlandı")
+
+    for fwd_key, fwd_label in (
+        ("forwarding_always", "Her Zaman Yönlendirme"),
+        ("forwarding_busy", "Meşgulde Yönlendirme"),
+        ("forwarding_no_answer", "Cevapsızda Yönlendirme"),
+    ):
+        if _has_val(fwd_key) and isinstance(changes[fwd_key], dict):
+            f_patch = changes[fwd_key]
+            cur_f = u.get(fwd_key) if isinstance(u.get(fwd_key), dict) else {"active": False, "type": "internal", "target": ""}
+            new_f = {
+                **cur_f,
+                "active": bool(f_patch.get("active", cur_f.get("active", False))),
+                "type": str(f_patch.get("type") or cur_f.get("type") or "internal"),
+                "target": str(f_patch.get("target") if f_patch.get("target") is not None else (cur_f.get("target") or "")).strip(),
+            }
+            if fwd_key == "forwarding_no_answer":
+                new_f["timeout"] = int(f_patch.get("timeout") or cur_f.get("timeout") or 30)
+            u[fwd_key] = new_f
+            act_prof_id = u.get("active_profile") or "available"
+            if isinstance(u.get("profiles"), list):
+                for prof in u["profiles"]:
+                    if isinstance(prof, dict) and (prof.get("id") == act_prof_id or len(u["profiles"]) == 1):
+                        prof[fwd_key] = dict(new_f)
+            modified = True
+            summary_labels.add(f"{fwd_label}: {'Aktif -> ' + (new_f['target'] or '-') if new_f['active'] else 'Kapalı'}")
+
+    if _has_val("follow_me_enabled"):
+        fm_val = bool(changes["follow_me_enabled"])
+        cur_fm = u.get("follow_me") if isinstance(u.get("follow_me"), dict) else {"timeout": 15, "first_target": "mobile_app", "second_target": "none", "mobile_number": u.get("gsm_number") or ""}
+        u["follow_me"] = {**cur_fm, "enabled": fm_val}
+        modified = True
+        summary_labels.add(f"Beni Takip Et (Follow Me): {'Açık' if fm_val else 'Kapalı'}")
+
+    if _has_val("auto_logout_enabled") or _has_val("auto_logout_duration") or _has_val("password_expiry_enabled") or _has_val("password_expiry_months"):
+        prefs = dict(u.get("call_panel_prefs")) if isinstance(u.get("call_panel_prefs"), dict) else {}
+        sec = dict(prefs.get("securityPolicy")) if isinstance(prefs.get("securityPolicy"), dict) else {}
+        if _has_val("auto_logout_enabled"):
+            al_en = bool(changes["auto_logout_enabled"])
+            u["auto_logout_enabled"] = al_en
+            sec["auto_logout_enabled"] = al_en
+            summary_labels.add(f"Otomatik Oturum Kapatma: {'Açık' if al_en else 'Kapalı'}")
+        if _has_val("auto_logout_duration"):
+            al_dur = max(1, min(720, int(changes["auto_logout_duration"] or 1)))
+            u["auto_logout_duration"] = al_dur
+            sec["auto_logout_duration"] = al_dur
+        if _has_val("password_expiry_enabled"):
+            pe_en = bool(changes["password_expiry_enabled"])
+            u["password_expiry_enabled"] = pe_en
+            sec["password_expiry_enabled"] = pe_en
+            summary_labels.add(f"Periyodik Şifre Süresi: {'Açık' if pe_en else 'Kapalı'}")
+        if _has_val("password_expiry_months"):
+            pe_m = max(1, min(36, int(changes["password_expiry_months"] or 3)))
+            u["password_expiry_months"] = pe_m
+            sec["password_expiry_months"] = pe_m
+        prefs["securityPolicy"] = sec
+        u["call_panel_prefs"] = prefs
+        modified = True
+
+    return modified
+
+
+def _apply_user_associations_bulk(
+    target_user_objs: list,
+    changes: dict,
+    summary_labels: set,
+    affected_queue_ids: set,
+):
+    if not target_user_objs or not isinstance(changes, dict):
+        return
+
+    user_ids_str = {str(u.get("id")) for u in target_user_objs if u.get("id") is not None}
+    user_exts_str = {str(u.get("extension")) for u in target_user_objs if u.get("extension")}
+    all_tokens = user_ids_str.union(user_exts_str)
+
+    # 1. Outbound Rules (Giden Arama Kuralları)
+    ob_action = str(changes.get("outbound_rule_action") or "").strip().lower()
+    ob_rule_ids = {str(x) for x in (changes.get("outbound_rule_ids") or []) if x is not None and str(x).strip()}
+    if ob_action in ("replace", "add", "remove", "clear_all"):
+        for rule in (settings_db.get("outbound_rules") or []):
+            if not isinstance(rule, dict):
+                continue
+            rid = str(rule.get("id") or "")
+            allowed = list(rule.get("allowed_users") or [])
+            if ob_action == "clear_all":
+                rule["allowed_users"] = [x for x in allowed if str(x) not in all_tokens]
+            elif ob_action == "replace":
+                cleaned = [x for x in allowed if str(x) not in all_tokens]
+                if rid in ob_rule_ids:
+                    for u in target_user_objs:
+                        uid_val = u.get("id")
+                        if uid_val is not None and not any(str(x) == str(uid_val) for x in cleaned):
+                            cleaned.append(uid_val)
+                rule["allowed_users"] = cleaned
+            elif ob_action == "add" and rid in ob_rule_ids:
+                for u in target_user_objs:
+                    uid_val = u.get("id")
+                    if uid_val is not None and not any(str(x) == str(uid_val) for x in allowed):
+                        allowed.append(uid_val)
+                rule["allowed_users"] = allowed
+            elif ob_action == "remove" and rid in ob_rule_ids:
+                rule["allowed_users"] = [x for x in allowed if str(x) not in all_tokens]
+        summary_labels.add(f"Giden Arama Kuralı Yetkisi ({ob_action.upper()})")
+
+    # 2. Subscriber Groups (Abone Grupları)
+    sg_action = str(changes.get("subscriber_group_action") or "").strip().lower()
+    sg_ids = {str(x) for x in (changes.get("assign_subscriber_group_ids") or []) if x is not None and str(x).strip()}
+    if sg_action in ("replace", "add", "remove", "clear_all"):
+        for grp in (settings_db.get("subscriber_groups") or []):
+            if not isinstance(grp, dict):
+                continue
+            gid = str(grp.get("id") or "")
+            exts = list(grp.get("extensions") or [])
+            if sg_action == "clear_all":
+                grp["extensions"] = [x for x in exts if str(x) not in all_tokens]
+            elif sg_action == "replace":
+                cleaned = [x for x in exts if str(x) not in all_tokens]
+                if gid in sg_ids:
+                    for u in target_user_objs:
+                        uid_val = u.get("id")
+                        if uid_val is not None and not any(str(x) == str(uid_val) for x in cleaned):
+                            cleaned.append(uid_val)
+                grp["extensions"] = cleaned
+            elif sg_action == "add" and gid in sg_ids:
+                for u in target_user_objs:
+                    uid_val = u.get("id")
+                    if uid_val is not None and not any(str(x) == str(uid_val) for x in exts):
+                        exts.append(uid_val)
+                grp["extensions"] = exts
+            elif sg_action == "remove" and gid in sg_ids:
+                grp["extensions"] = [x for x in exts if str(x) not in all_tokens]
+        summary_labels.add(f"Abone Grubu Üyeliği ({sg_action.upper()})")
+
+    # 3. Call Pickup Groups (Çağrı Yakalama Grupları)
+    pg_action = str(changes.get("pickup_group_action") or "").strip().lower()
+    pg_ids = {str(x) for x in (changes.get("pickup_group_ids") or []) if x is not None and str(x).strip()}
+    if pg_action in ("replace", "add", "remove", "clear_all"):
+        for pgrp in (settings_db.get("call_pickup_groups") or []):
+            if not isinstance(pgrp, dict):
+                continue
+            pid = str(pgrp.get("id") or "")
+            exts = list(pgrp.get("extensions") or [])
+            if pg_action == "clear_all":
+                pgrp["extensions"] = [x for x in exts if str(x) not in all_tokens]
+            elif pg_action == "replace":
+                cleaned = [x for x in exts if str(x) not in all_tokens]
+                if pid in pg_ids:
+                    for u in target_user_objs:
+                        uid_val = u.get("id")
+                        if uid_val is not None and not any(str(x) == str(uid_val) for x in cleaned):
+                            cleaned.append(uid_val)
+                pgrp["extensions"] = cleaned
+            elif pg_action == "add" and pid in pg_ids:
+                for u in target_user_objs:
+                    uid_val = u.get("id")
+                    if uid_val is not None and not any(str(x) == str(uid_val) for x in exts):
+                        exts.append(uid_val)
+                pgrp["extensions"] = exts
+            elif pg_action == "remove" and pid in pg_ids:
+                pgrp["extensions"] = [x for x in exts if str(x) not in all_tokens]
+        summary_labels.add(f"Çağrı Toplama Grubu ({pg_action.upper()})")
+
+    # 4. ACD Queues (Kuyruk Üyelikleri)
+    q_action = str(changes.get("queue_action") or "").strip().lower()
+    q_ids = {str(x) for x in (changes.get("queue_ids") or []) if x is not None and str(x).strip()}
+    if q_action in ("add", "remove") and q_ids:
+        for q in (settings_db.get("queues") or []):
+            if not isinstance(q, dict):
+                continue
+            qid = str(q.get("id") or "")
+            if qid not in q_ids:
+                continue
+            members = list(q.get("members") or [])
+            if q_action == "add":
+                for u in target_user_objs:
+                    uext = str(u.get("extension") or "").strip()
+                    if not uext:
+                        continue
+                    already = any(
+                        (isinstance(m, dict) and str(m.get("extension") or m.get("id") or "") == uext)
+                        or (not isinstance(m, dict) and str(m) == uext)
+                        for m in members
+                    )
+                    if not already:
+                        members.append(uext)
+            elif q_action == "remove":
+                new_m = []
+                for m in members:
+                    m_val = str(m.get("extension") or m.get("id") or "") if isinstance(m, dict) else str(m)
+                    if m_val not in all_tokens:
+                        new_m.append(m)
+                members = new_m
+            q["members"] = members
+            affected_queue_ids.add(qid)
+        summary_labels.add(f"Kuyruk Üyeliği ({'Eklendi' if q_action == 'add' else 'Çıkarıldı'})")
+
+
+@app.post("/api/settings/bulk-config/apply")
+@app.post("/settings/bulk-config/apply")
+async def apply_bulk_configuration(
+    payload: BulkConfigApplyPayload,
+    user_info: dict = Depends(get_user_info),
+    db: AsyncSession = Depends(get_db),
+):
+    import copy
+    import uuid
+
+    target_tenant = user_info.get("tenant_id") or "tenant-default"
+    actor_user = user_info.get("user_id") or "Sistem Yöneticisi"
+    module = (payload.module or "users").strip().lower()
+    target_mode = (payload.target_mode or "selected").strip().lower()
+    changes = payload.changes or {}
+    member_changes = payload.member_changes or {}
+
+    if module not in ("users", "subscriber_groups", "queues", "outbound_rules"):
+        raise HTTPException(status_code=400, detail=f"Geçersiz toplu konfigürasyon modülü: {module}")
+
+    # Take pre-change snapshot for 1-click Undo
+    snapshot_data = {
+        "users": copy.deepcopy(settings_db.get("users", [])),
+        "subscriber_groups": copy.deepcopy(settings_db.get("subscriber_groups", [])),
+        "call_pickup_groups": copy.deepcopy(settings_db.get("call_pickup_groups", [])),
+        "queues": copy.deepcopy(settings_db.get("queues", [])),
+        "outbound_rules": copy.deepcopy(settings_db.get("outbound_rules", [])),
+    }
+
+    affected_count = 0
+    affected_names = []
+    summary_labels = set()
+    affected_user_ids = set()
+    affected_user_exts = set()
+    affected_queue_ids = set()
+
+    all_users_list = settings_db.get("users", [])
+    tenant_users = [
+        u for u in all_users_list
+        if isinstance(u, dict)
+        and str(u.get("username") or "").lower() != "admin"
+        and (
+            target_tenant in ("all", "global")
+            or (u.get("tenant_id") or "tenant-default") == target_tenant
+            or (not u.get("tenant_id") and target_tenant == "tenant-default")
+        )
+    ]
+
+    if module == "users":
+        target_set_ids = {str(x).strip() for x in (payload.target_ids or []) if x is not None and str(x).strip()}
+        matched_users = []
+
+        if target_mode == "all":
+            matched_users = list(tenant_users)
+        elif target_mode == "selected":
+            matched_users = [
+                u for u in tenant_users
+                if str(u.get("id")) in target_set_ids or str(u.get("extension")) in target_set_ids
+            ]
+        elif target_mode == "subscriber_group":
+            sg_target_ids = set(target_set_ids)
+            if payload.subscriber_group_id is not None and str(payload.subscriber_group_id).strip():
+                sg_target_ids.add(str(payload.subscriber_group_id).strip())
+            member_tokens = set()
+            for sg in _filter_tenant_items(settings_db.get("subscriber_groups", []), target_tenant):
+                if str(sg.get("id")) in sg_target_ids:
+                    for m in (sg.get("extensions") or sg.get("members") or []):
+                        member_tokens.add(str(m).strip())
+            matched_users = [
+                u for u in tenant_users
+                if str(u.get("id")) in member_tokens or str(u.get("extension")) in member_tokens
+            ]
+        elif target_mode == "pickup_group":
+            pg_target_ids = set(target_set_ids)
+            if payload.pickup_group_id is not None and str(payload.pickup_group_id).strip():
+                pg_target_ids.add(str(payload.pickup_group_id).strip())
+            member_tokens = set()
+            for pg in _filter_tenant_items(settings_db.get("call_pickup_groups", []), target_tenant):
+                if str(pg.get("id")) in pg_target_ids:
+                    for m in (pg.get("extensions") or pg.get("members") or []):
+                        member_tokens.add(str(m).strip())
+            matched_users = [
+                u for u in tenant_users
+                if str(u.get("id")) in member_tokens or str(u.get("extension")) in member_tokens
+            ]
+        elif target_mode == "role":
+            r_code = str(payload.role_code or "").strip().lower()
+            matched_users = [u for u in tenant_users if str(u.get("role") or "").strip().lower() == r_code]
+        elif target_mode == "department":
+            d_id = str(payload.department_id or "").strip()
+            matched_users = [u for u in tenant_users if str(u.get("department_id") or "").strip() == d_id]
+        elif target_mode == "location":
+            l_id = str(payload.location_id or "").strip()
+            matched_users = [u for u in tenant_users if str(u.get("location_id") or "").strip() == l_id]
+        elif target_mode == "range":
+            try:
+                s_num = int(re.sub(r"\D", "", str(payload.ext_start or "0")) or 0)
+                e_num = int(re.sub(r"\D", "", str(payload.ext_end or "999999")) or 999999)
+                if s_num > e_num:
+                    s_num, e_num = e_num, s_num
+                for u in tenant_users:
+                    ext_digits = re.sub(r"\D", "", str(u.get("extension") or ""))
+                    if ext_digits and s_num <= int(ext_digits) <= e_num:
+                        matched_users.append(u)
+            except Exception:
+                pass
+
+        if not matched_users:
+            raise HTTPException(status_code=400, detail="Seçilen kriterlere uygun hiçbir kullanıcı / abone bulunamadı.")
+
+        for u in matched_users:
+            _apply_user_changes_to_dict(u, changes, summary_labels)
+            affected_count += 1
+            if u.get("id") is not None:
+                affected_user_ids.add(str(u.get("id")))
+            if u.get("extension"):
+                affected_user_exts.add(str(u.get("extension")))
+            affected_names.append(f"{u.get('full_name') or 'Abone'} ({u.get('extension')})")
+
+        _apply_user_associations_bulk(matched_users, changes, summary_labels, affected_queue_ids)
+
+    elif module == "subscriber_groups":
+        tenant_sgs = _filter_tenant_items(settings_db.get("subscriber_groups", []), target_tenant)
+        target_set_ids = {str(x).strip() for x in (payload.target_ids or []) if x is not None and str(x).strip()}
+        if payload.subscriber_group_id is not None and str(payload.subscriber_group_id).strip():
+            target_set_ids.add(str(payload.subscriber_group_id).strip())
+
+        matched_sgs = tenant_sgs if target_mode == "all" else [g for g in tenant_sgs if str(g.get("id")) in target_set_ids]
+        if not matched_sgs:
+            raise HTTPException(status_code=400, detail="Seçilen kriterlere uygun abone grubu bulunamadı.")
+
+        sg_member_tokens = set()
+        sg_group_tokens = set()
+        for g in matched_sgs:
+            gid_str = str(g.get("id"))
+            sg_group_tokens.add(f"group_{gid_str}")
+            for m in (g.get("extensions") or g.get("members") or []):
+                sg_member_tokens.add(str(m).strip())
+
+            # 1. Internal Group ACL (allowed_outbound_groups / allowed_inbound_groups)
+            out_act = str(changes.get("allowed_outbound_groups_action") or "").strip().lower()
+            if out_act in ("replace", "add", "remove", "clear_all"):
+                sel_out = [int(x) if str(x).isdigit() else x for x in (changes.get("allowed_outbound_groups") or [])]
+                cur_out = list(g.get("allowed_outbound_groups") or [])
+                if out_act == "clear_all":
+                    g["allowed_outbound_groups"] = []
+                elif out_act == "replace":
+                    g["allowed_outbound_groups"] = sel_out
+                elif out_act == "add":
+                    for x in sel_out:
+                        if not any(str(c) == str(x) for c in cur_out):
+                            cur_out.append(x)
+                    g["allowed_outbound_groups"] = cur_out
+                elif out_act == "remove":
+                    g["allowed_outbound_groups"] = [c for c in cur_out if not any(str(c) == str(x) for x in sel_out)]
+                summary_labels.add("Grup İç Arama Yetkisi (Giden Gruplar)")
+
+            in_act = str(changes.get("allowed_inbound_groups_action") or "").strip().lower()
+            if in_act in ("replace", "add", "remove", "clear_all"):
+                sel_in = [int(x) if str(x).isdigit() else x for x in (changes.get("allowed_inbound_groups") or [])]
+                cur_in = list(g.get("allowed_inbound_groups") or [])
+                if in_act == "clear_all":
+                    g["allowed_inbound_groups"] = []
+                elif in_act == "replace":
+                    g["allowed_inbound_groups"] = sel_in
+                elif in_act == "add":
+                    for x in sel_in:
+                        if not any(str(c) == str(x) for c in cur_in):
+                            cur_in.append(x)
+                    g["allowed_inbound_groups"] = cur_in
+                elif in_act == "remove":
+                    g["allowed_inbound_groups"] = [c for c in cur_in if not any(str(c) == str(x) for x in sel_in)]
+                summary_labels.add("Grup İç Arama Yetkisi (Gelen Gruplar)")
+
+            if "allow_international" in changes and changes["allow_international"] is not None and changes["allow_international"] != "__UNCHANGED__":
+                intl_val = bool(changes["allow_international"])
+                perms = g.get("permissions") if isinstance(g.get("permissions"), dict) else {}
+                perms["international"] = intl_val
+                g["permissions"] = perms
+                summary_labels.add(f"Uluslararası Arama Yetkisi: {'Açık' if intl_val else 'Kapalı'}")
+
+            affected_count += 1
+            affected_names.append(str(g.get("name") or f"Grup #{gid_str}"))
+
+        # Resolve all member users belonging to the matched subscriber groups
+        group_users = [
+            u for u in tenant_users
+            if str(u.get("id")) in sg_member_tokens or str(u.get("extension")) in sg_member_tokens
+        ]
+
+        # 2. Outbound Calling Rules for the Subscriber Group & its Members
+        ob_action = str(changes.get("outbound_rule_action") or "").strip().lower()
+        ob_rule_ids = {str(x) for x in (changes.get("outbound_rule_ids") or []) if x is not None and str(x).strip()}
+        if ob_action in ("replace", "add", "remove", "clear_all"):
+            user_tokens = {str(u.get("id")) for u in group_users if u.get("id") is not None}.union(
+                {str(u.get("extension")) for u in group_users if u.get("extension")}
+            ).union(sg_member_tokens).union(sg_group_tokens)
+
+            for rule in (settings_db.get("outbound_rules") or []):
+                if not isinstance(rule, dict):
+                    continue
+                rid = str(rule.get("id") or "")
+                allowed = list(rule.get("allowed_users") or [])
+                if ob_action == "clear_all":
+                    rule["allowed_users"] = [x for x in allowed if str(x) not in user_tokens]
+                elif ob_action == "replace":
+                    cleaned = [x for x in allowed if str(x) not in user_tokens]
+                    if rid in ob_rule_ids:
+                        for u in group_users:
+                            uid_val = u.get("id")
+                            if uid_val is not None and not any(str(x) == str(uid_val) for x in cleaned):
+                                cleaned.append(uid_val)
+                    rule["allowed_users"] = cleaned
+                elif ob_action == "add" and rid in ob_rule_ids:
+                    for u in group_users:
+                        uid_val = u.get("id")
+                        if uid_val is not None and not any(str(x) == str(uid_val) for x in allowed):
+                            allowed.append(uid_val)
+                    rule["allowed_users"] = allowed
+                elif ob_action == "remove" and rid in ob_rule_ids:
+                    rule["allowed_users"] = [x for x in allowed if str(x) not in user_tokens]
+            summary_labels.add(f"Abone Grubu Giden Arama Kuralı ({ob_action.upper()})")
+
+        # 3. Member-level user changes applied to all users in the selected subscriber group(s)
+        merged_member_changes = dict(member_changes or {})
+        for k_mc in (
+            "recording_active", "is_active", "role", "department_id", "location_id",
+            "outbound_caller_id", "max_concurrent_outbound", "outbound_quarantined",
+            "voicemail_active", "voicemail_to_email", "mobile_transfer_enabled",
+            "ring_timeout", "forwarding_reset", "forwarding_always", "forwarding_busy",
+            "forwarding_no_answer", "follow_me_enabled", "pickup_group_action",
+            "pickup_group_ids", "queue_action", "queue_ids", "transport"
+        ):
+            if k_mc in changes and k_mc not in merged_member_changes:
+                merged_member_changes[k_mc] = changes[k_mc]
+
+        if merged_member_changes and group_users:
+            for u in group_users:
+                _apply_user_changes_to_dict(u, merged_member_changes, summary_labels)
+                if u.get("id") is not None:
+                    affected_user_ids.add(str(u.get("id")))
+                if u.get("extension"):
+                    affected_user_exts.add(str(u.get("extension")))
+            _apply_user_associations_bulk(group_users, merged_member_changes, summary_labels, affected_queue_ids)
+
+    elif module == "queues":
+        tenant_queues = _filter_tenant_items(settings_db.get("queues", []), target_tenant)
+        target_set_ids = {str(x).strip() for x in (payload.target_ids or []) if x is not None and str(x).strip()}
+        matched_queues = tenant_queues if target_mode == "all" else [
+            q for q in tenant_queues
+            if str(q.get("id")) in target_set_ids or str(q.get("extension") or q.get("queue_number") or "") in target_set_ids
+        ]
+        if not matched_queues:
+            raise HTTPException(status_code=400, detail="Seçilen kriterlere uygun kuyruk bulunamadı.")
+
+        def _has_qval(k: str) -> bool:
+            return k in changes and changes[k] is not None and changes[k] != "__UNCHANGED__"
+
+        for q in matched_queues:
+            if _has_qval("strategy"):
+                q["strategy"] = str(changes["strategy"]).strip()
+                summary_labels.add(f"Strateji: {q['strategy']}")
+            if _has_qval("timeout"):
+                q["timeout"] = max(5, min(300, int(changes["timeout"])))
+                summary_labels.add(f"Çaldırma Süresi: {q['timeout']} sn")
+            if _has_qval("retry"):
+                q["retry"] = max(1, min(60, int(changes["retry"])))
+                summary_labels.add(f"Tekrar Deneme: {q['retry']} sn")
+            if _has_qval("wrapup_time"):
+                q["wrapup_time"] = max(0, min(600, int(changes["wrapup_time"])))
+                summary_labels.add(f"Toparlanma Süresi: {q['wrapup_time']} sn")
+            if _has_qval("max_wait_time"):
+                q["max_wait_time"] = max(10, min(7200, int(changes["max_wait_time"])))
+                summary_labels.add(f"Maks. Bekleme: {q['max_wait_time']} sn")
+            if _has_qval("max_len"):
+                q["max_len"] = max(0, min(500, int(changes["max_len"])))
+                summary_labels.add(f"Maks. Sıra Kapasitesi: {q['max_len']}")
+            if _has_qval("service_level"):
+                q["service_level"] = max(5, min(600, int(changes["service_level"])))
+                summary_labels.add(f"SLA Hedefi: {q['service_level']} sn")
+            if _has_qval("weight"):
+                q["weight"] = max(0, min(100, int(changes["weight"])))
+                summary_labels.add(f"Kuyruk Ağırlığı: {q['weight']}")
+            if _has_qval("ring_in_use"):
+                q["ring_in_use"] = bool(changes["ring_in_use"])
+                summary_labels.add(f"Meşgul Temsilciyi Çaldır: {'Evet' if q['ring_in_use'] else 'Hayır'}")
+            if _has_qval("announce_position"):
+                q["announce_position"] = bool(changes["announce_position"])
+                summary_labels.add(f"Sıra Anonsu: {'Açık' if q['announce_position'] else 'Kapalı'}")
+            if _has_qval("announce_holdtime"):
+                q["announce_holdtime"] = bool(changes["announce_holdtime"])
+                summary_labels.add(f"Bekleme Süresi Anonsu: {'Açık' if q['announce_holdtime'] else 'Kapalı'}")
+            if _has_qval("periodic_announcement_interval"):
+                q["periodic_announcement_interval"] = max(5, min(600, int(changes["periodic_announcement_interval"])))
+                summary_labels.add(f"Periyodik Anons: {q['periodic_announcement_interval']} sn")
+            if _has_qval("survey_enabled"):
+                q["survey_enabled"] = bool(changes["survey_enabled"])
+                summary_labels.add(f"Memnuniyet Anketi: {'Açık' if q['survey_enabled'] else 'Kapalı'}")
+            if _has_qval("smart_callback_enabled"):
+                q["smart_callback_enabled"] = bool(changes["smart_callback_enabled"])
+                summary_labels.add(f"Akıllı Geri Arama: {'Açık' if q['smart_callback_enabled'] else 'Kapalı'}")
+            if _has_qval("omnichannel_enabled"):
+                q["omnichannel_enabled"] = bool(changes["omnichannel_enabled"])
+                summary_labels.add(f"Omnichannel Dağıtım: {'Açık' if q['omnichannel_enabled'] else 'Kapalı'}")
+            if _has_qval("omnichannel_channels") and isinstance(changes["omnichannel_channels"], list):
+                q["omnichannel_channels"] = [str(c) for c in changes["omnichannel_channels"]]
+                summary_labels.add("Omnichannel Kanalları Güncellendi")
+            if _has_qval("omnichannel_sla_sec"):
+                q["omnichannel_sla_sec"] = max(15, min(3600, int(changes["omnichannel_sla_sec"])))
+                summary_labels.add(f"Omnichannel SLA: {q['omnichannel_sla_sec']} sn")
+            if _has_qval("omnichannel_max_chats_per_agent"):
+                q["omnichannel_max_chats_per_agent"] = max(1, min(25, int(changes["omnichannel_max_chats_per_agent"])))
+                summary_labels.add(f"Temsilci Başı Maks. Sohbet: {q['omnichannel_max_chats_per_agent']}")
+
+            m_action = str(changes.get("member_action") or "").strip().lower()
+            m_exts = [str(x).strip() for x in (changes.get("member_extensions") or []) if str(x).strip()]
+            if m_action in ("add", "remove") and m_exts:
+                cur_members = list(q.get("members") or [])
+                if m_action == "add":
+                    for me in m_exts:
+                        if not any((isinstance(cm, dict) and str(cm.get("extension") or "") == me) or str(cm) == me for cm in cur_members):
+                            cur_members.append(me)
+                elif m_action == "remove":
+                    cur_members = [
+                        cm for cm in cur_members
+                        if (str(cm.get("extension") or "") if isinstance(cm, dict) else str(cm)) not in set(m_exts)
+                    ]
+                q["members"] = cur_members
+                summary_labels.add(f"Kuyruk Temsilcileri ({'Eklendi' if m_action == 'add' else 'Çıkarıldı'})")
+
+            affected_count += 1
+            if q.get("id") is not None:
+                affected_queue_ids.add(str(q.get("id")))
+            affected_names.append(f"{q.get('name') or 'Kuyruk'} ({q.get('extension') or q.get('queue_number') or ''})")
+
+    elif module == "outbound_rules":
+        tenant_rules = _filter_tenant_items(settings_db.get("outbound_rules", []), target_tenant)
+        target_set_ids = {str(x).strip() for x in (payload.target_ids or []) if x is not None and str(x).strip()}
+        matched_rules = tenant_rules if target_mode == "all" else [r for r in tenant_rules if str(r.get("id")) in target_set_ids]
+        if not matched_rules:
+            raise HTTPException(status_code=400, detail="Seçilen kriterlere uygun giden arama kuralı bulunamadı.")
+
+        def _has_rval(k: str) -> bool:
+            return k in changes and changes[k] is not None and changes[k] != "__UNCHANGED__"
+
+        for r in matched_rules:
+            if _has_rval("trunk_id"):
+                tid = changes["trunk_id"]
+                r["trunk_id"] = int(tid) if str(tid).isdigit() else tid
+                if not r.get("trunk_ids"):
+                    r["trunk_ids"] = [r["trunk_id"]]
+                else:
+                    r["trunk_ids"] = [r["trunk_id"]] + [x for x in r["trunk_ids"] if str(x) != str(r["trunk_id"])]
+                summary_labels.add("Birincil Dış Hat (Trunk) Güncellendi")
+            if _has_rval("trunk_ids") and isinstance(changes["trunk_ids"], list) and changes["trunk_ids"]:
+                t_list = [int(x) if str(x).isdigit() else x for x in changes["trunk_ids"]]
+                r["trunk_ids"] = t_list
+                r["trunk_id"] = t_list[0]
+                summary_labels.add("Dış Hat (Trunk) Sıralaması Güncellendi")
+            if _has_rval("caller_id"):
+                cid_val = str(changes["caller_id"]).strip()
+                r["caller_id"] = "" if cid_val == "__CLEAR__" else cid_val
+                summary_labels.add(f"Kural CallerID: {'Sıfırlandı' if cid_val == '__CLEAR__' else cid_val}")
+            if _has_rval("pin_mode"):
+                pm = str(changes["pin_mode"]).strip().lower()
+                if pm in ("none", "always", "outside_work_hours", "custom_hours"):
+                    r["pin_mode"] = pm
+                    if _has_rval("pin_code"):
+                        r["pin_code"] = re.sub(r"\D", "", str(changes["pin_code"] or ""))[:10]
+                    if _has_rval("pin_start_time"):
+                        r["pin_start_time"] = str(changes["pin_start_time"])
+                    if _has_rval("pin_end_time"):
+                        r["pin_end_time"] = str(changes["pin_end_time"])
+                    summary_labels.add(f"Giden Arama PIN Politikası: {pm}")
+            au_act = str(changes.get("allowed_users_action") or "").strip().lower()
+            if au_act in ("replace", "add", "remove", "clear_all"):
+                raw_au = changes.get("allowed_users") or []
+                expanded_au = _expand_subscriber_groups_in_allowed_users(raw_au)
+                cur_au = list(r.get("allowed_users") or [])
+                if au_act == "clear_all":
+                    r["allowed_users"] = []
+                elif au_act == "replace":
+                    r["allowed_users"] = expanded_au
+                elif au_act == "add":
+                    for x in expanded_au:
+                        if not any(str(c) == str(x) for c in cur_au):
+                            cur_au.append(x)
+                    r["allowed_users"] = cur_au
+                elif au_act == "remove":
+                    rem_set = {str(x) for x in expanded_au}
+                    r["allowed_users"] = [c for c in cur_au if str(c) not in rem_set]
+                summary_labels.add(f"Kural Yetkili Aboneler ({au_act.upper()})")
+
+            affected_count += 1
+            affected_names.append(str(r.get("name") or f"Kural #{r.get('id')}"))
+
+    # Persist to settings.json and PostgreSQL
+    settings_db["needs_apply"] = True
+    op_id = f"bulk-{uuid.uuid4().hex[:10]}"
+    now_str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    summary_text = (
+        payload.description
+        or (", ".join(sorted(summary_labels)) if summary_labels else "Toplu Konfigürasyon Güncellemesi")
+    )
+
+    history_list = settings_db.get("bulk_config_history")
+    if not isinstance(history_list, list):
+        history_list = []
+    history_entry = {
+        "operation_id": op_id,
+        "timestamp": now_str,
+        "user": actor_user,
+        "tenant_id": target_tenant,
+        "module": module,
+        "target_mode": target_mode,
+        "affected_count": affected_count,
+        "affected_preview": affected_names[:8],
+        "summary": summary_text,
+        "snapshot": snapshot_data,
+    }
+    history_list.insert(0, history_entry)
+    settings_db["bulk_config_history"] = history_list[:15]
+
+    save_settings(settings_db)
+    await _sync_users_and_queues_to_postgres_after_bulk(
+        db=db,
+        affected_user_ids=affected_user_ids,
+        affected_user_exts=affected_user_exts,
+        affected_queue_ids=affected_queue_ids,
+    )
+
+    try:
+        regenerate_pjsip_custom_conf()
+        regenerate_extensions_custom_conf()
+        regenerate_queues_conf()
+    except Exception as e_regen:
+        print(f"[BulkConfig Asterisk Sync Warning]: {e_regen}")
+
+    try:
+        add_system_log(
+            "BULK_CONFIG",
+            "INFO",
+            f"Toplu Konfigürasyon Uygulandı [{module.upper()}]: {affected_count} kayıt güncellendi ({summary_text})",
+        )
+        asyncio.create_task(
+            log_event(
+                user_id=actor_user,
+                action="BULK_CONFIG_APPLY",
+                module="BulkConfig",
+                details={
+                    "operation_id": op_id,
+                    "module": module,
+                    "affected_count": affected_count,
+                    "summary": summary_text,
+                    "targets": affected_names[:20],
+                },
+                ip_address=user_info.get("ip_address"),
+            )
+        )
+    except Exception:
+        pass
+
+    return {
+        "status": "success",
+        "operation_id": op_id,
+        "module": module,
+        "affected_count": affected_count,
+        "affected_preview": affected_names[:10],
+        "summary": summary_text,
+        "history": [
+            {k: v for k, v in h.items() if k != "snapshot"}
+            for h in settings_db.get("bulk_config_history", [])
+            if isinstance(h, dict) and (target_tenant in ("all", "global") or (h.get("tenant_id") or "tenant-default") == target_tenant)
+        ][:15],
+    }
+
+
+@app.post("/api/settings/bulk-config/undo")
+@app.post("/settings/bulk-config/undo")
+async def undo_bulk_configuration(
+    payload: BulkConfigUndoPayload,
+    user_info: dict = Depends(get_user_info),
+    db: AsyncSession = Depends(get_db),
+):
+    target_tenant = user_info.get("tenant_id") or "tenant-default"
+    actor_user = user_info.get("user_id") or "Sistem Yöneticisi"
+    history_list = settings_db.get("bulk_config_history")
+    if not isinstance(history_list, list) or not history_list:
+        raise HTTPException(status_code=404, detail="Geri alınabilecek kayıtlı bir toplu işlem geçmişi bulunamadı.")
+
+    target_op = None
+    target_idx = None
+    for idx, h in enumerate(history_list):
+        if not isinstance(h, dict):
+            continue
+        if target_tenant not in ("all", "global") and (h.get("tenant_id") or "tenant-default") != target_tenant:
+            continue
+        if payload.operation_id:
+            if str(h.get("operation_id")) == str(payload.operation_id):
+                target_op = h
+                target_idx = idx
+                break
+        else:
+            target_op = h
+            target_idx = idx
+            break
+
+    if not target_op or not isinstance(target_op.get("snapshot"), dict):
+        raise HTTPException(status_code=404, detail="Belirtilen toplu işlem kaydı veya yedeği bulunamadı.")
+
+    snap = target_op["snapshot"]
+    for key in ("users", "subscriber_groups", "call_pickup_groups", "queues", "outbound_rules"):
+        if key in snap and isinstance(snap[key], list):
+            settings_db[key] = snap[key]
+
+    all_uid_set = {str(u.get("id")) for u in (settings_db.get("users") or []) if isinstance(u, dict) and u.get("id") is not None}
+    all_uext_set = {str(u.get("extension")) for u in (settings_db.get("users") or []) if isinstance(u, dict) and u.get("extension")}
+    all_qid_set = {str(q.get("id")) for q in (settings_db.get("queues") or []) if isinstance(q, dict) and q.get("id") is not None}
+
+    if target_idx is not None:
+        history_list.pop(target_idx)
+    settings_db["bulk_config_history"] = history_list
+    settings_db["needs_apply"] = True
+    save_settings(settings_db)
+
+    await _sync_users_and_queues_to_postgres_after_bulk(
+        db=db,
+        affected_user_ids=all_uid_set,
+        affected_user_exts=all_uext_set,
+        affected_queue_ids=all_qid_set,
+    )
+
+    try:
+        regenerate_pjsip_custom_conf()
+        regenerate_extensions_custom_conf()
+        regenerate_queues_conf()
+    except Exception as e_regen:
+        print(f"[BulkConfig Undo Asterisk Sync Warning]: {e_regen}")
+
+    try:
+        add_system_log(
+            "BULK_CONFIG",
+            "WARNING",
+            f"Toplu Konfigürasyon Geri Alındı (Undo): {target_op.get('summary')} ({target_op.get('affected_count')} kayıt eski haline döndürüldü)",
+        )
+        asyncio.create_task(
+            log_event(
+                user_id=actor_user,
+                action="BULK_CONFIG_UNDO",
+                module="BulkConfig",
+                details={
+                    "operation_id": target_op.get("operation_id"),
+                    "summary": target_op.get("summary"),
+                    "affected_count": target_op.get("affected_count"),
+                },
+                ip_address=user_info.get("ip_address"),
+            )
+        )
+    except Exception:
+        pass
+
+    return {
+        "status": "success",
+        "undone_operation_id": target_op.get("operation_id"),
+        "summary": target_op.get("summary"),
+        "history": [
+            {k: v for k, v in h.items() if k != "snapshot"}
+            for h in settings_db.get("bulk_config_history", [])
+            if isinstance(h, dict) and (target_tenant in ("all", "global") or (h.get("tenant_id") or "tenant-default") == target_tenant)
+        ][:15],
     }
 
 

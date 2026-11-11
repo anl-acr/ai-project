@@ -225,6 +225,7 @@ const OutboundRulesPanel = dynamicPanel(() => import("../components/settings/Out
 const InboundRulesPanel = dynamicPanel(() => import("../components/settings/InboundRulesPanel"));
 const CallPickupGroupsPanel = dynamicPanel(() => import("../components/settings/CallPickupGroupsPanel"));
 const SubscriberGroupsPanel = dynamicPanel(() => import("../components/settings/SubscriberGroupsPanel"));
+const BulkConfigPanel = dynamicPanel(() => import("../components/settings/BulkConfigPanel"));
 const SpeedDialsPanel = dynamicPanel(() => import("../components/settings/SpeedDialsPanel"));
 const ConferencesPanel = dynamicPanel(() => import("../components/settings/ConferencesPanel"));
 const WorkHoursSettingsPanel = dynamicPanel(() => import("../components/settings/WorkHoursSettingsPanel"));
@@ -3174,6 +3175,7 @@ export default function Home() {
     { id: "dialer", group: "Operasyon & Canlı Ekranlar", label: "Dış Arama (Dialer)", shortLabel: "Dialer", icon: PhoneCall, allowed: !isAgentOnlyUser && !isWallboardOnlyUser },
 
     { id: "users", group: "Santral & Yönlendirme", label: "Kullanıcılar", shortLabel: "Kullanıcılar", icon: User, allowed: hasUsersPermission },
+    { id: "bulk-config", group: "Santral & Yönlendirme", label: "Toplu Konfigürasyon Merkezi", shortLabel: "Toplu Ayar", icon: Sliders, allowed: !isAgentOnlyUser && !isWallboardOnlyUser && (isAdminRole || hasPermPrefix("bulk_config", "users", "pbx")) },
     { id: "acd-queues", group: "Santral & Yönlendirme", label: "ACD Kuyruk Yönetimi", shortLabel: "Kuyruklar", icon: Users, allowed: hasQueuesPermission },
     { id: "call-flow", group: "Santral & Yönlendirme", label: "Arama Akış Yönetimi", shortLabel: "Akış Yönetimi", icon: GitBranch, allowed: !isAgentOnlyUser && !isWallboardOnlyUser },
     { id: "inbound-rules", group: "Santral & Yönlendirme", label: "Gelen Arama Kuralı", shortLabel: "Gelen Kural", icon: Phone, allowed: hasInboundRulesPermission },
@@ -3763,6 +3765,22 @@ export default function Home() {
                 >
                   <Users size={16} className={`shrink-0 ${activeTab === "subscriber-groups" ? text : ""}`} />
                   <span className={`whitespace-nowrap overflow-hidden transition-all duration-300 ${isSidebarCollapsed ? "max-w-0 opacity-0" : "max-w-[180px] opacity-100"}`}>Abone Grubu</span>
+                </button>
+              )}
+
+              {(isAdminRole || hasPermPrefix("bulk_config", "users", "pbx")) && (
+                <button
+                  onClick={() => setActiveTab("bulk-config")}
+                  aria-current={activeTab === "bulk-config" ? "page" : undefined}
+                  title="Toplu Konfigürasyon Merkezi"
+                  className={`w-full flex items-center ${
+                    isSidebarCollapsed ? "justify-center px-0 py-2.5" : "gap-3 px-3 py-2"
+                  } rounded-xl text-xs font-semibold tracking-wide transition-all duration-200 border ${
+                    activeTab === "bulk-config" ? sidebarActiveItemCls : sidebarInactiveItemCls
+                  }`}
+                >
+                  <Sliders size={16} className={`shrink-0 ${activeTab === "bulk-config" ? text : ""}`} />
+                  <span className={`whitespace-nowrap overflow-hidden transition-all duration-300 ${isSidebarCollapsed ? "max-w-0 opacity-0" : "max-w-[180px] opacity-100"}`}>Toplu Konfigürasyon</span>
                 </button>
               )}
 
@@ -5253,6 +5271,14 @@ export default function Home() {
 
           {activeTab === "subscriber-groups" && (
             <SubscriberGroupsPanel backendHost={backendHost} />
+          )}
+
+          {activeTab === "bulk-config" && (
+            <BulkConfigPanel
+              backendHost={backendHost}
+              canWrite={isAdminRole || hasPermPrefix("bulk_config:write", "users:write", "pbx:write")}
+              canDelete={isAdminRole || hasPermPrefix("bulk_config:delete", "users:delete", "pbx:delete")}
+            />
           )}
 
           {activeTab === "conferences" && (

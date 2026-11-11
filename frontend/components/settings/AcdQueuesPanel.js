@@ -1,9 +1,10 @@
 import React, { useState, useEffect, useRef } from "react";
-import { Users, Search, Plus, Trash2, Edit2, CheckCircle, HeadphonesIcon, ShieldAlert, X, Settings, Download, Upload, Shuffle, Star } from "lucide-react";
+import { Users, Search, Plus, Trash2, Edit2, CheckCircle, HeadphonesIcon, ShieldAlert, X, Settings, Download, Upload, Shuffle, Star, Sliders } from "lucide-react";
 import * as XLSX from "xlsx";
 import ConfirmDeleteModal from "../dashboard/ConfirmDeleteModal";
 import QueueEditModal from "./QueueEditModal";
 import TablePagination from "../ui/TablePagination";
+import BulkConfigPanel from "./BulkConfigPanel";
 import { useTheme } from "../../utils/theme";
 import { getBackendHost, getApiBaseUrl } from "../../utils/apiHost";
 
@@ -19,6 +20,8 @@ export default function AcdQueuesPanel({ backendHost }) {
   const [showModal, setShowModal] = useState(false);
   const [selectedQueue, setSelectedQueue] = useState(null);
   const [deleteConfirm, setDeleteConfirm] = useState({ show: false, id: null });
+  const [selectedQueueIds, setSelectedQueueIds] = useState([]);
+  const [showBulkModal, setShowBulkModal] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -396,6 +399,16 @@ export default function AcdQueuesPanel({ backendHost }) {
           </div>
 
           <button
+            type="button"
+            onClick={() => setShowBulkModal(true)}
+            className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 h-8 shrink-0 border border-slate-200 dark:border-slate-700"
+            title="Kuyrukları Toplu Konfigüre Et"
+          >
+            <Sliders size={14} className={text} />
+            <span className="hidden md:inline">Toplu Konfigürasyon</span>
+          </button>
+
+          <button
             onClick={() => {
               setSelectedQueue(null);
               setShowModal(true);
@@ -424,9 +437,54 @@ export default function AcdQueuesPanel({ backendHost }) {
         </div>
       ) : (
         <div className="space-y-3.5 w-full">
+          {selectedQueueIds.length > 0 && (
+            <div className={`p-3 rounded-2xl border ${border} ${lightBg} flex items-center justify-between gap-3 flex-wrap shadow-sm`}>
+              <div className="flex items-center gap-2">
+                <span className={`px-2.5 py-1 rounded-xl text-xs font-extrabold text-white ${bg}`}>
+                  {selectedQueueIds.length} Kuyruk Seçildi
+                </span>
+                <span className="text-xs font-semibold text-slate-600 dark:text-slate-300">
+                  Seçili kuyrukların strateji, süre, anket, geri arama ve omnichannel ayarlarını topluca değiştirin:
+                </span>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setShowBulkModal(true)}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-extrabold text-white ${bg} ${hover} flex items-center gap-1.5`}
+                >
+                  <Sliders size={13} />
+                  Seçili Kuyrukları Toplu Düzenle
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setSelectedQueueIds([])}
+                  className="px-2.5 py-1.5 rounded-xl text-xs font-bold bg-white/80 dark:bg-slate-800 text-slate-500"
+                >
+                  Seçimi Temizle
+                </button>
+              </div>
+            </div>
+          )}
+
           {/* Column Header Row */}
           <div className="hidden sm:flex items-center justify-between px-4 py-2 text-[10px] font-extrabold text-slate-400 dark:text-slate-500 uppercase tracking-wider select-none border-b border-slate-100 dark:border-slate-800/40 pb-2.5">
             <div className="flex items-center gap-4 flex-1 min-w-0">
+              <div className="w-5 flex items-center justify-center shrink-0">
+                <input
+                  type="checkbox"
+                  checked={
+                    filteredQueues.length > 0 &&
+                    filteredQueues.every((q) => selectedQueueIds.includes(String(q.id)))
+                  }
+                  onChange={(e) =>
+                    setSelectedQueueIds(
+                      e.target.checked ? filteredQueues.map((q) => String(q.id)) : []
+                    )
+                  }
+                  className="w-4 h-4 rounded border-slate-300 cursor-pointer"
+                />
+              </div>
               <div className="w-12 text-center shrink-0 min-w-0">ID</div>
               {visibleColumns.extension && <div className="min-w-0" style={{ flex: '4 4 0%' }}>Kuyruk Adı / No</div>}
               {visibleColumns.strategy && <div className="min-w-0" style={{ flex: '3 3 0%' }}>Strateji</div>}
@@ -438,12 +496,30 @@ export default function AcdQueuesPanel({ backendHost }) {
           {paginatedQueues.map((q, index) => (
             <div
               key={q.id}
-              className={`p-4 bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800/85 rounded-2xl shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-4 transition-all duration-200 hover:scale-[1.005] relative hover:z-50 w-full ${
+              className={`p-4 bg-white dark:bg-slate-900 border ${
+                selectedQueueIds.includes(String(q.id))
+                  ? `${border} ring-1 ${ring}`
+                  : "border-slate-200/80 dark:border-slate-800/85"
+              } rounded-2xl shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-4 transition-all duration-200 hover:scale-[1.005] relative hover:z-50 w-full ${
                 !q.is_active ? "opacity-60" : ""
               }`}
             >
               {/* Left Side */}
               <div className="flex items-center gap-4 flex-1 min-w-0">
+                <div className="w-5 flex items-center justify-center shrink-0">
+                  <input
+                    type="checkbox"
+                    checked={selectedQueueIds.includes(String(q.id))}
+                    onChange={() =>
+                      setSelectedQueueIds((prev) =>
+                        prev.includes(String(q.id))
+                          ? prev.filter((x) => x !== String(q.id))
+                          : [...prev, String(q.id)]
+                      )
+                    }
+                    className="w-4 h-4 rounded border-slate-300 cursor-pointer"
+                  />
+                </div>
                 <div className="w-12 flex items-center justify-center shrink-0 min-w-0">
                   <span 
                     onClick={() => { setSelectedQueue(q); setShowModal(true); }}
@@ -589,6 +665,20 @@ export default function AcdQueuesPanel({ backendHost }) {
             onClose={() => setDeleteConfirm({ show: false, id: null })} 
             title="Kuyruğu Sil"
             message="Bu kuyruğu silmek istediğinize emin misiniz? Bu işlem geri alınamaz."
+        />
+      )}
+
+      {showBulkModal && (
+        <BulkConfigPanel
+          backendHost={backendHost}
+          isModal={true}
+          initialModule="queues"
+          initialTargetMode={selectedQueueIds.length > 0 ? "selected" : "all"}
+          initialSelectedIds={selectedQueueIds}
+          onClose={() => setShowBulkModal(false)}
+          onApplied={() => {
+            fetchQueues();
+          }}
         />
       )}
     </div>

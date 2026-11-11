@@ -160,6 +160,7 @@ const SYSTEM_FEATURES = [
   { id: "inbound_rules", name: "Gelen Arama Kuralı", icon: PhoneCall, type: "crud", color: "pink" },
   { id: "call_pickup_groups", name: "Çağrı Toplama Grubu", icon: Users, type: "crud", color: "blue" },
   { id: "subscriber_groups", name: "Abone Grubu", icon: Users, type: "crud", color: "blue" },
+  { id: "bulk_config", name: "Toplu Konfigürasyon Merkezi", icon: Sliders, type: "crud", color: "indigo" },
   { id: "contacts", name: "Rehber", icon: BookOpen, type: "crud", color: "blue" },
   { id: "trunks", name: "Dış Hat Tanımı", icon: Cable, type: "crud", color: "indigo" },
   { id: "conferences", name: "Konferans", icon: Users, type: "crud", color: "blue" },
@@ -314,6 +315,20 @@ export const normalizeRolePermissionsList = (rawPerms = []) => {
     }
     if (perms.includes("pbx:delete") || perms.includes("call_flow:delete")) {
       perms.push("work_hours:delete");
+    }
+  }
+
+  // Bulk Configuration permission fallback from users / pbx
+  const hasBulkConfigPerm = perms.some((p) => p.startsWith("bulk_config:"));
+  if (!hasBulkConfigPerm) {
+    if (perms.includes("users:read") || perms.includes("pbx:read")) {
+      perms.push("bulk_config:read");
+    }
+    if (perms.includes("users:write") || perms.includes("pbx:write")) {
+      perms.push("bulk_config:write");
+    }
+    if (perms.includes("users:delete") || perms.includes("pbx:delete")) {
+      perms.push("bulk_config:delete");
     }
   }
 
@@ -509,6 +524,7 @@ export default function RoleSettings({ backendHost = "localhost:8000" }) {
         "inbound_rules",
         "call_pickup_groups",
         "subscriber_groups",
+        "bulk_config",
         "contacts",
         "trunks",
         "conferences",

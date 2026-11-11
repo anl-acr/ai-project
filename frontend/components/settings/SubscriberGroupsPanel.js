@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useRef } from "react";
-import { Plus, Search, Edit2, Trash2, X, Users, CheckCircle, ChevronRight, ChevronLeft, AlertTriangle, Download, Upload } from "lucide-react";
+import { Plus, Search, Edit2, Trash2, X, Users, CheckCircle, ChevronRight, ChevronLeft, AlertTriangle, Download, Upload, Sliders } from "lucide-react";
 import * as XLSX from "xlsx";
 import ConfirmDeleteModal from "../dashboard/ConfirmDeleteModal";
 import TablePagination from "../ui/TablePagination";
+import BulkConfigPanel from "./BulkConfigPanel";
 import { useTheme } from "../../utils/theme";
 import { getApiBaseUrl } from "../../utils/apiHost";
 
@@ -207,6 +208,8 @@ export default function SubscriberGroupsPanel({ backendHost }) {
   const [showModal, setShowModal] = useState(false);
   const [selectedGroup, setSelectedGroup] = useState(null);
   const [deleteConfirm, setDeleteConfirm] = useState({ show: false, id: null });
+  const [selectedGroupIds, setSelectedGroupIds] = useState([]);
+  const [showBulkModal, setShowBulkModal] = useState(false);
   
   const [formData, setFormData] = useState({
     name: "",
@@ -475,6 +478,16 @@ export default function SubscriberGroupsPanel({ backendHost }) {
           </button>
 
           <button
+            type="button"
+            onClick={() => setShowBulkModal(true)}
+            className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 h-8 shrink-0 border border-slate-200 dark:border-slate-700"
+            title="Abone Grubu Arama Kuralı ve Üye Özelliklerini Toplu Değiştir"
+          >
+            <Sliders size={14} className={text} />
+            <span className="hidden md:inline">Toplu Konfigürasyon</span>
+          </button>
+
+          <button
             onClick={() => handleOpenModal()}
             className={`rounded-xl h-8 w-8 flex items-center justify-center shrink-0 ${bg} ${hover} text-white transition-all shadow-sm`}
             title="Yeni Grup Ekle"
@@ -507,10 +520,54 @@ export default function SubscriberGroupsPanel({ backendHost }) {
         </div>
       ) : (
         <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 overflow-hidden shadow-sm">
+          {selectedGroupIds.length > 0 && (
+            <div className={`p-3 border-b ${border} ${lightBg} flex items-center justify-between gap-3 flex-wrap`}>
+              <div className="flex items-center gap-2">
+                <span className={`px-2.5 py-1 rounded-xl text-xs font-extrabold text-white ${bg}`}>
+                  {selectedGroupIds.length} Abone Grubu Seçildi
+                </span>
+                <span className="text-xs font-semibold text-slate-600 dark:text-slate-300">
+                  Seçili grupların arama kuralını ve üye ayarlarını tek seferde değiştirin:
+                </span>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setShowBulkModal(true)}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-extrabold text-white ${bg} ${hover} flex items-center gap-1.5`}
+                >
+                  <Sliders size={13} />
+                  Arama Kuralı & Grup Ayarlarını Toplu Değiştir
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setSelectedGroupIds([])}
+                  className="px-2.5 py-1.5 rounded-xl text-xs font-bold bg-white/80 dark:bg-slate-800 text-slate-500"
+                >
+                  Seçimi Temizle
+                </button>
+              </div>
+            </div>
+          )}
           <div className="overflow-x-auto">
             <table className="w-full text-left border-collapse">
               <thead>
                 <tr className="border-b border-slate-200 dark:border-slate-800 bg-slate-50/80 dark:bg-slate-900/50">
+                  <th className="py-3 px-4 w-10">
+                    <input
+                      type="checkbox"
+                      checked={
+                        filteredGroups.length > 0 &&
+                        filteredGroups.every((g) => selectedGroupIds.includes(String(g.id)))
+                      }
+                      onChange={(e) =>
+                        setSelectedGroupIds(
+                          e.target.checked ? filteredGroups.map((g) => String(g.id)) : []
+                        )
+                      }
+                      className="w-4 h-4 rounded border-slate-300 cursor-pointer"
+                    />
+                  </th>
                   <th className="py-3 px-4 text-xs font-bold text-slate-500 dark:text-slate-400">Grup Adı</th>
                   <th className="py-3 px-4 text-xs font-bold text-slate-500 dark:text-slate-400">Aboneler</th>
                   <th className="py-3 px-4 text-right text-xs font-bold text-slate-500 dark:text-slate-400">İşlemler</th>
@@ -518,8 +575,23 @@ export default function SubscriberGroupsPanel({ backendHost }) {
               </thead>
               <tbody className="divide-y divide-slate-100 dark:divide-slate-800/60">
                 {paginatedGroups.map(group => {
+                  const isGrpChecked = selectedGroupIds.includes(String(group.id));
                   return (
-                    <tr key={group.id} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/30 transition-colors">
+                    <tr key={group.id} className={`hover:bg-slate-50/50 dark:hover:bg-slate-800/30 transition-colors ${isGrpChecked ? lightBg : ""}`}>
+                      <td className="py-3 px-4 w-10">
+                        <input
+                          type="checkbox"
+                          checked={isGrpChecked}
+                          onChange={() =>
+                            setSelectedGroupIds((prev) =>
+                              prev.includes(String(group.id))
+                                ? prev.filter((x) => x !== String(group.id))
+                                : [...prev, String(group.id)]
+                            )
+                          }
+                          className="w-4 h-4 rounded border-slate-300 cursor-pointer"
+                        />
+                      </td>
                       <td className="py-3 px-4">
                         <div className="flex flex-col">
                           <span className="text-sm font-bold text-slate-800 dark:text-slate-200">{group.name}</span>
@@ -563,6 +635,17 @@ export default function SubscriberGroupsPanel({ backendHost }) {
                       </td>
                       <td className="py-3 px-4 text-right">
                         <div className="flex items-center justify-end gap-2">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setSelectedGroupIds([String(group.id)]);
+                              setShowBulkModal(true);
+                            }}
+                            className={`p-1.5 text-slate-400 hover:${text} hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg transition-colors`}
+                            title="Bu Grubun Arama Kuralını ve Üye Özelliklerini Toplu Değiştir"
+                          >
+                            <Sliders size={14} />
+                          </button>
                           <button
                             onClick={() => handleOpenModal(group)}
                             className="p-1.5 text-slate-400 hover:text-slate-800 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg transition-colors"
@@ -725,6 +808,20 @@ export default function SubscriberGroupsPanel({ backendHost }) {
         onConfirm={handleDelete}
         onCancel={() => setDeleteConfirm({ show: false, id: null })}
       />
+
+      {showBulkModal && (
+        <BulkConfigPanel
+          backendHost={backendHost}
+          isModal={true}
+          initialModule="subscriber_groups"
+          initialTargetMode={selectedGroupIds.length > 0 ? "selected" : "all"}
+          initialSelectedIds={selectedGroupIds}
+          onClose={() => setShowBulkModal(false)}
+          onApplied={() => {
+            fetchData();
+          }}
+        />
+      )}
     </div>
   );
 }
