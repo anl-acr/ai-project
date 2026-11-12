@@ -158,6 +158,7 @@ import {
   resolveEffectiveDarkMode,
   applyDocumentDarkClass
 } from "../utils/themeSchedule";
+import UserApplicationsPanel from "../components/settings/UserApplicationsPanel";
 import {
   resolveEffectiveShortcutsMap,
   eventToShortcutCombo,
@@ -5241,6 +5242,23 @@ export default function Home() {
                           <Settings size={15} className={`text-slate-500 dark:text-slate-300 group-hover:${text} transition-colors`} />
                           <span>Profil Ayarları</span>
                         </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setProfileDropdownOpen(false);
+                            setActiveModalTab("applications");
+                            setSettingsModalOpen(true);
+                          }}
+                          className="w-full text-left px-3 py-2.5 rounded-xl text-xs font-bold text-slate-700 dark:text-slate-100 hover:bg-slate-100/70 dark:hover:bg-slate-800 flex items-center justify-between gap-2 transition-colors cursor-pointer group"
+                        >
+                          <span className="flex items-center gap-2.5">
+                            <Monitor size={15} className={`text-slate-500 dark:text-slate-300 group-hover:${text} transition-colors`} />
+                            <span>Uygulamalar &amp; İndir</span>
+                          </span>
+                          <span className={"px-1.5 py-0.5 rounded-md text-[9px] font-extrabold border " + lightBg + " " + text + " " + borderLight}>
+                            PC / Mobil
+                          </span>
+                        </button>
                         {isNativeElectron() && (
                           <button
                             type="button"
@@ -5868,6 +5886,19 @@ export default function Home() {
                     </button>
                     <button
                       type="button"
+                      onClick={() => setActiveModalTab("applications")}
+                      className={"w-full flex items-center justify-between gap-2 px-3 py-2.5 rounded-xl text-xs font-bold transition-all " + (activeModalTab === "applications" ? ("bg-white dark:bg-slate-800 " + text + " shadow-sm border border-slate-200 dark:border-slate-700") : "text-slate-500 hover:bg-white/50 dark:hover:bg-slate-800/50 hover:text-slate-700 dark:hover:text-slate-300 border border-transparent")}
+                    >
+                      <span className="flex items-center gap-3">
+                        <Smartphone size={16} />
+                        Uygulamalar &amp; İndir
+                      </span>
+                      <span className="px-1.5 py-0.5 rounded-md text-[8.5px] font-extrabold bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30">
+                        YENİ
+                      </span>
+                    </button>
+                    <button
+                      type="button"
                       onClick={() => setActiveModalTab("call_panel")}
                       className={"w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-bold transition-all " + (activeModalTab === "call_panel" ? ("bg-white dark:bg-slate-800 " + text + " shadow-sm border border-slate-200 dark:border-slate-700") : "text-slate-500 hover:bg-white/50 dark:hover:bg-slate-800/50 hover:text-slate-700 dark:hover:text-slate-300 border border-transparent")}
                     >
@@ -5899,6 +5930,27 @@ export default function Home() {
                     ref={profileModalScrollPaneRef}
                     className="flex-1 min-h-0 overflow-y-auto overscroll-contain [scrollbar-gutter:stable] p-7 space-y-4"
                   >
+
+                    {/* Uygulamalar & İndirme Sekmesi */}
+                    {activeModalTab === "applications" && (
+                      <div className="space-y-4 animate-in fade-in duration-200">
+                        <div className="pb-3 border-b border-slate-100 dark:border-slate-800/60">
+                          <h4 className="text-sm font-extrabold text-slate-800 dark:text-white uppercase tracking-wider flex items-center gap-2">
+                            <Monitor size={16} className={text} />
+                            Masaüstü &amp; Mobil Uygulamalarım
+                          </h4>
+                          <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+                            Bilgisayarınız veya telefonunuz için AIDA Agent kurulum dosyalarını indirin, şifre yazmadan tek linkle veya QR kodla anında oturum açın.
+                          </p>
+                        </div>
+                        <UserApplicationsPanel
+                          userId={currentUser?.id || currentUser?.extension}
+                          userObj={currentUser}
+                          isAdminView={false}
+                          canEdit={true}
+                        />
+                      </div>
+                    )}
 
                     {/* Klavye Kısayolları Sekmesi */}
                     {activeModalTab === "shortcuts" && (

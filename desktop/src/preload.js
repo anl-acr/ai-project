@@ -65,6 +65,7 @@ contextBridge.exposeInMainWorld("aidaDesktop", {
 
   probeHost: (rawHost) => ipcRenderer.invoke("aida:probe-host", rawHost),
   login: (payload) => ipcRenderer.invoke("aida:login", payload),
+  loginWithUrl: (payload) => ipcRenderer.invoke("aida:login-with-url", payload),
   send2faCode: (payload) => ipcRenderer.invoke("aida:send-2fa", payload),
   verify2faCode: (payload) => ipcRenderer.invoke("aida:verify-2fa", payload),
   removeRecentHost: (hostStr) => ipcRenderer.invoke("aida:remove-recent-host", hostStr),

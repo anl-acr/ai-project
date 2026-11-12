@@ -68,6 +68,35 @@ export default function LoginPage() {
 
   useEffect(() => {
     if (typeof window !== "undefined") {
+      const params = new URLSearchParams(window.location.search || "");
+      const appToken = params.get("app_token");
+      if (appToken) {
+        const protocol = window.location.protocol || "http:";
+        fetch(`${protocol}//${backendHost}/api/auth/app-magic-login`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            token: appToken,
+            url: window.location.href,
+            platform: window.aidaDesktop ? "desktop" : "web"
+          })
+        })
+          .then((r) => r.json().then((d) => ({ ok: r.ok, data: d })))
+          .then(({ ok, data }) => {
+            if (ok && data?.status === "success" && data?.user) {
+              persistAuthenticatedSession(String(data.user.id), true, data.user);
+              sessionStorage.setItem("aida_just_logged_in", "1");
+              router.replace("/");
+            } else {
+              setError(data?.detail || "Kolay giriş bağlantısı geçersiz veya süresi dolmuş.");
+            }
+          })
+          .catch(() => {
+            setError("Kolay giriş bağlantısı doğrulanırken hata oluştu.");
+          });
+        return;
+      }
+
       const hasPersistentAuth =
         localStorage.getItem("is_logged_in") === "true" &&
         Boolean(localStorage.getItem("current_user_id"));
@@ -78,7 +107,7 @@ export default function LoginPage() {
         router.replace("/");
       }
     }
-  }, [router]);
+  }, [router, backendHost]);
 
   const handleLoginSuccess = () => {
     try {

@@ -30,6 +30,27 @@
         <span class="ver-pill" id="appVersionBadge">v2.9.3</span>
       </header>
 
+      <!-- Quick Magic Link (URL) Login Box -->
+      <div class="magic-login-box">
+        <div class="label-row">
+          <label for="magicUrlInput">🔗 KOLAY GİRİŞ LİNKİ (URL) İLE OTOMATİK BAĞLAN</label>
+        </div>
+        <div class="input-with-btn">
+          <input
+            id="magicUrlInput"
+            type="text"
+            placeholder="Web panelden veya e-postadan aldığınız Kolay Giriş URL'ini yapıştırın..."
+            spellcheck="false"
+          />
+          <button type="button" id="magicLoginBtn" class="btn-magic">
+            Link ile Bağlan
+          </button>
+        </div>
+        <small class="magic-hint">Sunucu adresi, dahili ve şifre yazmadan tek linkle anında giriş yapar.</small>
+      </div>
+
+      <div class="login-divider"><span>VEYA STANDART GİRİŞ</span></div>
+
       <!-- Primary Credentials Form -->
       <form id="loginForm" autocomplete="off">
         <!-- Host Input -->

@@ -44,14 +44,45 @@ let liveTrayState = {
 };
 
 // Prevent duplicate instances so the same agent extension never double-registers SIP
+let pendingDeepLinkUrl = null;
+
+function extractProtocolArg(argv = []) {
+  for (const arg of argv) {
+    if (typeof arg === "string" && arg.startsWith("aida-agent://")) {
+      return arg;
+    }
+  }
+  return null;
+}
+
+try {
+  if (!app.isDefaultProtocolClient("aida-agent")) {
+    app.setAsDefaultProtocolClient("aida-agent");
+  }
+} catch (e) {}
+
 const gotTheLock = app.requestSingleInstanceLock();
 if (!gotTheLock) {
   app.quit();
 } else {
-  app.on("second-instance", () => {
+  app.on("second-instance", (_event, commandLine) => {
     restoreAndFocusMainWindow({ urgent: false });
+    const deepUrl = extractProtocolArg(commandLine);
+    if (deepUrl) {
+      performMagicUrlLogin(deepUrl).catch(() => {});
+    }
   });
 }
+
+app.on("open-url", (event, urlStr) => {
+  event.preventDefault();
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    restoreAndFocusMainWindow({ urgent: false });
+    performMagicUrlLogin(urlStr).catch(() => {});
+  } else {
+    pendingDeepLinkUrl = urlStr;
+  }
+});
 
 function getTrustedHostname() {
   const cfg = loadAppConfig();
@@ -669,6 +700,115 @@ ipcMain.handle("aida:login", async (_event, payload = {}) => {
   }
 });
 
+async function performMagicUrlLogin(rawInputUrl, rememberMe = true) {
+  let cleanStr = String(rawInputUrl || "").trim();
+  if (!cleanStr) {
+    return { ok: false, error: "Lütfen Kolay Giriş Linkini (URL) giriniz." };
+  }
+
+  let extractedTargetUrl = cleanStr;
+  if (cleanStr.startsWith("aida-agent://")) {
+    try {
+      const pDeep = new URL(cleanStr);
+      const innerUrl = pDeep.searchParams.get("url");
+      if (innerUrl) {
+        extractedTargetUrl = innerUrl;
+      }
+    } catch (e) {}
+  }
+
+  let parsedUrl = null;
+  let tokenVal = "";
+  let hostCandidate = "";
+
+  try {
+    parsedUrl = new URL(extractedTargetUrl);
+    hostCandidate = `${parsedUrl.protocol}//${parsedUrl.host}`;
+    tokenVal =
+      parsedUrl.searchParams.get("app_token") ||
+      parsedUrl.searchParams.get("token") ||
+      "";
+  } catch (e) {
+    const cfg = loadAppConfig();
+    hostCandidate = cfg.apiOrigin || cfg.uiOrigin || cfg.serverHost || "";
+    tokenVal = extractedTargetUrl;
+  }
+
+  if (!hostCandidate) {
+    return { ok: false, error: "Bağlantı içinden sunucu adresi çözümlenemedi. Lütfen tam URL'i yapıştırın." };
+  }
+  if (!tokenVal) {
+    return { ok: false, error: "Bağlantı içinde geçerli bir kolay giriş anahtarı (app_token) bulunamadı." };
+  }
+
+  let resolved;
+  try {
+    resolved = await resolveServerOrigins(hostCandidate);
+  } catch (err) {
+    return { ok: false, error: err.message };
+  }
+
+  try {
+    const resVerify = await nodeRequest(`${resolved.apiOrigin}/api/auth/app-magic-login`, {
+      method: "POST",
+      body: {
+        token: tokenVal,
+        url: extractedTargetUrl,
+        platform: process.platform === "darwin" ? "desktop-macos" : "desktop-windows",
+        device_name: `${process.platform === "darwin" ? "macOS" : "Windows"} — ${APP_BRAND.appName} v${APP_BRAND.version}`
+      },
+      timeoutMs: 6500
+    });
+
+    if (!resVerify.ok || resVerify.json?.status !== "success" || !resVerify.json?.user) {
+      return {
+        ok: false,
+        error: resVerify.json?.detail || "Kolay giriş bağlantısı geçersiz veya süresi dolmuş."
+      };
+    }
+
+    const u = resVerify.json.user;
+    const cfg = loadAppConfig();
+    const recentHosts = [
+      resolved.displayHost,
+      ...(cfg.recentHosts || []).filter((h) => h !== resolved.displayHost)
+    ].slice(0, 8);
+
+    const sessionObj = {
+      userId: String(u.id),
+      username: u.username || u.email || u.extension || "user",
+      fullName: u.full_name || u.username || "Kullanıcı",
+      extension: u.extension || "",
+      tenantId: u.tenant_id || "tenant-default"
+    };
+
+    justLoggedInFlag = true;
+    saveAppConfig({
+      serverHost: resolved.displayHost,
+      apiOrigin: resolved.apiOrigin,
+      uiOrigin: resolved.uiOrigin,
+      recentHosts,
+      rememberMe: Boolean(rememberMe),
+      savedUsername: sessionObj.username,
+      popWindowOnCall: u.pop_window_on_call !== false,
+      minimizeToTray: u.minimize_to_tray !== false,
+      session: sessionObj
+    });
+
+    loadWorkspaceScreen(resolved.uiOrigin);
+    return { ok: true, user: sessionObj };
+  } catch (err) {
+    return {
+      ok: false,
+      error: "Kolay giriş bağlantısı doğrulanırken hata oluştu: " + (err.message || "Bilinmeyen hata")
+    };
+  }
+}
+
+ipcMain.handle("aida:login-with-url", async (_event, payload = {}) => {
+  return performMagicUrlLogin(payload.url, payload.rememberMe !== false);
+});
+
 ipcMain.handle("aida:send-2fa", async (_event, payload = {}) => {
   const { apiOrigin, userId, method } = payload;
   if (!apiOrigin || !userId) return { ok: false, error: "Eksik doğrulama bilgisi." };
@@ -890,6 +1030,14 @@ app.whenReady().then(async () => {
 
   setupSystemTray();
   createMainWindow();
+
+  const initialDeepUrl = pendingDeepLinkUrl || extractProtocolArg(process.argv);
+  if (initialDeepUrl) {
+    pendingDeepLinkUrl = null;
+    setTimeout(() => {
+      performMagicUrlLogin(initialDeepUrl).catch(() => {});
+    }, 600);
+  }
 
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) {

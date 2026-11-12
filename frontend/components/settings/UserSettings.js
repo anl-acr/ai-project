@@ -30,6 +30,7 @@ import KeyboardShortcutsModal from "../common/KeyboardShortcutsModal";
 import SearchableSelect from "../ui/SearchableSelect";
 import TablePagination from "../ui/TablePagination";
 import BulkConfigPanel from "./BulkConfigPanel";
+import UserApplicationsPanel from "./UserApplicationsPanel";
 
 import { getApiBaseUrl, tenantFetch } from "../../utils/apiHost";
 import { webphoneManager } from "../../utils/webphoneManager";
@@ -498,6 +499,8 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
 
   // User Connection & Environment History (IP / Browser / OS changes) & Trusted Device Binding
   const [connHistoryList, setConnHistoryList] = useState([]);
+  const [connHistoryPage, setConnHistoryPage] = useState(1);
+  const [connHistoryPageSize, setConnHistoryPageSize] = useState(10);
   const [connHistoryLoading, setConnHistoryLoading] = useState(false);
   const [connHistoryLive, setConnHistoryLive] = useState(null);
   const [deviceLockEnabled, setDeviceLockEnabled] = useState(false);
@@ -532,6 +535,7 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
       if (res.ok) {
         const data = await res.json();
         setConnHistoryList(Array.isArray(data?.history) ? data.history : []);
+        setConnHistoryPage(1);
         setConnHistoryLive({
           is_online: Boolean(data?.is_online),
           current_ip: data?.current_ip || "",
@@ -8388,40 +8392,38 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
                                 <div className="pb-3 border-b border-slate-100 dark:border-slate-800/60">
                                     <h4 className="text-sm font-extrabold text-slate-800 dark:text-white uppercase tracking-wider flex items-center gap-2">
                                         <LayoutGrid size={16} className={text} />
-                                        Uygulamalar
+                                        Uygulamalar & Kolay Giriş Yönetimi
                                     </h4>
                                     <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-                                        Kullanıcının mobil, masaüstü ve web uygulama giriş yetkilerini, aktif oturumlarını ve cihaz izinlerini buradan yönetin.
+                                        Kullanıcının masaüstü ve mobil uygulama kurulum paketlerini, süreli Kolay Giriş Linkini (URL), QR kodunu, e-posta davetiyesini ve bağlı oturumlarını buradan yönetin.
                                     </p>
                                 </div>
 
-                                <div className={"p-8 rounded-2xl border " + borderLight + " " + lightBg + " flex flex-col items-center justify-center text-center space-y-4 my-4"}>
-                                    <div className={"w-14 h-14 rounded-2xl border " + border + " bg-white dark:bg-slate-900 flex items-center justify-center shadow-sm " + text}>
-                                        <AlertTriangle size={26} />
-                                    </div>
-                                    <div className="space-y-1.5 max-w-md">
+                                {editingUser ? (
+                                    <UserApplicationsPanel
+                                        userId={editingUser.id || editingUser.extension}
+                                        userObj={{
+                                            ...editingUser,
+                                            full_name: fullName || editingUser.full_name,
+                                            email: email || editingUser.email,
+                                            extension: extension || editingUser.extension
+                                        }}
+                                        isAdminView={true}
+                                        canEdit={true}
+                                    />
+                                ) : (
+                                    <div className={"p-8 rounded-2xl border " + borderLight + " " + lightBg + " flex flex-col items-center justify-center text-center space-y-3 my-4"}>
+                                        <div className={"w-12 h-12 rounded-2xl border " + border + " bg-white dark:bg-slate-900 flex items-center justify-center shadow-sm " + text}>
+                                            <Monitor size={22} />
+                                        </div>
                                         <h5 className="text-sm font-extrabold text-slate-800 dark:text-white">
-                                            Bu ekran geliştirme aşamasındadır
+                                            Önce Kullanıcıyı Kaydedin
                                         </h5>
-                                        <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed">
-                                            Uygulama girişi, mobil ve masaüstü istemci yetkilendirmeleri ile bağlı uygulama oturumu ayarları yakında bu sekme üzerinden yapılandırılabilecektir.
+                                        <p className="text-xs text-slate-500 dark:text-slate-400 max-w-md leading-relaxed">
+                                            Yeni kullanıcıyı kaydettikten sonra bu sekme üzerinden süreli <strong>Kolay Giriş Linki (URL)</strong>, <strong>Mobil QR Kod</strong> ve <strong>E-Posta Kurulum Davetiyesi</strong> oluşturabilirsiniz.
                                         </p>
                                     </div>
-                                    <div className="flex flex-wrap items-center justify-center gap-2 pt-2">
-                                        <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-[11px] font-bold bg-white/80 dark:bg-slate-900/80 border border-slate-200/80 dark:border-slate-800 text-slate-600 dark:text-slate-300">
-                                            <Smartphone size={13} className={text} />
-                                            Mobil Uygulama Girişi
-                                        </span>
-                                        <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-[11px] font-bold bg-white/80 dark:bg-slate-900/80 border border-slate-200/80 dark:border-slate-800 text-slate-600 dark:text-slate-300">
-                                            <Monitor size={13} className={text} />
-                                            Masaüstü Uygulama Girişi
-                                        </span>
-                                        <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-[11px] font-bold bg-white/80 dark:bg-slate-900/80 border border-slate-200/80 dark:border-slate-800 text-slate-600 dark:text-slate-300">
-                                            <KeyRound size={13} className={text} />
-                                            Oturum & Erişim Kontrolü
-                                        </span>
-                                    </div>
-                                </div>
+                                )}
                             </div>
                         )}
 
@@ -8632,15 +8634,6 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
                                                     Kullanıcının bağlandığı veya engellendiği cihazların IP, tarayıcı, işletim sistemi ve <strong>Cihaz Anahtarı</strong> kayıtları. Tek tıkla güvenilir listeye ekleyebilirsiniz.
                                                 </p>
                                             </div>
-                                            <button
-                                                type="button"
-                                                onClick={() => fetchUserConnectionHistory(editingUser)}
-                                                disabled={connHistoryLoading}
-                                                className="px-3.5 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-bold text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700 flex items-center gap-2 transition-all cursor-pointer disabled:opacity-50 shrink-0"
-                                            >
-                                                <RefreshCw size={14} className={connHistoryLoading ? "animate-spin" : ""} />
-                                                <span>Yenile</span>
-                                            </button>
                                         </div>
 
                                         {/* Current Live Environment Banner */}
@@ -8734,7 +8727,9 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
                                                             </tr>
                                                         </thead>
                                                         <tbody className="divide-y divide-slate-100 dark:divide-slate-800/70 text-xs">
-                                                            {connHistoryList.map((item, idx) => {
+                                                            {connHistoryList
+                                                                .slice((connHistoryPage - 1) * connHistoryPageSize, connHistoryPage * connHistoryPageSize)
+                                                                .map((item, idx) => {
                                                                 const dtStr = item.timestamp
                                                                     ? new Date(item.timestamp.endsWith("Z") || item.timestamp.includes("+") ? item.timestamp : `${item.timestamp}Z`).toLocaleString("tr-TR", {
                                                                         day: "2-digit",
@@ -8819,6 +8814,16 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
                                                             })}
                                                         </tbody>
                                                     </table>
+                                                    <TablePagination
+                                                        currentPage={connHistoryPage}
+                                                        totalItems={connHistoryList.length}
+                                                        pageSize={connHistoryPageSize}
+                                                        onPageChange={setConnHistoryPage}
+                                                        onPageSizeChange={(sz) => {
+                                                            setConnHistoryPageSize(sz);
+                                                            setConnHistoryPage(1);
+                                                        }}
+                                                    />
                                                 </div>
                                             )}
                                         </div>

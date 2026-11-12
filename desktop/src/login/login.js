@@ -12,6 +12,8 @@
   const loginErrorBox = document.getElementById("loginErrorBox");
   const submitLoginBtn = document.getElementById("submitLoginBtn");
   const appVersionBadge = document.getElementById("appVersionBadge");
+  const magicUrlInput = document.getElementById("magicUrlInput");
+  const magicLoginBtn = document.getElementById("magicLoginBtn");
 
   const toggleHwBtn = document.getElementById("toggleHwBtn");
   const hwPanel = document.getElementById("hwPanel");
@@ -179,6 +181,46 @@
   });
 
   probeHostBtn.addEventListener("click", () => runHostProbe());
+
+  if (magicLoginBtn && magicUrlInput) {
+    const handleMagicUrlConnect = async () => {
+      const val = String(magicUrlInput.value || "").trim();
+      if (!val) {
+        loginErrorBox.textContent = "Lütfen Kolay Giriş Linkini (URL) yapıştırınız.";
+        loginErrorBox.classList.remove("hidden");
+        magicUrlInput.focus();
+        return;
+      }
+      loginErrorBox.classList.add("hidden");
+      await persistAudioSelection();
+      magicLoginBtn.disabled = true;
+      magicLoginBtn.textContent = "Bağlanıyor...";
+      try {
+        const res = await api.loginWithUrl({
+          url: val,
+          rememberMe: rememberCheckbox ? rememberCheckbox.checked : true
+        });
+        if (!res || !res.ok) {
+          loginErrorBox.textContent = (res && res.error) || "Kolay giriş bağlantısı doğrulanamadı.";
+          loginErrorBox.classList.remove("hidden");
+        }
+      } catch (err) {
+        loginErrorBox.textContent = err.message || "Kolay giriş sırasında hata oluştu.";
+        loginErrorBox.classList.remove("hidden");
+      } finally {
+        magicLoginBtn.disabled = false;
+        magicLoginBtn.textContent = "Link ile Bağlan";
+      }
+    };
+
+    magicLoginBtn.addEventListener("click", handleMagicUrlConnect);
+    magicUrlInput.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        handleMagicUrlConnect();
+      }
+    });
+  }
 
   togglePwdBtn.addEventListener("click", () => {
     const isPwd = passwordInput.type === "password";

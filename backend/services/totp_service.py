@@ -999,3 +999,291 @@ async def send_password_reset_email(
     return await _send_notification_email(cfg, channels_cfg, [clean_to], subject, html_body, plain_body)
 
 
+# ============================================================================
+# 6. APP MAGIC LOGIN LINK & DESKTOP/MOBILE ONBOARDING EMAIL ENGINE
+# ============================================================================
+
+_REVOKED_APP_MAGIC_JTIS: Dict[str, float] = {}
+
+
+def format_ttl_human(ttl_seconds: int) -> str:
+    sec = max(60, int(ttl_seconds or 3600))
+    if sec < 3600:
+        return f"{max(1, sec // 60)} Dakika"
+    if sec < 86400:
+        hrs = sec // 3600
+        return f"{hrs} Saat"
+    days = sec // 86400
+    return f"{days} Gün"
+
+
+def create_app_magic_login_token(
+    user_id: str,
+    email_str: str,
+    extension_str: str,
+    tenant_id: str,
+    current_password: Optional[str],
+    ttl_seconds: int = 86400
+) -> Tuple[str, Dict[str, Any]]:
+    import json
+    now = int(time.time())
+    ttl = max(300, min(int(ttl_seconds or 86400), 86400 * 30))
+    jti = secrets.token_hex(8)
+    payload_obj = {
+        "typ": "app_magic",
+        "uid": str(user_id),
+        "email": str(email_str or "").strip().lower(),
+        "ext": str(extension_str or "").strip(),
+        "tid": str(tenant_id or "tenant-default").strip(),
+        "iat": now,
+        "exp": now + ttl,
+        "ttl": ttl,
+        "jti": jti,
+        "pwh": compute_password_fingerprint(current_password),
+    }
+    payload_bytes = json.dumps(payload_obj, separators=(",", ":"), sort_keys=True).encode("utf-8")
+    b64_payload = base64.urlsafe_b64encode(payload_bytes).decode("ascii").rstrip("=")
+    sig = hmac.new(_get_reset_signing_secret(), b64_payload.encode("ascii"), hashlib.sha256).digest()
+    b64_sig = base64.urlsafe_b64encode(sig).decode("ascii").rstrip("=")
+    return f"{b64_payload}.{b64_sig}", payload_obj
+
+
+def verify_app_magic_login_token(
+    token_str: str,
+    expected_current_password: Optional[str] = None,
+    check_pwh: bool = False,
+    revoked_before_ts: Optional[float] = None
+) -> Tuple[bool, Optional[Dict[str, Any]], str]:
+    import json
+    raw = str(token_str or "").strip()
+    if "." not in raw:
+        return False, None, "Geçersiz kolay giriş bağlantısı."
+
+    b64_payload, b64_sig = raw.split(".", 1)
+    expected_sig = hmac.new(_get_reset_signing_secret(), b64_payload.encode("ascii"), hashlib.sha256).digest()
+    expected_b64_sig = base64.urlsafe_b64encode(expected_sig).decode("ascii").rstrip("=")
+    if not hmac.compare_digest(b64_sig, expected_b64_sig):
+        return False, None, "Kolay giriş bağlantısı imzası doğrulanamadı."
+
+    try:
+        pad = "=" * ((4 - len(b64_payload) % 4) % 4)
+        payload_obj = json.loads(base64.urlsafe_b64decode(b64_payload + pad).decode("utf-8"))
+    except Exception:
+        return False, None, "Kolay giriş bağlantısı çözümlenemedi."
+
+    if payload_obj.get("typ") != "app_magic":
+        return False, None, "Bu bağlantı uygulama girişi için geçerli değil."
+
+    now = time.time()
+    for k, exp_ts in list(_REVOKED_APP_MAGIC_JTIS.items()):
+        if now > exp_ts:
+            _REVOKED_APP_MAGIC_JTIS.pop(k, None)
+
+    exp_val = float(payload_obj.get("exp", 0))
+    if now > exp_val:
+        return False, None, "Bu kolay giriş bağlantısının geçerlilik süresi dolmuş. Lütfen yeni bir bağlantı oluşturun."
+
+    jti = str(payload_obj.get("jti") or "")
+    if jti and jti in _REVOKED_APP_MAGIC_JTIS:
+        return False, None, "Bu kolay giriş bağlantısı yönetici veya kullanıcı tarafından iptal edilmiş."
+
+    if revoked_before_ts and float(payload_obj.get("iat", 0)) < float(revoked_before_ts):
+        return False, None, "Bu kolay giriş bağlantısı yenilendiği veya iptal edildiği için artık geçerli değil."
+
+    if check_pwh:
+        curr_fp = compute_password_fingerprint(expected_current_password)
+        if not hmac.compare_digest(str(payload_obj.get("pwh") or ""), curr_fp):
+            return False, None, "Kullanıcı şifresi değiştirildiği için bu kolay giriş bağlantısı geçersiz kılınmış."
+
+    return True, payload_obj, "OK"
+
+
+def revoke_app_magic_token(jti: str, exp_val: Optional[float] = None) -> None:
+    clean_jti = str(jti or "").strip()
+    if clean_jti:
+        _REVOKED_APP_MAGIC_JTIS[clean_jti] = float(exp_val or (time.time() + 86400 * 7)) + 300
+
+
+async def send_app_onboarding_email(
+    settings_db: dict,
+    tenant_id: str,
+    to_email: str,
+    full_name: str,
+    extension: str,
+    role: str,
+    theme_color: str,
+    server_origin: str,
+    magic_url: str,
+    deep_link_url: str,
+    ttl_seconds: int = 86400
+) -> Dict[str, Any]:
+    """
+    Sends a rich, system-themed HTML email containing Desktop & Mobile app download links,
+    1-click Desktop deep link (`aida-agent://`), and the expiring Magic Login URL.
+    """
+    import datetime
+    import html
+    from backend.services.notification_service import get_tenant_notification_settings, _send_notification_email
+
+    clean_to = str(to_email or "").strip()
+    if not clean_to or "@" not in clean_to:
+        return {"status": "error", "message": "Kullanıcıya tanımlı geçerli bir e-posta adresi bulunamadı."}
+
+    theme_key = str(theme_color or "indigo").strip().lower()
+    primary_hex, secondary_hex, soft_bg_hex = _THEME_HEX_MAP.get(theme_key, ("#4f46e5", "#7c3aed", "#eef2ff"))
+
+    safe_name = html.escape(str(full_name or "Kullanıcı").strip())
+    safe_email = html.escape(clean_to)
+    safe_ext = html.escape(str(extension or "-").strip())
+    role_tr_map = {
+        "admin": "Sistem Yöneticisi",
+        "supervisor": "Süpervizör",
+        "agent": "Müşteri Temsilcisi",
+        "operator": "Santral Operatörü",
+    }
+    safe_role = html.escape(role_tr_map.get(str(role or "").lower(), str(role or "Kullanıcı")))
+    clean_origin = str(server_origin or "").rstrip("/")
+    safe_origin = html.escape(clean_origin)
+    safe_magic_url = html.escape(str(magic_url))
+    safe_deep_link = html.escape(str(deep_link_url))
+
+    win_download_url = html.escape(f"{clean_origin}/api/downloads/desktop/win")
+    mac_arm_download_url = html.escape(f"{clean_origin}/api/downloads/desktop/mac-arm64")
+    mac_intel_download_url = html.escape(f"{clean_origin}/api/downloads/desktop/mac-x64")
+
+    tr_now = (datetime.datetime.utcnow() + datetime.timedelta(hours=3)).strftime("%d.%m.%Y %H:%M")
+    ttl_label = format_ttl_human(ttl_seconds)
+
+    cfg = get_tenant_notification_settings(settings_db, tenant_id or "tenant-default")
+    if not (str(cfg.get("smtp_host") or "").strip() and str(cfg.get("smtp_user") or "").strip()):
+        default_cfg = get_tenant_notification_settings(settings_db, "tenant-default")
+        if str(default_cfg.get("smtp_host") or "").strip() and str(default_cfg.get("smtp_user") or "").strip():
+            cfg = default_cfg
+        else:
+            for _t_cfg in (settings_db.get("tenant_notifications") or {}).values():
+                if isinstance(_t_cfg, dict) and str(_t_cfg.get("smtp_host") or "").strip() and str(_t_cfg.get("smtp_user") or "").strip():
+                    cfg = dict(cfg)
+                    cfg.update(_t_cfg)
+                    break
+    if str(cfg.get("smtp_host") or "").strip() and str(cfg.get("smtp_user") or "").strip():
+        cfg = dict(cfg)
+        cfg["use_custom_smtp"] = True
+    channels_cfg = settings_db.get("channels", {})
+
+    subject = "🚀 AIDA Agent — Masaüstü & Mobil Uygulama Kurulum ve Kolay Giriş Bağlantınız"
+    plain_body = (
+        f"Sayın {full_name or 'Kullanıcı'},\n\n"
+        f"AIDA Agent Masaüstü ve Mobil uygulamalarına şifre girmeden hızlıca bağlanabilmeniz için kurulum ve kolay giriş bilgileriniz aşağıdadır:\n\n"
+        f"Kullanıcı Bilgileri:\n"
+        f"- Ad Soyad: {full_name or 'Kullanıcı'}\n"
+        f"- Dahili / Rol: {extension or '-'} / {safe_role}\n"
+        f"- Sunucu Adresi: {clean_origin}\n"
+        f"- Kolay Giriş Linki Geçerlilik Süresi: {ttl_label}\n\n"
+        f"1) MASAÜSTÜ UYGULAMASINI İNDİRİN:\n"
+        f"- Windows (.exe Kurulum): {clean_origin}/api/downloads/desktop/win\n"
+        f"- macOS Apple Silicon (M1/M2/M3/M4 .dmg): {clean_origin}/api/downloads/desktop/mac-arm64\n"
+        f"- macOS Intel (.dmg): {clean_origin}/api/downloads/desktop/mac-x64\n\n"
+        f"2) KOLAY GİRİŞ BAĞLANTISI (Masaüstü & Mobil Uygulama URL Alanı İçin):\n"
+        f"{magic_url}\n\n"
+        f"Uygulamayı açtıktan sonra 'Kolay Giriş Linki (URL) ile Bağlan' alanına yukarıdaki bağlantıyı yapıştırarak veya web ekranından tek tıkla otomatik giriş yapabilirsiniz.\n"
+    )
+
+    html_body = f"""<!DOCTYPE html>
+<html lang="tr">
+  <body style="margin: 0; padding: 28px 14px; background-color: #f1f5f9; font-family: -apple-system, BlinkMacSystemFont, 'Plus Jakarta Sans', 'Segoe UI', Roboto, Arial, sans-serif; color: #0f172a;">
+    <div style="max-width: 600px; margin: 0 auto; background: #ffffff; border: 1px solid #e2e8f0; border-radius: 24px; overflow: hidden; box-shadow: 0 20px 45px -15px rgba(15, 23, 42, 0.10);">
+      
+      <!-- Header -->
+      <div style="background: linear-gradient(135deg, {primary_hex} 0%, {secondary_hex} 100%); padding: 28px 32px; text-align: center; color: #ffffff;">
+        <div style="display: inline-block; background: rgba(255, 255, 255, 0.16); border: 1px solid rgba(255, 255, 255, 0.28); border-radius: 14px; padding: 8px 16px; font-size: 18px; font-weight: 900; letter-spacing: 0.5px; margin-bottom: 10px;">
+          <span style="color: #fda4af;">AI</span>DA Agent
+        </div>
+        <div style="font-size: 18px; font-weight: 800; letter-spacing: -0.2px;">Masaüstü &amp; Mobil Uygulama Kurulumu</div>
+        <div style="font-size: 11px; opacity: 0.88; text-transform: uppercase; letter-spacing: 1.8px; margin-top: 4px;">Kolay Giriş &amp; Hızlı Eşleştirme Davetiyesi</div>
+      </div>
+
+      <!-- Content -->
+      <div style="padding: 30px 32px; font-size: 14px; line-height: 1.65; color: #334155;">
+        <p style="margin: 0 0 14px 0; font-size: 15px; color: #0f172a;">
+          Sayın <strong>{safe_name}</strong>,
+        </p>
+        <p style="margin: 0 0 20px 0; color: #475569;">
+          <strong>AIDA Agent</strong> masaüstü ve mobil uygulamalarını bilgisayarınıza veya telefonunuza kurarak sunucu adresi ya da şifre yazmanıza gerek kalmadan <strong>Kolay Giriş Linkiniz</strong> ile tek adımda oturum açabilirsiniz.
+        </p>
+
+        <!-- Account Summary -->
+        <div style="background-color: {soft_bg_hex}; border: 1px solid #e2e8f0; border-left: 4px solid {primary_hex}; border-radius: 14px; padding: 16px 20px; margin: 0 0 24px 0;">
+          <div style="font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: 1px; color: {primary_hex}; margin-bottom: 10px;">
+            Temsilci &amp; Bağlantı Özeti
+          </div>
+          <table style="width: 100%; border-collapse: collapse; font-size: 13px; color: #1e293b;">
+            <tr>
+              <td style="padding: 4px 0; color: #64748b; width: 140px;">Ad Soyad:</td>
+              <td style="padding: 4px 0; font-weight: 700; color: #0f172a;">{safe_name}</td>
+            </tr>
+            <tr>
+              <td style="padding: 4px 0; color: #64748b;">Dahili / Rol:</td>
+              <td style="padding: 4px 0; font-weight: 700;">{safe_ext} &bull; {safe_role}</td>
+            </tr>
+            <tr>
+              <td style="padding: 4px 0; color: #64748b;">Sunucu Adresi:</td>
+              <td style="padding: 4px 0; font-family: monospace; font-weight: 600;">{safe_origin}</td>
+            </tr>
+            <tr>
+              <td style="padding: 4px 0; color: #64748b;">Link Geçerlilik Süresi:</td>
+              <td style="padding: 4px 0; font-weight: 700; color: #059669;">{ttl_label} ({tr_now} itibarıyla)</td>
+            </tr>
+          </table>
+        </div>
+
+        <!-- Step 1: Download Desktop App -->
+        <div style="border: 1px solid #e2e8f0; border-radius: 16px; padding: 18px 20px; margin-bottom: 20px; background: #f8fafc;">
+          <div style="font-size: 12px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.8px; color: #0f172a; margin-bottom: 8px;">
+            1. Adım: Masaüstü Uygulamasını İndirin (AIDA Agent v2.9.3)
+          </div>
+          <p style="margin: 0 0 14px 0; font-size: 12.5px; color: #64748b;">
+            İşletim sisteminize uygun kurulum paketini indirip bilgisayarınıza kurun:
+          </p>
+          <div style="text-align: center;">
+            <a href="{win_download_url}" target="_blank" style="display: inline-block; margin: 4px; background: #0f172a; color: #ffffff; text-decoration: none; font-weight: 700; font-size: 12px; padding: 10px 16px; border-radius: 10px;">
+              🪟 Windows İndir (.exe)
+            </a>
+            <a href="{mac_arm_download_url}" target="_blank" style="display: inline-block; margin: 4px; background: #334155; color: #ffffff; text-decoration: none; font-weight: 700; font-size: 12px; padding: 10px 16px; border-radius: 10px;">
+              🍎 macOS İndir (Apple Silicon .dmg)
+            </a>
+            <a href="{mac_intel_download_url}" target="_blank" style="display: inline-block; margin: 4px; background: #475569; color: #ffffff; text-decoration: none; font-weight: 700; font-size: 12px; padding: 10px 16px; border-radius: 10px;">
+              💻 macOS İndir (Intel .dmg)
+            </a>
+          </div>
+        </div>
+
+        <!-- Step 2: Magic Login URL for Desktop & Mobile -->
+        <div style="border: 1px solid #e2e8f0; border-radius: 16px; padding: 20px; background: #ffffff; text-align: center;">
+          <div style="font-size: 12px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.8px; color: {primary_hex}; margin-bottom: 8px;">
+            2. Adım: Kolay Giriş Linki (Masaüstü &amp; Mobil Otomatik Giriş)
+          </div>
+          <p style="margin: 0 0 16px 0; font-size: 12.5px; color: #475569;">
+            Aşağıdaki butona tıklayarak veya <strong>Kolay Giriş URL'ini</strong> kopyalayıp masaüstü/mobil uygulamadaki <em>"Kolay Giriş Linki (URL) ile Bağlan"</em> alanına yapıştırarak anında giriş yapabilirsiniz:
+          </p>
+          <a href="{safe_magic_url}" target="_blank" style="display: inline-block; background: linear-gradient(135deg, {primary_hex} 0%, {secondary_hex} 100%); color: #ffffff; text-decoration: none; font-weight: 800; font-size: 14px; padding: 13px 28px; border-radius: 12px; box-shadow: 0 8px 20px -6px rgba(79, 70, 229, 0.45);">
+            Kolay Giriş Ekranını Aç &rarr;
+          </a>
+          <div style="margin-top: 16px; padding: 12px; background: #f1f5f9; border: 1px dashed #cbd5e1; border-radius: 10px; font-family: monospace; font-size: 11px; color: #0f172a; word-break: break-all; text-align: left;">
+            <strong>Kolay Giriş URL'i (Kopyala &amp; Uygulamaya Yapıştır):</strong><br />
+            <a href="{safe_magic_url}" target="_blank" style="color: {primary_hex}; text-decoration: underline;">{safe_magic_url}</a>
+          </div>
+        </div>
+      </div>
+
+      <!-- Footer -->
+      <div style="background: #f8fafc; border-top: 1px solid #e2e8f0; padding: 14px 24px; text-align: center; font-size: 11px; color: #94a3b8;">
+        &copy; 2026 AIDA PBX &mdash; Bu bağlantı güvenliğiniz için <strong>{ttl_label}</strong> süreyle geçerlidir.
+      </div>
+    </div>
+  </body>
+</html>"""
+
+    return await _send_notification_email(cfg, channels_cfg, [clean_to], subject, html_body, plain_body)
+
+
+

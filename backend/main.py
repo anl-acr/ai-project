@@ -32516,6 +32516,658 @@ async def confirm_password_reset_endpoint(payload: PasswordResetConfirmSchema):
         "message": "Yeni şifreniz başarıyla oluşturuldu. Artık yeni şifrenizle sisteme giriş yapabilirsiniz."
     }
 
+
+# ============================================================================
+# DESKTOP & MOBILE APPLICATIONS, MAGIC LOGIN URL & ONBOARDING INVITES
+# ============================================================================
+
+class AppAccessSaveSchema(BaseModel):
+    desktop_enabled: Optional[bool] = None
+    mobile_enabled: Optional[bool] = None
+    pop_window_on_call: Optional[bool] = None
+    minimize_to_tray: Optional[bool] = None
+    start_on_boot: Optional[bool] = None
+    revoke_session_id: Optional[str] = None
+    origin: Optional[str] = None
+
+
+class AppMagicLinkCreateSchema(BaseModel):
+    ttl_seconds: Optional[int] = 86400
+    origin: Optional[str] = None
+    action: Optional[str] = "generate"  # "generate" or "revoke"
+
+
+class AppInviteEmailSchema(BaseModel):
+    to_email: Optional[str] = None
+    ttl_seconds: Optional[int] = 86400
+    origin: Optional[str] = None
+
+
+class AppMagicLoginVerifySchema(BaseModel):
+    token: Optional[str] = None
+    url: Optional[str] = None
+    platform: Optional[str] = "desktop"
+    device_name: Optional[str] = None
+
+
+def _resolve_server_origin_from_request(request: Request, explicit_origin: Optional[str] = None) -> str:
+    raw = str(explicit_origin or "").strip()
+    if raw.startswith("http://") or raw.startswith("https://"):
+        return raw.rstrip("/")
+    hdr_origin = str(request.headers.get("origin") or "").strip()
+    if hdr_origin.startswith("http://") or hdr_origin.startswith("https://"):
+        return hdr_origin.rstrip("/")
+    proto = request.headers.get("x-forwarded-proto") or request.url.scheme or "http"
+    host = request.headers.get("x-forwarded-host") or request.headers.get("host") or "localhost:3000"
+    if host.endswith(":8000"):
+        host = host[:-5] + ":3000"
+    return f"{proto}://{host}".rstrip("/")
+
+
+def _resolve_user_for_app_access(user_key: str = "", email_str: str = "") -> Tuple[Optional[dict], Optional[Any]]:
+    clean_key = str(user_key or "").strip()
+    clean_email = str(email_str or "").strip().lower()
+
+    if clean_key == "admin":
+        for u in (settings_db.get("users") or []):
+            if isinstance(u, dict) and (str(u.get("id")) in ("1", "admin") or u.get("username") == "admin" or u.get("role") == "admin"):
+                return u, u.get("id", 1)
+
+    user, resolved_id = _resolve_user_for_password_reset(email_str=clean_email, uid_str=clean_key)
+    if user:
+        return user, resolved_id
+
+    for u in (settings_db.get("users") or []):
+        if not isinstance(u, dict):
+            continue
+        if clean_key and (
+            str(u.get("id") or "") == clean_key
+            or str(u.get("extension") or "") == clean_key
+            or str(u.get("username") or "").lower() == clean_key.lower()
+            or str(u.get("email") or "").lower() == clean_key.lower()
+        ):
+            return u, u.get("id")
+    return None, None
+
+
+def _sync_user_app_access_to_db(user_dict: dict, resolved_id: Any = None):
+    save_settings(settings_db)
+    try:
+        from backend.database.config import SyncSessionLocal
+        from backend.database.models import SystemUser
+        with SyncSessionLocal() as session:
+            db_u = None
+            uid_candidate = resolved_id if resolved_id is not None else user_dict.get("id")
+            if uid_candidate is not None and str(uid_candidate).isdigit():
+                db_u = session.query(SystemUser).filter(SystemUser.id == int(uid_candidate)).first()
+            if not db_u and user_dict.get("extension"):
+                db_u = session.query(SystemUser).filter(SystemUser.extension == str(user_dict.get("extension"))).first()
+            if not db_u and user_dict.get("email"):
+                db_u = session.query(SystemUser).filter(func.lower(SystemUser.email) == str(user_dict.get("email")).lower()).first()
+            if db_u:
+                if isinstance(user_dict.get("cti_config"), dict):
+                    db_u.cti_config = copy.deepcopy(user_dict["cti_config"])
+                if isinstance(user_dict.get("active_sessions"), list):
+                    db_u.active_sessions = copy.deepcopy(user_dict["active_sessions"])
+                session.commit()
+    except Exception as e_app_sync:
+        print(f"[App Access DB Sync Notice]: {e_app_sync}")
+
+
+def _get_desktop_dist_packages() -> Dict[str, Any]:
+    dist_dir = os.path.join(BASE_DIR, "desktop", "dist")
+    candidates = {
+        "win": {
+            "label": "Windows Kurulum Sihirbazı (.exe)",
+            "os": "windows",
+            "arch": "x64",
+            "filename": "AIDA Agent Setup 2.9.3.exe",
+            "endpoint": "/api/downloads/desktop/win",
+        },
+        "win-zip": {
+            "label": "Windows Taşınabilir Paket (.zip)",
+            "os": "windows",
+            "arch": "x64",
+            "filename": "AIDA Agent-2.9.3-win.zip",
+            "endpoint": "/api/downloads/desktop/win-zip",
+        },
+        "mac-arm64": {
+            "label": "macOS Apple Silicon (M1/M2/M3/M4 .dmg)",
+            "os": "macos",
+            "arch": "arm64",
+            "filename": "AIDA Agent-2.9.3-arm64.dmg",
+            "endpoint": "/api/downloads/desktop/mac-arm64",
+        },
+        "mac-x64": {
+            "label": "macOS Intel (.dmg)",
+            "os": "macos",
+            "arch": "x64",
+            "filename": "AIDA Agent-2.9.3.dmg",
+            "endpoint": "/api/downloads/desktop/mac-x64",
+        },
+    }
+    packages = []
+    for key, meta in candidates.items():
+        fpath = os.path.join(dist_dir, meta["filename"])
+        exists = os.path.exists(fpath)
+        size_mb = round(os.path.getsize(fpath) / (1024 * 1024), 1) if exists else 0
+        packages.append({
+            "id": key,
+            **meta,
+            "available": exists,
+            "size_mb": size_mb,
+        })
+    return {
+        "app_name": "AIDA Agent",
+        "version": "2.9.3",
+        "packages": packages,
+    }
+
+
+def _build_user_app_access_response(user: dict, resolved_id: Any, server_origin: str, auto_generate_if_missing: bool = True) -> Dict[str, Any]:
+    import time
+    import urllib.parse
+    from backend.services.totp_service import (
+        create_app_magic_login_token,
+        verify_app_magic_login_token,
+        generate_qr_svg_data_uri,
+        format_ttl_human
+    )
+
+    cti_cfg = user.get("cti_config")
+    if not isinstance(cti_cfg, dict):
+        cti_cfg = {}
+        user["cti_config"] = cti_cfg
+
+    app_cfg = cti_cfg.get("app_access")
+    if not isinstance(app_cfg, dict):
+        app_cfg = {}
+        cti_cfg["app_access"] = app_cfg
+
+    desktop_enabled = app_cfg.get("desktop_enabled", True) is not False
+    mobile_enabled = app_cfg.get("mobile_enabled", True) is not False
+    pop_window_on_call = app_cfg.get("pop_window_on_call", True) is not False
+    minimize_to_tray = app_cfg.get("minimize_to_tray", True) is not False
+    start_on_boot = bool(app_cfg.get("start_on_boot", False))
+    revoked_before_ts = float(app_cfg.get("revoked_before_ts") or 0)
+
+    uid_str = str(resolved_id if resolved_id is not None else (user.get("id") or user.get("extension") or "admin"))
+    email_str = str(user.get("email") or "").strip()
+    ext_str = str(user.get("extension") or "").strip()
+    tenant_id = str(user.get("tenant_id") or "tenant-default").strip()
+    curr_pw = user.get("password") or ""
+
+    now = int(time.time())
+    active_token = str(app_cfg.get("magic_token") or "").strip()
+    token_valid = False
+    token_payload = None
+
+    if active_token:
+        ok_t, t_obj, _ = verify_app_magic_login_token(
+            active_token,
+            expected_current_password=curr_pw,
+            check_pwh=True,
+            revoked_before_ts=revoked_before_ts
+        )
+        if ok_t and t_obj:
+            token_valid = True
+            token_payload = t_obj
+
+    if not token_valid and auto_generate_if_missing and not app_cfg.get("explicitly_revoked"):
+        default_ttl = int(app_cfg.get("last_ttl_seconds") or 86400)
+        active_token, token_payload = create_app_magic_login_token(
+            user_id=uid_str,
+            email_str=email_str,
+            extension_str=ext_str,
+            tenant_id=tenant_id,
+            current_password=curr_pw,
+            ttl_seconds=default_ttl
+        )
+        app_cfg["magic_token"] = active_token
+        app_cfg["magic_created_at"] = token_payload["iat"]
+        app_cfg["magic_expires_at"] = token_payload["exp"]
+        app_cfg["magic_ttl_seconds"] = default_ttl
+        app_cfg["magic_jti"] = token_payload["jti"]
+        app_cfg["explicitly_revoked"] = False
+        _sync_user_app_access_to_db(user, resolved_id)
+        token_valid = True
+
+    magic_url = ""
+    deep_link_url = ""
+    qr_svg = ""
+    expires_at = 0
+    created_at = 0
+    ttl_seconds = int(app_cfg.get("magic_ttl_seconds") or 86400)
+    remaining_seconds = 0
+
+    if token_valid and active_token and token_payload:
+        enc_token = urllib.parse.quote(active_token, safe="")
+        magic_url = f"{server_origin}/login?app_token={enc_token}"
+        deep_link_url = f"aida-agent://login?url={urllib.parse.quote(magic_url, safe='')}"
+        try:
+            qr_svg = generate_qr_svg_data_uri(magic_url)
+        except Exception:
+            qr_svg = ""
+        expires_at = int(token_payload.get("exp") or 0)
+        created_at = int(token_payload.get("iat") or now)
+        ttl_seconds = int(token_payload.get("ttl") or ttl_seconds)
+        remaining_seconds = max(0, expires_at - now)
+
+    raw_sessions = user.get("active_sessions")
+    if not isinstance(raw_sessions, list):
+        raw_sessions = []
+    app_sessions = app_cfg.get("sessions")
+    if not isinstance(app_sessions, list):
+        app_sessions = []
+
+    return {
+        "status": "success",
+        "user": {
+            "id": uid_str,
+            "full_name": str(user.get("full_name") or user.get("name") or user.get("username") or "Kullanıcı"),
+            "username": str(user.get("username") or ""),
+            "email": email_str,
+            "extension": ext_str,
+            "role": str(user.get("role") or "agent"),
+            "tenant_id": tenant_id,
+        },
+        "server_origin": server_origin,
+        "permissions": {
+            "desktop_enabled": desktop_enabled,
+            "mobile_enabled": mobile_enabled,
+            "pop_window_on_call": pop_window_on_call,
+            "minimize_to_tray": minimize_to_tray,
+            "start_on_boot": start_on_boot,
+        },
+        "magic_link": {
+            "active": token_valid,
+            "token": active_token if token_valid else "",
+            "magic_url": magic_url,
+            "deep_link_url": deep_link_url,
+            "qr_svg": qr_svg,
+            "created_at": created_at,
+            "expires_at": expires_at,
+            "ttl_seconds": ttl_seconds,
+            "ttl_label": format_ttl_human(ttl_seconds),
+            "remaining_seconds": remaining_seconds,
+        },
+        "desktop_downloads": _get_desktop_dist_packages(),
+        "sessions": app_sessions[:15],
+    }
+
+
+@app.get("/api/downloads/desktop-info")
+@app.get("/downloads/desktop-info")
+async def get_desktop_downloads_info_endpoint():
+    return _get_desktop_dist_packages()
+
+
+@app.get("/api/downloads/desktop/{platform}")
+@app.get("/downloads/desktop/{platform}")
+async def download_desktop_installer_endpoint(platform: str):
+    dist_dir = os.path.join(BASE_DIR, "desktop", "dist")
+    file_map = {
+        "win": ("AIDA Agent Setup 2.9.3.exe", "application/vnd.microsoft.portable-executable"),
+        "win-zip": ("AIDA Agent-2.9.3-win.zip", "application/zip"),
+        "mac-arm64": ("AIDA Agent-2.9.3-arm64.dmg", "application/x-apple-diskimage"),
+        "mac-x64": ("AIDA Agent-2.9.3.dmg", "application/x-apple-diskimage"),
+        "mac-zip": ("AIDA Agent-2.9.3-arm64-mac.zip", "application/zip"),
+    }
+    entry = file_map.get(str(platform or "").strip().lower())
+    if not entry:
+        raise HTTPException(status_code=404, detail="Geçersiz kurulum paketi platformu.")
+    filename, media_type = entry
+    full_path = os.path.join(dist_dir, filename)
+    if not os.path.exists(full_path):
+        raise HTTPException(status_code=404, detail=f"Kurulum dosyası ({filename}) sunucuda bulunamadı.")
+    return FileResponse(
+        path=full_path,
+        filename=filename,
+        media_type=media_type
+    )
+
+
+@app.get("/api/settings/users/{user_id}/app-access")
+@app.get("/settings/users/{user_id}/app-access")
+async def get_user_app_access_endpoint(user_id: str, request: Request, origin: Optional[str] = None):
+    user, resolved_id = _resolve_user_for_app_access(user_key=user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="Kullanıcı bulunamadı.")
+    server_origin = _resolve_server_origin_from_request(request, origin)
+    return _build_user_app_access_response(user, resolved_id, server_origin, auto_generate_if_missing=True)
+
+
+@app.post("/api/settings/users/{user_id}/app-access")
+@app.post("/settings/users/{user_id}/app-access")
+async def save_user_app_access_endpoint(user_id: str, payload: AppAccessSaveSchema, request: Request):
+    user, resolved_id = _resolve_user_for_app_access(user_key=user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="Kullanıcı bulunamadı.")
+
+    cti_cfg = user.get("cti_config")
+    if not isinstance(cti_cfg, dict):
+        cti_cfg = {}
+        user["cti_config"] = cti_cfg
+
+    app_cfg = cti_cfg.get("app_access")
+    if not isinstance(app_cfg, dict):
+        app_cfg = {}
+        cti_cfg["app_access"] = app_cfg
+
+    if payload.desktop_enabled is not None:
+        app_cfg["desktop_enabled"] = bool(payload.desktop_enabled)
+    if payload.mobile_enabled is not None:
+        app_cfg["mobile_enabled"] = bool(payload.mobile_enabled)
+    if payload.pop_window_on_call is not None:
+        app_cfg["pop_window_on_call"] = bool(payload.pop_window_on_call)
+    if payload.minimize_to_tray is not None:
+        app_cfg["minimize_to_tray"] = bool(payload.minimize_to_tray)
+    if payload.start_on_boot is not None:
+        app_cfg["start_on_boot"] = bool(payload.start_on_boot)
+
+    if payload.revoke_session_id:
+        sessions_list = app_cfg.get("sessions")
+        if isinstance(sessions_list, list):
+            app_cfg["sessions"] = [s for s in sessions_list if str(s.get("id")) != str(payload.revoke_session_id)]
+
+    _sync_user_app_access_to_db(user, resolved_id)
+    server_origin = _resolve_server_origin_from_request(request, payload.origin)
+    return _build_user_app_access_response(user, resolved_id, server_origin, auto_generate_if_missing=False)
+
+
+@app.post("/api/settings/users/{user_id}/app-magic-link")
+@app.post("/settings/users/{user_id}/app-magic-link")
+async def manage_user_app_magic_link_endpoint(user_id: str, payload: AppMagicLinkCreateSchema, request: Request):
+    import time
+    from backend.services.totp_service import create_app_magic_login_token, revoke_app_magic_token
+
+    user, resolved_id = _resolve_user_for_app_access(user_key=user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="Kullanıcı bulunamadı.")
+
+    cti_cfg = user.get("cti_config")
+    if not isinstance(cti_cfg, dict):
+        cti_cfg = {}
+        user["cti_config"] = cti_cfg
+
+    app_cfg = cti_cfg.get("app_access")
+    if not isinstance(app_cfg, dict):
+        app_cfg = {}
+        cti_cfg["app_access"] = app_cfg
+
+    prev_jti = str(app_cfg.get("magic_jti") or "")
+    prev_exp = float(app_cfg.get("magic_expires_at") or (time.time() + 86400))
+    if prev_jti:
+        revoke_app_magic_token(prev_jti, prev_exp)
+
+    if str(payload.action or "generate").lower() == "revoke":
+        app_cfg["magic_token"] = ""
+        app_cfg["magic_jti"] = ""
+        app_cfg["magic_expires_at"] = 0
+        app_cfg["revoked_before_ts"] = time.time()
+        app_cfg["explicitly_revoked"] = True
+        _sync_user_app_access_to_db(user, resolved_id)
+        server_origin = _resolve_server_origin_from_request(request, payload.origin)
+        return _build_user_app_access_response(user, resolved_id, server_origin, auto_generate_if_missing=False)
+
+    uid_str = str(resolved_id if resolved_id is not None else (user.get("id") or user.get("extension") or "admin"))
+    email_str = str(user.get("email") or "").strip()
+    ext_str = str(user.get("extension") or "").strip()
+    tenant_id = str(user.get("tenant_id") or "tenant-default").strip()
+    curr_pw = user.get("password") or ""
+    ttl = max(300, min(int(payload.ttl_seconds or 86400), 86400 * 30))
+
+    new_token, token_obj = create_app_magic_login_token(
+        user_id=uid_str,
+        email_str=email_str,
+        extension_str=ext_str,
+        tenant_id=tenant_id,
+        current_password=curr_pw,
+        ttl_seconds=ttl
+    )
+    app_cfg["magic_token"] = new_token
+    app_cfg["magic_created_at"] = token_obj["iat"]
+    app_cfg["magic_expires_at"] = token_obj["exp"]
+    app_cfg["magic_ttl_seconds"] = ttl
+    app_cfg["last_ttl_seconds"] = ttl
+    app_cfg["magic_jti"] = token_obj["jti"]
+    app_cfg["explicitly_revoked"] = False
+
+    _sync_user_app_access_to_db(user, resolved_id)
+    server_origin = _resolve_server_origin_from_request(request, payload.origin)
+    return _build_user_app_access_response(user, resolved_id, server_origin, auto_generate_if_missing=False)
+
+
+@app.post("/api/settings/users/{user_id}/send-app-invite")
+@app.post("/settings/users/{user_id}/send-app-invite")
+async def send_user_app_invite_email_endpoint(user_id: str, payload: AppInviteEmailSchema, request: Request):
+    from backend.services.totp_service import (
+        create_app_magic_login_token,
+        send_app_onboarding_email,
+        mask_email_address
+    )
+    import urllib.parse
+
+    user, resolved_id = _resolve_user_for_app_access(user_key=user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="Kullanıcı bulunamadı.")
+
+    target_email = str(payload.to_email or user.get("email") or "").strip()
+    if not target_email or "@" not in target_email or "." not in target_email.split("@", 1)[-1]:
+        raise HTTPException(status_code=400, detail="Lütfen geçerli bir alıcı e-posta adresi giriniz.")
+
+    server_origin = _resolve_server_origin_from_request(request, payload.origin)
+    ttl = max(300, min(int(payload.ttl_seconds or 86400), 86400 * 30))
+
+    uid_str = str(resolved_id if resolved_id is not None else (user.get("id") or user.get("extension") or "admin"))
+    ext_str = str(user.get("extension") or "").strip()
+    tenant_id = str(user.get("tenant_id") or request.headers.get("X-Tenant-ID") or "tenant-default").strip()
+    curr_pw = user.get("password") or ""
+    full_name = str(user.get("full_name") or user.get("name") or user.get("username") or "Kullanıcı").strip()
+    role_val = str(user.get("role") or "agent").strip()
+    theme_color = str(user.get("theme_color") or "indigo").strip()
+
+    cti_cfg = user.get("cti_config")
+    if not isinstance(cti_cfg, dict):
+        cti_cfg = {}
+        user["cti_config"] = cti_cfg
+    app_cfg = cti_cfg.get("app_access")
+    if not isinstance(app_cfg, dict):
+        app_cfg = {}
+        cti_cfg["app_access"] = app_cfg
+
+    new_token, token_obj = create_app_magic_login_token(
+        user_id=uid_str,
+        email_str=target_email,
+        extension_str=ext_str,
+        tenant_id=tenant_id,
+        current_password=curr_pw,
+        ttl_seconds=ttl
+    )
+    app_cfg["magic_token"] = new_token
+    app_cfg["magic_created_at"] = token_obj["iat"]
+    app_cfg["magic_expires_at"] = token_obj["exp"]
+    app_cfg["magic_ttl_seconds"] = ttl
+    app_cfg["last_ttl_seconds"] = ttl
+    app_cfg["magic_jti"] = token_obj["jti"]
+    app_cfg["explicitly_revoked"] = False
+    _sync_user_app_access_to_db(user, resolved_id)
+
+    enc_token = urllib.parse.quote(new_token, safe="")
+    magic_url = f"{server_origin}/login?app_token={enc_token}"
+    deep_link_url = f"aida-agent://login?url={urllib.parse.quote(magic_url, safe='')}"
+
+    send_res = await send_app_onboarding_email(
+        settings_db=settings_db,
+        tenant_id=tenant_id,
+        to_email=target_email,
+        full_name=full_name,
+        extension=ext_str,
+        role=role_val,
+        theme_color=theme_color,
+        server_origin=server_origin,
+        magic_url=magic_url,
+        deep_link_url=deep_link_url,
+        ttl_seconds=ttl
+    )
+    if send_res.get("status") != "success":
+        raise HTTPException(
+            status_code=400,
+            detail=send_res.get("message") or "E-posta gönderilemedi. Lütfen SMTP ayarlarınızı kontrol edin."
+        )
+
+    try:
+        log_event("APP_INVITE_EMAIL_SENT", "Auth", f"{full_name} ({target_email}) için uygulama kurulum ve kolay giriş bağlantısı gönderildi.")
+    except Exception:
+        pass
+
+    resp = _build_user_app_access_response(user, resolved_id, server_origin, auto_generate_if_missing=False)
+    resp["message"] = f"Uygulama kurulum ve kolay giriş bilgileri {target_email} adresine başarıyla gönderildi."
+    resp["masked_email"] = mask_email_address(target_email)
+    return resp
+
+
+@app.post("/api/auth/app-magic-login")
+@app.post("/auth/app-magic-login")
+@app.get("/api/auth/app-magic-login")
+@app.get("/auth/app-magic-login")
+async def verify_app_magic_login_endpoint(
+    request: Request,
+    token: Optional[str] = None,
+    url: Optional[str] = None,
+    platform: Optional[str] = "desktop",
+    payload: Optional[AppMagicLoginVerifySchema] = None
+):
+    import urllib.parse
+    import secrets
+    from backend.services.totp_service import verify_app_magic_login_token
+
+    raw_token = str((payload.token if payload and payload.token else token) or "").strip()
+    raw_url = str((payload.url if payload and payload.url else url) or "").strip()
+    plat = str((payload.platform if payload and payload.platform else platform) or "desktop").strip().lower()
+    dev_name = str((payload.device_name if payload and payload.device_name else "") or "").strip()
+
+    if not raw_token and raw_url:
+        try:
+            parsed_u = urllib.parse.urlparse(raw_url)
+            qs = urllib.parse.parse_qs(parsed_u.query)
+            if "app_token" in qs and qs["app_token"]:
+                raw_token = qs["app_token"][0]
+            elif "token" in qs and qs["token"]:
+                raw_token = qs["token"][0]
+            elif "url" in qs and qs["url"]:
+                inner_u = urllib.parse.urlparse(qs["url"][0])
+                inner_qs = urllib.parse.parse_qs(inner_u.query)
+                raw_token = (inner_qs.get("app_token") or inner_qs.get("token") or [""])[0]
+        except Exception:
+            pass
+        if not raw_token and "." in raw_url and "/" not in raw_url:
+            raw_token = raw_url
+
+    if not raw_token:
+        raise HTTPException(status_code=400, detail="Geçerli bir kolay giriş bağlantısı veya anahtarı bulunamadı.")
+
+    ok_sig, token_data, err_msg = verify_app_magic_login_token(raw_token, check_pwh=False)
+    if not ok_sig or not token_data:
+        raise HTTPException(status_code=400, detail=err_msg)
+
+    user, resolved_id = _resolve_user_for_app_access(
+        user_key=str(token_data.get("uid") or token_data.get("ext") or ""),
+        email_str=str(token_data.get("email") or "")
+    )
+    if not user:
+        raise HTTPException(status_code=404, detail="Bağlantıya ait kullanıcı hesabı bulunamadı.")
+
+    if user.get("is_active") is False:
+        raise HTTPException(status_code=403, detail="Bu kullanıcı hesabı pasif durumdadır.")
+
+    cti_cfg = user.get("cti_config") if isinstance(user.get("cti_config"), dict) else {}
+    app_cfg = cti_cfg.get("app_access") if isinstance(cti_cfg.get("app_access"), dict) else {}
+    revoked_before_ts = float(app_cfg.get("revoked_before_ts") or 0)
+
+    ok_full, _, err_full = verify_app_magic_login_token(
+        raw_token,
+        expected_current_password=user.get("password") or "",
+        check_pwh=True,
+        revoked_before_ts=revoked_before_ts
+    )
+    if not ok_full:
+        raise HTTPException(status_code=400, detail=err_full)
+
+    if "mobile" in plat or "ios" in plat or "android" in plat:
+        if app_cfg.get("mobile_enabled", True) is False:
+            raise HTTPException(status_code=403, detail="Bu kullanıcı için Mobil Uygulama giriş yetkisi yönetici tarafından kapatılmıştır.")
+    elif plat != "web":
+        if app_cfg.get("desktop_enabled", True) is False:
+            raise HTTPException(status_code=403, detail="Bu kullanıcı için Masaüstü Uygulama giriş yetkisi yönetici tarafından kapatılmıştır.")
+
+    # Record active app session
+    client_ip = (
+        request.headers.get("x-forwarded-for", "").split(",")[0].strip()
+        or request.headers.get("x-real-ip", "").strip()
+        or (request.client.host if request.client else "127.0.0.1")
+    )
+    ua_str = str(request.headers.get("user-agent") or "")
+    if not dev_name:
+        if "Mac" in ua_str or "darwin" in plat:
+            dev_name = "macOS — AIDA Agent"
+        elif "Win" in ua_str or "win" in plat:
+            dev_name = "Windows — AIDA Agent"
+        elif "iPhone" in ua_str or "iPad" in ua_str or "ios" in plat:
+            dev_name = "iOS — AIDA Mobile"
+        elif "Android" in ua_str or "android" in plat:
+            dev_name = "Android — AIDA Mobile"
+        else:
+            dev_name = "AIDA Uygulama Oturumu"
+
+    if not isinstance(user.get("cti_config"), dict):
+        user["cti_config"] = {}
+    if not isinstance(user["cti_config"].get("app_access"), dict):
+        user["cti_config"]["app_access"] = {}
+
+    sessions_list = user["cti_config"]["app_access"].get("sessions")
+    if not isinstance(sessions_list, list):
+        sessions_list = []
+
+    tr_now = (datetime.datetime.utcnow() + datetime.timedelta(hours=3)).strftime("%d.%m.%Y %H:%M")
+    session_entry = {
+        "id": f"sess-{secrets.token_hex(4)}",
+        "platform": "mobile" if ("mobile" in plat or "ios" in plat or "android" in plat) else ("web" if plat == "web" else "desktop"),
+        "device_name": dev_name,
+        "ip_address": client_ip,
+        "connected_at": tr_now,
+        "status": "Aktif",
+    }
+    # Deduplicate same device_name + ip_address
+    sessions_list = [
+        s for s in sessions_list
+        if not (s.get("device_name") == dev_name and s.get("ip_address") == client_ip)
+    ]
+    sessions_list.insert(0, session_entry)
+    user["cti_config"]["app_access"]["sessions"] = sessions_list[:15]
+    _sync_user_app_access_to_db(user, resolved_id)
+
+    uid_val = str(resolved_id if resolved_id is not None else (user.get("id") or user.get("extension") or "admin"))
+    server_origin = _resolve_server_origin_from_request(request)
+
+    return {
+        "status": "success",
+        "server_origin": server_origin,
+        "user": {
+            "id": uid_val,
+            "username": str(user.get("username") or user.get("email") or user.get("extension") or "user"),
+            "full_name": str(user.get("full_name") or user.get("name") or user.get("username") or "Kullanıcı"),
+            "email": str(user.get("email") or ""),
+            "extension": str(user.get("extension") or ""),
+            "role": str(user.get("role") or "agent"),
+            "tenant_id": str(user.get("tenant_id") or token_data.get("tid") or "tenant-default"),
+            "theme_color": str(user.get("theme_color") or "indigo"),
+            "pop_window_on_call": app_cfg.get("pop_window_on_call", True) is not False,
+            "minimize_to_tray": app_cfg.get("minimize_to_tray", True) is not False,
+        }
+    }
+
+
 async def recording_cleanup_task():
     import asyncio
     import os
@@ -36878,18 +37530,46 @@ async def get_system_version_info():
         pass
 
     return {
-        "version": "v3.0.0",
+        "version": "v3.0.1",
         "commit_hash": live_commit,
-        "release_date": "9 Kasım 2026",
+        "release_date": "12 Kasım 2026",
         "status": "Güncel / Canlı Sürüm",
         "environment": "Production (On-Premise)",
         "changelog": [
             {
-                "version": "v3.0.0",
+                "version": "v3.0.1",
                 "commit_hash": live_commit,
-                "release_date": "9 Kasım 2026",
+                "release_date": "12 Kasım 2026",
                 "badge": "Canlı Sürüm (Güncel)",
                 "badge_type": "current",
+                "title": "Uygulamalar & Süreli Kolay Giriş Linki (Masaüstü/Mobil), Tek Tıkla E-Posta Kurulum Daveti ve Tüm Rapor/Geçmiş Tablolarında Sayfalandırma",
+                "summary": "Kullanıcılar içindeki Uygulamalar sekmesi aktif edilerek Masaüstü (AIDA Agent) ve Mobil (AIDA Mobile) uygulamalar için süreli Kolay Giriş Linki (URL), QR Kod eşleştirme, kurulum paketi (.exe/.dmg) indirme ve tek tıkla e-posta davetiyesi gönderimi eklendi. Raporlar modülündeki 17 tablo ve Bağlantı & Cihaz Değişim Geçmişi tablosu 10/20/50/100 sayfalandırma yapısına kavuşturuldu.",
+                "features": [
+                    {
+                        "title": "🔗 Süreli Kolay Giriş Linki (Magic Login URL) & Masaüstü / Mobil Otomatik Bağlantı",
+                        "desc": "Kullanıcılar > Uygulamalar sekmesinde ve kullanıcının kendi Profil > Uygulamalar & İndir menüsünde 15 dk, 1 saat, 24 saat, 7 gün veya 30 gün geçerli HMAC-SHA256 imzalı Kolay Giriş URL'i ve QR Kodu üretilir; Masaüstü (aida-agent://) ve Mobil uygulamalar sunucu adresi veya şifre yazmadan tek linkle açılır."
+                    },
+                    {
+                        "title": "📧 Admin Panelden Tek Tıkla Kurulum & Kolay Giriş E-Posta Gönderimi ve Self-Servis İndirme",
+                        "desc": "Yöneticiler kullanıcı listesinden seçtikleri kullanıcıya Windows (.exe) ve macOS (.dmg) indirme linklerini ve süreli Kolay Giriş URL'ini tek tıkla e-posta olarak gönderebilir; kullanıcılar da web arayüzüne girdiklerinde kendi profil menülerinden uygulamaları indirebilir."
+                    },
+                    {
+                        "title": "📄 Tüm Rapor Tablolarında ve Bağlantı & Cihaz Değişim Geçmişinde Sayfalandırma (10 / 20 / 50 / 100)",
+                        "desc": "Raporlar modülü altındaki tüm 17 rapor tablosuna ve Kullanıcılar > Bağlantı & Cihaz Değişim Geçmişi (Yöntem B) tablosuna varsayılan 10 satırlık (10/20/50/100 seçilebilir) sayfalandırma çubuğu eklendi."
+                    }
+                ],
+                "fixes": [
+                    "Masaüstü uygulaması (AIDA Agent) giriş ekranına 'Kolay Giriş Linki (URL) ile Otomatik Bağlan' alanı ve aida-agent:// protokol işleyicisi eklendi.",
+                    "Bağlantı & Cihaz Değişim Geçmişi (Yöntem B — 1 Tıkla Yetkilendirme) alanındaki gereksiz Yenile butonu kaldırılarak sayfa numaralandırma yapısı bağlandı.",
+                    "Raporlar modülündeki sabit 15/200 kayıt sınırları kaldırılarak tüm kayıtların sayfalar arasında eksiksiz gezilebilmesi sağlandı."
+                ]
+            },
+            {
+                "version": "v3.0.0",
+                "commit_hash": "6a18bcc",
+                "release_date": "9 Kasım 2026",
+                "badge": "Önceki Sürüm",
+                "badge_type": "previous",
                 "title": "Web Phone Canlı Ses Seviye Barları, Profil Donanım Hızlı Testi, Proaktif SIP Trunk Sağlık İzleme & Tam Sistem Denetim Paketi",
                 "summary": "Aktif çağrı sırasında Web Phone üzerinde gerçek zamanlı donanım mikrofonu ve gelen müşteri RTP ses barları, Profil Ayarları > Donanım sekmesinde tek tıkla ses cihazı hızlı testi, AMI tabanlı proaktif SIP Trunk kopma/bağlanma izlemesi, Kuyruk Geri Arama (Smart Callback) ayar ekranı ve uçtan uca Asterisk/Backend/RBAC senkronizasyon düzeltmeleri devreye alındı.",
                 "features": [
