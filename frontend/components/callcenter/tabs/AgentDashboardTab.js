@@ -17,9 +17,11 @@ export default function AgentDashboardTab({ backendHost, currentUser }) {
   });
   const [nowMs, setNowMs] = useState(() => Date.now());
   const [fetchedAtMs, setFetchedAtMs] = useState(() => Date.now());
+  const lastStatsSigRef = React.useRef("");
 
   const fetchStats = async () => {
     if (!currentUser) return;
+    if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
     try {
       const protocol = window.location.protocol;
       const params = new URLSearchParams();
@@ -28,10 +30,24 @@ export default function AgentDashboardTab({ backendHost, currentUser }) {
       const res = await fetch(`${protocol}//${backendHost}/api/agent/stats?${params.toString()}`);
       if (res.ok) {
         const data = await res.json();
-        setStats(data);
-        const now = Date.now();
-        setFetchedAtMs(now);
-        setNowMs(now);
+        const sig = JSON.stringify({
+          i: data?.inbound,
+          o: data?.outbound,
+          m: data?.missed,
+          bs: data?.break_seconds,
+          ab: data?.active_break?.id || data?.active_break?.name || null,
+          lc: Array.isArray(data?.break_logs) ? data.break_logs.length : 0
+        });
+        const hasActBrk = Boolean(
+          data?.active_break || (Array.isArray(data?.break_logs) && data.break_logs.some((l) => l?.is_active))
+        );
+        if (sig !== lastStatsSigRef.current || hasActBrk) {
+          lastStatsSigRef.current = sig;
+          setStats(data);
+          const now = Date.now();
+          setFetchedAtMs(now);
+          setNowMs(now);
+        }
       }
     } catch (err) {
       console.error("Failed to fetch agent stats", err);
@@ -41,21 +57,27 @@ export default function AgentDashboardTab({ backendHost, currentUser }) {
   useEffect(() => {
     if (!currentUser) return;
     fetchStats();
-    const interval = setInterval(fetchStats, 3000);
+    const interval = setInterval(fetchStats, 10000);
     window.addEventListener("AGENT_STATUS_UPDATED", fetchStats);
     return () => {
       clearInterval(interval);
       window.removeEventListener("AGENT_STATUS_UPDATED", fetchStats);
     };
-  }, [backendHost, currentUser]);
+  }, [backendHost, currentUser?.id, currentUser?.extension]);
 
-  // 1-second real-time ticker for active break timers
+  const hasAnyActiveBreak = Boolean(
+    stats.active_break || (Array.isArray(stats.break_logs) && stats.break_logs.some((l) => l?.is_active))
+  );
+
+  // 1-second real-time ticker ONLY when an active break is running
   useEffect(() => {
+    if (!hasAnyActiveBreak) return undefined;
     const timer = setInterval(() => {
+      if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
       setNowMs(Date.now());
     }, 1000);
     return () => clearInterval(timer);
-  }, []);
+  }, [hasAnyActiveBreak]);
 
   const deltaSec = Math.max(0, Math.floor((nowMs - fetchedAtMs) / 1000));
 

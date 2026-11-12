@@ -52,18 +52,23 @@ export default function AgentSessionCard({ backendHost = "localhost:8000", curre
     };
     window.addEventListener("AGENT_STATUS_UPDATED", onStatusUpdated);
     let interval = null;
+    let slowInterval = null;
     if (isVisible) {
       interval = setInterval(() => {
         if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
         fetchAgentStatus();
+      }, 8000);
+      slowInterval = setInterval(() => {
+        if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
         fetchLatestQueuesAndBreaks();
-      }, 6000);
+      }, 60000);
     }
     return () => {
       if (interval) clearInterval(interval);
+      if (slowInterval) clearInterval(slowInterval);
       window.removeEventListener("AGENT_STATUS_UPDATED", onStatusUpdated);
     };
-  }, [currentUser, isVisible]);
+  }, [currentUser?.id, currentUser?.extension, isVisible]);
 
   useEffect(() => {
     if (activeCallId) {
@@ -292,7 +297,21 @@ export default function AgentSessionCard({ backendHost = "localhost:8000", curre
       .then((res) => res.json())
       .then((data) => {
         if (data && !acwActiveRef.current) {
-          setAgentState(data.agent_state || data.state || data);
+          const nextSt = data.agent_state || data.state || data;
+          setAgentState((prev) => {
+            if (
+              prev &&
+              Boolean(prev.is_logged_in) === Boolean(nextSt.is_logged_in) &&
+              prev.status === nextSt.status &&
+              (prev.current_break?.id || prev.current_break?.name || null) ===
+                (nextSt.current_break?.id || nextSt.current_break?.name || null) &&
+              prev.status_since_utc === nextSt.status_since_utc &&
+              prev.break_start_utc === nextSt.break_start_utc
+            ) {
+              return prev;
+            }
+            return nextSt;
+          });
         }
       })
       .catch((err) => console.error("Temsilci durumu alınamadı:", err));

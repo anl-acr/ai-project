@@ -754,6 +754,8 @@ export default function AgentPanel({ backendHost, currentUser, activeCallId, isV
   const [unreadVoicemailCount, setUnreadVoicemailCount] = useState(0);
   const myExt = String(currentUser?.extension || "1000").trim();
   const myUid = String(currentUser?.id || "").trim();
+  const activeTabRef = useRef(activeTab);
+  activeTabRef.current = activeTab;
 
   useEffect(() => {
     webphoneManager.setWebphoneScreenActive(isWebphoneScreenActive);
@@ -774,6 +776,7 @@ export default function AgentPanel({ backendHost, currentUser, activeCallId, isV
     let mounted = true;
     const pollBadges = async () => {
       if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
+      const curTab = activeTabRef.current;
       try {
         const protocol = typeof window !== "undefined" ? window.location.protocol : "http:";
         const now = new Date();
@@ -824,12 +827,12 @@ export default function AgentPanel({ backendHost, currentUser, activeCallId, isV
               const dt = new Date(c.start_time + (String(c.start_time).endsWith("Z") ? "" : "Z")).getTime();
               return !isNaN(dt) && dt > minTs;
             });
-            setUnseenDirectMissedCount(activeTab === "history" && isVisible ? 0 : directMissed.length);
+            setUnseenDirectMissedCount(curTab === "history" && isVisible ? 0 : directMissed.length);
           }
         }
 
         if (mounted) {
-          if (activeTab === "chat" && isVisible && typeof window !== "undefined") {
+          if (curTab === "chat" && isVisible && typeof window !== "undefined") {
             localStorage.setItem(`seen_chat_ts_${myExt}`, String(Date.now()));
           }
           const seenChatTs = Number(
@@ -852,7 +855,7 @@ export default function AgentPanel({ backendHost, currentUser, activeCallId, isV
             }
           }
 
-          if (!(activeTab === "chat" && isVisible) && omniChatRes.ok) {
+          if (!(curTab === "chat" && isVisible) && omniChatRes.ok) {
             const omniData = await omniChatRes.json();
             if (Array.isArray(omniData)) {
               const currentUserFullName = String(currentUser?.full_name || "").toLowerCase().trim();
@@ -901,7 +904,7 @@ export default function AgentPanel({ backendHost, currentUser, activeCallId, isV
     window.addEventListener("INTERNAL_CHAT_READ_SYNC", handleInternalReadSync);
     window.addEventListener("VOICEMAIL_UNREAD_UPDATED", handleVoicemailUpdate);
     pollBadges();
-    const timer = setInterval(pollBadges, 8000);
+    const timer = setInterval(pollBadges, 12000);
     return () => {
       mounted = false;
       window.removeEventListener("MISSED_QUEUE_CALLS_UPDATED", handleMqUpdate);
@@ -909,7 +912,7 @@ export default function AgentPanel({ backendHost, currentUser, activeCallId, isV
       window.removeEventListener("VOICEMAIL_UNREAD_UPDATED", handleVoicemailUpdate);
       clearInterval(timer);
     };
-  }, [host, myExt, myUid, activeTab, isVisible, currentUser?.full_name, currentUser?.username, currentUser?.role]);
+  }, [host, myExt, myUid, isVisible, currentUser?.full_name, currentUser?.username, currentUser?.role]);
 
   const prevAgentSubTabRef = React.useRef(null);
   useEffect(() => {

@@ -6,6 +6,7 @@ import {
   resolveAudioDeviceId
 } from "./audioHelper";
 import {
+  isDesktopApp,
   isNativeElectron,
   sendDesktopNotification
 } from "./desktopBridge";
@@ -900,6 +901,14 @@ class WebphoneManager {
     } catch (e) {}
   }
 
+  syncCurrentUser(userObj) {
+    if (!userObj || typeof userObj !== "object") return;
+    this.state.currentUser = {
+      ...(this.state.currentUser || {}),
+      ...userObj
+    };
+  }
+
   async init({ backendHost, currentUser }) {
     if (typeof window === "undefined") return;
     if (backendHost) this.state.backendHost = backendHost;
@@ -1301,6 +1310,40 @@ class WebphoneManager {
             error: `Bu bilgisayar (${d.device_key || currentDeviceKey}) Web Telefon kullanımı için yetkilendirilmemiş.`
           });
           this.runDiagnosticsCheck({ reason: "device_blocked", autoOpenIfCritical: true });
+          return;
+        }
+        if (d && (d.active_profile || Array.isArray(d.profiles))) {
+          const nextActProf = d.active_profile || this.state.currentUser?.active_profile || "available";
+          const nextProfiles =
+            Array.isArray(d.profiles) && d.profiles.length > 0
+              ? d.profiles
+              : this.state.currentUser?.profiles || [];
+          this.state.currentUser = {
+            ...(this.state.currentUser || {}),
+            active_profile: nextActProf,
+            profiles: nextProfiles,
+            ...(d.forwarding_always ? { forwarding_always: d.forwarding_always } : {}),
+            ...(d.forwarding_busy ? { forwarding_busy: d.forwarding_busy } : {}),
+            ...(d.forwarding_no_answer ? { forwarding_no_answer: d.forwarding_no_answer } : {})
+          };
+          const sig = `${nextActProf}|${d.profiles_updated_ts || 0}|${JSON.stringify(nextProfiles)}`;
+          if (this._lastSyncedProfileSignature !== sig) {
+            this._lastSyncedProfileSignature = sig;
+            if (typeof window !== "undefined") {
+              window.dispatchEvent(
+                new CustomEvent("LIVE_USER_PROFILES_SYNC", {
+                  detail: {
+                    active_profile: nextActProf,
+                    profiles: nextProfiles,
+                    profiles_updated_ts: d.profiles_updated_ts || 0,
+                    forwarding_always: d.forwarding_always,
+                    forwarding_busy: d.forwarding_busy,
+                    forwarding_no_answer: d.forwarding_no_answer
+                  }
+                })
+              );
+            }
+          }
         }
       })
       .catch(() => {});
@@ -2304,7 +2347,8 @@ class WebphoneManager {
     if (curU && Array.isArray(curU.profiles) && curU.profiles.length > 0) {
       const actProfId = curU.active_profile || "available";
       const actProf = curU.profiles.find((p) => p.id === actProfId);
-      if (actProf && Array.isArray(actProf.devices) && !actProf.devices.includes("web_phone")) {
+      const currentClientDevice = isDesktopApp() ? "pc_app" : "web_phone";
+      if (actProf && Array.isArray(actProf.devices) && !actProf.devices.includes(currentClientDevice)) {
         if (actProf.devices.length === 0) {
           try {
             invite.reject();

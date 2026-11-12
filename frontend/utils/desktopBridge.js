@@ -22,6 +22,9 @@ export function isNativeElectron() {
   return typeof window !== "undefined" && Boolean(window.aidaDesktop && window.aidaDesktop.isDesktop === true);
 }
 
+let _cachedElectronConfig = null;
+let _lastTraySignature = "";
+
 export function getDesktopPrefs() {
   if (typeof window === "undefined") {
     return {
@@ -46,7 +49,10 @@ export function getDesktopPrefs() {
 
   if (isNativeElectron() && typeof window.aidaDesktop.getConfigSync === "function") {
     try {
-      const cfg = window.aidaDesktop.getConfigSync() || {};
+      if (!_cachedElectronConfig) {
+        _cachedElectronConfig = window.aidaDesktop.getConfigSync() || {};
+      }
+      const cfg = _cachedElectronConfig;
       return {
         osNotifications: cfg.osNotifications !== undefined ? Boolean(cfg.osNotifications) : osNotifications,
         popWindowOnCall: cfg.popWindowOnCall !== undefined ? Boolean(cfg.popWindowOnCall) : popWindowOnCall,
@@ -81,9 +87,16 @@ export async function updateDesktopPrefs(patch = {}) {
     }
   } catch (e) {}
 
+  if (_cachedElectronConfig && patch && typeof patch === "object") {
+    _cachedElectronConfig = { ..._cachedElectronConfig, ...patch };
+  }
+
   if (isNativeElectron() && typeof window.aidaDesktop.updatePreferences === "function") {
     try {
-      await window.aidaDesktop.updatePreferences(patch);
+      const updated = await window.aidaDesktop.updatePreferences(patch);
+      if (updated && typeof updated === "object") {
+        _cachedElectronConfig = { ...(_cachedElectronConfig || {}), ...updated };
+      }
     } catch (e) {
       console.warn("[DesktopBridge] updatePreferences error:", e);
     }
@@ -175,6 +188,9 @@ export function sendDesktopNotification({
 export function syncDesktopTrayState(payload = {}) {
   if (!isNativeElectron() || typeof window.aidaDesktop.updateTrayState !== "function") return;
   try {
+    const sig = `${payload.fullName || ""}|${payload.extension || ""}|${payload.profileId || ""}|${payload.profileLabel || ""}|${Boolean(payload.registered)}|${payload.callStatus || "Idle"}`;
+    if (sig === _lastTraySignature) return;
+    _lastTraySignature = sig;
     window.aidaDesktop.updateTrayState(payload);
   } catch (e) {}
 }

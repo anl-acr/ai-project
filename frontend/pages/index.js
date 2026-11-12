@@ -1658,6 +1658,97 @@ export default function Home() {
       .catch(() => {});
   }, [settingsModalOpen, currentUser, backendHost]);
 
+  // Keep webphoneManager.state.currentUser synchronized with local currentUser changes
+  useEffect(() => {
+    if (currentUser) {
+      webphoneManager.syncCurrentUser(currentUser);
+    }
+  }, [currentUser]);
+
+  // Real-time live synchronization of active_profile, profiles & device ring targets across Web and PC App
+  useEffect(() => {
+    if (!isLoggedIn || !currentUser || typeof window === "undefined") return undefined;
+
+    const applyRemoteProfileSync = (detail) => {
+      if (!detail || typeof detail !== "object") return;
+      if (settingsModalOpen && userTouchedProfilesInModalRef.current) return;
+
+      const nextActProf = detail.active_profile || "available";
+      const nextProfiles = normalizeUserProfiles(detail.profiles, currentUser);
+
+      setAgentActiveProfile((prev) => (prev === nextActProf ? prev : nextActProf));
+      if (!settingsModalOpen) {
+        setSelectedAgentProfileTab((prev) => (prev === nextActProf ? prev : nextActProf));
+      }
+      setAgentProfiles((prev) => {
+        if (JSON.stringify(prev) === JSON.stringify(nextProfiles)) return prev;
+        return nextProfiles;
+      });
+      if (modalInitialSnapshotRef.current) {
+        modalInitialSnapshotRef.current.activeProfile = nextActProf;
+        modalInitialSnapshotRef.current.profiles = JSON.parse(JSON.stringify(nextProfiles));
+      }
+      if (detail.forwarding_always && typeof detail.forwarding_always === "object") {
+        setFwdAlwaysActive(Boolean(detail.forwarding_always.active));
+        setFwdAlwaysType(detail.forwarding_always.type || "internal");
+        setFwdAlwaysTarget(detail.forwarding_always.target || "");
+      }
+      if (detail.forwarding_busy && typeof detail.forwarding_busy === "object") {
+        setFwdBusyActive(Boolean(detail.forwarding_busy.active));
+        setFwdBusyType(detail.forwarding_busy.type || "internal");
+        setFwdBusyTarget(detail.forwarding_busy.target || "");
+      }
+      if (detail.forwarding_no_answer && typeof detail.forwarding_no_answer === "object") {
+        setFwdNoAnswerActive(Boolean(detail.forwarding_no_answer.active));
+        setFwdNoAnswerType(detail.forwarding_no_answer.type || "internal");
+        setFwdNoAnswerTarget(detail.forwarding_no_answer.target || "");
+        setFwdNoAnswerTimeout(detail.forwarding_no_answer.timeout || 30);
+      }
+
+      setCurrentUser((prev) => {
+        if (!prev) return prev;
+        const prevSig = `${prev.active_profile || "available"}|${JSON.stringify(prev.profiles || [])}`;
+        const nextSig = `${nextActProf}|${JSON.stringify(nextProfiles)}`;
+        if (prevSig === nextSig) return prev;
+        const synced = {
+          ...prev,
+          active_profile: nextActProf,
+          profiles: nextProfiles,
+          ...(detail.forwarding_always ? { forwarding_always: detail.forwarding_always } : {}),
+          ...(detail.forwarding_busy ? { forwarding_busy: detail.forwarding_busy } : {}),
+          ...(detail.forwarding_no_answer ? { forwarding_no_answer: detail.forwarding_no_answer } : {})
+        };
+        try {
+          const savedAuthLocal = localStorage.getItem("is_logged_in") === "true";
+          const storeUid =
+            sessionStorage.getItem("current_user_id") ||
+            localStorage.getItem("current_user_id") ||
+            String(synced.id || "admin");
+          persistAuthenticatedSession(storeUid, savedAuthLocal, synced);
+        } catch (e) {}
+        return synced;
+      });
+    };
+
+    const handleLiveProfilesSync = (e) => {
+      if (e?.detail) applyRemoteProfileSync(e.detail);
+    };
+
+    const handleWindowFocusRefresh = () => {
+      if (typeof document !== "undefined" && document.visibilityState !== "visible") return;
+      webphoneManager.sendPresenceNotify();
+    };
+
+    window.addEventListener("LIVE_USER_PROFILES_SYNC", handleLiveProfilesSync);
+    window.addEventListener("focus", handleWindowFocusRefresh);
+    document.addEventListener("visibilitychange", handleWindowFocusRefresh);
+    return () => {
+      window.removeEventListener("LIVE_USER_PROFILES_SYNC", handleLiveProfilesSync);
+      window.removeEventListener("focus", handleWindowFocusRefresh);
+      document.removeEventListener("visibilitychange", handleWindowFocusRefresh);
+    };
+  }, [isLoggedIn, currentUser?.id, currentUser?.extension, settingsModalOpen]);
+
   const handleCancelSettingsModal = React.useCallback(() => {
     stopRingtoneSound();
     stopSpeakerTestSound();
@@ -2335,8 +2426,28 @@ export default function Home() {
       if (currentUserData.mobile_transfer_enabled !== undefined) {
         setMobileTransferEnabled(Boolean(currentUserData.mobile_transfer_enabled));
       }
+      const hydratedProfMeta =
+        currentUserData?.call_panel_prefs?.profilesMeta &&
+        typeof currentUserData.call_panel_prefs.profilesMeta === "object"
+          ? currentUserData.call_panel_prefs.profilesMeta
+          : null;
+      const hydratedActProf =
+        currentUserData.active_profile || hydratedProfMeta?.active_profile || "available";
+      const rawHydratedProfiles =
+        Array.isArray(currentUserData.profiles) && currentUserData.profiles.length > 0
+          ? currentUserData.profiles
+          : Array.isArray(hydratedProfMeta?.profiles) && hydratedProfMeta.profiles.length > 0
+            ? hydratedProfMeta.profiles
+            : currentUserData.profiles;
+      const hydratedProfiles = normalizeUserProfiles(rawHydratedProfiles, currentUserData);
+      setAgentActiveProfile(hydratedActProf);
+      setSelectedAgentProfileTab(hydratedActProf);
+      setAgentProfiles(hydratedProfiles);
+
       currentUserData = {
         ...currentUserData,
+        active_profile: hydratedActProf,
+        profiles: hydratedProfiles,
         avatar: resolvedAvatar,
         call_panel_prefs: {
           ...(currentUserData.call_panel_prefs && typeof currentUserData.call_panel_prefs === "object"

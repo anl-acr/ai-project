@@ -861,11 +861,15 @@ ipcMain.on("aida:close-notification", (_event, notifId) => {
 });
 
 ipcMain.on("aida:update-tray-state", (_event, nextState = {}) => {
+  const prevSig = `${liveTrayState.fullName}|${liveTrayState.extension}|${liveTrayState.profileId}|${liveTrayState.profileLabel}|${Boolean(liveTrayState.registered)}|${liveTrayState.callStatus}`;
   liveTrayState = {
     ...liveTrayState,
     ...nextState
   };
-  rebuildTrayMenu();
+  const nextSig = `${liveTrayState.fullName}|${liveTrayState.extension}|${liveTrayState.profileId}|${liveTrayState.profileLabel}|${Boolean(liveTrayState.registered)}|${liveTrayState.callStatus}`;
+  if (prevSig !== nextSig) {
+    rebuildTrayMenu();
+  }
 });
 
 // ========================= APP LIFECYCLE =========================

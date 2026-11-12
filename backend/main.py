@@ -9585,6 +9585,7 @@ async def webrtc_register_notify(request: Request, payload: dict, db: AsyncSessi
     if sip_su_payload:
         registered_endpoints.add(sip_su_payload, client_ip, browser=browser_name, os_name=os_name, device_key=device_key_payload)
 
+    matched_user_obj = None
     if ext:
         registered_endpoints.add(ext, client_ip, browser=browser_name, os_name=os_name, device_key=device_key_payload)
         settings = settings_db if isinstance(settings_db, dict) and settings_db else load_settings()
@@ -9592,6 +9593,7 @@ async def webrtc_register_notify(request: Request, payload: dict, db: AsyncSessi
         web_su_resolved = sip_su_payload or resolve_user_webphone_sip_username(ext, "")
         for u in settings.get("users", []):
             if str(u.get("extension")) == ext:
+                matched_user_obj = u
                 matched_user_id = u.get("id")
                 for sd in (u.get("sip_devices") or []):
                     if isinstance(sd, dict) and str(sd.get("device_type") or "").strip().lower() == "web_phone":
@@ -9622,7 +9624,21 @@ async def webrtc_register_notify(request: Request, payload: dict, db: AsyncSessi
         except Exception:
             pass
 
-    return {"status": "success", "ip": client_ip}
+    resp_payload = {"status": "success", "ip": client_ip}
+    if isinstance(matched_user_obj, dict):
+        ensure_user_profiles(matched_user_obj)
+        cpp = matched_user_obj.get("call_panel_prefs") if isinstance(matched_user_obj.get("call_panel_prefs"), dict) else {}
+        p_meta = cpp.get("profilesMeta") if isinstance(cpp.get("profilesMeta"), dict) else {}
+        resp_payload["active_profile"] = matched_user_obj.get("active_profile") or p_meta.get("active_profile") or "available"
+        resp_payload["profiles"] = matched_user_obj.get("profiles") or p_meta.get("profiles") or []
+        resp_payload["profiles_updated_ts"] = int(p_meta.get("updatedTs") or 0)
+        if matched_user_obj.get("forwarding_always"):
+            resp_payload["forwarding_always"] = matched_user_obj.get("forwarding_always")
+        if matched_user_obj.get("forwarding_busy"):
+            resp_payload["forwarding_busy"] = matched_user_obj.get("forwarding_busy")
+        if matched_user_obj.get("forwarding_no_answer"):
+            resp_payload["forwarding_no_answer"] = matched_user_obj.get("forwarding_no_answer")
+    return resp_payload
 
 @app.post("/api/webrtc/unregister_notify")
 async def webrtc_unregister_notify(payload: dict, db: AsyncSession = Depends(get_db)):
@@ -14611,6 +14627,11 @@ async def resolve_agent_ring_targets(extension: str = "", format: str = "", for_
                     val = u.get(k)
                     if val is not None and val != "" and val != []:
                         user_dict[k] = val
+                res_act_prof, res_profs, _ = _extract_latest_user_profiles(user_dict, u)
+                if res_act_prof:
+                    user_dict["active_profile"] = res_act_prof
+                if res_profs:
+                    user_dict["profiles"] = res_profs
             break
 
     if not user_dict:
@@ -14917,6 +14938,11 @@ async def resolve_subscriber_forwarding(
                     for k, val in users_by_ext[r_ext].items():
                         if val is not None and val != "" and val != {} and val != []:
                             row_d[k] = val
+                    res_act_prof, res_profs, _ = _extract_latest_user_profiles(db_u_row, users_by_ext[r_ext])
+                    if res_act_prof:
+                        row_d["active_profile"] = res_act_prof
+                    if res_profs:
+                        row_d["profiles"] = res_profs
                 users_by_ext[r_ext] = row_d
         except Exception:
             pass

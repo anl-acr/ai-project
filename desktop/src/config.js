@@ -37,13 +37,18 @@ function getConfigFilePath() {
   return path.join(userDataDir, "aida-agent-config.json");
 }
 
+let _memConfig = null;
+
 function loadAppConfig() {
+  if (_memConfig) {
+    return { ..._memConfig };
+  }
   try {
     const file = getConfigFilePath();
     if (fs.existsSync(file)) {
       const raw = fs.readFileSync(file, "utf-8");
       const parsed = JSON.parse(raw);
-      return {
+      _memConfig = {
         ...DEFAULT_CONFIG,
         ...parsed,
         windowBounds: {
@@ -52,11 +57,13 @@ function loadAppConfig() {
         },
         recentHosts: Array.isArray(parsed.recentHosts) ? parsed.recentHosts.slice(0, 8) : []
       };
+      return { ..._memConfig };
     }
   } catch (err) {
     console.warn("[AIDA Config] Failed to read config, using defaults:", err.message);
   }
-  return { ...DEFAULT_CONFIG };
+  _memConfig = { ...DEFAULT_CONFIG };
+  return { ..._memConfig };
 }
 
 function saveAppConfig(patch = {}) {
@@ -65,6 +72,7 @@ function saveAppConfig(patch = {}) {
     ...current,
     ...patch
   };
+  _memConfig = next;
   try {
     const file = getConfigFilePath();
     fs.mkdirSync(path.dirname(file), { recursive: true });
