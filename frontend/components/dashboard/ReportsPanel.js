@@ -3349,6 +3349,9 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
     const raw = String(targetRaw || "").trim();
     if (!raw || raw === "-") return "-";
     if (raw === "transfer_to_human") return "Canlı Temsilci";
+    if (raw.toUpperCase() === "VOICEMAIL" || raw.toLowerCase() === "sesli posta" || raw.toLowerCase() === "sesli mesaj") {
+      return "Sesli Posta";
+    }
 
     if (Array.isArray(users) && users.length > 0) {
       const u = users.find(
@@ -3819,16 +3822,23 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
       }
 
       const hangupSrc = String(call.hangup_source || "").trim();
-      const isTransferred = Boolean(
-        call.is_transferred ||
-          call.status === "transferred" ||
-          hangupSrc.startsWith("transfer:")
-      );
-
       let rawTarget = String(call.transfer_target || "").trim();
       if (!rawTarget && hangupSrc.startsWith("transfer:")) {
         rawTarget = hangupSrc.slice(9).trim();
       }
+      const isVmTarget =
+        rawTarget.toUpperCase() === "VOICEMAIL" ||
+        rawTarget.toLowerCase().includes("sesli posta") ||
+        rawTarget.toLowerCase().includes("sesli mesaj") ||
+        String(call.status || "").toLowerCase() === "voicemail" ||
+        hangupSrc.toLowerCase().startsWith("voicemail");
+
+      const isTransferred = Boolean(
+        !isVmTarget &&
+          (call.is_transferred ||
+            call.status === "transferred" ||
+            hangupSrc.startsWith("transfer:"))
+      );
 
       const transferTarget = isTransferred
         ? rawTarget
@@ -4072,18 +4082,45 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
     };
   };
 
+  const isVoicemailCall = (call) => {
+    if (!call) return false;
+    const st = String(call.status || "").trim().toLowerCase();
+    const hs = String(call.hangup_source || "").trim().toLowerCase();
+    const trTarget = String(call.transfer_target || "").trim().toLowerCase();
+    return Boolean(
+      call.went_to_voicemail ||
+        st === "voicemail" ||
+        hs.startsWith("voicemail") ||
+        trTarget === "voicemail" ||
+        trTarget.includes("sesli posta") ||
+        trTarget.includes("sesli mesaj")
+    );
+  };
+
   const getTransferMetadata = (call) => {
     if (!call) return null;
     const hs = String(call.hangup_source || "").trim();
+    const isVmTargetStr = (val) => {
+      const s = String(val || "").trim().toLowerCase();
+      return s === "voicemail" || s.includes("sesli posta") || s.includes("sesli mesaj");
+    };
     const rawChain = Array.isArray(call.transfer_chain)
       ? call.transfer_chain
       : Array.isArray(call.transfer_details?.transfer_chain)
       ? call.transfer_details.transfer_chain
       : [];
     const chain = rawChain.filter(
-      (h) => h && String(h.from_ext || "").trim() && String(h.from_ext || "").trim() !== String(h.to_ext || "").trim()
+      (h) =>
+        h &&
+        String(h.from_ext || "").trim() &&
+        String(h.from_ext || "").trim() !== String(h.to_ext || "").trim() &&
+        !isVmTargetStr(h.to_ext)
     );
     const hadBogusHop = rawChain.length > 0 && chain.length === 0;
+    const rawTargetCheck = String(call.transfer_target || "").trim();
+    if (chain.length === 0 && (isVoicemailCall(call) || isVmTargetStr(rawTargetCheck))) {
+      return null;
+    }
     const isTransferred = Boolean(
       chain.length > 0 ||
         (!hadBogusHop &&
@@ -4100,6 +4137,7 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
     if (!rawTarget && hs.startsWith("transfer:")) {
       rawTarget = hs.slice(9).trim();
     }
+    if (isVmTargetStr(rawTarget)) return null;
     const fromExt = String(firstHop?.from_ext || "").trim();
     const fromUser = fromExt && Array.isArray(users)
       ? users.find((u) => String(u.extension || "").trim() === fromExt)
@@ -4182,14 +4220,17 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
       !String(call.recording_path).includes("DELETED") &&
       !String(call.recording_path).includes("DISABLED")
     ) {
+      const isVm = isVoicemailCall(call);
       return [
         {
           id: "master",
           kind: "master",
-          label: "Tüm Görüşme (Tek Birleşik Ana Kayıt)",
-          participants: `${getCustomerNumber(call)} ↔ ${getConversant(call) || "Temsilci"}`,
+          label: isVm ? "Bırakılan Sesli Posta Kaydı" : "Tüm Görüşme (Tek Birleşik Ana Kayıt)",
+          participants: isVm
+            ? `${getCustomerNumber(call)} → Sesli Posta (${getConversant(call) || "Abone"})`
+            : `${getCustomerNumber(call)} ↔ ${getConversant(call) || "Temsilci"}`,
           recording_path: call.recording_path,
-          duration_sec: Number(call.talk_duration || call.duration || 0)
+          duration_sec: Number(call.voicemail_duration || call.talk_duration || call.duration || 0)
         }
       ];
     }
@@ -4204,10 +4245,15 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
       return `Pickup: ${pickupMeta.pickerDisplay}`;
     }
 
-    if (call.conversant && String(call.conversant).trim()) {
+    const isBadVmLabel = (val) => {
+      const s = String(val || "").trim().toLowerCase();
+      return !s || s === "voicemail" || s === "sesli posta" || s === "sesli mesaj" || s === "temsilci";
+    };
+
+    if (call.conversant && !isBadVmLabel(call.conversant)) {
       return String(call.conversant).trim();
     }
-    if (call.agent_name && String(call.agent_name).trim()) {
+    if (call.agent_name && !isBadVmLabel(call.agent_name)) {
       return String(call.agent_name).trim();
     }
 
@@ -4217,8 +4263,11 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
     const answeredQueueExt = hsRaw.includes(":answered:")
       ? hsRaw.split(":answered:")[1]?.split(":")[0]?.trim() || ""
       : "";
+    const vmTargetExt = hsRaw.toLowerCase().startsWith("voicemail:")
+      ? hsRaw.split(":")[1]?.trim() || ""
+      : "";
 
-    // Check if caller, callee, or answered queue extension matches a system user
+    // Check if caller, callee, voicemail extension, or answered queue extension matches a system user
     if (Array.isArray(users) && users.length > 0) {
       const matchedUser = users.find((u) => {
         const uExt = String(u.extension || "").trim();
@@ -4226,7 +4275,7 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
         const uId = String(u.id || "").trim();
         const uFull = String(u.full_name || u.name || "").trim();
         return (
-          (uExt && (uExt === caller || uExt === callee || uExt === answeredQueueExt)) ||
+          (uExt && (uExt === caller || uExt === callee || uExt === answeredQueueExt || uExt === vmTargetExt)) ||
           (uName && (uName === caller || uName === callee)) ||
           (uId && (uId === caller || uId === callee)) ||
           (uFull && (uFull === caller || uFull === callee))
@@ -4239,6 +4288,9 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
 
     if (answeredQueueExt) {
       return `Dahili ${answeredQueueExt}`;
+    }
+    if (vmTargetExt) {
+      return `Dahili ${vmTargetExt}`;
     }
 
     // Check if caller or callee matches an AI Agent
@@ -4313,8 +4365,19 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
     if (getPickupMetadata(call)) return "Başarılı";
     const st = call.status ? String(call.status).toLowerCase() : "";
     
-    // Check actual DB status
-    if (st === "blocked" || st === "failed" || st === "no answer" || st === "no_answer" || st === "busy" || st === "canceled" || st === "cancelled" || st === "missed") {
+    // Check actual DB status (including unanswered calls routed to Sesli Posta / voicemail)
+    if (
+      st === "blocked" ||
+      st === "failed" ||
+      st === "no answer" ||
+      st === "no_answer" ||
+      st === "busy" ||
+      st === "canceled" ||
+      st === "cancelled" ||
+      st === "missed" ||
+      st === "voicemail" ||
+      isVoicemailCall(call)
+    ) {
       return "Başarısız";
     }
     
@@ -4396,9 +4459,12 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
       if (dahiliMatch) embeddedExt = dahiliMatch[1];
     }
 
-    // Check queue answered extension or transfer target extension
+    // Check queue answered extension or voicemail target extension
     const answeredQueueExt = hs.includes(":answered:")
       ? hs.split(":answered:")[1]?.split(":")[0]?.trim() || ""
+      : "";
+    const vmTargetExt = hs.toLowerCase().startsWith("voicemail:")
+      ? hs.split(":")[1]?.split(":")[0]?.trim() || ""
       : "";
     const isQueueExt = (val) =>
       val &&
@@ -4408,6 +4474,8 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
     let candidateExt = "";
     if (answeredQueueExt) {
       candidateExt = answeredQueueExt;
+    } else if (vmTargetExt) {
+      candidateExt = vmTargetExt;
     } else if (direction.includes("Giden")) {
       if (caller && caller.length <= 6 && caller.toLowerCase() !== "ai" && !caller.startsWith("+")) {
         candidateExt = caller;
@@ -4680,6 +4748,10 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
       };
     }
 
+    if (stLower === "voicemail" || isVoicemailCall(call)) {
+      return { label: "Sesli Posta Servisi (Cevapsız Yönlendirme)", isKnown: true };
+    }
+
     if (stLower === "no_answer") {
       return { label: "Zaman Aşımı (Cevapsız)", isKnown: false };
     }
@@ -4873,14 +4945,39 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
           status: "success"
         });
       } else {
-        timeline.push({
-          time: formatOffsetTime(realTotalSecs),
-          title: "Çağrı Yanıtlanmadı",
-          description: endedByDetail.isKnown
-            ? `${calleeLabel} araması yanıtlanmadan ${endedByDetail.label} tarafından sonlandırıldı.`
-            : `${calleeLabel} aramaya yanıt vermedi veya meşgul. Arama durumu: Başarısız.`,
-          status: "error"
-        });
+        if (isVoicemailCall(call)) {
+          timeline.push({
+            time: formatOffsetTime(Math.max(1, Math.min(realTotalSecs - 1, 5))),
+            title: "Sesli Postaya Yönlendirildi",
+            description: `${calleeLabel} aramaya yanıt vermediği için arayan Sesli Posta servisine yönlendirildi.`,
+            status: "warning"
+          });
+          const vmSec = Number(call.voicemail_duration || 0);
+          if (call.recording_path || vmSec > 0) {
+            timeline.push({
+              time: formatOffsetTime(realTotalSecs),
+              title: "Sesli Posta Mesajı Bırakıldı",
+              description: `${callerLabel} tarafından ${vmSec || realTotalSecs} saniyelik sesli posta kaydı bırakıldı. Çağrı durumu: Başarısız (Cevapsız).`,
+              status: "error"
+            });
+          } else {
+            timeline.push({
+              time: formatOffsetTime(realTotalSecs),
+              title: "Çağrı Yanıtlanmadı (Sesli Posta)",
+              description: `${calleeLabel} aramaya yanıt vermedi, sesli posta yönlendirmesi sonrasında görüşme sonlandırıldı. Arama durumu: Başarısız.`,
+              status: "error"
+            });
+          }
+        } else {
+          timeline.push({
+            time: formatOffsetTime(realTotalSecs),
+            title: "Çağrı Yanıtlanmadı",
+            description: endedByDetail.isKnown
+              ? `${calleeLabel} araması yanıtlanmadan ${endedByDetail.label} tarafından sonlandırıldı.`
+              : `${calleeLabel} aramaya yanıt vermedi veya meşgul. Arama durumu: Başarısız.`,
+            status: "error"
+          });
+        }
       }
       return timeline;
     }
@@ -5033,7 +5130,30 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
             status: "warning"
           });
         }
-        if (hs.includes(":abandoned")) {
+        if (isVoicemailCall(call)) {
+          const vmSec = Number(call.voicemail_duration || 0);
+          const vmStartOffset = Math.max(offset + 1, realTotalSecs - Math.max(1, vmSec || 3));
+          timeline.push({
+            time: formatOffsetTime(vmStartOffset),
+            title: "Sesli Postaya Yönlendirildi",
+            description: `${agentDetail.display} çağrıya yanıt vermediği için arayan Sesli Posta servisine yönlendirildi.`,
+            status: "warning"
+          });
+          if (call.recording_path || vmSec > 0) {
+            timeline.push({
+              time: formatOffsetTime(Math.min(realTotalSecs, vmStartOffset + 1)),
+              title: "Sesli Posta Mesajı Bırakıldı",
+              description: `Arayan numara (${getCustomerNumber(call)}) tarafından ${vmSec || Math.max(1, realTotalSecs - vmStartOffset)} saniyelik sesli posta mesajı bırakıldı.`,
+              status: "info"
+            });
+          }
+          timeline.push({
+            time: formatOffsetTime(realTotalSecs),
+            title: "Çağrı Sonlandırıldı (Cevapsız / Sesli Posta)",
+            description: `${agentDetail.display} çağrıyı açmadığı için görüşme Sesli Posta servisi üzerinden tamamlandı. Çağrı durumu: Başarısız.`,
+            status: "error"
+          });
+        } else if (hs.includes(":abandoned")) {
           timeline.push({
             time: formatOffsetTime(realTotalSecs),
             title: "Müşteri Çağrıyı Sonlandırdı",
@@ -6385,6 +6505,7 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
           const modalIvrEvents = getCallIvrMenuEvents(selectedTimelineCall);
           const modalPickup = getPickupMetadata(selectedTimelineCall);
           const modalTransfer = getTransferMetadata(selectedTimelineCall);
+          const modalVoicemail = isVoicemailCall(selectedTimelineCall);
           const modalAudioSegments = getCallAudioSegments(selectedTimelineCall);
 
           return (
@@ -6421,7 +6542,7 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                 <div>
                   <p className="text-[8px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">Çağrı Yönü / Durum</p>
                   <p className="text-xs font-bold text-slate-800 dark:text-slate-200 mt-0.5">
-                    {modalDir} | <span className="text-primary">{modalStatus}</span>
+                    {modalDir} | <span className="text-primary">{modalStatus}{modalVoicemail ? " (Sesli Postaya Gitti)" : ""}</span>
                   </p>
                 </div>
                 <div>
@@ -6440,9 +6561,30 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                 </div>
               </div>
 
-              {/* Pickup & Transfer Detailed Summary Cards */}
-              {(modalPickup || modalTransfer) && (
+              {/* Pickup, Voicemail & Transfer Detailed Summary Cards */}
+              {(modalPickup || modalTransfer || modalVoicemail) && (
                 <div className="flex flex-col gap-2.5">
+                  {modalVoicemail && (
+                    <div className={"p-3 rounded-2xl border flex flex-col gap-1.5 " + borderLight + " " + lightBg}>
+                      <div className="flex items-center justify-between gap-2 flex-wrap">
+                        <span className={"text-[10px] font-extrabold uppercase tracking-wider flex items-center gap-1.5 " + text}>
+                          <MessageSquare size={13} />
+                          Sesli Posta Yönlendirme Detayı
+                        </span>
+                        <span className={"px-2 py-0.5 rounded-lg text-[9px] font-extrabold text-white " + bg}>
+                          Cevapsız → Sesli Posta
+                        </span>
+                      </div>
+                      <p className="text-xs font-bold text-slate-800 dark:text-slate-100">
+                        Aranan Abone: <span className={text}>{modalAgent.display}</span> çağrıyı yanıtlamadığı için arayan <span className={text}>Sesli Posta</span> servisine yönlendirildi.
+                      </p>
+                      <p className="text-[10px] font-semibold text-slate-500 dark:text-slate-400">
+                        {selectedTimelineCall.recording_path
+                          ? `Bırakılan sesli posta kaydı mevcut (${Number(selectedTimelineCall.voicemail_duration || 0) || 5} sn) — aşağıdaki oynatıcıdan dinleyebilirsiniz.`
+                          : "Arayan sesli posta mesajı bırakmadan çağrıyı sonlandırdı."}
+                      </p>
+                    </div>
+                  )}
                   {modalPickup && (
                     <div className="p-3 rounded-2xl border border-amber-300/70 dark:border-amber-800/60 bg-amber-50/70 dark:bg-amber-950/30 flex flex-col gap-1.5">
                       <div className="flex items-center justify-between gap-2 flex-wrap">

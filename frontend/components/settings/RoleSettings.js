@@ -217,7 +217,7 @@ const SYSTEM_FEATURES = [
   { id: "reports_supervisor_audit", name: "Süpervizör Dinleme & Müdahale", icon: Headphones, type: "access", color: "amber" },
   { id: "reports_blacklist_security", name: "Engellenen Çağrı & İhlal Raporu", icon: Shield, type: "access", color: "rose" },
   { id: "reports_ai_appointments_rag", name: "AI Randevu & Bilgi Bankası (RAG)", icon: Bot, type: "access", color: "purple" },
-  { id: "reports_voicemail", name: "Sesli Posta (Voicemail) Raporu", icon: Mail, type: "access", color: "indigo" },
+  { id: "reports_voicemail", name: "Sesli Posta Raporu", icon: Mail, type: "access", color: "indigo" },
   { id: "reports_conferences", name: "Konferans Odası Kullanım Raporu", icon: Users, type: "access", color: "emerald" },
 
   // 6. Yönetim & Ayarlar

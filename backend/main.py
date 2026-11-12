@@ -15273,7 +15273,7 @@ async def resolve_subscriber_forwarding(
                 return _finalize_fwd_response(f_noans, no_ans_timeout, "Cevapsız Zaman Aşımı Yönlendirmesi")
             if bool(user_dict.get("voicemail_active", False)):
                 print(f"[Forwarding Resolver] Extension {ext_str} ({dialstatus}) -> Voicemail Active -> VOICEMAIL")
-                log_fwd_action("Cevapsız Sesli Mesaj (Voicemail)", "VOICEMAIL")
+                log_fwd_action("Cevapsız Sesli Posta", "Sesli Posta")
                 return Response(content=f"ALLOW:VOICEMAIL:{no_ans_timeout}", media_type="text/plain")
             if prof_target:
                 print(f"[Forwarding Resolver] Extension {ext_str} ({dialstatus}) -> Profile '{active_prof_id}' Timeout Action ({prof_action}) to: {prof_target}")
@@ -15305,7 +15305,7 @@ async def resolve_subscriber_forwarding(
                 return _finalize_fwd_response(gsm_num, no_ans_timeout, "Çevrimdışı Mobil GSM Aktarımı")
             if bool(user_dict.get("voicemail_active", False)):
                 print(f"[Forwarding Resolver] Extension {ext_str} (OFFLINE) -> Voicemail Active -> VOICEMAIL")
-                log_fwd_action("Çevrimdışı Sesli Mesaj (Voicemail)", "VOICEMAIL")
+                log_fwd_action("Çevrimdışı Sesli Posta", "Sesli Posta")
                 return Response(content=f"ALLOW:VOICEMAIL:{no_ans_timeout}", media_type="text/plain")
 
         # Return default timeout for Dial execution
@@ -21758,6 +21758,11 @@ async def list_calls(
                     c.transfer_details = td_dict
                     any_false_transfer_healed = True
 
+                is_voicemail_call = bool(
+                    str(c.status or "").strip().lower() == "voicemail"
+                    or hangup_src.lower().startswith("voicemail")
+                )
+
                 is_transferred = bool(
                     len(td_chain) > 0
                     or (
@@ -21835,6 +21840,10 @@ async def list_calls(
                         picked_up_by_ext = log_ext or picked_up_by_ext
                         picked_up_by_name = log.agent_name or resolve_user_name_by_ext_or_id(picked_up_by_ext) or ""
                     elif act_key in ("call_transfer", "call_blind_transfer", "call_attended_transfer", "call_forwarded"):
+                        act_detail_low = act_detail.lower()
+                        if any(vm_kw in act_detail_low for vm_kw in ("voicemail", "sesli posta", "sesli mesaj")):
+                            is_voicemail_call = True
+                            continue
                         if had_bogus_transfer and not td_chain:
                             continue
                         is_transferred = True
@@ -21850,11 +21859,19 @@ async def list_calls(
                         elif act_detail and not transfer_target:
                             transfer_target = act_detail.strip()
 
+                if any(vm_kw in str(transfer_target or "").lower() for vm_kw in ("voicemail", "sesli posta", "sesli mesaj")):
+                    is_voicemail_call = True
+                    transfer_target = ""
+                    if not td_chain:
+                        is_transferred = False
+                        transfer_type = ""
+
                 if active_hold_start is not None:
                     cap_end = min(c_end, active_hold_start + timedelta(seconds=300))
                     if cap_end > active_hold_start:
                         hold_duration += max(1, int((cap_end - active_hold_start).total_seconds()))
 
+                c.went_to_voicemail = is_voicemail_call
                 c.hold_duration = hold_duration
                 c.hold_count = hold_count
                 c.is_transferred = is_transferred
@@ -21873,6 +21890,13 @@ async def list_calls(
                 c.pickup_device_source = str(td_pickup.get("device_source") or "") if td_pickup else ""
                 c.is_queue_call = is_queue_call
                 c.is_direct_call = not is_queue_call
+
+                if is_voicemail_call:
+                    vm_ext_cand = hangup_src.split(":", 1)[1].strip() if hangup_src.lower().startswith("voicemail:") else callee_str
+                    vm_u_name = resolve_user_name_by_ext_or_id(vm_ext_cand) if vm_ext_cand else ""
+                    if vm_u_name and (not getattr(c, "agent_name", None) or "voicemail" in str(getattr(c, "agent_name", "")).lower() or str(getattr(c, "agent_name", "")).strip() == "Temsilci"):
+                        c.agent_name = vm_u_name
+                        any_agent_backfilled = True
 
                 if not getattr(c, "agent_name", None):
                     resolved_ag = resolve_call_agent_name_snapshot(caller_str, callee_str, c.status, hangup_src)
@@ -22040,8 +22064,10 @@ async def list_calls(
                     st_norm = healed_st
                     healed_unbridged_calls.append((c.id, healed_st, healed_hsrc))
 
-                is_unanswered_st = st_norm in ("no_answer", "no answer", "busy", "cancelled", "canceled", "failed", "blocked", "rejected_limit", "missed", "abandoned") or ":abandoned" in c_hsrc_i
+                is_vm_st = bool(st_norm == "voicemail" or c_hsrc_i.lower().startswith("voicemail") or getattr(c, "went_to_voicemail", False))
+                is_unanswered_st = st_norm in ("no_answer", "no answer", "busy", "cancelled", "canceled", "failed", "blocked", "rejected_limit", "missed", "abandoned", "voicemail") or ":abandoned" in c_hsrc_i or is_vm_st
 
+                vm_audio_sec = _resolve_authoritative_talk_seconds(c) if is_vm_st else 0
                 resolved_talk_sec = 0 if (is_unanswered_st or c_hsrc_i.startswith("call_error:")) else _resolve_authoritative_talk_seconds(c)
 
                 try:
@@ -22049,6 +22075,7 @@ async def list_calls(
                 except Exception:
                     pass
 
+                c.voicemail_duration = vm_audio_sec
                 c.talk_duration = resolved_talk_sec
                 c.duration_talk = resolved_talk_sec
                 if c_is_q_i:
@@ -22078,7 +22105,7 @@ async def list_calls(
                         err_dir_val = "inbound"
                     err_cat_val = "unauthorized"
                     err_rsn_val = f"Kara liste engeli ({bl_detail})"
-                elif is_unanswered_st and resolved_talk_sec == 0 and not c_is_q_i and st_norm != "rejected_limit":
+                elif is_unanswered_st and not is_vm_st and resolved_talk_sec == 0 and not c_is_q_i and st_norm != "rejected_limit":
                     c_caller_dig = re.sub(r"\D", "", c_caller)
                     c_callee_dig = re.sub(r"\D", "", c_callee)
                     is_int_caller_h = (
@@ -28408,6 +28435,9 @@ async def _finalize_voicemail_recording(
                     if db_call:
                         db_call.status = "voicemail"
                         db_call.hangup_source = f"voicemail:{eff_ext}"
+                        vm_ag = resolve_user_name_by_ext_or_id(eff_ext)
+                        if vm_ag:
+                            db_call.agent_name = vm_ag
                         await sess.commit()
                 if db is not None:
                     await _mark_call_vm_only(db)
@@ -28465,6 +28495,9 @@ async def _finalize_voicemail_recording(
                 db_call.hangup_source = f"voicemail:{eff_ext}"
                 db_call.recording_path = audio_api_url
                 db_call.talk_duration = dur_sec
+                vm_ag = resolve_user_name_by_ext_or_id(eff_ext)
+                if vm_ag:
+                    db_call.agent_name = vm_ag
                 if not db_call.answered_at:
                     db_call.answered_at = now_utc - datetime.timedelta(seconds=dur_sec)
         await sess.commit()

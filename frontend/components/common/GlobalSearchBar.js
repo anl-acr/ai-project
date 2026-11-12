@@ -750,7 +750,7 @@ export default function GlobalSearchBar({
         id: "menu-reports-voicemail",
         category: "menu",
         groupLabel: "Raporlar & Analitik",
-        title: "Sesli Posta (Voicemail) Raporu",
+        title: "Sesli Posta Raporu",
         subtitle: "Bırakılan sesli mesajlar, e-posta iletim durumu ve geri dönüş (callback) takibi",
         keywords: "sesli posta voicemail mesaj telesekreter geri dönüş raporu",
         icon: Mail,

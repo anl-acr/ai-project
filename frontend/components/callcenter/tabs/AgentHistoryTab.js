@@ -295,7 +295,7 @@ export default function AgentHistoryTab({ backendHost, currentUser, callPanelPer
   const formatDuration = (secs, startTime, endTime, status) => {
     const st = String(status || "").toLowerCase();
     if (
-      ["no_answer", "no answer", "noanswer", "unanswered", "busy", "cancelled", "cancel", "failed", "blocked", "missed", "abandoned"].includes(st)
+      ["no_answer", "no answer", "noanswer", "unanswered", "busy", "cancelled", "cancel", "failed", "blocked", "missed", "abandoned", "voicemail"].includes(st)
     ) {
       return "0sn";
     }
@@ -322,7 +322,7 @@ export default function AgentHistoryTab({ backendHost, currentUser, callPanelPer
     if (s === "busy") return "Meşgul";
     if (s === "no_answer" || s === "no answer" || s === "noanswer" || s === "unanswered") return "Yanıtlanmadı";
     if (s === "cancelled" || s === "cancel") return "İptal Edildi";
-    if (s === "failed") return "Başarısız";
+    if (s === "failed" || s === "voicemail") return "Başarısız";
     return status.toUpperCase();
   };
 
@@ -610,12 +610,15 @@ export default function AgentHistoryTab({ backendHost, currentUser, callPanelPer
                   {filteredCalls.map((call, idx) => {
                     const { isOutbound, isPickedUp, pickedUpByExt, contactNumber, matchedContact } = call;
                     const stLower = String(call.status || "").toLowerCase();
+                    const hsLower = String(call.hangup_source || "").toLowerCase();
+                    const isVmCall = Boolean(call.went_to_voicemail || stLower === "voicemail" || hsLower.startsWith("voicemail"));
                     const isUnansweredStatus =
                       stLower === "no_answer" ||
                       stLower === "missed" ||
                       stLower === "busy" ||
                       stLower === "cancelled" ||
-                      stLower === "failed";
+                      stLower === "failed" ||
+                      isVmCall;
                     const isDirectMissed = !isOutbound && !isPickedUp && isUnansweredStatus && !call.is_queue_call;
 
                     return (
@@ -708,12 +711,25 @@ export default function AgentHistoryTab({ backendHost, currentUser, callPanelPer
                               {isPickedUp ? "Tamamlandı (Pickup)" : translateStatus(call.status)}
                             </div>
                             {(() => {
+                              const isVmTgt = (val) => {
+                                const s = String(val || "").trim().toLowerCase();
+                                return s === "voicemail" || s.includes("sesli posta") || s.includes("sesli mesaj");
+                              };
                               const validChain = (Array.isArray(call.transfer_chain) ? call.transfer_chain : []).filter(
-                                (h) => h && String(h.from_ext || "").trim() && String(h.from_ext || "").trim() !== String(h.to_ext || "").trim()
+                                (h) =>
+                                  h &&
+                                  String(h.from_ext || "").trim() &&
+                                  String(h.from_ext || "").trim() !== String(h.to_ext || "").trim() &&
+                                  !isVmTgt(h.to_ext)
                               );
+                              const trTgt = String(call.transfer_target || "").trim();
                               const showTrBadge =
                                 validChain.length > 0 ||
-                                (Boolean(call.is_transferred) && String(call.transfer_target || "").trim() && String(call.transfer_target || "").trim() !== String(call.callee_number || "").trim());
+                                (!isVmCall &&
+                                  Boolean(call.is_transferred) &&
+                                  trTgt &&
+                                  !isVmTgt(trTgt) &&
+                                  trTgt !== String(call.callee_number || "").trim());
                               if (!showTrBadge) return null;
                               return (
                                 <span className={`px-2 py-0.5 rounded text-[10px] font-extrabold border ${lightBg} ${text}`}>
@@ -832,6 +848,18 @@ export default function AgentHistoryTab({ backendHost, currentUser, callPanelPer
               </div>
 
               {/* Dialogue Stream Body */}
+              {(activeTranscriptCall.went_to_voicemail ||
+                String(activeTranscriptCall.status || "").toLowerCase() === "voicemail" ||
+                String(activeTranscriptCall.hangup_source || "").toLowerCase().startsWith("voicemail")) && (
+                <div className={`p-3 rounded-2xl border flex items-center justify-between gap-2 ${borderLight} ${lightBg}`}>
+                  <div className="text-xs font-bold text-slate-800 dark:text-slate-100">
+                    Çağrı abone tarafından yanıtlanmadığı için <span className={text}>Sesli Posta</span> servisine yönlendirildi.
+                  </div>
+                  <span className={`px-2 py-0.5 rounded-lg text-[10px] font-extrabold text-white shrink-0 ${bg}`}>
+                    Sesli Posta
+                  </span>
+                </div>
+              )}
               <div className="flex-1 overflow-y-auto min-h-[260px] max-h-[58vh] p-4 rounded-2xl bg-slate-50/70 dark:bg-slate-950/60 border border-slate-200/70 dark:border-slate-800/80 space-y-3 scrollbar-thin">
                 {transcriptLoading ? (
                   <div className="h-56 flex flex-col items-center justify-center gap-2 text-slate-400">

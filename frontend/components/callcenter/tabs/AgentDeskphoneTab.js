@@ -76,7 +76,7 @@ const DSS_KEY_TYPES = [
   },
   {
     id: "voicemail",
-    name: "Sesli Posta (Voicemail)",
+    name: "Sesli Posta",
     short: "Sesli Posta",
     led: "bg-purple-500 shadow-purple-500/60",
     badge: "bg-purple-500/15 text-purple-400 border-purple-500/30",

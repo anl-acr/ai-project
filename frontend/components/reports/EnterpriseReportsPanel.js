@@ -333,7 +333,7 @@ const REPORT_META = {
     icon: Bot
   },
   voicemail: {
-    title: "Sesli Posta (Voicemail) Raporu",
+    title: "Sesli Posta Raporu",
     subtitle: "Dahili bazlı sesli posta kutuları, e-posta yönlendirme durumu ve bırakılan mesajlara geri dönüş (Callback) takibi",
     endpoint: "/api/reports/enterprise/voicemail",
     icon: Mail

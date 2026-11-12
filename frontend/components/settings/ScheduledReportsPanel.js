@@ -66,7 +66,7 @@ const DEFAULT_REPORT_MODULES = {
   reports_supervisor_audit: "Süpervizör Dinleme & Müdahale",
   reports_blacklist_security: "Engellenen Çağrı & İhlal Raporu",
   reports_ai_appointments_rag: "AI Randevu & Bilgi Bankası (RAG)",
-  reports_voicemail: "Sesli Posta (Voicemail) Raporu",
+  reports_voicemail: "Sesli Posta Raporu",
   reports_conferences: "Konferans Odası Kullanım Raporu"
 };
 

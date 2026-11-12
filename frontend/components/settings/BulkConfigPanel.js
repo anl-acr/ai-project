@@ -2586,7 +2586,7 @@ export default function BulkConfigPanel({
                             }
                             placeholder={
                               userChanges[fRow.typeKey] === "voicemail"
-                                ? "VOICEMAIL"
+                                ? "Sesli Posta"
                                 : "Örn: 1005 veya 0532..."
                             }
                             className="w-full px-2 py-1.5 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900"
