@@ -148,44 +148,49 @@ class WebphoneManager {
     });
 
     // 3. Page Lifecycle API: detect Chrome/Edge "Memory Saver" freeze & resume
+    // Only flag Memory Saver if the browser explicitly froze/discarded the document AND PBX registration dropped.
+    // Standard background setInterval throttling (30-60s) happens even when Memory Saver is OFF and must NOT trigger false warnings.
     this._freezeStartedAt = 0;
+    if (document.wasDiscarded && !this.state.registered) {
+      this.setState({
+        memorySaverDetected: true,
+        memorySaverFreezeCount: (this.state.memorySaverFreezeCount || 0) + 1,
+        lastFreezeDurationSec: 60
+      });
+    }
     document.addEventListener("freeze", () => {
       this._freezeStartedAt = Date.now();
     });
     document.addEventListener("resume", () => {
-      const frozenSec = this._freezeStartedAt ? Math.round((Date.now() - this._freezeStartedAt) / 1000) : 5;
+      const frozenSec = this._freezeStartedAt ? Math.round((Date.now() - this._freezeStartedAt) / 1000) : 0;
       this._freezeStartedAt = 0;
-      this.setState({
-        memorySaverDetected: true,
-        memorySaverFreezeCount: (this.state.memorySaverFreezeCount || 0) + 1,
-        lastFreezeDurationSec: Math.max(1, frozenSec)
-      });
+      // Only raise warning if the freeze actually lasted >= 15s AND caused PBX connection loss while Web Lock was not protecting
+      if (frozenSec >= 15 && !this.state.registered && !this.state.webLockActive) {
+        this.setState({
+          memorySaverDetected: true,
+          memorySaverFreezeCount: (this.state.memorySaverFreezeCount || 0) + 1,
+          lastFreezeDurationSec: frozenSec
+        });
+      }
       if (!this.state.registered && this.state.currentUser) {
         this.reloadWebrtcConfig();
       }
       this.runDiagnosticsCheck({ reason: "memory_saver_resume", autoOpenIfCritical: true });
     });
 
-    // 4. Visibility & Timer Drift detector (catches aggressive background tab throttling / sleeping tabs)
+    // 4. Periodic health refresh & silent keepalive check (does NOT falsely trigger Memory Saver on normal background timer throttling)
     this._lastDriftTickAt = Date.now();
     if (this._driftInterval) clearInterval(this._driftInterval);
     this._driftInterval = setInterval(() => {
-      const now = Date.now();
-      const elapsedMs = now - (this._lastDriftTickAt || now);
-      this._lastDriftTickAt = now;
-      // Expected 4000ms; if > 22000ms elapsed in a single tick while hidden, browser throttled/froze the tab
-      if (elapsedMs > 22000 && document.hidden) {
-        this.setState({
-          memorySaverDetected: true,
-          memorySaverFreezeCount: (this.state.memorySaverFreezeCount || 0) + 1,
-          lastFreezeDurationSec: Math.round(elapsedMs / 1000)
-        });
-      }
-      // Periodic health refresh when user is logged in
+      this._lastDriftTickAt = Date.now();
       if (this.state.currentUser) {
+        // Ensure Web Lock stays active so browser never discards the tab
+        if (!this._webLockHeld) {
+          this.acquireBackgroundWakeLock();
+        }
         this.runDiagnosticsCheck({ reason: "periodic" });
       }
-    }, 4000);
+    }, 6000);
 
     document.addEventListener("visibilitychange", () => {
       if (!document.hidden && this.state.currentUser) {
@@ -514,7 +519,19 @@ class WebphoneManager {
     }
 
     // 5. Browser Memory Saver / Background Tab Sleep Protection
-    if (this.state.memorySaverDetected) {
+    // If PBX registration is active, Web Lock is held, or user manually refreshed diagnostics, clear any stale Memory Saver warning.
+    const isManualRefresh =
+      options.reason === "manual_refresh" ||
+      options.reason === "manual_retry" ||
+      options.reason === "manual_rescan" ||
+      options.reason === "manual_open";
+    const activeMemorySaverIssue =
+      Boolean(this.state.memorySaverDetected) &&
+      !this.state.registered &&
+      !this.state.webLockActive &&
+      !isManualRefresh;
+
+    if (activeMemorySaverIssue) {
       warningCount++;
       items.push({
         id: "memory_saver",
@@ -566,7 +583,7 @@ class WebphoneManager {
     }
 
     const issueSignature = items
-      .filter((i) => i.status === "error" || (i.id === "memory_saver" && i.status === "warning"))
+      .filter((i) => i.status === "error")
       .map((i) => `${i.id}:${i.status}`)
       .join("|");
 
@@ -575,12 +592,15 @@ class WebphoneManager {
       criticalCount,
       warningCount,
       isHealthy: criticalCount === 0 && warningCount === 0,
-      hasBlockingIssue: criticalCount > 0 || Boolean(this.state.memorySaverDetected),
+      hasBlockingIssue: criticalCount > 0,
       issueSignature,
       items
     };
 
     const nextPatch = { healthReport: report };
+    if (!activeMemorySaverIssue && this.state.memorySaverDetected) {
+      nextPatch.memorySaverDetected = false;
+    }
 
     // Auto-open popup when a blocking issue is present for an active agent (and not manually dismissed for the exact same issue signature)
     if (

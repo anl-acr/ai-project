@@ -116,7 +116,7 @@ export default function WebPhoneDiagnosticsModal() {
     !isSuperAdminWithoutExt &&
     curUser &&
     report &&
-    (report.criticalCount > 0 || wpState.memorySaverDetected);
+    report.criticalCount > 0;
 
   return (
     <>
