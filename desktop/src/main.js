@@ -117,7 +117,7 @@ app.on("certificate-error", (event, _webContents, urlStr, _error, _certificate, 
 /**
  * Low-level HTTP/HTTPS JSON & text requester (supports self-signed PBX certificates on LAN).
  */
-function nodeRequest(targetUrl, { method = "GET", headers = {}, body = null, timeoutMs = 5500 } = {}) {
+function nodeRequest(targetUrl, { method = "GET", headers = {}, body = null, timeoutMs = 5500, redirectCount = 0 } = {}) {
   return new Promise((resolve, reject) => {
     let parsed;
     try {
@@ -153,6 +153,28 @@ function nodeRequest(targetUrl, { method = "GET", headers = {}, body = null, tim
         timeout: timeoutMs
       },
       (res) => {
+        if (
+          [301, 302, 303, 307, 308].includes(res.statusCode) &&
+          res.headers &&
+          res.headers.location &&
+          redirectCount < 4
+        ) {
+          res.resume();
+          let nextUrl;
+          try {
+            nextUrl = new URL(res.headers.location, targetUrl).toString();
+          } catch (e) {
+            nextUrl = res.headers.location;
+          }
+          return nodeRequest(nextUrl, {
+            method: res.statusCode === 303 ? "GET" : method,
+            headers,
+            body: res.statusCode === 303 ? null : body,
+            timeoutMs,
+            redirectCount: redirectCount + 1
+          }).then(resolve, reject);
+        }
+
         const chunks = [];
         res.on("data", (c) => chunks.push(c));
         res.on("end", () => {
@@ -225,6 +247,11 @@ async function resolveServerOrigins(rawHostInput) {
   } else {
     candidates.push(`https://${cleanHostPart}`);
     candidates.push(`http://${cleanHostPart}`);
+    if (!cleanHostPart.includes(":")) {
+      candidates.push(`https://${cleanHostPart}:8000`);
+      candidates.push(`http://${cleanHostPart}:8000`);
+      candidates.push(`http://${cleanHostPart}:3000`);
+    }
   }
 
   let matchedApiOrigin = "";

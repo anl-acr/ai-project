@@ -1,27 +1,18 @@
 (function () {
   const api = window.aidaDesktop;
   const hostInput = document.getElementById("hostInput");
-  const probeHostBtn = document.getElementById("probeHostBtn");
-  const hostProbeBadge = document.getElementById("hostProbeBadge");
   const recentHostsWrap = document.getElementById("recentHostsWrap");
   const usernameInput = document.getElementById("usernameInput");
   const passwordInput = document.getElementById("passwordInput");
   const togglePwdBtn = document.getElementById("togglePwdBtn");
+  const eyeOpenIcon = document.getElementById("eyeOpenIcon");
+  const eyeClosedIcon = document.getElementById("eyeClosedIcon");
   const rememberCheckbox = document.getElementById("rememberCheckbox");
   const loginForm = document.getElementById("loginForm");
   const loginErrorBox = document.getElementById("loginErrorBox");
   const submitLoginBtn = document.getElementById("submitLoginBtn");
-  const appVersionBadge = document.getElementById("appVersionBadge");
   const magicUrlInput = document.getElementById("magicUrlInput");
   const magicLoginBtn = document.getElementById("magicLoginBtn");
-
-  const toggleHwBtn = document.getElementById("toggleHwBtn");
-  const hwPanel = document.getElementById("hwPanel");
-  const hwChevron = document.getElementById("hwChevron");
-  const hwCountText = document.getElementById("hwCountText");
-  const micSelect = document.getElementById("micSelect");
-  const spkSelect = document.getElementById("spkSelect");
-  const ringSpkSelect = document.getElementById("ringSpkSelect");
 
   const twoFactorForm = document.getElementById("twoFactorForm");
   const twoFaDesc = document.getElementById("twoFaDesc");
@@ -48,7 +39,6 @@
       label.textContent = h;
       label.addEventListener("click", () => {
         hostInput.value = h;
-        runHostProbe(h);
       });
 
       const del = document.createElement("span");
@@ -69,118 +59,14 @@
     });
   }
 
-  async function runHostProbe(hostVal) {
-    const target = String(hostVal !== undefined ? hostVal : hostInput.value || "").trim();
-    if (!target || !api || !api.probeHost) return;
-    probeHostBtn.disabled = true;
-    probeHostBtn.textContent = "Test...";
-    hostProbeBadge.className = "probe-badge";
-    hostProbeBadge.textContent = "Kontrol ediliyor...";
-
-    try {
-      const res = await api.probeHost(target);
-      if (res && res.ok) {
-        hostProbeBadge.className = "probe-badge probe-ok";
-        hostProbeBadge.textContent = "✓ Bağlantı Hazır (" + (res.version || "Aktif") + ")";
-      } else {
-        hostProbeBadge.className = "probe-badge probe-err";
-        hostProbeBadge.textContent = "✕ Ulaşılamadı";
-      }
-    } catch (err) {
-      hostProbeBadge.className = "probe-badge probe-err";
-      hostProbeBadge.textContent = "✕ Hata";
-    } finally {
-      probeHostBtn.disabled = false;
-      probeHostBtn.textContent = "Test Et";
-    }
-  }
-
-  async function loadAudioHardware(savedPrefs = {}) {
-    if (!navigator.mediaDevices || typeof navigator.mediaDevices.enumerateDevices !== "function") {
-      hwCountText.textContent = "Ses donanımı oturum açıldığında yüklenecek";
-      return;
-    }
-    try {
-      let devices = await navigator.mediaDevices.enumerateDevices();
-      if (!devices.some((d) => d.label) && typeof navigator.mediaDevices.getUserMedia === "function") {
-        let stream = null;
-        try {
-          stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-        } finally {
-          if (stream) stream.getTracks().forEach((t) => t.stop());
-        }
-        devices = await navigator.mediaDevices.enumerateDevices();
-      }
-
-      const inputs = devices.filter((d) => d.kind === "audioinput");
-      const outputs = devices.filter((d) => d.kind === "audiooutput");
-      hwCountText.textContent = `${inputs.length} Mikrofon • ${outputs.length} Çıkış/Çalma Aygıtı Hazır`;
-
-      const fillSelect = (sel, list, fallbackPrefix, preferredLabel) => {
-        sel.innerHTML = "";
-        list.forEach((d, idx) => {
-          const opt = document.createElement("option");
-          opt.value = d.label || d.deviceId;
-          opt.textContent = d.label || `${fallbackPrefix} ${idx + 1}`;
-          if (preferredLabel && d.label === preferredLabel) {
-            opt.selected = true;
-          }
-          sel.appendChild(opt);
-        });
-      };
-
-      fillSelect(micSelect, inputs, "Mikrofon", savedPrefs.micLabel || "");
-      fillSelect(spkSelect, outputs, "Kulaklık/Hoparlör", savedPrefs.speakerLabel || "");
-      fillSelect(ringSpkSelect, outputs, "Hoparlör", savedPrefs.ringtoneSpeakerLabel || "");
-    } catch (e) {
-      hwCountText.textContent = "Ses aygıtları hazır";
-    }
-  }
-
-  async function persistAudioSelection() {
-    if (!api || !api.updatePreferences) return;
-    await api.updatePreferences({
-      audioPrefs: {
-        micLabel: micSelect.value || "",
-        speakerLabel: spkSelect.value || "",
-        ringtoneSpeakerLabel: ringSpkSelect.value || ""
-      }
-    });
-  }
-
   // Hydrate initial values
   if (api && api.getConfigSync) {
     const cfg = api.getConfigSync() || {};
-    if (cfg.version) appVersionBadge.textContent = "v" + String(cfg.version).replace(/^v/i, "");
     if (cfg.serverHost) hostInput.value = cfg.serverHost;
     if (cfg.savedUsername) usernameInput.value = cfg.savedUsername;
     rememberCheckbox.checked = cfg.rememberMe !== false;
     renderRecentHosts(cfg.recentHosts || []);
-    loadAudioHardware(cfg.audioPrefs || {});
-    if (cfg.serverHost) {
-      runHostProbe(cfg.serverHost);
-    }
-  } else {
-    loadAudioHardware({});
   }
-
-  if (navigator.mediaDevices && typeof navigator.mediaDevices.addEventListener === "function") {
-    navigator.mediaDevices.addEventListener("devicechange", () => {
-      const cfg = api && api.getConfigSync ? api.getConfigSync() : {};
-      loadAudioHardware((cfg && cfg.audioPrefs) || {});
-    });
-  }
-
-  micSelect.addEventListener("change", persistAudioSelection);
-  spkSelect.addEventListener("change", persistAudioSelection);
-  ringSpkSelect.addEventListener("change", persistAudioSelection);
-
-  toggleHwBtn.addEventListener("click", () => {
-    const isHidden = hwPanel.classList.toggle("hidden");
-    hwChevron.style.transform = isHidden ? "rotate(0deg)" : "rotate(180deg)";
-  });
-
-  probeHostBtn.addEventListener("click", () => runHostProbe());
 
   if (magicLoginBtn && magicUrlInput) {
     const handleMagicUrlConnect = async () => {
@@ -192,7 +78,6 @@
         return;
       }
       loginErrorBox.classList.add("hidden");
-      await persistAudioSelection();
       magicLoginBtn.disabled = true;
       magicLoginBtn.textContent = "Bağlanıyor...";
       try {
@@ -209,7 +94,7 @@
         loginErrorBox.classList.remove("hidden");
       } finally {
         magicLoginBtn.disabled = false;
-        magicLoginBtn.textContent = "Link ile Bağlan";
+        magicLoginBtn.textContent = "Bağlan";
       }
     };
 
@@ -225,16 +110,23 @@
   togglePwdBtn.addEventListener("click", () => {
     const isPwd = passwordInput.type === "password";
     passwordInput.type = isPwd ? "text" : "password";
-    togglePwdBtn.textContent = isPwd ? "Gizle" : "Göster";
+    if (eyeOpenIcon && eyeClosedIcon) {
+      if (isPwd) {
+        eyeOpenIcon.classList.add("hidden");
+        eyeClosedIcon.classList.remove("hidden");
+      } else {
+        eyeOpenIcon.classList.remove("hidden");
+        eyeClosedIcon.classList.add("hidden");
+      }
+    }
   });
 
   loginForm.addEventListener("submit", async (e) => {
     e.preventDefault();
     loginErrorBox.classList.add("hidden");
-    await persistAudioSelection();
 
     submitLoginBtn.disabled = true;
-    submitLoginBtn.textContent = "Santrale Bağlanılıyor...";
+    submitLoginBtn.textContent = "Giriş Yapılıyor...";
 
     try {
       const res = await api.login({
@@ -248,7 +140,7 @@
         loginErrorBox.textContent = (res && res.error) || "Giriş başarısız oldu.";
         loginErrorBox.classList.remove("hidden");
         submitLoginBtn.disabled = false;
-        submitLoginBtn.textContent = "Santrale Bağlan ve Giriş Yap";
+        submitLoginBtn.textContent = "Giriş Yap";
         return;
       }
 
@@ -282,7 +174,7 @@
       loginErrorBox.classList.remove("hidden");
     } finally {
       submitLoginBtn.disabled = false;
-      submitLoginBtn.textContent = "Santrale Bağlan ve Giriş Yap";
+      submitLoginBtn.textContent = "Giriş Yap";
     }
   });
 
