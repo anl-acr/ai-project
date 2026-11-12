@@ -63,6 +63,7 @@ import {
 import { useTheme } from "../../utils/theme";
 import DateTimePickerInput from "../common/DateTimePickerInput";
 import WaveformAudioPlayer from "../common/WaveformAudioPlayer";
+import TablePagination from "../ui/TablePagination";
 import {
   AnimatedNumber,
   PanelShimmerSkeleton,
@@ -544,6 +545,59 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
   const [filterInvalidDirection, setFilterInvalidDirection] = useState("all");
   const [filterInvalidSearch, setFilterInvalidSearch] = useState("");
   const [invalidCallsSortConfig, setInvalidCallsSortConfig] = useState({ key: "startTime", dir: "desc" });
+
+  // Unified Report Table Pagination State
+  const [reportPage, setReportPage] = useState(1);
+  const [reportPageSize, setReportPageSize] = useState(25);
+
+  useEffect(() => {
+    setReportPage(1);
+  }, [
+    viewMode,
+    filterStartDate,
+    filterEndDate,
+    filterStartTime,
+    filterEndTime,
+    filterStatus,
+    filterDirection,
+    filterConversant,
+    filterCallerNumber,
+    filterCallId,
+    filterDidTrafficStatus,
+    filterInvalidCategory,
+    filterInvalidDirection,
+    filterInvalidSearch,
+    filterTrunkPackageStatus,
+    filterWordcloudKeyword,
+  ]);
+
+  const paginateRows = (rows) => {
+    const arr = Array.isArray(rows) ? rows : [];
+    const totalPages = Math.max(1, Math.ceil(arr.length / reportPageSize));
+    const safePage = Math.min(Math.max(1, reportPage), totalPages);
+    const startIdx = (safePage - 1) * reportPageSize;
+    return {
+      paged: arr.slice(startIdx, startIdx + reportPageSize),
+      totalItems: arr.length,
+      safePage,
+    };
+  };
+
+  const renderPaginationBar = (totalItems, itemLabel = "kayıt") => {
+    const totalPages = Math.max(1, Math.ceil((totalItems || 0) / reportPageSize));
+    const safePage = Math.min(Math.max(1, reportPage), totalPages);
+    return (
+      <TablePagination
+        currentPage={safePage}
+        totalItems={totalItems || 0}
+        pageSize={reportPageSize}
+        onPageChange={setReportPage}
+        onPageSizeChange={setReportPageSize}
+        pageSizeOptions={[10, 25, 50, 100]}
+        itemLabel={itemLabel}
+      />
+    );
+  };
 
   // Aggregate & deduplicate ALL defined DID numbers across Trunks, Inbound Rules, Call Flows, Outbound Rules, and Users
   const definedDidInventory = React.useMemo(() => {
@@ -8905,347 +8959,359 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
               </div>
             ) : isPerfMode ? (
               /* Agent Performance Table Mode */
-              <div className="overflow-x-auto p-4">
-                <table className="w-full text-left border-collapse min-w-[900px] border border-slate-200 dark:border-slate-800 rounded-2xl overflow-hidden">
-                  <thead>
-                    <tr className={"border-b border-slate-200 dark:border-slate-800 " + lightBg}>
-                      {visibleColumns.agent && <th className={"p-4 text-xs font-bold uppercase tracking-wider " + text}>Temsilci</th>}
-                      {visibleColumns.totalCalls && <th className={"p-4 text-xs font-bold uppercase tracking-wider text-center " + text}>Toplam Çağrı</th>}
-                      {visibleColumns.answered && <th className={"p-4 text-xs font-bold uppercase tracking-wider text-center " + text}>Cevaplanan</th>}
-                      {visibleColumns.missed && <th className={"p-4 text-xs font-bold uppercase tracking-wider text-center " + text}>Kaçan</th>}
-                      {visibleColumns.answerRate && <th className={"p-4 text-xs font-bold uppercase tracking-wider text-center " + text}>Cevaplama %</th>}
-                      {visibleColumns.totalTalk && <th className={"p-4 text-xs font-bold uppercase tracking-wider text-center " + text}>Top. Konuşma</th>}
-                      {visibleColumns.avgTalk && <th className={"p-4 text-xs font-bold uppercase tracking-wider text-center " + text}>Ort. Konuşma</th>}
-                      {visibleColumns.avgQa && <th className={"p-4 text-xs font-bold uppercase tracking-wider text-center " + text}>Ort. Kalite</th>}
-                      {visibleColumns.sentiment && <th className={"p-4 text-xs font-bold uppercase tracking-wider text-center " + text}>Duygu (Poz/Nöt/Neg)</th>}
-                      {visibleColumns.detail && <th className={"p-4 text-xs font-bold uppercase tracking-wider text-center " + text}></th>}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {(() => {
-                      const stats = {};
-                      // Seed all selected or all available users & AI agents if they match current filter
-                      uniqueConversants.forEach(agentName => {
-                        if (matchesSelectedAgent(agentName)) {
-                          stats[agentName] = {
-                            agent: agentName,
-                            totalCalls: 0,
-                            totalTalkDuration: 0,
-                            answeredCalls: 0,
-                            missedCalls: 0,
-                            qaScoreSum: 0,
-                            qaScoreCount: 0,
-                            sentimentPositive: 0,
-                            sentimentNeutral: 0,
-                            sentimentNegative: 0,
-                            callsTotalList: [],
-                            callsAnsweredList: [],
-                            callsMissedList: []
-                          };
-                        }
-                      });
-                      filteredCalls.forEach(call => {
-                        const agent = getConversant(call) || "Bilinmiyor";
-                        if (!stats[agent]) {
-                          stats[agent] = {
-                            agent: agent,
-                            totalCalls: 0,
-                            totalTalkDuration: 0,
-                            answeredCalls: 0,
-                            missedCalls: 0,
-                            qaScoreSum: 0,
-                            qaScoreCount: 0,
-                            sentimentPositive: 0,
-                            sentimentNeutral: 0,
-                            sentimentNegative: 0,
-                            callsTotalList: [],
-                            callsAnsweredList: [],
-                            callsMissedList: []
-                          };
-                        }
-                        
-                        stats[agent].totalCalls++;
-                        stats[agent].totalTalkDuration += (call.duration_talk || 0);
-                        
-                        const callInfo = { id: call.id, number: getCustomerNumber(call), time: call.start_time, status: call.status, dir: getCallDirection(call) };
-                        stats[agent].callsTotalList.push(callInfo);
-                        
-                        if (call.status === "ANSWERED" || call.duration_talk > 0) {
-                          stats[agent].answeredCalls++;
-                          stats[agent].callsAnsweredList.push(callInfo);
-                        } else {
-                          stats[agent].missedCalls++;
-                          stats[agent].callsMissedList.push(callInfo);
-                        }
-                        
-                        if (call.qa_score) {
-                          stats[agent].qaScoreSum += call.qa_score;
-                          stats[agent].qaScoreCount++;
-                        }
-                        
-                        if (call.sentiment === "positive") stats[agent].sentimentPositive++;
-                        else if (call.sentiment === "negative") stats[agent].sentimentNegative++;
-                        else if (call.sentiment === "neutral") stats[agent].sentimentNeutral++;
-                      });
-                      
-                      const agentList = Object.values(stats).sort((a, b) => b.totalCalls - a.totalCalls);
-                      
-                      const formatSec = (secs) => {
-                        if (!secs || isNaN(secs)) return "00:00";
-                        const m = Math.floor(secs / 60).toString().padStart(2, '0');
-                        const s = Math.floor(secs % 60).toString().padStart(2, '0');
-                        return `${m}:${s}`;
-                      };
-                      
-                      if (agentList.length === 0) {
-                        return (
-                          <tr>
-                            <td colSpan="10" className="p-8 text-center text-slate-500 dark:text-slate-400 font-medium">Bu filtrelere uygun çağrı bulunamadı.</td>
-                          </tr>
-                        );
-                      }
-                      
-                      return agentList.map((agentData, idx) => {
-                        const answerRate = agentData.totalCalls > 0 ? Math.round((agentData.answeredCalls / agentData.totalCalls) * 100) : 0;
-                        const avgTalk = agentData.totalCalls > 0 ? Math.round(agentData.totalTalkDuration / agentData.totalCalls) : 0;
-                        const avgQa = agentData.qaScoreCount > 0 ? Math.round(agentData.qaScoreSum / agentData.qaScoreCount) : 0;
-                        
-                        return (
-                          <tr key={idx} className={"border-b " + borderLight + " transition-colors duration-150 " + hover}>
-                            {visibleColumns.agent && (
-                              <td className="p-4 font-semibold text-slate-800 dark:text-slate-200">
-                                <div className="flex items-center gap-3">
-                                  <img
-                                    src={getAgentAvatarUrl(agentData.agent)}
-                                    alt={agentData.agent}
-                                    className="w-9 h-9 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 p-0.5 object-cover shrink-0 shadow-xs"
-                                  />
-                                  {agentData.agent}
-                                </div>
-                              </td>
+              (() => {
+                const stats = {};
+                // Seed all selected or all available users & AI agents if they match current filter
+                uniqueConversants.forEach(agentName => {
+                  if (matchesSelectedAgent(agentName)) {
+                    stats[agentName] = {
+                      agent: agentName,
+                      totalCalls: 0,
+                      totalTalkDuration: 0,
+                      answeredCalls: 0,
+                      missedCalls: 0,
+                      qaScoreSum: 0,
+                      qaScoreCount: 0,
+                      sentimentPositive: 0,
+                      sentimentNeutral: 0,
+                      sentimentNegative: 0,
+                      callsTotalList: [],
+                      callsAnsweredList: [],
+                      callsMissedList: []
+                    };
+                  }
+                });
+                filteredCalls.forEach(call => {
+                  const agent = getConversant(call) || "Bilinmiyor";
+                  if (!stats[agent]) {
+                    stats[agent] = {
+                      agent: agent,
+                      totalCalls: 0,
+                      totalTalkDuration: 0,
+                      answeredCalls: 0,
+                      missedCalls: 0,
+                      qaScoreSum: 0,
+                      qaScoreCount: 0,
+                      sentimentPositive: 0,
+                      sentimentNeutral: 0,
+                      sentimentNegative: 0,
+                      callsTotalList: [],
+                      callsAnsweredList: [],
+                      callsMissedList: []
+                    };
+                  }
+                  
+                  stats[agent].totalCalls++;
+                  stats[agent].totalTalkDuration += (call.duration_talk || 0);
+                  
+                  const callInfo = { id: call.id, number: getCustomerNumber(call), time: call.start_time, status: call.status, dir: getCallDirection(call) };
+                  stats[agent].callsTotalList.push(callInfo);
+                  
+                  if (call.status === "ANSWERED" || call.duration_talk > 0) {
+                    stats[agent].answeredCalls++;
+                    stats[agent].callsAnsweredList.push(callInfo);
+                  } else {
+                    stats[agent].missedCalls++;
+                    stats[agent].callsMissedList.push(callInfo);
+                  }
+                  
+                  if (call.qa_score) {
+                    stats[agent].qaScoreSum += call.qa_score;
+                    stats[agent].qaScoreCount++;
+                  }
+                  
+                  if (call.sentiment === "positive") stats[agent].sentimentPositive++;
+                  else if (call.sentiment === "negative") stats[agent].sentimentNegative++;
+                  else if (call.sentiment === "neutral") stats[agent].sentimentNeutral++;
+                });
+                
+                const agentList = Object.values(stats).sort((a, b) => b.totalCalls - a.totalCalls);
+                const { paged: pagedAgents } = paginateRows(agentList);
+                
+                const formatSec = (secs) => {
+                  if (!secs || isNaN(secs)) return "00:00";
+                  const m = Math.floor(secs / 60).toString().padStart(2, '0');
+                  const s = Math.floor(secs % 60).toString().padStart(2, '0');
+                  return `${m}:${s}`;
+                };
+
+                return (
+                  <div className="overflow-x-auto p-4">
+                    <div className="border border-slate-200 dark:border-slate-800 rounded-2xl overflow-hidden bg-white dark:bg-slate-900">
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-left border-collapse min-w-[900px]">
+                          <thead>
+                            <tr className={"border-b border-slate-200 dark:border-slate-800 " + lightBg}>
+                              {visibleColumns.agent && <th className={"p-4 text-xs font-bold uppercase tracking-wider " + text}>Temsilci</th>}
+                              {visibleColumns.totalCalls && <th className={"p-4 text-xs font-bold uppercase tracking-wider text-center " + text}>Toplam Çağrı</th>}
+                              {visibleColumns.answered && <th className={"p-4 text-xs font-bold uppercase tracking-wider text-center " + text}>Cevaplanan</th>}
+                              {visibleColumns.missed && <th className={"p-4 text-xs font-bold uppercase tracking-wider text-center " + text}>Kaçan</th>}
+                              {visibleColumns.answerRate && <th className={"p-4 text-xs font-bold uppercase tracking-wider text-center " + text}>Cevaplama %</th>}
+                              {visibleColumns.totalTalk && <th className={"p-4 text-xs font-bold uppercase tracking-wider text-center " + text}>Top. Konuşma</th>}
+                              {visibleColumns.avgTalk && <th className={"p-4 text-xs font-bold uppercase tracking-wider text-center " + text}>Ort. Konuşma</th>}
+                              {visibleColumns.avgQa && <th className={"p-4 text-xs font-bold uppercase tracking-wider text-center " + text}>Ort. Kalite</th>}
+                              {visibleColumns.sentiment && <th className={"p-4 text-xs font-bold uppercase tracking-wider text-center " + text}>Duygu (Poz/Nöt/Neg)</th>}
+                              {visibleColumns.detail && <th className={"p-4 text-xs font-bold uppercase tracking-wider text-center " + text}></th>}
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {pagedAgents.length === 0 ? (
+                              <tr>
+                                <td colSpan="10" className="p-8 text-center text-slate-500 dark:text-slate-400 font-medium">Bu filtrelere uygun çağrı bulunamadı.</td>
+                              </tr>
+                            ) : (
+                              pagedAgents.map((agentData, idx) => {
+                                const answerRate = agentData.totalCalls > 0 ? Math.round((agentData.answeredCalls / agentData.totalCalls) * 100) : 0;
+                                const avgTalk = agentData.totalCalls > 0 ? Math.round(agentData.totalTalkDuration / agentData.totalCalls) : 0;
+                                const avgQa = agentData.qaScoreCount > 0 ? Math.round(agentData.qaScoreSum / agentData.qaScoreCount) : 0;
+                                
+                                return (
+                                  <tr key={idx} className={"border-b " + borderLight + " transition-colors duration-150 " + hover}>
+                                    {visibleColumns.agent && (
+                                      <td className="p-4 font-semibold text-slate-800 dark:text-slate-200">
+                                        <div className="flex items-center gap-3">
+                                          <img
+                                            src={getAgentAvatarUrl(agentData.agent)}
+                                            alt={agentData.agent}
+                                            className="w-9 h-9 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 p-0.5 object-cover shrink-0 shadow-xs"
+                                          />
+                                          {agentData.agent}
+                                        </div>
+                                      </td>
+                                    )}
+                                    {visibleColumns.totalCalls && <td className="p-4 text-center font-bold text-slate-700 dark:text-slate-300">{agentData.totalCalls}</td>}
+                                    {visibleColumns.answered && <td className="p-4 text-center font-bold text-emerald-600 dark:text-emerald-400">{agentData.answeredCalls}</td>}
+                                    {visibleColumns.missed && <td className="p-4 text-center font-bold text-rose-600 dark:text-rose-400">{agentData.missedCalls}</td>}
+                                    {visibleColumns.answerRate && (
+                                      <td className="p-4 text-center">
+                                        <div className={"inline-flex items-center px-2 py-1 rounded-lg text-xs font-bold border " + (answerRate >= 80 ? "bg-emerald-50 dark:bg-emerald-955/20 text-emerald-600 dark:text-emerald-400 border-emerald-100 dark:border-emerald-900/30" : "bg-rose-50 dark:bg-rose-955/20 text-rose-600 dark:text-rose-400 border-rose-100 dark:border-rose-900/30")}>
+                                          %{answerRate}
+                                        </div>
+                                      </td>
+                                    )}
+                                    {visibleColumns.totalTalk && <td className="p-4 text-center font-medium text-slate-600 dark:text-slate-400">{formatSec(agentData.totalTalkDuration)}</td>}
+                                    {visibleColumns.avgTalk && <td className="p-4 text-center font-medium text-slate-600 dark:text-slate-400">{formatSec(avgTalk)}</td>}
+                                    {visibleColumns.avgQa && (
+                                      <td className="p-4 text-center">
+                                        {agentData.qaScoreCount > 0 ? (
+                                          <div className={"inline-flex items-center px-2 py-1 rounded-lg text-xs font-bold border " + (
+                                            avgQa >= 80 ? "bg-emerald-50 dark:bg-emerald-955/20 text-emerald-600 dark:text-emerald-400 border-emerald-100 dark:border-emerald-900/30" :
+                                            avgQa >= 60 ? "bg-amber-50 dark:bg-amber-955/20 text-amber-600 dark:text-amber-400 border-amber-100 dark:border-amber-900/30" :
+                                            "bg-rose-50 dark:bg-rose-955/20 text-rose-600 dark:text-rose-400 border-rose-100 dark:border-rose-900/30"
+                                          )}>
+                                            {avgQa}/100
+                                          </div>
+                                        ) : (
+                                          <span className="text-slate-400 text-xs">-</span>
+                                        )}
+                                      </td>
+                                    )}
+                                    {visibleColumns.sentiment && (
+                                      <td className="p-4 text-center">
+                                        <div className="flex items-center justify-center gap-2 text-xs font-bold">
+                                          <span className="text-emerald-600 dark:text-emerald-400" title="Pozitif">{agentData.sentimentPositive}</span>
+                                          <span className="text-slate-300 dark:text-slate-600">/</span>
+                                          <span className="text-amber-500 dark:text-amber-400" title="Nötr">{agentData.sentimentNeutral}</span>
+                                          <span className="text-slate-300 dark:text-slate-600">/</span>
+                                          <span className="text-rose-600 dark:text-rose-400" title="Negatif">{agentData.sentimentNegative}</span>
+                                        </div>
+                                      </td>
+                                    )}
+                                    {visibleColumns.detail && (
+                                      <td className="p-4 text-center">
+                                        <button 
+                                          onClick={() => {
+                                            setSelectedAgentDetails(agentData);
+                                            setIsAgentDetailsOpen(true);
+                                          }}
+                                          className={"p-2 inline-flex items-center justify-center rounded-lg transition-colors bg-slate-50 dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 " + text}
+                                          title="Çağrı Numaralarını Görüntüle"
+                                        >
+                                          <Search size={16} />
+                                        </button>
+                                      </td>
+                                    )}
+                                  </tr>
+                                );
+                              })
                             )}
-                            {visibleColumns.totalCalls && <td className="p-4 text-center font-bold text-slate-700 dark:text-slate-300">{agentData.totalCalls}</td>}
-                            {visibleColumns.answered && <td className="p-4 text-center font-bold text-emerald-600 dark:text-emerald-400">{agentData.answeredCalls}</td>}
-                            {visibleColumns.missed && <td className="p-4 text-center font-bold text-rose-600 dark:text-rose-400">{agentData.missedCalls}</td>}
-                            {visibleColumns.answerRate && (
-                              <td className="p-4 text-center">
-                                <div className={"inline-flex items-center px-2 py-1 rounded-lg text-xs font-bold border " + (answerRate >= 80 ? "bg-emerald-50 dark:bg-emerald-955/20 text-emerald-600 dark:text-emerald-400 border-emerald-100 dark:border-emerald-900/30" : "bg-rose-50 dark:bg-rose-955/20 text-rose-600 dark:text-rose-400 border-rose-100 dark:border-rose-900/30")}>
-                                  %{answerRate}
-                                </div>
-                              </td>
-                            )}
-                            {visibleColumns.totalTalk && <td className="p-4 text-center font-medium text-slate-600 dark:text-slate-400">{formatSec(agentData.totalTalkDuration)}</td>}
-                            {visibleColumns.avgTalk && <td className="p-4 text-center font-medium text-slate-600 dark:text-slate-400">{formatSec(avgTalk)}</td>}
-                            {visibleColumns.avgQa && (
-                              <td className="p-4 text-center">
-                                {agentData.qaScoreCount > 0 ? (
-                                  <div className={"inline-flex items-center px-2 py-1 rounded-lg text-xs font-bold border " + (
-                                    avgQa >= 80 ? "bg-emerald-50 dark:bg-emerald-955/20 text-emerald-600 dark:text-emerald-400 border-emerald-100 dark:border-emerald-900/30" :
-                                    avgQa >= 60 ? "bg-amber-50 dark:bg-amber-955/20 text-amber-600 dark:text-amber-400 border-amber-100 dark:border-amber-900/30" :
-                                    "bg-rose-50 dark:bg-rose-955/20 text-rose-600 dark:text-rose-400 border-rose-100 dark:border-rose-900/30"
-                                  )}>
-                                    {avgQa}/100
-                                  </div>
-                                ) : (
-                                  <span className="text-slate-400 text-xs">-</span>
-                                )}
-                              </td>
-                            )}
-                            {visibleColumns.sentiment && (
-                              <td className="p-4 text-center">
-                                <div className="flex items-center justify-center gap-2 text-xs font-bold">
-                                  <span className="text-emerald-600 dark:text-emerald-400" title="Pozitif">{agentData.sentimentPositive}</span>
-                                  <span className="text-slate-300 dark:text-slate-600">/</span>
-                                  <span className="text-amber-500 dark:text-amber-400" title="Nötr">{agentData.sentimentNeutral}</span>
-                                  <span className="text-slate-300 dark:text-slate-600">/</span>
-                                  <span className="text-rose-600 dark:text-rose-400" title="Negatif">{agentData.sentimentNegative}</span>
-                                </div>
-                              </td>
-                            )}
-                            {visibleColumns.detail && (
-                              <td className="p-4 text-center">
-                                <button 
-                                  onClick={() => {
-                                    setSelectedAgentDetails(agentData);
-                                    setIsAgentDetailsOpen(true);
-                                  }}
-                                  className={"p-2 inline-flex items-center justify-center rounded-lg transition-colors bg-slate-50 dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 " + text}
-                                  title="Çağrı Numaralarını Görüntüle"
-                                >
-                                  <Search size={16} />
-                                </button>
-                              </td>
-                            )}
-                          </tr>
-                        );
-                      });
-                    })()}
-                  </tbody>
-                </table>
-              </div>
+                          </tbody>
+                        </table>
+                      </div>
+                      {renderPaginationBar(agentList.length, "temsilci")}
+                    </div>
+                  </div>
+                );
+              })()
             ) : isQueueMode ? (
               /* Queue Analytics Table Mode */
-              <div className="overflow-x-auto p-4">
-                <table className="w-full text-left border-collapse min-w-[980px] border border-slate-200 dark:border-slate-800 rounded-2xl overflow-hidden">
-                  <thead>
-                    <tr className={"border-b border-slate-200 dark:border-slate-800 " + lightBg}>
-                      {visibleColumns.date && <th className={"p-4 text-xs font-bold uppercase tracking-wider " + text}>Tarih</th>}
-                      {visibleColumns.queueId && <th className={"p-4 text-xs font-bold uppercase tracking-wider text-center " + text}>Kuyruk ID</th>}
-                      {visibleColumns.queueName && <th className={"p-4 text-xs font-bold uppercase tracking-wider " + text}>Kuyruk İsmi</th>}
-                      {visibleColumns.totalCalls && <th className={"p-4 text-xs font-bold uppercase tracking-wider text-center " + text}>Toplam Çağrı</th>}
-                      {visibleColumns.queuedCalls && <th className={"p-4 text-xs font-bold uppercase tracking-wider text-center " + text}>Kuyruğa Giren</th>}
-                      {visibleColumns.abandoned && <th className={"p-4 text-xs font-bold uppercase tracking-wider text-center " + text}>Kuyrukta Kaçan</th>}
-                      {visibleColumns.sla && <th className={"p-4 text-xs font-bold uppercase tracking-wider text-center " + text}>SLA Uyumu (≤20s)</th>}
-                      {visibleColumns.totalWait && <th className={"p-4 text-xs font-bold uppercase tracking-wider text-center " + text}>Top. Bekleme</th>}
-                      {visibleColumns.avgWait && <th className={"p-4 text-xs font-bold uppercase tracking-wider text-center " + text}>Ort. Bekleme</th>}
-                      {visibleColumns.maxWait && <th className={"p-4 text-xs font-bold uppercase tracking-wider text-center " + text}>Max. Bekleme</th>}
-                      {visibleColumns.detail && <th className={"p-4 text-xs font-bold uppercase tracking-wider text-center " + text}></th>}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {(() => {
-                      const stats = {};
-                      filteredCalls.forEach(call => {
-                        const dateStr = call.start_time ? call.start_time.split("T")[0] : "Bilinmiyor";
-                        const qInfo = resolveCallQueueInfo(call);
-                        if (filterQueuesSelected.length > 0) {
-                          const matchesQueueFilter = filterQueuesSelected.some(selId => {
-                            const selQ = filterQueuesAvailable.find(fq => String(fq.id) === String(selId));
-                            if (!selQ) return String(selId) === String(qInfo.queueId);
-                            return String(selQ.extension) === String(qInfo.queueId) || String(selQ.id) === String(qInfo.queueId) || String(selQ.name) === String(qInfo.queueName);
-                          });
-                          if (!matchesQueueFilter) return;
-                        }
-                        const groupKey = `${dateStr}__${qInfo.queueId}`;
-                        if (!stats[groupKey]) {
-                          stats[groupKey] = {
-                            date: dateStr,
-                            queueId: qInfo.queueId,
-                            queueName: qInfo.queueName,
-                            totalCalls: 0,
-                            queuedCalls: 0,
-                            totalQueueSecs: 0,
-                            maxQueueSecs: 0,
-                            abandonedInQueue: 0,
-                            slaCompliant: 0,
-                            callsTotalList: [],
-                            callsQueuedList: [],
-                            callsAbandonedList: []
-                          };
-                        }
-                        
-                        const dStats = stats[groupKey];
-                        dStats.totalCalls++;
-                        
-                        const callInfo = { id: call.id, number: getCustomerNumber(call), time: call.start_time, status: call.status, dir: getCallDirection(call) };
-                        dStats.callsTotalList.push(callInfo);
-                        
-                        const parsedDur = getCallDurations(call);
-                        let queueSecs = 0;
-                        if (parsedDur.queue) {
-                          const qp = parsedDur.queue.split(":");
-                          if (qp.length === 2) {
-                            queueSecs = parseInt(qp[0]) * 60 + parseInt(qp[1]);
-                          }
-                        }
-                        
-                        if (queueSecs > 0) {
-                          dStats.queuedCalls++;
-                          dStats.totalQueueSecs += queueSecs;
-                          dStats.callsQueuedList.push(callInfo);
-                          if (queueSecs > dStats.maxQueueSecs) dStats.maxQueueSecs = queueSecs;
-                        }
-                        
-                        if (queueSecs <= 20) dStats.slaCompliant++;
-                        
-                        const statusLabel = getCallStatus(call);
-                        if (statusLabel !== "Başarılı" && (!call.duration_talk || call.duration_talk === 0) && queueSecs > 0) {
-                          dStats.abandonedInQueue++;
-                          dStats.callsAbandonedList.push(callInfo);
-                        }
-                      });
-                      
-                      const dateList = Object.values(stats).sort((a, b) => {
-                        const cmp = b.date.localeCompare(a.date);
-                        if (cmp !== 0) return cmp;
-                        return String(a.queueId).localeCompare(String(b.queueId));
-                      });
-                      
-                      const formatSec = (secs) => {
-                        if (!secs || isNaN(secs)) return "00:00";
-                        const m = Math.floor(secs / 60).toString().padStart(2, '0');
-                        const s = Math.floor(secs % 60).toString().padStart(2, '0');
-                        return `${m}:${s}`;
-                      };
-                      
-                      if (dateList.length === 0) {
-                        return (
-                          <tr>
-                            <td colSpan="11" className="p-8 text-center text-slate-500 dark:text-slate-400 font-medium">Bu filtrelere uygun çağrı bulunamadı.</td>
-                          </tr>
-                        );
-                      }
-                      
-                      return dateList.map((dData, idx) => {
-                        const slaRate = dData.totalCalls > 0 ? Math.round((dData.slaCompliant / dData.totalCalls) * 100) : 0;
-                        const avgQueue = dData.queuedCalls > 0 ? Math.round(dData.totalQueueSecs / dData.queuedCalls) : 0;
-                        
-                        return (
-                          <tr key={idx} className={"border-b " + borderLight + " transition-colors duration-150 " + hover}>
-                            {visibleColumns.date && (
-                              <td className="p-4 font-semibold text-slate-800 dark:text-slate-200">
-                                <div className="flex items-center gap-2">
-                                  <CalendarIcon size={14} className={text} />
-                                  {formatDateOnly(dData.date)}
-                                </div>
-                              </td>
+              (() => {
+                const stats = {};
+                filteredCalls.forEach(call => {
+                  const dateStr = call.start_time ? call.start_time.split("T")[0] : "Bilinmiyor";
+                  const qInfo = resolveCallQueueInfo(call);
+                  if (filterQueuesSelected.length > 0) {
+                    const matchesQueueFilter = filterQueuesSelected.some(selId => {
+                      const selQ = filterQueuesAvailable.find(fq => String(fq.id) === String(selId));
+                      if (!selQ) return String(selId) === String(qInfo.queueId);
+                      return String(selQ.extension) === String(qInfo.queueId) || String(selQ.id) === String(qInfo.queueId) || String(selQ.name) === String(qInfo.queueName);
+                    });
+                    if (!matchesQueueFilter) return;
+                  }
+                  const groupKey = `${dateStr}__${qInfo.queueId}`;
+                  if (!stats[groupKey]) {
+                    stats[groupKey] = {
+                      date: dateStr,
+                      queueId: qInfo.queueId,
+                      queueName: qInfo.queueName,
+                      totalCalls: 0,
+                      queuedCalls: 0,
+                      totalQueueSecs: 0,
+                      maxQueueSecs: 0,
+                      abandonedInQueue: 0,
+                      slaCompliant: 0,
+                      callsTotalList: [],
+                      callsQueuedList: [],
+                      callsAbandonedList: []
+                    };
+                  }
+                  
+                  const dStats = stats[groupKey];
+                  dStats.totalCalls++;
+                  
+                  const callInfo = { id: call.id, number: getCustomerNumber(call), time: call.start_time, status: call.status, dir: getCallDirection(call) };
+                  dStats.callsTotalList.push(callInfo);
+                  
+                  const parsedDur = getCallDurations(call);
+                  let queueSecs = 0;
+                  if (parsedDur.queue) {
+                    const qp = parsedDur.queue.split(":");
+                    if (qp.length === 2) {
+                      queueSecs = parseInt(qp[0]) * 60 + parseInt(qp[1]);
+                    }
+                  }
+                  
+                  if (queueSecs > 0) {
+                    dStats.queuedCalls++;
+                    dStats.totalQueueSecs += queueSecs;
+                    dStats.callsQueuedList.push(callInfo);
+                    if (queueSecs > dStats.maxQueueSecs) dStats.maxQueueSecs = queueSecs;
+                  }
+                  
+                  if (queueSecs <= 20) dStats.slaCompliant++;
+                  
+                  const statusLabel = getCallStatus(call);
+                  if (statusLabel !== "Başarılı" && (!call.duration_talk || call.duration_talk === 0) && queueSecs > 0) {
+                    dStats.abandonedInQueue++;
+                    dStats.callsAbandonedList.push(callInfo);
+                  }
+                });
+                
+                const dateList = Object.values(stats).sort((a, b) => {
+                  const cmp = b.date.localeCompare(a.date);
+                  if (cmp !== 0) return cmp;
+                  return String(a.queueId).localeCompare(String(b.queueId));
+                });
+                const { paged: pagedQueues } = paginateRows(dateList);
+                
+                const formatSec = (secs) => {
+                  if (!secs || isNaN(secs)) return "00:00";
+                  const m = Math.floor(secs / 60).toString().padStart(2, '0');
+                  const s = Math.floor(secs % 60).toString().padStart(2, '0');
+                  return `${m}:${s}`;
+                };
+
+                return (
+                  <div className="overflow-x-auto p-4">
+                    <div className="border border-slate-200 dark:border-slate-800 rounded-2xl overflow-hidden bg-white dark:bg-slate-900">
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-left border-collapse min-w-[980px]">
+                          <thead>
+                            <tr className={"border-b border-slate-200 dark:border-slate-800 " + lightBg}>
+                              {visibleColumns.date && <th className={"p-4 text-xs font-bold uppercase tracking-wider " + text}>Tarih</th>}
+                              {visibleColumns.queueId && <th className={"p-4 text-xs font-bold uppercase tracking-wider text-center " + text}>Kuyruk ID</th>}
+                              {visibleColumns.queueName && <th className={"p-4 text-xs font-bold uppercase tracking-wider " + text}>Kuyruk İsmi</th>}
+                              {visibleColumns.totalCalls && <th className={"p-4 text-xs font-bold uppercase tracking-wider text-center " + text}>Toplam Çağrı</th>}
+                              {visibleColumns.queuedCalls && <th className={"p-4 text-xs font-bold uppercase tracking-wider text-center " + text}>Kuyruğa Giren</th>}
+                              {visibleColumns.abandoned && <th className={"p-4 text-xs font-bold uppercase tracking-wider text-center " + text}>Kuyrukta Kaçan</th>}
+                              {visibleColumns.sla && <th className={"p-4 text-xs font-bold uppercase tracking-wider text-center " + text}>SLA Uyumu (≤20s)</th>}
+                              {visibleColumns.totalWait && <th className={"p-4 text-xs font-bold uppercase tracking-wider text-center " + text}>Top. Bekleme</th>}
+                              {visibleColumns.avgWait && <th className={"p-4 text-xs font-bold uppercase tracking-wider text-center " + text}>Ort. Bekleme</th>}
+                              {visibleColumns.maxWait && <th className={"p-4 text-xs font-bold uppercase tracking-wider text-center " + text}>Max. Bekleme</th>}
+                              {visibleColumns.detail && <th className={"p-4 text-xs font-bold uppercase tracking-wider text-center " + text}></th>}
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {pagedQueues.length === 0 ? (
+                              <tr>
+                                <td colSpan="11" className="p-8 text-center text-slate-500 dark:text-slate-400 font-medium">Bu filtrelere uygun çağrı bulunamadı.</td>
+                              </tr>
+                            ) : (
+                              pagedQueues.map((dData, idx) => {
+                                const slaRate = dData.totalCalls > 0 ? Math.round((dData.slaCompliant / dData.totalCalls) * 100) : 0;
+                                const avgQueue = dData.queuedCalls > 0 ? Math.round(dData.totalQueueSecs / dData.queuedCalls) : 0;
+                                
+                                return (
+                                  <tr key={idx} className={"border-b " + borderLight + " transition-colors duration-150 " + hover}>
+                                    {visibleColumns.date && (
+                                      <td className="p-4 font-semibold text-slate-800 dark:text-slate-200">
+                                        <div className="flex items-center gap-2">
+                                          <CalendarIcon size={14} className={text} />
+                                          {formatDateOnly(dData.date)}
+                                        </div>
+                                      </td>
+                                    )}
+                                    {visibleColumns.queueId && (
+                                      <td className="p-4 text-center">
+                                        <span className="inline-flex items-center px-2.5 py-1 rounded-lg text-xs font-mono font-bold bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700">
+                                          {dData.queueId}
+                                        </span>
+                                      </td>
+                                    )}
+                                    {visibleColumns.queueName && (
+                                      <td className="p-4 font-bold text-slate-800 dark:text-slate-200">
+                                        {dData.queueName}
+                                      </td>
+                                    )}
+                                    {visibleColumns.totalCalls && <td className="p-4 text-center font-bold text-slate-700 dark:text-slate-300">{dData.totalCalls}</td>}
+                                    {visibleColumns.queuedCalls && <td className="p-4 text-center font-bold text-blue-600 dark:text-blue-400">{dData.queuedCalls}</td>}
+                                    {visibleColumns.abandoned && <td className="p-4 text-center font-bold text-rose-600 dark:text-rose-400">{dData.abandonedInQueue}</td>}
+                                    {visibleColumns.sla && (
+                                      <td className="p-4 text-center">
+                                        <div className={"inline-flex items-center px-2 py-1 rounded-lg text-xs font-bold border " + (slaRate >= 80 ? "bg-emerald-50 dark:bg-emerald-955/20 text-emerald-600 dark:text-emerald-400 border-emerald-100 dark:border-emerald-900/30" : slaRate >= 50 ? "bg-amber-50 dark:bg-amber-955/20 text-amber-600 dark:text-amber-400 border-amber-100 dark:border-amber-900/30" : "bg-rose-50 dark:bg-rose-955/20 text-rose-600 dark:text-rose-400 border-rose-100 dark:border-rose-900/30")}>
+                                          %{slaRate}
+                                        </div>
+                                      </td>
+                                    )}
+                                    {visibleColumns.totalWait && <td className="p-4 text-center font-medium text-slate-600 dark:text-slate-400">{formatSec(dData.totalQueueSecs)}</td>}
+                                    {visibleColumns.avgWait && <td className="p-4 text-center font-medium text-slate-600 dark:text-slate-400">{formatSec(avgQueue)}</td>}
+                                    {visibleColumns.maxWait && <td className="p-4 text-center font-medium text-slate-800 dark:text-slate-200">{formatSec(dData.maxQueueSecs)}</td>}
+                                    {visibleColumns.detail && (
+                                      <td className="p-4 text-center">
+                                        <button 
+                                          onClick={() => {
+                                            setSelectedQueueDetails(dData);
+                                            setIsQueueDetailsOpen(true);
+                                          }}
+                                          className={"p-2 inline-flex items-center justify-center rounded-lg transition-colors bg-slate-50 dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 " + text}
+                                          title="Çağrı Numaralarını Görüntüle"
+                                        >
+                                          <Search size={16} />
+                                        </button>
+                                      </td>
+                                    )}
+                                  </tr>
+                                );
+                              })
                             )}
-                            {visibleColumns.queueId && (
-                              <td className="p-4 text-center">
-                                <span className="inline-flex items-center px-2.5 py-1 rounded-lg text-xs font-mono font-bold bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700">
-                                  {dData.queueId}
-                                </span>
-                              </td>
-                            )}
-                            {visibleColumns.queueName && (
-                              <td className="p-4 font-bold text-slate-800 dark:text-slate-200">
-                                {dData.queueName}
-                              </td>
-                            )}
-                            {visibleColumns.totalCalls && <td className="p-4 text-center font-bold text-slate-700 dark:text-slate-300">{dData.totalCalls}</td>}
-                            {visibleColumns.queuedCalls && <td className="p-4 text-center font-bold text-blue-600 dark:text-blue-400">{dData.queuedCalls}</td>}
-                            {visibleColumns.abandoned && <td className="p-4 text-center font-bold text-rose-600 dark:text-rose-400">{dData.abandonedInQueue}</td>}
-                            {visibleColumns.sla && (
-                              <td className="p-4 text-center">
-                                <div className={"inline-flex items-center px-2 py-1 rounded-lg text-xs font-bold border " + (slaRate >= 80 ? "bg-emerald-50 dark:bg-emerald-955/20 text-emerald-600 dark:text-emerald-400 border-emerald-100 dark:border-emerald-900/30" : slaRate >= 50 ? "bg-amber-50 dark:bg-amber-955/20 text-amber-600 dark:text-amber-400 border-amber-100 dark:border-amber-900/30" : "bg-rose-50 dark:bg-rose-955/20 text-rose-600 dark:text-rose-400 border-rose-100 dark:border-rose-900/30")}>
-                                  %{slaRate}
-                                </div>
-                              </td>
-                            )}
-                            {visibleColumns.totalWait && <td className="p-4 text-center font-medium text-slate-600 dark:text-slate-400">{formatSec(dData.totalQueueSecs)}</td>}
-                            {visibleColumns.avgWait && <td className="p-4 text-center font-medium text-slate-600 dark:text-slate-400">{formatSec(avgQueue)}</td>}
-                            {visibleColumns.maxWait && <td className="p-4 text-center font-medium text-slate-800 dark:text-slate-200">{formatSec(dData.maxQueueSecs)}</td>}
-                            {visibleColumns.detail && (
-                              <td className="p-4 text-center">
-                                <button 
-                                  onClick={() => {
-                                    setSelectedQueueDetails(dData);
-                                    setIsQueueDetailsOpen(true);
-                                  }}
-                                  className={"p-2 inline-flex items-center justify-center rounded-lg transition-colors bg-slate-50 dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 " + text}
-                                  title="Çağrı Numaralarını Görüntüle"
-                                >
-                                  <Search size={16} />
-                                </button>
-                              </td>
-                            )}
-                          </tr>
-                        );
-                      });
-                    })()}
-                  </tbody>
-                </table>
-              </div>
+                          </tbody>
+                        </table>
+                      </div>
+                      {renderPaginationBar(dateList.length, "kayıt")}
+                    </div>
+                  </div>
+                );
+              })()
             ) : isSentimentHeatMode ? (
               /* Sentiment Heatmap Table Mode */
               <div className="overflow-x-auto p-4 relative">
@@ -9526,7 +9592,7 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                                 <td colSpan="6" className="p-8 text-center text-slate-500 dark:text-slate-400 font-medium">Bu filtrelere uygun çağrı bulunamadı.</td>
                               </tr>
                             ) : (
-                              callerList.map((c, idx) => (
+                              paginateRows(callerList).paged.map((c, idx) => (
                                 <tr key={idx} className={"border-b " + borderLight + " transition-colors duration-150 " + hover}>
                                   {visibleColumns.caller && <td className="p-4 font-bold text-slate-800 dark:text-slate-200">{c.caller}</td>}
                                   {visibleColumns.callCount && <td className="p-4 text-center font-bold text-slate-700 dark:text-slate-300">{c.callCount}</td>}
@@ -9553,6 +9619,7 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                             )}
                           </tbody>
                         </table>
+                        {renderPaginationBar(callerList.length, "müşteri")}
                       </div>
                     </>
                   );
@@ -9740,7 +9807,7 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                                 <td colSpan="5" className="p-8 text-center text-slate-500 dark:text-slate-400 font-medium">Bu filtrelere uygun kaçan çağrı bulunamadı.</td>
                               </tr>
                             ) : (
-                              mappedMissed.map((c, idx) => (
+                              paginateRows(mappedMissed).paged.map((c, idx) => (
                                 <tr key={idx} className={"border-b " + borderLight + " transition-colors duration-150 " + hover}>
                                   {visibleColumns.startTime && (
                                     <td className="p-4 font-semibold text-slate-700 dark:text-slate-300">
@@ -9762,6 +9829,7 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                             )}
                           </tbody>
                         </table>
+                        {renderPaginationBar(mappedMissed.length, "kaçan çağrı")}
                       </div>
                     </>
                   );
@@ -10128,7 +10196,7 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                                   </td>
                                 </tr>
                               ) : (
-                                preparedAgents.map((ag, idx) => {
+                                paginateRows(preparedAgents).paged.map((ag, idx) => {
                                   const eff = Number(ag.efficiency_pct || 0);
                                   const effBadge = eff >= 80
                                     ? "bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-400 dark:border-emerald-800/60"
@@ -10265,6 +10333,7 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                             </tbody>
                           </table>
                         </div>
+                        {renderPaginationBar(preparedAgents.length, "temsilci")}
                       </div>
 
                       {/* Agent Timeline Detail Popup Modal (Opened via Magnifier Button) */}
@@ -10727,7 +10796,7 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                                 </td>
                               </tr>
                             ) : (
-                              activeSlots.map((slot) => {
+                              paginateRows(activeSlots).paged.map((slot) => {
                                 let levelBadge = (
                                   <span className="inline-flex items-center px-2.5 py-1 rounded-lg text-[11px] font-bold bg-emerald-50 dark:bg-emerald-950/30 text-emerald-600 dark:text-emerald-400 border border-emerald-200/70 dark:border-emerald-800/50">
                                     Düşük Yoğunluk
@@ -10773,6 +10842,7 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                             )}
                           </tbody>
                         </table>
+                        {renderPaginationBar(activeSlots.length, "saat dilimi")}
                       </div>
                     </>
                   );
@@ -11227,7 +11297,7 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                                     </td>
                                   </tr>
                                 ) : (
-                                  providers.map((p, idx) => (
+                                  paginateRows(providers).paged.map((p, idx) => (
                                     <tr key={p.id || idx} className={"border-b " + borderLight + " transition-colors duration-150 hover:bg-slate-50/80 dark:hover:bg-slate-800/40"}>
                                       {visibleColumns.trunkName && (
                                         <td className="p-4">
@@ -11302,6 +11372,7 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                                 )}
                               </tbody>
                             </table>
+                            {renderPaginationBar(providers.length, "dış hat")}
                           </div>
                         </div>
                       </div>
@@ -11646,7 +11717,7 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                                   </td>
                                 </tr>
                               ) : (
-                                callLogs.slice(0, 200).map((lg) => (
+                                paginateRows(callLogs).paged.map((lg) => (
                                   <tr
                                     key={lg.id}
                                     className={"border-b " + borderLight + " transition-colors duration-150 hover:bg-slate-50/80 dark:hover:bg-slate-800/40"}
@@ -11705,6 +11776,7 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                               )}
                             </tbody>
                           </table>
+                          {renderPaginationBar(callLogs.length, "kayıt")}
                         </div>
                       </div>
                     </>
@@ -11827,7 +11899,7 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                                     </td>
                                   </tr>
                                 ) : (
-                                  topEvents.map((c, idx) => {
+                                  paginateRows(topEvents).paged.map((c, idx) => {
                                     const trInfo = getTransferMetadata(c);
                                     const segList = getCallAudioSegments(c);
                                     return (
@@ -11890,6 +11962,7 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                                 )}
                               </tbody>
                             </table>
+                            {renderPaginationBar(topEvents.length, "olay")}
                           </div>
                         </div>
                       </div>
@@ -12138,7 +12211,7 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                   };
 
                   // Map DB calls to friction signals
-                  const highFrictionCalls = filteredCalls.slice(0, 15).map((call, idx) => {
+                  const highFrictionCalls = filteredCalls.map((call, idx) => {
                     const seed = (call.id ? call.id.charCodeAt(0) : 0) + idx;
                     const qa = call.qa_score || 80;
                     const sentKey = normalizeFrictionSentimentKey(call.sentiment);
@@ -12236,40 +12309,41 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                                   <tr>
                                     <td colSpan={Math.max(1, Object.values(visibleColumns).filter(Boolean).length)} className="p-8 text-center text-slate-500 dark:text-slate-400 font-medium">Bu dönemde problemli çağrı tespit edilmemiştir.</td>
                                   </tr>
-                                ) : (
-                                  highFrictionCalls.map((c, idx) => (
-                                    <tr key={idx} className={"border-b " + borderLight + " transition-colors duration-150 hover:bg-slate-50/80 dark:hover:bg-slate-800/40"}>
-                                      {visibleColumns.caller && <td className="p-4 font-bold text-slate-800 dark:text-slate-200">{getCustomerNumber(c)}</td>}
-                                      {visibleColumns.driver && <td className="p-4 font-medium text-slate-600 dark:text-slate-400 text-sm truncate max-w-[200px]">{c.primaryDriver}</td>}
-                                      {visibleColumns.score && (
-                                        <td className="p-4 text-center">
-                                          <span className={`inline-flex items-center justify-center w-8 h-8 rounded-full font-black text-xs ${c.frictionScore > 8 ? 'bg-rose-100 text-rose-600 border border-rose-200' : 'bg-amber-100 text-amber-600 border border-amber-200'}`}>
-                                            {c.frictionScore.toFixed(1)}
-                                          </span>
-                                        </td>
-                                      )}
-                                      {visibleColumns.sentiment && (
-                                        <td className="p-4 text-center">
-                                          <span className={`inline-flex items-center px-2 py-1 rounded-lg text-[10px] font-bold border ${
-                                            c.sentimentKey === "ofkeli"
-                                              ? "bg-rose-50 dark:bg-rose-950/30 text-rose-600 dark:text-rose-400 border-rose-200 dark:border-rose-800/50"
-                                              : c.sentimentKey === "olumsuz"
-                                              ? "bg-orange-50 dark:bg-orange-950/30 text-orange-600 dark:text-orange-400 border-orange-200 dark:border-orange-800/50"
-                                              : c.sentimentKey === "memnun" || c.sentimentKey === "pozitif"
-                                              ? "bg-emerald-50 dark:bg-emerald-950/30 text-emerald-600 dark:text-emerald-400 border-emerald-200 dark:border-emerald-800/50"
-                                              : "bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700"
-                                          }`}>
-                                            {c.sentimentLabel}
-                                          </span>
-                                        </td>
-                                      )}
-                                    </tr>
-                                  ))
-                                )}
-                              </tbody>
-                            </table>
+                                  ) : (
+                                    paginateRows(highFrictionCalls).paged.map((c, idx) => (
+                                      <tr key={idx} className={"border-b " + borderLight + " transition-colors duration-150 hover:bg-slate-50/80 dark:hover:bg-slate-800/40"}>
+                                        {visibleColumns.caller && <td className="p-4 font-bold text-slate-800 dark:text-slate-200">{getCustomerNumber(c)}</td>}
+                                        {visibleColumns.driver && <td className="p-4 font-medium text-slate-600 dark:text-slate-400 text-sm truncate max-w-[200px]">{c.primaryDriver}</td>}
+                                        {visibleColumns.score && (
+                                          <td className="p-4 text-center">
+                                            <span className={`inline-flex items-center justify-center w-8 h-8 rounded-full font-black text-xs ${c.frictionScore > 8 ? 'bg-rose-100 text-rose-600 border border-rose-200' : 'bg-amber-100 text-amber-600 border border-amber-200'}`}>
+                                              {c.frictionScore.toFixed(1)}
+                                            </span>
+                                          </td>
+                                        )}
+                                        {visibleColumns.sentiment && (
+                                          <td className="p-4 text-center">
+                                            <span className={`inline-flex items-center px-2 py-1 rounded-lg text-[10px] font-bold border ${
+                                              c.sentimentKey === "ofkeli"
+                                                ? "bg-rose-50 dark:bg-rose-950/30 text-rose-600 dark:text-rose-400 border-rose-200 dark:border-rose-800/50"
+                                                : c.sentimentKey === "olumsuz"
+                                                ? "bg-orange-50 dark:bg-orange-950/30 text-orange-600 dark:text-orange-400 border-orange-200 dark:border-orange-800/50"
+                                                : c.sentimentKey === "memnun" || c.sentimentKey === "pozitif"
+                                                ? "bg-emerald-50 dark:bg-emerald-950/30 text-emerald-600 dark:text-emerald-400 border-emerald-200 dark:border-emerald-800/50"
+                                                : "bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700"
+                                            }`}>
+                                              {c.sentimentLabel}
+                                            </span>
+                                          </td>
+                                        )}
+                                      </tr>
+                                    ))
+                                  )}
+                                </tbody>
+                              </table>
+                              {renderPaginationBar(highFrictionCalls.length, "çağrı")}
+                            </div>
                           </div>
-                        </div>
                       </div>
                     </>
                   );
@@ -12295,7 +12369,7 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                   ];
 
                   // Map DB calls to compliance scores
-                  const complianceViolations = filteredCalls.slice(0, 15).map((call, idx) => {
+                  const complianceViolations = filteredCalls.map((call, idx) => {
                     const seed = (call.id ? call.id.charCodeAt(0) : 0) + idx;
                     const violatedStep = complianceSteps[seed % complianceSteps.length];
                     return {
@@ -12394,35 +12468,36 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                                   <tr>
                                     <td colSpan="4" className="p-8 text-center text-slate-500 dark:text-slate-400 font-medium">Bu dönemde ihlal tespit edilmemiştir.</td>
                                   </tr>
-                                ) : (
-                                  complianceViolations.map((c, idx) => (
-                                    <tr key={idx} className={"border-b " + borderLight + " transition-colors duration-150 " + hover}>
-                                      {visibleColumns.caller && <td className="p-4 font-bold text-slate-800 dark:text-slate-200">{getCustomerNumber(c)}</td>}
-                                      {visibleColumns.agent && <td className="p-4 font-medium text-slate-600 dark:text-slate-400">{getConversant(c) || "Bilinmiyor"}</td>}
-                                      {visibleColumns.score && (
-                                        <td className="p-4 text-center">
-                                          <span className={`inline-flex items-center justify-center w-9 h-6 rounded font-black text-xs ${c.complianceScore < 70 ? 'bg-rose-100 text-rose-600' : 'bg-amber-100 text-amber-600'}`}>
-                                            %{c.complianceScore}
-                                          </span>
-                                        </td>
-                                      )}
-                                      {visibleColumns.missedStep && (
-                                        <td className="p-4">
-                                          <div className="flex items-center gap-2">
-                                            {c.severity === "Kritik" && <AlertTriangle size={14} className="text-rose-500 shrink-0" />}
-                                            <span className={`text-sm font-medium ${c.severity === "Kritik" ? "text-rose-600 dark:text-rose-400" : "text-slate-600 dark:text-slate-400"}`}>
-                                              {c.missedStep}
+                                  ) : (
+                                    paginateRows(complianceViolations).paged.map((c, idx) => (
+                                      <tr key={idx} className={"border-b " + borderLight + " transition-colors duration-150 " + hover}>
+                                        {visibleColumns.caller && <td className="p-4 font-bold text-slate-800 dark:text-slate-200">{getCustomerNumber(c)}</td>}
+                                        {visibleColumns.agent && <td className="p-4 font-medium text-slate-600 dark:text-slate-400">{getConversant(c) || "Bilinmiyor"}</td>}
+                                        {visibleColumns.score && (
+                                          <td className="p-4 text-center">
+                                            <span className={`inline-flex items-center justify-center w-9 h-6 rounded font-black text-xs ${c.complianceScore < 70 ? 'bg-rose-100 text-rose-600' : 'bg-amber-100 text-amber-600'}`}>
+                                              %{c.complianceScore}
                                             </span>
-                                          </div>
-                                        </td>
-                                      )}
-                                    </tr>
-                                  ))
-                                )}
-                              </tbody>
-                            </table>
+                                          </td>
+                                        )}
+                                        {visibleColumns.missedStep && (
+                                          <td className="p-4">
+                                            <div className="flex items-center gap-2">
+                                              {c.severity === "Kritik" && <AlertTriangle size={14} className="text-rose-500 shrink-0" />}
+                                              <span className={`text-sm font-medium ${c.severity === "Kritik" ? "text-rose-600 dark:text-rose-400" : "text-slate-600 dark:text-slate-400"}`}>
+                                                {c.missedStep}
+                                              </span>
+                                            </div>
+                                          </td>
+                                        )}
+                                      </tr>
+                                    ))
+                                  )}
+                                </tbody>
+                              </table>
+                              {renderPaginationBar(complianceViolations.length, "çağrı")}
+                            </div>
                           </div>
-                        </div>
                       </div>
                     </>
                   );
@@ -12447,7 +12522,7 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                   ];
 
                   // Map DB calls to silence scores
-                  const problematicCalls = filteredCalls.slice(0, 15).map((call, idx) => {
+                  const problematicCalls = filteredCalls.map((call, idx) => {
                     const seed = (call.id ? call.id.charCodeAt(0) : 0) + idx;
                     const qa = call.qa_score || 80;
                     return {
@@ -12537,39 +12612,40 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                                   <tr>
                                     <td colSpan="5" className="p-8 text-center text-slate-500 dark:text-slate-400 font-medium">Bu dönemde problemli çağrı tespit edilmemiştir.</td>
                                   </tr>
-                                ) : (
-                                  problematicCalls.map((c, idx) => (
-                                    <tr key={idx} className={"border-b " + borderLight + " transition-colors duration-150 " + hover}>
-                                      {visibleColumns.caller && <td className="p-4 font-bold text-slate-800 dark:text-slate-200">{getCustomerNumber(c)}</td>}
-                                      {visibleColumns.agent && <td className="p-4 font-medium text-slate-600 dark:text-slate-400">{getConversant(c) || "Bilinmiyor"}</td>}
-                                      {visibleColumns.silenceRate && (
-                                        <td className="p-4 text-center">
-                                          <span className={`inline-flex items-center justify-center w-10 h-6 rounded font-black text-xs ${c.silencePercent > 30 ? 'bg-rose-100 text-rose-600' : 'bg-slate-100 text-slate-600'}`}>
-                                            %{c.silencePercent}
-                                          </span>
-                                        </td>
-                                      )}
-                                      {visibleColumns.interruptionCount && (
-                                        <td className="p-4 text-center">
-                                          <span className={`inline-flex items-center justify-center w-6 h-6 rounded-full font-black text-xs ${c.interruptionCount > 5 ? 'bg-amber-100 text-amber-600' : 'bg-slate-100 text-slate-600'}`}>
-                                            {c.interruptionCount}
-                                          </span>
-                                        </td>
-                                      )}
-                                      {visibleColumns.primaryIssue && (
-                                        <td className="p-4">
-                                          <span className={`text-xs font-bold ${c.primaryIssue.includes('Sessiz') ? 'text-rose-500' : 'text-amber-500'}`}>
-                                            {c.primaryIssue}
-                                          </span>
-                                        </td>
-                                      )}
-                                    </tr>
-                                  ))
-                                )}
-                              </tbody>
-                            </table>
+                                  ) : (
+                                    paginateRows(problematicCalls).paged.map((c, idx) => (
+                                      <tr key={idx} className={"border-b " + borderLight + " transition-colors duration-150 " + hover}>
+                                        {visibleColumns.caller && <td className="p-4 font-bold text-slate-800 dark:text-slate-200">{getCustomerNumber(c)}</td>}
+                                        {visibleColumns.agent && <td className="p-4 font-medium text-slate-600 dark:text-slate-400">{getConversant(c) || "Bilinmiyor"}</td>}
+                                        {visibleColumns.silenceRate && (
+                                          <td className="p-4 text-center">
+                                            <span className={`inline-flex items-center justify-center w-10 h-6 rounded font-black text-xs ${c.silencePercent > 30 ? 'bg-rose-100 text-rose-600' : 'bg-slate-100 text-slate-600'}`}>
+                                              %{c.silencePercent}
+                                            </span>
+                                          </td>
+                                        )}
+                                        {visibleColumns.interruptionCount && (
+                                          <td className="p-4 text-center">
+                                            <span className={`inline-flex items-center justify-center w-6 h-6 rounded-full font-black text-xs ${c.interruptionCount > 5 ? 'bg-amber-100 text-amber-600' : 'bg-slate-100 text-slate-600'}`}>
+                                              {c.interruptionCount}
+                                            </span>
+                                          </td>
+                                        )}
+                                        {visibleColumns.primaryIssue && (
+                                          <td className="p-4">
+                                            <span className={`text-xs font-bold ${c.primaryIssue.includes('Sessiz') ? 'text-rose-500' : 'text-amber-500'}`}>
+                                              {c.primaryIssue}
+                                            </span>
+                                          </td>
+                                        )}
+                                      </tr>
+                                    ))
+                                  )}
+                                </tbody>
+                              </table>
+                              {renderPaginationBar(problematicCalls.length, "çağrı")}
+                            </div>
                           </div>
-                        </div>
                       </div>
                     </>
                   );
@@ -13220,7 +13296,7 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                                 </td>
                               </tr>
                             ) : (
-                              displayedRows.map(({ call, evalRes }) => {
+                              paginateRows(displayedRows).paged.map(({ call, evalRes }) => {
                                 const durations = getCallDurations(call);
                                 const conversant = getConversant(call);
                                 const hasMatch = evalRes.matchedRules.length > 0;
@@ -13338,6 +13414,7 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                             )}
                           </tbody>
                         </table>
+                        {renderPaginationBar(displayedRows.length, "çağrı")}
                       </div>
                     </>
                   );
@@ -13543,7 +13620,7 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                           </td>
                         </tr>
                       ) : (
-                        didReportData.rows.map((row) => (
+                        paginateRows(didReportData.rows).paged.map((row) => (
                           <tr
                             key={row.key}
                             className="hover:bg-slate-50/70 dark:hover:bg-slate-800/40 transition-colors"
@@ -13644,6 +13721,7 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                       )}
                     </tbody>
                   </table>
+                  {renderPaginationBar(didReportData.rows.length, "DID numarası")}
                 </div>
               </div>
             ) : isTrunkMinutesMode ? (
@@ -13869,7 +13947,7 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                           </td>
                         </tr>
                       ) : (
-                        trunkMinutesReportData.rows.map((row) => {
+                        paginateRows(trunkMinutesReportData.rows).paged.map((row) => {
                           const hasPkg = row.monthlyPackageMinutes > 0;
                           const isExceeded = hasPkg && row.cycleUsagePct >= 100;
                           const isWarning = hasPkg && !isExceeded && row.cycleUsagePct >= 80;
@@ -14028,6 +14106,7 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                       )}
                     </tbody>
                   </table>
+                  {renderPaginationBar(trunkMinutesReportData.rows.length, "dış hat")}
                 </div>
               </div>
             ) : isInvalidCallsMode ? (
@@ -14249,7 +14328,7 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                           </td>
                         </tr>
                       ) : (
-                        invalidCallsReportData.rows.map((row) => {
+                        paginateRows(invalidCallsReportData.rows).paged.map((row) => {
                           const catBadgeStyle =
                             row.errorCategory === "unauthorized"
                               ? "bg-rose-50 dark:bg-rose-950/30 text-rose-600 dark:text-rose-400 border-rose-200 dark:border-rose-800/50"
@@ -14346,34 +14425,36 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                       )}
                     </tbody>
                   </table>
+                  {renderPaginationBar(invalidCallsReportData.rows.length, "hatalı çağrı")}
                 </div>
               </div>
             ) : (isCdrMode || isAudioMode || isTranscriptsMode || isSentimentMode || isQAMode || isNotesMode) ? (
               /* CDR, Audio, Transcripts, Sentiment, QA & Notes Table Mode */
-              <div className="overflow-x-auto">
-                <table className="w-full text-left border-collapse min-w-[900px]">
-                  <thead>
-                    <tr className="border-b border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-955/20 sticky top-0 backdrop-blur-sm z-10">
-                      {visibleColumns.startTime && <th className="p-4 text-xs font-bold uppercase tracking-wider text-slate-550 dark:text-slate-400">Tarih / Saat</th>}
-                      {visibleColumns.callId && <th className="p-4 text-xs font-bold uppercase tracking-wider text-slate-550 dark:text-slate-400">Çağrı ID</th>}
-                      {visibleColumns.callerNumber && <th className="p-4 text-xs font-bold uppercase tracking-wider text-slate-550 dark:text-slate-400">Numara</th>}
-                      {visibleColumns.direction && <th className="p-4 text-xs font-bold uppercase tracking-wider text-slate-550 dark:text-slate-400">Yön</th>}
-                      {visibleColumns.status && <th className="p-4 text-xs font-bold uppercase tracking-wider text-slate-550 dark:text-slate-400">Çağrı Durumu</th>}
-                      {visibleColumns.conversant && <th className="p-4 text-xs font-bold uppercase tracking-wider text-slate-550 dark:text-slate-400">Görüşen Kişi</th>}
-                      {visibleColumns.durationTalk && <th className="p-4 text-xs font-bold uppercase tracking-wider text-slate-550 dark:text-slate-400">Görüşme Süresi</th>}
-                      {visibleColumns.durationQueue && <th className="p-4 text-xs font-bold uppercase tracking-wider text-slate-550 dark:text-slate-400">Kuyruk Bekleme</th>}
-                      {visibleColumns.durationIvr && <th className="p-4 text-xs font-bold uppercase tracking-wider text-slate-550 dark:text-slate-400">IVR Süresi</th>}
-                      {visibleColumns.durationTotal && <th className="p-4 text-xs font-bold uppercase tracking-wider text-slate-550 dark:text-slate-400">Toplam Süre</th>}
-                      {isAudioMode && visibleColumns.audioRecord && <th className="p-4 text-xs font-bold uppercase tracking-wider text-slate-550 dark:text-slate-400">Ses Kaydı</th>}
-                      {isTranscriptsMode && visibleColumns.transcriptContent && <th className="p-4 text-xs font-bold uppercase tracking-wider text-slate-550 dark:text-slate-400 text-center">İçerik</th>}
-                      {isSentimentMode && visibleColumns.sentimentBadge && <th className="p-4 text-xs font-bold uppercase tracking-wider text-slate-550 dark:text-slate-400 text-center">Duygu Durumu</th>}
-                      {isQAMode && visibleColumns.qaScore && <th className="p-4 text-xs font-bold uppercase tracking-wider text-slate-550 dark:text-slate-400 text-center">Kalite Puanı</th>}
-                      {isNotesMode && visibleColumns.agentNote && <th className="p-4 text-xs font-bold uppercase tracking-wider text-slate-550 dark:text-slate-400 text-center">Temsilci Notu</th>}
-                      {!isTranscriptsMode && !isSentimentMode && !isQAMode && !isNotesMode && visibleColumns.detail && <th className="p-4 text-xs font-bold uppercase tracking-wider text-slate-550 dark:text-slate-400 text-center">Detay</th>}
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                    {filteredCalls.map((call) => {
+              <div className="flex flex-col flex-1 min-h-0">
+                <div className="overflow-x-auto flex-1">
+                  <table className="w-full text-left border-collapse min-w-[900px]">
+                    <thead>
+                      <tr className="border-b border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-955/20 sticky top-0 backdrop-blur-sm z-10">
+                        {visibleColumns.startTime && <th className="p-4 text-xs font-bold uppercase tracking-wider text-slate-550 dark:text-slate-400">Tarih / Saat</th>}
+                        {visibleColumns.callId && <th className="p-4 text-xs font-bold uppercase tracking-wider text-slate-550 dark:text-slate-400">Çağrı ID</th>}
+                        {visibleColumns.callerNumber && <th className="p-4 text-xs font-bold uppercase tracking-wider text-slate-550 dark:text-slate-400">Numara</th>}
+                        {visibleColumns.direction && <th className="p-4 text-xs font-bold uppercase tracking-wider text-slate-550 dark:text-slate-400">Yön</th>}
+                        {visibleColumns.status && <th className="p-4 text-xs font-bold uppercase tracking-wider text-slate-550 dark:text-slate-400">Çağrı Durumu</th>}
+                        {visibleColumns.conversant && <th className="p-4 text-xs font-bold uppercase tracking-wider text-slate-550 dark:text-slate-400">Görüşen Kişi</th>}
+                        {visibleColumns.durationTalk && <th className="p-4 text-xs font-bold uppercase tracking-wider text-slate-550 dark:text-slate-400">Görüşme Süresi</th>}
+                        {visibleColumns.durationQueue && <th className="p-4 text-xs font-bold uppercase tracking-wider text-slate-550 dark:text-slate-400">Kuyruk Bekleme</th>}
+                        {visibleColumns.durationIvr && <th className="p-4 text-xs font-bold uppercase tracking-wider text-slate-550 dark:text-slate-400">IVR Süresi</th>}
+                        {visibleColumns.durationTotal && <th className="p-4 text-xs font-bold uppercase tracking-wider text-slate-550 dark:text-slate-400">Toplam Süre</th>}
+                        {isAudioMode && visibleColumns.audioRecord && <th className="p-4 text-xs font-bold uppercase tracking-wider text-slate-550 dark:text-slate-400">Ses Kaydı</th>}
+                        {isTranscriptsMode && visibleColumns.transcriptContent && <th className="p-4 text-xs font-bold uppercase tracking-wider text-slate-550 dark:text-slate-400 text-center">İçerik</th>}
+                        {isSentimentMode && visibleColumns.sentimentBadge && <th className="p-4 text-xs font-bold uppercase tracking-wider text-slate-550 dark:text-slate-400 text-center">Duygu Durumu</th>}
+                        {isQAMode && visibleColumns.qaScore && <th className="p-4 text-xs font-bold uppercase tracking-wider text-slate-550 dark:text-slate-400 text-center">Kalite Puanı</th>}
+                        {isNotesMode && visibleColumns.agentNote && <th className="p-4 text-xs font-bold uppercase tracking-wider text-slate-550 dark:text-slate-400 text-center">Temsilci Notu</th>}
+                        {!isTranscriptsMode && !isSentimentMode && !isQAMode && !isNotesMode && visibleColumns.detail && <th className="p-4 text-xs font-bold uppercase tracking-wider text-slate-550 dark:text-slate-400 text-center">Detay</th>}
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                      {paginateRows(filteredCalls).paged.map((call) => {
                       const durations = getCallDurations(call);
                       const conversant = getConversant(call);
                       const direction = getCallDirection(call);
@@ -14689,6 +14770,8 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                     })}
                   </tbody>
                 </table>
+                </div>
+                {renderPaginationBar(filteredCalls.length, "çağrı")}
               </div>
             ) : null}
           </div>

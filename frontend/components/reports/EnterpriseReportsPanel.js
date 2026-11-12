@@ -50,6 +50,7 @@ import {
 } from "../../utils/uiMotion";
 import DateTimePickerInput from "../common/DateTimePickerInput";
 import WaveformAudioPlayer from "../common/WaveformAudioPlayer";
+import TablePagination from "../ui/TablePagination";
 
 const DualListBox = ({
   title,
@@ -2407,39 +2408,67 @@ function MosBadge({ mos }) {
 }
 
 function DataTable({ headers, rows, renderRow, ariaLabel }) {
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(25);
+
+  const totalItems = Array.isArray(rows) ? rows.length : 0;
+  const totalPages = Math.max(1, Math.ceil(totalItems / pageSize));
+  const safePage = Math.min(Math.max(1, currentPage), totalPages);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [totalItems, ariaLabel]);
+
+  const paginatedRows = useMemo(() => {
+    if (!Array.isArray(rows)) return [];
+    const startIdx = (safePage - 1) * pageSize;
+    return rows.slice(startIdx, startIdx + pageSize);
+  }, [rows, safePage, pageSize]);
+
   return (
-    <div
-      role="region"
-      aria-label={ariaLabel}
-      tabIndex={0}
-      className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-sm overflow-x-auto max-h-[540px] overflow-y-auto focus:outline-none"
-    >
-      <table className="w-full text-left border-collapse text-xs">
-        <thead className="sticky top-0 z-10 bg-slate-50 dark:bg-slate-950 border-b border-slate-200 dark:border-slate-800">
-          <tr>
-            {headers.map((h) => (
-              <th
-                key={h}
-                scope="col"
-                className="px-4 py-3 text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider whitespace-nowrap"
-              >
-                {h}
-              </th>
-            ))}
-          </tr>
-        </thead>
-        <tbody className="divide-y divide-slate-100 dark:divide-slate-800/70 text-slate-700 dark:text-slate-300">
-          {rows && rows.length > 0 ? (
-            rows.map((r, i) => renderRow(r, i))
-          ) : (
+    <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-sm overflow-hidden">
+      <div
+        role="region"
+        aria-label={ariaLabel}
+        tabIndex={0}
+        className="overflow-x-auto max-h-[540px] overflow-y-auto focus:outline-none"
+      >
+        <table className="w-full text-left border-collapse text-xs">
+          <thead className="sticky top-0 z-10 bg-slate-50 dark:bg-slate-950 border-b border-slate-200 dark:border-slate-800">
             <tr>
-              <td colSpan={headers.length} className="px-4 py-10 text-center text-slate-400 dark:text-slate-500">
-                Seçilen tarih aralığı ve kriterlere uygun kayıt bulunamadı.
-              </td>
+              {headers.map((h) => (
+                <th
+                  key={h}
+                  scope="col"
+                  className="px-4 py-3 text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider whitespace-nowrap"
+                >
+                  {h}
+                </th>
+              ))}
             </tr>
-          )}
-        </tbody>
-      </table>
+          </thead>
+          <tbody className="divide-y divide-slate-100 dark:divide-slate-800/70 text-slate-700 dark:text-slate-300">
+            {paginatedRows.length > 0 ? (
+              paginatedRows.map((r, i) => renderRow(r, (safePage - 1) * pageSize + i))
+            ) : (
+              <tr>
+                <td colSpan={headers.length} className="px-4 py-10 text-center text-slate-400 dark:text-slate-500">
+                  Seçilen tarih aralığı ve kriterlere uygun kayıt bulunamadı.
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+      <TablePagination
+        currentPage={safePage}
+        totalItems={totalItems}
+        pageSize={pageSize}
+        onPageChange={setCurrentPage}
+        onPageSizeChange={setPageSize}
+        pageSizeOptions={[10, 25, 50, 100]}
+        itemLabel="kayıt"
+      />
     </div>
   );
 }

@@ -23,6 +23,7 @@ import {
 import { useTheme } from "../../../utils/theme";
 import { findContactByPhone, maskPhoneLast4 } from "../../../utils/contactUtils";
 import WaveformAudioPlayer from "../../common/WaveformAudioPlayer";
+import TablePagination from "../../ui/TablePagination";
 
 function parseBilingualTurnText(rawText) {
   const str = String(rawText || "");
@@ -334,6 +335,20 @@ export default function AgentHistoryTab({ backendHost, currentUser, callPanelPer
   const activeDirectionLabel = DIRECTION_FILTER_OPTIONS.find((d) => d.id === directionFilter)?.label || "Tüm Çağrılar";
   const hasCustomFilter = dateFilter !== "today" || directionFilter !== "all";
 
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(25);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [dateFilter, directionFilter, searchInput, filteredCalls.length]);
+
+  const totalPages = Math.max(1, Math.ceil(filteredCalls.length / pageSize));
+  const safePage = Math.min(Math.max(1, currentPage), totalPages);
+  const paginatedCalls = useMemo(() => {
+    const startIdx = (safePage - 1) * pageSize;
+    return filteredCalls.slice(startIdx, startIdx + pageSize);
+  }, [filteredCalls, safePage, pageSize]);
+
   return (
     <div className="w-full h-full bg-slate-50 dark:bg-slate-900/50 p-6 overflow-y-auto">
       <div className="max-w-5xl mx-auto space-y-5">
@@ -607,7 +622,7 @@ export default function AgentHistoryTab({ backendHost, currentUser, callPanelPer
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 dark:divide-slate-800/60">
-                  {filteredCalls.map((call, idx) => {
+                  {paginatedCalls.map((call, idx) => {
                     const { isOutbound, isPickedUp, pickedUpByExt, contactNumber, matchedContact } = call;
                     const stLower = String(call.status || "").toLowerCase();
                     const hsLower = String(call.hangup_source || "").toLowerCase();
@@ -786,6 +801,15 @@ export default function AgentHistoryTab({ backendHost, currentUser, callPanelPer
                 </tbody>
               </table>
             </div>
+            <TablePagination
+              currentPage={safePage}
+              totalItems={filteredCalls.length}
+              pageSize={pageSize}
+              onPageChange={setCurrentPage}
+              onPageSizeChange={setPageSize}
+              pageSizeOptions={[10, 25, 50, 100]}
+              itemLabel="çağrı"
+            />
           </div>
         )}
       </div>

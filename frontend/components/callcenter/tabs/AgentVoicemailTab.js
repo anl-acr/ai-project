@@ -17,6 +17,7 @@ import {
 import { useTheme } from "../../../utils/theme";
 import { maskPhoneLast4 } from "../../../utils/contactUtils";
 import WaveformAudioPlayer from "../../common/WaveformAudioPlayer";
+import TablePagination from "../../ui/TablePagination";
 
 export default function AgentVoicemailTab({
   backendHost = "localhost:8000",
@@ -186,6 +187,20 @@ export default function AgentVoicemailTab({
     return true;
   });
 
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [filterMode, searchQuery, filteredMessages.length]);
+
+  const totalPages = Math.max(1, Math.ceil(filteredMessages.length / pageSize));
+  const safePage = Math.min(Math.max(1, currentPage), totalPages);
+  const paginatedMessages = filteredMessages.slice(
+    (safePage - 1) * pageSize,
+    safePage * pageSize
+  );
+
   return (
     <div className="w-full h-full bg-slate-50/70 dark:bg-slate-950/40 p-5 md:p-6 overflow-y-auto">
       <div className="max-w-5xl mx-auto space-y-5">
@@ -292,7 +307,7 @@ export default function AgentVoicemailTab({
           </div>
         ) : (
           <div className="space-y-3">
-            {filteredMessages.map((vm) => {
+            {paginatedMessages.map((vm) => {
               const rawCaller = vm.caller_number || "Anonim";
               const displayCaller = maskPhoneNumbers ? maskPhoneLast4(rawCaller) : rawCaller;
               const audioSrc = `${getApiBase()}/api/voicemail/${vm.id}/audio`;
@@ -414,6 +429,17 @@ export default function AgentVoicemailTab({
                 </div>
               );
             })}
+            <div className="bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-2xl overflow-hidden shadow-sm">
+              <TablePagination
+                currentPage={safePage}
+                totalItems={filteredMessages.length}
+                pageSize={pageSize}
+                onPageChange={setCurrentPage}
+                onPageSizeChange={setPageSize}
+                pageSizeOptions={[10, 25, 50, 100]}
+                itemLabel="sesli mesaj"
+              />
+            </div>
           </div>
         )}
       </div>
