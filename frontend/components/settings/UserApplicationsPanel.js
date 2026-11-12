@@ -640,13 +640,12 @@ export default function UserApplicationsPanel({
                 </button>
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                 {packages.map((pkg) => (
                   <a
                     key={pkg.id}
                     href={`${getApiBase()}${pkg.endpoint}`}
-                    target="_blank"
-                    rel="noreferrer"
+                    download={pkg.filename || true}
                     className="p-2.5 rounded-xl border border-slate-200 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700 bg-slate-50/70 dark:bg-slate-800/40 hover:bg-slate-100/80 dark:hover:bg-slate-800 transition flex items-center justify-between gap-2 group"
                   >
                     <div className="min-w-0">

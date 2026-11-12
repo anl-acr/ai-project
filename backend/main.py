@@ -32614,8 +32614,43 @@ def _sync_user_app_access_to_db(user_dict: dict, resolved_id: Any = None):
         print(f"[App Access DB Sync Notice]: {e_app_sync}")
 
 
-def _get_desktop_dist_packages() -> Dict[str, Any]:
+def _ensure_desktop_installer_ready(filename: str) -> str:
     dist_dir = os.path.join(BASE_DIR, "desktop", "dist")
+    releases_dir = os.path.join(BASE_DIR, "desktop", "releases")
+    os.makedirs(dist_dir, exist_ok=True)
+    target_path = os.path.join(dist_dir, filename)
+
+    if os.path.isdir(releases_dir):
+        prefix = f"{filename}.part-"
+        part_names = sorted(f for f in os.listdir(releases_dir) if f.startswith(prefix))
+        if part_names:
+            part_paths = [os.path.join(releases_dir, p) for p in part_names]
+            expected_size = sum(os.path.getsize(p) for p in part_paths)
+            needs_assemble = (not os.path.exists(target_path)) or (os.path.getsize(target_path) != expected_size)
+            if needs_assemble and expected_size > 0:
+                tmp_path = f"{target_path}.assembling"
+                try:
+                    with open(tmp_path, "wb") as out_f:
+                        for p in part_paths:
+                            with open(p, "rb") as in_f:
+                                while True:
+                                    chunk = in_f.read(4 * 1024 * 1024)
+                                    if not chunk:
+                                        break
+                                    out_f.write(chunk)
+                    os.replace(tmp_path, target_path)
+                except Exception as e_asm:
+                    print(f"[Desktop Installer Assemble Error] {filename}: {e_asm}")
+                    try:
+                        if os.path.exists(tmp_path):
+                            os.remove(tmp_path)
+                    except Exception:
+                        pass
+
+    return target_path
+
+
+def _get_desktop_dist_packages() -> Dict[str, Any]:
     candidates = {
         "win": {
             "label": "Windows Kurulum Sihirbazı (.exe)",
@@ -32623,13 +32658,6 @@ def _get_desktop_dist_packages() -> Dict[str, Any]:
             "arch": "x64",
             "filename": "AIDA Agent Setup 2.9.3.exe",
             "endpoint": "/api/downloads/desktop/win",
-        },
-        "win-zip": {
-            "label": "Windows Taşınabilir Paket (.zip)",
-            "os": "windows",
-            "arch": "x64",
-            "filename": "AIDA Agent-2.9.3-win.zip",
-            "endpoint": "/api/downloads/desktop/win-zip",
         },
         "mac-arm64": {
             "label": "macOS Apple Silicon (M1/M2/M3/M4 .dmg)",
@@ -32648,7 +32676,7 @@ def _get_desktop_dist_packages() -> Dict[str, Any]:
     }
     packages = []
     for key, meta in candidates.items():
-        fpath = os.path.join(dist_dir, meta["filename"])
+        fpath = _ensure_desktop_installer_ready(meta["filename"])
         exists = os.path.exists(fpath)
         size_mb = round(os.path.getsize(fpath) / (1024 * 1024), 1) if exists else 0
         packages.append({
@@ -32805,19 +32833,18 @@ async def get_desktop_downloads_info_endpoint():
 @app.get("/api/downloads/desktop/{platform}")
 @app.get("/downloads/desktop/{platform}")
 async def download_desktop_installer_endpoint(platform: str):
-    dist_dir = os.path.join(BASE_DIR, "desktop", "dist")
     file_map = {
         "win": ("AIDA Agent Setup 2.9.3.exe", "application/vnd.microsoft.portable-executable"),
-        "win-zip": ("AIDA Agent-2.9.3-win.zip", "application/zip"),
+        "win-zip": ("AIDA Agent Setup 2.9.3.exe", "application/vnd.microsoft.portable-executable"),
         "mac-arm64": ("AIDA Agent-2.9.3-arm64.dmg", "application/x-apple-diskimage"),
         "mac-x64": ("AIDA Agent-2.9.3.dmg", "application/x-apple-diskimage"),
-        "mac-zip": ("AIDA Agent-2.9.3-arm64-mac.zip", "application/zip"),
+        "mac-zip": ("AIDA Agent-2.9.3-arm64.dmg", "application/x-apple-diskimage"),
     }
     entry = file_map.get(str(platform or "").strip().lower())
     if not entry:
         raise HTTPException(status_code=404, detail="Geçersiz kurulum paketi platformu.")
     filename, media_type = entry
-    full_path = os.path.join(dist_dir, filename)
+    full_path = _ensure_desktop_installer_ready(filename)
     if not os.path.exists(full_path):
         raise HTTPException(status_code=404, detail=f"Kurulum dosyası ({filename}) sunucuda bulunamadı.")
     return FileResponse(

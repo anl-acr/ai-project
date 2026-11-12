@@ -3342,10 +3342,10 @@ export default function Home() {
   // Desktop Mode strict workspace guard & System Tray synchronization (MUST run before early returns!)
   useEffect(() => {
     if (!isLoggedIn || !isDesktopMode) return;
-    if (activeTab !== "call-center" && !(activeTab === "omnichannel" && hasOmnichannelPermission)) {
+    if (activeTab !== "call-center") {
       setActiveTab("call-center");
     }
-  }, [isLoggedIn, isDesktopMode, activeTab, hasOmnichannelPermission]);
+  }, [isLoggedIn, isDesktopMode, activeTab]);
 
   useEffect(() => {
     if (!isLoggedIn || !isDesktopMode || typeof window === "undefined") return undefined;
@@ -5314,36 +5314,6 @@ export default function Home() {
                     {activeTab === "omnichannel" ? "OMNICHANNEL İLETİŞİM MERKEZİ" : "TEMSİLCİ ÇAĞRI PANELİ"}
                   </div>
                 </div>
-              </div>
-            )}
-
-            {/* Desktop Mode Workspace Switcher: Call Panel <-> Omnichannel (Permission-gated) */}
-            {isDesktopMode && hasOmnichannelPermission && (
-              <div className="flex items-center p-1 rounded-xl bg-slate-100/90 dark:bg-slate-800/80 border border-slate-200/80 dark:border-slate-700/80 gap-1">
-                <button
-                  type="button"
-                  onClick={() => setActiveTab("call-center")}
-                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-extrabold transition-all cursor-pointer ${
-                    activeTab === "call-center"
-                      ? `${bg} text-white shadow-sm`
-                      : "text-slate-600 dark:text-slate-300 hover:bg-white/70 dark:hover:bg-slate-900/50"
-                  }`}
-                >
-                  <Phone size={13} />
-                  <span>Çağrı Paneli</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setActiveTab("omnichannel")}
-                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-extrabold transition-all cursor-pointer ${
-                    activeTab === "omnichannel"
-                      ? `${bg} text-white shadow-sm`
-                      : "text-slate-600 dark:text-slate-300 hover:bg-white/70 dark:hover:bg-slate-900/50"
-                  }`}
-                >
-                  <MessageSquare size={13} />
-                  <span>Omnichannel</span>
-                </button>
               </div>
             )}
 
