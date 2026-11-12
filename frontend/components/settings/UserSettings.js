@@ -140,6 +140,7 @@ const detectBrandByMac = (macStr) => {
 export default function UserSettings({ backendHost = "localhost:8000", currentUser }) {
   const { bg, hover, text, border, ring, lightBg, lightText, borderLight } = useTheme();
   const isAdmin = currentUser?.role === "admin";
+  const canWrite = isAdmin || !Array.isArray(currentUser?.permissions) || currentUser.permissions.includes("users:write");
   const [users, setUsers] = useState([]);
   const [tenants, setTenants] = useState(DEFAULT_TENANT_LIST);
   const [userTenantId, setUserTenantId] = useState("tenant-default");
