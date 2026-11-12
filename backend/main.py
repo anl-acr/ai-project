@@ -8774,6 +8774,20 @@ async def save_departments_endpoint(payload: Union[List[DepartmentSchema], Depar
     return {"status": "success", "departments": settings_db["departments"]}
 
 
+def _record_request_client_env(request: Optional[Request], keys=None, client_browser: str = "", client_os: str = "", explicit_ip: str = ""):
+    if request is None:
+        return
+    try:
+        from backend.services.ami_manager import registered_endpoints, parse_browser_and_os_from_ua
+        req_ip = str(explicit_ip or "").strip() or extract_client_ip(request)
+        ua_hdr = request.headers.get("user-agent") or ""
+        b_name, o_name = parse_browser_and_os_from_ua(ua_hdr, client_browser=client_browser, client_os=client_os)
+        if b_name or o_name:
+            registered_endpoints.record_meta(keys=keys or [], ip=req_ip, browser=b_name, os_name=o_name)
+    except Exception:
+        pass
+
+
 @app.post("/api/webrtc/register_notify")
 async def webrtc_register_notify(request: Request, payload: dict, db: AsyncSession = Depends(get_db)):
     from backend.services.ami_manager import registered_endpoints, parse_browser_and_os_from_ua
@@ -8790,6 +8804,13 @@ async def webrtc_register_notify(request: Request, payload: dict, db: AsyncSessi
         ua_header,
         client_browser=str(payload.get("client_browser") or ""),
         client_os=str(payload.get("client_os") or ""),
+    )
+    _record_request_client_env(
+        request,
+        keys=[ext, user_id_val, sip_su_payload],
+        client_browser=browser_name,
+        client_os=os_name,
+        explicit_ip=client_ip,
     )
 
     if sip_su_payload:
@@ -8923,6 +8944,7 @@ def _is_user_in_any_queue(uid_str: Optional[str], ext_str: Optional[str], queues
 @app.get("/api/agent/status")
 @app.get("/agent/status")
 async def get_agent_status_endpoint(
+    request: Request,
     user_id: Optional[str] = None,
     extension: Optional[str] = None,
     db: AsyncSession = Depends(get_db)
@@ -8941,6 +8963,7 @@ async def get_agent_status_endpoint(
 
     uid_str = str(user_id).strip() if user_id and str(user_id).strip() not in ("undefined", "null", "") else None
     ext_str = str(extension).strip() if extension and str(extension).strip() not in ("undefined", "null", "") else None
+    _record_request_client_env(request, keys=[uid_str, ext_str])
 
     def _enrich_with_omni(st_obj: dict) -> dict:
         if not isinstance(st_obj, dict):
@@ -9113,13 +9136,14 @@ async def get_agent_status_endpoint(
 
 @app.post("/api/agent/status")
 @app.post("/agent/status")
-async def update_agent_status_endpoint(payload: AgentStateSchema, db: AsyncSession = Depends(get_db)):
+async def update_agent_status_endpoint(request: Request, payload: AgentStateSchema, db: AsyncSession = Depends(get_db)):
     from backend.services.agent_presence import update_agent_state, active_agent_status, reset_agent_missed_calls, sync_asterisk_queue_pause
     from backend.database.models import AgentBreakLog, PBXQueue
     from sqlalchemy import select, or_
 
     user_id_str = str(payload.user_id).strip() if payload.user_id is not None and str(payload.user_id).strip() != "" else None
     ext_str = str(payload.extension).strip() if getattr(payload, "extension", None) and str(payload.extension).strip() != "" else None
+    _record_request_client_env(request, keys=[user_id_str, ext_str])
 
     settings = load_settings()
     if user_id_str or ext_str:
@@ -26504,6 +26528,7 @@ def _is_internal_msg_deleted_for(msg_obj, user_identities: set[str]) -> bool:
 
 @app.get("/api/agent/chat")
 async def get_internal_chat(
+    request: Request,
     extension: str = None,
     user_id: str = None,
     deliver: bool = False,
@@ -26513,6 +26538,7 @@ async def get_internal_chat(
     from sqlalchemy import select, or_
 
     identities, name_map = await _resolve_user_chat_identities([extension, user_id], db)
+    _record_request_client_env(request, keys=list(identities) + [extension, user_id])
     if deliver and identities:
         _record_internal_chat_heartbeat(identities)
 
@@ -31976,6 +32002,14 @@ async def new_get_users_endpoint(request: Request, user_info: dict = Depends(get
         target_tenant = user_info.get("tenant_id") or request.headers.get("X-Tenant-ID") or request.headers.get("Tenant-ID") or explicit_q_tenant or "tenant-default"
     
     from backend.services.ami_manager import registered_endpoints
+    _record_request_client_env(
+        request,
+        keys=[
+            (user_info or {}).get("user_id"),
+            request.headers.get("X-User-ID"),
+            request.headers.get("x-user-id"),
+        ],
+    )
 
     async def _self_heal_user_cols_async():
         for ddl_stmt in (
@@ -32362,16 +32396,18 @@ async def new_get_users_endpoint(request: Request, user_info: dict = Depends(get
         u["active_hotdesk_sessions"] = user_hd_sessions
         reg_ip = registered_endpoints.get_ip(ext) or registered_endpoints.get_ip(uid) or online_dev_ip
         reg_meta = (
-            registered_endpoints.get_meta(ext)
-            or registered_endpoints.get_meta(uid)
+            registered_endpoints.get_meta(ext, ip=reg_ip)
+            or registered_endpoints.get_meta(uid, ip=reg_ip)
             or {}
         )
         if not reg_meta:
             for d_item in norm_devs:
                 if str(d_item.get("device_type") or "").strip().lower() == "web_phone" and d_item.get("sip_username"):
-                    reg_meta = registered_endpoints.get_meta(d_item.get("sip_username")) or {}
+                    reg_meta = registered_endpoints.get_meta(d_item.get("sip_username"), ip=reg_ip) or {}
                     if reg_meta:
                         break
+        if not reg_meta and reg_ip:
+            reg_meta = registered_endpoints.get_meta("", ip=reg_ip) or {}
         is_reg = bool(ext in registered_endpoints or uid in registered_endpoints or any_dev_reg)
         c_state = get_live_user_call_state(ext, is_reg)
         if c_state in ("ringing", "busy"):
@@ -36839,6 +36875,11 @@ async def get_webrtc_config(request: Request, db: AsyncSession = Depends(get_db)
         req_host = request.headers.get("host", "").split(":")[0] or request.url.hostname or "127.0.0.1"
         xff = (request.headers.get("x-forwarded-for") or request.headers.get("x-real-ip") or "").split(",")[0].strip()
         client_ip = xff or (request.client.host if request.client else "127.0.0.1")
+        _record_request_client_env(
+            request,
+            keys=[agent_ext, user_id, web_sip_user],
+            explicit_ip=client_ip,
+        )
 
         # Ensure WebRTC client IP is never blocked by SIP firewall
         if client_ip and client_ip not in ("127.0.0.1", "::1", "localhost"):
