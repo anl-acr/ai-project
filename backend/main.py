@@ -825,6 +825,8 @@ class UserSchema(BaseModel):
     auto_logout_duration: Optional[Union[int, float]] = None
     password_expiry_enabled: Optional[bool] = None
     password_expiry_months: Optional[int] = None
+    device_lock_enabled: Optional[bool] = None
+    trusted_devices: Optional[List[dict]] = None
 
 def generate_strong_sip_password(length=24):
     alphabet = string.ascii_letters + string.digits + "!@#$%^&*"
@@ -9023,14 +9025,194 @@ async def save_departments_endpoint(payload: Union[List[DepartmentSchema], Depar
 
 
 _USER_LAST_CLIENT_ENV_MEM: Dict[str, dict] = {}
+_DEVICE_BLOCK_LOG_THROTTLE_MEM: Dict[str, float] = {}
 
 
-def _check_and_log_user_client_env_change(keys=None, ip: str = "", browser: str = "", os_name: str = ""):
+def _normalize_device_key(raw_key: str) -> str:
+    clean = str(raw_key or "").strip().upper().replace(" ", "")
+    if not clean:
+        return ""
+    if clean.startswith("AIDA-DEV-"):
+        return clean
+    alnum = "".join(c for c in clean if c.isalnum())
+    if len(alnum) == 8:
+        return f"AIDA-DEV-{alnum[:4]}-{alnum[4:8]}"
+    return clean
+
+
+def _extract_user_device_security(user_obj) -> tuple[bool, list]:
+    if not user_obj:
+        return (False, [])
+
+    def _get_field(src, k):
+        if isinstance(src, dict):
+            return src.get(k)
+        return getattr(src, k, None)
+
+    raw_cpp = _get_field(user_obj, "call_panel_prefs")
+    if isinstance(raw_cpp, str) and raw_cpp.strip().startswith("{"):
+        try:
+            raw_cpp = json.loads(raw_cpp)
+        except Exception:
+            raw_cpp = {}
+    sec_pol = (
+        raw_cpp.get("securityPolicy")
+        if isinstance(raw_cpp, dict) and isinstance(raw_cpp.get("securityPolicy"), dict)
+        else {}
+    )
+
+    top_lock = _get_field(user_obj, "device_lock_enabled")
+    lock_enabled = bool(top_lock if top_lock is not None else sec_pol.get("device_lock_enabled", False))
+
+    raw_list = _get_field(user_obj, "trusted_devices")
+    if not isinstance(raw_list, list):
+        raw_list = sec_pol.get("trusted_devices") if isinstance(sec_pol.get("trusted_devices"), list) else []
+
+    seen = set()
+    trusted_out = []
+    for idx, item in enumerate(raw_list):
+        if isinstance(item, str):
+            norm_k = _normalize_device_key(item)
+            if not norm_k or norm_k in seen:
+                continue
+            seen.add(norm_k)
+            trusted_out.append({
+                "key": norm_k,
+                "label": f"Güvenilir Cihaz {idx + 1}",
+                "browser": "",
+                "os": "",
+                "ip_address": "",
+                "added_at": "",
+            })
+        elif isinstance(item, dict):
+            norm_k = _normalize_device_key(item.get("key") or item.get("device_key") or "")
+            if not norm_k or norm_k in seen:
+                continue
+            seen.add(norm_k)
+            trusted_out.append({
+                "key": norm_k,
+                "label": str(item.get("label") or item.get("name") or f"Güvenilir Cihaz {idx + 1}").strip(),
+                "browser": str(item.get("browser") or "").strip(),
+                "os": str(item.get("os") or "").strip(),
+                "ip_address": str(item.get("ip_address") or "").strip(),
+                "added_at": str(item.get("added_at") or "").strip(),
+            })
+    return (lock_enabled, trusted_out)
+
+
+def _verify_user_device_access(user_obj, device_key: str) -> tuple[bool, bool, str, list]:
+    """
+    Returns (allowed: bool, lock_enabled: bool, normalized_device_key: str, trusted_devices: list)
+    """
+    norm_dk = _normalize_device_key(device_key)
+    lock_enabled, trusted_list = _extract_user_device_security(user_obj)
+    if not lock_enabled:
+        return (True, False, norm_dk, trusted_list)
+    if not norm_dk:
+        return (False, True, "", trusted_list)
+    allowed = any(_normalize_device_key(d.get("key") or "") == norm_dk for d in trusted_list)
+    return (allowed, True, norm_dk, trusted_list)
+
+
+def _log_device_key_blocked_event(
+    user_dict: dict,
+    ip: str = "",
+    browser: str = "",
+    os_name: str = "",
+    device_key: str = "",
+    source_label: str = "Web Panel / Web Telefon",
+):
+    try:
+        if not isinstance(user_dict, dict):
+            return
+        u_ext = str(user_dict.get("extension") or "").strip()
+        u_id = str(user_dict.get("id") or "").strip()
+        canonical_key = u_ext or u_id
+        if not canonical_key:
+            return
+        norm_dk = _normalize_device_key(device_key) or "TANIMSIZ"
+        ip_s = str(ip or "").strip() or "-"
+        b_s = str(browser or "").strip()
+        o_s = str(os_name or "").strip()
+
+        throttle_k = f"{canonical_key}:{norm_dk}:{ip_s}"
+        now_ts = time.time()
+        if now_ts - _DEVICE_BLOCK_LOG_THROTTLE_MEM.get(throttle_k, 0.0) < 30.0:
+            return
+        _DEVICE_BLOCK_LOG_THROTTLE_MEM[throttle_k] = now_ts
+
+        now_iso = datetime.datetime.utcnow().isoformat() + "Z"
+        full_name = str(user_dict.get("full_name") or user_dict.get("name") or user_dict.get("username") or canonical_key).strip()
+        audit_user_label = f"{full_name} (Dahili: {u_ext})" if u_ext and u_ext not in full_name else full_name
+        env_str = " / ".join([x for x in (b_s, o_s) if x]) or "-"
+        summary = f"Yetkisiz Cihaz Erişimi Engellendi ({source_label}) — Cihaz Anahtarı: {norm_dk} • IP: {ip_s} • {env_str}"
+
+        history_map = settings_db.setdefault("user_connection_history", {})
+        if not isinstance(history_map, dict):
+            history_map = {}
+            settings_db["user_connection_history"] = history_map
+        user_hist = history_map.get(canonical_key)
+        if not isinstance(user_hist, list):
+            user_hist = []
+
+        entry = {
+            "id": str(uuid.uuid4()),
+            "timestamp": now_iso,
+            "user_id": u_id,
+            "extension": u_ext,
+            "user_name": full_name,
+            "action": "DEVICE_KEY_BLOCKED",
+            "change_label": f"Yetkisiz Cihaz Engellendi ({source_label})",
+            "changed_fields": ["Yetkisiz Cihaz Anahtarı"],
+            "previous_ip": "",
+            "previous_browser": "",
+            "previous_os": "",
+            "previous_device_key": "",
+            "ip_address": ip_s,
+            "browser": b_s,
+            "os": o_s,
+            "device_key": norm_dk if norm_dk != "TANIMSIZ" else "",
+            "summary": summary,
+        }
+        user_hist.insert(0, entry)
+        if len(user_hist) > 250:
+            del user_hist[250:]
+        history_map[canonical_key] = user_hist
+        save_settings(settings_db)
+
+        audit_details = {
+            "summary": summary,
+            "change_label": f"Yetkisiz Cihaz Engellendi ({source_label})",
+            "device_key": norm_dk,
+            "ip_address": ip_s,
+            "browser": b_s or "-",
+            "os": o_s or "-",
+            "extension": u_ext or "-",
+        }
+        try:
+            loop = asyncio.get_running_loop()
+            loop.create_task(
+                log_event(
+                    user_id=audit_user_label,
+                    action="DEVICE_KEY_BLOCKED",
+                    module="Auth",
+                    details=audit_details,
+                    ip_address=ip_s,
+                )
+            )
+        except Exception:
+            pass
+    except Exception as e_blk:
+        print(f"[Device Key Blocked Audit Warning]: {e_blk}")
+
+
+def _check_and_log_user_client_env_change(keys=None, ip: str = "", browser: str = "", os_name: str = "", device_key: str = ""):
     try:
         from backend.services.audit_logger import is_loopback_or_empty_ip
         ip_s = str(ip or "").strip()
         b_s = str(browser or "").strip()
         o_s = str(os_name or "").strip()
+        dk_s = _normalize_device_key(device_key)
         if is_loopback_or_empty_ip(ip_s) or (not b_s and not o_s):
             return
 
@@ -9073,23 +9255,46 @@ def _check_and_log_user_client_env_change(keys=None, ip: str = "", browser: str 
             persisted_env_map = {}
             settings_db["user_last_client_env"] = persisted_env_map
 
+        history_map = settings_db.setdefault("user_connection_history", {})
+        if not isinstance(history_map, dict):
+            history_map = {}
+            settings_db["user_connection_history"] = history_map
+
+        user_hist = history_map.get(canonical_key)
+        if not isinstance(user_hist, list):
+            user_hist = []
+
         prev = _USER_LAST_CLIENT_ENV_MEM.get(canonical_key) or persisted_env_map.get(canonical_key)
         if isinstance(prev, dict):
             prev_ip = str(prev.get("ip") or "").strip()
             prev_b = str(prev.get("browser") or "").strip()
             prev_o = str(prev.get("os") or "").strip()
-            if prev_ip == ip_s and prev_b == b_s and prev_o == o_s:
-                _USER_LAST_CLIENT_ENV_MEM[canonical_key] = prev
+            prev_dk = _normalize_device_key(prev.get("device_key") or "")
+            eff_dk = dk_s or prev_dk
+            # If only device_key was missing on the latest record and now arrived for the exact same IP/Browser/OS, backfill it without creating a duplicate log
+            if prev_ip == ip_s and prev_b == b_s and prev_o == o_s and (not dk_s or not prev_dk or prev_dk == dk_s):
+                if dk_s and not prev_dk:
+                    prev["device_key"] = dk_s
+                    _USER_LAST_CLIENT_ENV_MEM[canonical_key] = prev
+                    persisted_env_map[canonical_key] = prev
+                    if user_hist and isinstance(user_hist[0], dict) and not user_hist[0].get("device_key"):
+                        user_hist[0]["device_key"] = dk_s
+                        history_map[canonical_key] = user_hist
+                        save_settings(settings_db)
+                else:
+                    _USER_LAST_CLIENT_ENV_MEM[canonical_key] = prev
                 return
         else:
             prev = None
+            eff_dk = dk_s
 
         now_iso = datetime.datetime.utcnow().isoformat() + "Z"
+        dk_suffix = f" • {eff_dk}" if eff_dk else ""
         if not prev:
             action_code = "CLIENT_ENV_CONNECT"
             changed_fields = ["İlk Bağlantı"]
             change_label = "İlk Bağlantı"
-            new_env_str = f"{ip_s} • {' / '.join([x for x in (b_s, o_s) if x])}"
+            new_env_str = f"{ip_s} • {' / '.join([x for x in (b_s, o_s) if x])}{dk_suffix}"
             summary = f"Web Telefon / Panel bağlantısı algılandı: {new_env_str}"
         else:
             action_code = "CLIENT_ENV_CHANGE"
@@ -9100,28 +9305,24 @@ def _check_and_log_user_client_env_change(keys=None, ip: str = "", browser: str 
                 changed_fields.append("Tarayıcı")
             if str(prev.get("os") or "") != o_s:
                 changed_fields.append("İşletim Sistemi")
+            prev_dk_val = _normalize_device_key(prev.get("device_key") or "")
+            if dk_s and prev_dk_val and prev_dk_val != dk_s:
+                changed_fields.append("Cihaz Anahtarı")
             change_label = f"{', '.join(changed_fields)} Değişti" if changed_fields else "Bağlantı Ortamı Değişti"
-            prev_env_str = f"{prev.get('ip') or '-'} • {' / '.join([x for x in (prev.get('browser'), prev.get('os')) if x]) or '-'}"
-            new_env_str = f"{ip_s} • {' / '.join([x for x in (b_s, o_s) if x]) or '-'}"
+            prev_dk_str = f" • {prev_dk_val}" if prev_dk_val else ""
+            prev_env_str = f"{prev.get('ip') or '-'} • {' / '.join([x for x in (prev.get('browser'), prev.get('os')) if x]) or '-'}{prev_dk_str}"
+            new_env_str = f"{ip_s} • {' / '.join([x for x in (b_s, o_s) if x]) or '-'}{dk_suffix}"
             summary = f"Bağlantı ortamı değişti ({change_label}): {prev_env_str} → {new_env_str}"
 
         new_state = {
             "ip": ip_s,
             "browser": b_s,
             "os": o_s,
+            "device_key": eff_dk,
             "updated_at": now_iso,
         }
         _USER_LAST_CLIENT_ENV_MEM[canonical_key] = new_state
         persisted_env_map[canonical_key] = new_state
-
-        history_map = settings_db.setdefault("user_connection_history", {})
-        if not isinstance(history_map, dict):
-            history_map = {}
-            settings_db["user_connection_history"] = history_map
-
-        user_hist = history_map.get(canonical_key)
-        if not isinstance(user_hist, list):
-            user_hist = []
 
         full_name = str(matched_user.get("full_name") or matched_user.get("name") or matched_user.get("username") or canonical_key).strip()
         audit_user_label = f"{full_name} (Dahili: {u_ext})" if u_ext and u_ext not in full_name else full_name
@@ -9138,9 +9339,11 @@ def _check_and_log_user_client_env_change(keys=None, ip: str = "", browser: str 
             "previous_ip": (prev or {}).get("ip") or "",
             "previous_browser": (prev or {}).get("browser") or "",
             "previous_os": (prev or {}).get("os") or "",
+            "previous_device_key": _normalize_device_key((prev or {}).get("device_key") or ""),
             "ip_address": ip_s,
             "browser": b_s,
             "os": o_s,
+            "device_key": eff_dk,
             "summary": summary,
         }
         # Insert newest at top without deleting previous records (keep up to 250 historical changes per user)
@@ -9159,6 +9362,7 @@ def _check_and_log_user_client_env_change(keys=None, ip: str = "", browser: str 
             "browser": b_s or "-",
             "previous_os": (prev or {}).get("os") or "-",
             "os": o_s or "-",
+            "device_key": eff_dk or "-",
             "extension": u_ext or "-",
         }
         try:
@@ -9178,17 +9382,24 @@ def _check_and_log_user_client_env_change(keys=None, ip: str = "", browser: str 
         print(f"[Client Env Audit Warning]: {e_env}")
 
 
-def _record_request_client_env(request: Optional[Request], keys=None, client_browser: str = "", client_os: str = "", explicit_ip: str = ""):
+def _record_request_client_env(request: Optional[Request], keys=None, client_browser: str = "", client_os: str = "", explicit_ip: str = "", device_key: str = ""):
     if request is None:
         return
     try:
         from backend.services.ami_manager import registered_endpoints, parse_browser_and_os_from_ua
         req_ip = str(explicit_ip or "").strip() or extract_client_ip(request)
         ua_hdr = request.headers.get("user-agent") or ""
+        dk_hdr = _normalize_device_key(
+            device_key
+            or request.headers.get("X-Device-Key")
+            or request.headers.get("x-device-key")
+            or request.query_params.get("device_key")
+            or ""
+        )
         b_name, o_name = parse_browser_and_os_from_ua(ua_hdr, client_browser=client_browser, client_os=client_os)
-        if b_name or o_name:
-            registered_endpoints.record_meta(keys=keys or [], ip=req_ip, browser=b_name, os_name=o_name)
-            _check_and_log_user_client_env_change(keys=keys or [], ip=req_ip, browser=b_name, os_name=o_name)
+        if b_name or o_name or dk_hdr:
+            registered_endpoints.record_meta(keys=keys or [], ip=req_ip, browser=b_name, os_name=o_name, device_key=dk_hdr)
+            _check_and_log_user_client_env_change(keys=keys or [], ip=req_ip, browser=b_name, os_name=o_name, device_key=dk_hdr)
     except Exception:
         pass
 
@@ -9201,6 +9412,12 @@ async def webrtc_register_notify(request: Request, payload: dict, db: AsyncSessi
     ext = str(payload.get("extension") or payload.get("user_id") or "").strip()
     user_id_val = payload.get("user_id")
     sip_su_payload = str(payload.get("sip_username") or "").strip()
+    device_key_payload = _normalize_device_key(
+        payload.get("device_key")
+        or request.headers.get("X-Device-Key")
+        or request.headers.get("x-device-key")
+        or ""
+    )
 
     # Extract real client IP from headers, AMI, or fallback
     client_ip = str(payload.get("client_ip") or "").strip() or extract_client_ip(request)
@@ -9210,19 +9427,46 @@ async def webrtc_register_notify(request: Request, payload: dict, db: AsyncSessi
         client_browser=str(payload.get("client_browser") or ""),
         client_os=str(payload.get("client_os") or ""),
     )
+
+    # Enforce Trusted Device Binding (PC / WebPhone Lock) if enabled for this user
+    if ext:
+        for u_chk in (settings_db.get("users") or []):
+            if isinstance(u_chk, dict) and str(u_chk.get("extension") or "").strip() == ext:
+                allowed_dev, lock_on, norm_dk, _ = _verify_user_device_access(u_chk, device_key_payload)
+                if lock_on and not allowed_dev:
+                    _log_device_key_blocked_event(
+                        u_chk,
+                        ip=client_ip,
+                        browser=browser_name,
+                        os_name=os_name,
+                        device_key=norm_dk,
+                        source_label="Web Telefon Kaydı",
+                    )
+                    registered_endpoints.discard(ext)
+                    if sip_su_payload:
+                        registered_endpoints.discard(sip_su_payload)
+                    return {
+                        "status": "device_blocked",
+                        "device_blocked": True,
+                        "device_key": norm_dk,
+                        "detail": f"Bu bilgisayar ({norm_dk or 'Tanımsız'}) bu kullanıcı için yetkilendirilmemiş.",
+                    }
+                break
+
     _record_request_client_env(
         request,
         keys=[ext, user_id_val, sip_su_payload],
         client_browser=browser_name,
         client_os=os_name,
         explicit_ip=client_ip,
+        device_key=device_key_payload,
     )
 
     if sip_su_payload:
-        registered_endpoints.add(sip_su_payload, client_ip, browser=browser_name, os_name=os_name)
+        registered_endpoints.add(sip_su_payload, client_ip, browser=browser_name, os_name=os_name, device_key=device_key_payload)
 
     if ext:
-        registered_endpoints.add(ext, client_ip, browser=browser_name, os_name=os_name)
+        registered_endpoints.add(ext, client_ip, browser=browser_name, os_name=os_name, device_key=device_key_payload)
         settings = load_settings()
         matched_user_id = user_id_val or ext
         web_su_resolved = sip_su_payload or resolve_user_webphone_sip_username(ext, "")
@@ -9237,9 +9481,9 @@ async def webrtc_register_notify(request: Request, payload: dict, db: AsyncSessi
                 break
 
         if web_su_resolved:
-            registered_endpoints.add(web_su_resolved, client_ip, browser=browser_name, os_name=os_name)
+            registered_endpoints.add(web_su_resolved, client_ip, browser=browser_name, os_name=os_name, device_key=device_key_payload)
         if matched_user_id:
-            registered_endpoints.add(str(matched_user_id), client_ip, browser=browser_name, os_name=os_name)
+            registered_endpoints.add(str(matched_user_id), client_ip, browser=browser_name, os_name=os_name, device_key=device_key_payload)
 
         call_state_val = str(payload.get("call_state") or "").strip().lower()
         if call_state_val in ("ringing", "busy"):
@@ -30630,6 +30874,7 @@ class Verify2FASchema(BaseModel):
     method: Optional[str] = None
     secret: Optional[str] = None
     phone: Optional[str] = None
+    device_key: Optional[str] = None
 
 class Setup2FASchema(BaseModel):
     reset: Optional[bool] = False
@@ -31232,9 +31477,81 @@ async def send_whatsapp_otp_endpoint(payload: SendWhatsAppOTPSchema):
             "user_synced": bool(user is not None)
         }
 
+@app.post("/api/auth/verify-device")
+@app.post("/auth/verify-device")
+async def verify_user_device_endpoint(request: Request, payload: dict):
+    from backend.services.ami_manager import parse_browser_and_os_from_ua
+    uid_str = str(payload.get("user_id") or payload.get("extension") or payload.get("username") or "").strip()
+    device_key_in = _normalize_device_key(
+        payload.get("device_key")
+        or request.headers.get("X-Device-Key")
+        or request.headers.get("x-device-key")
+        or ""
+    )
+    req_ip = extract_client_ip(request)
+    ua_hdr = request.headers.get("user-agent") or ""
+    b_name, o_name = parse_browser_and_os_from_ua(
+        ua_hdr,
+        client_browser=str(payload.get("client_browser") or ""),
+        client_os=str(payload.get("client_os") or ""),
+    )
+
+    user = _find_disk_user_for_2fa(uid_str)
+    if not user and uid_str:
+        try:
+            from backend.database.config import SyncSessionLocal
+            from backend.database.models import SystemUser
+            with SyncSessionLocal() as session:
+                if uid_str.isdigit():
+                    db_u = session.query(SystemUser).filter((SystemUser.id == int(uid_str)) | (SystemUser.extension == uid_str)).first()
+                else:
+                    db_u = session.query(SystemUser).filter((SystemUser.extension == uid_str) | (SystemUser.email == uid_str)).first()
+                if db_u:
+                    user = {c.name: getattr(db_u, c.name) for c in db_u.__table__.columns}
+        except Exception:
+            pass
+
+    if not user:
+        return {"status": "success", "allowed": True, "device_lock_enabled": False, "device_key": device_key_in}
+
+    allowed, lock_enabled, norm_dk, trusted_list = _verify_user_device_access(user, device_key_in)
+    if lock_enabled and not allowed:
+        _log_device_key_blocked_event(
+            user,
+            ip=req_ip,
+            browser=b_name,
+            os_name=o_name,
+            device_key=norm_dk,
+            source_label="Panel Girişi (Login)",
+        )
+        return {
+            "status": "blocked",
+            "allowed": False,
+            "device_lock_enabled": True,
+            "device_key": norm_dk,
+            "detail": f"Bu bilgisayar ({norm_dk or 'Tanımsız'}) hesabınız için yetkilendirilmemiş. Lütfen Cihaz Anahtarınızı sistem yöneticinize iletin.",
+        }
+
+    _record_request_client_env(
+        request,
+        keys=[user.get("extension"), user.get("id"), uid_str],
+        client_browser=b_name,
+        client_os=o_name,
+        explicit_ip=req_ip,
+        device_key=norm_dk,
+    )
+    return {
+        "status": "success",
+        "allowed": True,
+        "device_lock_enabled": lock_enabled,
+        "device_key": norm_dk,
+        "trusted_devices": trusted_list,
+    }
+
+
 @app.post("/api/auth/verify_2fa")
 @app.post("/auth/verify_2fa")
-async def verify_2fa(payload: Verify2FASchema):
+async def verify_2fa(request: Request, payload: Verify2FASchema):
     uid_str = str(payload.user_id or "").strip()
     code = str(payload.code or "").strip()
 
@@ -31276,6 +31593,32 @@ async def verify_2fa(payload: Verify2FASchema):
 
     if not user:
         raise HTTPException(status_code=404, detail="Kullanıcı bulunamadı.")
+
+    # Verify Trusted Device Binding on 2FA Login when not called from admin UserSettings setup test
+    device_key_2fa = _normalize_device_key(
+        payload.device_key
+        or request.headers.get("X-Device-Key")
+        or request.headers.get("x-device-key")
+        or ""
+    )
+    if not payload.secret:
+        allowed_dev, lock_on, norm_dk_2fa, _ = _verify_user_device_access(user, device_key_2fa)
+        if lock_on and not allowed_dev:
+            from backend.services.ami_manager import parse_browser_and_os_from_ua
+            req_ip_2fa = extract_client_ip(request)
+            b_2fa, o_2fa = parse_browser_and_os_from_ua(request.headers.get("user-agent") or "")
+            _log_device_key_blocked_event(
+                user,
+                ip=req_ip_2fa,
+                browser=b_2fa,
+                os_name=o_2fa,
+                device_key=norm_dk_2fa,
+                source_label="2FA Giriş Doğrulaması",
+            )
+            raise HTTPException(
+                status_code=403,
+                detail=f"Bu bilgisayar ({norm_dk_2fa or 'Tanımsız'}) hesabınız için yetkilendirilmemiş. Lütfen Cihaz Anahtarınızı sistem yöneticinize iletin.",
+            )
 
     eff_method = _normalize_2fa_method(payload.method or user.get("two_factor_method") or "google_auth")
 
@@ -32826,12 +33169,25 @@ async def new_get_users_endpoint(request: Request, user_info: dict = Depends(get
         u["ip_address"] = reg_ip if is_reg else ""
         u["client_browser"] = (reg_meta.get("browser") or "") if is_reg else ""
         u["client_os"] = (reg_meta.get("os") or "") if is_reg else ""
+        u["client_device_key"] = _normalize_device_key(reg_meta.get("device_key") or "") if is_reg else ""
+        dev_lock_en, dev_trusted_list = _extract_user_device_security(u)
+        u["device_lock_enabled"] = dev_lock_en
+        u["trusted_devices"] = dev_trusted_list
+        if not isinstance(u.get("call_panel_prefs"), dict):
+            u["call_panel_prefs"] = {}
+        cur_sec_pol = u["call_panel_prefs"].get("securityPolicy") if isinstance(u["call_panel_prefs"].get("securityPolicy"), dict) else {}
+        u["call_panel_prefs"]["securityPolicy"] = {
+            **cur_sec_pol,
+            "device_lock_enabled": dev_lock_en,
+            "trusted_devices": dev_trusted_list,
+        }
         if is_reg and reg_ip and (u["client_browser"] or u["client_os"]):
             _check_and_log_user_client_env_change(
                 keys=[ext, uid],
                 ip=reg_ip,
                 browser=u["client_browser"],
                 os_name=u["client_os"],
+                device_key=u["client_device_key"],
             )
         try:
             from backend.services.agent_presence import get_agent_omnichannel_busy_info
@@ -32914,6 +33270,7 @@ async def get_user_connection_history_endpoint(
             ip=live_ip,
             browser=str(live_meta.get("browser") or ""),
             os_name=str(live_meta.get("os") or ""),
+            device_key=_normalize_device_key(live_meta.get("device_key") or ""),
         )
 
     history_map = settings_db.get("user_connection_history")
@@ -32924,6 +33281,11 @@ async def get_user_connection_history_endpoint(
                 history_list = list(history_map.get(k_cand))
                 break
 
+    dev_lock_en, dev_trusted_list = _extract_user_device_security(matched_user or {})
+    live_dk = _normalize_device_key(live_meta.get("device_key") or "")
+    if not live_dk and history_list and isinstance(history_list[0], dict):
+        live_dk = _normalize_device_key(history_list[0].get("device_key") or "")
+
     return {
         "status": "success",
         "user_id": u_id,
@@ -32932,7 +33294,120 @@ async def get_user_connection_history_endpoint(
         "current_ip": live_ip,
         "current_browser": str(live_meta.get("browser") or ""),
         "current_os": str(live_meta.get("os") or ""),
+        "current_device_key": live_dk,
+        "device_lock_enabled": dev_lock_en,
+        "trusted_devices": dev_trusted_list,
         "history": history_list,
+    }
+
+
+@app.post("/api/settings/users/{user_id}/trusted-devices")
+@app.post("/settings/users/{user_id}/trusted-devices")
+async def update_user_trusted_devices_endpoint(
+    user_id: str,
+    payload: dict,
+    request: Request,
+    user_info: dict = Depends(get_user_info),
+    db: AsyncSession = Depends(get_db),
+):
+    from sqlalchemy.orm.attributes import flag_modified
+    lookup = str(user_id or "").strip()
+    action = str(payload.get("action") or "sync").strip().lower()
+
+    matched_disk_user = None
+    for u in (settings_db.get("users") or []):
+        if not isinstance(u, dict):
+            continue
+        if (
+            str(u.get("id") or "").strip() == lookup
+            or str(u.get("extension") or "").strip() == lookup
+            or str(u.get("username") or "").strip().lower() == lookup.lower()
+        ):
+            matched_disk_user = u
+            break
+
+    db_u = None
+    try:
+        stmt = select(SystemUser).where(
+            or_(
+                SystemUser.extension == lookup,
+                SystemUser.id == (int(lookup) if lookup.isdigit() else -1),
+            )
+        )
+        res = await db.execute(stmt)
+        db_u = res.scalars().first()
+    except Exception:
+        pass
+
+    cur_lock, cur_list = _extract_user_device_security(matched_disk_user or db_u or {})
+    now_iso = datetime.datetime.utcnow().isoformat() + "Z"
+
+    if "device_lock_enabled" in payload and payload.get("device_lock_enabled") is not None:
+        cur_lock = bool(payload.get("device_lock_enabled"))
+
+    if action == "add":
+        new_dk = _normalize_device_key(payload.get("device_key") or payload.get("key") or "")
+        if not new_dk:
+            raise HTTPException(status_code=400, detail="Geçerli bir Cihaz Anahtarı (Örn: AIDA-DEV-XXXX-YYYY) giriniz.")
+        label_in = str(payload.get("label") or payload.get("name") or f"Güvenilir PC ({new_dk[-4:]})").strip()
+        existing_idx = next((i for i, d in enumerate(cur_list) if _normalize_device_key(d.get("key") or "") == new_dk), -1)
+        new_item = {
+            "key": new_dk,
+            "label": label_in,
+            "browser": str(payload.get("browser") or "").strip(),
+            "os": str(payload.get("os") or "").strip(),
+            "ip_address": str(payload.get("ip_address") or "").strip(),
+            "added_at": now_iso,
+        }
+        if existing_idx >= 0:
+            cur_list[existing_idx] = {**cur_list[existing_idx], **new_item}
+        else:
+            cur_list.append(new_item)
+    elif action == "remove":
+        rem_dk = _normalize_device_key(payload.get("device_key") or payload.get("key") or "")
+        cur_list = [d for d in cur_list if _normalize_device_key(d.get("key") or "") != rem_dk]
+    elif isinstance(payload.get("trusted_devices"), list):
+        _, cur_list = _extract_user_device_security({"trusted_devices": payload.get("trusted_devices")})
+
+    if matched_disk_user is not None:
+        matched_disk_user["device_lock_enabled"] = cur_lock
+        matched_disk_user["trusted_devices"] = cur_list
+        if not isinstance(matched_disk_user.get("call_panel_prefs"), dict):
+            matched_disk_user["call_panel_prefs"] = {}
+        sec_p = matched_disk_user["call_panel_prefs"].get("securityPolicy") if isinstance(matched_disk_user["call_panel_prefs"].get("securityPolicy"), dict) else {}
+        matched_disk_user["call_panel_prefs"]["securityPolicy"] = {
+            **sec_p,
+            "device_lock_enabled": cur_lock,
+            "trusted_devices": cur_list,
+        }
+        save_settings(settings_db)
+
+    if db_u is not None:
+        try:
+            raw_cpp_db = getattr(db_u, "call_panel_prefs", None)
+            if isinstance(raw_cpp_db, str) and raw_cpp_db.strip().startswith("{"):
+                try:
+                    raw_cpp_db = json.loads(raw_cpp_db)
+                except Exception:
+                    raw_cpp_db = {}
+            if not isinstance(raw_cpp_db, dict):
+                raw_cpp_db = {}
+            sec_db = raw_cpp_db.get("securityPolicy") if isinstance(raw_cpp_db.get("securityPolicy"), dict) else {}
+            raw_cpp_db["securityPolicy"] = {
+                **sec_db,
+                "device_lock_enabled": cur_lock,
+                "trusted_devices": cur_list,
+            }
+            db_u.call_panel_prefs = raw_cpp_db
+            flag_modified(db_u, "call_panel_prefs")
+            await db.commit()
+        except Exception as e_db_td:
+            print(f"[Trusted Devices DB Update Warning]: {e_db_td}")
+
+    return {
+        "status": "success",
+        "device_lock_enabled": cur_lock,
+        "trusted_devices": cur_list,
     }
 
 
@@ -33279,6 +33754,29 @@ async def new_save_users_endpoint(payload: Union[List[UserSchema], UserSchema], 
                         else prev_disk.get("password_expiry_months", 3)
                     )
                 )
+            if data.get("device_lock_enabled") is None:
+                data["device_lock_enabled"] = bool(
+                    inc_cpp_sec.get("device_lock_enabled")
+                    if inc_cpp_sec.get("device_lock_enabled") is not None
+                    else (
+                        prev_cpp_sec.get("device_lock_enabled")
+                        if prev_cpp_sec.get("device_lock_enabled") is not None
+                        else prev_disk.get("device_lock_enabled", False)
+                    )
+                )
+            if data.get("trusted_devices") is None:
+                raw_td = (
+                    inc_cpp_sec.get("trusted_devices")
+                    if isinstance(inc_cpp_sec.get("trusted_devices"), list)
+                    else (
+                        prev_cpp_sec.get("trusted_devices")
+                        if isinstance(prev_cpp_sec.get("trusted_devices"), list)
+                        else prev_disk.get("trusted_devices", [])
+                    )
+                )
+                _, data["trusted_devices"] = _extract_user_device_security({"trusted_devices": raw_td})
+            else:
+                _, data["trusted_devices"] = _extract_user_device_security({"trusted_devices": data.get("trusted_devices")})
             data["call_panel_prefs"] = {
                 **data["call_panel_prefs"],
                 "securityPolicy": {
@@ -33288,6 +33786,8 @@ async def new_save_users_endpoint(payload: Union[List[UserSchema], UserSchema], 
                     "auto_logout_duration": data.get("auto_logout_duration", 1),
                     "password_expiry_enabled": bool(data.get("password_expiry_enabled", False)),
                     "password_expiry_months": int(data.get("password_expiry_months") or 3),
+                    "device_lock_enabled": bool(data.get("device_lock_enabled", False)),
+                    "trusted_devices": data.get("trusted_devices", []),
                 },
             }
             now_2fa_ts = int(time.time() * 1000)
@@ -33459,7 +33959,7 @@ async def new_save_users_endpoint(payload: Union[List[UserSchema], UserSchema], 
                             u_dict["sip_username"] = p_match.get("sip_username")
                         if p_match.get("sip_devices") is not None:
                             u_dict["sip_devices"] = p_match.get("sip_devices")
-                        for tf_k in ("two_factor_enabled", "two_factor_method", "two_factor_secret", "two_factor_enrolled", "two_factor_updated_ts", "managed_users", "managed_queues", "cti_config", "call_panel_prefs", "wallboard_layout", "theme_color", "theme_mode", "mobile_transfer_enabled", "auto_logout_enabled", "auto_logout_duration", "password_expiry_enabled", "password_expiry_months", "max_concurrent_outbound", "outbound_quarantined", "avatar_updated_ts", "boss_secretary", "hotdesk_config"):
+                        for tf_k in ("two_factor_enabled", "two_factor_method", "two_factor_secret", "two_factor_enrolled", "two_factor_updated_ts", "managed_users", "managed_queues", "cti_config", "call_panel_prefs", "wallboard_layout", "theme_color", "theme_mode", "mobile_transfer_enabled", "auto_logout_enabled", "auto_logout_duration", "password_expiry_enabled", "password_expiry_months", "device_lock_enabled", "trusted_devices", "max_concurrent_outbound", "outbound_quarantined", "avatar_updated_ts", "boss_secretary", "hotdesk_config"):
                             if p_match.get(tf_k) is not None:
                                 u_dict[tf_k] = p_match.get(tf_k)
                     u_dict["sip_password"] = resolve_secure_sip_password(ext_u, u_dict.get("sip_password") or "")
@@ -37348,8 +37848,13 @@ async def get_webrtc_config(request: Request, db: AsyncSession = Depends(get_db)
             if str(su.get("extension", "")).strip() == agent_ext:
                 if (not raw_sip_pwd or raw_sip_pwd == "1234") and su.get("sip_password"):
                     raw_sip_pwd = su.get("sip_password")
-                if current_user is not None and not current_user.get("sip_devices") and su.get("sip_devices"):
-                    current_user["sip_devices"] = su.get("sip_devices")
+                if current_user is not None:
+                    if not current_user.get("sip_devices") and su.get("sip_devices"):
+                        current_user["sip_devices"] = su.get("sip_devices")
+                    if su.get("device_lock_enabled") is not None and current_user.get("device_lock_enabled") is None:
+                        current_user["device_lock_enabled"] = su.get("device_lock_enabled")
+                    if su.get("trusted_devices") is not None and current_user.get("trusted_devices") is None:
+                        current_user["trusted_devices"] = su.get("trusted_devices")
                 break
 
         web_sip_user = resolve_user_webphone_sip_username(agent_ext, "")
@@ -37376,11 +37881,38 @@ async def get_webrtc_config(request: Request, db: AsyncSession = Depends(get_db)
         req_host = request.headers.get("host", "").split(":")[0] or request.url.hostname or "127.0.0.1"
         xff = (request.headers.get("x-forwarded-for") or request.headers.get("x-real-ip") or "").split(",")[0].strip()
         client_ip = xff or (request.client.host if request.client else "127.0.0.1")
-        _record_request_client_env(
-            request,
-            keys=[agent_ext, user_id, web_sip_user],
-            explicit_ip=client_ip,
+        client_device_key = _normalize_device_key(
+            request.query_params.get("device_key")
+            or request.headers.get("X-Device-Key")
+            or request.headers.get("x-device-key")
+            or ""
         )
+
+        device_blocked = False
+        if current_user:
+            allowed_w_dev, lock_w_on, norm_w_dk, _ = _verify_user_device_access(current_user, client_device_key)
+            if lock_w_on and not allowed_w_dev:
+                device_blocked = True
+                web_enabled = False
+                sip_password = ""
+                from backend.services.ami_manager import parse_browser_and_os_from_ua
+                b_w, o_w = parse_browser_and_os_from_ua(request.headers.get("user-agent") or "")
+                _log_device_key_blocked_event(
+                    current_user,
+                    ip=client_ip,
+                    browser=b_w,
+                    os_name=o_w,
+                    device_key=norm_w_dk,
+                    source_label="Web Telefon (SIP/WSS)",
+                )
+
+        if not device_blocked:
+            _record_request_client_env(
+                request,
+                keys=[agent_ext, user_id, web_sip_user],
+                explicit_ip=client_ip,
+                device_key=client_device_key,
+            )
 
         # Ensure WebRTC client IP is never blocked by SIP firewall
         if client_ip and client_ip not in ("127.0.0.1", "::1", "localhost"):
@@ -37426,6 +37958,8 @@ async def get_webrtc_config(request: Request, db: AsyncSession = Depends(get_db)
             "agentExtension": agent_ext,
             "sipUsername": web_sip_user,
             "webPhoneEnabled": web_enabled,
+            "deviceBlocked": device_blocked,
+            "deviceKey": client_device_key,
             "agentName": agent_name,
             "password": sip_password,
             "viaHost": via_ip

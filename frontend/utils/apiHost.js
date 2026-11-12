@@ -1,3 +1,5 @@
+import { getDeviceKeySync } from "./deviceIdentity";
+
 export function getBackendHost(providedHost) {
   if (typeof window !== "undefined") {
     if (!providedHost || providedHost.includes("localhost") || providedHost.includes("127.0.0.1") || providedHost.startsWith("192.168.") || providedHost.startsWith("10.") || providedHost.startsWith("172.")) {
@@ -25,9 +27,11 @@ export function getActiveTenantId() {
 
 export async function tenantFetch(url, options = {}) {
   const activeTenantId = getActiveTenantId();
+  const deviceKey = getDeviceKeySync();
   const headers = {
     ...(options.headers || {}),
-    "X-Tenant-ID": activeTenantId
+    "X-Tenant-ID": activeTenantId,
+    ...(deviceKey ? { "X-Device-Key": deviceKey } : {})
   };
   return await fetch(url, { ...options, headers });
 }

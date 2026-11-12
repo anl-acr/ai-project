@@ -7,6 +7,7 @@ import {
   saveRememberedCredentials,
   setRememberMePreference
 } from "../../utils/authStorage";
+import { getDeviceKeySync } from "../../utils/deviceIdentity";
 
 export default function Login({ onLogin, onComplete2FA, error, backendHost }) {
   const { bg, text } = useTheme();
@@ -16,8 +17,11 @@ export default function Login({ onLogin, onComplete2FA, error, backendHost }) {
   const [showPassword, setShowPassword] = useState(false);
   const [rememberMe, setRememberMe] = useState(true);
   const [isLoading, setIsLoading] = useState(false);
+  const [localDeviceKey, setLocalDeviceKey] = useState("");
+  const [deviceKeyCopied, setDeviceKeyCopied] = useState(false);
 
   useEffect(() => {
+    setLocalDeviceKey(getDeviceKeySync());
     const saved = loadRememberedCredentials();
     setRememberMe(saved.rememberMe);
     if (saved.rememberMe) {
@@ -254,15 +258,20 @@ export default function Login({ onLogin, onComplete2FA, error, backendHost }) {
       setIsLoading(true);
       setTwoFactorError("");
       try {
+        const curDk = localDeviceKey || getDeviceKeySync();
         const res = await fetch(resolveApiUrl("/api/auth/verify_2fa"), {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: {
+            "Content-Type": "application/json",
+            ...(curDk ? { "X-Device-Key": curDk } : {})
+          },
           body: JSON.stringify({
             user_id: String(twoFactorUserId),
             code: cleanCode,
             method: twoFactorMethod,
             secret: twoFactorSecret || undefined,
-            phone: twoFactorPhone || undefined
+            phone: twoFactorPhone || undefined,
+            device_key: curDk || undefined
           })
         });
         const data = await res.json();
@@ -925,6 +934,35 @@ export default function Login({ onLogin, onComplete2FA, error, backendHost }) {
               </button>
             )}
           </form>
+
+          {/* Method A: This PC's Trusted Device Key Badge & 1-Click Copy */}
+          {localDeviceKey && (
+            <div className="mt-5 pt-4 border-t border-slate-200/60 dark:border-white/10 flex items-center justify-between gap-2 text-[11px]">
+              <div className="flex items-center gap-1.5 min-w-0">
+                <span className="text-slate-500 dark:text-slate-400 font-semibold truncate">
+                  Cihaz Anahtarı:
+                </span>
+                <code className="px-2 py-0.5 rounded-lg bg-white/80 dark:bg-black/30 border border-slate-200/80 dark:border-white/10 font-mono font-extrabold text-slate-700 dark:text-slate-200">
+                  {localDeviceKey}
+                </code>
+              </div>
+              <button
+                type="button"
+                onClick={async () => {
+                  try {
+                    await navigator.clipboard.writeText(localDeviceKey);
+                    setDeviceKeyCopied(true);
+                    setTimeout(() => setDeviceKeyCopied(false), 2500);
+                  } catch (_) {}
+                }}
+                className="px-2.5 py-1 rounded-lg bg-white/80 dark:bg-black/30 hover:bg-white dark:hover:bg-white/10 border border-slate-200/80 dark:border-white/10 text-slate-700 dark:text-slate-200 text-[10px] font-bold flex items-center gap-1 shrink-0 cursor-pointer transition"
+                title="Bu bilgisayarın güvenilir cihaz anahtarını kopyala"
+              >
+                {deviceKeyCopied ? <Check size={11} className="text-emerald-500" /> : <Copy size={11} />}
+                <span>{deviceKeyCopied ? "Kopyalandı" : "Kopyala"}</span>
+              </button>
+            </div>
+          )}
         </div>
         
         {/* Footer info */}

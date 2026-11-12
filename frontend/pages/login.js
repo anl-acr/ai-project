@@ -6,6 +6,11 @@ import {
   persistAuthenticatedSession,
   saveRememberedCredentials
 } from "../utils/authStorage";
+import {
+  getDeviceKeySync,
+  getClientBrowserAndOs,
+  verifyUserDeviceAccess
+} from "../utils/deviceIdentity";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -95,6 +100,48 @@ export default function LoginPage() {
         usersToSearch = await resUsers.json();
       }
 
+      const checkDeviceLockForUser = async (uObj) => {
+        if (!uObj) return { allowed: true };
+        const curDk = getDeviceKeySync();
+        const envInfo = getClientBrowserAndOs();
+        const localCheck = verifyUserDeviceAccess(uObj, curDk);
+        try {
+          const vRes = await fetch(`${protocol}//${backendHost}/api/auth/verify-device`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              ...(curDk ? { "X-Device-Key": curDk } : {})
+            },
+            body: JSON.stringify({
+              user_id: uObj.id ?? uObj.extension ?? uObj.username,
+              extension: uObj.extension || "",
+              device_key: curDk,
+              client_browser: envInfo.browser,
+              client_os: envInfo.os
+            })
+          });
+          if (vRes.ok) {
+            const vData = await vRes.json();
+            if (vData && vData.allowed === false) {
+              return {
+                allowed: false,
+                error:
+                  vData.detail ||
+                  `Bu bilgisayar (${curDk}) hesabınız için yetkilendirilmemiş. Lütfen Cihaz Anahtarınızı sistem yöneticinize iletin.`
+              };
+            }
+            return { allowed: true };
+          }
+        } catch (_) {}
+        if (!localCheck.allowed) {
+          return {
+            allowed: false,
+            error: `Bu bilgisayar (${curDk}) hesabınız için yetkilendirilmemiş. Lütfen Cihaz Anahtarınızı sistem yöneticinize iletin.`
+          };
+        }
+        return { allowed: true };
+      };
+
       const adminUser =
         (usersToSearch || []).find(
           (u) => u.username === "admin" || u.email === "admin@localhost" || u.id === 1
@@ -102,6 +149,11 @@ export default function LoginPage() {
       const validAdminPassword = adminUser?.password || "admin";
 
       if (cleanUsername.toLowerCase() === "admin" && (password === validAdminPassword || password === "admin")) {
+        const admDev = await checkDeviceLockForUser(adminUser);
+        if (!admDev.allowed) {
+          setError(admDev.error);
+          return { success: false, error: admDev.error };
+        }
         if (adminUser?.two_factor_enabled) {
           return build2faPayloadFromUser(adminUser, "admin");
         }
@@ -134,6 +186,11 @@ export default function LoginPage() {
       });
 
       if (foundUser) {
+        const usrDev = await checkDeviceLockForUser(foundUser);
+        if (!usrDev.allowed) {
+          setError(usrDev.error);
+          return { success: false, error: usrDev.error };
+        }
         if (foundUser.two_factor_enabled) {
           return build2faPayloadFromUser(foundUser, foundUser.id);
         }

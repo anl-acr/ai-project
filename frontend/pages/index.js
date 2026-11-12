@@ -8,6 +8,11 @@ import {
   clearAuthenticatedSession,
   updateRememberedPasswordIfSaved
 } from "../utils/authStorage";
+import {
+  getDeviceKeySync,
+  getClientBrowserAndOs,
+  verifyUserDeviceAccess
+} from "../utils/deviceIdentity";
 
 import { 
   Bot, 
@@ -2578,6 +2583,49 @@ export default function Home() {
       console.error("Login user fetch error:", err);
     }
 
+    const checkDeviceLockForUser = async (uObj) => {
+      if (!uObj) return { allowed: true };
+      const curDk = getDeviceKeySync();
+      const envInfo = getClientBrowserAndOs();
+      const localCheck = verifyUserDeviceAccess(uObj, curDk);
+      try {
+        const protocol = window.location.protocol === "https:" ? "https:" : "http:";
+        const vRes = await fetch(`${protocol}//${backendHost}/api/auth/verify-device`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            ...(curDk ? { "X-Device-Key": curDk } : {})
+          },
+          body: JSON.stringify({
+            user_id: uObj.id ?? uObj.extension ?? uObj.username,
+            extension: uObj.extension || "",
+            device_key: curDk,
+            client_browser: envInfo.browser,
+            client_os: envInfo.os
+          })
+        });
+        if (vRes.ok) {
+          const vData = await vRes.json();
+          if (vData && vData.allowed === false) {
+            return {
+              allowed: false,
+              error:
+                vData.detail ||
+                `Bu bilgisayar (${curDk}) hesabınız için yetkilendirilmemiş. Lütfen Cihaz Anahtarınızı sistem yöneticinize iletin.`
+            };
+          }
+          return { allowed: true };
+        }
+      } catch (_) {}
+      if (!localCheck.allowed) {
+        return {
+          allowed: false,
+          error: `Bu bilgisayar (${curDk}) hesabınız için yetkilendirilmemiş. Lütfen Cihaz Anahtarınızı sistem yöneticinize iletin.`
+        };
+      }
+      return { allowed: true };
+    };
+
     const adminUserFromDb =
       (usersToSearch || []).find(u => u.username === 'admin' || u.email === 'admin@localhost' || u.id === 1) ||
       (usersToSearch || []).find(u => u.role === 'admin');
@@ -2585,6 +2633,11 @@ export default function Home() {
 
     if (cleanUsername.toLowerCase() === "admin" && (password === validAdminPassword || password === "admin")) { // Admin login
       const activeAdminUser = adminUserFromDb ? { ...SUPER_ADMIN, ...adminUserFromDb } : SUPER_ADMIN;
+      const admDev = await checkDeviceLockForUser(activeAdminUser);
+      if (!admDev.allowed) {
+        setLoginError(admDev.error);
+        return { success: false, error: admDev.error };
+      }
       if (activeAdminUser.two_factor_enabled) {
         const normAdminMethod = (!activeAdminUser.two_factor_method || activeAdminUser.two_factor_method === "app") ? "google_auth" : activeAdminUser.two_factor_method;
         return {
@@ -2626,6 +2679,11 @@ export default function Home() {
       return (matchesIdentity && matchesMainPassword) || matchesSipDevice;
     });
     if (foundUser) {
+      const usrDev = await checkDeviceLockForUser(foundUser);
+      if (!usrDev.allowed) {
+        setLoginError(usrDev.error);
+        return { success: false, error: usrDev.error };
+      }
       if (foundUser.two_factor_enabled) {
         const normMethod = (!foundUser.two_factor_method || foundUser.two_factor_method === "app") ? "google_auth" : foundUser.two_factor_method;
         return {

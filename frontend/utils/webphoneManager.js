@@ -19,6 +19,7 @@ import {
   disposeAllActiveNoisePipelines,
   VALID_NOISE_MODES
 } from "./noiseSuppressionEngine";
+import { getDeviceKeySync } from "./deviceIdentity";
 
 let SIP = null;
 async function ensureSipLoaded() {
@@ -453,11 +454,14 @@ class WebphoneManager {
 
     // 4. PBX / Asterisk WSS SIP Connection Status
     const ext = this.state.webrtcConfig?.agentExtension || curUser?.extension || "";
-    const webPhoneDisabled = this.state.webrtcConfig?.webPhoneEnabled === false;
+    const deviceBlocked = Boolean(this.state.webrtcConfig?.deviceBlocked);
+    const webPhoneDisabled = this.state.webrtcConfig?.webPhoneEnabled === false && !deviceBlocked;
+    const currentDeviceKey = getDeviceKeySync();
     const elapsedSinceInitMs = this.state.initStartedAt ? Date.now() - this.state.initStartedAt : 99999;
     const isInitialConnecting =
       !this.state.registered &&
       !this.state.error &&
+      !deviceBlocked &&
       (this.state.isLoadingConfig || this._initInFlight || elapsedSinceInitMs < 6500);
 
     if (isSuperAdminWithoutExt) {
@@ -467,6 +471,17 @@ class WebphoneManager {
         status: "ok",
         summary: "Sistem Yöneticisi (Admin) hesabı — Dahili telefon kaydı gerekmiyor.",
         solution: ""
+      });
+    } else if (deviceBlocked) {
+      criticalCount++;
+      items.push({
+        id: "pbx_connection",
+        title: "Yetkisiz Bilgisayar (Cihaz Kilidi Engeli)",
+        status: "error",
+        summary: `Bu bilgisayar (${currentDeviceKey}) Dahili ${ext} için güvenilir cihaz listesinde bulunmuyor.`,
+        solution: `Cihaz Anahtarınızı (${currentDeviceKey}) sistem yöneticinize iletin veya Sistem Ayarları > Kullanıcılar > Bağlantı Geçmişi sekmesinden bu cihazı yetkilendirin.`,
+        actionType: "copy_device_key",
+        actionLabel: "Cihaz Anahtarını Kopyala"
       });
     } else if (webPhoneDisabled) {
       warningCount++;
@@ -890,21 +905,36 @@ class WebphoneManager {
     this.acquireBackgroundWakeLock();
     try {
       const apiBase = this.getApiBase();
+      const currentDeviceKey = getDeviceKeySync();
       const queryParams = new URLSearchParams();
       queryParams.set("user_id", targetUserId.toString());
       if (targetExt) {
         queryParams.set("extension", targetExt.toString());
       }
+      if (currentDeviceKey) {
+        queryParams.set("device_key", currentDeviceKey);
+      }
 
       const res = await fetch(`${apiBase}/api/webrtc/config?${queryParams.toString()}`, {
         headers: {
           "Content-Type": "application/json",
-          "X-User-ID": targetUserId.toString()
+          "X-User-ID": targetUserId.toString(),
+          ...(currentDeviceKey ? { "X-Device-Key": currentDeviceKey } : {})
         }
       });
 
       if (res.ok) {
         const config = await res.json();
+        if (config?.deviceBlocked) {
+          this.setState({
+            webrtcConfig: config,
+            isLoadingConfig: false,
+            registered: false,
+            error: `Bu bilgisayar (${config.deviceKey || currentDeviceKey}) Web Telefon kullanımı için yetkilendirilmemiş.`
+          });
+          this.runDiagnosticsCheck({ reason: "device_blocked", autoOpenIfCritical: true });
+          return;
+        }
         this.setState({ webrtcConfig: config, isLoadingConfig: false });
         await this.startUserAgent(config);
         this.runDiagnosticsCheck({ reason: "init_ok", autoOpenIfCritical: true });
@@ -1207,18 +1237,45 @@ class WebphoneManager {
       callState = "ringing";
     }
     const envInfo = this.detectClientEnv();
+    const currentDeviceKey = getDeviceKeySync();
     fetch(`${this.getApiBase()}/api/webrtc/register_notify`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        ...(currentDeviceKey ? { "X-Device-Key": currentDeviceKey } : {})
+      },
       body: JSON.stringify({
         extension: ext,
         sip_username: this.state.webrtcConfig?.sipUsername || "",
         user_id: this.state.currentUser?.id,
         call_state: callState,
         client_browser: envInfo.browser,
-        client_os: envInfo.os
+        client_os: envInfo.os,
+        device_key: currentDeviceKey
       })
-    }).catch(() => {});
+    })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (d?.device_blocked) {
+          if (this.registerer) {
+            try {
+              this.registerer.unregister().catch(() => {});
+            } catch (_) {}
+          }
+          if (this.userAgent) {
+            try {
+              this.userAgent.stop();
+            } catch (_) {}
+          }
+          this.setState({
+            registered: false,
+            webrtcConfig: { ...(this.state.webrtcConfig || {}), deviceBlocked: true, deviceKey: d.device_key || currentDeviceKey },
+            error: `Bu bilgisayar (${d.device_key || currentDeviceKey}) Web Telefon kullanımı için yetkilendirilmemiş.`
+          });
+          this.runDiagnosticsCheck({ reason: "device_blocked", autoOpenIfCritical: true });
+        }
+      })
+      .catch(() => {});
   }
 
   startRegisterNotifyLoop() {

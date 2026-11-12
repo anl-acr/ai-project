@@ -16,6 +16,7 @@ import {
   PhoneCall
 } from "lucide-react";
 import { webphoneManager } from "../../utils/webphoneManager";
+import { getDeviceKeySync } from "../../utils/deviceIdentity";
 import { useTheme } from "../../utils/theme";
 
 export default function WebPhoneDiagnosticsModal() {
@@ -23,6 +24,12 @@ export default function WebPhoneDiagnosticsModal() {
   const [wpState, setWpState] = useState(() => webphoneManager.getState());
   const [actionBusyId, setActionBusyId] = useState("");
   const [copiedUrl, setCopiedUrl] = useState(false);
+  const [copiedDevKey, setCopiedDevKey] = useState(false);
+  const [localDeviceKey, setLocalDeviceKey] = useState("");
+
+  useEffect(() => {
+    setLocalDeviceKey(getDeviceKeySync());
+  }, []);
 
   useEffect(() => {
     const unsub = webphoneManager.subscribe((nextState) => {
@@ -77,6 +84,13 @@ export default function WebPhoneDiagnosticsModal() {
           setTimeout(() => setCopiedUrl(false), 3500);
         } catch (e) {}
         webphoneManager.acknowledgeMemorySaverWarning();
+      } else if (item.actionType === "copy_device_key") {
+        const dk = localDeviceKey || getDeviceKeySync();
+        try {
+          await navigator.clipboard.writeText(dk);
+          setCopiedDevKey(true);
+          setTimeout(() => setCopiedDevKey(false), 3000);
+        } catch (e) {}
       } else if (item.actionType === "test_speaker") {
         await webphoneManager.unlockAudioAndTestSpeaker();
       } else if (item.actionType === "retry_all") {
@@ -218,6 +232,35 @@ export default function WebPhoneDiagnosticsModal() {
                 <RefreshCw size={12} /> Tekrar Tara
               </button>
             </div>
+
+            {/* Method A: This PC's Trusted Device Key Copy Bar */}
+            {localDeviceKey && (
+              <div className="p-2.5 rounded-2xl bg-slate-50 dark:bg-slate-950/60 border border-slate-200/80 dark:border-slate-800 flex items-center justify-between gap-2 text-[11px]">
+                <div className="flex items-center gap-2 min-w-0 text-left">
+                  <Cpu size={14} className="text-slate-400 shrink-0" />
+                  <span className="text-slate-500 dark:text-slate-400 font-semibold truncate">
+                    Bu Bilgisayarın Cihaz Anahtarı:
+                  </span>
+                  <code className="px-2 py-0.5 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 font-mono font-extrabold text-slate-800 dark:text-slate-100">
+                    {localDeviceKey}
+                  </code>
+                </div>
+                <button
+                  type="button"
+                  onClick={async () => {
+                    try {
+                      await navigator.clipboard.writeText(localDeviceKey);
+                      setCopiedDevKey(true);
+                      setTimeout(() => setCopiedDevKey(false), 2500);
+                    } catch (_) {}
+                  }}
+                  className="px-2.5 py-1 rounded-lg bg-white dark:bg-slate-900 hover:bg-slate-100 dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 text-[10px] font-bold flex items-center gap-1 shrink-0 cursor-pointer transition"
+                >
+                  {copiedDevKey ? <Check size={11} className="text-emerald-500" /> : <Copy size={11} />}
+                  <span>{copiedDevKey ? "Kopyalandı!" : "Anahtarı Kopyala"}</span>
+                </button>
+              </div>
+            )}
 
             {/* Diagnostic Checklist Items */}
             <div className="flex flex-col gap-2.5 text-left">

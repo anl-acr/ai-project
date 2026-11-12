@@ -292,27 +292,29 @@ class RegisteredEndpointsDict(dict):
         self._meta = {}
         self._ip_meta = {}
 
-    def add(self, key, ip="", browser="", os_name=""):
+    def add(self, key, ip="", browser="", os_name="", device_key=""):
         k = str(key)
         ip_s = str(ip or "").strip()
         existing = self.get(k, "")
         if not (ip_s in ("", "127.0.0.1", "::1", "localhost") and existing and existing not in ("", "127.0.0.1", "::1", "localhost")):
             self[k] = ip_s
         eff_ip = self.get(k, "") or ip_s
-        if browser or os_name:
+        if browser or os_name or device_key:
             cur_m = self._meta.get(k) or {}
             meta_entry = {
                 "browser": str(browser or cur_m.get("browser") or "").strip(),
                 "os": str(os_name or cur_m.get("os") or "").strip(),
+                "device_key": str(device_key or cur_m.get("device_key") or "").strip().upper(),
             }
             self._meta[k] = meta_entry
             if eff_ip and eff_ip not in ("", "127.0.0.1", "::1", "localhost"):
                 self._ip_meta[eff_ip] = dict(meta_entry)
 
-    def record_meta(self, keys=None, ip="", browser="", os_name=""):
+    def record_meta(self, keys=None, ip="", browser="", os_name="", device_key=""):
         b_s = str(browser or "").strip()
         o_s = str(os_name or "").strip()
-        if not b_s and not o_s:
+        dk_s = str(device_key or "").strip().upper()
+        if not b_s and not o_s and not dk_s:
             return
         ip_s = str(ip or "").strip()
         if ip_s and ip_s not in ("", "127.0.0.1", "::1", "localhost"):
@@ -320,6 +322,7 @@ class RegisteredEndpointsDict(dict):
             self._ip_meta[ip_s] = {
                 "browser": b_s or str(cur_ip_m.get("browser") or "").strip(),
                 "os": o_s or str(cur_ip_m.get("os") or "").strip(),
+                "device_key": dk_s or str(cur_ip_m.get("device_key") or "").strip().upper(),
             }
         for raw_k in (keys or []):
             k = str(raw_k or "").strip()
@@ -329,6 +332,7 @@ class RegisteredEndpointsDict(dict):
             self._meta[k] = {
                 "browser": b_s or str(cur_m.get("browser") or "").strip(),
                 "os": o_s or str(cur_m.get("os") or "").strip(),
+                "device_key": dk_s or str(cur_m.get("device_key") or "").strip().upper(),
             }
             bound_ip = self.get(k, "")
             if bound_ip and bound_ip not in ("", "127.0.0.1", "::1", "localhost"):

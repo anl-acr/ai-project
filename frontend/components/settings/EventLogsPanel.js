@@ -69,6 +69,8 @@ const FIELD_LABELS_TR = {
   browser: "Yeni Tarayıcı",
   previous_os: "Önceki İşletim Sistemi",
   os: "Yeni İşletim Sistemi",
+  device_key: "Cihaz Anahtarı",
+  source: "Giriş Kaynağı",
 };
 
 const STRATEGY_LABELS_TR = {
@@ -229,6 +231,7 @@ export default function EventLogsPanel({ backendHost }) {
     APPLY_CONFIG: "Ayarları Santrale Uyguladı",
     CLIENT_ENV_CONNECT: "Cihaz & Bağlantı Kaydı",
     CLIENT_ENV_CHANGE: "IP / Tarayıcı / OS Değişimi",
+    DEVICE_KEY_BLOCKED: "Yetkisiz Cihaz Engellendi",
   };
 
   const tModule = (log) => log.module_tr || moduleTranslations[log.module] || log.module || "Sistem";
@@ -237,7 +240,7 @@ export default function EventLogsPanel({ backendHost }) {
   const resolveCategory = (log) => {
     if (log.category) return log.category;
     const act = String(log.action || "").toUpperCase();
-    if (["LOGIN", "LOGOUT", "QUEUE_LOGIN", "QUEUE_LOGOUT", "BREAK_START", "BREAK_END", "CLIENT_ENV_CONNECT", "CLIENT_ENV_CHANGE"].includes(act)) return "auth";
+    if (["LOGIN", "LOGOUT", "QUEUE_LOGIN", "QUEUE_LOGOUT", "BREAK_START", "BREAK_END", "CLIENT_ENV_CONNECT", "CLIENT_ENV_CHANGE", "DEVICE_KEY_BLOCKED"].includes(act)) return "auth";
     if (act === "PAGE_VIEW" || log.module === "Navigation") return "navigation";
     if (act.includes("DELETE") || act.includes("REMOVE")) return "delete";
     if (act.includes("CREATE") || act.includes("ADD")) return "create";
@@ -248,6 +251,12 @@ export default function EventLogsPanel({ backendHost }) {
     const act = String(log.action || "").toUpperCase();
     const cat = resolveCategory(log);
 
+    if (act === "DEVICE_KEY_BLOCKED") {
+      return {
+        Icon: Shield,
+        cls: "text-rose-700 bg-rose-50 border-rose-200/80 dark:bg-rose-950/40 dark:border-rose-800/50 dark:text-rose-300",
+      };
+    }
     if (act === "CLIENT_ENV_CHANGE") {
       return {
         Icon: Monitor,
@@ -610,6 +619,13 @@ export default function EventLogsPanel({ backendHost }) {
                         <div className="text-xs font-medium text-slate-800 dark:text-slate-200 leading-relaxed">
                           {log.summary || log.details?.summary || `${tModule(log)} bölümünde ${tAction(log).toLowerCase()} işlemi yapıldı.`}
                         </div>
+                        {log.details?.device_key && (
+                          <div className="mt-1">
+                            <code className="px-2 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-[10px] font-mono font-bold text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700">
+                              Cihaz: {log.details.device_key}
+                            </code>
+                          </div>
+                        )}
                         {changesList.length > 0 && (
                           <div className="flex flex-wrap gap-1.5 mt-1.5">
                             {changesList.map((ch, idx) => (

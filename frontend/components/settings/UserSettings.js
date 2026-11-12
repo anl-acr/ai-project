@@ -33,6 +33,11 @@ import BulkConfigPanel from "./BulkConfigPanel";
 
 import { getApiBaseUrl, tenantFetch } from "../../utils/apiHost";
 import { webphoneManager } from "../../utils/webphoneManager";
+import {
+  getDeviceKeySync,
+  normalizeDeviceKey,
+  extractUserDeviceSecurity
+} from "../../utils/deviceIdentity";
 import useClickOutside from "../../utils/useClickOutside";
 import { PRESET_AVATARS, AVATAR_CATEGORIES, ALL_AVATAR_ITEMS } from "../../utils/avatarPresets";
 import {
@@ -490,10 +495,21 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
   const [ctiTesting, setCtiTesting] = useState(false);
   const [ctiTestResult, setCtiTestResult] = useState(null);
 
-  // User Connection & Environment History (IP / Browser / OS changes)
+  // User Connection & Environment History (IP / Browser / OS changes) & Trusted Device Binding
   const [connHistoryList, setConnHistoryList] = useState([]);
   const [connHistoryLoading, setConnHistoryLoading] = useState(false);
   const [connHistoryLive, setConnHistoryLive] = useState(null);
+  const [deviceLockEnabled, setDeviceLockEnabled] = useState(false);
+  const [trustedDevices, setTrustedDevices] = useState([]);
+  const [newTrustedDeviceLabel, setNewTrustedDeviceLabel] = useState("");
+  const [newTrustedDeviceKey, setNewTrustedDeviceKey] = useState("");
+  const [trustedDeviceMsg, setTrustedDeviceMsg] = useState(null);
+  const [trustedDeviceBusy, setTrustedDeviceBusy] = useState(false);
+  const [adminLocalDeviceKey, setAdminLocalDeviceKey] = useState("");
+
+  useEffect(() => {
+    setAdminLocalDeviceKey(getDeviceKeySync());
+  }, []);
 
   const safeFetch = async (path, options = {}) => {
     const apiBase = getApiBaseUrl(backendHost);
@@ -520,11 +536,188 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
           current_ip: data?.current_ip || "",
           current_browser: data?.current_browser || "",
           current_os: data?.current_os || "",
+          current_device_key: data?.current_device_key || "",
         });
+        if (typeof data?.device_lock_enabled === "boolean") {
+          setDeviceLockEnabled(data.device_lock_enabled);
+        }
+        if (Array.isArray(data?.trusted_devices)) {
+          setTrustedDevices(data.trusted_devices);
+        }
       }
     } catch (_) {
     } finally {
       setConnHistoryLoading(false);
+    }
+  };
+
+  const syncUserTrustedDevicesInLocalState = (nextLockVal, nextDevicesList) => {
+    if (!editingUser) return;
+    const patch = {
+      device_lock_enabled: Boolean(nextLockVal),
+      trusted_devices: nextDevicesList,
+      call_panel_prefs: {
+        ...(editingUser.call_panel_prefs && typeof editingUser.call_panel_prefs === "object" ? editingUser.call_panel_prefs : {}),
+        securityPolicy: {
+          ...(editingUser.call_panel_prefs?.securityPolicy && typeof editingUser.call_panel_prefs.securityPolicy === "object"
+            ? editingUser.call_panel_prefs.securityPolicy
+            : {}),
+          device_lock_enabled: Boolean(nextLockVal),
+          trusted_devices: nextDevicesList,
+        },
+      },
+    };
+    setEditingUser((prev) => (prev ? { ...prev, ...patch } : prev));
+    setUsers((prev) =>
+      Array.isArray(prev)
+        ? prev.map((u) =>
+            (editingUser.id !== undefined && String(u.id) === String(editingUser.id)) ||
+            (editingUser.extension && String(u.extension) === String(editingUser.extension))
+              ? { ...u, ...patch }
+              : u
+          )
+        : prev
+    );
+  };
+
+  const handleToggleDeviceLock = async (nextLockVal) => {
+    setDeviceLockEnabled(Boolean(nextLockVal));
+    setTrustedDeviceMsg(null);
+    const targetKey = editingUser?.extension || editingUser?.id;
+    if (!targetKey) return;
+    setTrustedDeviceBusy(true);
+    try {
+      const res = await safeFetch(`/api/settings/users/${encodeURIComponent(String(targetKey))}/trusted-devices`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "toggle_lock",
+          device_lock_enabled: Boolean(nextLockVal),
+          trusted_devices: trustedDevices,
+        }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        const savedLock = Boolean(data?.device_lock_enabled ?? nextLockVal);
+        const savedList = Array.isArray(data?.trusted_devices) ? data.trusted_devices : trustedDevices;
+        setDeviceLockEnabled(savedLock);
+        setTrustedDevices(savedList);
+        syncUserTrustedDevicesInLocalState(savedLock, savedList);
+        setTrustedDeviceMsg({
+          type: "success",
+          text: savedLock
+            ? "Güvenilir Cihaz Kilidi etkinleştirildi. Sadece listedeki cihazlar erişebilir."
+            : "Güvenilir Cihaz Kilidi kapatıldı.",
+        });
+      }
+    } catch (_) {
+    } finally {
+      setTrustedDeviceBusy(false);
+    }
+  };
+
+  const handleAddTrustedDevice = async ({ key, label, browser = "", os = "", ip_address = "" }) => {
+    const normKey = normalizeDeviceKey(key);
+    if (!normKey || normKey.length < 6) {
+      setTrustedDeviceMsg({
+        type: "error",
+        text: "Lütfen geçerli bir Cihaz Anahtarı (Örn: AIDA-DEV-8F3A-91C4) giriniz.",
+      });
+      return;
+    }
+    if (trustedDevices.some((d) => normalizeDeviceKey(d.key) === normKey)) {
+      setTrustedDeviceMsg({
+        type: "info",
+        text: `${normKey} zaten güvenilir cihaz listesinde kayıtlı.`,
+      });
+      return;
+    }
+    const cleanLabel = String(label || "").trim() || ([browser, os].filter(Boolean).join(" / ") ? `${[browser, os].filter(Boolean).join(" / ")}${ip_address ? ` (${ip_address})` : ""}` : `Güvenilir PC (${normKey.slice(-4)})`);
+    const newItem = {
+      key: normKey,
+      label: cleanLabel,
+      browser,
+      os,
+      ip_address,
+      added_at: new Date().toISOString(),
+    };
+    const nextList = [...trustedDevices, newItem];
+    setTrustedDevices(nextList);
+    setNewTrustedDeviceKey("");
+    setNewTrustedDeviceLabel("");
+    setTrustedDeviceMsg(null);
+
+    const targetKey = editingUser?.extension || editingUser?.id;
+    if (!targetKey) {
+      setTrustedDeviceMsg({
+        type: "success",
+        text: `${normKey} listeye eklendi (Kullanıcıyı kaydettiğinizde etkinleşecektir).`,
+      });
+      return;
+    }
+    setTrustedDeviceBusy(true);
+    try {
+      const res = await safeFetch(`/api/settings/users/${encodeURIComponent(String(targetKey))}/trusted-devices`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "add",
+          device_key: normKey,
+          label: cleanLabel,
+          browser,
+          os,
+          ip_address,
+          device_lock_enabled: deviceLockEnabled,
+        }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        const savedList = Array.isArray(data?.trusted_devices) ? data.trusted_devices : nextList;
+        setTrustedDevices(savedList);
+        syncUserTrustedDevicesInLocalState(deviceLockEnabled, savedList);
+        setTrustedDeviceMsg({
+          type: "success",
+          text: `${cleanLabel} (${normKey}) güvenilir cihazlara eklendi.`,
+        });
+      }
+    } catch (_) {
+    } finally {
+      setTrustedDeviceBusy(false);
+    }
+  };
+
+  const handleRemoveTrustedDevice = async (rawKey) => {
+    const normKey = normalizeDeviceKey(rawKey);
+    const nextList = trustedDevices.filter((d) => normalizeDeviceKey(d.key) !== normKey);
+    setTrustedDevices(nextList);
+    setTrustedDeviceMsg(null);
+
+    const targetKey = editingUser?.extension || editingUser?.id;
+    if (!targetKey) return;
+    setTrustedDeviceBusy(true);
+    try {
+      const res = await safeFetch(`/api/settings/users/${encodeURIComponent(String(targetKey))}/trusted-devices`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "remove",
+          device_key: normKey,
+          device_lock_enabled: deviceLockEnabled,
+        }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        const savedList = Array.isArray(data?.trusted_devices) ? data.trusted_devices : nextList;
+        setTrustedDevices(savedList);
+        syncUserTrustedDevicesInLocalState(deviceLockEnabled, savedList);
+        setTrustedDeviceMsg({
+          type: "info",
+          text: `${normKey} güvenilir cihaz listesinden çıkarıldı.`,
+        });
+      }
+    } catch (_) {
+    } finally {
+      setTrustedDeviceBusy(false);
     }
   };
 
@@ -1869,6 +2062,11 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
     setAutoLogoutDuration(1);
     setPasswordExpiryEnabled(false);
     setPasswordExpiryMonths(3);
+    setDeviceLockEnabled(false);
+    setTrustedDevices([]);
+    setNewTrustedDeviceLabel("");
+    setNewTrustedDeviceKey("");
+    setTrustedDeviceMsg(null);
     setUserCallPanelPrefs({
       ...DEFAULT_CALL_PANEL_PREFS,
       uiTemplate: "classic",
@@ -2163,6 +2361,14 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
     setAutoLogoutDuration(Number(u.auto_logout_duration ?? secPol.auto_logout_duration ?? 1) || 1);
     setPasswordExpiryEnabled(Boolean(u.password_expiry_enabled ?? secPol.password_expiry_enabled ?? false));
     setPasswordExpiryMonths(Number(u.password_expiry_months ?? secPol.password_expiry_months ?? 3) || 3);
+
+    const devSec = extractUserDeviceSecurity(u);
+    setDeviceLockEnabled(Boolean(devSec.device_lock_enabled));
+    setTrustedDevices(Array.isArray(devSec.trusted_devices) ? devSec.trusted_devices : []);
+    setNewTrustedDeviceLabel("");
+    setNewTrustedDeviceKey("");
+    setTrustedDeviceMsg("");
+    try { setAdminLocalDeviceKey(getDeviceKeySync()); } catch (e) {}
 
     const loadedBasePrefs = loadCallPanelPrefs(u);
     setUserCallPanelPrefs({
@@ -2478,6 +2684,8 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
       auto_logout_duration: Number(autoLogoutDuration) || 1,
       password_expiry_enabled: Boolean(passwordExpiryEnabled),
       password_expiry_months: Number(passwordExpiryMonths) || 3,
+      device_lock_enabled: Boolean(deviceLockEnabled),
+      trusted_devices: Array.isArray(trustedDevices) ? trustedDevices : [],
       wallboard_layout: userWallboardLayout && typeof userWallboardLayout === "object" ? userWallboardLayout : {},
       call_panel_prefs: {
         ...prevCallPanelPrefs,
@@ -2492,7 +2700,9 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
           auto_logout_enabled: Boolean(autoLogoutEnabled),
           auto_logout_duration: Number(autoLogoutDuration) || 1,
           password_expiry_enabled: Boolean(passwordExpiryEnabled),
-          password_expiry_months: Number(passwordExpiryMonths) || 3
+          password_expiry_months: Number(passwordExpiryMonths) || 3,
+          device_lock_enabled: Boolean(deviceLockEnabled),
+          trusted_devices: Array.isArray(trustedDevices) ? trustedDevices : []
         }
       },
       managed_users: managedUsers,
@@ -3570,16 +3780,21 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
                                 Müşteri / Tenant
                             </button>
                         )}
-                        {editingUser && (
-                            <button
-                                type="button"
-                                onClick={() => setActiveTab("connection_history")}
-                                className={"w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-bold transition-all " + (activeTab === 'connection_history' ? ("bg-white dark:bg-slate-800 " + text + " shadow-sm border border-slate-200 dark:border-slate-700") : "text-slate-500 hover:bg-white/50 dark:hover:bg-slate-800/50 hover:text-slate-700 dark:hover:text-slate-300 border border-transparent")}
-                            >
-                                <Clock size={16} />
-                                Bağlantı Geçmişi
-                            </button>
-                        )}
+                        <button
+                            type="button"
+                            onClick={() => setActiveTab("connection_history")}
+                            className={"w-full flex items-center justify-between gap-2 px-3 py-2.5 rounded-xl text-xs font-bold transition-all " + (activeTab === 'connection_history' ? ("bg-white dark:bg-slate-800 " + text + " shadow-sm border border-slate-200 dark:border-slate-700") : "text-slate-500 hover:bg-white/50 dark:hover:bg-slate-800/50 hover:text-slate-700 dark:hover:text-slate-300 border border-transparent")}
+                        >
+                            <span className="flex items-center gap-3 min-w-0 truncate">
+                                <Clock size={16} className="shrink-0" />
+                                <span className="truncate">Bağlantı & Cihaz Kilidi</span>
+                            </span>
+                            {deviceLockEnabled && (
+                                <span className="inline-flex items-center px-1.5 py-0.5 rounded-md text-[9px] font-black bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30 shrink-0">
+                                    Kilitli
+                                </span>
+                            )}
+                        </button>
                     </nav>
                 </div>
 
@@ -8203,136 +8418,405 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
                             </div>
                         )}
 
-                        {/* TAB: BAĞLANTI GEÇMİŞİ (IP / TARAYICI / İŞLETİM SİSTEMİ DEĞİŞİMLERİ) */}
-                        {activeTab === "connection_history" && editingUser && (
+                        {/* TAB: BAĞLANTI GEÇMİŞİ & GÜVENİLİR CİHAZ KİLİDİ (YÖNTEM A VE B) */}
+                        {activeTab === "connection_history" && (
                             <div className="space-y-5 animate-in fade-in duration-300">
-                                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-100 dark:border-slate-800/60">
-                                    <div>
-                                        <h5 className="text-sm font-extrabold text-slate-800 dark:text-white flex items-center gap-2">
-                                            <Monitor size={16} className={text} />
-                                            Bağlantı & Cihaz Değişim Geçmişi
-                                        </h5>
-                                        <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
-                                            Kullanıcının bağlandığı IP adresi, tarayıcı veya işletim sistemi değiştiğinde önceki kayıtlar silinmeden kronolojik olarak burada ve Olay Günlüklerinde saklanır.
-                                        </p>
-                                    </div>
-                                    <button
-                                        type="button"
-                                        onClick={() => fetchUserConnectionHistory(editingUser)}
-                                        disabled={connHistoryLoading}
-                                        className="px-3.5 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-bold text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700 flex items-center gap-2 transition-all cursor-pointer disabled:opacity-50 shrink-0"
-                                    >
-                                        <RefreshCw size={14} className={connHistoryLoading ? "animate-spin" : ""} />
-                                        <span>Yenile</span>
-                                    </button>
-                                </div>
-
-                                {/* Current Live Environment Banner */}
-                                <div className={`p-4 rounded-2xl border flex flex-col sm:flex-row sm:items-center justify-between gap-3 ${
-                                    (connHistoryLive?.is_online || editingUser?.is_registered)
-                                        ? "bg-emerald-50/70 dark:bg-emerald-950/25 border-emerald-200/80 dark:border-emerald-800/60"
-                                        : "bg-slate-50 dark:bg-slate-900/60 border-slate-200/80 dark:border-slate-800"
-                                }`}>
-                                    <div className="flex items-center gap-3">
-                                        <div className={`w-3 h-3 rounded-full shrink-0 ${
-                                            (connHistoryLive?.is_online || editingUser?.is_registered)
-                                                ? "bg-emerald-500 animate-pulse"
-                                                : "bg-rose-500"
-                                        }`} />
-                                        <div>
-                                            <div className="text-xs font-extrabold text-slate-800 dark:text-white">
-                                                {(connHistoryLive?.is_online || editingUser?.is_registered)
-                                                    ? "Şu Anda Web Telefon Bağlı"
-                                                    : "Şu Anda Çevrimdışı"}
+                                {/* 1. GÜVENİLİR CİHAZ KİLİDİ KARTI (YÖNTEM A: MANUEL & KOPYALA-YAPIŞTIR + TOGGLE) */}
+                                <div className="p-4 sm:p-5 rounded-2xl border border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-900/60 space-y-4">
+                                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-200/70 dark:border-slate-800">
+                                        <div className="flex items-start gap-3">
+                                            <div className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 border ${
+                                                deviceLockEnabled
+                                                    ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/30"
+                                                    : "bg-slate-200/70 dark:bg-slate-800 text-slate-500 dark:text-slate-400 border-slate-300/60 dark:border-slate-700"
+                                            }`}>
+                                                {deviceLockEnabled ? <Lock size={18} /> : <Unlock size={18} />}
                                             </div>
-                                            <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
-                                                {(connHistoryLive?.current_ip || editingUser?.ip_address)
-                                                    ? `Anlık Ortam: ${connHistoryLive?.current_ip || editingUser?.ip_address} • ${[
-                                                        connHistoryLive?.current_browser || editingUser?.client_browser,
-                                                        connHistoryLive?.current_os || editingUser?.client_os
-                                                      ].filter(Boolean).join(" / ") || "Tarayıcı bilgisi bekleniyor"}`
-                                                    : "Aktif SIP / WebRTC bağlantısı algılanmadı."}
+                                            <div>
+                                                <div className="flex items-center gap-2 flex-wrap">
+                                                    <h5 className="text-sm font-extrabold text-slate-800 dark:text-white">
+                                                        Güvenilir Cihaz Kilidi (PC & Web Phone Doğrulama)
+                                                    </h5>
+                                                    <span className={`px-2 py-0.5 rounded-lg text-[10px] font-extrabold border ${
+                                                        deviceLockEnabled
+                                                            ? "bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-800/60"
+                                                            : "bg-slate-100 text-slate-600 border-slate-200 dark:bg-slate-800 dark:text-slate-400 dark:border-slate-700"
+                                                    }`}>
+                                                        {deviceLockEnabled ? `Aktif (${trustedDevices.length} Cihaz Yetkili)` : "Pasif (Tüm Cihazlara Açık)"}
+                                                    </span>
+                                                </div>
+                                                <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1 leading-relaxed">
+                                                    Açıldığında kullanıcı <strong>şifre ve 2FA doğrulamasını geçse bile</strong> yalnızca aşağıda tanımlı <code>AIDA-DEV-XXXX-YYYY</code> anahtarına sahip bilgisayar/tarayıcılardan panele girebilir ve Web Phone (SIP) kaydedebilir.
+                                                </p>
                                             </div>
                                         </div>
+                                        <button
+                                            type="button"
+                                            disabled={!canWrite || trustedDeviceBusy}
+                                            onClick={() => handleToggleDeviceLock(!deviceLockEnabled)}
+                                            className={`px-3.5 py-2 rounded-xl text-xs font-extrabold flex items-center gap-2 border transition-all cursor-pointer shrink-0 disabled:opacity-50 ${
+                                                deviceLockEnabled
+                                                    ? "bg-emerald-600 hover:bg-emerald-500 text-white border-emerald-500 shadow-sm"
+                                                    : "bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-700"
+                                            }`}
+                                        >
+                                            {deviceLockEnabled ? <ToggleRight size={18} /> : <ToggleLeft size={18} />}
+                                            <span>{deviceLockEnabled ? "Cihaz Kilidi Açık" : "Cihaz Kilidini Aç"}</span>
+                                        </button>
                                     </div>
-                                    <span className="text-[10px] font-bold text-slate-400 dark:text-slate-500">
-                                        Toplam {connHistoryList.length} değişim kaydı
-                                    </span>
-                                </div>
 
-                                {/* History Table */}
-                                <div className="border border-slate-200 dark:border-slate-800 rounded-2xl overflow-hidden bg-white dark:bg-slate-900">
-                                    {connHistoryLoading ? (
-                                        <div className="p-8 text-center text-xs text-slate-400 flex items-center justify-center gap-2">
-                                            <RefreshCw size={15} className="animate-spin" />
-                                            <span>Bağlantı geçmişi yükleniyor...</span>
-                                        </div>
-                                    ) : connHistoryList.length === 0 ? (
-                                        <div className="p-8 text-center text-xs text-slate-400">
-                                            Bu kullanıcı için henüz kaydedilmiş bir IP, tarayıcı veya işletim sistemi geçmişi bulunmuyor.
-                                        </div>
-                                    ) : (
-                                        <div className="overflow-x-auto">
-                                            <table className="w-full text-left border-collapse">
-                                                <thead>
-                                                    <tr className="bg-slate-50 dark:bg-slate-950/60 border-b border-slate-200 dark:border-slate-800 text-[10px] font-extrabold uppercase tracking-wider text-slate-500 dark:text-slate-400">
-                                                        <th className="py-3 px-4">Tarih / Saat</th>
-                                                        <th className="py-3 px-4">Değişim Türü</th>
-                                                        <th className="py-3 px-4">Önceki Bağlantı</th>
-                                                        <th className="py-3 px-4">Yeni Bağlantı</th>
-                                                    </tr>
-                                                </thead>
-                                                <tbody className="divide-y divide-slate-100 dark:divide-slate-800/70 text-xs">
-                                                    {connHistoryList.map((item, idx) => {
-                                                        const dtStr = item.timestamp
-                                                            ? new Date(item.timestamp.endsWith("Z") || item.timestamp.includes("+") ? item.timestamp : `${item.timestamp}Z`).toLocaleString("tr-TR", {
-                                                                day: "2-digit",
-                                                                month: "2-digit",
-                                                                year: "numeric",
-                                                                hour: "2-digit",
-                                                                minute: "2-digit",
-                                                                second: "2-digit",
-                                                              })
-                                                            : "-";
-                                                        const isInitial = item.action === "CLIENT_ENV_CONNECT" || !item.previous_ip;
-                                                        const prevEnv = item.previous_ip
-                                                            ? [
-                                                                item.previous_ip,
-                                                                [item.previous_browser, item.previous_os].filter(Boolean).join(" / ")
-                                                              ].filter(Boolean).join(" • ")
-                                                            : "-";
-                                                        const newEnv = [
-                                                            item.ip_address,
-                                                            [item.browser, item.os].filter(Boolean).join(" / ")
-                                                        ].filter(Boolean).join(" • ") || "-";
-                                                        return (
-                                                            <tr key={item.id || idx} className="hover:bg-slate-50/70 dark:hover:bg-slate-800/40 transition-colors">
-                                                                <td className="py-3 px-4 font-mono text-[11px] text-slate-600 dark:text-slate-300 whitespace-nowrap">
-                                                                    {dtStr}
-                                                                </td>
-                                                                <td className="py-3 px-4 whitespace-nowrap">
-                                                                    <span className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-lg text-[10px] font-extrabold border ${
-                                                                        isInitial
-                                                                            ? "bg-emerald-50 text-emerald-700 border-emerald-200/80 dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-800/60"
-                                                                            : "bg-amber-50 text-amber-700 border-amber-200/80 dark:bg-amber-950/40 dark:text-amber-300 dark:border-amber-800/60"
-                                                                    }`}>
-                                                                        {item.change_label || (isInitial ? "İlk Bağlantı" : "Ortam Değişti")}
-                                                                    </span>
-                                                                </td>
-                                                                <td className="py-3 px-4 font-mono text-[11px] text-slate-500 dark:text-slate-400 whitespace-nowrap">
-                                                                    {prevEnv}
-                                                                </td>
-                                                                <td className="py-3 px-4 font-mono text-[11px] font-bold text-slate-800 dark:text-slate-100 whitespace-nowrap">
-                                                                    {newEnv}
-                                                                </td>
-                                                            </tr>
-                                                        );
-                                                    })}
-                                                </tbody>
-                                            </table>
+                                    {trustedDeviceMsg && (
+                                        <div className="px-3.5 py-2 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800/60 text-[11px] font-bold text-emerald-700 dark:text-emerald-300 flex items-center justify-between gap-2">
+                                            <span>{trustedDeviceMsg}</span>
+                                            <button type="button" onClick={() => setTrustedDeviceMsg("")} className="text-emerald-600 hover:opacity-75">
+                                                <X size={13} />
+                                            </button>
                                         </div>
                                     )}
+
+                                    {/* YÖNTEM A: MANUEL EKLEME FORMU + BU PC ANAHTARI YARDIMCISI */}
+                                    <div className="p-3.5 rounded-xl bg-white dark:bg-slate-950/60 border border-slate-200/80 dark:border-slate-800 space-y-3">
+                                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                                            <span className="text-[11px] font-extrabold text-slate-700 dark:text-slate-200 flex items-center gap-1.5">
+                                                <KeyRound size={13} className={text} />
+                                                Yöntem A — Cihaz Anahtarı İle Manuel Ekle
+                                            </span>
+                                            {adminLocalDeviceKey && (
+                                                <div className="flex items-center gap-1.5 flex-wrap">
+                                                    <span className="text-[10px] text-slate-400">Bu PC:</span>
+                                                    <code className="px-2 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-[10px] font-mono font-bold text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700">
+                                                        {adminLocalDeviceKey}
+                                                    </code>
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => {
+                                                            setNewTrustedDeviceKey(adminLocalDeviceKey);
+                                                            if (!newTrustedDeviceLabel) setNewTrustedDeviceLabel("Yönetici / Ofis PC");
+                                                        }}
+                                                        className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 transition-colors cursor-pointer"
+                                                    >
+                                                        Forma Yaz
+                                                    </button>
+                                                </div>
+                                            )}
+                                        </div>
+
+                                        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+                                            <input
+                                                type="text"
+                                                value={newTrustedDeviceLabel}
+                                                onChange={(e) => setNewTrustedDeviceLabel(e.target.value)}
+                                                placeholder="Cihaz Adı (Örn: Ofis Masaüstü PC, Ev Laptop)"
+                                                className="flex-1 px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-xs text-slate-800 dark:text-white focus:outline-none"
+                                            />
+                                            <input
+                                                type="text"
+                                                value={newTrustedDeviceKey}
+                                                onChange={(e) => setNewTrustedDeviceKey(e.target.value.toUpperCase())}
+                                                placeholder="AIDA-DEV-XXXX-YYYY"
+                                                className="sm:w-56 px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-xs font-mono font-bold text-slate-800 dark:text-white uppercase focus:outline-none"
+                                            />
+                                            {canWrite && (
+                                                <button
+                                                    type="button"
+                                                    disabled={trustedDeviceBusy || !normalizeDeviceKey(newTrustedDeviceKey)}
+                                                    onClick={() => handleAddTrustedDevice(newTrustedDeviceKey, newTrustedDeviceLabel || "Güvenilir PC")}
+                                                    title="Güvenilir Cihaz Ekle"
+                                                    className="bg-rose-600 hover:bg-rose-500 text-white rounded-xl h-8 w-8 flex items-center justify-center shrink-0 transition-all cursor-pointer disabled:opacity-40 self-end sm:self-center"
+                                                >
+                                                    <Plus size={16} />
+                                                </button>
+                                            )}
+                                        </div>
+                                        <p className="text-[10px] text-slate-400 dark:text-slate-500">
+                                            İpucu: Kullanıcı giriş ekranının altındaki veya Web Telefon Tanılama penceresindeki <strong>Cihaz Anahtarı</strong> kodunu kopyalayıp buraya ekleyebilir ya da aşağıdaki <strong>Bağlantı Geçmişi</strong> tablosundan <strong>1 Tıkla (Yöntem B)</strong> yetkilendirebilirsiniz.
+                                        </p>
+                                    </div>
+
+                                    {/* KAYITLI GÜVENİLİR CİHAZLAR LİSTESİ */}
+                                    <div className="space-y-2">
+                                        <div className="flex items-center justify-between">
+                                            <span className="text-[11px] font-extrabold text-slate-700 dark:text-slate-300">
+                                                Kayıtlı Güvenilir Cihazlar ({trustedDevices.length})
+                                            </span>
+                                            {deviceLockEnabled && trustedDevices.length === 0 && (
+                                                <span className="text-[10px] font-bold text-amber-600 dark:text-amber-400 flex items-center gap-1">
+                                                    <AlertTriangle size={12} />
+                                                    Henüz cihaz eklenmediği için bu kullanıcı şu an hiçbir bilgisayardan giriş yapamaz!
+                                                </span>
+                                            )}
+                                        </div>
+
+                                        {trustedDevices.length === 0 ? (
+                                            <div className="p-4 rounded-xl border border-dashed border-slate-200 dark:border-slate-800 text-center text-xs text-slate-400">
+                                                Henüz tanımlanmış güvenilir cihaz anahtarı bulunmuyor.
+                                            </div>
+                                        ) : (
+                                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                                                {trustedDevices.map((td) => (
+                                                    <div
+                                                        key={td.key}
+                                                        className="p-3 rounded-xl bg-white dark:bg-slate-950/70 border border-slate-200/90 dark:border-slate-800 flex items-center justify-between gap-2"
+                                                    >
+                                                        <div className="min-w-0">
+                                                            <div className="flex items-center gap-1.5">
+                                                                <Shield size={13} className="text-emerald-500 shrink-0" />
+                                                                <span className="text-xs font-extrabold text-slate-800 dark:text-white truncate">
+                                                                    {td.label || "Güvenilir PC"}
+                                                                </span>
+                                                            </div>
+                                                            <div className="flex items-center gap-2 mt-1">
+                                                                <code className="px-2 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-[11px] font-mono font-bold text-emerald-700 dark:text-emerald-400 border border-slate-200 dark:border-slate-700">
+                                                                    {td.key}
+                                                                </code>
+                                                                {td.added_at && (
+                                                                    <span className="text-[10px] text-slate-400 truncate">
+                                                                        {new Date(td.added_at).toLocaleDateString("tr-TR")}
+                                                                    </span>
+                                                                )}
+                                                            </div>
+                                                        </div>
+                                                        <div className="flex items-center gap-1 shrink-0">
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => {
+                                                                    try { navigator.clipboard.writeText(td.key); } catch (e) {}
+                                                                    setTrustedDeviceMsg(`Kopyalandı: ${td.key}`);
+                                                                    setTimeout(() => setTrustedDeviceMsg(""), 2000);
+                                                                }}
+                                                                title="Anahtarı Kopyala"
+                                                                className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+                                                            >
+                                                                <Copy size={13} />
+                                                            </button>
+                                                            {canWrite && (
+                                                                <button
+                                                                    type="button"
+                                                                    disabled={trustedDeviceBusy}
+                                                                    onClick={() => handleRemoveTrustedDevice(td.key)}
+                                                                    title="Güvenilir Cihazı Kaldır"
+                                                                    className="p-1.5 rounded-lg text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/40 transition-colors cursor-pointer disabled:opacity-40"
+                                                                >
+                                                                    <Trash2 size={13} />
+                                                                </button>
+                                                            )}
+                                                        </div>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        )}
+                                    </div>
                                 </div>
+
+                                {/* 2. BAĞLANTI GEÇMİŞİ VE YÖNTEM B (1 TIKLA YETKİLENDİRME) */}
+                                {editingUser ? (
+                                    <>
+                                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-2 pb-2 border-b border-slate-100 dark:border-slate-800/60">
+                                            <div>
+                                                <h5 className="text-sm font-extrabold text-slate-800 dark:text-white flex items-center gap-2">
+                                                    <Monitor size={16} className={text} />
+                                                    Bağlantı & Cihaz Değişim Geçmişi (Yöntem B — 1 Tıkla Yetkilendirme)
+                                                </h5>
+                                                <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
+                                                    Kullanıcının bağlandığı veya engellendiği cihazların IP, tarayıcı, işletim sistemi ve <strong>Cihaz Anahtarı</strong> kayıtları. Tek tıkla güvenilir listeye ekleyebilirsiniz.
+                                                </p>
+                                            </div>
+                                            <button
+                                                type="button"
+                                                onClick={() => fetchUserConnectionHistory(editingUser)}
+                                                disabled={connHistoryLoading}
+                                                className="px-3.5 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-bold text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700 flex items-center gap-2 transition-all cursor-pointer disabled:opacity-50 shrink-0"
+                                            >
+                                                <RefreshCw size={14} className={connHistoryLoading ? "animate-spin" : ""} />
+                                                <span>Yenile</span>
+                                            </button>
+                                        </div>
+
+                                        {/* Current Live Environment Banner */}
+                                        {(() => {
+                                            const liveDeviceKey = normalizeDeviceKey(connHistoryLive?.current_device_key || editingUser?.client_device_key || "");
+                                            const isLiveKeyTrusted = liveDeviceKey && trustedDevices.some((d) => normalizeDeviceKey(d.key) === liveDeviceKey);
+                                            const liveLabel = [
+                                                connHistoryLive?.current_browser || editingUser?.client_browser,
+                                                connHistoryLive?.current_os || editingUser?.client_os
+                                            ].filter(Boolean).join(" / ") || "Aktif Cihaz";
+                                            return (
+                                                <div className={`p-4 rounded-2xl border flex flex-col sm:flex-row sm:items-center justify-between gap-3 ${
+                                                    (connHistoryLive?.is_online || editingUser?.is_registered)
+                                                        ? "bg-emerald-50/70 dark:bg-emerald-950/25 border-emerald-200/80 dark:border-emerald-800/60"
+                                                        : "bg-slate-50 dark:bg-slate-900/60 border-slate-200/80 dark:border-slate-800"
+                                                }`}>
+                                                    <div className="flex items-center gap-3">
+                                                        <div className={`w-3 h-3 rounded-full shrink-0 ${
+                                                            (connHistoryLive?.is_online || editingUser?.is_registered)
+                                                                ? "bg-emerald-500 animate-pulse"
+                                                                : "bg-rose-500"
+                                                        }`} />
+                                                        <div>
+                                                            <div className="text-xs font-extrabold text-slate-800 dark:text-white flex items-center gap-2 flex-wrap">
+                                                                <span>
+                                                                    {(connHistoryLive?.is_online || editingUser?.is_registered)
+                                                                        ? "Şu Anda Web Telefon Bağlı"
+                                                                        : "Şu Anda Çevrimdışı"}
+                                                                </span>
+                                                                {liveDeviceKey && (
+                                                                    <code className="px-2 py-0.5 rounded bg-white/90 dark:bg-slate-800 text-[10px] font-mono font-bold text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700">
+                                                                        {liveDeviceKey}
+                                                                    </code>
+                                                                )}
+                                                            </div>
+                                                            <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
+                                                                {(connHistoryLive?.current_ip || editingUser?.ip_address)
+                                                                    ? `Anlık Ortam: ${connHistoryLive?.current_ip || editingUser?.ip_address} • ${liveLabel}`
+                                                                    : "Aktif SIP / WebRTC bağlantısı algılanmadı."}
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                    <div className="flex items-center gap-2 flex-wrap">
+                                                        {liveDeviceKey && canWrite && (
+                                                            isLiveKeyTrusted ? (
+                                                                <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-xl text-[10px] font-extrabold bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border border-emerald-500/30">
+                                                                    <Check size={12} />
+                                                                    Güvenilir Cihaz
+                                                                </span>
+                                                            ) : (
+                                                                <button
+                                                                    type="button"
+                                                                    disabled={trustedDeviceBusy}
+                                                                    onClick={() => handleAddTrustedDevice(liveDeviceKey, liveLabel)}
+                                                                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-[11px] font-extrabold bg-rose-600 hover:bg-rose-500 text-white shadow-sm transition-all cursor-pointer disabled:opacity-50"
+                                                                >
+                                                                    <Plus size={13} />
+                                                                    <span>Güvenilir Listeye Ekle</span>
+                                                                </button>
+                                                            )
+                                                        )}
+                                                        <span className="text-[10px] font-bold text-slate-400 dark:text-slate-500">
+                                                            Toplam {connHistoryList.length} kayıt
+                                                        </span>
+                                                    </div>
+                                                </div>
+                                            );
+                                        })()}
+
+                                        {/* History Table */}
+                                        <div className="border border-slate-200 dark:border-slate-800 rounded-2xl overflow-hidden bg-white dark:bg-slate-900">
+                                            {connHistoryLoading ? (
+                                                <div className="p-8 text-center text-xs text-slate-400 flex items-center justify-center gap-2">
+                                                    <RefreshCw size={15} className="animate-spin" />
+                                                    <span>Bağlantı geçmişi yükleniyor...</span>
+                                                </div>
+                                            ) : connHistoryList.length === 0 ? (
+                                                <div className="p-8 text-center text-xs text-slate-400">
+                                                    Bu kullanıcı için henüz kaydedilmiş bir IP, tarayıcı veya cihaz geçmişi bulunmuyor.
+                                                </div>
+                                            ) : (
+                                                <div className="overflow-x-auto">
+                                                    <table className="w-full text-left border-collapse">
+                                                        <thead>
+                                                            <tr className="bg-slate-50 dark:bg-slate-950/60 border-b border-slate-200 dark:border-slate-800 text-[10px] font-extrabold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                                                                <th className="py-3 px-3.5">Tarih / Saat</th>
+                                                                <th className="py-3 px-3.5">Durum / Tür</th>
+                                                                <th className="py-3 px-3.5">Önceki Ortam</th>
+                                                                <th className="py-3 px-3.5">Bağlantı Ortamı</th>
+                                                                <th className="py-3 px-3.5">Cihaz Anahtarı & 1 Tıkla Yetki</th>
+                                                            </tr>
+                                                        </thead>
+                                                        <tbody className="divide-y divide-slate-100 dark:divide-slate-800/70 text-xs">
+                                                            {connHistoryList.map((item, idx) => {
+                                                                const dtStr = item.timestamp
+                                                                    ? new Date(item.timestamp.endsWith("Z") || item.timestamp.includes("+") ? item.timestamp : `${item.timestamp}Z`).toLocaleString("tr-TR", {
+                                                                        day: "2-digit",
+                                                                        month: "2-digit",
+                                                                        year: "numeric",
+                                                                        hour: "2-digit",
+                                                                        minute: "2-digit",
+                                                                        second: "2-digit",
+                                                                      })
+                                                                    : "-";
+                                                                const isBlocked = item.action === "DEVICE_KEY_BLOCKED";
+                                                                const isInitial = item.action === "CLIENT_ENV_CONNECT" || (!item.previous_ip && !isBlocked);
+                                                                const prevEnv = item.previous_ip
+                                                                    ? [
+                                                                        item.previous_ip,
+                                                                        [item.previous_browser, item.previous_os].filter(Boolean).join(" / ")
+                                                                      ].filter(Boolean).join(" • ")
+                                                                    : "-";
+                                                                const newEnv = [
+                                                                    item.ip_address,
+                                                                    [item.browser, item.os].filter(Boolean).join(" / ")
+                                                                ].filter(Boolean).join(" • ") || "-";
+                                                                const rowDevKey = normalizeDeviceKey(item.device_key || "");
+                                                                const isRowKeyTrusted = rowDevKey && trustedDevices.some((d) => normalizeDeviceKey(d.key) === rowDevKey);
+                                                                const suggestedLabel = [item.browser, item.os].filter(Boolean).join(" / ") || (item.ip_address ? `PC (${item.ip_address})` : "Kullanıcı PC");
+                                                                return (
+                                                                    <tr key={item.id || idx} className={`transition-colors ${
+                                                                        isBlocked
+                                                                            ? "bg-rose-50/40 dark:bg-rose-950/20 hover:bg-rose-50/70 dark:hover:bg-rose-950/30"
+                                                                            : "hover:bg-slate-50/70 dark:hover:bg-slate-800/40"
+                                                                    }`}>
+                                                                        <td className="py-3 px-3.5 font-mono text-[11px] text-slate-600 dark:text-slate-300 whitespace-nowrap">
+                                                                            {dtStr}
+                                                                        </td>
+                                                                        <td className="py-3 px-3.5 whitespace-nowrap">
+                                                                            <span className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-lg text-[10px] font-extrabold border ${
+                                                                                isBlocked
+                                                                                    ? "bg-rose-50 text-rose-700 border-rose-200 dark:bg-rose-950/50 dark:text-rose-300 dark:border-rose-800"
+                                                                                    : isInitial
+                                                                                    ? "bg-emerald-50 text-emerald-700 border-emerald-200/80 dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-800/60"
+                                                                                    : "bg-amber-50 text-amber-700 border-amber-200/80 dark:bg-amber-950/40 dark:text-amber-300 dark:border-amber-800/60"
+                                                                            }`}>
+                                                                                {item.change_label || (isBlocked ? "Yetkisiz Cihaz Engellendi" : isInitial ? "İlk Bağlantı" : "Ortam Değişti")}
+                                                                            </span>
+                                                                        </td>
+                                                                        <td className="py-3 px-3.5 font-mono text-[11px] text-slate-500 dark:text-slate-400 whitespace-nowrap">
+                                                                            {prevEnv}
+                                                                        </td>
+                                                                        <td className="py-3 px-3.5 font-mono text-[11px] font-bold text-slate-800 dark:text-slate-100 whitespace-nowrap">
+                                                                            {newEnv}
+                                                                        </td>
+                                                                        <td className="py-3 px-3.5 whitespace-nowrap">
+                                                                            {rowDevKey ? (
+                                                                                <div className="flex items-center gap-2">
+                                                                                    <code className="px-2 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-[10px] font-mono font-bold text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700">
+                                                                                        {rowDevKey}
+                                                                                    </code>
+                                                                                    {isRowKeyTrusted ? (
+                                                                                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-[10px] font-extrabold bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800/60">
+                                                                                            <Check size={11} />
+                                                                                            Güvenilir
+                                                                                        </span>
+                                                                                    ) : canWrite ? (
+                                                                                        <button
+                                                                                            type="button"
+                                                                                            disabled={trustedDeviceBusy}
+                                                                                            onClick={() => handleAddTrustedDevice(rowDevKey, suggestedLabel)}
+                                                                                            className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[10px] font-extrabold bg-rose-600 hover:bg-rose-500 text-white shadow-sm transition-all cursor-pointer disabled:opacity-40"
+                                                                                            title="Bu cihaz anahtarını tek tıkla kullanıcının güvenilir cihaz listesine ekle"
+                                                                                        >
+                                                                                            <Plus size={11} />
+                                                                                            <span>Güvenilir Listeye Ekle</span>
+                                                                                        </button>
+                                                                                    ) : null}
+                                                                                </div>
+                                                                            ) : (
+                                                                                <span className="text-[10px] text-slate-400">-</span>
+                                                                            )}
+                                                                        </td>
+                                                                    </tr>
+                                                                );
+                                                            })}
+                                                        </tbody>
+                                                    </table>
+                                                </div>
+                                            )}
+                                        </div>
+                                    </>
+                                ) : (
+                                    <div className="p-4 rounded-xl bg-slate-50 dark:bg-slate-900/50 border border-slate-200/70 dark:border-slate-800 text-xs text-slate-500">
+                                        Kullanıcı oluşturulduktan sonra bağlantı geçmişi ve 1 tıkla cihaz yetkilendirme tablosu burada görüntülenecektir.
+                                    </div>
+                                )}
                             </div>
                         )}
 
