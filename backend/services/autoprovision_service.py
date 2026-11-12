@@ -285,8 +285,9 @@ def normalize_user_sip_devices(
             dev_pwd = _clean_pwd(dev.get("sip_password") or (user_dict.get("sip_password") if not normalized else ""))
         try:
             max_upper = 10 if dev_type == "web_phone" else 5
+            min_lower = 5 if dev_type == "web_phone" else 1
             default_max_act = 5 if dev_type == "web_phone" else 1
-            dev_max_act = max(1, min(max_upper, int(dev.get("max_activations") or default_max_act)))
+            dev_max_act = max(min_lower, min(max_upper, int(dev.get("max_activations") or default_max_act)))
         except Exception:
             dev_max_act = 5 if dev_type == "web_phone" else 1
 

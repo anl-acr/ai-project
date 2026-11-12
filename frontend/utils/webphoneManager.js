@@ -1087,6 +1087,11 @@ class WebphoneManager {
     const hostOnly = asteriskWssUrl.split("/")[2].split(":")[0];
     const uri = SIP.UserAgent.makeURI(`sip:${sipAuthUser}@${hostOnly}`);
     const resolvedViaHost = config.viaHost || hostOnly;
+    // Give Web Browser and Desktop PC App distinct SIP Contact usernames so Asterisk PJSIP AOR
+    // keeps BOTH contact bindings active simultaneously instead of overwriting one with the other.
+    const clientContactSuffix = isDesktopApp() ? "pc" : "web";
+    const sipContactName = `${sipAuthUser}_${clientContactSuffix}`;
+    const contactUriObj = SIP.UserAgent.makeURI(`sip:${sipContactName}@${resolvedViaHost}`);
     const displayLabel = agentName || this.state.currentUser?.full_name || `Temsilci ${agentExtension}`;
 
     const customSdhFactory =
@@ -1098,7 +1103,7 @@ class WebphoneManager {
 
     const userAgentOptions = {
       uri,
-      contactURI: uri,
+      contactURI: contactUriObj || uri,
       transportOptions: {
         server: asteriskWssUrl,
         connectionTimeout: 8,
@@ -1112,7 +1117,7 @@ class WebphoneManager {
         }
       },
       viaHost: resolvedViaHost,
-      contactName: sipAuthUser,
+      contactName: sipContactName,
       authorizationUsername: sipAuthUser,
       authorizationPassword: password,
       displayName: displayLabel,
@@ -1168,23 +1173,37 @@ class WebphoneManager {
       const originalOnMessage = ua.transport.onMessage;
       ua.transport.onMessage = (message) => {
         relaySipFrameToDebugger(message, "inbound");
-        if (typeof message === "string" && message.includes("SIP/2.0 200 OK") && message.includes("REGISTER")) {
-          this._reconnectAttempt = 0;
-          if (this.reconnectTimer) {
-            clearTimeout(this.reconnectTimer);
-            this.reconnectTimer = null;
-          }
-          this.setState({ registered: true, error: "" });
-          this.startRegisterNotifyLoop();
-          if (ua.contact && ua.contact.uri) {
-            const expectedUri = ua.contact.uri.toString();
-            message = message.replace(
-              /^Contact:\s*(?:[^<\r\n]*<[^>]+>|[^\r\n;]+)(.*)$/gim,
-              (fullMatch, tail) => {
-                const safeTail = tail && /expires\s*=/i.test(tail) ? tail : `${tail || ""};expires=600`;
-                return `Contact: <${expectedUri}>${safeTail}`;
+        if (typeof message === "string") {
+          if (
+            message.startsWith("CANCEL ") &&
+            (/cause\s*=\s*200/i.test(message) || /Call completed elsewhere/i.test(message))
+          ) {
+            const cidMatch = message.match(/^(?:Call-ID|i):\s*([^\r\n]+)/im);
+            const cancelCallId = cidMatch ? cidMatch[1].trim() : "";
+            for (const l of this.linesMap.values()) {
+              if (l.callStatus === "Ringing" && (!cancelCallId || l.sipCallId === cancelCallId)) {
+                l.answeredElsewhere = true;
               }
-            );
+            }
+          }
+          if (message.includes("SIP/2.0 200 OK") && message.includes("REGISTER")) {
+            this._reconnectAttempt = 0;
+            if (this.reconnectTimer) {
+              clearTimeout(this.reconnectTimer);
+              this.reconnectTimer = null;
+            }
+            this.setState({ registered: true, error: "" });
+            this.startRegisterNotifyLoop();
+            if (ua.contact && ua.contact.uri) {
+              const expectedUri = ua.contact.uri.toString();
+              message = message.replace(
+                /^Contact:\s*(?:[^<\r\n]*<[^>]+>|[^\r\n;]+)(.*)$/gim,
+                (fullMatch, tail) => {
+                  const safeTail = tail && /expires\s*=/i.test(tail) ? tail : `${tail || ""};expires=600`;
+                  return `Contact: <${expectedUri}>${safeTail}`;
+                }
+              );
+            }
           }
         }
         if (originalOnMessage) {
@@ -1275,7 +1294,7 @@ class WebphoneManager {
     }
     const envInfo = this.detectClientEnv();
     const currentDeviceKey = getDeviceKeySync();
-    fetch(`${this.getApiBase()}/api/webrtc/register_notify`, {
+    return fetch(`${this.getApiBase()}/api/webrtc/register_notify`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -1293,6 +1312,7 @@ class WebphoneManager {
     })
       .then((r) => (r.ok ? r.json() : null))
       .then((d) => {
+        this._lastPresenceSyncAt = Date.now();
         if (d?.device_blocked) {
           if (this.registerer) {
             try {
@@ -2342,8 +2362,34 @@ class WebphoneManager {
     }
   }
 
-  handleIncomingInvite(invite) {
-    const curU = this.state.currentUser;
+  async handleIncomingInvite(invite) {
+    // Refresh profile & ring-device preferences on incoming INVITE if last sync was > 1.5s ago
+    if (Date.now() - (this._lastPresenceSyncAt || 0) > 1500) {
+      try {
+        await Promise.race([
+          this.sendPresenceNotify(),
+          new Promise((resolve) => setTimeout(resolve, 450))
+        ]);
+      } catch (e) {}
+    }
+    if (invite?.state === SIP?.SessionState?.Terminated) {
+      return;
+    }
+
+    let curU = this.state.currentUser;
+    if (typeof window !== "undefined") {
+      try {
+        const storedU = JSON.parse(localStorage.getItem("current_user") || "null");
+        if (storedU && Array.isArray(storedU.profiles) && storedU.profiles.length > 0) {
+          const memTs = Number(curU?.profiles_updated_ts || 0);
+          const locTs = Number(storedU?.profiles_updated_ts || 0);
+          if (!curU || !Array.isArray(curU.profiles) || locTs > memTs) {
+            curU = { ...(curU || {}), ...storedU };
+            this.state.currentUser = curU;
+          }
+        }
+      } catch (e) {}
+    }
     if (curU && Array.isArray(curU.profiles) && curU.profiles.length > 0) {
       const actProfId = curU.active_profile || "available";
       const actProf = curU.profiles.find((p) => p.id === actProfId);
@@ -2514,20 +2560,22 @@ class WebphoneManager {
 
         if (!currentLine.endLogged) {
           currentLine.endLogged = true;
-          const remoteEndedBy =
-            callerNum && /^\d+$/.test(callerNum) && callerNum.length <= 6
-              ? `ext:${callerNum}`
-              : "customer";
-          this.logWebrtcCallToBackend("end", {
-            sip_call_id: sipCallId,
-            caller: callerNum,
-            callee: myExt,
-            destination: myExt,
-            duration: durSec,
-            status: durSec > 0 ? "completed" : "no_answer",
-            terminated_by: remoteEndedBy,
-            direction: "inbound"
-          });
+          if (!currentLine.answeredElsewhere || durSec > 0) {
+            const remoteEndedBy =
+              callerNum && /^\d+$/.test(callerNum) && callerNum.length <= 6
+                ? `ext:${callerNum}`
+                : "customer";
+            this.logWebrtcCallToBackend("end", {
+              sip_call_id: sipCallId,
+              caller: callerNum,
+              callee: myExt,
+              destination: myExt,
+              duration: durSec,
+              status: durSec > 0 ? "completed" : "no_answer",
+              terminated_by: remoteEndedBy,
+              direction: "inbound"
+            });
+          }
         }
 
         this.cleanupLineMicPipeline(currentLine);

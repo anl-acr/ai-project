@@ -4220,7 +4220,7 @@ trust_id_inbound={trust_id_in}
 
             if dev_type_l == "web_phone":
                 try:
-                    web_max_c = max(1, min(10, int(dev.get("max_activations") or 5)))
+                    web_max_c = max(5, min(10, int(dev.get("max_activations") or 5)))
                 except Exception:
                     web_max_c = 5
                 conf_content += f"""
@@ -20250,6 +20250,25 @@ async def log_webrtc_call_endpoint(payload: dict = Body(...), user_info: dict = 
                         elif (not cur_hsrc or cur_hsrc.startswith("webrtc:")) and cur_hsrc != "webrtc:callee_answered":
                             db_call.hangup_source = "webrtc:answered"
                 elif event_type == "end":
+                    # If another device (e.g. PC App or Web Phone) already answered this call and this is
+                    # just the cancelled parallel ringing leg (duration == 0, status == no_answer/cancelled),
+                    # ignore it so it does not overwrite the active/completed call or clear busy state.
+                    if (
+                        leg_direction == "inbound"
+                        and duration == 0
+                        and status in ("no_answer", "cancelled", "missed")
+                        and (
+                            db_call.answered_at is not None
+                            or cur_hsrc in ("webrtc:callee_answered", "webrtc:answered")
+                            or cur_st_low == "completed"
+                        )
+                    ):
+                        if db_call.end_time is None:
+                            set_live_extension_call_state(caller, "busy")
+                            set_live_extension_call_state(callee, "busy")
+                        await session.commit()
+                        return {"status": "ignored_parallel_cancelled_leg", "call_id": db_call.id}
+
                     if terminated_by and not db_call.ended_by and not is_err_or_bl:
                         db_call.ended_by = terminated_by
                     if not db_call.end_time:

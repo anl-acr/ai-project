@@ -848,7 +848,7 @@ qualify_frequency=30
 
                 if d_type_s == "web_phone":
                     try:
-                        w_max = max(1, min(10, int(dev_obj.get("max_activations") or 5)))
+                        w_max = max(5, min(10, int(dev_obj.get("max_activations") or 5)))
                     except Exception:
                         w_max = 5
                     pjsip_custom_content += f"""
