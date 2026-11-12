@@ -254,10 +254,10 @@ export default function WebPhoneDiagnosticsModal() {
                       setTimeout(() => setCopiedDevKey(false), 2500);
                     } catch (_) {}
                   }}
-                  className="px-2.5 py-1 rounded-lg bg-white dark:bg-slate-900 hover:bg-slate-100 dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 text-[10px] font-bold flex items-center gap-1 shrink-0 cursor-pointer transition"
+                  title="Anahtarı Kopyala"
+                  className="h-7 w-7 rounded-lg bg-white dark:bg-slate-900 hover:bg-slate-100 dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 flex items-center justify-center shrink-0 cursor-pointer transition"
                 >
-                  {copiedDevKey ? <Check size={11} className="text-emerald-500" /> : <Copy size={11} />}
-                  <span>{copiedDevKey ? "Kopyalandı!" : "Anahtarı Kopyala"}</span>
+                  {copiedDevKey ? <Check size={13} className="text-emerald-500" /> : <Copy size={13} />}
                 </button>
               </div>
             )}
