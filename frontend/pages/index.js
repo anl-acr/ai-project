@@ -5664,13 +5664,10 @@ export default function Home() {
                     <button
                       type="button"
                       onClick={() => setActiveModalTab("shortcuts")}
-                      className={"w-full flex items-center justify-between gap-2 px-3 py-2.5 rounded-xl text-xs font-bold transition-all " + (activeModalTab === "shortcuts" ? ("bg-white dark:bg-slate-800 " + text + " shadow-sm border border-slate-200 dark:border-slate-700") : "text-slate-500 hover:bg-white/50 dark:hover:bg-slate-800/50 hover:text-slate-700 dark:hover:text-slate-300 border border-transparent")}
+                      className={"w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-bold transition-all " + (activeModalTab === "shortcuts" ? ("bg-white dark:bg-slate-800 " + text + " shadow-sm border border-slate-200 dark:border-slate-700") : "text-slate-500 hover:bg-white/50 dark:hover:bg-slate-800/50 hover:text-slate-700 dark:hover:text-slate-300 border border-transparent")}
                     >
-                      <span className="flex items-center gap-3">
-                        <Keyboard size={16} />
-                        Klavye Kısayolları
-                      </span>
-                      <kbd className="px-1.5 py-0.5 rounded bg-slate-200/70 dark:bg-slate-800 text-[9px] font-mono font-bold text-slate-500">?</kbd>
+                      <Keyboard size={16} />
+                      Klavye Kısayolları
                     </button>
                     {currentUser?.extension && (
                       <button
@@ -5708,15 +5705,10 @@ export default function Home() {
                     <button
                       type="button"
                       onClick={() => setActiveModalTab("topbar")}
-                      className={"w-full flex items-center justify-between gap-2 px-3 py-2.5 rounded-xl text-xs font-bold transition-all " + (activeModalTab === "topbar" ? ("bg-white dark:bg-slate-800 " + text + " shadow-sm border border-slate-200 dark:border-slate-700") : "text-slate-500 hover:bg-white/50 dark:hover:bg-slate-800/50 hover:text-slate-700 dark:hover:text-slate-300 border border-transparent")}
+                      className={"w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-bold transition-all " + (activeModalTab === "topbar" ? ("bg-white dark:bg-slate-800 " + text + " shadow-sm border border-slate-200 dark:border-slate-700") : "text-slate-500 hover:bg-white/50 dark:hover:bg-slate-800/50 hover:text-slate-700 dark:hover:text-slate-300 border border-transparent")}
                     >
-                      <span className="flex items-center gap-3">
-                        <PanelTop size={16} />
-                        Üst Bar Özelleştirme
-                      </span>
-                      <span className={`px-1.5 py-0.5 rounded-md text-[8.5px] font-black uppercase ${lightBg} ${text}`}>
-                        Yeni
-                      </span>
+                      <PanelTop size={16} />
+                      Üst Bar Özelleştirme
                     </button>
                     <button
                       type="button"
