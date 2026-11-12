@@ -22,11 +22,69 @@ import { useTheme } from "../../utils/theme";
 import { getApiBaseUrl, tenantFetch } from "../../utils/apiHost";
 
 const PROVIDER_OPTIONS = [
-  { id: "microsoft_ad", label: "Microsoft Active Directory (Windows Server DC)", badge: "Kurumsal Standart" },
-  { id: "azure_entra", label: "Microsoft Entra ID (Azure AD Domain Services)", badge: "Bulut / Hibrit" },
-  { id: "openldap", label: "OpenLDAP Kurumsal Dizin Sunucusu", badge: "Linux / Açık Kaynak" },
-  { id: "freeipa", label: "RedHat IdM / FreeIPA", badge: "Kurumsal Linux" },
+  { id: "microsoft_ad", label: "Microsoft Active Directory", subtitle: "Windows Server Domain Controller", badge: "Kurumsal Standart" },
+  { id: "azure_entra", label: "Microsoft Entra ID", subtitle: "Azure AD Domain Services", badge: "Bulut / Hibrit" },
+  { id: "openldap", label: "OpenLDAP Directory", subtitle: "Linux Kurumsal Dizin Sunucusu", badge: "Açık Kaynak" },
+  { id: "freeipa", label: "RedHat IdM / FreeIPA", subtitle: "Merkezi Kimlik & Kerberos", badge: "Kurumsal Linux" },
 ];
+
+function DirectoryProviderLogo({ id, size = 40 }) {
+  const boxCls = "rounded-xl flex items-center justify-center shrink-0 shadow-sm border border-slate-200/70 dark:border-slate-700/70 bg-white dark:bg-slate-950 overflow-hidden";
+  const style = { width: size, height: size };
+
+  switch (id) {
+    case "microsoft_ad":
+      return (
+        <div className={boxCls} style={style} title="Microsoft Active Directory">
+          <svg viewBox="0 0 64 64" className="w-7 h-7">
+            <rect x="10" y="10" width="20" height="20" rx="2" fill="#F25022" />
+            <rect x="34" y="10" width="20" height="20" rx="2" fill="#7FBA00" />
+            <rect x="10" y="34" width="20" height="20" rx="2" fill="#00A4EF" />
+            <rect x="34" y="34" width="20" height="20" rx="2" fill="#FFB900" />
+          </svg>
+        </div>
+      );
+    case "azure_entra":
+      return (
+        <div className={boxCls} style={style} title="Microsoft Entra ID (Azure AD)">
+          <svg viewBox="0 0 64 64" className="w-7 h-7">
+            <polygon points="32,8 54,48 10,48" fill="#0078D4" />
+            <polygon points="32,20 46,48 18,48" fill="#50E6FF" />
+            <circle cx="32" cy="37" r="5" fill="#003B73" />
+          </svg>
+        </div>
+      );
+    case "openldap":
+      return (
+        <div className={boxCls} style={style} title="OpenLDAP">
+          <svg viewBox="0 0 64 64" className="w-7 h-7">
+            <rect x="6" y="6" width="52" height="52" rx="14" fill="#1E293B" />
+            <circle cx="32" cy="20" r="6" fill="#38BDF8" />
+            <circle cx="19" cy="43" r="6" fill="#38BDF8" />
+            <circle cx="45" cy="43" r="6" fill="#38BDF8" />
+            <line x1="32" y1="26" x2="21" y2="38" stroke="#94A3B8" strokeWidth="3" />
+            <line x1="32" y1="26" x2="43" y2="38" stroke="#94A3B8" strokeWidth="3" />
+          </svg>
+        </div>
+      );
+    case "freeipa":
+      return (
+        <div className={boxCls} style={style} title="RedHat IdM / FreeIPA">
+          <svg viewBox="0 0 64 64" className="w-7 h-7">
+            <rect x="6" y="6" width="52" height="52" rx="14" fill="#EE0000" />
+            <path d="M16 38c0-4 7-7 16-7s16 3 16 7H16z" fill="#fff" />
+            <path d="M23 31l3-10c1-2 11-2 12 0l3 10H23z" fill="#fff" />
+          </svg>
+        </div>
+      );
+    default:
+      return (
+        <div className={boxCls} style={style}>
+          <Building2 size={18} />
+        </div>
+      );
+  }
+}
 
 export default function ActiveDirectorySettingsPanel({ backendHost = "localhost:8000" }) {
   const { bg, hover, text, border, ring, lightBg, borderLight } = useTheme();
@@ -284,6 +342,38 @@ export default function ActiveDirectorySettingsPanel({ backendHost = "localhost:
           </div>
         </div>
       )}
+
+      {/* Provider Cards Row with Brand Logos */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3.5">
+        {PROVIDER_OPTIONS.map((prov) => {
+          const isSelected = config.provider_type === prov.id;
+          return (
+            <button
+              key={prov.id}
+              type="button"
+              onClick={() => setConfig((prev) => ({ ...prev, provider_type: prov.id }))}
+              className={`p-4 rounded-2xl border text-left transition-all flex items-center gap-3.5 cursor-pointer ${
+                isSelected
+                  ? `bg-white dark:bg-slate-900 ${border} ring-2 ${ring} shadow-sm`
+                  : "bg-white/80 dark:bg-slate-900/70 border-slate-200/80 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700"
+              }`}
+            >
+              <DirectoryProviderLogo id={prov.id} size={42} />
+              <div className="min-w-0 flex-1">
+                <span className={`inline-block px-2 py-0.5 rounded-md text-[9px] font-extrabold ${lightBg} ${text} border ${borderLight} mb-1`}>
+                  {prov.badge}
+                </span>
+                <div className="text-xs font-extrabold text-slate-900 dark:text-white truncate">
+                  {prov.label}
+                </div>
+                <div className="text-[10px] text-slate-400 truncate">
+                  {prov.subtitle}
+                </div>
+              </div>
+            </button>
+          );
+        })}
+      </div>
 
       {/* Main Grid */}
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">

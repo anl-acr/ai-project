@@ -11,18 +11,133 @@ import {
   PhoneIncoming,
   FileText,
   UserPlus,
-  Sparkles,
-  Check,
   X,
   Eye,
   EyeOff,
-  Building2,
 } from "lucide-react";
 import { useTheme } from "../../utils/theme";
 import { getApiBaseUrl, tenantFetch } from "../../utils/apiHost";
 
+function CrmBrandLogo({ id, size = 42 }) {
+  const boxCls = "rounded-2xl flex items-center justify-center shrink-0 shadow-sm border border-slate-200/70 dark:border-slate-700/70 overflow-hidden bg-white dark:bg-slate-950";
+  const style = { width: size, height: size };
+
+  switch (id) {
+    case "zoho_crm":
+      return (
+        <div className={boxCls} style={style} title="Zoho CRM">
+          <svg viewBox="0 0 64 64" className="w-8 h-8">
+            <rect x="4" y="18" width="13" height="28" rx="3" transform="rotate(-8 10 32)" fill="#E42527" />
+            <rect x="18" y="18" width="13" height="28" rx="3" transform="rotate(6 24 32)" fill="#22984E" />
+            <rect x="32" y="18" width="13" height="28" rx="3" transform="rotate(-6 38 32)" fill="#1D70B8" />
+            <rect x="46" y="18" width="13" height="28" rx="3" transform="rotate(8 52 32)" fill="#F9B21D" />
+            <text x="10.5" y="36" textAnchor="middle" fill="#fff" fontSize="11" fontWeight="900" fontFamily="Arial, sans-serif">Z</text>
+            <text x="24.5" y="36" textAnchor="middle" fill="#fff" fontSize="11" fontWeight="900" fontFamily="Arial, sans-serif">O</text>
+            <text x="38.5" y="36" textAnchor="middle" fill="#fff" fontSize="11" fontWeight="900" fontFamily="Arial, sans-serif">H</text>
+            <text x="52.5" y="36" textAnchor="middle" fill="#fff" fontSize="11" fontWeight="900" fontFamily="Arial, sans-serif">O</text>
+          </svg>
+        </div>
+      );
+    case "hubspot":
+      return (
+        <div className={boxCls} style={style} title="HubSpot CRM">
+          <svg viewBox="0 0 64 64" className="w-8 h-8">
+            <circle cx="32" cy="32" r="28" fill="#FF7A59" />
+            <circle cx="35" cy="33" r="8" fill="none" stroke="#fff" strokeWidth="4" />
+            <line x1="35" y1="25" x2="35" y2="15" stroke="#fff" strokeWidth="4" strokeLinecap="round" />
+            <circle cx="35" cy="14" r="3.5" fill="#fff" />
+            <line x1="41" y1="38" x2="49" y2="45" stroke="#fff" strokeWidth="4" strokeLinecap="round" />
+            <circle cx="50" cy="46" r="3.5" fill="#fff" />
+            <line x1="27" y1="35" x2="17" y2="39" stroke="#fff" strokeWidth="4" strokeLinecap="round" />
+            <circle cx="15" cy="40" r="4" fill="#fff" />
+          </svg>
+        </div>
+      );
+    case "salesforce":
+      return (
+        <div className={boxCls} style={style} title="Salesforce">
+          <svg viewBox="0 0 64 64" className="w-9 h-9">
+            <path
+              d="M25 20c3-4.5 9.5-6 14.5-2.5 2.5-2 6-2.5 9-.5 3.5 2.2 4.8 6.5 3.5 10.2 3.8 1.5 6 5.5 5.2 9.8-.8 4.5-4.8 7.8-9.5 7.8H19c-5.5 0-10-4.2-10-9.5 0-4.5 3.2-8.3 7.5-9.2.5-4.8 4.2-8.2 8.5-6.1z"
+              fill="#00A1E0"
+            />
+            <text x="33" y="36.5" textAnchor="middle" fill="#fff" fontSize="10" fontWeight="900" fontFamily="Arial, sans-serif" fontStyle="italic">
+              salesforce
+            </text>
+          </svg>
+        </div>
+      );
+    case "bitrix24":
+      return (
+        <div className={boxCls} style={style} title="Bitrix24">
+          <svg viewBox="0 0 64 64" className="w-8 h-8">
+            <rect x="4" y="4" width="56" height="56" rx="14" fill="#2FC6F6" />
+            <text x="23" y="40" textAnchor="middle" fill="#fff" fontSize="22" fontWeight="900" fontFamily="Arial, sans-serif">B</text>
+            <text x="44" y="40" textAnchor="middle" fill="#0B3C5D" fontSize="17" fontWeight="900" fontFamily="Arial, sans-serif">24</text>
+          </svg>
+        </div>
+      );
+    case "pipedrive":
+      return (
+        <div className={boxCls} style={style} title="Pipedrive">
+          <svg viewBox="0 0 64 64" className="w-8 h-8">
+            <rect x="4" y="4" width="56" height="56" rx="14" fill="#017737" />
+            <path
+              d="M23 47V22h9.5c5.8 0 9.5 3.6 9.5 8.8 0 5.3-3.7 8.9-9.5 8.9H29v7.3h-6zm6-12.5h3.2c2.5 0 4-1.4 4-3.7 0-2.2-1.5-3.6-4-3.6H29v7.3z"
+              fill="#fff"
+            />
+          </svg>
+        </div>
+      );
+    case "zendesk":
+      return (
+        <div className={boxCls} style={style} title="Zendesk">
+          <svg viewBox="0 0 64 64" className="w-8 h-8">
+            <rect x="4" y="4" width="56" height="56" rx="14" fill="#03363D" />
+            <polygon points="14,18 30,18 14,38" fill="#fff" />
+            <path d="M14 46a8 8 0 0 1 16 0H14z" fill="#fff" />
+            <path d="M34 18h16a8 8 0 0 1-16 0z" fill="#fff" />
+            <polygon points="50,46 34,46 50,26" fill="#fff" />
+          </svg>
+        </div>
+      );
+    case "freshdesk":
+      return (
+        <div className={boxCls} style={style} title="Freshdesk & Freshsales">
+          <svg viewBox="0 0 64 64" className="w-8 h-8">
+            <rect x="4" y="4" width="56" height="56" rx="14" fill="#25C16F" />
+            <path
+              d="M32 14c9.9 0 18 7.6 18 17v11a4 4 0 0 1-4 4H32c-9.9 0-18-7.6-18-17s8.1-15 18-15z"
+              fill="#fff"
+            />
+            <circle cx="26" cy="30" r="2.8" fill="#25C16F" />
+            <circle cx="38" cy="30" r="2.8" fill="#25C16F" />
+            <path d="M26 36c2 2.5 10 2.5 12 0" stroke="#25C16F" strokeWidth="2.8" fill="none" strokeLinecap="round" />
+          </svg>
+        </div>
+      );
+    case "dynamics_365":
+      return (
+        <div className={boxCls} style={style} title="Microsoft Dynamics 365">
+          <svg viewBox="0 0 64 64" className="w-8 h-8">
+            <rect x="10" y="10" width="20" height="20" rx="3" fill="#F25022" />
+            <rect x="34" y="10" width="20" height="20" rx="3" fill="#7FBA00" />
+            <rect x="10" y="34" width="20" height="20" rx="3" fill="#00A4EF" />
+            <rect x="34" y="34" width="20" height="20" rx="3" fill="#FFB900" />
+          </svg>
+        </div>
+      );
+    default:
+      return (
+        <div className={boxCls} style={style}>
+          <Cable size={20} />
+        </div>
+      );
+  }
+}
+
 export default function CrmIntegrationsPanel({ backendHost = "localhost:8000" }) {
-  const { bg, hover, text, border, ring, lightBg, borderLight } = useTheme();
+  const { bg, hover, text, lightBg, borderLight } = useTheme();
 
   const [catalog, setCatalog] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -227,18 +342,11 @@ export default function CrmIntegrationsPanel({ backendHost = "localhost:8000" })
             }`}
           >
             <div className="space-y-3">
-              <div className="flex items-start justify-between gap-2">
-                <div>
-                  <span className={`inline-block px-2 py-0.5 rounded-md text-[10px] font-extrabold ${lightBg} ${text} border ${borderLight} mb-1.5`}>
-                    {crm.badge}
-                  </span>
-                  <h4 className="text-sm font-extrabold text-slate-900 dark:text-white">
-                    {crm.name}
-                  </h4>
-                  <div className="text-[10px] font-semibold text-slate-400">
-                    {crm.category}
-                  </div>
-                </div>
+              {/* Top Row: Badge & Active Toggle */}
+              <div className="flex items-center justify-between gap-2">
+                <span className={`inline-block px-2.5 py-0.5 rounded-lg text-[10px] font-extrabold ${lightBg} ${text} border ${borderLight}`}>
+                  {crm.badge}
+                </span>
                 <button
                   type="button"
                   onClick={() => handleQuickToggle(crm)}
@@ -252,15 +360,28 @@ export default function CrmIntegrationsPanel({ backendHost = "localhost:8000" })
                 </button>
               </div>
 
-              <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed">
+              {/* Brand Logo + Title */}
+              <div className="flex items-center gap-3 pt-0.5">
+                <CrmBrandLogo id={crm.id} size={44} />
+                <div className="min-w-0">
+                  <h4 className="text-sm font-extrabold text-slate-900 dark:text-white leading-snug">
+                    {crm.name}
+                  </h4>
+                  <div className="text-[10px] font-semibold text-slate-400 truncate mt-0.5">
+                    {crm.category}
+                  </div>
+                </div>
+              </div>
+
+              <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed line-clamp-3">
                 {crm.description}
               </p>
             </div>
 
             <div className="pt-3 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between gap-2">
-              <div className="text-[10px] font-mono text-slate-400 truncate">
-                {crm.api_key ? "🔑 Anahtar Tanımlı" : "⚙️ Yapılandırılmadı"}
-              </div>
+              <span className="text-[10px] font-semibold text-slate-400 dark:text-slate-500 whitespace-nowrap">
+                {crm.api_key ? "🔑 Anahtar Tanımlı" : "⚙️ Hazır Şablon"}
+              </span>
               <button
                 type="button"
                 onClick={() => {
@@ -283,14 +404,16 @@ export default function CrmIntegrationsPanel({ backendHost = "localhost:8000" })
         <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-sm z-[200] flex items-center justify-center p-4">
           <div className="w-full max-w-3xl max-h-[90vh] bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-2xl overflow-hidden flex flex-col animate-in fade-in zoom-in-95 duration-200">
             <div className="px-6 py-4 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between bg-slate-50/60 dark:bg-slate-950/40">
-              <div>
-                <h4 className="text-sm font-extrabold text-slate-900 dark:text-white flex items-center gap-2">
-                  <Cable size={16} className={text} />
-                  <span>{selectedCrm.name} Entegrasyon Ayarları</span>
-                </h4>
-                <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
-                  {selectedCrm.category} • {selectedCrm.vendor}
-                </p>
+              <div className="flex items-center gap-3">
+                <CrmBrandLogo id={selectedCrm.id} size={40} />
+                <div>
+                  <h4 className="text-sm font-extrabold text-slate-900 dark:text-white flex items-center gap-2">
+                    <span>{selectedCrm.name} Entegrasyon Ayarları</span>
+                  </h4>
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
+                    {selectedCrm.category} • {selectedCrm.vendor}
+                  </p>
+                </div>
               </div>
               <button
                 type="button"
