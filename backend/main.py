@@ -8774,6 +8774,162 @@ async def save_departments_endpoint(payload: Union[List[DepartmentSchema], Depar
     return {"status": "success", "departments": settings_db["departments"]}
 
 
+_USER_LAST_CLIENT_ENV_MEM: Dict[str, dict] = {}
+
+
+def _check_and_log_user_client_env_change(keys=None, ip: str = "", browser: str = "", os_name: str = ""):
+    try:
+        from backend.services.audit_logger import is_loopback_or_empty_ip
+        ip_s = str(ip or "").strip()
+        b_s = str(browser or "").strip()
+        o_s = str(os_name or "").strip()
+        if is_loopback_or_empty_ip(ip_s) or (not b_s and not o_s):
+            return
+
+        candidate_keys = {
+            str(k).strip()
+            for k in (keys or [])
+            if k is not None and str(k).strip() not in ("", "undefined", "null", "None", "System", "admin")
+        }
+        if not candidate_keys:
+            return
+
+        users_list = settings_db.get("users") or []
+        matched_user = None
+        for u in users_list:
+            if not isinstance(u, dict):
+                continue
+            u_id = str(u.get("id") or "").strip()
+            u_ext = str(u.get("extension") or "").strip()
+            u_uname = str(u.get("username") or "").strip()
+            u_email = str(u.get("email") or "").strip()
+            u_vals = {v for v in (u_id, u_ext, u_uname, u_email) if v}
+            for sd in (u.get("sip_devices") or []):
+                if isinstance(sd, dict) and sd.get("sip_username"):
+                    u_vals.add(str(sd.get("sip_username")).strip())
+            if candidate_keys & u_vals:
+                matched_user = u
+                break
+
+        if not matched_user:
+            return
+
+        u_ext = str(matched_user.get("extension") or "").strip()
+        u_id = str(matched_user.get("id") or "").strip()
+        canonical_key = u_ext or u_id
+        if not canonical_key:
+            return
+
+        persisted_env_map = settings_db.setdefault("user_last_client_env", {})
+        if not isinstance(persisted_env_map, dict):
+            persisted_env_map = {}
+            settings_db["user_last_client_env"] = persisted_env_map
+
+        prev = _USER_LAST_CLIENT_ENV_MEM.get(canonical_key) or persisted_env_map.get(canonical_key)
+        if isinstance(prev, dict):
+            prev_ip = str(prev.get("ip") or "").strip()
+            prev_b = str(prev.get("browser") or "").strip()
+            prev_o = str(prev.get("os") or "").strip()
+            if prev_ip == ip_s and prev_b == b_s and prev_o == o_s:
+                _USER_LAST_CLIENT_ENV_MEM[canonical_key] = prev
+                return
+        else:
+            prev = None
+
+        now_iso = datetime.datetime.utcnow().isoformat() + "Z"
+        if not prev:
+            action_code = "CLIENT_ENV_CONNECT"
+            changed_fields = ["İlk Bağlantı"]
+            change_label = "İlk Bağlantı"
+            new_env_str = f"{ip_s} • {' / '.join([x for x in (b_s, o_s) if x])}"
+            summary = f"Web Telefon / Panel bağlantısı algılandı: {new_env_str}"
+        else:
+            action_code = "CLIENT_ENV_CHANGE"
+            changed_fields = []
+            if str(prev.get("ip") or "") != ip_s:
+                changed_fields.append("IP Adresi")
+            if str(prev.get("browser") or "") != b_s:
+                changed_fields.append("Tarayıcı")
+            if str(prev.get("os") or "") != o_s:
+                changed_fields.append("İşletim Sistemi")
+            change_label = f"{', '.join(changed_fields)} Değişti" if changed_fields else "Bağlantı Ortamı Değişti"
+            prev_env_str = f"{prev.get('ip') or '-'} • {' / '.join([x for x in (prev.get('browser'), prev.get('os')) if x]) or '-'}"
+            new_env_str = f"{ip_s} • {' / '.join([x for x in (b_s, o_s) if x]) or '-'}"
+            summary = f"Bağlantı ortamı değişti ({change_label}): {prev_env_str} → {new_env_str}"
+
+        new_state = {
+            "ip": ip_s,
+            "browser": b_s,
+            "os": o_s,
+            "updated_at": now_iso,
+        }
+        _USER_LAST_CLIENT_ENV_MEM[canonical_key] = new_state
+        persisted_env_map[canonical_key] = new_state
+
+        history_map = settings_db.setdefault("user_connection_history", {})
+        if not isinstance(history_map, dict):
+            history_map = {}
+            settings_db["user_connection_history"] = history_map
+
+        user_hist = history_map.get(canonical_key)
+        if not isinstance(user_hist, list):
+            user_hist = []
+
+        full_name = str(matched_user.get("full_name") or matched_user.get("name") or matched_user.get("username") or canonical_key).strip()
+        audit_user_label = f"{full_name} (Dahili: {u_ext})" if u_ext and u_ext not in full_name else full_name
+
+        entry = {
+            "id": str(uuid.uuid4()),
+            "timestamp": now_iso,
+            "user_id": u_id,
+            "extension": u_ext,
+            "user_name": full_name,
+            "action": action_code,
+            "change_label": change_label,
+            "changed_fields": changed_fields,
+            "previous_ip": (prev or {}).get("ip") or "",
+            "previous_browser": (prev or {}).get("browser") or "",
+            "previous_os": (prev or {}).get("os") or "",
+            "ip_address": ip_s,
+            "browser": b_s,
+            "os": o_s,
+            "summary": summary,
+        }
+        # Insert newest at top without deleting previous records (keep up to 250 historical changes per user)
+        user_hist.insert(0, entry)
+        if len(user_hist) > 250:
+            del user_hist[250:]
+        history_map[canonical_key] = user_hist
+        save_settings(settings_db)
+
+        audit_details = {
+            "summary": summary,
+            "change_label": change_label,
+            "previous_ip": (prev or {}).get("ip") or "-",
+            "ip_address": ip_s,
+            "previous_browser": (prev or {}).get("browser") or "-",
+            "browser": b_s or "-",
+            "previous_os": (prev or {}).get("os") or "-",
+            "os": o_s or "-",
+            "extension": u_ext or "-",
+        }
+        try:
+            loop = asyncio.get_running_loop()
+            loop.create_task(
+                log_event(
+                    user_id=audit_user_label,
+                    action=action_code,
+                    module="Auth",
+                    details=audit_details,
+                    ip_address=ip_s,
+                )
+            )
+        except Exception:
+            pass
+    except Exception as e_env:
+        print(f"[Client Env Audit Warning]: {e_env}")
+
+
 def _record_request_client_env(request: Optional[Request], keys=None, client_browser: str = "", client_os: str = "", explicit_ip: str = ""):
     if request is None:
         return
@@ -8784,6 +8940,7 @@ def _record_request_client_env(request: Optional[Request], keys=None, client_bro
         b_name, o_name = parse_browser_and_os_from_ua(ua_hdr, client_browser=client_browser, client_os=client_os)
         if b_name or o_name:
             registered_endpoints.record_meta(keys=keys or [], ip=req_ip, browser=b_name, os_name=o_name)
+            _check_and_log_user_client_env_change(keys=keys or [], ip=req_ip, browser=b_name, os_name=o_name)
     except Exception:
         pass
 
@@ -22992,6 +23149,8 @@ AUDIT_ACTION_META = {
     "QUEUE_LOGOUT": ("Kuyruk Oturumu Kapatma", "auth"),
     "BREAK_START": ("Molaya Çıkma", "auth"),
     "BREAK_END": ("Molayı Bitirme", "auth"),
+    "CLIENT_ENV_CONNECT": ("Cihaz & Bağlantı Kaydı", "auth"),
+    "CLIENT_ENV_CHANGE": ("IP / Tarayıcı / OS Değişimi", "auth"),
     "PAGE_VIEW": ("Ekran / Menü Girişi", "navigation"),
     "CREATE": ("Yeni Kayıt Ekleme", "create"),
     "CREATE_USER": ("Kullanıcı Ekleme", "create"),
@@ -23146,7 +23305,7 @@ async def get_system_logs(limit: int = 300, offset: int = 0, module: Optional[st
                 resolved_cat = "delete"
             elif "CREATE" in raw_act or "ADD" in raw_act:
                 resolved_cat = "create"
-            elif raw_act in ("LOGIN", "LOGOUT", "QUEUE_LOGIN", "QUEUE_LOGOUT", "BREAK_START", "BREAK_END"):
+            elif raw_act in ("LOGIN", "LOGOUT", "QUEUE_LOGIN", "QUEUE_LOGOUT", "BREAK_START", "BREAK_END", "CLIENT_ENV_CONNECT", "CLIENT_ENV_CHANGE"):
                 resolved_cat = "auth"
             elif raw_act == "PAGE_VIEW":
                 resolved_cat = "navigation"
@@ -32419,6 +32578,13 @@ async def new_get_users_endpoint(request: Request, user_info: dict = Depends(get
         u["ip_address"] = reg_ip if is_reg else ""
         u["client_browser"] = (reg_meta.get("browser") or "") if is_reg else ""
         u["client_os"] = (reg_meta.get("os") or "") if is_reg else ""
+        if is_reg and reg_ip and (u["client_browser"] or u["client_os"]):
+            _check_and_log_user_client_env_change(
+                keys=[ext, uid],
+                ip=reg_ip,
+                browser=u["client_browser"],
+                os_name=u["client_os"],
+            )
         try:
             from backend.services.agent_presence import get_agent_omnichannel_busy_info
             om_u = get_agent_omnichannel_busy_info(extension=ext, user_id=uid)
@@ -32433,6 +32599,93 @@ async def new_get_users_endpoint(request: Request, user_info: dict = Depends(get
             u["omnichannel_active_chats"] = 0
 
     return raw_users
+
+
+@app.get("/api/settings/users/{user_id}/connection-history")
+@app.get("/settings/users/{user_id}/connection-history")
+async def get_user_connection_history_endpoint(
+    user_id: str,
+    request: Request,
+    user_info: dict = Depends(get_user_info),
+    db: AsyncSession = Depends(get_db),
+):
+    from backend.services.ami_manager import registered_endpoints
+
+    _record_request_client_env(
+        request,
+        keys=[
+            (user_info or {}).get("user_id"),
+            request.headers.get("X-User-ID"),
+            request.headers.get("x-user-id"),
+        ],
+    )
+
+    lookup = str(user_id or "").strip()
+    matched_user = None
+    for u in (settings_db.get("users") or []):
+        if not isinstance(u, dict):
+            continue
+        if (
+            str(u.get("id") or "").strip() == lookup
+            or str(u.get("extension") or "").strip() == lookup
+            or str(u.get("username") or "").strip().lower() == lookup.lower()
+        ):
+            matched_user = u
+            break
+
+    if not matched_user:
+        try:
+            stmt = select(SystemUser).where(
+                or_(
+                    SystemUser.extension == lookup,
+                    SystemUser.id == (int(lookup) if lookup.isdigit() else -1),
+                )
+            )
+            res = await db.execute(stmt)
+            db_u = res.scalars().first()
+            if db_u:
+                matched_user = {c.name: getattr(db_u, c.name) for c in db_u.__table__.columns}
+        except Exception:
+            pass
+
+    u_ext = str((matched_user or {}).get("extension") or (lookup if lookup.isdigit() else "")).strip()
+    u_id = str((matched_user or {}).get("id") or lookup).strip()
+    canonical_key = u_ext or u_id
+
+    # If user is currently online, ensure their live environment is evaluated and recorded if needed
+    live_ip = registered_endpoints.get_ip(u_ext) or registered_endpoints.get_ip(u_id) or ""
+    live_meta = (
+        registered_endpoints.get_meta(u_ext, ip=live_ip)
+        or registered_endpoints.get_meta(u_id, ip=live_ip)
+        or (registered_endpoints.get_meta("", ip=live_ip) if live_ip else {})
+        or {}
+    )
+    if live_ip and (live_meta.get("browser") or live_meta.get("os")):
+        _check_and_log_user_client_env_change(
+            keys=[u_ext, u_id],
+            ip=live_ip,
+            browser=str(live_meta.get("browser") or ""),
+            os_name=str(live_meta.get("os") or ""),
+        )
+
+    history_map = settings_db.get("user_connection_history")
+    history_list = []
+    if isinstance(history_map, dict):
+        for k_cand in [canonical_key, u_ext, u_id]:
+            if k_cand and isinstance(history_map.get(k_cand), list) and history_map.get(k_cand):
+                history_list = list(history_map.get(k_cand))
+                break
+
+    return {
+        "status": "success",
+        "user_id": u_id,
+        "extension": u_ext,
+        "is_online": bool(u_ext in registered_endpoints or u_id in registered_endpoints or live_ip),
+        "current_ip": live_ip,
+        "current_browser": str(live_meta.get("browser") or ""),
+        "current_os": str(live_meta.get("os") or ""),
+        "history": history_list,
+    }
 
 
 @app.post("/api/settings/users")

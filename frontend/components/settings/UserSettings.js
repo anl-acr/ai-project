@@ -490,11 +490,49 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
   const [ctiTesting, setCtiTesting] = useState(false);
   const [ctiTestResult, setCtiTestResult] = useState(null);
 
+  // User Connection & Environment History (IP / Browser / OS changes)
+  const [connHistoryList, setConnHistoryList] = useState([]);
+  const [connHistoryLoading, setConnHistoryLoading] = useState(false);
+  const [connHistoryLive, setConnHistoryLive] = useState(null);
+
   const safeFetch = async (path, options = {}) => {
     const apiBase = getApiBaseUrl(backendHost);
     const url = path.startsWith("http") ? path : `${apiBase}${path}`;
     return await tenantFetch(url, options);
   };
+
+  const fetchUserConnectionHistory = async (targetUser) => {
+    const uObj = targetUser || editingUser;
+    const targetKey = uObj?.extension || uObj?.id;
+    if (!targetKey) {
+      setConnHistoryList([]);
+      setConnHistoryLive(null);
+      return;
+    }
+    setConnHistoryLoading(true);
+    try {
+      const res = await safeFetch(`/api/settings/users/${encodeURIComponent(String(targetKey))}/connection-history`);
+      if (res.ok) {
+        const data = await res.json();
+        setConnHistoryList(Array.isArray(data?.history) ? data.history : []);
+        setConnHistoryLive({
+          is_online: Boolean(data?.is_online),
+          current_ip: data?.current_ip || "",
+          current_browser: data?.current_browser || "",
+          current_os: data?.current_os || "",
+        });
+      }
+    } catch (_) {
+    } finally {
+      setConnHistoryLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (showModal && activeTab === "connection_history" && editingUser) {
+      fetchUserConnectionHistory(editingUser);
+    }
+  }, [showModal, activeTab, editingUser]);
 
   const saveInFlightRef = useRef(false);
   const lastSaveCompletedAtRef = useRef(0);
@@ -3530,6 +3568,16 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
                             >
                                 <Building2 size={16} />
                                 Müşteri / Tenant
+                            </button>
+                        )}
+                        {editingUser && (
+                            <button
+                                type="button"
+                                onClick={() => setActiveTab("connection_history")}
+                                className={"w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-bold transition-all " + (activeTab === 'connection_history' ? ("bg-white dark:bg-slate-800 " + text + " shadow-sm border border-slate-200 dark:border-slate-700") : "text-slate-500 hover:bg-white/50 dark:hover:bg-slate-800/50 hover:text-slate-700 dark:hover:text-slate-300 border border-transparent")}
+                            >
+                                <Clock size={16} />
+                                Bağlantı Geçmişi
                             </button>
                         )}
                     </nav>
@@ -8151,6 +8199,139 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
                                             Oturum & Erişim Kontrolü
                                         </span>
                                     </div>
+                                </div>
+                            </div>
+                        )}
+
+                        {/* TAB: BAĞLANTI GEÇMİŞİ (IP / TARAYICI / İŞLETİM SİSTEMİ DEĞİŞİMLERİ) */}
+                        {activeTab === "connection_history" && editingUser && (
+                            <div className="space-y-5 animate-in fade-in duration-300">
+                                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-100 dark:border-slate-800/60">
+                                    <div>
+                                        <h5 className="text-sm font-extrabold text-slate-800 dark:text-white flex items-center gap-2">
+                                            <Monitor size={16} className={text} />
+                                            Bağlantı & Cihaz Değişim Geçmişi
+                                        </h5>
+                                        <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
+                                            Kullanıcının bağlandığı IP adresi, tarayıcı veya işletim sistemi değiştiğinde önceki kayıtlar silinmeden kronolojik olarak burada ve Olay Günlüklerinde saklanır.
+                                        </p>
+                                    </div>
+                                    <button
+                                        type="button"
+                                        onClick={() => fetchUserConnectionHistory(editingUser)}
+                                        disabled={connHistoryLoading}
+                                        className="px-3.5 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-bold text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700 flex items-center gap-2 transition-all cursor-pointer disabled:opacity-50 shrink-0"
+                                    >
+                                        <RefreshCw size={14} className={connHistoryLoading ? "animate-spin" : ""} />
+                                        <span>Yenile</span>
+                                    </button>
+                                </div>
+
+                                {/* Current Live Environment Banner */}
+                                <div className={`p-4 rounded-2xl border flex flex-col sm:flex-row sm:items-center justify-between gap-3 ${
+                                    (connHistoryLive?.is_online || editingUser?.is_registered)
+                                        ? "bg-emerald-50/70 dark:bg-emerald-950/25 border-emerald-200/80 dark:border-emerald-800/60"
+                                        : "bg-slate-50 dark:bg-slate-900/60 border-slate-200/80 dark:border-slate-800"
+                                }`}>
+                                    <div className="flex items-center gap-3">
+                                        <div className={`w-3 h-3 rounded-full shrink-0 ${
+                                            (connHistoryLive?.is_online || editingUser?.is_registered)
+                                                ? "bg-emerald-500 animate-pulse"
+                                                : "bg-rose-500"
+                                        }`} />
+                                        <div>
+                                            <div className="text-xs font-extrabold text-slate-800 dark:text-white">
+                                                {(connHistoryLive?.is_online || editingUser?.is_registered)
+                                                    ? "Şu Anda Web Telefon Bağlı"
+                                                    : "Şu Anda Çevrimdışı"}
+                                            </div>
+                                            <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
+                                                {(connHistoryLive?.current_ip || editingUser?.ip_address)
+                                                    ? `Anlık Ortam: ${connHistoryLive?.current_ip || editingUser?.ip_address} • ${[
+                                                        connHistoryLive?.current_browser || editingUser?.client_browser,
+                                                        connHistoryLive?.current_os || editingUser?.client_os
+                                                      ].filter(Boolean).join(" / ") || "Tarayıcı bilgisi bekleniyor"}`
+                                                    : "Aktif SIP / WebRTC bağlantısı algılanmadı."}
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <span className="text-[10px] font-bold text-slate-400 dark:text-slate-500">
+                                        Toplam {connHistoryList.length} değişim kaydı
+                                    </span>
+                                </div>
+
+                                {/* History Table */}
+                                <div className="border border-slate-200 dark:border-slate-800 rounded-2xl overflow-hidden bg-white dark:bg-slate-900">
+                                    {connHistoryLoading ? (
+                                        <div className="p-8 text-center text-xs text-slate-400 flex items-center justify-center gap-2">
+                                            <RefreshCw size={15} className="animate-spin" />
+                                            <span>Bağlantı geçmişi yükleniyor...</span>
+                                        </div>
+                                    ) : connHistoryList.length === 0 ? (
+                                        <div className="p-8 text-center text-xs text-slate-400">
+                                            Bu kullanıcı için henüz kaydedilmiş bir IP, tarayıcı veya işletim sistemi geçmişi bulunmuyor.
+                                        </div>
+                                    ) : (
+                                        <div className="overflow-x-auto">
+                                            <table className="w-full text-left border-collapse">
+                                                <thead>
+                                                    <tr className="bg-slate-50 dark:bg-slate-950/60 border-b border-slate-200 dark:border-slate-800 text-[10px] font-extrabold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                                                        <th className="py-3 px-4">Tarih / Saat</th>
+                                                        <th className="py-3 px-4">Değişim Türü</th>
+                                                        <th className="py-3 px-4">Önceki Bağlantı</th>
+                                                        <th className="py-3 px-4">Yeni Bağlantı</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody className="divide-y divide-slate-100 dark:divide-slate-800/70 text-xs">
+                                                    {connHistoryList.map((item, idx) => {
+                                                        const dtStr = item.timestamp
+                                                            ? new Date(item.timestamp.endsWith("Z") || item.timestamp.includes("+") ? item.timestamp : `${item.timestamp}Z`).toLocaleString("tr-TR", {
+                                                                day: "2-digit",
+                                                                month: "2-digit",
+                                                                year: "numeric",
+                                                                hour: "2-digit",
+                                                                minute: "2-digit",
+                                                                second: "2-digit",
+                                                              })
+                                                            : "-";
+                                                        const isInitial = item.action === "CLIENT_ENV_CONNECT" || !item.previous_ip;
+                                                        const prevEnv = item.previous_ip
+                                                            ? [
+                                                                item.previous_ip,
+                                                                [item.previous_browser, item.previous_os].filter(Boolean).join(" / ")
+                                                              ].filter(Boolean).join(" • ")
+                                                            : "-";
+                                                        const newEnv = [
+                                                            item.ip_address,
+                                                            [item.browser, item.os].filter(Boolean).join(" / ")
+                                                        ].filter(Boolean).join(" • ") || "-";
+                                                        return (
+                                                            <tr key={item.id || idx} className="hover:bg-slate-50/70 dark:hover:bg-slate-800/40 transition-colors">
+                                                                <td className="py-3 px-4 font-mono text-[11px] text-slate-600 dark:text-slate-300 whitespace-nowrap">
+                                                                    {dtStr}
+                                                                </td>
+                                                                <td className="py-3 px-4 whitespace-nowrap">
+                                                                    <span className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-lg text-[10px] font-extrabold border ${
+                                                                        isInitial
+                                                                            ? "bg-emerald-50 text-emerald-700 border-emerald-200/80 dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-800/60"
+                                                                            : "bg-amber-50 text-amber-700 border-amber-200/80 dark:bg-amber-950/40 dark:text-amber-300 dark:border-amber-800/60"
+                                                                    }`}>
+                                                                        {item.change_label || (isInitial ? "İlk Bağlantı" : "Ortam Değişti")}
+                                                                    </span>
+                                                                </td>
+                                                                <td className="py-3 px-4 font-mono text-[11px] text-slate-500 dark:text-slate-400 whitespace-nowrap">
+                                                                    {prevEnv}
+                                                                </td>
+                                                                <td className="py-3 px-4 font-mono text-[11px] font-bold text-slate-800 dark:text-slate-100 whitespace-nowrap">
+                                                                    {newEnv}
+                                                                </td>
+                                                            </tr>
+                                                        );
+                                                    })}
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                    )}
                                 </div>
                             </div>
                         )}

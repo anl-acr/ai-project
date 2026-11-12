@@ -62,6 +62,13 @@ const FIELD_LABELS_TR = {
   screen_name: "Görüntülenen Ekran",
   break_name: "Mola Türü",
   endpoint: "İşlem Adresi",
+  change_label: "Değişim Türü",
+  previous_ip: "Önceki IP Adresi",
+  ip_address: "Yeni IP Adresi",
+  previous_browser: "Önceki Tarayıcı",
+  browser: "Yeni Tarayıcı",
+  previous_os: "Önceki İşletim Sistemi",
+  os: "Yeni İşletim Sistemi",
 };
 
 const STRATEGY_LABELS_TR = {
@@ -220,6 +227,8 @@ export default function EventLogsPanel({ backendHost }) {
     CREATE_RULE: "Kural Ekledi",
     DELETE_RULE: "Kural Sildi",
     APPLY_CONFIG: "Ayarları Santrale Uyguladı",
+    CLIENT_ENV_CONNECT: "Cihaz & Bağlantı Kaydı",
+    CLIENT_ENV_CHANGE: "IP / Tarayıcı / OS Değişimi",
   };
 
   const tModule = (log) => log.module_tr || moduleTranslations[log.module] || log.module || "Sistem";
@@ -228,7 +237,7 @@ export default function EventLogsPanel({ backendHost }) {
   const resolveCategory = (log) => {
     if (log.category) return log.category;
     const act = String(log.action || "").toUpperCase();
-    if (["LOGIN", "LOGOUT", "QUEUE_LOGIN", "QUEUE_LOGOUT", "BREAK_START", "BREAK_END"].includes(act)) return "auth";
+    if (["LOGIN", "LOGOUT", "QUEUE_LOGIN", "QUEUE_LOGOUT", "BREAK_START", "BREAK_END", "CLIENT_ENV_CONNECT", "CLIENT_ENV_CHANGE"].includes(act)) return "auth";
     if (act === "PAGE_VIEW" || log.module === "Navigation") return "navigation";
     if (act.includes("DELETE") || act.includes("REMOVE")) return "delete";
     if (act.includes("CREATE") || act.includes("ADD")) return "create";
@@ -239,6 +248,18 @@ export default function EventLogsPanel({ backendHost }) {
     const act = String(log.action || "").toUpperCase();
     const cat = resolveCategory(log);
 
+    if (act === "CLIENT_ENV_CHANGE") {
+      return {
+        Icon: Monitor,
+        cls: "text-amber-700 bg-amber-50 border-amber-200/80 dark:bg-amber-950/40 dark:border-amber-800/50 dark:text-amber-300",
+      };
+    }
+    if (act === "CLIENT_ENV_CONNECT") {
+      return {
+        Icon: Monitor,
+        cls: "text-emerald-700 bg-emerald-50 border-emerald-200/80 dark:bg-emerald-950/40 dark:border-emerald-800/50 dark:text-emerald-300",
+      };
+    }
     if (act === "LOGIN" || act === "QUEUE_LOGIN") {
       return {
         Icon: LogIn,
