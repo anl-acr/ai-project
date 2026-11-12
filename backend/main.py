@@ -770,6 +770,63 @@ def _norm_2fa_ts(val) -> int:
         return n * 1000
     return n
 
+
+def _extract_latest_user_profiles(*sources: Any) -> Tuple[str, Optional[List[dict]], int]:
+    """
+    Resolves the most up-to-date (active_profile, profiles, updated_ts) across one or more user dicts / ORM rows.
+    Checks top-level `profiles_updated_ts` and `call_panel_prefs.profilesMeta.updatedTs` first, then falls back
+    to the first non-empty profiles list so customizations are never clobbered by default profiles.
+    """
+    best_ts = -1
+    best_active = ""
+    best_profiles: Optional[List[dict]] = None
+
+    def _get_f(src: Any, key: str) -> Any:
+        if isinstance(src, dict):
+            return src.get(key)
+        return getattr(src, key, None)
+
+    def _parse_profiles_list(raw_p: Any) -> Optional[List[dict]]:
+        if isinstance(raw_p, str) and raw_p.strip().startswith("["):
+            try:
+                raw_p = json.loads(raw_p)
+            except Exception:
+                raw_p = None
+        if isinstance(raw_p, list) and len(raw_p) > 0:
+            return copy.deepcopy(raw_p)
+        return None
+
+    for src in sources:
+        if not src:
+            continue
+        cpp = _get_f(src, "call_panel_prefs")
+        if isinstance(cpp, str) and cpp.strip().startswith("{"):
+            try:
+                cpp = json.loads(cpp)
+            except Exception:
+                cpp = {}
+        prof_meta = cpp.get("profilesMeta") if isinstance(cpp, dict) else None
+        if not isinstance(prof_meta, dict):
+            prof_meta = {}
+
+        src_ts = max(
+            _norm_2fa_ts(_get_f(src, "profiles_updated_ts")),
+            _norm_2fa_ts(prof_meta.get("updatedTs")),
+        )
+        cand_profiles = _parse_profiles_list(prof_meta.get("profiles")) or _parse_profiles_list(_get_f(src, "profiles"))
+        cand_active = str(prof_meta.get("active_profile") or _get_f(src, "active_profile") or "").strip()
+
+        if cand_profiles:
+            if src_ts > best_ts or best_profiles is None:
+                best_ts = src_ts
+                best_profiles = cand_profiles
+                if cand_active:
+                    best_active = cand_active
+        elif cand_active and not best_active:
+            best_active = cand_active
+
+    return (best_active or "available", best_profiles, max(0, best_ts))
+
 class UserSchema(BaseModel):
     id: Optional[Union[int, str]] = None
     tenant_id: Optional[str] = "tenant-default"
@@ -2222,15 +2279,21 @@ def load_settings(force_reload: bool = False, persist: bool = False):
                 for u in db_users:
                     u_dict = {col.name: getattr(u, col.name) for col in SystemUser.__table__.columns}
                     du = disk_u_map.get(str(u_dict.get("id"))) or disk_ext_map.get(str(u_dict.get("extension") or ""))
-                    for jcol in ("cti_config", "call_panel_prefs", "wallboard_layout", "follow_me", "boss_secretary", "hotdesk_config"):
+                    for jcol in ("cti_config", "call_panel_prefs", "wallboard_layout", "follow_me", "boss_secretary", "hotdesk_config", "forwarding_always", "forwarding_busy", "forwarding_no_answer"):
                         jval = u_dict.get(jcol)
                         if isinstance(jval, str) and jval.strip().startswith("{"):
                             try:
                                 u_dict[jcol] = json.loads(jval)
                             except Exception:
-                                u_dict[jcol] = {} if jcol != "follow_me" else None
-                        elif jcol != "follow_me" and not isinstance(jval, dict):
+                                u_dict[jcol] = {} if jcol not in ("follow_me", "forwarding_always", "forwarding_busy", "forwarding_no_answer") else None
+                        elif jcol not in ("follow_me", "forwarding_always", "forwarding_busy", "forwarding_no_answer") and not isinstance(jval, dict):
                             u_dict[jcol] = {}
+                    raw_profs_db = u_dict.get("profiles")
+                    if isinstance(raw_profs_db, str) and raw_profs_db.strip().startswith("["):
+                        try:
+                            u_dict["profiles"] = json.loads(raw_profs_db)
+                        except Exception:
+                            u_dict["profiles"] = None
                     raw_sd = u_dict.get("sip_devices")
                     if isinstance(raw_sd, str) and raw_sd.strip().startswith("["):
                         try:
@@ -2261,6 +2324,9 @@ def load_settings(force_reload: bool = False, persist: bool = False):
                             u_dict["transport"] = du.get("transport")
                         if not u_dict.get("call_panel_prefs") and du.get("call_panel_prefs"):
                             u_dict["call_panel_prefs"] = du.get("call_panel_prefs")
+                        elif isinstance(u_dict.get("call_panel_prefs"), dict) and isinstance(du.get("call_panel_prefs"), dict):
+                            if du["call_panel_prefs"].get("profilesMeta") and not u_dict["call_panel_prefs"].get("profilesMeta"):
+                                u_dict["call_panel_prefs"]["profilesMeta"] = copy.deepcopy(du["call_panel_prefs"]["profilesMeta"])
                         if not u_dict.get("wallboard_layout") and du.get("wallboard_layout"):
                             u_dict["wallboard_layout"] = du.get("wallboard_layout")
                         if (not u_dict.get("theme_mode") or u_dict.get("theme_mode") == "light") and du.get("theme_mode"):
@@ -2273,6 +2339,17 @@ def load_settings(force_reload: bool = False, persist: bool = False):
                             u_dict["boss_secretary"] = du.get("boss_secretary")
                         if not u_dict.get("hotdesk_config") and du.get("hotdesk_config"):
                             u_dict["hotdesk_config"] = du.get("hotdesk_config")
+                        for fk_load in ("forwarding_always", "forwarding_busy", "forwarding_no_answer"):
+                            if u_dict.get(fk_load) is None and du.get(fk_load) is not None:
+                                u_dict[fk_load] = du.get(fk_load)
+                    res_act_prof, res_profs_list, res_prof_ts = _extract_latest_user_profiles(du, u_dict)
+                    if res_act_prof:
+                        u_dict["active_profile"] = res_act_prof
+                    if res_profs_list:
+                        u_dict["profiles"] = res_profs_list
+                    if res_prof_ts:
+                        u_dict["profiles_updated_ts"] = res_prof_ts
+                    if du:
                         disk_tf_ts = _norm_2fa_ts(du.get("two_factor_updated_ts"))
                         db_tf_meta = (u_dict.get("call_panel_prefs") or {}).get("twoFactorMeta") if isinstance(u_dict.get("call_panel_prefs"), dict) else None
                         db_tf_ts = _norm_2fa_ts((db_tf_meta or {}).get("updatedTs"))
@@ -9025,6 +9102,7 @@ async def save_departments_endpoint(payload: Union[List[DepartmentSchema], Depar
 
 
 _USER_LAST_CLIENT_ENV_MEM: Dict[str, dict] = {}
+_USER_RECENT_ENV_SIGNATURES_MEM: Dict[str, Dict[str, float]] = {}
 _DEVICE_BLOCK_LOG_THROTTLE_MEM: Dict[str, float] = {}
 
 
@@ -9265,6 +9343,41 @@ def _check_and_log_user_client_env_change(keys=None, ip: str = "", browser: str 
             user_hist = []
 
         prev = _USER_LAST_CLIENT_ENV_MEM.get(canonical_key) or persisted_env_map.get(canonical_key)
+        now_ts_env = time.time()
+        seen_sigs = _USER_RECENT_ENV_SIGNATURES_MEM.setdefault(canonical_key, {})
+
+        # Prevent ping-pong disk/DB write storms when the same user has both PC App and Web Browser open simultaneously
+        sig_exact = f"{ip_s}|{b_s.lower()}|{o_s.lower()}|{dk_s}"
+        sig_nodk = f"{ip_s}|{b_s.lower()}|{o_s.lower()}|"
+        if (now_ts_env - seen_sigs.get(sig_exact, 0.0) < 43200.0) or (not dk_s and now_ts_env - seen_sigs.get(sig_nodk, 0.0) < 43200.0):
+            seen_sigs[sig_exact] = now_ts_env
+            seen_sigs[sig_nodk] = now_ts_env
+            return
+
+        # Also check recent connection history entries (top 6) so concurrent PC App + Web Browser sessions don't re-trigger after restart
+        for hist_item in user_hist[:6]:
+            if not isinstance(hist_item, dict):
+                continue
+            h_ip = str(hist_item.get("ip_address") or "").strip()
+            h_b = str(hist_item.get("browser") or "").strip()
+            h_o = str(hist_item.get("os") or "").strip()
+            h_dk = _normalize_device_key(hist_item.get("device_key") or "")
+            if h_ip == ip_s and h_b.lower() == b_s.lower() and h_o.lower() == o_s.lower():
+                if not dk_s or not h_dk or h_dk == dk_s:
+                    if dk_s and not h_dk:
+                        hist_item["device_key"] = dk_s
+                        history_map[canonical_key] = user_hist
+                        if isinstance(prev, dict) and not prev.get("device_key"):
+                            prev["device_key"] = dk_s
+                            _USER_LAST_CLIENT_ENV_MEM[canonical_key] = prev
+                            persisted_env_map[canonical_key] = prev
+                        save_settings(settings_db)
+                    seen_sigs[sig_exact] = now_ts_env
+                    seen_sigs[sig_nodk] = now_ts_env
+                    if h_dk:
+                        seen_sigs[f"{ip_s}|{b_s.lower()}|{o_s.lower()}|{h_dk}"] = now_ts_env
+                    return
+
         if isinstance(prev, dict):
             prev_ip = str(prev.get("ip") or "").strip()
             prev_b = str(prev.get("browser") or "").strip()
@@ -9283,10 +9396,17 @@ def _check_and_log_user_client_env_change(keys=None, ip: str = "", browser: str 
                         save_settings(settings_db)
                 else:
                     _USER_LAST_CLIENT_ENV_MEM[canonical_key] = prev
+                seen_sigs[sig_exact] = now_ts_env
+                seen_sigs[sig_nodk] = now_ts_env
                 return
         else:
             prev = None
             eff_dk = dk_s
+
+        seen_sigs[sig_exact] = now_ts_env
+        seen_sigs[sig_nodk] = now_ts_env
+        if eff_dk:
+            seen_sigs[f"{ip_s}|{b_s.lower()}|{o_s.lower()}|{eff_dk}"] = now_ts_env
 
         now_iso = datetime.datetime.utcnow().isoformat() + "Z"
         dk_suffix = f" • {eff_dk}" if eff_dk else ""
@@ -9467,7 +9587,7 @@ async def webrtc_register_notify(request: Request, payload: dict, db: AsyncSessi
 
     if ext:
         registered_endpoints.add(ext, client_ip, browser=browser_name, os_name=os_name, device_key=device_key_payload)
-        settings = load_settings()
+        settings = settings_db if isinstance(settings_db, dict) and settings_db else load_settings()
         matched_user_id = user_id_val or ext
         web_su_resolved = sip_su_payload or resolve_user_webphone_sip_username(ext, "")
         for u in settings.get("users", []):
@@ -10664,6 +10784,7 @@ async def update_agent_profile_endpoint(user_id: Union[int, str], payload: Profi
     if payload.forwarding_no_answer is not None:
         user["forwarding_no_answer"] = payload.forwarding_no_answer
 
+    touched_profiles = payload.active_profile is not None or payload.profiles is not None
     if payload.active_profile is not None:
         user["active_profile"] = payload.active_profile
     if payload.profiles is not None:
@@ -10689,6 +10810,18 @@ async def update_agent_profile_endpoint(user_id: Union[int, str], payload: Profi
         if payload.avatar is not None:
             merged_cpp["profileAvatar"] = payload.avatar
         user["call_panel_prefs"] = merged_cpp
+
+    if touched_profiles:
+        ensure_user_profiles(user)
+        now_prof_ts = int(time.time() * 1000)
+        user["profiles_updated_ts"] = now_prof_ts
+        if not isinstance(user.get("call_panel_prefs"), dict):
+            user["call_panel_prefs"] = {}
+        user["call_panel_prefs"]["profilesMeta"] = {
+            "active_profile": user.get("active_profile") or "available",
+            "profiles": copy.deepcopy(user.get("profiles") or []),
+            "updatedTs": now_prof_ts,
+        }
 
     if payload.wallboard_layout is not None:
         existing_wbl = user.get("wallboard_layout") if isinstance(user.get("wallboard_layout"), dict) else {}
@@ -10811,6 +10944,39 @@ async def update_agent_profile_endpoint(user_id: Union[int, str], payload: Profi
                 raise HTTPException(status_code=400, detail="Mevcut şifreniz hatalı.")
         user["password"] = payload.new_password
         user["password_last_updated"] = datetime.datetime.now().isoformat()
+
+    # Propagate profile & forwarding updates across any duplicate/aliased user entries in settings_db["users"]
+    target_uid_s = str(user.get("id") or "").strip()
+    target_ext_s = str(user.get("extension") or "").strip()
+    target_email_s = str(user.get("email") or "").strip().lower()
+    is_target_admin = str(user.get("role") or "").lower() == "admin" and uid_str in ("admin", "9999", "1")
+    for peer_u in (settings_db.get("users") or []):
+        if not isinstance(peer_u, dict) or peer_u is user:
+            continue
+        p_id = str(peer_u.get("id") or "").strip()
+        p_ext = str(peer_u.get("extension") or "").strip()
+        p_email = str(peer_u.get("email") or "").strip().lower()
+        p_is_admin = str(peer_u.get("role") or "").lower() == "admin" and (p_id in ("9999", "admin", "1") or not p_ext)
+        if (
+            (target_uid_s and p_id == target_uid_s)
+            or (target_ext_s and p_ext == target_ext_s)
+            or (target_email_s and p_email == target_email_s)
+            or (is_target_admin and p_is_admin)
+        ):
+            for sync_k in (
+                "active_profile",
+                "profiles",
+                "profiles_updated_ts",
+                "forwarding_always",
+                "forwarding_busy",
+                "forwarding_no_answer",
+                "call_panel_prefs",
+                "avatar",
+                "theme_color",
+                "theme_mode",
+            ):
+                if sync_k in user:
+                    peer_u[sync_k] = copy.deepcopy(user[sync_k])
         
     save_settings(settings_db)
     
@@ -10875,7 +11041,7 @@ async def update_agent_profile_endpoint(user_id: Union[int, str], payload: Profi
                 if payload.hotdesk_config is not None and isinstance(user.get("hotdesk_config"), dict):
                     target_db_u.hotdesk_config = copy.deepcopy(user["hotdesk_config"])
                     flag_modified(target_db_u, "hotdesk_config")
-                if payload.call_panel_prefs is not None or payload.avatar is not None or touched_2fa or any(
+                if payload.call_panel_prefs is not None or payload.avatar is not None or touched_2fa or touched_profiles or any(
                     v is not None
                     for v in (
                         payload.auto_logout_enabled,
@@ -10904,6 +11070,8 @@ async def update_agent_profile_endpoint(user_id: Union[int, str], payload: Profi
             def _heal_system_users_cols():
                 for ddl_s in (
                     "ALTER TABLE system_users ALTER COLUMN avatar TYPE TEXT;",
+                    "ALTER TABLE system_users ADD COLUMN IF NOT EXISTS active_profile VARCHAR DEFAULT 'available';",
+                    "ALTER TABLE system_users ADD COLUMN IF NOT EXISTS profiles JSON DEFAULT '[]';",
                     "ALTER TABLE system_users ADD COLUMN IF NOT EXISTS follow_me JSON;",
                     "ALTER TABLE system_users ADD COLUMN IF NOT EXISTS two_factor_enabled BOOLEAN DEFAULT FALSE;",
                     "ALTER TABLE system_users ADD COLUMN IF NOT EXISTS two_factor_method VARCHAR DEFAULT 'google_auth';",
@@ -10965,6 +11133,15 @@ async def switch_user_active_profile_endpoint(user_id: Union[int, str], payload:
         if isinstance(profiles_data, list) and len(profiles_data) > 0:
             user["profiles"] = profiles_data
         ensure_user_profiles(user)
+        now_sw_ts = int(time.time() * 1000)
+        user["profiles_updated_ts"] = now_sw_ts
+        if not isinstance(user.get("call_panel_prefs"), dict):
+            user["call_panel_prefs"] = {}
+        user["call_panel_prefs"]["profilesMeta"] = {
+            "active_profile": user.get("active_profile") or active_profile,
+            "profiles": copy.deepcopy(user.get("profiles") or []),
+            "updatedTs": now_sw_ts,
+        }
         save_settings(settings_db)
 
     try:
@@ -10988,6 +11165,9 @@ async def switch_user_active_profile_endpoint(user_id: Union[int, str], payload:
                 elif isinstance(profiles_data, list) and len(profiles_data) > 0:
                     db_u.profiles = profiles_data
                     flag_modified(db_u, "profiles")
+                if user and isinstance(user.get("call_panel_prefs"), dict):
+                    db_u.call_panel_prefs = copy.deepcopy(user["call_panel_prefs"])
+                    flag_modified(db_u, "call_panel_prefs")
                 if user:
                     db_u.forwarding_always = user.get("forwarding_always")
                     db_u.forwarding_busy = user.get("forwarding_busy")
@@ -32878,16 +33058,19 @@ async def new_get_users_endpoint(request: Request, user_info: dict = Depends(get
         if disk_u:
             if (disk_u.get("avatar_updated_ts") and disk_u.get("avatar")) or (not u.get("avatar") and disk_u.get("avatar")):
                 u["avatar"] = disk_u.get("avatar")
-            if disk_u.get("active_profile"):
-                u["active_profile"] = disk_u.get("active_profile")
-            if disk_u.get("profiles"):
-                u["profiles"] = disk_u.get("profiles")
+            best_act_prof_g, best_profs_g, best_prof_ts_g = _extract_latest_user_profiles(disk_u, u)
+            if best_act_prof_g:
+                u["active_profile"] = best_act_prof_g
+            if best_profs_g:
+                u["profiles"] = copy.deepcopy(best_profs_g)
+            if best_prof_ts_g:
+                u["profiles_updated_ts"] = best_prof_ts_g
             if disk_u.get("follow_me") and not u.get("follow_me"):
                 u["follow_me"] = disk_u.get("follow_me")
             if not u.get("gsm_number") and disk_u.get("gsm_number"):
                 u["gsm_number"] = disk_u.get("gsm_number")
             for fk in ("forwarding_always", "forwarding_busy", "forwarding_no_answer"):
-                if u.get(fk) is None and disk_u.get(fk) is not None:
+                if (u.get(fk) is None or (best_prof_ts_g and _norm_2fa_ts(disk_u.get("profiles_updated_ts")) >= best_prof_ts_g)) and disk_u.get(fk) is not None:
                     u[fk] = disk_u.get(fk)
             if (not u.get("sip_password") or u.get("sip_password") == "1234") and disk_u.get("sip_password"):
                 u["sip_password"] = disk_u.get("sip_password")
@@ -33517,11 +33700,11 @@ async def new_save_users_endpoint(payload: Union[List[UserSchema], UserSchema], 
         for idx, item in enumerate(items_list):
             raw_boss_sec_in = item.boss_secretary if hasattr(item, "boss_secretary") else (item.get("boss_secretary") if isinstance(item, dict) else None)
             raw_hotdesk_in = item.hotdesk_config if hasattr(item, "hotdesk_config") else (item.get("hotdesk_config") if isinstance(item, dict) else None)
+            raw_profiles_in = item.profiles if hasattr(item, "profiles") else (item.get("profiles") if isinstance(item, dict) else None)
             data = item.model_dump()
             for loc_dep_k in ("location_id", "department_id"):
                 lv = data.get(loc_dep_k)
                 data[loc_dep_k] = str(lv).strip() if lv is not None and str(lv).strip() != "" else None
-            ensure_user_profiles(data)
             ext_str = str(data.get("extension") or "").strip()
             data["extension"] = ext_str
             data["sip_password"] = resolve_secure_sip_password(ext_str, data.get("sip_password") or "")
@@ -33541,6 +33724,15 @@ async def new_save_users_endpoint(payload: Union[List[UserSchema], UserSchema], 
                 )
 
             prev_disk = existing_disk_by_id.get(item_id_str) or (existing_disk_by_ext.get(ext_str) if ext_str else None) or {}
+            if raw_profiles_in is None and (target_user or prev_disk):
+                prev_act_p, prev_profs_p, prev_prof_ts = _extract_latest_user_profiles(prev_disk, target_user)
+                if prev_profs_p:
+                    data["profiles"] = copy.deepcopy(prev_profs_p)
+                if prev_act_p and (not data.get("active_profile") or data.get("active_profile") == "available"):
+                    data["active_profile"] = prev_act_p
+                if prev_prof_ts:
+                    data["profiles_updated_ts"] = prev_prof_ts
+            ensure_user_profiles(data)
             from backend.services.pbx_enterprise_features import normalize_boss_secretary_config as _norm_bs_save, normalize_hotdesk_config as _norm_hd_save
             if raw_boss_sec_in is None:
                 prev_bs = (getattr(target_user, "boss_secretary", None) if target_user else None) or prev_disk.get("boss_secretary")

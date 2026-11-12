@@ -191,7 +191,7 @@ class WebphoneManager {
         }
         this.runDiagnosticsCheck({ reason: "periodic" });
       }
-    }, 6000);
+    }, 15000);
 
     document.addEventListener("visibilitychange", () => {
       if (!document.hidden && this.state.currentUser) {
@@ -381,7 +381,19 @@ class WebphoneManager {
     let audioOutputs = [];
     if (navigator.mediaDevices && typeof navigator.mediaDevices.enumerateDevices === "function") {
       try {
-        const devs = await navigator.mediaDevices.enumerateDevices();
+        const nowMs = Date.now();
+        const useCachedDevs =
+          options.reason === "periodic" &&
+          Array.isArray(this._cachedEnumeratedDevices) &&
+          this._cachedEnumeratedAt &&
+          nowMs - this._cachedEnumeratedAt < 60000;
+        const devs = useCachedDevs
+          ? this._cachedEnumeratedDevices
+          : await navigator.mediaDevices.enumerateDevices();
+        if (!useCachedDevs) {
+          this._cachedEnumeratedDevices = devs;
+          this._cachedEnumeratedAt = nowMs;
+        }
         audioInputs = devs.filter((d) => d.kind === "audioinput");
         audioOutputs = devs.filter((d) => d.kind === "audiooutput");
       } catch (e) {}
@@ -602,6 +614,10 @@ class WebphoneManager {
       .map((i) => `${i.id}:${i.status}`)
       .join("|");
 
+    const fullSignature = items
+      .map((i) => `${i.id}:${i.status}:${i.summary}`)
+      .join("|");
+
     const report = {
       checkedAt: Date.now(),
       criticalCount,
@@ -609,6 +625,7 @@ class WebphoneManager {
       isHealthy: criticalCount === 0 && warningCount === 0,
       hasBlockingIssue: criticalCount > 0,
       issueSignature,
+      fullSignature,
       items
     };
 
@@ -629,7 +646,18 @@ class WebphoneManager {
       nextPatch.diagnosticsModalOpen = true;
     }
 
-    this.setState(nextPatch);
+    const prevReport = this.state.healthReport;
+    const isUnchangedPeriodic =
+      options.reason === "periodic" &&
+      !this.state.diagnosticsModalOpen &&
+      !nextPatch.diagnosticsModalOpen &&
+      nextPatch.memorySaverDetected === undefined &&
+      prevReport &&
+      prevReport.fullSignature === fullSignature;
+
+    if (!isUnchangedPeriodic) {
+      this.setState(nextPatch);
+    }
     return report;
   }
 

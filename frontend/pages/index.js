@@ -1363,6 +1363,7 @@ export default function Home() {
   const hydratedModalUserKeyRef = React.useRef("");
   const modalInitialSnapshotRef = React.useRef(null);
   const userTouched2faInModalRef = React.useRef(false);
+  const userTouchedProfilesInModalRef = React.useRef(false);
   const [modalDraftWallboardLayout, setModalDraftWallboardLayout] = useState(null);
 
   useEffect(() => {
@@ -1508,6 +1509,7 @@ export default function Home() {
     }
 
     userTouched2faInModalRef.current = false;
+    userTouchedProfilesInModalRef.current = false;
     setAutoLogoutEnabled(currentUser.auto_logout_enabled ?? (localStorage.getItem("auto_logout_enabled") === "true"));
     setAutoLogoutDuration(currentUser.auto_logout_duration ?? parseInt(localStorage.getItem("auto_logout_duration") || "1"));
     const initTfMeta = currentUser?.call_panel_prefs?.twoFactorMeta && typeof currentUser.call_panel_prefs.twoFactorMeta === "object"
@@ -1540,10 +1542,10 @@ export default function Home() {
     setConfirmPassword("");
     setPasswordStatusMsg(null);
 
-    fetch(`${protocol}//${backendHost}/api/settings/users?tenant_id=all`)
+    fetch(`${protocol}//${backendHost}/api/settings/users?tenant_id=all`, { cache: "no-store" })
       .then((r) => (r.ok ? r.json() : null))
       .then((list) => {
-        if (!Array.isArray(list) || userTouched2faInModalRef.current) return;
+        if (!Array.isArray(list)) return;
         const freshU =
           list.find(
             (u) =>
@@ -1560,28 +1562,87 @@ export default function Home() {
               ) || list.find((u) => u.role === "admin")
             : null);
         if (!freshU) return;
-        const fMeta = freshU?.call_panel_prefs?.twoFactorMeta && typeof freshU.call_panel_prefs.twoFactorMeta === "object"
-          ? freshU.call_panel_prefs.twoFactorMeta
-          : null;
-        const freshEnabled =
-          typeof freshU.two_factor_enabled === "boolean"
-            ? freshU.two_factor_enabled
-            : Boolean(fMeta?.enabled ?? false);
-        const freshRawMethod = freshU.two_factor_method || fMeta?.method;
-        const freshMethod = (!freshRawMethod || freshRawMethod === "app") ? "google_auth" : freshRawMethod;
-        const freshMethodsMap = buildProfile2faMethodsMap(freshU);
-        const { activeMethods: freshActive, multiMode: freshMode } = extractProfile2faActiveConfig(freshU, freshMethod);
-        const freshFocus = freshActive[0] || freshMethod;
-        setTwoFactorEnabled(freshEnabled);
-        setTwoFactorActiveMethods(freshActive);
-        setTwoFactorMultiMode(freshMode);
-        setTwoFactorMethod(freshFocus);
-        activeProfileTwoFactorMethodRef.current = freshFocus;
-        setTwoFactorMethodsMap(freshMethodsMap);
-        setTwoFactorSecret(freshMethodsMap[freshFocus]?.secret || "");
-        setTwoFactorEnrolled(Boolean(freshMethodsMap[freshFocus]?.enrolled));
-        const freshPhone = freshU.gsm_number || freshU.follow_me?.mobile_number || fMeta?.phone || "";
-        if (freshPhone) setGsmNumber(freshPhone);
+
+        if (!userTouchedProfilesInModalRef.current) {
+          const fProfMeta =
+            freshU?.call_panel_prefs?.profilesMeta && typeof freshU.call_panel_prefs.profilesMeta === "object"
+              ? freshU.call_panel_prefs.profilesMeta
+              : null;
+          const freshProf = freshU.active_profile || fProfMeta?.active_profile || "available";
+          const rawFreshProfiles =
+            Array.isArray(freshU.profiles) && freshU.profiles.length > 0
+              ? freshU.profiles
+              : Array.isArray(fProfMeta?.profiles) && fProfMeta.profiles.length > 0
+                ? fProfMeta.profiles
+                : freshU.profiles;
+          const freshProfiles = normalizeUserProfiles(rawFreshProfiles, freshU);
+          setAgentActiveProfile(freshProf);
+          setSelectedAgentProfileTab(freshProf);
+          setAgentProfiles(freshProfiles);
+          if (modalInitialSnapshotRef.current) {
+            modalInitialSnapshotRef.current.activeProfile = freshProf;
+            modalInitialSnapshotRef.current.profiles = JSON.parse(JSON.stringify(freshProfiles));
+          }
+          if (freshU.forwarding_always && typeof freshU.forwarding_always === "object") {
+            setFwdAlwaysActive(Boolean(freshU.forwarding_always.active));
+            setFwdAlwaysType(freshU.forwarding_always.type || "internal");
+            setFwdAlwaysTarget(freshU.forwarding_always.target || "");
+          }
+          if (freshU.forwarding_busy && typeof freshU.forwarding_busy === "object") {
+            setFwdBusyActive(Boolean(freshU.forwarding_busy.active));
+            setFwdBusyType(freshU.forwarding_busy.type || "internal");
+            setFwdBusyTarget(freshU.forwarding_busy.target || "");
+          }
+          if (freshU.forwarding_no_answer && typeof freshU.forwarding_no_answer === "object") {
+            setFwdNoAnswerActive(Boolean(freshU.forwarding_no_answer.active));
+            setFwdNoAnswerType(freshU.forwarding_no_answer.type || "internal");
+            setFwdNoAnswerTarget(freshU.forwarding_no_answer.target || "");
+            setFwdNoAnswerTimeout(freshU.forwarding_no_answer.timeout || 30);
+          }
+          setCurrentUser((prev) => {
+            if (!prev) return prev;
+            const synced = {
+              ...prev,
+              active_profile: freshProf,
+              profiles: freshProfiles,
+              ...(freshU.forwarding_always ? { forwarding_always: freshU.forwarding_always } : {}),
+              ...(freshU.forwarding_busy ? { forwarding_busy: freshU.forwarding_busy } : {}),
+              ...(freshU.forwarding_no_answer ? { forwarding_no_answer: freshU.forwarding_no_answer } : {})
+            };
+            try {
+              const savedAuthLocal = localStorage.getItem("is_logged_in") === "true";
+              const storeUid = sessionStorage.getItem("current_user_id") || localStorage.getItem("current_user_id") || String(synced.id || "admin");
+              persistAuthenticatedSession(storeUid, savedAuthLocal, synced);
+            } catch (e) {}
+            return synced;
+          });
+        }
+
+        if (!userTouched2faInModalRef.current) {
+          const fMeta = freshU?.call_panel_prefs?.twoFactorMeta && typeof freshU.call_panel_prefs.twoFactorMeta === "object"
+            ? freshU.call_panel_prefs.twoFactorMeta
+            : null;
+          const freshEnabled =
+            typeof freshU.two_factor_enabled === "boolean"
+              ? freshU.two_factor_enabled
+              : Boolean(fMeta?.enabled ?? false);
+          const freshRawMethod = freshU.two_factor_method || fMeta?.method;
+          const freshMethod = (!freshRawMethod || freshRawMethod === "app") ? "google_auth" : freshRawMethod;
+          const freshMethodsMap = buildProfile2faMethodsMap(freshU);
+          const { activeMethods: freshActive, multiMode: freshMode } = extractProfile2faActiveConfig(freshU, freshMethod);
+          const freshFocus = freshActive[0] || freshMethod;
+          setTwoFactorEnabled(freshEnabled);
+          setTwoFactorActiveMethods(freshActive);
+          setTwoFactorMultiMode(freshMode);
+          setTwoFactorMethod(freshFocus);
+          activeProfileTwoFactorMethodRef.current = freshFocus;
+          setTwoFactorMethodsMap(freshMethodsMap);
+          setTwoFactorSecret(freshMethodsMap[freshFocus]?.secret || "");
+          setTwoFactorEnrolled(Boolean(freshMethodsMap[freshFocus]?.enrolled));
+          const freshPhone = freshU.gsm_number || freshU.follow_me?.mobile_number || fMeta?.phone || "";
+          if (freshPhone) setGsmNumber(freshPhone);
+        }
+
         if (freshU.hotdesk_config && typeof freshU.hotdesk_config === "object") {
           const fHd = {
             enabled: Boolean(freshU.hotdesk_config.enabled),
@@ -7516,6 +7577,7 @@ export default function Home() {
                 {activeModalTab === "profiles" && (() => {
                   const curProf = agentProfiles.find(p => p.id === selectedAgentProfileTab) || agentProfiles[0] || DEFAULT_USER_PROFILES[0];
                   const updateCurProf = (patch) => {
+                    userTouchedProfilesInModalRef.current = true;
                     setAgentProfiles(prev => prev.map(p => p.id === curProf.id ? { ...p, ...patch } : p));
                   };
                   const updateCurProfForwarding = (ruleKey, patch) => {
@@ -7553,6 +7615,7 @@ export default function Home() {
                           <select
                             value={agentActiveProfile}
                             onChange={(e) => {
+                              userTouchedProfilesInModalRef.current = true;
                               setAgentActiveProfile(e.target.value);
                               setSelectedAgentProfileTab(e.target.value);
                             }}
@@ -7578,6 +7641,7 @@ export default function Home() {
                             <div
                               key={prof.id}
                               onClick={() => {
+                                userTouchedProfilesInModalRef.current = true;
                                 setSelectedAgentProfileTab(prof.id);
                                 setAgentActiveProfile(prof.id);
                               }}
@@ -10252,22 +10316,24 @@ export default function Home() {
                               ? "any"
                               : "all";
                         const primaryProfSaveMethod = resolvedProfActiveMethods[0] || twoFactorMethod || "google_auth";
-                        const localProfilePatch = {
-                          avatar: agentAvatar,
-                          call_panel_prefs: savedPrefsSnapshot,
-                          gsm_number: cleanedGsmNumber,
-                          follow_me: {
-                            ...(currentUser?.follow_me && typeof currentUser.follow_me === "object" ? currentUser.follow_me : {}),
-                            mobile_number: cleanedGsmNumber
-                          },
-                          two_factor_enabled: Boolean(twoFactorEnabled),
-                          two_factor_method: primaryProfSaveMethod,
-                          two_factor_active_methods: resolvedProfActiveMethods,
-                          two_factor_multi_mode: resolvedProfMultiMode,
-                          ...(twoFactorSecret ? { two_factor_secret: twoFactorSecret } : {}),
-                          two_factor_enrolled: Boolean(twoFactorMethodsMap[primaryProfSaveMethod]?.enrolled ?? twoFactorEnrolled),
-                          hotdesk_config: normalizedSelfHotdesk
-                        };
+                         const localProfilePatch = {
+                           avatar: agentAvatar,
+                           active_profile: agentActiveProfile,
+                           profiles: agentProfiles,
+                           call_panel_prefs: savedPrefsSnapshot,
+                           gsm_number: cleanedGsmNumber,
+                           follow_me: {
+                             ...(currentUser?.follow_me && typeof currentUser.follow_me === "object" ? currentUser.follow_me : {}),
+                             mobile_number: cleanedGsmNumber
+                           },
+                           two_factor_enabled: Boolean(twoFactorEnabled),
+                           two_factor_method: primaryProfSaveMethod,
+                           two_factor_active_methods: resolvedProfActiveMethods,
+                           two_factor_multi_mode: resolvedProfMultiMode,
+                           ...(twoFactorSecret ? { two_factor_secret: twoFactorSecret } : {}),
+                           two_factor_enrolled: Boolean(twoFactorMethodsMap[primaryProfSaveMethod]?.enrolled ?? twoFactorEnrolled),
+                           hotdesk_config: normalizedSelfHotdesk
+                         };
                         setCurrentUser((prev) =>
                           prev
                             ? {
