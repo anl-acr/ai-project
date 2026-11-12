@@ -8776,7 +8776,7 @@ async def save_departments_endpoint(payload: Union[List[DepartmentSchema], Depar
 
 @app.post("/api/webrtc/register_notify")
 async def webrtc_register_notify(request: Request, payload: dict, db: AsyncSession = Depends(get_db)):
-    from backend.services.ami_manager import registered_endpoints
+    from backend.services.ami_manager import registered_endpoints, parse_browser_and_os_from_ua
     from backend.services.autoprovision_service import resolve_user_webphone_sip_username
 
     ext = str(payload.get("extension") or payload.get("user_id") or "").strip()
@@ -8785,12 +8785,18 @@ async def webrtc_register_notify(request: Request, payload: dict, db: AsyncSessi
 
     # Extract real client IP from headers, AMI, or fallback
     client_ip = str(payload.get("client_ip") or "").strip() or extract_client_ip(request)
+    ua_header = request.headers.get("user-agent") or str(payload.get("user_agent") or "")
+    browser_name, os_name = parse_browser_and_os_from_ua(
+        ua_header,
+        client_browser=str(payload.get("client_browser") or ""),
+        client_os=str(payload.get("client_os") or ""),
+    )
 
     if sip_su_payload:
-        registered_endpoints.add(sip_su_payload, client_ip)
+        registered_endpoints.add(sip_su_payload, client_ip, browser=browser_name, os_name=os_name)
 
     if ext:
-        registered_endpoints.add(ext, client_ip)
+        registered_endpoints.add(ext, client_ip, browser=browser_name, os_name=os_name)
         settings = load_settings()
         matched_user_id = user_id_val or ext
         web_su_resolved = sip_su_payload or resolve_user_webphone_sip_username(ext, "")
@@ -8805,9 +8811,9 @@ async def webrtc_register_notify(request: Request, payload: dict, db: AsyncSessi
                 break
 
         if web_su_resolved:
-            registered_endpoints.add(web_su_resolved, client_ip)
+            registered_endpoints.add(web_su_resolved, client_ip, browser=browser_name, os_name=os_name)
         if matched_user_id:
-            registered_endpoints.add(str(matched_user_id), client_ip)
+            registered_endpoints.add(str(matched_user_id), client_ip, browser=browser_name, os_name=os_name)
 
         call_state_val = str(payload.get("call_state") or "").strip().lower()
         if call_state_val in ("ringing", "busy"):
@@ -32355,6 +32361,17 @@ async def new_get_users_endpoint(request: Request, user_info: dict = Depends(get
                     })
         u["active_hotdesk_sessions"] = user_hd_sessions
         reg_ip = registered_endpoints.get_ip(ext) or registered_endpoints.get_ip(uid) or online_dev_ip
+        reg_meta = (
+            registered_endpoints.get_meta(ext)
+            or registered_endpoints.get_meta(uid)
+            or {}
+        )
+        if not reg_meta:
+            for d_item in norm_devs:
+                if str(d_item.get("device_type") or "").strip().lower() == "web_phone" and d_item.get("sip_username"):
+                    reg_meta = registered_endpoints.get_meta(d_item.get("sip_username")) or {}
+                    if reg_meta:
+                        break
         is_reg = bool(ext in registered_endpoints or uid in registered_endpoints or any_dev_reg)
         c_state = get_live_user_call_state(ext, is_reg)
         if c_state in ("ringing", "busy"):
@@ -32364,6 +32381,8 @@ async def new_get_users_endpoint(request: Request, user_info: dict = Depends(get
         u["web_online"] = bool(_is_internal_chat_online(uid, ext))
         u["call_state"] = c_state
         u["ip_address"] = reg_ip if is_reg else ""
+        u["client_browser"] = (reg_meta.get("browser") or "") if is_reg else ""
+        u["client_os"] = (reg_meta.get("os") or "") if is_reg else ""
         try:
             from backend.services.agent_presence import get_agent_omnichannel_busy_info
             om_u = get_agent_omnichannel_busy_info(extension=ext, user_id=uid)

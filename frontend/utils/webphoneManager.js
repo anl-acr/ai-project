@@ -1145,6 +1145,32 @@ class WebphoneManager {
       });
   }
 
+  detectClientEnv() {
+    if (typeof window === "undefined" || typeof navigator === "undefined") {
+      return { browser: "", os: "" };
+    }
+    const ua = String(navigator.userAgent || "").toLowerCase();
+    let os = "";
+    if (ua.includes("iphone") || ua.includes("ipad") || ua.includes("ipod")) os = "iOS";
+    else if (ua.includes("android")) os = "Android";
+    else if (ua.includes("windows")) os = "Windows";
+    else if (ua.includes("mac os x") || ua.includes("macintosh")) os = "macOS";
+    else if (ua.includes("cros")) os = "ChromeOS";
+    else if (ua.includes("linux") || ua.includes("ubuntu")) os = "Linux";
+
+    let browser = "";
+    if (ua.includes("edg/") || ua.includes("edga/") || ua.includes("edgios/")) browser = "Edge";
+    else if (ua.includes("opr/") || ua.includes("opera")) browser = "Opera";
+    else if (ua.includes("yabrowser")) browser = "Yandex";
+    else if (ua.includes("samsungbrowser")) browser = "Samsung Internet";
+    else if (ua.includes("firefox/") || ua.includes("fxios/")) browser = "Firefox";
+    else if (navigator.brave && typeof navigator.brave.isBrave === "function") browser = "Brave";
+    else if (ua.includes("chrome/") || ua.includes("crios/") || ua.includes("chromium")) browser = "Chrome";
+    else if (ua.includes("safari/")) browser = "Safari";
+
+    return { browser, os };
+  }
+
   sendPresenceNotify() {
     const ext = this.state.webrtcConfig?.agentExtension || this.state.currentUser?.extension;
     if (!this.state.registered || !ext) return;
@@ -1160,6 +1186,7 @@ class WebphoneManager {
     } else if (allLines.some((l) => l.callStatus === "Ringing")) {
       callState = "ringing";
     }
+    const envInfo = this.detectClientEnv();
     fetch(`${this.getApiBase()}/api/webrtc/register_notify`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -1167,7 +1194,9 @@ class WebphoneManager {
         extension: ext,
         sip_username: this.state.webrtcConfig?.sipUsername || "",
         user_id: this.state.currentUser?.id,
-        call_state: callState
+        call_state: callState,
+        client_browser: envInfo.browser,
+        client_os: envInfo.os
       })
     }).catch(() => {});
   }

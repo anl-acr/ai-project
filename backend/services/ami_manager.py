@@ -237,20 +237,83 @@ def resolve_hangup_initiator(call_id: str, caller_num: str = "", callee_num: str
     return ""
 
 
+def parse_browser_and_os_from_ua(user_agent: str, client_browser: str = "", client_os: str = "") -> tuple[str, str]:
+    """
+    Extracts clean, versionless Browser and OS names (e.g., ('Chrome', 'macOS'), ('Edge', 'Windows')).
+    """
+    b_in = str(client_browser or "").strip()
+    o_in = str(client_os or "").strip()
+    if b_in and o_in:
+        return (b_in, o_in)
+
+    ua = str(user_agent or "").strip()
+    ua_l = ua.lower()
+
+    # 1. Detect OS (no version numbers)
+    os_name = o_in
+    if not os_name and ua_l:
+        if "iphone" in ua_l or "ipad" in ua_l or "ipod" in ua_l:
+            os_name = "iOS"
+        elif "android" in ua_l:
+            os_name = "Android"
+        elif "windows" in ua_l:
+            os_name = "Windows"
+        elif "mac os x" in ua_l or "macintosh" in ua_l:
+            os_name = "macOS"
+        elif "cros" in ua_l:
+            os_name = "ChromeOS"
+        elif "linux" in ua_l or "ubuntu" in ua_l:
+            os_name = "Linux"
+
+    # 2. Detect Browser (no version numbers)
+    browser_name = b_in
+    if not browser_name and ua_l:
+        if "edg/" in ua_l or "edga/" in ua_l or "edgios/" in ua_l:
+            browser_name = "Edge"
+        elif "opr/" in ua_l or "opera" in ua_l:
+            browser_name = "Opera"
+        elif "yabrowser" in ua_l:
+            browser_name = "Yandex"
+        elif "samsungbrowser" in ua_l:
+            browser_name = "Samsung Internet"
+        elif "firefox/" in ua_l or "fxios/" in ua_l:
+            browser_name = "Firefox"
+        elif "chrome/" in ua_l or "crios/" in ua_l or "chromium" in ua_l:
+            browser_name = "Chrome"
+        elif "safari/" in ua_l:
+            browser_name = "Safari"
+
+    return (browser_name, os_name)
+
+
 class RegisteredEndpointsDict(dict):
-    def add(self, key, ip=""):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._meta = {}
+
+    def add(self, key, ip="", browser="", os_name=""):
         k = str(key)
         ip_s = str(ip or "").strip()
         existing = self.get(k, "")
-        if ip_s in ("", "127.0.0.1", "::1", "localhost") and existing and existing not in ("", "127.0.0.1", "::1", "localhost"):
-            return
-        self[k] = ip_s
+        if not (ip_s in ("", "127.0.0.1", "::1", "localhost") and existing and existing not in ("", "127.0.0.1", "::1", "localhost")):
+            self[k] = ip_s
+        if browser or os_name:
+            cur_m = self._meta.get(k) or {}
+            self._meta[k] = {
+                "browser": str(browser or cur_m.get("browser") or "").strip(),
+                "os": str(os_name or cur_m.get("os") or "").strip(),
+            }
 
     def discard(self, key):
-        self.pop(str(key), None)
+        k = str(key)
+        self.pop(k, None)
+        self._meta.pop(k, None)
 
     def get_ip(self, key):
         return self.get(str(key), "")
+
+    def get_meta(self, key) -> dict:
+        return self._meta.get(str(key)) or {}
 
 registered_endpoints = RegisteredEndpointsDict()
 manager_instance = None
