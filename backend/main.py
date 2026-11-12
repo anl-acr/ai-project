@@ -5212,7 +5212,7 @@ same => n,Set(CURL_RESULT=${{CURL(http://{backend_host}/api/calls/register?call_
 same => n,GotoIf($["${{CURL_RESULT}}" = "BLOCKED"]?deny)
 same => n,Goto(check_int_acl)
 same => n(already_registered_int),Set(__APPEND_REC=1)
-same => n,Set(TR_MARK=${{CURL(http://{backend_host}/api/calls/mark_transfer_leg?call_id=${{URIENCODE(${{CALL_UUID}})}}&target_ext=${{URIENCODE(${{EXTEN}})}}&caller=${{URIENCODE(${{CALLERID(num)}})}}&channel=${{URIENCODE(${{CHANNEL(name)}})}})}})
+same => n,Set(TR_MARK=${{CURL(http://{backend_host}/api/calls/mark_transfer_leg?call_id=${{URIENCODE(${{CALL_UUID}})}}&target_ext=${{URIENCODE(${{EXTEN}})}}&caller=${{URIENCODE(${{CALLERID(num)}})}}&channel=${{URIENCODE(${{CHANNEL(name)}})}}&blindtransfer=${{URIENCODE(${{BLINDTRANSFER}})}}&transferer=${{URIENCODE(${{TRANSFERERNAME}})}})}})
 same => n(check_int_acl),Set(ACL_RESULT=${{CURL(http://{backend_host}/api/acl/check_subscriber_call?caller=${{CALLERID(num)}}&callee=${{EXTEN}})}})
 same => n,GotoIf($["${{ACL_RESULT}}" = "DENY"]?deny:allow)
 same => n(deny),NoOp(ACL REDDEDILDI: Yetkisiz arama)
@@ -5236,7 +5236,7 @@ same => n,Set(CURL_RESULT=${{CURL(http://{backend_host}/api/calls/register?call_
 same => n,GotoIf($["${{CURL_RESULT}}" = "BLOCKED"]?deny)
 same => n,Goto(q_ext_do_mix)
 same => n(q_ext_already_reg),Set(__APPEND_REC=1)
-same => n,Set(TR_MARK=${{CURL(http://{backend_host}/api/calls/mark_transfer_leg?call_id=${{URIENCODE(${{CALL_UUID}})}}&target_ext=${{URIENCODE(${{EXTEN}})}}&caller=${{URIENCODE(${{CALLERID(num)}})}}&channel=${{URIENCODE(${{CHANNEL(name)}})}})}})
+same => n,Set(TR_MARK=${{CURL(http://{backend_host}/api/calls/mark_transfer_leg?call_id=${{URIENCODE(${{CALL_UUID}})}}&target_ext=${{URIENCODE(${{EXTEN}})}}&caller=${{URIENCODE(${{CALLERID(num)}})}}&channel=${{URIENCODE(${{CHANNEL(name)}})}}&blindtransfer=${{URIENCODE(${{BLINDTRANSFER}})}}&transferer=${{URIENCODE(${{TRANSFERERNAME}})}})}})
 same => n(q_ext_do_mix),Answer()
 same => n,StopMixMonitor()
 same => n,MixMonitor(/var/spool/asterisk/monitor/${{CALL_UUID}}.wav,${{IF($["${{APPEND_REC}}"="1"]?ab:b)}})
@@ -20997,11 +20997,24 @@ async def record_call_transfer_event(
         c_caller = str(db_call.caller_number or "").strip()
         c_callee = str(db_call.callee_number or "").strip()
         c_hsrc = str(db_call.hangup_source or "").strip()
+        was_implicit_mark = not bool(from_s)
+
+        td_prev = db_call.transfer_details if isinstance(db_call.transfer_details, dict) else {}
+        prev_chain = [
+            h for h in (td_prev.get("transfer_chain") if isinstance(td_prev.get("transfer_chain"), list) else [])
+            if isinstance(h, dict) and str(h.get("from_ext") or "").strip() and str(h.get("from_ext") or "").strip() != str(h.get("to_ext") or "").strip()
+        ]
+
+        # Guard against initial CallFlow / AudioSocket inbound route (redirect_call_to_human -> webrtc_agents)
+        # where CALL_UUID is already set on the channel but NO agent has transferred the call!
+        if was_implicit_mark:
+            if c_hsrc in (f"direct:{target_s}", f"queue:{target_s}", f"callflow_external:{target_s}") and not prev_chain:
+                return None
+            if c_callee == target_s and not prev_chain and ":answered:" not in c_hsrc and not c_hsrc.startswith("pickup:"):
+                return None
 
         # Infer from_s if missing (e.g., dialplan mark_transfer_leg where CALLERID(num) is customer)
         if not from_s or from_s == c_caller:
-            td_prev = db_call.transfer_details if isinstance(db_call.transfer_details, dict) else {}
-            prev_chain = td_prev.get("transfer_chain") if isinstance(td_prev.get("transfer_chain"), list) else []
             if prev_chain:
                 from_s = str(prev_chain[-1].get("to_ext") or from_s).strip()
             elif ":answered:" in c_hsrc:
@@ -21012,6 +21025,10 @@ async def record_call_transfer_event(
                 from_s = c_callee
             elif c_caller and c_caller != target_s and len(c_caller) <= 6:
                 from_s = c_caller
+
+        # A real transfer MUST have a valid internal source extension (from_s) distinct from target_s
+        if not from_s or from_s == target_s or len(from_s) >= 7:
+            return None
 
         if not remote_s:
             remote_s = c_caller if c_caller != from_s else c_callee
@@ -21375,12 +21392,16 @@ async def mark_transfer_leg_endpoint(
     call_id: str = "",
     target_ext: str = "",
     caller: str = "",
-    channel: str = ""
+    channel: str = "",
+    blindtransfer: str = "",
+    transferer: str = "",
 ):
     try:
         if call_id and target_ext:
+            from backend.services.ami_manager import _extract_ext_from_channel
+            from_ext_hdr = _extract_ext_from_channel(blindtransfer or transferer or "") or ""
             await record_call_transfer_event(
-                from_ext="",
+                from_ext=from_ext_hdr,
                 target_ext=target_ext,
                 remote_number=caller,
                 transfer_type="blind",
@@ -21680,6 +21701,9 @@ async def list_calls(
             else:
                 action_logs = []
 
+            bogus_action_log_ids = set()
+            any_false_transfer_healed = False
+
             for c in calls_list:
                 c_start = c.start_time or now_utc
                 c_end = c.end_time or now_utc
@@ -21689,25 +21713,66 @@ async def list_calls(
                 short_id = str(c.id or "")[:8]
                 is_queue_call = bool(hangup_src.startswith("queue:") or (callee_str in q_map))
 
-                is_transferred = (c.status == "transferred") or hangup_src.startswith("transfer:")
-                transfer_target = hangup_src.split(":", 1)[1].strip() if hangup_src.startswith("transfer:") else ""
-                transfer_type = "ami_transfer" if is_transferred else ""
-
-                is_picked_up = hangup_src.startswith("pickup:")
-                picked_up_by_ext = hangup_src.split(":", 1)[1].strip() if is_picked_up else ""
-                picked_up_by_name = resolve_user_name_by_ext_or_id(picked_up_by_ext) if picked_up_by_ext else ""
-                original_callee_name = resolve_user_name_by_ext_or_id(callee_str) if callee_str else ""
-
                 raw_td = getattr(c, "transfer_details", None)
                 if isinstance(raw_td, str):
                     try:
                         raw_td = json.loads(raw_td)
                     except Exception:
                         raw_td = {}
-                td_dict = raw_td if isinstance(raw_td, dict) else {}
-                td_chain = td_dict.get("transfer_chain") if isinstance(td_dict.get("transfer_chain"), list) else []
+                td_dict = dict(raw_td) if isinstance(raw_td, dict) else {}
+                raw_td_chain = td_dict.get("transfer_chain") if isinstance(td_dict.get("transfer_chain"), list) else []
                 td_pickup = td_dict.get("pickup_info") if isinstance(td_dict.get("pickup_info"), dict) else {}
                 td_segments = td_dict.get("audio_segments") if isinstance(td_dict.get("audio_segments"), list) else []
+
+                # Filter out false transfer hops caused by initial CallFlow route (where from_ext is empty or equals to_ext)
+                td_chain = [
+                    h for h in raw_td_chain
+                    if isinstance(h, dict)
+                    and str(h.get("from_ext") or "").strip()
+                    and len(str(h.get("from_ext") or "").strip()) <= 6
+                    and str(h.get("from_ext") or "").strip() != str(h.get("to_ext") or "").strip()
+                ]
+                had_bogus_transfer = (
+                    (len(raw_td_chain) > 0 and len(td_chain) == 0)
+                    or "Temsilci ()" in str(getattr(c, "agent_name", "") or "")
+                    or "Temsilci ()" in str(getattr(c, "summary", "") or "")
+                    or (hangup_src == f"transfer:{callee_str}" and len(td_chain) == 0)
+                )
+                if had_bogus_transfer:
+                    td_chain = []
+                    td_segments = []
+                    td_dict = {"pickup_info": td_pickup} if td_pickup else {}
+                    c.transfer_details = td_dict if td_dict else None
+                    if hangup_src.startswith("transfer:"):
+                        hangup_src = f"direct:{callee_str}" if callee_str else ""
+                        c.hangup_source = hangup_src
+                    if str(c.status or "").strip().lower() == "transferred":
+                        c.status = "completed" if (getattr(c, "talk_duration", 0) and int(getattr(c, "talk_duration", 0) or 0) > 0) else "no_answer"
+                    if "Temsilci ()" in str(getattr(c, "agent_name", "") or ""):
+                        c.agent_name = resolve_user_name_by_ext_or_id(callee_str) or None
+                    if "Temsilci ()" in str(getattr(c, "summary", "") or ""):
+                        c.summary = None
+                    any_false_transfer_healed = True
+                elif len(td_chain) != len(raw_td_chain):
+                    td_dict["transfer_chain"] = td_chain
+                    c.transfer_details = td_dict
+                    any_false_transfer_healed = True
+
+                is_transferred = bool(
+                    len(td_chain) > 0
+                    or (
+                        ((c.status == "transferred") or hangup_src.startswith("transfer:"))
+                        and not had_bogus_transfer
+                        and hangup_src != f"transfer:{callee_str}"
+                    )
+                )
+                transfer_target = hangup_src.split(":", 1)[1].strip() if (is_transferred and hangup_src.startswith("transfer:")) else ""
+                transfer_type = "ami_transfer" if is_transferred else ""
+
+                is_picked_up = hangup_src.startswith("pickup:")
+                picked_up_by_ext = hangup_src.split(":", 1)[1].strip() if is_picked_up else ""
+                picked_up_by_name = resolve_user_name_by_ext_or_id(picked_up_by_ext) if picked_up_by_ext else ""
+                original_callee_name = resolve_user_name_by_ext_or_id(callee_str) if callee_str else ""
 
                 if td_chain:
                     is_transferred = True
@@ -21730,9 +21795,13 @@ async def list_calls(
                 for log in action_logs:
                     if not log.start_time:
                         continue
+                    b_name = str(log.break_name or "")
+                    if b_name.startswith("__ACTION__:call_") and "transfer" in b_name and str(log.agent_name or "").strip() in ("", "Temsilci"):
+                        if log.id:
+                            bogus_action_log_ids.add(log.id)
+                        continue
                     if log.start_time < (c_start - timedelta(seconds=5)) or log.start_time > (c_end + timedelta(seconds=30)):
                         continue
-                    b_name = str(log.break_name or "")
                     log_ext = str(log.extension or "").strip()
                     log_uid = str(log.user_id or "").strip()
 
@@ -21766,6 +21835,8 @@ async def list_calls(
                         picked_up_by_ext = log_ext or picked_up_by_ext
                         picked_up_by_name = log.agent_name or resolve_user_name_by_ext_or_id(picked_up_by_ext) or ""
                     elif act_key in ("call_transfer", "call_blind_transfer", "call_attended_transfer", "call_forwarded"):
+                        if had_bogus_transfer and not td_chain:
+                            continue
                         is_transferred = True
                         if not td_chain:
                             transfer_type = act_key
@@ -21809,8 +21880,11 @@ async def list_calls(
                         c.agent_name = resolved_ag
                         any_agent_backfilled = True
 
-            if locals().get("any_agent_backfilled"):
+            if locals().get("any_agent_backfilled") or any_false_transfer_healed or bogus_action_log_ids:
                 try:
+                    if bogus_action_log_ids:
+                        from sqlalchemy import delete as sa_delete
+                        await db.execute(sa_delete(AgentBreakLog).where(AgentBreakLog.id.in_(list(bogus_action_log_ids))))
                     await db.commit()
                 except Exception:
                     pass

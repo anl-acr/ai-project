@@ -4075,16 +4075,21 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
   const getTransferMetadata = (call) => {
     if (!call) return null;
     const hs = String(call.hangup_source || "").trim();
-    const chain = Array.isArray(call.transfer_chain)
+    const rawChain = Array.isArray(call.transfer_chain)
       ? call.transfer_chain
       : Array.isArray(call.transfer_details?.transfer_chain)
       ? call.transfer_details.transfer_chain
       : [];
+    const chain = rawChain.filter(
+      (h) => h && String(h.from_ext || "").trim() && String(h.from_ext || "").trim() !== String(h.to_ext || "").trim()
+    );
+    const hadBogusHop = rawChain.length > 0 && chain.length === 0;
     const isTransferred = Boolean(
       chain.length > 0 ||
-        call.is_transferred ||
-        String(call.status || "").toLowerCase() === "transferred" ||
-        hs.startsWith("transfer:")
+        (!hadBogusHop &&
+          (call.is_transferred ||
+            String(call.status || "").toLowerCase() === "transferred" ||
+            (hs.startsWith("transfer:") && hs !== `transfer:${String(call.callee_number || "").trim()}`)))
     );
     if (!isTransferred) return null;
 

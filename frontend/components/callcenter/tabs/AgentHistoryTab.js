@@ -707,13 +707,22 @@ export default function AgentHistoryTab({ backendHost, currentUser, callPanelPer
                               {isPickedUp || call.status === "completed" || call.status === "answered" || call.status === "in_progress" || call.status === "transferred" ? <CheckCircle2 size={14} /> : <XCircle size={14} />}
                               {isPickedUp ? "Tamamlandı (Pickup)" : translateStatus(call.status)}
                             </div>
-                            {(call.is_transferred || call.status === "transferred" || String(call.hangup_source || "").startsWith("transfer:")) && (
-                              <span className={`px-2 py-0.5 rounded text-[10px] font-extrabold border ${lightBg} ${text}`}>
-                                {Array.isArray(call.transfer_chain) && call.transfer_chain.length > 0
-                                  ? `${call.transfer_chain[call.transfer_chain.length - 1].type === "attended" ? "Ön Görüşmeli" : "Kör"} Transfer: ${call.transfer_chain[0].from_ext || ""} ➔ ${call.transfer_chain[call.transfer_chain.length - 1].to_ext || call.transfer_target || ""}`
-                                  : `Transfer ➔ ${call.transfer_target || String(call.hangup_source || "").replace("transfer:", "")}`}
-                              </span>
-                            )}
+                            {(() => {
+                              const validChain = (Array.isArray(call.transfer_chain) ? call.transfer_chain : []).filter(
+                                (h) => h && String(h.from_ext || "").trim() && String(h.from_ext || "").trim() !== String(h.to_ext || "").trim()
+                              );
+                              const showTrBadge =
+                                validChain.length > 0 ||
+                                (Boolean(call.is_transferred) && String(call.transfer_target || "").trim() && String(call.transfer_target || "").trim() !== String(call.callee_number || "").trim());
+                              if (!showTrBadge) return null;
+                              return (
+                                <span className={`px-2 py-0.5 rounded text-[10px] font-extrabold border ${lightBg} ${text}`}>
+                                  {validChain.length > 0
+                                    ? `${validChain[validChain.length - 1].type === "attended" ? "Ön Görüşmeli" : "Kör"} Transfer: ${validChain[0].from_ext} ➔ ${validChain[validChain.length - 1].to_ext || call.transfer_target || ""}`
+                                    : `Transfer ➔ ${call.transfer_target || String(call.hangup_source || "").replace("transfer:", "")}`}
+                                </span>
+                              );
+                            })()}
                           </div>
                         </td>
                         <td className="p-4 text-sm font-semibold text-slate-600 dark:text-slate-400">
