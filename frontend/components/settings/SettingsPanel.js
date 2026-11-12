@@ -75,6 +75,8 @@ const WorkHoursSettingsPanel = lazySub(() => import("./WorkHoursSettingsPanel"))
 const SmartCallbackSettings = lazySub(() => import("./SmartCallbackSettings"));
 const BulkConfigPanel = lazySub(() => import("./BulkConfigPanel"));
 const ApiManagementPanel = lazySub(() => import("./ApiManagementPanel"));
+const ActiveDirectorySettingsPanel = lazySub(() => import("./ActiveDirectorySettingsPanel"));
+const CrmIntegrationsPanel = lazySub(() => import("./CrmIntegrationsPanel"));
 import InfoTooltip from "../common/InfoTooltip";
 
 const normalizeSubTab = (subTab) => {
@@ -337,6 +339,13 @@ export default function SettingsPanel({ backendHost = "localhost:8000" }) {
             visible: true
           },
           {
+            id: "active-directory",
+            label: "Active Directory (LDAP & SSO)",
+            subtitle: "Microsoft AD / Entra ID kullanıcı senkronizasyonu ve tek şifre",
+            icon: Building2,
+            visible: true
+          },
+          {
             id: "locations",
             label: "Lokasyon ve Departmanlar",
             subtitle: "Şube ve birim tanımları",
@@ -448,6 +457,13 @@ export default function SettingsPanel({ backendHost = "localhost:8000" }) {
             label: "Kanal Entegrasyonları",
             subtitle: "WhatsApp, Telegram, Meta ve E-Posta",
             icon: Smartphone,
+            visible: true
+          },
+          {
+            id: "crm-integrations",
+            label: "Hazır CRM Entegrasyonları",
+            subtitle: "Zoho, HubSpot, Salesforce, Bitrix24, Pipedrive ve Zendesk",
+            icon: Cable,
             visible: true
           },
           {
@@ -819,6 +835,12 @@ export default function SettingsPanel({ backendHost = "localhost:8000" }) {
             )}
             {activeSubTab === "restore-points" && (
               <RestorePointsPanel backendHost={backendHost} />
+            )}
+            {activeSubTab === "active-directory" && (
+              <ActiveDirectorySettingsPanel backendHost={backendHost} />
+            )}
+            {activeSubTab === "crm-integrations" && (
+              <CrmIntegrationsPanel backendHost={backendHost} />
             )}
             {activeSubTab === "version" && <ChangelogPanel backendHost={backendHost} />}
           </div>

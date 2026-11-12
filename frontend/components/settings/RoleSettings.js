@@ -241,6 +241,8 @@ const SYSTEM_FEATURES = [
   { id: "breaks", name: "Mola Tanımları", icon: Coffee, type: "crud", color: "amber" },
   { id: "roles", name: "Roller", icon: Shield, type: "crud", color: "purple" },
   { id: "canned_responses", name: "Hızlı Cevaplar", icon: FileText, type: "crud", color: "pink" },
+  { id: "crm_integrations", name: "Hazır CRM Entegrasyon Marketi (Zoho, HubSpot, Salesforce, Bitrix24)", icon: Cable, type: "crud", color: "indigo" },
+  { id: "active_directory", name: "Active Directory (LDAP & Entra ID) Entegrasyonu", icon: Users, type: "crud", color: "blue" },
   { id: "universal_api", name: "Evrensel API Sihirbazı", icon: Cable, type: "crud", color: "indigo" },
   { id: "api_management", name: "Kurumsal Dış API & Anahtar (Token) Yönetimi", icon: Lock, type: "crud", color: "indigo" },
   { id: "autoprovision_templates", name: "Otoprovizyon Şablonları", icon: FileText, type: "crud", color: "amber" },

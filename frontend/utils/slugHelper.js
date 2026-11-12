@@ -90,6 +90,8 @@ export const SUBTAB_TURKISH_SLUGS = {
   "nat": "nat-ayarlari",
   "email-notifications": "email-bildirimleri",
   "restore-points": "geri-yukleme-noktasi",
+  "active-directory": "active-directory-ldap",
+  "crm-integrations": "hazir-crm-entegrasyonlari",
   "version": "sistem-versiyonu"
 };
 
