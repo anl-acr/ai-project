@@ -229,7 +229,11 @@ export default function AgentWebphoneTab({
         const dirRes = await fetch(`${protocol}//${backendHost}/api/agent/directory?t=${Date.now()}`);
         if (dirRes.ok) {
           const dirData = await dirRes.json();
-          setDirectory(Array.isArray(dirData) ? dirData : []);
+          const nextArr = Array.isArray(dirData) ? dirData : [];
+          setDirectory((prev) => {
+            const nextJson = JSON.stringify(nextArr);
+            return JSON.stringify(prev) === nextJson ? prev : nextArr;
+          });
         }
       } catch (e) {}
     };

@@ -103,7 +103,7 @@ async def ingest_live_sip_frame(payload: SipFrameIngestRequest, request: Request
         protocol="WSS",
         source="webrtc",
     )
-    return {"status": "success", "ingested": bool(pkt)}
+    return {"status": "success", "ingested": bool(pkt), "viewer_active": sip_trapper.is_viewer_active()}
 
 
 @router.get("/diagnostics/targets")
@@ -374,6 +374,7 @@ async def get_captured_sip_packets(
 ):
     """Returns chronological SIP packet stream and saved PCAP snapshots for the SIP Capture tab."""
     sip_trapper.bind_event_loop()
+    sip_trapper.mark_viewer_active()
     packets = sip_trapper.get_packets(ip=ip or "", port=port or "", method=method or "", query=q or "", limit=limit)
     return {
         "status": "success",
@@ -456,6 +457,7 @@ async def delete_capture_snapshot(filename: str):
 async def get_captured_calls(q: Optional[str] = "", method: Optional[str] = ""):
     """Returns list of all captured SIP call sessions."""
     sip_trapper.bind_event_loop()
+    sip_trapper.mark_viewer_active()
     calls = sip_trapper.get_calls(query=q or "", method_filter=method or "")
     return {
         "status": "success",

@@ -1499,8 +1499,22 @@ async def handle_agent_reconnect_auto_pause(extension: str):
         return
 
     old_task = pending_disconnect_tasks.pop(ext_s, None)
+    had_pending_task = False
     if old_task and not old_task.done():
         old_task.cancel()
+        had_pending_task = True
+
+    # Fast-path in memory: 99.9% of 5s heartbeats are normal online/break heartbeats without a disconnect auto-pause.
+    # Avoid spawning a thread and querying SystemUser/PBXQueue/AgentBreakLog on every 5s heartbeat unless needed.
+    if not had_pending_task:
+        mem_st = active_agent_status.get(ext_s)
+        if isinstance(mem_st, dict) and mem_st.get("status_since_utc"):
+            if mem_st.get("status") != "break":
+                return
+            cur_brk = mem_st.get("current_break") or {}
+            cur_b_name = str(cur_brk.get("name") or "") if isinstance(cur_brk, dict) else ""
+            if "bağlantı koptu" not in cur_b_name.lower():
+                return
 
     user_dict, member_queues, active_break_row = await asyncio.to_thread(_resolve_user_and_queues_sync, ext_s)
     if not user_dict or not active_break_row:

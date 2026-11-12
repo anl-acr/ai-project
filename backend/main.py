@@ -7754,6 +7754,7 @@ def _sync_spool_recording_to_project_sync(call_id: str) -> Optional[str]:
 
 
 _WAV_DURATION_CACHE: dict[str, tuple[float, int, int]] = {}
+_WAV_MISS_CACHE: dict[str, float] = {}
 
 
 def _get_call_wav_duration_seconds(call_id: str) -> Optional[int]:
@@ -7765,6 +7766,11 @@ def _get_call_wav_duration_seconds(call_id: str) -> Optional[int]:
         return None
     clean_cid = os.path.basename(str(call_id).strip())
     if not clean_cid:
+        return None
+
+    now_mono = time.monotonic()
+    miss_until = _WAV_MISS_CACHE.get(clean_cid)
+    if miss_until and now_mono < miss_until:
         return None
 
     candidates = (
@@ -7783,6 +7789,7 @@ def _get_call_wav_duration_seconds(call_id: str) -> Optional[int]:
 
         cached = _WAV_DURATION_CACHE.get(fp)
         if cached and cached[0] == st.st_mtime and cached[1] == fsize:
+            _WAV_MISS_CACHE.pop(clean_cid, None)
             return cached[2]
 
         dur_int: Optional[int] = None
@@ -7808,7 +7815,12 @@ def _get_call_wav_duration_seconds(call_id: str) -> Optional[int]:
                 for old_k in list(_WAV_DURATION_CACHE.keys())[:1000]:
                     _WAV_DURATION_CACHE.pop(old_k, None)
             _WAV_DURATION_CACHE[fp] = (st.st_mtime, fsize, dur_int)
+            _WAV_MISS_CACHE.pop(clean_cid, None)
             return dur_int
+
+    if len(_WAV_MISS_CACHE) > 5000:
+        _WAV_MISS_CACHE.clear()
+    _WAV_MISS_CACHE[clean_cid] = now_mono + 25.0
     return None
 
 
@@ -9793,15 +9805,15 @@ async def get_agent_status_endpoint(
                 if not ext_str:
                     ext_str = u_ext
 
-    # Verify queue membership: if the user is not in any queue, they cannot be logged in to a queue session
-    try:
-        res_q_check = await db.execute(select(PBXQueue))
-        db_queues_check = res_q_check.scalars().all()
-        queues_check_list = [{c.name: getattr(q, c.name) for c in q.__table__.columns} for q in db_queues_check]
-    except Exception:
-        queues_check_list = settings.get("queues", [])
+    # Verify queue membership: use in-memory settings queues first (avoid querying PBXQueue on every 8s poll)
+    queues_check_list = settings.get("queues", [])
     if not queues_check_list:
-        queues_check_list = settings.get("queues", [])
+        try:
+            res_q_check = await db.execute(select(PBXQueue))
+            db_queues_check = res_q_check.scalars().all()
+            queues_check_list = [{c.name: getattr(q, c.name) for c in q.__table__.columns} for q in db_queues_check]
+        except Exception:
+            queues_check_list = []
 
     mem_state = get_agent_state(user_id=uid_str, extension=ext_str)
     if mem_state and mem_state.get("is_logged_in") and mem_state.get("status") == "acw":
@@ -9823,8 +9835,33 @@ async def get_agent_status_endpoint(
         )
         return st_no_q
 
-    if mem_state and mem_state.get("status_since_utc") and not mem_state.get("is_logged_in"):
-        return _enrich_with_omni(mem_state)
+    if mem_state and mem_state.get("status_since_utc"):
+        if not mem_state.get("is_logged_in"):
+            return _enrich_with_omni(mem_state)
+        if mem_state.get("status") == "online":
+            elapsed_online = 0
+            try:
+                dt_m = datetime.datetime.fromisoformat(str(mem_state["status_since_utc"]).replace("Z", ""))
+                elapsed_online = max(0, int((now_utc - dt_m).total_seconds()))
+            except Exception:
+                elapsed_online = 0
+            return _enrich_with_omni({**mem_state, "elapsed_seconds": elapsed_online})
+        if mem_state.get("status") == "break" and isinstance(mem_state.get("current_break"), dict):
+            cur_brk = dict(mem_state["current_break"])
+            brk_iso = str(cur_brk.get("start_time_utc") or mem_state.get("status_since_utc") or "")
+            elapsed_brk = 0
+            try:
+                dt_b = datetime.datetime.fromisoformat(brk_iso.replace("Z", ""))
+                elapsed_brk = max(0, int((now_utc - dt_b).total_seconds()))
+            except Exception:
+                elapsed_brk = 0
+            cur_brk["elapsed_seconds"] = elapsed_brk
+            return _enrich_with_omni({
+                **mem_state,
+                "current_break": cur_brk,
+                "elapsed_seconds": elapsed_brk,
+                "break_start_utc": brk_iso,
+            })
 
     try:
         conds = []
@@ -20484,31 +20521,49 @@ async def get_agent_group_ringing(
     if not ext_s and not uid_s:
         return {"ringing_calls": []}
 
+    from backend.services.ami_manager import get_extension_ringing_info, channel_states
+
+    now_utc = datetime.datetime.utcnow()
+    # Fast-path: check in memory if ANY extension is ringing before querying DB or building peer maps!
+    any_ringing_in_mem = any(
+        isinstance(info, dict)
+        and info.get("state") == "ringing"
+        and (now_utc - (info.get("updated_at") or now_utc)).total_seconds() <= 60
+        for peer_k, info in live_extension_call_state.items()
+        if peer_k != ext_s
+    )
+    if not any_ringing_in_mem and channel_states:
+        any_ringing_in_mem = any(
+            str(ch_d.get("state") or "").lower() in ("ringing", "ring", "5", "4")
+            for ch_d in channel_states.values()
+            if isinstance(ch_d, dict)
+        )
+    if not any_ringing_in_mem:
+        return {"ringing_calls": []}
+
     all_users = list(settings_db.get("users", []))
-    try:
-        res_su = await db.execute(select(SystemUser))
-        for su in res_su.scalars().all():
-            su_ext = str(su.extension or "").strip()
-            if su_ext and not any(str(u.get("extension") or "").strip() == su_ext for u in all_users):
-                all_users.append({
-                    "id": su.id,
-                    "extension": su_ext,
-                    "full_name": su.full_name,
-                    "tenant_id": getattr(su, "tenant_id", "tenant-default")
-                })
-            if not ext_s and uid_s and str(su.id) == uid_s:
-                ext_s = su_ext
-    except Exception:
-        pass
+    if not all_users or (not ext_s and uid_s):
+        try:
+            res_su = await db.execute(select(SystemUser))
+            for su in res_su.scalars().all():
+                su_ext = str(su.extension or "").strip()
+                if su_ext and not any(str(u.get("extension") or "").strip() == su_ext for u in all_users):
+                    all_users.append({
+                        "id": su.id,
+                        "extension": su_ext,
+                        "full_name": su.full_name,
+                        "tenant_id": getattr(su, "tenant_id", "tenant-default")
+                    })
+                if not ext_s and uid_s and str(su.id) == uid_s:
+                    ext_s = su_ext
+        except Exception:
+            pass
 
     peer_map = _get_user_group_peers_map(ext_s, uid_s, all_users)
     if not peer_map:
         return {"ringing_calls": []}
 
-    now_utc = datetime.datetime.utcnow()
     ringing_calls = []
-
-    from backend.services.ami_manager import get_extension_ringing_info
 
     for peer_ext, group_name in peer_map.items():
         if peer_ext == ext_s:
@@ -21542,6 +21597,10 @@ async def list_calls(
     stmt = stmt.order_by(Call.start_time.desc())
     if limit is not None and limit > 0:
         stmt = stmt.limit(min(int(limit), 5000))
+    elif not start_date and not end_date and not call_id:
+        stmt = stmt.limit(250)
+    else:
+        stmt = stmt.limit(2000)
     result = await db.execute(stmt)
     raw_calls_list = result.scalars().all()
 
@@ -24888,13 +24947,26 @@ async def list_chat_sessions(user_info: dict = Depends(get_user_info)):
             if c.email
         }
         
-        # For each session, load the last message preview
+        # Batch-load the latest message per session in a single SQL query instead of N+1 queries
+        last_msg_by_session = {}
+        if sessions:
+            session_ids = [s.id for s in sessions if s.id]
+            if session_ids:
+                subq_latest = (
+                    select(func.max(ChatMessage.id).label("max_id"))
+                    .where(ChatMessage.session_id.in_(session_ids))
+                    .group_by(ChatMessage.session_id)
+                )
+                stmt_latest_msgs = select(ChatMessage).where(ChatMessage.id.in_(subq_latest))
+                res_latest_msgs = await session.execute(stmt_latest_msgs)
+                for m_row in res_latest_msgs.scalars().all():
+                    last_msg_by_session[m_row.session_id] = m_row
+
+        # For each session, map the last message preview
         data = []
         for s in sessions:
-            stmt_last = select(ChatMessage).where(ChatMessage.session_id == s.id).order_by(ChatMessage.timestamp.desc()).limit(1)
-            res_last = await session.execute(stmt_last)
-            last_msg = res_last.scalar_one_or_none()
-            
+            last_msg = last_msg_by_session.get(s.id)
+
             sender_name = None
             if (s.channel or "").lower() in ("mail", "email") or "@" in str(s.sender_info or ""):
                 sender_name = contact_by_email.get(str(s.sender_info or "").strip().lower())
@@ -27216,6 +27288,9 @@ async def get_intent_analysis_report(
     }
 
 
+_DIRECTORY_DB_USERS_CACHE: dict[str, Any] = {"ts": 0.0, "users": []}
+
+
 @app.get("/api/agent/directory")
 async def get_agent_directory(db: AsyncSession = Depends(get_db)):
     from backend.services.ami_manager import registered_endpoints
@@ -27227,38 +27302,54 @@ async def get_agent_directory(db: AsyncSession = Depends(get_db)):
     directory = []
     seen_exts = set()
 
-    try:
-        res_u = await db.execute(select(SystemUser))
-        for su in res_u.scalars().all():
-            ext_val = str(su.extension or "").strip()
-            if not ext_val or ext_val in seen_exts:
-                continue
-            seen_exts.add(ext_val)
-            u_name = str(su.full_name or su.email or f"Dahili {ext_val}").strip()
-            uid_str = str(su.id or "")
-            is_reg = bool(ext_val in registered_endpoints or uid_str in registered_endpoints)
-            c_state = get_live_user_call_state(ext_val, is_reg)
-            om_info = get_agent_omnichannel_busy_info(extension=ext_val, user_id=uid_str)
-            if c_state in ("ringing", "busy"):
-                is_reg = True
-            directory.append({
-                "type": "user",
-                "id": su.id,
-                "name": u_name,
-                "full_name": u_name,
-                "number": ext_val,
-                "extension": ext_val,
-                "avatar": getattr(su, "avatar_url", None),
-                "is_registered": is_reg,
-                "call_state": c_state,
-                "status": c_state,
-                "omnichannel_busy": bool(om_info.get("is_busy")),
-                "omnichannel_channel": om_info.get("channel"),
-                "omnichannel_label": om_info.get("label"),
-                "omnichannel_active_chats": int(om_info.get("active_count") or 0),
-            })
-    except Exception:
-        pass
+    now_mono = time.monotonic()
+    db_users_cached = _DIRECTORY_DB_USERS_CACHE.get("users") or []
+    if not db_users_cached or (now_mono - float(_DIRECTORY_DB_USERS_CACHE.get("ts") or 0.0)) > 15.0:
+        try:
+            res_u = await db.execute(select(SystemUser))
+            db_users_cached = [
+                {
+                    "id": su.id,
+                    "extension": str(su.extension or "").strip(),
+                    "full_name": su.full_name,
+                    "email": su.email,
+                    "avatar_url": getattr(su, "avatar_url", None),
+                }
+                for su in res_u.scalars().all()
+            ]
+            _DIRECTORY_DB_USERS_CACHE["users"] = db_users_cached
+            _DIRECTORY_DB_USERS_CACHE["ts"] = now_mono
+        except Exception:
+            pass
+
+    for su in db_users_cached:
+        ext_val = str(su.get("extension") or "").strip()
+        if not ext_val or ext_val in seen_exts:
+            continue
+        seen_exts.add(ext_val)
+        u_name = str(su.get("full_name") or su.get("email") or f"Dahili {ext_val}").strip()
+        uid_str = str(su.get("id") or "")
+        is_reg = bool(ext_val in registered_endpoints or uid_str in registered_endpoints)
+        c_state = get_live_user_call_state(ext_val, is_reg)
+        om_info = get_agent_omnichannel_busy_info(extension=ext_val, user_id=uid_str)
+        if c_state in ("ringing", "busy"):
+            is_reg = True
+        directory.append({
+            "type": "user",
+            "id": su.get("id"),
+            "name": u_name,
+            "full_name": u_name,
+            "number": ext_val,
+            "extension": ext_val,
+            "avatar": su.get("avatar_url"),
+            "is_registered": is_reg,
+            "call_state": c_state,
+            "status": c_state,
+            "omnichannel_busy": bool(om_info.get("is_busy")),
+            "omnichannel_channel": om_info.get("channel"),
+            "omnichannel_label": om_info.get("label"),
+            "omnichannel_active_chats": int(om_info.get("active_count") or 0),
+        })
 
     for u in users:
         ext_val = str(u.get("extension") or "").strip()
@@ -28845,6 +28936,9 @@ async def voicemail_ivr_action_endpoint(
     return "READ"
 
 
+_LAST_VOICEMAIL_RECONCILE_TS: float = 0.0
+
+
 @app.get("/api/agent/voicemail")
 async def get_agent_voicemails(
     extension: Optional[str] = None,
@@ -28852,7 +28946,15 @@ async def get_agent_voicemails(
     user_info: dict = Depends(get_user_info),
     db: AsyncSession = Depends(get_db),
 ):
-    await reconcile_orphan_voicemails(db)
+    global _LAST_VOICEMAIL_RECONCILE_TS
+    now_vm_mono = time.monotonic()
+    has_unfinalized_vm = any(
+        isinstance(m, dict) and not m.get("finalized")
+        for m in _PENDING_VOICEMAIL_SESSIONS.values()
+    )
+    if has_unfinalized_vm or (now_vm_mono - _LAST_VOICEMAIL_RECONCILE_TS) >= 30.0:
+        _LAST_VOICEMAIL_RECONCILE_TS = now_vm_mono
+        await reconcile_orphan_voicemails(db)
     target_tenant = user_info.get("tenant_id") or "tenant-default"
     req_ext = str(extension or "").strip()
     role_low = str(user_info.get("role") or "agent").strip().lower()
@@ -30247,30 +30349,33 @@ def scan_asterisk_failed_sip_attempts(auto_ban: bool = True) -> list:
     )
 
     all_lines = []
+    found_any_logfile = False
     for lf in log_files:
         if not os.path.exists(lf):
             continue
+        found_any_logfile = True
         try:
             with open(lf, "r", encoding="utf-8", errors="ignore") as f:
                 f.seek(0, os.SEEK_END)
                 f_size = f.tell()
-                # Read last ~384KB for fast non-blocking scan
-                f.seek(max(0, f_size - 393216), os.SEEK_SET)
-                all_lines.extend(f.readlines()[-3500:])
+                # Read last ~64KB for fast non-blocking scan
+                f.seek(max(0, f_size - 65536), os.SEEK_SET)
+                all_lines.extend(f.readlines()[-600:])
         except Exception as e_log:
             print(f"[Asterisk Security Log Scan Error]: {e_log}")
 
-    # Also read recent systemd journal for asterisk service (catches CLI notices before logger.conf reload)
-    try:
-        import subprocess
-        res_jctl = subprocess.run(
-            ["journalctl", "-u", "asterisk", "-n", "400", "--no-pager"],
-            check=False, capture_output=True, text=True, timeout=1.5
-        )
-        if res_jctl.returncode == 0 and res_jctl.stdout:
-            all_lines.extend(res_jctl.stdout.splitlines())
-    except Exception:
-        pass
+    # Only read systemd journal for asterisk service if log files do not exist on disk
+    if not found_any_logfile:
+        try:
+            import subprocess
+            res_jctl = subprocess.run(
+                ["journalctl", "-u", "asterisk", "-n", "250", "--no-pager"],
+                check=False, capture_output=True, text=True, timeout=1.5
+            )
+            if res_jctl.returncode == 0 and res_jctl.stdout:
+                all_lines.extend(res_jctl.stdout.splitlines())
+        except Exception:
+            pass
 
     for line in all_lines:
         if "log_failed_request" in line:
@@ -30547,16 +30652,16 @@ async def asterisk_sip_ips_guard_loop():
     cycle_idx = 0
     while True:
         try:
-            await asyncio.sleep(4.0)
+            await asyncio.sleep(10.0)
             cycle_idx += 1
             await asyncio.to_thread(scan_asterisk_failed_sip_attempts, True)
-            if cycle_idx % 45 == 0:
+            if cycle_idx % 30 == 0:
                 await asyncio.to_thread(cleanup_expired_blocked_ips)
-            if cycle_idx % 4 == 0 or (time.time() - _security_live_cache.get("last_updated", 0.0) > 20.0):
+            if cycle_idx % 3 == 0 or (time.time() - _security_live_cache.get("last_updated", 0.0) > 30.0):
                 await asyncio.to_thread(_refresh_security_system_status_cache)
         except Exception as e_loop:
             print(f"[SIP IPS Guard Loop Error]: {e_loop}")
-            await asyncio.sleep(5.0)
+            await asyncio.sleep(8.0)
 
 
 def _extract_security_pagination_params(request: Request):

@@ -347,11 +347,13 @@ export default function CallChatWidget({
         ]);
         if (contactsRes.ok) {
           const cData = await contactsRes.json();
-          setContacts(Array.isArray(cData) ? cData : []);
+          const nextContacts = Array.isArray(cData) ? cData : [];
+          setContacts((prev) => (JSON.stringify(prev) === JSON.stringify(nextContacts) ? prev : nextContacts));
         }
         if (dirRes.ok) {
           const dData = await dirRes.json();
-          setDirectory(Array.isArray(dData) ? dData : []);
+          const nextDir = Array.isArray(dData) ? dData : [];
+          setDirectory((prev) => (JSON.stringify(prev) === JSON.stringify(nextDir) ? prev : nextDir));
         }
       } catch (err) {}
     };

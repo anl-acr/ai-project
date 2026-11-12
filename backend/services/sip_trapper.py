@@ -70,6 +70,7 @@ class SipTrapper:
         self._ast_cli_thread: Optional[threading.Thread] = None
         self._ast_log_thread: Optional[threading.Thread] = None
         self.active_sources: set = set(["webrtc_ingest", "ami_live"])
+        self._last_viewer_poll_ts: float = 0.0
 
         self.pcap_dir = os.path.join(
             os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
@@ -78,6 +79,14 @@ class SipTrapper:
         )
         os.makedirs(self.pcap_dir, exist_ok=True)
         self._start_background_collectors()
+
+    def mark_viewer_active(self):
+        self._last_viewer_poll_ts = time.monotonic()
+
+    def is_viewer_active(self) -> bool:
+        if self.subscribers:
+            return True
+        return (time.monotonic() - self._last_viewer_poll_ts) <= 45.0
 
     def bind_event_loop(self, loop: Optional[asyncio.AbstractEventLoop] = None):
         if loop is not None:
@@ -256,9 +265,14 @@ class SipTrapper:
                     f.seek(0, os.SEEK_END)
                     last_activity = time.monotonic()
                     while True:
-                        if not self.is_running:
-                            time.sleep(1.0)
-                            f.seek(0, os.SEEK_END)
+                        if not self.is_running or "asterisk_pjsip_cli" in self.active_sources:
+                            time.sleep(2.0)
+                            try:
+                                f.seek(0, os.SEEK_END)
+                            except Exception:
+                                pass
+                            cur_meta = None
+                            sip_lines = []
                             continue
                         line = f.readline()
                         if not line:

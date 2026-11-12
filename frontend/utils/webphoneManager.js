@@ -1142,6 +1142,19 @@ class WebphoneManager {
         if (trimmed.length < 24 || (!trimmed.includes("SIP/2.0") && !trimmed.includes("Call-ID"))) {
           return;
         }
+        const isKeepaliveFrame =
+          !trimmed.startsWith("INVITE ") &&
+          !trimmed.startsWith("CANCEL ") &&
+          !trimmed.startsWith("BYE ") &&
+          !trimmed.startsWith("REFER ") &&
+          !/^CSeq:\s*\d+\s+(INVITE|CANCEL|BYE|REFER)/im.test(trimmed);
+        const nowMs = Date.now();
+        if (isKeepaliveFrame && !this._sipDebuggerViewerActive) {
+          if (this._lastKeepaliveSipIngestAt && nowMs - this._lastKeepaliveSipIngestAt < 30000) {
+            return;
+          }
+          this._lastKeepaliveSipIngestAt = nowMs;
+        }
         const proto = window.location.protocol === "https:" ? "https:" : "http:";
         const bHost = this.state.backendHost || window.location.host;
         fetch(`${proto}//${bHost}/api/sip-debugger/ingest`, {
@@ -1155,7 +1168,14 @@ class WebphoneManager {
             ext: String(agentExtension || "")
           }),
           keepalive: true
-        }).catch(() => {});
+        })
+          .then((r) => (r.ok ? r.json() : null))
+          .then((d) => {
+            if (d && typeof d.viewer_active === "boolean") {
+              this._sipDebuggerViewerActive = d.viewer_active;
+            }
+          })
+          .catch(() => {});
       } catch (_err) {
         // non-blocking telemetry relay
       }
@@ -1421,7 +1441,7 @@ class WebphoneManager {
       } catch (e) {}
     };
     pollGroupRinging();
-    this.groupRingingInterval = setInterval(pollGroupRinging, 2000);
+    this.groupRingingInterval = setInterval(pollGroupRinging, 3000);
   }
 
   async pickupGroupCall(ringingCall) {
