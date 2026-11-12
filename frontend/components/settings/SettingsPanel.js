@@ -73,7 +73,6 @@ const EmailNotificationsPanel = lazySub(() => import("./EmailNotificationsPanel"
 const RestorePointsPanel = lazySub(() => import("./RestorePointsPanel"));
 const WorkHoursSettingsPanel = lazySub(() => import("./WorkHoursSettingsPanel"));
 const SmartCallbackSettings = lazySub(() => import("./SmartCallbackSettings"));
-const BulkConfigPanel = lazySub(() => import("./BulkConfigPanel"));
 const ApiManagementPanel = lazySub(() => import("./ApiManagementPanel"));
 const ActiveDirectorySettingsPanel = lazySub(() => import("./ActiveDirectorySettingsPanel"));
 const CrmIntegrationsPanel = lazySub(() => import("./CrmIntegrationsPanel"));
@@ -315,13 +314,6 @@ export default function SettingsPanel({ backendHost = "localhost:8000" }) {
             subtitle: "Kuyruk bekleme süresi ve otomatik geri arama",
             icon: PhoneOutgoing,
             visible: hasSmartCallbackPermission
-          },
-          {
-            id: "bulk-config",
-            label: "Toplu Konfigürasyon Merkezi",
-            subtitle: "Kullanıcı, abone grubu, kuyruk ve kurallarda tek seferde toplu güncelleme",
-            icon: Sliders,
-            visible: true
           }
         ]
       },
@@ -810,9 +802,6 @@ export default function SettingsPanel({ backendHost = "localhost:8000" }) {
             {activeSubTab === "ssl" && <SSLSettings backendHost={backendHost} />}
             {activeSubTab === "smart-callback" && (
               <SmartCallbackSettings backendHost={backendHost} />
-            )}
-            {activeSubTab === "bulk-config" && (
-              <BulkConfigPanel backendHost={backendHost} />
             )}
             {activeSubTab === "backup" && <BackupRestorePanel backendHost={backendHost} />}
             {activeSubTab === "recording-retention" && (
