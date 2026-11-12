@@ -617,7 +617,13 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
     }
   };
 
-  const handleAddTrustedDevice = async ({ key, label, browser = "", os = "", ip_address = "" }) => {
+  const handleAddTrustedDevice = async (arg1, arg2 = "", arg3 = "", arg4 = "", arg5 = "") => {
+    const isObj = arg1 && typeof arg1 === "object";
+    const key = isObj ? arg1.key : arg1;
+    const label = isObj ? arg1.label : arg2;
+    const browser = isObj ? (arg1.browser || "") : arg3;
+    const os = isObj ? (arg1.os || "") : arg4;
+    const ip_address = isObj ? (arg1.ip_address || "") : arg5;
     const normKey = normalizeDeviceKey(key);
     if (!normKey || normKey.length < 6) {
       setTrustedDeviceMsg({
@@ -8467,9 +8473,13 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
                                     </div>
 
                                     {trustedDeviceMsg && (
-                                        <div className="px-3.5 py-2 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800/60 text-[11px] font-bold text-emerald-700 dark:text-emerald-300 flex items-center justify-between gap-2">
-                                            <span>{trustedDeviceMsg}</span>
-                                            <button type="button" onClick={() => setTrustedDeviceMsg("")} className="text-emerald-600 hover:opacity-75">
+                                        <div className={`px-3.5 py-2 rounded-xl border text-[11px] font-bold flex items-center justify-between gap-2 ${
+                                            trustedDeviceMsg?.type === "error"
+                                                ? "bg-rose-50 dark:bg-rose-950/40 border-rose-200 dark:border-rose-800/60 text-rose-700 dark:text-rose-300"
+                                                : "bg-emerald-50 dark:bg-emerald-950/40 border-emerald-200 dark:border-emerald-800/60 text-emerald-700 dark:text-emerald-300"
+                                        }`}>
+                                            <span>{typeof trustedDeviceMsg === "object" ? (trustedDeviceMsg.text || "") : String(trustedDeviceMsg)}</span>
+                                            <button type="button" onClick={() => setTrustedDeviceMsg(null)} className="hover:opacity-75">
                                                 <X size={13} />
                                             </button>
                                         </div>
