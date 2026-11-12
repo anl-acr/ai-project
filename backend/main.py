@@ -32615,8 +32615,8 @@ def _sync_user_app_access_to_db(user_dict: dict, resolved_id: Any = None):
 
 
 def _ensure_desktop_installer_ready(filename: str) -> str:
-    dist_dir = os.path.join(BASE_DIR, "desktop", "dist")
-    releases_dir = os.path.join(BASE_DIR, "desktop", "releases")
+    dist_dir = os.path.join(PROJECT_ROOT, "desktop", "dist")
+    releases_dir = os.path.join(PROJECT_ROOT, "desktop", "releases")
     os.makedirs(dist_dir, exist_ok=True)
     target_path = os.path.join(dist_dir, filename)
 
@@ -32830,15 +32830,15 @@ async def get_desktop_downloads_info_endpoint():
     return _get_desktop_dist_packages()
 
 
-@app.get("/api/downloads/desktop/{platform}")
-@app.get("/downloads/desktop/{platform}")
+@app.api_route("/api/downloads/desktop/{platform}", methods=["GET", "HEAD"])
+@app.api_route("/downloads/desktop/{platform}", methods=["GET", "HEAD"])
 async def download_desktop_installer_endpoint(platform: str):
     file_map = {
-        "win": ("AIDA Agent Setup 2.9.3.exe", "application/vnd.microsoft.portable-executable"),
-        "win-zip": ("AIDA Agent Setup 2.9.3.exe", "application/vnd.microsoft.portable-executable"),
-        "mac-arm64": ("AIDA Agent-2.9.3-arm64.dmg", "application/x-apple-diskimage"),
-        "mac-x64": ("AIDA Agent-2.9.3.dmg", "application/x-apple-diskimage"),
-        "mac-zip": ("AIDA Agent-2.9.3-arm64.dmg", "application/x-apple-diskimage"),
+        "win": ("AIDA Agent Setup 2.9.3.exe", "application/octet-stream"),
+        "win-zip": ("AIDA Agent Setup 2.9.3.exe", "application/octet-stream"),
+        "mac-arm64": ("AIDA Agent-2.9.3-arm64.dmg", "application/octet-stream"),
+        "mac-x64": ("AIDA Agent-2.9.3.dmg", "application/octet-stream"),
+        "mac-zip": ("AIDA Agent-2.9.3-arm64.dmg", "application/octet-stream"),
     }
     entry = file_map.get(str(platform or "").strip().lower())
     if not entry:
@@ -32850,7 +32850,8 @@ async def download_desktop_installer_endpoint(platform: str):
     return FileResponse(
         path=full_path,
         filename=filename,
-        media_type=media_type
+        media_type=media_type,
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'}
     )
 
 
