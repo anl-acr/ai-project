@@ -5055,37 +5055,6 @@ export default function Home() {
                         </div>
                       </div>
 
-                      {/* Bu Bilgisayarın Cihaz Anahtarı (Hızlı Kopyalama) */}
-                      {(() => {
-                        const myDevKey = getDeviceKeySync();
-                        if (!myDevKey) return null;
-                        return (
-                          <div className="px-3 py-2 border-b border-slate-100 dark:border-slate-800/80 bg-slate-50/60 dark:bg-slate-950/40 flex items-center justify-between gap-2">
-                            <div className="min-w-0">
-                              <div className="text-[9px] font-extrabold uppercase tracking-wider text-slate-400 dark:text-slate-500">
-                                Cihaz Anahtarım
-                              </div>
-                              <code className="text-[11px] font-mono font-extrabold text-slate-700 dark:text-slate-200">
-                                {myDevKey}
-                              </code>
-                            </div>
-                            <button
-                              type="button"
-                              onClick={async () => {
-                                try {
-                                  await navigator.clipboard.writeText(myDevKey);
-                                  showNotification(`Cihaz anahtarınız panoya kopyalandı: ${myDevKey}`, "success", "Anahtar Kopyalandı");
-                                } catch (_) {}
-                              }}
-                              className="h-7 w-7 rounded-lg bg-white dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 flex items-center justify-center shrink-0 cursor-pointer transition-colors"
-                              title="Cihaz Anahtarını Kopyala"
-                            >
-                              <Copy size={13} />
-                            </button>
-                          </div>
-                        );
-                      })()}
-
                       {/* Menu Actions */}
                       <div className="p-1.5">
                         <button
