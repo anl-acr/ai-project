@@ -5055,6 +5055,38 @@ export default function Home() {
                         </div>
                       </div>
 
+                      {/* Bu Bilgisayarın Cihaz Anahtarı (Hızlı Kopyalama) */}
+                      {(() => {
+                        const myDevKey = getDeviceKeySync();
+                        if (!myDevKey) return null;
+                        return (
+                          <div className="px-3 py-2 border-b border-slate-100 dark:border-slate-800/80 bg-slate-50/60 dark:bg-slate-950/40 flex items-center justify-between gap-2">
+                            <div className="min-w-0">
+                              <div className="text-[9px] font-extrabold uppercase tracking-wider text-slate-400 dark:text-slate-500">
+                                Cihaz Anahtarım
+                              </div>
+                              <code className="text-[11px] font-mono font-extrabold text-slate-700 dark:text-slate-200">
+                                {myDevKey}
+                              </code>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={async () => {
+                                try {
+                                  await navigator.clipboard.writeText(myDevKey);
+                                  showNotification(`Cihaz anahtarınız panoya kopyalandı: ${myDevKey}`, "success", "Anahtar Kopyalandı");
+                                } catch (_) {}
+                              }}
+                              className="px-2.5 py-1 rounded-lg bg-white dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 border border-slate-200 dark:border-slate-700 text-[10px] font-extrabold text-slate-700 dark:text-slate-200 flex items-center gap-1 shrink-0 cursor-pointer transition-colors"
+                              title="Cihaz anahtarını kopyala"
+                            >
+                              <Copy size={11} />
+                              <span>Kopyala</span>
+                            </button>
+                          </div>
+                        );
+                      })()}
+
                       {/* Menu Actions */}
                       <div className="p-1.5">
                         <button
@@ -7862,6 +7894,46 @@ export default function Home() {
                 
                 {/* Avatar Selection */}
                 <div className={`space-y-3 ${activeModalTab === "profile" ? "block" : "hidden"}`}>
+                  {/* Bu Bilgisayarın Cihaz Anahtarı Kartı (Profil Ayarları > İlk Sekme) */}
+                  {(() => {
+                    const myDevKey = getDeviceKeySync();
+                    if (!myDevKey) return null;
+                    return (
+                      <div className="flex flex-wrap items-center justify-between gap-3 p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-950/50 border border-slate-200/80 dark:border-slate-800">
+                        <div className="flex items-center gap-3 min-w-0">
+                          <div className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${lightBg} ${text}`}>
+                            <ShieldCheck size={18} />
+                          </div>
+                          <div className="min-w-0">
+                            <span className="text-[10px] font-extrabold text-slate-800 dark:text-white uppercase tracking-wider block">
+                              Bu Bilgisayarın Güvenilir Cihaz Anahtarı
+                            </span>
+                            <div className="flex items-center gap-2 mt-0.5 flex-wrap">
+                              <code className="px-2 py-0.5 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-xs font-mono font-extrabold text-slate-800 dark:text-slate-100">
+                                {myDevKey}
+                              </code>
+                              <span className="text-[9.5px] text-slate-400 dark:text-slate-500">
+                                Yöneticinize ileterek bu bilgisayarı güvenilir cihaz olarak tanımlatabilirsiniz.
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={async () => {
+                            try {
+                              await navigator.clipboard.writeText(myDevKey);
+                              showNotification(`Cihaz anahtarınız panoya kopyalandı: ${myDevKey}`, "success", "Anahtar Kopyalandı");
+                            } catch (_) {}
+                          }}
+                          className={`px-3 py-2 rounded-xl text-[10px] font-extrabold text-white uppercase tracking-wider shadow-sm transition-all flex items-center gap-1.5 shrink-0 cursor-pointer ${bg} ${hover}`}
+                        >
+                          <Copy size={13} />
+                          <span>Anahtarı Kopyala</span>
+                        </button>
+                      </div>
+                    );
+                  })()}
                   <div className="flex items-center justify-between gap-3 p-3 rounded-2xl bg-slate-50 dark:bg-slate-950/50 border border-slate-200/80 dark:border-slate-800">
                     <div className="flex items-center gap-3">
                       <img
@@ -9243,6 +9315,47 @@ export default function Home() {
               {/* Security Selection */}
               <div className={`space-y-4 max-h-[60vh] overflow-y-auto ${activeModalTab === "security" ? "block" : "hidden"}`}>
                 <div className="space-y-4 pr-1">
+
+                  {/* Section 0: Bu Bilgisayarın Güvenilir Cihaz Anahtarı */}
+                  {(() => {
+                    const myDevKey = getDeviceKeySync();
+                    if (!myDevKey) return null;
+                    return (
+                      <div className="p-4 bg-slate-50/70 dark:bg-slate-950/40 border border-slate-200/80 dark:border-slate-800 rounded-2xl flex flex-wrap items-center justify-between gap-3">
+                        <div className="flex items-center gap-2.5 min-w-0">
+                          <div className={`p-2 rounded-xl ${lightBg} ${text}`}>
+                            <ShieldCheck size={16} />
+                          </div>
+                          <div className="min-w-0">
+                            <h5 className="text-[11px] font-extrabold text-slate-800 dark:text-white uppercase tracking-wider">
+                              Bu Bilgisayarın Cihaz Anahtarı (Güvenilir PC Kimliği)
+                            </h5>
+                            <div className="flex items-center gap-2 mt-1 flex-wrap">
+                              <code className="px-2.5 py-0.5 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-xs font-mono font-extrabold text-slate-800 dark:text-slate-100">
+                                {myDevKey}
+                              </code>
+                              <span className="text-[9.5px] text-slate-400 dark:text-slate-500 font-medium">
+                                Cihaz kilidi kullanılıyorsa bu anahtarı sistem yöneticinize iletebilirsiniz.
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={async () => {
+                            try {
+                              await navigator.clipboard.writeText(myDevKey);
+                              showNotification(`Cihaz anahtarınız panoya kopyalandı: ${myDevKey}`, "success", "Anahtar Kopyalandı");
+                            } catch (_) {}
+                          }}
+                          className={`px-3 py-2 rounded-xl text-[10px] font-extrabold text-white uppercase tracking-wider shadow-sm transition-all flex items-center gap-1.5 shrink-0 cursor-pointer ${bg} ${hover}`}
+                        >
+                          <Copy size={13} />
+                          <span>Anahtarı Kopyala</span>
+                        </button>
+                      </div>
+                    );
+                  })()}
 
                   {/* Section 1: Oturum Süresi & Ekran Kapanma */}
                   <div className="p-4 bg-slate-50/70 dark:bg-slate-950/40 border border-slate-200/80 dark:border-slate-800 rounded-2xl space-y-3.5">
