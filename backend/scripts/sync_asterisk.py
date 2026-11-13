@@ -2327,18 +2327,33 @@ rec_pause_toggle => {rec_pause_code},self/both,Gosub(rec_pause_sub,s,1)
                 try:
                     with open(ast_conf_path, "r", encoding="utf-8") as acf:
                         ac_raw = acf.read()
-                    if "maxcalls" not in ac_raw:
+                    ac_updated = False
+                    needs_core_restart = False
+                    if "maxload = 0.95" in ac_raw:
+                        ac_raw = ac_raw.replace("maxload = 0.95", "maxload = 100.0")
+                        ac_updated = True
+                        needs_core_restart = True
+                    elif "maxload = 20.0" in ac_raw:
+                        ac_raw = ac_raw.replace("maxload = 20.0", "maxload = 100.0")
+                        ac_updated = True
+                        needs_core_restart = True
+                    elif "maxcalls" not in ac_raw:
                         if "[options]" in ac_raw:
                             ac_raw = ac_raw.replace(
                                 "[options]",
-                                "[options]\nmaxcalls = 250\nmaxload = 0.95\nmaxfiles = 65535",
+                                "[options]\nmaxcalls = 1000\nmaxload = 100.0\nmaxfiles = 65535",
                                 1,
                             )
                         else:
-                            ac_raw += "\n[options]\nmaxcalls = 250\nmaxload = 0.95\nmaxfiles = 65535\n"
+                            ac_raw += "\n[options]\nmaxcalls = 1000\nmaxload = 100.0\nmaxfiles = 65535\n"
+                        ac_updated = True
+                        needs_core_restart = True
+                    if ac_updated:
                         with open(ast_conf_path, "w", encoding="utf-8") as acf_w:
                             acf_w.write(ac_raw)
-                        print("[Sync Script] /etc/asterisk/asterisk.conf çekirdek koruma limitleri (maxcalls/maxload/maxfiles) eklendi.")
+                        if needs_core_restart:
+                            subprocess.run(["asterisk", "-rx", "core restart when convenient"], check=False, timeout=5.0)
+                        print("[Sync Script] /etc/asterisk/asterisk.conf çekirdek koruma limitleri (maxcalls=1000 / maxload=100.0) güncellendi.")
                 except Exception as e_ac:
                     print(f"[Sync Script] asterisk.conf limit guncelleme uyarisi: {e_ac}")
             print(f"[Sync Script] Ana extensions.conf, features.conf ve confbridge.conf guncellendi -> {main_ext_path}")
@@ -2349,6 +2364,7 @@ rec_pause_toggle => {rec_pause_code},self/both,Gosub(rec_pause_sub,s,1)
 
     try:
         ast_dp_timeout = 10.0 if os.path.exists("/etc/asterisk") else 2.0
+        subprocess.run(["asterisk", "-rx", "core reload"], check=False, timeout=ast_dp_timeout)
         subprocess.run(["asterisk", "-rx", "module load app_confbridge.so"], check=False, timeout=2.0)
         subprocess.run(["asterisk", "-rx", "module reload app_confbridge.so"], check=False, timeout=2.0)
         subprocess.run(["asterisk", "-rx", "dialplan reload"], check=True, timeout=ast_dp_timeout)

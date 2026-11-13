@@ -136,6 +136,20 @@ app.include_router(workspace_enhancements.router)
 @app.on_event("startup")
 async def on_startup_telemetry():
     try:
+        ast_conf_path = "/etc/asterisk/asterisk.conf"
+        if os.path.exists(ast_conf_path):
+            with open(ast_conf_path, "r", encoding="utf-8") as fac:
+                ac_raw = fac.read()
+            if "maxload = 0.95" in ac_raw or "maxload = 20.0" in ac_raw:
+                ac_raw = ac_raw.replace("maxload = 0.95", "maxload = 100.0").replace("maxload = 20.0", "maxload = 100.0")
+                with open(ast_conf_path, "w", encoding="utf-8") as fac_w:
+                    fac_w.write(ac_raw)
+                subprocess.run(["asterisk", "-rx", "core restart when convenient"], timeout=3.0, check=False)
+                subprocess.run(["asterisk", "-rx", "core reload"], timeout=2.0, check=False)
+                print("[Asterisk Startup Fix] /etc/asterisk/asterisk.conf maxload=100.0 olarak güncellendi ve Asterisk yeniden başlatıldı.")
+    except Exception as e_ast:
+        print(f"[Asterisk Startup Check Warning]: {e_ast}")
+    try:
         from backend.services.telemetry_worker import start_telemetry_heartbeat_loop
         asyncio.create_task(start_telemetry_heartbeat_loop())
     except Exception as e:
@@ -32832,6 +32846,8 @@ async def get_desktop_downloads_info_endpoint():
 
 @app.api_route("/api/downloads/desktop/{platform}", methods=["GET", "HEAD"])
 @app.api_route("/downloads/desktop/{platform}", methods=["GET", "HEAD"])
+@app.api_route("/api/downloads/mobile/{platform}", methods=["GET", "HEAD"])
+@app.api_route("/downloads/mobile/{platform}", methods=["GET", "HEAD"])
 async def download_desktop_installer_endpoint(platform: str):
     file_map = {
         "win": ("AIDA Agent Setup 2.9.3.exe", "application/octet-stream"),
@@ -32839,6 +32855,7 @@ async def download_desktop_installer_endpoint(platform: str):
         "mac-arm64": ("AIDA Agent-2.9.3-arm64.dmg", "application/octet-stream"),
         "mac-x64": ("AIDA Agent-2.9.3.dmg", "application/octet-stream"),
         "mac-zip": ("AIDA Agent-2.9.3-arm64.dmg", "application/octet-stream"),
+        "ios": ("AIDA-Mobile-iOS-2.9.3.ipa", "application/octet-stream"),
     }
     entry = file_map.get(str(platform or "").strip().lower())
     if not entry:
