@@ -21460,7 +21460,7 @@ async def webrtc_resolve_pickup_channel(target_ext: str = "", picker_ext: str = 
     ch_name = None
     if target_s != "GROUP":
         from backend.services.ami_manager import find_ringing_channel_for_extension
-        ch_name = await find_ringing_channel_for_extension(target_s)
+        ch_name = await find_ringing_channel_for_extension(target_s, exclude_channel=channel)
 
     if picker_s:
         try:

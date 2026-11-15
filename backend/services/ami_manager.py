@@ -416,16 +416,17 @@ def get_extension_ringing_info(ext: str):
     return ringing_match
 
 
-async def find_ringing_channel_for_extension(target_ext: str) -> str:
+async def find_ringing_channel_for_extension(target_ext: str, exclude_channel: str = "") -> str:
     """Finds the exact ringing PJSIP/SIP channel name for target_ext to use with Asterisk PickupChan()."""
     ext_s = str(target_ext or "").strip()
+    excl_s = str(exclude_channel or "").strip().lower()
     if not ext_s:
         return ""
     prefixes = tuple(_get_ext_channel_prefixes(ext_s))
 
     for uid, info in list(channel_states.items()):
         ch = str(info.get("channel") or "").strip()
-        if ch and ch.lower().startswith(prefixes):
+        if ch and ch.lower() != excl_s and ch.lower().startswith(prefixes):
             if info.get("state") != "busy":
                 return ch
 
@@ -438,7 +439,7 @@ async def find_ringing_channel_for_extension(target_ext: str) -> str:
                     continue
                 ch = str(r.get("Channel") or "").strip()
                 st_desc = str(r.get("ChannelStateDesc") or "").strip().lower()
-                if ch and ch.lower().startswith(prefixes):
+                if ch and ch.lower() != excl_s and ch.lower().startswith(prefixes):
                     if st_desc in ("ringing", "ring", "down", "rsrvd"):
                         return ch
         except Exception as e:
