@@ -2213,8 +2213,18 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
     
     setOutboundCallerId(u.outbound_caller_id || "");
 
-    const resolvedActiveProf = u.active_profile || "available";
-    const normalizedProfiles = normalizeUserProfiles(u.profiles, u);
+    const fProfMeta =
+      u?.call_panel_prefs?.profilesMeta && typeof u.call_panel_prefs.profilesMeta === "object"
+        ? u.call_panel_prefs.profilesMeta
+        : null;
+    const resolvedActiveProf = u.active_profile || fProfMeta?.active_profile || "available";
+    const rawInitProfiles =
+      Array.isArray(u.profiles) && u.profiles.length > 0
+        ? u.profiles
+        : Array.isArray(fProfMeta?.profiles) && fProfMeta.profiles.length > 0
+          ? fProfMeta.profiles
+          : u.profiles;
+    const normalizedProfiles = normalizeUserProfiles(rawInitProfiles, u);
     const activeProfObj = normalizedProfiles.find((p) => p.id === resolvedActiveProf) || normalizedProfiles[0];
     const initAlways = activeProfObj?.forwarding_always || u.forwarding_always;
     const initBusy = activeProfObj?.forwarding_busy || u.forwarding_busy;
@@ -2535,27 +2545,32 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
           : "all";
     const primarySave2faMethod = resolvedSaveActiveMethods[0] || twoFactorMethod || "google_auth";
 
-    const sanitizedProfiles = (userProfiles || []).map((p) => ({
-      ...p,
-      timeout: Math.max(5, Math.min(120, Number(p.timeout) || 30)),
-      timeout_action: "none",
-      timeout_target: "",
-      forwarding_always: {
-        active: Boolean(p.forwarding_always?.active && String(p.forwarding_always?.target || "").trim()),
-        type: p.forwarding_always?.type === "external" ? "external" : "internal",
-        target: String(p.forwarding_always?.target || "").trim()
-      },
-      forwarding_busy: {
-        active: Boolean(p.forwarding_busy?.active && String(p.forwarding_busy?.target || "").trim()),
-        type: p.forwarding_busy?.type === "external" ? "external" : "internal",
-        target: String(p.forwarding_busy?.target || "").trim()
-      },
-      forwarding_no_answer: {
-        active: Boolean(p.forwarding_no_answer?.active && String(p.forwarding_no_answer?.target || "").trim()),
-        type: p.forwarding_no_answer?.type === "external" ? "external" : "internal",
-        target: String(p.forwarding_no_answer?.target || "").trim()
-      }
-    }));
+    const sanitizedProfiles = (userProfiles || []).map((p) => {
+      const parsedT = parseInt(p.timeout, 10);
+      return {
+        ...p,
+        devices: Array.isArray(p.devices) ? [...p.devices] : [],
+        timeout: Number.isFinite(parsedT) ? Math.max(5, Math.min(120, parsedT)) : 30,
+        timeout_action: "none",
+        timeout_target: "",
+        forwarding_always: {
+          active: Boolean(p.forwarding_always?.active && String(p.forwarding_always?.target || "").trim()),
+          type: p.forwarding_always?.type === "external" ? "external" : "internal",
+          target: String(p.forwarding_always?.target || "").trim()
+        },
+        forwarding_busy: {
+          active: Boolean(p.forwarding_busy?.active && String(p.forwarding_busy?.target || "").trim()),
+          type: p.forwarding_busy?.type === "external" ? "external" : "internal",
+          target: String(p.forwarding_busy?.target || "").trim()
+        },
+        forwarding_no_answer: {
+          active: Boolean(p.forwarding_no_answer?.active && String(p.forwarding_no_answer?.target || "").trim()),
+          type: p.forwarding_no_answer?.type === "external" ? "external" : "internal",
+          target: String(p.forwarding_no_answer?.target || "").trim()
+        }
+      };
+    });
+    const nowProfSaveTs = Date.now();
     const activeSaveProfObj =
       sanitizedProfiles.find((p) => p.id === (activeProfile || "available")) ||
       sanitizedProfiles[0] ||
@@ -2688,6 +2703,7 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
       department_id: selectedDepartment || null,
       active_profile: activeProfile || "available",
       profiles: sanitizedProfiles,
+      profiles_updated_ts: nowProfSaveTs,
       theme_color: getSafeThemeColor(themeColor),
       theme_mode: themeMode === "dark" ? "dark" : "light",
       mobile_transfer_enabled: Boolean(mobileTransferEnabled),
@@ -2707,6 +2723,11 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
         uiTemplate: normalizeUiTemplate(userCallPanelPrefs?.uiTemplate || prevCallPanelPrefs?.uiTemplate || "classic"),
         uiMotionMode: normalizeUiMotionMode(userCallPanelPrefs?.uiMotionMode || prevCallPanelPrefs?.uiMotionMode || "fluid"),
         topbar: normalizeTopbarPrefs(userCallPanelPrefs?.topbar || prevCallPanelPrefs?.topbar),
+        profilesMeta: {
+          active_profile: activeProfile || "available",
+          profiles: sanitizedProfiles,
+          updatedTs: nowProfSaveTs
+        },
         securityPolicy: {
           auto_logout_enabled: Boolean(autoLogoutEnabled),
           auto_logout_duration: Number(autoLogoutDuration) || 1,
@@ -2760,6 +2781,26 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
 
       if (ok) {
         try {
+          const profSyncId = encodeURIComponent(String(savedTargetId ?? extInput ?? "admin"));
+          await safeFetch(`/api/agent/profile/${profSyncId}`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "X-User-ID": localStorage.getItem("current_user_id") || "admin"
+            },
+            body: JSON.stringify({
+              active_profile: activeProfile || "available",
+              profiles: sanitizedProfiles,
+              forwarding_always: userData.forwarding_always,
+              forwarding_busy: userData.forwarding_busy,
+              forwarding_no_answer: userData.forwarding_no_answer
+            })
+          });
+        } catch (profErr) {
+          console.warn("Atomic profile sync notice:", profErr);
+        }
+
+        try {
           const tfRes = await safeFetch("/api/auth/2fa/save-config", {
             method: "POST",
             headers: {
@@ -2795,6 +2836,7 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
               userData.call_panel_prefs = {
                 ...tfData.user.call_panel_prefs,
                 ...userData.call_panel_prefs,
+                profilesMeta: userData.call_panel_prefs.profilesMeta,
                 twoFactorMeta: tfData.user.call_panel_prefs.twoFactorMeta || userData.call_panel_prefs?.twoFactorMeta
               };
             }
@@ -4548,9 +4590,17 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
                                                 {RING_DEVICES_METADATA.map((dev) => {
                                                     const checked = Array.isArray(currentProf.devices) && currentProf.devices.includes(dev.id);
                                                     return (
-                                                        <label
+                                                        <div
                                                             key={dev.id}
+                                                            role="button"
+                                                            tabIndex={0}
                                                             onClick={() => toggleProfileDevice(dev.id)}
+                                                            onKeyDown={(e) => {
+                                                                if (e.key === "Enter" || e.key === " ") {
+                                                                    e.preventDefault();
+                                                                    toggleProfileDevice(dev.id);
+                                                                }
+                                                            }}
                                                             className={`cursor-pointer p-4 rounded-xl border transition-all flex items-center justify-between gap-3.5 select-none ${
                                                                 checked
                                                                     ? `bg-white dark:bg-slate-900 ${border} shadow-sm`
@@ -4569,7 +4619,7 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
                                                             <div className={`w-5 h-5 rounded-md border flex items-center justify-center shrink-0 transition-all ${checked ? `${bg} border-transparent text-white` : "border-slate-300 dark:border-slate-700"}`}>
                                                                 {checked && <Check size={13} />}
                                                             </div>
-                                                        </label>
+                                                        </div>
                                                     );
                                                 })}
                                             </div>
@@ -4597,12 +4647,19 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
                                                         type="number"
                                                         min="5"
                                                         max="120"
-                                                        value={profTimeout}
-                                                        onChange={(e) =>
+                                                        value={currentProf.timeout ?? ""}
+                                                        onChange={(e) => {
+                                                            const raw = e.target.value.replace(/\D/g, "").slice(0, 3);
                                                             updateCurrentProfile({
-                                                                timeout: Math.max(5, Math.min(120, parseInt(e.target.value, 10) || 30))
-                                                            })
-                                                        }
+                                                                timeout: raw === "" ? "" : parseInt(raw, 10)
+                                                            });
+                                                        }}
+                                                        onBlur={() => {
+                                                            const parsed = parseInt(currentProf.timeout, 10);
+                                                            updateCurrentProfile({
+                                                                timeout: Number.isFinite(parsed) ? Math.max(5, Math.min(120, parsed)) : 30
+                                                            });
+                                                        }}
                                                         className="w-14 text-xs font-bold px-2 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 text-slate-800 dark:text-slate-100 focus:outline-none text-center"
                                                     />
                                                     {[15, 30, 45].map((sec) => (

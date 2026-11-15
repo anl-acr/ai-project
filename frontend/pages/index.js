@@ -7843,9 +7843,17 @@ export default function Home() {
                             {RING_DEVICES_METADATA.map((dev) => {
                               const checked = Array.isArray(curProf.devices) && curProf.devices.includes(dev.id);
                               return (
-                                <label
+                                <div
                                   key={dev.id}
+                                  role="button"
+                                  tabIndex={0}
                                   onClick={() => toggleProfDevice(dev.id)}
+                                  onKeyDown={(e) => {
+                                    if (e.key === "Enter" || e.key === " ") {
+                                      e.preventDefault();
+                                      toggleProfDevice(dev.id);
+                                    }
+                                  }}
                                   className={`cursor-pointer p-3.5 rounded-xl border transition-all flex items-center justify-between gap-3 select-none ${
                                     checked
                                       ? `bg-white dark:bg-slate-900 ${border} shadow-sm`
@@ -7864,7 +7872,7 @@ export default function Home() {
                                   <div className={`w-5 h-5 rounded-md border flex items-center justify-center shrink-0 ${checked ? `${bg} border-transparent text-white` : "border-slate-300 dark:border-slate-700"}`}>
                                     {checked && <Check size={12} />}
                                   </div>
-                                </label>
+                                </div>
                               );
                             })}
                           </div>
@@ -7884,8 +7892,15 @@ export default function Home() {
                                 type="number"
                                 min="5"
                                 max="120"
-                                value={pTimeout}
-                                onChange={(e) => updateCurProf({ timeout: Math.max(5, Math.min(120, parseInt(e.target.value, 10) || 30)) })}
+                                value={curProf.timeout ?? ""}
+                                onChange={(e) => {
+                                  const raw = e.target.value.replace(/\D/g, "").slice(0, 3);
+                                  updateCurProf({ timeout: raw === "" ? "" : parseInt(raw, 10) });
+                                }}
+                                onBlur={() => {
+                                  const parsed = parseInt(curProf.timeout, 10);
+                                  updateCurProf({ timeout: Number.isFinite(parsed) ? Math.max(5, Math.min(120, parsed)) : 30 });
+                                }}
                                 className="w-14 text-xs font-bold px-2 py-1.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 text-slate-800 dark:text-slate-100 focus:outline-none text-center"
                               />
                               {[15, 30, 45].map((sec) => (
@@ -10420,6 +10435,16 @@ export default function Home() {
                         localStorage.setItem("two_factor_enabled", twoFactorEnabled ? "true" : "false");
                         localStorage.setItem("password_expiry_enabled", passwordExpiryEnabled ? "true" : "false");
                         localStorage.setItem("password_expiry_months", passwordExpiryMonths.toString());
+                        const sanitizedAgentProfiles = (agentProfiles || []).map((p) => {
+                          const parsedT = parseInt(p.timeout, 10);
+                          return {
+                            ...p,
+                            devices: Array.isArray(p.devices) ? [...p.devices] : [],
+                            timeout: Number.isFinite(parsedT) ? Math.max(5, Math.min(120, parsedT)) : 30
+                          };
+                        });
+                        setAgentProfiles(sanitizedAgentProfiles);
+                        const nowModalProfTs = Date.now();
                         const savedPrefsSnapshot = saveCallPanelPrefs(currentUser, {
                           ...(callPanelPrefs || {}),
                           profileAvatar: agentAvatar,
@@ -10427,6 +10452,11 @@ export default function Home() {
                           ringtoneVolume,
                           noiseSuppressionMode: savedNoise,
                           desktopPrefs,
+                          profilesMeta: {
+                            active_profile: agentActiveProfile || "available",
+                            profiles: sanitizedAgentProfiles,
+                            updatedTs: nowModalProfTs
+                          },
                           securityPolicy: {
                             auto_logout_enabled: Boolean(autoLogoutEnabled),
                             auto_logout_duration: Number(autoLogoutDuration) || 1,
@@ -10452,7 +10482,8 @@ export default function Home() {
                          const localProfilePatch = {
                            avatar: agentAvatar,
                            active_profile: agentActiveProfile,
-                           profiles: agentProfiles,
+                           profiles: sanitizedAgentProfiles,
+                           profiles_updated_ts: nowModalProfTs,
                            call_panel_prefs: savedPrefsSnapshot,
                            gsm_number: cleanedGsmNumber,
                            follow_me: {
@@ -10507,7 +10538,7 @@ export default function Home() {
                             const profileUid = encodeURIComponent(
                               String(currentUser.id || currentUser.extension || "admin")
                             );
-                            const activeProfSaveObj = agentProfiles.find(p => p.id === agentActiveProfile) || agentProfiles[0] || DEFAULT_USER_PROFILES[0];
+                            const activeProfSaveObj = sanitizedAgentProfiles.find(p => p.id === agentActiveProfile) || sanitizedAgentProfiles[0] || DEFAULT_USER_PROFILES[0];
                             const saveAlways = activeProfSaveObj.forwarding_always || { active: false, type: "internal", target: "" };
                             const saveBusy = activeProfSaveObj.forwarding_busy || { active: false, type: "internal", target: "" };
                             const saveNoAns = activeProfSaveObj.forwarding_no_answer || { active: false, type: "internal", target: "" };
@@ -10529,7 +10560,7 @@ export default function Home() {
                                 forwarding_busy: { active: Boolean(saveBusy.active && saveBusy.target), type: saveBusy.type || "internal", target: String(saveBusy.target || "").trim() },
                                 forwarding_no_answer: { active: Boolean(saveNoAns.active && saveNoAns.target), type: saveNoAns.type || "internal", target: String(saveNoAns.target || "").trim(), timeout: saveRingTimeout },
                                 active_profile: agentActiveProfile,
-                                profiles: agentProfiles,
+                                profiles: sanitizedAgentProfiles,
                                 hotdesk_config: normalizedSelfHotdesk,
                                 call_panel_prefs: savedPrefsSnapshot,
                                 ...wallboardPayload,

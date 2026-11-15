@@ -2413,7 +2413,12 @@ class WebphoneManager {
     if (curU && Array.isArray(curU.profiles) && curU.profiles.length > 0) {
       const actProfId = curU.active_profile || "available";
       const actProf = curU.profiles.find((p) => p.id === actProfId);
-      const currentClientDevice = isDesktopApp() ? "pc_app" : "web_phone";
+      const isMobileClient =
+        typeof window !== "undefined" &&
+        (Boolean(window.__AIDA_NATIVE_MOBILE__) ||
+          Boolean(window.webkit?.messageHandlers?.aidaNativeObserver) ||
+          /iPhone|iPad|iPod|Android/i.test(navigator?.userAgent || ""));
+      const currentClientDevice = isMobileClient ? "mobile_app" : isDesktopApp() ? "pc_app" : "web_phone";
       if (actProf && Array.isArray(actProf.devices) && !actProf.devices.includes(currentClientDevice)) {
         if (actProf.devices.length === 0) {
           try {

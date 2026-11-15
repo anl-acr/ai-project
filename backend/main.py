@@ -823,12 +823,17 @@ def _extract_latest_user_profiles(*sources: Any) -> Tuple[str, Optional[List[dic
         if not isinstance(prof_meta, dict):
             prof_meta = {}
 
-        src_ts = max(
-            _norm_2fa_ts(_get_f(src, "profiles_updated_ts")),
-            _norm_2fa_ts(prof_meta.get("updatedTs")),
-        )
-        cand_profiles = _parse_profiles_list(prof_meta.get("profiles")) or _parse_profiles_list(_get_f(src, "profiles"))
-        cand_active = str(prof_meta.get("active_profile") or _get_f(src, "active_profile") or "").strip()
+        top_ts = _norm_2fa_ts(_get_f(src, "profiles_updated_ts"))
+        meta_ts = _norm_2fa_ts(prof_meta.get("updatedTs"))
+        src_ts = max(top_ts, meta_ts)
+        top_profiles = _parse_profiles_list(_get_f(src, "profiles"))
+        meta_profiles = _parse_profiles_list(prof_meta.get("profiles"))
+        if top_profiles and (top_ts >= meta_ts or not meta_profiles):
+            cand_profiles = top_profiles
+            cand_active = str(_get_f(src, "active_profile") or prof_meta.get("active_profile") or "").strip()
+        else:
+            cand_profiles = meta_profiles or top_profiles
+            cand_active = str(prof_meta.get("active_profile") or _get_f(src, "active_profile") or "").strip()
 
         if cand_profiles:
             if src_ts > best_ts or best_profiles is None:
@@ -849,6 +854,7 @@ class UserSchema(BaseModel):
     extension: Optional[str] = ""
     avatar: Optional[str] = ""
     avatar_updated_ts: Optional[Union[int, float]] = None
+    profiles_updated_ts: Optional[Union[int, float]] = None
     role: Optional[str] = "agent"
     is_active: Optional[bool] = True
     gsm_number: Optional[str] = None
@@ -9652,12 +9658,25 @@ async def webrtc_register_notify(request: Request, payload: dict, db: AsyncSessi
 
     resp_payload = {"status": "success", "ip": client_ip}
     if isinstance(matched_user_obj, dict):
+        voip_tok = str(payload.get("voip_token") or "").strip()
+        apns_tok = str(payload.get("apns_token") or "").strip()
+        tok_changed = False
+        if voip_tok and matched_user_obj.get("ios_voip_token") != voip_tok:
+            matched_user_obj["ios_voip_token"] = voip_tok
+            tok_changed = True
+        if apns_tok and matched_user_obj.get("ios_apns_token") != apns_tok:
+            matched_user_obj["ios_apns_token"] = apns_tok
+            tok_changed = True
+        if tok_changed:
+            try:
+                save_settings(settings_db)
+            except Exception:
+                pass
         ensure_user_profiles(matched_user_obj)
-        cpp = matched_user_obj.get("call_panel_prefs") if isinstance(matched_user_obj.get("call_panel_prefs"), dict) else {}
-        p_meta = cpp.get("profilesMeta") if isinstance(cpp.get("profilesMeta"), dict) else {}
-        resp_payload["active_profile"] = matched_user_obj.get("active_profile") or p_meta.get("active_profile") or "available"
-        resp_payload["profiles"] = matched_user_obj.get("profiles") or p_meta.get("profiles") or []
-        resp_payload["profiles_updated_ts"] = int(p_meta.get("updatedTs") or 0)
+        res_act_rn, res_profs_rn, res_ts_rn = _extract_latest_user_profiles(matched_user_obj)
+        resp_payload["active_profile"] = res_act_rn or matched_user_obj.get("active_profile") or "available"
+        resp_payload["profiles"] = res_profs_rn or matched_user_obj.get("profiles") or []
+        resp_payload["profiles_updated_ts"] = int(res_ts_rn or matched_user_obj.get("profiles_updated_ts") or 0)
         if matched_user_obj.get("forwarding_always"):
             resp_payload["forwarding_always"] = matched_user_obj.get("forwarding_always")
         if matched_user_obj.get("forwarding_busy"):
@@ -34686,6 +34705,8 @@ async def new_save_users_endpoint(payload: Union[List[UserSchema], UserSchema], 
                     data["active_profile"] = prev_act_p
                 if prev_prof_ts:
                     data["profiles_updated_ts"] = prev_prof_ts
+            else:
+                data["profiles_updated_ts"] = int(time.time() * 1000)
             ensure_user_profiles(data)
             from backend.services.pbx_enterprise_features import normalize_boss_secretary_config as _norm_bs_save, normalize_hotdesk_config as _norm_hd_save
             if raw_boss_sec_in is None:
@@ -34923,8 +34944,15 @@ async def new_save_users_endpoint(payload: Union[List[UserSchema], UserSchema], 
                 _, data["trusted_devices"] = _extract_user_device_security({"trusted_devices": raw_td})
             else:
                 _, data["trusted_devices"] = _extract_user_device_security({"trusted_devices": data.get("trusted_devices")})
+            resolved_prof_ts = _norm_2fa_ts(data.get("profiles_updated_ts")) or int(time.time() * 1000)
+            data["profiles_updated_ts"] = resolved_prof_ts
             data["call_panel_prefs"] = {
                 **data["call_panel_prefs"],
+                "profilesMeta": {
+                    "active_profile": data.get("active_profile") or "available",
+                    "profiles": copy.deepcopy(data.get("profiles") or []),
+                    "updatedTs": resolved_prof_ts,
+                },
                 "securityPolicy": {
                     **prev_cpp_sec,
                     **inc_cpp_sec,
@@ -35105,7 +35133,7 @@ async def new_save_users_endpoint(payload: Union[List[UserSchema], UserSchema], 
                             u_dict["sip_username"] = p_match.get("sip_username")
                         if p_match.get("sip_devices") is not None:
                             u_dict["sip_devices"] = p_match.get("sip_devices")
-                        for tf_k in ("two_factor_enabled", "two_factor_method", "two_factor_secret", "two_factor_enrolled", "two_factor_updated_ts", "managed_users", "managed_queues", "cti_config", "call_panel_prefs", "wallboard_layout", "theme_color", "theme_mode", "mobile_transfer_enabled", "auto_logout_enabled", "auto_logout_duration", "password_expiry_enabled", "password_expiry_months", "device_lock_enabled", "trusted_devices", "max_concurrent_outbound", "outbound_quarantined", "avatar_updated_ts", "boss_secretary", "hotdesk_config"):
+                        for tf_k in ("profiles_updated_ts", "two_factor_enabled", "two_factor_method", "two_factor_secret", "two_factor_enrolled", "two_factor_updated_ts", "managed_users", "managed_queues", "cti_config", "call_panel_prefs", "wallboard_layout", "theme_color", "theme_mode", "mobile_transfer_enabled", "auto_logout_enabled", "auto_logout_duration", "password_expiry_enabled", "password_expiry_months", "device_lock_enabled", "trusted_devices", "max_concurrent_outbound", "outbound_quarantined", "avatar_updated_ts", "boss_secretary", "hotdesk_config"):
                             if p_match.get(tf_k) is not None:
                                 u_dict[tf_k] = p_match.get(tf_k)
                     u_dict["sip_password"] = resolve_secure_sip_password(ext_u, u_dict.get("sip_password") or "")
@@ -42211,6 +42239,17 @@ def _apply_user_changes_to_dict(u: dict, changes: dict, summary_labels: set):
                         prof[fwd_key] = dict(new_f)
             modified = True
             summary_labels.add(f"{fwd_label}: {'Aktif -> ' + (new_f['target'] or '-') if new_f['active'] else 'Kapalı'}")
+
+    if any(_has_val(pk) for pk in ("ring_timeout", "forwarding_always", "forwarding_busy", "forwarding_no_answer")) or changes.get("forwarding_reset") is True:
+        bulk_prof_ts = int(time.time() * 1000)
+        u["profiles_updated_ts"] = bulk_prof_ts
+        prefs_p = dict(u.get("call_panel_prefs")) if isinstance(u.get("call_panel_prefs"), dict) else {}
+        prefs_p["profilesMeta"] = {
+            "active_profile": u.get("active_profile") or "available",
+            "profiles": copy.deepcopy(u.get("profiles") or []),
+            "updatedTs": bulk_prof_ts,
+        }
+        u["call_panel_prefs"] = prefs_p
 
     if _has_val("follow_me_enabled"):
         fm_val = bool(changes["follow_me_enabled"])
