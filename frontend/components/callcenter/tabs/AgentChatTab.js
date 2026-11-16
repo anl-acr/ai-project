@@ -1562,7 +1562,7 @@ export default function AgentChatTab({ backendHost, currentUser, isVisible = tru
                           <Mail size={12} className="text-primary shrink-0" />
                           <span className="font-bold text-slate-500 dark:text-slate-400 shrink-0">Yanıt Konusu:</span>
                           <span className="font-semibold text-slate-800 dark:text-slate-100 truncate">
-                            {extractReplySubjectFromMessages(customerMessages) || "AIDA Müşteri Hizmetleri Yanıtı"}
+                            {extractReplySubjectFromMessages(customerMessages) || "RUNA Müşteri Hizmetleri Yanıtı"}
                           </span>
                         </div>
                         <span className="text-[10px] text-slate-400 dark:text-slate-500 shrink-0 hidden sm:inline">

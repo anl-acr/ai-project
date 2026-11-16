@@ -2821,7 +2821,7 @@ class WebphoneManager {
     }
     if (perm === "granted") {
       try {
-        const n = new Notification("🔔 AIDA Masaüstü Bildirimi Aktif", {
+        const n = new Notification("🔔 RUNA Masaüstü Bildirimi Aktif", {
           body: "Farklı bir sekmede veya uygulamada olduğunuzda gelen çağrılar bu şekilde ekranda belirecektir.",
           tag: `aida-test-${Date.now()}`
         });

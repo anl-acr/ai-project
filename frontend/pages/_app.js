@@ -92,7 +92,7 @@ function MyApp({ Component, pageProps }) {
   return (
     <ErrorBoundary>
       <Head>
-        <title>AIDA PBX</title>
+        <title>Nornia</title>
         <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
         <link rel="alternate icon" href="/favicon.ico" sizes="32x32" />
         <link rel="apple-touch-icon" href="/apple-touch-icon.png" />

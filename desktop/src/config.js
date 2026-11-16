@@ -3,8 +3,8 @@ const path = require("path");
 const { app } = require("electron");
 
 const APP_BRAND = {
-  appName: "AIDA Agent",
-  appId: "com.aida.agent.desktop",
+  appName: "Runa",
+  appId: "com.runa.agent.desktop",
   version: "2.9.3"
 };
 
@@ -34,7 +34,17 @@ const DEFAULT_CONFIG = {
 
 function getConfigFilePath() {
   const userDataDir = app.getPath("userData");
-  return path.join(userDataDir, "aida-agent-config.json");
+  return path.join(userDataDir, "runa-config.json");
+}
+
+function getLegacyConfigPaths() {
+  const userDataDir = app.getPath("userData");
+  const parentDir = path.dirname(userDataDir);
+  return [
+    path.join(userDataDir, "aida-agent-config.json"),
+    path.join(parentDir, "AIDA Agent", "aida-agent-config.json"),
+    path.join(parentDir, "aida-agent-desktop", "aida-agent-config.json")
+  ];
 }
 
 let _memConfig = null;
@@ -44,23 +54,35 @@ function loadAppConfig() {
     return { ..._memConfig };
   }
   try {
-    const file = getConfigFilePath();
+    let file = getConfigFilePath();
+    if (!fs.existsSync(file)) {
+      for (const leg of getLegacyConfigPaths()) {
+        if (fs.existsSync(leg)) {
+          file = leg;
+          break;
+        }
+      }
+    }
     if (fs.existsSync(file)) {
       const raw = fs.readFileSync(file, "utf-8");
       const parsed = JSON.parse(raw);
+      const normHost = (h) => String(h || "").replace(/aida\.saphira\.com\.tr/gi, "runa.saphira.com.tr");
       _memConfig = {
         ...DEFAULT_CONFIG,
         ...parsed,
+        serverHost: normHost(parsed.serverHost),
         windowBounds: {
           ...DEFAULT_CONFIG.windowBounds,
           ...(parsed.windowBounds || {})
         },
-        recentHosts: Array.isArray(parsed.recentHosts) ? parsed.recentHosts.slice(0, 8) : []
+        recentHosts: Array.isArray(parsed.recentHosts)
+          ? parsed.recentHosts.map(normHost).slice(0, 8)
+          : []
       };
       return { ..._memConfig };
     }
   } catch (err) {
-    console.warn("[AIDA Config] Failed to read config, using defaults:", err.message);
+    console.warn("[RUNA Config] Failed to read config, using defaults:", err.message);
   }
   _memConfig = { ...DEFAULT_CONFIG };
   return { ..._memConfig };
@@ -78,7 +100,7 @@ function saveAppConfig(patch = {}) {
     fs.mkdirSync(path.dirname(file), { recursive: true });
     fs.writeFileSync(file, JSON.stringify(next, null, 2), "utf-8");
   } catch (err) {
-    console.error("[AIDA Config] Failed to save config:", err.message);
+    console.error("[RUNA Config] Failed to save config:", err.message);
   }
   return next;
 }

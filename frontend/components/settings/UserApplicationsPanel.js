@@ -497,7 +497,7 @@ export default function UserApplicationsPanel({
         </div>
       </div>
 
-      {/* 2. MASAÜSTÜ UYGULAMASI (AIDA AGENT) & SÜRELİ KOLAY GİRİŞ LİNKİ */}
+      {/* 2. MASAÜSTÜ UYGULAMASI (RUNA) & SÜRELİ KOLAY GİRİŞ LİNKİ */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
         {/* Masaüstü Kartı */}
         <div className="p-5 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/70 flex flex-col justify-between gap-4 shadow-2xs">
@@ -510,7 +510,7 @@ export default function UserApplicationsPanel({
                 <div>
                   <div className="flex items-center gap-2 flex-wrap">
                     <h5 className="text-sm font-extrabold text-slate-800 dark:text-white">
-                      Masaüstü Uygulaması (AIDA Agent)
+                      Masaüstü Uygulaması (RUNA)
                     </h5>
                     <span className="px-2 py-0.5 rounded-md text-[10px] font-extrabold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/25">
                       v2.9.3 Hazır
@@ -614,7 +614,7 @@ export default function UserApplicationsPanel({
                   <a
                     href={magic.deep_link_url}
                     className={`px-3 py-1.5 rounded-lg text-[11px] font-extrabold text-white ${bg} ${hover} transition inline-flex items-center gap-1.5 shadow-2xs`}
-                    title="Bilgisayarda kurulu AIDA Agent uygulamasını otomatik açar ve oturumunuzu bağlar"
+                    title="Bilgisayarda kurulu RUNA uygulamasını otomatik açar ve oturumunuzu bağlar"
                   >
                     <ExternalLink size={12} />
                     <span>Masaüstü Uygulamasında Aç</span>
@@ -694,7 +694,7 @@ export default function UserApplicationsPanel({
           </div>
         </div>
 
-        {/* 3. MOBİL UYGULAMA (AIDA MOBILE) & URL / QR İLE OTOMATİK AÇMA KARTI */}
+        {/* 3. MOBİL UYGULAMA (RUNA) & URL / QR İLE OTOMATİK AÇMA KARTI */}
         <div className="p-5 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/70 flex flex-col justify-between gap-4 shadow-2xs">
           <div className="space-y-4">
             <div className="flex items-start justify-between gap-3 pb-3 border-b border-slate-100 dark:border-slate-800">
@@ -705,14 +705,14 @@ export default function UserApplicationsPanel({
                 <div>
                   <div className="flex items-center gap-2 flex-wrap">
                     <h5 className="text-sm font-extrabold text-slate-800 dark:text-white">
-                      Mobil Uygulama (AIDA Mobile)
+                      Mobil Uygulama (RUNA)
                     </h5>
                     <span className="px-2 py-0.5 rounded-md text-[10px] font-extrabold bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border border-indigo-500/25">
                       iOS & Android
                     </span>
                   </div>
                   <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
-                    Kolay Giriş URL&apos;i veya QR Kod ile saniyeler içinde otomatik kurulum
+                    QR Kod ile saniyeler içinde şifresiz otomatik eşleştirme ve giriş
                   </p>
                 </div>
               </div>
@@ -735,8 +735,8 @@ export default function UserApplicationsPanel({
             </div>
 
             {/* Mobil QR Kod + Hızlı Eşleştirme */}
-            <div className="flex flex-col sm:flex-row items-center gap-4 p-3.5 rounded-xl bg-slate-50 dark:bg-slate-950/60 border border-slate-200/80 dark:border-slate-800">
-              <div className="w-32 h-32 rounded-xl bg-white p-2 border border-slate-200 dark:border-slate-700 flex items-center justify-center shrink-0 shadow-2xs">
+            <div className="flex flex-col sm:flex-row items-center gap-4 p-4 rounded-xl bg-slate-50 dark:bg-slate-950/60 border border-slate-200/80 dark:border-slate-800">
+              <div className="w-36 h-36 rounded-xl bg-white p-2.5 border border-slate-200 dark:border-slate-700 flex items-center justify-center shrink-0 shadow-2xs">
                 {magic.active && magic.qr_svg ? (
                   <img
                     src={magic.qr_svg}
@@ -751,59 +751,36 @@ export default function UserApplicationsPanel({
                 )}
               </div>
 
-              <div className="flex-1 space-y-2 text-center sm:text-left">
+              <div className="flex-1 space-y-2.5 text-center sm:text-left">
                 <div className="text-xs font-extrabold text-slate-800 dark:text-white flex items-center justify-center sm:justify-start gap-1.5">
                   <QrCode size={14} className={text} />
-                  <span>QR Kod veya URL ile Otomatik Eşleştirme</span>
+                  <span>QR Kod ile Otomatik Giriş</span>
                 </div>
                 <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed">
-                  Mobil uygulamada <strong>&ldquo;QR Kod Okut&rdquo;</strong> seçeneğini kullanabilir veya aşağıdaki{" "}
-                  <strong>Kolay Giriş URL&apos;ini</strong> mobil giriş ekranına yapıştırarak uygulamayı otomatik açabilirsiniz.
+                  <strong>RUNA</strong> uygulamasını açıp giriş ekranındaki{" "}
+                  <strong>&ldquo;QR Kod ile Giriş&rdquo;</strong> sekmesinden bu QR kodu kameraya okutarak sunucu adresi ve şifre girmeden doğrudan oturum açabilirsiniz.
                 </p>
-                {magic.active && (
-                  <div className="flex flex-wrap items-center justify-center sm:justify-start gap-2 pt-1">
+                <div className="flex flex-wrap items-center justify-center sm:justify-start gap-2 pt-1">
+                  {canEdit && (
                     <button
                       type="button"
-                      onClick={() => handleCopy(magic.magic_url, "mobile_magic_url")}
-                      className={`px-3 py-1.5 rounded-lg text-[11px] font-extrabold border ${border} ${lightBg} ${text} hover:opacity-90 transition inline-flex items-center gap-1.5 cursor-pointer`}
+                      disabled={generatingLink}
+                      onClick={() => handleMagicLinkAction("generate")}
+                      className={`px-3 py-1.5 rounded-lg text-[11px] font-extrabold border ${border} ${lightBg} ${text} hover:opacity-90 transition inline-flex items-center gap-1.5 cursor-pointer disabled:opacity-50`}
                     >
-                      {copiedKey === "mobile_magic_url" ? <Check size={13} /> : <Copy size={13} />}
-                      <span>{copiedKey === "mobile_magic_url" ? "Mobil URL Kopyalandı" : "Mobil Giriş URL'ini Kopyala"}</span>
+                      <RefreshCw size={12} className={generatingLink ? "animate-spin" : ""} />
+                      <span>{magic.active ? "QR Kodu Yenile" : "QR Kod Oluştur"}</span>
                     </button>
-                  </div>
-                )}
-              </div>
-            </div>
-
-            {/* Mobil Uygulama Giriş Alanı: URL Girildiğinde Otomatik Açma */}
-            <div className="p-3.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 space-y-2">
-              <div className="flex items-center justify-between gap-2">
-                <label className="text-[11px] font-extrabold text-slate-700 dark:text-slate-200 flex items-center gap-1.5">
-                  <Sparkles size={13} className={text} />
-                  Mobil Kolay Giriş URL&apos;i ile Uygulamayı Otomatik Aç
-                </label>
-                <span className="text-[10px] font-bold text-slate-400">Hızlı Bağlantı Alanı</span>
-              </div>
-              <p className="text-[11px] text-slate-500 dark:text-slate-400">
-                Kolay Giriş URL&apos;ini bu alana girip onayladığınızda kimlik doğrulaması yapılır ve mobil uygulama otomatik olarak başlatılır:
-              </p>
-              <div className="flex items-center gap-2">
-                <input
-                  type="text"
-                  value={mobileUrlInput}
-                  onChange={(e) => setMobileUrlInput(e.target.value)}
-                  placeholder="https://santral.sirket.com/login?app_token=..."
-                  className="flex-1 px-3 py-2 rounded-xl text-[11px] font-mono bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-slate-800 dark:text-slate-200 focus:outline-none"
-                />
-                <button
-                  type="button"
-                  disabled={mobileUrlTesting}
-                  onClick={handleOpenMobileWithUrl}
-                  className={`px-3.5 py-2 rounded-xl text-xs font-extrabold text-white ${bg} ${hover} transition flex items-center gap-1.5 shrink-0 cursor-pointer disabled:opacity-50`}
-                >
-                  {mobileUrlTesting ? <RefreshCw size={13} className="animate-spin" /> : <ExternalLink size={13} />}
-                  <span>{mobileUrlTesting ? "Açılıyor..." : "Otomatik Aç"}</span>
-                </button>
+                  )}
+                  <a
+                    href={`${getApiBase()}/api/downloads/mobile/ios`}
+                    download="RUNA-Mobile-iOS-2.9.3.ipa"
+                    className={`px-3 py-1.5 rounded-lg text-[11px] font-extrabold text-white ${bg} ${hover} transition inline-flex items-center gap-1.5 shadow-2xs`}
+                  >
+                    <Download size={13} />
+                    <span>iOS Paketi İndir (.ipa)</span>
+                  </a>
+                </div>
               </div>
             </div>
           </div>
@@ -862,7 +839,7 @@ export default function UserApplicationsPanel({
                       ) : (
                         <Laptop size={14} className={text} />
                       )}
-                      <span>{sess.device_name || "AIDA Uygulaması"}</span>
+                      <span>{sess.device_name || "RUNA Uygulaması"}</span>
                     </td>
                     <td className="p-3 font-mono text-[11px] text-slate-500 dark:text-slate-400">
                       {sess.ip_address || "-"}

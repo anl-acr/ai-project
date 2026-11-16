@@ -33,7 +33,7 @@ export function getDesktopPrefs() {
       minimizeToTray: true,
       startOnBoot: false,
       serverHost: "",
-      appName: "AIDA Agent",
+      appName: "RUNA",
       platform: "web"
     };
   }
@@ -59,7 +59,7 @@ export function getDesktopPrefs() {
         minimizeToTray: cfg.minimizeToTray !== undefined ? Boolean(cfg.minimizeToTray) : true,
         startOnBoot: Boolean(cfg.startOnBoot),
         serverHost: cfg.serverHost || window.location.host || "",
-        appName: cfg.appName || "AIDA Agent",
+        appName: cfg.appName || "RUNA",
         platform: cfg.platform || "desktop"
       };
     } catch (e) {}
@@ -71,7 +71,7 @@ export function getDesktopPrefs() {
     minimizeToTray: true,
     startOnBoot: false,
     serverHost: window.location.host || "",
-    appName: "AIDA Agent",
+    appName: "RUNA",
     platform: "web"
   };
 }

@@ -1,9 +1,9 @@
 {
-  "name": "aida-agent-desktop",
+  "name": "runa-desktop",
   "version": "2.9.3",
-  "description": "AIDA Agent — macOS & Windows Çağrı Merkezi Temsilci Masaüstü Uygulaması",
+  "description": "Runa — macOS & Windows Çağrı Merkezi Temsilci Masaüstü Uygulaması",
   "main": "src/main.js",
-  "author": "AIDA Communication Systems",
+  "author": "Runa Communication Systems",
   "private": true,
   "scripts": {
     "start": "electron .",
@@ -18,9 +18,9 @@
     "electron-builder": "^25.1.8"
   },
   "build": {
-    "appId": "com.aida.agent.desktop",
-    "productName": "AIDA Agent",
-    "copyright": "Copyright © 2026 AIDA",
+    "appId": "com.runa.agent.desktop",
+    "productName": "Runa",
+    "copyright": "Copyright © 2026 Runa",
     "asar": true,
     "files": [
       "src/**/*",
@@ -49,9 +49,9 @@
         }
       ],
       "extendInfo": {
-        "NSMicrophoneUsageDescription": "AIDA Agent, telefon görüşmelerinde sesinizi karşı tarafa iletebilmek için mikrofon erişimine ihtiyaç duyar.",
-        "NSCameraUsageDescription": "AIDA Agent medya aygıtlarını listelemek için izin talep edebilir.",
-        "NSAudioCaptureUsageDescription": "AIDA Agent sesli görüşmeler için ses giriş aygıtlarını kullanır."
+        "NSMicrophoneUsageDescription": "Runa, telefon görüşmelerinde sesinizi karşı tarafa iletebilmek için mikrofon erişimine ihtiyaç duyar.",
+        "NSCameraUsageDescription": "Runa medya aygıtlarını listelemek için izin talep edebilir.",
+        "NSAudioCaptureUsageDescription": "Runa sesli görüşmeler için ses giriş aygıtlarını kullanır."
       }
     },
     "dmg": {
@@ -93,7 +93,7 @@
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
-      "shortcutName": "AIDA Agent"
+      "shortcutName": "Runa"
     }
   }
 }

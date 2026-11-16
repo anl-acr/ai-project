@@ -4703,7 +4703,9 @@ def regenerate_extensions_custom_conf(background_tasks: Optional[BackgroundTasks
     mon_cfg = num_plan.get("call_monitoring", {}) if isinstance(num_plan.get("call_monitoring"), dict) else {}
 
     pickup_group = str(pickup_cfg.get("group") or "*8").strip() or "*8"
-    pickup_directed = str(pickup_cfg.get("directed") or "**").strip() or "**"
+    pickup_directed = str(pickup_cfg.get("directed") or "**").strip().rstrip("Xx.") or "**"
+    if pickup_directed == pickup_group:
+        pickup_directed = "**"
     pickup_dir_len = len(pickup_directed)
 
     fwd_always_pfx = str(fwd_cfg.get("always") or "*21*").strip() or "*21*"
@@ -32719,7 +32721,7 @@ def _get_desktop_dist_packages() -> Dict[str, Any]:
             "size_mb": size_mb,
         })
     return {
-        "app_name": "AIDA Agent",
+        "app_name": "RUNA",
         "version": "2.9.3",
         "packages": packages,
     }
@@ -33174,15 +33176,15 @@ async def verify_app_magic_login_endpoint(
     ua_str = str(request.headers.get("user-agent") or "")
     if not dev_name:
         if "Mac" in ua_str or "darwin" in plat:
-            dev_name = "macOS — AIDA Agent"
+            dev_name = "macOS — RUNA"
         elif "Win" in ua_str or "win" in plat:
-            dev_name = "Windows — AIDA Agent"
+            dev_name = "Windows — RUNA"
         elif "iPhone" in ua_str or "iPad" in ua_str or "ios" in plat:
-            dev_name = "iOS — AIDA Mobile"
+            dev_name = "iOS — RUNA"
         elif "Android" in ua_str or "android" in plat:
-            dev_name = "Android — AIDA Mobile"
+            dev_name = "Android — RUNA"
         else:
-            dev_name = "AIDA Uygulama Oturumu"
+            dev_name = "RUNA Uygulama Oturumu"
 
     if not isinstance(user.get("cti_config"), dict):
         user["cti_config"] = {}
@@ -37603,18 +37605,46 @@ async def get_system_version_info():
         pass
 
     return {
-        "version": "v3.0.1",
+        "version": "v3.0.2",
         "commit_hash": live_commit,
-        "release_date": "12 Kasım 2026",
+        "release_date": "16 Kasım 2026",
         "status": "Güncel / Canlı Sürüm",
         "environment": "Production (On-Premise)",
         "changelog": [
             {
-                "version": "v3.0.1",
+                "version": "v3.0.2",
                 "commit_hash": live_commit,
-                "release_date": "12 Kasım 2026",
+                "release_date": "16 Kasım 2026",
                 "badge": "Canlı Sürüm (Güncel)",
                 "badge_type": "current",
+                "title": "Nornia Web Marka Kimliği (N Logosu & Renkli Başlık), Runa Masaüstü/Mobil Uygulama İkonu (R Logosu) ve VoIP / Arayüz İyileştirmeleri",
+                "summary": "Web arayüzü ve tarayıcı sekmesi Nornia (Akıllı İletişim Platformu) marka kimliğine ve yeni N harfli renkli logoya kavuşturuldu. Masaüstü ve Mobil uygulamalar Runa markası ve R harfli uygulama ikonuyla güncellendi; aktif çağrı ses barları, kuyruk/kullanıcı çalma süresi düzenlemeleri ve bildirim merkezi iyileştirmeleri tamamlandı.",
+                "features": [
+                    {
+                        "title": "🌈 Nornia Web Arayüzü & Tarayıcı Sekmesi (Favicon) Marka Kimliği",
+                        "desc": "Web arayüzü sol menü başlığı, giriş ekranı ve tarayıcı sekmesi 'Nornia — Akıllı İletişim Platformu' olarak güncellendi; 4 renkli diyagonal kesimli çerçeve, ses dalgası çubukları ve N harfinden oluşan yeni vektörel logo devreye alındı."
+                    },
+                    {
+                        "title": "📱 Runa Masaüstü (macOS/Windows) & Mobil (iOS) Uygulama İkonu ve Kimliği",
+                        "desc": "Masaüstü ve mobil temsilci uygulamaları 'Runa' marka kimliği ve R harfli yeni uygulama ikonu ile güncellendi; iOS CallKit / VoIP Push kilit ekranı ve arka plan çağrı karşılama akışı optimize edildi."
+                    },
+                    {
+                        "title": "🔔 Bildirim Merkezi Okundu Senkronizasyonu & Aktif Çağrı Ses Seviyesi İyileştirmeleri",
+                        "desc": "Bildirim kutusu kapatıldığında okunmuş bildirimlerin otomatik temizlenmesi, duyuru ve sohbet bildirimlerine tıklandığında ilgili ekrana yönlendirme ve Web Phone aktif çağrı ses barlarının (0-100) hassas gösterimi sağlandı."
+                    }
+                ],
+                "fixes": [
+                    "Kullanıcı düzenleme modalında Çalma Süresi (sn) alanının klavyeden serbestçe silinip yazılabilmesi ve profil açıklamalarının anında güncellenmesi düzeltildi.",
+                    "Masaüstü uygulaması üst barındaki mükerrer çalışma alanı (Santral / Temsilci) anahtarı sadeleştirildi.",
+                    "Kuyruk ve dahili aramalarda meşgul/cevapsız durumlarında sesli mesaja veya yönlendirmeye geçiş süreleri optimize edildi."
+                ]
+            },
+            {
+                "version": "v3.0.1",
+                "commit_hash": "cfa7a7d",
+                "release_date": "12 Kasım 2026",
+                "badge": "Önceki Sürüm",
+                "badge_type": "previous",
                 "title": "Uygulamalar & Süreli Kolay Giriş Linki (Masaüstü/Mobil), Tek Tıkla E-Posta Kurulum Daveti ve Tüm Rapor/Geçmiş Tablolarında Sayfalandırma",
                 "summary": "Kullanıcılar içindeki Uygulamalar sekmesi aktif edilerek Masaüstü (AIDA Agent) ve Mobil (AIDA Mobile) uygulamalar için süreli Kolay Giriş Linki (URL), QR Kod eşleştirme, kurulum paketi (.exe/.dmg) indirme ve tek tıkla e-posta davetiyesi gönderimi eklendi. Raporlar modülündeki 17 tablo ve Bağlantı & Cihaz Değişim Geçmişi tablosu 10/20/50/100 sayfalandırma yapısına kavuşturuldu.",
                 "features": [
@@ -39619,7 +39649,7 @@ def _create_full_system_backup_archive_sync(trigger_source: str = "manual") -> d
             "filename": archive_filename,
             "created_at": now_dt.strftime("%Y-%m-%d %H:%M:%S"),
             "trigger": trigger_source,
-            "version": "v3.0.0",
+            "version": "v3.0.2",
             "total_rows": db_export["total_rows"],
             "tables_count": len(db_export["tables"]),
             "table_summary": table_summary,

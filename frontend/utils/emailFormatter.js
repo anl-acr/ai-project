@@ -549,7 +549,7 @@ export function EmailMessageCard({
       ? `${session.sender_name} <${session.sender_info}>`
       : session?.sender_info || "Müşteri"
     : isAi
-      ? `AIDA Yapay Zeka Asistanı${session?.recipient_info ? ` <${session.recipient_info}>` : ""}`
+      ? `RUNA Yapay Zeka Asistanı${session?.recipient_info ? ` <${session.recipient_info}>` : ""}`
       : `Müşteri Temsilcisi${session?.recipient_info ? ` <${session.recipient_info}>` : ""}`;
 
   const toLabel = isCustomer

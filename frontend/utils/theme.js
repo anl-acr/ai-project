@@ -106,9 +106,9 @@ export const VALID_UI_TEMPLATES = ["classic", "executive", "aurora", "bento", "l
 export const SYSTEM_UI_TEMPLATES = [
   {
     id: "classic",
-    name: "AIDA Klasik",
+    name: "RUNA Klasik",
     badge: "Varsayılan",
-    desc: "Mevcut dengeli, sade ve alışılmış AIDA kurumsal görünümü."
+    desc: "Mevcut dengeli, sade ve alışılmış RUNA kurumsal görünümü."
   },
   {
     id: "executive",

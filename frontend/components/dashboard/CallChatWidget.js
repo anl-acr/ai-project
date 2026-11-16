@@ -393,7 +393,7 @@ export default function CallChatWidget({
     if (typeof document === "undefined") return;
 
     if (!originalTitleRef.current) {
-      originalTitleRef.current = document.title || "AIDA PBX";
+      originalTitleRef.current = document.title || "RUNA PBX";
     }
     const existingIconEl = document.querySelector("link[rel*='icon']");
     if (existingIconEl && originalFaviconRef.current === null) {

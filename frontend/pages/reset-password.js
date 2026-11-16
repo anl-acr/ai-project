@@ -180,7 +180,7 @@ export default function ResetPasswordPage() {
   return (
     <div className="min-h-screen w-full flex items-center justify-center bg-slate-50 dark:bg-slate-950 p-4 font-sans relative overflow-hidden">
       <Head>
-        <title>Yeni Şifre Oluştur — AIDA PBX</title>
+        <title>Yeni Şifre Oluştur — Nornia</title>
       </Head>
 
       {/* Ambient Theme Glows */}
@@ -195,19 +195,14 @@ export default function ResetPasswordPage() {
         <div className="bg-white/80 dark:bg-slate-900/60 backdrop-blur-2xl border border-slate-200/80 dark:border-slate-800 p-8 rounded-[2rem] shadow-2xl relative overflow-hidden">
           {/* Logo & Header */}
           <div className="flex flex-col items-center justify-center text-center mb-6">
-            <div
-              className={
-                "w-14 h-14 text-white rounded-2xl flex items-center justify-center shadow-lg mb-4 " +
-                bg
-              }
-            >
-              <BrainCircuit size={28} aria-hidden="true" />
+            <div className="w-14 h-14 rounded-2xl flex items-center justify-center shadow-lg mb-4 overflow-hidden">
+              <img src="/favicon.svg" alt="Logo" className="w-14 h-14 object-contain" />
             </div>
             <h1 className="text-2xl font-black tracking-tight text-slate-900 dark:text-white">
               Yeni Şifre Oluştur
             </h1>
             <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-              AIDA PBX hesap güvenliğiniz için güçlü bir şifre belirleyin
+              Nornia hesap güvenliğiniz için güçlü bir şifre belirleyin
             </p>
           </div>
 

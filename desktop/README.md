@@ -1,6 +1,6 @@
-# AIDA Agent — Masaüstü Temsilci Uygulaması (macOS & Windows)
+# RUNA — Masaüstü Temsilci Uygulaması (macOS & Windows)
 
-`AIDA Agent`, çağrı merkezi temsilcilerinin tarayıcıya ihtiyaç duymadan bilgisayarlarında çalıştırabilecekleri, **Temsilci Çağrı Paneli**'ndeki 10 modülün tamamını, yetkiye bağlı **Omnichannel** ekranını, işletim sistemi bildirimlerini ve **3 bağımsız ses donanımı yönlendirmesini** (Mikrofon, Görüşme Kulaklığı, Çalma Tonu Hoparlörü) barındıran Electron tabanlı masaüstü uygulamasıdır.
+`RUNA`, çağrı merkezi temsilcilerinin tarayıcıya ihtiyaç duymadan bilgisayarlarında çalıştırabilecekleri, **Temsilci Çağrı Paneli**'ndeki 10 modülün tamamını, yetkiye bağlı **Omnichannel** ekranını, işletim sistemi bildirimlerini ve **3 bağımsız ses donanımı yönlendirmesini** (Mikrofon, Görüşme Kulaklığı, Çalma Tonu Hoparlörü) barındıran Electron tabanlı masaüstü uygulamasıdır.
 
 ## Geliştirme Modunda Çalıştırma
 
@@ -28,6 +28,6 @@ npm start
 
 ## Uygulama İsmini Değiştirme
 
-İleride uygulama adını değiştirmek için yalnızca şu iki dosyadaki `AIDA Agent` değerini güncellemeniz yeterlidir:
+İleride uygulama adını değiştirmek için yalnızca şu iki dosyadaki `RUNA` değerini güncellemeniz yeterlidir:
 1. `desktop/package.json` (`build.productName` ve `build.nsis.shortcutName`)
 2. `desktop/src/config.js` (`APP_BRAND.appName`)

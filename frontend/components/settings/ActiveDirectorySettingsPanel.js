@@ -576,7 +576,7 @@ export default function ActiveDirectorySettingsPanel({ backendHost = "localhost:
             {[
               {
                 key: "auto_create_users",
-                title: "Yeni AD personellerini AIDA'da otomatik oluştur",
+                title: "Yeni AD personellerini RUNA'da otomatik oluştur",
                 desc: "Active Directory'de açılan yeni personel ilk senkronizasyonda veya ilk girişinde otomatik oluşturulur.",
               },
               {
@@ -591,7 +591,7 @@ export default function ActiveDirectorySettingsPanel({ backendHost = "localhost:
               },
               {
                 key: "allow_local_fallback",
-                title: "Hibrit Çalışma: Yerel (Local) AIDA kullanıcılarının girişine de izin ver",
+                title: "Hibrit Çalışma: Yerel (Local) RUNA kullanıcılarının girişine de izin ver",
                 desc: "AD dışındaki yerel yönetici veya dış kaynak temsilci hesapları kendi şifreleriyle girmeye devam eder.",
               },
             ].map((item) => (
@@ -624,7 +624,7 @@ export default function ActiveDirectorySettingsPanel({ backendHost = "localhost:
               Active Directory Dizininde Bulunan Kullanıcılar ve Eşleştirme Önizlemesi
             </h4>
             <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
-              Dizin sorgusundan dönen personellerin AIDA üzerindeki karşılıkları ve otomatik atanacak dahili numaraları.
+              Dizin sorgusundan dönen personellerin RUNA üzerindeki karşılıkları ve otomatik atanacak dahili numaraları.
             </p>
           </div>
           <button
@@ -646,7 +646,7 @@ export default function ActiveDirectorySettingsPanel({ backendHost = "localhost:
                 <th className="py-2.5 px-4">Ad Soyad</th>
                 <th className="py-2.5 px-4">E-Posta (UPN)</th>
                 <th className="py-2.5 px-4">Departman / Unvan</th>
-                <th className="py-2.5 px-4">AIDA Dahili</th>
+                <th className="py-2.5 px-4">RUNA Dahili</th>
                 <th className="py-2.5 px-4">Durum</th>
               </tr>
             </thead>

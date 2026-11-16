@@ -55,7 +55,7 @@ const DEFAULT_EVENTS_META = [
   {
     key: "system_reboot",
     title: "Sistem Reboot Edildiğinde / Servisler Başlatıldığında",
-    description: "Sunucu yeniden başlatıldığında veya AIDA ana arka plan servisleri (Backend / AudioSocket) ayağa kalktığında durum bilgisi gönderir.",
+    description: "Sunucu yeniden başlatıldığında veya RUNA ana arka plan servisleri (Backend / AudioSocket) ayağa kalktığında durum bilgisi gönderir.",
     category: "Sistem & Sunucu",
     severity: "warning",
     icon: RefreshCw
@@ -153,7 +153,7 @@ export default function EmailNotificationsPanel({ backendHost = "localhost:8000"
     smtp_port: 587,
     smtp_user: "",
     smtp_password: "",
-    smtp_from_name: "AIDA Sistem Bildirimi",
+    smtp_from_name: "RUNA Sistem Bildirimi",
     cooldown_minutes: 5,
     events: {},
     history: []
@@ -253,7 +253,7 @@ export default function EmailNotificationsPanel({ backendHost = "localhost:8000"
           smtp_port: data.smtp_port || 587,
           smtp_user: data.smtp_user || "",
           smtp_password: data.smtp_password || "",
-          smtp_from_name: data.smtp_from_name || "AIDA Sistem Bildirimi",
+          smtp_from_name: data.smtp_from_name || "RUNA Sistem Bildirimi",
           cooldown_minutes: data.cooldown_minutes || 5,
           events: mergedEvents,
           history: Array.isArray(data.history) ? data.history : []

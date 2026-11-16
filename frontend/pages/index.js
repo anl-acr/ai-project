@@ -3553,8 +3553,8 @@ export default function Home() {
   return (
     <div className="aida-app-shell h-screen overflow-hidden bg-slate-50 dark:bg-slate-950 text-slate-800 dark:text-slate-100 flex font-sans transition-colors duration-300">
       <Head>
-        <title>AIDA PBX</title>
-        <meta name="description" content="AIDA PBX — Çok Kanallı Yapay Zeka Santral Platformu" />
+        <title>Nornia</title>
+        <meta name="description" content="Nornia — Akıllı İletişim Platformu" />
         <meta name="color-scheme" content="light dark" />
         <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
         <link rel="alternate icon" href="/favicon.ico" sizes="32x32" />
@@ -3614,22 +3614,29 @@ export default function Home() {
           <div className="flex items-center gap-2.5 min-w-0">
             <div
               onClick={() => isSidebarCollapsed && toggleSidebarCollapse()}
-              title={isSidebarCollapsed ? "Menüyü Genişlet" : "AIDA Çok Kanallı Santral"}
-              className={`h-9 w-9 shrink-0 rounded-xl bg-gradient-to-tr from-indigo-600 to-violet-600 flex items-center justify-center text-white shadow-lg shadow-indigo-500/20 ${
+              title={isSidebarCollapsed ? "Menüyü Genişlet" : "Akıllı İletişim Platformu"}
+              className={`h-9 w-9 shrink-0 rounded-xl flex items-center justify-center overflow-hidden shadow-md ${
                 isSidebarCollapsed ? "cursor-pointer hover:scale-105 transition-transform" : ""
               }`}
             >
-              <Bot size={20} className="animate-pulse shrink-0" />
+              <img src="/favicon.svg" alt="Nornia Logo" className="h-9 w-9 object-contain" />
             </div>
             <div
               className={`overflow-hidden transition-all duration-300 whitespace-nowrap ${
-                isSidebarCollapsed ? "max-w-0 opacity-0" : "max-w-[140px] opacity-100"
+                isSidebarCollapsed ? "max-w-0 opacity-0" : "max-w-[165px] opacity-100"
               }`}
             >
-              <h1 className="font-extrabold text-base tracking-tight text-slate-900 dark:text-white leading-tight">
-                <span className="text-rose-600 dark:text-rose-500">AI</span>DA
+              <h1
+                className="font-extrabold text-base tracking-tight leading-tight bg-clip-text text-transparent"
+                style={{
+                  backgroundImage: "linear-gradient(90deg, #16A34A 0%, #0284C7 28%, #7C3AED 58%, #DB2777 80%, #EA580C 100%)",
+                  WebkitBackgroundClip: "text",
+                  WebkitTextFillColor: "transparent",
+                }}
+              >
+                Nornia
               </h1>
-              <p className="text-[9px] text-slate-400 dark:text-slate-400 font-bold uppercase tracking-wider">ÇOK KANALLI SANTRAL</p>
+              <p className="text-[9.5px] text-slate-400 dark:text-slate-400 font-bold tracking-wide">Akıllı İletişim Platformu</p>
             </div>
           </div>
 
@@ -4855,10 +4862,10 @@ export default function Home() {
           </p>
           <button
             onClick={() => setActiveTab("changelog")}
-            title="Sistem Versiyonu ve Değişiklik Günlüğü (v3.0.0 On-Premise)"
+            title="Sistem Versiyonu ve Değişiklik Günlüğü (v3.0.2 On-Premise)"
             className="flex items-center gap-1 text-[10px] font-bold text-slate-500 dark:text-slate-400 hover:text-primary dark:hover:text-primary hover:underline transition cursor-pointer bg-transparent border-0 p-0 outline-none focus-visible:ring-2 focus-visible:ring-primary/50 rounded"
           >
-            <span>{isSidebarCollapsed ? "v3.0.0" : "v3.0.0 (On-Premise)"}</span>
+            <span>{isSidebarCollapsed ? "v3.0.2" : "v3.0.2 (On-Premise)"}</span>
           </button>
         </div>
       </aside>
@@ -5294,12 +5301,25 @@ export default function Home() {
           <div className="flex items-center gap-2 min-w-0 shrink-0">
             {(isDesktopMode || (activeTab === "call-center" && (isAgentOnlyUser || isAgentFullScreenMode))) && (
               <div className="flex items-center gap-2.5 pr-2">
-                <div className={`h-8 w-8 shrink-0 rounded-xl ${bg} flex items-center justify-center text-white shadow-sm`}>
-                  <Bot size={18} />
+                <div className="h-8 w-8 shrink-0 rounded-xl flex items-center justify-center overflow-hidden shadow-sm">
+                  <img src={isDesktopMode ? "/runa-logo.png" : "/favicon.svg"} alt="Logo" className="h-8 w-8 object-contain" />
                 </div>
                 <div>
                   <div className="font-extrabold text-sm tracking-tight text-slate-900 dark:text-white leading-none flex items-center gap-1.5">
-                    <span><span className="text-rose-600 dark:text-rose-500">AI</span>DA{isDesktopMode ? " Agent" : ""}</span>
+                    {isDesktopMode ? (
+                      <span>Runa</span>
+                    ) : (
+                      <span
+                        className="bg-clip-text text-transparent"
+                        style={{
+                          backgroundImage: "linear-gradient(90deg, #16A34A 0%, #0284C7 28%, #7C3AED 58%, #DB2777 80%, #EA580C 100%)",
+                          WebkitBackgroundClip: "text",
+                          WebkitTextFillColor: "transparent",
+                        }}
+                      >
+                        Nornia
+                      </span>
+                    )}
                     {isDesktopMode && (
                       <span
                         title={`Bağlı Santral: ${desktopPrefs?.serverHost || backendHost}`}
@@ -5319,12 +5339,19 @@ export default function Home() {
 
             {activeTab === "wallboard" && isWallboardOnlyUser && (
               <div className="flex items-center gap-2.5 pr-2">
-                <div className="h-8 w-8 shrink-0 rounded-xl bg-gradient-to-tr from-indigo-600 to-violet-600 flex items-center justify-center text-white shadow-sm">
-                  <Monitor size={18} />
+                <div className="h-8 w-8 shrink-0 rounded-xl flex items-center justify-center overflow-hidden shadow-sm">
+                  <img src="/favicon.svg" alt="Logo" className="h-8 w-8 object-contain" />
                 </div>
                 <div>
-                  <div className="font-extrabold text-sm tracking-tight text-slate-900 dark:text-white leading-none">
-                    <span className="text-rose-600 dark:text-rose-500">AI</span>DA
+                  <div
+                    className="font-extrabold text-sm tracking-tight leading-none bg-clip-text text-transparent"
+                    style={{
+                      backgroundImage: "linear-gradient(90deg, #16A34A 0%, #0284C7 28%, #7C3AED 58%, #DB2777 80%, #EA580C 100%)",
+                      WebkitBackgroundClip: "text",
+                      WebkitTextFillColor: "transparent",
+                    }}
+                  >
+                    Nornia
                   </div>
                   <div className="text-[9px] text-slate-400 font-bold uppercase tracking-wider mt-0.5">
                     CANLI İZLEME PANELİ
@@ -5910,7 +5937,7 @@ export default function Home() {
                             Masaüstü &amp; Mobil Uygulamalarım
                           </h4>
                           <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-                            Bilgisayarınız veya telefonunuz için AIDA Agent kurulum dosyalarını indirin, şifre yazmadan tek linkle veya QR kodla anında oturum açın.
+                            Bilgisayarınız veya telefonunuz için RUNA kurulum dosyalarını indirin, şifre yazmadan tek linkle veya QR kodla anında oturum açın.
                           </p>
                         </div>
                         <UserApplicationsPanel
@@ -8421,7 +8448,7 @@ export default function Home() {
                                 Arayüz Görünüm Şablonu
                               </label>
                               <span className="text-[10px] text-slate-500 dark:text-slate-400">
-                                Mevcut AIDA Klasik yapısını koruyabilir veya belirgin tasarım şablonlarını anında önizleyebilirsiniz
+                                Mevcut RUNA Klasik yapısını koruyabilir veya belirgin tasarım şablonlarını anında önizleyebilirsiniz
                               </span>
                             </div>
                           </div>
@@ -9358,7 +9385,7 @@ export default function Home() {
                           } catch (e) {}
                         }
                         sendDesktopNotification({
-                          title: "🔔 AIDA Agent Bildirim Testi",
+                          title: "🔔 RUNA Bildirim Testi",
                           body: "Gelen çağrı ve mesaj bildirimleriniz sorunsuz çalışıyor.",
                           urgent: false,
                           forceEvenIfDisabled: true
@@ -9425,7 +9452,7 @@ export default function Home() {
 
                         <label className="flex items-center justify-between gap-3 p-2 rounded-xl bg-white/80 dark:bg-slate-950/50 border border-slate-200/60 dark:border-slate-800/80 cursor-pointer">
                           <span className="text-[10.5px] font-bold text-slate-700 dark:text-slate-200">
-                            Bilgisayar Açıldığında AIDA Agent Otomatik Başlasın
+                            Bilgisayar Açıldığında RUNA Otomatik Başlasın
                           </span>
                           <input
                             type="checkbox"

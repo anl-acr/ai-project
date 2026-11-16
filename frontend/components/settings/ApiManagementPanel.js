@@ -322,7 +322,7 @@ export default function ApiManagementPanel({ backendHost = "localhost:8000" }) {
 
   const downloadMarkdownDoc = () => {
     const lines = [
-      "# AIDA PBX — Kurumsal Dış API (External REST API v1) Entegrasyon Kılavuzu",
+      "# RUNA PBX — Kurumsal Dış API (External REST API v1) Entegrasyon Kılavuzu",
       "",
       "## 1. Kimlik Doğrulama (Authentication / Token Gönderimi)",
       "Tüm API isteklerinde oluşturduğunuz API Anahtarını (`Token`) HTTP başlığında (`Header`) göndermeniz zorunludur:",
@@ -386,7 +386,7 @@ export default function ApiManagementPanel({ backendHost = "localhost:8000" }) {
               key: "X-API-Key",
               value: "{{api_key}}",
               type: "text",
-              description: "AIDA PBX Kurumsal API Anahtarı (Token)"
+              description: "RUNA PBX Kurumsal API Anahtarı (Token)"
             },
             {
               key: "Content-Type",
@@ -425,9 +425,9 @@ export default function ApiManagementPanel({ backendHost = "localhost:8000" }) {
     const collectionJson = {
       info: {
         _postman_id: "aida-pbx-external-api-v1-collection",
-        name: "AIDA PBX — Kurumsal Dış API (v1) Hazır Test Koleksiyonu",
+        name: "RUNA PBX — Kurumsal Dış API (v1) Hazır Test Koleksiyonu",
         description:
-          "AIDA PBX santral sisteminin tüm dış API (v1) uç noktalarını (Okuma/GET, Ekleme-Başlatma/POST, Güncelleme/PUT, Silme/DELETE) içeren hazır Postman koleksiyonu.",
+          "RUNA PBX santral sisteminin tüm dış API (v1) uç noktalarını (Okuma/GET, Ekleme-Başlatma/POST, Güncelleme/PUT, Silme/DELETE) içeren hazır Postman koleksiyonu.",
         schema:
           "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
       },

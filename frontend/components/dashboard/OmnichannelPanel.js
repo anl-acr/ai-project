@@ -624,7 +624,7 @@ export default function OmnichannelPanel({ backendHost = "localhost:8000" }) {
 
     const emailChan = isEmailChannel(activeSession.channel);
     const computedSubject = emailChan
-      ? (replySubjectOverride.trim() || extractReplySubjectFromMessages(messages) || "AIDA Müşteri Hizmetleri Yanıtı")
+      ? (replySubjectOverride.trim() || extractReplySubjectFromMessages(messages) || "RUNA Müşteri Hizmetleri Yanıtı")
       : null;
 
     setActionLoading(true);
@@ -1147,7 +1147,7 @@ export default function OmnichannelPanel({ backendHost = "localhost:8000" }) {
         ? activeSession?.sender_name
           ? `${activeSession.sender_name} <${activeSession.sender_info}>`
           : activeSession?.sender_info || ""
-        : activeSession?.recipient_info || "AIDA Destek";
+        : activeSession?.recipient_info || "RUNA Destek";
     const origDate = formatEmailFullDateTime(msgObj.timestamp);
     const firstAtt = parsedEmail.attachments?.[0] || null;
     const relativeMediaUrl = firstAtt?.mediaUrl
@@ -2136,7 +2136,7 @@ export default function OmnichannelPanel({ backendHost = "localhost:8000" }) {
                         <span className="font-semibold text-slate-800 dark:text-slate-100 truncate">
                           {replySubjectOverride.trim() ||
                             extractReplySubjectFromMessages(messages) ||
-                            "AIDA Müşteri Hizmetleri Yanıtı"}
+                            "RUNA Müşteri Hizmetleri Yanıtı"}
                         </span>
                         {(replyCc.trim() || replyBcc.trim()) && (
                           <span className="px-1.5 py-0.5 rounded bg-primary/10 text-primary text-[9px] font-extrabold shrink-0">

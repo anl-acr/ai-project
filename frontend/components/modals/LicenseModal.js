@@ -121,7 +121,7 @@ export default function LicenseModal({ isOpen, onClose, backendHost, onLicenseUp
                 Sistem Lisans Yönetimi
               </h3>
               <p className="text-xs font-semibold text-slate-500 dark:text-slate-400">
-                {licenseStatus?.tenant_name || "AIDA Santral & AI Paneli"}
+                {licenseStatus?.tenant_name || "RUNA Santral & AI Paneli"}
               </p>
             </div>
           </div>

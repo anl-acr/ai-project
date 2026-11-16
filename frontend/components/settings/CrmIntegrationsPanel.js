@@ -260,7 +260,7 @@ export default function CrmIntegrationsPanel({ backendHost = "localhost:8000" })
                 Hazır Kurumsal CRM Entegrasyon Marketi (Native Connectors)
               </h3>
               <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-                Dünyada ve Türkiye&apos;de en çok kullanılan CRM yazılımlarını kod yazmadan tek tıkla AIDA santraline bağlayın.
+                Dünyada ve Türkiye&apos;de en çok kullanılan CRM yazılımlarını kod yazmadan tek tıkla RUNA santraline bağlayın.
               </p>
             </div>
           </div>

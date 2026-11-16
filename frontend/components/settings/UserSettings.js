@@ -6328,7 +6328,7 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
                                                 { key: "osNotifications", label: "Sistem Bildirimlerini Göster (Arka Plan Çağrı & Mesaj)" },
                                                 { key: "popWindowOnCall", label: "Çağrı Geldiğinde Pencereyi Otomatik Öne Getir" },
                                                 { key: "minimizeToTray", label: "Pencere Kapatıldığında (X) Sistem Tepsisinde Açık Tut" },
-                                                { key: "startOnBoot", label: "Bilgisayar Açıldığında AIDA Agent Otomatik Başlasın" }
+                                                { key: "startOnBoot", label: "Bilgisayar Açıldığında RUNA Otomatik Başlasın" }
                                             ].map((dpItem) => {
                                                 const checked = Boolean(userCallPanelPrefs?.desktopPrefs?.[dpItem.key]);
                                                 return (

@@ -48,7 +48,10 @@ let pendingDeepLinkUrl = null;
 
 function extractProtocolArg(argv = []) {
   for (const arg of argv) {
-    if (typeof arg === "string" && arg.startsWith("aida-agent://")) {
+    if (
+      typeof arg === "string" &&
+      (arg.startsWith("runa://") || arg.startsWith("runa-agent://") || arg.startsWith("aida-agent://"))
+    ) {
       return arg;
     }
   }
@@ -56,6 +59,12 @@ function extractProtocolArg(argv = []) {
 }
 
 try {
+  if (!app.isDefaultProtocolClient("runa")) {
+    app.setAsDefaultProtocolClient("runa");
+  }
+  if (!app.isDefaultProtocolClient("runa-agent")) {
+    app.setAsDefaultProtocolClient("runa-agent");
+  }
   if (!app.isDefaultProtocolClient("aida-agent")) {
     app.setAsDefaultProtocolClient("aida-agent");
   }
@@ -222,9 +231,13 @@ async function resolveServerOrigins(rawHostInput) {
   raw = raw.replace(/\/+(login|agent-desktop|api.*)?$/i, "");
 
   const hasExplicitProtocol = /^https?:\/\//i.test(raw);
-  const cleanHostPart = raw.replace(/^https?:\/\//i, "").replace(/\/+$/, "");
+  let cleanHostPart = raw.replace(/^https?:\/\//i, "").replace(/\/+$/, "");
   if (!cleanHostPart) {
     throw new Error("Geçersiz sunucu adresi.");
+  }
+  if (cleanHostPart.toLowerCase() === "runa.saphira.com.tr") {
+    cleanHostPart = "aida.saphira.com.tr";
+    raw = raw.replace(/runa\.saphira\.com\.tr/i, "aida.saphira.com.tr");
   }
 
   const isLocalOrLan =
@@ -269,7 +282,7 @@ async function resolveServerOrigins(rawHostInput) {
   }
 
   if (!matchedApiOrigin) {
-    throw new Error("Belirtilen sunucuda AIDA servisine ulaşılamadı. Adresi veya ağ bağlantınızı kontrol edin.");
+    throw new Error("Belirtilen sunucuda RUNA servisine ulaşılamadı. Adresi veya ağ bağlantınızı kontrol edin.");
   }
 
   // Verify whether matchedApiOrigin also serves the Next.js HTML workspace (Reverse Proxy / :3000)
@@ -301,7 +314,10 @@ async function resolveServerOrigins(rawHostInput) {
     }
   } catch (e) {}
 
-  const displayHost = new URL(matchedUiOrigin).host;
+  let displayHost = new URL(matchedUiOrigin).host;
+  if (displayHost.toLowerCase() === "aida.saphira.com.tr") {
+    displayHost = "runa.saphira.com.tr";
+  }
   return {
     displayHost,
     apiOrigin: matchedApiOrigin,
@@ -485,7 +501,7 @@ function setupSystemTray() {
     });
     rebuildTrayMenu();
   } catch (err) {
-    console.warn("[AIDA Tray] Tray initialization warning:", err.message);
+    console.warn("[RUNA Tray] Tray initialization warning:", err.message);
   }
 }
 
@@ -536,6 +552,23 @@ function createMainWindow() {
 
   mainWindow.once("ready-to-show", () => {
     mainWindow.show();
+  });
+
+  mainWindow.on("page-title-updated", (event, title) => {
+    if (title && /aida|aİda|RUNA/.test(title)) {
+      event.preventDefault();
+      mainWindow.setTitle(
+        String(title)
+          .replace(/AIDA\s+Agent/gi, "Runa")
+          .replace(/AIDA\s+Mobile/gi, "Runa")
+          .replace(/AIDA\s+PBX/gi, "Runa")
+          .replace(/RUNA\s+PBX/gi, "Runa")
+          .replace(/AİDA/g, "Runa")
+          .replace(/AIDA/g, "Runa")
+          .replace(/RUNA/g, "Runa")
+          .replace(/Aida/g, "Runa")
+      );
+    }
   });
 
   // Save window size on resize
@@ -734,7 +767,11 @@ async function performMagicUrlLogin(rawInputUrl, rememberMe = true) {
   }
 
   let extractedTargetUrl = cleanStr;
-  if (cleanStr.startsWith("aida-agent://")) {
+  if (
+    cleanStr.startsWith("runa://") ||
+    cleanStr.startsWith("runa-agent://") ||
+    cleanStr.startsWith("aida-agent://")
+  ) {
     try {
       const pDeep = new URL(cleanStr);
       const innerUrl = pDeep.searchParams.get("url");
@@ -978,9 +1015,27 @@ ipcMain.on("aida:notify", (_event, payload = {}) => {
   if (!Notification.isSupported() || !title) return;
 
   try {
+    const cleanTitle = String(title)
+      .replace(/AIDA\s+Agent/gi, "Runa")
+      .replace(/AIDA\s+Mobile/gi, "Runa")
+      .replace(/AIDA\s+PBX/gi, "Runa")
+      .replace(/RUNA\s+PBX/gi, "Runa")
+      .replace(/AİDA/g, "Runa")
+      .replace(/AIDA/g, "Runa")
+      .replace(/RUNA/g, "Runa")
+      .replace(/Aida/g, "Runa");
+    const cleanBody = String(body || "")
+      .replace(/AIDA\s+Agent/gi, "Runa")
+      .replace(/AIDA\s+Mobile/gi, "Runa")
+      .replace(/AIDA\s+PBX/gi, "Runa")
+      .replace(/RUNA\s+PBX/gi, "Runa")
+      .replace(/AİDA/g, "Runa")
+      .replace(/AIDA/g, "Runa")
+      .replace(/RUNA/g, "Runa")
+      .replace(/Aida/g, "Runa");
     const notif = new Notification({
-      title: String(title),
-      body: String(body || ""),
+      title: cleanTitle,
+      body: cleanBody,
       urgency: urgent ? "critical" : "normal",
       timeoutType: urgent ? "never" : "default",
       icon: getAppIconPath(),
@@ -1012,7 +1067,7 @@ ipcMain.on("aida:notify", (_event, payload = {}) => {
 
     notif.show();
   } catch (err) {
-    console.warn("[AIDA Notify] Native notification error:", err.message);
+    console.warn("[RUNA Notify] Native notification error:", err.message);
   }
 });
 

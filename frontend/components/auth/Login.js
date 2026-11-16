@@ -374,18 +374,25 @@ export default function Login({ onLogin, onComplete2FA, error, backendHost }) {
           {/* Logo & Title */}
           <div className="flex flex-col items-center justify-center text-center mb-8 mt-1">
             <div className="relative mb-5">
-              <div className="absolute inset-0 bg-indigo-400 dark:bg-indigo-500 blur-xl opacity-30 dark:opacity-40 rounded-full animate-pulse"></div>
-              <div className="w-16 h-16 bg-gradient-to-br from-indigo-500 to-violet-600 text-white rounded-2xl flex items-center justify-center relative shadow-xl shadow-indigo-500/20 border border-white/20 dark:border-white/10">
-                <BrainCircuit size={32} className="drop-shadow-lg" />
+              <div className="absolute inset-0 bg-indigo-400 dark:bg-indigo-500 blur-xl opacity-25 dark:opacity-35 rounded-full animate-pulse"></div>
+              <div className="w-16 h-16 rounded-2xl flex items-center justify-center relative shadow-xl overflow-hidden">
+                <img src="/favicon.svg" alt="Logo" className="w-16 h-16 object-contain" />
               </div>
             </div>
             
-            {/* AİDA highlighted text */}
-            <h1 className="text-3xl font-black tracking-tight text-slate-800 dark:text-transparent dark:bg-clip-text dark:bg-gradient-to-br dark:from-white dark:via-slate-100 dark:to-slate-400">
-              <span className="text-rose-600 dark:text-rose-500 drop-shadow-sm">Aİ</span>DA
+            {/* Nornia highlighted text */}
+            <h1
+              className="text-3xl font-black tracking-tight bg-clip-text text-transparent"
+              style={{
+                backgroundImage: "linear-gradient(90deg, #16A34A 0%, #0284C7 28%, #7C3AED 58%, #DB2777 80%, #EA580C 100%)",
+                WebkitBackgroundClip: "text",
+                WebkitTextFillColor: "transparent",
+              }}
+            >
+              Nornia
             </h1>
-            <p className="text-[11px] text-slate-500 dark:text-indigo-200/60 uppercase tracking-[0.3em] font-bold mt-2">
-              AI Dijital Asistan
+            <p className="text-[11px] text-slate-500 dark:text-indigo-200/60 tracking-[0.22em] font-bold mt-2">
+              Akıllı İletişim Platformu
             </p>
           </div>
 
@@ -939,7 +946,7 @@ export default function Login({ onLogin, onComplete2FA, error, backendHost }) {
         {/* Footer info */}
         <div className="text-center mt-8 opacity-60">
           <p className="text-[10px] text-slate-500 font-medium tracking-wide">
-            &copy; {new Date().getFullYear()} AİDA. Tüm hakları saklıdır.
+            &copy; {new Date().getFullYear()} RUNA. Tüm hakları saklıdır.
           </p>
         </div>
       </div>

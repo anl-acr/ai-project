@@ -1356,7 +1356,7 @@ export default function AnnouncementsPanel({ backendHost = "localhost:8000", use
 
                         <textarea
                           required={activeTab === "tts"}
-                          placeholder="Örn: Aida test sistemine hoşgeldiniz. Dahili numarayı biliyorsanız lütfen tuşlayınız, bilmiyorsanız lütfen hatta kalınız..."
+                          placeholder="Örn: Runa test sistemine hoşgeldiniz. Dahili numarayı biliyorsanız lütfen tuşlayınız, bilmiyorsanız lütfen hatta kalınız..."
                           value={ttsText}
                           onChange={(e) => setTtsText(e.target.value)}
                           rows={4}

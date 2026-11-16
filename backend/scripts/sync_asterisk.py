@@ -1028,7 +1028,9 @@ Event=>check-sync;reboot=false
     mon_cfg = num_plan.get("call_monitoring", {}) if isinstance(num_plan.get("call_monitoring"), dict) else {}
 
     pickup_group = str(pickup_cfg.get("group") or "*8").strip() or "*8"
-    pickup_directed = str(pickup_cfg.get("directed") or "**").strip() or "**"
+    pickup_directed = str(pickup_cfg.get("directed") or "**").strip().rstrip("Xx.") or "**"
+    if pickup_directed == pickup_group:
+        pickup_directed = "**"
     pickup_dir_len = len(pickup_directed)
 
     fwd_always_pfx = str(fwd_cfg.get("always") or "*21*").strip() or "*21*"

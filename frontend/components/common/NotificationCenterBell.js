@@ -121,7 +121,7 @@ export default function NotificationCenterBell({
     if (typeof window === "undefined") return;
     if (isNativeElectron()) {
       sendDesktopNotification({
-        title: item.title || "AIDA Bildirimi",
+        title: item.title || "RUNA Bildirimi",
         body: item.body || "",
         tag: item.id,
         urgent: item.severity === "critical",
@@ -132,7 +132,7 @@ export default function NotificationCenterBell({
     }
     if (!("Notification" in window) || Notification.permission !== "granted") return;
     try {
-      const n = new Notification(item.title || "AIDA Bildirimi", {
+      const n = new Notification(item.title || "RUNA Bildirimi", {
         body: item.body || "",
         tag: item.id,
       });
