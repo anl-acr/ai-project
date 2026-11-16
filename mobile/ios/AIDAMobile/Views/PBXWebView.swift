@@ -4027,22 +4027,30 @@ struct PBXWebView: UIViewRepresentable {
                 topbarLogoBox.innerHTML = `<svg viewBox="0 0 1024 1024" width="32" height="32" xmlns="http://www.w3.org/2000/svg"><defs><clipPath id="rOuterClip"><rect x="78" y="78" width="868" height="868" rx="176"/></clipPath><linearGradient id="rTL" x1="0" y1="1" x2="1" y2="0"><stop offset="0%" stop-color="#0EA5E9"/><stop offset="100%" stop-color="#4F46E5"/></linearGradient><linearGradient id="rTR" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#7C3AED"/><stop offset="100%" stop-color="#DB2777"/></linearGradient><linearGradient id="rBR" x1="1" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#F43F5E"/><stop offset="100%" stop-color="#FF7319"/></linearGradient><linearGradient id="rBL" x1="1" y1="1" x2="0" y2="0"><stop offset="0%" stop-color="#F59E0B"/><stop offset="100%" stop-color="#10B981"/></linearGradient><linearGradient id="rB1" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#F43F5E"/><stop offset="100%" stop-color="#FB923C"/></linearGradient><linearGradient id="rB2" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#0EA5E9"/><stop offset="100%" stop-color="#10B981"/></linearGradient><linearGradient id="rRG" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#1E1B4B"/><stop offset="100%" stop-color="#4338CA"/></linearGradient></defs><rect width="1024" height="1024" rx="220" fill="#F8FAFD"/><g clip-path="url(#rOuterClip)"><polygon points="0,634 240,449 525,512 455,0 0,0" fill="url(#rTL)"/><polygon points="455,0 1024,0 1024,439 780,379 525,512" fill="url(#rTR)"/><polygon points="1024,439 1024,1024 595,1024 525,512 780,379" fill="url(#rBR)"/><polygon points="595,1024 0,1024 0,634 240,449 525,512" fill="url(#rBL)"/><rect x="162" y="162" width="700" height="700" rx="108" fill="#F8FAFD"/><polygon points="50,659 200,529 200,476 50,606" fill="#F8FAFD"/><polygon points="825,390 975,428 975,474 825,436" fill="#F8FAFD"/></g><rect x="248" y="350" width="58" height="324" rx="29" fill="url(#rB1)"/><rect x="330" y="266" width="58" height="492" rx="29" fill="url(#rB2)"/><path d="M 454 714 L 454 314 L 592 314 C 660 314 710 362 710 426 C 710 490 660 538 592 538 L 535 538 L 712 718" fill="none" stroke="url(#rRG)" stroke-width="88" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
               }
 
-              // 1. Convert split brand logo spans: <span>AI</span>DA (or <span>RU</span>NA) -> single black "Runa"
+              // 1. Convert split brand logo spans: <span>AI</span>DA (or <span>RU</span>NA) -> rainbow "Runa"
               document.querySelectorAll('span').forEach(function(sp) {
                 if (sp.children.length === 0) {
                   const t = (sp.textContent || '').trim();
-                  if (t === 'AI' || t === 'Aİ' || t === 'RU' || t === 'Runa' || t === 'RUNA') {
+                  if (t === 'AI' || t === 'Aİ' || t === 'RU' || t === 'Runa' || t === 'RUNA' || t === 'Nornia') {
                     const next = sp.nextSibling;
-                    if (t === 'Runa' || t === 'RUNA') {
+                    if (t === 'Runa' || t === 'RUNA' || t === 'Nornia') {
                       sp.textContent = 'Runa';
                       sp.setAttribute('data-runa-brand', '1');
                       sp.classList.remove('text-rose-600', 'text-rose-500', 'dark:text-rose-500', 'drop-shadow-sm');
-                      sp.style.color = 'inherit';
+                      sp.style.backgroundImage = 'linear-gradient(90deg, #16A34A 0%, #0284C7 28%, #7C3AED 58%, #DB2777 80%, #EA580C 100%)';
+                      sp.style.webkitBackgroundClip = 'text';
+                      sp.style.backgroundClip = 'text';
+                      sp.style.webkitTextFillColor = 'transparent';
+                      sp.style.color = 'transparent';
                     } else if (next && next.nodeType === 3 && /^\s*(DA|NA)\b/i.test(next.nodeValue || '')) {
                       sp.textContent = 'Runa';
                       sp.setAttribute('data-runa-brand', '1');
                       sp.classList.remove('text-rose-600', 'text-rose-500', 'dark:text-rose-500', 'drop-shadow-sm');
-                      sp.style.color = 'inherit';
+                      sp.style.backgroundImage = 'linear-gradient(90deg, #16A34A 0%, #0284C7 28%, #7C3AED 58%, #DB2777 80%, #EA580C 100%)';
+                      sp.style.webkitBackgroundClip = 'text';
+                      sp.style.backgroundClip = 'text';
+                      sp.style.webkitTextFillColor = 'transparent';
+                      sp.style.color = 'transparent';
                       next.nodeValue = (next.nodeValue || '').replace(/^\s*(DA|NA)(\s+(Agent|Mobile))?/i, '');
                       let sib = next.nextSibling;
                       while (sib && sib.nodeType === 3) {

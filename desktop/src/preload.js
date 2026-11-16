@@ -91,18 +91,26 @@ function rebrandDomToRuna() {
     document.querySelectorAll("span").forEach((sp) => {
       if (sp.children.length === 0) {
         const t = (sp.textContent || "").trim();
-        if (t === "AI" || t === "Aİ" || t === "RU" || t === "Runa" || t === "RUNA") {
+        if (t === "AI" || t === "Aİ" || t === "RU" || t === "Runa" || t === "RUNA" || t === "Nornia") {
           const next = sp.nextSibling;
-          if (t === "Runa" || t === "RUNA") {
+          if (t === "Runa" || t === "RUNA" || t === "Nornia") {
             sp.textContent = "Runa";
             sp.setAttribute("data-runa-brand", "1");
             sp.classList.remove("text-rose-600", "text-rose-500", "dark:text-rose-500", "drop-shadow-sm");
-            sp.style.color = "inherit";
+            sp.style.backgroundImage = "linear-gradient(90deg, #16A34A 0%, #0284C7 28%, #7C3AED 58%, #DB2777 80%, #EA580C 100%)";
+            sp.style.webkitBackgroundClip = "text";
+            sp.style.backgroundClip = "text";
+            sp.style.webkitTextFillColor = "transparent";
+            sp.style.color = "transparent";
           } else if (next && next.nodeType === 3 && /^\s*(DA|NA)\b/i.test(next.nodeValue || "")) {
             sp.textContent = "Runa";
             sp.setAttribute("data-runa-brand", "1");
             sp.classList.remove("text-rose-600", "text-rose-500", "dark:text-rose-500", "drop-shadow-sm");
-            sp.style.color = "inherit";
+            sp.style.backgroundImage = "linear-gradient(90deg, #16A34A 0%, #0284C7 28%, #7C3AED 58%, #DB2777 80%, #EA580C 100%)";
+            sp.style.webkitBackgroundClip = "text";
+            sp.style.backgroundClip = "text";
+            sp.style.webkitTextFillColor = "transparent";
+            sp.style.color = "transparent";
             next.nodeValue = (next.nodeValue || "").replace(/^\s*(DA|NA)(\s+(Agent|Mobile))?/i, "");
             let sib = next.nextSibling;
             while (sib && sib.nodeType === 3) {

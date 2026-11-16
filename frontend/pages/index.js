@@ -5306,20 +5306,16 @@ export default function Home() {
                 </div>
                 <div>
                   <div className="font-extrabold text-sm tracking-tight text-slate-900 dark:text-white leading-none flex items-center gap-1.5">
-                    {isDesktopMode ? (
-                      <span>Runa</span>
-                    ) : (
-                      <span
-                        className="bg-clip-text text-transparent"
-                        style={{
-                          backgroundImage: "linear-gradient(90deg, #16A34A 0%, #0284C7 28%, #7C3AED 58%, #DB2777 80%, #EA580C 100%)",
-                          WebkitBackgroundClip: "text",
-                          WebkitTextFillColor: "transparent",
-                        }}
-                      >
-                        Nornia
-                      </span>
-                    )}
+                    <span
+                      className="bg-clip-text text-transparent"
+                      style={{
+                        backgroundImage: "linear-gradient(90deg, #16A34A 0%, #0284C7 28%, #7C3AED 58%, #DB2777 80%, #EA580C 100%)",
+                        WebkitBackgroundClip: "text",
+                        WebkitTextFillColor: "transparent",
+                      }}
+                    >
+                      {isDesktopMode ? "Runa" : "Nornia"}
+                    </span>
                     {isDesktopMode && (
                       <span
                         title={`Bağlı Santral: ${desktopPrefs?.serverHost || backendHost}`}
