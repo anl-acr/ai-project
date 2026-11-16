@@ -372,51 +372,51 @@ export default function AgentMissedCallsTab({ backendHost, currentUser, callPane
   };
 
   return (
-    <div className="w-full h-full bg-slate-50 dark:bg-slate-900/50 p-6 overflow-y-auto">
-      <div className="max-w-6xl mx-auto space-y-5">
+    <div className="w-full h-full bg-slate-50 dark:bg-slate-900/50 p-4 sm:p-6 pb-28 sm:pb-6 overflow-y-auto">
+      <div className="max-w-6xl mx-auto space-y-4 sm:space-y-5">
         {/* Top Header */}
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="flex flex-wrap items-center gap-2.5">
-            <h2 className="text-xl font-bold text-slate-800 dark:text-white flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2.5 w-full sm:w-auto">
+            <h2 className="hidden sm:flex text-xl font-bold text-slate-800 dark:text-white items-center gap-2">
               <span>Kayıp Çağrılar & Geri Arama Planlayıcı</span>
             </h2>
 
-            {/* View Switcher Pills */}
-            <div className="inline-flex items-center p-1 rounded-xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 shadow-sm">
+            {/* View Switcher Pills (Full width 2-col grid on mobile, inline on desktop) */}
+            <div className="grid grid-cols-2 sm:inline-flex items-center p-1 rounded-xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 shadow-sm w-full sm:w-auto">
               <button
                 type="button"
                 onClick={() => setSubView("missed")}
-                className={`px-3 py-1.5 rounded-lg text-xs font-extrabold flex items-center gap-1.5 transition cursor-pointer ${
+                className={`px-3 py-2 sm:py-1.5 rounded-lg text-xs font-extrabold flex items-center justify-center gap-1.5 transition cursor-pointer ${
                   subView === "missed"
                     ? `${bg} text-white shadow-sm`
                     : "text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800"
                 }`}
               >
-                <PhoneMissed size={13} />
-                <span>Kayıp Çağrılar ({filteredList.length})</span>
+                <PhoneMissed size={13} className="shrink-0" />
+                <span className="truncate">Kayıp Çağrılar ({filteredList.length})</span>
               </button>
               <button
                 type="button"
                 onClick={() => setSubView("callbacks")}
-                className={`px-3 py-1.5 rounded-lg text-xs font-extrabold flex items-center gap-1.5 transition cursor-pointer ${
+                className={`px-3 py-2 sm:py-1.5 rounded-lg text-xs font-extrabold flex items-center justify-center gap-1.5 transition cursor-pointer ${
                   subView === "callbacks"
                     ? `${bg} text-white shadow-sm`
                     : "text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800"
                 }`}
               >
-                <AlarmClock size={13} />
-                <span>Planlı Geri Aramalar ({pendingCallbacksCount})</span>
+                <AlarmClock size={13} className="shrink-0" />
+                <span className="truncate">Planlı Geri Aramalar ({pendingCallbacksCount})</span>
               </button>
             </div>
           </div>
 
           {/* Search, Filter, Unified Red + Button & Refresh */}
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 w-full sm:w-auto">
             {subView === "missed" && queueOptions.length > 1 && (
               <select
                 value={selectedQueue}
                 onChange={(e) => setSelectedQueue(e.target.value)}
-                className="h-9 px-3 rounded-xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 text-xs font-bold text-slate-700 dark:text-slate-200 focus:outline-none shadow-sm"
+                className="h-9 px-3 rounded-xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 text-xs font-bold text-slate-700 dark:text-slate-200 focus:outline-none shadow-sm shrink-0"
               >
                 <option value="all">Tüm Kuyruklarım</option>
                 {queueOptions.map((q) => (
@@ -431,7 +431,7 @@ export default function AgentMissedCallsTab({ backendHost, currentUser, callPane
               <select
                 value={cbStatusFilter}
                 onChange={(e) => setCbStatusFilter(e.target.value)}
-                className="h-9 px-3 rounded-xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 text-xs font-bold text-slate-700 dark:text-slate-200 focus:outline-none shadow-sm"
+                className="h-9 px-3 rounded-xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 text-xs font-bold text-slate-700 dark:text-slate-200 focus:outline-none shadow-sm shrink-0"
               >
                 <option value="pending">Bekleyen Görevler</option>
                 <option value="completed">Tamamlananlar</option>
@@ -442,7 +442,7 @@ export default function AgentMissedCallsTab({ backendHost, currentUser, callPane
             <div
               className={`flex items-center bg-white dark:bg-slate-900 border ${
                 searchInput ? `${border} ring-2 ${ring}` : "border-slate-200/80 dark:border-slate-800"
-              } rounded-xl shadow-sm px-3 h-9 w-48 sm:w-60 transition-all`}
+              } rounded-xl shadow-sm px-3 h-9 flex-1 sm:w-60 transition-all`}
             >
               <Search size={14} className="text-slate-400 mr-2 shrink-0" />
               <input
@@ -468,7 +468,7 @@ export default function AgentMissedCallsTab({ backendHost, currentUser, callPane
               type="button"
               onClick={() => openScheduleModal("", "")}
               title="Yeni Geri Arama Hatırlatıcısı Ekle"
-              className="bg-rose-600 hover:bg-rose-500 text-white rounded-xl h-8 w-8 flex items-center justify-center shrink-0 shadow-sm transition cursor-pointer"
+              className="bg-rose-600 hover:bg-rose-500 text-white rounded-xl h-9 w-9 sm:h-8 sm:w-8 flex items-center justify-center shrink-0 shadow-sm transition cursor-pointer"
             >
               <Plus size={16} />
             </button>
@@ -478,7 +478,7 @@ export default function AgentMissedCallsTab({ backendHost, currentUser, callPane
               onClick={() => fetchMissedQueueCalls(false)}
               disabled={loading}
               title="Listeyi Yenile"
-              className="w-9 h-9 rounded-xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 flex items-center justify-center text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors shadow-sm cursor-pointer"
+              className="w-9 h-9 rounded-xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 flex items-center justify-center text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors shadow-sm cursor-pointer shrink-0"
             >
               <RefreshCw size={15} className={loading ? "animate-spin" : ""} />
             </button>
@@ -506,8 +506,119 @@ export default function AgentMissedCallsTab({ backendHost, currentUser, callPane
                 </p>
               </div>
             ) : (
-              <div className={`bg-white dark:bg-slate-900 border ${borderLight} rounded-2xl shadow-sm overflow-hidden`}>
-                <div className="overflow-x-auto">
+              <div className="space-y-3">
+                {/* Mobile Cards View (< sm) */}
+                <div className="sm:hidden space-y-2.5">
+                  {filteredList.map((item) => {
+                    const shownPhone = maskPhoneLast4(item.caller_number, maskPhoneNumbers);
+                    const cbCount = Number(item.callback_count || 0);
+                    const missedCount = Number(item.missed_count || 1);
+
+                    return (
+                      <div
+                        key={item.id || item.caller_number}
+                        className={`bg-white dark:bg-slate-900 border ${borderLight} rounded-2xl shadow-sm p-4 space-y-3`}
+                      >
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="flex items-center gap-2.5 min-w-0">
+                            <div className="relative h-10 w-10 rounded-xl bg-rose-100 text-rose-600 dark:bg-rose-950/50 dark:text-rose-400 flex items-center justify-center shrink-0">
+                              <PhoneMissed size={17} />
+                              <span className="absolute -top-1 -right-1 w-2.5 h-2.5 rounded-full bg-rose-500 ring-2 ring-white dark:ring-slate-900 animate-pulse" />
+                            </div>
+                            <div className="min-w-0">
+                              {item.displayName ? (
+                                <>
+                                  <div className="text-sm font-bold text-slate-800 dark:text-white truncate">
+                                    {item.displayName}
+                                  </div>
+                                  <div className="text-xs font-mono font-semibold text-slate-500 dark:text-slate-400">
+                                    {shownPhone}
+                                  </div>
+                                </>
+                              ) : (
+                                <div className="text-sm font-mono font-bold text-slate-800 dark:text-white">
+                                  {shownPhone}
+                                </div>
+                              )}
+                            </div>
+                          </div>
+
+                          <span
+                            className={`inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] font-bold border shrink-0 ${lightBg} ${text} ${borderLight}`}
+                          >
+                            <Users size={11} />
+                            <span>{item.queue_name || "Kuyruk"}</span>
+                          </span>
+                        </div>
+
+                        <div className="flex items-center justify-between flex-wrap gap-2 text-xs text-slate-500 dark:text-slate-400 pt-1 border-t border-slate-100 dark:border-slate-800/70">
+                          <span className="inline-flex items-center gap-1 font-semibold text-slate-600 dark:text-slate-300">
+                            <Clock size={12} className="text-rose-500 shrink-0" />
+                            {formatDateTime(item.last_missed_time || item.timestamp)}
+                          </span>
+
+                          <div className="flex items-center gap-1.5">
+                            {missedCount > 1 && (
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-extrabold bg-rose-50 text-rose-600 dark:bg-rose-950/50 dark:text-rose-300 border border-rose-200 dark:border-rose-800/60">
+                                {missedCount}x cevapsız
+                              </span>
+                            )}
+                            <span
+                              className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-extrabold border ${
+                                cbCount > 0
+                                  ? "bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-950/40 dark:text-amber-300 dark:border-amber-800"
+                                  : "bg-slate-100 text-slate-500 border-slate-200 dark:bg-slate-800 dark:text-slate-400 dark:border-slate-700"
+                              }`}
+                            >
+                              <RotateCcw size={10} />
+                              <span>{cbCount} Deneme</span>
+                            </span>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-2 pt-1">
+                          {!maskPhoneNumbers && (
+                            <button
+                              type="button"
+                              onClick={() =>
+                                window.dispatchEvent(
+                                  new CustomEvent("OPEN_CUSTOMER_360", {
+                                    detail: { phone: item.caller_number, name: item.displayName },
+                                  })
+                                )
+                              }
+                              className={`px-3 py-2 rounded-xl text-xs font-extrabold border ${lightBg} ${text} ${borderLight} cursor-pointer`}
+                            >
+                              360°
+                            </button>
+                          )}
+
+                          <button
+                            type="button"
+                            onClick={() => openScheduleModal(item.caller_number, item.displayName)}
+                            className="px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 text-xs font-bold flex items-center gap-1.5 cursor-pointer"
+                          >
+                            <AlarmClock size={14} />
+                            <span>Planla</span>
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => handleCallBack(item.caller_number)}
+                            className={`flex-1 inline-flex items-center justify-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold text-white shadow-sm transition-all active:scale-95 cursor-pointer ${bg} ${hover}`}
+                          >
+                            <Phone size={13} className="fill-current" />
+                            <span>Geri Ara</span>
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {/* Desktop Table View (>= sm) */}
+                <div className={`hidden sm:block bg-white dark:bg-slate-900 border ${borderLight} rounded-2xl shadow-sm overflow-hidden`}>
+                  <div className="overflow-x-auto">
                   <table className="w-full text-left border-collapse">
                     <thead>
                       <tr className="bg-slate-50 dark:bg-slate-800/50 border-b border-slate-100 dark:border-slate-800 text-xs uppercase tracking-wider text-slate-500 dark:text-slate-400">
@@ -639,6 +750,7 @@ export default function AgentMissedCallsTab({ backendHost, currentUser, callPane
                       })}
                     </tbody>
                   </table>
+                  </div>
                 </div>
               </div>
             )}
@@ -649,7 +761,7 @@ export default function AgentMissedCallsTab({ backendHost, currentUser, callPane
         {subView === "callbacks" && (
           <div className={`bg-white dark:bg-slate-900 border ${borderLight} rounded-2xl shadow-sm overflow-hidden`}>
             {filteredCallbacks.length === 0 ? (
-              <div className="p-12 text-center space-y-2">
+              <div className="p-8 sm:p-12 text-center space-y-2">
                 <div className={`w-12 h-12 rounded-2xl ${lightBg} ${text} flex items-center justify-center mx-auto mb-2`}>
                   <AlarmClock size={24} />
                 </div>
@@ -661,7 +773,109 @@ export default function AgentMissedCallsTab({ backendHost, currentUser, callPane
                 </p>
               </div>
             ) : (
-              <div className="overflow-x-auto">
+              <>
+                {/* Mobile Callback Cards (< sm) */}
+                <div className="sm:hidden divide-y divide-slate-100 dark:divide-slate-800/60">
+                  {filteredCallbacks.map((cb) => (
+                    <div key={cb.id} className="p-4 space-y-2.5">
+                      <div className="flex items-start justify-between gap-2">
+                        <div>
+                          <div className="text-sm font-bold text-slate-800 dark:text-white">
+                            {cb.customer_name || "Kayıtsız Numara"}
+                          </div>
+                          <div className="text-xs font-mono text-slate-500">
+                            {maskPhoneLast4(cb.customer_phone, maskPhoneNumbers)}
+                          </div>
+                        </div>
+                        <span
+                          className={`px-2 py-0.5 rounded-md text-[10px] font-extrabold ${
+                            cb.priority === "urgent"
+                              ? "bg-rose-500/15 text-rose-600"
+                              : cb.priority === "high"
+                              ? "bg-amber-500/15 text-amber-600"
+                              : "bg-slate-100 dark:bg-slate-800 text-slate-500"
+                          }`}
+                        >
+                          {cb.priority === "urgent" ? "Acil" : cb.priority === "high" ? "Yüksek" : "Normal"}
+                        </span>
+                      </div>
+
+                      <div className="flex items-center justify-between text-xs text-slate-600 dark:text-slate-300">
+                        <span className="font-bold flex items-center gap-1.5">
+                          <AlarmClock size={13} className={text} />
+                          {formatDateTime(cb.scheduled_at)}
+                        </span>
+                        <span className="text-[11px] text-slate-400 font-semibold">
+                          {cb.assigned_user_name || "Temsilci"}
+                        </span>
+                      </div>
+
+                      {cb.note && (
+                        <div className="text-xs text-slate-500 dark:text-slate-400 bg-slate-50 dark:bg-slate-800/50 px-3 py-1.5 rounded-xl">
+                          {cb.note}
+                        </div>
+                      )}
+
+                      <div className="flex items-center gap-1.5 pt-1 flex-wrap">
+                        {!maskPhoneNumbers && (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              window.dispatchEvent(
+                                new CustomEvent("OPEN_CUSTOMER_360", {
+                                  detail: { phone: cb.customer_phone, name: cb.customer_name },
+                                })
+                              )
+                            }
+                            className={`px-2.5 py-1.5 rounded-xl text-[11px] font-extrabold border ${lightBg} ${text} ${borderLight} cursor-pointer`}
+                          >
+                            360°
+                          </button>
+                        )}
+                        {cb.status === "pending" && (
+                          <>
+                            <button
+                              type="button"
+                              onClick={() => handleUpdateCallbackTask(cb.id, { snooze_minutes: 15 })}
+                              className="px-2.5 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 text-[11px] font-bold text-slate-600 dark:text-slate-300 cursor-pointer"
+                            >
+                              +15 Dk
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleUpdateCallbackTask(cb.id, { status: "completed" })}
+                              className="px-2.5 py-1.5 rounded-xl bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30 text-[11px] font-extrabold cursor-pointer"
+                            >
+                              Tamamla
+                            </button>
+                          </>
+                        )}
+                        <button
+                          type="button"
+                          onClick={() => {
+                            handleUpdateCallbackTask(cb.id, { status: "completed" });
+                            handleCallBack(cb.customer_phone);
+                          }}
+                          className={`flex-1 justify-center px-3 py-1.5 rounded-xl text-white text-xs font-bold flex items-center gap-1 cursor-pointer ${bg} ${hover}`}
+                        >
+                          <Phone size={12} className="fill-current" />
+                          <span>Ara</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setDeleteTargetCbId(cb.id)}
+                          title="Görevi Sil"
+                          className="p-1.5 rounded-xl text-slate-400 hover:text-rose-500 transition cursor-pointer"
+                        >
+                          <Trash2 size={15} />
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Desktop Callback Table (>= sm) */}
+                <div className="hidden sm:block overflow-x-auto">
                 <table className="w-full text-left border-collapse">
                   <thead>
                     <tr className="bg-slate-50 dark:bg-slate-800/50 border-b border-slate-100 dark:border-slate-800 text-xs uppercase tracking-wider text-slate-500 dark:text-slate-400">
@@ -770,7 +984,8 @@ export default function AgentMissedCallsTab({ backendHost, currentUser, callPane
                     ))}
                   </tbody>
                 </table>
-              </div>
+                </div>
+              </>
             )}
           </div>
         )}
@@ -786,7 +1001,7 @@ export default function AgentMissedCallsTab({ backendHost, currentUser, callPane
             onClick={(e) => e.stopPropagation()}
             className="w-full max-w-md bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl shadow-2xl overflow-hidden animate-in zoom-in-95 duration-150"
           >
-            <div className="px-6 py-4 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between bg-slate-50/60 dark:bg-slate-950/40">
+            <div className="px-5 sm:px-6 py-4 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between bg-slate-50/60 dark:bg-slate-950/40">
               <h3 className="text-xs font-extrabold text-slate-900 dark:text-white uppercase tracking-wider flex items-center gap-2">
                 <AlarmClock size={15} className={text} />
                 Geri Arama Hatırlatıcısı Planla
@@ -800,8 +1015,8 @@ export default function AgentMissedCallsTab({ backendHost, currentUser, callPane
               </button>
             </div>
 
-            <form onSubmit={handleSaveCallback} className="p-6 space-y-4">
-              <div className="grid grid-cols-2 gap-3">
+            <form onSubmit={handleSaveCallback} className="p-5 sm:p-6 space-y-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label className="text-[10px] font-bold text-slate-400 uppercase block mb-1">
                     Telefon Numarası *
@@ -812,7 +1027,7 @@ export default function AgentMissedCallsTab({ backendHost, currentUser, callPane
                     value={cbPhone}
                     onChange={(e) => setCbPhone(e.target.value)}
                     placeholder="+90555..."
-                    className="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-xs font-mono text-slate-800 dark:text-slate-200"
+                    className="w-full px-3 py-2.5 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-xs font-mono text-slate-800 dark:text-slate-200"
                   />
                 </div>
                 <div>
@@ -824,12 +1039,12 @@ export default function AgentMissedCallsTab({ backendHost, currentUser, callPane
                     value={cbName}
                     onChange={(e) => setCbName(e.target.value)}
                     placeholder="Ad Soyad"
-                    className="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-xs text-slate-800 dark:text-slate-200"
+                    className="w-full px-3 py-2.5 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-xs text-slate-800 dark:text-slate-200"
                   />
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label className="text-[10px] font-bold text-slate-400 uppercase block mb-1">
                     Aranacak Tarih & Saat *

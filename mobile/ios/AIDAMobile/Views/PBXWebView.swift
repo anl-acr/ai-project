@@ -2280,7 +2280,110 @@ struct PBXWebView: UIViewRepresentable {
                 display: none !important;
               }
 
-              /* Floating Audio Player Popup: Light Mode adaptation & Dock clearance */
+              /* ==============================================================
+                 6b. KAYIP ÇAĞRILAR (MISSED CALLS TAB) HEADER & MOBILE CARD LIST
+                 ============================================================== */
+              html.aida-ios-mobile [data-aida-mobile-missed="1"] > div > div:first-child {
+                display: flex !important;
+                flex-direction: column !important;
+                align-items: stretch !important;
+                gap: 10px !important;
+                width: 100% !important;
+              }
+              html.aida-ios-mobile [data-aida-mobile-missed="1"] > div > div:first-child h2 {
+                display: none !important;
+              }
+              /* Legacy & updated DOM structure support for Switcher Pills */
+              html.aida-ios-mobile [data-aida-mobile-missed="1"] > div > div:first-child > div:first-child {
+                width: 100% !important;
+                display: flex !important;
+                flex-direction: column !important;
+                gap: 8px !important;
+              }
+              html.aida-ios-mobile [data-aida-mobile-missed="1"] div.inline-flex.p-1.rounded-xl,
+              html.aida-ios-mobile [data-aida-mobile-missed="1"] div.grid.grid-cols-2.p-1.rounded-xl {
+                display: grid !important;
+                grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+                width: 100% !important;
+                padding: 4px !important;
+                border-radius: 14px !important;
+                gap: 4px !important;
+              }
+              html.aida-ios-mobile [data-aida-mobile-missed="1"] div.inline-flex.p-1.rounded-xl > button,
+              html.aida-ios-mobile [data-aida-mobile-missed="1"] div.grid.grid-cols-2.p-1.rounded-xl > button {
+                width: 100% !important;
+                justify-content: center !important;
+                padding: 8px 10px !important;
+                border-radius: 10px !important;
+                font-size: 12px !important;
+              }
+              /* Search + Filter + Red Plus Button Row: Stretch Search to 100% and pin + to right */
+              html.aida-ios-mobile [data-aida-mobile-missed="1"] > div > div:first-child > div:last-child {
+                display: flex !important;
+                flex-wrap: wrap !important;
+                align-items: center !important;
+                justify-content: space-between !important;
+                gap: 8px !important;
+                width: 100% !important;
+              }
+              html.aida-ios-mobile [data-aida-mobile-missed="1"] > div > div:first-child > div:last-child > select {
+                height: 38px !important;
+                border-radius: 12px !important;
+                font-size: 12px !important;
+                padding: 0 10px !important;
+              }
+              html.aida-ios-mobile [data-aida-mobile-missed="1"] > div > div:first-child > div:last-child div:has(> input[placeholder*="Numara veya kişi ara"]) {
+                flex: 1 1 0% !important;
+                width: auto !important;
+                min-width: 140px !important;
+                max-width: none !important;
+                height: 38px !important;
+                border-radius: 12px !important;
+              }
+              html.aida-ios-mobile [data-aida-mobile-missed="1"] button[title="Yeni Geri Arama Hatırlatıcısı Ekle"] {
+                width: 38px !important;
+                height: 38px !important;
+                border-radius: 12px !important;
+                flex-shrink: 0 !important;
+                margin-left: auto !important;
+              }
+              /* Convert Missed Calls 5-column Table into Zero-Scroll Mobile Cards */
+              html.aida-ios-mobile [data-aida-mobile-missed="1"] .overflow-x-auto {
+                overflow-x: hidden !important;
+              }
+              html.aida-ios-mobile [data-aida-mobile-missed="1"] table {
+                display: block !important;
+                width: 100% !important;
+                min-width: 0 !important;
+              }
+              html.aida-ios-mobile [data-aida-mobile-missed="1"] thead {
+                display: none !important;
+              }
+              html.aida-ios-mobile [data-aida-mobile-missed="1"] tbody {
+                display: flex !important;
+                flex-direction: column !important;
+                width: 100% !important;
+              }
+              html.aida-ios-mobile [data-aida-mobile-missed="1"] tbody > tr {
+                display: flex !important;
+                flex-wrap: wrap !important;
+                align-items: center !important;
+                justify-content: space-between !important;
+                gap: 8px 10px !important;
+                padding: 12px 14px !important;
+                width: 100% !important;
+              }
+              html.aida-ios-mobile [data-aida-mobile-missed="1"] tbody > tr > td {
+                padding: 0 !important;
+                border: none !important;
+              }
+              html.aida-ios-mobile [data-aida-mobile-missed="1"] tbody > tr > td:first-child {
+                flex: 1 1 55% !important;
+                min-width: 0 !important;
+              }
+              html.aida-ios-mobile [data-aida-mobile-missed="1"] tbody > tr > td:last-child {
+                margin-left: auto !important;
+              }
               html.aida-ios-mobile div.fixed.bottom-6.left-1\\/2.-translate-x-1\\/2,
               html.aida-ios-mobile [data-aida-mobile-audio-popup="1"] {
                 bottom: calc(78px + env(safe-area-inset-bottom, 14px)) !important;
@@ -2482,10 +2585,10 @@ struct PBXWebView: UIViewRepresentable {
                 line-height: 1.35 !important;
               }
 
-              html.aida-ios-mobile table:not([data-aida-mobile-history="1"] table) {
+              html.aida-ios-mobile table:not([data-aida-mobile-history="1"] table):not([data-aida-mobile-missed="1"] table) {
                 min-width: 540px !important;
               }
-              html.aida-ios-mobile div:has(> table):not([data-aida-mobile-history="1"] div) {
+              html.aida-ios-mobile div:has(> table):not([data-aida-mobile-history="1"] div):not([data-aida-mobile-missed="1"] div) {
                 overflow-x: auto !important;
                 -webkit-overflow-scrolling: touch !important;
               }
@@ -5290,14 +5393,19 @@ struct PBXWebView: UIViewRepresentable {
                 }
               }
 
-              // Tag History Tab root when active
+              // Tag History Tab or Missed Calls Tab root when active
               const otherWrapper = stage.children[1];
               if (otherWrapper && otherWrapper.firstElementChild) {
                 const otherRoot = otherWrapper.firstElementChild;
                 const h2 = otherRoot.querySelector('h2');
-                if (h2 && (h2.textContent || '').includes('Kişisel Çağrı Geçmişim')) {
+                const h2Txt = h2 ? (h2.textContent || '') : '';
+                if (h2Txt.includes('Kişisel Çağrı Geçmişim')) {
                   if (otherRoot.getAttribute('data-aida-mobile-history') !== '1') {
                     otherRoot.setAttribute('data-aida-mobile-history', '1');
+                  }
+                } else if (h2Txt.includes('Kayıp Çağrılar')) {
+                  if (otherRoot.getAttribute('data-aida-mobile-missed') !== '1') {
+                    otherRoot.setAttribute('data-aida-mobile-missed', '1');
                   }
                 }
               }
