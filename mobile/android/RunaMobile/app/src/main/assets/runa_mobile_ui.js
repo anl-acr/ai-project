@@ -423,6 +423,11 @@
                 overflow: hidden !important;
               }
 
+              /* Hide desktop left vertical sidebar on mobile & tablet app (prevents md:flex from pushing content off-screen on tablets >= 768px) */
+              html.aida-ios-mobile .aida-stage-active > div.aida-panel-enter > div.flex.h-full.w-full > div.w-64 {
+                display: none !important;
+              }
+
               /* Hide original top horizontal mobile tab bar visually (keep in DOM for badge/state sync) */
               html.aida-ios-mobile .aida-stage-active > div.aida-panel-enter > div.flex.h-full.w-full > div.md\\:hidden {
                 position: absolute !important;
@@ -646,6 +651,73 @@
                 background: #f43f5e !important;
                 color: #ffffff !important;
                 flex-shrink: 0 !important;
+              }
+
+              /* ==============================================================
+                 TABLET RESPONSIVE ADAPTATIONS (min-width: 768px)
+                 ============================================================== */
+              @media (min-width: 768px) {
+                #aida-ios-bottom-dock {
+                  max-width: 580px !important;
+                  width: calc(100vw - 48px) !important;
+                  left: 50% !important;
+                  right: auto !important;
+                  transform: translateX(-50%) !important;
+                  height: 66px !important;
+                  padding: 6px 10px !important;
+                }
+                .aida-ios-dock-btn {
+                  font-size: 11px !important;
+                  height: 52px !important;
+                }
+                #aida-ios-more-popover {
+                  right: max(24px, calc(50vw - 290px)) !important;
+                  width: 230px !important;
+                  bottom: calc(82px + env(safe-area-inset-bottom, 14px)) !important;
+                }
+                #aida-mobile-net-quality-banner {
+                  max-width: 580px !important;
+                  margin: 0 auto !important;
+                }
+                html.aida-ios-mobile [data-aida-mobile-webphone="1"] > div.grid {
+                  max-width: 520px !important;
+                  width: 100% !important;
+                  margin: 0 auto !important;
+                }
+                html.aida-ios-mobile .max-w-4xl {
+                  max-width: 100% !important;
+                }
+                html.aida-ios-mobile div[style*="--agent-sidebar-w"],
+                html.aida-ios-mobile div[style*="--agent-sidebar-w"][data-mobile-chat-view="thread"] {
+                  display: flex !important;
+                  flex-direction: row !important;
+                }
+                html.aida-ios-mobile div[style*="--agent-sidebar-w"] > div:first-child,
+                html.aida-ios-mobile div[style*="--agent-sidebar-w"][data-mobile-chat-view="thread"] > div:first-child {
+                  display: flex !important;
+                  width: 340px !important;
+                  max-width: 340px !important;
+                  flex: 0 0 340px !important;
+                  height: 100% !important;
+                  border-right: 1px solid rgba(226, 232, 240, 0.85) !important;
+                }
+                html.dark.aida-ios-mobile div[style*="--agent-sidebar-w"] > div:first-child,
+                html.dark.aida-ios-mobile div[style*="--agent-sidebar-w"][data-mobile-chat-view="thread"] > div:first-child {
+                  border-right-color: rgba(30, 41, 59, 0.85) !important;
+                }
+                html.aida-ios-mobile div[style*="--agent-sidebar-w"] > div:last-child,
+                html.aida-ios-mobile div[style*="--agent-sidebar-w"][data-mobile-chat-view="thread"] > div:last-child {
+                  display: flex !important;
+                  flex-direction: column !important;
+                  flex: 1 1 0% !important;
+                  width: auto !important;
+                  max-width: none !important;
+                  min-width: 0 !important;
+                  height: 100% !important;
+                }
+                html.aida-ios-mobile .aida-mobile-chat-back-btn {
+                  display: none !important;
+                }
               }
 
               /* ==============================================================
@@ -2912,6 +2984,48 @@
                 display: none !important;
                 opacity: 0 !important;
                 pointer-events: none !important;
+              }
+
+              /* ==============================================================
+                 9. TABLET RESPONSIVE OVERRIDES (min-width: 768px)
+                 ============================================================== */
+              @media (min-width: 768px) {
+                html.aida-ios-mobile div[style*="--agent-sidebar-w"],
+                html.aida-ios-mobile div[style*="--agent-sidebar-w"]:not([data-mobile-chat-view="thread"]),
+                html.aida-ios-mobile div[style*="--agent-sidebar-w"][data-mobile-chat-view="thread"] {
+                  display: flex !important;
+                  flex-direction: row !important;
+                }
+                html.aida-ios-mobile div[style*="--agent-sidebar-w"] > div:first-child,
+                html.aida-ios-mobile div[style*="--agent-sidebar-w"]:not([data-mobile-chat-view="thread"]) > div:first-child,
+                html.aida-ios-mobile div[style*="--agent-sidebar-w"][data-mobile-chat-view="thread"] > div:first-child {
+                  display: flex !important;
+                  width: 340px !important;
+                  max-width: 340px !important;
+                  flex: 0 0 340px !important;
+                  height: 100% !important;
+                  border-right: 1px solid rgba(226, 232, 240, 0.85) !important;
+                }
+                html.dark.aida-ios-mobile div[style*="--agent-sidebar-w"] > div:first-child,
+                html.dark.aida-ios-mobile div[style*="--agent-sidebar-w"]:not([data-mobile-chat-view="thread"]) > div:first-child,
+                html.dark.aida-ios-mobile div[style*="--agent-sidebar-w"][data-mobile-chat-view="thread"] > div:first-child {
+                  border-right-color: rgba(30, 41, 59, 0.85) !important;
+                }
+                html.aida-ios-mobile div[style*="--agent-sidebar-w"] > div:last-child,
+                html.aida-ios-mobile div[style*="--agent-sidebar-w"]:not([data-mobile-chat-view="thread"]) > div:last-child,
+                html.aida-ios-mobile div[style*="--agent-sidebar-w"][data-mobile-chat-view="thread"] > div:last-child {
+                  display: flex !important;
+                  flex-direction: column !important;
+                  flex: 1 1 0% !important;
+                  width: auto !important;
+                  max-width: none !important;
+                  min-width: 0 !important;
+                  height: 100% !important;
+                  overflow: hidden !important;
+                }
+                html.aida-ios-mobile .aida-mobile-chat-back-btn {
+                  display: none !important;
+                }
               }
             `;
             document.head.appendChild(style);
