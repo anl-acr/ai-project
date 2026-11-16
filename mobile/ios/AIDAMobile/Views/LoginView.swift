@@ -18,8 +18,17 @@ struct LoginView: View {
     @State private var otpCodeInput: String = ""
     @State private var isScannerPresented: Bool = false
 
-    private let crimsonStart = Color(red: 0.882, green: 0.114, blue: 0.282) // #e11d48
-    private let crimsonEnd = Color(red: 0.745, green: 0.071, blue: 0.235)   // #be123c
+    private let indigoStart = Color(red: 0.310, green: 0.275, blue: 0.898) // #4f46e5
+    private let purpleMid = Color(red: 0.576, green: 0.200, blue: 0.918)   // #9333ea
+    private let violetEnd = Color(red: 0.486, green: 0.227, blue: 0.929)   // #7c3aed
+
+    private let rainbowColors: [Color] = [
+        Color(red: 0.086, green: 0.639, blue: 0.290), // #16A34A
+        Color(red: 0.008, green: 0.518, blue: 0.780), // #0284C7
+        Color(red: 0.486, green: 0.227, blue: 0.929), // #7C3AED
+        Color(red: 0.859, green: 0.153, blue: 0.467), // #DB2777
+        Color(red: 0.918, green: 0.345, blue: 0.047)  // #EA580C
+    ]
 
     private var isDark: Bool {
         store.isWebDarkMode
@@ -91,46 +100,126 @@ struct LoginView: View {
             pageBg
                 .ignoresSafeArea()
 
+            // Colorful Aurora Orbs matching Option 2
             Circle()
-                .fill(crimsonStart.opacity(isDark ? 0.18 : 0.10))
-                .frame(width: 320, height: 320)
+                .fill(Color(red: 0.086, green: 0.639, blue: 0.290).opacity(isDark ? 0.16 : 0.12))
+                .frame(width: 280, height: 280)
                 .blur(radius: 75)
-                .offset(x: -110, y: -240)
+                .offset(x: -130, y: -260)
 
             Circle()
-                .fill(Color(red: 0.388, green: 0.400, blue: 0.945).opacity(isDark ? 0.16 : 0.09))
-                .frame(width: 300, height: 300)
+                .fill(Color(red: 0.008, green: 0.518, blue: 0.780).opacity(isDark ? 0.16 : 0.12))
+                .frame(width: 280, height: 280)
                 .blur(radius: 75)
-                .offset(x: 120, y: 250)
+                .offset(x: 130, y: -210)
+
+            Circle()
+                .fill(Color(red: 0.486, green: 0.227, blue: 0.929).opacity(isDark ? 0.18 : 0.12))
+                .frame(width: 300, height: 300)
+                .blur(radius: 80)
+                .offset(x: -100, y: 260)
+
+            Circle()
+                .fill(Color(red: 0.918, green: 0.345, blue: 0.047).opacity(isDark ? 0.15 : 0.11))
+                .frame(width: 260, height: 260)
+                .blur(radius: 75)
+                .offset(x: 130, y: 240)
+
+            // Decorative subtle soundwave curves in background
+            GeometryReader { geo in
+                let w = geo.size.width
+                let midY = geo.size.height * 0.50
+                ZStack {
+                    Path { path in
+                        path.move(to: CGPoint(x: 0, y: midY))
+                        path.addQuadCurve(
+                            to: CGPoint(x: w * 0.5, y: midY),
+                            control: CGPoint(x: w * 0.25, y: midY - 70)
+                        )
+                        path.addQuadCurve(
+                            to: CGPoint(x: w, y: midY),
+                            control: CGPoint(x: w * 0.75, y: midY + 70)
+                        )
+                    }
+                    .stroke(
+                        LinearGradient(colors: rainbowColors, startPoint: .leading, endPoint: .trailing),
+                        style: StrokeStyle(lineWidth: 2.2, lineCap: .round)
+                    )
+                    .opacity(isDark ? 0.22 : 0.26)
+
+                    Path { path in
+                        path.move(to: CGPoint(x: 0, y: midY))
+                        path.addQuadCurve(
+                            to: CGPoint(x: w * 0.5, y: midY),
+                            control: CGPoint(x: w * 0.25, y: midY + 70)
+                        )
+                        path.addQuadCurve(
+                            to: CGPoint(x: w, y: midY),
+                            control: CGPoint(x: w * 0.75, y: midY - 70)
+                        )
+                    }
+                    .stroke(
+                        LinearGradient(colors: rainbowColors, startPoint: .leading, endPoint: .trailing),
+                        style: StrokeStyle(lineWidth: 1.5, lineCap: .round, dash: [6, 6])
+                    )
+                    .opacity(isDark ? 0.18 : 0.22)
+                }
+            }
+            .ignoresSafeArea()
+            .allowsHitTesting(false)
 
             ScrollView(showsIndicators: false) {
-                VStack(spacing: 18) {
-                    brandHeader
-                    Divider().background(dividerColor)
+                VStack(spacing: 16) {
+                    // Main Card with Rainbow Top Bar
+                    VStack(spacing: 0) {
+                        LinearGradient(
+                            colors: rainbowColors,
+                            startPoint: .leading,
+                            endPoint: .trailing
+                        )
+                        .frame(height: 7)
 
-                    if !errorMessage.isEmpty {
-                        alertBanner(text: errorMessage, isError: true)
+                        VStack(spacing: 18) {
+                            brandHeader
+                            Divider().background(dividerColor)
+
+                            if !errorMessage.isEmpty {
+                                alertBanner(text: errorMessage, isError: true)
+                            }
+                            if !infoMessage.isEmpty {
+                                alertBanner(text: infoMessage, isError: false)
+                            }
+
+                            if let ctx = pending2FA {
+                                twoFactorSection(context: ctx)
+                            } else {
+                                credentialsForm
+                            }
+                        }
+                        .padding(22)
                     }
-                    if !infoMessage.isEmpty {
-                        alertBanner(text: infoMessage, isError: false)
+                    .background(cardBg)
+                    .clipShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 28, style: .continuous)
+                            .stroke(cardBorder, lineWidth: 1)
+                    )
+                    .shadow(color: Color(red: 0.310, green: 0.275, blue: 0.898).opacity(isDark ? 0.28 : 0.12), radius: 28, x: 0, y: 14)
+
+                    // Bottom 3 Capability Pills
+                    HStack(spacing: 8) {
+                        capabilityPill(emoji: "🤖", title: "AI Sesli Asistan")
+                        capabilityPill(emoji: "💬", title: "Omnichannel")
+                        runaMobilePill
                     }
 
-                    if let ctx = pending2FA {
-                        twoFactorSection(context: ctx)
-                    } else {
-                        credentialsForm
-                    }
+                    Text("© 2026 RUNA. Tüm hakları saklıdır.")
+                        .font(.system(size: 10.5, weight: .semibold))
+                        .foregroundColor(mutedText.opacity(0.85))
+                        .padding(.top, 2)
                 }
-                .padding(22)
-                .background(cardBg)
-                .clipShape(RoundedRectangle(cornerRadius: 26, style: .continuous))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 26, style: .continuous)
-                        .stroke(cardBorder, lineWidth: 1)
-                )
-                .shadow(color: cardShadow, radius: 28, x: 0, y: 16)
                 .padding(.horizontal, 18)
-                .padding(.vertical, 24)
+                .padding(.vertical, 20)
             }
         }
         .onAppear {
@@ -331,7 +420,7 @@ struct LoginView: View {
             HStack(spacing: 10) {
                 Image(systemName: "lock.shield.fill")
                     .font(.system(size: 20, weight: .bold))
-                    .foregroundColor(crimsonStart)
+                    .foregroundColor(indigoStart)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(
                         context.method == "google_auth"
@@ -386,7 +475,7 @@ struct LoginView: View {
                     } label: {
                         Text("Kodu Tekrar Gönder")
                             .font(.system(size: 12, weight: .bold))
-                            .foregroundColor(crimsonStart)
+                            .foregroundColor(indigoStart)
                     }
                 }
             }
@@ -410,6 +499,52 @@ struct LoginView: View {
         .buttonStyle(.plain)
     }
 
+    private func capabilityPill(emoji: String, title: String) -> some View {
+        HStack(spacing: 5) {
+            Text(emoji)
+                .font(.system(size: 11))
+            Text(title)
+                .font(.system(size: 10.5, weight: .bold))
+                .foregroundColor(isDark ? Color.white.opacity(0.85) : Color(red: 0.278, green: 0.333, blue: 0.412))
+                .lineLimit(1)
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 7)
+        .background(cardBg.opacity(0.92))
+        .clipShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 11, style: .continuous)
+                .stroke(cardBorder, lineWidth: 1)
+        )
+        .shadow(color: Color.black.opacity(0.04), radius: 4, x: 0, y: 2)
+    }
+
+    private var runaMobilePill: some View {
+        HStack(spacing: 5) {
+            if let path = Bundle.main.path(forResource: "RunaLogo", ofType: "png"),
+               let uiImg = UIImage(contentsOfFile: path) {
+                Image(uiImage: uiImg)
+                    .resizable()
+                    .scaledToFit()
+                    .frame(width: 15, height: 15)
+                    .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
+            }
+            Text("Runa Mobil")
+                .font(.system(size: 10.5, weight: .bold))
+                .foregroundColor(isDark ? Color.white.opacity(0.9) : Color(red: 0.20, green: 0.25, blue: 0.33))
+                .lineLimit(1)
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 7)
+        .background(cardBg.opacity(0.92))
+        .clipShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 11, style: .continuous)
+                .stroke(cardBorder, lineWidth: 1)
+        )
+        .shadow(color: Color.black.opacity(0.04), radius: 4, x: 0, y: 2)
+    }
+
     private func primarySubmitButton(title: String, loadingTitle: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             HStack(spacing: 8) {
@@ -421,14 +556,19 @@ struct LoginView: View {
                 Text(isLoading ? loadingTitle : title)
                     .font(.system(size: 14, weight: .heavy))
                     .foregroundColor(.white)
+                if !isLoading {
+                    Image(systemName: "arrow.right")
+                        .font(.system(size: 13, weight: .bold))
+                        .foregroundColor(.white)
+                }
             }
             .frame(maxWidth: .infinity)
             .padding(.vertical, 14)
             .background(
-                LinearGradient(colors: [crimsonStart, crimsonEnd], startPoint: .topLeading, endPoint: .bottomTrailing)
+                LinearGradient(colors: [indigoStart, purpleMid, violetEnd], startPoint: .leading, endPoint: .trailing)
             )
             .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-            .shadow(color: crimsonStart.opacity(0.35), radius: 14, x: 0, y: 6)
+            .shadow(color: indigoStart.opacity(0.32), radius: 14, x: 0, y: 6)
         }
         .disabled(isLoading)
         .opacity(isLoading ? 0.7 : 1.0)
