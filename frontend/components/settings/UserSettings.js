@@ -742,7 +742,7 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
   const lastSaveCompletedAtRef = useRef(0);
   const usersPollInFlightRef = useRef(false);
   const showModalRef = useRef(false);
-  showModalRef.current = Boolean(showModal || showBulkConfigModal);
+  showModalRef.current = Boolean(showModal);
 
   const fetchUsers = async (showSpinner = false) => {
     if (usersPollInFlightRef.current || saveInFlightRef.current) return;
@@ -3055,6 +3055,7 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
   const [pageSize, setPageSize] = useState(25);
   const [selectedUserIds, setSelectedUserIds] = useState([]);
   const [showBulkConfigModal, setShowBulkConfigModal] = useState(false);
+  showModalRef.current = Boolean(showModal || showBulkConfigModal);
   const [bulkQuickBusy, setBulkQuickBusy] = useState(false);
   const paginatedUsers = filteredUsers.slice(
     (currentPage - 1) * pageSize,
