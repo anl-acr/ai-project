@@ -404,9 +404,12 @@ export default function MasterDashboard() {
   };
 
   const filteredClients = clients.filter(c => {
-    const matchSearch = c.company_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                        c.tenant_code.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                        (c.hardware_id && c.hardware_id.toLowerCase().includes(searchTerm.toLowerCase()));
+    const q = searchTerm.toLowerCase();
+    const matchSearch = c.company_name.toLowerCase().includes(q) ||
+                        c.tenant_code.toLowerCase().includes(q) ||
+                        (c.tenant_serial_number && c.tenant_serial_number.toLowerCase().includes(q)) ||
+                        (c.system_serial_number && c.system_serial_number.toLowerCase().includes(q)) ||
+                        (c.hardware_id && c.hardware_id.toLowerCase().includes(q));
     if (filterStatus === "online") return matchSearch && c.is_online;
     if (filterStatus === "offline") return matchSearch && !c.is_online;
     if (filterStatus === "suspended") return matchSearch && c.status === "suspended";
@@ -561,7 +564,7 @@ export default function MasterDashboard() {
               type="text"
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              placeholder="Firma adı, tenant kodu veya Donanım ID ara..."
+              placeholder="Firma adı, tenant kodu, Seri No veya Donanım ID ara..."
               className="w-full text-xs font-semibold pl-10 pr-4 py-2.5 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-2xl focus:outline-none focus:border-rose-500 text-slate-900 dark:text-white placeholder:text-slate-400 dark:placeholder:text-slate-500"
             />
           </div>
@@ -628,8 +631,44 @@ export default function MasterDashboard() {
                   </span>
                 </div>
 
-                {/* Server Specs & Hardware ID */}
+                {/* Server Specs, Tenant Serial, System Serial & Hardware ID */}
                 <div className="p-3.5 bg-slate-50 dark:bg-slate-950 border border-slate-200/80 dark:border-slate-800/80 rounded-2xl space-y-2 text-xs font-mono">
+                  <div className="flex items-center justify-between text-slate-500 dark:text-slate-400">
+                    <span className="flex items-center gap-1.5 text-indigo-600 dark:text-indigo-400 font-sans font-bold">
+                      <Shield size={13} /> Tenant Seri No:
+                    </span>
+                    <span className="font-extrabold text-indigo-700 dark:text-indigo-300 flex items-center gap-1">
+                      {client.tenant_serial_number || "-"}
+                      {client.tenant_serial_number && (
+                        <button
+                          onClick={() => handleCopyText(client.tenant_serial_number, `tsn-${client.id}`)}
+                          className="hover:text-rose-600 dark:hover:text-rose-400 ml-1 cursor-pointer"
+                          title="Tenant Seri No Kopyala"
+                        >
+                          {copiedKey === `tsn-${client.id}` ? <Check size={12} className="text-emerald-500" /> : <Copy size={12} />}
+                        </button>
+                      )}
+                    </span>
+                  </div>
+
+                  <div className="flex items-center justify-between text-slate-500 dark:text-slate-400">
+                    <span className="flex items-center gap-1.5 text-slate-600 dark:text-slate-400 font-sans font-bold">
+                      <Server size={13} /> Sistem Seri No:
+                    </span>
+                    <span className="font-extrabold text-slate-900 dark:text-white flex items-center gap-1">
+                      {client.system_serial_number || "-"}
+                      {client.system_serial_number && client.system_serial_number !== "Henüz Bağlanmadı" && (
+                        <button
+                          onClick={() => handleCopyText(client.system_serial_number, `ssn-${client.id}`)}
+                          className="hover:text-rose-600 dark:hover:text-rose-400 ml-1 cursor-pointer"
+                          title="Sistem Seri No Kopyala"
+                        >
+                          {copiedKey === `ssn-${client.id}` ? <Check size={12} className="text-emerald-500" /> : <Copy size={12} />}
+                        </button>
+                      )}
+                    </span>
+                  </div>
+
                   <div className="flex items-center justify-between text-slate-500 dark:text-slate-400">
                     <span className="flex items-center gap-1.5 text-slate-600 dark:text-slate-400 font-sans font-bold">
                       <Cpu size={13} /> Donanım ID:
@@ -975,8 +1014,20 @@ export default function MasterDashboard() {
             <form onSubmit={handleGenerateCustomKey} className="space-y-4 text-xs font-semibold">
               <div className="p-3.5 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-2xl flex flex-col md:flex-row md:items-center justify-between gap-2 text-xs">
                 <div>
-                  <div className="text-slate-500 dark:text-slate-400">
-                    Tenant Code: <span className="font-mono text-slate-900 dark:text-white font-extrabold">{keyGenModalClient.tenant_code}</span>
+                  <div className="flex flex-wrap items-center gap-3 text-slate-500 dark:text-slate-400">
+                    <span>
+                      Tenant Code: <span className="font-mono text-slate-900 dark:text-white font-extrabold">{keyGenModalClient.tenant_code}</span>
+                    </span>
+                    {keyGenModalClient.tenant_serial_number && (
+                      <span className="inline-flex items-center gap-1">
+                        Tenant Seri No: <strong className="font-mono text-indigo-600 dark:text-indigo-400">{keyGenModalClient.tenant_serial_number}</strong>
+                      </span>
+                    )}
+                    {keyGenModalClient.system_serial_number && (
+                      <span className="inline-flex items-center gap-1">
+                        Sistem Seri No: <strong className="font-mono text-slate-800 dark:text-slate-200">{keyGenModalClient.system_serial_number}</strong>
+                      </span>
+                    )}
                   </div>
                   <div className="text-slate-500 dark:text-slate-400 mt-1 flex items-center gap-1.5 flex-wrap">
                     <span>Mevcut Lisans Key:</span>

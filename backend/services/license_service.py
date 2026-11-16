@@ -4,9 +4,27 @@ import hmac
 import os
 import base64
 import json
-from backend.services.hardware_info import get_system_hardware_fingerprint
+from backend.services.hardware_info import get_system_hardware_fingerprint, compute_system_serial_number
 
 LICENSE_MASTER_SECRET = "AIDA_MASTER_LICENSE_SECRET_KEY_2026_SECURE_SALT_99"
+
+def generate_tenant_serial_number(tenant_code: str, tenant_num_id: int = 100) -> str:
+    """
+    Generates a unique, contract-grade cryptographic Tenant Serial Number.
+    Format: SN-TNT-2026-{NUM4}-{HASH6} (e.g. SN-TNT-2026-0100-A4F91C)
+    """
+    clean_code = (tenant_code or "default").strip().lower().replace("tenant-", "").replace(" ", "-")
+    try:
+        num_val = int(tenant_num_id or 100)
+    except Exception:
+        num_val = 100
+    num_part = f"{num_val:04d}"
+    sig = hmac.new(
+        LICENSE_MASTER_SECRET.encode("utf-8"),
+        f"TENANT_SERIAL:{clean_code}:{num_part}".encode("utf-8"),
+        hashlib.sha256
+    ).hexdigest()[:6].upper()
+    return f"SN-TNT-2026-{num_part}-{sig}"
 
 PLAN_LIMITS = {
     "starter": {

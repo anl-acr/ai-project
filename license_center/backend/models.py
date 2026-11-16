@@ -36,6 +36,8 @@ class ClientServer(Base):
     id = Column(Integer, primary_key=True, index=True)
     company_name = Column(String, nullable=False)
     tenant_code = Column(String, unique=True, index=True, nullable=False)
+    tenant_serial_number = Column(String, index=True, nullable=True) # e.g. SN-TNT-2026-0100-A4F91C
+    system_serial_number = Column(String, index=True, nullable=True) # e.g. SN-SRV-2026-361BF973-8A4C
     hardware_id = Column(String, index=True, nullable=True) # e.g. HW-361B-F973
     ip_address = Column(String, nullable=True)
     domain_name = Column(String, nullable=True)

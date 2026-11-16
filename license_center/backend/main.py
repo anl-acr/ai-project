@@ -18,7 +18,12 @@ if PROJECT_ROOT not in sys.path:
 
 from license_center.backend.database import get_central_db, init_central_db, AsyncSessionLocal
 from license_center.backend.models import ClientServer, LicenseRecord, TelemetryLog, MasterUser, MasterAuditLog
-from license_center.backend.license_generator import generate_signed_license_key, verify_signed_license_key
+from license_center.backend.license_generator import (
+    generate_signed_license_key,
+    verify_signed_license_key,
+    compute_system_serial_number,
+    generate_tenant_serial_number
+)
 
 app = FastAPI(title="AIDA Control Center - Central License & Fleet Management API", version="1.0.0")
 
@@ -75,6 +80,8 @@ async def on_startup():
 class ClientCreateSchema(BaseModel):
     company_name: str
     tenant_code: str
+    tenant_serial_number: Optional[str] = None
+    system_serial_number: Optional[str] = None
     hardware_id: Optional[str] = None
     ip_address: Optional[str] = None
     domain_name: Optional[str] = None
@@ -90,6 +97,7 @@ class ClientCreateSchema(BaseModel):
 class LicenseGenerateSchema(BaseModel):
     client_id: Optional[int] = None
     tenant_code: str
+    tenant_serial_number: Optional[str] = None
     expiry_date: str
     hardware_id: Optional[str] = "UNBOUND"
     plan_tier: Optional[str] = "professional"
@@ -98,12 +106,17 @@ class LicenseGenerateSchema(BaseModel):
 
 class TenantPingItem(BaseModel):
     tenant_code: str
+    company_name: Optional[str] = None
+    tenant_num_id: Optional[int] = None
+    serial_number: Optional[str] = None
     license_key: Optional[str] = ""
     status: Optional[str] = "active"
 
 class HeartbeatSchema(BaseModel):
     hardware_id: str
+    system_serial_number: Optional[str] = None
     tenant_code: Optional[str] = None
+    tenant_serial_number: Optional[str] = None
     license_key: Optional[str] = None
     software_version: Optional[str] = "v2.4.9"
     cpu_percent: Optional[float] = 0.0
@@ -312,8 +325,16 @@ async def get_clients(db: AsyncSession = Depends(get_central_db)):
     output = []
     now = datetime.datetime.utcnow()
     fifteen_mins_ago = now - datetime.timedelta(minutes=15)
+    db_modified = False
     
     for c in clients:
+        if not c.tenant_serial_number:
+            c.tenant_serial_number = generate_tenant_serial_number(c.tenant_code, 99 + (c.id or 1))
+            db_modified = True
+        if not c.system_serial_number and c.hardware_id and c.hardware_id not in ("UNBOUND", "Bilinmiyor", "HW-UNKNOWN"):
+            c.system_serial_number = compute_system_serial_number(c.hardware_id)
+            db_modified = True
+
         is_online = bool(c.last_heartbeat_at and c.last_heartbeat_at >= fifteen_mins_ago)
         days_left = None
         if c.license_expires_at and c.license_expires_at != "unlimited":
@@ -334,6 +355,8 @@ async def get_clients(db: AsyncSession = Depends(get_central_db)):
             "id": c.id,
             "company_name": c.company_name,
             "tenant_code": c.tenant_code,
+            "tenant_serial_number": c.tenant_serial_number,
+            "system_serial_number": c.system_serial_number or (compute_system_serial_number(c.hardware_id) if c.hardware_id and c.hardware_id not in ("UNBOUND", "Bilinmiyor") else "Henüz Bağlanmadı"),
             "hardware_id": c.hardware_id or "Bilinmiyor",
             "ip_address": c.ip_address,
             "domain_name": c.domain_name,
@@ -355,6 +378,8 @@ async def get_clients(db: AsyncSession = Depends(get_central_db)):
             "days_left": days_left,
             "created_at": c.created_at.isoformat() if c.created_at else None
         })
+    if db_modified:
+        await db.commit()
     return output
 
 @app.post("/api/v1/clients")
@@ -367,12 +392,21 @@ async def create_client(payload: ClientCreateSchema, request: Request, db: Async
 
     hw_id = payload.hardware_id.strip().upper() if payload.hardware_id else "UNBOUND"
     exp_date = payload.license_expires_at or "2026-12-31"
-    cq_json = json.dumps(payload.custom_quotas) if payload.custom_quotas else None
-    gen_key = generate_signed_license_key(t_code, exp_date, hw_id, custom_quotas=payload.custom_quotas)
+    cnt_res = await db.execute(select(func.count(ClientServer.id)))
+    next_idx = 100 + (cnt_res.scalar() or 0)
+    t_sn = (payload.tenant_serial_number or "").strip() or generate_tenant_serial_number(t_code, next_idx)
+    sys_sn = (payload.system_serial_number or "").strip() or (compute_system_serial_number(hw_id) if hw_id != "UNBOUND" else None)
+
+    quotas_with_sn = dict(payload.custom_quotas or {})
+    quotas_with_sn["tenant_serial_number"] = t_sn
+    cq_json = json.dumps(quotas_with_sn)
+    gen_key = generate_signed_license_key(t_code, exp_date, hw_id, custom_quotas=quotas_with_sn)
 
     new_client = ClientServer(
         company_name=payload.company_name.strip(),
         tenant_code=t_code,
+        tenant_serial_number=t_sn,
+        system_serial_number=sys_sn,
         hardware_id=hw_id,
         ip_address=payload.ip_address,
         domain_name=payload.domain_name,
@@ -478,28 +512,40 @@ async def generate_license(payload: LicenseGenerateSchema, request: Request, db:
     if exp_date in ["unlimited", "Süresiz", ""] or payload.plan_tier == "unlimited":
         quotas["is_unlimited"] = True
 
-    key = generate_signed_license_key(t_code, exp_date, hw_id, custom_quotas=quotas)
-
     # Find matching client if available
     res = await db.execute(select(ClientServer).where(ClientServer.tenant_code == t_code))
     client = res.scalars().first()
+    resolved_t_sn = (
+        (payload.tenant_serial_number or "").strip()
+        or (client.tenant_serial_number if client else None)
+        or generate_tenant_serial_number(t_code, 100 + (client.id if client and client.id else 0))
+    )
+    quotas["tenant_serial_number"] = resolved_t_sn
+    resolved_sys_sn = compute_system_serial_number(hw_id) if hw_id not in ("UNBOUND", "Bilinmiyor") else (client.system_serial_number if client else None)
+
+    key = generate_signed_license_key(t_code, exp_date, hw_id, custom_quotas=quotas)
+
     if not client:
         client = ClientServer(
             company_name=f"Müşteri ({t_code})",
             tenant_code=t_code,
+            tenant_serial_number=resolved_t_sn,
+            system_serial_number=resolved_sys_sn,
             hardware_id=hw_id,
             plan_tier=payload.plan_tier or "professional",
             status="active",
             current_license_key=key,
             license_expires_at=exp_date,
-            custom_quotas=json.dumps(payload.custom_quotas) if payload.custom_quotas else None
+            custom_quotas=json.dumps(quotas)
         )
         db.add(client)
         await db.commit()
         await db.refresh(client)
     else:
-        if payload.custom_quotas is not None:
-            client.custom_quotas = json.dumps(payload.custom_quotas) if payload.custom_quotas else None
+        client.custom_quotas = json.dumps(quotas)
+        client.tenant_serial_number = resolved_t_sn
+        if resolved_sys_sn:
+            client.system_serial_number = resolved_sys_sn
         client.current_license_key = key
         client.license_expires_at = exp_date
         client.hardware_id = hw_id
@@ -549,27 +595,37 @@ async def receive_heartbeat(payload: HeartbeatSchema, request: Request, db: Asyn
         client_ip = payload.public_ip or payload.ip_address
 
     hw_id = payload.hardware_id or "HW-UNKNOWN"
+    sys_sn = (payload.system_serial_number or "").strip() or compute_system_serial_number(hw_id)
 
     tenant_items = []
     if payload.tenants and len(payload.tenants) > 0:
         tenant_items = payload.tenants
     elif payload.tenant_code:
-        tenant_items = [TenantPingItem(tenant_code=payload.tenant_code, license_key=payload.license_key or "")]
+        tenant_items = [
+            TenantPingItem(
+                tenant_code=payload.tenant_code,
+                serial_number=payload.tenant_serial_number,
+                license_key=payload.license_key or ""
+            )
+        ]
 
     tenants_response = []
 
-    for t_item in tenant_items:
+    for idx, t_item in enumerate(tenant_items):
         t_code = t_item.tenant_code.strip().lower()
         if not t_code:
             continue
 
         res = await db.execute(select(ClientServer).where(ClientServer.tenant_code == t_code))
         client = res.scalars().first()
+        incoming_t_sn = (t_item.serial_number or "").strip() or generate_tenant_serial_number(t_code, t_item.tenant_num_id or (100 + idx))
 
         if not client:
             client = ClientServer(
-                company_name=f"Otomatik Kayıt ({t_code})",
+                company_name=(t_item.company_name or "").strip() or f"Otomatik Kayıt ({t_code})",
                 tenant_code=t_code,
+                tenant_serial_number=incoming_t_sn,
+                system_serial_number=sys_sn,
                 hardware_id=hw_id,
                 ip_address=client_ip,
                 status="active",
@@ -580,6 +636,11 @@ async def receive_heartbeat(payload: HeartbeatSchema, request: Request, db: Asyn
             await db.commit()
             await db.refresh(client)
 
+        if t_item.company_name and client.company_name.startswith("Otomatik Kayıt"):
+            client.company_name = t_item.company_name.strip()
+        if not client.tenant_serial_number:
+            client.tenant_serial_number = incoming_t_sn
+        client.system_serial_number = sys_sn
         client.last_heartbeat_at = datetime.datetime.utcnow()
         client.ip_address = client_ip or client.ip_address
         client.hardware_id = hw_id
@@ -615,6 +676,9 @@ async def receive_heartbeat(payload: HeartbeatSchema, request: Request, db: Asyn
 
         tenants_response.append({
             "tenant_code": t_code,
+            "serial_number": client.tenant_serial_number,
+            "tenant_serial_number": client.tenant_serial_number,
+            "system_serial_number": client.system_serial_number,
             "client_status": client.status,
             "remote_kill_switch": remote_kill_switch,
             "latest_license_key": client.current_license_key,

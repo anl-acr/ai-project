@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { Building2, Plus, Trash2, Edit3, Shield, CheckCircle, AlertTriangle, Calendar, Clock, Lock, ShieldAlert, Key, Bot, PhoneCall, Cpu, Network, GitMerge, PhoneOutgoing, Users, Volume2, BookOpen, Ban, MapPin, Briefcase, Zap } from "lucide-react";
+import { Building2, Plus, Trash2, Edit3, Shield, CheckCircle, AlertTriangle, Calendar, Clock, Lock, ShieldAlert, Key, Bot, PhoneCall, Cpu, Network, GitMerge, PhoneOutgoing, Users, Volume2, BookOpen, Ban, MapPin, Briefcase, Zap, Copy, Check } from "lucide-react";
 import { getApiBaseUrl } from "../../utils/apiHost";
 
 const PROVIDER_LABELS = {
@@ -134,6 +134,14 @@ export default function TenantManagementPanel({ backendHost }) {
 
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
+  const [copiedSnKey, setCopiedSnKey] = useState(null);
+
+  const handleCopySn = (val, key) => {
+    if (!val) return;
+    navigator.clipboard.writeText(String(val));
+    setCopiedSnKey(key);
+    setTimeout(() => setCopiedSnKey((prev) => (prev === key ? null : prev)), 2000);
+  };
 
   // Custom Delete Modal state
   const [deleteModalOpen, setDeleteModalOpen] = useState(false);
@@ -532,7 +540,22 @@ export default function TenantManagementPanel({ backendHost }) {
           </div>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
+          {tenants?.[0]?.system_serial_number && (
+            <div className="px-3 py-1.5 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl text-[11px] font-mono font-bold text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
+              <Cpu size={13} className="text-rose-500 shrink-0" />
+              <span>Sistem Seri No: <strong className="text-slate-900 dark:text-white">{tenants[0].system_serial_number}</strong></span>
+              <button
+                type="button"
+                onClick={() => handleCopySn(tenants[0].system_serial_number, "sys-sn")}
+                className="p-0.5 rounded hover:bg-slate-200 dark:hover:bg-slate-800 text-slate-500 hover:text-slate-800 dark:hover:text-white cursor-pointer"
+                title="Sistem Seri Numarasını Kopyala"
+              >
+                {copiedSnKey === "sys-sn" ? <Check size={12} className="text-emerald-500" /> : <Copy size={12} />}
+              </button>
+            </div>
+          )}
+
           <button
             onClick={() => handleOpenOfflineModal(null)}
             className="px-3.5 py-1.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-extrabold flex items-center gap-1.5 transition-all cursor-pointer shadow-xs"
@@ -582,7 +605,7 @@ export default function TenantManagementPanel({ backendHost }) {
                   : "bg-slate-50/60 dark:bg-slate-950/40 border-slate-200/90 dark:border-slate-800/80 hover:border-slate-300 dark:hover:border-slate-700"
               }`}
             >
-              {/* Müşteri / Firma Adı & License Key & Tenant ID */}
+              {/* Müşteri / Firma Adı & License Key & Tenant ID & Seri No */}
               <div className="lg:col-span-3 flex flex-col justify-center">
                 <div className="flex items-center gap-2 flex-wrap">
                   <span className="font-extrabold text-slate-900 dark:text-white text-sm">{t.name}</span>
@@ -590,6 +613,21 @@ export default function TenantManagementPanel({ backendHost }) {
                     Tenant ID: {t.tenant_num_id || 100}
                   </span>
                 </div>
+                {t.serial_number && (
+                  <div className="flex items-center gap-1.5 mt-1">
+                    <span className="text-[10px] font-mono font-extrabold bg-indigo-50 dark:bg-indigo-950/40 text-indigo-700 dark:text-indigo-300 border border-indigo-200/60 dark:border-indigo-800/60 px-2 py-0.5 rounded-md inline-flex items-center gap-1" title="Resmi Müşteri / Tenant Seri Numarası">
+                      <span>Seri No: {t.serial_number}</span>
+                      <button
+                        type="button"
+                        onClick={() => handleCopySn(t.serial_number, `sn-${t.id}`)}
+                        className="hover:text-indigo-900 dark:hover:text-white cursor-pointer"
+                        title="Tenant Seri Numarasını Kopyala"
+                      >
+                        {copiedSnKey === `sn-${t.id}` ? <Check size={10} className="text-emerald-500" /> : <Copy size={10} />}
+                      </button>
+                    </span>
+                  </div>
+                )}
                 <div className="flex items-center gap-1.5 mt-1.5 flex-wrap">
                   <span className="text-[10px] font-mono bg-slate-200/80 dark:bg-slate-800 text-slate-800 dark:text-slate-200 px-2 py-0.5 rounded-md font-bold flex items-center gap-1" title={t.license_key || "Lisans Anahtarı"}>
                     <Key size={10} className="text-rose-500" />
@@ -728,11 +766,29 @@ export default function TenantManagementPanel({ backendHost }) {
             )}
 
             {editingTenant && (
-              <div className="p-3.5 mb-5 bg-rose-50/50 dark:bg-rose-950/20 border border-rose-200/60 dark:border-rose-900/30 rounded-2xl flex items-center justify-between">
-                <span className="text-xs font-bold text-slate-700 dark:text-slate-300">Asterisk Dialplan Sayısal Tenant ID:</span>
-                <span className="text-xs font-mono font-extrabold text-rose-600 dark:text-rose-400 bg-white dark:bg-slate-900 px-3 py-1 rounded-xl border border-rose-200 dark:border-rose-900">
-                  ID: {editingTenant.tenant_num_id || 100} ({editingTenant.id})
-                </span>
+              <div className="p-3.5 mb-5 bg-rose-50/50 dark:bg-rose-950/20 border border-rose-200/60 dark:border-rose-900/30 rounded-2xl flex flex-wrap items-center justify-between gap-3">
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-bold text-slate-700 dark:text-slate-300">Tenant Seri Numarası:</span>
+                  <span className="text-xs font-mono font-extrabold text-indigo-600 dark:text-indigo-400 bg-white dark:bg-slate-900 px-3 py-1 rounded-xl border border-indigo-200 dark:border-indigo-900 inline-flex items-center gap-1.5">
+                    <span>{editingTenant.serial_number || "-"}</span>
+                    {editingTenant.serial_number && (
+                      <button
+                        type="button"
+                        onClick={() => handleCopySn(editingTenant.serial_number, "edit-modal-sn")}
+                        className="hover:opacity-80 cursor-pointer"
+                        title="Tenant Seri Numarasını Kopyala"
+                      >
+                        {copiedSnKey === "edit-modal-sn" ? <Check size={12} className="text-emerald-500" /> : <Copy size={12} />}
+                      </button>
+                    )}
+                  </span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-bold text-slate-700 dark:text-slate-300">Sayısal Tenant ID:</span>
+                  <span className="text-xs font-mono font-extrabold text-rose-600 dark:text-rose-400 bg-white dark:bg-slate-900 px-3 py-1 rounded-xl border border-rose-200 dark:border-rose-900">
+                    ID: {editingTenant.tenant_num_id || 100} ({editingTenant.id})
+                  </span>
+                </div>
               </div>
             )}
 

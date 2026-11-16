@@ -2,6 +2,22 @@ import os
 import sys
 import subprocess
 import hashlib
+import hmac
+
+SERIAL_MASTER_SECRET = "AIDA_MASTER_LICENSE_SECRET_KEY_2026_SECURE_SALT_99"
+
+def compute_system_serial_number(hw_id: str) -> str:
+    """
+    Computes a deterministic, tamper-evident System (Server) Serial Number from the Hardware ID.
+    Format: SN-SRV-2026-{HW8}-{CHK4} (e.g. SN-SRV-2026-361BF973-8A4C)
+    """
+    clean_hw = (hw_id or "UNBOUND").strip().upper().replace("-", "").replace("HW", "")[:8] or "00000000"
+    chk = hmac.new(
+        SERIAL_MASTER_SECRET.encode("utf-8"),
+        f"SYSTEM_SERIAL:{clean_hw}".encode("utf-8"),
+        hashlib.sha256
+    ).hexdigest()[:4].upper()
+    return f"SN-SRV-2026-{clean_hw}-{chk}"
 
 def get_system_hardware_fingerprint() -> dict:
     """
@@ -63,10 +79,12 @@ def get_system_hardware_fingerprint() -> dict:
     hw_hash = hashlib.sha256(raw_str.encode('utf-8')).hexdigest()[:8].upper()
     hw_id = f"HW-{hw_hash[:4]}-{hw_hash[4:]}"
     clean_hw = hw_hash.upper()
+    system_serial = compute_system_serial_number(hw_id)
 
     return {
         "hardware_id": hw_id,
         "clean_hw_id": clean_hw,
+        "system_serial_number": system_serial,
         "raw_components": components,
         "raw_string": raw_str
     }
@@ -74,4 +92,5 @@ def get_system_hardware_fingerprint() -> dict:
 if __name__ == "__main__":
     info = get_system_hardware_fingerprint()
     print(f"Sunucu Donanım Kimliği (Hardware ID): {info['hardware_id']}")
+    print(f"Sistem Seri Numarası (System Serial): {info['system_serial_number']}")
     print(f"Raw Bilgi: {info['raw_string']}")

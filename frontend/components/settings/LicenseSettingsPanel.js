@@ -12,6 +12,8 @@ export default function LicenseSettingsPanel({ backendHost }) {
   const [successMsg, setSuccessMsg] = useState("");
   const [copied, setCopied] = useState(false);
   const [hwCopied, setHwCopied] = useState(false);
+  const [sysSnCopied, setSysSnCopied] = useState(false);
+  const [tenantSnCopied, setTenantSnCopied] = useState(false);
 
   const API_BASE = getApiBaseUrl(backendHost);
 
@@ -88,6 +90,23 @@ export default function LicenseSettingsPanel({ backendHost }) {
     }
   };
 
+  const handleCopySysSn = () => {
+    if (licenseStatus?.system_serial_number) {
+      navigator.clipboard.writeText(licenseStatus.system_serial_number);
+      setSysSnCopied(true);
+      setTimeout(() => setSysSnCopied(false), 2000);
+    }
+  };
+
+  const handleCopyTenantSn = () => {
+    const tSn = licenseStatus?.tenant_serial_number || licenseStatus?.serial_number;
+    if (tSn) {
+      navigator.clipboard.writeText(tSn);
+      setTenantSnCopied(true);
+      setTimeout(() => setTenantSnCopied(false), 2000);
+    }
+  };
+
   const handlePasteClipboard = async () => {
     try {
       const clipText = await navigator.clipboard.readText();
@@ -128,38 +147,80 @@ export default function LicenseSettingsPanel({ backendHost }) {
           )}
         </div>
 
-        {/* Server Hardware ID Card */}
-        {licenseStatus?.server_hardware_id && (
-          <div className="p-4 bg-slate-50 dark:bg-slate-950 border border-slate-200/80 dark:border-slate-800 rounded-2xl flex items-center justify-between">
-            <div>
-              <div className="text-[10px] font-extrabold uppercase text-slate-400 tracking-wider">
-                Sunucu Donanım Kimliği (Machine Fingerprint)
+        {/* Sistem Seri No, Tenant Seri No & Sunucu Donanım ID Kartları */}
+        {licenseStatus && (
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+            {/* 1. Sistem (Sunucu) Seri Numarası */}
+            <div className="p-4 bg-slate-50 dark:bg-slate-950 border border-slate-200/80 dark:border-slate-800 rounded-2xl flex items-center justify-between gap-2">
+              <div className="min-w-0">
+                <div className="text-[10px] font-extrabold uppercase text-slate-400 tracking-wider">
+                  Sistem (Sunucu) Seri Numarası
+                </div>
+                <div className="text-xs sm:text-sm font-mono font-extrabold text-slate-800 dark:text-slate-200 mt-0.5 truncate">
+                  {licenseStatus.system_serial_number || "SN-SRV-2026-..."}
+                </div>
               </div>
-              <div className="text-sm font-mono font-extrabold text-slate-800 dark:text-slate-200 mt-0.5">
-                {licenseStatus.server_hardware_id}
-              </div>
+              <button
+                type="button"
+                onClick={handleCopySysSn}
+                className={`px-2.5 py-1.5 rounded-xl text-[11px] font-bold transition-all flex items-center gap-1 shrink-0 cursor-pointer ${
+                  sysSnCopied
+                    ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30"
+                    : "bg-slate-200/80 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-300 dark:hover:bg-slate-700"
+                }`}
+              >
+                {sysSnCopied ? <Check size={13} className="text-emerald-500" /> : <Copy size={13} />}
+                <span>{sysSnCopied ? "Kopyalandı" : "Kopyala"}</span>
+              </button>
             </div>
-            <button
-              type="button"
-              onClick={handleCopyHwId}
-              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
-                hwCopied 
-                  ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30" 
-                  : "bg-slate-200/80 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-300 dark:hover:bg-slate-700"
-              }`}
-            >
-              {hwCopied ? (
-                <>
-                  <Check size={14} className="text-emerald-500" />
-                  <span>Kopyalandı!</span>
-                </>
-              ) : (
-                <>
-                  <Copy size={14} />
-                  <span>Donanım ID Kopyala</span>
-                </>
-              )}
-            </button>
+
+            {/* 2. Aktif Müşteri (Tenant) Seri Numarası */}
+            <div className="p-4 bg-slate-50 dark:bg-slate-950 border border-slate-200/80 dark:border-slate-800 rounded-2xl flex items-center justify-between gap-2">
+              <div className="min-w-0">
+                <div className="text-[10px] font-extrabold uppercase text-slate-400 tracking-wider">
+                  Tenant Seri Numarası ({licenseStatus.tenant_code || "default"})
+                </div>
+                <div className={`text-xs sm:text-sm font-mono font-extrabold ${text} mt-0.5 truncate`}>
+                  {licenseStatus.tenant_serial_number || licenseStatus.serial_number || "SN-TNT-2026-..."}
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={handleCopyTenantSn}
+                className={`px-2.5 py-1.5 rounded-xl text-[11px] font-bold transition-all flex items-center gap-1 shrink-0 cursor-pointer ${
+                  tenantSnCopied
+                    ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30"
+                    : "bg-slate-200/80 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-300 dark:hover:bg-slate-700"
+                }`}
+              >
+                {tenantSnCopied ? <Check size={13} className="text-emerald-500" /> : <Copy size={13} />}
+                <span>{tenantSnCopied ? "Kopyalandı" : "Kopyala"}</span>
+              </button>
+            </div>
+
+            {/* 3. Sunucu Donanım Kimliği (Hardware ID) */}
+            <div className="p-4 bg-slate-50 dark:bg-slate-950 border border-slate-200/80 dark:border-slate-800 rounded-2xl flex items-center justify-between gap-2">
+              <div className="min-w-0">
+                <div className="text-[10px] font-extrabold uppercase text-slate-400 tracking-wider">
+                  Sunucu Donanım Kimliği (Hardware ID)
+                </div>
+                <div className="text-xs sm:text-sm font-mono font-extrabold text-slate-800 dark:text-slate-200 mt-0.5 truncate">
+                  {licenseStatus.server_hardware_id || "-"}
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={handleCopyHwId}
+                className={`px-2.5 py-1.5 rounded-xl text-[11px] font-bold transition-all flex items-center gap-1 shrink-0 cursor-pointer ${
+                  hwCopied
+                    ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30"
+                    : "bg-slate-200/80 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-300 dark:hover:bg-slate-700"
+                }`}
+              >
+                {hwCopied ? <Check size={13} className="text-emerald-500" /> : <Copy size={13} />}
+                <span>{hwCopied ? "Kopyalandı" : "Kopyala"}</span>
+              </button>
+            </div>
           </div>
         )}
       </div>

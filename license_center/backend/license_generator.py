@@ -6,6 +6,39 @@ import json
 
 LICENSE_MASTER_SECRET = "AIDA_MASTER_LICENSE_SECRET_KEY_2026_SECURE_SALT_99"
 
+def compute_system_serial_number(hw_id: str) -> str:
+    """
+    Computes a deterministic, tamper-evident System (Server) Serial Number from the Hardware ID.
+    Format: SN-SRV-2026-{HW8}-{CHK4}
+    """
+    clean_hw = (hw_id or "UNBOUND").strip().upper().replace("-", "").replace("HW", "")[:8] or "00000000"
+    if clean_hw in ("UNBOUND", "UNKNOWN", "BILINMIY"):
+        return "SN-SRV-2026-UNBOUND0-0000"
+    chk = hmac.new(
+        LICENSE_MASTER_SECRET.encode("utf-8"),
+        f"SYSTEM_SERIAL:{clean_hw}".encode("utf-8"),
+        hashlib.sha256
+    ).hexdigest()[:4].upper()
+    return f"SN-SRV-2026-{clean_hw}-{chk}"
+
+def generate_tenant_serial_number(tenant_code: str, tenant_num_id: int = 100) -> str:
+    """
+    Generates a unique, contract-grade cryptographic Tenant Serial Number.
+    Format: SN-TNT-2026-{NUM4}-{HASH6}
+    """
+    clean_code = (tenant_code or "default").strip().lower().replace("tenant-", "").replace(" ", "-")
+    try:
+        num_val = int(tenant_num_id or 100)
+    except Exception:
+        num_val = 100
+    num_part = f"{num_val:04d}"
+    sig = hmac.new(
+        LICENSE_MASTER_SECRET.encode("utf-8"),
+        f"TENANT_SERIAL:{clean_code}:{num_part}".encode("utf-8"),
+        hashlib.sha256
+    ).hexdigest()[:6].upper()
+    return f"SN-TNT-2026-{num_part}-{sig}"
+
 def compute_license_signature(tenant_code: str, expiry_date_str: str, hw_id: str = "UNBOUND") -> str:
     """
     Computes an 8-character uppercase HMAC-SHA256 signature for tenant_code, expiry_date, and hardware_id.

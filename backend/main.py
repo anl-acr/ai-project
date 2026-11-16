@@ -51,7 +51,7 @@ from backend.database.config import get_db, Base, engine, AsyncSessionLocal
 from backend.database.models import Rule, Call, Transcript, Appointment, ChatSession, ChatMessage, Contact, CannedResponse, BlacklistItem, BlockWord, SystemUser, SystemRole, PBXQueue, Trunk, AIAgent, BreakType, AgentBreakLog, SystemSetting, EventLog, QueueSurveyResponse, VoipQualityLog, VoicemailMessage
 from backend.services.agent_presence import get_agent_state
 from backend.services.rag_service import index_pdf_file, index_website_url, query_vector_search, index_manual_text, delete_indexed_source, get_genai_client
-from backend.services.license_service import verify_license_key, generate_license_key
+from backend.services.license_service import verify_license_key, generate_license_key, generate_tenant_serial_number
 from backend.services.websocket_manager import ws_manager
 import redis.asyncio as aioredis
 redis_client = aioredis.Redis(host='localhost', port=6379, decode_responses=True)
@@ -1071,6 +1071,7 @@ class TenantCreateSchema(BaseModel):
     name: str
     code: str
     status: Optional[str] = "active"
+    serial_number: Optional[str] = None
     license_expires_at: Optional[str] = ""
     license_key: Optional[str] = ""
     plan_tier: Optional[str] = "professional"
@@ -18566,15 +18567,26 @@ async def get_tenants():
             t["tenant_num_id"] = next_num
             next_num += 1
             modified = True
+        if not t.get("serial_number"):
+            t_code_val = t.get("code") or str(t.get("id") or "default").replace("tenant-", "")
+            t["serial_number"] = generate_tenant_serial_number(t_code_val, t.get("tenant_num_id") or 100)
+            modified = True
 
     if check_and_update_tenant_expiration(tenants) or modified:
         current["tenants"] = tenants
         save_settings(current)
         settings_db["tenants"] = tenants
 
+    from backend.services.hardware_info import get_system_hardware_fingerprint
+    hw_info = get_system_hardware_fingerprint()
+    sys_serial = hw_info.get("system_serial_number")
+    srv_hw_id = hw_info.get("hardware_id")
+
     result = []
     for t in tenants:
         t_copy = dict(t)
+        t_copy["system_serial_number"] = sys_serial
+        t_copy["server_hardware_id"] = srv_hw_id
         if "max_concurrent_calls" not in t_copy or t_copy["max_concurrent_calls"] is None:
             t_copy["max_concurrent_calls"] = 4
         if "tolerance_concurrent_calls" not in t_copy or t_copy["tolerance_concurrent_calls"] is None:
@@ -18621,10 +18633,12 @@ async def create_tenant(payload: TenantCreateSchema):
     # Calculate next numeric tenant ID
     existing_num_ids = [t.get("tenant_num_id") for t in tenants if t.get("tenant_num_id") is not None]
     next_num_id = (max(existing_num_ids) + 1) if existing_num_ids else 100
+    tenant_sn = (payload.serial_number or "").strip() or generate_tenant_serial_number(tenant_code, next_num_id)
 
     new_tenant = {
         "id": tenant_id,
         "tenant_num_id": next_num_id,
+        "serial_number": tenant_sn,
         "name": payload.name.strip(),
         "code": tenant_code,
         "status": payload.status or "active",
@@ -18842,6 +18856,12 @@ async def get_license_status(request: Request):
         return {"valid": False, "reason": "Müşteri bulunamadı"}
         
     t_code = matched.get("code") or matched.get("id", "default").replace("tenant-", "")
+    if not matched.get("serial_number"):
+        matched["serial_number"] = generate_tenant_serial_number(t_code, matched.get("tenant_num_id") or 100)
+        current["tenants"] = tenants
+        save_settings(current)
+        settings_db["tenants"] = tenants
+
     verification = verify_license_key(t_code, matched.get("license_key", ""))
     hw_info = get_system_hardware_fingerprint()
     
@@ -18887,6 +18907,9 @@ async def get_license_status(request: Request):
         "tenant_id": matched.get("id"),
         "tenant_name": matched.get("name"),
         "tenant_code": t_code,
+        "tenant_serial_number": matched.get("serial_number"),
+        "serial_number": matched.get("serial_number"),
+        "system_serial_number": hw_info.get("system_serial_number"),
         "plan_tier": plan_tier,
         "plan_label": limits["label"],
         "status": matched.get("status"),
@@ -18944,8 +18967,11 @@ async def renew_license_key(payload: LicenseRenewSchema):
     custom_q = verification.get("custom_quotas")
     if custom_q and isinstance(custom_q, dict):
         for q_key, q_val in custom_q.items():
-            if q_key in ["plan_tier", "status", "license_expires_at"]:
-                target[q_key] = str(q_val)
+            if q_key in ["plan_tier", "status", "license_expires_at", "serial_number", "tenant_serial_number"]:
+                if q_key in ["serial_number", "tenant_serial_number"] and q_val:
+                    target["serial_number"] = str(q_val)
+                else:
+                    target[q_key] = str(q_val)
             elif q_key == "is_unlimited":
                 target[q_key] = bool(q_val)
             elif isinstance(q_val, (int, float)):

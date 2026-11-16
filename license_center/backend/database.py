@@ -19,7 +19,12 @@ from sqlalchemy import text
 async def init_central_db():
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
-        try:
-            await conn.execute(text("ALTER TABLE client_servers ADD COLUMN custom_quotas TEXT;"))
-        except Exception:
-            pass
+        for ddl in [
+            "ALTER TABLE client_servers ADD COLUMN custom_quotas TEXT;",
+            "ALTER TABLE client_servers ADD COLUMN tenant_serial_number VARCHAR;",
+            "ALTER TABLE client_servers ADD COLUMN system_serial_number VARCHAR;"
+        ]:
+            try:
+                await conn.execute(text(ddl))
+            except Exception:
+                pass

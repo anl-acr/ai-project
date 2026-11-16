@@ -12,6 +12,8 @@ export default function LicenseModal({ isOpen, onClose, backendHost, onLicenseUp
   const [successMsg, setSuccessMsg] = useState("");
   const [copied, setCopied] = useState(false);
   const [hwCopied, setHwCopied] = useState(false);
+  const [sysSnCopied, setSysSnCopied] = useState(false);
+  const [tenantSnCopied, setTenantSnCopied] = useState(false);
 
   const API_BASE = getApiBaseUrl(backendHost);
 
@@ -92,6 +94,23 @@ export default function LicenseModal({ isOpen, onClose, backendHost, onLicenseUp
       navigator.clipboard.writeText(licenseStatus.server_hardware_id);
       setHwCopied(true);
       setTimeout(() => setHwCopied(false), 2000);
+    }
+  };
+
+  const handleCopySysSn = () => {
+    if (licenseStatus?.system_serial_number) {
+      navigator.clipboard.writeText(licenseStatus.system_serial_number);
+      setSysSnCopied(true);
+      setTimeout(() => setSysSnCopied(false), 2000);
+    }
+  };
+
+  const handleCopyTenantSn = () => {
+    const tSn = licenseStatus?.tenant_serial_number || licenseStatus?.serial_number;
+    if (tSn) {
+      navigator.clipboard.writeText(tSn);
+      setTenantSnCopied(true);
+      setTimeout(() => setTenantSnCopied(false), 2000);
     }
   };
 
@@ -182,36 +201,84 @@ export default function LicenseModal({ isOpen, onClose, backendHost, onLicenseUp
             )}
           </div>
 
-          {/* Server Hardware ID Badge */}
-          {licenseStatus?.server_hardware_id && (
-            <div className="p-3 bg-slate-50 dark:bg-slate-950 border border-slate-200/80 dark:border-slate-800 rounded-2xl flex items-center justify-between">
-              <div>
-                <div className="text-[10px] font-extrabold uppercase text-slate-400 tracking-wider">Sunucu Donanım Kimliği (Machine Fingerprint)</div>
-                <div className="text-xs font-mono font-extrabold text-slate-800 dark:text-slate-200">
-                  {licenseStatus.server_hardware_id}
+          {/* Sistem Seri No, Tenant Seri No & Donanım Kimliği */}
+          {licenseStatus && (
+            <div className="space-y-2">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                <div className="p-2.5 bg-slate-50 dark:bg-slate-950 border border-slate-200/80 dark:border-slate-800 rounded-2xl flex items-center justify-between gap-2">
+                  <div className="min-w-0">
+                    <div className="text-[9.5px] font-extrabold uppercase text-slate-400 tracking-wider">Sistem Seri No</div>
+                    <div className="text-[11px] font-mono font-extrabold text-slate-800 dark:text-slate-200 truncate">
+                      {licenseStatus.system_serial_number || "-"}
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleCopySysSn}
+                    className={`px-2 py-1 rounded-lg text-[10px] font-bold transition-all flex items-center gap-1 shrink-0 cursor-pointer ${
+                      sysSnCopied
+                        ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30"
+                        : "bg-slate-200/80 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-300 dark:hover:bg-slate-700"
+                    }`}
+                  >
+                    {sysSnCopied ? <Check size={11} className="text-emerald-500" /> : <Copy size={11} />}
+                  </button>
+                </div>
+
+                <div className="p-2.5 bg-slate-50 dark:bg-slate-950 border border-slate-200/80 dark:border-slate-800 rounded-2xl flex items-center justify-between gap-2">
+                  <div className="min-w-0">
+                    <div className="text-[9.5px] font-extrabold uppercase text-slate-400 tracking-wider">
+                      Tenant Seri No ({licenseStatus.tenant_code || "default"})
+                    </div>
+                    <div className={`text-[11px] font-mono font-extrabold ${text} truncate`}>
+                      {licenseStatus.tenant_serial_number || licenseStatus.serial_number || "-"}
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleCopyTenantSn}
+                    className={`px-2 py-1 rounded-lg text-[10px] font-bold transition-all flex items-center gap-1 shrink-0 cursor-pointer ${
+                      tenantSnCopied
+                        ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30"
+                        : "bg-slate-200/80 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-300 dark:hover:bg-slate-700"
+                    }`}
+                  >
+                    {tenantSnCopied ? <Check size={11} className="text-emerald-500" /> : <Copy size={11} />}
+                  </button>
                 </div>
               </div>
-              <button
-                type="button"
-                onClick={handleCopyHwId}
-                className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition-all flex items-center gap-1 cursor-pointer ${
-                  hwCopied 
-                    ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30" 
-                    : "bg-slate-200/80 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-300 dark:hover:bg-slate-700"
-                }`}
-              >
-                {hwCopied ? (
-                  <>
-                    <Check size={12} className="text-emerald-500" />
-                    <span>Kopyalandı!</span>
-                  </>
-                ) : (
-                  <>
-                    <Copy size={12} />
-                    <span>Kopyala</span>
-                  </>
-                )}
-              </button>
+
+              {licenseStatus.server_hardware_id && (
+                <div className="p-2.5 bg-slate-50 dark:bg-slate-950 border border-slate-200/80 dark:border-slate-800 rounded-2xl flex items-center justify-between">
+                  <div>
+                    <div className="text-[9.5px] font-extrabold uppercase text-slate-400 tracking-wider">Sunucu Donanım Kimliği (Machine Fingerprint)</div>
+                    <div className="text-xs font-mono font-extrabold text-slate-800 dark:text-slate-200">
+                      {licenseStatus.server_hardware_id}
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleCopyHwId}
+                    className={`px-2.5 py-1 rounded-lg text-[10.5px] font-bold transition-all flex items-center gap-1 cursor-pointer ${
+                      hwCopied
+                        ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30"
+                        : "bg-slate-200/80 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-300 dark:hover:bg-slate-700"
+                    }`}
+                  >
+                    {hwCopied ? (
+                      <>
+                        <Check size={12} className="text-emerald-500" />
+                        <span>Kopyalandı!</span>
+                      </>
+                    ) : (
+                      <>
+                        <Copy size={12} />
+                        <span>Kopyala</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+              )}
             </div>
           )}
 

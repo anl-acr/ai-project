@@ -6,7 +6,7 @@ import datetime
 import httpx
 import psutil
 from backend.services.hardware_info import get_system_hardware_fingerprint
-from backend.services.license_service import verify_license_key
+from backend.services.license_service import verify_license_key, generate_tenant_serial_number
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SETTINGS_FILE = os.path.join(BASE_DIR, "settings.json")
@@ -42,16 +42,29 @@ async def start_telemetry_heartbeat_loop():
             if not tenants:
                 tenants = [{"code": "default", "license_key": "", "status": "active"}]
 
+            hw_info = get_system_hardware_fingerprint()
+            hw_id = hw_info.get("hardware_id", "HW-UNKNOWN")
+            sys_serial = hw_info.get("system_serial_number", "")
+
             tenant_pings = []
-            for t in tenants:
+            serial_assigned_locally = False
+            for idx, t in enumerate(tenants):
+                t_code_val = t.get("code") or "default"
+                t_num_id = t.get("tenant_num_id") or (100 + idx)
+                if not t.get("serial_number"):
+                    t["serial_number"] = generate_tenant_serial_number(t_code_val, t_num_id)
+                    serial_assigned_locally = True
                 tenant_pings.append({
-                    "tenant_code": t.get("code") or "default",
+                    "tenant_code": t_code_val,
+                    "company_name": t.get("name") or "",
+                    "tenant_num_id": t_num_id,
+                    "serial_number": t.get("serial_number"),
                     "license_key": t.get("license_key") or "",
                     "status": t.get("status") or "active"
                 })
-            
-            hw_info = get_system_hardware_fingerprint()
-            hw_id = hw_info.get("hardware_id", "HW-UNKNOWN")
+            if serial_assigned_locally:
+                current_settings["tenants"] = tenants
+                save_settings(current_settings)
             
             # System CPU & RAM usage
             cpu_pct = psutil.cpu_percent(interval=1)
@@ -77,6 +90,7 @@ async def start_telemetry_heartbeat_loop():
                 
             payload = {
                 "hardware_id": hw_id,
+                "system_serial_number": sys_serial,
                 "software_version": "v2.4.9",
                 "cpu_percent": round(cpu_pct, 1),
                 "memory_percent": round(mem_pct, 1),
@@ -88,6 +102,7 @@ async def start_telemetry_heartbeat_loop():
                 "tenants": tenant_pings,
                 # Legacy fallback fields for backwards compatibility:
                 "tenant_code": tenant_pings[0]["tenant_code"],
+                "tenant_serial_number": tenant_pings[0]["serial_number"],
                 "license_key": tenant_pings[0]["license_key"]
             }
             
@@ -105,6 +120,11 @@ async def start_telemetry_heartbeat_loop():
                         target_t = next((t for t in tenants if t.get("code") == t_code), None)
                         if not target_t:
                             continue
+
+                        remote_sn = t_res.get("serial_number") or t_res.get("tenant_serial_number")
+                        if remote_sn and target_t.get("serial_number") != remote_sn:
+                            target_t["serial_number"] = remote_sn
+                            settings_changed = True
                             
                         # Remote Kill-Switch Enforcement per tenant
                         if t_res.get("remote_kill_switch"):
