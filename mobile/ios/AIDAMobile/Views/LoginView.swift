@@ -207,9 +207,9 @@ struct LoginView: View {
                     .shadow(color: Color(red: 0.310, green: 0.275, blue: 0.898).opacity(isDark ? 0.28 : 0.12), radius: 28, x: 0, y: 14)
 
                     // Bottom 3 Capability Pills
-                    HStack(spacing: 8) {
-                        capabilityPill(emoji: "🤖", title: "AI Sesli Asistan")
-                        capabilityPill(emoji: "💬", title: "Omnichannel")
+                    HStack(spacing: 6) {
+                        capabilityPill(icon: "waveform.badge.mic", iconColor: Color(red: 0.008, green: 0.518, blue: 0.780), title: "AI Sesli Asistan")
+                        capabilityPill(icon: "bubble.left.and.bubble.right.fill", iconColor: Color(red: 0.486, green: 0.227, blue: 0.929), title: "Omnichannel")
                         runaMobilePill
                     }
 
@@ -499,16 +499,18 @@ struct LoginView: View {
         .buttonStyle(.plain)
     }
 
-    private func capabilityPill(emoji: String, title: String) -> some View {
-        HStack(spacing: 5) {
-            Text(emoji)
-                .font(.system(size: 11))
-            Text(title)
+    private func capabilityPill(icon: String, iconColor: Color, title: String) -> some View {
+        HStack(spacing: 4) {
+            Image(systemName: icon)
                 .font(.system(size: 10.5, weight: .bold))
+                .foregroundColor(iconColor)
+            Text(title)
+                .font(.system(size: 10, weight: .bold))
                 .foregroundColor(isDark ? Color.white.opacity(0.85) : Color(red: 0.278, green: 0.333, blue: 0.412))
                 .lineLimit(1)
+                .fixedSize(horizontal: true, vertical: false)
         }
-        .padding(.horizontal, 10)
+        .padding(.horizontal, 9)
         .padding(.vertical, 7)
         .background(cardBg.opacity(0.92))
         .clipShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
@@ -520,21 +522,22 @@ struct LoginView: View {
     }
 
     private var runaMobilePill: some View {
-        HStack(spacing: 5) {
+        HStack(spacing: 4) {
             if let path = Bundle.main.path(forResource: "RunaLogo", ofType: "png"),
                let uiImg = UIImage(contentsOfFile: path) {
                 Image(uiImage: uiImg)
                     .resizable()
                     .scaledToFit()
-                    .frame(width: 15, height: 15)
-                    .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
+                    .frame(width: 14, height: 14)
+                    .clipShape(RoundedRectangle(cornerRadius: 3.5, style: .continuous))
             }
             Text("Runa Mobil")
-                .font(.system(size: 10.5, weight: .bold))
+                .font(.system(size: 10, weight: .bold))
                 .foregroundColor(isDark ? Color.white.opacity(0.9) : Color(red: 0.20, green: 0.25, blue: 0.33))
                 .lineLimit(1)
+                .fixedSize(horizontal: true, vertical: false)
         }
-        .padding(.horizontal, 10)
+        .padding(.horizontal, 9)
         .padding(.vertical, 7)
         .background(cardBg.opacity(0.92))
         .clipShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
