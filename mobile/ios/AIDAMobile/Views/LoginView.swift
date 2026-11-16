@@ -179,9 +179,8 @@ struct LoginView: View {
                         )
                         .frame(height: 7)
 
-                        VStack(spacing: 18) {
+                        VStack(spacing: 22) {
                             brandHeader
-                            Divider().background(dividerColor)
 
                             if !errorMessage.isEmpty {
                                 alertBanner(text: errorMessage, isError: true)
@@ -196,30 +195,48 @@ struct LoginView: View {
                                 credentialsForm
                             }
                         }
-                        .padding(22)
+                        .padding(.horizontal, 24)
+                        .padding(.top, 26)
+                        .padding(.bottom, 26)
+                    }
+                    .overlay(alignment: .topTrailing) {
+                        // Top-Right QR Scanner Icon Button
+                        Button {
+                            AudioSessionManager.shared.triggerLightHaptic()
+                            errorMessage = ""
+                            infoMessage = ""
+                            isScannerPresented = true
+                        } label: {
+                            Image(systemName: "qrcode.viewfinder")
+                                .font(.system(size: 19, weight: .bold))
+                                .foregroundColor(secondaryText)
+                                .frame(width: 40, height: 40)
+                                .background(isDark ? Color.white.opacity(0.08) : Color(red: 0.969, green: 0.976, blue: 0.988))
+                                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                        .stroke(isDark ? Color.white.opacity(0.14) : cardBorder, lineWidth: 1)
+                                )
+                        }
+                        .padding(.top, 22)
+                        .padding(.trailing, 20)
+                        .accessibilityLabel("QR Kod ile Giriş")
                     }
                     .background(cardBg)
-                    .clipShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
+                    .clipShape(RoundedRectangle(cornerRadius: 30, style: .continuous))
                     .overlay(
-                        RoundedRectangle(cornerRadius: 28, style: .continuous)
+                        RoundedRectangle(cornerRadius: 30, style: .continuous)
                             .stroke(cardBorder, lineWidth: 1)
                     )
-                    .shadow(color: Color(red: 0.310, green: 0.275, blue: 0.898).opacity(isDark ? 0.28 : 0.12), radius: 28, x: 0, y: 14)
-
-                    // Bottom 3 Capability Pills
-                    HStack(spacing: 6) {
-                        capabilityPill(icon: "waveform.badge.mic", iconColor: Color(red: 0.008, green: 0.518, blue: 0.780), title: "AI Sesli Asistan")
-                        capabilityPill(icon: "bubble.left.and.bubble.right.fill", iconColor: Color(red: 0.486, green: 0.227, blue: 0.929), title: "Omnichannel")
-                        runaMobilePill
-                    }
+                    .shadow(color: Color(red: 0.310, green: 0.275, blue: 0.898).opacity(isDark ? 0.28 : 0.13), radius: 28, x: 0, y: 14)
 
                     Text("© 2026 RUNA. Tüm hakları saklıdır.")
-                        .font(.system(size: 10.5, weight: .semibold))
+                        .font(.system(size: 11, weight: .semibold))
                         .foregroundColor(mutedText.opacity(0.85))
-                        .padding(.top, 2)
+                        .padding(.top, 4)
                 }
                 .padding(.horizontal, 18)
-                .padding(.vertical, 20)
+                .padding(.vertical, 24)
             }
         }
         .onAppear {
@@ -237,19 +254,23 @@ struct LoginView: View {
     }
 
     private var brandHeader: some View {
-        HStack(spacing: 14) {
+        VStack(spacing: 6) {
             Group {
                 if let path = Bundle.main.path(forResource: "RunaLogo", ofType: "png"),
                    let uiImg = UIImage(contentsOfFile: path) {
                     Image(uiImage: uiImg)
                         .resizable()
                         .scaledToFit()
-                        .frame(width: 46, height: 46)
-                        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-                        .shadow(color: Color.black.opacity(0.12), radius: 8, x: 0, y: 4)
+                        .frame(width: 64, height: 64)
+                        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                                .stroke(isDark ? Color.white.opacity(0.12) : Color(red: 0.945, green: 0.961, blue: 0.976), lineWidth: 3.5)
+                        )
+                        .shadow(color: Color.black.opacity(0.12), radius: 12, x: 0, y: 6)
                 } else {
                     ZStack {
-                        RoundedRectangle(cornerRadius: 14, style: .continuous)
+                        RoundedRectangle(cornerRadius: 16, style: .continuous)
                             .fill(
                                 LinearGradient(
                                     colors: [Color(red: 0.388, green: 0.400, blue: 0.945), Color(red: 0.486, green: 0.227, blue: 0.929)],
@@ -257,68 +278,58 @@ struct LoginView: View {
                                     endPoint: .bottomTrailing
                                 )
                             )
-                            .frame(width: 46, height: 46)
+                            .frame(width: 64, height: 64)
                         Text("R")
-                            .font(.system(size: 22, weight: .black, design: .rounded))
+                            .font(.system(size: 28, weight: .black, design: .rounded))
                             .foregroundColor(.white)
                     }
                 }
             }
+            .padding(.bottom, 6)
 
-            VStack(alignment: .leading, spacing: 3) {
-                Text("Runa")
-                    .font(.system(size: 20, weight: .heavy))
-                    .foregroundColor(primaryText)
-
-                Text("MOBİL TEMSİLCİ ÇAĞRI PANELİ")
-                    .font(.system(size: 10, weight: .bold))
-                    .tracking(0.8)
-                    .foregroundColor(mutedText)
-            }
-
-            Spacer()
-
-            // Top-Right QR Scanner Icon Button
-            Button {
-                AudioSessionManager.shared.triggerLightHaptic()
-                errorMessage = ""
-                infoMessage = ""
-                isScannerPresented = true
-            } label: {
-                Image(systemName: "qrcode.viewfinder")
-                    .font(.system(size: 20, weight: .bold))
-                    .foregroundColor(primaryText)
-                    .frame(width: 42, height: 42)
-                    .background(isDark ? Color.white.opacity(0.08) : Color(red: 0.945, green: 0.961, blue: 0.976))
-                    .clipShape(RoundedRectangle(cornerRadius: 13, style: .continuous))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 13, style: .continuous)
-                            .stroke(isDark ? Color.white.opacity(0.14) : cardBorder, lineWidth: 1)
+            Text("Runa")
+                .font(.system(size: 30, weight: .black))
+                .foregroundStyle(
+                    LinearGradient(
+                        colors: rainbowColors,
+                        startPoint: .leading,
+                        endPoint: .trailing
                     )
-            }
-            .accessibilityLabel("QR Kod ile Giriş")
+                )
+
+            Text("Mobil Temsilci Çağrı Paneli")
+                .font(.system(size: 11, weight: .bold))
+                .tracking(2.0)
+                .foregroundColor(mutedText)
         }
+        .frame(maxWidth: .infinity)
     }
 
     private var credentialsForm: some View {
         VStack(alignment: .leading, spacing: 14) {
             // Host Field
-            VStack(alignment: .leading, spacing: 6) {
-                fieldLabel("SUNUCU ADRESİ (HOST)")
-                TextField("Örn: santral.sirketiniz.com veya 192.168.1.50", text: $hostInput)
-                    .keyboardType(.URL)
-                    .textInputAutocapitalization(.never)
-                    .autocorrectionDisabled(true)
-                    .font(.system(size: 14, weight: .semibold))
-                    .foregroundColor(primaryText)
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 12)
-                    .background(inputBg)
-                    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 12, style: .continuous)
-                            .stroke(inputBorder, lineWidth: 1)
-                    )
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(spacing: 11) {
+                    Image(systemName: "globe")
+                        .font(.system(size: 16, weight: .medium))
+                        .foregroundColor(mutedText.opacity(0.85))
+                        .frame(width: 20)
+
+                    TextField("Sunucu Adresi (Örn: runa.sirket.com)", text: $hostInput)
+                        .keyboardType(.URL)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled(true)
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundColor(primaryText)
+                }
+                .padding(.horizontal, 14)
+                .padding(.vertical, 13)
+                .background(inputBg)
+                .clipShape(RoundedRectangle(cornerRadius: 15, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 15, style: .continuous)
+                        .stroke(inputBorder.opacity(0.75), lineWidth: 1)
+                )
 
                 if !store.recentHosts.isEmpty {
                     ScrollView(.horizontal, showsIndicators: false) {
@@ -348,64 +359,69 @@ struct LoginView: View {
                             }
                         }
                     }
-                    .padding(.top, 2)
                 }
             }
 
             // Username Field
-            VStack(alignment: .leading, spacing: 6) {
-                fieldLabel("KULLANICI ADI VEYA DAHİLİ")
-                TextField("1000, kullanici@firma.com veya admin", text: $usernameInput)
+            HStack(spacing: 11) {
+                Image(systemName: "person")
+                    .font(.system(size: 16, weight: .medium))
+                    .foregroundColor(mutedText.opacity(0.85))
+                    .frame(width: 20)
+
+                TextField("Kullanıcı Adı, E-Posta veya Dahili", text: $usernameInput)
                     .textInputAutocapitalization(.never)
                     .autocorrectionDisabled(true)
-                    .font(.system(size: 14, weight: .semibold))
+                    .font(.system(size: 14, weight: .medium))
                     .foregroundColor(primaryText)
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 12)
-                    .background(inputBg)
-                    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 12, style: .continuous)
-                            .stroke(inputBorder, lineWidth: 1)
-                    )
             }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 13)
+            .background(inputBg)
+            .clipShape(RoundedRectangle(cornerRadius: 15, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 15, style: .continuous)
+                    .stroke(inputBorder.opacity(0.75), lineWidth: 1)
+            )
 
             // Password Field with Eye Icon
-            VStack(alignment: .leading, spacing: 6) {
-                fieldLabel("ŞİFRE")
-                HStack(spacing: 8) {
-                    Group {
-                        if showPassword {
-                            TextField("••••••••", text: $passwordInput)
-                                .textInputAutocapitalization(.never)
-                                .autocorrectionDisabled(true)
-                        } else {
-                            SecureField("••••••••", text: $passwordInput)
-                                .textInputAutocapitalization(.never)
-                                .autocorrectionDisabled(true)
-                        }
-                    }
-                    .font(.system(size: 14, weight: .semibold))
-                    .foregroundColor(primaryText)
+            HStack(spacing: 11) {
+                Image(systemName: "lock")
+                    .font(.system(size: 16, weight: .medium))
+                    .foregroundColor(mutedText.opacity(0.85))
+                    .frame(width: 20)
 
-                    Button {
-                        showPassword.toggle()
-                    } label: {
-                        Image(systemName: showPassword ? "eye.slash" : "eye")
-                            .font(.system(size: 15, weight: .semibold))
-                            .foregroundColor(mutedText)
-                            .frame(width: 28, height: 28)
+                Group {
+                    if showPassword {
+                        TextField("••••••••••", text: $passwordInput)
+                            .textInputAutocapitalization(.never)
+                            .autocorrectionDisabled(true)
+                    } else {
+                        SecureField("••••••••••", text: $passwordInput)
+                            .textInputAutocapitalization(.never)
+                            .autocorrectionDisabled(true)
                     }
                 }
-                .padding(.horizontal, 14)
-                .padding(.vertical, 8)
-                .background(inputBg)
-                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .stroke(inputBorder, lineWidth: 1)
-                )
+                .font(.system(size: 14, weight: .medium))
+                .foregroundColor(primaryText)
+
+                Button {
+                    showPassword.toggle()
+                } label: {
+                    Image(systemName: showPassword ? "eye.slash" : "eye")
+                        .font(.system(size: 15, weight: .medium))
+                        .foregroundColor(mutedText.opacity(0.85))
+                        .frame(width: 28, height: 28)
+                }
             }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 9.5)
+            .background(inputBg)
+            .clipShape(RoundedRectangle(cornerRadius: 15, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 15, style: .continuous)
+                    .stroke(inputBorder.opacity(0.75), lineWidth: 1)
+            )
 
             rememberMeCheckbox
 
