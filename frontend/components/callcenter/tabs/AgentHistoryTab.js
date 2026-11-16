@@ -174,8 +174,9 @@ export default function AgentHistoryTab({ backendHost, currentUser, callPanelPer
   };
 
   // Load calls filtered by selected date range & agent extension
-  const fetchCalls = async (period = dateFilter) => {
-    setLoading(true);
+  const fetchCalls = async (period = dateFilter, silent = false) => {
+    if (silent && typeof document !== "undefined" && document.visibilityState === "hidden") return;
+    if (!silent) setLoading(true);
     try {
       const protocol = window.location.protocol;
       const { startDateStr, endDateStr, startTimestamp } = getDateWindow(period);
@@ -206,11 +207,11 @@ export default function AgentHistoryTab({ backendHost, currentUser, callPanelPer
           return callDate.getTime() >= startTimestamp;
         });
       }
-      setCalls(loadedCalls);
+      setCalls((prev) => (JSON.stringify(prev) === JSON.stringify(loadedCalls) ? prev : loadedCalls));
     } catch (err) {
       console.error("Failed to load history tab calls", err);
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   };
 
@@ -222,7 +223,11 @@ export default function AgentHistoryTab({ backendHost, currentUser, callPanelPer
   }, [backendHost]);
 
   useEffect(() => {
-    fetchCalls(dateFilter);
+    fetchCalls(dateFilter, false);
+    const interval = setInterval(() => {
+      fetchCalls(dateFilter, true);
+    }, 8000);
+    return () => clearInterval(interval);
   }, [backendHost, ext, dateFilter]);
 
   // Enrich calls with contact lookup and direction
@@ -541,17 +546,6 @@ export default function AgentHistoryTab({ backendHost, currentUser, callPanelPer
                 </div>
               )}
             </div>
-
-            {/* Refresh Button */}
-            <button
-              type="button"
-              onClick={() => fetchCalls(dateFilter)}
-              disabled={loading}
-              title="Listeyi Yenile"
-              className="w-9 h-9 rounded-xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 flex items-center justify-center text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors shadow-sm"
-            >
-              <RefreshCw size={15} className={loading ? "animate-spin" : ""} />
-            </button>
           </div>
         </div>
 

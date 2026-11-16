@@ -279,16 +279,6 @@ export default function AgentVoicemailTab({
                 Okunmamış ({unreadCount})
               </button>
             </div>
-
-            <button
-              type="button"
-              onClick={() => fetchVoicemails(true)}
-              disabled={refreshing}
-              title="Sesli postaları yenile"
-              className="h-9 w-9 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700 flex items-center justify-center transition-all"
-            >
-              <RefreshCw size={15} className={refreshing ? "animate-spin" : ""} />
-            </button>
           </div>
         </div>
 

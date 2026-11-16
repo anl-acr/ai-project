@@ -148,12 +148,6 @@ export default function CalendarPanel({ backendHost = "localhost:8000" }) {
           </div>
           
           <div className="flex items-center gap-2">
-            <button 
-              onClick={fetchAppointments}
-              className="text-xs bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-850 hover:bg-slate-100 dark:hover:bg-slate-850 text-slate-500 dark:text-slate-400 px-3 py-1.5 rounded-xl transition font-bold"
-            >
-              Yenile
-            </button>
             <div className="flex items-center bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-850 rounded-xl overflow-hidden">
               <button 
                 onClick={prevMonth}

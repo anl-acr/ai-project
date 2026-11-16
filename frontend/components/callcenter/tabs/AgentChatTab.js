@@ -926,16 +926,6 @@ export default function AgentChatTab({ backendHost, currentUser, isVisible = tru
             <MessageSquare size={22} className="text-rose-500" />
             Takım İçi Sohbet ve Bana Atananlar
           </h2>
-          <div className="flex items-center gap-2">
-            <button
-              onClick={() => { fetchCustomerSessions(true); fetchInternalChatData(); if (activeChatId && chatTab === "customer") fetchCustomerMessages(activeChatId, true); }}
-              className="px-3 py-2 text-slate-500 hover:text-slate-800 dark:hover:text-white bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl transition-all shadow-sm flex items-center gap-1.5 text-xs font-semibold"
-              title="Yenile"
-            >
-              <RefreshCw size={14} className={loading.sessions ? "animate-spin" : ""} />
-              Yenile
-            </button>
-          </div>
         </div>
         
         <div

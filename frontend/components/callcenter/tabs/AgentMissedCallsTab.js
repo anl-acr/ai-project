@@ -473,16 +473,6 @@ export default function AgentMissedCallsTab({ backendHost, currentUser, callPane
             >
               <Plus size={16} />
             </button>
-
-            <button
-              type="button"
-              onClick={() => fetchMissedQueueCalls(false)}
-              disabled={loading}
-              title="Listeyi Yenile"
-              className="w-9 h-9 rounded-xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 flex items-center justify-center text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors shadow-sm cursor-pointer shrink-0"
-            >
-              <RefreshCw size={15} className={loading ? "animate-spin" : ""} />
-            </button>
           </div>
         </div>
 
