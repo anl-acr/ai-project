@@ -33249,6 +33249,7 @@ async def verify_app_magic_login_endpoint(
             "theme_color": str(user.get("theme_color") or "indigo"),
             "pop_window_on_call": app_cfg.get("pop_window_on_call", True) is not False,
             "minimize_to_tray": app_cfg.get("minimize_to_tray", True) is not False,
+            "start_on_boot": bool(app_cfg.get("start_on_boot", False)),
         }
     }
 

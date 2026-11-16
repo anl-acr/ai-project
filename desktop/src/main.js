@@ -11,10 +11,120 @@ const {
   nativeImage
 } = require("electron");
 const path = require("path");
+const fs = require("fs");
+const os = require("os");
 const http = require("http");
 const https = require("https");
 const { URL } = require("url");
 const { APP_BRAND, loadAppConfig, saveAppConfig } = require("./config");
+
+const MAC_LAUNCH_AGENT_LABEL = "com.runa.agent.desktop";
+
+function getMacLaunchAgentPlistPath() {
+  try {
+    return path.join(os.homedir(), "Library", "LaunchAgents", `${MAC_LAUNCH_AGENT_LABEL}.plist`);
+  } catch (e) {
+    return "";
+  }
+}
+
+function syncMacLaunchAgentPlist(enabled) {
+  if (process.platform !== "darwin") return;
+  const plistPath = getMacLaunchAgentPlistPath();
+  if (!plistPath) return;
+
+  try {
+    if (!enabled) {
+      if (fs.existsSync(plistPath)) {
+        fs.unlinkSync(plistPath);
+      }
+      return;
+    }
+
+    // Resolve installed /Applications/Runa.app executable or current packaged executable
+    const standardAppExec = "/Applications/Runa.app/Contents/MacOS/Runa";
+    let execTarget = "";
+    if (app.isPackaged) {
+      execTarget = process.execPath;
+    } else if (fs.existsSync(standardAppExec)) {
+      execTarget = standardAppExec;
+    }
+
+    if (!execTarget) return;
+
+    const launchAgentsDir = path.dirname(plistPath);
+    fs.mkdirSync(launchAgentsDir, { recursive: true });
+
+    const plistXml = `<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>${MAC_LAUNCH_AGENT_LABEL}</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>${execTarget}</string>
+    <string>--autostart</string>
+  </array>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <false/>
+  <key>ProcessType</key>
+  <string>Interactive</string>
+</dict>
+</plist>
+`;
+    fs.writeFileSync(plistPath, plistXml, "utf-8");
+  } catch (err) {
+    console.warn("[RUNA AutoStart] macOS LaunchAgent sync warning:", err.message);
+  }
+}
+
+function applyAutoStartSetting(enabled, { persist = true } = {}) {
+  const boolVal = Boolean(enabled);
+  try {
+    if (process.platform === "win32") {
+      if (boolVal) {
+        app.setLoginItemSettings({
+          openAtLogin: true,
+          openAsHidden: false,
+          path: process.execPath,
+          args: ["--autostart"]
+        });
+      } else {
+        app.setLoginItemSettings({
+          openAtLogin: false,
+          path: process.execPath,
+          args: ["--autostart"]
+        });
+        app.setLoginItemSettings({
+          openAtLogin: false,
+          path: process.execPath,
+          args: []
+        });
+      }
+    } else if (process.platform === "darwin") {
+      app.setLoginItemSettings({
+        openAtLogin: boolVal,
+        openAsHidden: false
+      });
+      syncMacLaunchAgentPlist(boolVal);
+    } else {
+      app.setLoginItemSettings({
+        openAtLogin: boolVal,
+        openAsHidden: false
+      });
+    }
+  } catch (err) {
+    console.warn("[RUNA AutoStart] OS login item setting warning:", err.message);
+  }
+
+  if (persist) {
+    return saveAppConfig({ startOnBoot: boolVal });
+  }
+  return loadAppConfig();
+}
 
 // Ensure ringtones and WebRTC streams never pause or throttle when minimized to System Tray
 app.commandLine.appendSwitch("autoplay-policy", "no-user-gesture-required");
@@ -471,6 +581,17 @@ function rebuildTrayMenu() {
   template.push(
     { type: "separator" },
     {
+      label: "🚀 Bilgisayar Açıldığında Otomatik Başlat",
+      type: "checkbox",
+      checked: Boolean(cfg.startOnBoot),
+      click: (menuItem) => {
+        const updated = applyAutoStartSetting(Boolean(menuItem.checked), { persist: true });
+        rebuildTrayMenu();
+        dispatchToWorkspace("DESKTOP_PREFS_SYNC", updated);
+      }
+    },
+    { type: "separator" },
+    {
       label: `${APP_BRAND.appName} Uygulamasından Çık`,
       click: () => {
         isQuitting = true;
@@ -653,7 +774,7 @@ ipcMain.handle("aida:remove-recent-host", async (_event, hostStr) => {
 });
 
 ipcMain.handle("aida:login", async (_event, payload = {}) => {
-  const { host, username, password, rememberMe = true } = payload;
+  const { host, username, password, rememberMe = true, startOnBoot } = payload;
   const cleanUsername = String(username || "").trim();
   if (!cleanUsername || !password) {
     return { ok: false, error: "Lütfen kullanıcı adı ve şifrenizi giriniz." };
@@ -739,6 +860,17 @@ ipcMain.handle("aida:login", async (_event, payload = {}) => {
       tenantId: matchedUser.tenant_id || "tenant-default"
     };
 
+    const serverStartOnBoot =
+      matchedUser.cti_config?.app_access?.start_on_boot ??
+      matchedUser.call_panel_prefs?.desktopPrefs?.startOnBoot;
+    const resolvedStartOnBoot =
+      typeof startOnBoot === "boolean"
+        ? startOnBoot
+        : typeof serverStartOnBoot === "boolean"
+        ? serverStartOnBoot
+        : Boolean(cfg.startOnBoot);
+    applyAutoStartSetting(resolvedStartOnBoot, { persist: false });
+
     justLoggedInFlag = true;
     saveAppConfig({
       serverHost: resolved.displayHost,
@@ -747,6 +879,7 @@ ipcMain.handle("aida:login", async (_event, payload = {}) => {
       recentHosts,
       rememberMe: Boolean(rememberMe),
       savedUsername: cleanUsername,
+      startOnBoot: resolvedStartOnBoot,
       session: sessionObj
     });
 
@@ -843,6 +976,10 @@ async function performMagicUrlLogin(rawInputUrl, rememberMe = true) {
       tenantId: u.tenant_id || "tenant-default"
     };
 
+    const nextStartOnBoot =
+      typeof u.start_on_boot === "boolean" ? u.start_on_boot : Boolean(cfg.startOnBoot);
+    applyAutoStartSetting(nextStartOnBoot, { persist: false });
+
     justLoggedInFlag = true;
     saveAppConfig({
       serverHost: resolved.displayHost,
@@ -853,6 +990,7 @@ async function performMagicUrlLogin(rawInputUrl, rememberMe = true) {
       savedUsername: sessionObj.username,
       popWindowOnCall: u.pop_window_on_call !== false,
       minimizeToTray: u.minimize_to_tray !== false,
+      startOnBoot: nextStartOnBoot,
       session: sessionObj
     });
 
@@ -981,15 +1119,11 @@ ipcMain.handle("aida:update-preferences", async (_event, patch = {}) => {
   }
   if (patch.startOnBoot !== undefined) {
     allowed.startOnBoot = Boolean(patch.startOnBoot);
-    try {
-      app.setLoginItemSettings({
-        openAtLogin: allowed.startOnBoot,
-        openAsHidden: false
-      });
-    } catch (e) {}
+    applyAutoStartSetting(allowed.startOnBoot, { persist: false });
   }
   const updated = saveAppConfig(allowed);
   rebuildTrayMenu();
+  dispatchToWorkspace("DESKTOP_PREFS_SYNC", updated);
   return updated;
 });
 
@@ -1096,6 +1230,12 @@ ipcMain.on("aida:update-tray-state", (_event, nextState = {}) => {
 app.whenReady().then(async () => {
   powerSaveId = powerSaveBlocker.start("prevent-app-suspension");
   setupPermissionsAndCertificates();
+
+  // Synchronize OS auto-start registration (Windows Registry & macOS Login Item + LaunchAgent) on launch
+  try {
+    const bootCfg = loadAppConfig();
+    applyAutoStartSetting(Boolean(bootCfg.startOnBoot), { persist: false });
+  } catch (e) {}
 
   // Request OS microphone permission cleanly on macOS startup
   if (process.platform === "darwin" && systemPreferences && typeof systemPreferences.askForMediaAccess === "function") {

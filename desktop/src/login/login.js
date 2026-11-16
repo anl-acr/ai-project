@@ -8,6 +8,7 @@
   const eyeOpenIcon = document.getElementById("eyeOpenIcon");
   const eyeClosedIcon = document.getElementById("eyeClosedIcon");
   const rememberCheckbox = document.getElementById("rememberCheckbox");
+  const startOnBootCheckbox = document.getElementById("startOnBootCheckbox");
   const loginForm = document.getElementById("loginForm");
   const loginErrorBox = document.getElementById("loginErrorBox");
   const submitLoginBtn = document.getElementById("submitLoginBtn");
@@ -68,7 +69,24 @@
     if (cfg.serverHost) hostInput.value = cfg.serverHost;
     if (cfg.savedUsername) usernameInput.value = cfg.savedUsername;
     rememberCheckbox.checked = cfg.rememberMe !== false;
+    if (startOnBootCheckbox) {
+      startOnBootCheckbox.checked = Boolean(cfg.startOnBoot);
+    }
     renderRecentHosts(cfg.recentHosts || []);
+  }
+
+  if (startOnBootCheckbox && api && api.updatePreferences) {
+    startOnBootCheckbox.addEventListener("change", () => {
+      api.updatePreferences({ startOnBoot: Boolean(startOnBootCheckbox.checked) });
+    });
+  }
+
+  if (api && api.onWindowEvent) {
+    api.onWindowEvent((name, detail) => {
+      if (name === "DESKTOP_PREFS_SYNC" && detail && startOnBootCheckbox) {
+        startOnBootCheckbox.checked = Boolean(detail.startOnBoot);
+      }
+    });
   }
 
   if (toggleMagicBoxBtn && magicLoginBox) {
@@ -150,7 +168,8 @@
         host: hostInput.value,
         username: usernameInput.value,
         password: passwordInput.value,
-        rememberMe: rememberCheckbox.checked
+        rememberMe: rememberCheckbox.checked,
+        startOnBoot: startOnBootCheckbox ? Boolean(startOnBootCheckbox.checked) : undefined
       });
 
       if (!res || !res.ok) {

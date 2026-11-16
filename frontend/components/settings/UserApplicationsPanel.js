@@ -23,6 +23,7 @@ import {
 } from "lucide-react";
 import { useTheme } from "../../utils/theme";
 import { getBackendHost } from "../../utils/apiHost";
+import { updateDesktopPrefs } from "../../utils/desktopBridge";
 
 const TTL_OPTIONS = [
   { value: 900, label: "15 Dakika" },
@@ -187,6 +188,13 @@ export default function UserApplicationsPanel({
       if (res.ok) {
         const data = await res.json();
         setAppData(data);
+        if (field === "start_on_boot") {
+          updateDesktopPrefs({ startOnBoot: Boolean(nextVal) });
+        } else if (field === "pop_window_on_call") {
+          updateDesktopPrefs({ popWindowOnCall: Boolean(nextVal) });
+        } else if (field === "minimize_to_tray") {
+          updateDesktopPrefs({ minimizeToTray: Boolean(nextVal) });
+        }
         showToast("success", "Uygulama erişim tercihi güncellendi.");
       } else {
         showToast("error", "Tercih kaydedilirken bir hata oluştu.");
@@ -690,7 +698,7 @@ export default function UserApplicationsPanel({
           </div>
 
           {/* Masaüstü Davranış Tercihleri */}
-          <div className="pt-3 border-t border-slate-100 dark:border-slate-800 grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+          <div className="pt-3 border-t border-slate-100 dark:border-slate-800 grid grid-cols-1 sm:grid-cols-3 gap-2.5">
             <label className="flex items-center justify-between p-2.5 rounded-xl bg-slate-50/80 dark:bg-slate-800/40 border border-slate-200/60 dark:border-slate-800 cursor-pointer">
               <span className="text-[11px] font-bold text-slate-700 dark:text-slate-300">
                 Çağrıda Pencereyi Öne Getir
@@ -712,6 +720,18 @@ export default function UserApplicationsPanel({
                 checked={perms.minimize_to_tray}
                 disabled={!canEdit || savingPerms}
                 onChange={(e) => handleTogglePermission("minimize_to_tray", e.target.checked)}
+                className="h-4 w-4 rounded accent-indigo-600 cursor-pointer"
+              />
+            </label>
+            <label className="flex items-center justify-between p-2.5 rounded-xl bg-slate-50/80 dark:bg-slate-800/40 border border-slate-200/60 dark:border-slate-800 cursor-pointer" title="macOS ve Windows açıldığında Runa masaüstü uygulaması otomatik başlar">
+              <span className="text-[11px] font-bold text-slate-700 dark:text-slate-300">
+                Bilgisayar Açıldığında Otomatik Başlat
+              </span>
+              <input
+                type="checkbox"
+                checked={Boolean(perms.start_on_boot)}
+                disabled={!canEdit || savingPerms}
+                onChange={(e) => handleTogglePermission("start_on_boot", e.target.checked)}
                 className="h-4 w-4 rounded accent-indigo-600 cursor-pointer"
               />
             </label>

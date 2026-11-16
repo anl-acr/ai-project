@@ -2058,16 +2058,32 @@ export default function Home() {
       setActiveModalTab("hardware");
       setSettingsModalOpen(true);
     };
+    const handleDesktopPrefsSync = (e) => {
+      const detail = e?.detail;
+      if (detail && typeof detail === "object") {
+        setDesktopPrefs((prev) => ({
+          ...(prev || {}),
+          osNotifications: detail.osNotifications !== undefined ? Boolean(detail.osNotifications) : prev?.osNotifications,
+          popWindowOnCall: detail.popWindowOnCall !== undefined ? Boolean(detail.popWindowOnCall) : prev?.popWindowOnCall,
+          minimizeToTray: detail.minimizeToTray !== undefined ? Boolean(detail.minimizeToTray) : prev?.minimizeToTray,
+          startOnBoot: detail.startOnBoot !== undefined ? Boolean(detail.startOnBoot) : prev?.startOnBoot
+        }));
+      } else {
+        setDesktopPrefs(getDesktopPrefs());
+      }
+    };
     const handleDeviceChange = () => {
       refreshHardwareAudioDevices();
     };
 
     window.addEventListener("OPEN_HARDWARE_SETTINGS", handleOpenHardwareModal);
+    window.addEventListener("DESKTOP_PREFS_SYNC", handleDesktopPrefsSync);
     if (navigator.mediaDevices && typeof navigator.mediaDevices.addEventListener === "function") {
       navigator.mediaDevices.addEventListener("devicechange", handleDeviceChange);
     }
     return () => {
       window.removeEventListener("OPEN_HARDWARE_SETTINGS", handleOpenHardwareModal);
+      window.removeEventListener("DESKTOP_PREFS_SYNC", handleDesktopPrefsSync);
       if (navigator.mediaDevices && typeof navigator.mediaDevices.removeEventListener === "function") {
         navigator.mediaDevices.removeEventListener("devicechange", handleDeviceChange);
       }
@@ -2397,7 +2413,18 @@ export default function Home() {
         setNoiseSuppressionMode(nm);
       }
       if (hydratedPanelPrefs?.desktopPrefs && typeof hydratedPanelPrefs.desktopPrefs === "object") {
-        setDesktopPrefs((prevDp) => ({ ...(prevDp || {}), ...hydratedPanelPrefs.desktopPrefs }));
+        const nativeDp = isNativeElectron() ? getDesktopPrefs() : null;
+        setDesktopPrefs((prevDp) => ({
+          ...(prevDp || {}),
+          ...hydratedPanelPrefs.desktopPrefs,
+          ...(nativeDp
+            ? {
+                startOnBoot: Boolean(nativeDp.startOnBoot),
+                minimizeToTray: Boolean(nativeDp.minimizeToTray),
+                popWindowOnCall: Boolean(nativeDp.popWindowOnCall)
+              }
+            : {})
+        }));
       }
       const secPolHydrate =
         currentUserData?.call_panel_prefs?.securityPolicy &&
@@ -9409,59 +9436,64 @@ export default function Home() {
                             } catch (err) {}
                           }
                           setDesktopPrefs((prev) => ({ ...(prev || {}), osNotifications: checked }));
+                          await updateDesktopPrefs({ osNotifications: checked });
                         }}
                         className="h-4 w-4 rounded accent-primary cursor-pointer"
                       />
                     </label>
 
-                    {isNativeElectron() && (
-                      <>
-                        <label className="flex items-center justify-between gap-3 p-2 rounded-xl bg-white/80 dark:bg-slate-950/50 border border-slate-200/60 dark:border-slate-800/80 cursor-pointer">
-                          <span className="text-[10.5px] font-bold text-slate-700 dark:text-slate-200">
-                            Çağrı Geldiğinde Pencereyi Otomatik Öne Getir
-                          </span>
-                          <input
-                            type="checkbox"
-                            checked={Boolean(desktopPrefs?.popWindowOnCall)}
-                            onChange={(e) => {
-                              const checked = e.target.checked;
-                              setDesktopPrefs((prev) => ({ ...(prev || {}), popWindowOnCall: checked }));
-                            }}
-                            className="h-4 w-4 rounded accent-primary cursor-pointer"
-                          />
-                        </label>
+                    <label className="flex items-center justify-between gap-3 p-2 rounded-xl bg-white/80 dark:bg-slate-950/50 border border-slate-200/60 dark:border-slate-800/80 cursor-pointer">
+                      <span className="text-[10.5px] font-bold text-slate-700 dark:text-slate-200">
+                        Çağrı Geldiğinde Pencereyi Otomatik Öne Getir
+                      </span>
+                      <input
+                        type="checkbox"
+                        checked={Boolean(desktopPrefs?.popWindowOnCall)}
+                        onChange={async (e) => {
+                          const checked = e.target.checked;
+                          setDesktopPrefs((prev) => ({ ...(prev || {}), popWindowOnCall: checked }));
+                          await updateDesktopPrefs({ popWindowOnCall: checked });
+                        }}
+                        className="h-4 w-4 rounded accent-primary cursor-pointer"
+                      />
+                    </label>
 
-                        <label className="flex items-center justify-between gap-3 p-2 rounded-xl bg-white/80 dark:bg-slate-950/50 border border-slate-200/60 dark:border-slate-800/80 cursor-pointer">
-                          <span className="text-[10.5px] font-bold text-slate-700 dark:text-slate-200">
-                            Pencere Kapatıldığında (X) Sistem Tepsisinde Açık Tut
-                          </span>
-                          <input
-                            type="checkbox"
-                            checked={Boolean(desktopPrefs?.minimizeToTray)}
-                            onChange={(e) => {
-                              const checked = e.target.checked;
-                              setDesktopPrefs((prev) => ({ ...(prev || {}), minimizeToTray: checked }));
-                            }}
-                            className="h-4 w-4 rounded accent-primary cursor-pointer"
-                          />
-                        </label>
+                    <label className="flex items-center justify-between gap-3 p-2 rounded-xl bg-white/80 dark:bg-slate-950/50 border border-slate-200/60 dark:border-slate-800/80 cursor-pointer">
+                      <span className="text-[10.5px] font-bold text-slate-700 dark:text-slate-200">
+                        Pencere Kapatıldığında (X) Sistem Tepsisinde Açık Tut
+                      </span>
+                      <input
+                        type="checkbox"
+                        checked={Boolean(desktopPrefs?.minimizeToTray)}
+                        onChange={async (e) => {
+                          const checked = e.target.checked;
+                          setDesktopPrefs((prev) => ({ ...(prev || {}), minimizeToTray: checked }));
+                          await updateDesktopPrefs({ minimizeToTray: checked });
+                        }}
+                        className="h-4 w-4 rounded accent-primary cursor-pointer"
+                      />
+                    </label>
 
-                        <label className="flex items-center justify-between gap-3 p-2 rounded-xl bg-white/80 dark:bg-slate-950/50 border border-slate-200/60 dark:border-slate-800/80 cursor-pointer">
-                          <span className="text-[10.5px] font-bold text-slate-700 dark:text-slate-200">
-                            Bilgisayar Açıldığında RUNA Otomatik Başlasın
-                          </span>
-                          <input
-                            type="checkbox"
-                            checked={Boolean(desktopPrefs?.startOnBoot)}
-                            onChange={(e) => {
-                              const checked = e.target.checked;
-                              setDesktopPrefs((prev) => ({ ...(prev || {}), startOnBoot: checked }));
-                            }}
-                            className="h-4 w-4 rounded accent-primary cursor-pointer"
-                          />
-                        </label>
-                      </>
-                    )}
+                    <label className="flex items-center justify-between gap-3 p-2 rounded-xl bg-white/80 dark:bg-slate-950/50 border border-slate-200/60 dark:border-slate-800/80 cursor-pointer">
+                      <div>
+                        <span className="text-[10.5px] font-bold text-slate-700 dark:text-slate-200 block">
+                          İşletim Sistemi Açıldığında Runa Otomatik Başlasın
+                        </span>
+                        <span className="text-[9.5px] text-slate-400 dark:text-slate-500">
+                          macOS ve Windows masaüstü uygulaması bilgisayar açılışında otomatik devreye girer
+                        </span>
+                      </div>
+                      <input
+                        type="checkbox"
+                        checked={Boolean(desktopPrefs?.startOnBoot)}
+                        onChange={async (e) => {
+                          const checked = e.target.checked;
+                          setDesktopPrefs((prev) => ({ ...(prev || {}), startOnBoot: checked }));
+                          await updateDesktopPrefs({ startOnBoot: checked });
+                        }}
+                        className="h-4 w-4 rounded accent-primary cursor-pointer shrink-0"
+                      />
+                    </label>
                   </div>
                 </div>
 

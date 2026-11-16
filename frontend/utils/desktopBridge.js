@@ -40,24 +40,31 @@ export function getDesktopPrefs() {
 
   let osNotifications = true;
   let popWindowOnCall = true;
+  let minimizeToTray = true;
+  let startOnBoot = false;
   try {
     const savedNotif = localStorage.getItem("aida_os_notifications");
     if (savedNotif !== null) osNotifications = savedNotif !== "false";
     const savedPop = localStorage.getItem("aida_pop_on_call");
     if (savedPop !== null) popWindowOnCall = savedPop !== "false";
+    const savedTray = localStorage.getItem("aida_minimize_to_tray");
+    if (savedTray !== null) minimizeToTray = savedTray !== "false";
+    const savedBoot = localStorage.getItem("aida_start_on_boot");
+    if (savedBoot !== null) startOnBoot = savedBoot === "true";
   } catch (e) {}
 
   if (isNativeElectron() && typeof window.aidaDesktop.getConfigSync === "function") {
     try {
-      if (!_cachedElectronConfig) {
-        _cachedElectronConfig = window.aidaDesktop.getConfigSync() || {};
+      const freshCfg = window.aidaDesktop.getConfigSync();
+      if (freshCfg && typeof freshCfg === "object") {
+        _cachedElectronConfig = { ...(_cachedElectronConfig || {}), ...freshCfg };
       }
-      const cfg = _cachedElectronConfig;
+      const cfg = _cachedElectronConfig || {};
       return {
         osNotifications: cfg.osNotifications !== undefined ? Boolean(cfg.osNotifications) : osNotifications,
         popWindowOnCall: cfg.popWindowOnCall !== undefined ? Boolean(cfg.popWindowOnCall) : popWindowOnCall,
-        minimizeToTray: cfg.minimizeToTray !== undefined ? Boolean(cfg.minimizeToTray) : true,
-        startOnBoot: Boolean(cfg.startOnBoot),
+        minimizeToTray: cfg.minimizeToTray !== undefined ? Boolean(cfg.minimizeToTray) : minimizeToTray,
+        startOnBoot: cfg.startOnBoot !== undefined ? Boolean(cfg.startOnBoot) : startOnBoot,
         serverHost: cfg.serverHost || window.location.host || "",
         appName: cfg.appName || "RUNA",
         platform: cfg.platform || "desktop"
@@ -68,8 +75,8 @@ export function getDesktopPrefs() {
   return {
     osNotifications,
     popWindowOnCall,
-    minimizeToTray: true,
-    startOnBoot: false,
+    minimizeToTray,
+    startOnBoot,
     serverHost: window.location.host || "",
     appName: "RUNA",
     platform: "web"
@@ -84,6 +91,12 @@ export async function updateDesktopPrefs(patch = {}) {
     }
     if (patch.popWindowOnCall !== undefined) {
       localStorage.setItem("aida_pop_on_call", patch.popWindowOnCall ? "true" : "false");
+    }
+    if (patch.minimizeToTray !== undefined) {
+      localStorage.setItem("aida_minimize_to_tray", patch.minimizeToTray ? "true" : "false");
+    }
+    if (patch.startOnBoot !== undefined) {
+      localStorage.setItem("aida_start_on_boot", patch.startOnBoot ? "true" : "false");
     }
   } catch (e) {}
 
