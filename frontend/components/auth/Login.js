@@ -354,29 +354,66 @@ export default function Login({ onLogin, onComplete2FA, error, backendHost }) {
       : "Google Authenticator Doğrulaması";
 
   return (
-    <div className="min-h-screen w-full flex items-center justify-center bg-slate-50 dark:bg-slate-950 p-4 font-sans relative overflow-hidden selection:bg-indigo-500/30">
+    <div className="min-h-screen w-full flex items-center justify-center bg-[#F8FAFC] dark:bg-slate-950 p-4 font-sans relative overflow-hidden selection:bg-indigo-500/30">
       
-      {/* Animated Background Orbs */}
-      <div className="absolute top-[-20%] left-[-10%] w-[60%] h-[60%] rounded-full bg-indigo-500/10 dark:bg-indigo-600/20 blur-[120px] dark:blur-[140px] mix-blend-multiply dark:mix-blend-screen animate-pulse" style={{ animationDuration: '8s' }} />
-      <div className="absolute bottom-[-10%] right-[-10%] w-[50%] h-[50%] rounded-full bg-rose-400/10 dark:bg-violet-600/20 blur-[100px] dark:blur-[130px] mix-blend-multiply dark:mix-blend-screen animate-pulse" style={{ animationDuration: '10s' }} />
-      <div className="absolute top-[20%] right-[10%] w-[30%] h-[40%] rounded-full bg-blue-400/10 dark:bg-blue-600/20 blur-[100px] dark:blur-[120px] mix-blend-multiply dark:mix-blend-screen animate-pulse" style={{ animationDuration: '12s' }} />
-      
+      {/* Nornia Palette Aurora Orbs */}
+      <div className="absolute top-[-12%] left-[8%] w-[500px] h-[500px] rounded-full bg-emerald-400/15 dark:bg-emerald-500/15 blur-[120px] pointer-events-none" />
+      <div className="absolute top-[5%] right-[10%] w-[520px] h-[520px] rounded-full bg-sky-400/15 dark:bg-sky-500/15 blur-[120px] pointer-events-none" />
+      <div className="absolute bottom-[-12%] left-[20%] w-[550px] h-[550px] rounded-full bg-purple-500/15 dark:bg-purple-600/20 blur-[130px] pointer-events-none" />
+      <div className="absolute bottom-[5%] right-[12%] w-[450px] h-[450px] rounded-full bg-orange-400/15 dark:bg-orange-500/15 blur-[110px] pointer-events-none" />
+
+      {/* Decorative subtle soundwave SVG in background */}
+      <svg
+        className="absolute inset-x-0 top-1/2 -translate-y-1/2 w-full h-72 opacity-25 dark:opacity-20 pointer-events-none"
+        viewBox="0 0 1440 320"
+        fill="none"
+        aria-hidden="true"
+      >
+        <path
+          d="M0 160 Q 180 40, 360 160 T 720 160 T 1080 160 T 1440 160"
+          stroke="url(#norniaLoginWaveGrad)"
+          strokeWidth="3"
+          fill="none"
+        />
+        <path
+          d="M0 160 Q 180 280, 360 160 T 720 160 T 1080 160 T 1440 160"
+          stroke="url(#norniaLoginWaveGrad)"
+          strokeWidth="2"
+          strokeDasharray="8 8"
+          fill="none"
+        />
+        <defs>
+          <linearGradient id="norniaLoginWaveGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+            <stop offset="0%" stopColor="#16A34A" />
+            <stop offset="30%" stopColor="#0284C7" />
+            <stop offset="60%" stopColor="#7C3AED" />
+            <stop offset="85%" stopColor="#DB2777" />
+            <stop offset="100%" stopColor="#EA580C" />
+          </linearGradient>
+        </defs>
+      </svg>
+
       {/* Subtle grid pattern overlay */}
       <div className="absolute inset-0 bg-[url('https://grainy-gradients.vercel.app/noise.svg')] opacity-[0.02] dark:opacity-[0.03] pointer-events-none mix-blend-overlay"></div>
       
-      <div className="w-full max-w-md relative z-10 animate-in fade-in zoom-in-[0.98] duration-1000 ease-out">
-        {/* The Glassmorphism Panel */}
-        <div className="bg-white/60 dark:bg-slate-900/40 backdrop-blur-2xl border border-white/40 dark:border-white/5 p-8 rounded-[2rem] shadow-[0_0_50px_-15px_rgba(0,0,0,0.1)] dark:shadow-[0_0_80px_-20px_rgba(79,70,229,0.3)] relative overflow-hidden group">
+      <div className="w-full max-w-[460px] relative z-10 animate-in fade-in zoom-in-[0.98] duration-700 ease-out flex flex-col items-center">
+        {/* The Glassmorphism Panel with Rainbow Top Bar */}
+        <div className="w-full bg-white/90 dark:bg-slate-900/75 backdrop-blur-2xl border border-slate-200/80 dark:border-white/10 rounded-[2.2rem] shadow-[0_25px_70px_-15px_rgba(79,70,229,0.14)] dark:shadow-[0_0_80px_-20px_rgba(79,70,229,0.3)] relative overflow-hidden group">
           
-          {/* Top border shine effect */}
-          <div className="absolute top-0 left-1/2 -translate-x-1/2 w-3/4 h-[1px] bg-gradient-to-r from-transparent via-indigo-300 dark:via-indigo-500/50 to-transparent"></div>
+          {/* Nornia Rainbow Top Accent Bar */}
+          <div
+            className="h-2 w-full"
+            style={{
+              backgroundImage: "linear-gradient(90deg, #16A34A 0%, #0284C7 25%, #7C3AED 50%, #DB2777 75%, #EA580C 100%)",
+            }}
+          />
 
+          <div className="p-8 sm:p-9">
           {/* Logo & Title */}
-          <div className="flex flex-col items-center justify-center text-center mb-8 mt-1">
-            <div className="relative mb-5">
-              <div className="absolute inset-0 bg-indigo-400 dark:bg-indigo-500 blur-xl opacity-25 dark:opacity-35 rounded-full animate-pulse"></div>
-              <div className="w-16 h-16 rounded-2xl flex items-center justify-center relative shadow-xl overflow-hidden">
-                <img src="/favicon.svg" alt="Logo" className="w-16 h-16 object-contain" />
+          <div className="flex flex-col items-center justify-center text-center mb-7">
+            <div className="relative mb-4">
+              <div className="w-16 h-16 rounded-2xl flex items-center justify-center relative shadow-xl overflow-hidden ring-4 ring-slate-100 dark:ring-slate-800">
+                <img src="/favicon.svg" alt="Nornia Logo" className="w-16 h-16 object-contain" />
               </div>
             </div>
             
@@ -391,7 +428,7 @@ export default function Login({ onLogin, onComplete2FA, error, backendHost }) {
             >
               Nornia
             </h1>
-            <p className="text-[11px] text-slate-500 dark:text-indigo-200/60 tracking-[0.22em] font-bold mt-2">
+            <p className="text-[11px] text-slate-500 dark:text-indigo-200/60 tracking-[0.22em] font-bold mt-1.5">
               Akıllı İletişim Platformu
             </p>
           </div>
@@ -941,12 +978,29 @@ export default function Login({ onLogin, onComplete2FA, error, backendHost }) {
               </button>
             )}
           </form>
+          </div>
+        </div>
+
+        {/* Bottom 3 Capability Pills */}
+        <div className="mt-5 flex items-center justify-center gap-2.5 flex-wrap">
+          <span className="px-3.5 py-1.5 rounded-xl bg-white/85 dark:bg-slate-900/80 border border-slate-200/80 dark:border-slate-800 shadow-sm text-[11px] font-bold text-slate-600 dark:text-slate-300 flex items-center gap-1.5 backdrop-blur-md">
+            <span aria-hidden="true">🤖</span>
+            <span>AI Sesli Asistan</span>
+          </span>
+          <span className="px-3.5 py-1.5 rounded-xl bg-white/85 dark:bg-slate-900/80 border border-slate-200/80 dark:border-slate-800 shadow-sm text-[11px] font-bold text-slate-600 dark:text-slate-300 flex items-center gap-1.5 backdrop-blur-md">
+            <span aria-hidden="true">💬</span>
+            <span>Omnichannel</span>
+          </span>
+          <span className="px-3.5 py-1.5 rounded-xl bg-white/85 dark:bg-slate-900/80 border border-slate-200/80 dark:border-slate-800 shadow-sm text-[11px] font-bold text-slate-700 dark:text-slate-200 flex items-center gap-1.5 backdrop-blur-md">
+            <img src="/runa-logo.png" alt="Runa" className="w-4 h-4 object-contain shrink-0 rounded" />
+            <span>Runa Mobil</span>
+          </span>
         </div>
         
         {/* Footer info */}
-        <div className="text-center mt-8 opacity-60">
-          <p className="text-[10px] text-slate-500 font-medium tracking-wide">
-            &copy; {new Date().getFullYear()} RUNA. Tüm hakları saklıdır.
+        <div className="text-center mt-5">
+          <p className="text-[11px] text-slate-400 dark:text-slate-500 font-semibold tracking-wide">
+            &copy; {new Date().getFullYear()} NORNİA. Tüm hakları saklıdır.
           </p>
         </div>
       </div>
