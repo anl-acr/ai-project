@@ -1170,10 +1170,10 @@ async def send_app_onboarding_email(
         cfg["use_custom_smtp"] = True
     channels_cfg = settings_db.get("channels", {})
 
-    subject = "🚀 AIDA Agent — Masaüstü & Mobil Uygulama Kurulum ve Kolay Giriş Bağlantınız"
+    subject = "🚀 Runa — Masaüstü & Mobil Uygulama Kurulum ve Kolay Giriş Bağlantınız"
     plain_body = (
         f"Sayın {full_name or 'Kullanıcı'},\n\n"
-        f"AIDA Agent Masaüstü ve Mobil uygulamalarına şifre girmeden hızlıca bağlanabilmeniz için kurulum ve kolay giriş bilgileriniz aşağıdadır:\n\n"
+        f"Runa Masaüstü ve Mobil uygulamalarına şifre girmeden hızlıca bağlanabilmeniz için kurulum ve kolay giriş bilgileriniz aşağıdadır:\n\n"
         f"Kullanıcı Bilgileri:\n"
         f"- Ad Soyad: {full_name or 'Kullanıcı'}\n"
         f"- Dahili / Rol: {extension or '-'} / {safe_role}\n"
@@ -1196,7 +1196,7 @@ async def send_app_onboarding_email(
       <!-- Header -->
       <div style="background: linear-gradient(135deg, {primary_hex} 0%, {secondary_hex} 100%); padding: 28px 32px; text-align: center; color: #ffffff;">
         <div style="display: inline-block; background: rgba(255, 255, 255, 0.16); border: 1px solid rgba(255, 255, 255, 0.28); border-radius: 14px; padding: 8px 16px; font-size: 18px; font-weight: 900; letter-spacing: 0.5px; margin-bottom: 10px;">
-          <span style="color: #fda4af;">AI</span>DA Agent
+          Runa
         </div>
         <div style="font-size: 18px; font-weight: 800; letter-spacing: -0.2px;">Masaüstü &amp; Mobil Uygulama Kurulumu</div>
         <div style="font-size: 11px; opacity: 0.88; text-transform: uppercase; letter-spacing: 1.8px; margin-top: 4px;">Kolay Giriş &amp; Hızlı Eşleştirme Davetiyesi</div>
@@ -1208,7 +1208,7 @@ async def send_app_onboarding_email(
           Sayın <strong>{safe_name}</strong>,
         </p>
         <p style="margin: 0 0 20px 0; color: #475569;">
-          <strong>AIDA Agent</strong> masaüstü ve mobil uygulamalarını bilgisayarınıza veya telefonunuza kurarak sunucu adresi ya da şifre yazmanıza gerek kalmadan <strong>Kolay Giriş Linkiniz</strong> ile tek adımda oturum açabilirsiniz.
+          <strong>Runa</strong> masaüstü ve mobil uygulamalarını bilgisayarınıza veya telefonunuza kurarak sunucu adresi ya da şifre yazmanıza gerek kalmadan <strong>Kolay Giriş Linkiniz</strong> ile tek adımda oturum açabilirsiniz.
         </p>
 
         <!-- Account Summary -->
@@ -1239,7 +1239,7 @@ async def send_app_onboarding_email(
         <!-- Step 1: Download Desktop App -->
         <div style="border: 1px solid #e2e8f0; border-radius: 16px; padding: 18px 20px; margin-bottom: 20px; background: #f8fafc;">
           <div style="font-size: 12px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.8px; color: #0f172a; margin-bottom: 8px;">
-            1. Adım: Masaüstü Uygulamasını İndirin (AIDA Agent v2.9.3)
+            1. Adım: Masaüstü Uygulamasını İndirin (Runa v2.9.3)
           </div>
           <p style="margin: 0 0 14px 0; font-size: 12.5px; color: #64748b;">
             İşletim sisteminize uygun kurulum paketini indirip bilgisayarınıza kurun:
@@ -1277,7 +1277,7 @@ async def send_app_onboarding_email(
 
       <!-- Footer -->
       <div style="background: #f8fafc; border-top: 1px solid #e2e8f0; padding: 14px 24px; text-align: center; font-size: 11px; color: #94a3b8;">
-        &copy; 2026 AIDA PBX &mdash; Bu bağlantı güvenliğiniz için <strong>{ttl_label}</strong> süreyle geçerlidir.
+        &copy; 2026 NORNİA &mdash; Bu bağlantı güvenliğiniz için <strong>{ttl_label}</strong> süreyle geçerlidir.
       </div>
     </div>
   </body>

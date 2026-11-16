@@ -328,12 +328,12 @@ export default function UserApplicationsPanel({
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = "aida-agent-config.json";
+    a.download = "runa-config.json";
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
-    showToast("success", "Hazır masaüstü yapılandırma dosyası (aida-agent-config.json) indirildi.");
+    showToast("success", "Hazır masaüstü yapılandırma dosyası (runa-config.json) indirildi.");
   };
 
   const handleOpenMobileWithUrl = async () => {
@@ -510,7 +510,7 @@ export default function UserApplicationsPanel({
                 <div>
                   <div className="flex items-center gap-2 flex-wrap">
                     <h5 className="text-sm font-extrabold text-slate-800 dark:text-white">
-                      Masaüstü Uygulaması (RUNA)
+                      Masaüstü Uygulaması (Runa)
                     </h5>
                     <span className="px-2 py-0.5 rounded-md text-[10px] font-extrabold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/25">
                       v2.9.3 Hazır
@@ -705,7 +705,7 @@ export default function UserApplicationsPanel({
                 <div>
                   <div className="flex items-center gap-2 flex-wrap">
                     <h5 className="text-sm font-extrabold text-slate-800 dark:text-white">
-                      Mobil Uygulama (RUNA)
+                      Mobil Uygulama (Runa)
                     </h5>
                     <span className="px-2 py-0.5 rounded-md text-[10px] font-extrabold bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border border-indigo-500/25">
                       iOS & Android
@@ -774,7 +774,7 @@ export default function UserApplicationsPanel({
                   )}
                   <a
                     href={`${getApiBase()}/api/downloads/mobile/ios`}
-                    download="RUNA-Mobile-iOS-2.9.3.ipa"
+                    download="Runa-Mobile-iOS-2.9.3.ipa"
                     className={`px-3 py-1.5 rounded-lg text-[11px] font-extrabold text-white ${bg} ${hover} transition inline-flex items-center gap-1.5 shadow-2xs`}
                   >
                     <Download size={13} />

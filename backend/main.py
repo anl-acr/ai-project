@@ -32708,21 +32708,21 @@ def _get_desktop_dist_packages() -> Dict[str, Any]:
             "label": "Windows Kurulum Sihirbazı (.exe)",
             "os": "windows",
             "arch": "x64",
-            "filename": "AIDA Agent Setup 2.9.3.exe",
+            "filename": "Runa Setup 2.9.3.exe",
             "endpoint": "/api/downloads/desktop/win",
         },
         "mac-arm64": {
             "label": "macOS Apple Silicon (M1/M2/M3/M4 .dmg)",
             "os": "macos",
             "arch": "arm64",
-            "filename": "AIDA Agent-2.9.3-arm64.dmg",
+            "filename": "Runa-2.9.3-arm64.dmg",
             "endpoint": "/api/downloads/desktop/mac-arm64",
         },
         "mac-x64": {
             "label": "macOS Intel (.dmg)",
             "os": "macos",
             "arch": "x64",
-            "filename": "AIDA Agent-2.9.3.dmg",
+            "filename": "Runa-2.9.3.dmg",
             "endpoint": "/api/downloads/desktop/mac-x64",
         },
     }
@@ -32738,7 +32738,7 @@ def _get_desktop_dist_packages() -> Dict[str, Any]:
             "size_mb": size_mb,
         })
     return {
-        "app_name": "RUNA",
+        "app_name": "Runa",
         "version": "2.9.3",
         "packages": packages,
     }
@@ -32888,12 +32888,12 @@ async def get_desktop_downloads_info_endpoint():
 @app.api_route("/downloads/mobile/{platform}", methods=["GET", "HEAD"])
 async def download_desktop_installer_endpoint(platform: str):
     file_map = {
-        "win": ("AIDA Agent Setup 2.9.3.exe", "application/octet-stream"),
-        "win-zip": ("AIDA Agent Setup 2.9.3.exe", "application/octet-stream"),
-        "mac-arm64": ("AIDA Agent-2.9.3-arm64.dmg", "application/octet-stream"),
-        "mac-x64": ("AIDA Agent-2.9.3.dmg", "application/octet-stream"),
-        "mac-zip": ("AIDA Agent-2.9.3-arm64.dmg", "application/octet-stream"),
-        "ios": ("AIDA-Mobile-iOS-2.9.3.ipa", "application/octet-stream"),
+        "win": ("Runa Setup 2.9.3.exe", "application/octet-stream"),
+        "win-zip": ("Runa Setup 2.9.3.exe", "application/octet-stream"),
+        "mac-arm64": ("Runa-2.9.3-arm64.dmg", "application/octet-stream"),
+        "mac-x64": ("Runa-2.9.3.dmg", "application/octet-stream"),
+        "mac-zip": ("Runa-2.9.3-arm64.dmg", "application/octet-stream"),
+        "ios": ("Runa-Mobile-iOS-2.9.3.ipa", "application/octet-stream"),
     }
     entry = file_map.get(str(platform or "").strip().lower())
     if not entry:
