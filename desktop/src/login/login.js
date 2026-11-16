@@ -11,6 +11,9 @@
   const loginForm = document.getElementById("loginForm");
   const loginErrorBox = document.getElementById("loginErrorBox");
   const submitLoginBtn = document.getElementById("submitLoginBtn");
+  const submitLoginLabel = document.getElementById("submitLoginLabel");
+  const toggleMagicBoxBtn = document.getElementById("toggleMagicBoxBtn");
+  const magicLoginBox = document.getElementById("magicLoginBox");
   const magicUrlInput = document.getElementById("magicUrlInput");
   const magicLoginBtn = document.getElementById("magicLoginBtn");
 
@@ -66,6 +69,20 @@
     if (cfg.savedUsername) usernameInput.value = cfg.savedUsername;
     rememberCheckbox.checked = cfg.rememberMe !== false;
     renderRecentHosts(cfg.recentHosts || []);
+  }
+
+  if (toggleMagicBoxBtn && magicLoginBox) {
+    toggleMagicBoxBtn.addEventListener("click", () => {
+      const isHidden = magicLoginBox.classList.contains("hidden");
+      if (isHidden) {
+        magicLoginBox.classList.remove("hidden");
+        toggleMagicBoxBtn.classList.add("active");
+        if (magicUrlInput) magicUrlInput.focus();
+      } else {
+        magicLoginBox.classList.add("hidden");
+        toggleMagicBoxBtn.classList.remove("active");
+      }
+    });
   }
 
   if (magicLoginBtn && magicUrlInput) {
@@ -126,7 +143,7 @@
     loginErrorBox.classList.add("hidden");
 
     submitLoginBtn.disabled = true;
-    submitLoginBtn.textContent = "Giriş Yapılıyor...";
+    if (submitLoginLabel) submitLoginLabel.textContent = "Giriş Yapılıyor...";
 
     try {
       const res = await api.login({
@@ -140,7 +157,7 @@
         loginErrorBox.textContent = (res && res.error) || "Giriş başarısız oldu.";
         loginErrorBox.classList.remove("hidden");
         submitLoginBtn.disabled = false;
-        submitLoginBtn.textContent = "Giriş Yap";
+        if (submitLoginLabel) submitLoginLabel.textContent = "Giriş Yap";
         return;
       }
 
@@ -174,7 +191,7 @@
       loginErrorBox.classList.remove("hidden");
     } finally {
       submitLoginBtn.disabled = false;
-      submitLoginBtn.textContent = "Giriş Yap";
+      if (submitLoginLabel) submitLoginLabel.textContent = "Giriş Yap";
     }
   });
 

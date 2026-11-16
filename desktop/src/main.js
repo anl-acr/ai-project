@@ -314,10 +314,7 @@ async function resolveServerOrigins(rawHostInput) {
     }
   } catch (e) {}
 
-  let displayHost = new URL(matchedUiOrigin).host;
-  if (displayHost.toLowerCase() === "aida.saphira.com.tr") {
-    displayHost = "runa.saphira.com.tr";
-  }
+  const displayHost = new URL(matchedUiOrigin).host;
   return {
     displayHost,
     apiOrigin: matchedApiOrigin,

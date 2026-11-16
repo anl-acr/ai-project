@@ -51,8 +51,10 @@ ipcRenderer.on("aida:dispatch-window-event", (_event, payload) => {
 
 function rebrandTextValueToRuna(str) {
   if (!str || typeof str !== "string") return str;
-  if (!/aida|aİda|aıda|runa/i.test(str)) return str;
+  if (!/aida|aİda|aıda|runa|web\s+telefon|web\s+phone/i.test(str)) return str;
   return str
+    .replace(/Web\s+Telefon/gi, "Telefon")
+    .replace(/Web\s+Phone/gi, "Telefon")
     .replace(/AIDA\s+Agent/gi, "Runa")
     .replace(/AIDA\s+Mobile/gi, "Runa")
     .replace(/RUNA\s+Agent/gi, "Runa")
@@ -69,24 +71,183 @@ function rebrandTextValueToRuna(str) {
     .replace(/aida-backend/gi, "runa-backend")
     .replace(/aida-agent:\/\//gi, "runa://")
     .replace(/aida-mobile:\/\//gi, "runa-mobile://")
-    .replace(/aida\.saphira\.com\.tr/gi, "runa.saphira.com.tr")
-    .replace(/\baida\b/gi, "Runa");
+    .replace(/(?<![/.])\baida\b(?![/.])/gi, "Runa");
+}
+
+function injectDesktopStyles() {
+  if (typeof document === "undefined" || !document.head) return;
+  if (document.getElementById("runa-desktop-custom-styles")) return;
+  const style = document.createElement("style");
+  style.id = "runa-desktop-custom-styles";
+  style.textContent = `
+    /* 1. Hide bottom-right "Web Telefon / Web Phone" floating widget on Desktop */
+    div.fixed.bottom-5.right-5.z-\\[9999\\] {
+      display: none !important;
+    }
+
+    /* 2. Remove Refresh buttons across all tabs (Missed Calls, History, Voicemail, Chat, etc.) */
+    button[title="Listeyi Yenile"],
+    button[title="Sesli postaları yenile"],
+    button[title="Yenile"],
+    button[title*="Yenile"],
+    button[title*="yenile"] {
+      display: none !important;
+    }
+
+    /* 3. Hide "Uygulamalar & İndir" and "Sunucu Adresini Değiştir" in Avatar dropdown & Profile modal */
+    [data-runa-hide-desktop-menu="1"] {
+      display: none !important;
+    }
+
+    /* 4. Kayıp Çağrılar: Keep title + switcher on left and Search + red (+) button on top-right */
+    [data-runa-desktop-missed="1"] > div > div:first-child {
+      display: flex !important;
+      flex-direction: row !important;
+      flex-wrap: nowrap !important;
+      align-items: center !important;
+      justify-content: space-between !important;
+      gap: 12px !important;
+      width: 100% !important;
+    }
+    [data-runa-desktop-missed="1"] > div > div:first-child > div:first-child {
+      display: flex !important;
+      flex-direction: row !important;
+      flex-wrap: nowrap !important;
+      align-items: center !important;
+      gap: 12px !important;
+      width: auto !important;
+      min-width: 0 !important;
+    }
+    [data-runa-desktop-missed="1"] > div > div:first-child > div:last-child {
+      display: flex !important;
+      flex-direction: row !important;
+      flex-wrap: nowrap !important;
+      align-items: center !important;
+      justify-content: flex-end !important;
+      gap: 8px !important;
+      width: auto !important;
+      margin-left: auto !important;
+      flex-shrink: 0 !important;
+    }
+  `;
+  document.head.appendChild(style);
 }
 
 function rebrandDomToRuna() {
   try {
     if (typeof document === "undefined") return;
+    injectDesktopStyles();
     if (document.title && /aida|aİda|runa/i.test(document.title)) {
-      document.title = rebrandTextValueToRuna(document.title);
+      document.title = "Runa";
     }
     if (!document.body) return;
 
+    // 0. Ensure topbar Runa R logo is applied
     const topbarLogoBox = document.querySelector("header.aida-app-topbar > div:first-child > div:first-child > div:first-child");
     if (topbarLogoBox && topbarLogoBox.getAttribute("data-runa-logo-applied") !== "1") {
       topbarLogoBox.setAttribute("data-runa-logo-applied", "1");
       topbarLogoBox.className = "h-8 w-8 shrink-0 rounded-xl flex items-center justify-center overflow-hidden shadow-sm bg-white dark:bg-slate-900";
-      topbarLogoBox.innerHTML = `<svg viewBox="0 0 1024 1024" width="32" height="32" xmlns="http://www.w3.org/2000/svg"><defs><clipPath id="rOuterClip"><rect x="78" y="78" width="868" height="868" rx="176"/></clipPath><linearGradient id="rTL" x1="0" y1="1" x2="1" y2="0"><stop offset="0%" stop-color="#0EA5E9"/><stop offset="100%" stop-color="#4F46E5"/></linearGradient><linearGradient id="rTR" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#7C3AED"/><stop offset="100%" stop-color="#DB2777"/></linearGradient><linearGradient id="rBR" x1="1" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#F43F5E"/><stop offset="100%" stop-color="#FF7319"/></linearGradient><linearGradient id="rBL" x1="1" y1="1" x2="0" y2="0"><stop offset="0%" stop-color="#F59E0B"/><stop offset="100%" stop-color="#10B981"/></linearGradient><linearGradient id="rB1" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#F43F5E"/><stop offset="100%" stop-color="#FB923C"/></linearGradient><linearGradient id="rB2" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#0EA5E9"/><stop offset="100%" stop-color="#10B981"/></linearGradient><linearGradient id="rRG" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#1E1B4B"/><stop offset="100%" stop-color="#4338CA"/></linearGradient></defs><rect width="1024" height="1024" rx="220" fill="#F8FAFD"/><g clip-path="url(#rOuterClip)"><polygon points="0,634 240,449 525,512 455,0 0,0" fill="url(#rTL)"/><polygon points="455,0 1024,0 1024,439 780,379 525,512" fill="url(#rTR)"/><polygon points="1024,439 1024,1024 595,1024 525,512 780,379" fill="url(#rBR)"/><polygon points="595,1024 0,1024 0,634 240,449 525,512" fill="url(#rBL)"/><rect x="162" y="162" width="700" height="700" rx="108" fill="#F8FAFD"/><polygon points="50,659 200,529 200,476 50,606" fill="#F8FAFD"/><polygon points="825,390 975,428 975,474 825,436" fill="#F8FAFD"/></g><rect x="248" y="350" width="58" height="324" rx="29" fill="url(#rB1)"/><rect x="330" y="266" width="58" height="492" rx="29" fill="url(#rB2)"/><path d="M 454 714 L 454 314 L 592 314 C 660 314 710 362 710 426 C 710 490 660 538 592 538 L 535 538 L 712 718" fill="none" stroke="url(#rRG)" stroke-width="88" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+      topbarLogoBox.innerHTML = `<svg viewBox="0 0 1024 1024" width="32" height="32" xmlns="http://www.w3.org/2000/svg"><rect width="1024" height="1024" rx="225" fill="#F8FAFD"/><defs><clipPath id="rClip"><rect x="92" y="92" width="840" height="840" rx="168"/></clipPath></defs><g clip-path="url(#rClip)"><polygon points="0,0 512,0 448,250 250,480 0,680" fill="#16A34A"/><polygon points="482,0 1024,0 1024,495 760,435 418,250" fill="#0284C7"/><polygon points="1024,529 1024,1024 585,1024 475,760 760,469" fill="#DB2777"/><polygon points="0,722 250,522 490,760 619,1024 0,1024" fill="#EA580C"/><rect x="162" y="162" width="700" height="700" rx="108" fill="#F8FAFD"/></g><rect x="236" y="382" width="44" height="260" rx="22" fill="#16A34A"/><rect x="312" y="302" width="44" height="420" rx="22" fill="#0284C7"/><path d="M 434 704 L 434 320 L 604 320 C 684 320 738 370 738 442 C 738 514 684 562 604 562 L 518 562 M 594 562 L 732 704" fill="none" stroke="#5B21B6" stroke-width="82" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
     }
+
+    // 1. Ensure topbar connected server pill always displays the true connected host (window.location.host)
+    const realHost = (typeof window !== "undefined" && window.location && window.location.host) ? window.location.host : "";
+    if (realHost) {
+      document.querySelectorAll('header.aida-app-topbar span[title^="Bağlı Santral:"]').forEach((badge) => {
+        badge.setAttribute("title", "Bağlı Santral: " + realHost);
+        badge.setAttribute("data-runa-real-host", "1");
+        const labelSpan = badge.querySelector("span.truncate");
+        if (labelSpan && labelSpan.textContent !== realHost) {
+          labelSpan.textContent = realHost;
+        }
+      });
+    }
+
+    // 2. Hide "Uygulamalar & İndir" and "Sunucu Adresini Değiştir" buttons in Avatar dropdown & Profile Settings modal
+    document.querySelectorAll("button").forEach((btn) => {
+      const txt = (btn.textContent || "").trim();
+      if (
+        txt.includes("Uygulamalar & İndir") ||
+        txt.includes("Sunucu Adresini Değiştir")
+      ) {
+        if (btn.getAttribute("data-runa-hide-desktop-menu") !== "1") {
+          btn.setAttribute("data-runa-hide-desktop-menu", "1");
+        }
+      }
+    });
+
+    // 3. Tag Kayıp Çağrılar & Sesli Posta Kutusu roots and resolve Voicemail contact names
+    document.querySelectorAll("h2").forEach((h2) => {
+      const h2Txt = (h2.textContent || "").trim();
+      if (h2Txt.includes("Kayıp Çağrılar")) {
+        const root = h2.closest(".overflow-y-auto");
+        if (root && root.getAttribute("data-runa-desktop-missed") !== "1") {
+          root.setAttribute("data-runa-desktop-missed", "1");
+        }
+      } else if (h2Txt.includes("Sesli Posta Kutusu")) {
+        const root = h2.closest(".overflow-y-auto");
+        if (root) {
+          try {
+            const nowTs = Date.now();
+            if (!window.__runaVmContactsMap) {
+              window.__runaVmContactsMap = {};
+            }
+            if (!window.__runaVmContactsFetching && (!window.__runaVmContactsTs || (nowTs - window.__runaVmContactsTs) > 30000)) {
+              window.__runaVmContactsFetching = true;
+              Promise.all([
+                fetch("/api/contacts", { credentials: "include" }).then((r) => (r.ok ? r.json() : [])).catch(() => []),
+                fetch("/api/agent/directory", { credentials: "include" }).then((r) => (r.ok ? r.json() : [])).catch(() => [])
+              ])
+                .then((resArr) => {
+                  const cList = Array.isArray(resArr[0]) ? resArr[0] : [];
+                  const dList = Array.isArray(resArr[1]) ? resArr[1] : [];
+                  const map = {};
+                  cList.forEach((c) => {
+                    if (!c) return;
+                    const rawP = String(c.phone_number || c.phone || "");
+                    const d = rawP.replace(/\D+/g, "");
+                    const nm = ((c.first_name || "") + " " + (c.last_name || "")).trim() || String(c.name || "").trim();
+                    if (d && nm) {
+                      map[d] = nm;
+                      if (d.length >= 10) map[d.slice(-10)] = nm;
+                    }
+                  });
+                  dList.forEach((u) => {
+                    if (!u) return;
+                    const nm = String(u.full_name || u.name || u.username || "").trim();
+                    if (!nm) return;
+                    if (u.extension) map[String(u.extension).trim()] = nm;
+                    ["phone", "gsm", "mobile", "phone_number"].forEach((k) => {
+                      const d = String(u[k] || "").replace(/\D+/g, "");
+                      if (d) {
+                        map[d] = nm;
+                        if (d.length >= 10) map[d.slice(-10)] = nm;
+                      }
+                    });
+                  });
+                  window.__runaVmContactsMap = map;
+                  window.__runaVmContactsTs = Date.now();
+                  window.__runaVmContactsFetching = false;
+                })
+                .catch(() => {
+                  window.__runaVmContactsFetching = false;
+                });
+            }
+            const cmap = window.__runaVmContactsMap || {};
+            root.querySelectorAll("span.text-sm.font-extrabold").forEach((sp) => {
+              const rawTxt = (sp.textContent || "").trim();
+              if (!rawTxt || rawTxt.includes("(")) return;
+              const digits = rawTxt.replace(/\D+/g, "");
+              if (digits.length < 3) return;
+              const matchedName = cmap[digits] || (digits.length >= 10 ? cmap[digits.slice(-10)] : "");
+              if (matchedName) {
+                sp.textContent = matchedName + " (" + rawTxt + ")";
+              }
+            });
+          } catch (e) {}
+        }
+      }
+    });
 
     document.querySelectorAll("span").forEach((sp) => {
       if (sp.children.length === 0) {
@@ -128,10 +289,12 @@ function rebrandDomToRuna() {
     const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, null);
     let node;
     while ((node = walker.nextNode())) {
-      const parentTag = node.parentElement ? node.parentElement.tagName : "";
+      const parentEl = node.parentElement;
+      const parentTag = parentEl ? parentEl.tagName : "";
       if (parentTag === "SCRIPT" || parentTag === "STYLE" || parentTag === "NOSCRIPT") continue;
+      if (parentEl && parentEl.closest('[data-runa-real-host="1"]')) continue;
       const val = node.nodeValue;
-      if (val && /aida|aİda|aıda|RUNA/.test(val)) {
+      if (val && /aida|aİda|aıda|RUNA|Web\s+Telefon|Web\s+Phone/i.test(val)) {
         const nextVal = rebrandTextValueToRuna(val);
         if (nextVal !== val) {
           node.nodeValue = nextVal;
@@ -140,9 +303,10 @@ function rebrandDomToRuna() {
     }
 
     document.querySelectorAll("[title],[placeholder],[aria-label],[alt],[download]").forEach((el) => {
+      if (el.getAttribute("data-runa-real-host") === "1") return;
       ["title", "placeholder", "aria-label", "alt", "download"].forEach((attr) => {
         const v = el.getAttribute(attr);
-        if (v && /aida|aİda|aıda|RUNA/.test(v)) {
+        if (v && /aida|aİda|aıda|RUNA|Web\s+Telefon|Web\s+Phone/i.test(v)) {
           const nv = rebrandTextValueToRuna(v);
           if (nv !== v) el.setAttribute(attr, nv);
         }

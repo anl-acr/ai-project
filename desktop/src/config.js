@@ -66,17 +66,29 @@ function loadAppConfig() {
     if (fs.existsSync(file)) {
       const raw = fs.readFileSync(file, "utf-8");
       const parsed = JSON.parse(raw);
-      const normHost = (h) => String(h || "").replace(/aida\.saphira\.com\.tr/gi, "runa.saphira.com.tr");
+      let trueOriginHost = "";
+      try {
+        if (parsed.uiOrigin) {
+          trueOriginHost = new URL(parsed.uiOrigin).host;
+        }
+      } catch (e) {}
+      const normHost = (h) => {
+        const s = String(h || "").trim();
+        if (s.toLowerCase() === "runa.saphira.com.tr") {
+          return trueOriginHost || "aida.saphira.com.tr";
+        }
+        return s;
+      };
       _memConfig = {
         ...DEFAULT_CONFIG,
         ...parsed,
-        serverHost: normHost(parsed.serverHost),
+        serverHost: normHost(parsed.serverHost || trueOriginHost),
         windowBounds: {
           ...DEFAULT_CONFIG.windowBounds,
           ...(parsed.windowBounds || {})
         },
         recentHosts: Array.isArray(parsed.recentHosts)
-          ? parsed.recentHosts.map(normHost).slice(0, 8)
+          ? Array.from(new Set(parsed.recentHosts.map(normHost).filter(Boolean))).slice(0, 8)
           : []
       };
       return { ..._memConfig };
