@@ -565,10 +565,11 @@ export default function AgentQueuePeersTab({ backendHost, currentUser, callPanel
       const res = await fetch(`${API_BASE}/api/agent/queue-peers?${params.toString()}`);
       if (res.ok) {
         const json = await res.json();
-        setData({
+        const nextData = {
           queues: Array.isArray(json.queues) ? json.queues : [],
           agents: Array.isArray(json.agents) ? json.agents : []
-        });
+        };
+        setData((prev) => (JSON.stringify(prev) === JSON.stringify(nextData) ? prev : nextData));
       }
     } catch (err) {
       console.error("[AgentQueuePeersTab] Error fetching queue peers:", err);

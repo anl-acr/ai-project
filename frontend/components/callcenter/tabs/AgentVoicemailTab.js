@@ -65,8 +65,8 @@ export default function AgentVoicemailTab({
 
   const fetchVoicemails = useCallback(
     async (silent = false) => {
+      if (silent && typeof document !== "undefined" && document.visibilityState === "hidden") return;
       if (!silent) setLoading(true);
-      else setRefreshing(true);
       try {
         const res = await fetch(
           `${getApiBase()}/api/agent/voicemail?extension=${encodeURIComponent(myExt)}&t=${Date.now()}`
@@ -74,7 +74,7 @@ export default function AgentVoicemailTab({
         if (res.ok) {
           const data = await res.json();
           const list = Array.isArray(data?.items) ? data.items : Array.isArray(data) ? data : [];
-          setMessages(list);
+          setMessages((prev) => (JSON.stringify(prev) === JSON.stringify(list) ? prev : list));
           const unread =
             typeof data?.unread_count === "number"
               ? data.unread_count
@@ -84,7 +84,7 @@ export default function AgentVoicemailTab({
       } catch (err) {
         console.error("Voicemail fetch error:", err);
       } finally {
-        setLoading(false);
+        if (!silent) setLoading(false);
         setRefreshing(false);
       }
     },

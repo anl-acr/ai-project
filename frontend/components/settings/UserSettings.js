@@ -740,6 +740,112 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
 
   const saveInFlightRef = useRef(false);
   const lastSaveCompletedAtRef = useRef(0);
+  const usersPollInFlightRef = useRef(false);
+  const showModalRef = useRef(false);
+  showModalRef.current = Boolean(showModal || showBulkConfigModal);
+
+  const fetchUsers = async (showSpinner = false) => {
+    if (usersPollInFlightRef.current || saveInFlightRef.current) return;
+    if (!showSpinner && typeof document !== "undefined" && document.visibilityState === "hidden") return;
+    usersPollInFlightRef.current = true;
+    if (showSpinner) setLoading(true);
+    try {
+      const resUsers = await safeFetch(`/api/settings/users`);
+      if (resUsers.ok && !saveInFlightRef.current) {
+        const dataUsers = await resUsers.json();
+        if (!saveInFlightRef.current) {
+          const nextList = Array.isArray(dataUsers) ? dataUsers : (dataUsers?.users || []);
+          setUsers((prev) => (JSON.stringify(prev) === JSON.stringify(nextList) ? prev : nextList));
+        }
+      }
+    } catch (e) {
+      console.error("Users fetch error:", e);
+    } finally {
+      usersPollInFlightRef.current = false;
+      if (showSpinner) setLoading(false);
+    }
+  };
+
+  const fetchRelations = async () => {
+    try {
+      const [
+        resTenants,
+        resRoles,
+        resTrunks,
+        resOut,
+        resGroups,
+        resSubGroups,
+        resLocs,
+        resDepts,
+        resQueues,
+        resAgents,
+        resAnns
+      ] = await Promise.all([
+        safeFetch(`/api/settings/tenants`).catch(() => null),
+        safeFetch(`/api/settings/roles`).catch(() => null),
+        safeFetch(`/api/settings/trunks`).catch(() => null),
+        safeFetch(`/api/settings/outbound_rules`).catch(() => null),
+        safeFetch(`/api/settings/call_pickup_groups`).catch(() => null),
+        safeFetch(`/api/settings/subscriber_groups`).catch(() => null),
+        safeFetch(`/api/settings/locations`).catch(() => null),
+        safeFetch(`/api/settings/departments`).catch(() => null),
+        safeFetch(`/api/settings/queues`).catch(() => null),
+        safeFetch(`/api/settings/ai-agents`).catch(() => null),
+        safeFetch(`/api/settings/announcements`).catch(() => null)
+      ]);
+
+      if (resTenants?.ok) {
+        const dataTenants = await resTenants.json().catch(() => null);
+        if (Array.isArray(dataTenants) && dataTenants.length > 0) setTenants(dataTenants);
+      }
+      if (resRoles?.ok) {
+        const dataRoles = await resRoles.json().catch(() => null);
+        if (dataRoles) setSystemRoles(Array.isArray(dataRoles) ? dataRoles : (dataRoles?.roles || []));
+      }
+      if (resTrunks?.ok) {
+        const dataTrunks = await resTrunks.json().catch(() => null);
+        if (dataTrunks) setTrunksList(Array.isArray(dataTrunks) ? dataTrunks : (dataTrunks?.trunks || []));
+      }
+      if (resOut?.ok) {
+        const dataOut = await resOut.json().catch(() => null);
+        if (dataOut) setOutboundRules(Array.isArray(dataOut) ? dataOut : (dataOut?.outbound_rules || []));
+      }
+      if (resGroups?.ok) {
+        const dataGroups = await resGroups.json().catch(() => null);
+        if (dataGroups) setCallPickupGroups(Array.isArray(dataGroups) ? dataGroups : (dataGroups?.call_pickup_groups || []));
+      }
+      if (resSubGroups?.ok) {
+        const dataSubGroups = await resSubGroups.json().catch(() => null);
+        if (dataSubGroups) setSubscriberGroupsList(Array.isArray(dataSubGroups) ? dataSubGroups : (dataSubGroups?.subscriber_groups || []));
+      }
+      if (resLocs?.ok) {
+        const dataLocs = await resLocs.json().catch(() => null);
+        if (dataLocs) setLocations(Array.isArray(dataLocs) ? dataLocs : (dataLocs?.locations || []));
+      }
+      if (resDepts?.ok) {
+        const dataDepts = await resDepts.json().catch(() => null);
+        if (dataDepts) setDepartments(Array.isArray(dataDepts) ? dataDepts : (dataDepts?.departments || []));
+      }
+      if (resQueues?.ok) {
+        const dataQueues = await resQueues.json().catch(() => null);
+        if (dataQueues) setQueuesList(Array.isArray(dataQueues) ? dataQueues : (dataQueues?.queues || []));
+      }
+      if (resAgents?.ok) {
+        const dataAgents = await resAgents.json().catch(() => null);
+        if (dataAgents) setAiAgentsList(Array.isArray(dataAgents) ? dataAgents : (dataAgents?.ai_agents || []));
+      }
+      if (resAnns?.ok) {
+        const dataAnns = await resAnns.json().catch(() => null);
+        if (dataAnns) setAnnouncementsList(Array.isArray(dataAnns) ? dataAnns : (dataAnns?.announcements || []));
+      }
+    } catch (err) {
+      console.error("İlişkisel veriler yüklenemedi:", err);
+    }
+  };
+
+  const fetchAllData = async (showSpinner = true) => {
+    await Promise.all([fetchUsers(showSpinner), fetchRelations()]);
+  };
 
   useEffect(() => {
     fetchAllData(true);
@@ -750,11 +856,15 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
       window.addEventListener("tenantChanged", handleTenantChange);
     }
     const interval = setInterval(() => {
-      if (saveInFlightRef.current || Date.now() - lastSaveCompletedAtRef.current < 2500) {
+      if (
+        saveInFlightRef.current ||
+        showModalRef.current ||
+        Date.now() - lastSaveCompletedAtRef.current < 3000
+      ) {
         return;
       }
-      fetchAllData(false);
-    }, 3000);
+      fetchUsers(false);
+    }, 8000);
     return () => {
       clearInterval(interval);
       if (typeof window !== "undefined") {
@@ -762,118 +872,6 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
       }
     };
   }, [backendHost]);
-
-  const fetchAllData = async (showSpinner = true) => {
-    if (showSpinner) setLoading(true);
-    try {
-      try {
-        const resUsers = await safeFetch(`/api/settings/users`);
-        if (resUsers.ok && !saveInFlightRef.current) {
-          const dataUsers = await resUsers.json();
-          if (!saveInFlightRef.current) {
-            setUsers(Array.isArray(dataUsers) ? dataUsers : (dataUsers?.users || []));
-          }
-        }
-      } catch (e) {
-        console.error("Users fetch error:", e);
-      }
-
-      try {
-        const resTenants = await safeFetch(`/api/settings/tenants`);
-        if (resTenants.ok) {
-          const dataTenants = await resTenants.json();
-          if (Array.isArray(dataTenants) && dataTenants.length > 0) {
-            setTenants(dataTenants);
-          }
-        }
-      } catch (e) {}
-
-      try {
-        const resRoles = await safeFetch(`/api/settings/roles`);
-        if (resRoles.ok) {
-          const dataRoles = await resRoles.json();
-          setSystemRoles(Array.isArray(dataRoles) ? dataRoles : (dataRoles?.roles || []));
-        }
-      } catch (e) {}
-
-      try {
-        const resTrunks = await safeFetch(`/api/settings/trunks`);
-        if (resTrunks.ok) {
-          const dataTrunks = await resTrunks.json();
-          setTrunksList(Array.isArray(dataTrunks) ? dataTrunks : (dataTrunks?.trunks || []));
-        }
-      } catch (e) {}
-
-      try {
-        const resOut = await safeFetch(`/api/settings/outbound_rules`);
-        if (resOut.ok) {
-          const dataOut = await resOut.json();
-          setOutboundRules(Array.isArray(dataOut) ? dataOut : (dataOut?.outbound_rules || []));
-        }
-      } catch (e) {}
-
-      try {
-        const resGroups = await safeFetch(`/api/settings/call_pickup_groups`);
-        if (resGroups.ok) {
-          const dataGroups = await resGroups.json();
-          setCallPickupGroups(Array.isArray(dataGroups) ? dataGroups : (dataGroups?.call_pickup_groups || []));
-        }
-      } catch (e) {}
-
-      try {
-        const resSubGroups = await safeFetch(`/api/settings/subscriber_groups`);
-        if (resSubGroups.ok) {
-          const dataSubGroups = await resSubGroups.json();
-          setSubscriberGroupsList(Array.isArray(dataSubGroups) ? dataSubGroups : (dataSubGroups?.subscriber_groups || []));
-        }
-      } catch (e) {}
-
-      try {
-        const resLocs = await safeFetch(`/api/settings/locations`);
-        if (resLocs.ok) {
-          const dataLocs = await resLocs.json();
-          setLocations(Array.isArray(dataLocs) ? dataLocs : (dataLocs?.locations || []));
-        }
-      } catch (e) {}
-
-      try {
-        const resDepts = await safeFetch(`/api/settings/departments`);
-        if (resDepts.ok) {
-          const dataDepts = await resDepts.json();
-          setDepartments(Array.isArray(dataDepts) ? dataDepts : (dataDepts?.departments || []));
-        }
-      } catch (e) {}
-
-      try {
-        const resQueues = await safeFetch(`/api/settings/queues`);
-        if (resQueues.ok) {
-          const dataQueues = await resQueues.json();
-          setQueuesList(Array.isArray(dataQueues) ? dataQueues : (dataQueues?.queues || []));
-        }
-      } catch (e) {}
-
-      try {
-        const resAgents = await safeFetch(`/api/settings/ai-agents`);
-        if (resAgents.ok) {
-          const dataAgents = await resAgents.json();
-          setAiAgentsList(Array.isArray(dataAgents) ? dataAgents : (dataAgents?.ai_agents || []));
-        }
-      } catch (e) {}
-
-      try {
-        const resAnns = await safeFetch(`/api/settings/announcements`);
-        if (resAnns.ok) {
-          const dataAnns = await resAnns.json();
-          setAnnouncementsList(Array.isArray(dataAnns) ? dataAnns : (dataAnns?.announcements || []));
-        }
-      } catch (e) {}
-
-    } catch (err) {
-      console.error(`Veriler yüklenemedi:`, err);
-    } finally {
-      setLoading(false);
-    }
-  };
 
 
 

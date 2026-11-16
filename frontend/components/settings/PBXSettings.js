@@ -387,7 +387,9 @@ export default function PBXSettings({ viewMode = "pbx", backendHost = "localhost
     fetch(`${API_BASE}/api/settings/trunks/status`)
       .then((res) => res.json())
       .then((data) => {
-        if (data) setTrunkStatuses(data);
+        if (data) {
+          setTrunkStatuses((prev) => (JSON.stringify(prev) === JSON.stringify(data) ? prev : data));
+        }
       })
       .catch((err) => console.error("[Trunks] Durumlar alinamadi:", err));
   };

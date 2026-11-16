@@ -647,7 +647,7 @@ export default function EnterpriseReportsPanel({ backendHost, reportType = "brea
   };
 
   const summary = data?.summary || {};
-  useStageRevealObserver(reportStageRef, `${reportType}-${activeSubView}-${loading}`);
+  useStageRevealObserver(reportStageRef, `${reportType}-${activeSubView}`);
 
   return (
     <div ref={reportStageRef} key={reportType} className="w-full space-y-5 aida-panel-enter">

@@ -178,12 +178,24 @@ export function decorateStageSubtreeForMotion(rootEl) {
  * (including lazy-loaded panels arriving asynchronously via next/dynamic or API fetches).
  */
 export function useStageRevealObserver(containerRef, triggerKey) {
+  const prevTriggerKeyRef = useRef(null);
+
   useEffect(() => {
     const el = containerRef?.current;
     if (!el || typeof window === "undefined") return;
 
+    if (prevTriggerKeyRef.current === triggerKey) {
+      return;
+    }
+    prevTriggerKeyRef.current = triggerKey;
+
     const mode = getEffectiveMotionMode(readDocumentMotionMode());
-    if (mode === "off") return;
+    if (mode === "off") {
+      el.setAttribute("data-aida-stage-settled", "true");
+      return;
+    }
+
+    el.removeAttribute("data-aida-stage-settled");
 
     // Deterministically run Web Animations API stage glide on the compositor (leaves no resting transform)
     let stageAnim = null;
@@ -194,11 +206,11 @@ export function useStageRevealObserver(containerRef, triggerKey) {
           isMinimal
             ? [{ opacity: 0 }, { opacity: 1 }]
             : [
-                { opacity: 0, transform: "translate3d(0, 18px, 0) scale(0.985)" },
+                { opacity: 0, transform: "translate3d(0, 12px, 0) scale(0.992)" },
                 { opacity: 1, transform: "translate3d(0, 0, 0) scale(1)" },
               ],
           {
-            duration: isMinimal ? 220 : 540,
+            duration: isMinimal ? 180 : 360,
             easing: "cubic-bezier(0.22, 0.95, 0.32, 1)",
             fill: "none",
           }
@@ -210,26 +222,15 @@ export function useStageRevealObserver(containerRef, triggerKey) {
       decorateStageSubtreeForMotion(el);
     });
 
-    // Also watch briefly (1500ms) for lazy dynamic chunks or API data renders to decorate new grids/bars
-    let observer = null;
-    let stopTimer = null;
-    if (typeof MutationObserver !== "undefined") {
-      let pendingRaf = null;
-      observer = new MutationObserver(() => {
-        if (pendingRaf) return;
-        pendingRaf = window.requestAnimationFrame(() => {
-          pendingRaf = null;
-          decorateStageSubtreeForMotion(el);
+    // Lock the stage after initial entry animation finishes (850ms) so background polling re-renders never flicker
+    const settleTimer = window.setTimeout(() => {
+      try {
+        el.setAttribute("data-aida-stage-settled", "true");
+        el.querySelectorAll(".aida-stagger-sections, .aida-stagger-grid").forEach((node) => {
+          node.classList.remove("aida-stagger-sections", "aida-stagger-grid");
         });
-      });
-      observer.observe(el, { childList: true, subtree: true });
-      stopTimer = window.setTimeout(() => {
-        if (observer) {
-          observer.disconnect();
-          observer = null;
-        }
-      }, 1500);
-    }
+      } catch (e) {}
+    }, 850);
 
     return () => {
       window.cancelAnimationFrame(raf1);
@@ -238,8 +239,7 @@ export function useStageRevealObserver(containerRef, triggerKey) {
           stageAnim.cancel();
         } catch (e) {}
       }
-      if (observer) observer.disconnect();
-      if (stopTimer) window.clearTimeout(stopTimer);
+      window.clearTimeout(settleTimer);
     };
   }, [containerRef, triggerKey]);
 }

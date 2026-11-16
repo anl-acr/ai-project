@@ -185,15 +185,16 @@ export default function LiveDashboardPanel({ backendHost = "localhost:8000" }) {
         ]);
         if (crRes && crRes.ok) {
           const crData = await crRes.json();
-          setCrisisAlerts(Array.isArray(crData.alerts) ? crData.alerts : []);
+          const nextAlerts = Array.isArray(crData.alerts) ? crData.alerts : [];
+          setCrisisAlerts((prev) => (JSON.stringify(prev) === JSON.stringify(nextAlerts) ? prev : nextAlerts));
         }
         if (sumRes && sumRes.ok) {
           const sumData = await sumRes.json();
-          setWidgetsSummary(sumData);
+          setWidgetsSummary((prev) => (JSON.stringify(prev) === JSON.stringify(sumData) ? prev : sumData));
         }
         if (budRes && budRes.ok) {
           const budData = await budRes.json();
-          setBudgetSummary(budData);
+          setBudgetSummary((prev) => (JSON.stringify(prev) === JSON.stringify(budData) ? prev : budData));
         }
       } catch (e) {}
     };
@@ -222,7 +223,7 @@ export default function LiveDashboardPanel({ backendHost = "localhost:8000" }) {
         .then((res) => res.json())
         .then((data) => {
           if (Array.isArray(data)) {
-            setActiveCalls(data);
+            setActiveCalls((prev) => (JSON.stringify(prev) === JSON.stringify(data) ? prev : data));
             
             // If the currently selected call is no longer active, deselect it
             if (selectedCall && !data.some(c => c.id === selectedCall.id)) {
@@ -565,7 +566,7 @@ export default function LiveDashboardPanel({ backendHost = "localhost:8000" }) {
   };
 
   const visibleWidgets = widgetOrder.filter((id) => !hiddenWidgets.includes(id));
-  useStageRevealObserver(panelRef, `${visibleWidgets.join(",")}-${Boolean(widgetsSummary)}`);
+  useStageRevealObserver(panelRef, "live-dashboard");
 
   const renderCrisisRadarWidget = () => {
     if (crisisAlerts.length === 0) return null;

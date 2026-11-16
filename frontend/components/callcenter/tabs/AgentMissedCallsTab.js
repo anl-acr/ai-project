@@ -96,7 +96,8 @@ export default function AgentMissedCallsTab({ backendHost, currentUser, callPane
       const cbsRes = await fetch(`${protocol}//${host}/api/workspace/callbacks?status=all`, { headers: buildHeaders() });
       if (cbsRes.ok) {
         const cbd = await cbsRes.json();
-        setCallbacksList(Array.isArray(cbd.callbacks) ? cbd.callbacks : []);
+        const nextCbs = Array.isArray(cbd.callbacks) ? cbd.callbacks : [];
+        setCallbacksList((prev) => (JSON.stringify(prev) === JSON.stringify(nextCbs) ? prev : nextCbs));
       }
     } catch (e) {}
   }, [host, buildHeaders]);
@@ -118,7 +119,7 @@ export default function AgentMissedCallsTab({ backendHost, currentUser, callPane
         if (res.ok) {
           const data = await res.json();
           const list = Array.isArray(data) ? data : [];
-          setMissedCalls(list);
+          setMissedCalls((prev) => (JSON.stringify(prev) === JSON.stringify(list) ? prev : list));
           if (typeof window !== "undefined") {
             window.dispatchEvent(new CustomEvent("MISSED_QUEUE_CALLS_UPDATED", { detail: list.length }));
           }

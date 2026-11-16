@@ -328,6 +328,15 @@ label.flex.items-center {
   animation: aidaSvgLineDraw 1200ms cubic-bezier(0.22, 0.95, 0.32, 1) 140ms backwards;
 }
 
+/* Prevent background polling re-renders from re-triggering entry/stagger animations once stage is settled */
+[data-aida-stage-settled="true"] .aida-stagger-grid > *,
+[data-aida-stage-settled="true"] .aida-stagger-sections > *,
+[data-aida-stage-settled="true"] .aida-chart-bar-x,
+[data-aida-stage-settled="true"] .aida-chart-bar-y,
+[data-aida-stage-settled="true"] .aida-chart-line {
+  animation: none !important;
+}
+
 /* 4. GPU Shimmer Skeleton */
 .aida-shimmer-surface::after {
   content: "";

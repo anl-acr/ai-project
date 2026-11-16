@@ -160,20 +160,31 @@ export default function AgentDirectoryTab({ backendHost, currentUser, callPanelP
         };
       });
 
-      setDirectory((prev) =>
-        prev.map((item) => {
+      setDirectory((prev) => {
+        let changed = false;
+        const next = prev.map((item) => {
           if (item.type === "internal" && stateMap[item.id]) {
-            return {
-              ...item,
-              call_state: stateMap[item.id].call_state,
-              is_registered: stateMap[item.id].is_registered,
-              omnichannel_busy: stateMap[item.id].omnichannel_busy,
-              omnichannel_label: stateMap[item.id].omnichannel_label
-            };
+            const st = stateMap[item.id];
+            if (
+              item.call_state !== st.call_state ||
+              item.is_registered !== st.is_registered ||
+              item.omnichannel_busy !== st.omnichannel_busy ||
+              item.omnichannel_label !== st.omnichannel_label
+            ) {
+              changed = true;
+              return {
+                ...item,
+                call_state: st.call_state,
+                is_registered: st.is_registered,
+                omnichannel_busy: st.omnichannel_busy,
+                omnichannel_label: st.omnichannel_label
+              };
+            }
           }
           return item;
-        })
-      );
+        });
+        return changed ? next : prev;
+      });
     } catch (e) {}
   };
 

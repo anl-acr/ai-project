@@ -2981,7 +2981,15 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
         .then((res) => res.json())
         .then((data) => {
           if (Array.isArray(data)) {
-            setCalls(data);
+            setCalls((prev) => {
+              if (
+                prev.length === data.length &&
+                JSON.stringify(prev.slice(0, 5)) === JSON.stringify(data.slice(0, 5))
+              ) {
+                return prev;
+              }
+              return data;
+            });
           }
         })
         .catch((err) => console.error("Silently polling calls failed:", err));
@@ -6363,7 +6371,7 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
   const isInvalidCallsMode = viewMode === "invalid-calls";
   const isFullWidthMode = isCdrMode || isNotesMode || isAudioMode || isTranscriptsMode || isSentimentMode || isQAMode || isPanoMode || isPerfMode || isQueueMode || isSentimentHeatMode || isWordcloudMode || isFcrMode || isRoiMode || isMissedMode || isTimelineMode || isTrafficMode || isTrunkMode || isIvrDropMode || isTransferHoldMode || isEfficiencyMode || isFrictionMode || isComplianceMode || isSilenceMode || isCeoSummaryMode || isIntentMode || isDidMode || isTrunkMinutesMode || isInvalidCallsMode;
 
-  useStageRevealObserver(reportsStageRef, `${viewMode}-${isLoading}-${calls.length}`);
+  useStageRevealObserver(reportsStageRef, viewMode);
 
   return (
     <div ref={reportsStageRef} key={viewMode} className="w-full h-[calc(100vh-12rem)] flex gap-6 text-slate-800 dark:text-slate-100 aida-panel-enter">
