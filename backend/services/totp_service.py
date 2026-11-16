@@ -165,16 +165,26 @@ def build_otpauth_uri(
 
 # Format: version: (total_data_codewords, ec_codewords_per_block, num_blocks_g1, data_cw_g1, num_blocks_g2, data_cw_g2, alignment_centers)
 _QR_VERSION_TABLE_L: Dict[int, Tuple[int, int, int, int, int, int, List[int]]] = {
-    1:  (19,  7,  1, 19, 0, 0,  []),
-    2:  (34,  10, 1, 34, 0, 0,  [6, 18]),
-    3:  (55,  15, 1, 55, 0, 0,  [6, 22]),
-    4:  (80,  20, 1, 80, 0, 0,  [6, 26]),
-    5:  (108, 26, 1, 108, 0, 0, [6, 30]),
-    6:  (136, 18, 2, 68, 0, 0,  [6, 34]),
-    7:  (156, 20, 2, 78, 0, 0,  [6, 22, 38]),
-    8:  (194, 24, 2, 97, 0, 0,  [6, 24, 42]),
-    9:  (232, 30, 2, 116, 0, 0, [6, 26, 46]),
-    10: (274, 18, 2, 68, 2, 69, [6, 28, 50]),
+    1:  (19,  7,  1, 19,  0, 0,   []),
+    2:  (34,  10, 1, 34,  0, 0,   [6, 18]),
+    3:  (55,  15, 1, 55,  0, 0,   [6, 22]),
+    4:  (80,  20, 1, 80,  0, 0,   [6, 26]),
+    5:  (108, 26, 1, 108, 0, 0,   [6, 30]),
+    6:  (136, 18, 2, 68,  0, 0,   [6, 34]),
+    7:  (156, 20, 2, 78,  0, 0,   [6, 22, 38]),
+    8:  (194, 24, 2, 97,  0, 0,   [6, 24, 42]),
+    9:  (232, 30, 2, 116, 0, 0,   [6, 26, 46]),
+    10: (274, 18, 2, 68,  2, 69,  [6, 28, 50]),
+    11: (324, 20, 4, 81,  0, 0,   [6, 30, 54]),
+    12: (370, 24, 2, 92,  2, 93,  [6, 32, 58]),
+    13: (428, 26, 4, 107, 0, 0,   [6, 34, 62]),
+    14: (461, 30, 3, 115, 1, 116, [6, 26, 46, 66]),
+    15: (523, 22, 5, 87,  1, 88,  [6, 26, 48, 70]),
+    16: (589, 24, 5, 98,  1, 99,  [6, 26, 50, 74]),
+    17: (647, 28, 1, 107, 5, 108, [6, 30, 54, 78]),
+    18: (721, 30, 5, 120, 1, 121, [6, 30, 56, 82]),
+    19: (795, 28, 3, 113, 4, 114, [6, 30, 58, 86]),
+    20: (861, 28, 3, 107, 5, 108, [6, 34, 62, 90]),
 }
 
 # GF(256) Exp & Log tables for primitive polynomial x^8 + x^4 + x^3 + x^2 + 1 (0x11D)
@@ -230,9 +240,9 @@ def _rs_encode(data_bytes: List[int], ec_len: int) -> List[int]:
 def _encode_qr_codewords(payload: bytes) -> Tuple[int, List[int]]:
     length = len(payload)
     selected_ver = 0
-    for ver in range(1, 11):
+    for ver in range(1, 21):
         total_data_cw = _QR_VERSION_TABLE_L[ver][0]
-        # Mode indicator (4 bits) + char count indicator (8 bits for V1-9, 16 bits for V10)
+        # Mode indicator (4 bits) + char count indicator (8 bits for V1-9, 16 bits for V10+)
         header_bits = 12 if ver <= 9 else 20
         max_bytes = (total_data_cw * 8 - header_bits) // 8
         if length <= max_bytes:

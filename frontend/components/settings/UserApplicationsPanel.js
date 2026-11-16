@@ -123,6 +123,30 @@ export default function UserApplicationsPanel({
         if (data?.magic_link?.magic_url) {
           setMobileUrlInput(data.magic_link.magic_url);
         }
+        // If QR code or magic link is inactive/missing on load, auto-generate immediately
+        if (!data?.magic_link?.active || !data?.magic_link?.qr_svg) {
+          try {
+            const genRes = await fetch(
+              `${getApiBase()}/api/settings/users/${encodeURIComponent(resolvedUserId)}/app-magic-link`,
+              {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  ttl_seconds: Number(data?.magic_link?.ttl_seconds) || 86400,
+                  action: "generate",
+                  origin: getUiOrigin()
+                })
+              }
+            );
+            if (genRes.ok) {
+              const freshData = await genRes.json();
+              setAppData(freshData);
+              if (freshData?.magic_link?.magic_url) {
+                setMobileUrlInput(freshData.magic_link.magic_url);
+              }
+            }
+          } catch (eGen) {}
+        }
       }
     } catch (err) {
       console.error("Uygulama bilgileri alınamadı:", err);
@@ -448,8 +472,8 @@ export default function UserApplicationsPanel({
           </div>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-12 gap-2.5 pt-1">
-          <div className="md:col-span-5">
+        <div className="grid grid-cols-1 sm:grid-cols-12 gap-3 pt-1 items-end">
+          <div className="sm:col-span-5">
             <label className="block text-[10px] font-extrabold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1">
               Alıcı E-Posta Adresi
             </label>
@@ -458,11 +482,11 @@ export default function UserApplicationsPanel({
               value={emailInput}
               onChange={(e) => setEmailInput(e.target.value)}
               placeholder="ornek@sirket.com"
-              className="w-full px-3.5 py-2 rounded-xl text-xs font-bold bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-800 dark:text-slate-100 focus:outline-none"
+              className="w-full h-9 px-3.5 rounded-xl text-xs font-bold bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-800 dark:text-slate-100 focus:outline-none"
             />
           </div>
 
-          <div className="md:col-span-3">
+          <div className="sm:col-span-3">
             <label className="block text-[10px] font-extrabold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1">
               Link Geçerlilik Süresi
             </label>
@@ -473,7 +497,7 @@ export default function UserApplicationsPanel({
                 setSelectedTtl(nextTtl);
                 handleGenerateMagicLink(nextTtl);
               }}
-              className="w-full px-3 py-2 rounded-xl text-xs font-bold bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-800 dark:text-slate-100 focus:outline-none cursor-pointer"
+              className="w-full h-9 px-3 rounded-xl text-xs font-bold bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-800 dark:text-slate-100 focus:outline-none cursor-pointer"
             >
               {TTL_OPTIONS.map((opt) => (
                 <option key={opt.value} value={opt.value}>
@@ -483,22 +507,22 @@ export default function UserApplicationsPanel({
             </select>
           </div>
 
-          <div className="md:col-span-4 flex items-end">
+          <div className="sm:col-span-4">
             <button
               type="button"
               disabled={sendingEmail}
               onClick={handleSendInviteEmail}
-              className={`w-full py-2 px-4 rounded-xl text-xs font-extrabold text-white ${bg} ${hover} transition-all flex items-center justify-center gap-2 shadow-sm cursor-pointer disabled:opacity-50`}
+              className={`w-full h-9 px-4 rounded-xl text-xs font-extrabold text-white ${bg} ${hover} transition-all flex items-center justify-center gap-2 shadow-sm cursor-pointer disabled:opacity-50 whitespace-nowrap`}
             >
-              {sendingEmail ? <RefreshCw size={14} className="animate-spin" /> : <Send size={14} />}
-              <span>{sendingEmail ? "E-Posta Gönderiliyor..." : "Kurulum & Giriş Linkini Mail Gönder"}</span>
+              {sendingEmail ? <RefreshCw size={14} className="animate-spin shrink-0" /> : <Send size={14} className="shrink-0" />}
+              <span className="truncate">{sendingEmail ? "Gönderiliyor..." : "Kurulum Linkini Mail Gönder"}</span>
             </button>
           </div>
         </div>
       </div>
 
-      {/* 2. MASAÜSTÜ UYGULAMASI (RUNA) & SÜRELİ KOLAY GİRİŞ LİNKİ */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+      {/* 2. MASAÜSTÜ & MOBİL UYGULAMA KARTLARI (Tam Genişlikli Ferah Yerleşim) */}
+      <div className="grid grid-cols-1 gap-4">
         {/* Masaüstü Kartı */}
         <div className="p-5 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/70 flex flex-col justify-between gap-4 shadow-2xs">
           <div className="space-y-4">
@@ -735,8 +759,8 @@ export default function UserApplicationsPanel({
             </div>
 
             {/* Mobil QR Kod + Hızlı Eşleştirme */}
-            <div className="flex flex-col sm:flex-row items-center gap-4 p-4 rounded-xl bg-slate-50 dark:bg-slate-950/60 border border-slate-200/80 dark:border-slate-800">
-              <div className="w-36 h-36 rounded-xl bg-white p-2.5 border border-slate-200 dark:border-slate-700 flex items-center justify-center shrink-0 shadow-2xs">
+            <div className="flex flex-col sm:flex-row items-center gap-5 p-4 rounded-xl bg-slate-50 dark:bg-slate-950/60 border border-slate-200/80 dark:border-slate-800">
+              <div className="w-36 h-36 rounded-2xl bg-white p-2.5 border border-slate-200 dark:border-slate-700 flex items-center justify-center shrink-0 shadow-sm relative">
                 {magic.active && magic.qr_svg ? (
                   <img
                     src={magic.qr_svg}
@@ -744,32 +768,44 @@ export default function UserApplicationsPanel({
                     className="w-full h-full object-contain"
                   />
                 ) : (
-                  <div className="text-center text-[10px] font-bold text-slate-400 px-2">
-                    <QrCode size={28} className="mx-auto mb-1 opacity-50" />
-                    QR Kod Pasif
-                  </div>
+                  <button
+                    type="button"
+                    onClick={() => handleGenerateMagicLink()}
+                    className="text-center text-[10px] font-bold text-slate-500 hover:text-indigo-600 px-2 cursor-pointer transition"
+                  >
+                    <QrCode size={28} className="mx-auto mb-1.5 opacity-60" />
+                    <span>QR Kodu Aktif Et</span>
+                  </button>
                 )}
               </div>
 
-              <div className="flex-1 space-y-2.5 text-center sm:text-left">
-                <div className="text-xs font-extrabold text-slate-800 dark:text-white flex items-center justify-center sm:justify-start gap-1.5">
-                  <QrCode size={14} className={text} />
-                  <span>QR Kod ile Otomatik Giriş</span>
+              <div className="flex-1 space-y-2.5 text-center sm:text-left min-w-0">
+                <div className="flex items-center justify-center sm:justify-start gap-2 flex-wrap">
+                  <span className="text-xs font-extrabold text-slate-800 dark:text-white flex items-center gap-1.5">
+                    <QrCode size={14} className={text} />
+                    <span>QR Kod ile Otomatik Giriş</span>
+                  </span>
+                  {magic.active && magic.qr_svg && (
+                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-extrabold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/25">
+                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                      QR Aktif
+                    </span>
+                  )}
                 </div>
                 <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed">
-                  <strong>RUNA</strong> uygulamasını açıp giriş ekranındaki{" "}
-                  <strong>&ldquo;QR Kod ile Giriş&rdquo;</strong> sekmesinden bu QR kodu kameraya okutarak sunucu adresi ve şifre girmeden doğrudan oturum açabilirsiniz.
+                  <strong>Runa</strong> mobil uygulamasını açıp giriş ekranının sağ üst köşesindeki{" "}
+                  <strong>QR Kod</strong> butonuna dokunarak bu kodu kameraya okutun; sunucu adresi ve şifre girmeden doğrudan oturum açılır.
                 </p>
                 <div className="flex flex-wrap items-center justify-center sm:justify-start gap-2 pt-1">
                   {canEdit && (
                     <button
                       type="button"
                       disabled={generatingLink}
-                      onClick={() => handleMagicLinkAction("generate")}
+                      onClick={() => handleGenerateMagicLink()}
                       className={`px-3 py-1.5 rounded-lg text-[11px] font-extrabold border ${border} ${lightBg} ${text} hover:opacity-90 transition inline-flex items-center gap-1.5 cursor-pointer disabled:opacity-50`}
                     >
                       <RefreshCw size={12} className={generatingLink ? "animate-spin" : ""} />
-                      <span>{magic.active ? "QR Kodu Yenile" : "QR Kod Oluştur"}</span>
+                      <span>{magic.active && magic.qr_svg ? "QR Kodu Yenile" : "QR Kod Oluştur"}</span>
                     </button>
                   )}
                   <a

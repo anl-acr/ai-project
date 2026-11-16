@@ -32793,7 +32793,7 @@ def _build_user_app_access_response(user: dict, resolved_id: Any, server_origin:
             token_valid = True
             token_payload = t_obj
 
-    if not token_valid and auto_generate_if_missing and not app_cfg.get("explicitly_revoked"):
+    if not token_valid and auto_generate_if_missing:
         default_ttl = int(app_cfg.get("last_ttl_seconds") or 86400)
         active_token, token_payload = create_app_magic_login_token(
             user_id=uid_str,
@@ -32823,10 +32823,11 @@ def _build_user_app_access_response(user: dict, resolved_id: Any, server_origin:
     if token_valid and active_token and token_payload:
         enc_token = urllib.parse.quote(active_token, safe="")
         magic_url = f"{server_origin}/login?app_token={enc_token}"
-        deep_link_url = f"aida-agent://login?url={urllib.parse.quote(magic_url, safe='')}"
+        deep_link_url = f"runa://login?url={urllib.parse.quote(magic_url, safe='')}"
         try:
             qr_svg = generate_qr_svg_data_uri(magic_url)
-        except Exception:
+        except Exception as e_qr:
+            print(f"[QR SVG Generation Error]: {e_qr}")
             qr_svg = ""
         expires_at = int(token_payload.get("exp") or 0)
         created_at = int(token_payload.get("iat") or now)
