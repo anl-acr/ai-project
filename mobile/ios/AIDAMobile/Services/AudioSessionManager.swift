@@ -1354,6 +1354,21 @@ final class AudioSessionManager: NSObject, UNUserNotificationCenterDelegate, PKP
             return
         }
 
+        #if targetEnvironment(simulator)
+        let isHandledByApnsPushDaemon =
+            id.hasPrefix("int-chat-") ||
+            id.hasPrefix("missed-") ||
+            id.hasPrefix("voicemail-") ||
+            id.hasPrefix("unanswered-") ||
+            title.contains("Yeni İç Mesaj") ||
+            title.contains("Kayıp Çağrı") ||
+            title.contains("Sesli Posta") ||
+            title.contains("Yanıtsız Çağrı")
+        if isHandledByApnsPushDaemon && FileManager.default.fileExists(atPath: "/tmp/aida_voip_push_daemon.log") {
+            return
+        }
+        #endif
+
         // Incoming calls are handled exclusively by iOS CallKit (Slide to Answer / InCallService).
         // Never post a UNNotificationRequest banner ("Pencereyi öne getirmek için tıklayın") for incoming calls;
         // only sync resolved caller name/number into CallKit!
@@ -1485,13 +1500,16 @@ final class AudioSessionManager: NSObject, UNUserNotificationCenterDelegate, PKP
             let callId = (info["call_id"] as? String) ?? String(Int(Date().timeIntervalSince1970))
             handleIncomingSipInvite(caller: caller, callerName: callerName, callId: callId)
         }
-        let id = (info["id"] as? String) ?? ""
+        let id = (info["id"] as? String) ?? notification.request.identifier
         let actionEvent = (info["actionEvent"] as? String) ?? ""
         let title = notification.request.content.title
         let isCallAlert = id.hasPrefix("call-") || actionEvent == "OPEN_FULL_WEBPHONE" || title.contains("Gelen Çağrı")
         if UIApplication.shared.applicationState == .active && isCallAlert {
             completionHandler([])
             return
+        }
+        if !id.isEmpty {
+            notifiedIds.insert(id)
         }
         completionHandler([.banner, .list, .sound])
     }
@@ -1502,6 +1520,10 @@ final class AudioSessionManager: NSObject, UNUserNotificationCenterDelegate, PKP
         withCompletionHandler completionHandler: @escaping () -> Void
     ) {
         let info = response.notification.request.content.userInfo
+        let tappedId = (info["id"] as? String) ?? response.notification.request.identifier
+        if !tappedId.isEmpty {
+            notifiedIds.insert(tappedId)
+        }
         let actionEvent = (info["actionEvent"] as? String) ?? ""
         let actionId = response.actionIdentifier
         var parsedDetail: Any? = nil

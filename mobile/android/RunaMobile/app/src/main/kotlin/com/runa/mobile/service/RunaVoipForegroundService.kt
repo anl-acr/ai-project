@@ -922,12 +922,9 @@ class RunaVoipForegroundService : Service() {
 
                 refreshUserDirectoryIfNeeded(apiOrigin, tenantId, ext)
 
-                // Check if device is locked or app is in background; only fire background service notifications
-                // when the screen is locked or when WebView hasn't already handled it, preventing duplicates.
-                val km = getSystemService(Context.KEYGUARD_SERVICE) as? KeyguardManager
-                val pm = getSystemService(Context.POWER_SERVICE) as? PowerManager
-                val isLockedOrScreenOff = (km?.isKeyguardLocked == true) || (pm?.isInteractive == false)
-                val shouldPostFromService = isLockedOrScreenOff || (store.webEventDispatcher == null)
+                // Always post OS notifications from the Foreground Service across all states
+                // (Closed, Lock Screen, Home Screen background, and In-App foreground).
+                val shouldPostFromService = true
 
                 // 1) Poll internal chat messages
                 val chatBody = openInsecureHttpGet(
@@ -952,8 +949,7 @@ class RunaVoipForegroundService : Service() {
                             if (seenChatIds.contains(mid)) continue
                             seenChatIds.add(mid)
                             val senderId = m.optString("sender_id", "").trim()
-                            val readAt = m.optString("read_at", "").trim()
-                            if (myTokens.contains(senderId) || (readAt.isNotEmpty() && readAt != "null")) continue
+                            if (myTokens.contains(senderId)) continue
                             if (shouldPostFromService) {
                                 val rawSender = m.optString("sender_name", "").ifEmpty { senderId }
                                 val senderDisp = formatSenderWithDirectory(rawSender, senderId)

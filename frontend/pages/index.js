@@ -677,9 +677,16 @@ export default function Home() {
     if (!userKey) return;
 
     const storageKey = `notified_int_chat_ids_${userKey}`;
+    const hasSeededStorage = () => {
+      try {
+        return Boolean(localStorage.getItem(storageKey) || sessionStorage.getItem(storageKey));
+      } catch (e) {
+        return false;
+      }
+    };
     const loadNotifiedSet = () => {
       try {
-        const raw = sessionStorage.getItem(storageKey);
+        const raw = localStorage.getItem(storageKey) || sessionStorage.getItem(storageKey);
         if (raw) {
           const parsed = JSON.parse(raw);
           if (Array.isArray(parsed)) return new Set(parsed.map(String));
@@ -689,12 +696,15 @@ export default function Home() {
     };
     const saveNotifiedSet = (setObj) => {
       try {
-        const arr = Array.from(setObj).slice(-300);
-        sessionStorage.setItem(storageKey, JSON.stringify(arr));
+        const arr = Array.from(setObj).slice(-400);
+        const serialized = JSON.stringify(arr);
+        sessionStorage.setItem(storageKey, serialized);
+        localStorage.setItem(storageKey, serialized);
       } catch (e) {}
     };
 
     let mounted = true;
+    let isFirstPollInMount = true;
     const pollInternalDeliveryAndNotify = async () => {
       if (typeof document !== "undefined" && document.visibilityState === "hidden" && !isDesktopApp()) return;
       try {
@@ -708,6 +718,30 @@ export default function Home() {
         const data = await res.json();
         if (!Array.isArray(data)) return;
 
+        const isMobileClient =
+          typeof window !== "undefined" &&
+          Boolean(
+            window.aidaDesktop?.isMobile ||
+              window.RunaAndroid ||
+              sessionStorage.getItem("aida_mobile_mode") === "1"
+          );
+
+        // On mobile cold launch (e.g. when user taps an APNs push notification to open the closed app),
+        // seed all currently existing messages into notifiedSet on the first poll so the app never
+        // re-fires a duplicate notification for messages that already arrived while closed!
+        if (isFirstPollInMount) {
+          isFirstPollInMount = false;
+          if (isMobileClient || !hasSeededStorage()) {
+            const seeded = loadNotifiedSet();
+            data.forEach((m) => {
+              if (m && m.id !== undefined && m.id !== null) {
+                seeded.add(String(m.id));
+              }
+            });
+            saveNotifiedSet(seeded);
+          }
+        }
+
         const myKeys = new Set([uid, ext].filter(Boolean));
         const unreadIncoming = data.filter((m) => {
           const s = String(m.sender_id || "").trim();
@@ -720,7 +754,10 @@ export default function Home() {
         } else {
           const notifiedSet = loadNotifiedSet();
           const activeOpenPeers = new Set(
-            (Array.isArray(window.__ACTIVE_VISIBLE_INTERNAL_PEERS__) && document.visibilityState === "visible"
+            (!isMobileClient &&
+            Array.isArray(window.__ACTIVE_VISIBLE_INTERNAL_PEERS__) &&
+            document.visibilityState === "visible" &&
+            window.__aidaAppInForeground !== false
               ? window.__ACTIVE_VISIBLE_INTERNAL_PEERS__
               : []
             ).map(String)
@@ -774,13 +811,6 @@ export default function Home() {
                 senderLabel = resolvedLabel;
               }
             } catch (e) {}
-            const isMobileClient =
-              typeof window !== "undefined" &&
-              Boolean(
-                window.aidaDesktop?.isMobile ||
-                  window.RunaAndroid ||
-                  sessionStorage.getItem("aida_mobile_mode") === "1"
-              );
 
             if (!isMobileClient) {
               setInternalChatToast({

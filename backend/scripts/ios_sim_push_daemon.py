@@ -167,7 +167,7 @@ def is_aida_mobile_running():
         return False
 
 
-def send_simulator_apns_push(title, body, sub_tab="chat", extra=None):
+def send_simulator_apns_push(title, body, sub_tab="chat", extra=None, notif_id=None):
     global apns_badge_count
     with apns_push_lock:
         apns_badge_count = min(apns_badge_count + 1, 99)
@@ -176,6 +176,7 @@ def send_simulator_apns_push(title, body, sub_tab="chat", extra=None):
             detail.update(extra)
         apns_payload = {
             "Simulator Target Bundle": "com.aida.mobile",
+            "id": str(notif_id or f"apns-{int(time.time() * 1000)}"),
             "aps": {
                 "alert": {
                     "title": str(title),
@@ -197,7 +198,7 @@ def send_simulator_apns_push(title, body, sub_tab="chat", extra=None):
                 stderr=subprocess.DEVNULL,
                 timeout=4.0,
             )
-            log(f"APNs push delivered -> [{title}] {body} (subTab={sub_tab})")
+            log(f"APNs push delivered -> [{title}] {body} (subTab={sub_tab}, id={apns_payload['id']})")
         except Exception as e:
             log(f"APNs push error: {e}")
 
@@ -322,73 +323,77 @@ def wake_and_lock_button_watcher_loop():
         time.sleep(0.12)
 
 
+def apns_chat_poller_loop():
+    """
+    Dedicated fast 0.9s poller for internal chat messages (/api/agent/chat)
+    so chat notifications appear in <1 second across all states
+    (In-App Foreground, Home Screen background, Lock Screen, and Closed App).
+    """
+    seen_chat_ids = set()
+    seeded_chat = False
+    resolve_user_directory_label("1005", "1005")
+
+    while True:
+        try:
+            chat_list = http_get_json(
+                "https://aida.saphira.com.tr/api/agent/chat?extension=1000&user_id=2",
+                timeout=3.5,
+            )
+            if isinstance(chat_list, list):
+                if not seeded_chat:
+                    for m in chat_list:
+                        if isinstance(m, dict) and m.get("id") is not None:
+                            seen_chat_ids.add(str(m.get("id")))
+                    seeded_chat = True
+                else:
+                    for m in chat_list:
+                        if not isinstance(m, dict) or m.get("id") is None:
+                            continue
+                        mid = str(m.get("id"))
+                        if mid in seen_chat_ids:
+                            continue
+                        seen_chat_ids.add(mid)
+                        sender_id = str(m.get("sender_id") or "").strip()
+                        if sender_id in ("1000", "2"):
+                            continue
+                        raw_sender = str(m.get("sender_name") or sender_id).strip()
+                        sender_disp = resolve_user_directory_label(raw_sender, sender_id)
+                        msg_text = str(m.get("text") or m.get("message") or "Yeni mesaj").strip()
+                        send_simulator_apns_push(
+                            title=f"{sender_disp} - Yeni İç Mesaj",
+                            body=msg_text,
+                            sub_tab="chat",
+                            extra={"peerSenderId": sender_id},
+                            notif_id=f"int-chat-{mid}",
+                        )
+        except Exception as e:
+            log(f"APNs chat poll notice: {e}")
+
+        time.sleep(0.9)
+
+
 def apns_push_poller_loop():
     """
     Polls backend endpoints for extension 1000 (user_id=2) and dispatches native iOS APNs
-    push notifications via `xcrun simctl push booted com.aida.mobile` whenever the app
-    is closed (terminated) or the Simulator is on the Lock Screen:
-      1. Yeni İç Mesaj (/api/agent/chat)
-      2. Kayıp Çağrı (/api/agent/missed_queue_calls)
-      3. Yeni Sesli Posta (/api/agent/voicemail)
-      4. Yanıtsız Çağrı (/api/calls)
+    push notifications via `xcrun simctl push booted com.aida.mobile`:
+      1. Kayıp Çağrı (/api/agent/missed_queue_calls)
+      2. Yeni Sesli Posta (/api/agent/voicemail)
+      3. Yanıtsız Çağrı (/api/calls)
     """
-    seen_chat_ids = set()
     seen_missed_ids = set()
     seen_voicemail_ids = set()
     seen_call_ids = set()
-    seeded_chat = False
     seeded_missed = False
     seeded_voicemail = False
     seeded_calls = False
 
-    # Pre-warm directory & contacts
-    resolve_user_directory_label("1005", "1005")
     resolve_contact_name("0000000000")
 
     while True:
         try:
-            app_running = is_aida_mobile_running()
-            sim_locked = is_simulator_currently_locked()
-            # Deliver via APNs push when app is closed (terminated) OR when Simulator is locked
-            should_push = (not app_running) or sim_locked
+            should_push = True
 
-            # 1) Yeni İç Mesaj (/api/agent/chat)
-            try:
-                chat_list = http_get_json(
-                    "https://aida.saphira.com.tr/api/agent/chat?extension=1000&user_id=2"
-                )
-                if isinstance(chat_list, list):
-                    if not seeded_chat:
-                        for m in chat_list:
-                            if isinstance(m, dict) and m.get("id") is not None:
-                                seen_chat_ids.add(str(m.get("id")))
-                        seeded_chat = True
-                    else:
-                        for m in chat_list:
-                            if not isinstance(m, dict) or m.get("id") is None:
-                                continue
-                            mid = str(m.get("id"))
-                            if mid in seen_chat_ids:
-                                continue
-                            seen_chat_ids.add(mid)
-                            sender_id = str(m.get("sender_id") or "").strip()
-                            read_at = m.get("read_at")
-                            if sender_id in ("1000", "2") or read_at:
-                                continue
-                            if should_push:
-                                raw_sender = str(m.get("sender_name") or sender_id).strip()
-                                sender_disp = resolve_user_directory_label(raw_sender, sender_id)
-                                msg_text = str(m.get("text") or m.get("message") or "Yeni mesaj").strip()
-                                send_simulator_apns_push(
-                                    title=f"{sender_disp} - Yeni İç Mesaj",
-                                    body=msg_text,
-                                    sub_tab="chat",
-                                    extra={"peerSenderId": sender_id},
-                                )
-            except Exception as e:
-                log(f"APNs chat poll notice: {e}")
-
-            # 2) Kayıp Çağrı (/api/agent/missed_queue_calls)
+            # 1) Kayıp Çağrı (/api/agent/missed_queue_calls)
             try:
                 missed_list = http_get_json(
                     "https://aida.saphira.com.tr/api/agent/missed_queue_calls?extension=1000&user_id=2"
@@ -436,6 +441,7 @@ def apns_push_poller_loop():
                                     title=f"{disp} - Kayıp Çağrı",
                                     body=body_txt,
                                     sub_tab="missed",
+                                    notif_id=f"missed-q-{cid}",
                                 )
             except Exception as e:
                 log(f"APNs missed poll notice: {e}")
@@ -486,6 +492,7 @@ def apns_push_poller_loop():
                                     title=f"{disp} - Yeni Sesli Posta",
                                     body=f"Yeni bir sesli mesaj bırakıldı{dur_txt}. Dinlemek için dokunun.",
                                     sub_tab="voicemail",
+                                    notif_id=f"voicemail-{vid}",
                                 )
             except Exception as e:
                 log(f"APNs voicemail poll notice: {e}")
@@ -533,6 +540,7 @@ def apns_push_poller_loop():
                                     title=f"{disp} - Yanıtsız Çağrı",
                                     body="Gelen çağrı yanıtlanamadı. Arama geçmişini görüntülemek için dokunun.",
                                     sub_tab="history",
+                                    notif_id=f"unanswered-{cid}",
                                 )
             except Exception as e:
                 log(f"APNs calls poll notice: {e}")
@@ -540,7 +548,7 @@ def apns_push_poller_loop():
         except Exception as e:
             log(f"APNs poller outer error: {e}")
 
-        time.sleep(2.8)
+        time.sleep(1.5)
 
 
 class SimpleWSSClient:
@@ -1039,6 +1047,8 @@ if __name__ == "__main__":
     capture_homescreen_snapshot_if_safe(force=True)
     t1 = threading.Thread(target=wake_and_lock_button_watcher_loop, daemon=True)
     t1.start()
-    t2 = threading.Thread(target=apns_push_poller_loop, daemon=True)
+    t2 = threading.Thread(target=apns_chat_poller_loop, daemon=True)
     t2.start()
+    t3 = threading.Thread(target=apns_push_poller_loop, daemon=True)
+    t3.start()
     voip_push_sip_loop()

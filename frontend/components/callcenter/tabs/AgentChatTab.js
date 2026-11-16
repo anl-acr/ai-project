@@ -786,6 +786,7 @@ export default function AgentChatTab({ backendHost, currentUser, isVisible = tru
     const tryMarkActiveInternalRead = async () => {
       if (!isVisible || chatTab !== "internal" || !selectedInternalChat) return;
       if (typeof document !== "undefined" && document.visibilityState !== "visible") return;
+      if (typeof window !== "undefined" && window.__aidaAppInForeground === false) return;
 
       const hasUnreadFromPeer = selectedInternalChat.messages.some(
         m => m.sender === "customer" && !m.read_at

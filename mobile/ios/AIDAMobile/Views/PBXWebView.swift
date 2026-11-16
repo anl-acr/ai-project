@@ -9,11 +9,21 @@ final class PBXWebViewControllerBridge: ObservableObject {
 
     init() {
         NotificationCenter.default.addObserver(
+            forName: UIApplication.willResignActiveNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in
+                self?.webView?.evaluateJavaScript("window.__aidaAppInForeground = false; window.__ACTIVE_VISIBLE_INTERNAL_PEERS__ = [];", completionHandler: nil)
+            }
+        }
+        NotificationCenter.default.addObserver(
             forName: UIApplication.didEnterBackgroundNotification,
             object: nil,
             queue: .main
         ) { [weak self] _ in
             Task { @MainActor in
+                self?.webView?.evaluateJavaScript("window.__aidaAppInForeground = false; window.__ACTIVE_VISIBLE_INTERNAL_PEERS__ = [];", completionHandler: nil)
                 self?.startBackgroundJSKeepAliveLoop()
             }
         }
@@ -24,6 +34,16 @@ final class PBXWebViewControllerBridge: ObservableObject {
         ) { [weak self] _ in
             Task { @MainActor in
                 self?.stopBackgroundJSKeepAliveLoop()
+                self?.webView?.evaluateJavaScript("window.__aidaAppInForeground = true;", completionHandler: nil)
+            }
+        }
+        NotificationCenter.default.addObserver(
+            forName: UIApplication.didBecomeActiveNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in
+                self?.webView?.evaluateJavaScript("window.__aidaAppInForeground = true;", completionHandler: nil)
             }
         }
     }
@@ -374,6 +394,7 @@ struct PBXWebView: UIViewRepresentable {
 
           // 1. Keep document.visibilityState = "visible" and document.hidden = false
           // so WebRTC SIP, chat polling, and notification polling never pause when backgrounded/locked.
+          window.__aidaAppInForeground = true;
           try {
             Object.defineProperty(Document.prototype, "hidden", {
               configurable: true,
