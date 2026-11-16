@@ -2384,6 +2384,116 @@ struct PBXWebView: UIViewRepresentable {
               html.aida-ios-mobile [data-aida-mobile-missed="1"] tbody > tr > td:last-child {
                 margin-left: auto !important;
               }
+
+              /* ==============================================================
+                 6c. SESLİ POSTA KUTUSU (VOICEMAIL TAB) MOBILE HEADER & CARDS
+                 ============================================================== */
+              html.aida-ios-mobile [data-aida-mobile-voicemail="1"] > div {
+                display: flex !important;
+                flex-direction: column !important;
+                gap: 10px !important;
+              }
+              /* Strip bulky outer header box and hide redundant title/icon block */
+              html.aida-ios-mobile [data-aida-mobile-voicemail="1"] > div > div:first-child {
+                padding: 0 !important;
+                background: transparent !important;
+                border: none !important;
+                box-shadow: none !important;
+                gap: 0 !important;
+                margin: 0 !important;
+              }
+              html.aida-ios-mobile [data-aida-mobile-voicemail="1"] > div > div:first-child > div:first-child {
+                display: none !important;
+              }
+              html.aida-ios-mobile [data-aida-mobile-voicemail="1"] > div > div:first-child > div:last-child {
+                width: 100% !important;
+                display: block !important;
+              }
+              /* Full-width 2-column segmented switcher: Tümü (X) | Okunmamış (Y) */
+              html.aida-ios-mobile [data-aida-mobile-voicemail="1"] > div > div:first-child > div:last-child > div:first-child {
+                display: grid !important;
+                grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+                width: 100% !important;
+                padding: 4px !important;
+                border-radius: 14px !important;
+                gap: 4px !important;
+                background: #ffffff !important;
+                border: 1px solid rgba(226, 232, 240, 0.85) !important;
+                box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04) !important;
+              }
+              html.dark.aida-ios-mobile [data-aida-mobile-voicemail="1"] > div > div:first-child > div:last-child > div:first-child {
+                background: #0f172a !important;
+                border-color: rgba(30, 41, 59, 0.85) !important;
+              }
+              html.aida-ios-mobile [data-aida-mobile-voicemail="1"] > div > div:first-child > div:last-child > div:first-child > button {
+                width: 100% !important;
+                justify-content: center !important;
+                text-align: center !important;
+                padding: 8px 10px !important;
+                border-radius: 10px !important;
+                font-size: 12px !important;
+                font-weight: 800 !important;
+              }
+              /* Compact Search Input */
+              html.aida-ios-mobile [data-aida-mobile-voicemail="1"] > div > div:nth-child(2) {
+                margin-top: 0 !important;
+              }
+              html.aida-ios-mobile [data-aida-mobile-voicemail="1"] > div > div:nth-child(2) input {
+                height: 38px !important;
+                padding-top: 0 !important;
+                padding-bottom: 0 !important;
+                border-radius: 12px !important;
+                font-size: 12px !important;
+              }
+              /* Compact Voicemail Cards */
+              html.aida-ios-mobile [data-aida-mobile-voicemail="1"] > div > div.space-y-3 {
+                display: flex !important;
+                flex-direction: column !important;
+                gap: 10px !important;
+                margin-top: 0 !important;
+              }
+              html.aida-ios-mobile [data-aida-mobile-voicemail="1"] > div > div.space-y-3 > div {
+                margin-top: 0 !important;
+                padding: 13px 14px !important;
+                border-radius: 18px !important;
+              }
+              html.aida-ios-mobile [data-aida-mobile-voicemail="1"] > div > div.space-y-3 > div > div.flex.flex-col {
+                gap: 10px !important;
+              }
+              /* Audio Player + Action Bar inside Voicemail Card */
+              html.aida-ios-mobile [data-aida-mobile-voicemail="1"] > div > div.space-y-3 > div > div.flex.flex-col > div:last-child {
+                display: flex !important;
+                flex-direction: column !important;
+                align-items: stretch !important;
+                gap: 9px !important;
+                width: 100% !important;
+                max-width: 100% !important;
+              }
+              /* Action Buttons Row: Stretch "Geri Ara" & align Read/Delete cleanly, hide desktop .wav download */
+              html.aida-ios-mobile [data-aida-mobile-voicemail="1"] > div > div.space-y-3 > div > div.flex.flex-col > div:last-child > div:last-child {
+                display: flex !important;
+                align-items: center !important;
+                gap: 8px !important;
+                width: 100% !important;
+              }
+              html.aida-ios-mobile [data-aida-mobile-voicemail="1"] button[title="Geri Ara"] {
+                flex: 1 1 0% !important;
+                justify-content: center !important;
+                height: 36px !important;
+                border-radius: 11px !important;
+                font-size: 12px !important;
+                font-weight: 800 !important;
+              }
+              html.aida-ios-mobile [data-aida-mobile-voicemail="1"] a[download] {
+                display: none !important;
+              }
+              html.aida-ios-mobile [data-aida-mobile-voicemail="1"] button[title*="Okun"],
+              html.aida-ios-mobile [data-aida-mobile-voicemail="1"] button[title="Sesli Mesajı Sil"] {
+                width: 36px !important;
+                height: 36px !important;
+                border-radius: 11px !important;
+                flex-shrink: 0 !important;
+              }
               html.aida-ios-mobile div.fixed.bottom-6.left-1\\/2.-translate-x-1\\/2,
               html.aida-ios-mobile [data-aida-mobile-audio-popup="1"] {
                 bottom: calc(78px + env(safe-area-inset-bottom, 14px)) !important;
@@ -5393,7 +5503,7 @@ struct PBXWebView: UIViewRepresentable {
                 }
               }
 
-              // Tag History Tab or Missed Calls Tab root when active
+              // Tag History Tab, Missed Calls Tab, or Voicemail Tab root when active
               const otherWrapper = stage.children[1];
               if (otherWrapper && otherWrapper.firstElementChild) {
                 const otherRoot = otherWrapper.firstElementChild;
@@ -5406,6 +5516,10 @@ struct PBXWebView: UIViewRepresentable {
                 } else if (h2Txt.includes('Kayıp Çağrılar')) {
                   if (otherRoot.getAttribute('data-aida-mobile-missed') !== '1') {
                     otherRoot.setAttribute('data-aida-mobile-missed', '1');
+                  }
+                } else if (h2Txt.includes('Sesli Posta Kutusu')) {
+                  if (otherRoot.getAttribute('data-aida-mobile-voicemail') !== '1') {
+                    otherRoot.setAttribute('data-aida-mobile-voicemail', '1');
                   }
                 }
               }
