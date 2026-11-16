@@ -258,7 +258,11 @@ struct PBXWebView: UIViewRepresentable {
               return Promise.resolve(bootState);
             },
             notify: function(payload) {
-              postToNative("notify", payload || {});
+              const p = Object.assign({}, payload || {});
+              if (typeof p.title === "string") {
+                p.title = p.title.replace(/^[^A-Za-z0-9ÇĞİÖŞÜçğıöşü]+/, "").trim();
+              }
+              postToNative("notify", p);
             },
             closeNotification: function(notifId) {
               postToNative("closeNotification", { id: notifId });
@@ -715,8 +719,10 @@ struct PBXWebView: UIViewRepresentable {
                 justify-content: flex-end !important;
               }
 
-              /* Hide Notification Bell & Theme Toggle in Topbar Right Zone on Mobile */
-              html.aida-ios-mobile header.aida-app-topbar > div:last-child > *[data-aida-hide-topbar-item="1"] {
+              /* Hide Notification Bell & Theme Toggle in Topbar Right Zone on Mobile, plus duplicate web chat toast */
+              html.aida-ios-mobile header.aida-app-topbar > div:last-child > *[data-aida-hide-topbar-item="1"],
+              html.aida-ios-mobile [data-aida-internal-chat-toast="1"],
+              html.aida-ios-mobile div.fixed.top-20.right-6.z-\\[9500\\] {
                 display: none !important;
               }
 

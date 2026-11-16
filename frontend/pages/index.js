@@ -743,21 +743,33 @@ export default function Home() {
 
           const latestMsg = freshUnnotified[freshUnnotified.length - 1];
           const senderLabel = latestMsg.sender_name || `Dahili ${latestMsg.sender_id}`;
-          setInternalChatToast({
-            id: latestMsg.id,
-            senderId: String(latestMsg.sender_id || ""),
-            senderName: senderLabel,
-            text: latestMsg.text || "",
-            totalUnread: unreadIncoming.length
-          });
+          const isMobileClient =
+            typeof window !== "undefined" &&
+            Boolean(
+              window.aidaDesktop?.isMobile ||
+                window.RunaAndroid ||
+                sessionStorage.getItem("aida_mobile_mode") === "1"
+            );
+
+          if (!isMobileClient) {
+            setInternalChatToast({
+              id: latestMsg.id,
+              senderId: String(latestMsg.sender_id || ""),
+              senderName: senderLabel,
+              text: latestMsg.text || "",
+              totalUnread: unreadIncoming.length
+            });
+          }
 
           if (isNativeElectron()) {
             sendDesktopNotification({
-              title: `💬 ${senderLabel} - Yeni İç Mesaj`,
+              title: `${senderLabel} - Yeni İç Mesaj`,
               body: latestMsg.text || "Yeni bir mesajınız var.",
               tag: `int-chat-${latestMsg.id}`,
               urgent: false,
-              focusOnClick: true
+              focusOnClick: true,
+              actionEvent: "SWITCH_AGENT_PANEL_SUBTAB",
+              actionDetail: { subTab: "chat", peerSenderId: String(latestMsg.sender_id || "") }
             });
           } else if (typeof Notification !== "undefined" && Notification.permission === "granted") {
             try {
@@ -10969,7 +10981,7 @@ export default function Home() {
 
         {/* Global Internal Chat Login / Live Message Notification Toast */}
         {isLoggedIn && internalChatToast && (
-          <div className="fixed top-20 right-6 z-[9500] w-80 sm:w-96 bg-white dark:bg-slate-900 border border-slate-200/90 dark:border-slate-800 rounded-2xl shadow-2xl p-4 animate-in fade-in slide-in-from-top-3 duration-200">
+          <div data-aida-internal-chat-toast="1" className="fixed top-20 right-6 z-[9500] w-80 sm:w-96 bg-white dark:bg-slate-900 border border-slate-200/90 dark:border-slate-800 rounded-2xl shadow-2xl p-4 animate-in fade-in slide-in-from-top-3 duration-200">
             <div className="flex items-start gap-3">
               <div className={`w-10 h-10 rounded-xl ${lightBg} ${text} flex items-center justify-center shrink-0 border ${borderLight}`}>
                 <MessageSquare size={18} />

@@ -102,7 +102,11 @@
               return Promise.resolve(bootState);
             },
             notify: function(payload) {
-              postToNative("notify", payload || {});
+              const p = Object.assign({}, payload || {});
+              if (typeof p.title === "string") {
+                p.title = p.title.replace(/^[^A-Za-z0-9ÇĞİÖŞÜçğıöşü]+/, "").trim();
+              }
+              postToNative("notify", p);
             },
             closeNotification: function(notifId) {
               postToNative("closeNotification", { id: notifId });

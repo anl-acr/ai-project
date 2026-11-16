@@ -1340,7 +1340,11 @@ final class AudioSessionManager: NSObject, UNUserNotificationCenterDelegate, PKP
         }
 
         let content = UNMutableNotificationContent()
-        content.title = title
+        let cleanedTitle = title
+            .replacingOccurrences(of: "💬", with: "")
+            .replacingOccurrences(of: "🔔", with: "")
+            .replacingOccurrences(of: "\u{FFFD}", with: "")
+            .replacingOccurrences(of: "^[^A-Za-z0-9ÇĞİÖŞÜçğıöşü]+", with: "", options: .regularExpression)
             .replacingOccurrences(of: "AIDA Agent", with: "Runa")
             .replacingOccurrences(of: "AIDA Mobile", with: "Runa")
             .replacingOccurrences(of: "AIDA PBX", with: "Runa")
@@ -1348,6 +1352,8 @@ final class AudioSessionManager: NSObject, UNUserNotificationCenterDelegate, PKP
             .replacingOccurrences(of: "AIDA", with: "Runa")
             .replacingOccurrences(of: "RUNA", with: "Runa")
             .replacingOccurrences(of: "Aida", with: "Runa")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        content.title = cleanedTitle.isEmpty ? "Runa Bildirimi" : cleanedTitle
         content.body = body
             .replacingOccurrences(of: "Pencereyi öne getirmek için tıklayın.", with: "Yanıtlamak için dokunun.")
             .replacingOccurrences(of: "AIDA Agent", with: "Runa")
