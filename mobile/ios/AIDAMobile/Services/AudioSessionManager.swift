@@ -177,12 +177,29 @@ final class AudioSessionManager: NSObject, UNUserNotificationCenterDelegate, PKP
                 return
             }
             if currentCallStatus == "Ringing" {
+                let cId = (cancelJson?["callId"] as? String) ?? String(Int(Date().timeIntervalSince1970))
+                let cNum = (cancelJson?["caller"] as? String) ?? ""
+                let cName = (cancelJson?["callerName"] as? String) ?? ""
+                let apnsPushed = (cancelJson?["apnsPushed"] as? Bool) ?? false
                 Task { @MainActor in
                     guard AppConfigStore.shared.liveState.callStatus == "Ringing" else { return }
+                    let fallbackNum = cNum.isEmpty ? AppConfigStore.shared.liveState.incomingCallerNumber : cNum
+                    let fallbackName = cName.isEmpty ? AppConfigStore.shared.liveState.incomingCallerName : cName
+                    let disp = (!fallbackName.isEmpty && fallbackName != fallbackNum) ? "\(fallbackName) (\(fallbackNum))" : (fallbackNum.isEmpty ? "Bilinmeyen Numara" : fallbackNum)
                     AppConfigStore.shared.lastIncomingRingStartedAt = .distantPast
                     AppConfigStore.shared.coldLaunchPickupExten = ""
                     AppConfigStore.shared.liveState.callStatus = "Idle"
                     self.updateCallActivityState(callStatus: "Idle")
+                    if !self.hasUserAnsweredCurrentCall && !apnsPushed {
+                        self.postNativeNotification(
+                            id: "unanswered-\(cId)",
+                            title: "\(disp) - Yanıtsız Çağrı",
+                            body: "Gelen çağrı yanıtlanamadı. Arama geçmişini görüntülemek için dokunun.",
+                            urgent: false,
+                            actionEvent: "SWITCH_AGENT_PANEL_SUBTAB",
+                            actionDetailJSON: "{\"subTab\":\"history\"}"
+                        )
+                    }
                 }
             }
         }
@@ -1330,10 +1347,10 @@ final class AudioSessionManager: NSObject, UNUserNotificationCenterDelegate, PKP
         }
 
         let isCallAlert = id.hasPrefix("call-") || actionEvent == "OPEN_FULL_WEBPHONE" || title.contains("Gelen Çağrı")
-        let isMissedFollowupAlert = id.hasPrefix("missed-") || title.contains("Geri Dönüş Bekleyen")
+        let isLegacyFollowupBanner = title.contains("Geri Dönüş Bekleyen")
 
-        // Suppress periodic "Geri Dönüş Bekleyen Cevapsız Çağrı" polling alerts from cluttering Lock Screen or Foreground
-        if isMissedFollowupAlert {
+        // Suppress only legacy periodic "Geri Dönüş Bekleyen" summary banners; allow all missed call, voicemail, and unanswered call alerts!
+        if isLegacyFollowupBanner {
             return
         }
 
@@ -1366,15 +1383,24 @@ final class AudioSessionManager: NSObject, UNUserNotificationCenterDelegate, PKP
 
         var resolvedActionEvent = actionEvent
         var resolvedDetailJSON = actionDetailJSON
-        if resolvedActionEvent == nil || resolvedActionEvent?.isEmpty == true {
-            if id.hasPrefix("int-chat-") || id.hasPrefix("omni-chat-") || title.contains("Mesaj") || title.contains("Sohbet") {
-                resolvedActionEvent = "SWITCH_AGENT_PANEL_SUBTAB"
-                resolvedDetailJSON = "{\"subTab\":\"chat\"}"
-            } else if title.contains("Gelen Çağrı") {
-                resolvedActionEvent = "OPEN_FULL_WEBPHONE"
-                resolvedDetailJSON = "{\"subTab\":\"webphone\"}"
+            if resolvedActionEvent == nil || resolvedActionEvent?.isEmpty == true {
+                if id.hasPrefix("int-chat-") || id.hasPrefix("omni-chat-") || title.contains("Mesaj") || title.contains("Sohbet") {
+                    resolvedActionEvent = "SWITCH_AGENT_PANEL_SUBTAB"
+                    resolvedDetailJSON = "{\"subTab\":\"chat\"}"
+                } else if id.hasPrefix("missed-") || title.contains("Kayıp Çağrı") {
+                    resolvedActionEvent = "SWITCH_AGENT_PANEL_SUBTAB"
+                    resolvedDetailJSON = "{\"subTab\":\"missed\"}"
+                } else if id.hasPrefix("voicemail-") || title.contains("Sesli Posta") {
+                    resolvedActionEvent = "SWITCH_AGENT_PANEL_SUBTAB"
+                    resolvedDetailJSON = "{\"subTab\":\"voicemail\"}"
+                } else if id.hasPrefix("unanswered-") || title.contains("Yanıtsız Çağrı") {
+                    resolvedActionEvent = "SWITCH_AGENT_PANEL_SUBTAB"
+                    resolvedDetailJSON = "{\"subTab\":\"history\"}"
+                } else if title.contains("Gelen Çağrı") {
+                    resolvedActionEvent = "OPEN_FULL_WEBPHONE"
+                    resolvedDetailJSON = "{\"subTab\":\"webphone\"}"
+                }
             }
-        }
 
         let content = UNMutableNotificationContent()
         var cleanedTitle = title
@@ -1502,12 +1528,20 @@ final class AudioSessionManager: NSObject, UNUserNotificationCenterDelegate, PKP
                 return
             }
 
+            if #available(iOS 16.0, *) {
+                UNUserNotificationCenter.current().setBadgeCount(0)
+            }
             self.onNotificationActionDispatch?("AIDA_IOS_WAKE_SIP", nil)
             if actionEvent == "OPEN_FULL_WEBPHONE" {
                 self.onNotificationActionDispatch?("SWITCH_AGENT_PANEL_SUBTAB", ["subTab": "webphone"])
                 self.onNotificationActionDispatch?("OPEN_FULL_WEBPHONE", parsedDetail)
             } else if !actionEvent.isEmpty {
                 self.onNotificationActionDispatch?(actionEvent, parsedDetail)
+                for retryDelay in [1.2, 2.5, 4.0] {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + retryDelay) { [weak self] in
+                        self?.onNotificationActionDispatch?(actionEvent, parsedDetail)
+                    }
+                }
             }
         }
         completionHandler()

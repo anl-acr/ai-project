@@ -33,6 +33,7 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import org.json.JSONArray
 import org.json.JSONObject
 import java.io.BufferedReader
 import java.io.InputStream
@@ -56,10 +57,20 @@ class RunaVoipForegroundService : Service() {
 
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var sipLoopJob: Job? = null
+    private var alertsPollerJob: Job? = null
     private var callTimerJob: Job? = null
     private var activeRingtone: Ringtone? = null
     private var vibrator: Vibrator? = null
     private var wakeLock: PowerManager.WakeLock? = null
+
+    private val seenChatIds = mutableSetOf<String>()
+    private val seenMissedIds = mutableSetOf<String>()
+    private val seenVoicemailIds = mutableSetOf<String>()
+    private var seededChatIds = false
+    private var seededMissedIds = false
+    private var seededVoicemailIds = false
+    private val userDirectoryMap = mutableMapOf<String, String>()
+    private var lastDirectoryFetchMs = 0L
 
     @Volatile
     private var rejectPendingInviteFlag: Boolean = false
@@ -132,6 +143,12 @@ class RunaVoipForegroundService : Service() {
             }
         }
 
+        if (alertsPollerJob?.isActive != true) {
+            alertsPollerJob = serviceScope.launch {
+                runRealtimeAlertsPollerLoop()
+            }
+        }
+
         return START_STICKY
     }
 
@@ -171,7 +188,60 @@ class RunaVoipForegroundService : Service() {
                 enableVibration(true)
             }
             nm.createNotificationChannel(incomingChannel)
+
+            val alertsChannel = NotificationChannel(
+                CHANNEL_ID_ALERTS,
+                "Runa Mesaj, Kayıp Çağrı ve Sesli Posta Bildirimleri",
+                NotificationManager.IMPORTANCE_HIGH
+            ).apply {
+                description = "Yeni iç mesaj, kayıp çağrı, sesli posta ve yanıtsız çağrı bildirimleri"
+                lockscreenVisibility = Notification.VISIBILITY_PUBLIC
+                enableVibration(true)
+                setShowBadge(true)
+            }
+            nm.createNotificationChannel(alertsChannel)
         }
+    }
+
+    fun postSystemAlertNotification(
+        title: String,
+        body: String,
+        subTab: String,
+        peerSenderId: String = ""
+    ) {
+        try {
+            val notifId = 9100 + ((title + body + System.currentTimeMillis()).hashCode() and 0x7FFF)
+            val openIntent = Intent(this, MainActivity::class.java).apply {
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK or
+                        Intent.FLAG_ACTIVITY_SINGLE_TOP or
+                        Intent.FLAG_ACTIVITY_CLEAR_TOP
+                putExtra("open_subtab", subTab)
+                if (peerSenderId.isNotEmpty()) {
+                    putExtra("peer_sender_id", peerSenderId)
+                }
+            }
+            val pi = PendingIntent.getActivity(
+                this,
+                notifId,
+                openIntent,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+
+            val notif = NotificationCompat.Builder(this, CHANNEL_ID_ALERTS)
+                .setSmallIcon(R.mipmap.ic_launcher)
+                .setContentTitle(title)
+                .setContentText(body)
+                .setStyle(NotificationCompat.BigTextStyle().bigText(body))
+                .setPriority(NotificationCompat.PRIORITY_HIGH)
+                .setCategory(NotificationCompat.CATEGORY_MESSAGE)
+                .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+                .setAutoCancel(true)
+                .setContentIntent(pi)
+                .build()
+
+            val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+            nm.notify(notifId, notif)
+        } catch (_: Exception) {}
     }
 
     private fun buildForegroundStandingNotification(): Notification {
@@ -727,12 +797,29 @@ class RunaVoipForegroundService : Service() {
 
                         // Do not drop call if CANCEL is due to PickupChan ("completed elsewhere" / cause=200)
                         if (!reasonHdr.contains("cause=200") && !reasonHdr.contains("completed elsewhere")) {
+                            val wasRingingUnanswered = (store.liveState.value.callStatus == "Ringing" && !store.hasUserAnsweredCurrentCall)
+                            val callerNum = store.liveState.value.incomingCallerNumber.ifEmpty {
+                                Regex("sip:([^@>;]+)").find(fromHdr)?.groupValues?.get(1)?.trim() ?: "Bilinmeyen Numara"
+                            }
+                            val callerName = store.liveState.value.incomingCallerName
+                            val callerDisp = if (callerName.isNotEmpty() && callerName != callerNum) {
+                                "$callerName ($callerNum)"
+                            } else {
+                                callerNum
+                            }
                             stopIncomingRingtoneAndVibration()
                             cancelIncomingCallNotification()
                             store.updateLiveState {
                                 it.copy(
                                     callStatus = "Idle",
                                     isCallKitUIPresented = false
+                                )
+                            }
+                            if (wasRingingUnanswered && firstLine.startsWith("CANCEL ")) {
+                                postSystemAlertNotification(
+                                    title = "$callerDisp - Yanıtsız Çağrı",
+                                    body = "Gelen çağrı yanıtlanamadı. Arama geçmişini görüntülemek için dokunun.",
+                                    subTab = "history"
                                 )
                             }
                         }
@@ -743,6 +830,240 @@ class RunaVoipForegroundService : Service() {
                 try { sslSocket?.close() } catch (_: Exception) {}
             }
             delay(3500L)
+        }
+    }
+
+    private fun openInsecureHttpGet(urlStr: String, tenantId: String, extensionNumber: String): String? {
+        var conn: HttpURLConnection? = null
+        return try {
+            val url = URL(urlStr)
+            conn = url.openConnection() as HttpURLConnection
+            if (conn is HttpsURLConnection) {
+                val sc = SSLContext.getInstance("TLS")
+                sc.init(null, arrayOf<TrustManager>(object : X509TrustManager {
+                    override fun checkClientTrusted(c: Array<out X509Certificate>?, a: String?) {}
+                    override fun checkServerTrusted(c: Array<out X509Certificate>?, a: String?) {}
+                    override fun getAcceptedIssuers(): Array<X509Certificate> = emptyArray()
+                }), SecureRandom())
+                conn.sslSocketFactory = sc.socketFactory
+                conn.setHostnameVerifier { _, _ -> true }
+            }
+            conn.requestMethod = "GET"
+            conn.connectTimeout = 5000
+            conn.readTimeout = 5000
+            conn.setRequestProperty("X-Tenant-ID", tenantId.ifEmpty { "tenant-default" })
+            conn.setRequestProperty("X-User-Extension", extensionNumber)
+            if (conn.responseCode in 200..299) {
+                BufferedReader(InputStreamReader(conn.inputStream, Charsets.UTF_8)).use { it.readText() }
+            } else null
+        } catch (_: Exception) {
+            null
+        } finally {
+            try { conn?.disconnect() } catch (_: Exception) {}
+        }
+    }
+
+    private fun refreshUserDirectoryIfNeeded(apiOrigin: String, tenantId: String, extensionNumber: String) {
+        val now = System.currentTimeMillis()
+        if (userDirectoryMap.isNotEmpty() && (now - lastDirectoryFetchMs) < 60_000L) return
+        val body = openInsecureHttpGet("$apiOrigin/api/settings/users?tenant_id=all", tenantId, extensionNumber) ?: return
+        try {
+            val arr = JSONArray(body)
+            for (i in 0 until arr.length()) {
+                val u = arr.optJSONObject(i) ?: continue
+                val ext = u.optString("extension", "").trim()
+                val uid = u.opt("id")?.toString()?.trim() ?: ""
+                val fullName = u.optString("full_name", "").trim()
+                    .ifEmpty { u.optString("name", "").trim() }
+                    .ifEmpty { u.optString("username", "").trim() }
+                if (fullName.isNotEmpty()) {
+                    if (ext.isNotEmpty()) {
+                        userDirectoryMap[ext] = if (fullName.contains(ext)) fullName else "$ext - $fullName"
+                    }
+                    if (uid.isNotEmpty()) {
+                        userDirectoryMap[uid] = if (ext.isNotEmpty() && !fullName.contains(ext)) "$ext - $fullName" else fullName
+                    }
+                }
+            }
+            lastDirectoryFetchMs = now
+        } catch (_: Exception) {}
+    }
+
+    private fun formatSenderWithDirectory(rawLabel: String, senderId: String): String {
+        val trimmed = rawLabel.trim()
+        val sid = senderId.trim()
+        if (trimmed.contains(" - ")) return trimmed
+        if (trimmed.isNotEmpty() && userDirectoryMap.containsKey(trimmed)) {
+            return userDirectoryMap[trimmed] ?: trimmed
+        }
+        if (sid.isNotEmpty() && userDirectoryMap.containsKey(sid)) {
+            return userDirectoryMap[sid] ?: trimmed.ifEmpty { sid }
+        }
+        return trimmed.ifEmpty { sid.ifEmpty { "Mesaj" } }
+    }
+
+    private suspend fun runRealtimeAlertsPollerLoop() {
+        val store = AppConfigStore.getInstance(this)
+        while (serviceScope.isActive) {
+            try {
+                val sess = store.session.value
+                val apiOrigin = store.apiOrigin.value
+                if (sess == null || apiOrigin.isEmpty()) {
+                    delay(4500L)
+                    continue
+                }
+                val ext = sess.extensionNumber.trim()
+                val uid = sess.userId.trim()
+                val tenantId = sess.tenantId.ifEmpty { "tenant-default" }
+                if (ext.isEmpty()) {
+                    delay(4500L)
+                    continue
+                }
+
+                refreshUserDirectoryIfNeeded(apiOrigin, tenantId, ext)
+
+                // Check if device is locked or app is in background; only fire background service notifications
+                // when the screen is locked or when WebView hasn't already handled it, preventing duplicates.
+                val km = getSystemService(Context.KEYGUARD_SERVICE) as? KeyguardManager
+                val pm = getSystemService(Context.POWER_SERVICE) as? PowerManager
+                val isLockedOrScreenOff = (km?.isKeyguardLocked == true) || (pm?.isInteractive == false)
+                val shouldPostFromService = isLockedOrScreenOff || (store.webEventDispatcher == null)
+
+                // 1) Poll internal chat messages
+                val chatBody = openInsecureHttpGet(
+                    "$apiOrigin/api/agent/chat?extension=$ext&user_id=$uid",
+                    tenantId,
+                    ext
+                )
+                if (!chatBody.isNullOrEmpty()) {
+                    val arr = JSONArray(chatBody)
+                    val myTokens = setOf(ext, uid, sess.username.trim()).filter { it.isNotEmpty() }
+                    if (!seededChatIds) {
+                        for (i in 0 until arr.length()) {
+                            val m = arr.optJSONObject(i) ?: continue
+                            val mid = m.opt("id")?.toString() ?: continue
+                            seenChatIds.add(mid)
+                        }
+                        seededChatIds = true
+                    } else {
+                        for (i in 0 until arr.length()) {
+                            val m = arr.optJSONObject(i) ?: continue
+                            val mid = m.opt("id")?.toString() ?: continue
+                            if (seenChatIds.contains(mid)) continue
+                            seenChatIds.add(mid)
+                            val senderId = m.optString("sender_id", "").trim()
+                            val readAt = m.optString("read_at", "").trim()
+                            if (myTokens.contains(senderId) || (readAt.isNotEmpty() && readAt != "null")) continue
+                            if (shouldPostFromService) {
+                                val rawSender = m.optString("sender_name", "").ifEmpty { senderId }
+                                val senderDisp = formatSenderWithDirectory(rawSender, senderId)
+                                val msgText = m.optString("text", "").trim()
+                                    .ifEmpty { m.optString("message", "").trim() }
+                                    .ifEmpty { "Yeni mesaj" }
+                                postSystemAlertNotification(
+                                    title = "$senderDisp - Yeni İç Mesaj",
+                                    body = msgText,
+                                    subTab = "chat",
+                                    peerSenderId = senderId
+                                )
+                            }
+                        }
+                    }
+                }
+
+                // 2) Poll missed queue calls (Kayıp Çağrılar)
+                val missedBody = openInsecureHttpGet(
+                    "$apiOrigin/api/agent/missed_queue_calls?extension=$ext&user_id=$uid",
+                    tenantId,
+                    ext
+                )
+                if (!missedBody.isNullOrEmpty()) {
+                    val arr = JSONArray(missedBody)
+                    if (!seededMissedIds) {
+                        for (i in 0 until arr.length()) {
+                            val item = arr.optJSONObject(i) ?: continue
+                            val id = item.opt("id")?.toString() ?: item.optString("call_id", "")
+                            if (id.isNotEmpty()) seenMissedIds.add(id)
+                        }
+                        seededMissedIds = true
+                    } else {
+                        for (i in 0 until arr.length()) {
+                            val item = arr.optJSONObject(i) ?: continue
+                            val id = item.opt("id")?.toString() ?: item.optString("call_id", "")
+                            if (id.isEmpty() || seenMissedIds.contains(id)) continue
+                            seenMissedIds.add(id)
+                            if (shouldPostFromService) {
+                                val callerNum = item.optString("caller", "")
+                                    .ifEmpty { item.optString("caller_number", "") }
+                                    .ifEmpty { "Bilinmeyen Numara" }
+                                var callerName = item.optString("caller_name", "")
+                                    .ifEmpty { item.optString("contact_name", "") }
+                                if (callerName.isEmpty() || callerName == callerNum) {
+                                    callerName = PBXNetworkService.resolveContactName(apiOrigin, tenantId, ext, callerNum)
+                                }
+                                val disp = if (callerName.isNotEmpty() && callerName != callerNum) "$callerName ($callerNum)" else callerNum
+                                val qName = item.optString("queue_name", "").trim()
+                                val bodyTxt = if (qName.isNotEmpty()) {
+                                    "$qName kuyruğunda kayıp çağrı. Geri dönüş yapmak için dokunun."
+                                } else {
+                                    "Kuyrukta bekleyen kayıp çağrı. Geri dönüş yapmak için dokunun."
+                                }
+                                postSystemAlertNotification(
+                                    title = "$disp - Kayıp Çağrı",
+                                    body = bodyTxt,
+                                    subTab = "missed"
+                                )
+                            }
+                        }
+                    }
+                }
+
+                // 3) Poll voicemail (Sesli Posta)
+                val vmBody = openInsecureHttpGet(
+                    "$apiOrigin/api/agent/voicemail?extension=$ext",
+                    tenantId,
+                    ext
+                )
+                if (!vmBody.isNullOrEmpty()) {
+                    val arr = JSONArray(vmBody)
+                    if (!seededVoicemailIds) {
+                        for (i in 0 until arr.length()) {
+                            val item = arr.optJSONObject(i) ?: continue
+                            val id = item.opt("id")?.toString() ?: item.optString("filename", "")
+                            if (id.isNotEmpty()) seenVoicemailIds.add(id)
+                        }
+                        seededVoicemailIds = true
+                    } else {
+                        for (i in 0 until arr.length()) {
+                            val item = arr.optJSONObject(i) ?: continue
+                            val id = item.opt("id")?.toString() ?: item.optString("filename", "")
+                            if (id.isEmpty() || seenVoicemailIds.contains(id)) continue
+                            seenVoicemailIds.add(id)
+                            if (item.optBoolean("is_read", false)) continue
+                            if (shouldPostFromService) {
+                                val callerNum = item.optString("caller_number", "")
+                                    .ifEmpty { item.optString("caller_id", "") }
+                                    .ifEmpty { item.optString("caller", "") }
+                                    .ifEmpty { "Bilinmeyen Numara" }
+                                var callerName = item.optString("caller_name", "")
+                                    .ifEmpty { item.optString("contact_name", "") }
+                                if (callerName.isEmpty() || callerName == callerNum) {
+                                    callerName = PBXNetworkService.resolveContactName(apiOrigin, tenantId, ext, callerNum)
+                                }
+                                val disp = if (callerName.isNotEmpty() && callerName != callerNum) "$callerName ($callerNum)" else callerNum
+                                val dur = item.optInt("duration", 0)
+                                val durTxt = if (dur > 0) " ($dur sn)" else ""
+                                postSystemAlertNotification(
+                                    title = "$disp - Yeni Sesli Posta",
+                                    body = "Yeni bir sesli mesaj bırakıldı$durTxt. Dinlemek için dokunun.",
+                                    subTab = "voicemail"
+                                )
+                            }
+                        }
+                    }
+                }
+            } catch (_: Exception) {}
+            delay(4500L)
         }
     }
 
@@ -845,6 +1166,7 @@ class RunaVoipForegroundService : Service() {
     companion object {
         private const val CHANNEL_ID_STANDING = "runa_voip_standing"
         private const val CHANNEL_ID_INCOMING_CALL = "runa_voip_incoming"
+        private const val CHANNEL_ID_ALERTS = "runa_voip_alerts"
         private const val NOTIF_ID_FOREGROUND = 9001
         private const val NOTIF_ID_INCOMING_CALL = 9002
 

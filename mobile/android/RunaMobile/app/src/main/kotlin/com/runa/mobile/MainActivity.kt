@@ -172,6 +172,23 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun handleDeepLinkIntent(intent: Intent?) {
+        val openSubTab = intent?.getStringExtra("open_subtab")
+        val peerSenderId = intent?.getStringExtra("peer_sender_id") ?: ""
+        if (!openSubTab.isNullOrEmpty()) {
+            intent.removeExtra("open_subtab")
+            val payload = JSONObject().apply {
+                put("subTab", openSubTab)
+                if (peerSenderId.isNotEmpty()) put("peerSenderId", peerSenderId)
+            }
+            store.webEventDispatcher?.invoke("SWITCH_AGENT_PANEL_SUBTAB", payload)
+            lifecycleScope.launch {
+                kotlinx.coroutines.delay(1200L)
+                store.webEventDispatcher?.invoke("SWITCH_AGENT_PANEL_SUBTAB", payload)
+                kotlinx.coroutines.delay(1500L)
+                store.webEventDispatcher?.invoke("SWITCH_AGENT_PANEL_SUBTAB", payload)
+            }
+        }
+
         val dataUri = intent?.data ?: return
         val scheme = (dataUri.scheme ?: "").lowercase()
         if (scheme == "runa-mobile" || scheme == "aida-mobile" || scheme == "runa") {

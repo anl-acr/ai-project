@@ -717,101 +717,184 @@ export default function Home() {
 
         if (unreadIncoming.length === 0) {
           setInternalChatToast(null);
-          return;
+        } else {
+          const notifiedSet = loadNotifiedSet();
+          const activeOpenPeers = new Set(
+            (Array.isArray(window.__ACTIVE_VISIBLE_INTERNAL_PEERS__) && document.visibilityState === "visible"
+              ? window.__ACTIVE_VISIBLE_INTERNAL_PEERS__
+              : []
+            ).map(String)
+          );
+          const freshUnnotified = unreadIncoming.filter((m) => {
+            const mid = String(m.id);
+            if (notifiedSet.has(mid)) return false;
+            if (activeOpenPeers.has(String(m.sender_id || ""))) {
+              notifiedSet.add(mid);
+              return false;
+            }
+            return true;
+          });
+          saveNotifiedSet(notifiedSet);
+          if (freshUnnotified.length > 0) {
+            freshUnnotified.forEach((m) => notifiedSet.add(String(m.id)));
+            saveNotifiedSet(notifiedSet);
+
+            const latestMsg = freshUnnotified[freshUnnotified.length - 1];
+            const rawSenderId = String(latestMsg.sender_id || "").trim();
+            let senderLabel = String(latestMsg.sender_name || "").trim() || `Dahili ${rawSenderId}`;
+
+            // Ensure both extension and full name are shown (e.g. "1005 - ANIL ACAR")
+            try {
+              if (!window.__aidaChatUsersMap || Date.now() - (window.__aidaChatUsersMapTs || 0) > 60000) {
+                const uRes = await fetch(`${protocol}//${backendHostUrl}/api/settings/users?tenant_id=all`);
+                if (uRes.ok) {
+                  const uList = await uRes.json();
+                  if (Array.isArray(uList)) {
+                    const mapObj = {};
+                    uList.forEach((u) => {
+                      const uId = String(u?.id || "").trim();
+                      const uExt = String(u?.extension || "").trim();
+                      const uFull = String(u?.full_name || u?.name || u?.username || "").trim();
+                      const combined =
+                        uExt && uFull && uExt.toLowerCase() !== uFull.toLowerCase() && !uFull.includes(uExt)
+                          ? `${uExt} - ${uFull}`
+                          : uFull || uExt || uId;
+                      if (uId) mapObj[uId] = combined;
+                      if (uExt) mapObj[uExt] = combined;
+                    });
+                    window.__aidaChatUsersMap = mapObj;
+                    window.__aidaChatUsersMapTs = Date.now();
+                  }
+                }
+              }
+              const resolvedLabel =
+                window.__aidaChatUsersMap?.[rawSenderId] ||
+                window.__aidaChatUsersMap?.[senderLabel.replace(/^Dahili\s+/i, "").trim()];
+              if (resolvedLabel) {
+                senderLabel = resolvedLabel;
+              }
+            } catch (e) {}
+            const isMobileClient =
+              typeof window !== "undefined" &&
+              Boolean(
+                window.aidaDesktop?.isMobile ||
+                  window.RunaAndroid ||
+                  sessionStorage.getItem("aida_mobile_mode") === "1"
+              );
+
+            if (!isMobileClient) {
+              setInternalChatToast({
+                id: latestMsg.id,
+                senderId: String(latestMsg.sender_id || ""),
+                senderName: senderLabel,
+                text: latestMsg.text || "",
+                totalUnread: unreadIncoming.length
+              });
+            }
+
+            if (isNativeElectron()) {
+              sendDesktopNotification({
+                title: `${senderLabel} - Yeni İç Mesaj`,
+                body: latestMsg.text || "Yeni bir mesajınız var.",
+                tag: `int-chat-${latestMsg.id}`,
+                urgent: false,
+                focusOnClick: true,
+                actionEvent: "SWITCH_AGENT_PANEL_SUBTAB",
+                actionDetail: { subTab: "chat", peerSenderId: String(latestMsg.sender_id || "") }
+              });
+            } else if (typeof Notification !== "undefined" && Notification.permission === "granted") {
+              try {
+                new Notification(`${senderLabel} - Yeni İç Mesaj`, {
+                  body: latestMsg.text || "Yeni bir mesajınız var."
+                });
+              } catch (e) {}
+            }
+          }
         }
 
-        const notifiedSet = loadNotifiedSet();
-        const activeOpenPeers = new Set(
-          (Array.isArray(window.__ACTIVE_VISIBLE_INTERNAL_PEERS__) && document.visibilityState === "visible"
-            ? window.__ACTIVE_VISIBLE_INTERNAL_PEERS__
-            : []
-          ).map(String)
-        );
-        const freshUnnotified = unreadIncoming.filter((m) => {
-          const mid = String(m.id);
-          if (notifiedSet.has(mid)) return false;
-          if (activeOpenPeers.has(String(m.sender_id || ""))) {
-            notifiedSet.add(mid);
-            return false;
-          }
-          return true;
-        });
-        saveNotifiedSet(notifiedSet);
-        if (freshUnnotified.length > 0) {
-          freshUnnotified.forEach((m) => notifiedSet.add(String(m.id)));
-          saveNotifiedSet(notifiedSet);
+        // Also poll Missed Queue Calls (Kayıp Çağrı) & Voicemail (Sesli Posta) for instant notifications
+        try {
+          const [missedRes, vmRes] = await Promise.all([
+            fetch(`${protocol}//${backendHostUrl}/api/agent/missed_queue_calls?extension=${encodeURIComponent(ext)}&user_id=${encodeURIComponent(uid)}&t=${Date.now()}`),
+            fetch(`${protocol}//${backendHostUrl}/api/agent/voicemail?extension=${encodeURIComponent(ext)}&t=${Date.now()}`)
+          ]);
 
-          const latestMsg = freshUnnotified[freshUnnotified.length - 1];
-          const rawSenderId = String(latestMsg.sender_id || "").trim();
-          let senderLabel = String(latestMsg.sender_name || "").trim() || `Dahili ${rawSenderId}`;
-
-          // Ensure both extension and full name are shown (e.g. "1005 - ANIL ACAR")
-          try {
-            if (!window.__aidaChatUsersMap || Date.now() - (window.__aidaChatUsersMapTs || 0) > 60000) {
-              const uRes = await fetch(`${protocol}//${backendHostUrl}/api/settings/users?tenant_id=all`);
-              if (uRes.ok) {
-                const uList = await uRes.json();
-                if (Array.isArray(uList)) {
-                  const mapObj = {};
-                  uList.forEach((u) => {
-                    const uId = String(u?.id || "").trim();
-                    const uExt = String(u?.extension || "").trim();
-                    const uFull = String(u?.full_name || u?.name || u?.username || "").trim();
-                    const combined =
-                      uExt && uFull && uExt.toLowerCase() !== uFull.toLowerCase() && !uFull.includes(uExt)
-                        ? `${uExt} - ${uFull}`
-                        : uFull || uExt || uId;
-                    if (uId) mapObj[uId] = combined;
-                    if (uExt) mapObj[uExt] = combined;
-                  });
-                  window.__aidaChatUsersMap = mapObj;
-                  window.__aidaChatUsersMapTs = Date.now();
+          if (missedRes.ok) {
+            const missedList = await missedRes.json();
+            if (Array.isArray(missedList)) {
+              const missedKey = `notified_missed_q_ids_${userKey}`;
+              const rawMissed = sessionStorage.getItem(missedKey);
+              if (!rawMissed) {
+                // Seed initial existing IDs on first poll so we only notify on newly arriving missed calls
+                const seedIds = missedList.map((mc) => String(mc.id || mc.call_id || mc.timestamp || ""));
+                sessionStorage.setItem(missedKey, JSON.stringify(seedIds.slice(-300)));
+              } else {
+                const seenMissed = new Set(JSON.parse(rawMissed));
+                const freshMissed = missedList.filter((mc) => {
+                  const k = String(mc.id || mc.call_id || mc.timestamp || "");
+                  return k && !seenMissed.has(k);
+                });
+                if (freshMissed.length > 0) {
+                  freshMissed.forEach((mc) => seenMissed.add(String(mc.id || mc.call_id || mc.timestamp || "")));
+                  sessionStorage.setItem(missedKey, JSON.stringify(Array.from(seenMissed).slice(-300)));
+                  const latestMc = freshMissed[0];
+                  const callerNum = String(latestMc.caller_number || latestMc.caller || "Bilinmeyen Numara");
+                  const callerName = String(latestMc.caller_name || "").trim();
+                  const callerDisp = callerName && callerName !== callerNum ? `${callerName} (${callerNum})` : callerNum;
+                  const qName = latestMc.queue_name ? ` (${latestMc.queue_name})` : "";
+                  if (isNativeElectron()) {
+                    sendDesktopNotification({
+                      title: `${callerDisp} - Kayıp Çağrı`,
+                      body: `Kuyrukta bekleyen kayıp çağrı${qName}. Geri dönüş yapmak için dokunun.`,
+                      tag: `missed-q-${latestMc.id || Date.now()}`,
+                      urgent: false,
+                      focusOnClick: true,
+                      actionEvent: "SWITCH_AGENT_PANEL_SUBTAB",
+                      actionDetail: { subTab: "missed" }
+                    });
+                  }
                 }
               }
             }
-            const resolvedLabel =
-              window.__aidaChatUsersMap?.[rawSenderId] ||
-              window.__aidaChatUsersMap?.[senderLabel.replace(/^Dahili\s+/i, "").trim()];
-            if (resolvedLabel) {
-              senderLabel = resolvedLabel;
-            }
-          } catch (e) {}
-          const isMobileClient =
-            typeof window !== "undefined" &&
-            Boolean(
-              window.aidaDesktop?.isMobile ||
-                window.RunaAndroid ||
-                sessionStorage.getItem("aida_mobile_mode") === "1"
-            );
-
-          if (!isMobileClient) {
-            setInternalChatToast({
-              id: latestMsg.id,
-              senderId: String(latestMsg.sender_id || ""),
-              senderName: senderLabel,
-              text: latestMsg.text || "",
-              totalUnread: unreadIncoming.length
-            });
           }
 
-          if (isNativeElectron()) {
-            sendDesktopNotification({
-              title: `${senderLabel} - Yeni İç Mesaj`,
-              body: latestMsg.text || "Yeni bir mesajınız var.",
-              tag: `int-chat-${latestMsg.id}`,
-              urgent: false,
-              focusOnClick: true,
-              actionEvent: "SWITCH_AGENT_PANEL_SUBTAB",
-              actionDetail: { subTab: "chat", peerSenderId: String(latestMsg.sender_id || "") }
-            });
-          } else if (typeof Notification !== "undefined" && Notification.permission === "granted") {
-            try {
-              new Notification(`${senderLabel} - Yeni İç Mesaj`, {
-                body: latestMsg.text || "Yeni bir mesajınız var."
+          if (vmRes.ok) {
+            const vmData = await vmRes.json();
+            const vmList = Array.isArray(vmData?.items) ? vmData.items : Array.isArray(vmData) ? vmData : [];
+            const vmKey = `notified_vm_ids_${userKey}`;
+            const rawVm = sessionStorage.getItem(vmKey);
+            if (!rawVm) {
+              const seedVm = vmList.map((v) => String(v.id || v.filename || v.created_at || ""));
+              sessionStorage.setItem(vmKey, JSON.stringify(seedVm.slice(-300)));
+            } else {
+              const seenVm = new Set(JSON.parse(rawVm));
+              const freshVm = vmList.filter((v) => {
+                const k = String(v.id || v.filename || v.created_at || "");
+                return k && !v.is_read && !seenVm.has(k);
               });
-            } catch (e) {}
+              if (freshVm.length > 0) {
+                freshVm.forEach((v) => seenVm.add(String(v.id || v.filename || v.created_at || "")));
+                sessionStorage.setItem(vmKey, JSON.stringify(Array.from(seenVm).slice(-300)));
+                const latestVm = freshVm[0];
+                const callerNum = String(latestVm.caller_number || latestVm.caller || "Bilinmeyen Numara");
+                const callerName = String(latestVm.caller_name || "").trim();
+                const callerDisp = callerName && callerName !== callerNum ? `${callerName} (${callerNum})` : callerNum;
+                const dur = latestVm.duration ? ` (${latestVm.duration} sn)` : "";
+                if (isNativeElectron()) {
+                  sendDesktopNotification({
+                    title: `${callerDisp} - Yeni Sesli Posta`,
+                    body: `Yeni bir sesli mesaj bırakıldı${dur}. Dinlemek için dokunun.`,
+                    tag: `voicemail-${latestVm.id || Date.now()}`,
+                    urgent: false,
+                    focusOnClick: true,
+                    actionEvent: "SWITCH_AGENT_PANEL_SUBTAB",
+                    actionDetail: { subTab: "voicemail" }
+                  });
+                }
+              }
+            }
           }
-        }
+        } catch (e) {}
       } catch (e) {}
     };
 
