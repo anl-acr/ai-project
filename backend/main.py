@@ -27603,11 +27603,15 @@ async def _resolve_user_chat_identities(raw_keys: list[str], db: AsyncSession) -
         for u in db_users:
             u_id = str(u.id).strip() if u.id is not None else ""
             u_ext = str(u.extension or "").strip()
-            u_name = str(u.name or u_ext or u_id).strip()
+            raw_name = str(getattr(u, "full_name", None) or getattr(u, "name", None) or "").strip()
+            if u_ext and raw_name and u_ext.lower() != raw_name.lower() and u_ext not in raw_name:
+                u_label = f"{u_ext} - {raw_name}"
+            else:
+                u_label = raw_name or u_ext or u_id
             if u_id:
-                name_map[u_id] = u_name
+                name_map[u_id] = u_label
             if u_ext:
-                name_map[u_ext] = u_name
+                name_map[u_ext] = u_label
             if identities and (u_id in identities or u_ext in identities):
                 if u_id:
                     identities.add(u_id)
@@ -27621,11 +27625,15 @@ async def _resolve_user_chat_identities(raw_keys: list[str], db: AsyncSession) -
         for u in settings.get("users", []):
             u_id = str(u.get("id", "")).strip()
             u_ext = str(u.get("extension", "")).strip()
-            u_name = str(u.get("name") or u.get("username") or u_ext or u_id).strip()
-            if u_id and u_id not in name_map:
-                name_map[u_id] = u_name
-            if u_ext and u_ext not in name_map:
-                name_map[u_ext] = u_name
+            raw_name = str(u.get("full_name") or u.get("name") or u.get("username") or "").strip()
+            if u_ext and raw_name and u_ext.lower() != raw_name.lower() and u_ext not in raw_name:
+                u_label = f"{u_ext} - {raw_name}"
+            else:
+                u_label = raw_name or u_ext or u_id
+            if u_id and (u_id not in name_map or name_map[u_id] in (u_id, u_ext)):
+                name_map[u_id] = u_label
+            if u_ext and (u_ext not in name_map or name_map[u_ext] in (u_id, u_ext)):
+                name_map[u_ext] = u_label
             if identities and (u_id in identities or u_ext in identities):
                 if u_id:
                     identities.add(u_id)

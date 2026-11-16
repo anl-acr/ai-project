@@ -38,6 +38,7 @@ final class AudioSessionManager: NSObject, UNUserNotificationCenterDelegate, PKP
     private var lastDeviceUnlockedAt: Date = .distantPast
     private var ringLockButtonPressCount: Int = 0
     private var notifiedIds = Set<String>()
+    private var cachedExtensionNames: [String: String] = [:]
     private var callDurationTimer: DispatchSourceTimer?
     private var callAnsweredAt: Date?
 
@@ -49,9 +50,45 @@ final class AudioSessionManager: NSObject, UNUserNotificationCenterDelegate, PKP
         disableLockScreenMediaPlayerWidget()
         setupAudioInterruptionObserver()
         setupAppLifecycleObservers()
+        refreshDirectoryUserNames()
         #if targetEnvironment(simulator)
         setupSimulatorVoipPushWatcher()
         #endif
+    }
+
+    func refreshDirectoryUserNames() {
+        Task { @MainActor in
+            let store = AppConfigStore.shared
+            var baseOrigin = store.apiOrigin.replacingOccurrences(of: "\\/+$", with: "", options: .regularExpression)
+            if baseOrigin.isEmpty {
+                baseOrigin = "https://aida.saphira.com.tr"
+            }
+            guard let url = URL(string: "\(baseOrigin)/api/settings/users?tenant_id=all") else { return }
+            var req = URLRequest(url: url)
+            req.httpMethod = "GET"
+            req.timeoutInterval = 5.0
+            URLSession.shared.dataTask(with: req) { [weak self] data, _, _ in
+                guard let data = data,
+                      let arr = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]] else {
+                    return
+                }
+                var map: [String: String] = [:]
+                for u in arr {
+                    let uid = String(describing: u["id"] ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+                    let ext = (u["extension"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                    let full = ((u["full_name"] as? String) ?? (u["name"] as? String) ?? (u["username"] as? String) ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+                    guard !full.isEmpty else { continue }
+                    let label = (!ext.isEmpty && ext.lowercased() != full.lowercased() && !full.contains(ext))
+                        ? "\(ext) - \(full)"
+                        : full
+                    if !ext.isEmpty { map[ext] = label }
+                    if !uid.isEmpty { map[uid] = label }
+                }
+                DispatchQueue.main.async {
+                    self?.cachedExtensionNames = map
+                }
+            }.resume()
+        }
     }
 
     #if targetEnvironment(simulator)
@@ -1340,7 +1377,7 @@ final class AudioSessionManager: NSObject, UNUserNotificationCenterDelegate, PKP
         }
 
         let content = UNMutableNotificationContent()
-        let cleanedTitle = title
+        var cleanedTitle = title
             .replacingOccurrences(of: "💬", with: "")
             .replacingOccurrences(of: "🔔", with: "")
             .replacingOccurrences(of: "\u{FFFD}", with: "")
@@ -1353,6 +1390,19 @@ final class AudioSessionManager: NSObject, UNUserNotificationCenterDelegate, PKP
             .replacingOccurrences(of: "RUNA", with: "Runa")
             .replacingOccurrences(of: "Aida", with: "Runa")
             .trimmingCharacters(in: .whitespacesAndNewlines)
+
+        // Enrich "<ext> - Yeni İç Mesaj" with user's full name (e.g. "1005 - ANIL ACAR - Yeni İç Mesaj")
+        if let dashRange = cleanedTitle.range(of: " - Yeni İç Mesaj") {
+            let prefixPart = String(cleanedTitle[..<dashRange.lowerBound])
+                .replacingOccurrences(of: "Dahili ", with: "")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            if let enriched = cachedExtensionNames[prefixPart], !enriched.isEmpty {
+                cleanedTitle = "\(enriched) - Yeni İç Mesaj"
+            } else {
+                refreshDirectoryUserNames()
+            }
+        }
+
         content.title = cleanedTitle.isEmpty ? "Runa Bildirimi" : cleanedTitle
         content.body = body
             .replacingOccurrences(of: "Pencereyi öne getirmek için tıklayın.", with: "Yanıtlamak için dokunun.")

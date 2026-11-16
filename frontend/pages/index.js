@@ -742,7 +742,40 @@ export default function Home() {
           saveNotifiedSet(notifiedSet);
 
           const latestMsg = freshUnnotified[freshUnnotified.length - 1];
-          const senderLabel = latestMsg.sender_name || `Dahili ${latestMsg.sender_id}`;
+          const rawSenderId = String(latestMsg.sender_id || "").trim();
+          let senderLabel = String(latestMsg.sender_name || "").trim() || `Dahili ${rawSenderId}`;
+
+          // Ensure both extension and full name are shown (e.g. "1005 - ANIL ACAR")
+          try {
+            if (!window.__aidaChatUsersMap || Date.now() - (window.__aidaChatUsersMapTs || 0) > 60000) {
+              const uRes = await fetch(`${protocol}//${backendHostUrl}/api/settings/users?tenant_id=all`);
+              if (uRes.ok) {
+                const uList = await uRes.json();
+                if (Array.isArray(uList)) {
+                  const mapObj = {};
+                  uList.forEach((u) => {
+                    const uId = String(u?.id || "").trim();
+                    const uExt = String(u?.extension || "").trim();
+                    const uFull = String(u?.full_name || u?.name || u?.username || "").trim();
+                    const combined =
+                      uExt && uFull && uExt.toLowerCase() !== uFull.toLowerCase() && !uFull.includes(uExt)
+                        ? `${uExt} - ${uFull}`
+                        : uFull || uExt || uId;
+                    if (uId) mapObj[uId] = combined;
+                    if (uExt) mapObj[uExt] = combined;
+                  });
+                  window.__aidaChatUsersMap = mapObj;
+                  window.__aidaChatUsersMapTs = Date.now();
+                }
+              }
+            }
+            const resolvedLabel =
+              window.__aidaChatUsersMap?.[rawSenderId] ||
+              window.__aidaChatUsersMap?.[senderLabel.replace(/^Dahili\s+/i, "").trim()];
+            if (resolvedLabel) {
+              senderLabel = resolvedLabel;
+            }
+          } catch (e) {}
           const isMobileClient =
             typeof window !== "undefined" &&
             Boolean(

@@ -73,6 +73,38 @@
             } catch (e) {}
           }
 
+          window.__aidaExtNameMap = window.__aidaExtNameMap || {};
+          function ensureExtNameMapLoaded() {
+            if (window.__aidaExtNameMapLoading) return;
+            window.__aidaExtNameMapLoading = true;
+            try {
+              fetch("/api/settings/users?tenant_id=all")
+                .then(function(r) { return r.ok ? r.json() : []; })
+                .then(function(list) {
+                  if (Array.isArray(list)) {
+                    const m = {};
+                    list.forEach(function(u) {
+                      const uid = String((u && u.id) || "").trim();
+                      const ext = String((u && u.extension) || "").trim();
+                      const full = String((u && (u.full_name || u.name || u.username)) || "").trim();
+                      if (!full) return;
+                      const label = (ext && ext.toLowerCase() !== full.toLowerCase() && full.indexOf(ext) === -1)
+                        ? (ext + " - " + full)
+                        : full;
+                      if (ext) m[ext] = label;
+                      if (uid) m[uid] = label;
+                    });
+                    window.__aidaExtNameMap = m;
+                  }
+                })
+                .catch(function() {})
+                .finally(function() { window.__aidaExtNameMapLoading = false; });
+            } catch (e) {
+              window.__aidaExtNameMapLoading = false;
+            }
+          }
+          setTimeout(ensureExtNameMapLoaded, 600);
+
           window.aidaDesktop = {
             isDesktop: true,
             isMobile: true,
@@ -104,7 +136,19 @@
             notify: function(payload) {
               const p = Object.assign({}, payload || {});
               if (typeof p.title === "string") {
-                p.title = p.title.replace(/^[^A-Za-z0-9ÇĞİÖŞÜçğıöşü]+/, "").trim();
+                let t = p.title.replace(/^[^A-Za-z0-9ÇĞİÖŞÜçğıöşü]+/, "").trim();
+                const mChat = t.match(/^(?:Dahili\s+)?([0-9]{1,6})\s*-\s*(Yeni İç Mesaj.*)$/i);
+                if (mChat) {
+                  const key = mChat[1];
+                  const suffix = mChat[2];
+                  const mapped = window.__aidaExtNameMap && window.__aidaExtNameMap[key];
+                  if (mapped) {
+                    t = mapped + " - " + suffix;
+                  } else {
+                    ensureExtNameMapLoaded();
+                  }
+                }
+                p.title = t;
               }
               postToNative("notify", p);
             },
