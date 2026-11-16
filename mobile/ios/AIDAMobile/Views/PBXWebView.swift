@@ -5521,6 +5521,62 @@ struct PBXWebView: UIViewRepresentable {
                   if (otherRoot.getAttribute('data-aida-mobile-voicemail') !== '1') {
                     otherRoot.setAttribute('data-aida-mobile-voicemail', '1');
                   }
+                  try {
+                    const nowTs = Date.now();
+                    if (!window.__aidaVmContactsMap) {
+                      window.__aidaVmContactsMap = {};
+                    }
+                    if (!window.__aidaVmContactsFetching && (!window.__aidaVmContactsTs || (nowTs - window.__aidaVmContactsTs) > 30000)) {
+                      window.__aidaVmContactsFetching = true;
+                      Promise.all([
+                        fetch('/api/contacts', { credentials: 'include' }).then(function(r) { return r.ok ? r.json() : []; }).catch(function() { return []; }),
+                        fetch('/api/agent/directory', { credentials: 'include' }).then(function(r) { return r.ok ? r.json() : []; }).catch(function() { return []; })
+                      ]).then(function(resArr) {
+                        const cList = Array.isArray(resArr[0]) ? resArr[0] : [];
+                        const dList = Array.isArray(resArr[1]) ? resArr[1] : [];
+                        const map = {};
+                        cList.forEach(function(c) {
+                          if (!c) return;
+                          const rawP = String(c.phone_number || c.phone || '');
+                          const d = rawP.replace(/\D+/g, '');
+                          const nm = ((c.first_name || '') + ' ' + (c.last_name || '')).trim() || String(c.name || '').trim();
+                          if (d && nm) {
+                            map[d] = nm;
+                            if (d.length >= 10) map[d.slice(-10)] = nm;
+                          }
+                        });
+                        dList.forEach(function(u) {
+                          if (!u) return;
+                          const nm = String(u.full_name || u.name || u.username || '').trim();
+                          if (!nm) return;
+                          if (u.extension) map[String(u.extension).trim()] = nm;
+                          ['phone', 'gsm', 'mobile', 'phone_number'].forEach(function(k) {
+                            const d = String(u[k] || '').replace(/\D+/g, '');
+                            if (d) {
+                              map[d] = nm;
+                              if (d.length >= 10) map[d.slice(-10)] = nm;
+                            }
+                          });
+                        });
+                        window.__aidaVmContactsMap = map;
+                        window.__aidaVmContactsTs = Date.now();
+                        window.__aidaVmContactsFetching = false;
+                      }).catch(function() {
+                        window.__aidaVmContactsFetching = false;
+                      });
+                    }
+                    const cmap = window.__aidaVmContactsMap || {};
+                    otherRoot.querySelectorAll('span.text-sm.font-extrabold').forEach(function(sp) {
+                      const rawTxt = (sp.textContent || '').trim();
+                      if (!rawTxt || rawTxt.includes('(')) return;
+                      const digits = rawTxt.replace(/\D+/g, '');
+                      if (digits.length < 3) return;
+                      const matchedName = cmap[digits] || (digits.length >= 10 ? cmap[digits.slice(-10)] : '');
+                      if (matchedName) {
+                        sp.textContent = matchedName + ' (' + rawTxt + ')';
+                      }
+                    });
+                  } catch (e) {}
                 }
               }
             }

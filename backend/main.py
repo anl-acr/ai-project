@@ -29189,18 +29189,35 @@ async def get_agent_voicemails(
         }
 
     # Resolve contact / internal subscriber names for callers
-    users_ext_name = {
-        str(u.get("extension")).strip(): str(u.get("full_name") or u.get("extension"))
-        for u in (settings_db.get("users") or [])
-        if isinstance(u, dict) and u.get("extension")
-    }
+    users_ext_name: Dict[str, str] = {}
+    for u in (settings_db.get("users") or []):
+        if isinstance(u, dict):
+            u_full = str(u.get("full_name") or u.get("name") or u.get("extension") or "").strip()
+            if u.get("extension"):
+                users_ext_name[str(u.get("extension")).strip()] = u_full
+            for pk in ("phone", "gsm", "mobile", "phone_number"):
+                pv = re.sub(r"\D", "", str(u.get(pk) or ""))
+                if len(pv) >= 10:
+                    users_ext_name[pv[-10:]] = u_full
+
+    all_contacts_for_vm: list = list(settings_db.get("contacts") or [])
+    try:
+        res_c = await db.execute(select(Contact))
+        for c_row in res_c.scalars().all():
+            c_tenant = str(getattr(c_row, "tenant_id", None) or "tenant-default")
+            if is_global_tenant(target_tenant) or (is_default_tenant(target_tenant) and is_default_tenant(c_tenant)) or c_tenant == target_tenant:
+                all_contacts_for_vm.append(c_row)
+    except Exception:
+        pass
+
     out_list = sorted(items_map.values(), key=lambda x: str(x.get("created_at") or ""), reverse=True)
     for item in out_list:
         c_num = str(item.get("caller_number") or "").strip()
-        c_name = users_ext_name.get(c_num) or ""
+        c_digits = re.sub(r"\D", "", c_num)
+        c_name = users_ext_name.get(c_num) or (users_ext_name.get(c_digits[-10:]) if len(c_digits) >= 10 else "") or ""
         if not c_name and c_num:
             try:
-                c_name = await resolve_contact_name_by_phone(c_num, db, tenant_id=target_tenant) or ""
+                c_name = resolve_contact_name_by_phone(all_contacts_for_vm, c_num) or ""
             except Exception:
                 c_name = ""
         item["caller_name"] = c_name

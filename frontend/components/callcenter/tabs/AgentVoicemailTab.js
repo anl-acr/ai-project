@@ -15,7 +15,7 @@ import {
   Headphones
 } from "lucide-react";
 import { useTheme } from "../../../utils/theme";
-import { maskPhoneLast4 } from "../../../utils/contactUtils";
+import { findContactByPhone, maskPhoneLast4 } from "../../../utils/contactUtils";
 import WaveformAudioPlayer from "../../common/WaveformAudioPlayer";
 import TablePagination from "../../ui/TablePagination";
 
@@ -31,6 +31,8 @@ export default function AgentVoicemailTab({
   const maskPhoneNumbers = Boolean(callPanelPerms?.maskPhoneNumbers);
 
   const [messages, setMessages] = useState([]);
+  const [contacts, setContacts] = useState([]);
+  const [directory, setDirectory] = useState([]);
   const [loadedDurations, setLoadedDurations] = useState({});
   const [unreadCount, setUnreadCount] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -90,6 +92,24 @@ export default function AgentVoicemailTab({
   );
 
   useEffect(() => {
+    const fetchContactsAndDirectory = async () => {
+      try {
+        const base = getApiBase();
+        const [cRes, dRes] = await Promise.all([
+          fetch(`${base}/api/contacts`),
+          fetch(`${base}/api/agent/directory`)
+        ]);
+        if (cRes.ok) {
+          const cData = await cRes.json();
+          setContacts(Array.isArray(cData) ? cData : []);
+        }
+        if (dRes.ok) {
+          const dData = await dRes.json();
+          setDirectory(Array.isArray(dData) ? dData : []);
+        }
+      } catch (e) {}
+    };
+    fetchContactsAndDirectory();
     fetchVoicemails(false);
     const interval = setInterval(() => fetchVoicemails(true), 15000);
     return () => clearInterval(interval);
@@ -179,9 +199,10 @@ export default function AgentVoicemailTab({
   const filteredMessages = messages.filter((vm) => {
     if (filterMode === "unread" && vm.is_read) return false;
     if (searchQuery.trim()) {
-      const q = searchQuery.toLowerCase().trim();
+      const q = searchQuery.toLocaleLowerCase("tr-TR").trim();
       const num = String(vm.caller_number || "").toLowerCase();
-      const name = String(vm.caller_name || "").toLowerCase();
+      const matched = findContactByPhone(vm.caller_number, contacts, directory);
+      const name = String(vm.caller_name || matched?.displayName || "").toLocaleLowerCase("tr-TR");
       return num.includes(q) || name.includes(q);
     }
     return true;
@@ -310,6 +331,8 @@ export default function AgentVoicemailTab({
             {paginatedMessages.map((vm) => {
               const rawCaller = vm.caller_number || "Anonim";
               const displayCaller = maskPhoneNumbers ? maskPhoneLast4(rawCaller) : rawCaller;
+              const matchedContact = findContactByPhone(rawCaller, contacts, directory);
+              const resolvedCallerName = vm.caller_name || matchedContact?.displayName || "";
               const audioSrc = `${getApiBase()}/api/voicemail/${vm.id}/audio`;
               const downloadUrl = `${getApiBase()}/api/voicemail/${vm.id}/audio?download=1`;
               const resolvedDuration =
@@ -341,7 +364,7 @@ export default function AgentVoicemailTab({
                       <div className="min-w-0">
                         <div className="flex items-center gap-2 flex-wrap">
                           <span className="text-sm font-extrabold text-slate-900 dark:text-white">
-                            {vm.caller_name ? `${vm.caller_name} (${displayCaller})` : displayCaller}
+                            {resolvedCallerName ? `${resolvedCallerName} (${displayCaller})` : displayCaller}
                           </span>
                           {!vm.is_read ? (
                             <span className="px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-rose-500 text-white">
