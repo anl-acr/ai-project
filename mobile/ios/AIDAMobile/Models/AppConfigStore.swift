@@ -40,6 +40,10 @@ struct LiveAgentStateModel: Equatable {
     var isOnHold: Bool = false
     var isSpeakerOn: Bool = false
     var callDurationSeconds: Int = 0
+    var networkQuality: String = "good"
+    var networkRttMs: Int = 0
+    var networkJitterMs: Int = 0
+    var networkLossPct: Double = 0.0
 }
 
 struct Pending2FAContext: Equatable {

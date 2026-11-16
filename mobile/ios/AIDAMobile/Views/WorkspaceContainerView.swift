@@ -755,6 +755,31 @@ private struct IOSCallKitSystemExperienceView: View {
                             .font(.system(size: 19, weight: .regular))
                             .foregroundColor(Color.white.opacity(0.72))
                             .monospacedDigit()
+
+                        if store.liveState.networkQuality == "poor" || store.liveState.networkQuality == "fair" {
+                            HStack(spacing: 6) {
+                                Image(systemName: "wifi.exclamationmark")
+                                    .font(.system(size: 12, weight: .bold))
+                                Text(
+                                    store.liveState.networkQuality == "poor"
+                                    ? "Ağ Kalitesi Zayıf (\(store.liveState.networkRttMs) ms) • Ses kesintisi olabilir"
+                                    : "Ağ Dalgalı (\(store.liveState.networkRttMs) ms)"
+                                )
+                                .font(.system(size: 12, weight: .semibold))
+                                .lineLimit(1)
+                            }
+                            .foregroundColor(.white)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 5)
+                            .background(
+                                (store.liveState.networkQuality == "poor"
+                                 ? Color(red: 0.94, green: 0.22, blue: 0.34)
+                                 : Color(red: 0.92, green: 0.56, blue: 0.08))
+                                .opacity(0.88)
+                            )
+                            .clipShape(Capsule())
+                            .padding(.top, 4)
+                        }
                     }
                 }
 

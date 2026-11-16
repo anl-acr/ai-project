@@ -230,6 +230,68 @@
                 border-color: #0f172a !important;
               }
 
+              /* Mobile Network Quality Topbar Button & Warning Banner */
+              html.aida-ios-mobile #aida-ios-net-quality-btn {
+                position: relative !important;
+                width: 36px !important;
+                height: 36px !important;
+                border-radius: 9999px !important;
+                display: inline-flex !important;
+                align-items: center !important;
+                justify-content: center !important;
+                padding: 0 !important;
+                flex-shrink: 0 !important;
+                transition: all 0.2s ease !important;
+              }
+              html.aida-ios-mobile #aida-ios-net-quality-btn[data-net-tier="good"] {
+                color: #10b981 !important;
+              }
+              html.aida-ios-mobile #aida-ios-net-quality-btn[data-net-tier="fair"] {
+                color: #f59e0b !important;
+                border-color: rgba(245, 158, 11, 0.45) !important;
+                background-color: rgba(245, 158, 11, 0.1) !important;
+              }
+              html.aida-ios-mobile #aida-ios-net-quality-btn[data-net-tier="poor"] {
+                color: #f43f5e !important;
+                border-color: rgba(244, 63, 94, 0.55) !important;
+                background-color: rgba(244, 63, 94, 0.12) !important;
+              }
+              #aida-mobile-net-quality-banner {
+                position: fixed !important;
+                top: calc(58px + env(safe-area-inset-top, 0px)) !important;
+                left: 12px !important;
+                right: 12px !important;
+                z-index: 9850 !important;
+                border-radius: 18px !important;
+                padding: 11px 13px !important;
+                display: flex !important;
+                align-items: center !important;
+                justify-content: space-between !important;
+                gap: 10px !important;
+                backdrop-filter: blur(20px) saturate(180%) !important;
+                -webkit-backdrop-filter: blur(20px) saturate(180%) !important;
+                box-shadow: 0 14px 32px -6px rgba(15, 23, 42, 0.28) !important;
+                transition: opacity 0.22s ease, transform 0.22s ease !important;
+              }
+              #aida-mobile-net-quality-banner[data-hidden="1"] {
+                display: none !important;
+              }
+              #aida-mobile-net-quality-banner[data-net-tier="poor"] {
+                background: linear-gradient(135deg, rgba(225, 29, 72, 0.96), rgba(190, 18, 60, 0.96)) !important;
+                border: 1px solid rgba(255, 255, 255, 0.22) !important;
+                color: #ffffff !important;
+              }
+              #aida-mobile-net-quality-banner[data-net-tier="fair"] {
+                background: linear-gradient(135deg, rgba(217, 119, 6, 0.96), rgba(180, 83, 9, 0.96)) !important;
+                border: 1px solid rgba(255, 255, 255, 0.22) !important;
+                color: #ffffff !important;
+              }
+              #aida-mobile-net-quality-banner[data-net-tier="good"] {
+                background: linear-gradient(135deg, rgba(5, 150, 105, 0.96), rgba(4, 120, 87, 0.96)) !important;
+                border: 1px solid rgba(255, 255, 255, 0.22) !important;
+                color: #ffffff !important;
+              }
+
               /* Mobile Queue Session & Break Modal (Theme-aware Light/Dark) */
               #aida-ios-queue-modal-backdrop {
                 position: fixed !important;
@@ -3796,6 +3858,23 @@
             const profileContainer = profileBtn ? profileBtn.parentElement : null;
 
             if (topbarRight) {
+              if (!document.getElementById('aida-ios-net-quality-btn')) {
+                const netBtn = document.createElement('button');
+                netBtn.id = 'aida-ios-net-quality-btn';
+                netBtn.type = 'button';
+                netBtn.title = 'Ağ Kalitesi Durumu';
+                netBtn.setAttribute('data-net-tier', 'good');
+                netBtn.className = 'p-2 rounded-full border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-emerald-500 shadow-sm cursor-pointer shrink-0';
+                netBtn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M2 20h.01"/><path d="M7 20v-4"/><path d="M12 20v-8"/><path d="M17 20V8"/><path d="M22 4v16"/></svg>`;
+                netBtn.addEventListener('click', function(e) {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  if (typeof window.__aidaToggleNetQualityBanner === 'function') {
+                    window.__aidaToggleNetQualityBanner();
+                  }
+                });
+                topbarRight.insertBefore(netBtn, topbarRight.firstChild);
+              }
               if (!document.getElementById('aida-ios-quicktray-btn')) {
                 const btn = document.createElement('button');
                 btn.id = 'aida-ios-quicktray-btn';
@@ -3816,11 +3895,12 @@
               }
 
               const quickTrayBtn = document.getElementById('aida-ios-quicktray-btn');
+              const netQualBtn = document.getElementById('aida-ios-net-quality-btn');
               if (quickTrayBtn) {
                 syncHeadsetButtonUI(false);
               }
               Array.from(topbarRight.children).forEach(function(child) {
-                if (child !== profileContainer && child !== quickTrayBtn) {
+                if (child !== profileContainer && child !== quickTrayBtn && child !== netQualBtn) {
                   if (child.getAttribute('data-aida-hide-topbar-item') !== '1') {
                     child.setAttribute('data-aida-hide-topbar-item', '1');
                   }
@@ -5815,6 +5895,305 @@
               window.dispatchEvent(new CustomEvent('AIDA_CALLKIT_HANGUP'));
             } catch (e) {}
           });
+
+          // ==============================================================
+          // MOBILE NETWORK QUALITY MONITOR & POOR CONNECTION WARNING BANNER
+          // ==============================================================
+          const mobileNetState = {
+            tier: 'good',
+            rttMs: 0,
+            jitterMs: 0,
+            lossPct: 0,
+            offline: false,
+            rttHistory: [],
+            probeOutcomes: [],
+            prevPacketsLost: null,
+            prevPacketsRecv: null,
+            dismissedUntilTs: 0,
+            manualInspectOpen: false,
+            checkingNow: false
+          };
+
+          function ensureMobileNetQualityBanner() {
+            let banner = document.getElementById('aida-mobile-net-quality-banner');
+            if (!banner && document.body) {
+              banner = document.createElement('div');
+              banner.id = 'aida-mobile-net-quality-banner';
+              banner.setAttribute('data-hidden', '1');
+              banner.setAttribute('data-net-tier', 'good');
+              banner.innerHTML = `
+                <div style="display:flex;align-items:center;gap:10px;min-width:0;flex:1;">
+                  <div id="aida-net-banner-icon" style="width:34px;height:34px;border-radius:11px;background:rgba(255,255,255,0.18);display:flex;align-items:center;justify-content:center;flex-shrink:0;">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h.01"/><path d="M8.5 16.429a5 5 0 0 1 7 0"/><path d="M5 12.859a10 10 0 0 1 5.17-2.69"/><path d="M19 12.859a10 10 0 0 0-2.007-1.523"/><path d="M2 8.82a15 15 0 0 1 4.177-2.643"/><path d="M22 8.82a15 15 0 0 0-11.288-3.764"/><path d="m2 2 20 20"/></svg>
+                  </div>
+                  <div style="min-width:0;flex:1;">
+                    <div id="aida-net-banner-title" style="font-size:12.5px;font-weight:800;line-height:1.25;letter-spacing:-0.15px;">
+                      Ağ Kalitesi Zayıf • Ses Kesintisi Yaşanabilir
+                    </div>
+                    <div id="aida-net-banner-sub" style="font-size:10.5px;font-weight:600;opacity:0.94;margin-top:2px;line-height:1.3;">
+                      Gecikme: -- ms • Jitter: -- ms • Kayıp: %0
+                    </div>
+                  </div>
+                </div>
+                <div style="display:flex;align-items:center;gap:6px;flex-shrink:0;">
+                  <button type="button" id="aida-net-banner-retest-btn" style="padding:5px 9px;border-radius:10px;background:rgba(255,255,255,0.22);color:#ffffff;font-size:11px;font-weight:800;border:none;cursor:pointer;width:auto !important;min-height:28px !important;white-space:nowrap;">
+                    Tekrar Ölç
+                  </button>
+                  <button type="button" id="aida-net-banner-close-btn" aria-label="Kapat" style="width:28px !important;height:28px !important;min-height:28px !important;border-radius:9px;background:rgba(0,0,0,0.18);color:#ffffff;display:inline-flex;align-items:center;justify-content:center;border:none;cursor:pointer;padding:0;flex-shrink:0;">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+                  </button>
+                </div>
+              `;
+              document.body.appendChild(banner);
+
+              const retestBtn = banner.querySelector('#aida-net-banner-retest-btn');
+              if (retestBtn) {
+                retestBtn.addEventListener('click', function(ev) {
+                  ev.preventDefault();
+                  ev.stopPropagation();
+                  retestBtn.textContent = 'Ölçülüyor...';
+                  measureMobileNetworkQuality(true);
+                });
+              }
+              const closeBtn = banner.querySelector('#aida-net-banner-close-btn');
+              if (closeBtn) {
+                closeBtn.addEventListener('click', function(ev) {
+                  ev.preventDefault();
+                  ev.stopPropagation();
+                  mobileNetState.manualInspectOpen = false;
+                  mobileNetState.dismissedUntilTs = Date.now() + 60000;
+                  renderMobileNetQualityUI();
+                });
+              }
+            }
+            return banner;
+          }
+
+          function renderMobileNetQualityUI() {
+            const tier = mobileNetState.tier;
+            const rtt = Math.round(mobileNetState.rttMs || 0);
+            const jitter = Math.round(mobileNetState.jitterMs || 0);
+            const loss = Number(mobileNetState.lossPct || 0).toFixed(1).replace(/\.0$/, '');
+
+            const netBtn = document.getElementById('aida-ios-net-quality-btn');
+            if (netBtn) {
+              if (netBtn.getAttribute('data-net-tier') !== tier) {
+                netBtn.setAttribute('data-net-tier', tier);
+              }
+              if (tier === 'poor') {
+                netBtn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M2 20h.01"/><path d="M7 20v-4"/><path d="M12 20v-8" stroke-opacity="0.28"/><path d="M17 20V8" stroke-opacity="0.28"/><path d="M22 4v16" stroke-opacity="0.28"/></svg>`;
+              } else if (tier === 'fair') {
+                netBtn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M2 20h.01"/><path d="M7 20v-4"/><path d="M12 20v-8"/><path d="M17 20V8" stroke-opacity="0.28"/><path d="M22 4v16" stroke-opacity="0.28"/></svg>`;
+              } else {
+                netBtn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M2 20h.01"/><path d="M7 20v-4"/><path d="M12 20v-8"/><path d="M17 20V8"/><path d="M22 4v16"/></svg>`;
+              }
+            }
+
+            const banner = ensureMobileNetQualityBanner();
+            if (!banner) return;
+
+            const isAutoWarning = (tier === 'poor' || tier === 'fair') && (Date.now() > mobileNetState.dismissedUntilTs);
+            const shouldShow = isAutoWarning || mobileNetState.manualInspectOpen;
+
+            if (!shouldShow) {
+              banner.setAttribute('data-hidden', '1');
+              return;
+            }
+
+            banner.setAttribute('data-hidden', '0');
+            banner.setAttribute('data-net-tier', tier);
+
+            const titleEl = banner.querySelector('#aida-net-banner-title');
+            const subEl = banner.querySelector('#aida-net-banner-sub');
+            const retestBtn = banner.querySelector('#aida-net-banner-retest-btn');
+            if (retestBtn && !mobileNetState.checkingNow) {
+              retestBtn.textContent = 'Tekrar Ölç';
+            }
+
+            if (titleEl) {
+              if (mobileNetState.offline) {
+                titleEl.textContent = 'Ağ Bağlantısı Kopuk • Sunucuya Erişilemiyor';
+              } else if (tier === 'poor') {
+                titleEl.textContent = 'Ağ Kalitesi Zayıf • Ses Kesintisi Yaşanabilir';
+              } else if (tier === 'fair') {
+                titleEl.textContent = 'Ağ Bağlantısı Dalgalı • Yavaş Yanıt Süresi';
+              } else {
+                titleEl.textContent = 'Ağ Kalitesi İyi • Santral Bağlantısı Stabil';
+              }
+            }
+            if (subEl) {
+              if (mobileNetState.offline) {
+                subEl.textContent = 'Lütfen Wi-Fi veya Mobil Veri bağlantınızı kontrol edin.';
+              } else {
+                subEl.textContent = 'Gecikme: ' + rtt + ' ms • Jitter: ' + jitter + ' ms • Kayıp: %' + loss;
+              }
+            }
+          }
+
+          window.__aidaToggleNetQualityBanner = function() {
+            mobileNetState.manualInspectOpen = !mobileNetState.manualInspectOpen;
+            if (mobileNetState.manualInspectOpen) {
+              mobileNetState.dismissedUntilTs = 0;
+              measureMobileNetworkQuality(true);
+            }
+            renderMobileNetQualityUI();
+          };
+
+          window.__aidaSimulatePoorNetwork = function(simOpts) {
+            if (!simOpts) {
+              window.__AIDA_SIMULATE_NET_QUALITY__ = null;
+            } else {
+              window.__AIDA_SIMULATE_NET_QUALITY__ = simOpts;
+              mobileNetState.dismissedUntilTs = 0;
+            }
+            measureMobileNetworkQuality(true);
+          };
+
+          async function measureMobileNetworkQuality(forceShowIfBad) {
+            if (mobileNetState.checkingNow) return;
+            mobileNetState.checkingNow = true;
+            try {
+              if (forceShowIfBad) {
+                mobileNetState.dismissedUntilTs = 0;
+              }
+
+              if (window.__AIDA_SIMULATE_NET_QUALITY__) {
+                const sim = window.__AIDA_SIMULATE_NET_QUALITY__;
+                mobileNetState.tier = sim.tier || 'poor';
+                mobileNetState.rttMs = sim.rttMs !== undefined ? sim.rttMs : 580;
+                mobileNetState.jitterMs = sim.jitterMs !== undefined ? sim.jitterMs : 135;
+                mobileNetState.lossPct = sim.lossPct !== undefined ? sim.lossPct : 7.4;
+                mobileNetState.offline = Boolean(sim.offline);
+                mobileNetState.checkingNow = false;
+                renderMobileNetQualityUI();
+                return;
+              }
+
+              const t0 = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
+              let probeOk = false;
+              let measuredRtt = 0;
+              try {
+                const ctrl = typeof AbortController !== 'undefined' ? new AbortController() : null;
+                const timerId = ctrl ? setTimeout(function() { ctrl.abort(); }, 3500) : null;
+                const resp = await fetch('/api/version?netprobe=' + Date.now(), {
+                  method: 'GET',
+                  cache: 'no-store',
+                  signal: ctrl ? ctrl.signal : undefined
+                });
+                if (timerId) clearTimeout(timerId);
+                if (resp && resp.ok) {
+                  const t1 = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
+                  measuredRtt = Math.max(1, Math.round(t1 - t0));
+                  probeOk = true;
+                }
+              } catch (err) {
+                probeOk = false;
+              }
+
+              mobileNetState.probeOutcomes.push(probeOk ? 1 : 0);
+              if (mobileNetState.probeOutcomes.length > 6) {
+                mobileNetState.probeOutcomes.shift();
+              }
+              const failCount = mobileNetState.probeOutcomes.filter(function(v) { return v === 0; }).length;
+              let lossPct = (failCount / mobileNetState.probeOutcomes.length) * 100;
+
+              if (probeOk) {
+                mobileNetState.offline = false;
+                mobileNetState.rttHistory.push(measuredRtt);
+                if (mobileNetState.rttHistory.length > 5) {
+                  mobileNetState.rttHistory.shift();
+                }
+                const hist = mobileNetState.rttHistory;
+                const avgRtt = hist.reduce(function(a, b) { return a + b; }, 0) / hist.length;
+                let jitterSum = 0;
+                for (let i = 1; i < hist.length; i++) {
+                  jitterSum += Math.abs(hist[i] - hist[i - 1]);
+                }
+                const avgJitter = hist.length > 1 ? (jitterSum / (hist.length - 1)) : 0;
+                mobileNetState.rttMs = Math.round(avgRtt);
+                mobileNetState.jitterMs = Math.round(avgJitter);
+              } else {
+                const recentFails = mobileNetState.probeOutcomes.slice(-2).filter(function(v) { return v === 0; }).length;
+                if (recentFails >= 2) {
+                  mobileNetState.offline = true;
+                }
+                mobileNetState.rttMs = Math.max(mobileNetState.rttMs, 950);
+                mobileNetState.jitterMs = Math.max(mobileNetState.jitterMs, 150);
+              }
+
+              try {
+                const line = typeof window.__aidaGetActiveLine === 'function' ? window.__aidaGetActiveLine() : null;
+                const pc = line && line.session && line.session.sessionDescriptionHandler && line.session.sessionDescriptionHandler.peerConnection;
+                if (pc && typeof pc.getStats === 'function') {
+                  const stats = await pc.getStats();
+                  stats.forEach(function(report) {
+                    if (report.type === 'inbound-rtp' && (report.kind === 'audio' || report.mediaType === 'audio')) {
+                      if (typeof report.jitter === 'number') {
+                        const rtpJitterMs = Math.round(report.jitter * 1000);
+                        if (rtpJitterMs > mobileNetState.jitterMs) {
+                          mobileNetState.jitterMs = rtpJitterMs;
+                        }
+                      }
+                      const pLost = Number(report.packetsLost || 0);
+                      const pRecv = Number(report.packetsReceived || 0);
+                      if (mobileNetState.prevPacketsRecv !== null && pRecv >= mobileNetState.prevPacketsRecv) {
+                        const dLost = Math.max(0, pLost - (mobileNetState.prevPacketsLost || 0));
+                        const dRecv = Math.max(0, pRecv - mobileNetState.prevPacketsRecv);
+                        if (dLost + dRecv > 10) {
+                          const rtpLoss = (dLost / (dLost + dRecv)) * 100;
+                          if (rtpLoss > lossPct) lossPct = rtpLoss;
+                        }
+                      }
+                      mobileNetState.prevPacketsLost = pLost;
+                      mobileNetState.prevPacketsRecv = pRecv;
+                    } else if (report.type === 'candidate-pair' && report.state === 'succeeded' && typeof report.currentRoundTripTime === 'number') {
+                      const rtpRttMs = Math.round(report.currentRoundTripTime * 1000);
+                      if (rtpRttMs > 0) {
+                        mobileNetState.rttMs = Math.round((mobileNetState.rttMs + rtpRttMs) / 2);
+                      }
+                    }
+                  });
+                } else {
+                  mobileNetState.prevPacketsLost = null;
+                  mobileNetState.prevPacketsRecv = null;
+                }
+              } catch (e) {}
+
+              mobileNetState.lossPct = Math.round(lossPct * 10) / 10;
+
+              let nextTier = 'good';
+              if (
+                mobileNetState.offline ||
+                !probeOk ||
+                mobileNetState.rttMs >= 450 ||
+                mobileNetState.jitterMs >= 110 ||
+                mobileNetState.lossPct >= 5.0
+              ) {
+                nextTier = 'poor';
+              } else if (
+                mobileNetState.rttMs >= 220 ||
+                mobileNetState.jitterMs >= 55 ||
+                mobileNetState.lossPct >= 2.0
+              ) {
+                nextTier = 'fair';
+              }
+
+              const prevTier = mobileNetState.tier;
+              mobileNetState.tier = nextTier;
+              if (prevTier === 'good' && (nextTier === 'poor' || nextTier === 'fair')) {
+                mobileNetState.dismissedUntilTs = 0;
+              }
+            } catch (e) {}
+            mobileNetState.checkingNow = false;
+            renderMobileNetQualityUI();
+          }
+
+          setTimeout(function() { measureMobileNetworkQuality(false); }, 1800);
+          setInterval(function() {
+            if (window.__aidaAppInForeground !== false) {
+              measureMobileNetworkQuality(false);
+            }
+          }, 5000);
 
           const observer = new MutationObserver(function() {
             scheduleDOMAdaptations();
