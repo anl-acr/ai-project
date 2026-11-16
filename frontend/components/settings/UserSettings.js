@@ -733,7 +733,7 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
   };
 
   useEffect(() => {
-    if (showModal && activeTab === "connection_history" && editingUser) {
+    if (showModal && (activeTab === "security" || activeTab === "connection_history") && editingUser) {
       fetchUserConnectionHistory(editingUser);
     }
   }, [showModal, activeTab, editingUser]);
@@ -3774,6 +3774,28 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
                         </button>
                         <button
                             type="button"
+                            onClick={() => setActiveTab("security")}
+                            className={"w-full flex items-center justify-between gap-2 px-3 py-2.5 rounded-xl text-xs font-bold transition-all " + (activeTab === 'security' ? ("bg-white dark:bg-slate-800 " + text + " shadow-sm border border-slate-200 dark:border-slate-700") : "text-slate-500 hover:bg-white/50 dark:hover:bg-slate-800/50 hover:text-slate-700 dark:hover:text-slate-300 border border-transparent")}
+                        >
+                            <span className="flex items-center gap-3 min-w-0 truncate">
+                                <Lock size={16} className="shrink-0" />
+                                <span className="truncate">Güvenlik</span>
+                            </span>
+                            <span className="flex items-center gap-1 shrink-0">
+                                {twoFactorEnabled && (
+                                    <span className="inline-flex items-center px-1.5 py-0.5 rounded-md text-[9px] font-black bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30">
+                                        2FA
+                                    </span>
+                                )}
+                                {deviceLockEnabled && (
+                                    <span className="inline-flex items-center px-1.5 py-0.5 rounded-md text-[9px] font-black bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30">
+                                        Kilitli
+                                    </span>
+                                )}
+                            </span>
+                        </button>
+                        <button
+                            type="button"
                             onClick={() => setActiveTab("applications")}
                             className={"w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-bold transition-all " + (activeTab === 'applications' ? ("bg-white dark:bg-slate-800 " + text + " shadow-sm border border-slate-200 dark:border-slate-700") : "text-slate-500 hover:bg-white/50 dark:hover:bg-slate-800/50 hover:text-slate-700 dark:hover:text-slate-300 border border-transparent")}
                         >
@@ -3833,21 +3855,6 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
                                 Müşteri / Tenant
                             </button>
                         )}
-                        <button
-                            type="button"
-                            onClick={() => setActiveTab("connection_history")}
-                            className={"w-full flex items-center justify-between gap-2 px-3 py-2.5 rounded-xl text-xs font-bold transition-all " + (activeTab === 'connection_history' ? ("bg-white dark:bg-slate-800 " + text + " shadow-sm border border-slate-200 dark:border-slate-700") : "text-slate-500 hover:bg-white/50 dark:hover:bg-slate-800/50 hover:text-slate-700 dark:hover:text-slate-300 border border-transparent")}
-                        >
-                            <span className="flex items-center gap-3 min-w-0 truncate">
-                                <Clock size={16} className="shrink-0" />
-                                <span className="truncate">Bağlantı & Cihaz Kilidi</span>
-                            </span>
-                            {deviceLockEnabled && (
-                                <span className="inline-flex items-center px-1.5 py-0.5 rounded-md text-[9px] font-black bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30 shrink-0">
-                                    Kilitli
-                                </span>
-                            )}
-                        </button>
                     </nav>
                 </div>
 
@@ -5429,723 +5436,6 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
                                             <div className={`md:col-span-2 p-2.5 rounded-xl border ${lightBg} ${borderLight} text-[11px] font-semibold ${text}`}>
                                                 Masa telefonundan hızlı aç/kapat: Yönetici kendi telefonundan <span className="font-mono font-extrabold">*74</span>, sekreter ise kendi telefonundan <span className="font-mono font-extrabold">*74*{extension || "1000"}</span> tuşlayabilir.
                                             </div>
-                                        </div>
-                                    )}
-                                </div>
-
-                                <div ref={twoFactorCardRef} className="p-4 bg-slate-50 dark:bg-slate-900/50 rounded-xl border border-slate-100 dark:border-slate-800">
-                                    <div className="flex items-center justify-between">
-                                        <div className="flex items-center gap-2.5">
-                                            <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${twoFactorEnabled ? `${lightBg} ${text}` : "bg-slate-200/70 dark:bg-slate-800 text-slate-500"}`}>
-                                                <Shield size={16} />
-                                            </div>
-                                            <div>
-                                                <div className="flex items-center gap-2">
-                                                    <h5 className="text-sm font-bold text-slate-800 dark:text-white">İki Aşamalı Doğrulama (2FA)</h5>
-                                                    <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${twoFactorEnabled ? `${lightBg} ${text} border ${border}` : "bg-slate-200 dark:bg-slate-800 text-slate-500"}`}>
-                                                        {twoFactorEnabled ? "Aktif" : "Pasif"}
-                                                    </span>
-                                                </div>
-                                                <p className="text-[10px] text-slate-500 mt-0.5">Kullanıcı sisteme girerken ikinci aşama doğrulama kodu sorulsun mu?</p>
-                                            </div>
-                                        </div>
-                                        <button
-                                            type="button"
-                                            onClick={() => {
-                                                const nextVal = !twoFactorEnabled;
-                                                setTwoFactorEnabled(nextVal);
-                                                setTwoFactorStatusMsg(null);
-                                                if (nextVal && (!twoFactorMethod || twoFactorMethod === "app")) {
-                                                    setTwoFactorMethod("google_auth");
-                                                }
-                                                if (nextVal) {
-                                                    scrollTwoFactorCardIntoPane();
-                                                }
-                                            }}
-                                            className="text-slate-400 hover:text-slate-700 transition-colors"
-                                        >
-                                            {twoFactorEnabled ? <ToggleRight size={32} className={`${text}`} /> : <ToggleLeft size={32} />}
-                                        </button>
-                                    </div>
-                                    
-                                    {twoFactorEnabled && (
-                                        <div className="mt-4 pt-4 border-t border-slate-200/80 dark:border-slate-800 space-y-4 animate-in fade-in duration-200">
-                                            {/* DOĞRULAMA MODU (TEK YÖNTEM / 2 AŞAMALI ZORUNLU / YEDEKLİ) */}
-                                            <div className="p-3 rounded-xl bg-white dark:bg-slate-950 border border-slate-200/80 dark:border-slate-800 space-y-2.5">
-                                                <div className="flex flex-wrap items-center justify-between gap-2">
-                                                    <div>
-                                                        <div className="text-xs font-extrabold text-slate-800 dark:text-white">
-                                                            Doğrulama Çalışma Modu (Tek / 2 Aşamalı 2FA)
-                                                        </div>
-                                                        <p className="text-[10px] text-slate-500 dark:text-slate-400">
-                                                            İsterseniz tek bir yöntem, isterseniz aynı anda hem E-Posta hem Google Authenticator (2 Aşamalı) kullanabilirsiniz.
-                                                        </p>
-                                                    </div>
-                                                </div>
-                                                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-                                                    {[
-                                                        {
-                                                            mode: "single",
-                                                            title: "Tek Yöntem (Standart)",
-                                                            desc: "Sadece seçili olan tek doğrulama yöntemi sorulur"
-                                                        },
-                                                        {
-                                                            mode: "all",
-                                                            title: "2 Aşamalı Zorunlu (VE Modu)",
-                                                            desc: "Örn: Önce E-Posta kodu, ardından Google Authenticator zorunlu"
-                                                        },
-                                                        {
-                                                            mode: "any",
-                                                            title: "Esnek / Yedekli (VEYA Modu)",
-                                                            desc: "Seçili yöntemlerden herhangi biriyle giriş yapılabilir"
-                                                        }
-                                                    ].map((opt) => {
-                                                        const isModeActive = twoFactorMultiMode === opt.mode;
-                                                        return (
-                                                            <button
-                                                                key={opt.mode}
-                                                                type="button"
-                                                                onClick={() => {
-                                                                    setTwoFactorMultiMode(opt.mode);
-                                                                    if (opt.mode === "single") {
-                                                                        const keepM = twoFactorMethod || twoFactorActiveMethods[0] || "google_auth";
-                                                                        setTwoFactorActiveMethods([keepM]);
-                                                                        setTwoFactorMethod(keepM);
-                                                                        activeTwoFactorMethodRef.current = keepM;
-                                                                    } else {
-                                                                        let nextList = Array.isArray(twoFactorActiveMethods) ? [...twoFactorActiveMethods] : [];
-                                                                        if (nextList.length < 2) {
-                                                                            const curr = nextList[0] || twoFactorMethod || "google_auth";
-                                                                            if (curr === "google_auth" || curr === "microsoft_auth") {
-                                                                                nextList = ["email", curr];
-                                                                            } else {
-                                                                                nextList = [curr, "google_auth"];
-                                                                            }
-                                                                        }
-                                                                        setTwoFactorActiveMethods(nextList);
-                                                                        if (nextList.includes("google_auth") && !twoFactorMethodsMap?.google_auth?.qrSvg) {
-                                                                            fetchTwoFactorSetup(false, "google_auth");
-                                                                        }
-                                                                        if (nextList.includes("microsoft_auth") && !twoFactorMethodsMap?.microsoft_auth?.qrSvg) {
-                                                                            fetchTwoFactorSetup(false, "microsoft_auth");
-                                                                        }
-                                                                    }
-                                                                }}
-                                                                className={`p-2.5 rounded-xl text-left border transition-all ${
-                                                                    isModeActive
-                                                                        ? `${lightBg} ${border} ring-2 ${ring}`
-                                                                        : "bg-slate-50/70 dark:bg-slate-900/50 border-slate-200 dark:border-slate-800 hover:bg-slate-100 dark:hover:bg-slate-900"
-                                                                }`}
-                                                            >
-                                                                <div className="flex items-center justify-between gap-1.5">
-                                                                    <span className={`text-[11px] font-extrabold ${isModeActive ? text : "text-slate-800 dark:text-slate-100"}`}>
-                                                                        {opt.title}
-                                                                    </span>
-                                                                    {isModeActive && <CheckCircle size={13} className={text} />}
-                                                                </div>
-                                                                <p className="text-[10px] text-slate-500 dark:text-slate-400 leading-tight mt-1">
-                                                                    {opt.desc}
-                                                                </p>
-                                                            </button>
-                                                        );
-                                                    })}
-                                                </div>
-                                            </div>
-
-                                            <div>
-                                                <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
-                                                    <label className="block text-xs font-bold text-slate-800 dark:text-white">
-                                                        {twoFactorMultiMode === "single"
-                                                            ? "2FA Doğrulama Yöntemi Seçiniz"
-                                                            : "Aktif 2FA Doğrulama Yöntemlerini Seçiniz (Birden Fazla Seçilebilir)"}
-                                                    </label>
-                                                    {twoFactorMultiMode !== "single" && twoFactorActiveMethods.length >= 2 && (
-                                                        <button
-                                                            type="button"
-                                                            onClick={() => {
-                                                                setTwoFactorActiveMethods((prev) => [...prev].reverse());
-                                                            }}
-                                                            className="px-2.5 py-1 rounded-lg text-[10px] font-bold bg-slate-200/80 dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-300 dark:hover:bg-slate-700 transition-colors flex items-center gap-1"
-                                                        >
-                                                            <RefreshCw size={11} />
-                                                            Doğrulama Sırasını Değiştir (1 ⇄ 2)
-                                                        </button>
-                                                    )}
-                                                </div>
-                                                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5">
-                                                    {[
-                                                        {
-                                                            id: "email",
-                                                            title: "E-Posta (E-Mail)",
-                                                            desc: "Girişte e-posta adresine 6 haneli tek kullanımlık kod gönderilir",
-                                                            icon: Mail
-                                                        },
-                                                        {
-                                                            id: "whatsapp",
-                                                            title: "WhatsApp (Giriş Kodu)",
-                                                            desc: "WhatsApp'a 'Giriş Kodu' yazıldığında 5 dk geçerli ücretsiz kod yanıtlanır",
-                                                            icon: PhoneCall
-                                                        },
-                                                        {
-                                                            id: "google_auth",
-                                                            title: "Google Authenticator",
-                                                            desc: "Google Authenticator mobil uygulaması ile 30 sn'lik kod üretilir",
-                                                            icon: Smartphone
-                                                        },
-                                                        {
-                                                            id: "microsoft_auth",
-                                                            title: "Microsoft Authenticator",
-                                                            desc: "Microsoft Authenticator mobil uygulaması ile 30 sn'lik kod üretilir",
-                                                            icon: KeyRound
-                                                        }
-                                                    ].map((m) => {
-                                                        const IconComp = m.icon;
-                                                        const isFocused = twoFactorMethod === m.id || (m.id === "google_auth" && twoFactorMethod === "app");
-                                                        const activeIdx = twoFactorActiveMethods.indexOf(m.id);
-                                                        const isActiveMethod = twoFactorMultiMode === "single" ? isFocused : activeIdx !== -1;
-
-                                                        const focusMethodSetup = (methodId) => {
-                                                            activeTwoFactorMethodRef.current = methodId;
-                                                            setTwoFactorMethod(methodId);
-                                                            setTwoFactorStatusMsg(null);
-                                                            setTwoFactorTestCode("");
-                                                            const cachedM = twoFactorMethodsMap[methodId] || {};
-                                                            setTwoFactorEnrolled(Boolean(cachedM.enrolled));
-                                                            if (methodId === "google_auth" || methodId === "microsoft_auth") {
-                                                                setTwoFactorSecret(cachedM.secret || "");
-                                                                setTwoFactorQrSvg(cachedM.qrSvg || "");
-                                                                if (!cachedM.qrSvg) {
-                                                                    fetchTwoFactorSetup(false, methodId);
-                                                                }
-                                                            }
-                                                            scrollTwoFactorCardIntoPane();
-                                                        };
-
-                                                        return (
-                                                            <div
-                                                                key={m.id}
-                                                                role="button"
-                                                                tabIndex={0}
-                                                                onClick={() => {
-                                                                    if (twoFactorMultiMode === "single") {
-                                                                        setTwoFactorActiveMethods([m.id]);
-                                                                        focusMethodSetup(m.id);
-                                                                    } else {
-                                                                        if (!isActiveMethod) {
-                                                                            const nextAct = [...twoFactorActiveMethods, m.id];
-                                                                            setTwoFactorActiveMethods(nextAct);
-                                                                        }
-                                                                        focusMethodSetup(m.id);
-                                                                    }
-                                                                }}
-                                                                onKeyDown={(e) => {
-                                                                    if (e.key === "Enter" || e.key === " ") {
-                                                                        e.preventDefault();
-                                                                        e.currentTarget.click();
-                                                                    }
-                                                                }}
-                                                                className={`p-3 rounded-xl text-left border transition-all flex flex-col justify-between gap-2 cursor-pointer ${
-                                                                    isActiveMethod
-                                                                        ? `${lightBg} ${border} ${isFocused ? `ring-2 ${ring}` : ""}`
-                                                                        : "bg-white dark:bg-slate-950 border-slate-200 dark:border-slate-800 hover:bg-slate-100/70 dark:hover:bg-slate-900"
-                                                                }`}
-                                                            >
-                                                                <div className="flex items-center justify-between w-full gap-1">
-                                                                    <div className={`w-7 h-7 rounded-lg flex items-center justify-center shrink-0 ${isActiveMethod ? `${bg} text-white` : "bg-slate-100 dark:bg-slate-800 text-slate-500"}`}>
-                                                                        <IconComp size={14} />
-                                                                    </div>
-                                                                    <div className="flex items-center gap-1">
-                                                                        {twoFactorMultiMode === "all" && isActiveMethod && (
-                                                                            <span className={`px-2 py-0.5 rounded-full text-[9px] font-extrabold text-white ${bg}`}>
-                                                                                {activeIdx + 1}. Aşama
-                                                                            </span>
-                                                                        )}
-                                                                        {twoFactorMultiMode === "any" && isActiveMethod && (
-                                                                            <span className={`px-2 py-0.5 rounded-full text-[9px] font-extrabold text-white ${bg}`}>
-                                                                                Aktif
-                                                                            </span>
-                                                                        )}
-                                                                        {twoFactorMultiMode !== "single" && isActiveMethod && twoFactorActiveMethods.length > 1 && (
-                                                                            <button
-                                                                                type="button"
-                                                                                title="Bu yöntemi zincirden çıkar"
-                                                                                onClick={(e) => {
-                                                                                    e.stopPropagation();
-                                                                                    const filtered = twoFactorActiveMethods.filter((id) => id !== m.id);
-                                                                                    const safeNext = filtered.length > 0 ? filtered : ["google_auth"];
-                                                                                    setTwoFactorActiveMethods(safeNext);
-                                                                                    if (safeNext.length <= 1) {
-                                                                                        setTwoFactorMultiMode("single");
-                                                                                    }
-                                                                                    if (isFocused && safeNext[0]) {
-                                                                                        focusMethodSetup(safeNext[0]);
-                                                                                    }
-                                                                                }}
-                                                                                className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-rose-100 dark:bg-rose-950/60 text-rose-600 dark:text-rose-400 hover:bg-rose-200"
-                                                                            >
-                                                                                Çıkar
-                                                                            </button>
-                                                                        )}
-                                                                        {twoFactorMultiMode === "single" && !isActiveMethod && (
-                                                                            <button
-                                                                                type="button"
-                                                                                title="Mevcut yöntemle birlikte 2 aşamalı olarak kullan"
-                                                                                onClick={(e) => {
-                                                                                    e.stopPropagation();
-                                                                                    const currPrimary = twoFactorMethod || "google_auth";
-                                                                                    const combined = currPrimary === m.id ? [m.id] : [currPrimary, m.id];
-                                                                                    setTwoFactorMultiMode("all");
-                                                                                    setTwoFactorActiveMethods(combined);
-                                                                                    focusMethodSetup(m.id);
-                                                                                }}
-                                                                                className="px-2 py-0.5 rounded-full text-[9px] font-extrabold bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700"
-                                                                            >
-                                                                                + Birlikte Kullan
-                                                                            </button>
-                                                                        )}
-                                                                        {isActiveMethod && <CheckCircle size={14} className={text} />}
-                                                                    </div>
-                                                                </div>
-                                                                <div>
-                                                                    <div className={`text-xs font-extrabold ${isActiveMethod ? text : "text-slate-800 dark:text-slate-100"}`}>
-                                                                        {m.title}
-                                                                    </div>
-                                                                    <div className="text-[10px] text-slate-500 dark:text-slate-400 leading-tight mt-0.5">
-                                                                        {m.desc}
-                                                                    </div>
-                                                                </div>
-                                                            </div>
-                                                        );
-                                                    })}
-                                                </div>
-
-                                                {twoFactorMultiMode !== "single" && twoFactorActiveMethods.length > 1 && (
-                                                    <div className="mt-2.5 p-2.5 rounded-xl bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 flex flex-wrap items-center justify-between gap-2">
-                                                        <div className="flex flex-wrap items-center gap-1.5 text-[11px]">
-                                                            <span className="font-bold text-slate-500 dark:text-slate-400">
-                                                                {twoFactorMultiMode === "all" ? "Giriş Doğrulama Sırası:" : "Aktif Alternatif Yöntemler:"}
-                                                            </span>
-                                                            {twoFactorActiveMethods.map((mId, idx) => {
-                                                                const labelMap = {
-                                                                    email: "E-Posta (E-Mail)",
-                                                                    whatsapp: "WhatsApp",
-                                                                    google_auth: "Google Authenticator",
-                                                                    microsoft_auth: "Microsoft Authenticator"
-                                                                };
-                                                                const isCurrFocused = twoFactorMethod === mId;
-                                                                return (
-                                                                    <React.Fragment key={mId}>
-                                                                        {idx > 0 && (
-                                                                            <span className="text-slate-400 font-bold">
-                                                                                {twoFactorMultiMode === "all" ? "➔" : "veya"}
-                                                                            </span>
-                                                                        )}
-                                                                        <button
-                                                                            type="button"
-                                                                            onClick={() => {
-                                                                                activeTwoFactorMethodRef.current = mId;
-                                                                                setTwoFactorMethod(mId);
-                                                                                const cachedM = twoFactorMethodsMap[mId] || {};
-                                                                                setTwoFactorEnrolled(Boolean(cachedM.enrolled));
-                                                                                if (mId === "google_auth" || mId === "microsoft_auth") {
-                                                                                    setTwoFactorSecret(cachedM.secret || "");
-                                                                                    setTwoFactorQrSvg(cachedM.qrSvg || "");
-                                                                                    if (!cachedM.qrSvg) {
-                                                                                        fetchTwoFactorSetup(false, mId);
-                                                                                    }
-                                                                                }
-                                                                            }}
-                                                                            className={`px-2.5 py-1 rounded-lg text-[10px] font-extrabold transition-all ${
-                                                                                isCurrFocused
-                                                                                    ? `${bg} text-white shadow-sm`
-                                                                                    : "bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-200"
-                                                                            }`}
-                                                                        >
-                                                                            {twoFactorMultiMode === "all" ? `${idx + 1}. ${labelMap[mId] || mId}` : (labelMap[mId] || mId)}
-                                                                            {" (Ayarları Göster)"}
-                                                                        </button>
-                                                                    </React.Fragment>
-                                                                );
-                                                            })}
-                                                        </div>
-                                                    </div>
-                                                )}
-                                            </div>
-
-                                            {/* METHOD 1: E-MAIL OTP DETAILS */}
-                                            {twoFactorMethod === "email" && (
-                                                <div className="p-3.5 rounded-xl bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 space-y-3">
-                                                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                                                        <div>
-                                                            <div className="text-xs font-bold text-slate-800 dark:text-white flex items-center gap-1.5">
-                                                                <Mail size={14} className={text} />
-                                                                Hedef E-Posta Adresi:
-                                                                <span className="font-mono text-slate-700 dark:text-slate-200">
-                                                                    {email && email.includes("@") ? email : "Tanımlanmadı"}
-                                                                </span>
-                                                            </div>
-                                                            <p className="text-[10px] text-slate-500 mt-0.5">
-                                                                Kullanıcı giriş yaptığında 6 haneli doğrulama kodu bu e-posta adresine gönderilecektir.
-                                                            </p>
-                                                        </div>
-                                                        <button
-                                                            type="button"
-                                                            onClick={handleSendTestEmailOtp}
-                                                            disabled={twoFactorEmailSending || !email || !email.includes("@")}
-                                                            className={`px-3 py-1.5 rounded-lg text-[11px] font-bold text-white transition-all flex items-center gap-1.5 shrink-0 disabled:opacity-50 ${bg} ${hover}`}
-                                                        >
-                                                            <RefreshCw size={12} className={twoFactorEmailSending ? "animate-spin" : ""} />
-                                                            {twoFactorEmailSending ? "Gönderiliyor..." : "Test Kodu Gönder"}
-                                                        </button>
-                                                    </div>
-
-                                                    {(!email || !email.includes("@")) && (
-                                                        <div className="p-2.5 rounded-lg bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800/50 text-[11px] text-amber-700 dark:text-amber-300 flex items-center gap-2">
-                                                            <AlertTriangle size={14} className="shrink-0" />
-                                                            Lütfen önce "Genel" sekmesinden kullanıcıya geçerli bir E-Posta adresi giriniz.
-                                                        </div>
-                                                    )}
-
-                                                    <div className="pt-2 border-t border-slate-100 dark:border-slate-800/80 flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
-                                                        <input
-                                                            type="text"
-                                                            inputMode="numeric"
-                                                            autoComplete="one-time-code"
-                                                            pattern="\d{6}"
-                                                            autoCorrect="off"
-                                                            autoCapitalize="off"
-                                                            spellCheck={false}
-                                                            maxLength={6}
-                                                            value={twoFactorTestCode}
-                                                            onChange={(e) => setTwoFactorTestCode(e.target.value.replace(/\D/g, ""))}
-                                                            placeholder="E-postaya gelen 6 haneli test kodunu girin"
-                                                            className="flex-1 px-3 py-1.5 rounded-lg bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-xs font-mono tracking-widest text-slate-800 dark:text-white outline-none"
-                                                        />
-                                                        <button
-                                                            type="button"
-                                                            onClick={handleVerifyTest2faCode}
-                                                            disabled={twoFactorVerifyLoading || twoFactorTestCode.length !== 6}
-                                                            className="px-3.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 dark:bg-slate-700 dark:hover:bg-slate-600 text-white text-[11px] font-bold transition-all disabled:opacity-50 shrink-0"
-                                                        >
-                                                            {twoFactorVerifyLoading ? "Doğrulanıyor..." : "Kodu Test Et & Onayla"}
-                                                        </button>
-                                                    </div>
-                                                </div>
-                                            )}
-
-                                            {/* METHOD 2: WHATSAPP ("GİRİŞ KODU") DETAILS */}
-                                            {twoFactorMethod === "whatsapp" && (
-                                                <div className="p-4 rounded-xl bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 space-y-3.5">
-                                                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-2.5 border-b border-slate-100 dark:border-slate-800">
-                                                        <div className="flex items-center gap-2">
-                                                            <PhoneCall size={15} className={text} />
-                                                            <span className="text-xs font-extrabold text-slate-800 dark:text-white">
-                                                                WhatsApp İki Faktörlü Doğrulama ("Giriş Kodu" Sistemi)
-                                                            </span>
-                                                            <span className="px-2 py-0.5 rounded-full text-[9px] font-extrabold bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800">
-                                                                %100 Ücretsiz • 5 Dk Geçerli
-                                                            </span>
-                                                        </div>
-                                                    </div>
-
-                                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 items-end">
-                                                        <div>
-                                                            <label htmlFor="usersettings-2fa-whatsapp-phone" className="block text-[10px] font-bold text-slate-600 dark:text-slate-300 uppercase tracking-wider mb-1">
-                                                                Kullanıcının WhatsApp / GSM Numarası
-                                                            </label>
-                                                            <input
-                                                                id="usersettings-2fa-whatsapp-phone"
-                                                                type="tel"
-                                                                inputMode="tel"
-                                                                autoComplete="tel"
-                                                                autoCorrect="off"
-                                                                autoCapitalize="off"
-                                                                spellCheck={false}
-                                                                placeholder="Örn: 0532 123 45 67"
-                                                                value={followMeMobileNumber}
-                                                                onChange={(e) => setFollowMeMobileNumber(e.target.value)}
-                                                                className={`w-full text-xs font-semibold px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 text-slate-800 dark:text-white focus:outline-none focus:ring-2 ${ring}`}
-                                                            />
-                                                        </div>
-                                                        <div className="flex items-center gap-2">
-                                                            <a
-                                                                href="https://wa.me/908503607390?text=Giri%C5%9F%20Kodu"
-                                                                target="_blank"
-                                                                rel="noreferrer"
-                                                                className="flex-1 px-3 py-2 rounded-lg text-[11px] font-bold text-center bg-emerald-600 hover:bg-emerald-500 text-white transition-all shadow-sm"
-                                                            >
-                                                                WhatsApp'ta "Giriş Kodu" Aç
-                                                            </a>
-                                                            <button
-                                                                type="button"
-                                                                onClick={handleSendTestWhatsAppOtp}
-                                                                disabled={twoFactorEmailSending || (followMeMobileNumber || "").replace(/\D/g, "").length < 10}
-                                                                className={`px-3 py-2 rounded-lg text-[11px] font-bold text-white transition-all flex items-center gap-1.5 shrink-0 disabled:opacity-50 ${bg} ${hover}`}
-                                                            >
-                                                                <RefreshCw size={12} className={twoFactorEmailSending ? "animate-spin" : ""} />
-                                                                {twoFactorEmailSending ? "Gönderiliyor..." : "Test Kodu Gönder"}
-                                                            </button>
-                                                        </div>
-                                                    </div>
-
-                                                    <div className="p-3 rounded-lg bg-slate-50 dark:bg-slate-900/70 border border-slate-200/70 dark:border-slate-800 text-[11px] text-slate-600 dark:text-slate-300 space-y-1 leading-relaxed">
-                                                        <div className="font-bold text-slate-800 dark:text-white">Nasıl Çalışır?</div>
-                                                        <p>1. Kullanıcı WhatsApp üzerinden sistem hattımıza (<strong>0850 360 7390</strong>) <strong>"Giriş Kodu"</strong> mesajı gönderir.</p>
-                                                        <p>2. Sistem numarayı otomatik tanır ve <strong>5 dakika (300 saniye)</strong> geçerli 6 haneli doğrulama kodunu anında ücretsiz yanıtlar.</p>
-                                                        <p>3. Kullanıcı sisteme girerken kullanıcı adı, şifre ve WhatsApp'a gelen 6 haneli kodu yazarak giriş yapar.</p>
-                                                    </div>
-
-                                                    <div className="pt-2 border-t border-slate-100 dark:border-slate-800/80 flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
-                                                        <input
-                                                            type="text"
-                                                            inputMode="numeric"
-                                                            autoComplete="one-time-code"
-                                                            pattern="\d{6}"
-                                                            autoCorrect="off"
-                                                            autoCapitalize="off"
-                                                            spellCheck={false}
-                                                            maxLength={6}
-                                                            value={twoFactorTestCode}
-                                                            onChange={(e) => setTwoFactorTestCode(e.target.value.replace(/\D/g, ""))}
-                                                            placeholder="WhatsApp'a gelen 6 haneli kodu test edin"
-                                                            className="flex-1 px-3 py-1.5 rounded-lg bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-xs font-mono tracking-widest text-slate-800 dark:text-white outline-none"
-                                                        />
-                                                        <button
-                                                            type="button"
-                                                            onClick={handleVerifyTest2faCode}
-                                                            disabled={twoFactorVerifyLoading || twoFactorTestCode.length !== 6}
-                                                            className="px-3.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 dark:bg-slate-700 dark:hover:bg-slate-600 text-white text-[11px] font-bold transition-all disabled:opacity-50 shrink-0"
-                                                        >
-                                                            {twoFactorVerifyLoading ? "Doğrulanıyor..." : "Kodu Test Et & Onayla"}
-                                                        </button>
-                                                    </div>
-                                                </div>
-                                            )}
-
-                                            {/* METHOD 3 & 4: GOOGLE / MICROSOFT AUTHENTICATOR QR & SECRET */}
-                                            {(twoFactorMethod === "google_auth" || twoFactorMethod === "microsoft_auth" || twoFactorMethod === "app") && (
-                                                <div className="p-4 rounded-xl bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 space-y-3.5">
-                                                    <div className="flex flex-wrap items-center justify-between gap-2 pb-2.5 border-b border-slate-100 dark:border-slate-800">
-                                                        <div className="flex items-center gap-2">
-                                                            <span className="text-xs font-extrabold text-slate-800 dark:text-white">
-                                                                {twoFactorMethod === "microsoft_auth" ? "Microsoft Authenticator Kurulumu" : "Google Authenticator Kurulumu"}
-                                                            </span>
-                                                            <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
-                                                                twoFactorEnrolled
-                                                                    ? "bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800"
-                                                                    : "bg-amber-50 dark:bg-amber-950/40 text-amber-600 dark:text-amber-400 border border-amber-200 dark:border-amber-800"
-                                                            }`}>
-                                                                {twoFactorEnrolled ? "✓ Cihaz Eşleştirildi" : "İlk Girişte veya Aşağıdan Eşleştirilebilir"}
-                                                            </span>
-                                                        </div>
-                                                        <button
-                                                            type="button"
-                                                            onClick={() => fetchTwoFactorSetup(true, twoFactorMethod)}
-                                                            disabled={twoFactorSetupLoading}
-                                                            className="text-[11px] font-bold text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white flex items-center gap-1 px-2.5 py-1 rounded-lg bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors"
-                                                        >
-                                                            <RefreshCw size={11} className={twoFactorSetupLoading ? "animate-spin" : ""} />
-                                                            Yeni QR / Anahtar Üret
-                                                        </button>
-                                                    </div>
-
-                                                    <div className="flex flex-col sm:flex-row items-center sm:items-start gap-4">
-                                                        <div className="w-36 h-36 rounded-xl border-2 border-slate-200 dark:border-slate-800 bg-white p-2 flex items-center justify-center shrink-0 shadow-sm">
-                                                            {twoFactorSetupLoading ? (
-                                                                <RefreshCw size={24} className="animate-spin text-slate-400" />
-                                                            ) : twoFactorQrSvg ? (
-                                                                <img src={twoFactorQrSvg} alt="2FA QR Code" className="w-full h-full object-contain" />
-                                                            ) : (
-                                                                <span className="text-[10px] text-slate-400 text-center px-2">QR Kod Yükleniyor...</span>
-                                                            )}
-                                                        </div>
-
-                                                        <div className="flex-1 space-y-2.5 w-full">
-                                                            <div className="text-[11px] text-slate-600 dark:text-slate-300 space-y-1 leading-relaxed">
-                                                                <p className="font-bold text-slate-800 dark:text-white">Nasıl Eşleştirilir?</p>
-                                                                <p>1. Telefonunuzda <strong>{twoFactorMethod === "microsoft_auth" ? "Microsoft Authenticator" : "Google Authenticator"}</strong> uygulamasını açın.</p>
-                                                                <p>2. <strong>+ (Hesap Ekle)</strong> menüsünden <strong>QR Kodu Tara</strong> seçeneği ile yandaki kodu okutun (veya kullanıcı ilk girişinde kendi ekranından okutabilir).</p>
-                                                            </div>
-
-                                                            <div>
-                                                                <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1">
-                                                                    Manuel Kurulum Anahtarı (Secret Key)
-                                                                </label>
-                                                                <div className="flex items-center gap-1.5">
-                                                                    <input
-                                                                        type="text"
-                                                                        readOnly
-                                                                        value={twoFactorSecret || "Üretiliyor..."}
-                                                                        className="flex-1 px-2.5 py-1.5 rounded-lg bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-[11px] font-mono font-bold text-slate-700 dark:text-slate-200 outline-none"
-                                                                    />
-                                                                    <button
-                                                                        type="button"
-                                                                        onClick={copyTwoFactorSecret}
-                                                                        className="px-2.5 py-1.5 rounded-lg bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-[11px] font-bold flex items-center gap-1 transition-colors shrink-0"
-                                                                        title="Anahtarı Kopyala"
-                                                                    >
-                                                                        {twoFactorSecretCopied ? <Check size={13} className="text-emerald-500" /> : <Copy size={13} />}
-                                                                        {twoFactorSecretCopied ? "Kopyalandı" : "Kopyala"}
-                                                                    </button>
-                                                                </div>
-                                                            </div>
-
-                                                            <div className="pt-1 flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
-                                                                <input
-                                                                    type="text"
-                                                                    inputMode="numeric"
-                                                                    autoComplete="one-time-code"
-                                                                    pattern="\d{6}"
-                                                                    autoCorrect="off"
-                                                                    autoCapitalize="off"
-                                                                    spellCheck={false}
-                                                                    maxLength={6}
-                                                                    value={twoFactorTestCode}
-                                                                    onChange={(e) => setTwoFactorTestCode(e.target.value.replace(/\D/g, ""))}
-                                                                    placeholder="Uygulamadaki 6 haneli kodu test edin"
-                                                                    className="flex-1 px-3 py-1.5 rounded-lg bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-xs font-mono tracking-widest text-slate-800 dark:text-white outline-none"
-                                                                />
-                                                                <button
-                                                                    type="button"
-                                                                    onClick={handleVerifyTest2faCode}
-                                                                    disabled={twoFactorVerifyLoading || twoFactorTestCode.length !== 6}
-                                                                    className={`px-3.5 py-1.5 rounded-lg text-white text-[11px] font-bold transition-all disabled:opacity-50 shrink-0 ${bg} ${hover}`}
-                                                                >
-                                                                    {twoFactorVerifyLoading ? "Doğrulanıyor..." : "Test Et & Eşleştir"}
-                                                                </button>
-                                                            </div>
-                                                        </div>
-                                                    </div>
-                                                </div>
-                                            )}
-
-                                            {twoFactorStatusMsg && (
-                                                <div className={`p-2.5 rounded-lg text-xs font-bold flex items-center gap-2 ${
-                                                    twoFactorStatusMsg.type === "success"
-                                                        ? "bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800"
-                                                        : "bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-800"
-                                                }`}>
-                                                    {twoFactorStatusMsg.type === "success" ? <CheckCircle size={14} className="shrink-0" /> : <AlertTriangle size={14} className="shrink-0" />}
-                                                    <span>{twoFactorStatusMsg.text}</span>
-                                                </div>
-                                            )}
-                                        </div>
-                                    )}
-                                </div>
-
-                                {/* ARAYÜZ OTURUM SÜRESİ & OTOMATİK EKRAN KAPATMA */}
-                                <div className={`p-4 bg-slate-50 dark:bg-slate-900/50 rounded-xl border transition-all ${autoLogoutEnabled ? border : "border-slate-100 dark:border-slate-800"}`}>
-                                    <div className="flex items-center justify-between gap-3">
-                                        <div className="flex items-start gap-3">
-                                            <div className={`p-2 rounded-lg shrink-0 mt-0.5 ${autoLogoutEnabled ? `${lightBg} ${text}` : "bg-slate-200/70 dark:bg-slate-800 text-slate-500"}`}>
-                                                <Clock size={18} />
-                                            </div>
-                                            <div>
-                                                <div className="flex items-center gap-2">
-                                                    <h5 className="text-sm font-bold text-slate-800 dark:text-white">Arayüz Oturum Süresi & Otomatik Ekran Kapatma</h5>
-                                                    <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${autoLogoutEnabled ? `${lightBg} ${text} border ${border}` : "bg-slate-200 dark:bg-slate-800 text-slate-500"}`}>
-                                                        {autoLogoutEnabled ? `${autoLogoutDuration} Saat` : "Pasif"}
-                                                    </span>
-                                                </div>
-                                                <p className="text-xs text-slate-400 mt-0.5">
-                                                    Belirtilen süre boyunca işlem yapılmadığında kullanıcının web/masaüstü oturumu otomatik olarak sonlandırılır.
-                                                </p>
-                                            </div>
-                                        </div>
-                                        <button
-                                            type="button"
-                                            onClick={() => setAutoLogoutEnabled(!autoLogoutEnabled)}
-                                            className={`transition-colors shrink-0 ${autoLogoutEnabled ? text : "text-slate-400"}`}
-                                        >
-                                            {autoLogoutEnabled ? <ToggleRight size={28} /> : <ToggleLeft size={28} />}
-                                        </button>
-                                    </div>
-                                    {autoLogoutEnabled && (
-                                        <div className="mt-3 pt-3 border-t border-slate-200/70 dark:border-slate-800 grid grid-cols-3 gap-2.5 animate-in fade-in duration-200">
-                                            {[
-                                                { label: "1 Saat", value: 1, desc: "60 dakika hareketsizlik" },
-                                                { label: "2 Saat", value: 2, desc: "120 dakika hareketsizlik" },
-                                                { label: "3 Saat", value: 3, desc: "180 dakika hareketsizlik" }
-                                            ].map((opt) => {
-                                                const isSel = Number(autoLogoutDuration) === opt.value;
-                                                return (
-                                                    <button
-                                                        key={opt.value}
-                                                        type="button"
-                                                        onClick={() => setAutoLogoutDuration(opt.value)}
-                                                        className={`p-3 rounded-xl border text-left transition-all flex flex-col justify-between ${
-                                                            isSel
-                                                                ? `${lightBg} ${border} ring-2 ${ring}`
-                                                                : "bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400"
-                                                        }`}
-                                                    >
-                                                        <div className="flex items-center justify-between w-full mb-1">
-                                                            <span className={`text-xs font-extrabold ${isSel ? text : "text-slate-800 dark:text-white"}`}>{opt.label}</span>
-                                                            {isSel && <CheckCircle size={14} className={text} />}
-                                                        </div>
-                                                        <span className="text-[10px] text-slate-400">{opt.desc}</span>
-                                                    </button>
-                                                );
-                                            })}
-                                        </div>
-                                    )}
-                                </div>
-
-                                {/* ŞİFRE GEÇERLİLİK SÜRESİ (ZORUNLU ŞİFRE DEĞİŞİMİ) */}
-                                <div className={`p-4 bg-slate-50 dark:bg-slate-900/50 rounded-xl border transition-all ${passwordExpiryEnabled ? border : "border-slate-100 dark:border-slate-800"}`}>
-                                    <div className="flex items-center justify-between gap-3">
-                                        <div className="flex items-start gap-3">
-                                            <div className={`p-2 rounded-lg shrink-0 mt-0.5 ${passwordExpiryEnabled ? `${lightBg} ${text}` : "bg-slate-200/70 dark:bg-slate-800 text-slate-500"}`}>
-                                                <Lock size={18} />
-                                            </div>
-                                            <div>
-                                                <div className="flex items-center gap-2">
-                                                    <h5 className="text-sm font-bold text-slate-800 dark:text-white">Şifre Geçerlilik Süresi (Zorunlu Değişim)</h5>
-                                                    <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${passwordExpiryEnabled ? `${lightBg} ${text} border ${border}` : "bg-slate-200 dark:bg-slate-800 text-slate-500"}`}>
-                                                        {passwordExpiryEnabled ? `${passwordExpiryMonths} Ay` : "Süresiz"}
-                                                    </span>
-                                                </div>
-                                                <p className="text-xs text-slate-400 mt-0.5">
-                                                    Kullanıcı şifresinin belirli periyotlarla zorunlu olarak yenilenmesini sağlar.
-                                                </p>
-                                            </div>
-                                        </div>
-                                        <button
-                                            type="button"
-                                            onClick={() => setPasswordExpiryEnabled(!passwordExpiryEnabled)}
-                                            className={`transition-colors shrink-0 ${passwordExpiryEnabled ? text : "text-slate-400"}`}
-                                        >
-                                            {passwordExpiryEnabled ? <ToggleRight size={28} /> : <ToggleLeft size={28} />}
-                                        </button>
-                                    </div>
-                                    {passwordExpiryEnabled && (
-                                        <div className="mt-3 pt-3 border-t border-slate-200/70 dark:border-slate-800 grid grid-cols-2 sm:grid-cols-4 gap-2.5 animate-in fade-in duration-200">
-                                            {[
-                                                { label: "1 Ay", value: 1, desc: "30 günde bir" },
-                                                { label: "3 Ay", value: 3, desc: "90 günde bir" },
-                                                { label: "6 Ay", value: 6, desc: "180 günde bir" },
-                                                { label: "12 Ay", value: 12, desc: "365 günde bir" }
-                                            ].map((opt) => {
-                                                const isSel = Number(passwordExpiryMonths) === opt.value;
-                                                return (
-                                                    <button
-                                                        key={opt.value}
-                                                        type="button"
-                                                        onClick={() => setPasswordExpiryMonths(opt.value)}
-                                                        className={`p-2.5 rounded-xl border text-left transition-all flex flex-col justify-between ${
-                                                            isSel
-                                                                ? `${lightBg} ${border} ring-2 ${ring}`
-                                                                : "bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400"
-                                                        }`}
-                                                    >
-                                                        <div className="flex items-center justify-between w-full mb-0.5">
-                                                            <span className={`text-xs font-extrabold ${isSel ? text : "text-slate-800 dark:text-white"}`}>{opt.label}</span>
-                                                            {isSel && <CheckCircle size={13} className={text} />}
-                                                        </div>
-                                                        <span className="text-[10px] text-slate-400">{opt.desc}</span>
-                                                    </button>
-                                                );
-                                            })}
                                         </div>
                                     )}
                                 </div>
@@ -8484,9 +7774,737 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
                             </div>
                         )}
 
-                        {/* TAB: BAĞLANTI GEÇMİŞİ & GÜVENİLİR CİHAZ KİLİDİ (YÖNTEM A VE B) */}
-                        {activeTab === "connection_history" && (
+                        {/* TAB: GÜVENLİK (2FA, OTURUM SÜRESİ, ŞİFRE GEÇERLİLİĞİ, CİHAZ KİLİDİ & BAĞLANTI GEÇMİŞİ) */}
+                        {(activeTab === "security" || activeTab === "connection_history") && (
                             <div className="space-y-5 animate-in fade-in duration-300">
+                                <div className="pb-3 border-b border-slate-100 dark:border-slate-800/60">
+                                    <h4 className="text-sm font-extrabold text-slate-800 dark:text-white uppercase tracking-wider flex items-center gap-2">
+                                        <Lock size={16} className={text} />
+                                        Güvenlik, Oturum & Cihaz Kilidi Ayarları
+                                    </h4>
+                                    <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+                                        Kullanıcının İki Aşamalı Doğrulama (2FA), otomatik oturum kapatma, zorunlu şifre değişim periyodu, Güvenilir Cihaz Kilidi ve bağlantı geçmişi ayarlarını tek noktadan yönetin.
+                                    </p>
+                                </div>
+
+                                <div ref={twoFactorCardRef} className="p-4 bg-slate-50 dark:bg-slate-900/50 rounded-xl border border-slate-100 dark:border-slate-800">
+                                    <div className="flex items-center justify-between">
+                                        <div className="flex items-center gap-2.5">
+                                            <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${twoFactorEnabled ? `${lightBg} ${text}` : "bg-slate-200/70 dark:bg-slate-800 text-slate-500"}`}>
+                                                <Shield size={16} />
+                                            </div>
+                                            <div>
+                                                <div className="flex items-center gap-2">
+                                                    <h5 className="text-sm font-bold text-slate-800 dark:text-white">İki Aşamalı Doğrulama (2FA)</h5>
+                                                    <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${twoFactorEnabled ? `${lightBg} ${text} border ${border}` : "bg-slate-200 dark:bg-slate-800 text-slate-500"}`}>
+                                                        {twoFactorEnabled ? "Aktif" : "Pasif"}
+                                                    </span>
+                                                </div>
+                                                <p className="text-[10px] text-slate-500 mt-0.5">Kullanıcı sisteme girerken ikinci aşama doğrulama kodu sorulsun mu?</p>
+                                            </div>
+                                        </div>
+                                        <button
+                                            type="button"
+                                            onClick={() => {
+                                                const nextVal = !twoFactorEnabled;
+                                                setTwoFactorEnabled(nextVal);
+                                                setTwoFactorStatusMsg(null);
+                                                if (nextVal && (!twoFactorMethod || twoFactorMethod === "app")) {
+                                                    setTwoFactorMethod("google_auth");
+                                                }
+                                                if (nextVal) {
+                                                    scrollTwoFactorCardIntoPane();
+                                                }
+                                            }}
+                                            className="text-slate-400 hover:text-slate-700 transition-colors"
+                                        >
+                                            {twoFactorEnabled ? <ToggleRight size={32} className={`${text}`} /> : <ToggleLeft size={32} />}
+                                        </button>
+                                    </div>
+                                    
+                                    {twoFactorEnabled && (
+                                        <div className="mt-4 pt-4 border-t border-slate-200/80 dark:border-slate-800 space-y-4 animate-in fade-in duration-200">
+                                            {/* DOĞRULAMA MODU (TEK YÖNTEM / 2 AŞAMALI ZORUNLU / YEDEKLİ) */}
+                                            <div className="p-3 rounded-xl bg-white dark:bg-slate-950 border border-slate-200/80 dark:border-slate-800 space-y-2.5">
+                                                <div className="flex flex-wrap items-center justify-between gap-2">
+                                                    <div>
+                                                        <div className="text-xs font-extrabold text-slate-800 dark:text-white">
+                                                            Doğrulama Çalışma Modu (Tek / 2 Aşamalı 2FA)
+                                                        </div>
+                                                        <p className="text-[10px] text-slate-500 dark:text-slate-400">
+                                                            İsterseniz tek bir yöntem, isterseniz aynı anda hem E-Posta hem Google Authenticator (2 Aşamalı) kullanabilirsiniz.
+                                                        </p>
+                                                    </div>
+                                                </div>
+                                                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                                                    {[
+                                                        {
+                                                            mode: "single",
+                                                            title: "Tek Yöntem (Standart)",
+                                                            desc: "Sadece seçili olan tek doğrulama yöntemi sorulur"
+                                                        },
+                                                        {
+                                                            mode: "all",
+                                                            title: "2 Aşamalı Zorunlu (VE Modu)",
+                                                            desc: "Örn: Önce E-Posta kodu, ardından Google Authenticator zorunlu"
+                                                        },
+                                                        {
+                                                            mode: "any",
+                                                            title: "Esnek / Yedekli (VEYA Modu)",
+                                                            desc: "Seçili yöntemlerden herhangi biriyle giriş yapılabilir"
+                                                        }
+                                                    ].map((opt) => {
+                                                        const isModeActive = twoFactorMultiMode === opt.mode;
+                                                        return (
+                                                            <button
+                                                                key={opt.mode}
+                                                                type="button"
+                                                                onClick={() => {
+                                                                    setTwoFactorMultiMode(opt.mode);
+                                                                    if (opt.mode === "single") {
+                                                                        const keepM = twoFactorMethod || twoFactorActiveMethods[0] || "google_auth";
+                                                                        setTwoFactorActiveMethods([keepM]);
+                                                                        setTwoFactorMethod(keepM);
+                                                                        activeTwoFactorMethodRef.current = keepM;
+                                                                    } else {
+                                                                        let nextList = Array.isArray(twoFactorActiveMethods) ? [...twoFactorActiveMethods] : [];
+                                                                        if (nextList.length < 2) {
+                                                                            const curr = nextList[0] || twoFactorMethod || "google_auth";
+                                                                            if (curr === "google_auth" || curr === "microsoft_auth") {
+                                                                                nextList = ["email", curr];
+                                                                            } else {
+                                                                                nextList = [curr, "google_auth"];
+                                                                            }
+                                                                        }
+                                                                        setTwoFactorActiveMethods(nextList);
+                                                                        if (nextList.includes("google_auth") && !twoFactorMethodsMap?.google_auth?.qrSvg) {
+                                                                            fetchTwoFactorSetup(false, "google_auth");
+                                                                        }
+                                                                        if (nextList.includes("microsoft_auth") && !twoFactorMethodsMap?.microsoft_auth?.qrSvg) {
+                                                                            fetchTwoFactorSetup(false, "microsoft_auth");
+                                                                        }
+                                                                    }
+                                                                }}
+                                                                className={`p-2.5 rounded-xl text-left border transition-all ${
+                                                                    isModeActive
+                                                                        ? `${lightBg} ${border} ring-2 ${ring}`
+                                                                        : "bg-slate-50/70 dark:bg-slate-900/50 border-slate-200 dark:border-slate-800 hover:bg-slate-100 dark:hover:bg-slate-900"
+                                                                }`}
+                                                            >
+                                                                <div className="flex items-center justify-between gap-1.5">
+                                                                    <span className={`text-[11px] font-extrabold ${isModeActive ? text : "text-slate-800 dark:text-slate-100"}`}>
+                                                                        {opt.title}
+                                                                    </span>
+                                                                    {isModeActive && <CheckCircle size={13} className={text} />}
+                                                                </div>
+                                                                <p className="text-[10px] text-slate-500 dark:text-slate-400 leading-tight mt-1">
+                                                                    {opt.desc}
+                                                                </p>
+                                                            </button>
+                                                        );
+                                                    })}
+                                                </div>
+                                            </div>
+
+                                            <div>
+                                                <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
+                                                    <label className="block text-xs font-bold text-slate-800 dark:text-white">
+                                                        {twoFactorMultiMode === "single"
+                                                            ? "2FA Doğrulama Yöntemi Seçiniz"
+                                                            : "Aktif 2FA Doğrulama Yöntemlerini Seçiniz (Birden Fazla Seçilebilir)"}
+                                                    </label>
+                                                    {twoFactorMultiMode !== "single" && twoFactorActiveMethods.length >= 2 && (
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => {
+                                                                setTwoFactorActiveMethods((prev) => [...prev].reverse());
+                                                            }}
+                                                            className="px-2.5 py-1 rounded-lg text-[10px] font-bold bg-slate-200/80 dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-300 dark:hover:bg-slate-700 transition-colors flex items-center gap-1"
+                                                        >
+                                                            <RefreshCw size={11} />
+                                                            Doğrulama Sırasını Değiştir (1 ⇄ 2)
+                                                        </button>
+                                                    )}
+                                                </div>
+                                                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5">
+                                                    {[
+                                                        {
+                                                            id: "email",
+                                                            title: "E-Posta (E-Mail)",
+                                                            desc: "Girişte e-posta adresine 6 haneli tek kullanımlık kod gönderilir",
+                                                            icon: Mail
+                                                        },
+                                                        {
+                                                            id: "whatsapp",
+                                                            title: "WhatsApp (Giriş Kodu)",
+                                                            desc: "WhatsApp'a 'Giriş Kodu' yazıldığında 5 dk geçerli ücretsiz kod yanıtlanır",
+                                                            icon: PhoneCall
+                                                        },
+                                                        {
+                                                            id: "google_auth",
+                                                            title: "Google Authenticator",
+                                                            desc: "Google Authenticator mobil uygulaması ile 30 sn'lik kod üretilir",
+                                                            icon: Smartphone
+                                                        },
+                                                        {
+                                                            id: "microsoft_auth",
+                                                            title: "Microsoft Authenticator",
+                                                            desc: "Microsoft Authenticator mobil uygulaması ile 30 sn'lik kod üretilir",
+                                                            icon: KeyRound
+                                                        }
+                                                    ].map((m) => {
+                                                        const IconComp = m.icon;
+                                                        const isFocused = twoFactorMethod === m.id || (m.id === "google_auth" && twoFactorMethod === "app");
+                                                        const activeIdx = twoFactorActiveMethods.indexOf(m.id);
+                                                        const isActiveMethod = twoFactorMultiMode === "single" ? isFocused : activeIdx !== -1;
+
+                                                        const focusMethodSetup = (methodId) => {
+                                                            activeTwoFactorMethodRef.current = methodId;
+                                                            setTwoFactorMethod(methodId);
+                                                            setTwoFactorStatusMsg(null);
+                                                            setTwoFactorTestCode("");
+                                                            const cachedM = twoFactorMethodsMap[methodId] || {};
+                                                            setTwoFactorEnrolled(Boolean(cachedM.enrolled));
+                                                            if (methodId === "google_auth" || methodId === "microsoft_auth") {
+                                                                setTwoFactorSecret(cachedM.secret || "");
+                                                                setTwoFactorQrSvg(cachedM.qrSvg || "");
+                                                                if (!cachedM.qrSvg) {
+                                                                    fetchTwoFactorSetup(false, methodId);
+                                                                }
+                                                            }
+                                                            scrollTwoFactorCardIntoPane();
+                                                        };
+
+                                                        return (
+                                                            <div
+                                                                key={m.id}
+                                                                role="button"
+                                                                tabIndex={0}
+                                                                onClick={() => {
+                                                                    if (twoFactorMultiMode === "single") {
+                                                                        setTwoFactorActiveMethods([m.id]);
+                                                                        focusMethodSetup(m.id);
+                                                                    } else {
+                                                                        if (!isActiveMethod) {
+                                                                            const nextAct = [...twoFactorActiveMethods, m.id];
+                                                                            setTwoFactorActiveMethods(nextAct);
+                                                                        }
+                                                                        focusMethodSetup(m.id);
+                                                                    }
+                                                                }}
+                                                                onKeyDown={(e) => {
+                                                                    if (e.key === "Enter" || e.key === " ") {
+                                                                        e.preventDefault();
+                                                                        e.currentTarget.click();
+                                                                    }
+                                                                }}
+                                                                className={`p-3 rounded-xl text-left border transition-all flex flex-col justify-between gap-2 cursor-pointer ${
+                                                                    isActiveMethod
+                                                                        ? `${lightBg} ${border} ${isFocused ? `ring-2 ${ring}` : ""}`
+                                                                        : "bg-white dark:bg-slate-950 border-slate-200 dark:border-slate-800 hover:bg-slate-100/70 dark:hover:bg-slate-900"
+                                                                }`}
+                                                            >
+                                                                <div className="flex items-center justify-between w-full gap-1">
+                                                                    <div className={`w-7 h-7 rounded-lg flex items-center justify-center shrink-0 ${isActiveMethod ? `${bg} text-white` : "bg-slate-100 dark:bg-slate-800 text-slate-500"}`}>
+                                                                        <IconComp size={14} />
+                                                                    </div>
+                                                                    <div className="flex items-center gap-1">
+                                                                        {twoFactorMultiMode === "all" && isActiveMethod && (
+                                                                            <span className={`px-2 py-0.5 rounded-full text-[9px] font-extrabold text-white ${bg}`}>
+                                                                                {activeIdx + 1}. Aşama
+                                                                            </span>
+                                                                        )}
+                                                                        {twoFactorMultiMode === "any" && isActiveMethod && (
+                                                                            <span className={`px-2 py-0.5 rounded-full text-[9px] font-extrabold text-white ${bg}`}>
+                                                                                Aktif
+                                                                            </span>
+                                                                        )}
+                                                                        {twoFactorMultiMode !== "single" && isActiveMethod && twoFactorActiveMethods.length > 1 && (
+                                                                            <button
+                                                                                type="button"
+                                                                                title="Bu yöntemi zincirden çıkar"
+                                                                                onClick={(e) => {
+                                                                                    e.stopPropagation();
+                                                                                    const filtered = twoFactorActiveMethods.filter((id) => id !== m.id);
+                                                                                    const safeNext = filtered.length > 0 ? filtered : ["google_auth"];
+                                                                                    setTwoFactorActiveMethods(safeNext);
+                                                                                    if (safeNext.length <= 1) {
+                                                                                        setTwoFactorMultiMode("single");
+                                                                                    }
+                                                                                    if (isFocused && safeNext[0]) {
+                                                                                        focusMethodSetup(safeNext[0]);
+                                                                                    }
+                                                                                }}
+                                                                                className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-rose-100 dark:bg-rose-950/60 text-rose-600 dark:text-rose-400 hover:bg-rose-200"
+                                                                            >
+                                                                                Çıkar
+                                                                            </button>
+                                                                        )}
+                                                                        {twoFactorMultiMode === "single" && !isActiveMethod && (
+                                                                            <button
+                                                                                type="button"
+                                                                                title="Mevcut yöntemle birlikte 2 aşamalı olarak kullan"
+                                                                                onClick={(e) => {
+                                                                                    e.stopPropagation();
+                                                                                    const currPrimary = twoFactorMethod || "google_auth";
+                                                                                    const combined = currPrimary === m.id ? [m.id] : [currPrimary, m.id];
+                                                                                    setTwoFactorMultiMode("all");
+                                                                                    setTwoFactorActiveMethods(combined);
+                                                                                    focusMethodSetup(m.id);
+                                                                                }}
+                                                                                className="px-2 py-0.5 rounded-full text-[9px] font-extrabold bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700"
+                                                                            >
+                                                                                + Birlikte Kullan
+                                                                            </button>
+                                                                        )}
+                                                                        {isActiveMethod && <CheckCircle size={14} className={text} />}
+                                                                    </div>
+                                                                </div>
+                                                                <div>
+                                                                    <div className={`text-xs font-extrabold ${isActiveMethod ? text : "text-slate-800 dark:text-slate-100"}`}>
+                                                                        {m.title}
+                                                                    </div>
+                                                                    <div className="text-[10px] text-slate-500 dark:text-slate-400 leading-tight mt-0.5">
+                                                                        {m.desc}
+                                                                    </div>
+                                                                </div>
+                                                            </div>
+                                                        );
+                                                    })}
+                                                </div>
+
+                                                {twoFactorMultiMode !== "single" && twoFactorActiveMethods.length > 1 && (
+                                                    <div className="mt-2.5 p-2.5 rounded-xl bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 flex flex-wrap items-center justify-between gap-2">
+                                                        <div className="flex flex-wrap items-center gap-1.5 text-[11px]">
+                                                            <span className="font-bold text-slate-500 dark:text-slate-400">
+                                                                {twoFactorMultiMode === "all" ? "Giriş Doğrulama Sırası:" : "Aktif Alternatif Yöntemler:"}
+                                                            </span>
+                                                            {twoFactorActiveMethods.map((mId, idx) => {
+                                                                const labelMap = {
+                                                                    email: "E-Posta (E-Mail)",
+                                                                    whatsapp: "WhatsApp",
+                                                                    google_auth: "Google Authenticator",
+                                                                    microsoft_auth: "Microsoft Authenticator"
+                                                                };
+                                                                const isCurrFocused = twoFactorMethod === mId;
+                                                                return (
+                                                                    <React.Fragment key={mId}>
+                                                                        {idx > 0 && (
+                                                                            <span className="text-slate-400 font-bold">
+                                                                                {twoFactorMultiMode === "all" ? "➔" : "veya"}
+                                                                            </span>
+                                                                        )}
+                                                                        <button
+                                                                            type="button"
+                                                                            onClick={() => {
+                                                                                activeTwoFactorMethodRef.current = mId;
+                                                                                setTwoFactorMethod(mId);
+                                                                                const cachedM = twoFactorMethodsMap[mId] || {};
+                                                                                setTwoFactorEnrolled(Boolean(cachedM.enrolled));
+                                                                                if (mId === "google_auth" || mId === "microsoft_auth") {
+                                                                                    setTwoFactorSecret(cachedM.secret || "");
+                                                                                    setTwoFactorQrSvg(cachedM.qrSvg || "");
+                                                                                    if (!cachedM.qrSvg) {
+                                                                                        fetchTwoFactorSetup(false, mId);
+                                                                                    }
+                                                                                }
+                                                                            }}
+                                                                            className={`px-2.5 py-1 rounded-lg text-[10px] font-extrabold transition-all ${
+                                                                                isCurrFocused
+                                                                                    ? `${bg} text-white shadow-sm`
+                                                                                    : "bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-200"
+                                                                            }`}
+                                                                        >
+                                                                            {twoFactorMultiMode === "all" ? `${idx + 1}. ${labelMap[mId] || mId}` : (labelMap[mId] || mId)}
+                                                                            {" (Ayarları Göster)"}
+                                                                        </button>
+                                                                    </React.Fragment>
+                                                                );
+                                                            })}
+                                                        </div>
+                                                    </div>
+                                                )}
+                                            </div>
+
+                                            {/* METHOD 1: E-MAIL OTP DETAILS */}
+                                            {twoFactorMethod === "email" && (
+                                                <div className="p-3.5 rounded-xl bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 space-y-3">
+                                                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                                                        <div>
+                                                            <div className="text-xs font-bold text-slate-800 dark:text-white flex items-center gap-1.5">
+                                                                <Mail size={14} className={text} />
+                                                                Hedef E-Posta Adresi:
+                                                                <span className="font-mono text-slate-700 dark:text-slate-200">
+                                                                    {email && email.includes("@") ? email : "Tanımlanmadı"}
+                                                                </span>
+                                                            </div>
+                                                            <p className="text-[10px] text-slate-500 mt-0.5">
+                                                                Kullanıcı giriş yaptığında 6 haneli doğrulama kodu bu e-posta adresine gönderilecektir.
+                                                            </p>
+                                                        </div>
+                                                        <button
+                                                            type="button"
+                                                            onClick={handleSendTestEmailOtp}
+                                                            disabled={twoFactorEmailSending || !email || !email.includes("@")}
+                                                            className={`px-3 py-1.5 rounded-lg text-[11px] font-bold text-white transition-all flex items-center gap-1.5 shrink-0 disabled:opacity-50 ${bg} ${hover}`}
+                                                        >
+                                                            <RefreshCw size={12} className={twoFactorEmailSending ? "animate-spin" : ""} />
+                                                            {twoFactorEmailSending ? "Gönderiliyor..." : "Test Kodu Gönder"}
+                                                        </button>
+                                                    </div>
+
+                                                    {(!email || !email.includes("@")) && (
+                                                        <div className="p-2.5 rounded-lg bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800/50 text-[11px] text-amber-700 dark:text-amber-300 flex items-center gap-2">
+                                                            <AlertTriangle size={14} className="shrink-0" />
+                                                            Lütfen önce "Genel" sekmesinden kullanıcıya geçerli bir E-Posta adresi giriniz.
+                                                        </div>
+                                                    )}
+
+                                                    <div className="pt-2 border-t border-slate-100 dark:border-slate-800/80 flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+                                                        <input
+                                                            type="text"
+                                                            inputMode="numeric"
+                                                            autoComplete="one-time-code"
+                                                            pattern="\d{6}"
+                                                            autoCorrect="off"
+                                                            autoCapitalize="off"
+                                                            spellCheck={false}
+                                                            maxLength={6}
+                                                            value={twoFactorTestCode}
+                                                            onChange={(e) => setTwoFactorTestCode(e.target.value.replace(/\D/g, ""))}
+                                                            placeholder="E-postaya gelen 6 haneli test kodunu girin"
+                                                            className="flex-1 px-3 py-1.5 rounded-lg bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-xs font-mono tracking-widest text-slate-800 dark:text-white outline-none"
+                                                        />
+                                                        <button
+                                                            type="button"
+                                                            onClick={handleVerifyTest2faCode}
+                                                            disabled={twoFactorVerifyLoading || twoFactorTestCode.length !== 6}
+                                                            className="px-3.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 dark:bg-slate-700 dark:hover:bg-slate-600 text-white text-[11px] font-bold transition-all disabled:opacity-50 shrink-0"
+                                                        >
+                                                            {twoFactorVerifyLoading ? "Doğrulanıyor..." : "Kodu Test Et & Onayla"}
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                            )}
+
+                                            {/* METHOD 2: WHATSAPP ("GİRİŞ KODU") DETAILS */}
+                                            {twoFactorMethod === "whatsapp" && (
+                                                <div className="p-4 rounded-xl bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 space-y-3.5">
+                                                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-2.5 border-b border-slate-100 dark:border-slate-800">
+                                                        <div className="flex items-center gap-2">
+                                                            <PhoneCall size={15} className={text} />
+                                                            <span className="text-xs font-extrabold text-slate-800 dark:text-white">
+                                                                WhatsApp İki Faktörlü Doğrulama ("Giriş Kodu" Sistemi)
+                                                            </span>
+                                                            <span className="px-2 py-0.5 rounded-full text-[9px] font-extrabold bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800">
+                                                                %100 Ücretsiz • 5 Dk Geçerli
+                                                            </span>
+                                                        </div>
+                                                    </div>
+
+                                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 items-end">
+                                                        <div>
+                                                            <label htmlFor="usersettings-2fa-whatsapp-phone" className="block text-[10px] font-bold text-slate-600 dark:text-slate-300 uppercase tracking-wider mb-1">
+                                                                Kullanıcının WhatsApp / GSM Numarası
+                                                            </label>
+                                                            <input
+                                                                id="usersettings-2fa-whatsapp-phone"
+                                                                type="tel"
+                                                                inputMode="tel"
+                                                                autoComplete="tel"
+                                                                autoCorrect="off"
+                                                                autoCapitalize="off"
+                                                                spellCheck={false}
+                                                                placeholder="Örn: 0532 123 45 67"
+                                                                value={followMeMobileNumber}
+                                                                onChange={(e) => setFollowMeMobileNumber(e.target.value)}
+                                                                className={`w-full text-xs font-semibold px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 text-slate-800 dark:text-white focus:outline-none focus:ring-2 ${ring}`}
+                                                            />
+                                                        </div>
+                                                        <div className="flex items-center gap-2">
+                                                            <a
+                                                                href="https://wa.me/908503607390?text=Giri%C5%9F%20Kodu"
+                                                                target="_blank"
+                                                                rel="noreferrer"
+                                                                className="flex-1 px-3 py-2 rounded-lg text-[11px] font-bold text-center bg-emerald-600 hover:bg-emerald-500 text-white transition-all shadow-sm"
+                                                            >
+                                                                WhatsApp'ta "Giriş Kodu" Aç
+                                                            </a>
+                                                            <button
+                                                                type="button"
+                                                                onClick={handleSendTestWhatsAppOtp}
+                                                                disabled={twoFactorEmailSending || (followMeMobileNumber || "").replace(/\D/g, "").length < 10}
+                                                                className={`px-3 py-2 rounded-lg text-[11px] font-bold text-white transition-all flex items-center gap-1.5 shrink-0 disabled:opacity-50 ${bg} ${hover}`}
+                                                            >
+                                                                <RefreshCw size={12} className={twoFactorEmailSending ? "animate-spin" : ""} />
+                                                                {twoFactorEmailSending ? "Gönderiliyor..." : "Test Kodu Gönder"}
+                                                            </button>
+                                                        </div>
+                                                    </div>
+
+                                                    <div className="p-3 rounded-lg bg-slate-50 dark:bg-slate-900/70 border border-slate-200/70 dark:border-slate-800 text-[11px] text-slate-600 dark:text-slate-300 space-y-1 leading-relaxed">
+                                                        <div className="font-bold text-slate-800 dark:text-white">Nasıl Çalışır?</div>
+                                                        <p>1. Kullanıcı WhatsApp üzerinden sistem hattımıza (<strong>0850 360 7390</strong>) <strong>"Giriş Kodu"</strong> mesajı gönderir.</p>
+                                                        <p>2. Sistem numarayı otomatik tanır ve <strong>5 dakika (300 saniye)</strong> geçerli 6 haneli doğrulama kodunu anında ücretsiz yanıtlar.</p>
+                                                        <p>3. Kullanıcı sisteme girerken kullanıcı adı, şifre ve WhatsApp'a gelen 6 haneli kodu yazarak giriş yapar.</p>
+                                                    </div>
+
+                                                    <div className="pt-2 border-t border-slate-100 dark:border-slate-800/80 flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+                                                        <input
+                                                            type="text"
+                                                            inputMode="numeric"
+                                                            autoComplete="one-time-code"
+                                                            pattern="\d{6}"
+                                                            autoCorrect="off"
+                                                            autoCapitalize="off"
+                                                            spellCheck={false}
+                                                            maxLength={6}
+                                                            value={twoFactorTestCode}
+                                                            onChange={(e) => setTwoFactorTestCode(e.target.value.replace(/\D/g, ""))}
+                                                            placeholder="WhatsApp'a gelen 6 haneli kodu test edin"
+                                                            className="flex-1 px-3 py-1.5 rounded-lg bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-xs font-mono tracking-widest text-slate-800 dark:text-white outline-none"
+                                                        />
+                                                        <button
+                                                            type="button"
+                                                            onClick={handleVerifyTest2faCode}
+                                                            disabled={twoFactorVerifyLoading || twoFactorTestCode.length !== 6}
+                                                            className="px-3.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 dark:bg-slate-700 dark:hover:bg-slate-600 text-white text-[11px] font-bold transition-all disabled:opacity-50 shrink-0"
+                                                        >
+                                                            {twoFactorVerifyLoading ? "Doğrulanıyor..." : "Kodu Test Et & Onayla"}
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                            )}
+
+                                            {/* METHOD 3 & 4: GOOGLE / MICROSOFT AUTHENTICATOR QR & SECRET */}
+                                            {(twoFactorMethod === "google_auth" || twoFactorMethod === "microsoft_auth" || twoFactorMethod === "app") && (
+                                                <div className="p-4 rounded-xl bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 space-y-3.5">
+                                                    <div className="flex flex-wrap items-center justify-between gap-2 pb-2.5 border-b border-slate-100 dark:border-slate-800">
+                                                        <div className="flex items-center gap-2">
+                                                            <span className="text-xs font-extrabold text-slate-800 dark:text-white">
+                                                                {twoFactorMethod === "microsoft_auth" ? "Microsoft Authenticator Kurulumu" : "Google Authenticator Kurulumu"}
+                                                            </span>
+                                                            <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                                                                twoFactorEnrolled
+                                                                    ? "bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800"
+                                                                    : "bg-amber-50 dark:bg-amber-950/40 text-amber-600 dark:text-amber-400 border border-amber-200 dark:border-amber-800"
+                                                            }`}>
+                                                                {twoFactorEnrolled ? "✓ Cihaz Eşleştirildi" : "İlk Girişte veya Aşağıdan Eşleştirilebilir"}
+                                                            </span>
+                                                        </div>
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => fetchTwoFactorSetup(true, twoFactorMethod)}
+                                                            disabled={twoFactorSetupLoading}
+                                                            className="text-[11px] font-bold text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white flex items-center gap-1 px-2.5 py-1 rounded-lg bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors"
+                                                        >
+                                                            <RefreshCw size={11} className={twoFactorSetupLoading ? "animate-spin" : ""} />
+                                                            Yeni QR / Anahtar Üret
+                                                        </button>
+                                                    </div>
+
+                                                    <div className="flex flex-col sm:flex-row items-center sm:items-start gap-4">
+                                                        <div className="w-36 h-36 rounded-xl border-2 border-slate-200 dark:border-slate-800 bg-white p-2 flex items-center justify-center shrink-0 shadow-sm">
+                                                            {twoFactorSetupLoading ? (
+                                                                <RefreshCw size={24} className="animate-spin text-slate-400" />
+                                                            ) : twoFactorQrSvg ? (
+                                                                <img src={twoFactorQrSvg} alt="2FA QR Code" className="w-full h-full object-contain" />
+                                                            ) : (
+                                                                <span className="text-[10px] text-slate-400 text-center px-2">QR Kod Yükleniyor...</span>
+                                                            )}
+                                                        </div>
+
+                                                        <div className="flex-1 space-y-2.5 w-full">
+                                                            <div className="text-[11px] text-slate-600 dark:text-slate-300 space-y-1 leading-relaxed">
+                                                                <p className="font-bold text-slate-800 dark:text-white">Nasıl Eşleştirilir?</p>
+                                                                <p>1. Telefonunuzda <strong>{twoFactorMethod === "microsoft_auth" ? "Microsoft Authenticator" : "Google Authenticator"}</strong> uygulamasını açın.</p>
+                                                                <p>2. <strong>+ (Hesap Ekle)</strong> menüsünden <strong>QR Kodu Tara</strong> seçeneği ile yandaki kodu okutun (veya kullanıcı ilk girişinde kendi ekranından okutabilir).</p>
+                                                            </div>
+
+                                                            <div>
+                                                                <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1">
+                                                                    Manuel Kurulum Anahtarı (Secret Key)
+                                                                </label>
+                                                                <div className="flex items-center gap-1.5">
+                                                                    <input
+                                                                        type="text"
+                                                                        readOnly
+                                                                        value={twoFactorSecret || "Üretiliyor..."}
+                                                                        className="flex-1 px-2.5 py-1.5 rounded-lg bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-[11px] font-mono font-bold text-slate-700 dark:text-slate-200 outline-none"
+                                                                    />
+                                                                    <button
+                                                                        type="button"
+                                                                        onClick={copyTwoFactorSecret}
+                                                                        className="px-2.5 py-1.5 rounded-lg bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-[11px] font-bold flex items-center gap-1 transition-colors shrink-0"
+                                                                        title="Anahtarı Kopyala"
+                                                                    >
+                                                                        {twoFactorSecretCopied ? <Check size={13} className="text-emerald-500" /> : <Copy size={13} />}
+                                                                        {twoFactorSecretCopied ? "Kopyalandı" : "Kopyala"}
+                                                                    </button>
+                                                                </div>
+                                                            </div>
+
+                                                            <div className="pt-1 flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+                                                                <input
+                                                                    type="text"
+                                                                    inputMode="numeric"
+                                                                    autoComplete="one-time-code"
+                                                                    pattern="\d{6}"
+                                                                    autoCorrect="off"
+                                                                    autoCapitalize="off"
+                                                                    spellCheck={false}
+                                                                    maxLength={6}
+                                                                    value={twoFactorTestCode}
+                                                                    onChange={(e) => setTwoFactorTestCode(e.target.value.replace(/\D/g, ""))}
+                                                                    placeholder="Uygulamadaki 6 haneli kodu test edin"
+                                                                    className="flex-1 px-3 py-1.5 rounded-lg bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-xs font-mono tracking-widest text-slate-800 dark:text-white outline-none"
+                                                                />
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={handleVerifyTest2faCode}
+                                                                    disabled={twoFactorVerifyLoading || twoFactorTestCode.length !== 6}
+                                                                    className={`px-3.5 py-1.5 rounded-lg text-white text-[11px] font-bold transition-all disabled:opacity-50 shrink-0 ${bg} ${hover}`}
+                                                                >
+                                                                    {twoFactorVerifyLoading ? "Doğrulanıyor..." : "Test Et & Eşleştir"}
+                                                                </button>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            )}
+
+                                            {twoFactorStatusMsg && (
+                                                <div className={`p-2.5 rounded-lg text-xs font-bold flex items-center gap-2 ${
+                                                    twoFactorStatusMsg.type === "success"
+                                                        ? "bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800"
+                                                        : "bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-800"
+                                                }`}>
+                                                    {twoFactorStatusMsg.type === "success" ? <CheckCircle size={14} className="shrink-0" /> : <AlertTriangle size={14} className="shrink-0" />}
+                                                    <span>{twoFactorStatusMsg.text}</span>
+                                                </div>
+                                            )}
+                                        </div>
+                                    )}
+                                </div>
+
+                                {/* ARAYÜZ OTURUM SÜRESİ & OTOMATİK EKRAN KAPATMA */}
+                                <div className={`p-4 bg-slate-50 dark:bg-slate-900/50 rounded-xl border transition-all ${autoLogoutEnabled ? border : "border-slate-100 dark:border-slate-800"}`}>
+                                    <div className="flex items-center justify-between gap-3">
+                                        <div className="flex items-start gap-3">
+                                            <div className={`p-2 rounded-lg shrink-0 mt-0.5 ${autoLogoutEnabled ? `${lightBg} ${text}` : "bg-slate-200/70 dark:bg-slate-800 text-slate-500"}`}>
+                                                <Clock size={18} />
+                                            </div>
+                                            <div>
+                                                <div className="flex items-center gap-2">
+                                                    <h5 className="text-sm font-bold text-slate-800 dark:text-white">Arayüz Oturum Süresi & Otomatik Ekran Kapatma</h5>
+                                                    <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${autoLogoutEnabled ? `${lightBg} ${text} border ${border}` : "bg-slate-200 dark:bg-slate-800 text-slate-500"}`}>
+                                                        {autoLogoutEnabled ? `${autoLogoutDuration} Saat` : "Pasif"}
+                                                    </span>
+                                                </div>
+                                                <p className="text-xs text-slate-400 mt-0.5">
+                                                    Belirtilen süre boyunca işlem yapılmadığında kullanıcının web/masaüstü oturumu otomatik olarak sonlandırılır.
+                                                </p>
+                                            </div>
+                                        </div>
+                                        <button
+                                            type="button"
+                                            onClick={() => setAutoLogoutEnabled(!autoLogoutEnabled)}
+                                            className={`transition-colors shrink-0 ${autoLogoutEnabled ? text : "text-slate-400"}`}
+                                        >
+                                            {autoLogoutEnabled ? <ToggleRight size={28} /> : <ToggleLeft size={28} />}
+                                        </button>
+                                    </div>
+                                    {autoLogoutEnabled && (
+                                        <div className="mt-3 pt-3 border-t border-slate-200/70 dark:border-slate-800 grid grid-cols-3 gap-2.5 animate-in fade-in duration-200">
+                                            {[
+                                                { label: "1 Saat", value: 1, desc: "60 dakika hareketsizlik" },
+                                                { label: "2 Saat", value: 2, desc: "120 dakika hareketsizlik" },
+                                                { label: "3 Saat", value: 3, desc: "180 dakika hareketsizlik" }
+                                            ].map((opt) => {
+                                                const isSel = Number(autoLogoutDuration) === opt.value;
+                                                return (
+                                                    <button
+                                                        key={opt.value}
+                                                        type="button"
+                                                        onClick={() => setAutoLogoutDuration(opt.value)}
+                                                        className={`p-3 rounded-xl border text-left transition-all flex flex-col justify-between ${
+                                                            isSel
+                                                                ? `${lightBg} ${border} ring-2 ${ring}`
+                                                                : "bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400"
+                                                        }`}
+                                                    >
+                                                        <div className="flex items-center justify-between w-full mb-1">
+                                                            <span className={`text-xs font-extrabold ${isSel ? text : "text-slate-800 dark:text-white"}`}>{opt.label}</span>
+                                                            {isSel && <CheckCircle size={14} className={text} />}
+                                                        </div>
+                                                        <span className="text-[10px] text-slate-400">{opt.desc}</span>
+                                                    </button>
+                                                );
+                                            })}
+                                        </div>
+                                    )}
+                                </div>
+
+                                {/* ŞİFRE GEÇERLİLİK SÜRESİ (ZORUNLU ŞİFRE DEĞİŞİMİ) */}
+                                <div className={`p-4 bg-slate-50 dark:bg-slate-900/50 rounded-xl border transition-all ${passwordExpiryEnabled ? border : "border-slate-100 dark:border-slate-800"}`}>
+                                    <div className="flex items-center justify-between gap-3">
+                                        <div className="flex items-start gap-3">
+                                            <div className={`p-2 rounded-lg shrink-0 mt-0.5 ${passwordExpiryEnabled ? `${lightBg} ${text}` : "bg-slate-200/70 dark:bg-slate-800 text-slate-500"}`}>
+                                                <Lock size={18} />
+                                            </div>
+                                            <div>
+                                                <div className="flex items-center gap-2">
+                                                    <h5 className="text-sm font-bold text-slate-800 dark:text-white">Şifre Geçerlilik Süresi (Zorunlu Değişim)</h5>
+                                                    <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${passwordExpiryEnabled ? `${lightBg} ${text} border ${border}` : "bg-slate-200 dark:bg-slate-800 text-slate-500"}`}>
+                                                        {passwordExpiryEnabled ? `${passwordExpiryMonths} Ay` : "Süresiz"}
+                                                    </span>
+                                                </div>
+                                                <p className="text-xs text-slate-400 mt-0.5">
+                                                    Kullanıcı şifresinin belirli periyotlarla zorunlu olarak yenilenmesini sağlar.
+                                                </p>
+                                            </div>
+                                        </div>
+                                        <button
+                                            type="button"
+                                            onClick={() => setPasswordExpiryEnabled(!passwordExpiryEnabled)}
+                                            className={`transition-colors shrink-0 ${passwordExpiryEnabled ? text : "text-slate-400"}`}
+                                        >
+                                            {passwordExpiryEnabled ? <ToggleRight size={28} /> : <ToggleLeft size={28} />}
+                                        </button>
+                                    </div>
+                                    {passwordExpiryEnabled && (
+                                        <div className="mt-3 pt-3 border-t border-slate-200/70 dark:border-slate-800 grid grid-cols-2 sm:grid-cols-4 gap-2.5 animate-in fade-in duration-200">
+                                            {[
+                                                { label: "1 Ay", value: 1, desc: "30 günde bir" },
+                                                { label: "3 Ay", value: 3, desc: "90 günde bir" },
+                                                { label: "6 Ay", value: 6, desc: "180 günde bir" },
+                                                { label: "12 Ay", value: 12, desc: "365 günde bir" }
+                                            ].map((opt) => {
+                                                const isSel = Number(passwordExpiryMonths) === opt.value;
+                                                return (
+                                                    <button
+                                                        key={opt.value}
+                                                        type="button"
+                                                        onClick={() => setPasswordExpiryMonths(opt.value)}
+                                                        className={`p-2.5 rounded-xl border text-left transition-all flex flex-col justify-between ${
+                                                            isSel
+                                                                ? `${lightBg} ${border} ring-2 ${ring}`
+                                                                : "bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400"
+                                                        }`}
+                                                    >
+                                                        <div className="flex items-center justify-between w-full mb-0.5">
+                                                            <span className={`text-xs font-extrabold ${isSel ? text : "text-slate-800 dark:text-white"}`}>{opt.label}</span>
+                                                            {isSel && <CheckCircle size={13} className={text} />}
+                                                        </div>
+                                                        <span className="text-[10px] text-slate-400">{opt.desc}</span>
+                                                    </button>
+                                                );
+                                            })}
+                                        </div>
+                                    )}
+                                </div>
+
+
                                 {/* 1. GÜVENİLİR CİHAZ KİLİDİ KARTI (YÖNTEM A: MANUEL & KOPYALA-YAPIŞTIR + TOGGLE) */}
                                 <div className="p-4 sm:p-5 rounded-2xl border border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-900/60 space-y-4">
                                     <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-200/70 dark:border-slate-800">
