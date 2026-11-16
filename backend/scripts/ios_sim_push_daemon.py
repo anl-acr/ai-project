@@ -21,6 +21,7 @@ LOCK_BTN_PRESS_JSON = "/tmp/aida_sim_lock_btn_press.json"
 HOMESCREEN_BG = "/tmp/aida_sim_homescreen_bg.png"
 HOMESCREEN_BG_TMP = "/tmp/aida_sim_homescreen_bg.tmp.png"
 APNS_TMP_FILE = "/tmp/aida_sim_apns_push.apns"
+LAST_PUSH_NAV_FILE = "/tmp/aida_sim_last_push_nav.json"
 LOG_FILE = "/tmp/aida_voip_push_daemon.log"
 
 ring_state_lock = threading.Lock()
@@ -190,6 +191,11 @@ def send_simulator_apns_push(title, body, sub_tab="chat", extra=None, notif_id=N
             "actionDetailJSON": json.dumps(detail, ensure_ascii=False),
         }
         try:
+            nav_record = dict(detail)
+            nav_record["id"] = apns_payload["id"]
+            nav_record["timestamp"] = time.time()
+            with open(LAST_PUSH_NAV_FILE, "w", encoding="utf-8") as nf:
+                json.dump(nav_record, nf, ensure_ascii=False)
             with open(APNS_TMP_FILE, "w", encoding="utf-8") as f:
                 json.dump(apns_payload, f, ensure_ascii=False)
             subprocess.run(

@@ -740,11 +740,22 @@ export default function AgentChatTab({ backendHost, currentUser, isVisible = tru
       setIsNewChatModalOpen(false);
       setStartedInternalPeers(prev => (prev.includes(peerKey) ? prev : [peerKey, ...prev]));
       setActiveChatId(`internal-${peerKey}`);
+      if (typeof document !== "undefined") {
+        setTimeout(() => {
+          const splitEl = document.querySelector('div[style*="--agent-sidebar-w"]');
+          if (splitEl) {
+            splitEl.setAttribute("data-mobile-chat-view", "thread");
+          }
+        }, 40);
+      }
       return true;
     };
 
-    if (openPeerRequest?.peerSenderId) {
-      const opened = openPeerBySenderId(openPeerRequest.peerSenderId);
+    const effectivePeerTarget =
+      openPeerRequest?.peerSenderId ||
+      (typeof window !== "undefined" && (window.__AIDA_PENDING_CHAT_PEER__ || window.__AIDA_PENDING_NOTIF_NAV__?.peerSenderId));
+    if (effectivePeerTarget) {
+      const opened = openPeerBySenderId(effectivePeerTarget);
       if (opened && typeof onPeerOpened === "function") {
         onPeerOpened();
       }

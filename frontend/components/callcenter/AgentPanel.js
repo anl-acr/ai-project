@@ -447,6 +447,13 @@ function resolveInitialAgentTab(prefs, perms, currentUser = null) {
   const safeAllowed = allowedList.length > 0 ? allowedList : [orderedAll[0] || ALL_TABS[0]];
   const isAllowedId = (id) => safeAllowed.some((t) => t.id === id);
 
+  if (typeof window !== "undefined" && window.__AIDA_PENDING_NOTIF_NAV__?.subTab) {
+    const pendingSub = String(window.__AIDA_PENDING_NOTIF_NAV__.subTab).trim();
+    if (pendingSub && isAllowedId(pendingSub)) {
+      return pendingSub;
+    }
+  }
+
   const subPref = String(prefs?.defaultAgentSubTab || "auto").trim();
   if (subPref === "last_visited") {
     const lastSub = getLastVisitedAgentSubTab(currentUser, prefs);
@@ -472,8 +479,19 @@ export default function AgentPanel({ backendHost, currentUser, activeCallId, isV
     )
   );
   const [pendingDial, setPendingDial] = useState(null);
-  const [openInternalPeerReq, setOpenInternalPeerReq] = useState(null);
+  const [openInternalPeerReq, setOpenInternalPeerReq] = useState(() => {
+    if (typeof window !== "undefined" && window.__AIDA_PENDING_NOTIF_NAV__?.peerSenderId) {
+      return {
+        peerSenderId: String(window.__AIDA_PENDING_NOTIF_NAV__.peerSenderId),
+        ts: Date.now()
+      };
+    }
+    return null;
+  });
   const appliedLoginSubTabUserRef = React.useRef(null);
+  const hasExplicitNotifSwitchRef = React.useRef(
+    typeof window !== "undefined" && Boolean(window.__AIDA_PENDING_NOTIF_NAV__?.subTab)
+  );
   const agentStageRef = useRef(null);
 
   useStageRevealObserver(agentStageRef, `${activeTab}-${isVisible}`);
@@ -495,12 +513,14 @@ export default function AgentPanel({ backendHost, currentUser, activeCallId, isV
     const userKey = currentUser?.id || currentUser?.extension || currentUser?.username || null;
     if (userKey && appliedLoginSubTabUserRef.current !== String(userKey)) {
       appliedLoginSubTabUserRef.current = String(userKey);
-      const nextSub = resolveInitialAgentTab(
-        loaded,
-        Array.isArray(initialPermissions) && initialPermissions.length > 0 ? initialPermissions : rolePermissions,
-        currentUser
-      );
-      setActiveTab(nextSub);
+      if (!hasExplicitNotifSwitchRef.current && !(typeof window !== "undefined" && window.__AIDA_PENDING_NOTIF_NAV__?.subTab)) {
+        const nextSub = resolveInitialAgentTab(
+          loaded,
+          Array.isArray(initialPermissions) && initialPermissions.length > 0 ? initialPermissions : rolePermissions,
+          currentUser
+        );
+        setActiveTab(nextSub);
+      }
     }
   }, [currentUser?.id, currentUser?.extension, currentUser?.call_panel_prefs]);
 
@@ -535,6 +555,7 @@ export default function AgentPanel({ backendHost, currentUser, activeCallId, isV
   useEffect(() => {
     const handleSwitchSubTab = (e) => {
       if (e?.detail?.subTab) {
+        hasExplicitNotifSwitchRef.current = true;
         setActiveTab(e.detail.subTab);
       }
       if (e?.detail?.peerSenderId) {
@@ -545,6 +566,7 @@ export default function AgentPanel({ backendHost, currentUser, activeCallId, isV
       }
     };
     const handleOpenFullWebphone = () => {
+      hasExplicitNotifSwitchRef.current = true;
       setActiveTab("webphone");
     };
     window.addEventListener("SWITCH_AGENT_PANEL_SUBTAB", handleSwitchSubTab);

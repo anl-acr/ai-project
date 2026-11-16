@@ -89,6 +89,13 @@ struct WorkspaceContainerView: View {
             AudioSessionManager.shared.onNotificationActionDispatch = { eventName, detail in
                 bridge.dispatchWindowEvent(name: eventName, detail: detail)
             }
+            if let pendingNav = store.pendingNotificationNav, !pendingNav.isEmpty {
+                for delaySec in [0.15, 0.8, 1.8, 3.0, 4.5] {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + delaySec) {
+                        bridge.dispatchWindowEvent(name: "SWITCH_AGENT_PANEL_SUBTAB", detail: pendingNav)
+                    }
+                }
+            }
         }
         .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("AIDAMobileSwitchTab"))) { note in
             if let tabId = note.object as? String, !tabId.isEmpty {

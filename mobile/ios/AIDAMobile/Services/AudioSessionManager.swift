@@ -1309,6 +1309,30 @@ final class AudioSessionManager: NSObject, UNUserNotificationCenterDelegate, PKP
             self.stopSilentBackgroundKeepAlive()
             self.configureVoIPAudioSession()
             self.onNotificationActionDispatch?("AIDA_IOS_WAKE_SIP", nil)
+            #if targetEnvironment(simulator)
+            let navPath = "/tmp/aida_sim_last_push_nav.json"
+            if FileManager.default.fileExists(atPath: navPath),
+               let data = try? Data(contentsOf: URL(fileURLWithPath: navPath)),
+               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+                try? FileManager.default.removeItem(atPath: navPath)
+                if let ts = json["timestamp"] as? Double, Date().timeIntervalSince1970 - ts <= 45.0,
+                   let subTab = json["subTab"] as? String, !subTab.isEmpty {
+                    var navObj: [String: Any] = ["subTab": subTab]
+                    if let peer = json["peerSenderId"] as? String, !peer.isEmpty {
+                        navObj["peerSenderId"] = peer
+                    }
+                    Task { @MainActor in
+                        AppConfigStore.shared.pendingNotificationNav = navObj
+                    }
+                    self.onNotificationActionDispatch?("SWITCH_AGENT_PANEL_SUBTAB", navObj)
+                    for retryDelay in [0.4, 1.0, 2.0] {
+                        DispatchQueue.main.asyncAfter(deadline: .now() + retryDelay) { [weak self] in
+                            self?.onNotificationActionDispatch?("SWITCH_AGENT_PANEL_SUBTAB", navObj)
+                        }
+                    }
+                }
+            }
+            #endif
         }
     }
 
@@ -1521,15 +1545,61 @@ final class AudioSessionManager: NSObject, UNUserNotificationCenterDelegate, PKP
     ) {
         let info = response.notification.request.content.userInfo
         let tappedId = (info["id"] as? String) ?? response.notification.request.identifier
+        let notifTitle = response.notification.request.content.title
         if !tappedId.isEmpty {
             notifiedIds.insert(tappedId)
         }
-        let actionEvent = (info["actionEvent"] as? String) ?? ""
+        var actionEvent = (info["actionEvent"] as? String) ?? ""
         let actionId = response.actionIdentifier
-        var parsedDetail: Any? = nil
+        var navDict: [String: Any] = [:]
         if let detailJSON = info["actionDetailJSON"] as? String,
-           let data = detailJSON.data(using: .utf8) {
-            parsedDetail = try? JSONSerialization.jsonObject(with: data, options: [])
+           let data = detailJSON.data(using: .utf8),
+           let obj = (try? JSONSerialization.jsonObject(with: data, options: [])) as? [String: Any] {
+            navDict = obj
+        } else if let directSub = info["subTab"] as? String, !directSub.isEmpty {
+            navDict["subTab"] = directSub
+            if let peer = info["peerSenderId"] as? String, !peer.isEmpty {
+                navDict["peerSenderId"] = peer
+            }
+        }
+
+        // Fallback inference from /tmp/aida_sim_last_push_nav.json or notification ID/Title
+        #if targetEnvironment(simulator)
+        let simNavPath = "/tmp/aida_sim_last_push_nav.json"
+        if FileManager.default.fileExists(atPath: simNavPath),
+           let simData = try? Data(contentsOf: URL(fileURLWithPath: simNavPath)),
+           let simJson = try? JSONSerialization.jsonObject(with: simData) as? [String: Any] {
+            try? FileManager.default.removeItem(atPath: simNavPath)
+            if (navDict["subTab"] as? String ?? "").isEmpty, let st = simJson["subTab"] as? String {
+                navDict["subTab"] = st
+            }
+            if (navDict["peerSenderId"] as? String ?? "").isEmpty, let ps = simJson["peerSenderId"] as? String {
+                navDict["peerSenderId"] = ps
+            }
+        }
+        #endif
+
+        // Fallback inference from notification ID or Title so every notification type routes reliably
+        if (navDict["subTab"] as? String ?? "").isEmpty {
+            if tappedId.hasPrefix("int-chat-") || notifTitle.contains("Yeni İç Mesaj") || notifTitle.contains("Sohbet") {
+                navDict["subTab"] = "chat"
+            } else if tappedId.hasPrefix("missed-") || notifTitle.contains("Kayıp Çağrı") {
+                navDict["subTab"] = "missed"
+            } else if tappedId.hasPrefix("voicemail-") || notifTitle.contains("Sesli Posta") {
+                navDict["subTab"] = "voicemail"
+            } else if tappedId.hasPrefix("unanswered-") || notifTitle.contains("Yanıtsız Çağrı") {
+                navDict["subTab"] = "history"
+            }
+        }
+        if (navDict["subTab"] as? String) == "chat" && (navDict["peerSenderId"] as? String ?? "").isEmpty {
+            let parts = notifTitle.components(separatedBy: " - ")
+            if let firstPart = parts.first?.replacingOccurrences(of: "Dahili ", with: "").trimmingCharacters(in: .whitespacesAndNewlines),
+               !firstPart.isEmpty {
+                navDict["peerSenderId"] = firstPart
+            }
+        }
+        if actionEvent.isEmpty && !(navDict["subTab"] as? String ?? "").isEmpty {
+            actionEvent = "SWITCH_AGENT_PANEL_SUBTAB"
         }
 
         DispatchQueue.main.async { [weak self] in
@@ -1545,6 +1615,9 @@ final class AudioSessionManager: NSObject, UNUserNotificationCenterDelegate, PKP
 
             if actionId == "AIDA_ANSWER_CALL" {
                 self.stopNativeRingtone()
+                Task { @MainActor in
+                    AppConfigStore.shared.pendingNotificationNav = ["subTab": "webphone"]
+                }
                 self.onNotificationActionDispatch?("SWITCH_AGENT_PANEL_SUBTAB", ["subTab": "webphone"])
                 self.onNotificationActionDispatch?("AIDA_IOS_WAKE_SIP", ["answer": true])
                 return
@@ -1555,13 +1628,21 @@ final class AudioSessionManager: NSObject, UNUserNotificationCenterDelegate, PKP
             }
             self.onNotificationActionDispatch?("AIDA_IOS_WAKE_SIP", nil)
             if actionEvent == "OPEN_FULL_WEBPHONE" {
+                Task { @MainActor in
+                    AppConfigStore.shared.pendingNotificationNav = ["subTab": "webphone"]
+                }
                 self.onNotificationActionDispatch?("SWITCH_AGENT_PANEL_SUBTAB", ["subTab": "webphone"])
-                self.onNotificationActionDispatch?("OPEN_FULL_WEBPHONE", parsedDetail)
+                self.onNotificationActionDispatch?("OPEN_FULL_WEBPHONE", navDict)
             } else if !actionEvent.isEmpty {
-                self.onNotificationActionDispatch?(actionEvent, parsedDetail)
-                for retryDelay in [1.2, 2.5, 4.0] {
+                if !navDict.isEmpty {
+                    Task { @MainActor in
+                        AppConfigStore.shared.pendingNotificationNav = navDict
+                    }
+                }
+                self.onNotificationActionDispatch?(actionEvent, navDict)
+                for retryDelay in [0.5, 1.2, 2.2, 3.5, 5.0] {
                     DispatchQueue.main.asyncAfter(deadline: .now() + retryDelay) { [weak self] in
-                        self?.onNotificationActionDispatch?(actionEvent, parsedDetail)
+                        self?.onNotificationActionDispatch?(actionEvent, navDict)
                     }
                 }
             }

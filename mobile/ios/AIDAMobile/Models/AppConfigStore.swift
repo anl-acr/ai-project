@@ -89,6 +89,7 @@ final class AppConfigStore: ObservableObject {
     @Published var isOfflineError: Bool = false
     @Published var isWebDarkMode: Bool = false
     @Published var webViewReloadTrigger: UUID = UUID()
+    var pendingNotificationNav: [String: Any]? = nil
 
     let appName = "Runa"
     let appVersion = "2.9.3"
@@ -113,8 +114,32 @@ final class AppConfigStore: ObservableObject {
         loadFromDisk()
         #if targetEnvironment(simulator)
         preloadPendingSimulatorVoipPushIfPresent()
+        preloadPendingSimulatorApnsNavIfPresent()
         #endif
     }
+
+    #if targetEnvironment(simulator)
+    func preloadPendingSimulatorApnsNavIfPresent() {
+        let navPath = "/tmp/aida_sim_last_push_nav.json"
+        let fm = FileManager.default
+        guard fm.fileExists(atPath: navPath),
+              let data = try? Data(contentsOf: URL(fileURLWithPath: navPath)),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return
+        }
+        try? fm.removeItem(atPath: navPath)
+        if let ts = json["timestamp"] as? Double, Date().timeIntervalSince1970 - ts > 180.0 {
+            return
+        }
+        if let subTab = json["subTab"] as? String, !subTab.isEmpty {
+            var navObj: [String: Any] = ["subTab": subTab]
+            if let peer = json["peerSenderId"] as? String, !peer.isEmpty {
+                navObj["peerSenderId"] = peer
+            }
+            self.pendingNotificationNav = navObj
+        }
+    }
+    #endif
 
     #if targetEnvironment(simulator)
     func preloadPendingSimulatorVoipPushIfPresent() {
@@ -281,6 +306,7 @@ final class AppConfigStore: ObservableObject {
             "savedUsername": savedUsername,
             "session": sessionDict,
             "justLoggedIn": flag,
+            "pendingNav": pendingNotificationNav ?? NSNull(),
             "osNotifications": osNotifications,
             "popWindowOnCall": popWindowOnCall,
             "minimizeToTray": minimizeToTray,

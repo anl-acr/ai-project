@@ -235,6 +235,24 @@ struct PBXWebView: UIViewRepresentable {
               if (bootState.session.extension) {
                 forceLeftNavInKey("agent_call_panel_prefs_" + String(bootState.session.extension));
               }
+              if (bootState.pendingNav && bootState.pendingNav.subTab) {
+                const targetSub = String(bootState.pendingNav.subTab);
+                window.__AIDA_PENDING_NOTIF_NAV__ = bootState.pendingNav;
+                window.__CURRENT_AGENT_SUBTAB__ = targetSub;
+                if (bootState.pendingNav.peerSenderId) {
+                  window.__AIDA_PENDING_CHAT_PEER__ = String(bootState.pendingNav.peerSenderId);
+                }
+                sessionStorage.removeItem("aida_just_logged_in");
+                try {
+                  localStorage.setItem("aida_last_visited_agent_subtab", targetSub);
+                  if (bootState.session.userId) {
+                    localStorage.setItem("aida_last_visited_agent_subtab_" + String(bootState.session.userId), targetSub);
+                  }
+                  if (bootState.session.extension) {
+                    localStorage.setItem("aida_last_visited_agent_subtab_" + String(bootState.session.extension), targetSub);
+                  }
+                } catch (e) {}
+              }
             }
           } catch (e) {}
 
@@ -5698,8 +5716,16 @@ struct PBXWebView: UIViewRepresentable {
               const chatHeader = rightPane ? rightPane.querySelector('div.h-16.shrink-0.border-b') : null;
 
               if (!chatHeader) {
-                chatSplit.setAttribute('data-mobile-chat-view', 'list');
+                if (chatSplit.getAttribute('data-mobile-chat-view') !== 'list') {
+                  chatSplit.setAttribute('data-mobile-chat-view', 'list');
+                }
               } else {
+                if (window.__AIDA_FORCE_MOBILE_CHAT_THREAD__) {
+                  window.__AIDA_FORCE_MOBILE_CHAT_THREAD__ = false;
+                  if (chatSplit.getAttribute('data-mobile-chat-view') !== 'thread') {
+                    chatSplit.setAttribute('data-mobile-chat-view', 'thread');
+                  }
+                }
                 // Clean up any SystemInfoHintManager "(i)" button & un-collapse subtitle inside Chat Header
                 chatHeader.querySelectorAll('.aida-info-btn').forEach(function(b) { b.remove(); });
                 chatHeader.querySelectorAll('[data-aida-hint-collapsed="true"]').forEach(function(p) {
@@ -5715,6 +5741,7 @@ struct PBXWebView: UIViewRepresentable {
                   backBtn.addEventListener('click', function(ev) {
                     ev.preventDefault();
                     ev.stopPropagation();
+                    window.__AIDA_FORCE_MOBILE_CHAT_THREAD__ = false;
                     if (document.activeElement && typeof document.activeElement.blur === 'function') {
                       document.activeElement.blur();
                     }
@@ -5767,6 +5794,75 @@ struct PBXWebView: UIViewRepresentable {
             renderBottomFloatingDock();
           }
 
+          function performPendingNotifNavigation(navObj) {
+            if (!navObj || !navObj.subTab) return;
+            const targetSub = String(navObj.subTab);
+            const targetPeer = navObj.peerSenderId ? String(navObj.peerSenderId).trim() : '';
+            morePopoverOpen = false;
+            closeMobileQueueModal();
+            window.__CURRENT_AGENT_SUBTAB__ = targetSub;
+
+            const idToLabel = {
+              'dashboard': 'Pano',
+              'webphone': 'Web Telefon',
+              'agents': 'Temsilciler',
+              'speeddial': 'Hızlı Arama',
+              'missed': 'Kayıp Çağrı',
+              'directory': 'Rehber',
+              'history': 'Çağrı Geçmişi',
+              'voicemail': 'Sesli Posta',
+              'chat': 'Sohbet',
+              'deskphone': 'Masa Telefonum'
+            };
+            const targetLabel = idToLabel[targetSub];
+            const curMeta = readTabMetaFromDOM();
+            if (curMeta.activeTab !== targetSub && targetLabel) {
+              const mobileTabBar = document.querySelector('.aida-stage-active > div.aida-panel-enter > div.flex.h-full.w-full > div.md\\:hidden');
+              if (mobileTabBar) {
+                mobileTabBar.querySelectorAll('button').forEach(function(btn) {
+                  const sp = btn.querySelector('span.text-xs');
+                  if (sp && sp.textContent.trim() === targetLabel) {
+                    try { btn.click(); } catch (e) {}
+                  }
+                });
+              }
+            }
+
+            if (targetSub === 'chat' && targetPeer) {
+              window.__AIDA_FORCE_MOBILE_CHAT_THREAD__ = true;
+              try {
+                window.dispatchEvent(new CustomEvent('OPEN_INTERNAL_CHAT_PEER', { detail: { peerSenderId: targetPeer } }));
+              } catch (e) {}
+              const chatSplit = document.querySelector('div[style*="--agent-sidebar-w"]');
+              if (chatSplit) {
+                const leftPane = chatSplit.firstElementChild;
+                const rightPane = chatSplit.lastElementChild;
+                if (leftPane) {
+                  leftPane.querySelectorAll('button').forEach(function(b) {
+                    const bTxt = (b.textContent || '').trim();
+                    if (bTxt.includes('İç Yazışma') && !b.className.includes('shadow')) {
+                      try { b.click(); } catch (e) {}
+                    }
+                  });
+                  const listContainer = leftPane.querySelector('.flex-1.overflow-y-auto');
+                  if (listContainer) {
+                    listContainer.querySelectorAll('button').forEach(function(rowBtn) {
+                      const rTxt = (rowBtn.textContent || '');
+                      if (rTxt.includes(targetPeer) && !rowBtn.title?.includes('Sil')) {
+                        try { rowBtn.click(); } catch (e) {}
+                      }
+                    });
+                  }
+                }
+                const chatHeader = rightPane ? rightPane.querySelector('div.h-16.shrink-0.border-b') : null;
+                if (chatHeader) {
+                  chatSplit.setAttribute('data-mobile-chat-view', 'thread');
+                }
+              }
+            }
+            renderBottomFloatingDock();
+          }
+
           let rafPending = false;
           function scheduleDOMAdaptations() {
             if (rafPending) return;
@@ -5807,7 +5903,25 @@ struct PBXWebView: UIViewRepresentable {
             renderBottomFloatingDock();
           });
 
+          if (window.__AIDA_PENDING_NOTIF_NAV__ && window.__AIDA_PENDING_NOTIF_NAV__.subTab) {
+            const bootNav = window.__AIDA_PENDING_NOTIF_NAV__;
+            [150, 500, 1000, 1700, 2600].forEach(function(ms) {
+              setTimeout(function() {
+                performPendingNotifNavigation(bootNav);
+              }, ms);
+            });
+          }
+
           window.addEventListener('SWITCH_AGENT_PANEL_SUBTAB', function(e) {
+            if (e && e.detail && e.detail.subTab) {
+              const navDetail = e.detail;
+              performPendingNotifNavigation(navDetail);
+              [120, 400, 850, 1500].forEach(function(ms) {
+                setTimeout(function() {
+                  performPendingNotifNavigation(navDetail);
+                }, ms);
+              });
+            }
             if (e && e.detail && e.detail.autoWeek) {
               setTimeout(function() {
                 document.querySelectorAll('button').forEach(function(b) {
@@ -6571,6 +6685,14 @@ struct PBXWebView: UIViewRepresentable {
             Task { @MainActor in
                 store.isOfflineError = false
                 AudioSessionManager.shared.configureVoIPAudioSession()
+                if let pendingNav = store.pendingNotificationNav, !pendingNav.isEmpty {
+                    store.pendingNotificationNav = nil
+                    for delaySec in [0.1, 0.6, 1.4, 2.5, 3.8] {
+                        DispatchQueue.main.asyncAfter(deadline: .now() + delaySec) { [weak bridge] in
+                            bridge?.dispatchWindowEvent(name: "SWITCH_AGENT_PANEL_SUBTAB", detail: pendingNav)
+                        }
+                    }
+                }
             }
         }
     }
