@@ -32894,6 +32894,7 @@ async def download_desktop_installer_endpoint(platform: str):
         "mac-x64": ("Runa-2.9.3.dmg", "application/octet-stream"),
         "mac-zip": ("Runa-2.9.3-arm64.dmg", "application/octet-stream"),
         "ios": ("Runa-Mobile-iOS-2.9.3.ipa", "application/octet-stream"),
+        "android": ("Runa-Mobile-Android-2.9.3.apk", "application/vnd.android.package-archive"),
     }
     entry = file_map.get(str(platform or "").strip().lower())
     if not entry:

@@ -780,6 +780,14 @@ export default function UserApplicationsPanel({
                     <Download size={13} />
                     <span>iOS Paketi İndir (.ipa)</span>
                   </a>
+                  <a
+                    href={`${getApiBase()}/api/downloads/mobile/android`}
+                    download="Runa-Mobile-Android-2.9.3.apk"
+                    className="px-3 py-1.5 rounded-lg text-[11px] font-extrabold text-white bg-emerald-600 hover:bg-emerald-500 transition inline-flex items-center gap-1.5 shadow-2xs"
+                  >
+                    <Download size={13} />
+                    <span>Android Paketi İndir (.apk)</span>
+                  </a>
                 </div>
               </div>
             </div>
