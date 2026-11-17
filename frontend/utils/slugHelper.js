@@ -75,6 +75,7 @@ export function getTabFromTurkishSlug(slug) {
 // Map of Settings subtab codes to clean Turkish URL slugs
 export const SUBTAB_TURKISH_SLUGS = {
   "pbx": "santral-ayarlari",
+  "server-network": "sunucu-ag-ayarlari",
   "trunks": "dis-hatlar",
   "channels": "kanal-ayarlari",
   "breaks": "mola-tanimlari",

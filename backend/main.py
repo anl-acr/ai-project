@@ -1572,6 +1572,7 @@ DEFAULT_SETTINGS = {
                 "restore_points:read", "restore_points:write", "restore_points:delete",
                 "system_status:access", "logs:access", "sip_debugger:access", "troubleshooting:access",
                 "realtime_calls:read", "realtime_calls:write", "realtime_calls:access",
+                "server_network:read", "server_network:write", "server_network:delete",
                 "security:read", "security:write", "security:delete",
                 "customer_360:read", "customer_360:write",
                 "callback_tasks:read", "callback_tasks:write", "callback_tasks:delete",
@@ -1642,6 +1643,7 @@ DEFAULT_SETTINGS = {
                 "recording_retention:read", "recording_retention:write", "recording_retention:delete",
                 "storage:access", "logs:access", "sip_debugger:access", "troubleshooting:access",
                 "realtime_calls:read", "realtime_calls:write", "realtime_calls:access",
+                "server_network:read", "server_network:write", "server_network:delete",
                 "security:read", "security:write", "security:delete",
                 "email_notifications:read", "email_notifications:write",
                 "restore_points:read", "restore_points:write",
@@ -2812,6 +2814,10 @@ def load_settings(force_reload: bool = False, persist: bool = False):
                     new_perms.append("restore_points:write")
                 if r.get("role_code") == "admin" and "restore_points:delete" not in new_perms:
                     new_perms.append("restore_points:delete")
+                if r.get("role_code") == "admin":
+                    for net_p in ("server_network:read", "server_network:write", "server_network:delete"):
+                        if net_p not in new_perms:
+                            new_perms.append(net_p)
                 for sup_perm in (
                     "work_hours:read",
                     "work_hours:write",
@@ -2821,6 +2827,7 @@ def load_settings(force_reload: bool = False, persist: bool = False):
                     "callback_tasks:write",
                     "crisis_alerts:access",
                     "system_version:read",
+                    "server_network:read",
                 ):
                     if sup_perm not in new_perms:
                         new_perms.append(sup_perm)
@@ -41868,6 +41875,9 @@ app.include_router(advanced_reports_router)
 
 from backend.services.ai_copilot_and_reports_service import ai_copilot_router
 app.include_router(ai_copilot_router)
+
+from backend.services.network_manager_service import network_manager_router
+app.include_router(network_manager_router)
 
 @app.on_event("startup")
 async def on_startup_scheduled_reports_worker():

@@ -5112,6 +5112,26 @@ NORNIA_GUIDE_CATALOG: List[Dict[str, Any]] = [
         "suggested_config_prompt": "'Haftalık Santral Yedeği' başlıklı geri yükleme noktası oluştur",
         "suggested_report_prompt": ""
     },
+    {
+        "id": "server_network_and_recovery",
+        "keywords": ["sunucu ip", "network", "ag ayarlari", "statik ip", "gateway", "dns", "statik rota", "static route", "mpls", "hosts", "ethernet", "konsol kurtarma", "rollback"],
+        "title": "Sunucu Ağ (Network), Statik IP, Rota ve Konsol Kurtarma Yönetimi",
+        "menu_path": "Ayarlar ➔ Santral & Ağ ➔ Sunucu Ağ (Network) Yönetimi",
+        "target_tab": "settings",
+        "target_label": "Sunucu Ağ Ayarlarına Git",
+        "summary": "Sunucunun Ethernet (NIC) IP/CIDR adresini, Gateway'ini, İkincil IP'lerini, SIP MPLS/Metro statik rotalarını ve DNS/Hosts kayıtlarını 60 saniyelik erişim kopması korumasıyla (Watchdog Rollback) web üzerinden yönetebilirsiniz.",
+        "steps": [
+            "'Ayarlar ➔ Santral & Ağ ➔ Sunucu Ağ (Network) Yönetimi' ekranını açın.",
+            "'Ağ Arayüzleri (NIC) & IP' sekmesinden ağ kartınızı seçip Statik IP/CIDR, Gateway ve varsa İkincil IP adreslerini girin.",
+            "'Güvenli Doğrulama ile Arayüze Uygula' butonuna basıp yönetici şifrenizi (ve varsa 2FA kodunuzu) girin.",
+            "Uygulama sonrasında üstte beliren 60 saniyelik sayaç içinde 'Yeni Ayarları Onayla (Kalıcı Yap)' butonuna basın; aksi halde sistem erişim kaybını önlemek için otomatik olarak eski çalışan IP'ye döner."
+        ],
+        "tips": [
+            "Acil durumda sunucu konsolundan veya SSH üzerinden `sudo python3 /opt/ai-project/backend/scripts/network_recovery.py` komutunu çalıştırarak etkileşimli Türkçe kurtarma menüsünü açabilir veya `--rollback` parametresiyle tek tuşla eski IP'ye dönebilirsiniz."
+        ],
+        "suggested_config_prompt": "",
+        "suggested_report_prompt": ""
+    },
 ]
 
 

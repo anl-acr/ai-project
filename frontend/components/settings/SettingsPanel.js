@@ -46,6 +46,7 @@ const SubPanelLoading = () => <PanelShimmerSkeleton variant="cards" />;
 const lazySub = (loader) => dynamic(loader, { ssr: false, loading: SubPanelLoading });
 
 const PBXSettings = lazySub(() => import("./PBXSettings"));
+const ServerNetworkSettingsPanel = lazySub(() => import("./ServerNetworkSettingsPanel"));
 const NATSettings = lazySub(() => import("./NATSettings"));
 const NumberingPlanPanel = lazySub(() => import("./NumberingPlanPanel"));
 const ChannelSettings = lazySub(() => import("./ChannelSettings"));
@@ -271,6 +272,13 @@ export default function SettingsPanel({ backendHost = "localhost:8000" }) {
             label: "Santral Entegrasyonu",
             subtitle: "Asterisk & AMI bağlantısı",
             icon: Server,
+            visible: true
+          },
+          {
+            id: "server-network",
+            label: "Sunucu Ağ (Network) Yönetimi",
+            subtitle: "Ethernet IP/CIDR, Gateway, Statik Rota, DNS & Konsol Kurtarma",
+            icon: Network,
             visible: true
           },
           {
@@ -740,6 +748,9 @@ export default function SettingsPanel({ backendHost = "localhost:8000" }) {
             className="flex-1 min-w-0 w-full flex flex-col gap-6 aida-panel-enter"
           >
             {activeSubTab === "pbx" && <PBXSettings backendHost={backendHost} />}
+            {activeSubTab === "server-network" && (
+              <ServerNetworkSettingsPanel backendHost={backendHost} />
+            )}
             {activeSubTab === "nat" && <NATSettings backendHost={backendHost} />}
             {activeSubTab === "numbering-plan" && (
               <NumberingPlanPanel backendHost={backendHost} />

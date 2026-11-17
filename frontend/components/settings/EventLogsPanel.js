@@ -315,6 +315,7 @@ export default function EventLogsPanel({ backendHost }) {
     Tenants: "Müşteri (Tenant) Yönetimi",
     "Work Hours": "Çalışma Saatleri & Tatiller",
     "Network & NAT": "Ağ ve NAT Ayarları",
+    "ServerNetwork": "Sunucu Ağ (Network) Yönetimi",
     "Speed Dials": "Hızlı Arama",
     Conferences: "Konferans Odaları",
     "Call Pickup Groups": "Çağrı Yakalama Grupları",
@@ -367,6 +368,12 @@ export default function EventLogsPanel({ backendHost }) {
     CLIENT_ENV_CONNECT: "Cihaz & Bağlantı Kaydı",
     CLIENT_ENV_CHANGE: "IP / Tarayıcı / OS Değişimi",
     DEVICE_KEY_BLOCKED: "Yetkisiz Cihaz Engellendi",
+    UPDATE_NETWORK_INTERFACE: "Sunucu Ağ Kartı / IP Güncelledi",
+    CONFIRM_NETWORK_CHANGES: "Sunucu Ağ Değişikliğini Onayladı",
+    REVERT_NETWORK_BACKUP: "Sunucu Ağ Yedeğini Geri Yükledi",
+    ADD_STATIC_ROUTE: "Statik Rota Ekledi",
+    DELETE_STATIC_ROUTE: "Statik Rota Sildi",
+    UPDATE_DNS_HOSTS: "DNS / Hostname / Hosts Güncelledi",
   };
 
   const screenSlugTranslations = {
