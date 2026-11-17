@@ -89,6 +89,10 @@ def get_system_hardware_fingerprint() -> dict:
         "raw_string": raw_str
     }
 
+
+get_hardware_fingerprint = get_system_hardware_fingerprint
+
+
 if __name__ == "__main__":
     info = get_system_hardware_fingerprint()
     print(f"Sunucu Donanım Kimliği (Hardware ID): {info['hardware_id']}")

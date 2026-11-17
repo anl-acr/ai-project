@@ -13,7 +13,7 @@ import httpx
 import websockets
 from fastapi import APIRouter, Body, HTTPException, Request
 
-from backend.services.hardware_info import get_hardware_fingerprint
+from backend.services.hardware_info import get_system_hardware_fingerprint as get_hardware_fingerprint
 from backend.scripts.network_recovery import get_live_interfaces
 
 ras_client_router = APIRouter()
