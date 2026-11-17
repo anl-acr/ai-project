@@ -22,6 +22,7 @@ import ipaddress
 import json
 import os
 import platform
+import re
 import shutil
 import socket
 import subprocess
@@ -299,6 +300,150 @@ def apply_interface_config_os(
         _run_cmd([sys.executable, sync_script], timeout=5.0)
 
     return {"ok": True, "message": f"{ifname} arayüzü ({mode.upper()}) başarıyla yapılandırıldı."}
+
+
+def sync_trunk_policy_routes_os(trunks_list: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """
+    Configures secondary /30 VLAN IPs and Source-Based Policy Routing (`ip rule from <local_ip> lookup <table_id>`)
+    for multi-trunk operator setups sharing the same remote SBC / Media subnet (e.g. 10.99.1.0/24).
+    """
+    applied_policies: List[Dict[str, Any]] = []
+    if not isinstance(trunks_list, list):
+        return applied_policies
+
+    live_ifaces = get_live_interfaces()
+    default_dev = live_ifaces[0]["name"] if live_ifaces else "eth0"
+    sys_name = platform.system().lower()
+
+    bound_trunks = []
+    for t in trunks_list:
+        if not isinstance(t, dict) or t.get("is_active") is False:
+            continue
+        sh = t.get("sip_headers") or {}
+        if isinstance(sh, str):
+            try:
+                sh = json.loads(sh)
+            except Exception:
+                sh = {}
+        if not isinstance(sh, dict) or not sh.get("local_bind_enabled"):
+            continue
+        raw_cidr = str(sh.get("local_bind_cidr") or "").strip()
+        if not raw_cidr:
+            continue
+        if "/" not in raw_cidr:
+            raw_cidr = f"{raw_cidr}/30"
+        try:
+            ip_iface = ipaddress.ip_interface(raw_cidr)
+        except Exception as e:
+            print(f"[Trunk Policy Route] Geçersiz local_bind_cidr ({raw_cidr}): {e}")
+            continue
+
+        local_ip = str(ip_iface.ip)
+        local_net = str(ip_iface.network)
+        local_gw = str(sh.get("local_gateway") or "").strip()
+        local_dev = str(sh.get("local_interface") or "").strip() or default_dev
+        raw_targets = str(sh.get("target_subnets") or "").strip()
+        host_str = str(t.get("host") or "").strip()
+
+        subnets: List[str] = []
+        for part in re.split(r"[,;\s]+", raw_targets):
+            p = part.strip()
+            if not p:
+                continue
+            if "/" not in p:
+                p = f"{p}/32"
+            try:
+                net_obj = ipaddress.ip_network(p, strict=False)
+                if str(net_obj) not in subnets:
+                    subnets.append(str(net_obj))
+            except Exception:
+                pass
+
+        # If target_subnets was not explicitly provided, derive /24 from the SBC host IP
+        if host_str:
+            try:
+                h_ip = ipaddress.ip_address(host_str)
+                if not subnets:
+                    net24 = ipaddress.ip_network(f"{h_ip}/24", strict=False)
+                    subnets.append(str(net24))
+                host32 = f"{h_ip}/32"
+                if host32 not in subnets:
+                    subnets.append(host32)
+            except Exception:
+                pass
+
+        bound_trunks.append({
+            "trunk_name": str(t.get("trunk_name") or t.get("name") or "trunk"),
+            "tenant_id": str(t.get("tenant_id") or "tenant-default"),
+            "interface": local_dev,
+            "local_cidr": str(ip_iface),
+            "local_ip": local_ip,
+            "local_net": local_net,
+            "gateway": local_gw,
+            "target_subnets": subnets,
+            "sbc_host": host_str,
+        })
+
+    if sys_name == "linux" and bound_trunks:
+        # Loose Reverse Path Filtering so multi-VLAN incoming RTP/SIP packets are never dropped by kernel
+        _run_cmd(["sysctl", "-w", "net.ipv4.conf.all.rp_filter=2"], timeout=2.0)
+        _run_cmd(["sysctl", "-w", "net.ipv4.conf.default.rp_filter=2"], timeout=2.0)
+
+    for idx, bt in enumerate(bound_trunks):
+        table_id = 201 + idx
+        prio = 1001 + idx
+        dev = bt["interface"]
+        local_cidr = bt["local_cidr"]
+        local_ip = bt["local_ip"]
+        local_net = bt["local_net"]
+        gw = bt["gateway"]
+        subnets = bt["target_subnets"]
+
+        if sys_name == "linux":
+            _run_cmd(["sysctl", "-w", f"net.ipv4.conf.{dev}.rp_filter=2"], timeout=2.0)
+            # 1. Assign secondary /30 IP on the interface without changing default gateway
+            _run_cmd(["ip", "addr", "replace", local_cidr, "dev", dev], timeout=3.0)
+            _run_cmd(["ip", "link", "set", "dev", dev, "up"], timeout=2.0)
+
+            # 2. Configure isolated Policy Routing table for this trunk's source IP
+            _run_cmd(["ip", "route", "flush", "table", str(table_id)], timeout=2.0)
+            _run_cmd(
+                ["ip", "route", "replace", local_net, "dev", dev, "scope", "link", "src", local_ip, "table", str(table_id)],
+                timeout=2.0,
+            )
+            if gw:
+                for snet in subnets:
+                    _run_cmd(
+                        ["ip", "route", "replace", snet, "via", gw, "dev", dev, "src", local_ip, "table", str(table_id)],
+                        timeout=2.0,
+                    )
+                    # Also add a metric-isolated fallback route in main table so local tools / ARP / RPF work
+                    _run_cmd(
+                        ["ip", "route", "replace", snet, "via", gw, "dev", dev, "src", local_ip, "metric", str(table_id)],
+                        timeout=2.0,
+                    )
+                _run_cmd(
+                    ["ip", "route", "replace", "default", "via", gw, "dev", dev, "src", local_ip, "table", str(table_id)],
+                    timeout=2.0,
+                )
+
+            # 3. Clean old ip rule for this source IP and insert fresh rule
+            for _ in range(4):
+                cp_del = _run_cmd(["ip", "rule", "del", "from", f"{local_ip}/32"], timeout=1.5)
+                if cp_del.returncode != 0:
+                    break
+            _run_cmd(
+                ["ip", "rule", "add", "from", f"{local_ip}/32", "lookup", str(table_id), "priority", str(prio)],
+                timeout=2.0,
+            )
+
+        applied_policies.append({
+            **bt,
+            "table_id": table_id,
+            "priority": prio,
+        })
+
+    return applied_policies
 
 
 def restore_snapshot(snap_file: str = LATEST_GOOD_FILE) -> Dict[str, Any]:

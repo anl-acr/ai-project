@@ -71,7 +71,12 @@ const DEFAULT_SIP_HEADERS = {
   outbound_ppi_custom: "",
   user_agent: "AIDA-PBX",
   realm: "asterisk",
-  maxptime: 20
+  maxptime: 20,
+  local_bind_enabled: false,
+  local_interface: "",
+  local_bind_cidr: "",
+  local_gateway: "",
+  target_subnets: ""
 };
 
 const MAXPTIME_OPTIONS = Array.from({ length: 29 }, (_, idx) => (idx + 2) * 10); // 20, 30, 40, ..., 300
@@ -300,6 +305,7 @@ export default function PBXSettings({ viewMode = "pbx", backendHost = "localhost
 
   const [trunks, setTrunks] = useState([]);
   const [trunkStatuses, setTrunkStatuses] = useState({});
+  const [serverInterfaces, setServerInterfaces] = useState([]);
   const [pbxSuccess, setPbxSuccess] = useState(false);
   const [loading, setLoading] = useState({ pbx: false, trunks: false });
   const [trunkError, setTrunkError] = useState("");
@@ -394,11 +400,25 @@ export default function PBXSettings({ viewMode = "pbx", backendHost = "localhost
       .catch((err) => console.error("[Trunks] Durumlar alinamadi:", err));
   };
 
+  const fetchServerInterfaces = () => {
+    fetch(`${API_BASE}/api/settings/network/status`, {
+      headers: { "X-User-ID": localStorage.getItem("current_user_id") || "admin" }
+    })
+      .then((res) => res.json())
+      .then((data) => {
+        if (Array.isArray(data?.interfaces)) {
+          setServerInterfaces(data.interfaces);
+        }
+      })
+      .catch(() => {});
+  };
+
   useEffect(() => {
     fetchPbxSettings();
     fetchTrunks();
     fetchTrunkStatuses();
     fetchBioSettings();
+    fetchServerInterfaces();
 
     const interval = setInterval(fetchTrunkStatuses, 5000);
     return () => clearInterval(interval);
@@ -1165,7 +1185,25 @@ export default function PBXSettings({ viewMode = "pbx", backendHost = "localhost
                               {tType === "account" ? (
                                 <span title="Account Kullanıcı Adı">{t.username || "-"}</span>
                               ) : (
-                                <span>{t.host}:{t.port || 5060}</span>
+                                <div className="flex flex-col gap-0.5">
+                                  <span>{t.host}:{t.port || 5060}</span>
+                                  {(() => {
+                                    let sh = t.sip_headers;
+                                    if (typeof sh === "string") {
+                                      try { sh = JSON.parse(sh); } catch (e) { sh = {}; }
+                                    }
+                                    if (sh && sh.local_bind_enabled && sh.local_bind_cidr) {
+                                      return (
+                                        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400 border border-indigo-200/60 dark:border-indigo-800/50 text-[9px] font-bold w-fit">
+                                          Çıkış IP: {sh.local_bind_cidr}
+                                          {sh.local_gateway ? ` ➔ GW: ${sh.local_gateway}` : ""}
+                                          {sh.local_interface ? ` (${sh.local_interface})` : ""}
+                                        </span>
+                                      );
+                                    }
+                                    return null;
+                                  })()}
+                                </div>
                               )}
                             </td>
                             <td className="py-3 font-mono text-slate-800 dark:text-slate-200">{t.did_number || "-"}</td>
@@ -1678,6 +1716,148 @@ export default function PBXSettings({ viewMode = "pbx", backendHost = "localhost
                             />
                           </div>
                         </div>
+                      </div>
+                    )}
+
+                    {/* OPERATÖR /30 VLAN & ÖZEL ÇIKIŞ IP YÖNLENDİRMESİ (MULTI-TRUNK SOURCE POLICY ROUTING) */}
+                    {(newTrunk.trunk_type === "register" || newTrunk.trunk_type === "peer") && (
+                      <div className="p-4 rounded-2xl bg-indigo-50/40 dark:bg-indigo-950/20 border border-indigo-200/70 dark:border-indigo-900/50 space-y-4">
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                          <div className="flex items-start gap-2.5">
+                            <div className={`p-2 rounded-xl ${lightBg} ${text} shrink-0 mt-0.5`}>
+                              <Network size={16} />
+                            </div>
+                            <div>
+                              <div className="text-[11px] font-extrabold text-slate-800 dark:text-white uppercase tracking-wider flex items-center gap-2">
+                                <span>Operatör /30 VLAN & Özel Çıkış IP Yönlendirmesi (Aynı SBC Çoklu Hat)</span>
+                                <span className="px-2 py-0.5 rounded-full text-[9px] font-bold bg-indigo-100 dark:bg-indigo-900/50 text-indigo-700 dark:text-indigo-300">
+                                  Policy Routing
+                                </span>
+                              </div>
+                              <p className="text-[10px] text-slate-500 dark:text-slate-400 mt-0.5 leading-relaxed">
+                                Aynı operatör SBC/Media IP bloğuna (<code className="font-mono">10.99.1.0/24</code>) giden birden fazla <code className="font-mono">/30</code> dış hattınız varsa; Nornia belirttiğiniz IP adresini ağ kartına otomatik ekler, Linux Policy Routing tablosunu (<code className="font-mono">Table 201+</code>) kurar ve SIP/RTP paketlerini bu IP üzerinden çıkarır.
+                              </p>
+                            </div>
+                          </div>
+
+                          <div className="flex items-center gap-2 bg-white dark:bg-slate-900 px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-800 shrink-0 self-start sm:self-center">
+                            <span className="text-[11px] font-bold text-slate-700 dark:text-slate-300">
+                              {newTrunk.sip_headers?.local_bind_enabled ? "Aktif" : "Kapalı"}
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() =>
+                                handleSipHeaderChange("local_bind_enabled", !newTrunk.sip_headers?.local_bind_enabled)
+                              }
+                              className={`transition-colors ${
+                                newTrunk.sip_headers?.local_bind_enabled ? "text-emerald-500" : "text-slate-400"
+                              }`}
+                              title="Özel Çıkış IP ve Policy Routing Yönlendirmesini Aç/Kapat"
+                            >
+                              {newTrunk.sip_headers?.local_bind_enabled ? <ToggleRight size={26} /> : <ToggleLeft size={26} />}
+                            </button>
+                          </div>
+                        </div>
+
+                        {newTrunk.sip_headers?.local_bind_enabled && (
+                          <div className="pt-2 border-t border-indigo-200/50 dark:border-indigo-900/40 space-y-4">
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                              <div>
+                                <label className="text-[11px] font-bold text-slate-600 dark:text-slate-300 uppercase block mb-1">
+                                  1. Ağ Kartı / VLAN Arayüzü (Interface) *
+                                </label>
+                                <div className="flex items-center gap-2">
+                                  <select
+                                    value={newTrunk.sip_headers?.local_interface || ""}
+                                    onChange={(e) => handleSipHeaderChange("local_interface", e.target.value)}
+                                    className="w-1/2 px-3 py-2 text-xs font-mono font-bold rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-800 dark:text-white focus:outline-none focus:border-primary"
+                                  >
+                                    <option value="">Otomatik ({serverInterfaces[0]?.name || "eth0"})</option>
+                                    {serverInterfaces.map((ifc) => (
+                                      <option key={ifc.name} value={ifc.name}>
+                                        {ifc.name} ({ifc.primary_cidr || "IP Yok"})
+                                      </option>
+                                    ))}
+                                  </select>
+                                  <input
+                                    type="text"
+                                    value={newTrunk.sip_headers?.local_interface || ""}
+                                    onChange={(e) => handleSipHeaderChange("local_interface", e.target.value)}
+                                    placeholder="Örn: eth0, ens19, eth0.105"
+                                    className="w-1/2 px-3 py-2 text-xs font-mono rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-800 dark:text-white focus:outline-none focus:border-primary"
+                                  />
+                                </div>
+                                <span className="text-[10px] text-slate-400 mt-1 block">
+                                  Listeden seçebilir veya VLAN alt arayüz adını (örn. <code className="font-mono">eth0.100</code>) yazabilirsiniz.
+                                </span>
+                              </div>
+
+                              <div>
+                                <label className="text-[11px] font-bold text-slate-600 dark:text-slate-300 uppercase block mb-1">
+                                  2. Santral Yerel IP / CIDR (/30) *
+                                </label>
+                                <input
+                                  type="text"
+                                  value={newTrunk.sip_headers?.local_bind_cidr || ""}
+                                  onChange={(e) => handleSipHeaderChange("local_bind_cidr", e.target.value)}
+                                  placeholder="Örn: 10.87.1.5/30 veya 10.55.1.10/30"
+                                  className="w-full px-3 py-2 text-xs font-mono rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-800 dark:text-white focus:outline-none focus:border-primary"
+                                />
+                                <span className="text-[10px] text-slate-400 mt-1 block">
+                                  Operatör kurulum tablosunda bu hat için santrale verilen IP adresi (Ağ kartına otomatik tanımlanır).
+                                </span>
+                              </div>
+                            </div>
+
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                              <div>
+                                <label className="text-[11px] font-bold text-slate-600 dark:text-slate-300 uppercase block mb-1">
+                                  3. Hat Gateway (GW) Adresi *
+                                </label>
+                                <input
+                                  type="text"
+                                  value={newTrunk.sip_headers?.local_gateway || ""}
+                                  onChange={(e) => handleSipHeaderChange("local_gateway", e.target.value)}
+                                  placeholder="Örn: 10.87.1.4 veya 10.55.1.9"
+                                  className="w-full px-3 py-2 text-xs font-mono rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-800 dark:text-white focus:outline-none focus:border-primary"
+                                />
+                                <span className="text-[10px] text-slate-400 mt-1 block">
+                                  Bu <code className="font-mono">/30</code> hattın kendi özel ağ geçidi (Sunucunun ana Default Gateway ayarını bozmaz).
+                                </span>
+                              </div>
+
+                              <div>
+                                <div className="flex items-center justify-between mb-1">
+                                  <label className="text-[11px] font-bold text-slate-600 dark:text-slate-300 uppercase">
+                                    4. Operatör SBC & Media Rota Blokları (Subnet)
+                                  </label>
+                                  {newTrunk.host && /^\d+\.\d+\.\d+\.\d+$/.test(newTrunk.host.trim()) && (
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        const parts = newTrunk.host.trim().split(".");
+                                        handleSipHeaderChange("target_subnets", `${parts[0]}.${parts[1]}.${parts[2]}.0/24`);
+                                      }}
+                                      className="text-[10px] font-bold text-indigo-600 dark:text-indigo-400 hover:underline"
+                                    >
+                                      SBC /24 Otomatik Doldur
+                                    </button>
+                                  )}
+                                </div>
+                                <input
+                                  type="text"
+                                  value={newTrunk.sip_headers?.target_subnets || ""}
+                                  onChange={(e) => handleSipHeaderChange("target_subnets", e.target.value)}
+                                  placeholder="Örn: 10.99.1.0/24 (Boş bırakılırsa Host /24 alınır)"
+                                  className="w-full px-3 py-2 text-xs font-mono rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-800 dark:text-white focus:outline-none focus:border-primary"
+                                />
+                                <span className="text-[10px] text-slate-400 mt-1 block">
+                                  Operatörün SBC ve RTP Media IP blokları (Birden fazla blok varsa virgülle ayırın: <code className="font-mono">10.99.1.0/24, 10.98.0.0/16</code>).
+                                </span>
+                              </div>
+                            </div>
+                          </div>
+                        )}
                       </div>
                     )}
                   </div>

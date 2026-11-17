@@ -274,7 +274,7 @@ async def _verify_step_up_admin_security(
 @network_manager_router.get("/api/settings/network/status")
 async def get_server_network_status(request: Request):
     from backend.services.ami_manager import active_channels
-    from backend.main import settings_db
+    from backend.main import _extract_trunk_local_bind_info, settings_db
 
     interfaces = get_live_interfaces()
     dns_info = _read_dns_and_hostname()
@@ -282,6 +282,44 @@ async def get_server_network_status(request: Request):
     routes_list = _read_live_routes()
     backups_list = _list_saved_backups()
     pending_rollback = _get_pending_rollback_info()
+
+    # Collect per-trunk Source-Based Policy Routing (Table 201..250) summary
+    trunk_policy_routes: List[Dict[str, Any]] = []
+    default_ifname = interfaces[0]["name"] if interfaces else "eth0"
+    trunks_all = list(settings_db.get("trunks") or [])
+    try:
+        from backend.database.config import AsyncSessionLocal
+        from backend.database.models import Trunk
+        from sqlalchemy import select
+        async with AsyncSessionLocal() as db:
+            res_t = await db.execute(select(Trunk).order_by(Trunk.id))
+            db_t = res_t.scalars().all()
+            if db_t:
+                trunks_all = [{c.name: getattr(t, c.name) for c in t.__table__.columns} for t in db_t]
+    except Exception:
+        pass
+
+    p_idx = 0
+    for tr in trunks_all:
+        if not isinstance(tr, dict) or tr.get("is_active") is False:
+            continue
+        lb = _extract_trunk_local_bind_info(tr)
+        if not lb:
+            continue
+        trunk_policy_routes.append({
+            "table_id": 201 + p_idx,
+            "priority": 1001 + p_idx,
+            "trunk_name": tr.get("trunk_name") or tr.get("name") or "Trunk",
+            "tenant_id": tr.get("tenant_id") or "tenant-default",
+            "interface": lb.get("interface") or default_ifname,
+            "local_cidr": lb.get("local_cidr"),
+            "local_ip": lb.get("local_ip"),
+            "gateway": lb.get("gateway") or "-",
+            "sbc_host": tr.get("host") or "-",
+            "target_subnets": lb.get("target_subnets") or [],
+            "pjsip_transport": f"transport-{str(tr.get('protocol') or 'udp').lower()}-{lb.get('safe_ip')}",
+        })
+        p_idx += 1
 
     # Check if current user has 2FA enabled so frontend can show 2FA input in Step-Up Modal
     uid = str(request.headers.get("X-User-ID") or "admin").strip()
@@ -300,6 +338,7 @@ async def get_server_network_status(request: Request):
         "search_domain": dns_info["search_domain"],
         "hosts": hosts_list,
         "routes": routes_list,
+        "trunk_policy_routes": trunk_policy_routes,
         "backups": backups_list,
         "pending_rollback": pending_rollback,
         "active_calls_count": len(active_channels),

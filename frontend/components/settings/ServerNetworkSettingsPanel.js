@@ -60,6 +60,7 @@ export default function ServerNetworkSettingsPanel({
 
   // Routes state
   const [routes, setRoutes] = useState([]);
+  const [trunkPolicyRoutes, setTrunkPolicyRoutes] = useState([]);
   const [newRoute, setNewRoute] = useState({
     destination: "",
     gateway: "",
@@ -144,6 +145,7 @@ export default function ServerNetworkSettingsPanel({
         setSearchDomain(data.search_domain || "");
         setHostsList(Array.isArray(data.hosts) ? data.hosts : []);
         setRoutes(Array.isArray(data.routes) ? data.routes : []);
+        setTrunkPolicyRoutes(Array.isArray(data.trunk_policy_routes) ? data.trunk_policy_routes : []);
         setBackups(Array.isArray(data.backups) ? data.backups : []);
         setPendingRollback(data.pending_rollback || null);
         setActiveCallsCount(Number(data.active_calls_count || 0));
@@ -865,6 +867,64 @@ export default function ServerNetworkSettingsPanel({
                 ))}
               </tbody>
             </table>
+          </div>
+
+          {/* Per-Trunk Source-Based Policy Routing Summary Table (Table 201..250) */}
+          <div className="bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-3xl overflow-hidden shadow-sm">
+            <div className="p-5 border-b border-slate-100 dark:border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+              <div>
+                <h4 className="text-sm font-extrabold text-slate-900 dark:text-white flex items-center gap-2">
+                  <span>Dış Hat (Trunk) Kaynak IP Bazlı Politik Rotalar (/30 Multi-Trunk Policy Routing)</span>
+                  <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-indigo-500/15 text-indigo-600 dark:text-indigo-400">
+                    ip rule + Table 201..250
+                  </span>
+                </h4>
+                <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                  Aynı operatör SBC / Media alt ağına (<code className="font-mono">10.99.1.0/24</code>) farklı <code className="font-mono">/30</code> VLAN üzerinden bağlanan dış hatlar için otomatik oluşturulan izole rota tabloları. (Santral ➔ Dış Hat Tanımı ekranından yönetilir)
+                </p>
+              </div>
+            </div>
+            {trunkPolicyRoutes.length === 0 ? (
+              <div className="p-6 text-center text-xs text-slate-400">
+                Henüz özel çıkış IP&apos;si (<code className="font-mono">Local Bind /30</code>) aktif edilmiş bir SIP dış hat bulunmuyor.
+              </div>
+            ) : (
+              <table className="w-full text-left border-collapse">
+                <thead>
+                  <tr className="border-b border-slate-200/80 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-950/50 text-[10px] font-extrabold uppercase tracking-wider text-slate-400">
+                    <th className="py-3 px-4">Tablo / Öncelik</th>
+                    <th className="py-3 px-4">Dış Hat (Trunk) & Tenant</th>
+                    <th className="py-3 px-4">Arayüz (NIC)</th>
+                    <th className="py-3 px-4">Kaynak IP (/30)</th>
+                    <th className="py-3 px-4">Hat Gateway (GW)</th>
+                    <th className="py-3 px-4">Hedef SBC & Media Blokları</th>
+                    <th className="py-3 px-4">PJSIP Transport</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-200/60 dark:divide-slate-800/70 text-xs">
+                  {trunkPolicyRoutes.map((pr) => (
+                    <tr key={`${pr.table_id}-${pr.trunk_name}`}>
+                      <td className="py-3 px-4 font-mono font-bold text-indigo-600 dark:text-indigo-400">
+                        Table {pr.table_id} <span className="text-[10px] text-slate-400">(Prio {pr.priority})</span>
+                      </td>
+                      <td className="py-3 px-4">
+                        <div className="font-bold text-slate-900 dark:text-white">{pr.trunk_name}</div>
+                        <div className="text-[10px] text-slate-400 font-mono">{pr.tenant_id}</div>
+                      </td>
+                      <td className="py-3 px-4 font-mono font-bold">{pr.interface}</td>
+                      <td className="py-3 px-4 font-mono font-bold text-emerald-600 dark:text-emerald-400">
+                        {pr.local_cidr}
+                      </td>
+                      <td className="py-3 px-4 font-mono text-slate-700 dark:text-slate-300">{pr.gateway}</td>
+                      <td className="py-3 px-4 font-mono text-[11px]">
+                        {(pr.target_subnets || []).join(", ") || pr.sbc_host}
+                      </td>
+                      <td className="py-3 px-4 font-mono text-[11px] text-slate-500">{pr.pjsip_transport}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
           </div>
         </div>
       )}

@@ -382,6 +382,62 @@ stunaddr=stun.l.google.com:19302
                     rw = {}
             return rw if isinstance(rw, dict) else {}
 
+        def _extract_lb_s(t_obj):
+            import ipaddress
+            sh_l = _parse_sh(t_obj)
+            if not sh_l.get("local_bind_enabled"):
+                return None
+            rc = str(sh_l.get("local_bind_cidr") or "").strip()
+            if not rc:
+                return None
+            if "/" not in rc:
+                rc = f"{rc}/30"
+            try:
+                ip_if = ipaddress.ip_interface(rc)
+            except Exception:
+                return None
+            l_ip = str(ip_if.ip)
+            l_net = str(ip_if.network)
+            s_ip = l_ip.replace(".", "_")
+            l_gw = str(sh_l.get("local_gateway") or "").strip()
+            l_dev = str(sh_l.get("local_interface") or "").strip()
+            rt = str(sh_l.get("target_subnets") or "").strip()
+            h_s = str(t_obj.get("host") or "").strip()
+            snets = []
+            for pt in re.split(r"[,;\s]+", rt):
+                p_c = pt.strip()
+                if not p_c:
+                    continue
+                if "/" not in p_c:
+                    p_c = f"{p_c}/32"
+                try:
+                    no = ipaddress.ip_network(p_c, strict=False)
+                    if str(no) not in snets:
+                        snets.append(str(no))
+                except Exception:
+                    pass
+            if h_s and not snets:
+                try:
+                    hi = ipaddress.ip_address(h_s)
+                    snets.append(str(ipaddress.ip_network(f"{hi}/24", strict=False)))
+                except Exception:
+                    pass
+            return {
+                "local_cidr": str(ip_if),
+                "local_ip": l_ip,
+                "local_net": l_net,
+                "safe_ip": s_ip,
+                "gateway": l_gw,
+                "interface": l_dev,
+                "target_subnets": snets,
+            }
+
+        try:
+            from backend.scripts.network_recovery import sync_trunk_policy_routes_os
+            sync_trunk_policy_routes_os(trunks_list)
+        except Exception as _e_pr_s:
+            print(f"[Sync Script] Trunk policy route sync warning: {_e_pr_s}")
+
         custom_global_ua = ""
         for t in trunks_list:
             if t.get("is_active", True) is False:
@@ -436,6 +492,50 @@ verify_client=no
         op_ref_safe_s = _sanitize_t_name(primary_t_ref.get("trunk_name") or primary_t_ref.get("name") or "908503607390") if primary_t_ref else "908503607390"
         op_allow_s = _norm_codecs(primary_t_ref) if primary_t_ref else "ulaw,alaw,g722,g729"
 
+        custom_bind_map_s = {}
+        for t in trunks_list:
+            if t.get("is_active", True) is False:
+                continue
+            lbi = _extract_lb_s(t)
+            if lbi and lbi["local_ip"] not in custom_bind_map_s:
+                custom_bind_map_s[lbi["local_ip"]] = lbi
+
+        default_bind_addr_s = "0.0.0.0"
+        if custom_bind_map_s:
+            try:
+                from backend.scripts.network_recovery import get_live_interfaces
+                for ifc in get_live_interfaces():
+                    pc = str(ifc.get("primary_cidr") or "").strip()
+                    if pc:
+                        cip = pc.split("/")[0].strip()
+                        if cip and cip != "127.0.0.1" and cip not in custom_bind_map_s:
+                            default_bind_addr_s = f"{cip}:5060"
+                            break
+            except Exception:
+                pass
+
+        custom_transports_s = ""
+        for b_ip, b_info in custom_bind_map_s.items():
+            s_ip = b_info["safe_ip"]
+            b_net = b_info["local_net"]
+            custom_transports_s += f"""[transport-udp-{s_ip}]
+type=transport
+protocol=udp
+bind={b_ip}:5060
+external_media_address={b_ip}
+external_signaling_address={b_ip}
+local_net={b_net}
+
+[transport-tcp-{s_ip}]
+type=transport
+protocol=tcp
+bind={b_ip}:5060
+external_media_address={b_ip}
+external_signaling_address={b_ip}
+local_net={b_net}
+
+"""
+
         pjsip_custom_content = f"""; ==========================================
 ; DINAMIK OLARAK OLUŞTURULAN SIP TRUNK VE DAHILI AYARLARI
 ; ==========================================
@@ -443,14 +543,14 @@ verify_client=no
 {global_ua_block}[transport-udp]
 type=transport
 protocol=udp
-bind=0.0.0.0
+bind={default_bind_addr_s}
 {nat_lines}
 [transport-tcp]
 type=transport
 protocol=tcp
-bind=0.0.0.0
+bind={default_bind_addr_s}
 {nat_lines}
-{tls_block}[transport-ws]
+{custom_transports_s}{tls_block}[transport-ws]
 type=transport
 protocol=ws
 bind=0.0.0.0:8088
@@ -462,7 +562,12 @@ bind=0.0.0.0:8089
 {nat_lines}"""
         if not has_exp_op_t:
             op_proto_s = str(primary_t_ref.get("protocol") or "udp").lower() if primary_t_ref else "udp"
-            op_tr_s = "transport-tls" if op_proto_s == "tls" else ("transport-tcp" if op_proto_s == "tcp" else "transport-udp")
+            op_lb_s = _extract_lb_s(primary_t_ref) if primary_t_ref else None
+            if op_lb_s and op_proto_s in ("udp", "tcp"):
+                op_tr_s = f"transport-{op_proto_s}-{op_lb_s['safe_ip']}"
+            else:
+                op_tr_s = "transport-tls" if op_proto_s == "tls" else ("transport-tcp" if op_proto_s == "tcp" else "transport-udp")
+            op_media_s = f"media_address={op_lb_s['local_ip']}\nbind_rtp_to_media_address=yes\n" if op_lb_s else ""
             op_user_s = str((primary_t_ref.get("username") or primary_t_ref.get("did_number") or "908503607390") if primary_t_ref else "908503607390").strip()
             op_host_s = str((primary_t_ref.get("host") or "ikonsip.com") if primary_t_ref else "ikonsip.com").strip()
             op_sh_s = _parse_sh(primary_t_ref) if primary_t_ref else {}
@@ -482,7 +587,7 @@ direct_media=no
 force_rport=yes
 rewrite_contact=yes
 rtp_symmetric=yes
-{pjsip_ep_safety_lines}trust_id_inbound=yes
+{op_media_s}{pjsip_ep_safety_lines}trust_id_inbound=yes
 from_user={op_user_s}
 from_domain={op_domain_s}
 """
@@ -494,13 +599,39 @@ from_domain={op_domain_s}
             host = str(t.get("host") or "").strip() or "127.0.0.1"
             port = t.get("port") or 5060
             did = str(t.get("did_number") or "").strip()
+            username = str(t.get("username") or "").strip()
+            password = str(t.get("password") or "").strip()
             protocol = str(t.get("protocol") or "udp").lower()
-            transport = "transport-tls" if protocol == "tls" else ("transport-tcp" if protocol == "tcp" else "transport-udp")
+            lb_s = _extract_lb_s(t)
+            if lb_s and protocol in ("udp", "tcp"):
+                transport = f"transport-{protocol}-{lb_s['safe_ip']}"
+            else:
+                transport = "transport-tls" if protocol == "tls" else ("transport-tcp" if protocol == "tcp" else "transport-udp")
+
+            media_bind_s = ""
+            identify_hdr_s = ""
+            identify_extra_s = ""
+            if lb_s:
+                l_ip_s = lb_s["local_ip"]
+                media_bind_s = f"media_address={l_ip_s}\nbind_rtp_to_media_address=yes\n"
+                hp_s = [l_ip_s.replace(".", r"\.")]
+                if did:
+                    hp_s.append(did.replace("+", r"\+"))
+                if username and username != did:
+                    hp_s.append(username.replace("+", r"\+"))
+                identify_hdr_s = (
+                    f"[{name}-identify-hdr]\n"
+                    f"type=identify\n"
+                    f"endpoint={name}\n"
+                    f"match_header=To: /({'|'.join(hp_s)})/\n\n"
+                )
+                for sn_s in lb_s.get("target_subnets", []):
+                    if sn_s and sn_s != host and sn_s != f"{host}/32":
+                        identify_extra_s += f"match={sn_s}\n"
+
             t_type = str(t.get("trunk_type") or "register").lower()
             if t_type == "ip":
                 t_type = "peer"
-            username = str(t.get("username") or "").strip()
-            password = str(t.get("password") or "").strip()
             allow_codecs = _norm_codecs(t)
             sh = _parse_sh(t)
             realm = str(sh.get("realm") or "").strip()
@@ -566,7 +697,7 @@ direct_media=no
 force_rport=yes
 rewrite_contact=yes
 rtp_symmetric=yes
-{pjsip_ep_safety_lines}send_rpid={send_rpid}
+{media_bind_s}{pjsip_ep_safety_lines}send_rpid={send_rpid}
 send_pai={send_pai}
 send_diversion={send_diversion}
 trust_id_inbound={trust_id_in}
@@ -575,7 +706,7 @@ trust_id_inbound={trust_id_in}
                     pjsip_custom_content += f"from_user={endpoint_from_user}\n"
                 if endpoint_from_domain:
                     pjsip_custom_content += f"from_domain={endpoint_from_domain}\n"
-                pjsip_custom_content += f"\n[{name}-identify]\ntype=identify\nendpoint={name}\nmatch={host}\n\n"
+                pjsip_custom_content += f"\n{identify_hdr_s}[{name}-identify]\ntype=identify\nendpoint={name}\nmatch={host}\n{identify_extra_s}\n"
             elif t_type == "peer":
                 pjsip_custom_content += f"""[{name}-aor]
 type=aor
@@ -594,7 +725,7 @@ direct_media=no
 force_rport=yes
 rewrite_contact=yes
 rtp_symmetric=yes
-{pjsip_ep_safety_lines}send_rpid={send_rpid}
+{media_bind_s}{pjsip_ep_safety_lines}send_rpid={send_rpid}
 send_pai={send_pai}
 send_diversion={send_diversion}
 trust_id_inbound={trust_id_in}
@@ -603,7 +734,7 @@ trust_id_inbound={trust_id_in}
                     pjsip_custom_content += f"from_user={endpoint_from_user}\n"
                 if endpoint_from_domain:
                     pjsip_custom_content += f"from_domain={endpoint_from_domain}\n"
-                pjsip_custom_content += f"\n[{name}-identify]\ntype=identify\nendpoint={name}\nmatch={host}\n\n"
+                pjsip_custom_content += f"\n{identify_hdr_s}[{name}-identify]\ntype=identify\nendpoint={name}\nmatch={host}\n{identify_extra_s}\n"
             elif t_type == "account":
                 acc_user = username or name
                 pjsip_custom_content += f"""[{name}-auth]

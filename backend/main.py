@@ -3622,6 +3622,60 @@ def _sanitize_trunk_name(name: str) -> str:
     return clean or "trunk"
 
 
+def _extract_trunk_local_bind_info(trunk_obj: dict) -> Optional[Dict[str, Any]]:
+    """Extracts per-trunk /30 VLAN local IP binding & remote SBC/Media subnet info from sip_headers."""
+    import ipaddress
+    import re as _re_lb
+    sh = _parse_trunk_sip_headers(trunk_obj)
+    if not sh.get("local_bind_enabled"):
+        return None
+    raw_cidr = str(sh.get("local_bind_cidr") or "").strip()
+    if not raw_cidr:
+        return None
+    if "/" not in raw_cidr:
+        raw_cidr = f"{raw_cidr}/30"
+    try:
+        ip_iface = ipaddress.ip_interface(raw_cidr)
+    except Exception:
+        return None
+    local_ip = str(ip_iface.ip)
+    local_net = str(ip_iface.network)
+    safe_ip = local_ip.replace(".", "_")
+    local_gw = str(sh.get("local_gateway") or "").strip()
+    local_dev = str(sh.get("local_interface") or "").strip()
+    raw_targets = str(sh.get("target_subnets") or "").strip()
+    host_str = str(trunk_obj.get("host") or "").strip()
+    subnets: List[str] = []
+    for part in _re_lb.split(r"[,;\s]+", raw_targets):
+        p = part.strip()
+        if not p:
+            continue
+        if "/" not in p:
+            p = f"{p}/32"
+        try:
+            net_obj = ipaddress.ip_network(p, strict=False)
+            if str(net_obj) not in subnets:
+                subnets.append(str(net_obj))
+        except Exception:
+            pass
+    if host_str and not subnets:
+        try:
+            h_ip = ipaddress.ip_address(host_str)
+            net24 = ipaddress.ip_network(f"{h_ip}/24", strict=False)
+            subnets.append(str(net24))
+        except Exception:
+            pass
+    return {
+        "local_cidr": str(ip_iface),
+        "local_ip": local_ip,
+        "local_net": local_net,
+        "safe_ip": safe_ip,
+        "gateway": local_gw,
+        "interface": local_dev,
+        "target_subnets": subnets,
+    }
+
+
 def regenerate_pjsip_custom_conf(background_tasks: Optional[BackgroundTasks] = None):
     # Fetch Users and Trunks from Database (with fallback to settings_db)
     users_list = []
@@ -3655,6 +3709,13 @@ def regenerate_pjsip_custom_conf(background_tasks: Optional[BackgroundTasks] = N
             for extra_k in ("codecs", "call_limit_enabled", "call_limit_direction", "max_channels", "sip_headers"):
                 if t.get(extra_k) in (None, {}, []) and dt.get(extra_k) not in (None, {}, []):
                     t[extra_k] = dt.get(extra_k)
+
+    # Apply OS-level /30 secondary IPs and Source-Based Policy Routing tables (ip rule + table 201..250)
+    try:
+        from backend.scripts.network_recovery import sync_trunk_policy_routes_os
+        sync_trunk_policy_routes_os(trunks_list)
+    except Exception as e_pr:
+        print(f"[Asterisk Config] Trunk policy route sync warning: {e_pr}")
 
     nat_cfg = settings_db.get("nat", {})
     nat_enabled = nat_cfg.get("enabled", False)
@@ -3822,6 +3883,53 @@ verify_client=no
     )
     op_trunk_codecs = _normalize_trunk_codecs(primary_trunk_ref) if primary_trunk_ref else "ulaw,alaw,g722,g729"
 
+    # Collect per-trunk custom /30 local bind IPs
+    custom_bind_map: Dict[str, Dict[str, Any]] = {}
+    for t in trunks_list:
+        if t.get("is_active", True) is False:
+            continue
+        lb_info = _extract_trunk_local_bind_info(t)
+        if lb_info and lb_info["local_ip"] not in custom_bind_map:
+            custom_bind_map[lb_info["local_ip"]] = lb_info
+
+    # When custom per-trunk local bind IPs exist on port 5060, bind default [transport-udp]/[transport-tcp]
+    # to the primary server LAN IP so Linux UDP/TCP sockets on port 5060 do not collide with 0.0.0.0:5060
+    default_bind_addr = "0.0.0.0"
+    if custom_bind_map:
+        try:
+            from backend.scripts.network_recovery import get_live_interfaces
+            for iface in get_live_interfaces():
+                p_cidr = str(iface.get("primary_cidr") or "").strip()
+                if p_cidr:
+                    cand_ip = p_cidr.split("/")[0].strip()
+                    if cand_ip and cand_ip != "127.0.0.1" and cand_ip not in custom_bind_map:
+                        default_bind_addr = f"{cand_ip}:5060"
+                        break
+        except Exception:
+            pass
+
+    custom_transports_block = ""
+    for b_ip, b_info in custom_bind_map.items():
+        s_ip = b_info["safe_ip"]
+        b_net = b_info["local_net"]
+        custom_transports_block += f"""[transport-udp-{s_ip}]
+type=transport
+protocol=udp
+bind={b_ip}:5060
+external_media_address={b_ip}
+external_signaling_address={b_ip}
+local_net={b_net}
+
+[transport-tcp-{s_ip}]
+type=transport
+protocol=tcp
+bind={b_ip}:5060
+external_media_address={b_ip}
+external_signaling_address={b_ip}
+local_net={b_net}
+
+"""
+
     conf_content = f"""; ==========================================
 ; DINAMIK OLARAK OLUŞTURULAN SIP TRUNK VE TRANSPORT AYARLARI
 ; ==========================================
@@ -3829,14 +3937,14 @@ verify_client=no
 {global_ua_block}[transport-udp]
 type=transport
 protocol=udp
-bind=0.0.0.0
+bind={default_bind_addr}
 {nat_lines}
 [transport-tcp]
 type=transport
 protocol=tcp
-bind=0.0.0.0
+bind={default_bind_addr}
 {nat_lines}
-{tls_transport_block}[transport-ws]
+{custom_transports_block}{tls_transport_block}[transport-ws]
 type=transport
 protocol=ws
 bind=0.0.0.0:8088
@@ -3853,7 +3961,12 @@ bind=0.0.0.0:8089
             if primary_trunk_ref else "908503607390"
         )
         op_proto = str(primary_trunk_ref.get("protocol") or "udp").lower() if primary_trunk_ref else "udp"
-        op_transport = "transport-tls" if op_proto == "tls" else ("transport-tcp" if op_proto == "tcp" else "transport-udp")
+        op_lb = _extract_trunk_local_bind_info(primary_trunk_ref) if primary_trunk_ref else None
+        if op_lb and op_proto in ("udp", "tcp"):
+            op_transport = f"transport-{op_proto}-{op_lb['safe_ip']}"
+        else:
+            op_transport = "transport-tls" if op_proto == "tls" else ("transport-tcp" if op_proto == "tcp" else "transport-udp")
+        op_media_bind_lines = f"media_address={op_lb['local_ip']}\nbind_rtp_to_media_address=yes\n" if op_lb else ""
         op_user = str((primary_trunk_ref.get("username") or primary_trunk_ref.get("did_number") or "908503607390") if primary_trunk_ref else "908503607390").strip()
         op_host = str((primary_trunk_ref.get("host") or "ikonsip.com") if primary_trunk_ref else "ikonsip.com").strip()
         op_sh = _parse_trunk_sip_headers(primary_trunk_ref) if primary_trunk_ref else {}
@@ -3873,7 +3986,7 @@ direct_media=no
 force_rport=yes
 rewrite_contact=yes
 rtp_symmetric=yes
-{pjsip_ep_safety_lines}trust_id_inbound=yes
+{op_media_bind_lines}{pjsip_ep_safety_lines}trust_id_inbound=yes
 from_user={op_user}
 from_domain={op_from_domain}
 """
@@ -3962,20 +4075,45 @@ qualify_frequency=30
         host = str(t.get("host") or "").strip() or "127.0.0.1"
         port = t.get("port") or 5060
         did = str(t.get("did_number") or "").strip()
+        username = str(t.get("username") or "").strip()
+        password = str(t.get("password") or "").strip()
         protocol = str(t.get("protocol") or "udp").lower()
-        if protocol == "tls":
+        lb_info = _extract_trunk_local_bind_info(t)
+        if lb_info and protocol in ("udp", "tcp"):
+            transport = f"transport-{protocol}-{lb_info['safe_ip']}"
+        elif protocol == "tls":
             transport = "transport-tls"
         elif protocol == "tcp":
             transport = "transport-tcp"
         else:
             transport = "transport-udp"
 
+        media_bind_lines = ""
+        identify_hdr_block = ""
+        identify_extra_matches = ""
+        if lb_info:
+            l_ip = lb_info["local_ip"]
+            media_bind_lines = f"media_address={l_ip}\nbind_rtp_to_media_address=yes\n"
+            hdr_patterns = [l_ip.replace(".", r"\.")]
+            if did:
+                hdr_patterns.append(did.replace("+", r"\+"))
+            if username and username != did:
+                hdr_patterns.append(username.replace("+", r"\+"))
+            hdr_regex = "|".join(hdr_patterns)
+            identify_hdr_block = (
+                f"[{name}-identify-hdr]\n"
+                f"type=identify\n"
+                f"endpoint={name}\n"
+                f"match_header=To: /({hdr_regex})/\n\n"
+            )
+            for snet in lb_info.get("target_subnets", []):
+                if snet and snet != host and snet != f"{host}/32":
+                    identify_extra_matches += f"match={snet}\n"
+
         t_type = str(t.get("trunk_type") or "register").lower()
         if t_type == "ip":
             t_type = "peer"
 
-        username = str(t.get("username") or "").strip()
-        password = str(t.get("password") or "").strip()
         allow_codecs = _normalize_trunk_codecs(t)
         sip_hdrs = _parse_trunk_sip_headers(t)
 
@@ -4009,7 +4147,8 @@ qualify_frequency=30
         realm_line = f"realm={realm}\n" if realm else ""
         contact_user_line = f"contact_user={did}\n" if did else ""
 
-        conf_content += f"\n; --- TRUNK: {raw_name} (Type={t_type}, Transport={protocol.upper()}, Codecs={allow_codecs}{f', Maxptime={maxptime}' if maxptime else ''}{f', UA={user_agent}' if user_agent else ''}) ---\n"
+        lb_comment = f", LocalBind={lb_info['local_cidr']}" if lb_info else ""
+        conf_content += f"\n; --- TRUNK: {raw_name} (Type={t_type}, Transport={protocol.upper()}, Codecs={allow_codecs}{lb_comment}{f', Maxptime={maxptime}' if maxptime else ''}{f', UA={user_agent}' if user_agent else ''}) ---\n"
 
         if t_type == "register":
             conf_content += f"""[{name}-auth]
@@ -4046,7 +4185,7 @@ direct_media=no
 force_rport=yes
 rewrite_contact=yes
 rtp_symmetric=yes
-{pjsip_ep_safety_lines}send_rpid={send_rpid}
+{media_bind_lines}{pjsip_ep_safety_lines}send_rpid={send_rpid}
 send_pai={send_pai}
 send_diversion={send_diversion}
 trust_id_inbound={trust_id_in}
@@ -4057,11 +4196,11 @@ trust_id_inbound={trust_id_in}
                 conf_content += f"from_domain={endpoint_from_domain}\n"
 
             conf_content += f"""
-[{name}-identify]
+{identify_hdr_block}[{name}-identify]
 type=identify
 endpoint={name}
 match={host}
-
+{identify_extra_matches}
 """
         elif t_type == "peer":
             conf_content += f"""[{name}-aor]
@@ -4081,7 +4220,7 @@ direct_media=no
 force_rport=yes
 rewrite_contact=yes
 rtp_symmetric=yes
-{pjsip_ep_safety_lines}send_rpid={send_rpid}
+{media_bind_lines}{pjsip_ep_safety_lines}send_rpid={send_rpid}
 send_pai={send_pai}
 send_diversion={send_diversion}
 trust_id_inbound={trust_id_in}
@@ -4092,11 +4231,11 @@ trust_id_inbound={trust_id_in}
                 conf_content += f"from_domain={endpoint_from_domain}\n"
 
             conf_content += f"""
-[{name}-identify]
+{identify_hdr_block}[{name}-identify]
 type=identify
 endpoint={name}
 match={host}
-
+{identify_extra_matches}
 """
         elif t_type == "account":
             acc_user = username or name
@@ -38091,12 +38230,87 @@ async def new_list_trunks(request: Request, user_info: dict = Depends(get_user_i
 @app.post("/api/settings/trunks")
 @app.post("/settings/trunks")
 async def new_add_or_update_trunk(payload: Union[List[Dict[str, Any]], Dict[str, Any]], background_tasks: BackgroundTasks, user_info: dict = Depends(get_user_info), db: AsyncSession = Depends(get_db)):
+    import ipaddress
     is_single = not isinstance(payload, list)
     items_list = [payload] if is_single else payload
 
+    # Fetch all existing trunks across ALL tenants to prevent local_bind_cidr IP collisions
+    all_existing_trunks: List[Dict[str, Any]] = []
+    try:
+        res_all_check = await db.execute(select(Trunk))
+        for t_row in res_all_check.scalars().all():
+            all_existing_trunks.append({c.name: getattr(t_row, c.name) for c in Trunk.__table__.columns})
+    except Exception:
+        all_existing_trunks = list(settings_db.get("trunks", []))
+
+    seen_batch_bind_ips: Dict[str, str] = {}
     for item in items_list:
         data = item.model_dump() if hasattr(item, "model_dump") else (item.copy() if isinstance(item, dict) else {})
         check_name_uniqueness(data.get("trunk_name"), "trunks", data.get("id"), label="Trunk / Dış Hat", name_field="trunk_name")
+
+        sh = data.get("sip_headers")
+        if isinstance(sh, str):
+            try:
+                sh = json.loads(sh)
+            except Exception:
+                sh = {}
+        if isinstance(sh, dict) and sh.get("local_bind_enabled"):
+            raw_cidr = str(sh.get("local_bind_cidr") or "").strip()
+            if not raw_cidr:
+                raise HTTPException(status_code=400, detail="Özel Çıkış IP (Local Bind) aktif edildiğinde Santral Yerel IP / CIDR adresi (Örn: 10.87.1.5/30) zorunludur.")
+            if "/" not in raw_cidr:
+                raw_cidr = f"{raw_cidr}/30"
+            try:
+                ip_iface = ipaddress.ip_interface(raw_cidr)
+            except Exception:
+                raise HTTPException(status_code=400, detail=f"Geçersiz Santral Yerel IP / CIDR formatı: {raw_cidr}. Örnek: 10.87.1.5/30")
+            local_ip_str = str(ip_iface.ip)
+            sh["local_bind_cidr"] = str(ip_iface)
+
+            raw_gw = str(sh.get("local_gateway") or "").strip()
+            if raw_gw:
+                try:
+                    ipaddress.ip_address(raw_gw)
+                except Exception:
+                    raise HTTPException(status_code=400, detail=f"Geçersiz Hat Gateway (GW) IP adresi: {raw_gw}")
+
+            # Auto-populate target_subnets with SBC /24 if empty and host is IPv4
+            raw_targets = str(sh.get("target_subnets") or "").strip()
+            host_val = str(data.get("host") or "").strip()
+            if not raw_targets and host_val:
+                try:
+                    h_ip = ipaddress.ip_address(host_val)
+                    sh["target_subnets"] = str(ipaddress.ip_network(f"{h_ip}/24", strict=False))
+                except Exception:
+                    pass
+
+            if isinstance( item, dict):
+                item["sip_headers"] = sh
+
+            # Check duplicate bind IP within current request batch
+            cur_tname = str(data.get("trunk_name") or "Yeni_Trunk").strip()
+            if local_ip_str in seen_batch_bind_ips and seen_batch_bind_ips[local_ip_str] != cur_tname:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Bu yerel çıkış IP adresi ({local_ip_str}) aynı anda birden fazla dış hatta ({seen_batch_bind_ips[local_ip_str]} ve {cur_tname}) atanamaz."
+                )
+            seen_batch_bind_ips[local_ip_str] = cur_tname
+
+            # Check duplicate bind IP across all existing trunks (including other tenants)
+            cur_id = data.get("id")
+            for ext_t in all_existing_trunks:
+                if (cur_id and str(ext_t.get("id")) == str(cur_id)) or (str(ext_t.get("trunk_name") or "").strip() == cur_tname):
+                    continue
+                if ext_t.get("is_active") is False:
+                    continue
+                ext_lb = _extract_trunk_local_bind_info(ext_t)
+                if ext_lb and ext_lb["local_ip"] == local_ip_str:
+                    other_name = ext_t.get("trunk_name") or ext_t.get("id")
+                    other_tenant = ext_t.get("tenant_id") or "tenant-default"
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"Bu yerel çıkış IP adresi ({local_ip_str}) sistemdeki başka bir aktif dış hat ({other_name} - Tenant: {other_tenant}) tarafından zaten kullanılmaktadır."
+                    )
 
     out = []
 
