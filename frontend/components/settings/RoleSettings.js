@@ -230,6 +230,7 @@ const SYSTEM_FEATURES = [
   // 7. Sistem Ayarları
   { id: "pbx", name: "Santral Entegrasyonu", icon: Server, type: "crud", color: "indigo" },
   { id: "server_network", name: "Sunucu Ağ (Network) & IP/Rota Yönetimi", icon: Network, type: "crud", color: "blue" },
+  { id: "ras_settings", name: "Uzak Erişim Servisi (Nornia RAS Tünel)", icon: Network, type: "crud_partial", color: "indigo" },
   { id: "nat", name: "NAT ve Dış IP Ayarları", icon: Network, type: "crud", color: "blue" },
   { id: "qa", name: "Çağrı Kalite Kontrol", icon: Shield, type: "crud", color: "indigo" },
   { id: "locations", name: "Lokasyon ve Departmanlar", icon: MapPin, type: "crud", color: "rose" },
@@ -568,6 +569,7 @@ export default function RoleSettings({ backendHost = "localhost:8000" }) {
       items: [
         "pbx",
         "server_network",
+        "ras_settings",
         "nat",
         "qa",
         "locations",

@@ -1111,9 +1111,9 @@ class WebphoneManager {
       },
       ...(customSdhFactory ? { sessionDescriptionHandlerFactory: customSdhFactory } : {}),
       sessionDescriptionHandlerFactoryOptions: {
-        iceGatheringTimeout: 400,
+        iceGatheringTimeout: Array.isArray(config.iceServers) && config.iceServers.length > 0 ? 1200 : 400,
         peerConnectionConfiguration: {
-          iceServers: []
+          iceServers: Array.isArray(config.iceServers) ? config.iceServers : []
         }
       },
       viaHost: resolvedViaHost,

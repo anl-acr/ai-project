@@ -1573,6 +1573,7 @@ DEFAULT_SETTINGS = {
                 "system_status:access", "logs:access", "sip_debugger:access", "troubleshooting:access",
                 "realtime_calls:read", "realtime_calls:write", "realtime_calls:access",
                 "server_network:read", "server_network:write", "server_network:delete",
+                "ras_settings:read", "ras_settings:write",
                 "security:read", "security:write", "security:delete",
                 "customer_360:read", "customer_360:write",
                 "callback_tasks:read", "callback_tasks:write", "callback_tasks:delete",
@@ -1644,6 +1645,7 @@ DEFAULT_SETTINGS = {
                 "storage:access", "logs:access", "sip_debugger:access", "troubleshooting:access",
                 "realtime_calls:read", "realtime_calls:write", "realtime_calls:access",
                 "server_network:read", "server_network:write", "server_network:delete",
+                "ras_settings:read", "ras_settings:write",
                 "security:read", "security:write", "security:delete",
                 "email_notifications:read", "email_notifications:write",
                 "restore_points:read", "restore_points:write",
@@ -2815,7 +2817,7 @@ def load_settings(force_reload: bool = False, persist: bool = False):
                 if r.get("role_code") == "admin" and "restore_points:delete" not in new_perms:
                     new_perms.append("restore_points:delete")
                 if r.get("role_code") == "admin":
-                    for net_p in ("server_network:read", "server_network:write", "server_network:delete"):
+                    for net_p in ("server_network:read", "server_network:write", "server_network:delete", "ras_settings:read", "ras_settings:write"):
                         if net_p not in new_perms:
                             new_perms.append(net_p)
                 for sup_perm in (
@@ -2828,6 +2830,7 @@ def load_settings(force_reload: bool = False, persist: bool = False):
                     "crisis_alerts:access",
                     "system_version:read",
                     "server_network:read",
+                    "ras_settings:read",
                 ):
                     if sup_perm not in new_perms:
                         new_perms.append(sup_perm)
@@ -40347,7 +40350,23 @@ async def get_webrtc_config(request: Request, db: AsyncSession = Depends(get_db)
             pass
 
         scheme = "wss" if request.url.scheme == "https" or request.headers.get("x-forwarded-proto") == "https" else "ws"
-        if scheme == "wss":
+        raw_host_hdr = request.headers.get("x-forwarded-host") or request.headers.get("host") or req_host
+        is_ras_tunneled = (
+            request.headers.get("x-nornia-ras-tunnel") == "1"
+            or request.query_params.get("via_ras") == "1"
+        )
+        ice_servers_list = []
+        try:
+            from backend.services.ras_client_service import build_ras_ice_servers, get_ras_config
+            ras_cfg_now = get_ras_config()
+            if is_ras_tunneled or ras_cfg_now.get("enabled"):
+                ice_servers_list = build_ras_ice_servers(ras_cfg_now)
+        except Exception:
+            pass
+
+        if is_ras_tunneled:
+            wss_url = f"{scheme}://{raw_host_hdr}/ras-sip-ws"
+        elif scheme == "wss":
             wss_url = f"wss://{req_host}:8089/ws"
         else:
             wss_url = f"ws://{req_host}:8088/ws"
@@ -40369,7 +40388,7 @@ async def get_webrtc_config(request: Request, db: AsyncSession = Depends(get_db)
 
         return {
             "asteriskWssUrl": wss_url,
-            "fallbackWssUrl": f"{scheme}://{req_host}/ws",
+            "fallbackWssUrl": f"{scheme}://{raw_host_hdr}/ras-sip-ws" if is_ras_tunneled else f"{scheme}://{req_host}/ws",
             "agentExtension": agent_ext,
             "sipUsername": web_sip_user,
             "webPhoneEnabled": web_enabled,
@@ -40377,7 +40396,9 @@ async def get_webrtc_config(request: Request, db: AsyncSession = Depends(get_db)
             "deviceKey": client_device_key,
             "agentName": agent_name,
             "password": sip_password,
-            "viaHost": via_ip
+            "viaHost": via_ip,
+            "viaRasTunnel": is_ras_tunneled,
+            "iceServers": ice_servers_list,
         }
     except Exception as e:
         print(f"WebRTC Config error: {e}")
@@ -42093,12 +42114,19 @@ app.include_router(ai_copilot_router)
 from backend.services.network_manager_service import network_manager_router
 app.include_router(network_manager_router)
 
+from backend.services.ras_client_service import ras_client_router, start_ras_tunnel_worker
+app.include_router(ras_client_router)
+
 @app.on_event("startup")
 async def on_startup_scheduled_reports_worker():
     try:
         asyncio.create_task(scheduled_reports_worker())
     except Exception as e:
         print(f"[ScheduledReports Startup Error]: {e}")
+    try:
+        start_ras_tunnel_worker()
+    except Exception as e_ras:
+        print(f"[Nornia RAS Startup Error]: {e_ras}")
 
 
 # ==============================================================================

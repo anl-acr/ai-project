@@ -47,6 +47,7 @@ const lazySub = (loader) => dynamic(loader, { ssr: false, loading: SubPanelLoadi
 
 const PBXSettings = lazySub(() => import("./PBXSettings"));
 const ServerNetworkSettingsPanel = lazySub(() => import("./ServerNetworkSettingsPanel"));
+const RemoteAccessSettingsPanel = lazySub(() => import("./RemoteAccessSettingsPanel"));
 const NATSettings = lazySub(() => import("./NATSettings"));
 const NumberingPlanPanel = lazySub(() => import("./NumberingPlanPanel"));
 const ChannelSettings = lazySub(() => import("./ChannelSettings"));
@@ -278,6 +279,13 @@ export default function SettingsPanel({ backendHost = "localhost:8000" }) {
             id: "server-network",
             label: "Sunucu Ağ (Network) Yönetimi",
             subtitle: "Ethernet IP/CIDR, Gateway, Statik Rota, DNS & Konsol Kurtarma",
+            icon: Network,
+            visible: true
+          },
+          {
+            id: "ras-settings",
+            label: "Uzak Erişim Servisi (Nornia RAS)",
+            subtitle: "Port açmadan Web, Mobil/Desktop, Ses (TURN) & SSH Bulut Tüneli",
             icon: Network,
             visible: true
           },
@@ -750,6 +758,9 @@ export default function SettingsPanel({ backendHost = "localhost:8000" }) {
             {activeSubTab === "pbx" && <PBXSettings backendHost={backendHost} />}
             {activeSubTab === "server-network" && (
               <ServerNetworkSettingsPanel backendHost={backendHost} />
+            )}
+            {activeSubTab === "ras-settings" && (
+              <RemoteAccessSettingsPanel backendHost={backendHost} />
             )}
             {activeSubTab === "nat" && <NATSettings backendHost={backendHost} />}
             {activeSubTab === "numbering-plan" && (

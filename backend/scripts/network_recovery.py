@@ -493,6 +493,45 @@ def restore_snapshot(snap_file: str = LATEST_GOOD_FILE) -> Dict[str, Any]:
     return {"ok": True, "message": f"Ağ ayarları '{snap.get('id')}' yedeğine başarıyla geri döndürüldü."}
 
 
+def configure_ras_from_cli(hub_url: str, subdomain: str = "merkez", enabled: bool = True) -> Dict[str, Any]:
+    """Saves Nornia RAS Hub configuration directly into backend/settings.json and notifies running backend."""
+    try:
+        sdata = {}
+        if os.path.exists(SETTINGS_FILE):
+            with open(SETTINGS_FILE, "r", encoding="utf-8") as f:
+                sdata = json.load(f)
+        ras_cfg = sdata.get("ras_config") if isinstance(sdata.get("ras_config"), dict) else {}
+        ras_cfg["enabled"] = bool(enabled)
+        ras_cfg["hub_url"] = str(hub_url or "").strip()
+        ras_cfg["subdomain"] = str(subdomain or "merkez").strip().lower() or "merkez"
+        ras_cfg.setdefault("remote_ssh_enabled", True)
+        ras_cfg.setdefault("turn_enabled", True)
+        sdata["ras_config"] = ras_cfg
+        with open(SETTINGS_FILE, "w", encoding="utf-8") as f:
+            json.dump(sdata, f, ensure_ascii=False, indent=2)
+        # Notify running local backend if reachable
+        _run_cmd(
+            [
+                "curl",
+                "-s",
+                "-X",
+                "POST",
+                "http://127.0.0.1:8000/api/settings/ras/config",
+                "-H",
+                "Content-Type: application/json",
+                "-d",
+                json.dumps(ras_cfg),
+            ],
+            timeout=3.0,
+        )
+        return {
+            "ok": True,
+            "message": f"Nornia RAS Uzak Erişim ayarları güncellendi (Hub: {ras_cfg['hub_url']}, Subdomain: {ras_cfg['subdomain']}).",
+        }
+    except Exception as exc:
+        return {"ok": False, "error": f"RAS ayarları kaydedilemedi: {exc}"}
+
+
 def run_watchdog(timeout_sec: int = 60):
     """Independent OS-level dead-man's switch process. Rolls back if pending_apply.json is not confirmed."""
     start_t = time.monotonic()
@@ -527,10 +566,11 @@ def interactive_console_menu():
         print("  5) Kayıtlı Ağ Yedeklerini Listele ve Seçerek Geri Yükle")
         print("  6) Gateway & İnternet Erişim Testi (Ping Testi)")
         print("  7) Bekleyen Web Değişikliğini Kalıcı Olarak Onayla")
+        print("  8) Nornia RAS (Uzak Erişim Tüneli) Merkez Sunucu Ayarlarını Yapılandır")
         print("  0) Çıkış")
         print("-" * 68)
 
-        choice = input("Seçiminiz (0-7): ").strip()
+        choice = input("Seçiminiz (0-8): ").strip()
         if choice == "0":
             print("Konsoldan çıkılıyor.")
             break
@@ -588,6 +628,12 @@ def interactive_console_menu():
                 print("\n>>> Bekleyen ağ değişikliği kalıcı olarak onaylandı!")
             else:
                 print("\n>>> Onay bekleyen bir değişiklik bulunmuyor.")
+        elif choice == "8":
+            hub_in = input("Merkez RAS Sunucu Adresi (Örn: https://ras.domain.com veya http://192.168.1.50:8050): ").strip()
+            sub_in = input("Santral Alt Alan Adı / Kimliği [merkez]: ").strip() or "merkez"
+            if hub_in:
+                res = configure_ras_from_cli(hub_url=hub_in, subdomain=sub_in, enabled=True)
+                print(f"\n>>> {res.get('message') or res.get('error')}")
 
 
 def main():
@@ -596,6 +642,7 @@ def main():
     parser.add_argument("--rollback", action="store_true", help="Son çalışan ağ yedeğine anında geri döner")
     parser.add_argument("--watchdog", type=int, default=0, help="Belirtilen saniye sonunda onaylanmazsa otomatik rollback yapar")
     parser.add_argument("--set-ip", nargs="+", help="Kullanım: --set-ip <iface> <ip/cidr> <gateway> [dns1,dns2]")
+    parser.add_argument("--set-ras", nargs="+", help="Kullanım: --set-ras <hub_url> [subdomain]")
     args = parser.parse_args()
 
     if args.status:
@@ -607,6 +654,12 @@ def main():
         return
     if args.watchdog > 0:
         run_watchdog(args.watchdog)
+        return
+    if args.set_ras:
+        hub_u = args.set_ras[0]
+        sub_d = args.set_ras[1] if len(args.set_ras) >= 2 else "merkez"
+        res = configure_ras_from_cli(hub_url=hub_u, subdomain=sub_d, enabled=True)
+        print(json.dumps(res, ensure_ascii=False))
         return
     if args.set_ip:
         if len(args.set_ip) < 2:
