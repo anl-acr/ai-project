@@ -4299,6 +4299,10 @@ function translateDynamicPatternToEn(trimmed) {
   m = trimmed.match(/^Mola Türü Seçin\s*\((\d+)\)$/i);
   if (m) return `Select Break Type (${m[1]})`;
 
+  // "Kullanıcı '...' ekranına giriş yaptı."
+  m = trimmed.match(/^Kullanıcı\s+['’]([^'’]+)['’]\s+(?:ekranına|penceresine)\s+giriş\s+yaptı\.?$/i);
+  if (m) return `User opened the '${translateStringToEn(m[1])}' screen.`;
+
   // "Engellenen IP'ler (11.139)" / "Güvenli IP / Blok Listesi (3)"
   m = trimmed.match(/^Engellenen\s+IP['’]ler\s*\(([^)]+)\)$/i);
   if (m) return `Blocked IPs (${m[1]})`;

@@ -369,8 +369,120 @@ export default function EventLogsPanel({ backendHost }) {
     DEVICE_KEY_BLOCKED: "Yetkisiz Cihaz Engellendi",
   };
 
-  const tModule = (log) => log.module_tr || moduleTranslations[log.module] || log.module || "Sistem";
+  const screenSlugTranslations = {
+    "dashboard": "Gerçek Zamanlı AI Pano",
+    "wallboard": "Canlı İzleme Paneli (Wallboard)",
+    "call-center": "Temsilci Çağrı Paneli",
+    "omnichannel": "Ortak Gelen Kutusu (Omnichannel)",
+    "api-budgets": "API Bütçe ve Tüketim",
+    "ai-config-assistant": "AI Konfigürasyon Asistanı",
+    "ai-agents": "AI Temsilcileri",
+    "rag-kb": "Bilgi Bankası (RAG)",
+    "knowledge": "Bilgi Bankası (RAG)",
+    "rule-editor": "Kural & Senaryo Editörü",
+    "users": "Kullanıcı Yönetimi",
+    "announcements": "Anons Yönetimi",
+    "acd-queues": "ACD Kuyruk Yönetimi",
+    "auto-provision": "Oto Provizyon",
+    "outbound-rules": "Giden Arama Kuralları",
+    "inbound-rules": "Gelen Arama Kuralları",
+    "call-pickup-groups": "Çağrı Toplama Grupları",
+    "subscriber-groups": "Abone Grupları",
+    "bulk-config": "Toplu Konfigürasyon Merkezi",
+    "contacts": "Telefon Rehberi",
+    "trunks": "Dış Hat Tanımı (SIP Trunk)",
+    "conferences": "Konferans Odaları",
+    "speed-dial": "Hızlı Arama",
+    "blacklist": "Numara Engelleme & Kara Liste",
+    "scheduled-reports": "Zamanlanmış Raporlar",
+    "call-flow": "Arama Akış Yönetimi",
+    "work-hours": "Mesai Saatleri & Resmi Tatiller",
+    "dialer": "Dış Arama (Dialer) Kampanyaları",
+    "calendar": "Randevu Takvimi",
+    "appointments": "Randevu Takvimi",
+    "reports": "Çağrı ve Performans Raporları",
+    "reports-custom-builder": "Raporlar: Özel Rapor Tasarımcısı",
+    "reports-pano": "Raporlar: Genel Özet Pano",
+    "reports-cdr": "Raporlar: Tüm Çağrı Kayıtları (CDR)",
+    "reports-audio": "Raporlar: Ses Kayıtları",
+    "reports-transcripts": "Raporlar: Çağrı Transkriptleri",
+    "reports-sentiment": "Raporlar: Duygu Analizi",
+    "reports-qa": "Raporlar: Kalite Değerlendirmeleri",
+    "reports-notes": "Raporlar: Temsilci Notları",
+    "reports-perf": "Raporlar: Temsilci Performans",
+    "reports-queue": "Raporlar: Kuyruk & Bekleme Analitiği",
+    "reports-survey": "Raporlar: Anket Raporları (CSAT/NPS)",
+    "reports-sentiment-heat": "Raporlar: Duygu Durumu Isı Haritası",
+    "reports-wordcloud": "Raporlar: Kelime Bulutu & Trendler",
+    "reports-fcr": "Raporlar: İlk Aramada Çözüm (FCR)",
+    "reports-roi": "Raporlar: AI & İnsan Maliyet/Tasarruf (ROI)",
+    "reports-missed": "Raporlar: Kaçan Çağrı Analizi",
+    "reports-agent-status-timeline": "Raporlar: Temsilci Kronolojisi",
+    "reports-traffic-load": "Raporlar: Saatlik Yoğunluk Raporu",
+    "reports-trunk": "Raporlar: Hat Kapasite Raporu",
+    "reports-did": "Raporlar: DID Numara Bazlı Rapor",
+    "reports-trunk-minutes": "Raporlar: Operatör Dakika & Paket Raporu",
+    "reports-invalid-calls": "Raporlar: Hatalı & Eşleşmeyen Çağrılar",
+    "reports-ivr-drop": "Raporlar: IVR Terk Oranı & Tuşlama",
+    "reports-transfer-hold": "Raporlar: Aktarma & Bekletme",
+    "reports-ab-testing": "Raporlar: Verimlilik Karşılaştırması",
+    "reports-friction": "Raporlar: Müşteri Çile Noktaları",
+    "reports-compliance": "Raporlar: Senaryo Sadakati Raporu",
+    "reports-silence": "Raporlar: Sessizlik & Söz Kesme",
+    "reports-ceo-summary": "Raporlar: CEO Özet Raporu",
+    "reports-intent": "Raporlar: Müşteri Niyet Raporu",
+    "reports-breaks-attendance": "Raporlar: Mola & Puantaj Raporu",
+    "reports-omnichannel": "Raporlar: Omnichannel Kanal & SLA",
+    "reports-disposition": "Raporlar: Çağrı Sonuç Kodları",
+    "reports-dialer-callback": "Raporlar: Kampanya & Geri Arama",
+    "reports-queue-sla": "Raporlar: Kuyruk SLA & Hız Dilimleri",
+    "reports-repeat-callers": "Raporlar: Tekrar Eden Arayanlar",
+    "reports-dept-pickup": "Raporlar: Departman & Çağrı Toplama",
+    "reports-voip-quality": "Raporlar: VoIP & Ses Kalitesi (MOS)",
+    "reports-forwarding-gsm": "Raporlar: Yönlendirme (Follow-Me / GSM)",
+    "reports-supervisor-audit": "Raporlar: Süpervizör Dinleme & Müdahale",
+    "reports-blacklist-security": "Raporlar: Engellenen Çağrı & İhlal",
+    "reports-ai-appointments-rag": "Raporlar: AI Randevu & Bilgi Bankası",
+    "reports-voicemail": "Raporlar: Sesli Posta Raporu",
+    "reports-conferences": "Raporlar: Konferans Odası Kullanımı",
+    "satisfaction-analytics": "Müşteri Memnuniyet Analitiği",
+    "evaluation": "Kalite Değerlendirme",
+    "tenants": "Müşteri (Tenant) Yönetimi",
+    "system-status": "Sistem Panosu & Sağlık",
+    "event-logs": "Olay Günlükleri",
+    "system-logs": "Olay Günlükleri",
+    "troubleshooting": "Sorun İnceleme (Ping, Traceroute, SIP Capture & sngrep)",
+    "sip-debugger": "Sorun İnceleme (Ping, Traceroute, SIP Capture & sngrep)",
+    "security": "Güvenlik Kalkanı",
+    "changelog": "Sistem Versiyonu & Günlük",
+    "pbx-settings": "Santral (PBX) Ayarları",
+    "settings": "Sistem Ayarları",
+  };
+
+  const tModule = (log) =>
+    screenSlugTranslations[log.module] ||
+    log.module_tr ||
+    moduleTranslations[log.module] ||
+    log.module ||
+    "Sistem";
   const tAction = (log) => log.action_tr || actionTranslations[log.action] || log.action || "İşlem";
+  const tScreen = (log) => {
+    const rawScreen = log.details?.screen_name;
+    if (rawScreen) {
+      return screenSlugTranslations[rawScreen] || moduleTranslations[rawScreen] || rawScreen;
+    }
+    return tModule(log);
+  };
+  const tSummary = (log) => {
+    let raw = log.summary || log.details?.summary;
+    if (!raw) {
+      return `${tScreen(log)} bölümünde ${tAction(log).toLowerCase()} işlemi yapıldı.`;
+    }
+    return String(raw).replace(/'([^']+)'/g, (full, inner) => {
+      const mapped = screenSlugTranslations[inner] || moduleTranslations[inner];
+      return mapped ? `'${mapped}'` : full;
+    });
+  };
 
   const resolveCategory = (log) => {
     if (log.category) return log.category;
@@ -519,6 +631,8 @@ export default function EventLogsPanel({ backendHost }) {
         !q ||
         (log.user_id && log.user_id.toLowerCase().includes(q)) ||
         (log.summary && log.summary.toLowerCase().includes(q)) ||
+        tSummary(log).toLowerCase().includes(q) ||
+        tScreen(log).toLowerCase().includes(q) ||
         tAction(log).toLowerCase().includes(q) ||
         tModule(log).toLowerCase().includes(q) ||
         (log.ip_address && log.ip_address.toLowerCase().includes(q));
@@ -893,13 +1007,13 @@ export default function EventLogsPanel({ backendHost }) {
 
                       <td className="py-3 px-4 whitespace-nowrap">
                         <span className="text-xs font-semibold text-slate-700 dark:text-slate-300">
-                          {log.details?.screen_name || tModule(log)}
+                          {tScreen(log)}
                         </span>
                       </td>
 
                       <td className="py-3 px-4 max-w-md">
                         <div className="text-xs font-medium text-slate-800 dark:text-slate-200 leading-relaxed">
-                          {log.summary || log.details?.summary || `${tModule(log)} bölümünde ${tAction(log).toLowerCase()} işlemi yapıldı.`}
+                          {tSummary(log)}
                         </div>
                         {log.details?.device_key && (
                           <div className="mt-1">
@@ -1093,7 +1207,7 @@ export default function EventLogsPanel({ backendHost }) {
                     {tAction(selectedLog)}
                   </div>
                   <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">
-                    Ekran / Modül: {selectedLog.details?.screen_name || tModule(selectedLog)}
+                    Ekran / Modül: {tScreen(selectedLog)}
                   </div>
                 </div>
               </div>
@@ -1104,9 +1218,7 @@ export default function EventLogsPanel({ backendHost }) {
                   İşlem Özeti
                 </div>
                 <p className="text-sm font-semibold text-slate-900 dark:text-white leading-relaxed">
-                  {selectedLog.summary ||
-                    selectedLog.details?.summary ||
-                    `${tModule(selectedLog)} ekranında ${tAction(selectedLog).toLowerCase()} işlemi gerçekleştirildi.`}
+                  {tSummary(selectedLog)}
                 </p>
               </div>
 
