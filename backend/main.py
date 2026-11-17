@@ -34769,7 +34769,8 @@ async def new_get_users_endpoint(request: Request, user_info: dict = Depends(get
     else:
         target_tenant = user_info.get("tenant_id") or request.headers.get("X-Tenant-ID") or request.headers.get("Tenant-ID") or explicit_q_tenant or "tenant-default"
     
-    from backend.services.ami_manager import registered_endpoints
+    from backend.services.ami_manager import registered_endpoints, sync_pjsip_contacts_live
+    await sync_pjsip_contacts_live(max_age_sec=4.0)
     _record_request_client_env(
         request,
         keys=[
@@ -34915,8 +34916,32 @@ async def new_get_users_endpoint(request: Request, user_info: dict = Depends(get
                 u["sip_password"] = disk_u.get("sip_password")
             if not u.get("sip_username") and disk_u.get("sip_username"):
                 u["sip_username"] = disk_u.get("sip_username")
-            if not u.get("sip_devices") and disk_u.get("sip_devices"):
-                u["sip_devices"] = disk_u.get("sip_devices")
+            raw_u_sd = u.get("sip_devices")
+            if isinstance(raw_u_sd, str) and raw_u_sd.strip().startswith("["):
+                try:
+                    raw_u_sd = json.loads(raw_u_sd)
+                    u["sip_devices"] = raw_u_sd
+                except Exception:
+                    raw_u_sd = []
+            disk_sd = disk_u.get("sip_devices")
+            if isinstance(disk_sd, str) and disk_sd.strip().startswith("["):
+                try:
+                    disk_sd = json.loads(disk_sd)
+                except Exception:
+                    disk_sd = []
+            if isinstance(disk_sd, list) and disk_sd:
+                if not isinstance(raw_u_sd, list) or len(raw_u_sd) == 0:
+                    u["sip_devices"] = copy.deepcopy(disk_sd)
+                elif len(disk_sd) > len(raw_u_sd):
+                    existing_sus = {str(d.get("sip_username") or d.get("id") or "").strip().lower() for d in raw_u_sd if isinstance(d, dict)}
+                    merged_sd = list(raw_u_sd)
+                    for d_cand in disk_sd:
+                        if isinstance(d_cand, dict):
+                            c_su = str(d_cand.get("sip_username") or d_cand.get("id") or "").strip().lower()
+                            if c_su and c_su not in existing_sus:
+                                merged_sd.append(copy.deepcopy(d_cand))
+                                existing_sus.add(c_su)
+                    u["sip_devices"] = merged_sd
             disk_tf_ts = _norm_2fa_ts(disk_u.get("two_factor_updated_ts"))
             db_tf_meta = (u.get("call_panel_prefs") or {}).get("twoFactorMeta") if isinstance(u.get("call_panel_prefs"), dict) else None
             db_tf_ts = _norm_2fa_ts((db_tf_meta or {}).get("updatedTs"))
@@ -35103,9 +35128,24 @@ async def new_get_users_endpoint(request: Request, user_info: dict = Depends(get
         )
         online_dev_ip = ""
         any_dev_reg = False
-        for d_item in norm_devs:
+        online_devices = []
+        for idx_dev, d_item in enumerate(norm_devs):
             d_type_g = str(d_item.get("device_type") or "desk_phone").strip().lower()
             d_act = d_item.get("is_active") is not False
+            d_type_label = (
+                "Web Telefonu"
+                if d_type_g == "web_phone"
+                else "Sanal Abone"
+                if d_type_g == "virtual_subscriber"
+                else "DECT Telefon"
+                if d_type_g == "dect"
+                else "SIP İstemci"
+                if d_type_g == "softphone"
+                else "Masa Telefonu"
+            )
+            d_name_disp = str(d_item.get("name") or "").strip() or (
+                "Web Telefonu" if d_type_g == "web_phone" else f"{d_type_label} {idx_dev + 1}"
+            )
             if d_type_g == "virtual_subscriber":
                 d_on = bool(d_act and str(d_item.get("trunk") or "").strip())
                 d_item["is_virtual"] = True
@@ -35113,6 +35153,14 @@ async def new_get_users_endpoint(request: Request, user_info: dict = Depends(get
                 d_item["live_ip"] = ""
                 if d_on:
                     any_dev_reg = True
+                    online_devices.append({
+                        "name": d_name_disp,
+                        "device_type": "virtual_subscriber",
+                        "type_label": d_type_label,
+                        "sip_username": "",
+                        "ip": f"Trunk: {d_item.get('trunk')}",
+                        "env": "",
+                    })
             elif d_type_g == "web_phone":
                 d_su = str(d_item.get("sip_username") or "").strip()
                 d_on = bool(d_act and ((d_su and d_su in registered_endpoints) or (ext and ext in registered_endpoints)))
@@ -35128,16 +35176,42 @@ async def new_get_users_endpoint(request: Request, user_info: dict = Depends(get
                     any_dev_reg = True
                     if not online_dev_ip and d_live_ip:
                         online_dev_ip = d_live_ip
+                    w_meta = (
+                        (registered_endpoints.get_meta(d_su, ip=d_live_ip) if d_su else None)
+                        or registered_endpoints.get_meta(ext, ip=d_live_ip)
+                        or registered_endpoints.get_meta(uid, ip=d_live_ip)
+                        or {}
+                    )
+                    w_env = " / ".join([x for x in [w_meta.get("browser"), w_meta.get("os")] if x])
+                    online_devices.append({
+                        "name": d_name_disp,
+                        "device_type": "web_phone",
+                        "type_label": d_type_label,
+                        "sip_username": d_su,
+                        "ip": d_live_ip,
+                        "env": w_env,
+                    })
             else:
                 d_su = str(d_item.get("sip_username") or "").strip()
                 d_on = bool(d_act and d_su and d_su in registered_endpoints)
                 d_live_ip = (registered_endpoints.get_ip(d_su) if d_su else "") or d_item.get("ip") or ""
+                d_meta = (registered_endpoints.get_meta(d_su, ip=d_live_ip) if d_su else None) or {}
+                d_ua = str(d_meta.get("user_agent") or "").strip()
                 d_item["is_online"] = d_on
                 d_item["live_ip"] = d_live_ip
+                d_item["user_agent"] = d_ua
                 if d_on:
                     any_dev_reg = True
                     if not online_dev_ip and d_live_ip:
                         online_dev_ip = d_live_ip
+                    online_devices.append({
+                        "name": d_name_disp,
+                        "device_type": d_type_g,
+                        "type_label": d_type_label,
+                        "sip_username": d_su,
+                        "ip": d_live_ip,
+                        "env": d_ua or d_su,
+                    })
         u["sip_devices"] = norm_devs
         if norm_devs and not u.get("sip_username"):
             first_real_g = next(
@@ -35162,6 +35236,14 @@ async def new_get_users_endpoint(request: Request, user_info: dict = Depends(get
                         any_dev_reg = True
                         if not online_dev_ip and hd_ip:
                             online_dev_ip = hd_ip
+                        online_devices.append({
+                            "name": f"Hot-Desk ({hd_dev_str})",
+                            "device_type": "hotdesk",
+                            "type_label": "Hot-Desk Masa Telefonu",
+                            "sip_username": hd_dev_str,
+                            "ip": hd_ip,
+                            "env": hd_dev_str,
+                        })
                     user_hd_sessions.append({
                         **hd_sess,
                         "device_sip_username": hd_dev_str,
@@ -35187,6 +35269,16 @@ async def new_get_users_endpoint(request: Request, user_info: dict = Depends(get
         c_state = get_live_user_call_state(ext, is_reg)
         if c_state in ("ringing", "busy"):
             is_reg = True
+        if is_reg and not online_devices:
+            online_devices.append({
+                "name": "Web Telefonu",
+                "device_type": "web_phone",
+                "type_label": "Web Telefonu",
+                "sip_username": ext,
+                "ip": reg_ip,
+                "env": " / ".join([x for x in [reg_meta.get("browser"), reg_meta.get("os")] if x]),
+            })
+        u["online_devices"] = online_devices
         u["is_registered"] = is_reg
         u["sip_status"] = "online" if is_reg else "offline"
         u["web_online"] = bool(_is_internal_chat_online(uid, ext))

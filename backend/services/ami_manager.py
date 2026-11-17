@@ -296,22 +296,23 @@ class RegisteredEndpointsDict(dict):
         self._meta = {}
         self._ip_meta = {}
 
-    def add(self, key, ip="", browser="", os_name="", device_key=""):
+    def add(self, key, ip="", browser="", os_name="", device_key="", user_agent=""):
         k = str(key)
         ip_s = str(ip or "").strip()
         existing = self.get(k, "")
         if not (ip_s in ("", "127.0.0.1", "::1", "localhost") and existing and existing not in ("", "127.0.0.1", "::1", "localhost")):
             self[k] = ip_s
         eff_ip = self.get(k, "") or ip_s
-        if browser or os_name or device_key:
+        if browser or os_name or device_key or user_agent:
             cur_m = self._meta.get(k) or {}
             meta_entry = {
                 "browser": str(browser or cur_m.get("browser") or "").strip(),
                 "os": str(os_name or cur_m.get("os") or "").strip(),
                 "device_key": str(device_key or cur_m.get("device_key") or "").strip().upper(),
+                "user_agent": str(user_agent or cur_m.get("user_agent") or "").strip(),
             }
             self._meta[k] = meta_entry
-            if eff_ip and eff_ip not in ("", "127.0.0.1", "::1", "localhost"):
+            if eff_ip and eff_ip not in ("", "127.0.0.1", "::1", "localhost") and (browser or os_name or device_key):
                 self._ip_meta[eff_ip] = dict(meta_entry)
 
     def record_meta(self, keys=None, ip="", browser="", os_name="", device_key=""):
@@ -354,7 +355,7 @@ class RegisteredEndpointsDict(dict):
         k = str(key or "").strip()
         if k:
             direct = self._meta.get(k)
-            if direct and (direct.get("browser") or direct.get("os")):
+            if direct and (direct.get("browser") or direct.get("os") or direct.get("user_agent")):
                 return direct
             k_ip = self.get(k, "")
             if k_ip and k_ip in self._ip_meta:
@@ -703,13 +704,14 @@ def register_event_handlers(manager: Manager):
         aor = event.get('AOR')
         status = event.get('ContactStatus')
         uri = event.get('URI') or event.get('Contact') or event.get('ViaAddress') or ""
+        ua_val = str(event.get('UserAgent') or "").strip()
         ip_match = re.search(r'\b(?:\d{1,3}\.){3}\d{1,3}\b', uri)
         extracted_ip = ip_match.group(0) if ip_match else ""
         if aor:
             aor_str = str(aor).strip()
             mapped_ext = _resolve_sip_peer_to_ext(aor_str)
-            if status in ["Reachable", "Created", "Registered", "NonQualified"]:
-                registered_endpoints.add(aor_str, extracted_ip)
+            if status in ["Reachable", "Created", "Registered", "NonQualified", "Avail"]:
+                registered_endpoints.add(aor_str, extracted_ip, user_agent=ua_val)
                 print(f"[AMI] Endpoint Kaydedildi: {aor_str} (Dahili: {mapped_ext or aor_str}, IP: {extracted_ip})")
                 if not mapped_ext:
                     asyncio.create_task(_handle_trunk_health_transition(aor_str, True, f"ContactStatus={status}", extracted_ip))
@@ -1098,20 +1100,51 @@ async def get_ami_manager() -> Manager:
                 res = await asyncio.wait_for(mgr.send_action({"Action": "PJSIPShowContacts"}), timeout=2.5)
                 for r in _iter_ami_responses(res):
                     if hasattr(r, "get") and r.get('Event') == 'ContactList':
-                        aor = r.get('AOR') or r.get('ObjectName')
-                        status = r.get('Status')
+                        aor = r.get('AOR') or r.get('Endpoint') or r.get('ObjectName')
+                        status = r.get('Status') or r.get('ContactStatus')
                         uri = r.get('URI') or r.get('ViaAddress') or ""
+                        ua_val = str(r.get('UserAgent') or "").strip()
                         import re
                         ip_match = re.search(r'\b(?:\d{1,3}\.){3}\d{1,3}\b', uri)
                         extracted_ip = ip_match.group(0) if ip_match else ""
-                        if aor and status in ["Reachable", "Created", "Registered"]:
-                            registered_endpoints.add(aor, extracted_ip)
+                        if aor and status in ["Reachable", "Created", "Registered", "NonQualified", "Avail"]:
+                            registered_endpoints.add(str(aor).strip(), extracted_ip, user_agent=ua_val)
             except Exception as ex:
                 print(f"[AMI] Error fetching initial contacts: {ex}")
         except Exception as e:
             print(f"[AMI] Connection error: {e}")
             manager_instance = None
         return manager_instance
+
+
+_last_pjsip_contacts_sync_ts = 0.0
+
+
+async def sync_pjsip_contacts_live(max_age_sec: float = 4.0):
+    global _last_pjsip_contacts_sync_ts
+    import time
+    import re
+    now_m = time.monotonic()
+    if (now_m - _last_pjsip_contacts_sync_ts) < max_age_sec:
+        return
+    _last_pjsip_contacts_sync_ts = now_m
+    mgr = manager_instance
+    if not mgr:
+        return
+    try:
+        res = await asyncio.wait_for(mgr.send_action({"Action": "PJSIPShowContacts"}), timeout=1.5)
+        for r in _iter_ami_responses(res):
+            if hasattr(r, "get") and r.get('Event') == 'ContactList':
+                aor = str(r.get('AOR') or r.get('Endpoint') or r.get('ObjectName') or "").strip()
+                status = str(r.get('Status') or r.get('ContactStatus') or "").strip()
+                uri = str(r.get('URI') or r.get('ViaAddress') or "")
+                ua_val = str(r.get('UserAgent') or "").strip()
+                ip_match = re.search(r'\b(?:\d{1,3}\.){3}\d{1,3}\b', uri)
+                extracted_ip = ip_match.group(0) if ip_match else ""
+                if aor and status in ["Reachable", "Created", "Registered", "NonQualified", "Avail"]:
+                    registered_endpoints.add(aor, extracted_ip, user_agent=ua_val)
+    except Exception:
+        pass
 
 async def redirect_call_to_human(call_id: str, extension: str = "transfer_to_human", context: str = "default", is_direct_route: bool = False) -> bool:
     """

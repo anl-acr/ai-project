@@ -3444,27 +3444,77 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
                             <span className="animate-ping absolute inset-0 rounded-full bg-emerald-400 opacity-75"></span>
                           )}
                         </div>
-                        {(u.is_registered || u.sip_status === "online" || u.is_online) ? (
-                          <span className="absolute bottom-full mb-2 left-0 text-[10px] font-bold text-emerald-700 dark:text-emerald-300 opacity-0 group-hover:opacity-100 transition-opacity duration-150 bg-emerald-50 dark:bg-emerald-950 px-2.5 py-1 rounded-xl whitespace-nowrap shadow-lg border border-emerald-200/80 dark:border-emerald-800/80 z-[100] pointer-events-none flex items-center gap-1.5">
-                            <span className={`w-1.5 h-1.5 rounded-full ${u.omnichannel_busy ? "bg-rose-500" : "bg-emerald-500"} animate-pulse shrink-0`}></span>
-                            <span>{u.omnichannel_busy ? `Meşgul (${u.omnichannel_label || "Yazışmada"})` : "Web Telefon Bağlı"}</span>
-                            {(u.ip_address || u.client_browser || u.client_os) && (
-                              <span className="text-emerald-600/90 dark:text-emerald-400/90 font-mono text-[9px] bg-emerald-100/70 dark:bg-emerald-900/70 px-1.5 py-0.5 rounded font-normal">
-                                (
-                                {[
-                                  u.ip_address,
-                                  [u.client_browser, u.client_os].filter(Boolean).join(" / ")
-                                ]
-                                  .filter(Boolean)
-                                  .join(" • ")}
-                                )
-                              </span>
-                            )}
-                          </span>
-                        ) : (
+                        {(u.is_registered || u.sip_status === "online" || u.is_online) ? (() => {
+                          const rawOnlineDevs = Array.isArray(u.online_devices) && u.online_devices.length > 0
+                            ? u.online_devices
+                            : (Array.isArray(u.sip_devices) ? u.sip_devices : [])
+                                .filter((d) => d && d.is_active !== false && (d.is_online || (d.device_type === "virtual_subscriber" && d.trunk)))
+                                .map((d, dIdx) => {
+                                  const dt = String(d.device_type || "desk_phone").toLowerCase();
+                                  const tLbl = dt === "web_phone"
+                                    ? "Web Telefonu"
+                                    : dt === "virtual_subscriber"
+                                    ? "Sanal Abone"
+                                    : dt === "dect"
+                                    ? "DECT Telefon"
+                                    : dt === "softphone"
+                                    ? "SIP İstemci"
+                                    : "Masa Telefonu";
+                                  return {
+                                    name: d.name || (dt === "web_phone" ? "Web Telefonu" : `${tLbl} ${dIdx + 1}`),
+                                    device_type: dt,
+                                    type_label: tLbl,
+                                    ip: dt === "virtual_subscriber" ? (d.trunk ? `Trunk: ${d.trunk}` : "") : (d.live_ip || d.ip || (dt === "web_phone" ? u.ip_address : "") || ""),
+                                    env: dt === "web_phone"
+                                      ? [u.client_browser, u.client_os].filter(Boolean).join(" / ")
+                                      : (d.user_agent || d.sip_username || ""),
+                                  };
+                                });
+                          const activeDevsList = rawOnlineDevs.length > 0
+                            ? rawOnlineDevs
+                            : [
+                                {
+                                  name: "Web Telefonu",
+                                  device_type: "web_phone",
+                                  type_label: "Web Telefonu",
+                                  ip: u.ip_address || "",
+                                  env: [u.client_browser, u.client_os].filter(Boolean).join(" / "),
+                                },
+                              ];
+                          return (
+                            <div className="absolute bottom-full mb-2 left-0 text-[10px] font-bold text-emerald-700 dark:text-emerald-300 opacity-0 group-hover:opacity-100 transition-opacity duration-150 bg-emerald-50 dark:bg-emerald-950 px-2.5 py-1.5 rounded-xl whitespace-nowrap shadow-lg border border-emerald-200/80 dark:border-emerald-800/80 z-[100] pointer-events-none flex flex-col gap-1">
+                              {u.omnichannel_busy && (
+                                <div className="flex items-center gap-1.5 text-rose-600 dark:text-rose-400">
+                                  <span className="w-1.5 h-1.5 rounded-full bg-rose-500 animate-pulse shrink-0"></span>
+                                  <span>{`Meşgul (${u.omnichannel_label || "Yazışmada"})`}</span>
+                                </div>
+                              )}
+                              {activeDevsList.map((devItem, idxD) => {
+                                const dName = String(devItem.name || devItem.type_label || "Cihaz").trim();
+                                const tLbl = String(devItem.type_label || "").trim();
+                                const showTypeSuffix = tLbl && !dName.toLowerCase().includes(tLbl.toLowerCase());
+                                const metaStr = [devItem.ip, devItem.env].filter(Boolean).join(" • ");
+                                return (
+                                  <div key={idxD} className="flex items-center gap-1.5">
+                                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse shrink-0"></span>
+                                    <span>
+                                      {dName}
+                                      {showTypeSuffix ? ` (${tLbl})` : ""} Bağlı
+                                    </span>
+                                    {metaStr && (
+                                      <span className="text-emerald-600/90 dark:text-emerald-400/90 font-mono text-[9px] bg-emerald-100/70 dark:bg-emerald-900/70 px-1.5 py-0.5 rounded font-normal">
+                                        ({metaStr})
+                                      </span>
+                                    )}
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          );
+                        })() : (
                           <span className="absolute bottom-full mb-2 left-0 text-[10px] font-bold text-rose-600 dark:text-rose-400 opacity-0 group-hover:opacity-100 transition-opacity duration-150 bg-rose-50 dark:bg-rose-950 px-2.5 py-1 rounded-xl whitespace-nowrap shadow-lg border border-rose-200/80 dark:border-rose-800/80 z-[100] pointer-events-none flex items-center gap-1.5">
                             <span className="w-1.5 h-1.5 rounded-full bg-rose-500 shrink-0"></span>
-                            <span>Web Telefon Bağlı Değil</span>
+                            <span>Aktif Cihaz Bağlı Değil</span>
                           </span>
                         )}
                       </div>
