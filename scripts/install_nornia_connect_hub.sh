@@ -65,7 +65,8 @@ fi
 "$INSTALL_DIR/venv/bin/pip" install \
   "fastapi>=0.100.0" \
   "uvicorn[standard]>=0.22.0" \
-  "sqlalchemy>=2.0.0" \
+  "sqlalchemy[asyncio]>=2.0.0" \
+  "greenlet" \
   "aiosqlite>=0.19.0" \
   "pydantic>=2.0.0" \
   "httpx>=0.24.0" \
