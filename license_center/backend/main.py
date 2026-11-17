@@ -697,6 +697,21 @@ async def receive_heartbeat(payload: HeartbeatSchema, request: Request, db: Asyn
         "message": f"Heartbeat alındı ({len(tenants_response)} tenant güncellendi)."
     }
 
+
+# --------------------------------------------------------------------------
+# Nornia Connect Hub — Zero-Port Cloud Tunnel & Reverse Proxy Gateway
+# --------------------------------------------------------------------------
+from license_center.backend.connect_hub import connect_hub_router, forward_http_request_to_pbx
+
+app.include_router(connect_hub_router)
+
+
+@app.api_route("/{full_path:path}", methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS", "HEAD"])
+async def catch_all_nornia_connect_proxy(request: Request, full_path: str):
+    """Forwards all non-/api/v1/* requests through the active Nornia Connect tunnel to the PBX."""
+    return await forward_http_request_to_pbx(request, full_path)
+
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run("license_center.backend.main:app", host="0.0.0.0", port=8050, reload=True)
