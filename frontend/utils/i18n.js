@@ -1522,8 +1522,7 @@ const WORD_DICT_TR_EN = {
   "selamlama": "Greeting",
   "çıkar": "Remove",
   "taşı": "Move",
-  "en": "Most",
-  "çok": "High",
+  "çok": "Very",
   "az": "Least",
   "lisans": "License",
   "bir": "a",
@@ -4136,7 +4135,7 @@ const TR_SUFFIXES_NORM = [
 ].sort((a, b) => b.length - a.length);
 
 const DO_NOT_STEM_WORDS = new Set([
-  "aida", "runa", "nornia", "asterisk", "pjsip", "webrtc", "yealink", "fanvil", "grandstream",
+  "en", "tr", "aida", "runa", "nornia", "asterisk", "pjsip", "webrtc", "yealink", "fanvil", "grandstream",
   "cisco", "snom", "polycom", "google", "microsoft", "whatsapp", "telegram", "instagram", "facebook"
 ]);
 

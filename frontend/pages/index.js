@@ -5704,6 +5704,7 @@ export default function Home() {
 
             <button
               id="aida-topbar-lang-switcher"
+              data-no-translate="true"
               type="button"
               onClick={() => {
                 const nextL = uiLang === "en" ? "tr" : "en";
