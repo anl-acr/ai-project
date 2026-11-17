@@ -46,6 +46,30 @@ body {
   margin-left: 0 !important;
   margin-right: 0 !important;
   overscroll-behavior: contain;
+  transition-property: opacity !important;
+}
+
+/* Eliminate scroll flicker ("pırlama") & GPU backdrop-blur thrashing inside all popup modals */
+body:has(.fixed.inset-0) .aida-app-shell .animate-ping,
+body:has(.fixed.inset-0) .aida-app-shell .animate-pulse,
+body:has(.fixed.inset-0) .aida-app-shell .aida-shimmer-surface::after,
+body:has(dialog[open]) .aida-app-shell .animate-ping,
+body:has(dialog[open]) .aida-app-shell .animate-pulse,
+body:has(dialog[open]) .aida-app-shell .aida-shimmer-surface::after {
+  animation-play-state: paused !important;
+}
+
+.fixed.inset-0 .overflow-y-auto:not(:has(.fixed.inset-0)),
+dialog[open] .overflow-y-auto:not(:has(.fixed.inset-0)) {
+  will-change: scroll-position;
+  transform: translateZ(0);
+  backface-visibility: hidden;
+  -webkit-overflow-scrolling: touch;
+}
+
+.fixed.inset-0 .overflow-y-auto .transition-all,
+dialog[open] .overflow-y-auto .transition-all {
+  transition-property: color, background-color, border-color, opacity, box-shadow !important;
 }
 
 /* Collapse inline feature helper notes once migrated to "i" hover tooltips */

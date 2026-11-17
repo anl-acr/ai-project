@@ -5,6 +5,28 @@ import { createPortal } from "react-dom";
 const tooltipListeners = new Set();
 let activeTooltipState = null;
 let closeTimer = null;
+let openTimer = null;
+let lastGlobalScrollAt = 0;
+let scrollGuardInstalled = false;
+
+function ensureScrollGuard() {
+  if (typeof window === "undefined" || scrollGuardInstalled) return;
+  scrollGuardInstalled = true;
+  window.addEventListener(
+    "scroll",
+    () => {
+      lastGlobalScrollAt = Date.now();
+      if (openTimer) {
+        clearTimeout(openTimer);
+        openTimer = null;
+      }
+      if (activeTooltipState !== null) {
+        closeInfoTooltipImmediate();
+      }
+    },
+    { capture: true, passive: true }
+  );
+}
 
 function notifyTooltipListeners() {
   tooltipListeners.forEach((fn) => {
@@ -12,6 +34,13 @@ function notifyTooltipListeners() {
       fn(activeTooltipState);
     } catch (_e) {}
   });
+}
+
+export function cancelOpenInfoTooltip() {
+  if (openTimer) {
+    clearTimeout(openTimer);
+    openTimer = null;
+  }
 }
 
 export function cancelCloseInfoTooltip() {
@@ -22,6 +51,7 @@ export function cancelCloseInfoTooltip() {
 }
 
 export function closeInfoTooltipImmediate() {
+  cancelOpenInfoTooltip();
   cancelCloseInfoTooltip();
   if (activeTooltipState !== null) {
     activeTooltipState = null;
@@ -30,6 +60,7 @@ export function closeInfoTooltipImmediate() {
 }
 
 export function scheduleCloseInfoTooltip(delayMs = 130) {
+  cancelOpenInfoTooltip();
   cancelCloseInfoTooltip();
   closeTimer = setTimeout(() => {
     activeTooltipState = null;
@@ -37,24 +68,39 @@ export function scheduleCloseInfoTooltip(delayMs = 130) {
   }, delayMs);
 }
 
-export function openInfoTooltip({ anchorEl, title = "", text = "", details = "", id = "aida-global-info-tip" }) {
+export function openInfoTooltip({ anchorEl, title = "", text = "", details = "", id = "aida-global-info-tip", immediate = false }) {
+  ensureScrollGuard();
   if (!anchorEl || !text) return;
+  if (!immediate && Date.now() - lastGlobalScrollAt < 220) return;
+  cancelOpenInfoTooltip();
   cancelCloseInfoTooltip();
-  activeTooltipState = {
-    anchorEl,
-    title: String(title || "").trim(),
-    text: String(text || "").trim(),
-    details: String(details || "").trim(),
-    id
+
+  const commitOpen = () => {
+    openTimer = null;
+    if (!immediate && Date.now() - lastGlobalScrollAt < 220) return;
+    if (!anchorEl || !document.body.contains(anchorEl)) return;
+    activeTooltipState = {
+      anchorEl,
+      title: String(title || "").trim(),
+      text: String(text || "").trim(),
+      details: String(details || "").trim(),
+      id
+    };
+    notifyTooltipListeners();
   };
-  notifyTooltipListeners();
+
+  if (immediate || activeTooltipState !== null) {
+    commitOpen();
+  } else {
+    openTimer = setTimeout(commitOpen, 110);
+  }
 }
 
 export function toggleInfoTooltip(payload) {
   if (activeTooltipState && activeTooltipState.anchorEl === payload.anchorEl) {
     closeInfoTooltipImmediate();
   } else {
-    openInfoTooltip(payload);
+    openInfoTooltip({ ...payload, immediate: true });
   }
 }
 
@@ -70,6 +116,7 @@ export function InfoTooltipLayer() {
   const popoverRef = useRef(null);
 
   useEffect(() => {
+    ensureScrollGuard();
     const listener = (next) => setTip(next);
     tooltipListeners.add(listener);
     return () => {
@@ -158,12 +205,10 @@ export function InfoTooltipLayer() {
     };
 
     const raf = requestAnimationFrame(updatePosition);
-    window.addEventListener("scroll", updatePosition, true);
     window.addEventListener("resize", updatePosition);
 
     return () => {
       cancelAnimationFrame(raf);
-      window.removeEventListener("scroll", updatePosition, true);
       window.removeEventListener("resize", updatePosition);
     };
   }, [tip]);
@@ -190,7 +235,7 @@ export function InfoTooltipLayer() {
         opacity: isVisible && coords.top > -9000 ? 1 : 0,
         pointerEvents: isVisible ? "auto" : "none"
       }}
-      className="aida-info-popover z-[99999] w-max max-w-[min(340px,calc(100vw-24px))] rounded-xl bg-slate-900/95 dark:bg-slate-800/95 text-slate-100 border border-slate-700/80 shadow-2xl backdrop-blur-md px-3.5 py-2.5 text-left transition-opacity duration-150"
+      className="aida-info-popover z-[99999] w-max max-w-[min(340px,calc(100vw-24px))] rounded-xl bg-slate-900 dark:bg-slate-800 text-slate-100 border border-slate-700/80 shadow-2xl px-3.5 py-2.5 text-left transition-opacity duration-150"
     >
       <div className="space-y-1.5">
         {tip?.title && (
@@ -213,7 +258,7 @@ export function InfoTooltipLayer() {
         aria-hidden="true"
         style={{ left: `${coords.arrowX}px` }}
         className={
-          "pointer-events-none absolute -translate-x-1/2 w-2.5 h-2.5 rotate-45 bg-slate-900/95 dark:bg-slate-800/95 border-slate-700/80 " +
+          "pointer-events-none absolute -translate-x-1/2 w-2.5 h-2.5 rotate-45 bg-slate-900 dark:bg-slate-800 border-slate-700/80 " +
           (coords.placement === "top"
             ? "-bottom-[5px] border-r border-b"
             : "-top-[5px] border-l border-t")
@@ -226,73 +271,17 @@ export function InfoTooltipLayer() {
 
 /**
  * Explicit "i" info badge button for feature titles, section headers, and form labels.
+ * Uses the unified singleton InfoTooltipLayer with scroll-guard & hover-intent delay
+ * so scrolling inside modals never triggers Top-Layer popover promotions or GPU blur thrashing.
  */
 export default function InfoTooltip({ text, title = "", details = "", className = "" }) {
   const reactId = useId();
   const safeId = `aida-tip-${reactId.replace(/[^a-zA-Z0-9_-]/g, "")}`;
   const btnRef = useRef(null);
-  const [supportsNativeInterest, setSupportsNativeInterest] = useState(false);
-
-  useEffect(() => {
-    if (
-      typeof window !== "undefined" &&
-      typeof HTMLButtonElement !== "undefined" &&
-      Object.prototype.hasOwnProperty.call(HTMLButtonElement.prototype, "interestForElement") &&
-      typeof CSS !== "undefined" &&
-      CSS.supports &&
-      CSS.supports("position-area", "top")
-    ) {
-      setSupportsNativeInterest(true);
-    }
-  }, []);
 
   if (!text) return null;
 
   const ariaLabel = title ? `${title} hakkında bilgi` : "Özellik açıklaması";
-
-  // Progressive enhancement: Native HTML Interest Invoker (`interestfor` + `popover="hint"`)
-  // When natively supported alongside CSS Anchor Positioning, browser wires implicit tooltip role & aria-describedby.
-  if (supportsNativeInterest) {
-    return (
-      <>
-        <button
-          ref={btnRef}
-          type="button"
-          data-aida-explicit-info="true"
-          aria-label={ariaLabel}
-          {...{ interestfor: safeId }}
-          onClick={(e) => {
-            e.preventDefault();
-            e.stopPropagation();
-          }}
-          className={`aida-info-btn ${className}`}
-        >
-          <span aria-hidden="true" className="aida-info-glyph">i</span>
-        </button>
-        <div
-          id={safeId}
-          {...{ popover: "hint" }}
-          className="aida-native-hint-popover rounded-xl bg-slate-900/95 dark:bg-slate-800/95 text-slate-100 border border-slate-700/80 shadow-2xl backdrop-blur-md px-3.5 py-2.5 text-left max-w-[340px]"
-        >
-          <div className="aida-native-hint-inner space-y-1.5">
-            {title && (
-              <div className="text-[11px] font-extrabold text-white tracking-tight border-b border-slate-700/70 pb-1">
-                {title}
-              </div>
-            )}
-            <p className="text-[11px] leading-relaxed font-medium text-slate-200 whitespace-pre-line">
-              {text}
-            </p>
-            {details && (
-              <div className="pt-1.5 mt-1 border-t border-slate-700/70 text-[10px] leading-relaxed text-slate-300 whitespace-pre-line">
-                {details}
-              </div>
-            )}
-          </div>
-        </div>
-      </>
-    );
-  }
 
   const handleOpen = () => {
     if (!btnRef.current) return;

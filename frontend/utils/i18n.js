@@ -4485,7 +4485,9 @@ function translateCompositionalTrToEn(str) {
   return working;
 }
 
-export function translateStringToEn(rawStr) {
+const TRANSLATION_CACHE = new Map();
+
+function computeTranslateStringToEn(rawStr) {
   if (!rawStr || typeof rawStr !== "string") return rawStr;
   const trimmed = rawStr.trim();
   if (!trimmed) return rawStr;
@@ -4545,6 +4547,18 @@ export function translateStringToEn(rawStr) {
   }
 
   return rawStr;
+}
+
+export function translateStringToEn(rawStr) {
+  if (!rawStr || typeof rawStr !== "string") return rawStr;
+  const cached = TRANSLATION_CACHE.get(rawStr);
+  if (cached !== undefined) return cached;
+  const result = computeTranslateStringToEn(rawStr);
+  if (TRANSLATION_CACHE.size > 8000) {
+    TRANSLATION_CACHE.clear();
+  }
+  TRANSLATION_CACHE.set(rawStr, result);
+  return result;
 }
 
 export function getUiLanguage() {
@@ -4679,7 +4693,7 @@ export function applyDomLanguagePass(targetLang) {
       if (!currentVal.trim()) continue;
 
       if (lang === "en") {
-        if (node.__aidaLastEnVal === currentVal && node.__aidaOrigTrVal) {
+        if (node.__aidaLastEnVal === currentVal && node.__aidaOrigTrVal !== undefined) {
           continue;
         }
         const sourceTr =
@@ -4687,15 +4701,13 @@ export function applyDomLanguagePass(targetLang) {
             ? node.__aidaOrigTrVal
             : currentVal;
         const translatedEn = translateStringToEn(sourceTr);
-        if (translatedEn !== sourceTr) {
-          node.__aidaOrigTrVal = sourceTr;
-          node.__aidaLastEnVal = translatedEn;
-          if (node.nodeValue !== translatedEn) {
-            node.nodeValue = translatedEn;
-          }
+        node.__aidaOrigTrVal = sourceTr;
+        node.__aidaLastEnVal = translatedEn;
+        if (translatedEn !== sourceTr && node.nodeValue !== translatedEn) {
+          node.nodeValue = translatedEn;
         }
       } else {
-        if (node.__aidaOrigTrVal && node.nodeValue === node.__aidaLastEnVal) {
+        if (node.__aidaOrigTrVal && node.nodeValue === node.__aidaLastEnVal && node.__aidaOrigTrVal !== node.__aidaLastEnVal) {
           node.nodeValue = node.__aidaOrigTrVal;
         }
       }
@@ -4713,19 +4725,19 @@ export function applyDomLanguagePass(targetLang) {
         if (lang === "en") {
           const prevEn = el.getAttribute(lastEnKey);
           const prevTr = el.getAttribute(origKey);
-          if (prevEn === val && prevTr) return;
+          if (prevEn === val && prevTr !== null) return;
 
           const sourceTr = prevEn === val && prevTr ? prevTr : val;
           const translatedEn = translateStringToEn(sourceTr);
+          el.setAttribute(origKey, sourceTr);
+          el.setAttribute(lastEnKey, translatedEn);
           if (translatedEn !== sourceTr) {
-            el.setAttribute(origKey, sourceTr);
-            el.setAttribute(lastEnKey, translatedEn);
             el.setAttribute(attr, translatedEn);
           }
         } else {
           const origTr = el.getAttribute(origKey);
           const prevEn = el.getAttribute(lastEnKey);
-          if (origTr && val === prevEn) {
+          if (origTr && val === prevEn && origTr !== prevEn) {
             el.setAttribute(attr, origTr);
           }
         }
@@ -4744,19 +4756,19 @@ export function applyDomLanguagePass(targetLang) {
       if (lang === "en") {
         const prevEn = el.getAttribute(lastEnKey);
         const prevTr = el.getAttribute(origKey);
-        if (prevEn === val && prevTr) return;
+        if (prevEn === val && prevTr !== null) return;
 
         const sourceTr = prevEn === val && prevTr ? prevTr : val;
         const translatedEn = translateStringToEn(sourceTr);
+        el.setAttribute(origKey, sourceTr);
+        el.setAttribute(lastEnKey, translatedEn);
         if (translatedEn !== sourceTr) {
-          el.setAttribute(origKey, sourceTr);
-          el.setAttribute(lastEnKey, translatedEn);
           el.value = translatedEn;
         }
       } else {
         const origTr = el.getAttribute(origKey);
         const prevEn = el.getAttribute(lastEnKey);
-        if (origTr && val === prevEn) {
+        if (origTr && val === prevEn && origTr !== prevEn) {
           el.value = origTr;
         }
       }
@@ -4769,6 +4781,7 @@ export function applyDomLanguagePass(targetLang) {
 
 let globalObserverInstalled = false;
 let rafId = null;
+let lastDomScrollAt = 0;
 
 export function installGlobalDomTranslator() {
   if (typeof window === "undefined" || globalObserverInstalled) return;
@@ -4780,10 +4793,19 @@ export function installGlobalDomTranslator() {
     document.documentElement.setAttribute("data-aida-lang", initialLang);
   }
 
+  window.addEventListener(
+    "scroll",
+    () => {
+      lastDomScrollAt = Date.now();
+    },
+    { capture: true, passive: true }
+  );
+
   const schedulePass = () => {
     if (rafId) return;
     rafId = window.requestAnimationFrame(() => {
       rafId = null;
+      if (Date.now() - lastDomScrollAt < 200) return;
       const curLang = getUiLanguage();
       if (curLang === "en") {
         applyDomLanguagePass("en");
@@ -4796,7 +4818,7 @@ export function installGlobalDomTranslator() {
   }
 
   const obs = new MutationObserver(() => {
-    if (getUiLanguage() === "en" && !isApplyingTranslationPass) {
+    if (getUiLanguage() === "en" && !isApplyingTranslationPass && Date.now() - lastDomScrollAt >= 200) {
       schedulePass();
     }
   });
@@ -4809,24 +4831,16 @@ export function installGlobalDomTranslator() {
     });
   }
 
-  // Also trigger delayed passes on click/navigation so lazy-loaded dynamic panels translate immediately
+  // Trigger delayed pass on click/navigation so lazy-loaded dynamic panels translate immediately
   document.addEventListener(
     "click",
     () => {
       if (getUiLanguage() !== "en") return;
-      setTimeout(() => applyDomLanguagePass("en"), 40);
-      setTimeout(() => applyDomLanguagePass("en"), 180);
-      setTimeout(() => applyDomLanguagePass("en"), 450);
+      setTimeout(() => applyDomLanguagePass("en"), 60);
+      setTimeout(() => applyDomLanguagePass("en"), 240);
     },
     true
   );
-
-  // Periodic lightweight sweep for async API data renders
-  setInterval(() => {
-    if (getUiLanguage() === "en" && !isApplyingTranslationPass) {
-      applyDomLanguagePass("en");
-    }
-  }, 700);
 }
 
 export function useUiLanguage() {
