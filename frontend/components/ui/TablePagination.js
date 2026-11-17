@@ -1,6 +1,7 @@
 import React from "react";
 import { ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight } from "lucide-react";
 import { useTheme } from "../../utils/theme";
+import { useUiLanguage, translateStringToEn } from "../../utils/i18n";
 
 export default function TablePagination({
   currentPage = 1,
@@ -12,6 +13,8 @@ export default function TablePagination({
   itemLabel = "kayıt"
 }) {
   const { bg, hover, text, border, lightBg } = useTheme();
+  const { lang } = useUiLanguage();
+  const isEn = lang === "en";
 
   const safeTotal = Math.max(0, Number(totalItems) || 0);
   const safePageSize = Math.max(1, Number(pageSize) || 25);
@@ -46,17 +49,28 @@ export default function TablePagination({
     <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 px-4 py-3 bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800/80 rounded-2xl shadow-sm">
       {/* Left: Summary & Page Size Selector */}
       <div className="flex flex-wrap items-center gap-3 text-xs text-slate-500 dark:text-slate-400">
-        <span>
-          Toplam <strong className="font-extrabold text-slate-800 dark:text-slate-100">{safeTotal.toLocaleString("tr-TR")}</strong> {itemLabel}tan{" "}
-          <strong className="font-bold text-slate-700 dark:text-slate-200">
-            {startIdx.toLocaleString("tr-TR")} - {endIdx.toLocaleString("tr-TR")}
-          </strong>{" "}
-          arası gösteriliyor
-        </span>
+        {isEn ? (
+          <span>
+            Showing{" "}
+            <strong className="font-bold text-slate-700 dark:text-slate-200">
+              {startIdx.toLocaleString("en-US")} - {endIdx.toLocaleString("en-US")}
+            </strong>{" "}
+            of <strong className="font-extrabold text-slate-800 dark:text-slate-100">{safeTotal.toLocaleString("en-US")}</strong>{" "}
+            {itemLabel === "kayıt" ? "records" : translateStringToEn(itemLabel)}
+          </span>
+        ) : (
+          <span>
+            Toplam <strong className="font-extrabold text-slate-800 dark:text-slate-100">{safeTotal.toLocaleString("tr-TR")}</strong> {itemLabel}tan{" "}
+            <strong className="font-bold text-slate-700 dark:text-slate-200">
+              {startIdx.toLocaleString("tr-TR")} - {endIdx.toLocaleString("tr-TR")}
+            </strong>{" "}
+            arası gösteriliyor
+          </span>
+        )}
 
         {onPageSizeChange && (
           <div className="flex items-center gap-1.5">
-            <span className="text-[11px] text-slate-400">| Sayfa başı:</span>
+            <span className="text-[11px] text-slate-400">{isEn ? "| Per page:" : "| Sayfa başı:"}</span>
             <select
               value={safePageSize}
               onChange={(e) => {
