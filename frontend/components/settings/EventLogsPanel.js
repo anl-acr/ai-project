@@ -26,6 +26,7 @@ import {
   X,
 } from "lucide-react";
 import { useTheme } from "../../utils/theme";
+import DateTimePickerInput from "../common/DateTimePickerInput";
 
 const FIELD_LABELS_TR = {
   full_name: "Ad Soyad",
@@ -103,18 +104,150 @@ const formatValueTr = (val) => {
 };
 
 export default function EventLogsPanel({ backendHost }) {
-  const { bg, text, border, lightBg } = useTheme();
+  const { bg, hover, text, border, lightBg, borderLight } = useTheme();
 
   const [logs, setLogs] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
+  const [isFilterOpen, setIsFilterOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
   const [filterCategory, setFilterCategory] = useState("all");
   const [filterModule, setFilterModule] = useState("all");
   const [filterUser, setFilterUser] = useState("all");
+  const [filterStartDate, setFilterStartDate] = useState("");
+  const [filterStartTime, setFilterStartTime] = useState("00:00");
+  const [filterEndDate, setFilterEndDate] = useState("");
+  const [filterEndTime, setFilterEndTime] = useState("23:59");
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(20);
+
+  const eventLogDatePresets = useMemo(() => {
+    const fmtYmd = (d) =>
+      `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+    const fmtHm = (d) =>
+      `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+    const now = new Date();
+    const todayStr = fmtYmd(now);
+    const yest = new Date();
+    yest.setDate(yest.getDate() - 1);
+    const yestStr = fmtYmd(yest);
+    const sevenAgo = new Date();
+    sevenAgo.setDate(sevenAgo.getDate() - 6);
+    const sevenAgoStr = fmtYmd(sevenAgo);
+    const firstOfMonthStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-01`;
+
+    return [
+      {
+        label: "Son 1 Saat",
+        isActive: false,
+        onSelect: () => {
+          const endD = new Date();
+          const startD = new Date(endD.getTime() - 60 * 60 * 1000);
+          setFilterStartDate(fmtYmd(startD));
+          setFilterStartTime(fmtHm(startD));
+          setFilterEndDate(fmtYmd(endD));
+          setFilterEndTime(fmtHm(endD));
+        },
+      },
+      {
+        label: "Bugün",
+        isActive:
+          filterStartDate === todayStr &&
+          filterEndDate === todayStr &&
+          filterStartTime === "00:00" &&
+          filterEndTime === "23:59",
+        onSelect: () => {
+          setFilterStartDate(todayStr);
+          setFilterStartTime("00:00");
+          setFilterEndDate(todayStr);
+          setFilterEndTime("23:59");
+        },
+      },
+      {
+        label: "Mesai (09:00-18:00)",
+        isActive: Boolean(filterStartDate) && filterStartTime === "09:00" && filterEndTime === "18:00",
+        onSelect: () => {
+          if (!filterStartDate) setFilterStartDate(todayStr);
+          if (!filterEndDate) setFilterEndDate(todayStr);
+          setFilterStartTime("09:00");
+          setFilterEndTime("18:00");
+        },
+      },
+      {
+        label: "Dün",
+        isActive:
+          filterStartDate === yestStr &&
+          filterEndDate === yestStr &&
+          filterStartTime === "00:00" &&
+          filterEndTime === "23:59",
+        onSelect: () => {
+          setFilterStartDate(yestStr);
+          setFilterStartTime("00:00");
+          setFilterEndDate(yestStr);
+          setFilterEndTime("23:59");
+        },
+      },
+      {
+        label: "Son 7 Gün",
+        isActive:
+          filterStartDate === sevenAgoStr &&
+          filterEndDate === todayStr &&
+          filterStartTime === "00:00" &&
+          filterEndTime === "23:59",
+        onSelect: () => {
+          setFilterStartDate(sevenAgoStr);
+          setFilterStartTime("00:00");
+          setFilterEndDate(todayStr);
+          setFilterEndTime("23:59");
+        },
+      },
+      {
+        label: "Bu Ay",
+        isActive:
+          filterStartDate === firstOfMonthStr &&
+          filterEndDate === todayStr &&
+          filterStartTime === "00:00" &&
+          filterEndTime === "23:59",
+        onSelect: () => {
+          setFilterStartDate(firstOfMonthStr);
+          setFilterStartTime("00:00");
+          setFilterEndDate(todayStr);
+          setFilterEndTime("23:59");
+        },
+      },
+      {
+        label: "Tüm Zamanlar",
+        isActive: !filterStartDate && !filterEndDate,
+        onSelect: () => {
+          setFilterStartDate("");
+          setFilterStartTime("00:00");
+          setFilterEndDate("");
+          setFilterEndTime("23:59");
+        },
+      },
+    ];
+  }, [filterStartDate, filterEndDate, filterStartTime, filterEndTime]);
+
+  const hasActiveFilter = Boolean(
+    filterCategory !== "all" ||
+      filterModule !== "all" ||
+      filterUser !== "all" ||
+      searchTerm.trim() ||
+      filterStartDate ||
+      filterEndDate
+  );
+
+  const handleClearFilters = () => {
+    setFilterCategory("all");
+    setFilterModule("all");
+    setFilterUser("all");
+    setSearchTerm("");
+    setFilterStartDate("");
+    setFilterStartTime("00:00");
+    setFilterEndDate("");
+    setFilterEndTime("23:59");
+  };
 
   const [selectedLog, setSelectedLog] = useState(null);
   const [clientPublicIp, setClientPublicIp] = useState(() =>
@@ -359,7 +492,24 @@ export default function EventLogsPanel({ backendHost }) {
   }, [logs]);
 
   const filteredLogs = useMemo(() => {
+    const startBoundMs = filterStartDate
+      ? new Date(`${filterStartDate}T${filterStartTime || "00:00"}:00`).getTime()
+      : null;
+    const endBoundMs = filterEndDate
+      ? new Date(`${filterEndDate}T${filterEndTime || "23:59"}:59.999`).getTime()
+      : null;
+
     return logs.filter((log) => {
+      if (startBoundMs !== null || endBoundMs !== null) {
+        const rawTs = log.timestamp || "";
+        const dateStr = rawTs.endsWith("Z") || rawTs.includes("+") ? rawTs : `${rawTs}Z`;
+        const logMs = new Date(dateStr).getTime();
+        if (!isNaN(logMs)) {
+          if (startBoundMs !== null && logMs < startBoundMs) return false;
+          if (endBoundMs !== null && logMs > endBoundMs) return false;
+        }
+      }
+
       const cat = resolveCategory(log);
       const matchesCat = filterCategory === "all" || cat === filterCategory;
       const matchesModule = filterModule === "all" || log.module === filterModule;
@@ -374,11 +524,11 @@ export default function EventLogsPanel({ backendHost }) {
         (log.ip_address && log.ip_address.toLowerCase().includes(q));
       return matchesCat && matchesModule && matchesUser && matchesSearch;
     });
-  }, [logs, filterCategory, filterModule, filterUser, searchTerm]);
+  }, [logs, filterCategory, filterModule, filterUser, searchTerm, filterStartDate, filterStartTime, filterEndDate, filterEndTime]);
 
   useEffect(() => {
     setCurrentPage(1);
-  }, [filterCategory, filterModule, filterUser, searchTerm, pageSize]);
+  }, [filterCategory, filterModule, filterUser, searchTerm, filterStartDate, filterStartTime, filterEndDate, filterEndTime, pageSize]);
 
   const totalPages = Math.max(1, Math.ceil(filteredLogs.length / pageSize));
   const safeCurrentPage = Math.min(currentPage, totalPages);
@@ -436,6 +586,19 @@ export default function EventLogsPanel({ backendHost }) {
             <RefreshCcw size={15} className={loading ? "animate-spin" : ""} />
             Kayıtları Yenile
           </button>
+
+          <button
+            type="button"
+            onClick={() => setIsFilterOpen(true)}
+            className={`flex items-center gap-2 px-4 py-2 border rounded-xl text-xs font-bold transition-all shadow-sm cursor-pointer ${
+              isFilterOpen || hasActiveFilter
+                ? `${bg} ${hover} text-white ${border}`
+                : `${lightBg} ${text} ${borderLight || "border-slate-200 dark:border-slate-800"} ${hover} hover:text-white`
+            }`}
+          >
+            <Filter size={15} />
+            <span>Filtrele</span>
+          </button>
         </div>
       </div>
 
@@ -482,79 +645,170 @@ export default function EventLogsPanel({ backendHost }) {
         </div>
       </div>
 
-      {/* Category Filter Pills & Search Bar */}
-      <div className="bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800/80 rounded-2xl p-4 space-y-3.5 shadow-sm">
-        <div className="flex flex-wrap items-center gap-2">
-          {categoryPills.map((pill) => {
-            const active = filterCategory === pill.id;
-            return (
+      {/* Detailed Filter Modal Popup (Matching ReportsPanel) */}
+      {isFilterOpen && (
+        <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-in fade-in duration-200">
+          <div className="bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-3xl p-6 shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto flex flex-col gap-4 animate-in zoom-in-95 duration-200">
+            {/* Modal Header */}
+            <div className="flex items-center justify-between pb-2 border-b border-slate-100 dark:border-slate-800">
+              <h3 className="font-extrabold text-sm text-slate-900 dark:text-slate-100 flex items-center gap-2">
+                <Filter size={16} className={text} />
+                <span>Detaylı Filtreleme</span>
+              </h3>
               <button
-                key={pill.id}
-                onClick={() => setFilterCategory(pill.id)}
-                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 border ${
-                  active
-                    ? `${bg} text-white border-transparent shadow-sm`
-                    : "bg-slate-50 dark:bg-slate-800/60 text-slate-600 dark:text-slate-300 border-slate-200/70 dark:border-slate-700/60 hover:bg-slate-100 dark:hover:bg-slate-800"
-                }`}
+                type="button"
+                onClick={() => setIsFilterOpen(false)}
+                className="p-1.5 bg-slate-50 hover:bg-slate-100 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-500 dark:text-slate-400 rounded-lg transition cursor-pointer"
               >
-                <span>{pill.label}</span>
-                {pill.count !== undefined && (
-                  <span
-                    className={`px-1.5 py-0.2 rounded-full text-[10px] ${
-                      active ? "bg-white/20 text-white" : "bg-slate-200/70 dark:bg-slate-700 text-slate-700 dark:text-slate-300"
-                    }`}
-                  >
-                    {pill.count}
-                  </span>
-                )}
+                <X size={14} />
               </button>
-            );
-          })}
+            </div>
+
+            {/* Modal Body */}
+            <div className="flex flex-col gap-4">
+              {/* Date & Time Range */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 bg-slate-50/60 dark:bg-slate-950/40 p-3 rounded-2xl border border-slate-100 dark:border-slate-800/60">
+                <DateTimePickerInput
+                  label="Başlangıç Tarihi & Saati"
+                  dateValue={filterStartDate}
+                  timeValue={filterStartTime}
+                  defaultTime="00:00"
+                  presets={eventLogDatePresets}
+                  onDateChange={(newDate) => {
+                    setFilterStartDate(newDate);
+                    if (filterEndDate && newDate > filterEndDate) {
+                      setFilterEndDate(newDate);
+                    }
+                  }}
+                  onTimeChange={setFilterStartTime}
+                />
+                <DateTimePickerInput
+                  label="Bitiş Tarihi & Saati"
+                  dateValue={filterEndDate}
+                  timeValue={filterEndTime}
+                  defaultTime="23:59"
+                  presets={eventLogDatePresets}
+                  onDateChange={(newDate) => {
+                    setFilterEndDate(newDate);
+                    if (filterStartDate && newDate < filterStartDate) {
+                      setFilterStartDate(newDate);
+                    }
+                  }}
+                  onTimeChange={setFilterEndTime}
+                />
+              </div>
+
+              {/* Category Filter Pills */}
+              <div className="flex flex-col gap-1.5">
+                <label className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">
+                  İşlem Kategorisi
+                </label>
+                <div className="flex flex-wrap items-center gap-2">
+                  {categoryPills.map((pill) => {
+                    const active = filterCategory === pill.id;
+                    return (
+                      <button
+                        key={pill.id}
+                        type="button"
+                        onClick={() => setFilterCategory(pill.id)}
+                        className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 border ${
+                          active
+                            ? `${bg} text-white border-transparent shadow-sm`
+                            : "bg-slate-50 dark:bg-slate-800/60 text-slate-600 dark:text-slate-300 border-slate-200/70 dark:border-slate-700/60 hover:bg-slate-100 dark:hover:bg-slate-800"
+                        }`}
+                      >
+                        <span>{pill.label}</span>
+                        {pill.count !== undefined && (
+                          <span
+                            className={`px-1.5 py-0.2 rounded-full text-[10px] ${
+                              active ? "bg-white/20 text-white" : "bg-slate-200/70 dark:bg-slate-700 text-slate-700 dark:text-slate-300"
+                            }`}
+                          >
+                            {pill.count}
+                          </span>
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Search, User & Module Filters */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div className="sm:col-span-2 flex flex-col gap-1">
+                  <label className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">
+                    Arama
+                  </label>
+                  <div className="relative">
+                    <Search size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
+                    <input
+                      type="text"
+                      placeholder="Kullanıcı adı, dahili, yapılan işlem veya ekran ara..."
+                      value={searchTerm}
+                      onChange={(e) => setSearchTerm(e.target.value)}
+                      className="w-full pl-9 pr-4 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl text-xs font-medium focus:ring-2 focus:ring-primary/20 outline-none transition-all dark:text-white"
+                    />
+                  </div>
+                </div>
+
+                <div className="flex flex-col gap-1">
+                  <label className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">
+                    Kullanıcı
+                  </label>
+                  <select
+                    value={filterUser}
+                    onChange={(e) => setFilterUser(e.target.value)}
+                    className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl text-xs font-medium focus:ring-2 focus:ring-primary/20 outline-none transition-all dark:text-white"
+                  >
+                    <option value="all">Tüm Kullanıcılar</option>
+                    {uniqueUsers.map((u) => (
+                      <option key={u} value={u}>
+                        {u}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="flex flex-col gap-1">
+                  <label className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">
+                    Bölüm / Ekran
+                  </label>
+                  <select
+                    value={filterModule}
+                    onChange={(e) => setFilterModule(e.target.value)}
+                    className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl text-xs font-medium focus:ring-2 focus:ring-primary/20 outline-none transition-all dark:text-white"
+                  >
+                    <option value="all">Tüm Ekranlar / Bölümler</option>
+                    {uniqueModules.map(([rawMod, trLabel]) => (
+                      <option key={rawMod} value={rawMod}>
+                        {trLabel}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+            </div>
+
+            {/* Modal Footer */}
+            <div className="flex items-center gap-3 pt-3 border-t border-slate-100 dark:border-slate-800">
+              <button
+                type="button"
+                onClick={handleClearFilters}
+                className="flex-1 py-2 bg-slate-50 hover:bg-slate-100 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-200 border border-slate-200 dark:border-slate-700 font-bold text-xs rounded-xl transition cursor-pointer"
+              >
+                Filtreleri Temizle
+              </button>
+              <button
+                type="button"
+                onClick={() => setIsFilterOpen(false)}
+                className={`flex-1 py-2 ${bg} ${hover} text-white font-bold text-xs rounded-xl shadow-md transition cursor-pointer`}
+              >
+                Uygula
+              </button>
+            </div>
+          </div>
         </div>
-
-        <div className="grid grid-cols-1 md:grid-cols-12 gap-3">
-          <div className="md:col-span-6 relative">
-            <Search size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
-            <input
-              type="text"
-              placeholder="Kullanıcı adı, dahili, yapılan işlem veya ekran ara..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full pl-9 pr-4 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl text-xs font-medium focus:ring-2 focus:ring-primary/20 outline-none transition-all dark:text-white"
-            />
-          </div>
-
-          <div className="md:col-span-3">
-            <select
-              value={filterUser}
-              onChange={(e) => setFilterUser(e.target.value)}
-              className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl text-xs font-medium focus:ring-2 focus:ring-primary/20 outline-none transition-all dark:text-white"
-            >
-              <option value="all">Tüm Kullanıcılar</option>
-              {uniqueUsers.map((u) => (
-                <option key={u} value={u}>
-                  {u}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <div className="md:col-span-3">
-            <select
-              value={filterModule}
-              onChange={(e) => setFilterModule(e.target.value)}
-              className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl text-xs font-medium focus:ring-2 focus:ring-primary/20 outline-none transition-all dark:text-white"
-            >
-              <option value="all">Tüm Ekranlar / Bölümler</option>
-              {uniqueModules.map(([rawMod, trLabel]) => (
-                <option key={rawMod} value={rawMod}>
-                  {trLabel}
-                </option>
-              ))}
-            </select>
-          </div>
-        </div>
-      </div>
+      )}
 
       {/* Table */}
       <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/80 dark:border-slate-800/80 shadow-sm overflow-hidden">
