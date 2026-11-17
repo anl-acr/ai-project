@@ -274,7 +274,85 @@ const EXACT_TR_TO_EN = {
   "Çağrıyı Reddet": "Decline Call",
   "Yanıtla": "Answer",
   "Reddet": "Decline",
+  "Ara": "Call",
+  "Hızlı Ara": "Quick Call",
   "Geri Ara": "Call Back",
+  "Müşteriyi Geri Ara": "Call Back Customer",
+  "Son Numarayı Tekrar Ara (Redial)": "Redial Last Number",
+  "Ara & Konferansa Ekle": "Call & Add to Conference",
+  "Arama Başlat": "Start Call",
+  "Çağrı Başlat": "Start Call",
+  "Aramayı Kapat": "End Call",
+  "Aramayı Temizle": "Clear Search",
+  "Aramayı temizle": "Clear search",
+  "Sistem Girişi Yap": "Queue Login",
+  "Aktif Değil": "Offline",
+  "Bağlı (Müsait)": "Online (Available)",
+  "Son Görüşmeler": "Recent Calls",
+  "Son Görüşme": "Last Call",
+  "Hızlı Rehber & Dahililer": "Quick Directory & Extensions",
+  "İsim veya numara ara...": "Search name or number...",
+  "Numara veya kişi ara...": "Search number or contact...",
+  "Kişi, departman, kuyruk veya numara ara": "Search contact, department, queue, or number...",
+  "Numara veya İsim Ara": "Search Number or Name",
+  "Arayan numara veya kişi adına göre filtrele...": "Filter by caller number or contact name...",
+  "ACW Kapat": "Close ACW",
+  "Kaydet & Müsait Ol": "Save & Go Available",
+  "AI Not Çıkar": "Extract AI Note",
+  "AI Not Çıkarıyor...": "Extracting AI Note...",
+  "AI Not Önerisi": "AI Note Suggestion",
+  "AI'ya Devret": "Hand Over to AI",
+  "Sohbeti Devral": "Take Over Chat",
+  "Sohbeti Yapay Zeka Asistanına geri devret": "Hand chat back over to AI Assistant",
+  "Mesaj Gönder": "Send Message",
+  "Mesajı Benden Sil": "Delete for Me",
+  "Bu mesajı benden sil": "Delete this message for me",
+  "Okundu Olarak İşaretle": "Mark as Read",
+  "Okunmadı Olarak İşaretle": "Mark as Unread",
+  "İç Yazışmayı Sil": "Delete Internal Chat",
+  "Yeni İç Yazışma Başlat": "Start New Internal Chat",
+  "Molayı Bitir": "End Break",
+  "Rahatsız Etme": "Do Not Disturb",
+  "Rahatsız Etmeyin (DND)": "Do Not Disturb (DND)",
+  "DND (Rahatsız Etmeyin)": "DND (Do Not Disturb)",
+  "Kontrollü Transfer": "Attended Transfer",
+  "Kontrolsüz Transfer": "Blind Transfer",
+  "Kör": "Blind",
+  "Ön Görüşmeli": "Attended",
+  "Transferi Tamamla": "Complete Transfer",
+  "Tamamla": "Complete",
+  "Tamamlananlar": "Completed",
+  "Konferansta Birleştir": "Merge into Conference",
+  "Konferansı Ayır": "Split Conference",
+  "Yeni Çağrı / 2. Hat Ekle": "Add Call / 2nd Line",
+  "Hat Değiştir": "Swap Line",
+  "Sesi Aç": "Unmute",
+  "Ses Kaydını Dinle": "Listen to Recording",
+  "Ses Dosyasını (.wav) İndir": "Download Audio (.wav)",
+  "Sesli Mesajı Sil": "Delete Voicemail",
+  "Kaydı Sil": "Delete Record",
+  "Görevi Sil": "Delete Task",
+  "Geri Arama Görevini Sil": "Delete Callback Task",
+  "Geri Arama Hatırlatıcısı Planla": "Schedule Callback Reminder",
+  "Yeni Geri Arama Hatırlatıcısı Ekle": "Add New Callback Reminder",
+  "İleri Tarihli Geri Arama Planla": "Schedule Future Callback",
+  "Geri Dönüş Bekleyen Kayıp Çağrı": "Missed Calls Awaiting Callback",
+  "Doğrudan Cevapsız Çağrı": "Direct Missed Calls",
+  "Doğrudan Dahilinize Gelen Yanıtsız Çağrı": "Unanswered Calls Direct to Your Extension",
+  "Rehbere Ekle": "Add to Directory",
+  "Rehbere Kişi Ekle": "Add Contact to Directory",
+  "Kişi Seç": "Select Contact",
+  "Favorilerden Çıkar": "Remove from Favorites",
+  "Henüz Favori Kişi Eklenmedi": "No Favorite Contacts Added Yet",
+  "Filtreleri Temizle": "Clear Filters",
+  "Geçmişi Temizle": "Clear History",
+  "Müşteri 360° Kartını Aç": "Open Customer 360° Card",
+  "Müşteri CRM Aç (2. Sekme)": "Open Customer CRM (New Tab)",
+  "Not Alanına Uygula": "Apply to Note Field",
+  "Gelen Çağrıyı Yanıtla": "Answer Incoming Call",
+  "Devam Ediyor": "In Progress",
+  "İptal Edildi": "Cancelled",
+  "Yanıtsız": "Unanswered",
   "Dinlendi": "Listened",
   "YENİ": "NEW",
   "Son Aramalar": "Recent Searches",
@@ -818,7 +896,7 @@ const WORD_DICT_TR_EN = {
   "aç": "Open",
   "göster": "Show",
   "gizle": "Hide",
-  "ara": "Search",
+  "ara": "Call",
   "arama": "Call",
   "aramalar": "Calls",
   "arayan": "Caller",
@@ -3849,9 +3927,18 @@ function translateDynamicPatternToEn(trimmed) {
   m = trimmed.match(/^Mola Türü Seçin\s*\((\d+)\)$/i);
   if (m) return `Select Break Type (${m[1]})`;
 
-  // "HAZIR (1000)"
+  // "HAZIR (1000)" / "WEB TELEFON HAZIR (1000)"
+  m = trimmed.match(/^WEB\s+TELEFON\s+HAZIR\s*\(([^)]+)\)$/i);
+  if (m) return `WEB PHONE READY (${m[1]})`;
+
   m = trimmed.match(/^HAZIR\s*\(([^)]+)\)$/i);
   if (m) return `READY (${m[1]})`;
+
+  // Search placeholders ending with "ara..." or "arayın..."
+  m = trimmed.match(/^(.+?)\s+ara(?:yın)?\.\.\.$/i);
+  if (m) {
+    return `Search ${translateStringToEn(m[1]).toLowerCase()}...`;
+  }
 
   // "Rolü Düzenle: ..."
   m = trimmed.match(/^Rolü Düzenle:\s*(.+)$/i);
@@ -3898,7 +3985,26 @@ function translateDynamicPatternToEn(trimmed) {
   return null;
 }
 
+const TECH_ACRONYMS = new Set([
+  "ai", "sip", "api", "acd", "ivr", "crm", "did", "sla", "nat", "ssl", "tls", "pin",
+  "blf", "dnd", "acw", "kvkk", "web", "pcap", "gsm", "sms", "tts", "stt", "llm", "rag",
+  "vip", "ceo", "roi", "fcr", "aht", "rtp", "udp", "tcp", "wss", "pbx", "ad", "sso", "ldap"
+]);
+
 function translateCompositionalTrToEn(str) {
+  // Guard against translating surnames in 2-3 word Person Full Names (e.g. "Anıl Özel", "Cihan Köprü")
+  const simpleWords = str.trim().split(/\s+/);
+  if (
+    simpleWords.length >= 2 &&
+    simpleWords.length <= 3 &&
+    /^[A-ZÇĞİÖŞÜ][a-zçğıöşü]+$/.test(simpleWords[0])
+  ) {
+    const firstWordNorm = normTrKey(simpleWords[0]);
+    if (!TECH_ACRONYMS.has(firstWordNorm) && !lookupWordWithStemmer(simpleWords[0])) {
+      return str;
+    }
+  }
+
   const isAllUpper =
     str.replace(/[^A-Za-zÇĞİÖŞÜçğıöşü]/g, "").length >= 3 &&
     str.replace(/[^A-Za-zÇĞİÖŞÜçğıöşü]/g, "") ===
