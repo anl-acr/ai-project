@@ -372,6 +372,7 @@ export default function EventLogsPanel({ backendHost }) {
   const screenSlugTranslations = {
     "dashboard": "Gerçek Zamanlı AI Pano",
     "wallboard": "Canlı İzleme Paneli (Wallboard)",
+    "realtime-calls": "Gerçek Zamanlı Çağrı İzleme",
     "call-center": "Temsilci Çağrı Paneli",
     "omnichannel": "Ortak Gelen Kutusu (Omnichannel)",
     "api-budgets": "API Bütçe ve Tüketim",

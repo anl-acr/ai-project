@@ -1571,6 +1571,7 @@ DEFAULT_SETTINGS = {
                 "email_notifications:read", "email_notifications:write", "email_notifications:delete",
                 "restore_points:read", "restore_points:write", "restore_points:delete",
                 "system_status:access", "logs:access", "sip_debugger:access", "troubleshooting:access",
+                "realtime_calls:read", "realtime_calls:write", "realtime_calls:access",
                 "security:read", "security:write", "security:delete",
                 "customer_360:read", "customer_360:write",
                 "callback_tasks:read", "callback_tasks:write", "callback_tasks:delete",
@@ -1640,6 +1641,7 @@ DEFAULT_SETTINGS = {
                 "locations:read", "locations:write",
                 "recording_retention:read", "recording_retention:write", "recording_retention:delete",
                 "storage:access", "logs:access", "sip_debugger:access", "troubleshooting:access",
+                "realtime_calls:read", "realtime_calls:write", "realtime_calls:access",
                 "security:read", "security:write", "security:delete",
                 "email_notifications:read", "email_notifications:write",
                 "restore_points:read", "restore_points:write",
@@ -2622,6 +2624,9 @@ def load_settings(force_reload: bool = False, persist: bool = False):
                     new_perms.append("sip_debugger:access")
                 if "troubleshooting:access" not in new_perms:
                     new_perms.append("troubleshooting:access")
+                for rt_perm in ["realtime_calls:read", "realtime_calls:write", "realtime_calls:access"]:
+                    if rt_perm not in new_perms:
+                        new_perms.append(rt_perm)
                 for tr_perm in ["live_translator:access", "call_panel:live_translation", "call_panel:voice_interpreter"]:
                     if tr_perm not in new_perms:
                         new_perms.append(tr_perm)
@@ -22347,6 +22352,576 @@ async def get_active_calls(user_info: dict = Depends(get_user_info)):
                 "handled_by": getattr(call, "handled_by", "ai") or "ai"
             })
     return active_list
+
+
+@app.get("/api/calls/realtime-monitor")
+async def get_realtime_calls_monitor(user_info: dict = Depends(get_user_info)):
+    from backend.services.ami_manager import (
+        active_channels,
+        call_id_to_asterisk_id,
+        channel_states,
+        resolve_call_answered_at,
+        _extract_ext_from_channel,
+        _resolve_sip_peer_to_ext,
+        registered_endpoints,
+    )
+    from backend.database.models import Call, Transcript, Contact, SystemUser, PBXQueue, Trunk
+
+    target_tenant = user_info.get("tenant_id") or "tenant-default"
+    now_utc = datetime.datetime.utcnow()
+
+    async with AsyncSessionLocal() as session:
+        # 1. Active calls from DB (started within last 2 hours and still in_progress)
+        cutoff_time = now_utc - datetime.timedelta(hours=2)
+        stmt = (
+            select(Call)
+            .where(Call.status == "in_progress", Call.start_time >= cutoff_time)
+            .order_by(Call.start_time.desc())
+        )
+        if is_global_tenant(target_tenant):
+            pass
+        elif is_default_tenant(target_tenant):
+            stmt = stmt.where(or_(Call.tenant_id.in_(["tenant-default", "default"]), Call.tenant_id.is_(None)))
+        else:
+            stmt = stmt.where(Call.tenant_id == target_tenant)
+
+        res_calls = await session.execute(stmt)
+        db_calls = res_calls.scalars().all()
+
+        # 2. Contacts for caller/callee name resolution
+        stmt_contacts = select(Contact)
+        if not is_global_tenant(target_tenant) and not is_default_tenant(target_tenant):
+            stmt_contacts = stmt_contacts.where(Contact.tenant_id == target_tenant)
+        res_contacts = await session.execute(stmt_contacts)
+        contacts = res_contacts.scalars().all()
+        contact_map = {str(c.phone_number or "").strip(): f"{c.first_name or ''} {c.last_name or ''}".strip() for c in contacts}
+
+        # 3. Users / Extensions map
+        stmt_users = select(SystemUser)
+        if not is_global_tenant(target_tenant) and not is_default_tenant(target_tenant):
+            stmt_users = stmt_users.where(SystemUser.tenant_id == target_tenant)
+        res_users = await session.execute(stmt_users)
+        db_users = res_users.scalars().all()
+
+        # 4. Queues map
+        stmt_queues = select(PBXQueue)
+        if not is_global_tenant(target_tenant) and not is_default_tenant(target_tenant):
+            stmt_queues = stmt_queues.where(PBXQueue.tenant_id == target_tenant)
+        res_queues = await session.execute(stmt_queues)
+        db_queues = res_queues.scalars().all()
+
+        # 5. Trunks map
+        stmt_trunks = select(Trunk)
+        res_trunks = await session.execute(stmt_trunks)
+        db_trunks = res_trunks.scalars().all()
+
+        # 6. Fetch transcripts for active calls
+        call_ids = [c.id for c in db_calls if c.id]
+        transcripts_by_call = {}
+        if call_ids:
+            stmt_tr = (
+                select(Transcript)
+                .where(Transcript.call_id.in_(call_ids))
+                .order_by(Transcript.id.asc())
+            )
+            res_tr = await session.execute(stmt_tr)
+            for tr in res_tr.scalars().all():
+                transcripts_by_call.setdefault(tr.call_id, []).append({
+                    "id": tr.id,
+                    "speaker": tr.speaker,
+                    "text": tr.text,
+                    "timestamp": tr.timestamp.isoformat() + "Z" if tr.timestamp else None,
+                })
+
+    user_by_ext = {}
+    for u in db_users:
+        ext_s = str(getattr(u, "extension", "") or "").strip()
+        if ext_s:
+            user_by_ext[ext_s] = {
+                "extension": ext_s,
+                "name": str(getattr(u, "full_name", "") or ext_s).strip(),
+                "avatar": getattr(u, "avatar", None) or "",
+                "role": getattr(u, "role", "agent") or "agent",
+            }
+    for u_cfg in (settings_db.get("users") or []):
+        if isinstance(u_cfg, dict):
+            ext_s = str(u_cfg.get("extension") or "").strip()
+            if ext_s and ext_s not in user_by_ext:
+                user_by_ext[ext_s] = {
+                    "extension": ext_s,
+                    "name": str(u_cfg.get("full_name") or u_cfg.get("name") or ext_s).strip(),
+                    "avatar": u_cfg.get("avatar") or "",
+                    "role": u_cfg.get("role") or "agent",
+                }
+
+    queue_by_key = {}
+    for q in db_queues:
+        q_ext = str(getattr(q, "extension", "") or "").strip()
+        q_nm = str(getattr(q, "name", "") or q_ext).strip()
+        if q_ext:
+            queue_by_key[q_ext] = {"extension": q_ext, "name": q_nm}
+        if q_nm:
+            queue_by_key[q_nm] = {"extension": q_ext or q_nm, "name": q_nm}
+    for q_cfg in (settings_db.get("queues") or []):
+        if isinstance(q_cfg, dict):
+            q_ext = str(q_cfg.get("extension") or q_cfg.get("id") or "").strip()
+            q_nm = str(q_cfg.get("name") or q_ext).strip()
+            if q_ext and q_ext not in queue_by_key:
+                queue_by_key[q_ext] = {"extension": q_ext, "name": q_nm}
+            if q_nm and q_nm not in queue_by_key:
+                queue_by_key[q_nm] = {"extension": q_ext or q_nm, "name": q_nm}
+
+    ai_agent_by_key = {}
+    for ag in (settings_db.get("ai_agents") or []):
+        if isinstance(ag, dict):
+            ag_id = str(ag.get("id") or "").strip()
+            ag_nm = str(ag.get("name") or ag_id or "AI Asistan").strip()
+            if ag_id:
+                ai_agent_by_key[ag_id] = ag_nm
+            if ag_nm:
+                ai_agent_by_key[ag_nm] = ag_nm
+
+    conf_by_ext = {}
+    for cf in (settings_db.get("conferences") or []):
+        if isinstance(cf, dict):
+            cf_ext = str(cf.get("room_number") or cf.get("extension") or cf.get("number") or "").strip()
+            cf_nm = str(cf.get("name") or f"Konferans {cf_ext}").strip()
+            if cf_ext:
+                conf_by_ext[cf_ext] = cf_nm
+
+    trunk_dids = {}
+    for t in db_trunks:
+        d_num = str(getattr(t, "did_number", "") or "").strip()
+        t_nm = str(getattr(t, "trunk_name", "") or "").strip()
+        if d_num and t_nm:
+            trunk_dids[d_num] = t_nm
+
+    monitored_calls = []
+    summary = {
+        "total_active": 0,
+        "inbound": 0,
+        "outbound": 0,
+        "internal": 0,
+        "in_ivr": 0,
+        "in_queue": 0,
+        "ringing": 0,
+        "ai_talking": 0,
+        "agent_talking": 0,
+        "longest_wait_sec": 0,
+        "longest_talk_sec": 0,
+    }
+
+    for call in db_calls:
+        ast_id = str(call_id_to_asterisk_id.get(call.id) or call.id).strip()
+        ch_name = active_channels.get(ast_id) or active_channels.get(call.id)
+        st_info = channel_states.get(ast_id) or channel_states.get(call.id) or {}
+
+        start_dt = call.start_time.replace(tzinfo=None) if call.start_time else now_utc
+        total_sec = max(0, int((now_utc - start_dt).total_seconds()))
+
+        c_num = str(call.caller_number or "").strip()
+        callee_num = str(call.callee_number or "").strip()
+
+        if not ch_name:
+            for uid, st in list(channel_states.items()):
+                if not isinstance(st, dict):
+                    continue
+                st_ch = str(st.get("channel") or "")
+                st_caller = str(st.get("caller") or st.get("caller_num") or "")
+                st_exten = str(st.get("exten") or "")
+                if (c_num and (c_num == st_caller or c_num in st_ch)) or (
+                    callee_num and callee_num not in ("s", "") and (callee_num == st_exten or f"/{callee_num}-" in st_ch)
+                ):
+                    ch_name = st_ch
+                    st_info = st
+                    break
+
+        # Skip stale DB records older than 90s that have no active Asterisk channel and no recent transcript activity
+        call_trs = transcripts_by_call.get(call.id, [])
+        has_recent_tr = False
+        if call_trs:
+            try:
+                last_tr_ts = call_trs[-1].get("timestamp")
+                if last_tr_ts:
+                    tr_dt = datetime.datetime.fromisoformat(last_tr_ts.replace("Z", ""))
+                    if (now_utc - tr_dt).total_seconds() < 180:
+                        has_recent_tr = True
+            except Exception:
+                pass
+
+        if not ch_name and not has_recent_tr and total_sec > 90:
+            continue
+
+        # Direction detection
+        caller_is_ext = c_num in user_by_ext or (c_num.isdigit() and len(c_num) <= 5)
+        callee_is_ext = (
+            callee_num in user_by_ext
+            or callee_num in queue_by_key
+            or callee_num in conf_by_ext
+            or (callee_num.isdigit() and len(callee_num) <= 5)
+        )
+        if callee_num in conf_by_ext:
+            direction = "conference"
+        elif caller_is_ext and callee_is_ext:
+            direction = "internal"
+        elif caller_is_ext and not callee_is_ext:
+            direction = "outbound"
+        else:
+            direction = "inbound"
+
+        # Resolve Caller & Callee names
+        if c_num in user_by_ext:
+            caller_name = f"{user_by_ext[c_num]['name']} ({c_num})"
+        else:
+            caller_name = contact_map.get(c_num) or resolve_contact_name_by_phone(contacts, c_num) or ""
+
+        trunk_name = getattr(call, "trunk_name", None) or trunk_dids.get(callee_num) or ""
+
+        # Parse IVR events & Transfer details
+        raw_ivr = getattr(call, "ivr_events", None)
+        if isinstance(raw_ivr, str):
+            try:
+                ivr_events = json.loads(raw_ivr) if raw_ivr else []
+            except Exception:
+                ivr_events = []
+        elif isinstance(raw_ivr, list):
+            ivr_events = list(raw_ivr)
+        else:
+            ivr_events = []
+
+        raw_tr_det = getattr(call, "transfer_details", None)
+        if isinstance(raw_tr_det, str):
+            try:
+                transfer_details = json.loads(raw_tr_det) if raw_tr_det else []
+            except Exception:
+                transfer_details = []
+        elif isinstance(raw_tr_det, list):
+            transfer_details = list(raw_tr_det)
+        elif isinstance(raw_tr_det, dict):
+            transfer_details = [raw_tr_det]
+        else:
+            transfer_details = []
+
+        hsrc = str(getattr(call, "hangup_source", "") or "").strip()
+        ans_dt = getattr(call, "answered_at", None) or resolve_call_answered_at(call.id)
+        if ans_dt and hasattr(ans_dt, "replace"):
+            ans_dt = ans_dt.replace(tzinfo=None)
+
+        # Determine Stage, Assigned Agent/Queue/IVR, and Journey Steps
+        stage = "ringing"
+        stage_label = "Çalıyor / Bağlanıyor"
+        stage_detail = ""
+        assigned_agent_ext = ""
+        assigned_agent_name = getattr(call, "agent_name", "") or ""
+        assigned_agent_avatar = ""
+        queue_name = ""
+        queue_ext = ""
+        workflow_name = ""
+        last_dtmf_digit = ""
+
+        if ivr_events:
+            last_ev = ivr_events[-1] if isinstance(ivr_events[-1], dict) else {}
+            workflow_name = str(last_ev.get("workflow_name") or "").strip()
+            last_dtmf_digit = str(last_ev.get("digit") or "").strip()
+
+        # Check queue status from hangup_source or callee_number
+        if hsrc.startswith("queue:"):
+            parts = hsrc.split(":")
+            q_key = parts[1] if len(parts) > 1 else callee_num
+            q_obj = queue_by_key.get(q_key) or {"extension": q_key, "name": f"Kuyruk {q_key}"}
+            queue_ext = q_obj["extension"]
+            queue_name = q_obj["name"]
+            if ":answered:" in hsrc and len(parts) >= 4:
+                assigned_agent_ext = parts[3]
+                if assigned_agent_ext in user_by_ext:
+                    assigned_agent_name = user_by_ext[assigned_agent_ext]["name"]
+                    assigned_agent_avatar = user_by_ext[assigned_agent_ext]["avatar"]
+                stage = "agent_talking"
+                stage_label = "Temsilci ile Görüşmede"
+                stage_detail = f"{queue_name} ➔ {assigned_agent_ext} - {assigned_agent_name}"
+            else:
+                stage = "queue_waiting"
+                stage_label = "Kuyrukta Bekliyor"
+                stage_detail = f"{queue_name} ({queue_ext}) • Müsait Temsilci Bekleniyor"
+        elif callee_num in queue_by_key and not ans_dt:
+            q_obj = queue_by_key[callee_num]
+            queue_ext = q_obj["extension"]
+            queue_name = q_obj["name"]
+            stage = "queue_waiting"
+            stage_label = "Kuyrukta Bekliyor"
+            stage_detail = f"{queue_name} ({queue_ext}) • Müsait Temsilci Bekleniyor"
+        elif direction == "conference" or callee_num in conf_by_ext:
+            conf_nm = conf_by_ext.get(callee_num, f"Konferans Odası ({callee_num})")
+            stage = "conference"
+            stage_label = "Konferans Odasında"
+            stage_detail = conf_nm
+        else:
+            # Check if connected to AI Voice (AudioSocket or AI transcripts or AI target in IVR)
+            last_ivr_target_type = str(ivr_events[-1].get("target_type") or "").lower() if ivr_events and isinstance(ivr_events[-1], dict) else ""
+            last_ivr_target_val = str(ivr_events[-1].get("target_value") or "") if ivr_events and isinstance(ivr_events[-1], dict) else ""
+            last_ivr_target_lbl = str(ivr_events[-1].get("target_label") or "") if ivr_events and isinstance(ivr_events[-1], dict) else ""
+
+            ch_low = str(ch_name or "").lower()
+            has_ai_tr = any(t.get("speaker") in ("ai", "assistant") for t in call_trs)
+
+            # Check if a human extension is ringing or talking on this call
+            ext_candidate = ""
+            if callee_num in user_by_ext:
+                ext_candidate = callee_num
+            elif caller_is_ext and direction == "outbound":
+                ext_candidate = c_num
+            elif last_ivr_target_type in ("extension", "user") and last_ivr_target_val in user_by_ext:
+                ext_candidate = last_ivr_target_val
+            else:
+                ch_ext = _extract_ext_from_channel(str(ch_name or ""))
+                if ch_ext and ch_ext in user_by_ext:
+                    ext_candidate = ch_ext
+
+            if ext_candidate and ext_candidate in user_by_ext:
+                u_info = user_by_ext[ext_candidate]
+                assigned_agent_ext = ext_candidate
+                assigned_agent_name = u_info["name"]
+                assigned_agent_avatar = u_info["avatar"]
+                ami_st = st_info.get("state")
+                if ans_dt or ami_st == "busy":
+                    if direction == "outbound" and not ans_dt and ami_st != "busy":
+                        stage = "dialing_outbound"
+                        stage_label = "Dış Arama Çalıyor"
+                        stage_detail = f"{assigned_agent_ext} ({assigned_agent_name}) ➔ {callee_num}"
+                    else:
+                        stage = "agent_talking"
+                        stage_label = "Temsilci ile Görüşmede"
+                        stage_detail = f"Dahili {assigned_agent_ext} • {assigned_agent_name}"
+                else:
+                    stage = "ringing"
+                    stage_label = "Temsilci Çalıyor"
+                    stage_detail = f"Dahili {assigned_agent_ext} ({assigned_agent_name}) Çalıyor"
+            elif has_ai_tr or "audiosocket" in ch_low or last_ivr_target_type in ("ai", "ai_agent"):
+                ai_nm = (
+                    ai_agent_by_key.get(last_ivr_target_val)
+                    or last_ivr_target_lbl
+                    or getattr(call, "agent_name", None)
+                    or "Sesli AI Asistan"
+                )
+                assigned_agent_name = ai_nm
+                stage = "ai_talking"
+                stage_label = "AI Asistan ile Görüşmede"
+                stage_detail = f"{ai_nm} • Canlı Sesli Diyalog"
+            elif ivr_events:
+                last_ev = ivr_events[-1] if isinstance(ivr_events[-1], dict) else {}
+                m_nm = str(last_ev.get("menu_name") or workflow_name or "Karşılama Menüsü").strip()
+                dig = str(last_ev.get("digit") or "").strip()
+                stage = "ivr"
+                stage_label = "IVR / Karşılama Menüsünde"
+                stage_detail = f"{m_nm}" + (f" • Tuşlanan: {dig}" if dig else " • Anons Dinleniyor")
+            else:
+                # Fresh inbound call in initial greeting / IVR orAI
+                if total_sec >= 2 and not caller_is_ext and not callee_is_ext:
+                    stage = "ivr"
+                    stage_label = "IVR / Karşılama Aşamasında"
+                    stage_detail = f"Gelen Hat ({callee_num}) • Karşılama / Akış İşleniyor"
+                else:
+                    stage_detail = f"{c_num} ➔ {callee_num}"
+
+        # Compute talk & stage duration
+        if stage in ("agent_talking", "ai_talking", "conference"):
+            eff_ans_dt = ans_dt or start_dt
+            talk_sec = max(0, int((now_utc - eff_ans_dt).total_seconds()))
+            stage_sec = talk_sec
+        else:
+            talk_sec = 0
+            stage_sec = total_sec
+            if ivr_events and isinstance(ivr_events[-1], dict) and ivr_events[-1].get("timestamp"):
+                try:
+                    ev_dt = datetime.datetime.fromisoformat(str(ivr_events[-1]["timestamp"]).replace("Z", ""))
+                    stage_sec = max(0, int((now_utc - ev_dt).total_seconds()))
+                except Exception:
+                    pass
+
+        # Build Journey Timeline Steps
+        journey_steps = [
+            {
+                "type": "entry",
+                "title": "Gelen Çağrı Girişi" if direction == "inbound" else ("Giden Arama Başlatıldı" if direction == "outbound" else "Dahili Arama Başlatıldı"),
+                "subtitle": f"{c_num}" + (f" ({caller_name})" if caller_name and caller_name not in c_num else "") + f" ➔ {callee_num}" + (f" [{trunk_name}]" if trunk_name else ""),
+                "timestamp": start_dt.isoformat() + "Z",
+                "active": False,
+            }
+        ]
+        for ev in ivr_events:
+            if not isinstance(ev, dict):
+                continue
+            wf_n = str(ev.get("workflow_name") or "").strip()
+            mn_n = str(ev.get("menu_name") or wf_n or "IVR Menüsü").strip()
+            dig = str(ev.get("digit") or "").strip()
+            t_lbl = str(ev.get("target_label") or ev.get("target_value") or "").strip()
+            outcome = str(ev.get("outcome") or "pressed").strip()
+            step_sub = f"Tuşlama: {dig}" if dig else ("Zaman Aşımı" if outcome == "timeout" else "Menü Geçişi")
+            if t_lbl:
+                step_sub += f" ➔ {t_lbl}"
+            journey_steps.append({
+                "type": "ivr",
+                "title": f"IVR: {mn_n}",
+                "subtitle": step_sub,
+                "timestamp": ev.get("timestamp") or (start_dt.isoformat() + "Z"),
+                "active": False,
+            })
+
+        if queue_name:
+            journey_steps.append({
+                "type": "queue",
+                "title": f"Kuyruk: {queue_name} ({queue_ext})",
+                "subtitle": "Temsilciye Bağlandı" if stage == "agent_talking" else f"Kuyrukta Bekliyor ({stage_sec} sn)",
+                "timestamp": (ans_dt or now_utc).isoformat() + "Z",
+                "active": stage == "queue_waiting",
+            })
+
+        for tr_item in transfer_details:
+            if isinstance(tr_item, dict):
+                journey_steps.append({
+                    "type": "transfer",
+                    "title": f"Transfer: {tr_item.get('from_ext') or ''} ➔ {tr_item.get('target_ext') or ''}",
+                    "subtitle": str(tr_item.get("type") or "Çağrı Aktarımı"),
+                    "timestamp": tr_item.get("timestamp") or (now_utc.isoformat() + "Z"),
+                    "active": False,
+                })
+
+        if stage != "queue_waiting":
+            journey_steps.append({
+                "type": stage,
+                "title": stage_label,
+                "subtitle": stage_detail,
+                "timestamp": (ans_dt or now_utc).isoformat() + "Z",
+                "active": True,
+            })
+        elif journey_steps:
+            journey_steps[-1]["active"] = True
+
+        # Check recording pause state
+        rec_paused = False
+        try:
+            for p_k, p_v in list(active_recording_pauses.items()):
+                if call.id in str(p_k) or (ch_name and str(ch_name) in str(p_k)):
+                    rec_paused = bool(p_v.get("paused")) if isinstance(p_v, dict) else bool(p_v)
+                    break
+        except Exception:
+            pass
+
+        # Update KPI Summary
+        summary["total_active"] += 1
+        if direction == "inbound":
+            summary["inbound"] += 1
+        elif direction == "outbound":
+            summary["outbound"] += 1
+        else:
+            summary["internal"] += 1
+
+        if stage == "ivr":
+            summary["in_ivr"] += 1
+        elif stage == "queue_waiting":
+            summary["in_queue"] += 1
+            if stage_sec > summary["longest_wait_sec"]:
+                summary["longest_wait_sec"] = stage_sec
+        elif stage in ("ringing", "dialing_outbound"):
+            summary["ringing"] += 1
+            if stage_sec > summary["longest_wait_sec"]:
+                summary["longest_wait_sec"] = stage_sec
+        elif stage == "ai_talking":
+            summary["ai_talking"] += 1
+            if talk_sec > summary["longest_talk_sec"]:
+                summary["longest_talk_sec"] = talk_sec
+        elif stage in ("agent_talking", "conference"):
+            summary["agent_talking"] += 1
+            if talk_sec > summary["longest_talk_sec"]:
+                summary["longest_talk_sec"] = talk_sec
+
+        monitored_calls.append({
+            "id": call.id,
+            "asterisk_id": ast_id,
+            "direction": direction,
+            "caller_number": c_num,
+            "caller_name": caller_name,
+            "callee_number": callee_num,
+            "trunk_name": trunk_name,
+            "stage": stage,
+            "stage_label": stage_label,
+            "stage_detail": stage_detail,
+            "assigned_agent_ext": assigned_agent_ext,
+            "assigned_agent_name": assigned_agent_name,
+            "assigned_agent_avatar": assigned_agent_avatar,
+            "queue_name": queue_name,
+            "queue_ext": queue_ext,
+            "workflow_name": workflow_name,
+            "last_dtmf_digit": last_dtmf_digit,
+            "start_time": start_dt.isoformat() + "Z",
+            "answered_at": ans_dt.isoformat() + "Z" if ans_dt else None,
+            "total_duration_sec": total_sec,
+            "talk_duration_sec": talk_sec,
+            "stage_duration_sec": stage_sec,
+            "channel": ch_name or "AudioSocket/AI",
+            "agent_topic": getattr(call, "agent_topic", None) or "",
+            "sentiment": getattr(call, "sentiment", None) or "Nötr",
+            "recording_paused": rec_paused,
+            "last_transcript": call_trs[-1] if call_trs else None,
+            "transcripts": call_trs[-15:],
+            "journey_steps": journey_steps,
+        })
+
+    # Available transfer targets (extensions & queues)
+    ext_targets = []
+    for ext_k, u_obj in sorted(user_by_ext.items(), key=lambda x: x[0]):
+        is_reg = ext_k in registered_endpoints
+        ext_targets.append({
+            "extension": ext_k,
+            "name": u_obj["name"],
+            "online": is_reg,
+        })
+    queue_targets = []
+    seen_q_exts = set()
+    for q_k, q_obj in queue_by_key.items():
+        qe = q_obj["extension"]
+        if qe and qe not in seen_q_exts:
+            seen_q_exts.add(qe)
+            queue_targets.append({
+                "extension": qe,
+                "name": q_obj["name"],
+            })
+
+    return {
+        "calls": monitored_calls,
+        "summary": summary,
+        "transfer_targets": {
+            "extensions": ext_targets,
+            "queues": queue_targets,
+        },
+        "server_time_utc": now_utc.isoformat() + "Z",
+    }
+
+
+@app.post("/api/calls/{call_id}/hangup")
+async def hangup_active_call_from_panel(
+    call_id: str,
+    request: Request,
+    user_info: dict = Depends(get_user_info),
+):
+    from backend.services.ami_manager import hangup_call
+    caller_num = ""
+    try:
+        async with AsyncSessionLocal() as session:
+            db_call = await session.get(Call, call_id)
+            if db_call and db_call.caller_number:
+                caller_num = str(db_call.caller_number)
+    except Exception:
+        pass
+
+    try:
+        await hangup_call(call_id, caller_number=caller_num)
+    except Exception as e_h:
+        print(f"[Realtime Monitor Hangup Warning]: {e_h}")
+
+    await end_call_endpoint(call_id=call_id, status="completed", hangupsource="supervisor_hangup")
+    add_system_log("PBX", "WARNING", f"Aktif çağrı ({call_id[:8]} / {caller_num}) Canlı Çağrı İzleme ekranından sonlandırıldı.")
+    return {"status": "success", "call_id": call_id, "message": "Çağrı başarıyla sonlandırıldı."}
 
 
 @app.get("/api/calls/resolve_recording_pause", response_class=PlainTextResponse)

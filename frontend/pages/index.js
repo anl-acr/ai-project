@@ -218,6 +218,7 @@ const CallPanelAgentsAppearanceSettings = dynamic(
   { ssr: false, loading: PanelLoadingFallback }
 );
 const WallboardPanel = dynamicPanel(() => import("../components/dashboard/WallboardPanel"));
+const RealtimeCallMonitorPanel = dynamicPanel(() => import("../components/dashboard/RealtimeCallMonitorPanel"));
 const WallboardStudioSettings = dynamic(
   () => import("../components/dashboard/WallboardPanel").then((m) => m.WallboardStudioSettings),
   { ssr: false, loading: PanelLoadingFallback }
@@ -3312,6 +3313,7 @@ export default function Home() {
     const TAB_LABELS = {
       "dashboard": "Gerçek Zamanlı AI Pano",
       "wallboard": "Canlı İzleme Paneli (Wallboard)",
+      "realtime-calls": "Gerçek Zamanlı Çağrı İzleme",
       "call-center": "Temsilci Çağrı Paneli",
       "omnichannel": "Ortak Gelen Kutusu (Omnichannel)",
       "api-budgets": "API Bütçe ve Tüketim",
@@ -3681,6 +3683,7 @@ export default function Home() {
   const allTopbarFeatureCatalog = [
     { id: "dashboard", group: "Operasyon & Canlı Ekranlar", label: "Gerçek Zamanlı AI Pano", shortLabel: "AI Pano", icon: Activity, allowed: !isAgentOnlyUser && !isWallboardOnlyUser && hasPermPrefix("dashboard") },
     { id: "wallboard", group: "Operasyon & Canlı Ekranlar", label: "Canlı İzleme Paneli (Wallboard)", shortLabel: "Wallboard", icon: Monitor, allowed: hasPermPrefix("wallboard") },
+    { id: "realtime-calls", group: "Operasyon & Canlı Ekranlar", label: "Gerçek Zamanlı Çağrı İzleme", shortLabel: "Canlı Çağrılar", icon: PhoneCall, allowed: hasPermPrefix("realtime_calls", "wallboard", "supervisor") },
     { id: "call-center", group: "Operasyon & Canlı Ekranlar", label: "Temsilci Çağrı Paneli", shortLabel: "Çağrı Paneli", icon: Phone, allowed: isAgentOnlyUser || hasPermPrefix("call_panel") },
     { id: "omnichannel", group: "Operasyon & Canlı Ekranlar", label: "Ortak Gelen Kutusu (Omnichannel)", shortLabel: "Omnichannel", icon: MessageSquare, allowed: hasOmnichannelPermission },
     { id: "contacts", group: "Operasyon & Canlı Ekranlar", label: "Rehber Yönetimi", shortLabel: "Rehber", icon: BookOpen, allowed: hasContactsPermission },
@@ -3987,6 +3990,22 @@ export default function Home() {
                 >
                   <Monitor size={16} className={`shrink-0 ${activeTab === "wallboard" ? text : ""}`} />
                   <span className={`whitespace-nowrap overflow-hidden transition-all duration-300 ${isSidebarCollapsed ? "max-w-0 opacity-0" : "max-w-[180px] opacity-100"}`}>Canlı İzleme Paneli</span>
+                </button>
+              )}
+
+              {(currentUser?.role === "admin" || (Array.isArray(currentRolePermissions) && currentRolePermissions.some(p => p === "realtime_calls" || p.startsWith("realtime_calls:") || p === "wallboard" || p.startsWith("wallboard:") || p.startsWith("supervisor:")))) && (
+                <button
+                  onClick={() => setActiveTab("realtime-calls")}
+                  aria-current={activeTab === "realtime-calls" ? "page" : undefined}
+                  title="Gerçek Zamanlı Çağrı İzleme"
+                  className={`w-full flex items-center ${
+                    isSidebarCollapsed ? "justify-center px-0 py-2.5" : "gap-3 px-3 py-2"
+                  } rounded-xl text-xs font-semibold tracking-wide transition-all duration-200 border ${
+                    activeTab === "realtime-calls" ? sidebarActiveItemCls : sidebarInactiveItemCls
+                  }`}
+                >
+                  <PhoneCall size={16} className={`shrink-0 ${activeTab === "realtime-calls" ? text : ""}`} />
+                  <span className={`whitespace-nowrap overflow-hidden transition-all duration-300 ${isSidebarCollapsed ? "max-w-0 opacity-0" : "max-w-[180px] opacity-100"}`}>Canlı Çağrı İzleme</span>
                 </button>
               )}
 
@@ -5733,7 +5752,7 @@ export default function Home() {
           key={activeTenantId}
           ref={mainStageRef}
           tabIndex={-1}
-          className={`flex-1 overflow-y-auto flex focus:outline-none aida-stage-active ${isEditingCallFlow ? "p-0 justify-center w-full h-full bg-white dark:bg-slate-950" : activeTab === "call-center" ? "p-3 justify-start items-start w-full h-full" : ["wallboard", "settings", "rag-kb", "rule-editor", "calendar", "system-status", "dialer", "call-flow", "work-hours", "ai-agents", "ai-config-assistant", "changelog", "reports-custom-builder", "reports-pano", "reports-cdr", "reports-audio", "reports-transcripts", "reports-sentiment", "reports-intent", "reports-qa", "reports-notes", "reports-perf", "reports-queue", "reports-survey", "reports-sentiment-heat", "reports-wordcloud", "reports-fcr", "reports-roi", "reports-missed", "reports-agent-status-timeline", "reports-traffic-load", "reports-trunk", "reports-did", "reports-trunk-minutes", "reports-invalid-calls", "reports-ivr-drop", "reports-transfer-hold", "reports-ab-testing", "reports-friction", "reports-compliance", "reports-silence", "reports-ceo-summary", "reports-breaks-attendance", "reports-omnichannel", "reports-disposition", "reports-dialer-callback", "reports-queue-sla", "reports-repeat-callers", "reports-dept-pickup", "reports-voip-quality", "reports-forwarding-gsm", "reports-supervisor-audit", "reports-blacklist-security", "reports-ai-appointments-rag", "reports-voicemail", "reports-conferences", "users", "trunks", "blacklist", "scheduled-reports", "announcements", "acd-queues", "auto-provision", "outbound-rules", "inbound-rules", "call-pickup-groups", "subscriber-groups", "conferences", "speed-dial", "event-logs", "troubleshooting", "sip-debugger"].includes(activeTab) ? "p-8 justify-start items-start w-full" : "p-8 justify-center"}`}
+          className={`flex-1 overflow-y-auto flex focus:outline-none aida-stage-active ${isEditingCallFlow ? "p-0 justify-center w-full h-full bg-white dark:bg-slate-950" : activeTab === "call-center" ? "p-3 justify-start items-start w-full h-full" : ["wallboard", "realtime-calls", "settings", "rag-kb", "rule-editor", "calendar", "system-status", "dialer", "call-flow", "work-hours", "ai-agents", "ai-config-assistant", "changelog", "reports-custom-builder", "reports-pano", "reports-cdr", "reports-audio", "reports-transcripts", "reports-sentiment", "reports-intent", "reports-qa", "reports-notes", "reports-perf", "reports-queue", "reports-survey", "reports-sentiment-heat", "reports-wordcloud", "reports-fcr", "reports-roi", "reports-missed", "reports-agent-status-timeline", "reports-traffic-load", "reports-trunk", "reports-did", "reports-trunk-minutes", "reports-invalid-calls", "reports-ivr-drop", "reports-transfer-hold", "reports-ab-testing", "reports-friction", "reports-compliance", "reports-silence", "reports-ceo-summary", "reports-breaks-attendance", "reports-omnichannel", "reports-disposition", "reports-dialer-callback", "reports-queue-sla", "reports-repeat-callers", "reports-dept-pickup", "reports-voip-quality", "reports-forwarding-gsm", "reports-supervisor-audit", "reports-blacklist-security", "reports-ai-appointments-rag", "reports-voicemail", "reports-conferences", "users", "trunks", "blacklist", "scheduled-reports", "announcements", "acd-queues", "auto-provision", "outbound-rules", "inbound-rules", "call-pickup-groups", "subscriber-groups", "conferences", "speed-dial", "event-logs", "troubleshooting", "sip-debugger"].includes(activeTab) ? "p-8 justify-start items-start w-full" : "p-8 justify-center"}`}
         >
           <div className={activeTab === "call-center" ? "w-full h-full flex aida-panel-enter" : "hidden"}>
             <AgentPanel 
@@ -6057,6 +6076,14 @@ export default function Home() {
 
           {activeTab === "wallboard" && (
             <WallboardPanel backendHost={backendHost} currentUser={currentUser} />
+          )}
+
+          {activeTab === "realtime-calls" && (
+            <RealtimeCallMonitorPanel
+              backendHost={backendHost}
+              currentUser={currentUser}
+              userPermissions={currentUser?.role === "admin" ? ["*"] : currentRolePermissions}
+            />
           )}
 
           {activeTab === "api-budgets" && (

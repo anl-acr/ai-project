@@ -134,6 +134,7 @@ const SYSTEM_FEATURES = [
   // 1. Operasyon ve İzleme
   { id: "dashboard", name: "Gerçek Zamanlı AI Pano", icon: Activity, type: "access", color: "purple" },
   { id: "wallboard", name: "Canlı İzleme Paneli", icon: Monitor, type: "access", color: "indigo" },
+  { id: "realtime_calls", name: "Gerçek Zamanlı Çağrı İzleme (Anlık Akış & Canlı Müdahale)", icon: PhoneCall, type: "crud_partial", color: "emerald" },
   { id: "supervisor", name: "Supervizor İşlemleri (Canlı Durum Müdahale & Ekip/Kuyruk Yönetimi)", icon: Shield, type: "access", color: "indigo" },
   { id: "call_monitor", name: "Araya Girme, Sufle ve Fısıldama (Canlı Çağrı Müdahale)", icon: Headphones, type: "call_monitor", color: "amber" },
   { id: "call_panel", name: "Temsilci Çağrı Paneli", icon: PhoneCall, type: "access", color: "emerald" },
@@ -334,6 +335,12 @@ export const normalizeRolePermissionsList = (rawPerms = []) => {
     }
   }
 
+  // Real-time Calls Monitor fallback from wallboard / supervisor
+  const hasRealtimeCallsPerm = perms.some((p) => p.startsWith("realtime_calls:"));
+  if (!hasRealtimeCallsPerm && (perms.includes("wallboard:access") || perms.includes("supervisor:access"))) {
+    perms.push("realtime_calls:read", "realtime_calls:write");
+  }
+
   return Array.from(new Set(perms));
 };
 
@@ -498,13 +505,13 @@ export default function RoleSettings({ backendHost = "localhost:8000" }) {
       id: "operations",
       name: "Operasyon ve İzleme",
       icon: Activity,
-      items: ["dashboard", "wallboard", "supervisor", "call_monitor", "call_panel", "cti_integration", "live_translator", "omnichannel", "api_budgets"]
+      items: ["dashboard", "wallboard", "realtime_calls", "supervisor", "call_monitor", "call_panel", "cti_integration", "live_translator", "omnichannel", "api_budgets"]
     },
     {
       id: "supervisor_ops",
       name: "Supervizor İşlemleri",
       icon: Shield,
-      items: ["supervisor", "call_monitor", "wallboard"]
+      items: ["supervisor", "call_monitor", "wallboard", "realtime_calls"]
     },
     {
       id: "ai",

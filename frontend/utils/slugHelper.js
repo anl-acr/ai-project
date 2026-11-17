@@ -2,6 +2,7 @@
 export const TAB_TURKISH_SLUGS = {
   "dashboard": "pano",
   "wallboard": "canli-wallboard",
+  "realtime-calls": "canli-cagri-izleme",
   "call-center": "cagri-merkezi",
   "omnichannel": "coklu-kanal",
   "api-budgets": "api-butce-ve-tuketim",
