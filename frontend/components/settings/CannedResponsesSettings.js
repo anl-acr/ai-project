@@ -283,13 +283,13 @@ export default function CannedResponsesSettings({ backendHost = "localhost:8000"
             ) : (
               filteredResponses.map((item) => (
                 <tr key={item.id} className="hover:bg-slate-50/40 dark:hover:bg-slate-850/20 transition">
-                  <td className="p-4 text-xs font-mono font-bold text-pink-600 dark:text-pink-400">
+                  <td data-no-translate="true" className="p-4 text-xs font-mono font-bold text-pink-600 dark:text-pink-400">
                     {item.shortcut}
                   </td>
-                  <td className="p-4 text-xs font-bold text-slate-800 dark:text-slate-200">
+                  <td data-no-translate="true" className="p-4 text-xs font-bold text-slate-800 dark:text-slate-200">
                     {item.title}
                   </td>
-                  <td className="p-4 text-xs text-slate-550 dark:text-slate-400 max-w-sm truncate">
+                  <td data-no-translate="true" className="p-4 text-xs text-slate-550 dark:text-slate-400 max-w-sm truncate">
                     {item.content}
                   </td>
                   {(hasWritePermission || hasDeletePermission) && (

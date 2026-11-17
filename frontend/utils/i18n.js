@@ -899,6 +899,8 @@ const EXACT_TR_TO_EN = {
   "Depolama (GB)": "Storage (GB)",
   "🔒 Merkezi Lisans Kilitli (Salt-Okunur)": "🔒 Central License Locked (Read-Only)",
   "🔑 Offline Key Yükle": "🔑 Upload Offline Key",
+  "HIZLI CEVAP TASLAKLARI (CANNED RESPONSES)": "CANNED RESPONSES (QUICK REPLIES)",
+  "Hızlı Cevap Taslakları (Canned Responses)": "Canned Responses (Quick Replies)",
 };
 
 const LOWER_TR_TO_EN = Object.entries(EXACT_TR_TO_EN).reduce((acc, [tr, en]) => {
@@ -4488,11 +4490,12 @@ export function translateStringToEn(rawStr) {
   const trimmed = rawStr.trim();
   if (!trimmed) return rawStr;
 
-  // Never modify email addresses, URLs, or domain strings (e.g. destek@testteknoloji.com.tr)
+  // Never modify email addresses, URLs, domain strings, or slash shortcuts (e.g. /adres, /merhaba)
   if (
     /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/.test(trimmed) ||
     /^https?:\/\//i.test(trimmed) ||
-    /\b[a-zA-Z0-9-]+\.(com|net|org|gov|edu|io|co)(\.tr)?\b/i.test(trimmed)
+    /\b[a-zA-Z0-9-]+\.(com|net|org|gov|edu|io|co)(\.tr)?\b/i.test(trimmed) ||
+    /^\/[a-zA-ZÇĞİÖŞÜçğıöşü0-9_-]+$/.test(trimmed)
   ) {
     return rawStr;
   }
