@@ -871,6 +871,34 @@ const EXACT_TR_TO_EN = {
   "Harici": "External",
   "Kuyruk": "Queue",
   "Akış": "Flow",
+
+  // Tenant & License Management Modal
+  "🟢 Aktif (Erişim & AI Açık)": "🟢 Active (Access & AI Enabled)",
+  "🔴 Pasif (Erişim & AI Kapalı)": "🔴 Passive (Access & AI Disabled)",
+  "Aktif (Erişim & AI Açık)": "Active (Access & AI Enabled)",
+  "Pasif (Erişim & AI Kapalı)": "Passive (Access & AI Disabled)",
+  "Ana Müşteri (Varsayılan)": "Primary Tenant (Default)",
+  "Ana Müşteri": "Primary Tenant",
+  "Professional Paket": "Professional Package",
+  "Starter Paket": "Starter Package",
+  "Enterprise Paket": "Enterprise Package",
+  "Trial Paket": "Trial Package",
+  "♾️ Limitsiz / Süresiz Lisans": "♾️ Unlimited / Perpetual License",
+  "Süresiz / Belirtilmedi": "Unlimited / Not Specified",
+  "Lisans Key İle Yönetilir": "Managed via License Key",
+  "Key İle Belirlenir": "Determined by Key",
+  "Müşteri Lisansı ve Limitleri Görüntüle": "View Tenant License & Limits",
+  "Müşteri / Firma Adı": "Customer / Company Name",
+  "Lisans Paketi / Plan": "License Package / Plan",
+  "Müşteri Durumu": "Customer Status",
+  "Lisans Bitiş Tarihi": "License Expiry Date",
+  "Tanımlı Limitler ve Kotalar": "Assigned Limits & Quotas",
+  "Maksimum Kullanıcı": "Max Users",
+  "Eşzamanlı Çağrı": "Concurrent Calls",
+  "Aylık AI Dakika": "Monthly AI Minutes",
+  "Depolama (GB)": "Storage (GB)",
+  "🔒 Merkezi Lisans Kilitli (Salt-Okunur)": "🔒 Central License Locked (Read-Only)",
+  "🔑 Offline Key Yükle": "🔑 Upload Offline Key",
 };
 
 const LOWER_TR_TO_EN = Object.entries(EXACT_TR_TO_EN).reduce((acc, [tr, en]) => {
@@ -1193,6 +1221,12 @@ const MULTI_WORD_PHRASES = [
   ["bot tarama", "Bot Scan"],
   ["bot taraması", "Bot Scan"],
   ["port taraması", "Port Scan"],
+  ["lisans key ile yönetilir", "Managed via License Key"],
+  ["key ile belirlenir", "Determined by Key"],
+  ["erişim & ai açık", "Access & AI Enabled"],
+  ["erişim & ai kapalı", "Access & AI Disabled"],
+  ["ana müşteri (varsayılan)", "Primary Tenant (Default)"],
+  ["süresiz lisans", "Perpetual License"],
 ];
 
 const WORD_DICT_TR_EN = {
@@ -4693,6 +4727,36 @@ export function applyDomLanguagePass(targetLang) {
           }
         }
       });
+    });
+
+    // 3. Translate disabled / readOnly text inputs (e.g. Tenant License Modal status & plan fields)
+    document.querySelectorAll("input[disabled], input[readonly]").forEach((el) => {
+      const inputType = (el.getAttribute("type") || "text").toLowerCase();
+      if (inputType !== "text") return;
+      const val = el.value;
+      if (!val || !val.trim()) return;
+      const origKey = "data-aida-orig-tr-value";
+      const lastEnKey = "data-aida-last-en-value";
+
+      if (lang === "en") {
+        const prevEn = el.getAttribute(lastEnKey);
+        const prevTr = el.getAttribute(origKey);
+        if (prevEn === val && prevTr) return;
+
+        const sourceTr = prevEn === val && prevTr ? prevTr : val;
+        const translatedEn = translateStringToEn(sourceTr);
+        if (translatedEn !== sourceTr) {
+          el.setAttribute(origKey, sourceTr);
+          el.setAttribute(lastEnKey, translatedEn);
+          el.value = translatedEn;
+        }
+      } else {
+        const origTr = el.getAttribute(origKey);
+        const prevEn = el.getAttribute(lastEnKey);
+        if (origTr && val === prevEn) {
+          el.value = origTr;
+        }
+      }
     });
   } catch (e) {
   } finally {
