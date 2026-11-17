@@ -320,6 +320,92 @@ const EXACT_TR_TO_EN = {
   "👤 Temsilci": "👤 Agent",
   "E-POSTA": "E-MAIL",
   "E-Posta": "E-Mail",
+
+  // UserSettings (Kullanıcı Yönetimi & Düzenleme Sekmeleri)
+  "KULLANICI YÖNETİMİ": "USER MANAGEMENT",
+  "Sistem yöneticileri ve çağrı merkezi temsilcilerinin erişim tanımlarını yönetin.": "Manage access definitions for system administrators and contact center agents.",
+  "Kullanıcı Düzenle": "Edit User",
+  "Kullanıcıyı Sil": "Delete User",
+  "Seçilen sistem kullanıcısını silmek istediğinize emin misiniz? Bu işlem geri alınamaz.": "Are you sure you want to delete the selected system user? This action cannot be undone.",
+  "Arama kriterine uygun veya kayıtlı sistem kullanıcısı bulunmuyor.": "No registered system users found matching the search criteria.",
+  "Supervizor Rapor & Yönetim Filtresi": "Supervisor Report & Management Filter",
+  "Rapor & Yönetim Filtresi": "Report & Management Filter",
+  "Yönetebileceği Temsilciler": "Managed Agents",
+  "Yönetebileceği Çağrı Kuyrukları": "Managed Call Queues",
+  "Okunmamış": "Unread",
+  "Dahili:": "Extension:",
+  "Bu supervizor kullanıcısının Canlı İzleme Panelinde müdahale edebileceği ve Raporlarda görüntüleyebileceği temsilcileri ve çağrı kuyruklarını sol listeden seçerek sağ listeye aktarın.": "Select the agents and call queues from the left list that this supervisor user can monitor on the Live Wallboard and view in Reports.",
+  "Kullanıcılar & Abone Grupları": "Users & Subscriber Groups",
+  "Tümünü Ekle": "Add All",
+  "Önerilenleri Ekle": "Add Recommended",
+  "Seçili Temsilciler": "Selected Agents",
+  "Seçili Çağrı Kuyrukları": "Selected Call Queues",
+  "Henüz temsilci seçilmedi (Seçim yapılmazsa tüm temsilciler görünür).": "No agents selected yet (If none selected, all agents are visible).",
+  "Henüz temsilci seçilmedi (Seçim yapılmazsa tümünü görür)": "No agents selected yet (If none selected, all are visible)",
+  "Henüz kuyruk seçilmedi (Seçim yapılmazsa tüm kuyruklar görünür).": "No queues selected yet (If none selected, all queues are visible).",
+  "Henüz kuyruk seçilmedi (Seçim yapılmazsa tümünü görür)": "No queues selected yet (If none selected, all are visible)",
+  "Atanabilecek temsilci bulunamadı.": "No assignable agents found.",
+  "Atanabilecek çağrı kuyruğu bulunamadı.": "No assignable call queues found.",
+  "Atanabilecek çağrı kuyruğu ara": "Search assignable call queues...",
+  "Temsilci, dahili veya Abone Grubu ara...": "Search agent, extension, or subscriber group...",
+  "Kuyruk adı veya numarası ara...": "Search queue name or number...",
+  "Abone Grubunu ve Üyelerini Çıkar": "Remove Subscriber Group & Members",
+  "SIP Ayarları & SIP Cihazları": "SIP Settings & SIP Devices",
+  "SIP Cihazları": "SIP Devices",
+  "SIP Cihazı": "SIP Device",
+  "Yeni SIP Cihazı Ekle": "Add New SIP Device",
+  "SIP Cihazını Ekle": "Add SIP Device",
+  "SIP Cihazını Sil": "Delete SIP Device",
+  "SIP Cihazı Ayarlarını Düzenle": "Edit SIP Device Settings",
+  "Henüz tanımlı bir SIP Cihazı bulunmuyor": "No SIP Devices defined yet",
+  "Sağ üstteki artı (+) butonuna tıklayarak bu aboneye yeni bir masa telefonu veya SIP cihazı ekleyebilirsiniz.": "Click the plus (+) button at the top right to add a new desk phone or SIP device to this subscriber.",
+  "Kullanıcının dahili numarası, giden arama kuralı, çağrı toplama grubu ve aboneye bağlı çoklu SIP cihazlarının yönetimi.": "Manage the user's extension number, outbound call rule, call pickup group, and multiple connected SIP devices.",
+  "Masa telefonu, DECT veya harici SIP istemcilerini ayrı ayrı tanımlayın; büyüteç ile BLF, kodek ve canlı PJSIP detaylarını inceleyin.": "Configure desk phones, DECT, or external SIP clients individually; inspect BLF, codecs, and live PJSIP details with the magnifier.",
+  "Her profil için çalacak cihazları, çalma süresini ve çağrı yönlendirme kurallarını ayrı ayrı yapılandırın.": "Configure ringing devices, ring timeout, and call forwarding rules separately for each profile.",
+  "Hiçbir cihaz seçilmediğinde telefon çalmaz ve gelen çağrı doğrudan yönlendirme veya sesli posta kurallarına aktarılır.": "When no device is selected, the phone will not ring and incoming calls will route directly to forwarding or voicemail rules.",
+  "Kullanıcıya ulaşılamadığında veya sesli postaya yönlendirildiğinde devreye girecek sesli posta kutusu ayarları.": "Voicemail box settings that take effect when the user is unreachable or calls are forwarded to voicemail.",
+  "Masa telefonu tek başına çalıyor ve yanıt verilmiyorsa, belirlenen saniye sonunda çağrıyı sırasıyla mobil uygulamaya veya mobil telefon numarasına yönlendirir.": "If the desk phone rings alone and is not answered, routes the call sequentially to the mobile app or mobile number after the specified seconds.",
+  "Aktifken yöneticiye gelen aramalar önce sekreter(ler)e düşer; yalnızca sekreterler ve VIP listesindeki numaralar yöneticiyi doğrudan çaldırabilir.": "When active, calls to the executive route to the receptionist(s) first; only receptionists and numbers on the VIP list can ring the executive directly.",
+  "Ortak Masa Telefonu (Masa Paylaşımı)": "Hot Desking (Shared Desk Phone)",
+  "Ortak Masa Telefonu PIN Şifresi": "Hot Desking PIN Code",
+  "Kullanıcının ofisteki herhangi bir fiziksel IP masa telefonundan kendi dahilisi ve özel PIN şifresiyle oturum açmasını sağlar.": "Allows the user to log into any physical IP desk phone in the office using their own extension and personal PIN code.",
+  "Açık bırakıldığında vardiya bitiminde unutulan masa telefonu oturumu her gece 00:00'da otomatik olarak sonlandırılır.": "When enabled, any desk phone session left logged in at the end of a shift is automatically signed out every night at 00:00.",
+  "Bu dahili şu anda herhangi bir ortak masa telefonunda oturum açmamış.": "This extension is not currently logged into any shared desk phone.",
+  "Beni Takip Et": "Follow-Me",
+  "Beni Takip Et (Follow-Me)": "Follow-Me",
+  "Yönetici - Sekreter Filtresi (Boss / Secretary)": "Executive - Assistant Filter (Boss / Secretary)",
+  "İnterkom / Otomatik Cevap (Auto-Answer)": "Intercom / Auto-Answer",
+  "İç interkom çağrılarında ahizeyi kaldırmadan hoparlörden yanıtlar.": "Answers internal intercom calls automatically on speakerphone without lifting the handset.",
+  "Kullanıcının İki Aşamalı Doğrulama (2FA), otomatik oturum kapatma, zorunlu şifre değişim periyodu, Güvenilir Cihaz Kilidi ve bağlantı geçmişi ayarlarını tek noktadan yönetin.": "Manage Two-Factor Authentication (2FA), auto session timeout, mandatory password rotation, Trusted Device Lock, and connection history from a single place.",
+  "İsterseniz tek bir yöntem, isterseniz aynı anda hem E-Posta hem Google Authenticator (2 Aşamalı) kullanabilirsiniz.": "You can use either a single method or both Email and Google Authenticator (2-Step) simultaneously.",
+  "Belirtilen süre boyunca işlem yapılmadığında kullanıcının web/masaüstü oturumu otomatik olarak sonlandırılır.": "Automatically signs out the user's web/desktop session after the specified period of inactivity.",
+  "Kullanıcının masaüstü ve mobil uygulama kurulum paketlerini, süreli Kolay Giriş Linkini (URL), QR kodunu, e-posta davetiyesini ve bağlı oturumlarını buradan yönetin.": "Manage desktop and mobile app installers, time-limited Quick Login URL, QR code, email invitation, and active sessions here.",
+  "Bu insan temsilciye çağrı geldiğinde müşterinin CRM kartını otomatik olarak 2. sekmede açın ve arayan verisini aktarın.": "Automatically open the customer's CRM card in a new tab and pass caller data when a call arrives for this human agent.",
+  "2. sekmede CRM ekranını açarken aynı zamanda temsilcinin Web Telefon ekranında müşterinin CRM özet bilgilerini gösterir.": "Displays the customer's CRM summary card on the agent's Web Phone screen while also opening the CRM page in a second tab.",
+  "Web Telefon çaldığında arayan müşterinin geçmiş çağrı, WhatsApp ve VIP notlarını otomatik olarak sağ çekmecede açar.": "Automatically opens the calling customer's call history, WhatsApp chats, and VIP notes in the right drawer when the Web Phone rings.",
+  "Web Telefon kapalıyken mesai saatlerinde gelen çağrılar kullanıcının GSM numarasına aktarılır ve yapay zeka çağrı özetini fısıldar.": "When Web Phone is offline during working hours, incoming calls are forwarded to the user's mobile number and AI whispers the call summary.",
+  "Kullanıcının ekranındaki birincil vurgu ve buton rengini belirleyin.": "Choose the primary accent and button color for the user's interface.",
+  "Kullanıcının varsayılan Aydınlık / Karanlık modunu ve otomatik zamanlama kuralını belirleyin.": "Configure the user's default Light / Dark mode and automatic schedule rule.",
+  "Kullanıcının varsayılan çağrı zil melodisini, ses seviyesini, mikrofon AI gürültü filtresini ve masaüstü bildirimlerini yapılandırın.": "Configure the user's default ringtone melody, volume level, AI microphone noise suppression, and desktop notifications.",
+  "Kullanıcının panelde göreceği tasarım şablonunu seçin (Klasik, Executive, Aurora, Bento, Linear, OLED).": "Select the visual theme template for the user's panel (Classic, Executive, Aurora, Bento, Linear, OLED).",
+  "Temsilci ekranının ve çağrı paneli seçeneklerinin liste veya kutucuk şeklinde görünmesini belirleyin.": "Choose whether the agent screen and call panel options appear as a list or grid tiles.",
+  "Çağrı paneli sekmelerinin sol dikey menüde mi yoksa üst barda yatay mı yer alacağını seçin.": "Choose whether call panel tabs are placed in the left vertical sidebar or horizontally in the top bar.",
+  "Kullanıcıyı farklı bir tenant'a aktardığınızda, kullanıcı yalnızca o tenant'a ait dahili hatları, çağrı verilerini ve müşteri panelini görüntüleyebilecektir.": "When you move a user to another tenant, they will only be able to view the extensions, call records, and dashboard belonging to that tenant.",
+  "Şu Anda Kullanımda": "Currently In Use",
+  "Şu Anda Web Telefon Bağlı": "Web Phone Connected",
+  "Şu Anda Çevrimdışı": "Currently Offline",
+  "Web Telefon Bağlı Değil": "Web Phone Disconnected",
+  "Bu Profili Aktif Yap": "Set Profile Active",
+  "Her Zaman Yönlendir": "Always Forward",
+  "Meşgulde Yönlendir": "Forward on Busy",
+  "Cevapsızda Yönlendir": "Forward on No Answer",
+  "Zaman Aşımında (Cevapsız)": "On Timeout (No Answer)",
+  "Meşgul Durumda": "When Busy",
+  "Arayüz & Panel Düzeni": "Interface & Panel Layout",
+  "Avatar & Tema": "Avatar & Theme",
+  "Müşteri / Tenant": "Customer / Tenant",
+  "Müşteri / Tenant Ataması": "Customer / Tenant Assignment",
+  "Bağlı Olduğu Müşteri / Tenant": "Assigned Customer / Tenant",
   "Mesaj Gönder": "Send Message",
   "Mesajı Benden Sil": "Delete for Me",
   "Bu mesajı benden sil": "Delete this message for me",
@@ -3428,6 +3514,8 @@ const WORD_DICT_TR_EN = {
   "gönderilecektir": "will be sent",
   "göndericilerden": "from senders",
   "yönetebilmek": "to manage",
+  "yönetebileceği": "Managed",
+  "supervizor": "Supervisor",
   "yöneticinizin": "your admin's",
   "yöneticinize": "to your admin",
   "yönetilmeye": "to be managed",
@@ -3786,10 +3874,17 @@ const TR_SUFFIXES_NORM = [
   "ilir", "ulur", "ülür", "ir", "ur", "ür", "ar", "er", "yan", "yen"
 ].sort((a, b) => b.length - a.length);
 
+const DO_NOT_STEM_WORDS = new Set([
+  "aida", "runa", "nornia", "asterisk", "pjsip", "webrtc", "yealink", "fanvil", "grandstream",
+  "cisco", "snom", "polycom", "google", "microsoft", "whatsapp", "telegram", "instagram", "facebook"
+]);
+
 function lookupWordWithStemmer(cleanTok) {
   const lowerTr = cleanTok.toLocaleLowerCase("tr-TR");
+  if (DO_NOT_STEM_WORDS.has(lowerTr)) return null;
   if (WORD_DICT_TR_EN[lowerTr]) return WORD_DICT_TR_EN[lowerTr];
   const nk = normTrKey(cleanTok);
+  if (DO_NOT_STEM_WORDS.has(nk)) return null;
   if (NORM_WORD_DICT_TR_EN[nk]) return NORM_WORD_DICT_TR_EN[nk];
 
   for (let i = 0; i < TR_SUFFIXES_NORM.length; i++) {
@@ -3942,6 +4037,13 @@ function translateDynamicPatternToEn(trimmed) {
   // "Mola Türü Seçin (3)"
   m = trimmed.match(/^Mola Türü Seçin\s*\((\d+)\)$/i);
   if (m) return `Select Break Type (${m[1]})`;
+
+  // "Yönetebileceği Temsilciler (0)" / "Yönetebileceği Çağrı Kuyrukları (0)"
+  m = trimmed.match(/^Yönetebileceği\s+Temsilciler\s*\((\d+)\)$/i);
+  if (m) return `Managed Agents (${m[1]})`;
+
+  m = trimmed.match(/^Yönetebileceği\s+Çağrı\s+Kuyrukları\s*\((\d+)\)$/i);
+  if (m) return `Managed Call Queues (${m[1]})`;
 
   // "HAZIR (1000)" / "WEB TELEFON HAZIR (1000)"
   m = trimmed.match(/^WEB\s+TELEFON\s+HAZIR\s*\(([^)]+)\)$/i);
@@ -4096,11 +4198,12 @@ export function translateStringToEn(rawStr) {
     return `${lead}${matchCaseStyle(trimmed, exact)}${trail}`;
   }
 
-  // Also check exact match without trailing punctuation (. ! ? :)
-  const punctMatch = trimmed.match(/^(.+?)([.!?:]+)$/);
+  // Also check exact match when wrapped in or ending with JSX split punctuation (. ! ? : ( ) • -)
+  const punctMatch = trimmed.match(/^([()•\-–—]*\s*)(.+?)(\s*[.!?:()•\-–—]+)$/);
   if (punctMatch) {
-    const baseText = punctMatch[1].trim();
-    const punct = punctMatch[2];
+    const prePunct = punctMatch[1] || "";
+    const baseText = punctMatch[2].trim();
+    const postPunct = punctMatch[3] || "";
     const baseExact =
       EXACT_TR_TO_EN[baseText] ||
       LOWER_TR_TO_EN[baseText.toLocaleLowerCase("tr-TR")] ||
@@ -4109,7 +4212,7 @@ export function translateStringToEn(rawStr) {
       const lead = rawStr.match(/^\s*/)?.[0] || "";
       const trail = rawStr.match(/\s*$/)?.[0] || "";
       const cased = matchCaseStyle(baseText, baseExact);
-      return `${lead}${cased.endsWith(punct) ? cased : cased + punct}${trail}`;
+      return `${lead}${prePunct}${cased}${postPunct.trim() && cased.endsWith(postPunct.trim()) ? "" : postPunct}${trail}`;
     }
   }
 
