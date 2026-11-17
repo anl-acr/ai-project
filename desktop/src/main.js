@@ -490,31 +490,34 @@ function loadWorkspaceScreen(uiOrigin) {
 function rebuildTrayMenu() {
   if (!tray) return;
   const cfg = loadAppConfig();
+  const isEn = cfg.uiLanguage === "en";
   const isConnected = Boolean(cfg.session && cfg.uiOrigin);
 
   const statusLine = isConnected
     ? `${liveTrayState.fullName || cfg.session.fullName || cfg.session.username}${
         liveTrayState.extension || cfg.session.extension
-          ? ` (Dahili ${liveTrayState.extension || cfg.session.extension})`
+          ? ` (${isEn ? "Ext" : "Dahili"} ${liveTrayState.extension || cfg.session.extension})`
           : ""
       }`
-    : "Oturum Açılmadı";
+    : isEn ? "Not Signed In" : "Oturum Açılmadı";
 
   const sipBadge = isConnected
     ? liveTrayState.callStatus === "InCall"
-      ? "📞 Görüşmede"
+      ? isEn ? "📞 In Call" : "📞 Görüşmede"
       : liveTrayState.callStatus === "Ringing"
-      ? "🔔 Çağrı Geliyor!"
+      ? isEn ? "🔔 Incoming Call!" : "🔔 Çağrı Geliyor!"
       : liveTrayState.registered
-      ? `🟢 Telefon Hazır • ${liveTrayState.profileLabel || "Uygun"}`
-      : "🟡 Bağlanıyor..."
-    : "⚪ Sunucu Bekleniyor";
+      ? isEn
+        ? `🟢 Phone Ready • ${liveTrayState.profileLabel || "Available"}`
+        : `🟢 Telefon Hazır • ${liveTrayState.profileLabel || "Uygun"}`
+      : isEn ? "🟡 Connecting..." : "🟡 Bağlanıyor..."
+    : isEn ? "⚪ Waiting for Server" : "⚪ Sunucu Bekleniyor";
 
   tray.setToolTip(`${APP_BRAND.appName} — ${statusLine} (${sipBadge})`);
 
   const template = [
     {
-      label: `${APP_BRAND.appName} (${cfg.serverHost || "Yerel"})`,
+      label: `${APP_BRAND.appName} (${cfg.serverHost || (isEn ? "Local" : "Yerel")})`,
       enabled: false
     },
     {
@@ -523,7 +526,7 @@ function rebuildTrayMenu() {
     },
     { type: "separator" },
     {
-      label: "Pencereyi Göster",
+      label: isEn ? "Show Window" : "Pencereyi Göster",
       click: () => restoreAndFocusMainWindow()
     }
   ];
@@ -531,10 +534,10 @@ function rebuildTrayMenu() {
   if (isConnected) {
     template.push(
       {
-        label: "Durum Değiştir",
+        label: isEn ? "Change Status" : "Durum Değiştir",
         submenu: [
           {
-            label: "🟢 Uygun (Çağrıya Açık)",
+            label: isEn ? "🟢 Available (Ready for Calls)" : "🟢 Uygun (Çağrıya Açık)",
             type: "radio",
             checked: liveTrayState.profileId === "available",
             click: () => {
@@ -543,7 +546,7 @@ function rebuildTrayMenu() {
             }
           },
           {
-            label: "🟡 Uzakta / Kısa Mola",
+            label: isEn ? "🟡 Away / Short Break" : "🟡 Uzakta / Kısa Mola",
             type: "radio",
             checked: liveTrayState.profileId === "away",
             click: () => {
@@ -551,7 +554,7 @@ function rebuildTrayMenu() {
             }
           },
           {
-            label: "🔴 Toplantıda / Rahatsız Etmeyin",
+            label: isEn ? "🔴 In a Meeting / Do Not Disturb" : "🔴 Toplantıda / Rahatsız Etmeyin",
             type: "radio",
             checked: liveTrayState.profileId === "meeting",
             click: () => {
@@ -561,7 +564,7 @@ function rebuildTrayMenu() {
         ]
       },
       {
-        label: "🎧 Ses & Çalma Aygıtları...",
+        label: isEn ? "🎧 Audio & Ringtone Devices..." : "🎧 Ses & Çalma Aygıtları...",
         click: () => {
           restoreAndFocusMainWindow();
           dispatchToWorkspace("OPEN_HARDWARE_SETTINGS");
@@ -569,7 +572,7 @@ function rebuildTrayMenu() {
       },
       { type: "separator" },
       {
-        label: "Sunucu Değiştir / Oturumu Kapat",
+        label: isEn ? "Switch Server / Log Out" : "Sunucu Değiştir / Oturumu Kapat",
         click: () => {
           restoreAndFocusMainWindow();
           dispatchToWorkspace("TRIGGER_DESKTOP_LOGOUT");
@@ -581,7 +584,7 @@ function rebuildTrayMenu() {
   template.push(
     { type: "separator" },
     {
-      label: "🚀 Bilgisayar Açıldığında Otomatik Başlat",
+      label: isEn ? "🚀 Start Automatically on Boot" : "🚀 Bilgisayar Açıldığında Otomatik Başlat",
       type: "checkbox",
       checked: Boolean(cfg.startOnBoot),
       click: (menuItem) => {
@@ -592,7 +595,7 @@ function rebuildTrayMenu() {
     },
     { type: "separator" },
     {
-      label: `${APP_BRAND.appName} Uygulamasından Çık`,
+      label: isEn ? `Quit ${APP_BRAND.appName}` : `${APP_BRAND.appName} Uygulamasından Çık`,
       click: () => {
         isQuitting = true;
         app.quit();
@@ -1120,6 +1123,9 @@ ipcMain.handle("aida:update-preferences", async (_event, patch = {}) => {
   if (patch.startOnBoot !== undefined) {
     allowed.startOnBoot = Boolean(patch.startOnBoot);
     applyAutoStartSetting(allowed.startOnBoot, { persist: false });
+  }
+  if (patch.uiLanguage === "tr" || patch.uiLanguage === "en") {
+    allowed.uiLanguage = patch.uiLanguage;
   }
   const updated = saveAppConfig(allowed);
   rebuildTrayMenu();

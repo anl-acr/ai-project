@@ -26,6 +26,9 @@ if (bootState && bootState.session && bootState.uiOrigin && typeof window !== "u
       if (bootState.session.tenantId) {
         localStorage.setItem("active_tenant_id", String(bootState.session.tenantId));
       }
+      if (bootState.uiLanguage === "tr" || bootState.uiLanguage === "en") {
+        localStorage.setItem("aida_ui_lang", bootState.uiLanguage);
+      }
       if (bootState.audioPrefs) {
         if (bootState.audioPrefs.micLabel && !localStorage.getItem("selected_mic_label")) {
           localStorage.setItem("selected_mic_label", bootState.audioPrefs.micLabel);

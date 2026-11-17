@@ -268,6 +268,7 @@ class SystemUser(Base):
     managed_queues = Column(JSON, default=list)
     cti_config = Column(JSON, default=dict)
     theme_mode = Column(String, default="light")
+    ui_language = Column(String, default="tr")
     call_panel_prefs = Column(JSON, default=dict)
     wallboard_layout = Column(JSON, default=dict)
     max_concurrent_outbound = Column(Integer, default=0)

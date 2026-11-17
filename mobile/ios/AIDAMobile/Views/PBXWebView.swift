@@ -3749,12 +3749,24 @@ struct PBXWebView: UIViewRepresentable {
               document.body.appendChild(dock);
             }
 
-            // Build signature so we only update innerHTML when state/badges/theme change
+            // Build signature so we only update innerHTML when state/badges/theme/lang change
+            const curLang = (localStorage.getItem('aida_ui_lang') || 'tr') === 'en' ? 'en' : 'tr';
+            const enDockLabels = {
+              history: 'Call History',
+              directory: 'Directory',
+              webphone: 'Phone',
+              chat: 'Chat',
+              dashboard: 'Dashboard',
+              speeddial: 'Speed Dial',
+              missed: 'Missed Calls',
+              voicemail: 'Voicemail'
+            };
             const sig = JSON.stringify({
               a: meta.activeTab,
               c: meta.activeBgColor,
               b: meta.badges,
-              m: morePopoverOpen
+              m: morePopoverOpen,
+              l: curLang
             });
 
             if (dock.getAttribute('data-sig') !== sig) {
@@ -3767,10 +3779,11 @@ struct PBXWebView: UIViewRepresentable {
                 const badgeHtml = badgeVal
                   ? `<span class="aida-ios-dock-badge">${badgeVal}</span>`
                   : '';
+                const dispLabel = curLang === 'en' ? (enDockLabels[tab.id] || tab.label) : tab.label;
                 return `
                   <button type="button" class="aida-ios-dock-btn" data-tab-id="${tab.id}" data-active="${isAct ? '1' : '0'}" ${styleAttr}>
                     ${tab.svg}
-                    <span class="aida-dock-label">${tab.label}</span>
+                    <span class="aida-dock-label">${dispLabel}</span>
                     ${badgeHtml}
                   </button>
                 `;
@@ -3781,9 +3794,11 @@ struct PBXWebView: UIViewRepresentable {
               const moreBadgeHtml = moreBadgeTotal > 0
                 ? `<span class="aida-ios-dock-badge">${moreBadgeTotal}</span>`
                 : '';
-              const moreLabel = isMoreTabActive && !morePopoverOpen
-                ? (MORE_POPOVER_TABS.find(function(t) { return t.id === meta.activeTab; })?.label || 'Daha Fazlası')
-                : 'Daha Fazlası';
+              const activeMoreTabObj = MORE_POPOVER_TABS.find(function(t) { return t.id === meta.activeTab; });
+              const defaultMoreTxt = curLang === 'en' ? 'More' : 'Daha Fazlası';
+              const moreLabel = isMoreTabActive && !morePopoverOpen && activeMoreTabObj
+                ? (curLang === 'en' ? (enDockLabels[activeMoreTabObj.id] || activeMoreTabObj.label) : activeMoreTabObj.label)
+                : defaultMoreTxt;
 
               const moreBtnHtml = `
                 <button type="button" class="aida-ios-dock-btn" data-more-trigger="1" data-active="${moreActive ? '1' : '0'}" ${moreStyleAttr}>
@@ -3840,11 +3855,12 @@ struct PBXWebView: UIViewRepresentable {
                   const bVal = meta.badges[item.id];
                   const st = isAct ? `style="background-color: ${meta.activeBgColor} !important;"` : '';
                   const bHtml = bVal ? `<span class="aida-ios-more-badge">${bVal}</span>` : '';
+                  const dispTitle = curLang === 'en' ? (enDockLabels[item.id] || item.label) : item.label;
                   return `
                     <button type="button" class="aida-ios-more-item" data-more-tab-id="${item.id}" data-active="${isAct ? '1' : '0'}" ${st}>
                       <div class="aida-ios-more-item-left">
                         ${item.svg}
-                        <div class="aida-ios-more-item-title">${item.label}</div>
+                        <div class="aida-ios-more-item-title">${dispTitle}</div>
                       </div>
                       ${bHtml}
                     </button>
@@ -4604,11 +4620,12 @@ struct PBXWebView: UIViewRepresentable {
               }
 
               const quickTrayBtn = document.getElementById('aida-ios-quicktray-btn');
+              const langSwitcherBtn = document.getElementById('aida-topbar-lang-switcher');
               if (quickTrayBtn) {
                 syncHeadsetButtonUI(false);
               }
               Array.from(topbarRight.children).forEach(function(child) {
-                if (child !== profileContainer && child !== quickTrayBtn) {
+                if (child !== profileContainer && child !== quickTrayBtn && child !== langSwitcherBtn) {
                   if (child.getAttribute('data-aida-hide-topbar-item') !== '1') {
                     child.setAttribute('data-aida-hide-topbar-item', '1');
                   }

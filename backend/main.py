@@ -891,6 +891,7 @@ class UserSchema(BaseModel):
     managed_queues: Optional[List[Union[int, str]]] = []
     cti_config: Optional[dict] = None
     theme_mode: Optional[str] = None
+    ui_language: Optional[str] = None
     call_panel_prefs: Optional[dict] = None
     wallboard_layout: Optional[Union[dict, List[Any]]] = None
     max_concurrent_outbound: Optional[int] = None
@@ -2227,6 +2228,7 @@ def load_settings(force_reload: bool = False, persist: bool = False):
                     ("managed_queues", "ALTER TABLE system_users ADD COLUMN IF NOT EXISTS managed_queues JSON DEFAULT '[]';"),
                     ("cti_config", "ALTER TABLE system_users ADD COLUMN IF NOT EXISTS cti_config JSON DEFAULT '{}';"),
                     ("theme_mode", "ALTER TABLE system_users ADD COLUMN IF NOT EXISTS theme_mode VARCHAR DEFAULT 'light';"),
+                    ("ui_language", "ALTER TABLE system_users ADD COLUMN IF NOT EXISTS ui_language VARCHAR DEFAULT 'tr';"),
                     ("call_panel_prefs", "ALTER TABLE system_users ADD COLUMN IF NOT EXISTS call_panel_prefs JSON DEFAULT '{}';"),
                     ("wallboard_layout", "ALTER TABLE system_users ADD COLUMN IF NOT EXISTS wallboard_layout JSON DEFAULT '{}';"),
                     ("max_concurrent_outbound", "ALTER TABLE system_users ADD COLUMN IF NOT EXISTS max_concurrent_outbound INTEGER DEFAULT 0;"),
@@ -2350,6 +2352,8 @@ def load_settings(force_reload: bool = False, persist: bool = False):
                             u_dict["wallboard_layout"] = du.get("wallboard_layout")
                         if (not u_dict.get("theme_mode") or u_dict.get("theme_mode") == "light") and du.get("theme_mode"):
                             u_dict["theme_mode"] = du.get("theme_mode")
+                        if (not u_dict.get("ui_language") or u_dict.get("ui_language") == "tr") and du.get("ui_language"):
+                            u_dict["ui_language"] = du.get("ui_language")
                         if not u_dict.get("gsm_number") and du.get("gsm_number"):
                             u_dict["gsm_number"] = du.get("gsm_number")
                         if not u_dict.get("follow_me") and du.get("follow_me"):
@@ -2454,6 +2458,7 @@ def load_settings(force_reload: bool = False, persist: bool = False):
                     u_dict["managed_users"] = u_dict.get("managed_users") if isinstance(u_dict.get("managed_users"), list) else []
                     u_dict["managed_queues"] = u_dict.get("managed_queues") if isinstance(u_dict.get("managed_queues"), list) else []
                     u_dict["theme_mode"] = u_dict.get("theme_mode") or "light"
+                    u_dict["ui_language"] = u_dict.get("ui_language") or "tr"
                     u_ext_load = str(u_dict.get("extension") or "").strip()
                     if u_ext_load or u_dict.get("sip_devices") or u_dict.get("sip_username"):
                         u_dict["sip_password"] = resolve_secure_sip_password(u_ext_load, u_dict.get("sip_password") or "")
@@ -10709,6 +10714,7 @@ class ProfileUpdateSchema(BaseModel):
     mobile_transfer_enabled: Optional[bool] = None
     theme_color: Optional[str] = None
     theme_mode: Optional[str] = None
+    ui_language: Optional[str] = None
     forwarding_always: Optional[dict] = None
     forwarding_busy: Optional[dict] = None
     forwarding_no_answer: Optional[dict] = None
@@ -10864,6 +10870,9 @@ async def update_agent_profile_endpoint(user_id: Union[int, str], payload: Profi
 
     if payload.theme_mode in ("dark", "light"):
         user["theme_mode"] = payload.theme_mode
+
+    if payload.ui_language in ("tr", "en"):
+        user["ui_language"] = payload.ui_language
 
     if payload.forwarding_always is not None:
         user["forwarding_always"] = payload.forwarding_always
@@ -11062,6 +11071,7 @@ async def update_agent_profile_endpoint(user_id: Union[int, str], payload: Profi
                 "avatar",
                 "theme_color",
                 "theme_mode",
+                "ui_language",
             ):
                 if sync_k in user:
                     peer_u[sync_k] = copy.deepcopy(user[sync_k])
@@ -11102,6 +11112,8 @@ async def update_agent_profile_endpoint(user_id: Union[int, str], payload: Profi
                     target_db_u.theme_color = payload.theme_color
                 if payload.theme_mode in ("dark", "light"):
                     target_db_u.theme_mode = payload.theme_mode
+                if payload.ui_language in ("tr", "en"):
+                    target_db_u.ui_language = payload.ui_language
                 if payload.gsm_number is not None or payload.follow_me is not None:
                     target_db_u.gsm_number = user.get("gsm_number")
                 if isinstance(user.get("follow_me"), dict) and (payload.gsm_number is not None or payload.follow_me is not None):
@@ -11168,6 +11180,7 @@ async def update_agent_profile_endpoint(user_id: Union[int, str], payload: Profi
                     "ALTER TABLE system_users ADD COLUMN IF NOT EXISTS call_panel_prefs JSON DEFAULT '{}';",
                     "ALTER TABLE system_users ADD COLUMN IF NOT EXISTS boss_secretary JSON DEFAULT '{}';",
                     "ALTER TABLE system_users ADD COLUMN IF NOT EXISTS hotdesk_config JSON DEFAULT '{}';",
+                    "ALTER TABLE system_users ADD COLUMN IF NOT EXISTS ui_language VARCHAR DEFAULT 'tr';",
                 ):
                     try:
                         session.execute(text(ddl_s))
@@ -31493,6 +31506,7 @@ def _sync_user_2fa_to_db(user_dict: dict, explicit_methods_map: Optional[Dict[st
                     "ALTER TABLE system_users ADD COLUMN IF NOT EXISTS call_panel_prefs JSON DEFAULT '{}';",
                     "ALTER TABLE system_users ADD COLUMN IF NOT EXISTS boss_secretary JSON DEFAULT '{}';",
                     "ALTER TABLE system_users ADD COLUMN IF NOT EXISTS hotdesk_config JSON DEFAULT '{}';",
+                    "ALTER TABLE system_users ADD COLUMN IF NOT EXISTS ui_language VARCHAR DEFAULT 'tr';",
                 ):
                     try:
                         session.execute(text(ddl_s))
@@ -33461,6 +33475,7 @@ async def startup_event():
                 "ALTER TABLE system_users ADD COLUMN IF NOT EXISTS managed_queues JSON DEFAULT '[]';",
                 "ALTER TABLE system_users ADD COLUMN IF NOT EXISTS cti_config JSON DEFAULT '{}';",
                 "ALTER TABLE system_users ADD COLUMN IF NOT EXISTS theme_mode VARCHAR DEFAULT 'light';",
+                "ALTER TABLE system_users ADD COLUMN IF NOT EXISTS ui_language VARCHAR DEFAULT 'tr';",
                 "ALTER TABLE system_users ADD COLUMN IF NOT EXISTS call_panel_prefs JSON DEFAULT '{}';",
                 "ALTER TABLE system_users ADD COLUMN IF NOT EXISTS wallboard_layout JSON DEFAULT '{}';",
                 "ALTER TABLE system_users ADD COLUMN IF NOT EXISTS max_concurrent_outbound INTEGER DEFAULT 0;",
@@ -33985,6 +34000,7 @@ async def new_get_users_endpoint(request: Request, user_info: dict = Depends(get
             "ALTER TABLE system_users ADD COLUMN IF NOT EXISTS managed_queues JSON DEFAULT '[]';",
             "ALTER TABLE system_users ADD COLUMN IF NOT EXISTS cti_config JSON DEFAULT '{}';",
             "ALTER TABLE system_users ADD COLUMN IF NOT EXISTS theme_mode VARCHAR DEFAULT 'light';",
+            "ALTER TABLE system_users ADD COLUMN IF NOT EXISTS ui_language VARCHAR DEFAULT 'tr';",
             "ALTER TABLE system_users ADD COLUMN IF NOT EXISTS call_panel_prefs JSON DEFAULT '{}';",
             "ALTER TABLE system_users ADD COLUMN IF NOT EXISTS wallboard_layout JSON DEFAULT '{}';",
             "ALTER TABLE system_users ADD COLUMN IF NOT EXISTS max_concurrent_outbound INTEGER DEFAULT 0;",
@@ -34145,6 +34161,8 @@ async def new_get_users_endpoint(request: Request, user_info: dict = Depends(get
                 u["wallboard_layout"] = disk_u.get("wallboard_layout")
             if (not u.get("theme_mode") or u.get("theme_mode") == "light") and disk_u.get("theme_mode"):
                 u["theme_mode"] = disk_u.get("theme_mode")
+            if (not u.get("ui_language") or u.get("ui_language") == "tr") and disk_u.get("ui_language"):
+                u["ui_language"] = disk_u.get("ui_language")
             if u.get("max_concurrent_outbound") is None and disk_u.get("max_concurrent_outbound") is not None:
                 u["max_concurrent_outbound"] = disk_u.get("max_concurrent_outbound")
             if not u.get("outbound_quarantined") and disk_u.get("outbound_quarantined"):
@@ -34279,6 +34297,7 @@ async def new_get_users_endpoint(request: Request, user_info: dict = Depends(get
         u["avatar"] = u.get("avatar") or ""
         u["email"] = u.get("email") or ""
         u["theme_mode"] = u.get("theme_mode") or "light"
+        u["ui_language"] = u.get("ui_language") or "tr"
         u["sip_password"] = resolve_secure_sip_password(ext, u.get("sip_password") or "")
         from backend.services.autoprovision_service import normalize_user_sip_devices
         norm_devs = normalize_user_sip_devices(
@@ -34653,6 +34672,7 @@ async def new_save_users_endpoint(payload: Union[List[UserSchema], UserSchema], 
                 "ALTER TABLE system_users ADD COLUMN IF NOT EXISTS managed_queues JSON DEFAULT '[]';",
                 "ALTER TABLE system_users ADD COLUMN IF NOT EXISTS cti_config JSON DEFAULT '{}';",
                 "ALTER TABLE system_users ADD COLUMN IF NOT EXISTS theme_mode VARCHAR DEFAULT 'light';",
+                "ALTER TABLE system_users ADD COLUMN IF NOT EXISTS ui_language VARCHAR DEFAULT 'tr';",
                 "ALTER TABLE system_users ADD COLUMN IF NOT EXISTS wallboard_layout JSON DEFAULT '{}';",
                 "ALTER TABLE system_users ADD COLUMN IF NOT EXISTS max_concurrent_outbound INTEGER DEFAULT 0;",
                 "ALTER TABLE system_users ADD COLUMN IF NOT EXISTS outbound_quarantined BOOLEAN DEFAULT FALSE;",
@@ -35034,6 +35054,8 @@ async def new_save_users_endpoint(payload: Union[List[UserSchema], UserSchema], 
                     settings_db["wallboard_layouts"][wb_alias] = data["wallboard_layout"]
             if data.get("theme_mode") is None:
                 data["theme_mode"] = (getattr(target_user, "theme_mode", None) if target_user else None) or prev_disk.get("theme_mode") or "light"
+            if data.get("ui_language") is None:
+                data["ui_language"] = (getattr(target_user, "ui_language", None) if target_user else None) or prev_disk.get("ui_language") or "tr"
             if data.get("max_concurrent_outbound") is None:
                 prev_mc = (getattr(target_user, "max_concurrent_outbound", None) if target_user else None)
                 if prev_mc is None:
@@ -35188,7 +35210,7 @@ async def new_save_users_endpoint(payload: Union[List[UserSchema], UserSchema], 
                             u_dict["sip_username"] = p_match.get("sip_username")
                         if p_match.get("sip_devices") is not None:
                             u_dict["sip_devices"] = p_match.get("sip_devices")
-                        for tf_k in ("profiles_updated_ts", "two_factor_enabled", "two_factor_method", "two_factor_secret", "two_factor_enrolled", "two_factor_updated_ts", "managed_users", "managed_queues", "cti_config", "call_panel_prefs", "wallboard_layout", "theme_color", "theme_mode", "mobile_transfer_enabled", "auto_logout_enabled", "auto_logout_duration", "password_expiry_enabled", "password_expiry_months", "device_lock_enabled", "trusted_devices", "max_concurrent_outbound", "outbound_quarantined", "avatar_updated_ts", "boss_secretary", "hotdesk_config"):
+                        for tf_k in ("profiles_updated_ts", "two_factor_enabled", "two_factor_method", "two_factor_secret", "two_factor_enrolled", "two_factor_updated_ts", "managed_users", "managed_queues", "cti_config", "call_panel_prefs", "wallboard_layout", "theme_color", "theme_mode", "ui_language", "mobile_transfer_enabled", "auto_logout_enabled", "auto_logout_duration", "password_expiry_enabled", "password_expiry_months", "device_lock_enabled", "trusted_devices", "max_concurrent_outbound", "outbound_quarantined", "avatar_updated_ts", "boss_secretary", "hotdesk_config"):
                             if p_match.get(tf_k) is not None:
                                 u_dict[tf_k] = p_match.get(tf_k)
                     u_dict["sip_password"] = resolve_secure_sip_password(ext_u, u_dict.get("sip_password") or "")

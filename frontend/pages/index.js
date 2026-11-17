@@ -13,6 +13,11 @@ import {
   getClientBrowserAndOs,
   verifyUserDeviceAccess
 } from "../utils/deviceIdentity";
+import {
+  useUiLanguage,
+  setUiLanguage,
+  SUPPORTED_LANGUAGES
+} from "../utils/i18n";
 
 import { 
   Bot, 
@@ -1182,6 +1187,7 @@ export default function Home() {
     });
   };
   const [passwordExpiryEnabled, setPasswordExpiryEnabled] = useState(false);
+  const { lang: uiLang, setLanguage: setUiLang } = useUiLanguage();
   const [passwordExpiryMonths, setPasswordExpiryMonths] = useState(3); // 1, 3, 6, 12 (Months)
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
@@ -2366,6 +2372,9 @@ export default function Home() {
               localStorage.setItem("theme", patch.theme_mode);
               applyDocumentDarkClass(wantDark);
             }
+            if (patch.ui_language === "tr" || patch.ui_language === "en") {
+              setUiLanguage(patch.ui_language, { saveRemote: false });
+            }
             if (patch.auto_logout_enabled !== undefined) {
               setAutoLogoutEnabled(Boolean(patch.auto_logout_enabled));
               localStorage.setItem("auto_logout_enabled", patch.auto_logout_enabled ? "true" : "false");
@@ -2520,6 +2529,9 @@ export default function Home() {
         } else {
           document.documentElement.classList.remove("dark");
         }
+      }
+      if (currentUserData.ui_language === "tr" || currentUserData.ui_language === "en") {
+        setUiLanguage(currentUserData.ui_language, { saveRemote: false });
       }
 
       if (currentUserData.wallboard_layout && typeof currentUserData.wallboard_layout === "object" && Object.keys(currentUserData.wallboard_layout).length > 0) {
@@ -5605,6 +5617,25 @@ export default function Home() {
                 <span className="text-rose-600 dark:text-rose-400 font-extrabold">⚠️ LİSANS DOLDU</span>
               </button>
             )}
+
+            <button
+              id="aida-topbar-lang-switcher"
+              type="button"
+              onClick={() => {
+                const nextL = uiLang === "en" ? "tr" : "en";
+                setUiLang(nextL, {
+                  userId: currentUser?.id || currentUser?.extension || "admin",
+                  backendHost,
+                  saveRemote: true,
+                });
+                setCurrentUser((prev) => (prev ? { ...prev, ui_language: nextL } : prev));
+              }}
+              title="Arayüz Dili"
+              className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl border border-slate-200/80 dark:border-slate-800/80 bg-white dark:bg-slate-900 hover:bg-slate-50 dark:hover:bg-slate-800 text-[11px] font-extrabold text-slate-700 dark:text-slate-200 shadow-sm transition-all cursor-pointer shrink-0"
+            >
+              <span>{uiLang === "en" ? "🇬🇧" : "🇹🇷"}</span>
+              <span>{uiLang === "en" ? "EN" : "TR"}</span>
+            </button>
 
             {(topbarPrefs.layoutZones?.right || []).map((tok) => renderHeaderToken(tok, "right"))}
           </div>
@@ -9027,6 +9058,57 @@ export default function Home() {
                                   <p className="text-[9.5px] text-slate-400 dark:text-slate-500 mt-1 leading-relaxed">
                                     {mOpt.desc}
                                   </p>
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+
+                        {/* UI Language Selector (TR / EN) */}
+                        <div className="pt-3 border-t border-slate-200/70 dark:border-slate-800 space-y-2.5" data-aida-mobile-lang-box="1">
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <div>
+                              <h6 className="text-[11px] font-extrabold text-slate-800 dark:text-white flex items-center gap-1.5">
+                                <span>🌐</span>
+                                <span>Arayüz Dili</span>
+                              </h6>
+                              <p className="text-[9.5px] text-slate-400 dark:text-slate-500 mt-0.5">
+                                Uygulama ve panel dilini seçin (Masaüstü ve Mobil ile senkronize çalışır)
+                              </p>
+                            </div>
+                            <span className={`px-2.5 py-0.5 rounded-full text-[9.5px] font-extrabold uppercase tracking-wider border ${lightBg} ${text} ${borderLight}`}>
+                              {uiLang === "en" ? "🇬🇧 English (EN)" : "🇹🇷 Türkçe (TR)"}
+                            </span>
+                          </div>
+
+                          <div className="grid grid-cols-2 gap-2">
+                            {SUPPORTED_LANGUAGES.map((lOpt) => {
+                              const isLangSelected = uiLang === lOpt.code;
+                              return (
+                                <button
+                                  key={lOpt.code}
+                                  type="button"
+                                  onClick={() => {
+                                    setUiLang(lOpt.code, {
+                                      userId: currentUser?.id || currentUser?.extension || "admin",
+                                      backendHost,
+                                      saveRemote: true,
+                                    });
+                                    setCurrentUser((prev) => (prev ? { ...prev, ui_language: lOpt.code } : prev));
+                                  }}
+                                  className={`p-2.5 rounded-xl border text-left transition cursor-pointer flex items-center justify-between gap-2 ${
+                                    isLangSelected
+                                      ? `${border} ${lightBg} shadow-sm`
+                                      : "bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 hover:border-slate-300"
+                                  }`}
+                                >
+                                  <div className="flex items-center gap-2">
+                                    <span className="text-sm">{lOpt.flag}</span>
+                                    <span className="text-[11px] font-extrabold text-slate-800 dark:text-white">
+                                      {lOpt.label} ({lOpt.shortLabel})
+                                    </span>
+                                  </div>
+                                  {isLangSelected && <Check size={13} className={text} />}
                                 </button>
                               );
                             })}
