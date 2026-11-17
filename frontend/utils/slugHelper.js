@@ -76,7 +76,7 @@ export function getTabFromTurkishSlug(slug) {
 export const SUBTAB_TURKISH_SLUGS = {
   "pbx": "santral-ayarlari",
   "server-network": "sunucu-ag-ayarlari",
-  "ras-settings": "uzak-erisim-ras",
+  "ras-settings": "nornia-connect",
   "trunks": "dis-hatlar",
   "channels": "kanal-ayarlari",
   "breaks": "mola-tanimlari",

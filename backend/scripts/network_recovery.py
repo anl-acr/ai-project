@@ -566,7 +566,7 @@ def interactive_console_menu():
         print("  5) Kayıtlı Ağ Yedeklerini Listele ve Seçerek Geri Yükle")
         print("  6) Gateway & İnternet Erişim Testi (Ping Testi)")
         print("  7) Bekleyen Web Değişikliğini Kalıcı Olarak Onayla")
-        print("  8) Nornia RAS (Uzak Erişim Tüneli) Merkez Sunucu Ayarlarını Yapılandır")
+        print("  8) Nornia Connect (Bulut Köprüsü) Merkez Sunucu Ayarlarını Yapılandır")
         print("  0) Çıkış")
         print("-" * 68)
 
@@ -629,7 +629,7 @@ def interactive_console_menu():
             else:
                 print("\n>>> Onay bekleyen bir değişiklik bulunmuyor.")
         elif choice == "8":
-            hub_in = input("Merkez RAS Sunucu Adresi (Örn: https://ras.domain.com veya http://192.168.1.50:8050): ").strip()
+            hub_in = input("Nornia Connect Merkez Sunucu Adresi (Örn: https://connect.domain.com veya http://192.168.1.50:8050): ").strip()
             sub_in = input("Santral Alt Alan Adı / Kimliği [merkez]: ").strip() or "merkez"
             if hub_in:
                 res = configure_ras_from_cli(hub_url=hub_in, subdomain=sub_in, enabled=True)
@@ -642,6 +642,7 @@ def main():
     parser.add_argument("--rollback", action="store_true", help="Son çalışan ağ yedeğine anında geri döner")
     parser.add_argument("--watchdog", type=int, default=0, help="Belirtilen saniye sonunda onaylanmazsa otomatik rollback yapar")
     parser.add_argument("--set-ip", nargs="+", help="Kullanım: --set-ip <iface> <ip/cidr> <gateway> [dns1,dns2]")
+    parser.add_argument("--set-connect", nargs="+", help="Kullanım: --set-connect <hub_url> [subdomain]")
     parser.add_argument("--set-ras", nargs="+", help="Kullanım: --set-ras <hub_url> [subdomain]")
     args = parser.parse_args()
 
@@ -655,9 +656,10 @@ def main():
     if args.watchdog > 0:
         run_watchdog(args.watchdog)
         return
-    if args.set_ras:
-        hub_u = args.set_ras[0]
-        sub_d = args.set_ras[1] if len(args.set_ras) >= 2 else "merkez"
+    connect_args = args.set_connect or args.set_ras
+    if connect_args:
+        hub_u = connect_args[0]
+        sub_d = connect_args[1] if len(connect_args) >= 2 else "merkez"
         res = configure_ras_from_cli(hub_url=hub_u, subdomain=sub_d, enabled=True)
         print(json.dumps(res, ensure_ascii=False))
         return

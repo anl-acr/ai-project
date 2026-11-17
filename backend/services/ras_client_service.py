@@ -604,7 +604,7 @@ async def save_ras_config_endpoint(request: Request, payload: Dict[str, Any] = B
     if updated["enabled"] and not updated["hub_url"]:
         raise HTTPException(
             status_code=400,
-            detail="Nornia RAS Uzak Erişim Servisini aktif etmek için Merkez RAS Sunucusu Adresi (Hub URL / IP) girilmelidir.",
+            detail="Nornia Connect Bulut Köprüsünü aktif etmek için Merkez Sunucu Adresi (Hub URL / IP) girilmelidir.",
         )
 
     settings_db["ras_config"] = updated
@@ -615,10 +615,10 @@ async def save_ras_config_endpoint(request: Request, payload: Dict[str, Any] = B
 
     await log_event(
         user_id=u_info.get("user_id", "admin"),
-        action="RAS_CONFIG_UPDATE",
-        module="Nornia RAS",
+        action="NORNIA_CONNECT_UPDATE",
+        module="Nornia Connect",
         details={
-            "summary": f"Nornia RAS Uzak Erişim ayarları güncellendi (Durum: {'Aktif' if updated['enabled'] else 'Pasif'}, Hub: {updated['hub_url'] or '-'})",
+            "summary": f"Nornia Connect Bulut Köprüsü ayarları güncellendi (Durum: {'Aktif' if updated['enabled'] else 'Pasif'}, Hub: {updated['hub_url'] or '-'})",
             "subdomain": updated["subdomain"],
             "remote_ssh_enabled": updated["remote_ssh_enabled"],
         },
@@ -627,7 +627,7 @@ async def save_ras_config_endpoint(request: Request, payload: Dict[str, Any] = B
     urls = _compute_public_ras_urls(updated["hub_url"], updated["subdomain"])
     return {
         "status": "ok",
-        "message": "Nornia RAS Uzak Erişim ayarları kaydedildi ve tünel servisi tetiklendi.",
+        "message": "Nornia Connect Bulut Köprüsü ayarları kaydedildi ve bağlantı başlatıldı.",
         "config": updated,
         "runtime": {
             **RAS_RUNTIME_STATE,
@@ -642,6 +642,6 @@ async def reconnect_ras_endpoint(request: Request):
     await asyncio.sleep(0.4)
     return {
         "status": "ok",
-        "message": "Nornia RAS tünel bağlantısı yeniden başlatıldı.",
+        "message": "Nornia Connect bulut köprüsü yeniden başlatıldı.",
         "runtime": RAS_RUNTIME_STATE,
     }

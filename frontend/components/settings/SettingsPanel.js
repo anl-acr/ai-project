@@ -284,7 +284,7 @@ export default function SettingsPanel({ backendHost = "localhost:8000" }) {
           },
           {
             id: "ras-settings",
-            label: "Uzak Erişim Servisi (Nornia RAS)",
+            label: "Nornia Connect (Bulut Köprüsü)",
             subtitle: "Port açmadan Web, Mobil/Desktop, Ses (TURN) & SSH Bulut Tüneli",
             icon: Network,
             visible: true

@@ -118,11 +118,11 @@ export default function RemoteAccessSettingsPanel({
       });
       const data = await res.json().catch(() => ({}));
       if (res.ok) {
-        showToast("success", data.message || "Nornia RAS ayarları başarıyla kaydedildi.");
+        showToast("success", data.message || "Nornia Connect ayarları başarıyla kaydedildi.");
         if (data.runtime) setRuntime((p) => ({ ...p, ...data.runtime }));
         setTimeout(() => fetchRasStatus(false, false), 1500);
       } else {
-        showToast("error", data.detail || "RAS ayarları kaydedilirken hata oluştu.");
+        showToast("error", data.detail || "Nornia Connect ayarları kaydedilirken hata oluştu.");
       }
     } catch (err) {
       showToast("error", "Sunucu bağlantı hatası oluştu.");
@@ -138,11 +138,11 @@ export default function RemoteAccessSettingsPanel({
         method: "POST",
       });
       if (res.ok) {
-        showToast("success", "RAS Tünel bağlantısı yeniden tetiklendi.");
+        showToast("success", "Nornia Connect bulut köprüsü yeniden tetiklendi.");
         setTimeout(() => fetchRasStatus(false, false), 1200);
       }
     } catch (e) {
-      showToast("error", "Tünel yeniden başlatılamadı.");
+      showToast("error", "Bulut köprüsü yeniden başlatılamadı.");
     } finally {
       setReconnecting(false);
     }
@@ -173,7 +173,7 @@ export default function RemoteAccessSettingsPanel({
           <div>
             <div className="flex items-center gap-2.5 flex-wrap">
               <h3 className="text-base font-extrabold text-slate-900 dark:text-white">
-                Uzak Erişim Servisi (Nornia RAS — Zero-Port Cloud Tunnel)
+                Nornia Connect (Sıfır-Port Bulut Köprüsü)
               </h3>
               <span
                 className={`px-2.5 py-0.5 rounded-full text-[10px] font-extrabold uppercase tracking-wider flex items-center gap-1.5 ${
@@ -194,7 +194,7 @@ export default function RemoteAccessSettingsPanel({
                   }`}
                 />
                 {runtime.connected
-                  ? `TÜNEL AKTİF (${runtime.latency_ms || 1} ms)`
+                  ? `NORNIA CONNECT AKTİF (${runtime.latency_ms || 1} ms)`
                   : config.enabled
                   ? "MERKEZ SUNUCUYA BAĞLANIYOR..."
                   : "DEVRE DIŞI"}
@@ -214,7 +214,7 @@ export default function RemoteAccessSettingsPanel({
             className="px-3.5 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 text-xs font-bold flex items-center gap-2 transition cursor-pointer"
           >
             <RefreshCw size={14} className={reconnecting ? "animate-spin" : ""} />
-            <span>Tüneli Şimdi Yenile</span>
+            <span>Bağlantıyı Yenile</span>
           </button>
         </div>
       </div>
@@ -237,7 +237,7 @@ export default function RemoteAccessSettingsPanel({
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
         <div className="bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-2xl p-4 shadow-sm">
           <div className="flex items-center justify-between text-xs font-bold text-slate-400 uppercase">
-            <span>Web & Masaüstü RAS Adresi</span>
+            <span>Web & Masaüstü Connect Adresi</span>
             <Monitor size={15} className={text} />
           </div>
           <div className="mt-2 flex items-center justify-between gap-2">
@@ -332,7 +332,7 @@ export default function RemoteAccessSettingsPanel({
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-100 dark:border-slate-800 pb-4">
           <div>
             <h4 className="text-sm font-extrabold text-slate-900 dark:text-white">
-              Merkez RAS & Bulut Röle Bağlantı Ayarları
+              Nornia Connect Merkez Bulut Köprüsü Ayarları
             </h4>
             <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
               Santraliniz bu adrese içeriden dışarıya (Outbound) kalıcı tünel açar. Merkez sunucu henüz kurulmadıysa bile ayarları kaydedebilirsiniz; merkez sunucu açıldığında otomatik bağlanır.
@@ -341,7 +341,7 @@ export default function RemoteAccessSettingsPanel({
 
           <div className="flex items-center gap-3 bg-slate-50 dark:bg-slate-950 px-4 py-2 rounded-2xl border border-slate-200 dark:border-slate-800 shrink-0">
             <span className="text-xs font-extrabold text-slate-700 dark:text-slate-200">
-              RAS Uzak Erişim: {config.enabled ? "AKTİF" : "KAPALI"}
+              Nornia Connect: {config.enabled ? "AKTİF" : "KAPALI"}
             </span>
             <button
               type="button"
@@ -361,7 +361,7 @@ export default function RemoteAccessSettingsPanel({
             <div className="flex items-center gap-2">
               <AlertTriangle size={15} className="shrink-0" />
               <span>
-                <strong>Bağlantı Bekleniyor:</strong> Merkez RAS sunucusuna bağlanmaya çalışılıyor ({runtime.last_error}). Merkez sunucu hazır olduğunda otomatik bağlanacaktır.
+                <strong>Bağlantı Bekleniyor:</strong> Nornia Connect Merkez sunucusuna bağlanmaya çalışılıyor ({runtime.last_error}). Merkez sunucu hazır olduğunda otomatik bağlanacaktır.
               </span>
             </div>
           </div>
@@ -370,18 +370,18 @@ export default function RemoteAccessSettingsPanel({
         <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
           <div className="md:col-span-2">
             <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">
-              1. Merkez RAS & Lisans Sunucusu Adresi (Hub URL / IP) *
+              1. Nornia Connect & Lisans Merkez Sunucusu Adresi (Hub URL / IP) *
             </label>
             <input
               type="text"
               disabled={!canWrite}
               value={config.hub_url}
               onChange={(e) => setConfig((p) => ({ ...p, hub_url: e.target.value }))}
-              placeholder="Örn: https://ras.saphira.com.tr veya http://192.168.1.50:8050"
+              placeholder="Örn: https://connect.saphira.com.tr veya http://192.168.1.50:8050"
               className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 text-xs font-mono"
             />
             <span className="text-[10px] text-slate-400 mt-1 block">
-              Dış dünyaya açık olan Merkez Lisans & RAS Tünel sunucunuzun IP adresi veya alan adı.
+              Dış dünyaya açık olan Nornia Connect & Lisans Merkez sunucunuzun IP adresi veya alan adı.
             </span>
           </div>
 
@@ -403,7 +403,7 @@ export default function RemoteAccessSettingsPanel({
               className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 text-xs font-mono font-bold"
             />
             <span className="text-[10px] text-slate-400 mt-1 block">
-              Çoklu santral yapısında bu santrali tanımlayan benzersiz kısa ad (<code className="font-mono">merkez.ras...</code>).
+              Çoklu santral yapısında bu santrali tanımlayan benzersiz kısa ad (<code className="font-mono">merkez.connect...</code>).
             </span>
           </div>
         </div>
@@ -411,7 +411,7 @@ export default function RemoteAccessSettingsPanel({
         <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
           <div>
             <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">
-              3. RAS Kimlik Doğrulama Anahtarı / Lisans Anahtarı
+              3. Nornia Connect Kimlik Doğrulama / Lisans Anahtarı
             </label>
             <div className="relative">
               <input
@@ -424,7 +424,7 @@ export default function RemoteAccessSettingsPanel({
               />
             </div>
             <span className="text-[10px] text-slate-400 mt-1 block">
-              Merkez RAS sunucusu sadece geçerli donanım kimliği ve lisans anahtarına sahip santrallerin tünel açmasına izin verir.
+              Merkez sunucu sadece geçerli donanım kimliği ve lisans anahtarına sahip santrallerin Nornia Connect tüneli açmasına izin verir.
             </span>
           </div>
 
@@ -439,7 +439,7 @@ export default function RemoteAccessSettingsPanel({
                   Uzak Teknik Destek (Web SSH / Konsol Tüneli)
                 </div>
                 <p className="text-[10px] text-slate-500 dark:text-slate-400 mt-0.5">
-                  Açık olduğunda Merkez Lisans & RAS panelinden bu santralin SSH konsoluna port açmadan güvenli erişim sağlanabilir.
+                  Açık olduğunda Nornia Connect Merkez panelinden bu santralin SSH konsoluna port açmadan güvenli erişim sağlanabilir.
                 </p>
               </div>
             </div>
@@ -530,17 +530,17 @@ export default function RemoteAccessSettingsPanel({
           <div>
             <div className="font-bold text-amber-400 flex items-center gap-1.5">
               <Terminal size={14} />
-              <span>Sunucu Konsolundan / SSH Üzerinden RAS Adresi Değiştirme Komutu:</span>
+              <span>Sunucu Konsolundan / SSH Üzerinden Nornia Connect Adresi Değiştirme Komutu:</span>
             </div>
             <div className="font-mono text-[11px] text-slate-300 mt-1">
-              sudo python3 /opt/ai-project/backend/scripts/network_recovery.py --set-ras {config.hub_url || "http://MERKEZ_IP:8050"} {config.subdomain || "merkez"}
+              sudo python3 /opt/ai-project/backend/scripts/network_recovery.py --set-connect {config.hub_url || "http://MERKEZ_IP:8050"} {config.subdomain || "merkez"}
             </div>
           </div>
           <button
             type="button"
             onClick={() =>
               copyToClipboard(
-                `sudo python3 /opt/ai-project/backend/scripts/network_recovery.py --set-ras ${config.hub_url || "http://MERKEZ_IP:8050"} ${config.subdomain || "merkez"}`,
+                `sudo python3 /opt/ai-project/backend/scripts/network_recovery.py --set-connect ${config.hub_url || "http://MERKEZ_IP:8050"} ${config.subdomain || "merkez"}`,
                 "cli_ras"
               )
             }
@@ -559,7 +559,7 @@ export default function RemoteAccessSettingsPanel({
               className={`px-6 py-2.5 rounded-xl text-xs font-extrabold text-white ${bg} ${hover} shadow-sm flex items-center gap-2 cursor-pointer`}
             >
               <ShieldCheck size={16} />
-              <span>{saving ? "Kaydediliyor..." : "RAS Ayarlarını Kaydet ve Tüneli Başlat"}</span>
+              <span>{saving ? "Kaydediliyor..." : "Nornia Connect Ayarlarını Kaydet ve Başlat"}</span>
             </button>
           </div>
         )}
