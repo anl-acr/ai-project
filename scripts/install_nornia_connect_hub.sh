@@ -107,17 +107,22 @@ npm run build
 pm2 delete nornia-connect-hub >/dev/null 2>&1 || true
 pm2 delete nornia-license-ui >/dev/null 2>&1 || true
 
-cd "$INSTALL_DIR"
-pm2 start "$INSTALL_DIR/venv/bin/python" \
-  --name "nornia-connect-hub" \
-  --cwd "$INSTALL_DIR" \
-  -- -m uvicorn license_center.backend.main:app --host 0.0.0.0 --port 8050
+cat <<'EOBACK' > "$INSTALL_DIR/scripts/run_hub_backend.sh"
+#!/usr/bin/env bash
+cd /opt/ai-project
+exec /opt/ai-project/venv/bin/python -m uvicorn license_center.backend.main:app --host 0.0.0.0 --port 8050
+EOBACK
+chmod +x "$INSTALL_DIR/scripts/run_hub_backend.sh"
 
-cd "$INSTALL_DIR/license_center/frontend"
-pm2 start npm \
-  --name "nornia-license-ui" \
-  --cwd "$INSTALL_DIR/license_center/frontend" \
-  -- run start
+cat <<'EOFRONT' > "$INSTALL_DIR/scripts/run_hub_frontend.sh"
+#!/usr/bin/env bash
+cd /opt/ai-project/license_center/frontend
+exec npm run start
+EOFRONT
+chmod +x "$INSTALL_DIR/scripts/run_hub_frontend.sh"
+
+pm2 start "$INSTALL_DIR/scripts/run_hub_backend.sh" --name "nornia-connect-hub"
+pm2 start "$INSTALL_DIR/scripts/run_hub_frontend.sh" --name "nornia-license-ui"
 
 pm2 save
 env PATH=$PATH:/usr/bin pm2 startup systemd -u root --hp /root >/dev/null 2>&1 || true
