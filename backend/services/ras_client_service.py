@@ -439,12 +439,14 @@ async def _ras_tunnel_loop():
         ws_candidates = _compute_hub_ws_candidates(str(cfg.get("hub_url")), subdomain, hw_id)
         urls_info = _compute_public_ras_urls(str(cfg.get("hub_url")), subdomain)
         RAS_RUNTIME_STATE.update(urls_info)
-        RAS_RUNTIME_STATE["status"] = "connecting"
+        if not RAS_RUNTIME_STATE.get("connected"):
+            RAS_RUNTIME_STATE["status"] = "connecting"
 
+        _ras_reconnect_event.clear()
         last_conn_err = ""
+        connected_once = False
+
         for ws_url in ws_candidates:
-            if _ras_reconnect_event.is_set():
-                break
             try:
                 ifaces = get_live_interfaces()
                 local_ips = [i.get("primary_cidr") for i in ifaces if i.get("primary_cidr")]
@@ -460,6 +462,7 @@ async def _ras_tunnel_loop():
                     conn_kwargs["ssl"] = ssl_ctx
 
                 async with websockets.connect(ws_url, **conn_kwargs) as tunnel_ws:
+                    connected_once = True
                     # Send initial registration handshake
                     hello_payload = {
                         "type": "RAS_REGISTER",
@@ -478,7 +481,7 @@ async def _ras_tunnel_loop():
                     RAS_RUNTIME_STATE["connected"] = True
                     RAS_RUNTIME_STATE["last_connected_at"] = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                     RAS_RUNTIME_STATE["last_error"] = ""
-                    RAS_RUNTIME_STATE["latency_ms"] = round((time.monotonic() - t0) * 1000, 1)
+                    RAS_RUNTIME_STATE["latency_ms"] = max(0.1, round((time.monotonic() - t0) * 1000, 1))
 
                     async def _ping_keepalive():
                         while True:
@@ -492,12 +495,18 @@ async def _ras_tunnel_loop():
                                 })
                             )
 
+                    async def _watch_manual_reconnect():
+                        await _ras_reconnect_event.wait()
+                        _ras_reconnect_event.clear()
+                        try:
+                            await tunnel_ws.close()
+                        except Exception:
+                            pass
+
                     ping_task = asyncio.create_task(_ping_keepalive())
+                    watch_task = asyncio.create_task(_watch_manual_reconnect())
                     try:
                         async for raw_msg in tunnel_ws:
-                            if _ras_reconnect_event.is_set():
-                                _ras_reconnect_event.clear()
-                                break
                             try:
                                 msg = json.loads(raw_msg)
                             except Exception:
@@ -507,7 +516,7 @@ async def _ras_tunnel_loop():
                             if mtype == "PONG":
                                 sent_ts = float(msg.get("ts") or 0)
                                 if sent_ts > 0:
-                                    RAS_RUNTIME_STATE["latency_ms"] = max(1, round((time.monotonic() - sent_ts) * 1000, 1))
+                                    RAS_RUNTIME_STATE["latency_ms"] = max(0.1, round((time.monotonic() - sent_ts) * 1000, 1))
                                 RAS_RUNTIME_STATE["last_ping_at"] = datetime.datetime.now().strftime("%H:%M:%S")
                             elif mtype == "RAS_WELCOME":
                                 if msg.get("public_ras_url"):
@@ -559,21 +568,24 @@ async def _ras_tunnel_loop():
                                         pass
                     finally:
                         ping_task.cancel()
+                        watch_task.cancel()
+                        RAS_RUNTIME_STATE["connected"] = False
+                        RAS_RUNTIME_STATE["status"] = "connecting"
                     break
             except Exception as exc:
                 last_conn_err = f"{ws_url.split('?')[0]} -> {exc}"
 
-        if not RAS_RUNTIME_STATE.get("connected") and last_conn_err:
+        if not connected_once and last_conn_err:
             RAS_RUNTIME_STATE["status"] = "error"
             RAS_RUNTIME_STATE["connected"] = False
             RAS_RUNTIME_STATE["last_error"] = last_conn_err
             RAS_RUNTIME_STATE["reconnect_count"] = int(RAS_RUNTIME_STATE.get("reconnect_count") or 0) + 1
-
-        _ras_reconnect_event.clear()
-        try:
-            await asyncio.wait_for(_ras_reconnect_event.wait(), timeout=5.0)
-        except asyncio.TimeoutError:
-            pass
+            try:
+                await asyncio.wait_for(_ras_reconnect_event.wait(), timeout=3.0)
+            except asyncio.TimeoutError:
+                pass
+        else:
+            await asyncio.sleep(0.3)
 
 
 def start_ras_tunnel_worker():
