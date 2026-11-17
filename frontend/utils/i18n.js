@@ -487,6 +487,69 @@ const EXACT_TR_TO_EN = {
   "Yapay zeka asistanları tarafından karşılanan çağrılar insan temsilcilere aktarılsaydı oluşacak ek maliyete göre hesaplanmıştır.": "Calculated based on the additional human agent cost that would have been incurred if calls handled by AI assistants were routed to human agents.",
   "Çağrıların büyük çoğunluğu \"Yanlış Menüye Yönlendirme\" nedeniyle zorluğa dönüşüyor. IVR ağacınızı basitleştirmeniz önerilir.": "Most friction points stem from \"Misrouted Menu\" selections. Simplifying your IVR tree is recommended.",
   "\"Görüşme Kayıt Onayı\" adımının sıkça atlanması regülasyon riskleri taşıyor. Temsilciler için ek hatırlatıcılar kurgulanmalıdır.": "Frequently skipping the \"Call Recording Consent\" step poses regulatory risks. Additional reminders should be configured for agents.",
+
+  // Security Shield (Güvenlik Kalkanı - SecurityPanel.js)
+  "Asterisk PJSIP sızma girişimlerini gerçek zamanlı izleyin, Güvenli IP bloklarını (ignoreip) ve Fail2Ban & UFW duvarını yönetin.": "Monitor Asterisk PJSIP intrusion attempts in real time, and manage Trusted IP blocks (ignoreip) and the Fail2Ban & UFW firewall.",
+  "Engellenen IP'ler": "Blocked IPs",
+  "Güvenli IP / Blok Listesi": "Trusted IP / CIDR List",
+  "Bölgesel Erişim (GeoIP)": "Regional Access (GeoIP)",
+  "Anti-DDoS / Hız & Çağrı Sınırlandırması": "Anti-DDoS / Speed & Call Rate Limit",
+  "Fail2Ban & UFW Engellenenler Listesi": "Fail2Ban & UFW Blocked List",
+  "Hatalı SIP kimlik doğrulaması, PJSIP taraması veya manuel kural ile güvenlik duvarında engellenen IP adresleri.": "IP addresses blocked by the firewall due to failed SIP authentication, PJSIP scanning, or manual rules.",
+  "ENGELLENME SEBEBİ": "BLOCK REASON",
+  "Engellenme Sebebi": "Block Reason",
+  "Kural (Jail)": "Rule (Jail)",
+  "Cihaz (User-Agent)": "Device (User-Agent)",
+  "Geçersiz SIP Hesabı / Dahili Denemesi": "Invalid SIP Account / Extension Attempt",
+  "Hatalı SIP Şifre / Kimlik Doğrulama": "Invalid SIP Password / Authentication",
+  "Hatalı SIP Parolası": "Invalid SIP Password",
+  "Yetkisiz IP / Erişim Listesi İhlali (ACL)": "Unauthorized IP / ACL Violation",
+  "Desteklenmeyen SIP İsteği": "Unsupported SIP Request",
+  "Beklenmeyen Kaynak Adres İhlali": "Unexpected Source Address Violation",
+  "Tanımsız Dahili / Bot Tarama İsteği": "Undefined Extension / Bot Scan Request",
+  "Başarısız SIP Kimlik Doğrulama": "Failed SIP Authentication",
+  "İzin Verilmeyen SIP Metodu": "Method Not Allowed (SIP)",
+  "SIP Güvenlik Duvarı Engeli": "SIP Firewall Block",
+  "SIP Tarayıcı / Yetkisiz Erişim Girişimi": "SIP Scanner / Unauthorized Access Attempt",
+  "Manuel Güvenlik Duvarı Engeli": "Manual Firewall Block",
+  "Manuel IP / Alt Ağ Engelle": "Block Manual IP / Subnet",
+  "Engeli Kaldır": "Unblock",
+  "Engeli Kaldır (Unban)": "Unblock (Unban)",
+  "Bu IP'yi Güvenli Listeye (IgnoreIP) Ekle": "Add This IP to Trusted List (IgnoreIP)",
+  "Güvenli IP / IP Bloğu Ekle": "Add Trusted IP / CIDR Block",
+  "Güvenli IP / IP Bloğu (IgnoreIP) Ekle": "Add Trusted IP / CIDR Block (IgnoreIP)",
+  "Güvenli IP / IP Bloğu Kaydını Düzenle": "Edit Trusted IP / CIDR Block",
+  "Güvenli IP Kaydını Düzenle": "Edit Trusted IP Record",
+  "Güvenli IP Kaydını Sil": "Delete Trusted IP Record",
+  "Güvenli Listeden Kaldır": "Remove from Trusted List",
+  "Güvenli Listeye Ekle": "Add to Trusted List",
+  "Güvenli Ekle": "Add Trusted",
+  "Güvenli IP Ara...": "Search trusted IPs...",
+  "Süresi Dolanları Temizle": "Clean Up Expired",
+  "Süresi Dolan Engelli IP Kayıtlarını Temizle": "Clean Up Expired Blocked IP Records",
+  "Logları Tara & Engelle": "Scan Logs & Block",
+  "Asterisk Loglarını Şimdi Tara ve Saldırgan IP'leri Engelle": "Scan Asterisk Logs Now & Block Attacker IPs",
+  "Servisi Yenile": "Refresh Service",
+  "Fail2Ban Kurallarını Yenile ve Servisi Yeniden Başlat": "Reload Fail2Ban Rules & Restart Service",
+  "Fail2Ban Servisini Kur ve Asterisk Kurallarını Aktif Et": "Install Fail2Ban Service & Activate Asterisk Rules",
+  "Kurulu Değil": "Not Installed",
+  "Ülke Bazlı Erişim Engelleme": "Country-Based Access Control (GeoIP)",
+  "Sisteminize ve santralinize sadece seçili ülkelerden (IP blokları üzerinden) gelen isteklere izin verilir. Diğer tüm ülkeler reddedilir.": "Only requests originating from the selected countries (via IP blocks) are allowed to reach your PBX. All other countries are blocked.",
+  "Kuralları Kaydet": "Save Rules",
+  "Amerika Birleşik Devletleri": "United States",
+  "Birleşik Krallık": "United Kingdom",
+  "Birleşik Arap Emirlikleri": "United Arab Emirates",
+  "Almanya": "Germany",
+  "Fransa": "France",
+  "Hollanda": "Netherlands",
+  "Rusya": "Russia",
+  "Abone Bazlı Eş Zamanlı Dış Çağrı & Saniye Hız Koruması (Toll-Fraud Kalkanı)": "Per-Subscriber Concurrent Outbound Call & Burst Speed Protection (Toll-Fraud Shield)",
+  "SIP şifresi sızdırılmış bir dahili üzerinden botların aynı anda veya saniyede ardışık dış arama başlatmasını engeller, saldırganın IP ve cihaz bilgisini yakalar.": "Prevents bots from initiating simultaneous or rapid-fire outbound calls through a compromised extension, and captures the attacker's IP and device details.",
+  "Otomatik Abone Karantinası (Devre Kesici)": "Automatic Subscriber Quarantine (Circuit Breaker)",
+  "Bir abone 5 dakika içinde belirlenen sayıda eş zamanlı çağrı veya hız sınırı ihlaline takılırsa, saldırganı anında durdurmak için abonenin dış arama yetkisini otomatik kilitler.": "If a subscriber triggers the specified number of concurrent call or burst rate violations within 5 minutes, their outbound calling privilege is automatically locked.",
+  "Ayarları Kaydet & Kalkanı Uygula": "Save Settings & Apply Shield",
+  "Kilidi Aç": "Unlock",
+  "Aboneyi Karantinadan Çıkar ve Dış Aramayı Aç": "Remove Subscriber from Quarantine & Enable Outbound Calls",
   "Bu supervizor kullanıcısının Canlı İzleme Panelinde müdahale edebileceği ve Raporlarda görüntüleyebileceği temsilcileri ve çağrı kuyruklarını sol listeden seçerek sağ listeye aktarın.": "Select the agents and call queues from the left list that this supervisor user can monitor on the Live Wallboard and view in Reports.",
   "Kullanıcılar & Abone Grupları": "Users & Subscriber Groups",
   "Tümünü Ekle": "Add All",
@@ -1098,6 +1161,16 @@ const MULTI_WORD_PHRASES = [
   ["ses kaydını sil", "Delete Audio Recording"],
   ["hesap ekle", "Add Account"],
   ["sizi üst birime aktarıyorum", "Transferring you to a senior department"],
+  ["geçersiz sip hesabı / dahili denemesi", "Invalid SIP Account / Extension Attempt"],
+  ["hatalı sip şifre / kimlik doğrulama", "Invalid SIP Password / Authentication"],
+  ["yetkisiz ip / erişim listesi ihlali", "Unauthorized IP / ACL Violation"],
+  ["tanımsız dahili / bot tarama isteği", "Undefined Extension / Bot Scan Request"],
+  ["başarısız sip kimlik doğrulama", "Failed SIP Authentication"],
+  ["engellenme sebebi", "Block Reason"],
+  ["bölgesel erişim", "Regional Access"],
+  ["bot tarama", "Bot Scan"],
+  ["bot taraması", "Bot Scan"],
+  ["port taraması", "Port Scan"],
 ];
 
 const WORD_DICT_TR_EN = {
@@ -1960,6 +2033,12 @@ const WORD_DICT_TR_EN = {
   "deneme": "Attempt",
   "yasak": "Banned",
   "yasaklı": "Blocked",
+  "engellenme": "Block",
+  "bölgesel": "Regional",
+  "geçersiz": "Invalid",
+  "beklenmeyen": "Unexpected",
+  "desteklenmeyen": "Unsupported",
+  "verilmeyen": "Not Allowed",
   "karşı": "Against",
   "kompakt": "Compact",
   "kurban": "Sacrifice",
@@ -4194,6 +4273,13 @@ function translateDynamicPatternToEn(trimmed) {
   // "Mola Türü Seçin (3)"
   m = trimmed.match(/^Mola Türü Seçin\s*\((\d+)\)$/i);
   if (m) return `Select Break Type (${m[1]})`;
+
+  // "Engellenen IP'ler (11.139)" / "Güvenli IP / Blok Listesi (3)"
+  m = trimmed.match(/^Engellenen\s+IP['’]ler\s*\(([^)]+)\)$/i);
+  if (m) return `Blocked IPs (${m[1]})`;
+
+  m = trimmed.match(/^Güvenli\s+IP\s*\/\s*Blok\s+Listesi\s*\(([^)]+)\)$/i);
+  if (m) return `Trusted IP / CIDR List (${m[1]})`;
 
   // "Yönetebileceği Temsilciler (0)" / "Yönetebileceği Çağrı Kuyrukları (0)"
   m = trimmed.match(/^Yönetebileceği\s+Temsilciler\s*\((\d+)\)$/i);
