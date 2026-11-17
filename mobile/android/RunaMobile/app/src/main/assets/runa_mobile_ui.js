@@ -3972,23 +3972,8 @@
             const profileContainer = profileBtn ? profileBtn.parentElement : null;
 
             if (topbarRight) {
-              if (!document.getElementById('aida-ios-net-quality-btn')) {
-                const netBtn = document.createElement('button');
-                netBtn.id = 'aida-ios-net-quality-btn';
-                netBtn.type = 'button';
-                netBtn.title = 'Ağ Kalitesi Durumu';
-                netBtn.setAttribute('data-net-tier', 'good');
-                netBtn.className = 'p-2 rounded-full border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-emerald-500 shadow-sm cursor-pointer shrink-0';
-                netBtn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M2 20h.01"/><path d="M7 20v-4"/><path d="M12 20v-8"/><path d="M17 20V8"/><path d="M22 4v16"/></svg>`;
-                netBtn.addEventListener('click', function(e) {
-                  e.preventDefault();
-                  e.stopPropagation();
-                  if (typeof window.__aidaToggleNetQualityBanner === 'function') {
-                    window.__aidaToggleNetQualityBanner();
-                  }
-                });
-                topbarRight.insertBefore(netBtn, topbarRight.firstChild);
-              }
+              const staleNetBtn = document.getElementById('aida-ios-net-quality-btn');
+              if (staleNetBtn) staleNetBtn.remove();
               if (!document.getElementById('aida-ios-quicktray-btn')) {
                 const btn = document.createElement('button');
                 btn.id = 'aida-ios-quicktray-btn';
@@ -4009,12 +3994,11 @@
               }
 
               const quickTrayBtn = document.getElementById('aida-ios-quicktray-btn');
-              const netQualBtn = document.getElementById('aida-ios-net-quality-btn');
               if (quickTrayBtn) {
                 syncHeadsetButtonUI(false);
               }
               Array.from(topbarRight.children).forEach(function(child) {
-                if (child !== profileContainer && child !== quickTrayBtn && child !== netQualBtn) {
+                if (child !== profileContainer && child !== quickTrayBtn) {
                   if (child.getAttribute('data-aida-hide-topbar-item') !== '1') {
                     child.setAttribute('data-aida-hide-topbar-item', '1');
                   }
@@ -6011,7 +5995,8 @@
           });
 
           // ==============================================================
-          // MOBILE NETWORK QUALITY MONITOR & POOR CONNECTION WARNING BANNER
+          // ACTIVE-CALL NETWORK QUALITY / JITTER MONITOR & WARNING BANNER
+          // (Strictly runs and warns ONLY while an active call is in progress)
           // ==============================================================
           const mobileNetState = {
             tier: 'good',
@@ -6025,8 +6010,50 @@
             prevPacketsRecv: null,
             dismissedUntilTs: 0,
             manualInspectOpen: false,
-            checkingNow: false
+            checkingNow: false,
+            wasInCall: false
           };
+
+          function isMobileActiveCallInProgress() {
+            if (window.__AIDA_SIMULATE_NET_QUALITY__) return true;
+            try {
+              const line = typeof window.__aidaGetActiveLine === 'function' ? window.__aidaGetActiveLine() : null;
+              if (line) {
+                const st = String(line.callStatus || line.status || '');
+                if (st === 'InCall' || st === 'Calling' || st === 'Connected') return true;
+                if (line.session && st !== 'Ringing' && st !== 'Idle' && st !== '') return true;
+              }
+              const lastNativeSt = String(window.__AIDA_LAST_NATIVE_CALL_STATUS__ || '');
+              if (lastNativeSt === 'InCall' || lastNativeSt === 'Calling') return true;
+              const wpRoot = document.querySelector('[data-aida-mobile-webphone="1"]');
+              if (wpRoot && wpRoot.getAttribute('data-call-active') === '1') {
+                const txt = wpRoot.textContent || '';
+                if (txt.includes('Görüşme Aktif') || txt.includes('Beklemede') || txt.includes('Konferans (') || txt.includes('Aranıyor...')) {
+                  return true;
+                }
+              }
+              if (document.querySelector('button[title="Çağrıyı Sonlandır"]')) return true;
+            } catch (e) {}
+            return false;
+          }
+
+          function resetMobileNetQualityState() {
+            mobileNetState.tier = 'good';
+            mobileNetState.rttMs = 0;
+            mobileNetState.jitterMs = 0;
+            mobileNetState.lossPct = 0;
+            mobileNetState.offline = false;
+            mobileNetState.rttHistory = [];
+            mobileNetState.probeOutcomes = [];
+            mobileNetState.prevPacketsLost = null;
+            mobileNetState.prevPacketsRecv = null;
+            mobileNetState.manualInspectOpen = false;
+            mobileNetState.wasInCall = false;
+            const banner = document.getElementById('aida-mobile-net-quality-banner');
+            if (banner) banner.setAttribute('data-hidden', '1');
+            const inCallPill = document.getElementById('aida-incall-net-pill');
+            if (inCallPill) inCallPill.remove();
+          }
 
           function ensureMobileNetQualityBanner() {
             let banner = document.getElementById('aida-mobile-net-quality-banner');
@@ -6084,22 +6111,51 @@
           }
 
           function renderMobileNetQualityUI() {
+            if (!isMobileActiveCallInProgress()) {
+              resetMobileNetQualityState();
+              return;
+            }
+
             const tier = mobileNetState.tier;
             const rtt = Math.round(mobileNetState.rttMs || 0);
             const jitter = Math.round(mobileNetState.jitterMs || 0);
             const loss = Number(mobileNetState.lossPct || 0).toFixed(1).replace(/\.0$/, '');
 
-            const netBtn = document.getElementById('aida-ios-net-quality-btn');
-            if (netBtn) {
-              if (netBtn.getAttribute('data-net-tier') !== tier) {
-                netBtn.setAttribute('data-net-tier', tier);
+            const wpActiveCard = document.querySelector('[data-aida-mobile-webphone="1"][data-call-active="1"] > div.grid > div:nth-child(2) > div > div.p-5.rounded-3xl');
+            if (wpActiveCard) {
+              let pill = document.getElementById('aida-incall-net-pill');
+              if (!pill) {
+                pill = document.createElement('button');
+                pill.id = 'aida-incall-net-pill';
+                pill.type = 'button';
+                pill.style.cssText = 'display:inline-flex;align-items:center;justify-content:center;gap:6px;padding:5px 10px;border-radius:9999px;font-size:11px;font-weight:800;border:1px solid transparent;cursor:pointer;margin:4px auto 0 auto;width:auto !important;min-height:26px !important;transition:all 0.2s ease;';
+                pill.addEventListener('click', function(ev) {
+                  ev.preventDefault();
+                  ev.stopPropagation();
+                  window.__aidaToggleNetQualityBanner();
+                });
+                const firstHeaderBlock = wpActiveCard.firstElementChild;
+                if (firstHeaderBlock && firstHeaderBlock.nextSibling) {
+                  wpActiveCard.insertBefore(pill, firstHeaderBlock.nextSibling);
+                } else {
+                  wpActiveCard.appendChild(pill);
+                }
               }
               if (tier === 'poor') {
-                netBtn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M2 20h.01"/><path d="M7 20v-4"/><path d="M12 20v-8" stroke-opacity="0.28"/><path d="M17 20V8" stroke-opacity="0.28"/><path d="M22 4v16" stroke-opacity="0.28"/></svg>`;
+                pill.style.background = 'rgba(244, 63, 94, 0.14)';
+                pill.style.color = '#f43f5e';
+                pill.style.borderColor = 'rgba(244, 63, 94, 0.35)';
+                pill.textContent = '⚠ Zayıf Ağ • Jitter: ' + jitter + ' ms • Gecikme: ' + rtt + ' ms';
               } else if (tier === 'fair') {
-                netBtn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M2 20h.01"/><path d="M7 20v-4"/><path d="M12 20v-8"/><path d="M17 20V8" stroke-opacity="0.28"/><path d="M22 4v16" stroke-opacity="0.28"/></svg>`;
+                pill.style.background = 'rgba(245, 158, 11, 0.14)';
+                pill.style.color = '#d97706';
+                pill.style.borderColor = 'rgba(245, 158, 11, 0.35)';
+                pill.textContent = '⚠ Dalgalı Ağ • Jitter: ' + jitter + ' ms • Gecikme: ' + rtt + ' ms';
               } else {
-                netBtn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M2 20h.01"/><path d="M7 20v-4"/><path d="M12 20v-8"/><path d="M17 20V8"/><path d="M22 4v16"/></svg>`;
+                pill.style.background = 'rgba(16, 185, 129, 0.12)';
+                pill.style.color = '#10b981';
+                pill.style.borderColor = 'rgba(16, 185, 129, 0.28)';
+                pill.textContent = '● Hat Kalitesi İyi • Jitter: ' + jitter + ' ms (' + rtt + ' ms)';
               }
             }
 
@@ -6126,25 +6182,26 @@
 
             if (titleEl) {
               if (mobileNetState.offline) {
-                titleEl.textContent = 'Ağ Bağlantısı Kopuk • Sunucuya Erişilemiyor';
+                titleEl.textContent = 'Çağrı Ağ Bağlantısı Kopuk • Ses İletilemiyor';
               } else if (tier === 'poor') {
-                titleEl.textContent = 'Ağ Kalitesi Zayıf • Ses Kesintisi Yaşanabilir';
+                titleEl.textContent = 'Çağrı Ağ Kalitesi Zayıf • Ses Kesintisi Yaşanabilir';
               } else if (tier === 'fair') {
-                titleEl.textContent = 'Ağ Bağlantısı Dalgalı • Yavaş Yanıt Süresi';
+                titleEl.textContent = 'Çağrı Ağ Bağlantısı Dalgalı • Yüksek Jitter / Gecikme';
               } else {
-                titleEl.textContent = 'Ağ Kalitesi İyi • Santral Bağlantısı Stabil';
+                titleEl.textContent = 'Çağrı Ses Kalitesi İyi • Bağlantı Stabil';
               }
             }
             if (subEl) {
               if (mobileNetState.offline) {
-                subEl.textContent = 'Lütfen Wi-Fi veya Mobil Veri bağlantınızı kontrol edin.';
+                subEl.textContent = 'Aktif görüşme sırasında sunucu bağlantısı kesildi.';
               } else {
-                subEl.textContent = 'Gecikme: ' + rtt + ' ms • Jitter: ' + jitter + ' ms • Kayıp: %' + loss;
+                subEl.textContent = 'Gecikme: ' + rtt + ' ms • Jitter: ' + jitter + ' ms • Paket Kaybı: %' + loss;
               }
             }
           }
 
           window.__aidaToggleNetQualityBanner = function() {
+            if (!isMobileActiveCallInProgress()) return;
             mobileNetState.manualInspectOpen = !mobileNetState.manualInspectOpen;
             if (mobileNetState.manualInspectOpen) {
               mobileNetState.dismissedUntilTs = 0;
@@ -6156,6 +6213,10 @@
           window.__aidaSimulatePoorNetwork = function(simOpts) {
             if (!simOpts) {
               window.__AIDA_SIMULATE_NET_QUALITY__ = null;
+              if (!isMobileActiveCallInProgress()) {
+                resetMobileNetQualityState();
+                return;
+              }
             } else {
               window.__AIDA_SIMULATE_NET_QUALITY__ = simOpts;
               mobileNetState.dismissedUntilTs = 0;
@@ -6164,8 +6225,13 @@
           };
 
           async function measureMobileNetworkQuality(forceShowIfBad) {
+            if (!isMobileActiveCallInProgress()) {
+              resetMobileNetQualityState();
+              return;
+            }
             if (mobileNetState.checkingNow) return;
             mobileNetState.checkingNow = true;
+            mobileNetState.wasInCall = true;
             try {
               if (forceShowIfBad) {
                 mobileNetState.dismissedUntilTs = 0;
@@ -6188,7 +6254,7 @@
               let measuredRtt = 0;
               try {
                 const ctrl = typeof AbortController !== 'undefined' ? new AbortController() : null;
-                const timerId = ctrl ? setTimeout(function() { ctrl.abort(); }, 3500) : null;
+                const timerId = ctrl ? setTimeout(function() { ctrl.abort(); }, 3000) : null;
                 const resp = await fetch('/api/version?netprobe=' + Date.now(), {
                   method: 'GET',
                   cache: 'no-store',
@@ -6302,12 +6368,13 @@
             renderMobileNetQualityUI();
           }
 
-          setTimeout(function() { measureMobileNetworkQuality(false); }, 1800);
           setInterval(function() {
-            if (window.__aidaAppInForeground !== false) {
+            if (isMobileActiveCallInProgress()) {
               measureMobileNetworkQuality(false);
+            } else if (mobileNetState.wasInCall || mobileNetState.tier !== 'good') {
+              resetMobileNetQualityState();
             }
-          }, 5000);
+          }, 2500);
 
           const observer = new MutationObserver(function() {
             scheduleDOMAdaptations();

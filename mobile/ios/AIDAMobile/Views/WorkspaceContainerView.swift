@@ -756,14 +756,14 @@ private struct IOSCallKitSystemExperienceView: View {
                             .foregroundColor(Color.white.opacity(0.72))
                             .monospacedDigit()
 
-                        if store.liveState.networkQuality == "poor" || store.liveState.networkQuality == "fair" {
+                        if !isRinging && (store.liveState.networkQuality == "poor" || store.liveState.networkQuality == "fair") {
                             HStack(spacing: 6) {
                                 Image(systemName: "wifi.exclamationmark")
                                     .font(.system(size: 12, weight: .bold))
                                 Text(
                                     store.liveState.networkQuality == "poor"
-                                    ? "Ağ Kalitesi Zayıf (\(store.liveState.networkRttMs) ms) • Ses kesintisi olabilir"
-                                    : "Ağ Dalgalı (\(store.liveState.networkRttMs) ms)"
+                                    ? "Ağ Kalitesi Zayıf (Gecikme: \(store.liveState.networkRttMs) ms • Jitter: \(store.liveState.networkJitterMs) ms)"
+                                    : "Ağ Dalgalı (Gecikme: \(store.liveState.networkRttMs) ms • Jitter: \(store.liveState.networkJitterMs) ms)"
                                 )
                                 .font(.system(size: 12, weight: .semibold))
                                 .lineLimit(1)
