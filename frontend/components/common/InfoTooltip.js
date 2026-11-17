@@ -146,12 +146,13 @@ export function InfoTooltipLayer() {
     };
   }, [tip]);
 
-  // Promote into Top Layer via Popover API and compute viewport-collision-safe position
+  // Compute viewport-collision-safe position without unnecessary Top-Layer showPopover() churn
   useEffect(() => {
     const popEl = popoverRef.current;
     if (!popEl) return;
 
     if (!tip || !tip.anchorEl || !document.body.contains(tip.anchorEl)) {
+      setCoords({ top: -9999, left: -9999, placement: "top", arrowX: 24 });
       try {
         if (typeof popEl.hidePopover === "function" && popEl.matches(":popover-open")) {
           popEl.hidePopover();
@@ -160,11 +161,15 @@ export function InfoTooltipLayer() {
       return;
     }
 
-    try {
-      if (typeof popEl.showPopover === "function" && !popEl.matches(":popover-open")) {
-        popEl.showPopover();
-      }
-    } catch (_e) {}
+    // Only promote to native Top Layer when anchor is inside a native <dialog open>
+    const insideNativeDialog = Boolean(tip.anchorEl.closest?.("dialog[open]"));
+    if (insideNativeDialog) {
+      try {
+        if (typeof popEl.showPopover === "function" && !popEl.matches(":popover-open")) {
+          popEl.showPopover();
+        }
+      } catch (_e) {}
+    }
 
     const updatePosition = () => {
       if (!tip.anchorEl || !document.body.contains(tip.anchorEl)) {
@@ -221,7 +226,6 @@ export function InfoTooltipLayer() {
     <div
       ref={popoverRef}
       id={tip?.id || "aida-global-info-tip"}
-      {...{ popover: "manual" }}
       role="tooltip"
       aria-hidden={!isVisible}
       onMouseEnter={cancelCloseInfoTooltip}
@@ -235,7 +239,7 @@ export function InfoTooltipLayer() {
         opacity: isVisible && coords.top > -9000 ? 1 : 0,
         pointerEvents: isVisible ? "auto" : "none"
       }}
-      className="aida-info-popover z-[99999] w-max max-w-[min(340px,calc(100vw-24px))] rounded-xl bg-slate-900 dark:bg-slate-800 text-slate-100 border border-slate-700/80 shadow-2xl px-3.5 py-2.5 text-left transition-opacity duration-150"
+      className="aida-info-popover z-[999999] w-max max-w-[min(340px,calc(100vw-24px))] rounded-xl bg-slate-900 dark:bg-slate-800 text-slate-100 border border-slate-700/80 shadow-2xl px-3.5 py-2.5 text-left transition-opacity duration-150"
     >
       <div className="space-y-1.5">
         {tip?.title && (

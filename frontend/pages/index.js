@@ -6084,7 +6084,7 @@ export default function Home() {
             }`}
           >
             <div
-              className={`aida-settings-modal-dialog w-full max-w-6xl h-[88vh] h-[88dvh] max-h-[880px] bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800/80 rounded-2xl shadow-2xl overflow-clip flex flex-col animate-in fade-in zoom-in-95 duration-200 transition-all ${
+              className={`aida-settings-modal-dialog w-full max-w-6xl h-[88vh] max-h-[880px] bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800/80 rounded-2xl shadow-2xl overflow-hidden flex flex-col ${
                 isPeekingUiTemplate ? "opacity-0 scale-[0.985] pointer-events-none" : "opacity-100 scale-100"
               }`}
             >
@@ -6109,7 +6109,7 @@ export default function Home() {
                 </button>
               </div>
 
-              <div className="flex flex-1 min-h-0 overflow-clip">
+              <div className="flex flex-1 min-h-0 overflow-hidden">
                 {/* Left Sidebar Tabs (UserSettings style) */}
                 <div className="aida-settings-modal-sidebar w-64 bg-slate-50/50 dark:bg-slate-950/30 border-r border-slate-100 dark:border-slate-800/60 p-4 shrink-0 overflow-y-auto overscroll-contain transition-colors duration-300">
                   <nav className="space-y-1">
@@ -6219,10 +6219,10 @@ export default function Home() {
                 </div>
 
                 {/* Right Tab Content Area */}
-                <div className="flex-1 min-w-0 min-h-0 flex flex-col overflow-clip">
+                <div className="flex-1 min-w-0 min-h-0 flex flex-col overflow-hidden">
                   <div
                     ref={profileModalScrollPaneRef}
-                    className="flex-1 min-h-0 overflow-y-auto overscroll-contain [scrollbar-gutter:stable] p-7 space-y-4"
+                    className="flex-1 min-h-0 overflow-y-auto overscroll-contain p-7 space-y-4"
                   >
 
                     {/* Uygulamalar & İndirme Sekmesi */}

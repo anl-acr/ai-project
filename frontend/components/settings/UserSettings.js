@@ -3715,8 +3715,8 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
 
       {/* POPUP MODAL (Add / Edit Form with Tabs) */}
       {showModal && createPortal(
-        <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-sm flex items-center justify-center z-[150] p-4 transition-all duration-300">
-          <div className="w-full max-w-6xl h-[88vh] h-[88dvh] max-h-[880px] bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800/80 rounded-2xl shadow-2xl overflow-clip flex flex-col animate-in fade-in zoom-in-95 duration-200">
+        <div className="fixed inset-0 bg-slate-950/70 flex items-center justify-center z-[150] p-4">
+          <div className="w-full max-w-6xl h-[88vh] max-h-[880px] bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800/80 rounded-2xl shadow-2xl overflow-hidden flex flex-col">
             {/* Modal Header */}
             <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 dark:border-slate-800/60 bg-slate-50/50 dark:bg-slate-950/20 shrink-0">
               <h3 className="text-xs font-bold text-slate-700 dark:text-white uppercase tracking-wider">
@@ -3730,7 +3730,7 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
               </button>
             </div>
 
-            <div className="flex flex-1 min-h-0 overflow-clip">
+            <div className="flex flex-1 min-h-0 overflow-hidden">
                 {/* Sidebar Tabs */}
                 <div className="w-64 bg-slate-50/50 dark:bg-slate-950/30 border-r border-slate-100 dark:border-slate-800/60 p-4 shrink-0 overflow-y-auto overscroll-contain">
                     <nav className="space-y-1">
@@ -3858,10 +3858,10 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
                 </div>
 
                 {/* Tab Content Area */}
-                <form noValidate onSubmit={handleFormSubmit} className="flex-1 min-w-0 min-h-0 flex flex-col overflow-clip">
+                <form noValidate onSubmit={handleFormSubmit} className="flex-1 min-w-0 min-h-0 flex flex-col overflow-hidden">
                     <div
                         ref={modalScrollPaneRef}
-                        className="flex-1 min-h-0 overflow-y-auto overscroll-contain [scrollbar-gutter:stable] p-7 space-y-6"
+                        className="flex-1 min-h-0 overflow-y-auto overscroll-contain p-7 space-y-6"
                     >
                         {error && (
                           <div className="p-3.5 bg-rose-50 dark:bg-rose-955/15 border border-rose-200/50 dark:border-rose-900/30 rounded-2xl text-primary dark:text-rose-400 text-xs font-bold flex items-center justify-between gap-2.5">

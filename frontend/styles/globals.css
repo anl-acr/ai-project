@@ -39,37 +39,53 @@ body {
   }
 }
 
-/* Prevent parent space-y-* / space-x-* utilities from pushing full-screen modal backdrops down/right across all screens */
+/* Prevent parent space-y-* / space-x-* utilities from pushing full-screen modal backdrops down/right across all screens
+   and disable expensive full-viewport backdrop-filter / 3D transform layer churn that causes scroll flicker ("pırlama") in popups */
 .fixed.inset-0 {
   margin-top: 0 !important;
   margin-bottom: 0 !important;
   margin-left: 0 !important;
   margin-right: 0 !important;
   overscroll-behavior: contain;
-  transition-property: opacity !important;
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+  transition: none !important;
+  animation: none !important;
 }
 
-/* Eliminate scroll flicker ("pırlama") & GPU backdrop-blur thrashing inside all popup modals */
-body:has(.fixed.inset-0) .aida-app-shell .animate-ping,
-body:has(.fixed.inset-0) .aida-app-shell .animate-pulse,
-body:has(.fixed.inset-0) .aida-app-shell .aida-shimmer-surface::after,
-body:has(dialog[open]) .aida-app-shell .animate-ping,
-body:has(dialog[open]) .aida-app-shell .animate-pulse,
-body:has(dialog[open]) .aida-app-shell .aida-shimmer-surface::after {
-  animation-play-state: paused !important;
+.fixed.inset-0[class*="backdrop-blur"] {
+  background-color: rgba(2, 6, 23, 0.72) !important;
 }
 
-.fixed.inset-0 .overflow-y-auto:not(:has(.fixed.inset-0)),
-dialog[open] .overflow-y-auto:not(:has(.fixed.inset-0)) {
-  will-change: scroll-position;
-  transform: translateZ(0);
-  backface-visibility: hidden;
-  -webkit-overflow-scrolling: touch;
+dialog::backdrop {
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+  background-color: rgba(2, 6, 23, 0.72) !important;
+}
+
+.fixed.inset-0 .animate-in,
+dialog[open] .animate-in,
+dialog[open].animate-in {
+  animation: none !important;
+  transform: none !important;
+  scale: none !important;
+  translate: none !important;
+}
+
+.fixed.inset-0 .overflow-clip,
+dialog[open] .overflow-clip {
+  overflow: hidden !important;
+}
+
+.fixed.inset-0 .overflow-y-auto,
+dialog[open] .overflow-y-auto {
+  overscroll-behavior: contain;
+  scrollbar-gutter: auto !important;
 }
 
 .fixed.inset-0 .overflow-y-auto .transition-all,
 dialog[open] .overflow-y-auto .transition-all {
-  transition-property: color, background-color, border-color, opacity, box-shadow !important;
+  transition-property: color, background-color, border-color, opacity !important;
 }
 
 /* Collapse inline feature helper notes once migrated to "i" hover tooltips */

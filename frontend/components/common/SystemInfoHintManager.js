@@ -323,14 +323,18 @@ function enhanceCandidateElement(descEl) {
   descEl.setAttribute("data-aida-hint-collapsed", "true");
 }
 
-async function scanRootsForHints(roots, isCancelled) {
+function scanRootsForHints(roots) {
   if (typeof window === "undefined" || typeof document === "undefined") return;
   if (window.location.pathname === "/login") return;
 
   const uniqueCandidates = new Set();
   for (const root of roots) {
     if (!root || root.nodeType !== 1 || !root.isConnected) continue;
-    if (root.matches?.(HELPER_CANDIDATE_SELECTOR)) {
+    if (
+      root.matches?.(HELPER_CANDIDATE_SELECTOR) &&
+      root.getAttribute("data-aida-hint-checked") !== "true" &&
+      root.getAttribute("data-aida-hint-collapsed") !== "true"
+    ) {
       uniqueCandidates.add(root);
     }
     const found = root.querySelectorAll(HELPER_CANDIDATE_SELECTOR);
@@ -345,14 +349,8 @@ async function scanRootsForHints(roots, isCancelled) {
     }
   }
 
-  let processed = 0;
   for (const descEl of uniqueCandidates) {
-    if (isCancelled()) return;
     enhanceCandidateElement(descEl);
-    processed++;
-    if (processed % 40 === 0) {
-      await yieldToMainThread();
-    }
   }
 }
 
@@ -360,40 +358,11 @@ export default function SystemInfoHintManager() {
   useEffect(() => {
     if (typeof window === "undefined" || typeof document === "undefined") return;
 
-    let cancelled = false;
-    let idleHandle = null;
-    let timerHandle = null;
-    const pendingRoots = new Set();
-
-    const flushScan = () => {
-      idleHandle = null;
-      timerHandle = null;
-      if (cancelled || pendingRoots.size === 0) return;
-      const roots = pendingRoots.has(document.body) ? [document.body] : Array.from(pendingRoots);
-      pendingRoots.clear();
-      scanRootsForHints(roots, () => cancelled);
-    };
-
-    const scheduleScan = (rootEl) => {
-      if (rootEl && rootEl.nodeType === 1) {
-        pendingRoots.add(rootEl);
-      }
-      if (idleHandle !== null || timerHandle !== null) return;
-      // Defer off the interaction's critical Next Paint frame so clicks render immediately
-      timerHandle = window.setTimeout(() => {
-        timerHandle = null;
-        if (typeof window.requestIdleCallback === "function") {
-          idleHandle = window.requestIdleCallback(flushScan, { timeout: 250 });
-        } else {
-          flushScan();
-        }
-      }, 60);
-    };
-
-    // Initial scan after hydration settles
-    scheduleScan(document.body);
+    // Initial synchronous scan
+    scanRootsForHints([document.body]);
 
     const observer = new MutationObserver((mutations) => {
+      const rootsToScan = [];
       for (let i = 0; i < mutations.length; i++) {
         const m = mutations[i];
         if (m.type !== "childList" || !m.addedNodes || m.addedNodes.length === 0) continue;
@@ -420,8 +389,14 @@ export default function SystemInfoHintManager() {
           ) {
             continue;
           }
-          scheduleScan(node);
+          rootsToScan.push(node);
         }
+      }
+
+      if (rootsToScan.length > 0) {
+        // Run synchronously inside the MutationObserver microtask BEFORE the browser paints
+        // so helper paragraphs never render tall first and collapse 100ms later (zero popup flash/jump).
+        scanRootsForHints(rootsToScan);
       }
     });
 
@@ -431,11 +406,6 @@ export default function SystemInfoHintManager() {
     });
 
     return () => {
-      cancelled = true;
-      if (timerHandle !== null) window.clearTimeout(timerHandle);
-      if (idleHandle !== null && typeof window.cancelIdleCallback === "function") {
-        window.cancelIdleCallback(idleHandle);
-      }
       observer.disconnect();
       closeInfoTooltipImmediate();
     };
