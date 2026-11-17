@@ -29,7 +29,7 @@ export default function UserManagementModal({ isOpen, onClose, currentUser }) {
   const fetchUsers = async () => {
     try {
       setLoading(true);
-      const res = await fetch("http://localhost:8050/api/v1/users");
+      const res = await fetch("/api/v1/users");
       if (res.ok) {
         setUsers(await res.json());
       }
@@ -73,8 +73,8 @@ export default function UserManagementModal({ isOpen, onClose, currentUser }) {
 
     try {
       const url = editingUser 
-        ? `http://localhost:8050/api/v1/users/${editingUser.id}`
-        : `http://localhost:8050/api/v1/users`;
+        ? `/api/v1/users/${editingUser.id}`
+        : `/api/v1/users`;
       const method = editingUser ? "PUT" : "POST";
 
       const res = await fetch(url, {
@@ -111,7 +111,7 @@ export default function UserManagementModal({ isOpen, onClose, currentUser }) {
   const handleDeleteUser = async () => {
     if (!userToDelete) return;
     try {
-      const res = await fetch(`http://localhost:8050/api/v1/users/${userToDelete.id}`, {
+      const res = await fetch(`/api/v1/users/${userToDelete.id}`, {
         method: "DELETE",
         headers: { "X-User-Name": currentUser?.username || "admin" }
       });

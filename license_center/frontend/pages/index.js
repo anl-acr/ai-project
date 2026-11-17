@@ -36,7 +36,7 @@ import LoginModal from "../components/LoginModal";
 import UserManagementModal from "../components/UserManagementModal";
 import AuditLogsModal from "../components/AuditLogsModal";
 
-const API_BASE = "http://localhost:8050";
+const API_BASE = "";
 
 export default function MasterDashboard() {
   const [currentUser, setCurrentUser] = useState(null);

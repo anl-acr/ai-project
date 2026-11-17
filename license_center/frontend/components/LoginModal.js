@@ -19,7 +19,7 @@ export default function LoginModal({ onLoginSuccess }) {
     setErrorMsg("");
 
     try {
-      const res = await fetch("http://localhost:8050/api/v1/auth/login", {
+      const res = await fetch("/api/v1/auth/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

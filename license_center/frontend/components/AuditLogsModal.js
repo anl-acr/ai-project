@@ -14,7 +14,7 @@ export default function AuditLogsModal({ isOpen, onClose }) {
   const fetchAuditLogs = async () => {
     try {
       setLoading(true);
-      const res = await fetch("http://localhost:8050/api/v1/audit-logs");
+      const res = await fetch("/api/v1/audit-logs");
       if (res.ok) {
         setLogs(await res.json());
       }
