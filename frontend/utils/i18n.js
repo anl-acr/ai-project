@@ -927,6 +927,7 @@ const EXACT_TR_TO_EN = {
   "IVR / Karşılama Menüsünde": "In IVR / Welcome Menu",
   "Kuyrukta Bekliyor": "Waiting in Queue",
   "Temsilci Çalıyor": "Agent Ringing",
+  "Abone / Temsilci Çalıyor": "Subscriber / Agent Ringing",
   "Dış Arama Çalıyor": "Outbound Call Ringing",
   "AI Asistan ile Görüşmede": "Talking with AI Assistant",
   "Temsilci ile Görüşmede": "Talking with Agent",

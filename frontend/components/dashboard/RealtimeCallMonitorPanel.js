@@ -56,7 +56,7 @@ const STAGE_META = {
   },
   ringing: {
     id: "ringing",
-    label: "Temsilci Çalıyor",
+    label: "Abone / Temsilci Çalıyor",
     shortLabel: "Çalıyor",
     badgeCls:
       "bg-sky-500/15 text-sky-700 dark:text-sky-300 border-sky-500/30",
@@ -132,261 +132,6 @@ function formatTimeOnly(isoStr) {
   }
 }
 
-const DEMO_SAMPLE_CALLS = [
-  {
-    id: "demo-call-101",
-    asterisk_id: "1763374801.101",
-    direction: "inbound",
-    caller_number: "0532 418 92 10",
-    caller_name: "Ahmet Yılmaz",
-    callee_number: "08503607390",
-    trunk_name: "Operator_Trunk",
-    stage: "agent_talking",
-    stage_label: "Temsilci ile Görüşmede",
-    stage_detail: "Satış Kuyruğu ➔ 1000 - Anıl ACAR",
-    assigned_agent_ext: "1000",
-    assigned_agent_name: "Anıl ACAR",
-    assigned_agent_avatar: "",
-    queue_name: "Satış Kuyruğu",
-    queue_ext: "2000",
-    workflow_name: "Ana Karşılama Senaryosu",
-    last_dtmf_digit: "1",
-    start_time: new Date(Date.now() - 165000).toISOString(),
-    answered_at: new Date(Date.now() - 142000).toISOString(),
-    total_duration_sec: 165,
-    talk_duration_sec: 142,
-    stage_duration_sec: 142,
-    channel: "PJSIP/1000-000001a2",
-    agent_topic: "Kurumsal Paket & Lisans Teklifi",
-    sentiment: "Pozitif",
-    recording_paused: false,
-    last_transcript: {
-      speaker: "customer",
-      text: "50 kullanıcı için yıllık lisans fiyatlandırmasını öğrenebilir miyim?",
-      timestamp: new Date(Date.now() - 6000).toISOString(),
-    },
-    transcripts: [
-      {
-        id: 1,
-        speaker: "human",
-        text: "Merhaba Ahmet Bey, Nornia Satış hattına hoş geldiniz. Size nasıl yardımcı olabilirim?",
-        timestamp: new Date(Date.now() - 135000).toISOString(),
-      },
-      {
-        id: 2,
-        speaker: "customer",
-        text: "50 kullanıcı için yıllık lisans fiyatlandırmasını öğrenebilir miyim?",
-        timestamp: new Date(Date.now() - 6000).toISOString(),
-      },
-    ],
-    journey_steps: [
-      {
-        type: "entry",
-        title: "Gelen Çağrı Girişi",
-        subtitle: "0532 418 92 10 (Ahmet Yılmaz) ➔ 08503607390 [Operator_Trunk]",
-        timestamp: new Date(Date.now() - 165000).toISOString(),
-        active: false,
-      },
-      {
-        type: "ivr",
-        title: "IVR: Ana Karşılama Menüsü",
-        subtitle: "Tuşlama: 1 ➔ Satış Kuyruğu (2000)",
-        timestamp: new Date(Date.now() - 154000).toISOString(),
-        active: false,
-      },
-      {
-        type: "queue",
-        title: "Kuyruk: Satış Kuyruğu (2000)",
-        subtitle: "12 sn bekledi ➔ Dahili 1000 yanıtladı",
-        timestamp: new Date(Date.now() - 142000).toISOString(),
-        active: false,
-      },
-      {
-        type: "agent_talking",
-        title: "Temsilci ile Görüşmede",
-        subtitle: "Dahili 1000 • Anıl ACAR ile aktif görüşme",
-        timestamp: new Date(Date.now() - 142000).toISOString(),
-        active: true,
-      },
-    ],
-  },
-  {
-    id: "demo-call-102",
-    asterisk_id: "1763374820.102",
-    direction: "inbound",
-    caller_number: "0544 812 33 45",
-    caller_name: "Elif Demir",
-    callee_number: "08503607390",
-    trunk_name: "Operator_Trunk",
-    stage: "ai_talking",
-    stage_label: "AI Asistan ile Görüşmede",
-    stage_detail: "Karşılama & Randevu AI • Canlı Sesli Diyalog",
-    assigned_agent_ext: "AI",
-    assigned_agent_name: "Karşılama & Randevu AI",
-    assigned_agent_avatar: "",
-    queue_name: "",
-    queue_ext: "",
-    workflow_name: "Ana Karşılama Senaryosu",
-    last_dtmf_digit: "2",
-    start_time: new Date(Date.now() - 68000).toISOString(),
-    answered_at: new Date(Date.now() - 64000).toISOString(),
-    total_duration_sec: 68,
-    talk_duration_sec: 64,
-    stage_duration_sec: 64,
-    channel: "AudioSocket/127.0.0.1:9092",
-    agent_topic: "Randevu Oluşturma",
-    sentiment: "Pozitif",
-    recording_paused: false,
-    last_transcript: {
-      speaker: "ai",
-      text: "Yarın saat 14:30 için randevunuzu onaylıyorum Elif Hanım, başka bir talebiniz var mı?",
-      timestamp: new Date(Date.now() - 3000).toISOString(),
-    },
-    transcripts: [
-      {
-        id: 1,
-        speaker: "ai",
-        text: "Merhaba Elif Hanım, ben yapay zeka asistanınız. Randevu veya bilgi işlemleriniz için yardımcı olabilirim.",
-        timestamp: new Date(Date.now() - 60000).toISOString(),
-      },
-      {
-        id: 2,
-        speaker: "customer",
-        text: "Yarın öğleden sonra saat 14:30'a teknik kurulum randevusu almak istiyorum.",
-        timestamp: new Date(Date.now() - 25000).toISOString(),
-      },
-      {
-        id: 3,
-        speaker: "ai",
-        text: "Yarın saat 14:30 için randevunuzu onaylıyorum Elif Hanım, başka bir talebiniz var mı?",
-        timestamp: new Date(Date.now() - 3000).toISOString(),
-      },
-    ],
-    journey_steps: [
-      {
-        type: "entry",
-        title: "Gelen Çağrı Girişi",
-        subtitle: "0544 812 33 45 (Elif Demir) ➔ 08503607390 [Operator_Trunk]",
-        timestamp: new Date(Date.now() - 68000).toISOString(),
-        active: false,
-      },
-      {
-        type: "ivr",
-        title: "IVR: Ana Karşılama Menüsü",
-        subtitle: "Tuşlama: 2 ➔ Karşılama & Randevu AI",
-        timestamp: new Date(Date.now() - 64000).toISOString(),
-        active: false,
-      },
-      {
-        type: "ai_talking",
-        title: "AI Asistan ile Görüşmede",
-        subtitle: "Karşılama & Randevu AI • Canlı Sesli Diyalog",
-        timestamp: new Date(Date.now() - 64000).toISOString(),
-        active: true,
-      },
-    ],
-  },
-  {
-    id: "demo-call-103",
-    asterisk_id: "1763374855.103",
-    direction: "inbound",
-    caller_number: "0212 909 44 10",
-    caller_name: "Tekno Lojistik A.Ş.",
-    callee_number: "2001",
-    trunk_name: "Operator_Trunk",
-    stage: "queue_waiting",
-    stage_label: "Kuyrukta Bekliyor",
-    stage_detail: "Teknik Destek Kuyruğu (2001) • Müsait Temsilci Bekleniyor",
-    assigned_agent_ext: "",
-    assigned_agent_name: "",
-    assigned_agent_avatar: "",
-    queue_name: "Teknik Destek Kuyruğu",
-    queue_ext: "2001",
-    workflow_name: "Ana Karşılama Senaryosu",
-    last_dtmf_digit: "3",
-    start_time: new Date(Date.now() - 38000).toISOString(),
-    answered_at: null,
-    total_duration_sec: 38,
-    talk_duration_sec: 0,
-    stage_duration_sec: 29,
-    channel: "PJSIP/Operator_Trunk-000001a9",
-    agent_topic: "Teknik Destek",
-    sentiment: "Nötr",
-    recording_paused: false,
-    last_transcript: null,
-    transcripts: [],
-    journey_steps: [
-      {
-        type: "entry",
-        title: "Gelen Çağrı Girişi",
-        subtitle: "0212 909 44 10 (Tekno Lojistik A.Ş.) ➔ 08503607390 [Operator_Trunk]",
-        timestamp: new Date(Date.now() - 38000).toISOString(),
-        active: false,
-      },
-      {
-        type: "ivr",
-        title: "IVR: Ana Karşılama Menüsü",
-        subtitle: "Tuşlama: 3 ➔ Teknik Destek Kuyruğu (2001)",
-        timestamp: new Date(Date.now() - 29000).toISOString(),
-        active: false,
-      },
-      {
-        type: "queue",
-        title: "Kuyruk: Teknik Destek Kuyruğu (2001)",
-        subtitle: "Kuyrukta Bekliyor (29 sn)",
-        timestamp: new Date(Date.now() - 29000).toISOString(),
-        active: true,
-      },
-    ],
-  },
-  {
-    id: "demo-call-104",
-    asterisk_id: "1763374870.104",
-    direction: "inbound",
-    caller_number: "0507 611 88 21",
-    caller_name: "Mehmet Kaya",
-    callee_number: "08503607390",
-    trunk_name: "Operator_Trunk",
-    stage: "ivr",
-    stage_label: "IVR / Karşılama Menüsünde",
-    stage_detail: "Ana Karşılama Menüsü • Anons Dinleniyor / Tuşlama Bekleniyor",
-    assigned_agent_ext: "",
-    assigned_agent_name: "",
-    assigned_agent_avatar: "",
-    queue_name: "",
-    queue_ext: "",
-    workflow_name: "Ana Karşılama Senaryosu",
-    last_dtmf_digit: "",
-    start_time: new Date(Date.now() - 11000).toISOString(),
-    answered_at: null,
-    total_duration_sec: 11,
-    talk_duration_sec: 0,
-    stage_duration_sec: 11,
-    channel: "PJSIP/Operator_Trunk-000001b0",
-    agent_topic: "",
-    sentiment: "Nötr",
-    recording_paused: false,
-    last_transcript: null,
-    transcripts: [],
-    journey_steps: [
-      {
-        type: "entry",
-        title: "Gelen Çağrı Girişi",
-        subtitle: "0507 611 88 21 (Mehmet Kaya) ➔ 08503607390 [Operator_Trunk]",
-        timestamp: new Date(Date.now() - 11000).toISOString(),
-        active: false,
-      },
-      {
-        type: "ivr",
-        title: "IVR: Ana Karşılama Menüsü",
-        subtitle: "Karşılama anonsu dinleniyor • Tuşlama bekleniyor",
-        timestamp: new Date(Date.now() - 9000).toISOString(),
-        active: true,
-      },
-    ],
-  },
-];
-
 export default function RealtimeCallMonitorPanel({
   backendHost = "localhost:8000",
   currentUser = null,
@@ -416,7 +161,6 @@ export default function RealtimeCallMonitorPanel({
   const [viewMode, setViewMode] = useState("pipeline"); // "pipeline" | "table"
   const [stageFilter, setStageFilter] = useState("all");
   const [searchQuery, setSearchQuery] = useState("");
-  const [demoMode, setDemoMode] = useState(false);
 
   // Selected call for right-side live inspection & intervention drawer
   const [selectedCallId, setSelectedCallId] = useState(null);
@@ -485,8 +229,7 @@ export default function RealtimeCallMonitorPanel({
   }, [fetchRealtimeCalls]);
 
   const effectiveCalls = useMemo(() => {
-    const baseList = demoMode && calls.length === 0 ? DEMO_SAMPLE_CALLS : calls;
-    return baseList.map((c) => {
+    return calls.map((c) => {
       const addSec = tickOffset;
       const isTalking =
         c.stage === "agent_talking" ||
@@ -499,35 +242,22 @@ export default function RealtimeCallMonitorPanel({
         stage_duration_sec: (c.stage_duration_sec || 0) + addSec,
       };
     });
-  }, [calls, demoMode, tickOffset]);
+  }, [calls, tickOffset]);
 
   const effectiveSummary = useMemo(() => {
-    if (!demoMode || calls.length > 0) {
-      const hasActive = calls.length > 0;
-      return {
-        ...summary,
-        longest_wait_sec:
-          summary.longest_wait_sec > 0 ? summary.longest_wait_sec + tickOffset : 0,
-        longest_talk_sec:
-          hasActive && summary.longest_talk_sec > 0
-            ? summary.longest_talk_sec + tickOffset
-            : 0,
-      };
-    }
+    const hasActive = calls.length > 0;
     return {
-      total_active: DEMO_SAMPLE_CALLS.length,
-      inbound: 4,
-      outbound: 0,
-      internal: 0,
-      in_ivr: 1,
-      in_queue: 1,
-      ringing: 0,
-      ai_talking: 1,
-      agent_talking: 1,
-      longest_wait_sec: 29 + tickOffset,
-      longest_talk_sec: 142 + tickOffset,
+      ...summary,
+      longest_wait_sec:
+        hasActive && summary.longest_wait_sec > 0
+          ? summary.longest_wait_sec + tickOffset
+          : 0,
+      longest_talk_sec:
+        hasActive && summary.longest_talk_sec > 0
+          ? summary.longest_talk_sec + tickOffset
+          : 0,
     };
-  }, [summary, calls.length, demoMode, tickOffset]);
+  }, [summary, calls.length, tickOffset]);
 
   const filteredCalls = useMemo(() => {
     return effectiveCalls.filter((c) => {
@@ -585,18 +315,6 @@ export default function RealtimeCallMonitorPanel({
 
   const handleSpyAction = async (callObj, mode = "listen") => {
     if (!callObj) return;
-    if (String(callObj.id).startsWith("demo-")) {
-      const modeLabels = {
-        listen: "Gizli Dinleme (Spy)",
-        whisper: "Fısıldama / Sufle (Whisper)",
-        barge: "Üçlü Konferans / Araya Girme (Barge)",
-      };
-      showToast(
-        "success",
-        `[Demo] ${modeLabels[mode] || mode} başlatıldı -> ${callObj.caller_number}`
-      );
-      return;
-    }
     setActionBusy(true);
     try {
       const supExt =
@@ -631,11 +349,6 @@ export default function RealtimeCallMonitorPanel({
   const handleSendWhisperText = async (e) => {
     e.preventDefault();
     if (!selectedCall || !whisperText.trim()) return;
-    if (String(selectedCall.id).startsWith("demo-")) {
-      showToast("success", `[Demo] Sufle iletildi: "${whisperText.trim()}"`);
-      setWhisperText("");
-      return;
-    }
     setActionBusy(true);
     try {
       const res = await tenantFetch(
@@ -664,14 +377,6 @@ export default function RealtimeCallMonitorPanel({
   const handleTransferCall = async (callObj, targetExt) => {
     const dest = String(targetExt || transferTargetExt || "").trim();
     if (!callObj || !dest) return;
-    if (String(callObj.id).startsWith("demo-")) {
-      showToast(
-        "success",
-        `[Demo] Çağrı (${callObj.caller_number}) ➔ Hedef ${dest} dahili/kuyruğuna aktarıldı.`
-      );
-      setTransferTargetExt("");
-      return;
-    }
     setActionBusy(true);
     try {
       const res = await tenantFetch(
@@ -697,12 +402,6 @@ export default function RealtimeCallMonitorPanel({
     if (!hangupConfirmCall) return;
     const targetCall = hangupConfirmCall;
     setHangupConfirmCall(null);
-
-    if (String(targetCall.id).startsWith("demo-")) {
-      showToast("success", `[Demo] Çağrı (${targetCall.caller_number}) sonlandırıldı.`);
-      if (selectedCallId === targetCall.id) setSelectedCallId(null);
-      return;
-    }
 
     setActionBusy(true);
     try {
@@ -789,23 +488,6 @@ export default function RealtimeCallMonitorPanel({
               className={`w-60 pl-8 pr-3 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 text-xs font-medium text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 ${ring}`}
             />
           </div>
-
-          {/* Demo Toggle when idle */}
-          {calls.length === 0 && (
-            <button
-              type="button"
-              onClick={() => setDemoMode((prev) => !prev)}
-              className={`px-3 py-2 rounded-xl text-xs font-extrabold border transition-colors flex items-center gap-1.5 cursor-pointer ${
-                demoMode
-                  ? `${bg} text-white border-transparent shadow-sm`
-                  : "bg-slate-50 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:bg-slate-100"
-              }`}
-              title="Aktif çağrı yokken örnek canlı çağrı akışını simüle et"
-            >
-              <Sparkles size={14} />
-              <span>{demoMode ? "Simülasyon Açık" : "Örnek Akışı Göster"}</span>
-            </button>
-          )}
 
           {/* View Mode Switcher */}
           <div className="inline-flex items-center p-1 rounded-xl bg-slate-100 dark:bg-slate-800 border border-slate-200/70 dark:border-slate-700">
@@ -1026,16 +708,6 @@ export default function RealtimeCallMonitorPanel({
           <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 max-w-md mx-auto">
             Santrale yeni bir çağrı geldiğinde veya dış arama başlatıldığında; IVR adımı, kuyruk sırası, temsilci eşleşmesi ve konuşma süresi anlık olarak burada belirecektir.
           </p>
-          {!demoMode && (
-            <button
-              type="button"
-              onClick={() => setDemoMode(true)}
-              className={`mt-4 px-4 py-2 rounded-xl text-xs font-extrabold text-white ${bg} ${hover} shadow-sm transition-colors inline-flex items-center gap-2 cursor-pointer`}
-            >
-              <Sparkles size={14} />
-              <span>Örnek Canlı Çağrı Akışını Görüntüle</span>
-            </button>
-          )}
         </div>
       ) : viewMode === "pipeline" ? (
         /* PIPELINE / CARD FLOW VIEW */

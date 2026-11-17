@@ -14850,12 +14850,16 @@ async def resolve_agent_ring_targets(extension: str = "", format: str = "", for_
         all_eps = ([web_ep] if web_ep else []) + active_sip_eps
         if not all_eps:
             return Response(content="NONE", media_type="text/plain")
+        if live_extension_call_state.get(ext_str, {}).get("state") != "busy":
+            set_live_extension_call_state(ext_str, "ringing")
         return Response(content="&".join(all_eps), media_type="text/plain")
 
     desk_ep = active_sip_eps[0] if active_sip_eps else ""
     if not web_ep and not desk_ep:
         return Response(content="NONE", media_type="text/plain")
 
+    if live_extension_call_state.get(ext_str, {}).get("state") != "busy":
+        set_live_extension_call_state(ext_str, "ringing")
     return Response(content=f"{web_ep}:{desk_ep}", media_type="text/plain")
 
 
@@ -20355,7 +20359,11 @@ async def log_webrtc_call_endpoint(payload: dict = Body(...), user_info: dict = 
                     db_call.end_time is not None
                     and cur_st_low in ("no_answer", "busy", "cancelled", "failed", "blocked", "rejected_limit", "missed")
                 )
-                if event_type == "answer":
+                if event_type in ("start", "ringing"):
+                    if not is_err_or_bl and not already_unanswered_ended:
+                        db_call.status = "in_progress"
+                        db_call.end_time = None
+                elif event_type == "answer":
                     if not is_err_or_bl and not already_unanswered_ended:
                         db_call.status = "in_progress"
                         if not db_call.answered_at:
@@ -22360,6 +22368,7 @@ async def get_realtime_calls_monitor(user_info: dict = Depends(get_user_info)):
         active_channels,
         call_id_to_asterisk_id,
         channel_states,
+        uniqueid_to_linkedid,
         resolve_call_answered_at,
         _extract_ext_from_channel,
         _resolve_sip_peer_to_ext,
@@ -22370,12 +22379,36 @@ async def get_realtime_calls_monitor(user_info: dict = Depends(get_user_info)):
     target_tenant = user_info.get("tenant_id") or "tenant-default"
     now_utc = datetime.datetime.utcnow()
 
+    # Collect call_ids that currently have live Asterisk channels or live ringing state
+    live_tracked_call_ids = set()
+    for cid_k, aid_v in list(call_id_to_asterisk_id.items()):
+        if str(aid_v) in active_channels or str(aid_v) in channel_states or str(cid_k) in active_channels:
+            live_tracked_call_ids.add(str(cid_k))
+    for ext_k, l_st in list(live_extension_call_state.items()):
+        if isinstance(l_st, dict) and l_st.get("call_id"):
+            upd_dt = l_st.get("updated_at") or now_utc
+            if (now_utc - upd_dt).total_seconds() <= 120:
+                live_tracked_call_ids.add(str(l_st.get("call_id")))
+
     async with AsyncSessionLocal() as session:
-        # 1. Active calls from DB (started within last 2 hours and still in_progress)
+        # 1. Active calls from DB (started within last 2 hours and still active or tracked in live AMI channels)
         cutoff_time = now_utc - datetime.timedelta(hours=2)
+        active_conds = [
+            and_(
+                Call.end_time.is_(None),
+                Call.status.in_(["in_progress", "ringing", "transferred"]),
+            )
+        ]
+        if live_tracked_call_ids:
+            active_conds.append(
+                and_(
+                    Call.id.in_(list(live_tracked_call_ids)),
+                    Call.status.notin_(["no_answer", "busy", "cancelled", "failed", "blocked", "rejected_limit", "missed"]),
+                )
+            )
         stmt = (
             select(Call)
-            .where(Call.status == "in_progress", Call.start_time >= cutoff_time)
+            .where(Call.start_time >= cutoff_time, or_(*active_conds))
             .order_by(Call.start_time.desc())
         )
         if is_global_tenant(target_tenant):
@@ -22511,6 +22544,9 @@ async def get_realtime_calls_monitor(user_info: dict = Depends(get_user_info)):
         "longest_talk_sec": 0,
     }
 
+    tracked_callers = set()
+    tracked_ringing_exts = set()
+
     for call in db_calls:
         ast_id = str(call_id_to_asterisk_id.get(call.id) or call.id).strip()
         ch_name = active_channels.get(ast_id) or active_channels.get(call.id)
@@ -22521,22 +22557,79 @@ async def get_realtime_calls_monitor(user_info: dict = Depends(get_user_info)):
 
         c_num = str(call.caller_number or "").strip()
         callee_num = str(call.callee_number or "").strip()
+        hsrc = str(getattr(call, "hangup_source", "") or "").strip()
 
-        if not ch_name:
-            for uid, st in list(channel_states.items()):
-                if not isinstance(st, dict):
-                    continue
-                st_ch = str(st.get("channel") or "")
-                st_caller = str(st.get("caller") or st.get("caller_num") or "")
-                st_exten = str(st.get("exten") or "")
-                if (c_num and (c_num == st_caller or c_num in st_ch)) or (
-                    callee_num and callee_num not in ("s", "") and (callee_num == st_exten or f"/{callee_num}-" in st_ch)
-                ):
-                    ch_name = st_ch
-                    st_info = st
-                    break
+        # Collect all related AMI channels (A-leg + dialed subscriber B-legs)
+        ringing_b_exts = []
+        talking_b_exts = []
+        b_leg_channel = ""
 
-        # Skip stale DB records older than 90s that have no active Asterisk channel and no recent transcript activity
+        for uid, st in list(channel_states.items()):
+            if not isinstance(st, dict):
+                continue
+            uid_s = str(uid or "").strip()
+            st_ch = str(st.get("channel") or "").strip()
+            st_caller = str(st.get("caller") or st.get("caller_num") or "").strip()
+            st_exten = str(st.get("exten") or "").strip()
+            st_lid = str(st.get("linkedid") or uniqueid_to_linkedid.get(uid_s) or "").strip()
+            st_state = str(st.get("state") or "ringing").strip()
+
+            ch_sub_ext = _extract_ext_from_channel(st_ch)
+            is_related = (
+                uid_s in (ast_id, str(call.id))
+                or (st_lid and st_lid in (ast_id, str(call.id)))
+                or (c_num and (st_caller == c_num or f"/{c_num}-" in st_ch))
+                or (
+                    callee_num
+                    and callee_num not in ("s", "")
+                    and (st_exten == callee_num or ch_sub_ext == callee_num or f"/{callee_num}-" in st_ch)
+                )
+            )
+            if not is_related:
+                continue
+
+            if not ch_name:
+                ch_name = st_ch
+                st_info = st
+
+            # Check if this channel is a subscriber B-leg (not the caller's own A-leg)
+            cand_ext = ch_sub_ext or _resolve_sip_peer_to_ext(st_exten)
+            if cand_ext and cand_ext in user_by_ext and cand_ext != c_num:
+                if not b_leg_channel and st_ch:
+                    b_leg_channel = st_ch
+                if st_state == "busy" and uid_s != ast_id:
+                    if cand_ext not in talking_b_exts:
+                        talking_b_exts.append(cand_ext)
+                elif st_state == "ringing" or uid_s != ast_id:
+                    if cand_ext not in talking_b_exts and cand_ext not in ringing_b_exts:
+                        ringing_b_exts.append(cand_ext)
+
+        # Also check live_extension_call_state for ringing/busy subscriber extensions matching this call
+        for ext_k, l_info in list(live_extension_call_state.items()):
+            if not isinstance(l_info, dict) or ext_k not in user_by_ext or ext_k == c_num:
+                continue
+            l_st = str(l_info.get("state") or "").strip()
+            l_caller = str(l_info.get("caller_number") or "").strip()
+            l_cid = str(l_info.get("call_id") or "").strip()
+            l_upd = l_info.get("updated_at") or now_utc
+            l_age = (now_utc - l_upd).total_seconds()
+            if l_st == "ringing" and l_age > 65:
+                continue
+            if l_st == "busy" and l_age > 3600:
+                continue
+            matches_this_call = (
+                (l_cid and l_cid == str(call.id))
+                or (c_num and l_caller and (l_caller == c_num or l_caller[-10:] == c_num[-10:]))
+                or ext_k == callee_num
+                or hsrc in (f"direct:{ext_k}", f"transfer:{ext_k}")
+            )
+            if matches_this_call:
+                if l_st == "ringing" and ext_k not in talking_b_exts and ext_k not in ringing_b_exts:
+                    ringing_b_exts.append(ext_k)
+                elif l_st == "busy" and ext_k not in ringing_b_exts and ext_k not in talking_b_exts:
+                    talking_b_exts.append(ext_k)
+
+        # Skip stale DB records older than 90s that have no active Asterisk channel, no ringing extension, and no recent transcript activity
         call_trs = transcripts_by_call.get(call.id, [])
         has_recent_tr = False
         if call_trs:
@@ -22549,8 +22642,15 @@ async def get_realtime_calls_monitor(user_info: dict = Depends(get_user_info)):
             except Exception:
                 pass
 
-        if not ch_name and not has_recent_tr and total_sec > 90:
+        if not ch_name and not ringing_b_exts and not talking_b_exts and not has_recent_tr and total_sec > 90:
             continue
+
+        if c_num:
+            tracked_callers.add(c_num)
+        for rx in ringing_b_exts:
+            tracked_ringing_exts.add(rx)
+        for tx in talking_b_exts:
+            tracked_ringing_exts.add(tx)
 
         # Direction detection
         caller_is_ext = c_num in user_by_ext or (c_num.isdigit() and len(c_num) <= 5)
@@ -22598,11 +22698,13 @@ async def get_realtime_calls_monitor(user_info: dict = Depends(get_user_info)):
         elif isinstance(raw_tr_det, list):
             transfer_details = list(raw_tr_det)
         elif isinstance(raw_tr_det, dict):
-            transfer_details = [raw_tr_det]
+            if isinstance(raw_tr_det.get("transfer_chain"), list):
+                transfer_details = list(raw_tr_det.get("transfer_chain"))
+            else:
+                transfer_details = [raw_tr_det]
         else:
             transfer_details = []
 
-        hsrc = str(getattr(call, "hangup_source", "") or "").strip()
         ans_dt = getattr(call, "answered_at", None) or resolve_call_answered_at(call.id)
         if ans_dt and hasattr(ans_dt, "replace"):
             ans_dt = ans_dt.replace(tzinfo=None)
@@ -22625,31 +22727,33 @@ async def get_realtime_calls_monitor(user_info: dict = Depends(get_user_info)):
             last_dtmf_digit = str(last_ev.get("digit") or "").strip()
 
         # Check queue status from hangup_source or callee_number
-        if hsrc.startswith("queue:"):
-            parts = hsrc.split(":")
-            q_key = parts[1] if len(parts) > 1 else callee_num
+        if hsrc.startswith("queue:") or (callee_num in queue_by_key and not hsrc.startswith(("direct:", "transfer:"))):
+            parts = hsrc.split(":") if hsrc.startswith("queue:") else ["queue", callee_num]
+            q_key = parts[1] if len(parts) > 1 and parts[1] else callee_num
             q_obj = queue_by_key.get(q_key) or {"extension": q_key, "name": f"Kuyruk {q_key}"}
             queue_ext = q_obj["extension"]
             queue_name = q_obj["name"]
-            if ":answered:" in hsrc and len(parts) >= 4:
-                assigned_agent_ext = parts[3]
+            if (":answered:" in hsrc and len(parts) >= 4) or (talking_b_exts and ans_dt):
+                assigned_agent_ext = parts[3] if (":answered:" in hsrc and len(parts) >= 4) else talking_b_exts[0]
                 if assigned_agent_ext in user_by_ext:
                     assigned_agent_name = user_by_ext[assigned_agent_ext]["name"]
                     assigned_agent_avatar = user_by_ext[assigned_agent_ext]["avatar"]
                 stage = "agent_talking"
                 stage_label = "Temsilci ile Görüşmede"
                 stage_detail = f"{queue_name} ➔ {assigned_agent_ext} - {assigned_agent_name}"
+            elif ringing_b_exts:
+                assigned_agent_ext = ", ".join(ringing_b_exts)
+                ring_names = [user_by_ext[e]["name"] for e in ringing_b_exts if e in user_by_ext]
+                assigned_agent_name = ", ".join(ring_names) if ring_names else assigned_agent_ext
+                if ringing_b_exts[0] in user_by_ext:
+                    assigned_agent_avatar = user_by_ext[ringing_b_exts[0]]["avatar"]
+                stage = "ringing"
+                stage_label = "Abone / Temsilci Çalıyor"
+                stage_detail = f"{queue_name} ({queue_ext}) ➔ Dahili {assigned_agent_ext} ({assigned_agent_name}) Çalıyor"
             else:
                 stage = "queue_waiting"
                 stage_label = "Kuyrukta Bekliyor"
                 stage_detail = f"{queue_name} ({queue_ext}) • Müsait Temsilci Bekleniyor"
-        elif callee_num in queue_by_key and not ans_dt:
-            q_obj = queue_by_key[callee_num]
-            queue_ext = q_obj["extension"]
-            queue_name = q_obj["name"]
-            stage = "queue_waiting"
-            stage_label = "Kuyrukta Bekliyor"
-            stage_detail = f"{queue_name} ({queue_ext}) • Müsait Temsilci Bekleniyor"
         elif direction == "conference" or callee_num in conf_by_ext:
             conf_nm = conf_by_ext.get(callee_num, f"Konferans Odası ({callee_num})")
             stage = "conference"
@@ -22664,38 +22768,70 @@ async def get_realtime_calls_monitor(user_info: dict = Depends(get_user_info)):
             ch_low = str(ch_name or "").lower()
             has_ai_tr = any(t.get("speaker") in ("ai", "assistant") for t in call_trs)
 
-            # Check if a human extension is ringing or talking on this call
+            # Check if a human subscriber extension is ringing or talking on this call
             ext_candidate = ""
-            if callee_num in user_by_ext:
-                ext_candidate = callee_num
-            elif caller_is_ext and direction == "outbound":
-                ext_candidate = c_num
-            elif last_ivr_target_type in ("extension", "user") and last_ivr_target_val in user_by_ext:
-                ext_candidate = last_ivr_target_val
-            else:
-                ch_ext = _extract_ext_from_channel(str(ch_name or ""))
-                if ch_ext and ch_ext in user_by_ext:
-                    ext_candidate = ch_ext
+            if ringing_b_exts and not ans_dt:
+                ext_candidate = ringing_b_exts[0]
+            elif talking_b_exts:
+                ext_candidate = talking_b_exts[0]
+            elif hsrc.startswith(("direct:", "transfer:")):
+                h_target = hsrc.split(":", 1)[1].strip()
+                if h_target in user_by_ext:
+                    ext_candidate = h_target
+            if not ext_candidate:
+                if callee_num in user_by_ext:
+                    ext_candidate = callee_num
+                elif caller_is_ext and direction == "outbound":
+                    ext_candidate = c_num
+                elif last_ivr_target_type in ("extension", "user") and last_ivr_target_val in user_by_ext:
+                    ext_candidate = last_ivr_target_val
+                else:
+                    ch_ext = _extract_ext_from_channel(str(b_leg_channel or ch_name or ""))
+                    if ch_ext and ch_ext in user_by_ext:
+                        ext_candidate = ch_ext
 
             if ext_candidate and ext_candidate in user_by_ext:
                 u_info = user_by_ext[ext_candidate]
                 assigned_agent_ext = ext_candidate
                 assigned_agent_name = u_info["name"]
                 assigned_agent_avatar = u_info["avatar"]
-                ami_st = st_info.get("state")
-                if ans_dt or ami_st == "busy":
-                    if direction == "outbound" and not ans_dt and ami_st != "busy":
+
+                if direction == "outbound" and ext_candidate == c_num:
+                    out_answered = bool(ans_dt or hsrc in ("webrtc:answered", "webrtc:callee_answered"))
+                    if not out_answered:
                         stage = "dialing_outbound"
                         stage_label = "Dış Arama Çalıyor"
                         stage_detail = f"{assigned_agent_ext} ({assigned_agent_name}) ➔ {callee_num}"
                     else:
                         stage = "agent_talking"
                         stage_label = "Temsilci ile Görüşmede"
-                        stage_detail = f"Dahili {assigned_agent_ext} • {assigned_agent_name}"
+                        stage_detail = f"Dahili {assigned_agent_ext} ({assigned_agent_name}) ↔ {callee_num}"
                 else:
-                    stage = "ringing"
-                    stage_label = "Temsilci Çalıyor"
-                    stage_detail = f"Dahili {assigned_agent_ext} ({assigned_agent_name}) Çalıyor"
+                    # Inbound or internal call to subscriber `ext_candidate`:
+                    # Check B-leg state (NOT the trunk/caller A-leg state!)
+                    is_explicitly_ringing = (
+                        ext_candidate in ringing_b_exts
+                        and ext_candidate not in talking_b_exts
+                        and hsrc not in ("webrtc:callee_answered", "webrtc:answered")
+                    )
+                    sub_answered = (
+                        not is_explicitly_ringing
+                        and bool(
+                            ans_dt
+                            or ext_candidate in talking_b_exts
+                            or hsrc in ("webrtc:callee_answered", "webrtc:answered")
+                            or ":answered:" in hsrc
+                        )
+                    )
+                    if sub_answered:
+                        stage = "agent_talking"
+                        stage_label = "Temsilci ile Görüşmede"
+                        stage_detail = f"Dahili {assigned_agent_ext} • {assigned_agent_name}"
+                    else:
+                        stage = "ringing"
+                        stage_label = "Abone / Temsilci Çalıyor"
+                        stage_detail = f"Dahili {assigned_agent_ext} ({assigned_agent_name}) Çalıyor"
+                        ans_dt = None
             elif has_ai_tr or "audiosocket" in ch_low or last_ivr_target_type in ("ai", "ai_agent"):
                 ai_nm = (
                     ai_agent_by_key.get(last_ivr_target_val)
@@ -22715,7 +22851,7 @@ async def get_realtime_calls_monitor(user_info: dict = Depends(get_user_info)):
                 stage_label = "IVR / Karşılama Menüsünde"
                 stage_detail = f"{m_nm}" + (f" • Tuşlanan: {dig}" if dig else " • Anons Dinleniyor")
             else:
-                # Fresh inbound call in initial greeting / IVR orAI
+                # Fresh inbound call in initial greeting / IVR or AI
                 if total_sec >= 2 and not caller_is_ext and not callee_is_ext:
                     stage = "ivr"
                     stage_label = "IVR / Karşılama Aşamasında"
@@ -22865,6 +23001,90 @@ async def get_realtime_calls_monitor(user_info: dict = Depends(get_user_info)):
             "last_transcript": call_trs[-1] if call_trs else None,
             "transcripts": call_trs[-15:],
             "journey_steps": journey_steps,
+        })
+
+    # Fallback: include any subscriber extension currently ringing in AMI / live_extension_call_state
+    # that has not yet been matched to a db_calls row
+    for ext_k, l_info in list(live_extension_call_state.items()):
+        if not isinstance(l_info, dict) or ext_k not in user_by_ext or ext_k in tracked_ringing_exts:
+            continue
+        l_st = str(l_info.get("state") or "").strip()
+        if l_st != "ringing":
+            continue
+        l_upd = l_info.get("updated_at") or now_utc
+        ring_sec = max(0, int((now_utc - l_upd).total_seconds()))
+        if ring_sec > 65:
+            continue
+        l_caller = str(l_info.get("caller_number") or "").strip()
+        if l_caller and l_caller in tracked_callers:
+            continue
+        l_cid = str(l_info.get("call_id") or f"live-ring-{ext_k}").strip()
+        u_info = user_by_ext[ext_k]
+        c_is_ext = l_caller in user_by_ext or (l_caller.isdigit() and len(l_caller) <= 5)
+        dir_val = "internal" if c_is_ext else "inbound"
+        if l_caller in user_by_ext:
+            c_name = f"{user_by_ext[l_caller]['name']} ({l_caller})"
+        else:
+            c_name = contact_map.get(l_caller) or resolve_contact_name_by_phone(contacts, l_caller) or ""
+
+        tracked_ringing_exts.add(ext_k)
+        if l_caller:
+            tracked_callers.add(l_caller)
+
+        summary["total_active"] += 1
+        if dir_val == "inbound":
+            summary["inbound"] += 1
+        else:
+            summary["internal"] += 1
+        summary["ringing"] += 1
+        if ring_sec > summary["longest_wait_sec"]:
+            summary["longest_wait_sec"] = ring_sec
+
+        monitored_calls.append({
+            "id": l_cid,
+            "asterisk_id": l_cid,
+            "direction": dir_val,
+            "caller_number": l_caller or "Bilinmeyen",
+            "caller_name": c_name,
+            "callee_number": ext_k,
+            "trunk_name": "",
+            "stage": "ringing",
+            "stage_label": "Abone / Temsilci Çalıyor",
+            "stage_detail": f"Dahili {ext_k} ({u_info['name']}) Çalıyor",
+            "assigned_agent_ext": ext_k,
+            "assigned_agent_name": u_info["name"],
+            "assigned_agent_avatar": u_info["avatar"],
+            "queue_name": "",
+            "queue_ext": "",
+            "workflow_name": "",
+            "last_dtmf_digit": "",
+            "start_time": l_upd.isoformat() + "Z",
+            "answered_at": None,
+            "total_duration_sec": ring_sec,
+            "talk_duration_sec": 0,
+            "stage_duration_sec": ring_sec,
+            "channel": f"PJSIP/{ext_k}",
+            "agent_topic": "",
+            "sentiment": "Nötr",
+            "recording_paused": False,
+            "last_transcript": None,
+            "transcripts": [],
+            "journey_steps": [
+                {
+                    "type": "entry",
+                    "title": "Gelen Çağrı Girişi" if dir_val == "inbound" else "Dahili Arama Başlatıldı",
+                    "subtitle": f"{l_caller or 'Bilinmeyen'} ➔ {ext_k}",
+                    "timestamp": l_upd.isoformat() + "Z",
+                    "active": False,
+                },
+                {
+                    "type": "ringing",
+                    "title": "Abone / Temsilci Çalıyor",
+                    "subtitle": f"Dahili {ext_k} ({u_info['name']}) Çalıyor",
+                    "timestamp": now_utc.isoformat() + "Z",
+                    "active": True,
+                },
+            ],
         })
 
     # Available transfer targets (extensions & queues)

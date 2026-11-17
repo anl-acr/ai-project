@@ -95,6 +95,10 @@ def _resolve_sip_peer_to_ext(peer_name: str) -> str:
         return ""
     if p.isdigit() and len(p) <= 6:
         return p
+    if p.lower().endswith("_web") and p[:-4].isdigit() and len(p[:-4]) <= 6:
+        return p[:-4]
+    if p.lower().endswith("_desk") and p[:-5].isdigit() and len(p[:-5]) <= 6:
+        return p[:-5]
     try:
         from backend.main import settings_db
         from backend.services.autoprovision_service import resolve_user_sip_username, resolve_user_webphone_sip_username
@@ -507,11 +511,78 @@ def register_event_handlers(manager: Manager):
                 "channel": channel,
                 "caller": caller_num,
                 "exten": exten,
-                "state": init_state
+                "state": init_state,
+                "linkedid": str(linkedid or uniqueid or ""),
             }
+            try:
+                from backend.main import set_live_extension_call_state
+                ch_ext = _extract_ext_from_channel(str(channel))
+                if ch_ext:
+                    set_live_extension_call_state(ch_ext, init_state, caller_number=caller_num)
+            except Exception:
+                pass
             print(f"[AMI] Yeni Kanal Kaydedildi: {uniqueid} -> {channel} (Caller: {caller_num}, Exten: {exten}, State: {init_state})")
             if caller_num or exten:
                 asyncio.create_task(_check_and_hangup_blacklisted_channel(m, channel, uniqueid, caller_num, exten))
+
+    @manager.register_event('DialBegin')
+    def handle_dial_begin(m, event):
+        uid = str(event.get('Uniqueid') or "").strip()
+        dest_uid = str(event.get('DestUniqueid') or "").strip()
+        lid = str(event.get('Linkedid') or uniqueid_to_linkedid.get(uid) or uid or "").strip()
+        dest_chan = str(event.get('DestChannel') or "").strip()
+        caller_num = str(event.get('CallerIDNum') or "").strip()
+        dest_exten = str(event.get('DestExten') or event.get('DialString') or "").strip()
+        if dest_uid and lid:
+            uniqueid_to_linkedid[dest_uid] = lid
+        ch_ext = _extract_ext_from_channel(dest_chan) or _resolve_sip_peer_to_ext(dest_exten)
+        if dest_uid and dest_chan:
+            active_channels[dest_uid] = dest_chan
+            existing = channel_states.get(dest_uid) or {}
+            if existing.get("state") != "busy":
+                channel_states[dest_uid] = {
+                    "channel": dest_chan,
+                    "caller": caller_num or existing.get("caller") or "",
+                    "exten": ch_ext or dest_exten or existing.get("exten") or "",
+                    "state": "ringing",
+                    "linkedid": lid,
+                }
+        if ch_ext:
+            try:
+                from backend.main import set_live_extension_call_state
+                set_live_extension_call_state(ch_ext, "ringing", caller_number=caller_num)
+            except Exception:
+                pass
+
+    @manager.register_event('AgentCalled')
+    def handle_agent_called(m, event):
+        import re
+        iface = str(event.get('Interface') or event.get('DestChannel') or event.get('MemberName') or "").strip()
+        dest_chan = str(event.get('DestChannel') or iface).strip()
+        dest_uid = str(event.get('DestUniqueid') or "").strip()
+        uid = str(event.get('Uniqueid') or "").strip()
+        lid = str(event.get('Linkedid') or uniqueid_to_linkedid.get(uid) or uid or "").strip()
+        caller_num = str(event.get('CallerIDNum') or "").strip()
+        m_peer = re.search(r"(?:PJSIP|SIP|IAX2)/([^-\;@/\s]+)", iface, re.IGNORECASE)
+        peer_raw = m_peer.group(1) if m_peer else iface
+        ext_val = _extract_ext_from_channel(dest_chan) or _resolve_sip_peer_to_ext(peer_raw) or peer_raw
+        if dest_uid and lid:
+            uniqueid_to_linkedid[dest_uid] = lid
+        if dest_uid and dest_chan:
+            active_channels[dest_uid] = dest_chan
+            channel_states[dest_uid] = {
+                "channel": dest_chan,
+                "caller": caller_num,
+                "exten": ext_val,
+                "state": "ringing",
+                "linkedid": lid,
+            }
+        if ext_val:
+            try:
+                from backend.main import set_live_extension_call_state
+                set_live_extension_call_state(ext_val, "ringing", caller_number=caller_num)
+            except Exception:
+                pass
 
     @manager.register_event('HangupRequest')
     def handle_hangup_request(m, event):
@@ -571,7 +642,8 @@ def register_event_handlers(manager: Manager):
                 "channel": channel or existing.get("channel") or active_channels.get(uniqueid, ""),
                 "caller": caller_num or existing.get("caller") or "",
                 "exten": exten or connected_num or existing.get("exten") or "",
-                "state": mapped
+                "state": mapped,
+                "linkedid": str(linkedid or existing.get("linkedid") or uniqueid_to_linkedid.get(str(uniqueid)) or ""),
             }
             try:
                 from backend.main import set_live_extension_call_state
@@ -1115,20 +1187,31 @@ async def redirect_call_to_human(call_id: str, extension: str = "transfer_to_hum
         resp_val = res_item.get('Response') if hasattr(res_item, 'get') else getattr(res_item, 'Response', None)
         if resp_val == 'Success':
             print(f"[AMI] Transfer Basarili: {call_id} -> {extension}")
+            answered_at_by_id.pop(str(ast_id or ""), None)
+            answered_at_by_id.pop(str(call_id or ""), None)
             try:
                 from backend.database.config import AsyncSessionLocal
                 from backend.database.models import Call
-                from backend.main import resolve_user_name_by_ext_or_id
+                from backend.main import resolve_user_name_by_ext_or_id, set_live_extension_call_state
                 async with AsyncSessionLocal() as session:
                     db_call = await session.get(Call, call_id)
                     if db_call:
+                        db_call.end_time = None
+                        db_call.answered_at = None
+                        if extension and str(extension) != "transfer_to_human":
+                            db_call.callee_number = str(extension)
                         if not is_direct_route:
                             db_call.status = "transferred"
                             db_call.hangup_source = f"transfer:{extension}"
+                        else:
+                            db_call.status = "in_progress"
                         resolved_u_name = resolve_user_name_by_ext_or_id(extension)
                         if resolved_u_name and (not is_direct_route or not db_call.agent_name):
                             db_call.agent_name = resolved_u_name
+                        caller_for_ring = str(db_call.caller_number or "").strip()
                         await session.commit()
+                        if extension and str(extension) != "transfer_to_human" and len(str(extension)) <= 6:
+                            set_live_extension_call_state(str(extension), "ringing", caller_number=caller_for_ring, call_id=str(call_id))
             except Exception as db_err:
                 print(f"[AMI] Transfer DB update error: {db_err}")
             return True

@@ -2215,6 +2215,17 @@ async def end_call_db(call_id: str, summary: str = None, hangup_source: str = No
     async with AsyncSessionLocal() as session:
         db_call = await session.get(Call, call_id)
         if db_call:
+            cur_hsrc = str(getattr(db_call, "hangup_source", "") or "").strip()
+            # If the call was redirected/handed off to an extension, queue, or external trunk via AMI Redirect,
+            # the AudioSocket TCP stream closes while the call is still ringing/active in Asterisk.
+            # Do NOT prematurely close the Call record in DB; Asterisk's `h` extension (/api/calls/end) will finalize it.
+            if cur_hsrc.startswith(("direct:", "queue:", "transfer:", "callflow_external:")) or db_call.status == "transferred":
+                if summary and not db_call.summary:
+                    db_call.summary = summary
+                    await session.commit()
+                print(f"[AudioSocket] Skipping premature end_call_db for handed-off call {call_id} (hangup_source={cur_hsrc})")
+                return
+
             db_call.status = "completed" if db_call.status == "in_progress" else db_call.status
             db_call.end_time = datetime.datetime.utcnow()
             ans_ref = getattr(db_call, "answered_at", None) or db_call.start_time
@@ -2587,6 +2598,7 @@ async def handle_audiosocket_connection(reader: asyncio.StreamReader, writer: as
     write_asterisk_task = None
     silence_task = None
     call_state = None
+    call_handed_off = False
 
     try:
         # 1. Read Audiosocket UUID message
@@ -2826,11 +2838,16 @@ async def handle_audiosocket_connection(reader: asyncio.StreamReader, writer: as
                     print(f"[Call Flow Outbound Override Warning]: {ov_err}")
 
             print(f"[Call Flow Route] DID: {did} -> Transfer to {'Queue' if is_queue_route else ('External Trunk (' + (trunk_id_sel or 'Auto') + ')' if is_ext_route else 'Extension')}: {target_ext}")
+            call_handed_off = True
+            caller_for_ring = ""
             try:
                 async with AsyncSessionLocal() as session:
                     db_call = await session.get(Call, call_id)
                     if db_call:
+                        caller_for_ring = str(db_call.caller_number or "").strip()
                         db_call.callee_number = target_ext
+                        db_call.status = "in_progress"
+                        db_call.end_time = None
                         db_call.answered_at = None
                         if trunk_id_sel:
                             db_call.trunk_name = trunk_id_sel
@@ -2838,6 +2855,12 @@ async def handle_audiosocket_connection(reader: asyncio.StreamReader, writer: as
                         await session.commit()
             except Exception as e_upd:
                 print(f"[Call Flow Route DB Update Warning]: {e_upd}")
+            if not is_queue_route and not is_ext_route and target_ext:
+                try:
+                    from backend.main import set_live_extension_call_state
+                    set_live_extension_call_state(target_ext, "ringing", caller_number=caller_for_ring, call_id=call_id)
+                except Exception:
+                    pass
             from backend.services.ami_manager import redirect_call_to_human
             await asyncio.sleep(0.3)
             success = await redirect_call_to_human(call_id, extension=target_ext, context="webrtc_agents", is_direct_route=True)
@@ -3626,6 +3649,15 @@ Eğer müşteri üst üste 2 kez sinirli/öfkeli tepki vermeye devam ederse veya
                                 target_ext = transfer_match.group(1) if (transfer_match and transfer_match.group(1)) else "transfer_to_human"
                                 print(f"[Action Marker] Call transfer requested to target extension: {target_ext}")
                                 clean_ai_text = re.sub(r"\[ACTION:\s*TRANSFER(?::\w+)?\]", "", clean_ai_text).strip()
+                                call_handed_off = True
+                                if call_state is not None:
+                                    call_state["handed_off"] = True
+                                if target_ext and target_ext != "transfer_to_human":
+                                    try:
+                                        from backend.main import set_live_extension_call_state
+                                        set_live_extension_call_state(target_ext, "ringing", call_id=call_id)
+                                    except Exception:
+                                        pass
                                 from backend.services.ami_manager import redirect_call_to_human
                                 ctx = "webrtc_agents" if target_ext != "transfer_to_human" else "default"
                                 asyncio.create_task(redirect_call_to_human(call_id, extension=target_ext, context=ctx))
@@ -3739,20 +3771,23 @@ Eğer müşteri üst üste 2 kez sinirli/öfkeli tepki vermeye devam ederse veya
             pass
 
         if call_id:
-            max_amp = call_state.get('max_avg_amplitude', 0) if call_state else 0
-            print(f"Arama Sonlandi. (call_id): {call_id} - Maksimum Algilanan Ses Genligi: {max_amp:.2f}")
-            
-            h_source = "customer"
-            if call_state and call_state.get("should_hangup"):
-                h_source = "ai"
+            if call_handed_off or (call_state and call_state.get("handed_off")):
+                print(f"[AudioSocket] Call {call_id} handed off to Asterisk dialplan; keeping Call active in DB.")
+            else:
+                max_amp = call_state.get('max_avg_amplitude', 0) if call_state else 0
+                print(f"Arama Sonlandi. (call_id): {call_id} - Maksimum Algilanan Ses Genligi: {max_amp:.2f}")
                 
-            # Generate summary in background (optional, or just save end of call)
-            await end_call_db(call_id, hangup_source=h_source)
-            try:
-                if 'ai_agent' in locals() and ai_agent and ai_agent.get("crm_post_call_webhook_url"):
-                    asyncio.create_task(dispatch_ai_crm_post_call_webhook(call_id, locals().get("did", "s"), ai_agent, hangup_source=h_source))
-            except Exception as e_post_crm:
-                print(f"[AI CRM Post-Call Trigger Warning]: {e_post_crm}")
+                h_source = "customer"
+                if call_state and call_state.get("should_hangup"):
+                    h_source = "ai"
+                    
+                # Generate summary in background (optional, or just save end of call)
+                await end_call_db(call_id, hangup_source=h_source)
+                try:
+                    if 'ai_agent' in locals() and ai_agent and ai_agent.get("crm_post_call_webhook_url"):
+                        asyncio.create_task(dispatch_ai_crm_post_call_webhook(call_id, locals().get("did", "s"), ai_agent, hangup_source=h_source))
+                except Exception as e_post_crm:
+                    print(f"[AI CRM Post-Call Trigger Warning]: {e_post_crm}")
 
 async def start_server():
     server = await asyncio.start_server(handle_audiosocket_connection, '', PORT)
