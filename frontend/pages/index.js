@@ -16,6 +16,7 @@ import {
 import {
   useUiLanguage,
   setUiLanguage,
+  applyDomLanguagePass,
   SUPPORTED_LANGUAGES
 } from "../utils/i18n";
 
@@ -1188,6 +1189,19 @@ export default function Home() {
   };
   const [passwordExpiryEnabled, setPasswordExpiryEnabled] = useState(false);
   const { lang: uiLang, setLanguage: setUiLang } = useUiLanguage();
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    applyDomLanguagePass(uiLang);
+    const t1 = setTimeout(() => applyDomLanguagePass(uiLang), 80);
+    const t2 = setTimeout(() => applyDomLanguagePass(uiLang), 250);
+    const t3 = setTimeout(() => applyDomLanguagePass(uiLang), 600);
+    return () => {
+      clearTimeout(t1);
+      clearTimeout(t2);
+      clearTimeout(t3);
+    };
+  }, [activeTab, uiLang, settingsModalOpen, isLoggedIn]);
   const [passwordExpiryMonths, setPasswordExpiryMonths] = useState(3); // 1, 3, 6, 12 (Months)
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
