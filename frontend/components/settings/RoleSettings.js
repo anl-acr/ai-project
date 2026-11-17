@@ -560,7 +560,6 @@ export default function RoleSettings({ backendHost = "localhost:8000" }) {
       items: [
         "pbx",
         "nat",
-        "work_hours",
         "qa",
         "locations",
         "numbering_plan",

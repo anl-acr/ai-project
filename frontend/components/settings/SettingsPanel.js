@@ -338,13 +338,6 @@ export default function SettingsPanel({ backendHost = "localhost:8000" }) {
             visible: true
           },
           {
-            id: "work-hours",
-            label: "Mesai & Resmi Tatiller",
-            subtitle: "Haftalık çalışma saatleri ve resmi tatiller",
-            icon: Clock,
-            visible: hasWorkHoursPermission
-          },
-          {
             id: "tenants",
             label: "Müşteri (Tenant) Yönetimi",
             subtitle: "Çoklu müşteri izolasyonu",
@@ -762,7 +755,6 @@ export default function SettingsPanel({ backendHost = "localhost:8000" }) {
             )}
             {activeSubTab === "channels" && <ChannelSettings backendHost={backendHost} />}
             {activeSubTab === "breaks" && <BreakDefinitions backendHost={backendHost} />}
-            {activeSubTab === "work-hours" && <WorkHoursSettingsPanel backendHost={backendHost} />}
             {activeSubTab === "roles" && <RoleSettings backendHost={backendHost} />}
             {activeSubTab === "canned-responses" && (
               <CannedResponsesSettings backendHost={backendHost} />
