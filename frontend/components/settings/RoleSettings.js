@@ -229,7 +229,6 @@ const SYSTEM_FEATURES = [
   // 7. Sistem Ayarları
   { id: "pbx", name: "Santral Entegrasyonu", icon: Server, type: "crud", color: "indigo" },
   { id: "nat", name: "NAT ve Dış IP Ayarları", icon: Network, type: "crud", color: "blue" },
-  { id: "smart_callback", name: "Akıllı Geri Arama (Smart Callback)", icon: PhoneCall, type: "crud_partial", color: "emerald" },
   { id: "qa", name: "Çağrı Kalite Kontrol", icon: Shield, type: "crud", color: "indigo" },
   { id: "locations", name: "Lokasyon ve Departmanlar", icon: MapPin, type: "crud", color: "rose" },
   { id: "numbering_plan", name: "Numara Planı", icon: Hash, type: "crud_partial", color: "blue" },
@@ -305,20 +304,6 @@ export const normalizeRolePermissionsList = (rawPerms = []) => {
     (perms.includes("sip_debugger:access") || perms.includes("sip_debugger"))
   ) {
     perms.push("troubleshooting:access");
-  }
-
-  // Work Hours & Holidays permission fallback from pbx / call_flow
-  const hasWorkHoursPerm = perms.some((p) => p.startsWith("work_hours:"));
-  if (!hasWorkHoursPerm) {
-    if (perms.includes("pbx:read") || perms.includes("call_flow:read")) {
-      perms.push("work_hours:read");
-    }
-    if (perms.includes("pbx:write") || perms.includes("call_flow:write")) {
-      perms.push("work_hours:write");
-    }
-    if (perms.includes("pbx:delete") || perms.includes("call_flow:delete")) {
-      perms.push("work_hours:delete");
-    }
   }
 
   // Bulk Configuration permission fallback from users / pbx
@@ -554,7 +539,7 @@ export default function RoleSettings({ backendHost = "localhost:8000" }) {
       id: "routing",
       name: "Çağrı & Yönlendirme",
       icon: GitBranch,
-      items: ["call_flow", "dialer", "calendar"]
+      items: ["call_flow", "work_hours", "dialer", "calendar"]
     },
     {
       id: "reports",
@@ -575,6 +560,7 @@ export default function RoleSettings({ backendHost = "localhost:8000" }) {
       items: [
         "pbx",
         "nat",
+        "work_hours",
         "qa",
         "locations",
         "numbering_plan",
@@ -586,7 +572,10 @@ export default function RoleSettings({ backendHost = "localhost:8000" }) {
         "breaks",
         "roles",
         "canned_responses",
+        "crm_integrations",
+        "active_directory",
         "universal_api",
+        "api_management",
         "autoprovision_templates",
         "roi_settings",
         "ssl",

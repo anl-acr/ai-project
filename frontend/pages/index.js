@@ -2765,7 +2765,7 @@ export default function Home() {
         const canConfs = hasPerm('conferences');
         const canSpeedDial = hasPerm('speed_dials');
         const canScheduledReports = hasPerm('scheduled_reports');
-        const canWorkHours = hasPerm('work_hours') || hasPerm('pbx') || hasPerm('call_flow');
+        const canWorkHours = hasPerm('work_hours');
 
         setHasOmnichannelPermission(canOmni);
         setHasContactsPermission(canContacts);

@@ -272,9 +272,9 @@ export default function WorkHoursSettingsPanel({ backendHost = "localhost:8000" 
       }
       const roleObj = rList.find((r) => r.role_code === me.role);
       const perms = Array.isArray(roleObj?.permissions) ? roleObj.permissions : [];
-      setCanRead(perms.includes("work_hours:read") || perms.includes("pbx:read"));
-      setCanWrite(perms.includes("work_hours:write") || perms.includes("pbx:write"));
-      setCanDelete(perms.includes("work_hours:delete") || perms.includes("pbx:delete"));
+      setCanRead(perms.includes("work_hours:read"));
+      setCanWrite(perms.includes("work_hours:write"));
+      setCanDelete(perms.includes("work_hours:delete"));
     } catch (e) {
       // keep safe defaults on transient network error
     }

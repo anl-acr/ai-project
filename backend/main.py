@@ -1532,7 +1532,6 @@ DEFAULT_SETTINGS = {
                 "work_hours:read", "work_hours:write", "work_hours:delete",
                 "follow_me:read", "follow_me:write",
                 "mobile_transfer:read", "mobile_transfer:write",
-                "smart_callback:read", "smart_callback:write",
                 "numbering_plan:read", "numbering_plan:write",
                 # Raporlar & Analiz
                 "reports:access", "agent_timeline:access", "transcripts:access",
@@ -1618,7 +1617,6 @@ DEFAULT_SETTINGS = {
                 "work_hours:read", "work_hours:write", "work_hours:delete",
                 "follow_me:read", "follow_me:write",
                 "mobile_transfer:read", "mobile_transfer:write",
-                "smart_callback:read", "smart_callback:write",
                 "reports:access", "agent_timeline:access", "transcripts:access",
                 "reports_pano:access", "reports_cdr:access", "reports_audio:access", "reports_transcripts:access",
                 "reports_sentiment:access", "reports_qa:access", "reports_notes:access", "reports_perf:access",
@@ -2805,8 +2803,9 @@ def load_settings(force_reload: bool = False, persist: bool = False):
                 if r.get("role_code") == "admin" and "restore_points:delete" not in new_perms:
                     new_perms.append("restore_points:delete")
                 for sup_perm in (
-                    "smart_callback:read",
-                    "smart_callback:write",
+                    "work_hours:read",
+                    "work_hours:write",
+                    "work_hours:delete",
                     "customer_360:access",
                     "callback_tasks:read",
                     "callback_tasks:write",

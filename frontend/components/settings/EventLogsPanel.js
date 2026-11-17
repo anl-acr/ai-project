@@ -113,6 +113,8 @@ export default function EventLogsPanel({ backendHost }) {
   const [filterCategory, setFilterCategory] = useState("all");
   const [filterModule, setFilterModule] = useState("all");
   const [filterUser, setFilterUser] = useState("all");
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(20);
 
   const [selectedLog, setSelectedLog] = useState(null);
   const [clientPublicIp, setClientPublicIp] = useState(() =>
@@ -374,6 +376,32 @@ export default function EventLogsPanel({ backendHost }) {
     });
   }, [logs, filterCategory, filterModule, filterUser, searchTerm]);
 
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [filterCategory, filterModule, filterUser, searchTerm, pageSize]);
+
+  const totalPages = Math.max(1, Math.ceil(filteredLogs.length / pageSize));
+  const safeCurrentPage = Math.min(currentPage, totalPages);
+
+  const paginatedLogs = useMemo(() => {
+    const startIdx = (safeCurrentPage - 1) * pageSize;
+    return filteredLogs.slice(startIdx, startIdx + pageSize);
+  }, [filteredLogs, safeCurrentPage, pageSize]);
+
+  const visiblePageNumbers = useMemo(() => {
+    const pages = [];
+    const maxButtons = 5;
+    let start = Math.max(1, safeCurrentPage - Math.floor(maxButtons / 2));
+    let end = Math.min(totalPages, start + maxButtons - 1);
+    if (end - start + 1 < maxButtons) {
+      start = Math.max(1, end - maxButtons + 1);
+    }
+    for (let i = start; i <= end; i++) {
+      pages.push(i);
+    }
+    return pages;
+  }, [safeCurrentPage, totalPages]);
+
   const categoryPills = [
     { id: "all", label: "Tüm Hareketler", count: stats.total },
     { id: "auth", label: "Giriş / Çıkış & Mola", count: stats.auth },
@@ -568,7 +596,7 @@ export default function EventLogsPanel({ backendHost }) {
                   </td>
                 </tr>
               ) : (
-                filteredLogs.map((log) => {
+                paginatedLogs.map((log) => {
                   const { Icon: BadgeIcon, cls: badgeCls } = getActionBadgeMeta(log);
                   const changesList = Array.isArray(log.details?.changes) ? log.details.changes : [];
 
@@ -670,6 +698,88 @@ export default function EventLogsPanel({ backendHost }) {
             </tbody>
           </table>
         </div>
+
+        {/* Pagination Bar */}
+        {filteredLogs.length > 0 && (
+          <div className="px-4 py-3 bg-slate-50/60 dark:bg-slate-950/50 border-t border-slate-200/70 dark:border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div className="flex flex-wrap items-center gap-3 text-xs text-slate-500 dark:text-slate-400">
+              <span>
+                Toplam <strong className="font-bold text-slate-800 dark:text-slate-200">{filteredLogs.length}</strong> kayıttan{" "}
+                <strong className="font-bold text-slate-800 dark:text-slate-200">
+                  {(safeCurrentPage - 1) * pageSize + 1} - {Math.min(safeCurrentPage * pageSize, filteredLogs.length)}
+                </strong>{" "}
+                arası gösteriliyor
+              </span>
+              <div className="flex items-center gap-1.5">
+                <span className="text-[11px] font-semibold">Sayfa başına:</span>
+                <select
+                  value={pageSize}
+                  onChange={(e) => setPageSize(Number(e.target.value))}
+                  className="px-2 py-1 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs font-bold text-slate-700 dark:text-slate-200 focus:outline-none cursor-pointer"
+                >
+                  <option value={15}>15</option>
+                  <option value={20}>20</option>
+                  <option value={50}>50</option>
+                  <option value={100}>100</option>
+                </select>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-1.5 self-end sm:self-auto">
+              <button
+                type="button"
+                onClick={() => setCurrentPage(1)}
+                disabled={safeCurrentPage <= 1}
+                className="px-2.5 py-1.5 rounded-xl text-xs font-bold border border-slate-200/80 dark:border-slate-700/80 bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-40 disabled:pointer-events-none transition-colors cursor-pointer"
+              >
+                İlk
+              </button>
+              <button
+                type="button"
+                onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                disabled={safeCurrentPage <= 1}
+                className="px-2.5 py-1.5 rounded-xl text-xs font-bold border border-slate-200/80 dark:border-slate-700/80 bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-40 disabled:pointer-events-none transition-colors cursor-pointer"
+              >
+                ‹ Önceki
+              </button>
+
+              {visiblePageNumbers.map((pageNum) => {
+                const isCurrent = pageNum === safeCurrentPage;
+                return (
+                  <button
+                    key={pageNum}
+                    type="button"
+                    onClick={() => setCurrentPage(pageNum)}
+                    className={`min-w-[32px] h-8 px-2 rounded-xl text-xs font-extrabold border transition-all cursor-pointer ${
+                      isCurrent
+                        ? `${bg} text-white border-transparent shadow-sm`
+                        : "border-slate-200/80 dark:border-slate-700/80 bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800"
+                    }`}
+                  >
+                    {pageNum}
+                  </button>
+                );
+              })}
+
+              <button
+                type="button"
+                onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                disabled={safeCurrentPage >= totalPages}
+                className="px-2.5 py-1.5 rounded-xl text-xs font-bold border border-slate-200/80 dark:border-slate-700/80 bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-40 disabled:pointer-events-none transition-colors cursor-pointer"
+              >
+                Sonraki ›
+              </button>
+              <button
+                type="button"
+                onClick={() => setCurrentPage(totalPages)}
+                disabled={safeCurrentPage >= totalPages}
+                className="px-2.5 py-1.5 rounded-xl text-xs font-bold border border-slate-200/80 dark:border-slate-700/80 bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-40 disabled:pointer-events-none transition-colors cursor-pointer"
+              >
+                Son
+              </button>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Human-Readable Detail Modal (No Technical JSON Dump) */}
