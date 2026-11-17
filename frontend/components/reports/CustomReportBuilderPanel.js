@@ -129,7 +129,7 @@ function formatErrDetail(detail, fallback = "İşlem sırasında bir hata oluşt
   return String(detail);
 }
 
-export default function CustomReportBuilderPanel({ userPermissions = null }) {
+export default function CustomReportBuilderPanel({ userPermissions = null, initialAiPrompt = "" }) {
   const { bg, hover, text, border, ring, lightBg, lightText, borderLight } = useTheme();
   const API_BASE = getApiBaseUrl();
 
@@ -188,7 +188,12 @@ export default function CustomReportBuilderPanel({ userPermissions = null }) {
   const [endTime, setEndTime] = useState("23:59");
 
   // AI Prompt state
-  const [aiPrompt, setAiPrompt] = useState("");
+  const [aiPrompt, setAiPrompt] = useState(initialAiPrompt || "");
+  useEffect(() => {
+    if (initialAiPrompt && initialAiPrompt.trim()) {
+      setAiPrompt(initialAiPrompt);
+    }
+  }, [initialAiPrompt]);
   const [aiLoading, setAiLoading] = useState(false);
 
   // Execution result state

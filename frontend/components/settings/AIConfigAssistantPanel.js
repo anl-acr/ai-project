@@ -158,7 +158,7 @@ const ACTION_ICONS = {
   set_agent_live_status: Activity
 };
 
-export default function AIConfigAssistantPanel({ userPermissions = null, onNavigateTab = null }) {
+export default function AIConfigAssistantPanel({ userPermissions = null, onNavigateTab = null, initialPrompt = "" }) {
   const { bg, hover, text, border, ring, lightBg, lightText, borderLight } = useTheme();
   const API_BASE = getApiBaseUrl();
 
@@ -184,7 +184,12 @@ export default function AIConfigAssistantPanel({ userPermissions = null, onNavig
     resolvedPerms.includes("*") ||
     resolvedPerms.includes("ai_config_assistant:write");
 
-  const [prompt, setPrompt] = useState("");
+  const [prompt, setPrompt] = useState(initialPrompt || "");
+  useEffect(() => {
+    if (initialPrompt && initialPrompt.trim()) {
+      setPrompt(initialPrompt);
+    }
+  }, [initialPrompt]);
   const [planning, setPlanning] = useState(false);
   const [applying, setApplying] = useState(false);
   const [planResult, setPlanResult] = useState(null);

@@ -182,6 +182,7 @@ const NotificationCenterBell = dynamic(() => import("../components/common/Notifi
 const KeyboardShortcutsModal = dynamic(() => import("../components/common/KeyboardShortcutsModal"), { ssr: false });
 const Customer360Drawer = dynamic(() => import("../components/common/Customer360Drawer"), { ssr: false });
 const WebPhoneDiagnosticsModal = dynamic(() => import("../components/common/WebPhoneDiagnosticsModal"), { ssr: false });
+const NorniaSystemAssistantModal = dynamic(() => import("../components/common/NorniaSystemAssistantModal"), { ssr: false });
 import AgentPanel, {
   ALL_TABS as CALL_PANEL_ALL_TABS,
   loadCallPanelPrefs,
@@ -3123,6 +3124,7 @@ export default function Home() {
 
 
   const [isShortcutsModalOpen, setIsShortcutsModalOpen] = useState(false);
+  const [isNorniaAssistantOpen, setIsNorniaAssistantOpen] = useState(false);
   const [landingSearchQuery, setLandingSearchQuery] = useState("");
   const autoOpened360CallRef = React.useRef("");
 
@@ -3895,13 +3897,13 @@ export default function Home() {
             isSidebarCollapsed ? "flex-col items-center gap-2.5 px-0" : "items-center justify-between px-2"
           } py-3 mb-5 border-b border-slate-100 dark:border-slate-800/60 transition-all duration-300`}
         >
-          <div className="flex items-center gap-2.5 min-w-0">
+          <div
+            onClick={() => setIsNorniaAssistantOpen(true)}
+            title="Nornia Akıllı Merkez — Sistem Rehberi, AI Konfigürasyon Asistanı & Özel Rapor Tasarımcısı"
+            className="flex items-center gap-2.5 min-w-0 cursor-pointer group"
+          >
             <div
-              onClick={() => isSidebarCollapsed && toggleSidebarCollapse()}
-              title={isSidebarCollapsed ? "Menüyü Genişlet" : "Akıllı İletişim Platformu"}
-              className={`h-9 w-9 shrink-0 rounded-xl flex items-center justify-center overflow-hidden shadow-md ${
-                isSidebarCollapsed ? "cursor-pointer hover:scale-105 transition-transform" : ""
-              }`}
+              className="h-9 w-9 shrink-0 rounded-xl flex items-center justify-center overflow-hidden shadow-md group-hover:scale-105 transition-transform"
             >
               <img src="/favicon.svg" alt="Nornia Logo" className="h-9 w-9 object-contain" />
             </div>
@@ -3911,7 +3913,7 @@ export default function Home() {
               }`}
             >
               <h1
-                className="font-extrabold text-base tracking-tight leading-tight bg-clip-text text-transparent"
+                className="font-extrabold text-base tracking-tight leading-tight bg-clip-text text-transparent group-hover:opacity-90"
                 style={{
                   backgroundImage: "linear-gradient(90deg, #16A34A 0%, #0284C7 28%, #7C3AED 58%, #DB2777 80%, #EA580C 100%)",
                   WebkitBackgroundClip: "text",
@@ -5600,8 +5602,12 @@ export default function Home() {
           {/* Sol Bölge */}
           <div className="flex items-center gap-2 min-w-0 shrink-0">
             {(isDesktopMode || (activeTab === "call-center" && (isAgentOnlyUser || isAgentFullScreenMode))) && (
-              <div className="flex items-center gap-2.5 pr-2">
-                <div className="h-8 w-8 shrink-0 rounded-xl flex items-center justify-center overflow-hidden shadow-sm">
+              <div
+                onClick={() => setIsNorniaAssistantOpen(true)}
+                title="Nornia Akıllı Merkez — Sistem Rehberi, AI Konfigürasyon Asistanı & Özel Rapor Tasarımcısı"
+                className="flex items-center gap-2.5 pr-2 cursor-pointer group"
+              >
+                <div className="h-8 w-8 shrink-0 rounded-xl flex items-center justify-center overflow-hidden shadow-sm group-hover:scale-105 transition-transform">
                   <img src={isDesktopMode ? "/runa-logo.png" : "/favicon.svg"} alt="Logo" className="h-8 w-8 object-contain" />
                 </div>
                 <div>
@@ -5634,8 +5640,12 @@ export default function Home() {
             )}
 
             {activeTab === "wallboard" && isWallboardOnlyUser && (
-              <div className="flex items-center gap-2.5 pr-2">
-                <div className="h-8 w-8 shrink-0 rounded-xl flex items-center justify-center overflow-hidden shadow-sm">
+              <div
+                onClick={() => setIsNorniaAssistantOpen(true)}
+                title="Nornia Akıllı Merkez — Sistem Rehberi"
+                className="flex items-center gap-2.5 pr-2 cursor-pointer group"
+              >
+                <div className="h-8 w-8 shrink-0 rounded-xl flex items-center justify-center overflow-hidden shadow-sm group-hover:scale-105 transition-transform">
                   <img src="/favicon.svg" alt="Logo" className="h-8 w-8 object-contain" />
                 </div>
                 <div>
@@ -11431,6 +11441,20 @@ export default function Home() {
 
         {/* Global WebPhone Health & Readiness Diagnostics Popup */}
         {isLoggedIn && <WebPhoneDiagnosticsModal />}
+
+        {/* Global Nornia AI Hub & System Guide Modal (opened by clicking Nornia logo/text) */}
+        {isLoggedIn && isNorniaAssistantOpen && (
+          <NorniaSystemAssistantModal
+            isOpen={isNorniaAssistantOpen}
+            onClose={() => setIsNorniaAssistantOpen(false)}
+            userPermissions={currentRolePermissions}
+            onNavigateTab={(targetTab) => {
+              if (targetTab) {
+                setActiveTab(targetTab);
+              }
+            }}
+          />
+        )}
 
         {/* Global License Verification & Renewal Modal */}
         {isLicenseModalOpen && (

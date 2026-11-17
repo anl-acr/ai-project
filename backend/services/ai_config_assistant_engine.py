@@ -4908,3 +4908,338 @@ async def undo_ai_configuration_snapshot(snapshot_id: str, request: Request):
         pass
 
     return {"status": "success", "snapshot_id": snapshot_id, "reverted_at": rev_ts, "message": "Yapılandırma değişiklikleri eksiksiz olarak geri alındı."}
+
+
+# ============================================================================
+# 8. NORNIA INTERACTIVE SYSTEM GUIDE & COPILOT ENGINE
+# ============================================================================
+
+NORNIA_GUIDE_CATALOG: List[Dict[str, Any]] = [
+    {
+        "id": "users_and_devices",
+        "keywords": ["kullanici", "dahili", "abone", "masa telefonu", "sip cihazi", "web telefon", "webrtc", "cihaz ekle", "extension", "softphone", "dect", "sanal abone"],
+        "title": "Kullanıcı, Dahili ve Masa Telefonu / SIP Cihazı Tanımlama",
+        "menu_path": "Santral ➔ Kullanıcılar",
+        "target_tab": "users",
+        "target_label": "Kullanıcılar Ekranına Git",
+        "summary": "Nornia'da her kullanıcıya bir dahili numara (örn. 1001) atanır ve aynı dahili altında Web Telefonu (WebRTC), Masa Telefonu (IP Telefon), DECT, Softphone veya Sanal Abone eşzamanlı çalıştırılabilir.",
+        "steps": [
+            "Sol menüden 'Santral ➔ Kullanıcılar' ekranına gidin ve sağ üstteki kırmızı (+) butonuna tıklayın.",
+            "Kullanıcının Ad Soyad, E-Posta, Rol (Temsilci, Süpervizör, Yönetici) ve Dahili Numarası (örn. 1001) bilgilerini girin.",
+            "Masa telefonu veya ek SIP cihazı bağlamak için kullanıcı düzenleme penceresindeki 'SIP Cihazları & WebPhone' sekmesine geçin.",
+            "Burada 'Web Telefonu' sabit olarak hazırdır. Yeni fiziksel IP telefon eklemek için '+' butonuna basıp Cihaz Türü olarak 'Masa Telefonu', 'DECT' veya 'SIP İstemci' seçin.",
+            "Sistemin ürettiği güvenli SIP Kullanıcı Adı ve Şifreyi IP telefonunuzun hesap (Account) ayarlarına girin veya Oto Provizyon ile MAC adresi üzerinden otomatik yükleyin."
+        ],
+        "tips": [
+            "Kullanıcı satırındaki yeşil durum LED'inin üzerine geldiğinizde o an hangi cihazların (Web Telefonu, Masa Telefonu 1 vb.) hangi IP ve tarayıcı/cihaz ile bağlı olduğunu canlı görebilirsiniz.",
+            "Aynı kullanıcıya birden fazla SIP cihazı tanımladığınızda gelen çağrılarda aktif profildeki tüm cihazlar eşzamanlı çalar."
+        ],
+        "suggested_config_prompt": "Ahmet Yılmaz için 1005 numaralı yeni bir temsilci dahilisi aç ve ses kaydını aktif et",
+        "suggested_report_prompt": ""
+    },
+    {
+        "id": "call_flow_ivr",
+        "keywords": ["ivr", "karsilama", "arama akisi", "call flow", "senaryo", "tuslama", "menu", "anons", "gelen arama senaryosu", "mesai disi"],
+        "title": "Görsel Arama Akışı (IVR / Karşılama Menüsü) Kurulumu",
+        "menu_path": "Çağrı & Yönlendirme ➔ Arama Akış Yönetimi",
+        "target_tab": "call-flow",
+        "target_label": "Arama Akış Yönetimi'ne Git",
+        "summary": "Gelen çağrıların mesai saatlerine göre hangi anonsu dinleyeceğini, tuşlamalarda (1 Satış, 2 Destek vb.) hangi kuyruğa, dahiliye veya Sesli AI Asistana bağlanacağını görsel akış tasarımcısıyla kurgulayabilirsiniz.",
+        "steps": [
+            "Sol menüden 'Çağrı & Yönlendirme ➔ Arama Akış Yönetimi' ekranını açın.",
+            "Sağ üstteki kırmızı (+) butonu ile yeni bir akış oluşturun veya mevcut akışı düzenleyin.",
+            "Başlangıç düğümünden (Gelen Çağrı) sonra 'Mesai Saati Kontrolü', 'Sesli Anons / Karşılama Menüsü (IVR)', 'Kuyruk (ACD)', 'Dahili Abone' veya 'AI Asistan' düğümlerini sürükleyip birbirine bağlayın.",
+            "IVR menü düğümünde 1, 2, 3 gibi tuşlamaların hedeflerini ve zaman aşımı (Timeout) / hatalı tuşlama davranışlarını seçip 'Kaydet ve Yayınla' butonuna basın."
+        ],
+        "tips": [
+            "Ses dosyanız hazır değilse 'Santral ➔ Anons Yönetimi' ekranından metin yazarak yapay zeka (TTS) ile saniyeler içinde profesyonel Türkçe anons üretebilirsiniz."
+        ],
+        "suggested_config_prompt": "'Karşılama Anonsu' adıyla 'Şirketimize hoş geldiniz, satış için 1, teknik destek için 2 tuşlayınız' metnini seslendir; ardından 1'e basınca Satış, 2'ye basınca Destek kuyruğuna giden 'Ana IVR Akışı' oluştur",
+        "suggested_report_prompt": ""
+    },
+    {
+        "id": "sip_trunks_and_rules",
+        "keywords": ["trunk", "dis hat", "operator", "0850", "did", "gelen kural", "giden kural", "numara tanimlama", "sip trunk", "nat", "ikon", "netgsm", "turk telekom"],
+        "title": "SIP Dış Hat (Trunk) ve Gelen / Giden Arama Kuralları",
+        "menu_path": "Santral ➔ Dış Hat Tanımı / Gelen & Giden Arama Kuralı",
+        "target_tab": "trunks",
+        "target_label": "Dış Hat (Trunk) Ekranına Git",
+        "summary": "Operatörünüzden (0850 / 0212 / GSM Trunk) aldığınız SIP bilgilerini sisteme tanımlayıp, gelen aramaların nereye düşeceğini ve giden aramaların hangi hattan çıkacağını belirleyebilirsiniz.",
+        "steps": [
+            "'Santral ➔ Dış Hat Tanımı' ekranına giderek (+) butonuna tıklayın; operatör Host/IP, Kullanıcı Adı, Şifre ve DID numaranızı (örn. 908503607390) girip kaydedin.",
+            "Gelen çağrıları yönlendirmek için 'Santral ➔ Gelen Arama Kuralı' ekranından DID numaranızı bir Arama Akışına (IVR), Kuyruğa, Dahiliye veya Sesli AI Asistana bağlayın.",
+            "Dış arama çıkışları için 'Santral ➔ Giden Arama Kuralı' ekranından numara şablonu (örn. 05XXXXXXXXX), kullanılacak Trunk ve arama yetkisi olan dahilileri tanımlayın."
+        ],
+        "tips": [
+            "Sunucunuz NAT arkasındaysa 'Ayarlar ➔ Santral Ayarları' altından Harici (Public) IP ve Yerel Ağ (Local Net) ayarlarını aktif ederek tek taraflı ses sorunlarını önleyebilirsiniz."
+        ],
+        "suggested_config_prompt": "08503607390 numarasından gelen tüm çağrıları Satış Kuyruğuna yönlendiren gelen arama kuralı oluştur",
+        "suggested_report_prompt": "Son 7 günde dış hat (trunk) bazlı toplam çağrı ve dakika kullanımını göster"
+    },
+    {
+        "id": "acd_queues_and_survey",
+        "keywords": ["kuyruk", "acd", "anket", "bekleme", "strateji", "ringall", "temsilci atama", "queue", "sla", "geri arama", "callback"],
+        "title": "ACD Çağrı Kuyruğu, Temsilci Atama ve Çağrı Sonu Anketi",
+        "menu_path": "Santral ➔ ACD Kuyruk",
+        "target_tab": "acd-queues",
+        "target_label": "ACD Kuyruk Ekranına Git",
+        "summary": "Çağrıları departman bazlı (Satış, Teknik Destek vb.) sıraya almak, çaldırma stratejisi belirlemek ve görüşme sonunda otomatik memnuniyet anketi yapmak için ACD Kuyruk modülü kullanılır.",
+        "steps": [
+            "'Santral ➔ ACD Kuyruk' ekranına gidin ve sağ üstteki (+) butonuna tıklayın.",
+            "Kuyruk Adı (örn. Satış Kuyruğu), Kuyruk Numarası (örn. 2000) ve Çaldırma Stratejisini (Tümü Çalsın, Sırayla, En Az Konuşan vb.) seçin.",
+            "Kuyruk üyeleri listesinden çağrıları yanıtlayacak temsilci dahililerini (örn. 1001, 1002) seçin.",
+            "Maksimum bekleme süresi dolduğunda uygulanacak 'Taşma / Fallback' hedefini (Sesli Mesaj, Başka Kuyruk, GSM veya AI Asistan) belirleyin.",
+            "Görüşme bitiminde müşteriye 1-5 arası puanlama sorulması için 'Çağrı Sonu Memnuniyet Anketi' seçeneğini aktif edin."
+        ],
+        "tips": [
+            "Temsilciler Omnichannel (WhatsApp/WebChat) yazışmasındayken kuyruk çağrısı düşmemesi sistem tarafından otomatik yönetilir."
+        ],
+        "suggested_config_prompt": "2005 numaralı 'VIP Destek' kuyruğu oluştur, çaldırma stratejisini ringall yap ve 1000 ile 1001 dahililerini ata",
+        "suggested_report_prompt": "Kuyruk bazlı toplam çağrı, terk edilen çağrı, terk oranı ve 20 sn SLA yüzdesini karşılaştır"
+    },
+    {
+        "id": "forwarding_and_feature_codes",
+        "keywords": ["yonlendirme", "beni takip et", "follow me", "mesgul", "cevapsiz", "ozellik kodlari", "cagri cekme", "pickup", "*8", "*97", "sesli posta", "voicemail", "hotdesk"],
+        "title": "Çağrı Yönlendirme, Beni Takip Et ve Santral Özellik Kodları",
+        "menu_path": "Santral ➔ Kullanıcılar (Özellikler & Yönlendirme) / Ayarlar ➔ Numara Planı",
+        "target_tab": "users",
+        "target_label": "Kullanıcı Yönlendirme Ayarlarına Git",
+        "summary": "Aboneler çağrılarını Her Zaman, Meşgulde veya Cevapsız kaldığında başka bir dahiliye, kuyruğa, sesli postaya ya da cep telefonuna (GSM) yönlendirebilir ve masa telefonundan kısayol tuşlarını kullanabilir.",
+        "steps": [
+            "Kullanıcı bazlı yönlendirme için 'Santral ➔ Kullanıcılar' ekranında ilgili kullanıcının düzenleme penceresini açıp 'Yönlendirme & Beni Takip Et' sekmesine geçin.",
+            "'Her Zaman', 'Meşgul Durumda' veya 'Cevapsız Durumda (Zaman Aşımı)' kurallarından istediğinizi aktif edip hedef dahili, kuyruk, GSM veya Sesli Posta seçin.",
+            "Masa telefonlarından veya WebPhone'dan doğrudan kullanılabilecek standart santral özellik kodları:\n  • Grup Çağrı Çekme: *8\n  • Hedefli Dahili Çağrı Çekme: **DahiliNo (Örn: **1001)\n  • Sesli Posta (Voicemail) Menüsü: *97\n  • Her Zaman Yönlendirme Aktif: *72 + HedefNo\n  • Meşgulde Yönlendirme Aktif: *90 + HedefNo\n  • Cevapsızda Yönlendirme Aktif: *92 + HedefNo\n  • Tüm Yönlendirmeleri İptal Et: *73"
+        ],
+        "tips": [
+            "Özellik kodlarını kurumunuza göre değiştirmek isterseniz 'Ayarlar ➔ Santral Ayarları ➔ Numara Planı & Özellik Kodları' sekmesinden güncelleyebilirsiniz."
+        ],
+        "suggested_config_prompt": "1001 dahilisinin cevapsız kaldığında 25 saniye sonra 05321112233 GSM numarasına yönlendirmesini aktif et",
+        "suggested_report_prompt": ""
+    },
+    {
+        "id": "ai_agents_and_rag",
+        "keywords": ["ai asistan", "yapay zeka", "sesli asistan", "rag", "bilgi bankasi", "dokuman", "web sitesi", "senaryo editoru", "gemini", "elevenlabs"],
+        "title": "Sesli AI Temsilcisi ve Bilgi Bankası (RAG) Eğitimi",
+        "menu_path": "Yapay Zeka & Bilgi ➔ AI Temsilcileri / Bilgi Bankası (RAG)",
+        "target_tab": "ai-agents",
+        "target_label": "AI Temsilcileri Ekranına Git",
+        "summary": "Müşterilerle doğal Türkçe sesli diyalog kuran, randevu alan, bilgi bankasından soruları yanıtlayan ve gerektiğinde isimle doğru dahiliye aktaran otonom AI temsilcileri oluşturabilirsiniz.",
+        "steps": [
+            "'Yapay Zeka & Bilgi ➔ Bilgi Bankası (RAG)' ekranından şirket dökümanlarınızı (PDF/TXT/Word), metinlerinizi veya web sitesi adresinizi ekleyerek AI'ın kurumsal bilgilerinizi öğrenmesini sağlayın.",
+            "'Yapay Zeka & Bilgi ➔ AI Temsilcileri' ekranından yeni bir AI asistan oluşturup ses tonunu, açılış karşılama cümlesini ve sistem talimatını belirleyin.",
+            "Asistan kartındaki 'Senaryo Tasarla' butonuna tıklayarak görsel düğümlerle (Karşılama, Niyet Dallanması, İsimle Rehberden Dahiliye Transfer, Randevu/Form Kaydı) konuşma akışını çizin veya 'AI ile Senaryo Üret' butonuna tıklayıp doğal dille yazın."
+        ],
+        "tips": [
+            "'İsimle Dahili / Personel Transferi' düğümü sayesinde müşteri 'Anıl Bey ile görüşmek istiyorum' dediğinde AI rehberden Anıl Bey'in dahilisini bulup çağrıyı otomatik aktarır."
+        ],
+        "suggested_config_prompt": "Bilgi bankasına 'Çalışma Saatleri' başlığıyla 'Hafta içi 09:00 - 18:00 saatleri arasında hizmet veriyoruz' bilgisini ekle",
+        "suggested_report_prompt": ""
+    },
+    {
+        "id": "realtime_call_monitor_spy",
+        "keywords": ["canli cagri", "gercek zamanli", "izleme", "dinleme", "fisildama", "sufle", "araya girme", "spy", "whisper", "barge", "aktif cagri", "caliyor"],
+        "title": "Gerçek Zamanlı Çağrı İzleme, Dinleme (Spy), Sufle ve Araya Girme",
+        "menu_path": "Operasyon ve İzleme ➔ Gerçek Zamanlı Çağrı İzleme",
+        "target_tab": "realtime-calls",
+        "target_label": "Gerçek Zamanlı Çağrı İzleme'ye Git",
+        "summary": "Santraldeki tüm aktif çağrıların o an IVR'da, kuyrukta, abonede çalıyor (ring) durumunda veya temsilci/AI ile görüşmede olduğunu canlı izleyebilir ve süpervizör müdahalesi yapabilirsiniz.",
+        "steps": [
+            "Sol menüden 'Operasyon ve İzleme ➔ Gerçek Zamanlı Çağrı İzleme' ekranını açın.",
+            "Üstteki 6 canlı KPI kartından (Toplam Aktif, IVR, Kuyrukta, Çalan/Bağlanan, AI Görüşmesinde, Temsilci Görüşmesinde) istediğiniz aşamaya tıklayarak filtreleme yapın.",
+            "Herhangi bir çağrı kartına tıklayarak sağ çekmecede çağrının adım adım yolculuğunu (Giriş ➔ IVR Tuşlaması ➔ Kuyruk ➔ Abone) ve canlı konuşma dökümünü inceleyin.",
+            "Yetkiniz dahilinde 'Gizli Dinle (Spy)', 'Temsilciye Fısılda / Sufle Ver (Whisper)', 'Araya Gir (Barge)', 'Başka Dahiliye/Kuyruğa Aktar' veya 'Çağrıyı Sonlandır' butonlarını kullanın."
+        ],
+        "tips": [
+            "Masa telefonundan veya WebPhone'dan kod tuşlayarak da dinleme yapabilirsiniz: *55*Dahili (Dinle), *56*Dahili (Fısılda), *57*Dahili (Araya Gir)."
+        ],
+        "suggested_config_prompt": "",
+        "suggested_report_prompt": "Son 7 günde temsilci bazlı toplam çağrı, cevaplanan, kaçan çağrı ve ortalama konuşma süresini sütun grafikle göster"
+    },
+    {
+        "id": "omnichannel_channels",
+        "keywords": ["whatsapp", "instagram", "facebook", "telegram", "eposta", "e-posta", "mail", "omnichannel", "ortak gelen kutusu", "hizli cevap", "sablon"],
+        "title": "Omnichannel (WhatsApp, Instagram, Telegram, E-Posta) Kurulumu",
+        "menu_path": "Ayarlar ➔ Kanallar & Omnichannel / Operasyon ➔ Ortak Gelen Kutusu",
+        "target_tab": "omnichannel",
+        "target_label": "Ortak Gelen Kutusu'na Git",
+        "summary": "WhatsApp Business Cloud API (0850 veya mobil hat), Instagram DM, Facebook Messenger, Telegram Bot ve Kurumsal E-Posta (IMAP/SMTP) kanallarını tek ekrandan AI ve canlı temsilci işbirliğiyle yönetebilirsiniz.",
+        "steps": [
+            "Kanal bağlantı bilgilerini girmek için sol menüden 'Ayarlar' ekranına gidip 'Kanallar' sekmesini açın.",
+            "WhatsApp için Meta Phone Number ID ve Kalıcı Erişim Anahtarını (Token) girin; dilerseniz birden fazla WhatsApp hattı (Satış Hattı, Destek Hattı) ekleyip her hatta ayrı AI Persona ve karşılama menüsü tanımlayın.",
+            "Gelen tüm mesajları yanıtlamak, temsilciye devralmak veya toplu WhatsApp kampanyası göndermek için 'Operasyon ve İzleme ➔ Ortak Gelen Kutusu' ekranını kullanın."
+        ],
+        "tips": [
+            "Sohbet sırasında '/' tuşuna basarak (örn. /adres, /kargo) hazır hızlı cevap şablonlarını saniyeler içinde gönderebilirsiniz."
+        ],
+        "suggested_config_prompt": "/kargo kısayoluyla 'Siparişiniz bugün kargoya teslim edilmiştir' hızlı cevabı oluştur ve WhatsApp mesai saatlerini 09:00-18:30 yap",
+        "suggested_report_prompt": "Omnichannel kanallarına göre toplam sohbet ve AI karşılama oranlarını pasta dağılım olarak getir"
+    },
+    {
+        "id": "reports_and_custom_builder",
+        "keywords": ["rapor", "cdr", "ses kaydi", "transkript", "istatistik", "excel", "ozel rapor", "grafik", "analiz", "mola raporu", "sla raporu"],
+        "title": "Çağrı Raporları, Ses Kayıtları ve Özel Rapor Tasarımcısı",
+        "menu_path": "Çağrı Raporları & Analiz ➔ Özel Rapor Tasarımcısı / CDR",
+        "target_tab": "reports-custom-builder",
+        "target_label": "Özel Rapor Tasarımcısı'na Git",
+        "summary": "Standart 35+ hazır raporun yanı sıra, bu pencerenin üstündeki 'Özel Rapor Tasarımcısı' sekmesinden doğal dille veya sürükle-bırak metriklerle istediğiniz özel raporu oluşturup Excel/PDF olarak indirebilirsiniz.",
+        "steps": [
+            "Hemen bu pencerenin üst kısmındaki 'Özel Rapor Tasarımcısı' sekmesine tıklayın veya sol menüden 'Çağrı Raporları & Analiz' grubunu açın.",
+            "AI ile rapor üretmek için kutucuğa 'Son 7 günde temsilci bazlı cevaplanan, kaçan çağrı ve SLA yüzdesini sütun grafik yap' gibi talebinizi yazıp 'AI ile Tasarla' butonuna basın.",
+            "Dilerseniz Veri Kaynağı (Çağrılar, Kuyruklar, Molalar, Omnichannel, Kampanyalar), Gruplama Kırılımı ve Metrikleri manuel seçip raporu kaydedin ve Excel (.xlsx) çıktısı alın."
+        ],
+        "tips": [
+            "Belirli bir raporun her gün veya her hafta yöneticilere otomatik e-posta ile gitmesi için 'Santral ➔ Zamanlanmış Raporlar' modülünü kullanabilirsiniz."
+        ],
+        "suggested_config_prompt": "",
+        "suggested_report_prompt": "Son 7 günde temsilci bazlı toplam çağrı, cevaplanan, kaçan çağrı, SLA % ve ortalama konuşma süresini sütun grafikle göster"
+    },
+    {
+        "id": "security_and_roles",
+        "keywords": ["guvenlik", "kara liste", "engelleme", "2fa", "iki asamali", "cihaz kilidi", "rol", "yetki", "izin", "yedek", "geri yukleme", "fail2ban"],
+        "title": "Güvenlik Kalkanı, Rol Yetkileri, 2FA ve Geri Yükleme Noktaları",
+        "menu_path": "Ayarlar ➔ Güvenlik / Roller & Yetkiler / Sistem Yedekleri",
+        "target_tab": "settings",
+        "target_label": "Sistem Ayarları'na Git",
+        "summary": "Nornia'da granüler rol yetkilendirmesi (:read, :write, :delete), Google/Microsoft Authenticator & SMS/E-Posta 2FA, Güvenilir PC Cihaz Kilidi ve tek tıkla Geri Yükleme Noktası (Restore Point) bulunur.",
+        "steps": [
+            "Kullanıcı gruplarının hangi ekranları görebileceğini veya düzenleyebileceğini ayarlamak için 'Ayarlar ➔ Roller & Yetkiler' sekmesini açın.",
+            "İstenmeyen numaraları engellemek için 'Santral ➔ Numara Engelleme (Kara Liste)' ekranından numara ekleyin.",
+            "Kullanıcı bazlı 2FA ve Güvenilir Cihaz Kilidi (`AIDA-DEV-XXXX-YYYY`) için 'Santral ➔ Kullanıcılar' içinde ilgili kullanıcının 'Güvenlik & 2FA' sekmesini kullanın."
+        ],
+        "tips": [
+            "Kritik bir değişiklik yapmadan önce 'Ayarlar ➔ Yedekleme & Geri Yükleme' sekmesinden veya AI Konfigürasyon Asistanı ile anlık geri yükleme noktası oluşturabilirsiniz."
+        ],
+        "suggested_config_prompt": "'Haftalık Santral Yedeği' başlıklı geri yükleme noktası oluştur",
+        "suggested_report_prompt": ""
+    },
+]
+
+
+@ai_config_assistant_router.post("/api/system-assistant/ask")
+async def ask_nornia_system_assistant(request: Request, payload: Dict[str, Any] = Body(...)):
+    """Answers natural language questions about how to use Nornia, how features work, or current system status."""
+    from backend.services.ai_task_router import generate_routed_text
+
+    question = str(payload.get("question") or payload.get("prompt") or "").strip()
+    if not question:
+        raise HTTPException(status_code=400, detail="Lütfen sormak istediğiniz soruyu yazın.")
+
+    tenant_id = _extract_tenant_id(request)
+    ctx = await _gather_pbx_context(tenant_id)
+
+    live_stats = {
+        "kullanici_sayisi": len(ctx.get("users") or []),
+        "kullanicilar": [f"{u['extension']} ({u['full_name']})" for u in (ctx.get("users") or [])[:20]],
+        "kuyruk_sayisi": len(ctx.get("queues") or []),
+        "kuyruklar": [f"{q['extension']} ({q['name']})" for q in (ctx.get("queues") or [])[:15]],
+        "trunk_sayisi": len(ctx.get("trunks") or []),
+        "trunklar": [t["name"] for t in (ctx.get("trunks") or [])[:10]],
+        "ai_asistanlar": [a["name"] for a in (ctx.get("ai_agents") or [])],
+        "arama_akislari": [w["name"] for w in (ctx.get("call_flows") or [])],
+        "numara_plani_ve_kodlar": ctx.get("numbering_plan") or {},
+    }
+
+    q_norm = _tr_norm(question)
+
+    # Find best matching catalog entries for context and deterministic fallback
+    scored_guides = []
+    for g in NORNIA_GUIDE_CATALOG:
+        score = 0
+        for kw in g["keywords"]:
+            if _tr_norm(kw) in q_norm:
+                score += 3
+        for word in q_norm.split():
+            if len(word) >= 3 and any(word in _tr_norm(kw) for kw in g["keywords"]):
+                score += 1
+        scored_guides.append((score, g))
+    scored_guides.sort(key=lambda x: x[0], reverse=True)
+    best_guide = scored_guides[0][1] if scored_guides and scored_guides[0][0] > 0 else NORNIA_GUIDE_CATALOG[0]
+
+    catalog_brief = [
+        {
+            "title": g["title"],
+            "menu_path": g["menu_path"],
+            "target_tab": g["target_tab"],
+            "target_label": g["target_label"],
+            "summary": g["summary"],
+            "steps": g["steps"],
+            "tips": g["tips"],
+        }
+        for g in NORNIA_GUIDE_CATALOG
+    ]
+
+    sys_inst = (
+        "Sen 'Nornia Akıllı Sistem Rehberi ve Yardım Asistanı'sın. "
+        "Kullanıcı Nornia iletişim platformu hakkında bir soru sorduğunda veya bir işlemin nasıl yapılacağını sorduğunda "
+        "şık, net, adım adım ve kurumsal Türkçe ile yanıt verirsin.\n\n"
+        f"CANLI SİSTEM ÖZETİ (Kullanıcı mevcut sistem durumunu sorarsa kullan):\n{json.dumps(live_stats, ensure_ascii=False)}\n\n"
+        f"NORNIA EKRAN VE ÖZELLİK KILAVUZU:\n{json.dumps(catalog_brief, ensure_ascii=False)}\n\n"
+        "SADECE aşağıdaki JSON formatında yanıt döndür (Markdown kod bloğu dışına çıkma):\n"
+        "{\n"
+        '  "title": "Konu Başlığı",\n'
+        '  "summary": "Sorunun doğrudan, sıcak ve anlaşılır özeti (1-3 cümle)",\n'
+        '  "menu_path": "İlgili Menü Yolu (Örn: Santral ➔ Kullanıcılar)",\n'
+        '  "steps": ["1. adım açıklaması...", "2. adım açıklaması...", "3. adım açıklaması..."],\n'
+        '  "tips": ["Pratik ipucu 1...", "Pratik ipucu 2..."],\n'
+        '  "target_tab": "users | acd-queues | trunks | inbound-rules | outbound-rules | call-flow | announcements | ai-agents | rag-kb | realtime-calls | omnichannel | reports-custom-builder | settings | work-hours | dialer | auto-provision",\n'
+        '  "target_label": "İlgili Ekrana Git buton metni (Örn: Kullanıcılar Ekranına Git)",\n'
+        '  "suggested_config_prompt": "Eğer bu işlem AI Konfigürasyon Asistanı ile otomatik yapılabiliyorsa örnek doğal dil komutu, yoksa boş string",\n'
+        '  "suggested_report_prompt": "Eğer soru bir rapor/analiz ile ilgiliyse Özel Rapor Tasarımcısı için örnek doğal dil komutu, yoksa boş string"\n'
+        "}"
+    )
+
+    try:
+        gen_res = await generate_routed_text(
+            task_id="pbx_config_assistant",
+            prompt=question,
+            system_instruction=sys_inst,
+            json_mode=True,
+            tenant_id=tenant_id,
+            interactive=True,
+        )
+        if isinstance(gen_res, dict) and gen_res.get("text"):
+            parsed = _extract_json_dict(str(gen_res["text"]))
+            if isinstance(parsed, dict) and (parsed.get("summary") or parsed.get("steps")):
+                return {
+                    "status": "ok",
+                    "engine": gen_res.get("provider_used") or "gemini",
+                    "answer": {
+                        "title": str(parsed.get("title") or best_guide["title"]),
+                        "summary": str(parsed.get("summary") or best_guide["summary"]),
+                        "menu_path": str(parsed.get("menu_path") or best_guide["menu_path"]),
+                        "steps": [str(s) for s in (parsed.get("steps") or best_guide["steps"]) if s],
+                        "tips": [str(t) for t in (parsed.get("tips") or best_guide["tips"]) if t],
+                        "target_tab": str(parsed.get("target_tab") or best_guide["target_tab"]),
+                        "target_label": str(parsed.get("target_label") or best_guide["target_label"]),
+                        "suggested_config_prompt": str(parsed.get("suggested_config_prompt") or best_guide.get("suggested_config_prompt") or ""),
+                        "suggested_report_prompt": str(parsed.get("suggested_report_prompt") or best_guide.get("suggested_report_prompt") or ""),
+                    },
+                }
+    except Exception as e:
+        print(f"[Nornia System Assistant LLM Fallback]: {e}")
+
+    # Deterministic smart fallback
+    custom_summary = best_guide["summary"]
+    if any(k in q_norm for k in ["kac dahili", "kac kullanici", "mevcut dahili", "tanimli dahili", "kac kuyruk", "mevcut durum", "sistem ozeti"]):
+        custom_summary = (
+            f"Sisteminizde şu anda {live_stats['kullanici_sayisi']} tanımlı kullanıcı/dahili, "
+            f"{live_stats['kuyruk_sayisi']} çağrı kuyruğu, {live_stats['trunk_sayisi']} dış hat (trunk) ve "
+            f"{len(live_stats['ai_asistanlar'])} sesli AI asistan bulunuyor. {best_guide['summary']}"
+        )
+
+    return {
+        "status": "ok",
+        "engine": "nornia_knowledge_engine",
+        "answer": {
+            "title": best_guide["title"],
+            "summary": custom_summary,
+            "menu_path": best_guide["menu_path"],
+            "steps": best_guide["steps"],
+            "tips": best_guide["tips"],
+            "target_tab": best_guide["target_tab"],
+            "target_label": best_guide["target_label"],
+            "suggested_config_prompt": best_guide.get("suggested_config_prompt") or "",
+            "suggested_report_prompt": best_guide.get("suggested_report_prompt") or "",
+        },
+    }
+
