@@ -1,9 +1,11 @@
 import asyncio
 import base64
 import datetime
+import inspect
 import json
 import os
 import socket
+import ssl
 import subprocess
 import time
 import urllib.parse
@@ -151,22 +153,41 @@ def sync_asterisk_rtp_turn_config(ras_cfg: Optional[Dict[str, Any]] = None):
         print(f"[Nornia RAS] rtp.conf güncelleme uyarısı: {e}")
 
 
-def _compute_hub_ws_url(hub_url: str, subdomain: str, hw_id: str) -> str:
+def _compute_hub_ws_candidates(hub_url: str, subdomain: str, hw_id: str) -> List[str]:
+    """Returns ordered candidate WebSocket URLs (:8050, :80 via Nginx, :443 via Nginx SSL) so both LAN and WAN Firewall setups connect seamlessly."""
     raw = str(hub_url or "").strip().rstrip("/")
     if not raw:
-        return ""
-    if not raw.startswith(("http://", "https://", "ws://", "wss://")):
-        raw = f"http://{raw}"
-    parsed = urllib.parse.urlparse(raw)
-    ws_scheme = "wss" if parsed.scheme in ("https", "wss") else "ws"
+        return []
+    has_explicit_scheme = raw.startswith(("http://", "https://", "ws://", "wss://"))
+    norm = raw if has_explicit_scheme else f"http://{raw}"
+    parsed = urllib.parse.urlparse(norm)
     netloc = parsed.netloc or parsed.path
-    if ":" not in netloc and ws_scheme == "ws":
-        netloc = f"{netloc}:8050"
+    host_only = netloc.split(":")[0]
+    has_explicit_port = ":" in netloc
+
     query = urllib.parse.urlencode({
         "subdomain": subdomain or "merkez",
         "hardware_id": hw_id,
     })
-    return f"{ws_scheme}://{netloc}/api/v1/ras/tunnel?{query}"
+
+    if has_explicit_port:
+        ws_scheme = "wss" if parsed.scheme in ("https", "wss") else "ws"
+        return [f"{ws_scheme}://{netloc}/api/v1/ras/tunnel?{query}"]
+
+    if parsed.scheme in ("https", "wss"):
+        return [
+            f"wss://{host_only}/api/v1/ras/tunnel?{query}",
+            f"ws://{host_only}:8050/api/v1/ras/tunnel?{query}",
+            f"ws://{host_only}/api/v1/ras/tunnel?{query}",
+        ]
+
+    # Default when user enters an IP or hostname without port (e.g. 213.74.214.246):
+    # Try Port 80 (Nginx HTTP), Port 443 (Nginx HTTPS), and Port 8050 (Direct Hub API)
+    return [
+        f"ws://{host_only}:8050/api/v1/ras/tunnel?{query}",
+        f"ws://{host_only}/api/v1/ras/tunnel?{query}",
+        f"wss://{host_only}/api/v1/ras/tunnel?{query}",
+    ]
 
 
 def _compute_public_ras_urls(hub_url: str, subdomain: str) -> Dict[str, str]:
@@ -415,127 +436,137 @@ async def _ras_tunnel_loop():
         hw_info = get_hardware_fingerprint()
         hw_id = hw_info.get("hardware_id", "HW-UNKNOWN")
         subdomain = str(cfg.get("subdomain") or "merkez").strip().lower()
-        ws_url = _compute_hub_ws_url(str(cfg.get("hub_url")), subdomain, hw_id)
+        ws_candidates = _compute_hub_ws_candidates(str(cfg.get("hub_url")), subdomain, hw_id)
         urls_info = _compute_public_ras_urls(str(cfg.get("hub_url")), subdomain)
         RAS_RUNTIME_STATE.update(urls_info)
         RAS_RUNTIME_STATE["status"] = "connecting"
 
-        try:
-            ifaces = get_live_interfaces()
-            local_ips = [i.get("primary_cidr") for i in ifaces if i.get("primary_cidr")]
-            async with websockets.connect(
-                ws_url,
-                ping_interval=None,
-                max_size=32 * 1024 * 1024,
-                extra_headers={
-                    "X-Hardware-ID": hw_id,
-                    "X-RAS-Subdomain": subdomain,
-                    "X-RAS-Token": str(cfg.get("secret_token") or ""),
-                },
-            ) as tunnel_ws:
-                # Send initial registration handshake
-                hello_payload = {
-                    "type": "RAS_REGISTER",
-                    "hardware_id": hw_id,
-                    "hostname": socket.gethostname(),
-                    "subdomain": subdomain,
-                    "secret_token": str(cfg.get("secret_token") or ""),
-                    "remote_ssh_enabled": bool(cfg.get("remote_ssh_enabled", True)),
-                    "local_ips": local_ips,
-                    "version": "v2.4.8",
+        last_conn_err = ""
+        for ws_url in ws_candidates:
+            if _ras_reconnect_event.is_set():
+                break
+            try:
+                ifaces = get_live_interfaces()
+                local_ips = [i.get("primary_cidr") for i in ifaces if i.get("primary_cidr")]
+                conn_kwargs: Dict[str, Any] = {
+                    "ping_interval": None,
+                    "max_size": 32 * 1024 * 1024,
+                    "open_timeout": 5.0,
                 }
-                t0 = time.monotonic()
-                await tunnel_ws.send(json.dumps(hello_payload))
+                if ws_url.startswith("wss://"):
+                    ssl_ctx = ssl.create_default_context()
+                    ssl_ctx.check_hostname = False
+                    ssl_ctx.verify_mode = ssl.CERT_NONE
+                    conn_kwargs["ssl"] = ssl_ctx
 
-                RAS_RUNTIME_STATE["status"] = "connected"
-                RAS_RUNTIME_STATE["connected"] = True
-                RAS_RUNTIME_STATE["last_connected_at"] = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                RAS_RUNTIME_STATE["last_error"] = ""
-                RAS_RUNTIME_STATE["latency_ms"] = round((time.monotonic() - t0) * 1000, 1)
+                async with websockets.connect(ws_url, **conn_kwargs) as tunnel_ws:
+                    # Send initial registration handshake
+                    hello_payload = {
+                        "type": "RAS_REGISTER",
+                        "hardware_id": hw_id,
+                        "hostname": socket.gethostname(),
+                        "subdomain": subdomain,
+                        "secret_token": str(cfg.get("secret_token") or ""),
+                        "remote_ssh_enabled": bool(cfg.get("remote_ssh_enabled", True)),
+                        "local_ips": local_ips,
+                        "version": "v2.4.8",
+                    }
+                    t0 = time.monotonic()
+                    await tunnel_ws.send(json.dumps(hello_payload))
 
-                async def _ping_keepalive():
-                    while True:
-                        await asyncio.sleep(15)
-                        p_start = time.monotonic()
-                        await tunnel_ws.send(
-                            json.dumps({
-                                "type": "PING",
-                                "ts": p_start,
-                                "remote_ssh_enabled": bool(get_ras_config().get("remote_ssh_enabled", True)),
-                            })
-                        )
+                    RAS_RUNTIME_STATE["status"] = "connected"
+                    RAS_RUNTIME_STATE["connected"] = True
+                    RAS_RUNTIME_STATE["last_connected_at"] = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                    RAS_RUNTIME_STATE["last_error"] = ""
+                    RAS_RUNTIME_STATE["latency_ms"] = round((time.monotonic() - t0) * 1000, 1)
 
-                ping_task = asyncio.create_task(_ping_keepalive())
-                try:
-                    async for raw_msg in tunnel_ws:
-                        if _ras_reconnect_event.is_set():
-                            _ras_reconnect_event.clear()
-                            break
-                        try:
-                            msg = json.loads(raw_msg)
-                        except Exception:
-                            continue
+                    async def _ping_keepalive():
+                        while True:
+                            await asyncio.sleep(15)
+                            p_start = time.monotonic()
+                            await tunnel_ws.send(
+                                json.dumps({
+                                    "type": "PING",
+                                    "ts": p_start,
+                                    "remote_ssh_enabled": bool(get_ras_config().get("remote_ssh_enabled", True)),
+                                })
+                            )
 
-                        mtype = msg.get("type")
-                        if mtype == "PONG":
-                            sent_ts = float(msg.get("ts") or 0)
-                            if sent_ts > 0:
-                                RAS_RUNTIME_STATE["latency_ms"] = max(1, round((time.monotonic() - sent_ts) * 1000, 1))
-                            RAS_RUNTIME_STATE["last_ping_at"] = datetime.datetime.now().strftime("%H:%M:%S")
-                        elif mtype == "RAS_WELCOME":
-                            if msg.get("public_ras_url"):
-                                RAS_RUNTIME_STATE["public_ras_url"] = msg["public_ras_url"]
-                                RAS_RUNTIME_STATE["mobile_ras_url"] = msg["public_ras_url"]
-                            if msg.get("wss_sip_url"):
-                                RAS_RUNTIME_STATE["wss_sip_url"] = msg["wss_sip_url"]
-                        elif mtype == "HTTP_REQ":
-                            asyncio.create_task(_handle_tunneled_http_request(tunnel_ws, msg))
-                        elif mtype == "WS_OPEN":
-                            await _handle_tunneled_ws_open(tunnel_ws, msg)
-                        elif mtype == "WS_DATA":
-                            sid = str(msg.get("stream_id") or "")
-                            l_ws = _active_ws_conns.get(sid)
-                            if l_ws:
-                                data_val = msg.get("data") or ""
-                                if msg.get("is_binary"):
-                                    raw_b = base64.b64decode(data_val)
+                    ping_task = asyncio.create_task(_ping_keepalive())
+                    try:
+                        async for raw_msg in tunnel_ws:
+                            if _ras_reconnect_event.is_set():
+                                _ras_reconnect_event.clear()
+                                break
+                            try:
+                                msg = json.loads(raw_msg)
+                            except Exception:
+                                continue
+
+                            mtype = msg.get("type")
+                            if mtype == "PONG":
+                                sent_ts = float(msg.get("ts") or 0)
+                                if sent_ts > 0:
+                                    RAS_RUNTIME_STATE["latency_ms"] = max(1, round((time.monotonic() - sent_ts) * 1000, 1))
+                                RAS_RUNTIME_STATE["last_ping_at"] = datetime.datetime.now().strftime("%H:%M:%S")
+                            elif mtype == "RAS_WELCOME":
+                                if msg.get("public_ras_url"):
+                                    RAS_RUNTIME_STATE["public_ras_url"] = msg["public_ras_url"]
+                                    RAS_RUNTIME_STATE["mobile_ras_url"] = msg["public_ras_url"]
+                                if msg.get("wss_sip_url"):
+                                    RAS_RUNTIME_STATE["wss_sip_url"] = msg["wss_sip_url"]
+                            elif mtype == "HTTP_REQ":
+                                asyncio.create_task(_handle_tunneled_http_request(tunnel_ws, msg))
+                            elif mtype == "WS_OPEN":
+                                await _handle_tunneled_ws_open(tunnel_ws, msg)
+                            elif mtype == "WS_DATA":
+                                sid = str(msg.get("stream_id") or "")
+                                l_ws = _active_ws_conns.get(sid)
+                                if l_ws:
+                                    data_val = msg.get("data") or ""
+                                    if msg.get("is_binary"):
+                                        raw_b = base64.b64decode(data_val)
+                                        RAS_RUNTIME_STATE["bytes_rx"] += len(raw_b)
+                                        await l_ws.send(raw_b)
+                                    else:
+                                        RAS_RUNTIME_STATE["bytes_rx"] += len(data_val)
+                                        await l_ws.send(data_val)
+                            elif mtype == "WS_CLOSE":
+                                sid = str(msg.get("stream_id") or "")
+                                l_ws = _active_ws_conns.pop(sid, None)
+                                if l_ws:
+                                    try:
+                                        await l_ws.close()
+                                    except Exception:
+                                        pass
+                            elif mtype == "TCP_OPEN":
+                                await _handle_tunneled_tcp_open(tunnel_ws, msg)
+                            elif mtype == "TCP_DATA":
+                                sid = str(msg.get("stream_id") or "")
+                                writer = _active_tcp_writers.get(sid)
+                                if writer:
+                                    raw_b = base64.b64decode(msg.get("data_b64") or "")
                                     RAS_RUNTIME_STATE["bytes_rx"] += len(raw_b)
-                                    await l_ws.send(raw_b)
-                                else:
-                                    RAS_RUNTIME_STATE["bytes_rx"] += len(data_val)
-                                    await l_ws.send(data_val)
-                        elif mtype == "WS_CLOSE":
-                            sid = str(msg.get("stream_id") or "")
-                            l_ws = _active_ws_conns.pop(sid, None)
-                            if l_ws:
-                                try:
-                                    await l_ws.close()
-                                except Exception:
-                                    pass
-                        elif mtype == "TCP_OPEN":
-                            await _handle_tunneled_tcp_open(tunnel_ws, msg)
-                        elif mtype == "TCP_DATA":
-                            sid = str(msg.get("stream_id") or "")
-                            writer = _active_tcp_writers.get(sid)
-                            if writer:
-                                raw_b = base64.b64decode(msg.get("data_b64") or "")
-                                RAS_RUNTIME_STATE["bytes_rx"] += len(raw_b)
-                                writer.write(raw_b)
-                                await writer.drain()
-                        elif mtype == "TCP_CLOSE":
-                            sid = str(msg.get("stream_id") or "")
-                            writer = _active_tcp_writers.pop(sid, None)
-                            if writer:
-                                try:
-                                    writer.close()
-                                except Exception:
-                                    pass
-                finally:
-                    ping_task.cancel()
-        except Exception as exc:
+                                    writer.write(raw_b)
+                                    await writer.drain()
+                            elif mtype == "TCP_CLOSE":
+                                sid = str(msg.get("stream_id") or "")
+                                writer = _active_tcp_writers.pop(sid, None)
+                                if writer:
+                                    try:
+                                        writer.close()
+                                    except Exception:
+                                        pass
+                    finally:
+                        ping_task.cancel()
+                    break
+            except Exception as exc:
+                last_conn_err = f"{ws_url.split('?')[0]} -> {exc}"
+
+        if not RAS_RUNTIME_STATE.get("connected") and last_conn_err:
             RAS_RUNTIME_STATE["status"] = "error"
             RAS_RUNTIME_STATE["connected"] = False
-            RAS_RUNTIME_STATE["last_error"] = str(exc)
+            RAS_RUNTIME_STATE["last_error"] = last_conn_err
             RAS_RUNTIME_STATE["reconnect_count"] = int(RAS_RUNTIME_STATE.get("reconnect_count") or 0) + 1
 
         _ras_reconnect_event.clear()
@@ -585,7 +616,9 @@ async def get_ras_status_endpoint(request: Request):
 async def save_ras_config_endpoint(request: Request, payload: Dict[str, Any] = Body(...)):
     from backend.main import get_user_info, log_event, save_settings, settings_db
 
-    u_info = await get_user_info(request)
+    u_info = get_user_info(request)
+    if inspect.isawaitable(u_info):
+        u_info = await u_info
     current = get_ras_config()
 
     updated = {

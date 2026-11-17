@@ -1,5 +1,6 @@
 import asyncio
 import datetime
+import inspect
 import ipaddress
 import json
 import os
@@ -207,7 +208,9 @@ async def _verify_step_up_admin_security(
     from backend.database.models import SystemUser
     from sqlalchemy import select
 
-    u_info = await get_user_info(request)
+    u_info = get_user_info(request)
+    if inspect.isawaitable(u_info):
+        u_info = await u_info
     uid = str(u_info.get("user_id") or request.headers.get("X-User-ID") or "admin").strip()
 
     pwd_clean = str(password or "").strip()
