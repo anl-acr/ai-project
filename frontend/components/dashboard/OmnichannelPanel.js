@@ -1619,6 +1619,7 @@ export default function OmnichannelPanel({ backendHost = "localhost:8000" }) {
                       <div className="flex items-center gap-1.5 min-w-0 max-w-[68%]">
                         {unread && <span className="w-2 h-2 rounded-full bg-rose-500 shrink-0 animate-pulse" />}
                         <span
+                          data-no-translate="true"
                           className={`text-xs truncate ${
                             unread
                               ? "font-black text-slate-950 dark:text-white"
@@ -1632,12 +1633,16 @@ export default function OmnichannelPanel({ backendHost = "localhost:8000" }) {
                     </div>
 
                     {session.recipient_info && (
-                      <span className="text-[9px] font-bold text-primary bg-primary/10 border border-primary/20 px-1.5 py-0.5 rounded-md self-start truncate max-w-full">
+                      <span
+                        data-no-translate="true"
+                        className="text-[9px] font-bold text-primary bg-primary/10 border border-primary/20 px-1.5 py-0.5 rounded-md self-start truncate max-w-full"
+                      >
                         {session.recipient_info}
                       </span>
                     )}
 
                     <p
+                      data-no-translate="true"
                       className={`text-[11px] truncate ${
                         unread
                           ? "text-slate-900 dark:text-white font-bold"
@@ -1747,7 +1752,7 @@ export default function OmnichannelPanel({ backendHost = "localhost:8000" }) {
                   />
                   <div className="text-left min-w-0">
                     <h4 className="text-xs font-bold text-slate-800 dark:text-white leading-none flex items-center gap-1.5 flex-wrap">
-                      <span className="truncate max-w-[260px]">
+                      <span data-no-translate="true" className="truncate max-w-[260px]">
                         {activeSession.sender_name
                           ? `${activeSession.sender_name} (${activeSession.sender_info})`
                           : activeSession.sender_info}
@@ -2030,6 +2035,7 @@ export default function OmnichannelPanel({ backendHost = "localhost:8000" }) {
                           </span>
 
                           <div
+                            data-no-translate="true"
                             className={`p-3.5 rounded-2xl text-xs leading-relaxed font-semibold ${
                               isCustomer
                                 ? "bg-white dark:bg-slate-800 border border-slate-200/50 dark:border-slate-700 text-slate-800 dark:text-slate-200 rounded-tl-none shadow-sm"
@@ -2103,11 +2109,11 @@ export default function OmnichannelPanel({ backendHost = "localhost:8000" }) {
                           }}
                           className="w-full text-left px-2.5 py-1.5 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-800 transition flex items-center justify-between gap-4"
                         >
-                          <div className="flex flex-col gap-0.5">
+                          <div className="flex flex-col gap-0.5" data-no-translate="true">
                             <span className="text-[11px] font-mono font-bold text-primary">{item.shortcut}</span>
                             <span className="text-[10px] text-slate-500 dark:text-slate-400 font-semibold">{item.title}</span>
                           </div>
-                          <span className="text-[10px] text-slate-500 dark:text-slate-400 truncate max-w-xs">{item.content}</span>
+                          <span data-no-translate="true" className="text-[10px] text-slate-500 dark:text-slate-400 truncate max-w-xs">{item.content}</span>
                         </button>
                       ))}
                   </div>

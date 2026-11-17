@@ -1089,7 +1089,7 @@ export default function AgentChatTab({ backendHost, currentUser, isVisible = tru
                               </div>
                               <div className="truncate min-w-0 flex-1">
                                 <div className="flex items-center justify-between gap-1">
-                                  <p className={`text-xs font-bold truncate ${isSelected ? "text-rose-600 dark:text-rose-400" : "text-slate-800 dark:text-white"}`}>
+                                  <p data-no-translate="true" className={`text-xs font-bold truncate ${isSelected ? "text-rose-600 dark:text-rose-400" : "text-slate-800 dark:text-white"}`}>
                                     {displayName}
                                   </p>
                                   <div className="flex items-center gap-1.5 shrink-0">
@@ -1111,7 +1111,7 @@ export default function AgentChatTab({ backendHost, currentUser, isVisible = tru
                                   }`}>
                                     {isAi ? "🤖 AI" : isEmailChannel(session.channel) ? "E-Posta" : (session.channel || "WhatsApp")}
                                   </span>
-                                  <p className="text-xs text-slate-450 dark:text-slate-400 truncate font-normal flex-1">
+                                  <p data-no-translate="true" className="text-xs text-slate-450 dark:text-slate-400 truncate font-normal flex-1">
                                     {formatSessionPreviewText(session.last_message_text, session.channel)}
                                   </p>
                                 </div>
@@ -1180,7 +1180,7 @@ export default function AgentChatTab({ backendHost, currentUser, isVisible = tru
                               </div>
                               <div className="truncate min-w-0 flex-1">
                                 <div className="flex items-center justify-between gap-2">
-                                  <p className={`text-xs font-bold truncate ${isSelected ? "text-primary" : "text-slate-800 dark:text-white"}`}>
+                                  <p data-no-translate="true" className={`text-xs font-bold truncate ${isSelected ? "text-primary" : "text-slate-800 dark:text-white"}`}>
                                     {session.customerName}
                                   </p>
                                   {session.unread > 0 && (
@@ -1191,7 +1191,7 @@ export default function AgentChatTab({ backendHost, currentUser, isVisible = tru
                                 </div>
                                 <div className="flex items-center gap-1 mt-0.5 min-w-0">
                                   {lastMsgObj && lastMsgObj.sender === "agent" && renderMessageTick(lastMsgObj.status, 12)}
-                                  <p className="text-xs text-slate-450 dark:text-slate-500 truncate font-medium">
+                                  <p data-no-translate={lastMsgObj ? "true" : undefined} className="text-xs text-slate-450 dark:text-slate-500 truncate font-medium">
                                     {lastMsgObj ? lastMsgObj.text : "Mesaj yok..."}
                                   </p>
                                 </div>
@@ -1324,7 +1324,7 @@ export default function AgentChatTab({ backendHost, currentUser, isVisible = tru
                       )}
                     </div>
                     <div>
-                      <h3 className="text-sm font-bold text-slate-800 dark:text-white flex items-center gap-2">
+                      <h3 data-no-translate="true" className="text-sm font-bold text-slate-800 dark:text-white flex items-center gap-2">
                         {chatTab === "customer" 
                           ? (selectedCustomerChat?.sender_name || selectedCustomerChat?.sender_info || "Müşteri")
                           : selectedInternalChat?.customerName
@@ -1472,6 +1472,7 @@ export default function AgentChatTab({ backendHost, currentUser, isVisible = tru
                                 </span>
                               )}
                               <div
+                                data-no-translate="true"
                                 className={`p-3.5 rounded-2xl text-xs leading-relaxed shadow-sm whitespace-pre-wrap break-words [overflow-wrap:anywhere] ${
                                   isAgent
                                     ? `${bg} text-white rounded-tr-none`
@@ -1521,6 +1522,7 @@ export default function AgentChatTab({ backendHost, currentUser, isVisible = tru
                                 </button>
                               )}
                               <div
+                                data-no-translate="true"
                                 className={`p-3.5 rounded-2xl text-xs leading-relaxed shadow-sm whitespace-pre-wrap break-words [overflow-wrap:anywhere] ${
                                   isAgent
                                     ? `${bg} text-white rounded-tr-none`

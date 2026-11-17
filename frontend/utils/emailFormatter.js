@@ -583,7 +583,7 @@ export function EmailMessageCard({
             >
               {isCustomer ? <Mail size={14} /> : isAi ? <Bot size={14} /> : <User size={14} />}
             </div>
-            <div className="min-w-0">
+            <div className="min-w-0" data-no-translate="true">
               <div className="text-xs font-extrabold text-slate-900 dark:text-white leading-snug break-words">
                 {effectiveSubject || "(Konusuz E-Posta)"}
               </div>
@@ -622,7 +622,7 @@ export function EmailMessageCard({
       </div>
 
       {/* Email Body */}
-      <div className="px-4 py-3.5 space-y-3">
+      <div className="px-4 py-3.5 space-y-3" data-no-translate="true">
         {parsed.isHtml ? (
           <SanitizedEmailHtml
             html={parsed.htmlBody}

@@ -302,8 +302,24 @@ const EXACT_TR_TO_EN = {
   "AI Not Çıkarıyor...": "Extracting AI Note...",
   "AI Not Önerisi": "AI Note Suggestion",
   "AI'ya Devret": "Hand Over to AI",
+  "AI'a Aktar": "Hand Over to AI",
   "Sohbeti Devral": "Take Over Chat",
   "Sohbeti Yapay Zeka Asistanına geri devret": "Hand chat back over to AI Assistant",
+  "Sohbet Yapay Zeka Asistanına geri devredilmiştir.": "Chat has been handed back to the AI Assistant.",
+  "Sohbet Yapay Zeka Asistanına geri devredilmiştir": "Chat has been handed back to the AI Assistant",
+  "Sohbet canlı temsilci tarafından devralındı.": "Chat has been taken over by a live agent.",
+  "Sohbet canlı temsilci tarafından devralındı": "Chat has been taken over by a live agent",
+  "Canlı sohbet yapay zekada. Mesaj göndermek için 'Sohbeti Devral' butonuna basın...": "Chat is currently handled by AI. Click 'Take Over Chat' to send a message...",
+  "E-posta yanıtı yapay zekada. Yanıt yazmak için sağ üstten 'Sohbeti Devral' butonuna basın...": "Email reply is handled by AI. Click 'Take Over Chat' at the top right to reply...",
+  "Müşteriye yanıt yazın, mikrofonla dikte edin veya dosya sürükleyip bırakın... (Şablonlar için / yazın)": "Type a reply to the customer, dictate with microphone, or drag & drop a file... (Type / for templates)",
+  "E-posta yanıtınızı yazın (Alt satır için Enter, hızlı gönderim için Ctrl+Enter, şablonlar için / yazın)...": "Type your email reply (Enter for new line, Ctrl+Enter for quick send, / for templates)...",
+  "AI Yanıtlıyor": "AI Replying",
+  "Temsilcide": "Assigned to Agent",
+  "🤖 Yapay Zeka Temsilcisi": "🤖 AI Agent",
+  "🤖 Yapay Zeka Asistanı": "🤖 AI Assistant",
+  "👤 Temsilci": "👤 Agent",
+  "E-POSTA": "E-MAIL",
+  "E-Posta": "E-Mail",
   "Mesaj Gönder": "Send Message",
   "Mesajı Benden Sil": "Delete for Me",
   "Bu mesajı benden sil": "Delete this message for me",
@@ -3992,6 +4008,16 @@ const TECH_ACRONYMS = new Set([
 ]);
 
 function translateCompositionalTrToEn(str) {
+  // Never run word-by-word compositional replacement on conversational messages,
+  // multi-sentence paragraphs, or texts containing chat emojis (😊, 🚀, 🤔, etc.)
+  if (
+    str.length > 90 ||
+    /[!؟?]\s+[A-ZÇĞİÖŞÜa-zçğıöşü]/.test(str) ||
+    /[\u{1F600}-\u{1F64F}\u{1F680}-\u{1F6FF}\u{1F900}-\u{1F9FF}]/u.test(str)
+  ) {
+    return str;
+  }
+
   // Guard against translating surnames in 2-3 word Person Full Names (e.g. "Anıl Özel", "Cihan Köprü")
   const simpleWords = str.trim().split(/\s+/);
   if (
@@ -4048,6 +4074,15 @@ export function translateStringToEn(rawStr) {
   if (!rawStr || typeof rawStr !== "string") return rawStr;
   const trimmed = rawStr.trim();
   if (!trimmed) return rawStr;
+
+  // Never modify email addresses, URLs, or domain strings (e.g. destek@testteknoloji.com.tr)
+  if (
+    /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/.test(trimmed) ||
+    /^https?:\/\//i.test(trimmed) ||
+    /\b[a-zA-Z0-9-]+\.(com|net|org|gov|edu|io|co)(\.tr)?\b/i.test(trimmed)
+  ) {
+    return rawStr;
+  }
 
   const exact =
     EXACT_TR_TO_EN[trimmed] ||
@@ -4197,7 +4232,8 @@ export function applyDomLanguagePass(targetLang) {
     const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, null);
     let node;
     while ((node = walker.nextNode())) {
-      const parentTag = node.parentElement ? node.parentElement.tagName : "";
+      const parentEl = node.parentElement;
+      const parentTag = parentEl ? parentEl.tagName : "";
       if (
         parentTag === "SCRIPT" ||
         parentTag === "STYLE" ||
@@ -4205,6 +4241,20 @@ export function applyDomLanguagePass(targetLang) {
         parentTag === "TEXTAREA" ||
         parentTag === "CODE"
       ) {
+        continue;
+      }
+
+      // Skip chat messages, email bodies, sender emails, and call transcripts
+      if (
+        parentEl &&
+        typeof parentEl.closest === "function" &&
+        parentEl.closest(
+          '[data-no-translate="true"], [translate="no"], .email-sanitized-body, .whitespace-pre-wrap, .whitespace-pre-line'
+        )
+      ) {
+        if (node.__aidaOrigTrVal && node.nodeValue === node.__aidaLastEnVal) {
+          node.nodeValue = node.__aidaOrigTrVal;
+        }
         continue;
       }
 
