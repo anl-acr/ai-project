@@ -1,11 +1,16 @@
 import os
 import sys
+import time
+import hmac
+import base64
+import struct
+import urllib.parse
 import datetime
 import asyncio
 import hashlib
 import json
 from typing import List, Optional, Dict, Any
-from fastapi import FastAPI, Depends, HTTPException, Request
+from fastapi import FastAPI, Depends, HTTPException, Request, Body
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from sqlalchemy import select, func, update, delete
@@ -17,13 +22,22 @@ if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 
 from license_center.backend.database import get_central_db, init_central_db, AsyncSessionLocal
-from license_center.backend.models import ClientServer, LicenseRecord, TelemetryLog, MasterUser, MasterAuditLog
+from license_center.backend.models import (
+    ClientServer,
+    LicenseRecord,
+    TelemetryLog,
+    MasterUser,
+    MasterAuditLog,
+    MasterBlockedIP,
+    MasterSecurityPolicy,
+)
 from license_center.backend.license_generator import (
     generate_signed_license_key,
     verify_signed_license_key,
     compute_system_serial_number,
     generate_tenant_serial_number,
-    generate_nornia_root_sso_token
+    generate_nornia_root_sso_token,
+    LICENSE_MASTER_SECRET,
 )
 
 app = FastAPI(title="Nornia Cloud Center - Central License & Fleet Management API", version="2.5.0")
@@ -39,6 +53,202 @@ app.add_middleware(
 def hash_password(password: str) -> str:
     """Computes SHA-256 hash for secure user password storage."""
     return hashlib.sha256(f"AIDA_MASTER_SALT_{password.strip()}".encode("utf-8")).hexdigest()
+
+
+def extract_client_ip(request: Request) -> str:
+    """Extracts the real client IP address behind Nginx reverse proxy."""
+    xff = request.headers.get("x-forwarded-for") or request.headers.get("x-real-ip")
+    if xff:
+        return xff.split(",")[0].strip()
+    return request.client.host if request.client else "127.0.0.1"
+
+
+# --------------------------------------------------------------------------
+# Pure-Python RFC 6238 TOTP (Google / Microsoft Authenticator) Engine
+# --------------------------------------------------------------------------
+def generate_totp_secret() -> str:
+    """Generates a 16-character RFC 4648 Base32 TOTP secret (80 bits)."""
+    return base64.b32encode(os.urandom(10)).decode("utf-8").rstrip("=")
+
+
+def compute_totp_code(secret_b32: str, time_step: Optional[int] = None) -> str:
+    """Computes a 6-digit RFC 6238 TOTP code for a Base32 secret."""
+    clean = (secret_b32 or "").strip().upper().replace(" ", "")
+    padded = clean + "=" * ((8 - len(clean) % 8) % 8)
+    key = base64.b32decode(padded, casefold=True)
+    step = time_step if time_step is not None else int(time.time() // 30)
+    msg = struct.pack(">Q", step)
+    digest = hmac.new(key, msg, hashlib.sha1).digest()
+    offset = digest[-1] & 0x0F
+    code_int = (struct.unpack(">I", digest[offset:offset + 4])[0] & 0x7FFFFFFF) % 1000000
+    return f"{code_int:06d}"
+
+
+def verify_totp_code(secret_b32: str, code: str) -> bool:
+    """Verifies a 6-digit TOTP code allowing ±1 time step (30s) clock drift."""
+    if not secret_b32 or not code:
+        return False
+    clean_code = str(code).strip().replace(" ", "")
+    if not clean_code.isdigit() or len(clean_code) != 6:
+        return False
+    now_step = int(time.time() // 30)
+    for delta in (-1, 0, 1):
+        try:
+            if hmac.compare_digest(compute_totp_code(secret_b32, now_step + delta), clean_code):
+                return True
+        except Exception:
+            pass
+    return False
+
+
+def generate_2fa_temp_token(user_id: int, username: str) -> str:
+    """Generates a 5-minute HMAC-signed token between password check and 2FA code verification."""
+    exp = int(time.time()) + 300
+    payload_str = f"{user_id}:{username}:{exp}"
+    b64 = base64.urlsafe_b64encode(payload_str.encode("utf-8")).decode("utf-8").rstrip("=")
+    sig = hmac.new(
+        LICENSE_MASTER_SECRET.encode("utf-8"),
+        f"2FA_TEMP:{b64}".encode("utf-8"),
+        hashlib.sha256,
+    ).hexdigest()[:16].upper()
+    return f"T2FA.{b64}.{sig}"
+
+
+def verify_2fa_temp_token(token: str) -> Optional[int]:
+    """Verifies the 2FA challenge temp token and returns the user_id if valid."""
+    if not token or not token.startswith("T2FA."):
+        return None
+    parts = token.strip().split(".")
+    if len(parts) != 3:
+        return None
+    _, b64, sig = parts
+    expected_sig = hmac.new(
+        LICENSE_MASTER_SECRET.encode("utf-8"),
+        f"2FA_TEMP:{b64}".encode("utf-8"),
+        hashlib.sha256,
+    ).hexdigest()[:16].upper()
+    if not hmac.compare_digest(sig.upper(), expected_sig):
+        return None
+    try:
+        padded = b64 + "=" * (-len(b64) % 4)
+        raw = base64.urlsafe_b64decode(padded.encode("utf-8")).decode("utf-8")
+        uid_str, _, exp_str = raw.split(":", 2)
+        if int(time.time()) > int(exp_str):
+            return None
+        return int(uid_str)
+    except Exception:
+        return None
+
+
+# --------------------------------------------------------------------------
+# Brute-Force Protection & Security Policy Helpers
+# --------------------------------------------------------------------------
+_FAILED_LOGIN_TRACKER: Dict[str, List[float]] = {}
+
+
+async def get_or_create_security_policy(db: AsyncSession) -> MasterSecurityPolicy:
+    res = await db.execute(select(MasterSecurityPolicy).order_by(MasterSecurityPolicy.id.asc()))
+    pol = res.scalars().first()
+    if not pol:
+        pol = MasterSecurityPolicy(
+            max_failed_attempts=5,
+            block_duration_minutes=60,
+            auto_logout_minutes=15,
+            whitelisted_ips_json="[]",
+        )
+        db.add(pol)
+        await db.commit()
+        await db.refresh(pol)
+    return pol
+
+
+def parse_whitelisted_ips(pol: MasterSecurityPolicy) -> List[str]:
+    try:
+        arr = json.loads(pol.whitelisted_ips_json or "[]")
+        return [str(x).strip() for x in arr if str(x).strip()]
+    except Exception:
+        return []
+
+
+async def check_ip_blocked(db: AsyncSession, client_ip: str, pol: MasterSecurityPolicy):
+    """Checks if client_ip is currently blocked by Brute-Force or manual IP ban."""
+    if not client_ip or client_ip in ("127.0.0.1", "::1", "localhost"):
+        return
+    whitelist = parse_whitelisted_ips(pol)
+    if client_ip in whitelist:
+        return
+
+    res = await db.execute(select(MasterBlockedIP).where(MasterBlockedIP.ip_address == client_ip))
+    blk = res.scalars().first()
+    if not blk:
+        return
+
+    now = datetime.datetime.utcnow()
+    if not blk.is_permanent and blk.blocked_until and blk.blocked_until <= now:
+        await db.delete(blk)
+        await db.commit()
+        _FAILED_LOGIN_TRACKER.pop(client_ip, None)
+        return
+
+    if blk.is_permanent:
+        raise HTTPException(
+            status_code=429,
+            detail=f"IP adresiniz ({client_ip}) güvenlik politikası gereği kalıcı olarak engellenmiştir. ({blk.reason})",
+        )
+
+    mins_left = max(1, int(((blk.blocked_until - now).total_seconds() + 59) // 60)) if blk.blocked_until else pol.block_duration_minutes
+    raise HTTPException(
+        status_code=429,
+        detail=f"Çok fazla hatalı giriş denemesi nedeniyle IP adresiniz ({client_ip}) geçici olarak engellenmiştir. Kalan süre: {mins_left} dakika.",
+    )
+
+
+async def record_failed_login_attempt(db: AsyncSession, client_ip: str, username: str, pol: MasterSecurityPolicy) -> int:
+    """Records a failed login attempt for client_ip and auto-bans if threshold is reached. Returns remaining attempts."""
+    if not client_ip or client_ip in ("127.0.0.1", "::1", "localhost") or client_ip in parse_whitelisted_ips(pol):
+        return pol.max_failed_attempts
+
+    now_ts = time.time()
+    window_start = now_ts - 900  # 15-minute rolling window
+    history = [ts for ts in _FAILED_LOGIN_TRACKER.get(client_ip, []) if ts > window_start]
+    history.append(now_ts)
+    _FAILED_LOGIN_TRACKER[client_ip] = history
+
+    attempts = len(history)
+    max_att = max(2, int(pol.max_failed_attempts or 5))
+    if attempts >= max_att:
+        dur_mins = max(1, int(pol.block_duration_minutes or 60))
+        until_dt = datetime.datetime.utcnow() + datetime.timedelta(minutes=dur_mins)
+        res = await db.execute(select(MasterBlockedIP).where(MasterBlockedIP.ip_address == client_ip))
+        blk = res.scalars().first()
+        reason_str = f"Brute-Force Koruması ({attempts} hatalı giriş - Son denenen: {username})"
+        if not blk:
+            blk = MasterBlockedIP(
+                ip_address=client_ip,
+                reason=reason_str,
+                failed_attempts=attempts,
+                blocked_until=until_dt,
+                is_permanent=False,
+            )
+            db.add(blk)
+        else:
+            blk.failed_attempts = attempts
+            blk.blocked_until = until_dt
+            blk.reason = reason_str
+        await db.commit()
+        await log_master_action(
+            db,
+            username or "unknown",
+            "BRUTE_FORCE_BAN",
+            f"IP Otomatik Engellendi: {client_ip} ({attempts} hatalı giriş, Süre: {dur_mins} dk)",
+            client_ip,
+        )
+        raise HTTPException(
+            status_code=429,
+            detail=f"{attempts} kez hatalı giriş yapıldığı için IP adresiniz ({client_ip}) {dur_mins} dakika süreyle engellenmiştir.",
+        )
+
+    return max(0, max_att - attempts)
 
 async def log_master_action(db: AsyncSession, username: str, action: str, details: str, ip_address: str = None, user_id: int = None):
     """Utility function to log all central admin user actions into MasterAuditLog."""
@@ -153,11 +363,20 @@ class MasterUserCreateSchema(BaseModel):
     performed_by: Optional[str] = "admin"
 
 # --------------------------------------------------------------------------
-# Auth & User Management Endpoints
+# Auth, 2FA (TOTP), Brute-Force Guard & User Management Endpoints
 # --------------------------------------------------------------------------
+class Verify2FASchema(BaseModel):
+    temp_token: str
+    code: str
+
+
 @app.post("/api/v1/auth/login")
 async def login_master_user(payload: LoginSchema, request: Request, db: AsyncSession = Depends(get_central_db)):
-    """Authenticates central master user (by case-insensitive username, email, or full name) and returns session object."""
+    """Authenticates central master user with Brute-Force IP protection and 2FA (TOTP) support."""
+    client_ip = extract_client_ip(request)
+    pol = await get_or_create_security_policy(db)
+    await check_ip_blocked(db, client_ip, pol)
+
     login_ident = payload.username.strip().lower()
     res = await db.execute(
         select(MasterUser).where(
@@ -169,35 +388,98 @@ async def login_master_user(payload: LoginSchema, request: Request, db: AsyncSes
     user = res.scalars().first()
     
     if not user or user.password_hash != hash_password(payload.password):
-        await log_master_action(db, payload.username, "USER_LOGIN_FAILED", f"Başarısız Giriş Denemesi (Kullanıcı: {payload.username})", request.client.host if request.client else None)
-        raise HTTPException(status_code=401, detail="Kullanıcı adı veya şifre hatalı.")
+        await log_master_action(db, payload.username, "USER_LOGIN_FAILED", f"Başarısız Giriş Denemesi (Kullanıcı: {payload.username})", client_ip)
+        rem = await record_failed_login_attempt(db, client_ip, payload.username, pol)
+        raise HTTPException(status_code=401, detail=f"Kullanıcı adı veya şifre hatalı. (Kalan deneme hakkı: {rem})")
         
     if not user.is_active:
         raise HTTPException(status_code=403, detail="Bu kullanıcı hesabı pasife alınmıştır.")
-        
+
+    # Check if 2FA (Google Authenticator) is enabled for this user
+    if user.totp_enabled and user.totp_secret:
+        temp_token = generate_2fa_temp_token(user.id, user.username)
+        return {
+            "success": True,
+            "requires_2fa": True,
+            "temp_token": temp_token,
+            "username": user.username,
+            "full_name": user.full_name,
+        }
+
+    _FAILED_LOGIN_TRACKER.pop(client_ip, None)
     user.last_login_at = datetime.datetime.utcnow()
     await db.commit()
     
-    await log_master_action(db, user.username, "USER_LOGIN", f"Başarılı Kullanıcı Girişi ({user.full_name})", request.client.host if request.client else None, user.id)
+    await log_master_action(db, user.username, "USER_LOGIN", f"Başarılı Kullanıcı Girişi ({user.full_name})", client_ip, user.id)
     
     return {
         "success": True,
+        "requires_2fa": False,
+        "auto_logout_minutes": pol.auto_logout_minutes,
         "user": {
             "id": user.id,
             "username": user.username,
             "full_name": user.full_name,
             "email": user.email,
             "role": user.role,
+            "totp_enabled": bool(user.totp_enabled),
             "last_login_at": user.last_login_at.isoformat() if user.last_login_at else None
         }
     }
+
+
+@app.post("/api/v1/auth/verify-2fa")
+async def verify_master_user_2fa(payload: Verify2FASchema, request: Request, db: AsyncSession = Depends(get_central_db)):
+    """Verifies the 6-digit TOTP Authenticator code after password step."""
+    client_ip = extract_client_ip(request)
+    pol = await get_or_create_security_policy(db)
+    await check_ip_blocked(db, client_ip, pol)
+
+    uid = verify_2fa_temp_token(payload.temp_token)
+    if not uid:
+        raise HTTPException(status_code=401, detail="2FA doğrulama oturumu süresi doldu. Lütfen tekrar giriş yapınız.")
+
+    res = await db.execute(select(MasterUser).where(MasterUser.id == uid))
+    user = res.scalars().first()
+    if not user or not user.is_active:
+        raise HTTPException(status_code=401, detail="Kullanıcı bulunamadı veya pasif.")
+
+    if not verify_totp_code(user.totp_secret, payload.code):
+        await log_master_action(db, user.username, "USER_2FA_FAILED", f"Hatalı 2FA Authenticator Kodu ({user.username})", client_ip, user.id)
+        rem = await record_failed_login_attempt(db, client_ip, user.username, pol)
+        raise HTTPException(status_code=401, detail=f"6 haneli Authenticator doğrulama kodu hatalı. (Kalan deneme hakkı: {rem})")
+
+    _FAILED_LOGIN_TRACKER.pop(client_ip, None)
+    user.last_login_at = datetime.datetime.utcnow()
+    await db.commit()
+
+    await log_master_action(db, user.username, "USER_LOGIN_2FA", f"2FA Doğrulaması ile Başarılı Giriş ({user.full_name})", client_ip, user.id)
+
+    return {
+        "success": True,
+        "auto_logout_minutes": pol.auto_logout_minutes,
+        "user": {
+            "id": user.id,
+            "username": user.username,
+            "full_name": user.full_name,
+            "email": user.email,
+            "role": user.role,
+            "totp_enabled": bool(user.totp_enabled),
+            "last_login_at": user.last_login_at.isoformat() if user.last_login_at else None
+        }
+    }
+
 
 @app.post("/api/v1/auth/logout")
 async def logout_master_user(request: Request, db: AsyncSession = Depends(get_central_db)):
     """Logs user logout event."""
     username = request.headers.get("X-User-Name", "admin")
-    await log_master_action(db, username, "USER_LOGOUT", f"Kullanıcı Çıkış Yaptı ({username})", request.client.host if request.client else None)
+    reason = request.headers.get("X-Logout-Reason", "manual")
+    action_code = "AUTO_LOGOUT" if reason == "idle_timeout" else "USER_LOGOUT"
+    msg = f"Hareketsizlik Nedeniyle Otomatik Oturum Kapatıldı ({username})" if reason == "idle_timeout" else f"Kullanıcı Çıkış Yaptı ({username})"
+    await log_master_action(db, username, action_code, msg, extract_client_ip(request))
     return {"success": True, "message": "Çıkış yapıldı."}
+
 
 @app.get("/api/v1/users")
 async def get_master_users(db: AsyncSession = Depends(get_central_db)):
@@ -211,9 +493,199 @@ async def get_master_users(db: AsyncSession = Depends(get_central_db)):
         "email": u.email,
         "role": u.role,
         "is_active": u.is_active,
+        "totp_enabled": bool(u.totp_enabled),
         "last_login_at": u.last_login_at.isoformat() if u.last_login_at else None,
         "created_at": u.created_at.isoformat() if u.created_at else None
     } for u in users]
+
+
+@app.post("/api/v1/users/{user_id}/2fa/setup")
+async def setup_master_user_2fa(user_id: int, request: Request, db: AsyncSession = Depends(get_central_db)):
+    """Generates a new TOTP secret and otpauth:// URI for Google/Microsoft Authenticator QR setup."""
+    res = await db.execute(select(MasterUser).where(MasterUser.id == user_id))
+    u = res.scalars().first()
+    if not u:
+        raise HTTPException(status_code=404, detail="Kullanıcı bulunamadı.")
+
+    secret = generate_totp_secret()
+    u.totp_secret = secret
+    await db.commit()
+
+    issuer = "Nornia Cloud Center"
+    label = urllib.parse.quote(f"{issuer}:{u.username}")
+    issuer_enc = urllib.parse.quote(issuer)
+    otpauth_url = f"otpauth://totp/{label}?secret={secret}&issuer={issuer_enc}&algorithm=SHA1&digits=6&period=30"
+
+    return {
+        "success": True,
+        "user_id": u.id,
+        "username": u.username,
+        "secret": secret,
+        "otpauth_url": otpauth_url,
+    }
+
+
+@app.post("/api/v1/users/{user_id}/2fa/enable")
+async def enable_master_user_2fa(user_id: int, request: Request, payload: Dict[str, Any] = Body(...), db: AsyncSession = Depends(get_central_db)):
+    """Verifies the 6-digit code from the user's Authenticator app and activates 2FA."""
+    res = await db.execute(select(MasterUser).where(MasterUser.id == user_id))
+    u = res.scalars().first()
+    if not u or not u.totp_secret:
+        raise HTTPException(status_code=400, detail="Önce 2FA QR kurulumu başlatılmalıdır.")
+
+    code = str(payload.get("code") or "").strip()
+    if not verify_totp_code(u.totp_secret, code):
+        raise HTTPException(status_code=400, detail="Girilen 6 haneli doğrulama kodu hatalı. Lütfen Authenticator uygulamanızdaki güncel kodu giriniz.")
+
+    u.totp_enabled = True
+    await db.commit()
+    performed_by = request.headers.get("X-User-Name", u.username)
+    await log_master_action(db, performed_by, "USER_2FA_ENABLED", f"2FA (Google Authenticator) Aktifleştirildi: {u.full_name} (@{u.username})", extract_client_ip(request), u.id)
+    return {"success": True, "totp_enabled": True, "message": "2 Aşamalı Doğrulama (2FA) başarıyla aktifleştirildi."}
+
+
+@app.post("/api/v1/users/{user_id}/2fa/disable")
+async def disable_master_user_2fa(user_id: int, request: Request, db: AsyncSession = Depends(get_central_db)):
+    """Disables 2FA for a master user."""
+    res = await db.execute(select(MasterUser).where(MasterUser.id == user_id))
+    u = res.scalars().first()
+    if not u:
+        raise HTTPException(status_code=404, detail="Kullanıcı bulunamadı.")
+
+    u.totp_enabled = False
+    u.totp_secret = None
+    await db.commit()
+    performed_by = request.headers.get("X-User-Name", u.username)
+    await log_master_action(db, performed_by, "USER_2FA_DISABLED", f"2FA (Google Authenticator) Devre Dışı Bırakıldı: {u.full_name} (@{u.username})", extract_client_ip(request), u.id)
+    return {"success": True, "totp_enabled": False, "message": "2 Aşamalı Doğrulama devre dışı bırakıldı."}
+
+
+# --------------------------------------------------------------------------
+# Central Security Shield Endpoints (Brute-Force Policy, Blocked IPs, Auto-Logout)
+# --------------------------------------------------------------------------
+@app.get("/api/v1/security/settings")
+async def get_central_security_settings(request: Request, db: AsyncSession = Depends(get_central_db)):
+    pol = await get_or_create_security_policy(db)
+    now = datetime.datetime.utcnow()
+
+    # Clean up expired temporary IP blocks
+    res_blk = await db.execute(select(MasterBlockedIP).order_by(MasterBlockedIP.created_at.desc()))
+    all_blks = res_blk.scalars().all()
+    active_blks = []
+    dirty = False
+    for b in all_blks:
+        if not b.is_permanent and b.blocked_until and b.blocked_until <= now:
+            await db.delete(b)
+            dirty = True
+        else:
+            mins_rem = None
+            if not b.is_permanent and b.blocked_until:
+                mins_rem = max(1, int(((b.blocked_until - now).total_seconds() + 59) // 60))
+            active_blks.append({
+                "id": b.id,
+                "ip_address": b.ip_address,
+                "reason": b.reason,
+                "failed_attempts": b.failed_attempts,
+                "is_permanent": bool(b.is_permanent),
+                "minutes_remaining": mins_rem,
+                "blocked_until": b.blocked_until.isoformat() if b.blocked_until else None,
+                "created_at": b.created_at.isoformat() if b.created_at else None,
+            })
+    if dirty:
+        await db.commit()
+
+    return {
+        "client_ip": extract_client_ip(request),
+        "policy": {
+            "max_failed_attempts": pol.max_failed_attempts,
+            "block_duration_minutes": pol.block_duration_minutes,
+            "auto_logout_minutes": pol.auto_logout_minutes,
+            "whitelisted_ips": parse_whitelisted_ips(pol),
+        },
+        "blocked_ips": active_blks,
+    }
+
+
+@app.post("/api/v1/security/policy")
+async def update_central_security_policy(request: Request, payload: Dict[str, Any] = Body(...), db: AsyncSession = Depends(get_central_db)):
+    pol = await get_or_create_security_policy(db)
+    if "max_failed_attempts" in payload:
+        pol.max_failed_attempts = max(2, min(50, int(payload["max_failed_attempts"] or 5)))
+    if "block_duration_minutes" in payload:
+        pol.block_duration_minutes = max(1, min(43200, int(payload["block_duration_minutes"] or 60)))
+    if "auto_logout_minutes" in payload:
+        pol.auto_logout_minutes = max(0, min(1440, int(payload["auto_logout_minutes"] or 0)))
+    if "whitelisted_ips" in payload and isinstance(payload["whitelisted_ips"], list):
+        clean_wl = [str(ip).strip() for ip in payload["whitelisted_ips"] if str(ip).strip()]
+        pol.whitelisted_ips_json = json.dumps(list(dict.fromkeys(clean_wl)))
+
+    await db.commit()
+    performed_by = request.headers.get("X-User-Name", "admin")
+    await log_master_action(
+        db,
+        performed_by,
+        "SECURITY_POLICY_UPDATE",
+        f"Merkez Güvenlik Politikası Güncellendi: MaxHata={pol.max_failed_attempts}, BlokSüresi={pol.block_duration_minutes}dk, AutoLogout={pol.auto_logout_minutes}dk",
+        extract_client_ip(request),
+    )
+    return {
+        "success": True,
+        "policy": {
+            "max_failed_attempts": pol.max_failed_attempts,
+            "block_duration_minutes": pol.block_duration_minutes,
+            "auto_logout_minutes": pol.auto_logout_minutes,
+            "whitelisted_ips": parse_whitelisted_ips(pol),
+        },
+    }
+
+
+@app.post("/api/v1/security/blocked-ips")
+async def add_manual_blocked_ip(request: Request, payload: Dict[str, Any] = Body(...), db: AsyncSession = Depends(get_central_db)):
+    ip_addr = str(payload.get("ip_address") or "").strip()
+    if not ip_addr:
+        raise HTTPException(status_code=400, detail="Engellenecek IP adresi boş olamaz.")
+    reason = str(payload.get("reason") or "Manuel Yönetici Engeli").strip()
+    is_perm = bool(payload.get("is_permanent", True))
+    pol = await get_or_create_security_policy(db)
+    until_dt = None if is_perm else (datetime.datetime.utcnow() + datetime.timedelta(minutes=pol.block_duration_minutes))
+
+    res = await db.execute(select(MasterBlockedIP).where(MasterBlockedIP.ip_address == ip_addr))
+    blk = res.scalars().first()
+    if not blk:
+        blk = MasterBlockedIP(
+            ip_address=ip_addr,
+            reason=reason,
+            failed_attempts=0,
+            blocked_until=until_dt,
+            is_permanent=is_perm,
+        )
+        db.add(blk)
+    else:
+        blk.reason = reason
+        blk.is_permanent = is_perm
+        blk.blocked_until = until_dt
+
+    await db.commit()
+    performed_by = request.headers.get("X-User-Name", "admin")
+    await log_master_action(db, performed_by, "IP_MANUAL_BAN", f"IP Manuel Engellendi: {ip_addr} ({reason})", extract_client_ip(request))
+    return {"success": True, "ip_address": ip_addr}
+
+
+@app.delete("/api/v1/security/blocked-ips/{block_id}")
+async def unblock_master_ip(block_id: int, request: Request, db: AsyncSession = Depends(get_central_db)):
+    res = await db.execute(select(MasterBlockedIP).where(MasterBlockedIP.id == block_id))
+    blk = res.scalars().first()
+    if not blk:
+        raise HTTPException(status_code=404, detail="Engelli IP kaydı bulunamadı.")
+
+    ip_str = blk.ip_address
+    _FAILED_LOGIN_TRACKER.pop(ip_str, None)
+    await db.delete(blk)
+    await db.commit()
+
+    performed_by = request.headers.get("X-User-Name", "admin")
+    await log_master_action(db, performed_by, "IP_UNBAN", f"IP Engeli Kaldırıldı: {ip_str}", extract_client_ip(request))
+    return {"success": True, "unblocked_ip": ip_str}
 
 @app.post("/api/v1/users")
 async def create_master_user(payload: MasterUserCreateSchema, request: Request, db: AsyncSession = Depends(get_central_db)):

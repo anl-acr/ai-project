@@ -24,7 +24,9 @@ async def init_central_db():
             "ALTER TABLE client_servers ADD COLUMN tenant_serial_number VARCHAR;",
             "ALTER TABLE client_servers ADD COLUMN system_serial_number VARCHAR;",
             "ALTER TABLE client_servers ADD COLUMN connect_subdomain VARCHAR;",
-            "ALTER TABLE client_servers ADD COLUMN remote_ssh_enabled BOOLEAN DEFAULT 1;"
+            "ALTER TABLE client_servers ADD COLUMN remote_ssh_enabled BOOLEAN DEFAULT 1;",
+            "ALTER TABLE master_users ADD COLUMN totp_secret VARCHAR;",
+            "ALTER TABLE master_users ADD COLUMN totp_enabled BOOLEAN DEFAULT 0;"
         ]:
             try:
                 await conn.execute(text(ddl))

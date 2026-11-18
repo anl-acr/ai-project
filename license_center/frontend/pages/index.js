@@ -47,6 +47,7 @@ import {
 import LoginModal from "../components/LoginModal";
 import UserManagementModal from "../components/UserManagementModal";
 import AuditLogsModal from "../components/AuditLogsModal";
+import SecuritySettingsModal from "../components/SecuritySettingsModal";
 
 const API_BASE = "";
 
@@ -100,6 +101,10 @@ export default function MasterDashboard() {
   // Modals state
   const [showUsersModal, setShowUsersModal] = useState(false);
   const [showAuditLogsModal, setShowAuditLogsModal] = useState(false);
+  const [showSecurityModal, setShowSecurityModal] = useState(false);
+  const [autoLogoutMinutes, setAutoLogoutMinutes] = useState(15);
+  const [idleLogoutMessage, setIdleLogoutMessage] = useState("");
+  const lastActivityRef = useRef(Date.now());
   const [unlockConfirmClient, setUnlockConfirmClient] = useState(null);
   const [unlockingSubdomain, setUnlockingSubdomain] = useState(false);
   const [togglingSshId, setTogglingSshId] = useState(null);
@@ -353,7 +358,22 @@ export default function MasterDashboard() {
         setCurrentUser(JSON.parse(savedUser));
       } catch (e) {}
     }
+    const savedIdleMins = sessionStorage.getItem("master_auto_logout_mins");
+    if (savedIdleMins !== null) {
+      setAutoLogoutMinutes(Number(savedIdleMins));
+    }
     setIsAuthChecking(false);
+
+    // Fetch live security policy (auto_logout_minutes)
+    fetch("/api/v1/security/settings")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (d?.policy && d.policy.auto_logout_minutes !== undefined) {
+          setAutoLogoutMinutes(Number(d.policy.auto_logout_minutes));
+          sessionStorage.setItem("master_auto_logout_mins", String(d.policy.auto_logout_minutes));
+        }
+      })
+      .catch(() => {});
 
     const savedTheme = localStorage.getItem("master_theme");
     const isDark = savedTheme ? savedTheme === "dark" : false;
@@ -377,16 +397,47 @@ export default function MasterDashboard() {
     }
   };
 
-  const handleLogout = async () => {
+  const handleLogout = async (reason = "manual") => {
     try {
       await fetch(`${API_BASE}/api/v1/auth/logout`, {
         method: "POST",
-        headers: { "X-User-Name": currentUser?.username || "admin" }
+        headers: {
+          "X-User-Name": currentUser?.username || "admin",
+          "X-Logout-Reason": reason
+        }
       });
     } catch (e) {}
     sessionStorage.removeItem("master_user");
     setCurrentUser(null);
   };
+
+  // Inactivity Auto-Logout Watcher
+  useEffect(() => {
+    if (!currentUser || !autoLogoutMinutes || autoLogoutMinutes <= 0) return;
+
+    lastActivityRef.current = Date.now();
+    const updateActivity = () => {
+      lastActivityRef.current = Date.now();
+    };
+    const events = ["mousemove", "keydown", "mousedown", "touchstart", "scroll"];
+    events.forEach((ev) => window.addEventListener(ev, updateActivity, { passive: true }));
+
+    const idleCheckTimer = setInterval(() => {
+      const elapsedMs = Date.now() - lastActivityRef.current;
+      const limitMs = autoLogoutMinutes * 60 * 1000;
+      if (elapsedMs >= limitMs) {
+        setIdleLogoutMessage(
+          `${autoLogoutMinutes} dakika boyunca işlem yapılmadığı için oturumunuz güvenlik amacıyla otomatik sonlandırıldı.`
+        );
+        handleLogout("idle_timeout");
+      }
+    }, 5000);
+
+    return () => {
+      events.forEach((ev) => window.removeEventListener(ev, updateActivity));
+      clearInterval(idleCheckTimer);
+    };
+  }, [currentUser, autoLogoutMinutes]);
 
   useEffect(() => {
     fetchData();
@@ -863,7 +914,16 @@ export default function MasterDashboard() {
   });
 
   if (!currentUser && !isAuthChecking) {
-    return <LoginModal onLoginSuccess={(user) => setCurrentUser(user)} />;
+    return (
+      <LoginModal
+        idleLogoutMessage={idleLogoutMessage}
+        onLoginSuccess={(user, idleMins) => {
+          setIdleLogoutMessage("");
+          if (idleMins !== undefined) setAutoLogoutMinutes(Number(idleMins));
+          setCurrentUser(user);
+        }}
+      />
+    );
   }
 
   return (
@@ -895,6 +955,15 @@ export default function MasterDashboard() {
         </div>
 
         <div className="flex items-center gap-2.5">
+          <button
+            onClick={() => setShowSecurityModal(true)}
+            className="px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors flex items-center gap-1.5 text-xs font-bold cursor-pointer shadow-xs dark:shadow-none"
+            title="Merkez Güvenlik Kalkanı (Brute-Force, Engelli IP & Auto-Logout)"
+          >
+            <Shield size={14} className="text-rose-600 dark:text-rose-400" />
+            <span className="hidden sm:inline">Güvenlik Kalkanı</span>
+          </button>
+
           <button
             onClick={() => setShowAuditLogsModal(true)}
             className="px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors flex items-center gap-1.5 text-xs font-bold cursor-pointer shadow-xs dark:shadow-none"
@@ -3135,6 +3204,18 @@ export default function MasterDashboard() {
       <AuditLogsModal
         isOpen={showAuditLogsModal}
         onClose={() => setShowAuditLogsModal(false)}
+      />
+
+      {/* CENTRAL SECURITY SHIELD MODAL */}
+      <SecuritySettingsModal
+        isOpen={showSecurityModal}
+        onClose={() => setShowSecurityModal(false)}
+        currentUser={currentUser}
+        onPolicyUpdated={(pol) => {
+          if (pol?.auto_logout_minutes !== undefined) {
+            setAutoLogoutMinutes(Number(pol.auto_logout_minutes));
+          }
+        }}
       />
     </div>
   );

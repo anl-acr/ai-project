@@ -20,6 +20,77 @@ export default function UserManagementModal({ isOpen, onClose, currentUser }) {
   const [deleteModalOpen, setDeleteModalOpen] = useState(false);
   const [userToDelete, setUserToDelete] = useState(null);
 
+  // 2FA Setup Modal state
+  const [totpSetupUser, setTotpSetupUser] = useState(null);
+  const [totpSecret, setTotpSecret] = useState("");
+  const [totpUri, setTotpUri] = useState("");
+  const [totpVerifyCode, setTotpVerifyCode] = useState("");
+  const [totpError, setTotpError] = useState("");
+  const [totpLoading, setTotpLoading] = useState(false);
+
+  const handleOpen2FASetup = async (u) => {
+    setTotpError("");
+    setTotpVerifyCode("");
+    setTotpLoading(true);
+    try {
+      const res = await fetch(`/api/v1/users/${u.id}/2fa/setup`, {
+        method: "POST",
+        headers: { "X-User-Name": currentUser?.username || "admin" }
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setTotpSetupUser(u);
+        setTotpSecret(data.secret);
+        setTotpUri(data.otpauth_url);
+      }
+    } catch (e) {
+      console.error("2FA setup error:", e);
+    } finally {
+      setTotpLoading(false);
+    }
+  };
+
+  const handleConfirmEnable2FA = async (e) => {
+    e.preventDefault();
+    if (!totpSetupUser) return;
+    setTotpError("");
+    setTotpLoading(true);
+    try {
+      const res = await fetch(`/api/v1/users/${totpSetupUser.id}/2fa/enable`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-User-Name": currentUser?.username || "admin"
+        },
+        body: JSON.stringify({ code: totpVerifyCode.trim() })
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.detail || "Doğrulama kodu hatalı.");
+      }
+      setTotpSetupUser(null);
+      fetchUsers();
+    } catch (err) {
+      setTotpError(err.message || "2FA etkinleştirilemedi.");
+    } finally {
+      setTotpLoading(false);
+    }
+  };
+
+  const handleDisable2FA = async (u) => {
+    try {
+      const res = await fetch(`/api/v1/users/${u.id}/2fa/disable`, {
+        method: "POST",
+        headers: { "X-User-Name": currentUser?.username || "admin" }
+      });
+      if (res.ok) {
+        fetchUsers();
+      }
+    } catch (e) {
+      console.error("2FA disable error:", e);
+    }
+  };
+
   useEffect(() => {
     if (isOpen) {
       fetchUsers();
@@ -199,24 +270,50 @@ export default function UserManagementModal({ isOpen, onClose, currentUser }) {
                 </div>
 
                 {/* Action Buttons */}
-                <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-200 dark:border-slate-800/40">
-                  <button
-                    onClick={() => handleOpenEdit(u)}
-                    className="p-1.5 rounded-lg text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-200 dark:hover:bg-slate-800 transition-colors cursor-pointer"
-                    title="Düzenle"
-                  >
-                    <Edit3 size={15} />
-                  </button>
+                <div className="flex items-center justify-between gap-2 pt-2 border-t border-slate-200 dark:border-slate-800/40">
+                  <div>
+                    {u.totp_enabled ? (
+                      <button
+                        type="button"
+                        onClick={() => handleDisable2FA(u)}
+                        className="px-2.5 py-1 rounded-lg bg-emerald-500/15 hover:bg-rose-500/20 text-emerald-600 dark:text-emerald-400 hover:text-rose-500 border border-emerald-500/30 text-[10px] font-extrabold flex items-center gap-1 transition-colors cursor-pointer"
+                        title="2FA (Google Authenticator) Aktif — Devre dışı bırakmak için tıklayın"
+                      >
+                        <Shield size={12} />
+                        <span>2FA Aktif (Kapat)</span>
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => handleOpen2FASetup(u)}
+                        className="px-2.5 py-1 rounded-lg bg-indigo-500/10 hover:bg-indigo-600 text-indigo-600 dark:text-indigo-300 hover:text-white border border-indigo-500/25 text-[10px] font-extrabold flex items-center gap-1 transition-colors cursor-pointer"
+                        title="Bu kullanıcı için 2 Aşamalı Doğrulama (Google Authenticator) Kur"
+                      >
+                        <Key size={12} />
+                        <span>2FA Kur (Authenticator)</span>
+                      </button>
+                    )}
+                  </div>
 
-                  {u.username !== "admin" && (
+                  <div className="flex items-center gap-1.5">
                     <button
-                      onClick={() => confirmDelete(u)}
-                      className="p-1.5 rounded-lg text-slate-500 dark:text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 transition-colors cursor-pointer"
-                      title="Sil"
+                      onClick={() => handleOpenEdit(u)}
+                      className="p-1.5 rounded-lg text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-200 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+                      title="Düzenle"
                     >
-                      <Trash2 size={15} />
+                      <Edit3 size={15} />
                     </button>
-                  )}
+
+                    {u.username !== "admin" && (
+                      <button
+                        onClick={() => confirmDelete(u)}
+                        className="p-1.5 rounded-lg text-slate-500 dark:text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 transition-colors cursor-pointer"
+                        title="Sil"
+                      >
+                        <Trash2 size={15} />
+                      </button>
+                    )}
+                  </div>
                 </div>
               </div>
             ))}
@@ -317,6 +414,97 @@ export default function UserManagementModal({ isOpen, onClose, currentUser }) {
                   className="px-5 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-extrabold shadow-lg shadow-rose-600/20 cursor-pointer"
                 >
                   Kaydet
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* 2FA (GOOGLE AUTHENTICATOR) QR SETUP MODAL */}
+      {totpSetupUser && (
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-sm animate-fadeIn">
+          <div className="w-full max-w-md bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-6 shadow-2xl space-y-4 text-slate-900 dark:text-slate-100">
+            <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 pb-3">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-xl bg-indigo-500/15 text-indigo-600 dark:text-indigo-400 flex items-center justify-center">
+                  <Shield size={18} />
+                </div>
+                <div>
+                  <h4 className="text-sm font-extrabold text-slate-900 dark:text-white">
+                    2FA Authenticator Kurulumu
+                  </h4>
+                  <p className="text-[11px] text-slate-500">
+                    {totpSetupUser.full_name} (@{totpSetupUser.username})
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setTotpSetupUser(null)}
+                className="p-1.5 rounded-xl text-slate-400 hover:text-slate-700 dark:hover:text-white cursor-pointer"
+              >
+                <X size={16} />
+              </button>
+            </div>
+
+            <div className="text-center space-y-3">
+              <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed">
+                Cep telefonunuzdaki <strong>Google Authenticator</strong> veya <strong>Microsoft Authenticator</strong> uygulamasından aşağıdaki QR kodu okutun:
+              </p>
+              <div className="mx-auto w-44 h-44 p-2.5 bg-white rounded-2xl border border-slate-200 shadow-sm flex items-center justify-center">
+                <img
+                  src={`https://api.qrserver.com/v1/create-qr-code/?size=160x160&data=${encodeURIComponent(totpUri)}`}
+                  alt="2FA QR Code"
+                  className="w-full h-full object-contain"
+                />
+              </div>
+              <div className="p-2.5 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-[11px]">
+                <div className="text-slate-400 font-bold mb-0.5">Manuel Kurulum Anahtarı (Secret Key):</div>
+                <div className="font-mono font-extrabold text-indigo-600 dark:text-indigo-400 select-all tracking-wider">
+                  {totpSecret}
+                </div>
+              </div>
+            </div>
+
+            <form onSubmit={handleConfirmEnable2FA} className="space-y-3 pt-2 border-t border-slate-200 dark:border-slate-800">
+              <div>
+                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                  Uygulamada Üretilen 6 Haneli Kodu Girerek Doğrulayın
+                </label>
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  maxLength={6}
+                  required
+                  value={totpVerifyCode}
+                  onChange={(e) => setTotpVerifyCode(e.target.value.replace(/[^0-9]/g, ""))}
+                  placeholder="000000"
+                  className="w-full px-4 py-2.5 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl text-center font-mono text-base tracking-[0.35em] font-extrabold text-slate-900 dark:text-white focus:outline-none focus:border-indigo-500"
+                />
+              </div>
+
+              {totpError && (
+                <div className="p-2.5 rounded-xl bg-rose-50 dark:bg-rose-950/60 border border-rose-200 dark:border-rose-800 text-xs font-bold text-rose-600 dark:text-rose-400 flex items-center gap-2">
+                  <AlertTriangle size={14} className="shrink-0" />
+                  <span>{totpError}</span>
+                </div>
+              )}
+
+              <div className="flex items-center justify-end gap-2 pt-1">
+                <button
+                  type="button"
+                  onClick={() => setTotpSetupUser(null)}
+                  className="px-4 py-2 rounded-xl border border-slate-200 dark:border-slate-700 text-xs font-bold text-slate-600 dark:text-slate-300 cursor-pointer"
+                >
+                  Vazgeç
+                </button>
+                <button
+                  type="submit"
+                  disabled={totpLoading}
+                  className="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-extrabold cursor-pointer shadow-md"
+                >
+                  {totpLoading ? "Doğrulanıyor..." : "Doğrula & 2FA Aktifleştir"}
                 </button>
               </div>
             </form>

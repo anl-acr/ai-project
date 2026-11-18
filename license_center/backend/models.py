@@ -14,8 +14,33 @@ class MasterUser(Base):
     role = Column(String, default="admin") # admin, operator, viewer
     is_active = Column(Boolean, default=True)
     avatar = Column(String, nullable=True)
+    totp_secret = Column(String, nullable=True)
+    totp_enabled = Column(Boolean, default=False)
     last_login_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
+
+
+class MasterBlockedIP(Base):
+    __tablename__ = "master_blocked_ips"
+
+    id = Column(Integer, primary_key=True, index=True)
+    ip_address = Column(String, unique=True, index=True, nullable=False)
+    reason = Column(String, nullable=False, default="Brute-Force Hatalı Giriş Engeli")
+    failed_attempts = Column(Integer, default=0)
+    blocked_until = Column(DateTime, nullable=True)
+    is_permanent = Column(Boolean, default=False)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+
+
+class MasterSecurityPolicy(Base):
+    __tablename__ = "master_security_policy"
+
+    id = Column(Integer, primary_key=True, index=True)
+    max_failed_attempts = Column(Integer, default=5)
+    block_duration_minutes = Column(Integer, default=60)
+    auto_logout_minutes = Column(Integer, default=15) # 0 = disabled
+    whitelisted_ips_json = Column(Text, default="[]")
+    updated_at = Column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow)
 
 
 class MasterAuditLog(Base):
