@@ -2,8 +2,8 @@ import React, { useState } from "react";
 import { ShieldCheck, Lock, User, Eye, EyeOff, AlertTriangle, ArrowRight } from "lucide-react";
 
 export default function LoginModal({ onLoginSuccess }) {
-  const [username, setUsername] = useState("admin");
-  const [password, setPassword] = useState("admin123");
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
@@ -73,9 +73,12 @@ export default function LoginModal({ onLoginSuccess }) {
             <input
               type="text"
               required
+              autoCapitalize="none"
+              autoCorrect="off"
+              spellCheck={false}
               value={username}
               onChange={(e) => setUsername(e.target.value)}
-              placeholder="Kullanıcı adınızı giriniz"
+              placeholder="Kullanıcı adınızı veya e-postanızı giriniz"
               className="w-full px-4 py-3 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-2xl focus:outline-none focus:border-rose-500 text-xs font-semibold text-slate-900 dark:text-white placeholder:text-slate-400 dark:placeholder:text-slate-600"
             />
           </div>
@@ -126,10 +129,6 @@ export default function LoginModal({ onLoginSuccess }) {
             )}
           </button>
         </form>
-
-        <div className="text-center text-[11px] font-semibold text-slate-500 pt-2 border-t border-slate-200 dark:border-slate-800/60">
-          Varsayılan Giriş: <span className="font-mono text-slate-800 dark:text-slate-300 font-bold">admin / admin123</span>
-        </div>
 
       </div>
     </div>

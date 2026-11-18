@@ -157,8 +157,15 @@ class MasterUserCreateSchema(BaseModel):
 # --------------------------------------------------------------------------
 @app.post("/api/v1/auth/login")
 async def login_master_user(payload: LoginSchema, request: Request, db: AsyncSession = Depends(get_central_db)):
-    """Authenticates central master user and returns session object."""
-    res = await db.execute(select(MasterUser).where(MasterUser.username == payload.username.strip()))
+    """Authenticates central master user (by case-insensitive username, email, or full name) and returns session object."""
+    login_ident = payload.username.strip().lower()
+    res = await db.execute(
+        select(MasterUser).where(
+            (func.lower(MasterUser.username) == login_ident)
+            | (func.lower(MasterUser.email) == login_ident)
+            | (func.lower(MasterUser.full_name) == login_ident)
+        )
+    )
     user = res.scalars().first()
     
     if not user or user.password_hash != hash_password(payload.password):
