@@ -650,10 +650,7 @@ export default function ServerSshTerminalPanel({
               Bu santralin SSH erişimi{" "}
               <strong className="text-slate-200">Merkezi Lisans Paneli (panel.nornia.com.tr)</strong>{" "}
               üzerinden kapatılmıştır. Oturum açmak için Merkez Lisans Panelinden{" "}
-              <strong className="text-emerald-400">SSH Açık</strong> şalterini aktif ediniz veya
-              sanallaştırma konsolundan{" "}
-              <code className="font-mono text-amber-300">sudo nornia-emergency-ssh on</code>{" "}
-              komutunu çalıştırınız.
+              <strong className="text-emerald-400">SSH Açık</strong> şalterini aktif ediniz.
             </p>
           </div>
         )}
@@ -668,29 +665,6 @@ export default function ServerSshTerminalPanel({
           }
         />
       </div>
-
-      {/* Bottom Emergency Virtualization Console Backdoor Info */}
-      {!isFullscreen && (
-        <div className="px-4 py-3 rounded-2xl bg-slate-900 text-slate-200 text-xs flex flex-col sm:flex-row sm:items-center justify-between gap-3 border border-slate-800">
-          <div className="flex items-center gap-2 flex-wrap">
-            <Terminal size={14} className="text-amber-400 shrink-0" />
-            <span className="font-bold text-amber-400">
-              Sanallaştırma Konsolu (VMware / Proxmox / KVM) Acil Durum SSH Arka Kapısı:
-            </span>
-            <code className="font-mono font-bold text-emerald-400 bg-slate-950 px-2.5 py-1 rounded-lg border border-slate-800">
-              sudo nornia-emergency-ssh on
-            </code>
-          </div>
-          <button
-            type="button"
-            onClick={() => copyText("sudo nornia-emergency-ssh on", "emerg")}
-            className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-[11px] font-bold flex items-center gap-1.5 shrink-0 cursor-pointer"
-          >
-            {copiedCmd === "emerg" ? <Check size={13} className="text-emerald-400" /> : <Copy size={13} />}
-            <span>Kopyala</span>
-          </button>
-        </div>
-      )}
     </div>
   );
 }
