@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import Head from "next/head";
 import { 
   Shield,
@@ -84,6 +84,114 @@ export default function MasterDashboard() {
   const [showAuditLogsModal, setShowAuditLogsModal] = useState(false);
   const [unlockConfirmClient, setUnlockConfirmClient] = useState(null);
   const [unlockingSubdomain, setUnlockingSubdomain] = useState(false);
+
+  // Remote Web SSH Terminal Modal state
+  const [sshModalClient, setSshModalClient] = useState(null);
+  const [sshUsername, setSshUsername] = useState("root");
+  const [sshConnected, setSshConnected] = useState(false);
+  const [sshOutput, setSshOutput] = useState("");
+  const [sshInputLine, setSshInputLine] = useState("");
+  const [sshIsPasswordMode, setSshIsPasswordMode] = useState(false);
+  const sshWsRef = useRef(null);
+  const sshOutputBoxRef = useRef(null);
+
+  const openSshModal = (client) => {
+    if (sshWsRef.current) {
+      try { sshWsRef.current.close(); } catch (e) {}
+      sshWsRef.current = null;
+    }
+    setSshModalClient(client);
+    setSshConnected(false);
+    setSshOutput(
+      `🔒 Nornia Connect Sıfır-Port SSH Köprüsü Hazır.\r\n` +
+      `Hedef Santral: ${client.company_name} (${client.connect_subdomain}.nornia.com.tr | ${client.hardware_id})\r\n` +
+      `SSH Tünel Portu: ${client.ssh_tunnel_port || 2222}\r\n` +
+      `Yukarıdan SSH kullanıcı adını (örn: root veya aida) girip "Canlı Terminal Bağlan" butonuna tıklayınız...\r\n`
+    );
+    setSshInputLine("");
+    setSshIsPasswordMode(false);
+  };
+
+  const closeSshModal = () => {
+    if (sshWsRef.current) {
+      try { sshWsRef.current.close(); } catch (e) {}
+      sshWsRef.current = null;
+    }
+    setSshConnected(false);
+    setSshModalClient(null);
+  };
+
+  const startWebSshSession = () => {
+    if (!sshModalClient || !sshModalClient.connect_subdomain) return;
+    if (sshWsRef.current) {
+      try { sshWsRef.current.close(); } catch (e) {}
+      sshWsRef.current = null;
+    }
+    setSshOutput("");
+    setSshIsPasswordMode(false);
+    const sub = sshModalClient.connect_subdomain;
+    const userClean = (sshUsername || "root").trim() || "root";
+    const proto = window.location.protocol === "https:" ? "wss:" : "ws:";
+    const host = window.location.hostname === "panel.nornia.com.tr"
+      ? "connect.nornia.com.tr"
+      : `${window.location.hostname}:8050`;
+    const wsUrl = `${proto}//${host}/api/v1/connect/web-ssh/${encodeURIComponent(sub)}?user=${encodeURIComponent(userClean)}`;
+
+    try {
+      const ws = new WebSocket(wsUrl);
+      sshWsRef.current = ws;
+      ws.onopen = () => {
+        setSshConnected(true);
+      };
+      ws.onmessage = (evt) => {
+        try {
+          const msg = JSON.parse(evt.data);
+          if (msg.type === "output" && msg.data) {
+            setSshOutput((prev) => {
+              const next = prev + msg.data;
+              return next.length > 120000 ? next.slice(-120000) : next;
+            });
+            const lower = msg.data.toLowerCase();
+            if (lower.includes("password:") || lower.includes("parola:")) {
+              setSshIsPasswordMode(true);
+            } else if (lower.includes("$ ") || lower.includes("# ") || lower.includes("last login")) {
+              setSshIsPasswordMode(false);
+            }
+            setTimeout(() => {
+              if (sshOutputBoxRef.current) {
+                sshOutputBoxRef.current.scrollTop = sshOutputBoxRef.current.scrollHeight;
+              }
+            }, 20);
+          }
+        } catch (e) {}
+      };
+      ws.onclose = () => {
+        setSshConnected(false);
+        setSshIsPasswordMode(false);
+      };
+      ws.onerror = () => {
+        setSshOutput((prev) => prev + "\r\n❌ WebSocket SSH tünel bağlantı hatası.\r\n");
+        setSshConnected(false);
+      };
+    } catch (err) {
+      setSshOutput((prev) => prev + `\r\n❌ Bağlantı başlatılamadı: ${err.message}\r\n`);
+    }
+  };
+
+  const sendWebSshCommand = (e) => {
+    if (e) e.preventDefault();
+    if (!sshWsRef.current || sshWsRef.current.readyState !== WebSocket.OPEN) return;
+    sshWsRef.current.send(JSON.stringify({ type: "input", data: sshInputLine + "\n" }));
+    setSshInputLine("");
+    if (sshIsPasswordMode) {
+      setSshIsPasswordMode(false);
+    }
+  };
+
+  const sendWebSshSignal = (sigChar) => {
+    if (!sshWsRef.current || sshWsRef.current.readyState !== WebSocket.OPEN) return;
+    sshWsRef.current.send(JSON.stringify({ type: "input", data: sigChar }));
+  };
 
   // Dark Mode State
   const [isDarkMode, setIsDarkMode] = useState(true);
@@ -715,7 +823,7 @@ export default function MasterDashboard() {
                           <ExternalLink size={11} />
                         </a>
                       </div>
-                      <div className="flex items-center justify-between gap-2">
+                      <div className="flex items-center justify-between gap-2 flex-wrap">
                         <span
                           className={`px-2 py-0.5 rounded-md text-[10px] font-sans font-extrabold uppercase ${
                             client.tunnel_connected
@@ -723,17 +831,30 @@ export default function MasterDashboard() {
                               : "bg-slate-200 dark:bg-slate-800 text-slate-500"
                           }`}
                         >
-                          {client.tunnel_connected ? "● TÜNEL AKTİF" : "○ TÜNEL BAĞLI DEĞİL"}
+                          {client.tunnel_connected
+                            ? `● TÜNEL AKTİF (SSH :${client.ssh_tunnel_port || 2222})`
+                            : "○ TÜNEL BAĞLI DEĞİL"}
                         </span>
-                        <button
-                          type="button"
-                          onClick={() => setUnlockConfirmClient(client)}
-                          className="px-2.5 py-1 rounded-lg bg-amber-500/15 hover:bg-amber-500 text-amber-700 dark:text-amber-300 hover:text-white border border-amber-500/30 text-[10px] font-sans font-extrabold flex items-center gap-1 transition-colors cursor-pointer"
-                          title="Santraldeki Nornia Connect Alt Alan Adı Kilidini Serbest Bırak"
-                        >
-                          <Unlock size={11} />
-                          <span>İsim Kilidini Çöz / Serbest Bırak</span>
-                        </button>
+                        <div className="flex items-center gap-1.5">
+                          <button
+                            type="button"
+                            onClick={() => openSshModal(client)}
+                            className="px-2.5 py-1 rounded-lg bg-indigo-500/15 hover:bg-indigo-600 text-indigo-700 dark:text-indigo-300 hover:text-white border border-indigo-500/30 text-[10px] font-sans font-extrabold flex items-center gap-1 transition-colors cursor-pointer"
+                            title="Nornia Connect Tüneli Üzerinden Santrale Uzak SSH Bağlantısı Kur"
+                          >
+                            <Terminal size={11} />
+                            <span>Uzak SSH</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setUnlockConfirmClient(client)}
+                            className="px-2.5 py-1 rounded-lg bg-amber-500/15 hover:bg-amber-500 text-amber-700 dark:text-amber-300 hover:text-white border border-amber-500/30 text-[10px] font-sans font-extrabold flex items-center gap-1 transition-colors cursor-pointer"
+                            title="Santraldeki Nornia Connect Alt Alan Adı Kilidini Serbest Bırak"
+                          >
+                            <Unlock size={11} />
+                            <span>Kilidi Çöz</span>
+                          </button>
+                        </div>
                       </div>
                     </div>
                   )}
@@ -1486,6 +1607,164 @@ export default function MasterDashboard() {
                 <span>{unlockingSubdomain ? "Kilit Açılıyor..." : "Kilidi Aç & Serbest Bırak"}</span>
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* NORNIA CONNECT REMOTE WEB SSH TERMINAL MODAL */}
+      {sshModalClient && (
+        <div className="fixed inset-0 z-50 bg-slate-950/75 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-slate-900 border border-slate-700 rounded-3xl max-w-4xl w-full p-6 shadow-2xl space-y-4 text-slate-100">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-2xl bg-indigo-500/20 border border-indigo-500/40 text-indigo-400 flex items-center justify-center">
+                  <Terminal size={20} />
+                </div>
+                <div>
+                  <h3 className="text-sm font-extrabold text-white flex items-center gap-2">
+                    <span>Nornia Connect Sıfır-Port Uzak SSH Köprüsü</span>
+                    <span className="px-2 py-0.5 rounded-full text-[10px] bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 font-mono">
+                      {sshModalClient.connect_subdomain}.nornia.com.tr (Port :{sshModalClient.ssh_tunnel_port || 2222})
+                    </span>
+                  </h3>
+                  <p className="text-[11px] text-slate-400">
+                    Santral tarafında hiçbir port açmadan, Nornia Connect WebSocket tüneli üzerinden doğrudan santralin yerel SSH (Port 22) servisine bağlanın.
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={closeSshModal}
+                className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold cursor-pointer"
+              >
+                Kapat ✕
+              </button>
+            </div>
+
+            {/* Native Terminal SSH Commands */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 bg-slate-950/90 border border-slate-800 rounded-2xl p-3.5 text-xs">
+              <div className="space-y-1">
+                <div className="text-[10px] font-extrabold text-indigo-400 uppercase">
+                  1. Kendi Bilgisayarınızdan (Mac / Windows / Putty) SSH:
+                </div>
+                <div className="flex items-center justify-between bg-slate-900 border border-slate-800 rounded-xl px-3 py-2 font-mono text-[11px] text-emerald-300">
+                  <span>ssh -p {sshModalClient.ssh_tunnel_port || 2222} {sshUsername || "root"}@connect.nornia.com.tr</span>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      handleCopyText(
+                        `ssh -p ${sshModalClient.ssh_tunnel_port || 2222} ${sshUsername || "root"}@connect.nornia.com.tr`,
+                        "ssh-ext-cmd"
+                      )
+                    }
+                    className="text-slate-400 hover:text-white ml-2 cursor-pointer"
+                    title="Komutu Kopyala"
+                  >
+                    {copiedKey === "ssh-ext-cmd" ? <Check size={14} className="text-emerald-400" /> : <Copy size={14} />}
+                  </button>
+                </div>
+              </div>
+
+              <div className="space-y-1">
+                <div className="text-[10px] font-extrabold text-amber-400 uppercase">
+                  2. Merkez Sunucu (root@nornia) İçinden Doğrudan SSH:
+                </div>
+                <div className="flex items-center justify-between bg-slate-900 border border-slate-800 rounded-xl px-3 py-2 font-mono text-[11px] text-amber-300">
+                  <span>ssh -p {sshModalClient.ssh_tunnel_port || 2222} {sshUsername || "root"}@127.0.0.1</span>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      handleCopyText(
+                        `ssh -p ${sshModalClient.ssh_tunnel_port || 2222} ${sshUsername || "root"}@127.0.0.1`,
+                        "ssh-loc-cmd"
+                      )
+                    }
+                    className="text-slate-400 hover:text-white ml-2 cursor-pointer"
+                    title="Komutu Kopyala"
+                  >
+                    {copiedKey === "ssh-loc-cmd" ? <Check size={14} className="text-emerald-400" /> : <Copy size={14} />}
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            {/* Web SSH Interactive Connection Bar */}
+            <div className="flex flex-wrap items-center justify-between gap-2 bg-slate-950/60 border border-slate-800 rounded-2xl p-3">
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-bold text-slate-300">Santral SSH Kullanıcısı:</span>
+                <input
+                  type="text"
+                  value={sshUsername}
+                  onChange={(e) => setSshUsername(e.target.value)}
+                  placeholder="root veya aida"
+                  className="px-3 py-1.5 rounded-xl bg-slate-900 border border-slate-700 text-xs font-mono text-white w-36 focus:outline-none focus:border-indigo-500"
+                />
+                <button
+                  type="button"
+                  onClick={startWebSshSession}
+                  className="px-3.5 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-extrabold flex items-center gap-1.5 cursor-pointer shadow-sm"
+                >
+                  <Terminal size={13} />
+                  <span>{sshConnected ? "Yeniden Bağlan" : "⚡ Canlı Terminal Bağlan"}</span>
+                </button>
+              </div>
+
+              {sshConnected && (
+                <div className="flex items-center gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => sendWebSshSignal("\x03")}
+                    className="px-2.5 py-1 rounded-lg bg-rose-500/20 hover:bg-rose-600 text-rose-300 hover:text-white text-[11px] font-mono font-bold cursor-pointer"
+                  >
+                    Ctrl+C
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setSshOutput("")}
+                    className="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-[11px] font-bold cursor-pointer"
+                  >
+                    Ekranı Temizle
+                  </button>
+                </div>
+              )}
+            </div>
+
+            {/* Terminal Screen */}
+            <div
+              ref={sshOutputBoxRef}
+              className="bg-black border border-slate-800 rounded-2xl p-4 h-80 overflow-y-auto font-mono text-xs text-emerald-400 whitespace-pre-wrap leading-relaxed select-text"
+            >
+              {sshOutput || "Terminal çıktısı bekleniyor..."}
+            </div>
+
+            {/* Terminal Input Form */}
+            <form onSubmit={sendWebSshCommand} className="flex items-center gap-2">
+              <span className="font-mono text-xs font-extrabold text-indigo-400 px-2">
+                {sshIsPasswordMode ? "🔑 Parola:" : `${sshUsername || "root"}@${sshModalClient.connect_subdomain}:~#`}
+              </span>
+              <input
+                type={sshIsPasswordMode ? "password" : "text"}
+                value={sshInputLine}
+                onChange={(e) => setSshInputLine(e.target.value)}
+                disabled={!sshConnected}
+                placeholder={
+                  !sshConnected
+                    ? "Önce yukarıdan 'Canlı Terminal Bağlan' butonuna tıklayın..."
+                    : sshIsPasswordMode
+                    ? "Santral SSH parolasını yazıp Enter'a basın..."
+                    : "Komut yazıp Enter'a basın (örn: pm2 status, ip a, asterisk -rx 'core show channels')..."
+                }
+                className="flex-1 px-3.5 py-2.5 rounded-xl bg-slate-950 border border-slate-700 text-xs font-mono text-white focus:outline-none focus:border-indigo-500 disabled:opacity-50"
+                autoFocus
+              />
+              <button
+                type="submit"
+                disabled={!sshConnected}
+                className="px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 text-white text-xs font-extrabold cursor-pointer"
+              >
+                Gönder ↵
+              </button>
+            </form>
           </div>
         </div>
       )}

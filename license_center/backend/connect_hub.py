@@ -34,6 +34,7 @@ class ConnectedPBXSession:
         self.hostname = ""
         self.version = ""
         self.remote_ssh_enabled = True
+        self.ssh_tunnel_port: int = 0
         self.local_ips = []
         self.client_ip = ""
         self.connected_at = datetime.datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
@@ -42,6 +43,8 @@ class ConnectedPBXSession:
         self.ws_streams: Dict[str, WebSocket] = {}
         self.ws_open_waiters: Dict[str, asyncio.Future] = {}
         self.tcp_streams: Dict[str, WebSocket] = {}
+        self.tcp_raw_writers: Dict[str, asyncio.StreamWriter] = {}
+        self.tcp_open_waiters: Dict[str, asyncio.Future] = {}
         self.bytes_tx = 0
         self.bytes_rx = 0
         self.send_lock = asyncio.Lock()
@@ -56,6 +59,102 @@ class ConnectedPBXSession:
 # Active tunnels keyed by subdomain (e.g. "merkez") and hardware_id
 ACTIVE_TUNNELS_BY_SUBDOMAIN: Dict[str, ConnectedPBXSession] = {}
 ACTIVE_TUNNELS_BY_HWID: Dict[str, ConnectedPBXSession] = {}
+SUBDOMAIN_SSH_PORTS: Dict[str, int] = {}
+SUBDOMAIN_SSH_SERVERS: Dict[str, asyncio.AbstractServer] = {}
+_ufw_ssh_opened = False
+
+
+async def ensure_ssh_tcp_listener_for_subdomain(subdomain: str) -> int:
+    """
+    Allocates and binds a dedicated raw TCP SSH forwarder port (starting at 2222) on the Hub server
+    for the given PBX subdomain. Connecting with `ssh -p <port> <user>@connect.nornia.com.tr`
+    or `ssh -p <port> <user>@127.0.0.1` tunnels raw SSH traffic over the Nornia Connect WebSocket
+    to the PBX's local 127.0.0.1:22 OpenSSH daemon without any inbound port opened on the PBX.
+    """
+    global _ufw_ssh_opened
+    sub = str(subdomain or "merkez").strip().lower()
+    if sub in SUBDOMAIN_SSH_PORTS and sub in SUBDOMAIN_SSH_SERVERS:
+        return SUBDOMAIN_SSH_PORTS[sub]
+
+    if not _ufw_ssh_opened:
+        _ufw_ssh_opened = True
+        try:
+            await asyncio.to_thread(
+                subprocess.run,
+                ["ufw", "allow", "2222:2299/tcp"],
+                capture_output=True,
+                timeout=3.0,
+                check=False,
+            )
+        except Exception:
+            pass
+
+    async def _handle_raw_ssh_client(reader: asyncio.StreamReader, writer: asyncio.StreamWriter):
+        sess = ACTIVE_TUNNELS_BY_SUBDOMAIN.get(sub)
+        if not sess or not sess.remote_ssh_enabled:
+            try:
+                writer.close()
+                await writer.wait_closed()
+            except Exception:
+                pass
+            return
+
+        stream_id = f"tcp-{uuid.uuid4().hex[:12]}"
+        loop = asyncio.get_running_loop()
+        ack_fut = loop.create_future()
+        sess.tcp_raw_writers[stream_id] = writer
+        sess.tcp_open_waiters[stream_id] = ack_fut
+
+        try:
+            await sess.send_json({
+                "type": "TCP_OPEN",
+                "stream_id": stream_id,
+                "port": 22,
+            })
+            try:
+                ok = await asyncio.wait_for(ack_fut, timeout=8.0)
+                if not ok:
+                    return
+            except asyncio.TimeoutError:
+                return
+
+            while True:
+                chunk = await reader.read(16384)
+                if not chunk:
+                    break
+                await sess.send_json({
+                    "type": "TCP_DATA",
+                    "stream_id": stream_id,
+                    "data_b64": base64.b64encode(chunk).decode("ascii"),
+                })
+        except Exception:
+            pass
+        finally:
+            sess.tcp_raw_writers.pop(stream_id, None)
+            sess.tcp_open_waiters.pop(stream_id, None)
+            try:
+                await sess.send_json({"type": "TCP_CLOSE", "stream_id": stream_id})
+            except Exception:
+                pass
+            try:
+                writer.close()
+                await writer.wait_closed()
+            except Exception:
+                pass
+
+    used_ports = set(SUBDOMAIN_SSH_PORTS.values())
+    for candidate_port in range(2222, 2300):
+        if candidate_port in used_ports:
+            continue
+        try:
+            srv = await asyncio.start_server(_handle_raw_ssh_client, host="0.0.0.0", port=candidate_port)
+            SUBDOMAIN_SSH_PORTS[sub] = candidate_port
+            SUBDOMAIN_SSH_SERVERS[sub] = srv
+            print(f"[Nornia Connect SSH Bridge] '{sub}.nornia.com.tr' için Sıfır-Port SSH Tünel Portu açıldı: TCP :{candidate_port} -> Santral 127.0.0.1:22")
+            return candidate_port
+        except OSError:
+            continue
+    return 0
 
 
 def resolve_target_pbx_session(
@@ -103,6 +202,7 @@ async def list_active_connect_tunnels():
             "client_ip": sess.client_ip,
             "local_ips": sess.local_ips,
             "remote_ssh_enabled": sess.remote_ssh_enabled,
+            "ssh_tunnel_port": sess.ssh_tunnel_port or SUBDOMAIN_SSH_PORTS.get(sess.subdomain, 0),
             "connected_at": sess.connected_at,
             "last_seen_seconds_ago": max(0, int(round(time.time() - sess.last_seen_at))),
             "active_ws_streams": len(sess.ws_streams),
@@ -249,6 +349,19 @@ server {{
     ssl_protocols TLSv1.2 TLSv1.3;
 
     client_max_body_size 50M;
+
+    location /api/v1/connect/web-ssh/ {{
+        proxy_pass http://127.0.0.1:8050;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection $connection_upgrade;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_read_timeout 86400s;
+        proxy_send_timeout 86400s;
+    }}
 
     location / {{
         proxy_pass http://127.0.0.1:3050;
@@ -501,7 +614,8 @@ async def pbx_ras_tunnel_endpoint(websocket: WebSocket):
 
     ACTIVE_TUNNELS_BY_SUBDOMAIN[session.subdomain] = session
     ACTIVE_TUNNELS_BY_HWID[session.hardware_id] = session
-    print(f"[Nornia Connect Hub] Santral tüneli bağlandı: subdomain={session.subdomain}, hw={session.hardware_id}, ip={session.client_ip}")
+    session.ssh_tunnel_port = await ensure_ssh_tcp_listener_for_subdomain(session.subdomain)
+    print(f"[Nornia Connect Hub] Santral tüneli bağlandı: subdomain={session.subdomain}, hw={session.hardware_id}, ip={session.client_ip}, ssh_port={session.ssh_tunnel_port}")
 
     try:
         while True:
@@ -543,12 +657,14 @@ async def pbx_ras_tunnel_endpoint(websocket: WebSocket):
                     ACTIVE_TUNNELS_BY_SUBDOMAIN[session.subdomain] = session
                 session.hardware_id = req_hw
                 ACTIVE_TUNNELS_BY_HWID[session.hardware_id] = session
+                session.ssh_tunnel_port = await ensure_ssh_tcp_listener_for_subdomain(session.subdomain)
 
                 await session.send_json({
                     "type": "RAS_WELCOME",
                     "subdomain": session.subdomain,
                     "status": "connected",
                     "subdomain_locked": True,
+                    "ssh_tunnel_port": session.ssh_tunnel_port,
                     "public_ras_url": f"https://{session.subdomain}.nornia.com.tr",
                     "wss_sip_url": f"wss://{session.subdomain}.nornia.com.tr/ras-sip-ws",
                 })
@@ -598,6 +714,31 @@ async def pbx_ras_tunnel_endpoint(websocket: WebSocket):
 
             elif mtype in ("TCP_OPEN_ACK", "TCP_DATA", "TCP_CLOSE"):
                 stream_id = str(msg.get("stream_id") or "")
+                if mtype == "TCP_OPEN_ACK":
+                    t_fut = session.tcp_open_waiters.pop(stream_id, None)
+                    if t_fut and not t_fut.done():
+                        t_fut.set_result(bool(msg.get("ok", True)))
+                elif mtype == "TCP_DATA":
+                    raw_writer = session.tcp_raw_writers.get(stream_id)
+                    if raw_writer:
+                        try:
+                            raw_bytes = base64.b64decode(msg.get("data_b64") or "")
+                            if raw_bytes:
+                                raw_writer.write(raw_bytes)
+                                await raw_writer.drain()
+                        except Exception:
+                            pass
+                elif mtype == "TCP_CLOSE":
+                    t_fut = session.tcp_open_waiters.pop(stream_id, None)
+                    if t_fut and not t_fut.done():
+                        t_fut.set_result(False)
+                    raw_writer = session.tcp_raw_writers.pop(stream_id, None)
+                    if raw_writer:
+                        try:
+                            raw_writer.close()
+                        except Exception:
+                            pass
+
                 ssh_ws = session.tcp_streams.get(stream_id)
                 if ssh_ws and ssh_ws.client_state == WebSocketState.CONNECTED:
                     try:
@@ -725,6 +866,145 @@ async def relay_tcp_stream_to_pbx(websocket: WebSocket, subdomain: str, port: in
         session.tcp_streams.pop(stream_id, None)
         try:
             await session.send_json({"type": "TCP_CLOSE", "stream_id": stream_id})
+        except Exception:
+            pass
+
+
+@connect_hub_router.websocket("/api/v1/connect/web-ssh/{subdomain}")
+async def web_ssh_interactive_terminal(websocket: WebSocket, subdomain: str):
+    """
+    Browser-based interactive SSH terminal over Nornia Connect tunnel.
+    Spawns a local PTY running `ssh -tt -p <ssh_tunnel_port> <user>@127.0.0.1` which tunnels over
+    the PBX's outbound Nornia Connect WebSocket directly to the PBX's local 127.0.0.1:22.
+    """
+    import pty
+    import signal
+
+    await websocket.accept()
+    session = resolve_target_pbx_session(subdomain=subdomain)
+    if not session:
+        await websocket.send_text(
+            json.dumps({
+                "type": "output",
+                "data": f"\r\n❌ HATA: '{subdomain}.nornia.com.tr' için aktif Nornia Connect tüneli bulunamadı.\r\n",
+            })
+        )
+        await websocket.close()
+        return
+
+    if not session.remote_ssh_enabled:
+        await websocket.send_text(
+            json.dumps({
+                "type": "output",
+                "data": "\r\n❌ HATA: Santral yöneticisi tarafından Uzak SSH (Teknik Destek) erişimi kapatılmış.\r\n",
+            })
+        )
+        await websocket.close()
+        return
+
+    ssh_user = re.sub(r"[^a-zA-Z0-9._-]", "", websocket.query_params.get("user") or "root") or "root"
+    ssh_port = session.ssh_tunnel_port or await ensure_ssh_tcp_listener_for_subdomain(session.subdomain)
+    if not ssh_port:
+        await websocket.send_text(
+            json.dumps({
+                "type": "output",
+                "data": "\r\n❌ HATA: SSH tünel portu tahsis edilemedi.\r\n",
+            })
+        )
+        await websocket.close()
+        return
+
+    await websocket.send_text(
+        json.dumps({
+            "type": "output",
+            "data": f"🔒 Nornia Connect Sıfır-Port SSH Köprüsü ({session.subdomain}.nornia.com.tr | HW: {session.hardware_id})\r\n"
+                    f"⚡ Tünel Portu: 127.0.0.1:{ssh_port} ➔ Santral 127.0.0.1:22 ({ssh_user}@{session.hostname or session.subdomain})\r\n"
+                    f"--------------------------------------------------------------------------------\r\n",
+        })
+    )
+
+    master_fd, slave_fd = pty.openpty()
+    proc = None
+    stop_flag = False
+
+    try:
+        env = dict(os.environ)
+        env["TERM"] = "xterm-256color"
+        proc = subprocess.Popen(
+            [
+                "ssh",
+                "-tt",
+                "-o", "StrictHostKeyChecking=no",
+                "-o", "UserKnownHostsFile=/dev/null",
+                "-o", "LogLevel=ERROR",
+                "-o", "ConnectTimeout=10",
+                "-p", str(ssh_port),
+                f"{ssh_user}@127.0.0.1",
+            ],
+            stdin=slave_fd,
+            stdout=slave_fd,
+            stderr=slave_fd,
+            close_fds=True,
+            env=env,
+            preexec_fn=os.setsid,
+        )
+        os.close(slave_fd)
+        slave_fd = -1
+
+        async def _read_pty_loop():
+            nonlocal stop_flag
+            while not stop_flag:
+                try:
+                    data = await asyncio.to_thread(os.read, master_fd, 4096)
+                    if not data:
+                        break
+                    text = data.decode("utf-8", errors="replace")
+                    await websocket.send_text(json.dumps({"type": "output", "data": text}))
+                except OSError:
+                    break
+                except Exception:
+                    break
+            stop_flag = True
+            try:
+                await websocket.send_text(json.dumps({"type": "output", "data": "\r\n[SSH Oturumu Sonlandı]\r\n"}))
+                await websocket.close()
+            except Exception:
+                pass
+
+        reader_task = asyncio.create_task(_read_pty_loop())
+
+        while not stop_flag:
+            raw_msg = await websocket.receive_text()
+            try:
+                m = json.loads(raw_msg)
+            except Exception:
+                m = {"type": "input", "data": raw_msg}
+
+            if m.get("type") == "input":
+                inp = str(m.get("data") or "")
+                if inp:
+                    await asyncio.to_thread(os.write, master_fd, inp.encode("utf-8"))
+    except WebSocketDisconnect:
+        pass
+    except Exception:
+        pass
+    finally:
+        stop_flag = True
+        if slave_fd >= 0:
+            try:
+                os.close(slave_fd)
+            except Exception:
+                pass
+        if proc and proc.poll() is None:
+            try:
+                os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
+            except Exception:
+                try:
+                    proc.terminate()
+                except Exception:
+                    pass
+        try:
+            os.close(master_fd)
         except Exception:
             pass
 

@@ -373,6 +373,8 @@ async def get_clients(db: AsyncSession = Depends(get_central_db)):
             "tenant_code": c.tenant_code,
             "connect_subdomain": c.connect_subdomain or (tunnel_sess.subdomain if tunnel_sess else None),
             "tunnel_connected": bool(tunnel_sess),
+            "ssh_tunnel_port": (tunnel_sess.ssh_tunnel_port if tunnel_sess else 0),
+            "remote_ssh_enabled": (tunnel_sess.remote_ssh_enabled if tunnel_sess else False),
             "tenant_serial_number": c.tenant_serial_number,
             "system_serial_number": c.system_serial_number or (compute_system_serial_number(c.hardware_id) if c.hardware_id and c.hardware_id not in ("UNBOUND", "Bilinmiyor") else "Henüz Bağlanmadı"),
             "hardware_id": c.hardware_id or "Bilinmiyor",
