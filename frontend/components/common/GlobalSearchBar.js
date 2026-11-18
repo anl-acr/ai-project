@@ -1400,7 +1400,7 @@ export default function GlobalSearchBar({
   const wrapperClass = isIconMode
     ? "relative shrink-0 z-50"
     : isWideMode
-    ? "relative flex-1 max-w-xl mx-3 z-50"
+    ? "relative w-full sm:w-[420px] lg:w-[520px] xl:w-[576px] max-w-xl mx-3 z-50"
     : "relative w-48 sm:w-64 lg:w-72 xl:w-80 shrink min-w-[150px] mx-2 z-50";
 
   const dropdownAlignClass = isIconMode
