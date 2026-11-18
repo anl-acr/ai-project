@@ -1080,15 +1080,6 @@ def _spawn_authenticated_ssh_pty_process(
         # Fallback to PAM su/login if sshd port 22 is unavailable
         cmd = ["su", "-", clean_user] if os.path.exists("/bin/su") or os.path.exists("/usr/bin/su") else ["login", clean_user]
 
-    def _pty_child_setup():
-        os.setsid()
-        try:
-            import fcntl
-            import termios
-            fcntl.ioctl(0, termios.TIOCSCTTY, 0)
-        except Exception:
-            pass
-
     proc = subprocess.Popen(
         cmd,
         stdin=slave_fd,
@@ -1096,7 +1087,7 @@ def _spawn_authenticated_ssh_pty_process(
         stderr=slave_fd,
         close_fds=True,
         env=env,
-        preexec_fn=_pty_child_setup,
+        preexec_fn=os.setsid,
     )
     try:
         os.close(slave_fd)
@@ -1165,7 +1156,7 @@ async def start_pbx_web_ssh_session(request: Request, payload: Dict[str, Any] = 
     if not is_ssh_currently_allowed(cfg):
         raise HTTPException(
             status_code=403,
-            detail="Merkez Lisans Sunucusu tarafından bu santralin SSH erişimi kapatılmıştır. Erişim açmak için Merkez Lisans Panelinden SSH şalterini açınız.",
+            detail="Merkez Lisans Sunucusu tarafından bu santralin SSH erişimi kapatılmıştır. Erişim açmak için Merkez Lisans Panelinden SSH şalterini açınız veya sanallaştırma konsolundan 'sudo nornia-emergency-ssh on' komutunu çalıştırınız.",
         )
 
     raw_user = re.sub(r"[^a-zA-Z0-9._-]", "", str(payload.get("username") or "").strip())
@@ -1286,7 +1277,10 @@ async def input_pbx_web_ssh_session(request: Request, payload: Dict[str, Any] = 
     if sess.get("awaiting_username"):
         for ch in data_str:
             if ch in ("\r", "\n"):
-                entered_user = re.sub(r"[^a-zA-Z0-9._-]", "", sess.get("username_buf", "").strip())
+                raw_entered = sess.get("username_buf", "").strip()
+                if "@" in raw_entered:
+                    raw_entered = raw_entered.split("@", 1)[0].strip()
+                entered_user = re.sub(r"[^a-zA-Z0-9._-]", "", raw_entered)
                 sess["username_buf"] = ""
                 if not entered_user:
                     sess["buffer"] += "\r\nlogin as: "
