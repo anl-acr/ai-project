@@ -41,6 +41,7 @@ class ClientServer(Base):
     hardware_id = Column(String, index=True, nullable=True) # e.g. HW-361B-F973
     ip_address = Column(String, nullable=True)
     domain_name = Column(String, nullable=True)
+    connect_subdomain = Column(String, index=True, nullable=True) # Locked Nornia Connect subdomain (e.g. merkez)
     contact_email = Column(String, nullable=True)
     contact_phone = Column(String, nullable=True)
     plan_tier = Column(String, default="professional") # trial, starter, professional, enterprise

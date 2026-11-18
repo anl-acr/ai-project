@@ -22,7 +22,8 @@ async def init_central_db():
         for ddl in [
             "ALTER TABLE client_servers ADD COLUMN custom_quotas TEXT;",
             "ALTER TABLE client_servers ADD COLUMN tenant_serial_number VARCHAR;",
-            "ALTER TABLE client_servers ADD COLUMN system_serial_number VARCHAR;"
+            "ALTER TABLE client_servers ADD COLUMN system_serial_number VARCHAR;",
+            "ALTER TABLE client_servers ADD COLUMN connect_subdomain VARCHAR;"
         ]:
             try:
                 await conn.execute(text(ddl))

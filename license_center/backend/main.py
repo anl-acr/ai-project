@@ -335,7 +335,14 @@ async def get_clients(db: AsyncSession = Depends(get_central_db)):
             c.system_serial_number = compute_system_serial_number(c.hardware_id)
             db_modified = True
 
-        is_online = bool(c.last_heartbeat_at and c.last_heartbeat_at >= fifteen_mins_ago)
+        from license_center.backend.connect_hub import ACTIVE_TUNNELS_BY_HWID, ACTIVE_TUNNELS_BY_SUBDOMAIN
+        c_sub = (c.connect_subdomain or "").strip().lower()
+        c_hw = (c.hardware_id or "").strip().upper()
+        tunnel_sess = (
+            (ACTIVE_TUNNELS_BY_SUBDOMAIN.get(c_sub) if c_sub else None)
+            or (ACTIVE_TUNNELS_BY_HWID.get(c_hw) if c_hw else None)
+        )
+        is_online = bool(tunnel_sess) or bool(c.last_heartbeat_at and c.last_heartbeat_at >= fifteen_mins_ago)
         days_left = None
         if c.license_expires_at and c.license_expires_at != "unlimited":
             try:
@@ -355,11 +362,13 @@ async def get_clients(db: AsyncSession = Depends(get_central_db)):
             "id": c.id,
             "company_name": c.company_name,
             "tenant_code": c.tenant_code,
+            "connect_subdomain": c.connect_subdomain or (tunnel_sess.subdomain if tunnel_sess else None),
+            "tunnel_connected": bool(tunnel_sess),
             "tenant_serial_number": c.tenant_serial_number,
             "system_serial_number": c.system_serial_number or (compute_system_serial_number(c.hardware_id) if c.hardware_id and c.hardware_id not in ("UNBOUND", "Bilinmiyor") else "Henüz Bağlanmadı"),
             "hardware_id": c.hardware_id or "Bilinmiyor",
-            "ip_address": c.ip_address,
-            "domain_name": c.domain_name,
+            "ip_address": c.ip_address or (tunnel_sess.client_ip if tunnel_sess else None),
+            "domain_name": c.domain_name or (f"{c.connect_subdomain}.nornia.com.tr" if c.connect_subdomain else None),
             "contact_email": c.contact_email,
             "contact_phone": c.contact_phone,
             "plan_tier": c.plan_tier,
@@ -480,7 +489,8 @@ async def update_client(client_id: int, payload: ClientCreateSchema, request: Re
 
 @app.delete("/api/v1/clients/{client_id}")
 async def delete_client(client_id: int, request: Request, db: AsyncSession = Depends(get_central_db)):
-    """Deletes client record from central database."""
+    """Deletes client record from central database and unlocks its Nornia Connect subdomain on the PBX."""
+    from license_center.backend.connect_hub import notify_and_unbind_pbx_tunnel
     res = await db.execute(select(ClientServer).where(ClientServer.id == client_id))
     client = res.scalars().first()
     if not client:
@@ -488,11 +498,37 @@ async def delete_client(client_id: int, request: Request, db: AsyncSession = Dep
         
     performed_by = request.headers.get("X-User-Name", "admin")
     company = client.company_name
+    hw_to_unbind = client.hardware_id
+    sub_to_unbind = client.connect_subdomain or client.tenant_code
+
     await db.delete(client)
     await db.commit()
 
-    await log_master_action(db, performed_by, "CLIENT_DELETE", f"Müşteri Kaydı Silindi: {company} (#{client_id})", request.client.host if request.client else None)
-    return {"success": True, "message": f"Müşteri #{client_id} silindi."}
+    await notify_and_unbind_pbx_tunnel(hardware_id=hw_to_unbind, subdomain=sub_to_unbind)
+
+    await log_master_action(db, performed_by, "CLIENT_DELETE", f"Müşteri Kaydı ve Nornia Connect Alt Alan Adı Kilidi Silindi: {company} (#{client_id}, Subdomain: {sub_to_unbind})", request.client.host if request.client else None)
+    return {"success": True, "message": f"Müşteri #{client_id} silindi ve santraldeki Nornia Connect isim kilidi kaldırıldı."}
+
+
+@app.post("/api/v1/clients/{client_id}/unlock-subdomain")
+async def unlock_client_subdomain(client_id: int, request: Request, db: AsyncSession = Depends(get_central_db)):
+    """Unlocks only the Nornia Connect subdomain for a client without deleting the client record."""
+    from license_center.backend.connect_hub import notify_and_unbind_pbx_tunnel
+    res = await db.execute(select(ClientServer).where(ClientServer.id == client_id))
+    client = res.scalars().first()
+    if not client:
+        raise HTTPException(status_code=404, detail="Müşteri bulunamadı.")
+
+    performed_by = request.headers.get("X-User-Name", "admin")
+    old_sub = client.connect_subdomain
+    hw_id = client.hardware_id
+    client.connect_subdomain = None
+    client.domain_name = None
+    await db.commit()
+
+    await notify_and_unbind_pbx_tunnel(hardware_id=hw_id, subdomain=old_sub)
+    await log_master_action(db, performed_by, "SUBDOMAIN_UNLOCK", f"Nornia Connect Alt Alan Adı Kilidi Açıldı: {client.company_name} (Eski Subdomain: {old_sub})", request.client.host if request.client else None)
+    return {"success": True, "message": f"'{old_sub}' alt alan adı kilidi kaldırıldı. Santral üzerinden yeni alt alan adı tanımlanabilir."}
 
 # --------------------------------------------------------------------------
 # License Key Generator Studio

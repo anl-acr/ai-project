@@ -2,14 +2,26 @@ import asyncio
 import base64
 import datetime
 import json
+import re
 import time
 import uuid
 from typing import Any, Dict, Optional
 
 from fastapi import APIRouter, HTTPException, Request, Response, WebSocket, WebSocketDisconnect
+from sqlalchemy import func, or_, select
 from starlette.websockets import WebSocketState
 
+from license_center.backend.database import AsyncSessionLocal
+from license_center.backend.license_generator import (
+    compute_system_serial_number,
+    generate_signed_license_key,
+    generate_tenant_serial_number,
+)
+from license_center.backend.models import ClientServer
+
 connect_hub_router = APIRouter()
+
+RESERVED_SUBDOMAINS = {"panel", "www", "mail", "ftp", "ns1", "ns2", "api", "admin", "license"}
 
 
 class ConnectedPBXSession:
@@ -98,15 +110,210 @@ async def list_active_connect_tunnels():
     return {"status": "ok", "count": len(out), "tunnels": out}
 
 
+async def check_subdomain_availability_db(subdomain: str, hardware_id: str = "") -> Dict[str, Any]:
+    sub = re.sub(r"[^a-z0-9-_]", "", str(subdomain or "").strip().lower())
+    hw = str(hardware_id or "").strip().upper()
+
+    if not sub or len(sub) < 2:
+        return {
+            "available": False,
+            "locked_to_this_hw": False,
+            "subdomain": sub,
+            "message": "Alt alan adı en az 2 karakter olmalıdır.",
+        }
+
+    if sub in RESERVED_SUBDOMAINS:
+        return {
+            "available": False,
+            "locked_to_this_hw": False,
+            "subdomain": sub,
+            "message": f"'{sub}' sistem tarafından ayrılmış bir alt alan adıdır. Lütfen farklı bir ad seçiniz.",
+        }
+
+    # 1. Check live active tunnel in memory
+    live_sess = ACTIVE_TUNNELS_BY_SUBDOMAIN.get(sub)
+    if live_sess and live_sess.hardware_id.upper() != hw and hw not in ("", "HW-UNKNOWN"):
+        return {
+            "available": False,
+            "locked_to_this_hw": False,
+            "subdomain": sub,
+            "owner_hardware_id": live_sess.hardware_id,
+            "message": f"'{sub}.nornia.com.tr' şu anda başka bir aktif santral ({live_sess.hardware_id}) tarafından kullanılmaktadır.",
+        }
+
+    # 2. Check Central License Database (ClientServer)
+    async with AsyncSessionLocal() as db:
+        res = await db.execute(
+            select(ClientServer).where(
+                or_(
+                    func.lower(ClientServer.connect_subdomain) == sub,
+                    func.lower(ClientServer.tenant_code) == sub,
+                    func.lower(ClientServer.domain_name) == f"{sub}.nornia.com.tr",
+                )
+            )
+        )
+        existing_clients = res.scalars().all()
+        for c in existing_clients:
+            c_hw = str(c.hardware_id or "").strip().upper()
+            c_sub = str(c.connect_subdomain or "").strip().lower()
+            if c_hw and c_hw not in ("UNBOUND", "BILINMIYOR", "BİLİNMİYOR", "HW-UNKNOWN"):
+                if hw and c_hw == hw:
+                    return {
+                        "available": True,
+                        "locked_to_this_hw": bool(c_sub == sub),
+                        "subdomain": sub,
+                        "owner_hardware_id": c_hw,
+                        "client_id": c.id,
+                        "message": f"'{sub}.nornia.com.tr' alt alan adı bu santrale ({c_hw}) tescillidir.",
+                    }
+                else:
+                    return {
+                        "available": False,
+                        "locked_to_this_hw": False,
+                        "subdomain": sub,
+                        "owner_hardware_id": c_hw,
+                        "message": f"'{sub}.nornia.com.tr' başka bir santral ({c.company_name} — {c_hw}) adına tescillidir! Lütfen farklı bir ad seçiniz.",
+                    }
+
+        # Also check if this hardware_id already has a DIFFERENT locked connect_subdomain in DB
+        if hw and hw not in ("UNBOUND", "HW-UNKNOWN"):
+            res_hw = await db.execute(
+                select(ClientServer).where(func.upper(ClientServer.hardware_id) == hw)
+            )
+            hw_client = res_hw.scalars().first()
+            if hw_client and hw_client.connect_subdomain:
+                locked_s = hw_client.connect_subdomain.strip().lower()
+                if locked_s and locked_s != sub:
+                    return {
+                        "available": False,
+                        "locked_to_this_hw": True,
+                        "locked_subdomain": locked_s,
+                        "subdomain": sub,
+                        "message": f"Bu santral ({hw}) Merkez Lisans Sunucusunda '{locked_s}.nornia.com.tr' adına kilitlenmiştir. Değiştirmek için önce Merkez Lisans Panelinden kaydı silmeniz gerekir.",
+                    }
+
+    return {
+        "available": True,
+        "locked_to_this_hw": False,
+        "subdomain": sub,
+        "owner_hardware_id": None,
+        "message": f"'{sub}.nornia.com.tr' müsait ve bu santrale tescil edilebilir.",
+    }
+
+
+async def bind_subdomain_to_hardware_db(
+    subdomain: str,
+    hardware_id: str,
+    hostname: str = "",
+    client_ip: str = "",
+    version: str = "v2.4.8",
+) -> Dict[str, Any]:
+    """Verifies availability and permanently binds (locks) subdomain <-> hardware_id in Central License DB."""
+    check = await check_subdomain_availability_db(subdomain, hardware_id)
+    if not check.get("available"):
+        return {"ok": False, "reason": check.get("message") or "Alt alan adı kullanımda."}
+
+    sub = check["subdomain"]
+    hw = str(hardware_id or "").strip().upper()
+    if not hw or hw == "HW-UNKNOWN":
+        return {"ok": True, "subdomain": sub, "locked": False}
+
+    async with AsyncSessionLocal() as db:
+        # Find existing client by hardware_id or unbound tenant_code
+        res = await db.execute(
+            select(ClientServer).where(
+                or_(
+                    func.upper(ClientServer.hardware_id) == hw,
+                    func.lower(ClientServer.connect_subdomain) == sub,
+                    func.lower(ClientServer.tenant_code) == sub,
+                )
+            )
+        )
+        client = res.scalars().first()
+        sys_sn = compute_system_serial_number(hw)
+
+        if not client:
+            t_sn = generate_tenant_serial_number(sub, 100)
+            exp_date = "2027-12-31"
+            gen_key = generate_signed_license_key(sub, exp_date, hw)
+            client = ClientServer(
+                company_name=f"Nornia Santral ({hostname or sub})",
+                tenant_code=sub,
+                tenant_serial_number=t_sn,
+                system_serial_number=sys_sn,
+                hardware_id=hw,
+                connect_subdomain=sub,
+                domain_name=f"{sub}.nornia.com.tr",
+                ip_address=client_ip,
+                status="active",
+                current_license_key=gen_key,
+                license_expires_at=exp_date,
+                software_version=version or "v2.4.8",
+                last_heartbeat_at=datetime.datetime.utcnow(),
+            )
+            db.add(client)
+        else:
+            client.hardware_id = hw
+            client.system_serial_number = sys_sn
+            client.connect_subdomain = sub
+            client.domain_name = f"{sub}.nornia.com.tr"
+            if client_ip:
+                client.ip_address = client_ip
+            if version:
+                client.software_version = version
+            client.last_heartbeat_at = datetime.datetime.utcnow()
+
+        await db.commit()
+
+    return {"ok": True, "subdomain": sub, "locked": True}
+
+
+async def notify_and_unbind_pbx_tunnel(hardware_id: Optional[str] = None, subdomain: Optional[str] = None):
+    """Notifies a connected PBX that its registration/subdomain lock was removed on Central License Server."""
+    sess = None
+    if subdomain and subdomain.strip().lower() in ACTIVE_TUNNELS_BY_SUBDOMAIN:
+        sess = ACTIVE_TUNNELS_BY_SUBDOMAIN.pop(subdomain.strip().lower(), None)
+    if not sess and hardware_id and hardware_id.strip().upper() in ACTIVE_TUNNELS_BY_HWID:
+        sess = ACTIVE_TUNNELS_BY_HWID.pop(hardware_id.strip().upper(), None)
+
+    if sess:
+        ACTIVE_TUNNELS_BY_SUBDOMAIN.pop(sess.subdomain, None)
+        ACTIVE_TUNNELS_BY_HWID.pop(sess.hardware_id, None)
+        try:
+            await sess.send_json({
+                "type": "RAS_UNBOUND",
+                "message": "Merkez Lisans Sunucusu üzerinden santral kaydı / alt alan adı kilidi kaldırıldı. Yeni bir alt alan adı tanımlayabilirsiniz.",
+            })
+            await sess.websocket.close(code=1000)
+        except Exception:
+            pass
+
+
+@connect_hub_router.get("/api/v1/connect/check-subdomain")
+async def check_subdomain_endpoint(subdomain: str, hardware_id: str = ""):
+    return await check_subdomain_availability_db(subdomain=subdomain, hardware_id=hardware_id)
+
+
 @connect_hub_router.websocket("/api/v1/ras/tunnel")
 async def pbx_ras_tunnel_endpoint(websocket: WebSocket):
     await websocket.accept()
     subdomain = (websocket.query_params.get("subdomain") or websocket.headers.get("x-ras-subdomain") or "merkez").strip().lower()
-    hw_id = (websocket.query_params.get("hardware_id") or websocket.headers.get("x-hardware-id") or "HW-UNKNOWN").strip()
+    hw_id = (websocket.query_params.get("hardware_id") or websocket.headers.get("x-hardware-id") or "HW-UNKNOWN").strip().upper()
 
     session = ConnectedPBXSession(websocket=websocket, subdomain=subdomain, hardware_id=hw_id)
     xff = websocket.headers.get("x-forwarded-for") or websocket.headers.get("x-real-ip")
     session.client_ip = xff.split(",")[0].strip() if xff else (websocket.client.host if websocket.client else "unknown")
+
+    # Initial check before registering tunnel
+    pre_check = await check_subdomain_availability_db(subdomain, hw_id)
+    if not pre_check.get("available"):
+        await session.send_json({
+            "type": "RAS_REJECTED",
+            "reason": pre_check.get("message") or f"'{subdomain}' alt alan adı başka bir santral tarafından kullanılmaktadır.",
+            "locked_subdomain": pre_check.get("locked_subdomain"),
+        })
+        await websocket.close(code=1008)
+        return
 
     ACTIVE_TUNNELS_BY_SUBDOMAIN[session.subdomain] = session
     ACTIVE_TUNNELS_BY_HWID[session.hardware_id] = session
@@ -128,19 +335,38 @@ async def pbx_ras_tunnel_endpoint(websocket: WebSocket):
                 session.version = str(msg.get("version") or "")
                 session.remote_ssh_enabled = bool(msg.get("remote_ssh_enabled", True))
                 session.local_ips = msg.get("local_ips") or []
-                if msg.get("subdomain"):
-                    new_sub = str(msg.get("subdomain")).strip().lower()
-                    if new_sub and new_sub != session.subdomain:
-                        ACTIVE_TUNNELS_BY_SUBDOMAIN.pop(session.subdomain, None)
-                        session.subdomain = new_sub
-                        ACTIVE_TUNNELS_BY_SUBDOMAIN[session.subdomain] = session
-                if msg.get("hardware_id"):
-                    session.hardware_id = str(msg.get("hardware_id")).strip()
-                    ACTIVE_TUNNELS_BY_HWID[session.hardware_id] = session
+                req_sub = str(msg.get("subdomain") or session.subdomain).strip().lower()
+                req_hw = str(msg.get("hardware_id") or session.hardware_id).strip().upper()
+
+                bind_res = await bind_subdomain_to_hardware_db(
+                    subdomain=req_sub,
+                    hardware_id=req_hw,
+                    hostname=session.hostname,
+                    client_ip=session.client_ip,
+                    version=session.version,
+                )
+                if not bind_res.get("ok"):
+                    await session.send_json({
+                        "type": "RAS_REJECTED",
+                        "reason": bind_res.get("reason") or "Alt alan adı çakışması nedeniyle bağlantı reddedildi.",
+                    })
+                    await websocket.close(code=1008)
+                    return
+
+                if req_sub != session.subdomain:
+                    ACTIVE_TUNNELS_BY_SUBDOMAIN.pop(session.subdomain, None)
+                    session.subdomain = req_sub
+                    ACTIVE_TUNNELS_BY_SUBDOMAIN[session.subdomain] = session
+                session.hardware_id = req_hw
+                ACTIVE_TUNNELS_BY_HWID[session.hardware_id] = session
+
                 await session.send_json({
                     "type": "RAS_WELCOME",
                     "subdomain": session.subdomain,
                     "status": "connected",
+                    "subdomain_locked": True,
+                    "public_ras_url": f"https://{session.subdomain}.nornia.com.tr",
+                    "wss_sip_url": f"wss://{session.subdomain}.nornia.com.tr/ras-sip-ws",
                 })
 
             elif mtype == "PING":

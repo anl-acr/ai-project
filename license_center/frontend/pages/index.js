@@ -693,6 +693,28 @@ export default function MasterDashboard() {
                       {client.ip_address || "127.0.0.1"} ({client.software_version || "v2.4.8"})
                     </span>
                   </div>
+
+                  {client.connect_subdomain && (
+                    <div className="flex items-center justify-between text-slate-500 dark:text-slate-400 pt-1 border-t border-slate-200/60 dark:border-slate-800/60">
+                      <span className="flex items-center gap-1.5 text-emerald-600 dark:text-emerald-400 font-sans font-bold">
+                        <Globe size={13} /> Nornia Connect:
+                      </span>
+                      <a
+                        href={`https://${client.connect_subdomain}.nornia.com.tr`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="font-extrabold text-emerald-600 dark:text-emerald-400 hover:underline flex items-center gap-1.5"
+                        title="Nornia Connect Tüneli Üzerinden Santral Arayüzünü Aç"
+                      >
+                        <span>{client.connect_subdomain}.nornia.com.tr</span>
+                        {client.tunnel_connected && (
+                          <span className="px-1.5 py-0.5 rounded bg-emerald-500/15 text-[9px] font-sans uppercase">
+                            TÜNEL AKTİF
+                          </span>
+                        )}
+                      </a>
+                    </div>
+                  )}
                 </div>
 
                 {/* Live Telemetry Health Bar */}

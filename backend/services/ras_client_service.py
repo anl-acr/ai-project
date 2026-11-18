@@ -24,6 +24,8 @@ DEFAULT_RAS_CONFIG: Dict[str, Any] = {
     "enabled": False,
     "hub_url": "",
     "subdomain": "merkez",
+    "subdomain_locked": False,
+    "locked_subdomain": "",
     "secret_token": "",
     "remote_ssh_enabled": True,
     "turn_enabled": True,
@@ -524,6 +526,54 @@ async def _ras_tunnel_loop():
                                     RAS_RUNTIME_STATE["mobile_ras_url"] = msg["public_ras_url"]
                                 if msg.get("wss_sip_url"):
                                     RAS_RUNTIME_STATE["wss_sip_url"] = msg["wss_sip_url"]
+                                if msg.get("subdomain_locked"):
+                                    try:
+                                        from backend.main import save_settings, settings_db
+                                        rc = get_ras_config()
+                                        rc["subdomain_locked"] = True
+                                        rc["locked_subdomain"] = str(msg.get("subdomain") or subdomain).strip().lower()
+                                        rc["subdomain"] = rc["locked_subdomain"]
+                                        settings_db["ras_config"] = rc
+                                        save_settings(settings_db)
+                                    except Exception:
+                                        pass
+                            elif mtype == "RAS_REJECTED":
+                                reason_str = str(msg.get("reason") or "Alt alan adı başka bir santral tarafından kullanılmaktadır.")
+                                RAS_RUNTIME_STATE["status"] = "error"
+                                RAS_RUNTIME_STATE["connected"] = False
+                                RAS_RUNTIME_STATE["last_error"] = reason_str
+                                try:
+                                    from backend.main import save_settings, settings_db
+                                    rc = get_ras_config()
+                                    if msg.get("locked_subdomain"):
+                                        rc["subdomain_locked"] = True
+                                        rc["locked_subdomain"] = str(msg["locked_subdomain"]).strip().lower()
+                                        rc["subdomain"] = rc["locked_subdomain"]
+                                    else:
+                                        rc["subdomain_locked"] = False
+                                        rc["locked_subdomain"] = ""
+                                        rc["enabled"] = False
+                                    settings_db["ras_config"] = rc
+                                    save_settings(settings_db)
+                                except Exception:
+                                    pass
+                                break
+                            elif mtype == "RAS_UNBOUND":
+                                msg_unbind = str(msg.get("message") or "Merkez Lisans Sunucusu üzerinden alt alan adı kilidi kaldırıldı.")
+                                RAS_RUNTIME_STATE["status"] = "disabled"
+                                RAS_RUNTIME_STATE["connected"] = False
+                                RAS_RUNTIME_STATE["last_error"] = msg_unbind
+                                try:
+                                    from backend.main import save_settings, settings_db
+                                    rc = get_ras_config()
+                                    rc["subdomain_locked"] = False
+                                    rc["locked_subdomain"] = ""
+                                    rc["enabled"] = False
+                                    settings_db["ras_config"] = rc
+                                    save_settings(settings_db)
+                                except Exception:
+                                    pass
+                                break
                             elif mtype == "HTTP_REQ":
                                 asyncio.create_task(_handle_tunneled_http_request(tunnel_ws, msg))
                             elif mtype == "WS_OPEN":
@@ -602,10 +652,86 @@ def trigger_ras_reconnect():
     start_ras_tunnel_worker()
 
 
+async def _query_hub_subdomain_check(hub_url: str, subdomain: str, hw_id: str) -> Dict[str, Any]:
+    """Queries the Central Hub to check if `subdomain` is available or locked to `hw_id`."""
+    raw = str(hub_url or "").strip().rstrip("/")
+    if not raw:
+        return {"reachable": False, "available": True, "locked_to_this_hw": False}
+    has_scheme = raw.startswith(("http://", "https://"))
+    norm = raw if has_scheme else f"http://{raw}"
+    parsed = urllib.parse.urlparse(norm)
+    host_only = (parsed.netloc or parsed.path).split(":")[0]
+    has_port = ":" in (parsed.netloc or parsed.path)
+
+    query = urllib.parse.urlencode({"subdomain": subdomain, "hardware_id": hw_id})
+    if has_port:
+        http_scheme = "https" if parsed.scheme == "https" else "http"
+        candidates = [f"{http_scheme}://{parsed.netloc}/api/v1/connect/check-subdomain?{query}"]
+    else:
+        candidates = [
+            f"http://{host_only}:8050/api/v1/connect/check-subdomain?{query}",
+            f"https://{host_only}/api/v1/connect/check-subdomain?{query}",
+            f"http://{host_only}/api/v1/connect/check-subdomain?{query}",
+        ]
+
+    async with httpx.AsyncClient(timeout=4.0, verify=False) as client:
+        for url in candidates:
+            try:
+                resp = await client.get(url)
+                if resp.status_code == 200:
+                    data = resp.json()
+                    if isinstance(data, dict) and "available" in data:
+                        return {"reachable": True, **data}
+            except Exception:
+                continue
+    return {"reachable": False, "available": True, "locked_to_this_hw": False}
+
+
+@ras_client_router.get("/api/settings/ras/check-subdomain")
+async def check_ras_subdomain_from_pbx(subdomain: str, hub_url: str = "", sync_lock: bool = False):
+    from backend.main import save_settings, settings_db
+    cfg = get_ras_config()
+    target_hub = str(hub_url or cfg.get("hub_url") or "").strip()
+    hw_id = get_hardware_fingerprint().get("hardware_id", "HW-UNKNOWN")
+
+    if not target_hub:
+        return {
+            "available": False,
+            "message": "Sorgulama yapabilmek için önce 1. alana Merkez Sunucu Adresini (Hub URL / IP) giriniz.",
+        }
+
+    res = await _query_hub_subdomain_check(target_hub, subdomain, hw_id)
+    if not res.get("reachable"):
+        return {
+            "available": False,
+            "reachable": False,
+            "message": f"Merkez sunucuya ({target_hub}) ulaşılamadı. Lütfen adresi kontrol ediniz.",
+        }
+
+    # If sync_lock is requested and the hub says this hardware_id is NO LONGER locked (deleted from Central License Server), unlock locally!
+    if sync_lock and cfg.get("subdomain_locked") and not res.get("locked_to_this_hw"):
+        cfg["subdomain_locked"] = False
+        cfg["locked_subdomain"] = ""
+        settings_db["ras_config"] = cfg
+        save_settings(settings_db)
+
+    return res
+
+
 @ras_client_router.get("/api/settings/ras/status")
 async def get_ras_status_endpoint(request: Request):
+    from backend.main import save_settings, settings_db
     cfg = get_ras_config()
     hw_info = get_hardware_fingerprint()
+    hw_id = hw_info.get("hardware_id", "HW-UNKNOWN")
+
+    # If tunnel is currently connected, ensure subdomain_locked is reflected as True
+    if RAS_RUNTIME_STATE.get("connected") and cfg.get("enabled") and cfg.get("subdomain") and not cfg.get("subdomain_locked"):
+        cfg["subdomain_locked"] = True
+        cfg["locked_subdomain"] = cfg["subdomain"]
+        settings_db["ras_config"] = cfg
+        save_settings(settings_db)
+
     ifaces = get_live_interfaces()
     urls = _compute_public_ras_urls(cfg.get("hub_url", ""), cfg.get("subdomain", "merkez"))
     return {
@@ -617,7 +743,7 @@ async def get_ras_status_endpoint(request: Request):
             "mobile_ras_url": RAS_RUNTIME_STATE.get("mobile_ras_url") or urls["mobile_ras_url"],
             "wss_sip_url": RAS_RUNTIME_STATE.get("wss_sip_url") or urls["wss_sip_url"],
         },
-        "hardware_id": hw_info.get("hardware_id", "HW-UNKNOWN"),
+        "hardware_id": hw_id,
         "hostname": socket.gethostname(),
         "local_interfaces": ifaces,
         "ice_servers": build_ras_ice_servers(cfg),
@@ -632,11 +758,53 @@ async def save_ras_config_endpoint(request: Request, payload: Dict[str, Any] = B
     if inspect.isawaitable(u_info):
         u_info = await u_info
     current = get_ras_config()
+    hw_id = get_hardware_fingerprint().get("hardware_id", "HW-UNKNOWN")
+
+    req_hub_url = str(payload.get("hub_url", current.get("hub_url", ""))).strip()
+    req_sub = str(payload.get("subdomain", current.get("subdomain", "merkez"))).strip().lower() or "merkez"
+    req_enabled = bool(payload.get("enabled", current.get("enabled", False)))
+
+    was_locked = bool(current.get("subdomain_locked"))
+    locked_sub = str(current.get("locked_subdomain") or current.get("subdomain") or "").strip().lower()
+
+    # 1. If already locked locally, check if Central License Server still holds the lock for this hardware_id
+    if was_locked and locked_sub:
+        check_hub = str(current.get("hub_url") or req_hub_url).strip()
+        if check_hub:
+            remote_status = await _query_hub_subdomain_check(check_hub, locked_sub, hw_id)
+            if remote_status.get("reachable") and not remote_status.get("locked_to_this_hw"):
+                # Central admin deleted or unlocked the record on panel.nornia.com.tr! Unlock locally:
+                was_locked = False
+                locked_sub = ""
+
+    if was_locked and locked_sub:
+        if req_sub != locked_sub:
+            raise HTTPException(
+                status_code=403,
+                detail=f"Bu santral '{locked_sub}.nornia.com.tr' adıyla Merkez Lisans Sunucusuna tescillenmiştir ve kilitlidir. Alt alan adını değiştirmek veya silmek için önce Merkez Lisans Paneli (panel.nornia.com.tr) üzerinden kaydı silmeniz gerekmektedir.",
+            )
+        final_sub = locked_sub
+        final_locked = True
+    else:
+        final_sub = req_sub
+        final_locked = False
+        if req_enabled and req_hub_url:
+            remote_check = await _query_hub_subdomain_check(req_hub_url, req_sub, hw_id)
+            if remote_check.get("reachable") and not remote_check.get("available"):
+                raise HTTPException(
+                    status_code=409,
+                    detail=remote_check.get("message") or f"'{req_sub}' alt alan adı başka bir santral tarafından kullanılmaktadır. Lütfen farklı bir ad seçiniz.",
+                )
+            if remote_check.get("reachable") and remote_check.get("available"):
+                final_locked = True
+                locked_sub = final_sub
 
     updated = {
-        "enabled": bool(payload.get("enabled", current.get("enabled", False))),
-        "hub_url": str(payload.get("hub_url", current.get("hub_url", ""))).strip(),
-        "subdomain": str(payload.get("subdomain", current.get("subdomain", "merkez"))).strip().lower() or "merkez",
+        "enabled": req_enabled,
+        "hub_url": req_hub_url,
+        "subdomain": final_sub,
+        "subdomain_locked": final_locked,
+        "locked_subdomain": locked_sub if final_locked else "",
         "secret_token": str(payload.get("secret_token", current.get("secret_token", ""))).strip(),
         "remote_ssh_enabled": bool(payload.get("remote_ssh_enabled", current.get("remote_ssh_enabled", True))),
         "turn_enabled": bool(payload.get("turn_enabled", current.get("turn_enabled", True))),
