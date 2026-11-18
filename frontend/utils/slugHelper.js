@@ -77,6 +77,7 @@ export const SUBTAB_TURKISH_SLUGS = {
   "pbx": "santral-ayarlari",
   "server-network": "sunucu-ag-ayarlari",
   "ras-settings": "nornia-connect",
+  "server-ssh": "sunucu-web-ssh-terminali",
   "trunks": "dis-hatlar",
   "channels": "kanal-ayarlari",
   "breaks": "mola-tanimlari",

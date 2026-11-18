@@ -981,13 +981,37 @@ async def reconnect_ras_endpoint(request: Request):
 def _check_user_server_ssh_permission(u_info: Dict[str, Any]) -> bool:
     """Checks if the authenticated PBX user has 'server_ssh:access' or '*' permission."""
     from backend.main import settings_db
+
+    raw_uid = str(u_info.get("raw_user_id") or u_info.get("user_id") or "admin").strip()
     role_code = str(u_info.get("role") or "").strip().lower()
+
+    if not role_code:
+        users = settings_db.get("users") or []
+        matched_user = None
+        for u in users:
+            if not isinstance(u, dict):
+                continue
+            if (
+                str(u.get("id") or "").strip() == raw_uid
+                or str(u.get("extension") or "").strip() == raw_uid
+                or str(u.get("username") or "").strip().lower() == raw_uid.lower()
+                or str(u.get("email") or "").strip().lower() == raw_uid.lower()
+                or str(u.get("full_name") or "").strip().lower() == raw_uid.lower()
+            ):
+                matched_user = u
+                break
+        if matched_user:
+            role_code = str(matched_user.get("role") or "admin").strip().lower()
+        elif raw_uid.lower() in ("admin", "superadmin", "1", ""):
+            role_code = "admin"
+
     if role_code in ("admin", "superadmin"):
         return True
+
     roles = settings_db.get("roles") or []
     matched_role = next((r for r in roles if str(r.get("role_code") or "").strip().lower() == role_code), None)
     perms = (matched_role.get("permissions") if matched_role else None) or u_info.get("permissions") or []
-    return "*" in perms or "server_ssh:access" in perms or "server_ssh" in perms
+    return "*" in perms or "server_ssh:access" in perms or "server_ssh" in perms or "ras_settings:write" in perms
 
 
 @ras_client_router.post("/api/settings/ras/web-ssh/start")
@@ -1016,22 +1040,43 @@ async def start_pbx_web_ssh_session(request: Request, payload: Dict[str, Any] = 
         )
 
     ssh_user = re.sub(r"[^a-zA-Z0-9._-]", "", str(payload.get("username") or "aida").strip()) or "aida"
+    ssh_password = str(payload.get("password") or "")
+    req_mode = str(payload.get("mode") or "ssh").strip().lower()
     session_id = f"pty-{uuid.uuid4().hex[:16]}"
 
     master_fd, slave_fd = pty.openpty()
     env = dict(os.environ)
     env["TERM"] = "xterm-256color"
 
-    # Connect to local sshd on 127.0.0.1:22 so Linux PAM authenticates the user password naturally
-    cmd = [
-        "ssh",
-        "-tt",
-        "-o", "StrictHostKeyChecking=no",
-        "-o", "UserKnownHostsFile=/dev/null",
-        "-o", "LogLevel=ERROR",
-        "-o", "ConnectTimeout=5",
-        f"{ssh_user}@127.0.0.1",
-    ]
+    # Check if local port 22 (sshd) is listening
+    sshd_listening = False
+    if req_mode != "bash":
+        try:
+            with socket.create_connection(("127.0.0.1", 22), timeout=0.8):
+                sshd_listening = True
+        except Exception:
+            _sync_system_sshd_state(True)
+            try:
+                with socket.create_connection(("127.0.0.1", 22), timeout=1.0):
+                    sshd_listening = True
+            except Exception:
+                sshd_listening = False
+
+    if req_mode == "bash" or not sshd_listening:
+        shell_bin = "/bin/bash" if os.path.exists("/bin/bash") else "/bin/sh"
+        cmd = [shell_bin, "-i"]
+        mode_desc = f"Doğrudan Sistem Kabuğu ({shell_bin})"
+    else:
+        cmd = [
+            "ssh",
+            "-tt",
+            "-o", "StrictHostKeyChecking=no",
+            "-o", "UserKnownHostsFile=/dev/null",
+            "-o", "LogLevel=ERROR",
+            "-o", "ConnectTimeout=5",
+            f"{ssh_user}@127.0.0.1",
+        ]
+        mode_desc = f"SSH ({ssh_user}@127.0.0.1)"
 
     try:
         proc = subprocess.Popen(
@@ -1061,9 +1106,10 @@ async def start_pbx_web_ssh_session(request: Request, payload: Dict[str, Any] = 
         "username": ssh_user,
         "master_fd": master_fd,
         "proc": proc,
+        "password_sent": False,
         "buffer": (
             f"🔒 Nornia Santral Dahili Web SSH Terminali ({socket.gethostname()})\r\n"
-            f"⚡ Kullanıcı: {ssh_user}@127.0.0.1 (Sıfır-Port Web Tüneli)\r\n"
+            f"⚡ Bağlantı Modu: {mode_desc} | Sıfır-Port Web Tüneli\r\n"
             f"------------------------------------------------------------------------\r\n"
         ),
         "closed": False,
@@ -1082,6 +1128,17 @@ async def start_pbx_web_ssh_session(request: Request, payload: Dict[str, Any] = 
                 sess_obj["buffer"] += txt
                 if len(sess_obj["buffer"]) > 150000:
                     sess_obj["buffer"] = sess_obj["buffer"][-150000:]
+
+                # Auto-fill password if provided in start payload
+                if ssh_password and not sess_obj.get("password_sent"):
+                    low = txt.lower()
+                    if "password:" in low or "parola:" in low:
+                        sess_obj["password_sent"] = True
+                        try:
+                            await asyncio.sleep(0.08)
+                            await asyncio.to_thread(os.write, master_fd, (ssh_password + "\n").encode("utf-8"))
+                        except Exception:
+                            pass
             except OSError:
                 break
             except Exception:
@@ -1095,16 +1152,17 @@ async def start_pbx_web_ssh_session(request: Request, payload: Dict[str, Any] = 
         user_id=u_info.get("user_id", "admin"),
         action="WEB_SSH_START",
         module="Sunucu Web SSH",
-        details={"summary": f"Web SSH Terminal oturumu başlatıldı ({ssh_user}@127.0.0.1)", "session_id": session_id},
+        details={"summary": f"Web SSH Terminal oturumu başlatıldı ({mode_desc})", "session_id": session_id},
     )
 
-    await asyncio.sleep(0.25)
+    await asyncio.sleep(0.35)
     initial_out = sess_obj["buffer"]
     sess_obj["buffer"] = ""
     return {
         "status": "ok",
         "session_id": session_id,
         "username": ssh_user,
+        "mode": "bash" if (req_mode == "bash" or not sshd_listening) else "ssh",
         "output": initial_out,
         "closed": sess_obj["closed"],
     }

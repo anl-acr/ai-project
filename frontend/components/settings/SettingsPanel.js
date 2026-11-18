@@ -29,7 +29,8 @@ import {
   ChevronRight,
   Clock,
   PhoneOutgoing,
-  Sliders
+  Sliders,
+  Terminal
 } from "lucide-react";
 import dynamic from "next/dynamic";
 import { getTurkishSlugForSubtab, getSubtabFromTurkishSlug } from "../../utils/slugHelper";
@@ -48,6 +49,7 @@ const lazySub = (loader) => dynamic(loader, { ssr: false, loading: SubPanelLoadi
 const PBXSettings = lazySub(() => import("./PBXSettings"));
 const ServerNetworkSettingsPanel = lazySub(() => import("./ServerNetworkSettingsPanel"));
 const RemoteAccessSettingsPanel = lazySub(() => import("./RemoteAccessSettingsPanel"));
+const ServerSshTerminalPanel = lazySub(() => import("./ServerSshTerminalPanel"));
 const NATSettings = lazySub(() => import("./NATSettings"));
 const NumberingPlanPanel = lazySub(() => import("./NumberingPlanPanel"));
 const ChannelSettings = lazySub(() => import("./ChannelSettings"));
@@ -150,6 +152,8 @@ export default function SettingsPanel({ backendHost = "localhost:8000" }) {
   const [hasApiBudgetsPermission, setHasApiBudgetsPermission] = useState(true);
   const [hasAiTaskRoutingPermission, setHasAiTaskRoutingPermission] = useState(true);
   const [hasWorkHoursPermission, setHasWorkHoursPermission] = useState(true);
+  const [hasServerSshPermission, setHasServerSshPermission] = useState(true);
+  const [resolvedUserPerms, setResolvedUserPerms] = useState(["*"]);
 
   useEffect(() => {
     const checkPermissions = async () => {
@@ -241,6 +245,12 @@ export default function SettingsPanel({ backendHost = "localhost:8000" }) {
         setHasWorkHoursPermission(
           currentRole.permissions.includes("work_hours:read")
         );
+        setHasServerSshPermission(
+          currentRole.permissions.includes("*") ||
+            currentRole.permissions.includes("server_ssh:access") ||
+            currentRole.permissions.includes("server_ssh")
+        );
+        setResolvedUserPerms(currentRole.permissions || []);
       } catch (err) {
         console.error("Settings permission check error:", err);
         setHasCannedPermission(true);
@@ -285,9 +295,16 @@ export default function SettingsPanel({ backendHost = "localhost:8000" }) {
           {
             id: "ras-settings",
             label: "Nornia Connect (Bulut Köprüsü)",
-            subtitle: "Port açmadan Web, Mobil/Desktop, Ses (TURN) & SSH Bulut Tüneli",
+            subtitle: "Port açmadan Web, Mobil/Desktop & Ses (TURN) Bulut Tüneli",
             icon: Network,
             visible: true
+          },
+          {
+            id: "server-ssh",
+            label: "Sunucu Web SSH Terminali",
+            subtitle: "Geniş ekran Sıfır-Port Linux Bash & SSH Konsolu",
+            icon: Terminal,
+            visible: hasServerSshPermission
           },
           {
             id: "nat",
@@ -760,7 +777,10 @@ export default function SettingsPanel({ backendHost = "localhost:8000" }) {
               <ServerNetworkSettingsPanel backendHost={backendHost} />
             )}
             {activeSubTab === "ras-settings" && (
-              <RemoteAccessSettingsPanel backendHost={backendHost} />
+              <RemoteAccessSettingsPanel backendHost={backendHost} userPermissions={resolvedUserPerms} />
+            )}
+            {activeSubTab === "server-ssh" && (
+              <ServerSshTerminalPanel backendHost={backendHost} userPermissions={resolvedUserPerms} />
             )}
             {activeSubTab === "nat" && <NATSettings backendHost={backendHost} />}
             {activeSubTab === "numbering-plan" && (
