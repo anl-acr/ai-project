@@ -119,7 +119,20 @@ export default function MasterDashboard() {
       const res = await fetch(`${API_BASE}/api/v1/clients/${clientId}/telemetry-dashboard`);
       if (res.ok) {
         const data = await res.json();
-        setInspectorData(data);
+        setInspectorData((prev) => {
+          const livePt = {
+            time: new Date().toLocaleTimeString("tr-TR"),
+            cpu: Number(data.cpu_usage || 0),
+            ram: Number(data.ram_usage || 0),
+            calls: Number(data.active_calls || 0)
+          };
+          if (prev && Array.isArray(prev.history) && prev.history.length > 0 && !isInitial) {
+            const nextHist = [...prev.history, livePt].slice(-30);
+            return { ...data, history: nextHist };
+          }
+          const baseHist = Array.isArray(data.history) && data.history.length > 0 ? data.history : [livePt, livePt];
+          return { ...data, history: baseHist };
+        });
       }
     } catch (e) {
       console.error("Inspector dashboard error:", e);
@@ -138,7 +151,7 @@ export default function MasterDashboard() {
     if (!inspectorClient) return;
     const timer = setInterval(() => {
       fetchInspectorDashboard(inspectorClient.id, false);
-    }, 4000);
+    }, 3000);
     return () => clearInterval(timer);
   }, [inspectorClient]);
 
@@ -2474,16 +2487,11 @@ export default function MasterDashboard() {
                 </div>
               </div>
 
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => fetchInspectorDashboard(inspectorClient.id, true)}
-                  className="px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 hover:bg-slate-100 dark:hover:bg-slate-800 text-xs font-bold flex items-center gap-1.5 cursor-pointer"
-                  title="Verileri Şimdi Yenile"
-                >
-                  <RefreshCw size={13} className={inspectorLoading ? "animate-spin text-cyan-500" : ""} />
-                  <span>Yenile</span>
-                </button>
+              <div className="flex items-center gap-2.5">
+                <span className="hidden sm:inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[10px] font-extrabold uppercase tracking-wider bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/25">
+                  <span className="w-2 h-2 rounded-full bg-emerald-500 animate-ping" />
+                  <span>Gerçek Zamanlı Canlı Akış</span>
+                </span>
                 <button
                   type="button"
                   onClick={() => {
@@ -2508,6 +2516,51 @@ export default function MasterDashboard() {
                   </p>
                 </div>
               ) : (() => {
+                const defaultServices = [
+                  {
+                    id: "asterisk_ami",
+                    name: "Asterisk PBX & AMI Motoru",
+                    port: "5038 / 5060",
+                    status: inspectorClient.is_online ? "online" : "offline",
+                    detail: "PJSIP & Dahili Çağrı Yönlendirme Aktif"
+                  },
+                  {
+                    id: "nornia_connect",
+                    name: "Nornia Connect Bulut Tüneli",
+                    port: "HTTPS :443",
+                    status: inspectorClient.tunnel_connected ? "online" : "offline",
+                    detail: inspectorClient.connect_subdomain ? `${inspectorClient.connect_subdomain}.nornia.com.tr (Sıfır-Port Aktif)` : "Tünel Bekleniyor"
+                  },
+                  {
+                    id: "audiosocket_ai",
+                    name: "AI Voice AudioSocket & Gemini Live",
+                    port: "TCP :9092",
+                    status: inspectorClient.is_online ? "online" : "offline",
+                    detail: "Gerçek Zamanlı Multimodal Ses Motoru"
+                  },
+                  {
+                    id: "postgresql_db",
+                    name: "PostgreSQL & Vektör Veritabanı (RAG)",
+                    port: "TCP :5444",
+                    status: inspectorClient.is_online ? "online" : "offline",
+                    detail: "Kurumsal Veritabanı & Bilgi Bankası"
+                  },
+                  {
+                    id: "webrtc_wss",
+                    name: "WebRTC SIP.js & TLS WSS",
+                    port: "WSS :8089",
+                    status: inspectorClient.is_online ? "online" : "offline",
+                    detail: `${inspectorClient.total_users_count || 0} Kayıtlı Kullanıcı / Dahili`
+                  },
+                  {
+                    id: "remote_ssh",
+                    name: "Uzaktan Web SSH Köprüsü",
+                    port: "Zero-Port PTY",
+                    status: inspectorClient.remote_ssh_enabled !== false ? "online" : "locked",
+                    detail: inspectorClient.remote_ssh_enabled !== false ? "Merkezden Yetki Açık" : "Merkezden Kilitli"
+                  }
+                ];
+
                 const d = inspectorData || {
                   cpu_usage: inspectorClient.cpu_usage_percent || 0,
                   ram_usage: inspectorClient.ram_usage_percent || 0,
@@ -2516,6 +2569,8 @@ export default function MasterDashboard() {
                   disk_usage: 42.0,
                   disk_used_gb: 21.0,
                   disk_total_gb: 50.0,
+                  ip_address: inspectorClient.ip_address || "-",
+                  software_version: inspectorClient.software_version || "v2.5.0",
                   active_calls: inspectorClient.active_calls_count || 0,
                   today_calls: 0,
                   max_concurrent_calls: inspectorClient.custom_quotas?.max_concurrent_calls ?? 4,
@@ -2524,8 +2579,11 @@ export default function MasterDashboard() {
                   total_users: inspectorClient.total_users_count || 0,
                   rec_file_count: 0,
                   rec_total_size_mb: 0,
-                  services: [],
-                  history: []
+                  services: defaultServices,
+                  history: [
+                    { cpu: inspectorClient.cpu_usage_percent || 1, ram: inspectorClient.ram_usage_percent || 20, calls: inspectorClient.active_calls_count || 0 },
+                    { cpu: inspectorClient.cpu_usage_percent || 1, ram: inspectorClient.ram_usage_percent || 20, calls: inspectorClient.active_calls_count || 0 }
+                  ]
                 };
 
                 const circ = 2 * Math.PI * 26;

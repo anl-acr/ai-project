@@ -676,22 +676,26 @@ async def get_client_telemetry_dashboard(client_id: int, db: AsyncSession = Depe
     sub = (client.connect_subdomain or "").strip().lower()
 
     # 1. Fetch historical telemetry series from Central DB (last 25 points)
-    hist_res = await db.execute(
-        select(TelemetryLog)
-        .where((TelemetryLog.client_id == client.id) | (func.upper(TelemetryLog.hardware_id) == hw_id))
-        .order_by(TelemetryLog.recorded_at.desc())
-        .limit(25)
-    )
-    hist_rows = list(reversed(hist_res.scalars().all()))
-    history_series = [
-        {
-            "time": r.recorded_at.strftime("%H:%M:%S") if r.recorded_at else "",
-            "cpu": round(float(r.cpu_percent or 0.0), 1),
-            "ram": round(float(r.memory_percent or 0.0), 1),
-            "calls": int(r.active_calls or 0),
-        }
-        for r in hist_rows
-    ]
+    history_series = []
+    try:
+        hist_res = await db.execute(
+            select(TelemetryLog)
+            .where((TelemetryLog.client_id == client.id) | (func.upper(TelemetryLog.hardware_id) == hw_id))
+            .order_by(TelemetryLog.created_at.desc())
+            .limit(25)
+        )
+        hist_rows = list(reversed(hist_res.scalars().all()))
+        history_series = [
+            {
+                "time": r.created_at.strftime("%H:%M:%S") if r.created_at else "",
+                "cpu": round(float(r.cpu_percent or 0.0), 1),
+                "ram": round(float(r.memory_percent or 0.0), 1),
+                "calls": int(r.active_calls or 0),
+            }
+            for r in hist_rows
+        ]
+    except Exception as e_hist:
+        print(f"[Telemetry Dashboard History Warning]: {e_hist}")
 
     # 2. Query live real-time /api/system/stats over Nornia Connect tunnel if connected
     live_stats = await fetch_pbx_live_system_stats(hardware_id=hw_id, subdomain=sub)
