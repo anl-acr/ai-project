@@ -469,69 +469,46 @@ export default function ServerSshTerminalPanel({
       className={
         isFullscreen
           ? "fixed inset-0 z-50 bg-slate-950 p-3 sm:p-5 flex flex-col gap-3 overflow-hidden"
-          : "space-y-4"
+          : "space-y-3 pb-14"
       }
     >
-      {/* Top Compact SSH Auth & Status Bar */}
-      <div className="p-4 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 shadow-sm flex flex-col xl:flex-row xl:items-center justify-between gap-3">
-        <div className="flex items-center gap-3">
+      {/* Top Compact SSH Header Bar */}
+      <div className="px-5 py-3.5 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 shadow-sm flex items-center justify-between gap-4 flex-wrap">
+        <div className="flex items-center gap-3 min-w-0">
           <div className={`w-10 h-10 rounded-2xl ${lightBg} ${text} flex items-center justify-center shrink-0`}>
             <Terminal size={20} />
           </div>
-          <div>
-            <div className="flex items-center gap-2 flex-wrap">
+          <div className="min-w-0">
+            <div className="flex items-center gap-2.5 flex-wrap">
               <h3 className="text-sm font-extrabold text-slate-900 dark:text-white">
-                Sunucu Web SSH Terminali (macOS Terminal Emülatörü)
+                Sunucu Web SSH Terminali
               </h3>
               {sshAllowed ? (
-                <span className="px-2 py-0.5 rounded-full text-[10px] font-extrabold uppercase bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30 flex items-center gap-1">
+                <span className="px-2.5 py-0.5 rounded-full text-[10px] font-extrabold uppercase bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30 flex items-center gap-1">
                   <Unlock size={10} />
                   <span>{emergencyOverride ? "Acil Konsol Yetkisi" : "Merkez SSH Açık"}</span>
                 </span>
               ) : (
-                <span className="px-2 py-0.5 rounded-full text-[10px] font-extrabold uppercase bg-rose-500/15 text-rose-600 dark:text-rose-400 border border-rose-500/30 flex items-center gap-1">
+                <span className="px-2.5 py-0.5 rounded-full text-[10px] font-extrabold uppercase bg-rose-500/15 text-rose-600 dark:text-rose-400 border border-rose-500/30 flex items-center gap-1">
                   <Lock size={10} />
                   <span>Merkezden Kapatıldı</span>
                 </span>
               )}
             </div>
-            <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
-              Doğrudan siyah terminal ekranına tıklayıp <code className="font-mono font-bold">login as:</code> ve{" "}
-              <code className="font-mono font-bold">password:</code> yazabilir veya sağdaki hızlı giriş kutusunu kullanabilirsiniz.
+            <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5 truncate">
+              Terminal ekranına tıklayıp doğrudan <code className="font-mono font-bold">login as:</code> ve{" "}
+              <code className="font-mono font-bold">password:</code> ile santral kabuğuna bağlanabilirsiniz.
             </p>
           </div>
         </div>
 
-        {/* Right: Optional Quick SSH Login Form + Session Controls */}
-        <form onSubmit={handleQuickLoginSubmit} className="flex items-center gap-2 flex-wrap">
-          <div className="relative flex items-center">
-            <User size={13} className="absolute left-3 text-slate-400 pointer-events-none" />
-            <input
-              type="text"
-              value={loginUser}
-              onChange={(e) => setLoginUser(e.target.value)}
-              disabled={!sshAllowed}
-              placeholder="SSH Kullanıcı (örn: aida)"
-              className="pl-8 pr-3 py-1.5 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-700 text-xs font-mono text-slate-900 dark:text-white w-44 focus:outline-none"
-            />
-          </div>
-
-          <div className="relative flex items-center">
-            <KeyRound size={13} className="absolute left-3 text-slate-400 pointer-events-none" />
-            <input
-              type="password"
-              value={loginPassword}
-              onChange={(e) => setLoginPassword(e.target.value)}
-              disabled={!sshAllowed}
-              placeholder="SSH Şifresi"
-              className="pl-8 pr-3 py-1.5 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-700 text-xs font-mono text-slate-900 dark:text-white w-40 focus:outline-none"
-            />
-          </div>
-
+        {/* Right: Clean Right-Aligned Session Controls */}
+        <div className="flex items-center gap-2 ml-auto shrink-0">
           <button
-            type="submit"
+            type="button"
             disabled={connecting || !sshAllowed}
-            className={`px-3.5 py-1.5 rounded-xl text-white text-xs font-extrabold flex items-center gap-1.5 shadow-xs cursor-pointer disabled:opacity-40 ${bg} ${hover}`}
+            onClick={() => startNewSshSession("", "")}
+            className={`px-4 py-2 rounded-xl text-white text-xs font-extrabold flex items-center gap-1.5 shadow-xs cursor-pointer disabled:opacity-40 ${bg} ${hover}`}
           >
             <Terminal size={13} />
             <span>{connecting ? "Bağlanıyor..." : "Yeni SSH Oturumu"}</span>
@@ -541,14 +518,14 @@ export default function ServerSshTerminalPanel({
             <button
               type="button"
               onClick={stopCurrentSession}
-              className="px-3 py-1.5 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-xs font-extrabold flex items-center gap-1 cursor-pointer"
+              className="px-3.5 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-xs font-extrabold flex items-center gap-1.5 cursor-pointer"
               title="Aktif SSH Oturumunu Sonlandır"
             >
-              <Power size={12} />
+              <Power size={13} />
               <span>Kapat</span>
             </button>
           )}
-        </form>
+        </div>
       </div>
 
       {/* MACOS TERMINAL.APP WINDOW */}
@@ -655,15 +632,16 @@ export default function ServerSshTerminalPanel({
           </div>
         )}
 
-        {/* Real xterm.js Canvas / DOM Container */}
+        {/* Outer Padded Wrapper + Inner Zero-Padding xterm.js Container (Prevents bottom row clipping) */}
         <div
-          ref={termContainerRef}
           onClick={() => termInstanceRef.current?.focus()}
           className={
-            "w-full bg-[#0b0f17] p-3 overflow-hidden " +
-            (isFullscreen ? "flex-1 min-h-0" : "h-[580px]")
+            "w-full bg-[#0b0f17] px-4 py-3 flex flex-col " +
+            (isFullscreen ? "flex-1 min-h-0" : "h-[430px]")
           }
-        />
+        >
+          <div ref={termContainerRef} className="w-full h-full overflow-hidden" />
+        </div>
       </div>
     </div>
   );
