@@ -663,15 +663,40 @@ async def receive_heartbeat(payload: HeartbeatSchema, request: Request, db: Asyn
         ]
 
     tenants_response = []
+    active_t_codes_for_hw = set()
+
+    # Check if this hardware_id already has a bound connect_subdomain
+    bound_sub_for_hw = None
+    if hw_id and hw_id not in ("HW-UNKNOWN", "UNBOUND", "Bilinmiyor"):
+        from license_center.backend.connect_hub import ACTIVE_TUNNELS_BY_HWID
+        live_t = ACTIVE_TUNNELS_BY_HWID.get(hw_id.upper())
+        if live_t and live_t.subdomain:
+            bound_sub_for_hw = live_t.subdomain
+        else:
+            res_sub = await db.execute(
+                select(ClientServer.connect_subdomain).where(
+                    (func.upper(ClientServer.hardware_id) == hw_id.upper())
+                    & (ClientServer.connect_subdomain.isnot(None))
+                )
+            )
+            row_sub = res_sub.scalars().first()
+            if row_sub:
+                bound_sub_for_hw = row_sub
 
     for idx, t_item in enumerate(tenant_items):
         t_code = t_item.tenant_code.strip().lower()
         if not t_code:
             continue
+        active_t_codes_for_hw.add(t_code)
 
-        res = await db.execute(select(ClientServer).where(ClientServer.tenant_code == t_code))
-        client = res.scalars().first()
         incoming_t_sn = (t_item.serial_number or "").strip() or generate_tenant_serial_number(t_code, t_item.tenant_num_id or (100 + idx))
+        res = await db.execute(
+            select(ClientServer).where(
+                (ClientServer.tenant_code == t_code)
+                | ((ClientServer.tenant_serial_number == incoming_t_sn) & (ClientServer.hardware_id == hw_id))
+            )
+        )
+        client = res.scalars().first()
 
         if not client:
             client = ClientServer(
@@ -680,6 +705,8 @@ async def receive_heartbeat(payload: HeartbeatSchema, request: Request, db: Asyn
                 tenant_serial_number=incoming_t_sn,
                 system_serial_number=sys_sn,
                 hardware_id=hw_id,
+                connect_subdomain=bound_sub_for_hw,
+                domain_name=f"{bound_sub_for_hw}.nornia.com.tr" if bound_sub_for_hw else None,
                 ip_address=client_ip,
                 status="active",
                 current_license_key=t_item.license_key,
@@ -689,8 +716,12 @@ async def receive_heartbeat(payload: HeartbeatSchema, request: Request, db: Asyn
             await db.commit()
             await db.refresh(client)
 
-        if t_item.company_name and client.company_name.startswith("Otomatik Kayıt"):
+        if t_item.company_name and t_item.company_name.strip():
             client.company_name = t_item.company_name.strip()
+        client.tenant_code = t_code
+        if bound_sub_for_hw and not client.connect_subdomain:
+            client.connect_subdomain = bound_sub_for_hw
+            client.domain_name = f"{bound_sub_for_hw}.nornia.com.tr"
         if not client.tenant_serial_number:
             client.tenant_serial_number = incoming_t_sn
         client.system_serial_number = sys_sn
@@ -738,6 +769,20 @@ async def receive_heartbeat(payload: HeartbeatSchema, request: Request, db: Asyn
             "license_expires_at": client.license_expires_at,
             "quotas": parsed_quotas
         })
+
+    # Clean up deleted tenants on this hardware_id so Central Panel stays in sync with PBX
+    if payload.tenants and len(active_t_codes_for_hw) > 0 and hw_id and hw_id not in ("HW-UNKNOWN", "UNBOUND", "Bilinmiyor"):
+        try:
+            stale_res = await db.execute(
+                select(ClientServer).where(func.upper(ClientServer.hardware_id) == hw_id.upper())
+            )
+            stale_rows = stale_res.scalars().all()
+            for s_row in stale_rows:
+                if (s_row.tenant_code or "").strip().lower() not in active_t_codes_for_hw:
+                    await db.delete(s_row)
+            await db.commit()
+        except Exception as e:
+            print(f"[Heartbeat Cleanup Warning] {e}")
 
     primary_resp = tenants_response[0] if tenants_response else {}
 

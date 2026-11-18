@@ -537,6 +537,11 @@ async def _ras_tunnel_loop():
                                         save_settings(settings_db)
                                     except Exception:
                                         pass
+                                try:
+                                    from backend.services.telemetry_worker import send_single_telemetry_heartbeat
+                                    asyncio.create_task(send_single_telemetry_heartbeat())
+                                except Exception:
+                                    pass
                             elif mtype == "RAS_REJECTED":
                                 reason_str = str(msg.get("reason") or "Alt alan adı başka bir santral tarafından kullanılmaktadır.")
                                 RAS_RUNTIME_STATE["status"] = "error"

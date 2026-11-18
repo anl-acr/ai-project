@@ -18880,7 +18880,12 @@ async def create_tenant(payload: TenantCreateSchema):
     # Clone configurations from default tenant
     clone_tenant_config("tenant-default", tenant_id)
 
-    
+    try:
+        from backend.services.telemetry_worker import send_single_telemetry_heartbeat
+        asyncio.create_task(send_single_telemetry_heartbeat(tenants))
+    except Exception:
+        pass
+
     add_system_log("TENANT_MANAGEMENT", "CREATE", f"Yeni Kiracı Lisansı Oluşturuldu: {payload.name} ({tenant_id}) [Lisans Key: {generated_key}]")
     return new_tenant
 
@@ -18961,6 +18966,11 @@ async def update_tenant(tenant_id: str, payload: TenantCreateSchema):
     current["tenants"] = tenants
     save_settings(current)
     settings_db["tenants"] = tenants
+    try:
+        from backend.services.telemetry_worker import send_single_telemetry_heartbeat
+        asyncio.create_task(send_single_telemetry_heartbeat(tenants))
+    except Exception:
+        pass
     add_system_log("TENANT_MANAGEMENT", "UPDATE", f"Kiracı Lisansı Güncellendi: {target_tenant['name']} ({tenant_id}) [Paket: {target_tenant['plan_tier']}]")
     try:
         from backend.services.notification_service import trigger_notification_bg
@@ -18991,6 +19001,11 @@ async def delete_tenant(tenant_id: str):
     current["tenants"] = filtered
     save_settings(current)
     settings_db["tenants"] = filtered
+    try:
+        from backend.services.telemetry_worker import send_single_telemetry_heartbeat
+        asyncio.create_task(send_single_telemetry_heartbeat(filtered))
+    except Exception:
+        pass
     add_system_log("TENANT_MANAGEMENT", "DELETE", f"Kiracı Silindi: {tenant_id}")
     return {"status": "success", "message": f"Tenant {tenant_id} silindi."}
 
@@ -19152,8 +19167,12 @@ async def renew_license_key(payload: LicenseRenewSchema):
     current["tenants"] = tenants
     save_settings(current)
     settings_db["tenants"] = tenants
+    try:
+        from backend.services.telemetry_worker import send_single_telemetry_heartbeat
+        asyncio.create_task(send_single_telemetry_heartbeat(tenants))
+    except Exception:
+        pass
 
-    
     add_system_log("TENANT_MANAGEMENT", "LICENSE_RENEW", f"Lisans Anahtarı Yenilendi: {target.get('name')} [Geçerlilik: {target.get('license_expires_at', 'Süresiz')}]")
     try:
         from backend.services.notification_service import trigger_notification_bg
