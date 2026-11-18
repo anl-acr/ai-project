@@ -10,7 +10,24 @@ from backend.services.license_service import verify_license_key, generate_tenant
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SETTINGS_FILE = os.path.join(BASE_DIR, "settings.json")
-LICENSE_CENTER_URL = os.getenv("LICENSE_CENTER_URL", "http://localhost:8050/api/v1/telemetry/heartbeat")
+LICENSE_CENTER_URL = os.getenv("LICENSE_CENTER_URL", "")
+
+
+def _resolve_heartbeat_url(current_settings: dict) -> str:
+    if LICENSE_CENTER_URL:
+        return LICENSE_CENTER_URL
+    ras_cfg = current_settings.get("ras_config") if isinstance(current_settings, dict) else {}
+    hub_raw = str((ras_cfg or {}).get("hub_url") or "").strip().rstrip("/")
+    if hub_raw:
+        if not hub_raw.startswith(("http://", "https://")):
+            # If IP address, use port 8050; if domain, use https
+            host_part = hub_raw.split(":")[0]
+            if all(p.isdigit() for p in host_part.split(".")) and ":" not in hub_raw:
+                hub_raw = f"http://{hub_raw}:8050"
+            else:
+                hub_raw = f"https://{hub_raw}"
+        return f"{hub_raw}/api/v1/telemetry/heartbeat"
+    return "https://connect.nornia.com.tr/api/v1/telemetry/heartbeat"
 
 def load_settings():
     if os.path.exists(SETTINGS_FILE):
@@ -106,8 +123,9 @@ async def start_telemetry_heartbeat_loop():
                 "license_key": tenant_pings[0]["license_key"]
             }
             
-            async with httpx.AsyncClient(timeout=10.0) as client:
-                resp = await client.post(LICENSE_CENTER_URL, json=payload)
+            target_hb_url = _resolve_heartbeat_url(current_settings)
+            async with httpx.AsyncClient(timeout=10.0, verify=False) as client:
+                resp = await client.post(target_hb_url, json=payload)
                 if resp.status_code == 200:
                     data = resp.json()
                     tenants_resp = data.get("tenants_response", [])
