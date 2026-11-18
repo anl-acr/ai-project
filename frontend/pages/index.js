@@ -5656,7 +5656,7 @@ export default function Home() {
           return (
         <header className="aida-app-topbar relative z-40 h-16 border-b border-slate-200/80 dark:border-slate-800/80 flex items-center justify-between px-5 bg-white/80 dark:bg-slate-900/60 backdrop-blur-md transition-colors duration-300 gap-3">
           {/* Sol Bölge */}
-          <div className="flex items-center gap-2 min-w-0 shrink-0">
+          <div className={`${isHorizontalCallCenterBar ? "shrink-0" : "flex-1 justify-start"} flex items-center gap-2 min-w-0`}>
             {(isDesktopMode || (activeTab === "call-center" && (isAgentOnlyUser || isAgentFullScreenMode))) && (
               <div
                 onClick={() => setIsNorniaAssistantOpen(true)}
@@ -5738,13 +5738,13 @@ export default function Home() {
               </div>
             </>
           ) : (
-            <div className="flex-1 flex items-center justify-center gap-2 min-w-0">
+            <div className="flex items-center justify-center gap-2 shrink-0">
               {(topbarPrefs.layoutZones?.center || []).map((tok) => renderHeaderToken(tok, "center"))}
             </div>
           )}
 
           {/* Sağ Bölge */}
-          <div className="flex items-center gap-2.5 text-xs font-semibold text-slate-600 dark:text-slate-400 shrink-0">
+          <div className={`${isHorizontalCallCenterBar ? "shrink-0" : "flex-1 justify-end"} flex items-center gap-2.5 text-xs font-semibold text-slate-600 dark:text-slate-400 min-w-0`}>
             {!isDesktopMode && currentUser?.role === 'admin' && hasPendingChanges && (
               <div className="flex items-center gap-2 relative">
                 <button
