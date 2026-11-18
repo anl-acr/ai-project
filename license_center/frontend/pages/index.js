@@ -1645,19 +1645,21 @@ export default function MasterDashboard() {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3 bg-slate-950/90 border border-slate-800 rounded-2xl p-3.5 text-xs">
               <div className="space-y-1">
                 <div className="text-[10px] font-extrabold text-indigo-400 uppercase">
-                  1. Kendi Bilgisayarınızdan (Mac / Windows / Putty) SSH:
+                  1. Kendi Bilgisayarınızdan (Mac / Linux — Port 443 HTTPS Üzerinden Sıfır-Port SSH):
                 </div>
                 <div className="flex items-center justify-between bg-slate-900 border border-slate-800 rounded-xl px-3 py-2 font-mono text-[11px] text-emerald-300">
-                  <span>ssh -p {sshModalClient.ssh_tunnel_port || 2222} {sshUsername || "root"}@connect.nornia.com.tr</span>
+                  <span className="truncate">
+                    {`ssh -o ProxyCommand='python3 -c "import urllib.request; exec(urllib.request.urlopen(\\"https://connect.nornia.com.tr/ssh/${sshModalClient.connect_subdomain}\\").read())"' ${sshUsername || "aida"}@${sshModalClient.connect_subdomain}.nornia.com.tr`}
+                  </span>
                   <button
                     type="button"
                     onClick={() =>
                       handleCopyText(
-                        `ssh -p ${sshModalClient.ssh_tunnel_port || 2222} ${sshUsername || "root"}@connect.nornia.com.tr`,
+                        `ssh -o ProxyCommand='python3 -c "import urllib.request; exec(urllib.request.urlopen(\\"https://connect.nornia.com.tr/ssh/${sshModalClient.connect_subdomain}\\").read())"' ${sshUsername || "aida"}@${sshModalClient.connect_subdomain}.nornia.com.tr`,
                         "ssh-ext-cmd"
                       )
                     }
-                    className="text-slate-400 hover:text-white ml-2 cursor-pointer"
+                    className="text-slate-400 hover:text-white ml-2 shrink-0 cursor-pointer"
                     title="Komutu Kopyala"
                   >
                     {copiedKey === "ssh-ext-cmd" ? <Check size={14} className="text-emerald-400" /> : <Copy size={14} />}
@@ -1670,16 +1672,16 @@ export default function MasterDashboard() {
                   2. Merkez Sunucu (root@nornia) İçinden Doğrudan SSH:
                 </div>
                 <div className="flex items-center justify-between bg-slate-900 border border-slate-800 rounded-xl px-3 py-2 font-mono text-[11px] text-amber-300">
-                  <span>ssh -p {sshModalClient.ssh_tunnel_port || 2222} {sshUsername || "root"}@127.0.0.1</span>
+                  <span>ssh -p {sshModalClient.ssh_tunnel_port || 2222} {sshUsername || "aida"}@127.0.0.1</span>
                   <button
                     type="button"
                     onClick={() =>
                       handleCopyText(
-                        `ssh -p ${sshModalClient.ssh_tunnel_port || 2222} ${sshUsername || "root"}@127.0.0.1`,
+                        `ssh -p ${sshModalClient.ssh_tunnel_port || 2222} ${sshUsername || "aida"}@127.0.0.1`,
                         "ssh-loc-cmd"
                       )
                     }
-                    className="text-slate-400 hover:text-white ml-2 cursor-pointer"
+                    className="text-slate-400 hover:text-white ml-2 shrink-0 cursor-pointer"
                     title="Komutu Kopyala"
                   >
                     {copiedKey === "ssh-loc-cmd" ? <Check size={14} className="text-emerald-400" /> : <Copy size={14} />}

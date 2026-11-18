@@ -78,9 +78,15 @@ async def on_startup():
 
         # Ensure Nginx default_server and Let's Encrypt certificates cover all registered connect_subdomains
         try:
-            from license_center.backend.connect_hub import ensure_subdomain_ssl_and_nginx
+            from license_center.backend.connect_hub import (
+                ensure_ssh_tcp_listener_for_subdomain,
+                ensure_subdomain_ssl_and_nginx,
+            )
             res_subs = await db.execute(select(ClientServer.connect_subdomain))
-            first_sub = next((s for (s,) in res_subs.all() if s), "app")
+            all_subs = [s for (s,) in res_subs.all() if s]
+            for s_name in set(all_subs):
+                await ensure_ssh_tcp_listener_for_subdomain(s_name)
+            first_sub = all_subs[0] if all_subs else "app"
             asyncio.create_task(ensure_subdomain_ssl_and_nginx(first_sub))
         except Exception as e_ssl:
             print(f"[AIDA License Master] Startup SSL sync warning: {e_ssl}")

@@ -379,8 +379,30 @@ server {{
     listen 80 default_server;
     server_name nornia.com.tr www.nornia.com.tr *.nornia.com.tr _;
 
+    client_max_body_size 100M;
+
     location /.well-known/acme-challenge/ {{
         root /var/www/html;
+    }}
+
+    location /api/ {{
+        proxy_pass http://127.0.0.1:8050;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection $connection_upgrade;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header X-Forwarded-Host $http_host;
+        proxy_read_timeout 86400s;
+        proxy_send_timeout 86400s;
+    }}
+
+    location /ssh/ {{
+        proxy_pass http://127.0.0.1:8050;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
     }}
 
     location / {{
@@ -831,6 +853,115 @@ async def relay_client_websocket_to_pbx(websocket: WebSocket):
             await session.send_json({"type": "WS_CLOSE", "stream_id": stream_id})
         except Exception:
             pass
+
+
+@connect_hub_router.get("/ssh/{subdomain}")
+@connect_hub_router.get("/api/v1/connect/ssh-proxy/{subdomain}")
+async def get_zero_port_ssh_proxy_script(subdomain: str):
+    """
+    Returns a pure Python stdlib WebSocket-to-stdio SSH ProxyCommand script that tunnels native OpenSSH
+    directly over Port 443 (WSS) through Nornia Connect Hub without needing Port 2222 open on any firewall.
+    Usage on Mac/Linux:
+    ssh -o ProxyCommand='python3 -c "import urllib.request; exec(urllib.request.urlopen(\"https://connect.nornia.com.tr/ssh/app\").read())"' aida@app.nornia.com.tr
+    """
+    sub = re.sub(r"[^a-z0-9-_]", "", str(subdomain or "app").strip().lower()) or "app"
+    script = f"""import base64, json, os, select, socket, ssl, struct, sys
+
+HOST = "connect.nornia.com.tr"
+PORT = 443
+PATH = "/api/v1/connect/tcp-relay/{sub}/22"
+
+ctx = ssl.create_default_context()
+ctx.check_hostname = False
+ctx.verify_mode = ssl.CERT_NONE
+raw_sock = socket.create_connection((HOST, PORT), timeout=10)
+sock = ctx.wrap_socket(raw_sock, server_hostname=HOST)
+
+req = (
+    f"GET {{PATH}} HTTP/1.1\\r\\n"
+    f"Host: {{HOST}}\\r\\n"
+    "Upgrade: websocket\\r\\n"
+    "Connection: Upgrade\\r\\n"
+    "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\\r\\n"
+    "Sec-WebSocket-Version: 13\\r\\n\\r\\n"
+)
+sock.sendall(req.encode("ascii"))
+
+buf = b""
+while b"\\r\\n\\r\\n" not in buf:
+    chunk = sock.recv(4096)
+    if not chunk:
+        sys.exit(1)
+    buf += chunk
+
+hdr_end = buf.index(b"\\r\\n\\r\\n") + 4
+if b" 101 " not in buf[:hdr_end].split(b"\\r\\n")[0]:
+    sys.stderr.write("Nornia Connect SSH Tuneli Aktif Degil (503).\\n")
+    sys.exit(1)
+leftover = buf[hdr_end:]
+
+def recv_exact(n):
+    global leftover
+    while len(leftover) < n:
+        c = sock.recv(16384)
+        if not c:
+            sys.exit(0)
+        leftover += c
+    res, leftover = leftover[:n], leftover[n:]
+    return res
+
+def send_ws_text(txt_bytes):
+    L = len(txt_bytes)
+    if L < 126:
+        hdr = bytes([0x81, 0x80 | L]) + b"\\x00\\x00\\x00\\x00"
+    elif L < 65536:
+        hdr = bytes([0x81, 0x80 | 126]) + struct.pack("!H", L) + b"\\x00\\x00\\x00\\x00"
+    else:
+        hdr = bytes([0x81, 0x80 | 127]) + struct.pack("!Q", L) + b"\\x00\\x00\\x00\\x00"
+    sock.sendall(hdr + txt_bytes)
+
+stdin_fd = sys.stdin.fileno()
+stdout_fd = sys.stdout.fileno()
+
+while True:
+    if leftover:
+        rlist = [sock]
+    else:
+        rlist, _, _ = select.select([stdin_fd, sock], [], [], 30.0)
+    if stdin_fd in rlist:
+        data = os.read(stdin_fd, 16384)
+        if not data:
+            break
+        payload = json.dumps({{"type": "TCP_DATA", "data_b64": base64.b64encode(data).decode("ascii")}}).encode("utf-8")
+        send_ws_text(payload)
+    if sock in rlist or leftover:
+        b0, b1 = recv_exact(2)
+        opcode = b0 & 0x0F
+        masked = b1 & 0x80
+        length = b1 & 0x7F
+        if length == 126:
+            length = struct.unpack("!H", recv_exact(2))[0]
+        elif length == 127:
+            length = struct.unpack("!Q", recv_exact(8))[0]
+        mask_key = recv_exact(4) if masked else None
+        raw_payload = recv_exact(length)
+        if mask_key:
+            raw_payload = bytes(b ^ mask_key[i % 4] for i, b in enumerate(raw_payload))
+        if opcode == 0x8:
+            break
+        elif opcode == 0x9:
+            sock.sendall(bytes([0x8A, 0x80]) + b"\\x00\\x00\\x00\\x00")
+        elif opcode == 0x1:
+            try:
+                m = json.loads(raw_payload.decode("utf-8"))
+                if m.get("type") == "TCP_DATA" and m.get("data_b64"):
+                    os.write(stdout_fd, base64.b64decode(m["data_b64"]))
+                elif m.get("type") == "TCP_CLOSE":
+                    break
+            except Exception:
+                pass
+"""
+    return Response(content=script, media_type="text/plain")
 
 
 @connect_hub_router.websocket("/api/v1/connect/tcp-relay/{subdomain}/{port}")
