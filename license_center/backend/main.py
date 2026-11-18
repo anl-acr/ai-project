@@ -773,8 +773,8 @@ async def get_client_telemetry_dashboard(client_id: int, db: AsyncSession = Depe
             "id": "remote_ssh",
             "name": "Uzaktan Web SSH Köprüsü",
             "port": "Zero-Port PTY",
-            "status": "online" if client.remote_ssh_enabled !== False else "locked",
-            "detail": "Merkezden Yetki Açık" if client.remote_ssh_enabled !== False else "Merkezden Kilitli",
+            "status": "online" if client.remote_ssh_enabled is not False else "locked",
+            "detail": "Merkezden Yetki Açık" if client.remote_ssh_enabled is not False else "Merkezden Kilitli",
         },
     ]
 
