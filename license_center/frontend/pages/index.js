@@ -891,29 +891,25 @@ export default function MasterDashboard() {
                                   type="button"
                                   disabled={togglingSshId === client.id}
                                   onClick={() => handleToggleClientSsh(client)}
-                                  className={`px-2 py-0.5 rounded-md border text-[10px] font-extrabold flex items-center gap-1 cursor-pointer ${
+                                  className={`px-2 py-0.5 rounded-md border text-[10px] font-extrabold flex items-center gap-1 cursor-pointer transition-colors ${
                                     client.remote_ssh_enabled !== false
-                                      ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-300 border-emerald-500/30"
-                                      : "bg-rose-500/10 text-rose-600 dark:text-rose-300 border-rose-500/30"
+                                      ? "bg-emerald-500/10 hover:bg-rose-600 text-emerald-600 dark:text-emerald-300 hover:text-white border-emerald-500/30"
+                                      : "bg-rose-500/10 hover:bg-emerald-600 text-rose-600 dark:text-rose-300 hover:text-white border-rose-500/30"
                                   }`}
+                                  title={
+                                    client.remote_ssh_enabled !== false
+                                      ? "Santralde SSH Erişimi AÇIK — Kapatmak için tıklayın"
+                                      : "Santralde SSH Erişimi KAPALI — Açmak için tıklayın"
+                                  }
                                 >
                                   <Power size={9} />
-                                  <span>{client.remote_ssh_enabled !== false ? "SSH Açık" : "SSH Kapalı"}</span>
+                                  <span>{togglingSshId === client.id ? "..." : client.remote_ssh_enabled !== false ? "SSH Açık" : "SSH Kapalı"}</span>
                                 </button>
-                                {client.remote_ssh_enabled !== false && (
-                                  <button
-                                    type="button"
-                                    onClick={() => openSshModal(client)}
-                                    className="px-2 py-0.5 rounded-md bg-indigo-500/10 hover:bg-indigo-600 text-indigo-600 dark:text-indigo-300 hover:text-white border border-indigo-500/30 text-[10px] font-extrabold flex items-center gap-1 cursor-pointer"
-                                  >
-                                    <Terminal size={10} />
-                                    <span>Web SSH</span>
-                                  </button>
-                                )}
                                 <button
                                   type="button"
                                   onClick={() => setUnlockConfirmClient(client)}
                                   className="px-2 py-0.5 rounded-md bg-amber-500/10 hover:bg-amber-500 text-amber-600 dark:text-amber-300 hover:text-white border border-amber-500/30 text-[10px] font-extrabold flex items-center gap-1 cursor-pointer"
+                                  title="Santraldeki Nornia Connect Alt Alan Adı Kilidini Serbest Bırak"
                                 >
                                   <Unlock size={10} />
                                   <span>Kilidi Çöz</span>
@@ -1139,18 +1135,6 @@ export default function MasterDashboard() {
                               : "SSH Kapalı"}
                           </span>
                         </button>
-
-                        {client.remote_ssh_enabled !== false && (
-                          <button
-                            type="button"
-                            onClick={() => openSshModal(client)}
-                            className="px-2.5 py-1 rounded-lg bg-indigo-500/15 hover:bg-indigo-600 text-indigo-700 dark:text-indigo-300 hover:text-white border border-indigo-500/30 text-[11px] font-extrabold flex items-center gap-1 transition-colors cursor-pointer"
-                            title="Nornia Connect Sıfır-Port Web SSH Terminali Aç"
-                          >
-                            <Terminal size={11} />
-                            <span>Web SSH</span>
-                          </button>
-                        )}
 
                         <button
                           type="button"
