@@ -154,10 +154,26 @@ export default function SettingsPanel({ backendHost = "localhost:8000" }) {
   const [hasWorkHoursPermission, setHasWorkHoursPermission] = useState(true);
   const [hasServerSshPermission, setHasServerSshPermission] = useState(true);
   const [resolvedUserPerms, setResolvedUserPerms] = useState(["*"]);
+  const [licensedFeatures, setLicensedFeatures] = useState(["*"]);
+  const [hideProviderInfra, setHideProviderInfra] = useState(false);
 
   useEffect(() => {
     const checkPermissions = async () => {
       try {
+        const protocol = window.location.protocol === "https:" ? "https:" : "http:";
+        try {
+          const resLic = await fetch(`${protocol}//${backendHost}/api/settings/license/status?t=${Date.now()}`);
+          if (resLic.ok) {
+            const licData = await resLic.json();
+            if (Array.isArray(licData.allowed_features) && licData.allowed_features.length > 0) {
+              setLicensedFeatures(licData.allowed_features);
+            } else {
+              setLicensedFeatures(["*"]);
+            }
+            setHideProviderInfra(Boolean(licData.hide_provider_infra_from_customer_admin));
+          }
+        } catch (e) {}
+
         const savedAuth =
           localStorage.getItem("is_logged_in") === "true" ||
           sessionStorage.getItem("is_logged_in") === "true";
@@ -181,7 +197,6 @@ export default function SettingsPanel({ backendHost = "localhost:8000" }) {
           return;
         }
 
-        const protocol = window.location.protocol === "https:" ? "https:" : "http:";
         const resUsers = await fetch(`${protocol}//${backendHost}/api/settings/users?t=${Date.now()}`);
         const usersData = await resUsers.json();
         const currentUser = usersData.find(
@@ -538,10 +553,56 @@ export default function SettingsPanel({ backendHost = "localhost:8000" }) {
       }
     ];
 
+    const isNorniaRoot = typeof window !== "undefined" && sessionStorage.getItem("is_nornia_root") === "true";
+    const subTabToFeatureMap = {
+      pbx: "pbx",
+      "server-network": "server_network",
+      "ras-settings": "ras_settings",
+      "server-ssh": "server_ssh",
+      nat: "nat",
+      "numbering-plan": "numbering_plan",
+      "autoprovision-templates": "autoprovision_templates",
+      ssl: "ssl",
+      roles: "roles",
+      "active-directory": "active_directory",
+      locations: "locations",
+      breaks: "breaks",
+      tenants: "tenants",
+      license: "tenant_license",
+      "ai-providers": "ai_providers",
+      "ai-task-routing": "ai_task_routing",
+      qa: "qa",
+      "lang-detect": "lang_detect",
+      "emotion-management": "emotion_management",
+      "whisper-management": "ai_whisper",
+      "voice-biometrics": "voice_biometrics",
+      "roi-settings": "roi_settings",
+      channels: "channels",
+      "crm-integrations": "crm_integrations",
+      "canned-responses": "canned_responses",
+      "universal-api": "universal_api",
+      "api-management": "api_management",
+      "email-notifications": "email_notifications",
+      backup: "backup_restore",
+      "restore-points": "restore_points",
+      "recording-retention": "recording_retention",
+      version: "system_version"
+    };
+    const providerInfraSubTabs = ["server-network", "ras-settings", "server-ssh", "nat", "tenants"];
+
+    const isSubTabLicensed = (subId) => {
+      if (isNorniaRoot) return true;
+      if (hideProviderInfra && providerInfraSubTabs.includes(subId)) return false;
+      if (["roles", "license", "version"].includes(subId)) return true;
+      if (!Array.isArray(licensedFeatures) || licensedFeatures.includes("*")) return true;
+      const mappedFeat = subTabToFeatureMap[subId] || subId;
+      return licensedFeatures.includes(mappedFeat);
+    };
+
     return rawCategories
       .map((cat) => ({
         ...cat,
-        items: cat.items.filter((item) => item.visible)
+        items: cat.items.filter((item) => item.visible && isSubTabLicensed(item.id))
       }))
       .filter((cat) => cat.items.length > 0);
   }, [
@@ -555,7 +616,10 @@ export default function SettingsPanel({ backendHost = "localhost:8000" }) {
     hasCannedPermission,
     hasAPIPermission,
     hasBackupPermission,
-    hasRecordingRetentionPermission
+    hasRecordingRetentionPermission,
+    hasServerSshPermission,
+    licensedFeatures,
+    hideProviderInfra
   ]);
 
   // Keep activeCategory synchronized whenever activeSubTab changes (e.g., via URL slug or GlobalSearchBar)

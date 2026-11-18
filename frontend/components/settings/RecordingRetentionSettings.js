@@ -66,6 +66,7 @@ export default function RecordingRetentionSettings({ backendHost = "localhost:80
   const [diskThresholdPct, setDiskThresholdPct] = useState(80);
   const [deleteByDays, setDeleteByDays] = useState(false);
   const [keepDays, setKeepDays] = useState(90);
+  const [enforcedRetentionDays, setEnforcedRetentionDays] = useState(0);
 
   // Blocked IP Retention States
   const [autoDeleteBlockedIps, setAutoDeleteBlockedIps] = useState(true);
@@ -195,6 +196,19 @@ export default function RecordingRetentionSettings({ backendHost = "localhost:80
           setBlockedIpKeepDays(data.blocked_ip_keep_days ?? 7);
           setPreserveManualBlockedIps(data.preserve_manual_blocked_ips ?? true);
         }
+
+        try {
+          const resLic = await fetch(`${API_BASE}/api/settings/license/status`);
+          if (resLic.ok) {
+            const licData = await resLic.json();
+            const enf = Number(licData.enforced_retention_days || 0);
+            if (enf > 0) {
+              setEnforcedRetentionDays(enf);
+              setDeleteByDays(true);
+              setKeepDays(enf);
+            }
+          }
+        } catch (e) {}
       } catch (err) {
         console.error("Ses kayıt ayarları yüklenirken hata:", err);
         setWritePermission(true);
@@ -428,6 +442,15 @@ export default function RecordingRetentionSettings({ backendHost = "localhost:80
             </div>
           </div>
       </div>
+
+      {enforcedRetentionDays > 0 && (
+        <div className="p-3.5 rounded-xl bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800/60 flex items-center gap-3 text-xs font-bold text-amber-800 dark:text-amber-300">
+          <Lock size={16} className="text-amber-600 dark:text-amber-400 shrink-0" />
+          <span>
+            Nornia Cloud Center Merkezi Güvenlik &amp; Disk Politikası gereği bu santralde ses kaydı saklama süresi maksimum <strong>{enforcedRetentionDays} Gün</strong> olarak sınırlandırılmıştır.
+          </span>
+        </div>
+      )}
 
       {!writePermission && (
         <div className="flex items-center gap-2.5 p-3 rounded-xl bg-amber-50 dark:bg-amber-950/20 border border-amber-100 dark:border-amber-900/40 text-amber-800 dark:text-amber-300 text-xs font-semibold">

@@ -369,6 +369,9 @@ export default function RoleSettings({ backendHost = "localhost:8000" }) {
   const [roleName, setRoleName] = useState("");
   const [selectedPermissions, setSelectedPermissions] = useState([]);
   const [selectedBreaks, setSelectedBreaks] = useState([]);
+  const [licensedFeatures, setLicensedFeatures] = useState(["*"]);
+  const [licensedSubFeatures, setLicensedSubFeatures] = useState(["*"]);
+  const [hideProviderInfra, setHideProviderInfra] = useState(false);
 
   const safeFetch = async (path, options = {}) => {
     return await fetch(path, options);
@@ -381,10 +384,11 @@ export default function RoleSettings({ backendHost = "localhost:8000" }) {
   const fetchData = async () => {
     setLoading(true);
     try {
-      const [resRoles, resBreaks, resUsers] = await Promise.all([
+      const [resRoles, resBreaks, resUsers, resLic] = await Promise.all([
         safeFetch(`/api/settings/roles`),
         safeFetch(`/api/settings/breaks`),
-        safeFetch(`/api/settings/users`).catch(() => null)
+        safeFetch(`/api/settings/users`).catch(() => null),
+        safeFetch(`/api/settings/license/status`).catch(() => null)
       ]);
 
       const dataRoles = await resRoles.json();
@@ -397,6 +401,21 @@ export default function RoleSettings({ backendHost = "localhost:8000" }) {
         const dataUsers = await resUsers.json();
         setUsers(Array.isArray(dataUsers) ? dataUsers : (dataUsers?.users || []));
       }
+
+      if (resLic && resLic.ok) {
+        const licData = await resLic.json();
+        if (Array.isArray(licData.allowed_features) && licData.allowed_features.length > 0) {
+          setLicensedFeatures(licData.allowed_features);
+        } else {
+          setLicensedFeatures(["*"]);
+        }
+        if (Array.isArray(licData.allowed_sub_features) && licData.allowed_sub_features.length > 0) {
+          setLicensedSubFeatures(licData.allowed_sub_features);
+        } else {
+          setLicensedSubFeatures(["*"]);
+        }
+        setHideProviderInfra(Boolean(licData.hide_provider_infra_from_customer_admin));
+      }
     } catch (err) {
       console.error("Roller/Molalar yüklenemedi:", err);
       setError("Rol ve mola tanımları sunucudan alınamadı.");
@@ -405,12 +424,45 @@ export default function RoleSettings({ backendHost = "localhost:8000" }) {
     }
   };
 
+  const isNorniaRootSession = typeof window !== "undefined" && sessionStorage.getItem("is_nornia_root") === "true";
+  const PROVIDER_INFRA_FEATURE_IDS = ["ras_settings", "server_ssh", "server_network", "nat", "tenants", "sip_debugger"];
+
+  const isFeatureAllowedByLicense = (featId) => {
+    if (isNorniaRootSession) return true;
+    if (hideProviderInfra && PROVIDER_INFRA_FEATURE_IDS.includes(featId)) return false;
+    if (!Array.isArray(licensedFeatures) || licensedFeatures.includes("*")) return true;
+    if (featId.startsWith("reports_") && (licensedFeatures.includes("reports_all") || licensedFeatures.includes("reports"))) {
+      return true;
+    }
+    return licensedFeatures.includes(featId);
+  };
+
+  const isSubFeatureAllowedByLicense = (subId) => {
+    if (isNorniaRootSession) return true;
+    if (!Array.isArray(licensedSubFeatures) || licensedSubFeatures.includes("*")) return true;
+    const mapSubKey = {
+      "call_panel:live_translation": "live_translation",
+      "call_panel:voice_interpreter": "voice_interpreter",
+      "call_panel:ai_note_assistant": "ai_note_assistant",
+      "call_panel:pause_recording": "pause_recording",
+      "call_panel:cti_screen_pop": "cti_screen_pop",
+      "call_monitor:listen": "call_monitor",
+      "call_monitor:whisper": "call_monitor",
+      "call_monitor:barge": "call_monitor",
+    };
+    const mapped = mapSubKey[subId];
+    if (!mapped) return true;
+    return licensedSubFeatures.includes(mapped) || licensedSubFeatures.includes(subId);
+  };
+
+  const visibleSystemFeatures = SYSTEM_FEATURES.filter((f) => isFeatureAllowedByLicense(f.id));
+
   const getRolePermissionStats = (role) => {
     const perms = normalizeRolePermissionsList(role?.permissions);
     let total = 0;
     let granted = 0;
 
-    SYSTEM_FEATURES.forEach((feat) => {
+    visibleSystemFeatures.forEach((feat) => {
       if (feat.type === "crud") {
         total += 3;
         const hasRead =
@@ -608,12 +660,12 @@ export default function RoleSettings({ backendHost = "localhost:8000" }) {
       icon: Coffee,
       items: []
     }
-  ];
+  ].filter((cat) => cat.id === "breaks" || cat.items.some((id) => isFeatureAllowedByLicense(id)));
 
   const getCategoryPermissionCodes = (cat) => {
     if (!cat || cat.id === "breaks") return [];
     const codes = [];
-    SYSTEM_FEATURES.filter((f) => cat.items.includes(f.id)).forEach((feat) => {
+    visibleSystemFeatures.filter((f) => cat.items.includes(f.id)).forEach((feat) => {
       if (feat.type === "crud") {
         codes.push(`${feat.id}:read`, `${feat.id}:write`, `${feat.id}:delete`);
       } else if (feat.type === "crud_partial") {
@@ -630,13 +682,13 @@ export default function RoleSettings({ backendHost = "localhost:8000" }) {
         });
       }
       if (feat.id === "live_translator") {
-        LIVE_TRANSLATOR_SUB_PERMS.forEach((lp) => {
+        LIVE_TRANSLATOR_SUB_PERMS.filter((lp) => isSubFeatureAllowedByLicense(lp.id)).forEach((lp) => {
           if (!codes.includes(lp.id)) codes.push(lp.id);
         });
       }
       if (feat.id === "call_panel") {
         CALL_PANEL_SUB_GROUPS.forEach((sg) => {
-          sg.items.forEach((subItem) => {
+          sg.items.filter((subItem) => isSubFeatureAllowedByLicense(subItem.id)).forEach((subItem) => {
             if (!codes.includes(subItem.id) && !subItem.isRestriction) {
               codes.push(subItem.id);
             }
@@ -1252,7 +1304,7 @@ export default function RoleSettings({ backendHost = "localhost:8000" }) {
                         </div>
 
                         <div className="space-y-3">
-                          {SYSTEM_FEATURES.filter((f) => activeCat.items.includes(f.id)).map((feat) => {
+                          {visibleSystemFeatures.filter((f) => activeCat.items.includes(f.id)).map((feat) => {
                             const Icon = feat.icon;
                             const accessKey = feat.id.includes(":") ? feat.id : `${feat.id}:access`;
                             const hasAccessSelected =
@@ -1461,7 +1513,7 @@ export default function RoleSettings({ backendHost = "localhost:8000" }) {
                                       Canlı Çeviri & Simultane Tercüman Alt Yetkileri
                                     </span>
                                     <div className="flex flex-wrap gap-2">
-                                      {LIVE_TRANSLATOR_SUB_PERMS.map((ltItem) => {
+                                      {LIVE_TRANSLATOR_SUB_PERMS.filter((ltItem) => isSubFeatureAllowedByLicense(ltItem.id)).map((ltItem) => {
                                         const isLtSelected = selectedPermissions.includes(ltItem.id);
                                         return (
                                           <button
@@ -1539,7 +1591,7 @@ export default function RoleSettings({ backendHost = "localhost:8000" }) {
                                           </span>
                                         </div>
                                         <div className="flex flex-wrap gap-2">
-                                          {subGroup.items.map((subItem) => {
+                                          {subGroup.items.filter((subItem) => isSubFeatureAllowedByLicense(subItem.id)).map((subItem) => {
                                             const isSubSelected = selectedPermissions.includes(subItem.id);
                                             return (
                                               <button

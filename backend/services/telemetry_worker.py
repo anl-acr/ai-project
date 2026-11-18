@@ -170,11 +170,15 @@ async def send_single_telemetry_heartbeat(override_tenants: list = None) -> bool
                             target_t["status"] = "passive"
                             settings_changed = True
 
-                    # Remote Quota Update Enforcement per tenant
+                    # Remote Quota & Module Entitlement Update Enforcement per tenant
                     quotas = t_res.get("quotas") or t_res.get("custom_quotas")
                     if quotas and isinstance(quotas, dict):
                         for q_key, q_val in quotas.items():
-                            if isinstance(q_val, (int, float)):
+                            if isinstance(q_val, bool):
+                                if target_t.get(q_key) != q_val:
+                                    target_t[q_key] = q_val
+                                    settings_changed = True
+                            elif isinstance(q_val, (int, float)):
                                 if target_t.get(q_key) != int(q_val):
                                     target_t[q_key] = int(q_val)
                                     settings_changed = True
@@ -182,6 +186,22 @@ async def send_single_telemetry_heartbeat(override_tenants: list = None) -> bool
                                 if target_t.get(q_key) != q_val:
                                     target_t[q_key] = q_val
                                     settings_changed = True
+                            elif isinstance(q_val, str) and q_key in ("unlicensed_module_mode", "plan_tier"):
+                                if target_t.get(q_key) != q_val:
+                                    target_t[q_key] = q_val
+                                    settings_changed = True
+
+                        # Enforce Central Recording Retention Policy if configured (> 0)
+                        enf_ret = int(quotas.get("enforced_retention_days") or 0)
+                        if enf_ret > 0:
+                            rec_cfg = current_settings.get("recording_retention", {})
+                            if not isinstance(rec_cfg, dict):
+                                rec_cfg = {}
+                            if rec_cfg.get("retention_days") != enf_ret or rec_cfg.get("enforced_by_license") != True:
+                                rec_cfg["retention_days"] = enf_ret
+                                rec_cfg["enforced_by_license"] = True
+                                current_settings["recording_retention"] = rec_cfg
+                                settings_changed = True
 
                     # Remote License Auto-Renewal Enforcement per tenant
                     latest_key = t_res.get("latest_license_key")
@@ -197,9 +217,13 @@ async def send_single_telemetry_heartbeat(override_tenants: list = None) -> bool
                         v_key = verify_license_key(t_code, latest_key)
                         if v_key.get("custom_quotas") and isinstance(v_key["custom_quotas"], dict):
                             for q_k, q_v in v_key["custom_quotas"].items():
-                                if isinstance(q_v, (int, float)):
+                                if isinstance(q_v, bool):
+                                    target_t[q_k] = q_v
+                                elif isinstance(q_v, (int, float)):
                                     target_t[q_k] = int(q_v)
                                 elif isinstance(q_v, list):
+                                    target_t[q_k] = q_v
+                                elif isinstance(q_v, str) and q_k in ("unlicensed_module_mode", "plan_tier"):
                                     target_t[q_k] = q_v
 
                         settings_changed = True

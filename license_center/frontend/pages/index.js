@@ -99,6 +99,55 @@ export default function MasterDashboard() {
   const [unlockConfirmClient, setUnlockConfirmClient] = useState(null);
   const [unlockingSubdomain, setUnlockingSubdomain] = useState(false);
   const [togglingSshId, setTogglingSshId] = useState(null);
+  const [ssoLoadingId, setSsoLoadingId] = useState(null);
+  const [otaLoadingId, setOtaLoadingId] = useState(null);
+  const [actionBanner, setActionBanner] = useState(null);
+
+  const showBanner = (text, type = "success") => {
+    setActionBanner({ text, type });
+    setTimeout(() => setActionBanner(null), 5000);
+  };
+
+  const handleRootSsoLogin = async (client) => {
+    setSsoLoadingId(client.id);
+    try {
+      const res = await fetch(`${API_BASE}/api/v1/clients/${client.id}/sso-token`, {
+        method: "POST",
+        headers: { "X-User-Name": currentUser?.username || "admin" },
+      });
+      const data = await res.json();
+      if (res.ok && data.sso_url) {
+        window.open(data.sso_url, "_blank", "noopener,noreferrer");
+        showBanner(`🚀 ${client.company_name} santraline Nornia Root (SSO) tam yetkili oturum açıldı.`, "success");
+      } else {
+        showBanner(data.detail || "Root SSO bağlantısı oluşturulamadı.", "error");
+      }
+    } catch (e) {
+      showBanner("Root SSO isteği sırasında hata oluştu.", "error");
+    } finally {
+      setSsoLoadingId(null);
+    }
+  };
+
+  const handleRemoteOtaUpdate = async (client) => {
+    setOtaLoadingId(client.id);
+    try {
+      const res = await fetch(`${API_BASE}/api/v1/clients/${client.id}/ota-update`, {
+        method: "POST",
+        headers: { "X-User-Name": currentUser?.username || "admin" },
+      });
+      const data = await res.json();
+      if (res.ok) {
+        showBanner(data.message || `⚡ ${client.company_name} santraline uzaktan OTA güncelleme emri iletildi.`, "success");
+      } else {
+        showBanner(data.detail || "OTA güncelleme başlatılamadı.", "error");
+      }
+    } catch (e) {
+      showBanner("OTA güncelleme isteği sırasında bağlantı hatası oluştu.", "error");
+    } finally {
+      setOtaLoadingId(null);
+    }
+  };
 
   const handleToggleClientSsh = async (client) => {
     setTogglingSshId(client.id);
@@ -438,6 +487,134 @@ export default function MasterDashboard() {
     { key: "max_dialers", label: "Dış Arama Dialer", defaultVal: 10, unit: "Dialer" }
   ];
 
+  const SANTRAL_MODULE_CATEGORIES = [
+    {
+      id: "operations",
+      title: "Operasyon & Canlı İzleme",
+      items: [
+        { id: "dashboard", label: "Gerçek Zamanlı AI Pano" },
+        { id: "wallboard", label: "Canlı İzleme Paneli (Wallboard)" },
+        { id: "realtime_calls", label: "Canlı Çağrı İzleme & Müdahale" },
+        { id: "supervisor", label: "Süpervizör İşlemleri" },
+        { id: "call_monitor", label: "Dinleme / Sufle / Araya Girme" },
+        { id: "call_panel", label: "Temsilci Çağrı Paneli (WebPhone)" },
+        { id: "cti_integration", label: "CTI & CRM Entegrasyonu" },
+        { id: "customer_360", label: "Müşteri 360° Kartı" },
+        { id: "callback_tasks", label: "Geri Arama Planlayıcı" },
+        { id: "crisis_alerts", label: "Canlı Kriz & Duygu Radarı" },
+        { id: "live_translator", label: "Canlı Çeviri & Simultane Tercüman" },
+        { id: "omnichannel", label: "Ortak Gelen Kutusu (Omnichannel)" },
+        { id: "api_budgets", label: "API Bütçe ve Tüketim" }
+      ]
+    },
+    {
+      id: "ai",
+      title: "Yapay Zeka & Bilgi Bankası",
+      items: [
+        { id: "ai_agents", label: "AI Temsilcileri" },
+        { id: "ai_config_assistant", label: "AI Konfigürasyon Asistanı" },
+        { id: "rag_kb", label: "Bilgi Bankası (RAG)" },
+        { id: "rule_editor", label: "Kural & Senaryo Editörü" },
+        { id: "ai_providers", label: "Yapay Zeka API Ayarları" },
+        { id: "ai_task_routing", label: "AI Görev & Model Yönlendirme" }
+      ]
+    },
+    {
+      id: "pbx",
+      title: "Santral & Haberleşme",
+      items: [
+        { id: "users", label: "Kullanıcılar & Dahililer" },
+        { id: "announcements", label: "Anons Yönetimi" },
+        { id: "acd_queues", label: "ACD Kuyruk" },
+        { id: "autoprovision", label: "Oto Provizyon" },
+        { id: "outbound_rules", label: "Giden Arama Kuralı" },
+        { id: "inbound_rules", label: "Gelen Arama Kuralı" },
+        { id: "call_pickup_groups", label: "Çağrı Toplama Grubu" },
+        { id: "subscriber_groups", label: "Abone Grubu" },
+        { id: "bulk_config", label: "Toplu Konfigürasyon Merkezi" },
+        { id: "contacts", label: "Rehber" },
+        { id: "trunks", label: "Dış Hat Tanımı (SIP Trunk)" },
+        { id: "conferences", label: "Konferans Odaları" },
+        { id: "speed_dials", label: "Hızlı Arama" },
+        { id: "blacklist", label: "Numara Engelleme" },
+        { id: "scheduled_reports", label: "Zamanlanmış Raporlar" }
+      ]
+    },
+    {
+      id: "routing",
+      title: "Çağrı Akışı & Yönlendirme",
+      items: [
+        { id: "call_flow", label: "Arama Akış Yönetimi (IVR)" },
+        { id: "work_hours", label: "Mesai Saatleri & Resmi Tatiller" },
+        { id: "dialer", label: "Dış Arama (Auto-Dialer)" },
+        { id: "calendar", label: "Randevu Takvimi" }
+      ]
+    },
+    {
+      id: "reports",
+      title: "Raporlama & İleri Analitik",
+      items: [
+        { id: "reports_all", label: "Tüm Standart & Kurumsal Raporlar" },
+        { id: "reports_custom_builder", label: "Özel Rapor Tasarımcısı & AI Rapor" },
+        { id: "reports_pano", label: "Rapor Panosu" },
+        { id: "reports_cdr", label: "CDR Çağrı Kayıtları" },
+        { id: "reports_audio", label: "Ses Kayıtları" },
+        { id: "reports_transcripts", label: "Çağrı Transkriptleri" },
+        { id: "reports_sentiment", label: "Duygu Analizi & Isı Haritası" },
+        { id: "reports_qa", label: "AI Kalite Değerlendirmeleri" },
+        { id: "reports_perf", label: "Temsilci Performans & KPI" },
+        { id: "reports_roi", label: "AI vs İnsan ROI Paneli" },
+        { id: "reports_ceo_summary", label: "CEO Özet Raporu" }
+      ]
+    },
+    {
+      id: "settings_integrations",
+      title: "Entegrasyonlar, Kalite & Sistem",
+      items: [
+        { id: "pbx", label: "Santral Entegrasyonu" },
+        { id: "qa", label: "Çağrı Kalite Kontrol Ayarları" },
+        { id: "locations", label: "Lokasyon ve Departmanlar" },
+        { id: "numbering_plan", label: "Numara Planı" },
+        { id: "lang_detect", label: "Otomatik Dil Algılama" },
+        { id: "emotion_management", label: "Dinamik Duygu Yönetimi" },
+        { id: "ai_whisper", label: "AI Fısıldama Yönetimi" },
+        { id: "voice_biometrics", label: "Biyometrik Ses Analizi" },
+        { id: "channels", label: "Kanal Entegrasyonları" },
+        { id: "breaks", label: "Mola Tanımları" },
+        { id: "canned_responses", label: "Hızlı Cevaplar" },
+        { id: "crm_integrations", label: "Hazır CRM Entegrasyon Marketi" },
+        { id: "active_directory", label: "Active Directory (LDAP & SSO)" },
+        { id: "universal_api", label: "Evrensel API Sihirbazı" },
+        { id: "api_management", label: "Kurumsal Dış API & Token" },
+        { id: "autoprovision_templates", label: "Otoprovizyon Şablonları" },
+        { id: "roi_settings", label: "ROI Rapor Ayarları" },
+        { id: "ssl", label: "SSL Sertifikaları" },
+        { id: "backup_restore", label: "Sistem Yedekleme" },
+        { id: "recording_retention", label: "Kayıt & Saklama Sistemi" },
+        { id: "email_notifications", label: "E-Mail Bildirimleri" },
+        { id: "restore_points", label: "Geri Yükleme Noktası" },
+        { id: "system_status", label: "Sistem Panosu & Sağlık" },
+        { id: "logs", label: "Olay Günlükleri" },
+        { id: "security", label: "Güvenlik Kalkanı" }
+      ]
+    }
+  ];
+
+  const ALL_SANTRAL_MODULE_IDS = SANTRAL_MODULE_CATEGORIES.flatMap((c) => c.items.map((i) => i.id));
+
+  const SUB_FEATURE_LIST = [
+    { id: "whatsapp", label: "WhatsApp Business Cloud API Kanalı" },
+    { id: "instagram_meta", label: "Instagram & Facebook Messenger Kanalı" },
+    { id: "telegram", label: "Telegram Bot Kanalı" },
+    { id: "email", label: "E-Posta (IMAP/SMTP) Kanalı" },
+    { id: "live_translation", label: "WebPhone: Anlık Altyazı Konuşma Çevirisi" },
+    { id: "voice_interpreter", label: "WebPhone: Simultane Çift Yönlü Sesli Tercüman" },
+    { id: "ai_note_assistant", label: "WebPhone: AI Çağrı Özeti & Sonuç Kodu Asistanı" },
+    { id: "call_monitor", label: "Süpervizör: Canlı Dinleme / Sufle / Araya Girme" },
+    { id: "pause_recording", label: "KVKK & Kredi Kartı Ses Kaydı Maskeleme" },
+    { id: "cti_screen_pop", label: "CTI Müşteri Kartı Otomatik Açma (Screen Pop)" }
+  ];
+
   const [genCustomQuotas, setGenCustomQuotas] = useState({});
   const [genPlanTier, setGenPlanTier] = useState("professional");
   const [genIsUnlimited, setGenIsUnlimited] = useState(false);
@@ -472,7 +649,60 @@ export default function MasterDashboard() {
       ? existingQuotas.allowed_llm_providers
       : LLM_PROVIDER_LIST.map(p => p.id);
 
+    initQ.allowed_features = Array.isArray(existingQuotas.allowed_features) && existingQuotas.allowed_features.length > 0 && !existingQuotas.allowed_features.includes("*")
+      ? existingQuotas.allowed_features
+      : ALL_SANTRAL_MODULE_IDS;
+    initQ.allowed_sub_features = Array.isArray(existingQuotas.allowed_sub_features) && existingQuotas.allowed_sub_features.length > 0 && !existingQuotas.allowed_sub_features.includes("*")
+      ? existingQuotas.allowed_sub_features
+      : SUB_FEATURE_LIST.map(s => s.id);
+    initQ.unlicensed_module_mode = existingQuotas.unlicensed_module_mode || "hidden";
+    initQ.hide_provider_infra_from_customer_admin = existingQuotas.hide_provider_infra_from_customer_admin !== undefined
+      ? Boolean(existingQuotas.hide_provider_infra_from_customer_admin)
+      : false;
+    initQ.enforced_retention_days = existingQuotas.enforced_retention_days !== undefined
+      ? Number(existingQuotas.enforced_retention_days)
+      : 0;
+    initQ.enforced_max_backups = existingQuotas.enforced_max_backups !== undefined
+      ? Number(existingQuotas.enforced_max_backups)
+      : 0;
+
     setGenCustomQuotas(initQ);
+  };
+
+  const applyModulePreset = (presetType) => {
+    if (presetType === "all") {
+      setGenCustomQuotas((prev) => ({ ...prev, allowed_features: [...ALL_SANTRAL_MODULE_IDS] }));
+    } else if (presetType === "pbx_only") {
+      const pbxAndRoutingIds = [
+        "call_panel", "users", "announcements", "acd_queues", "autoprovision",
+        "outbound_rules", "inbound_rules", "call_pickup_groups", "subscriber_groups",
+        "bulk_config", "contacts", "trunks", "conferences", "speed_dials", "blacklist",
+        "call_flow", "work_hours", "reports_pano", "reports_cdr", "reports_audio",
+        "pbx", "locations", "numbering_plan", "breaks", "autoprovision_templates",
+        "ssl", "backup_restore", "recording_retention", "email_notifications",
+        "restore_points", "system_status", "logs", "security"
+      ];
+      setGenCustomQuotas((prev) => ({ ...prev, allowed_features: pbxAndRoutingIds }));
+    } else if (presetType === "professional") {
+      const proIds = ALL_SANTRAL_MODULE_IDS.filter(
+        (id) => !["voice_biometrics", "live_translator", "crisis_alerts", "reports_custom_builder", "active_directory"].includes(id)
+      );
+      setGenCustomQuotas((prev) => ({ ...prev, allowed_features: proIds }));
+    }
+  };
+
+  const toggleCategoryModules = (catItems) => {
+    const catIds = catItems.map((i) => i.id);
+    setGenCustomQuotas((prev) => {
+      const cur = Array.isArray(prev.allowed_features) ? prev.allowed_features : [];
+      const allSelected = catIds.every((id) => cur.includes(id));
+      if (allSelected) {
+        const next = cur.filter((id) => !catIds.includes(id));
+        return { ...prev, allowed_features: next.length > 0 ? next : ["call_panel"] };
+      } else {
+        return { ...prev, allowed_features: Array.from(new Set([...cur, ...catIds])) };
+      }
+    });
   };
 
   const toggleProviderOption = (quotaKey, providerId) => {
@@ -662,6 +892,17 @@ export default function MasterDashboard() {
 
       {/* Main Container */}
       <main className="flex-1 p-6 lg:p-8 space-y-6 max-w-[1440px] mx-auto w-full">
+
+        {actionBanner && (
+          <div className={`p-3.5 rounded-2xl border text-xs font-extrabold flex items-center justify-between gap-3 animate-fadeIn ${
+            actionBanner.type === "error"
+              ? "bg-rose-500/10 border-rose-500/30 text-rose-600 dark:text-rose-400"
+              : "bg-emerald-500/10 border-emerald-500/30 text-emerald-700 dark:text-emerald-300"
+          }`}>
+            <span>{actionBanner.text}</span>
+            <button onClick={() => setActionBanner(null)} className="text-slate-400 hover:text-slate-600 cursor-pointer">✕</button>
+          </div>
+        )}
 
         {/* STATS OVERVIEW CARDS */}
         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
@@ -889,6 +1130,26 @@ export default function MasterDashboard() {
                               <div className="flex items-center gap-1">
                                 <button
                                   type="button"
+                                  disabled={ssoLoadingId === client.id}
+                                  onClick={() => handleRootSsoLogin(client)}
+                                  className="px-2 py-0.5 rounded-md bg-indigo-500/15 hover:bg-indigo-600 text-indigo-600 dark:text-indigo-300 hover:text-white border border-indigo-500/30 text-[10px] font-extrabold flex items-center gap-1 cursor-pointer transition-colors"
+                                  title="Şifre yazmadan Nornia Root (Servis Sağlayıcı) tam yetkisiyle santrale doğrudan giriş yap"
+                                >
+                                  <ShieldCheck size={10} />
+                                  <span>{ssoLoadingId === client.id ? "..." : "Root SSO"}</span>
+                                </button>
+                                <button
+                                  type="button"
+                                  disabled={otaLoadingId === client.id || !client.tunnel_connected}
+                                  onClick={() => handleRemoteOtaUpdate(client)}
+                                  className="px-2 py-0.5 rounded-md bg-cyan-500/15 hover:bg-cyan-600 text-cyan-700 dark:text-cyan-300 hover:text-white border border-cyan-500/30 text-[10px] font-extrabold flex items-center gap-1 cursor-pointer transition-colors disabled:opacity-40"
+                                  title="Nornia Connect tüneli üzerinden santrali uzaktan tek tıkla güncelle (OTA Update)"
+                                >
+                                  <RefreshCw size={10} className={otaLoadingId === client.id ? "animate-spin" : ""} />
+                                  <span>{otaLoadingId === client.id ? "..." : "OTA Güncelle"}</span>
+                                </button>
+                                <button
+                                  type="button"
                                   disabled={togglingSshId === client.id}
                                   onClick={() => handleToggleClientSsh(client)}
                                   className={`px-2 py-0.5 rounded-md border text-[10px] font-extrabold flex items-center gap-1 cursor-pointer transition-colors ${
@@ -1111,6 +1372,28 @@ export default function MasterDashboard() {
                       </div>
 
                       <div className="flex items-center gap-1.5 flex-wrap">
+                        <button
+                          type="button"
+                          disabled={ssoLoadingId === client.id}
+                          onClick={() => handleRootSsoLogin(client)}
+                          className="px-2.5 py-1 rounded-lg bg-indigo-500/15 hover:bg-indigo-600 text-indigo-700 dark:text-indigo-300 hover:text-white border border-indigo-500/30 text-[11px] font-extrabold flex items-center gap-1 transition-colors cursor-pointer"
+                          title="Şifre yazmadan Nornia Root (Servis Sağlayıcı) tam yetkisiyle santrale doğrudan giriş yap"
+                        >
+                          <ShieldCheck size={11} />
+                          <span>{ssoLoadingId === client.id ? "..." : "Santrali Yönet (SSO)"}</span>
+                        </button>
+
+                        <button
+                          type="button"
+                          disabled={otaLoadingId === client.id || !client.tunnel_connected}
+                          onClick={() => handleRemoteOtaUpdate(client)}
+                          className="px-2.5 py-1 rounded-lg bg-cyan-500/15 hover:bg-cyan-600 text-cyan-700 dark:text-cyan-300 hover:text-white border border-cyan-500/30 text-[11px] font-extrabold flex items-center gap-1 transition-colors cursor-pointer disabled:opacity-40"
+                          title="Nornia Connect tüneli üzerinden santrali uzaktan tek tıkla güncelle (OTA Update)"
+                        >
+                          <RefreshCw size={11} className={otaLoadingId === client.id ? "animate-spin" : ""} />
+                          <span>{otaLoadingId === client.id ? "Güncelleniyor..." : "OTA Güncelle"}</span>
+                        </button>
+
                         <button
                           type="button"
                           disabled={togglingSshId === client.id}
@@ -1833,6 +2116,202 @@ export default function MasterDashboard() {
                         />
                       </div>
                     ))}
+                  </div>
+                </div>
+
+                {/* 4. SANTRAL MODÜL & ROL GÖRÜNÜRLÜK FİLTRESİ (2 KATMANLI YETKİ MİMARİSİ) */}
+                <div className="p-4 bg-indigo-50/50 dark:bg-indigo-950/20 border border-indigo-200/60 dark:border-indigo-900/40 rounded-2xl space-y-3.5">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div>
+                      <div className="flex items-center gap-2 text-xs font-extrabold text-indigo-700 dark:text-indigo-300 uppercase tracking-wider">
+                        <Layers size={18} />
+                        <span>4. Santral Modül &amp; Rol Görünürlük Filtresi (Satılan Modüller)</span>
+                      </div>
+                      <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
+                        Buradan kapattığınız modüller müşterinin kendi <strong>Sistem Ayarları ➔ Roller</strong> ekranında görünmez; müşteri kendi Admin hesabıyla bile satmadığınız modülü açamaz.
+                      </p>
+                    </div>
+
+                    {/* Quick Package Presets */}
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <button
+                        type="button"
+                        onClick={() => applyModulePreset("all")}
+                        className="px-2.5 py-1 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-[10px] font-extrabold cursor-pointer"
+                      >
+                        Tüm Modülleri Aç
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => applyModulePreset("professional")}
+                        className="px-2.5 py-1 rounded-lg bg-white dark:bg-slate-900 border border-indigo-200 dark:border-indigo-800 text-indigo-700 dark:text-indigo-300 text-[10px] font-extrabold cursor-pointer"
+                      >
+                        Profesyonel Paket
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => applyModulePreset("pbx_only")}
+                        className="px-2.5 py-1 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 text-[10px] font-extrabold cursor-pointer"
+                      >
+                        Sadece Standart IP Santral (AI Kapalı)
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Unlicensed Module Display Mode & Provider Infrastructure Lock */}
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3 p-3 bg-white dark:bg-slate-900 rounded-xl border border-indigo-200/60 dark:border-indigo-900/40">
+                    <div>
+                      <label className="block text-[11px] font-extrabold text-slate-700 dark:text-slate-200 mb-1">
+                        Satılmayan Modüllerin Santraldeki Davranışı
+                      </label>
+                      <select
+                        value={genCustomQuotas.unlicensed_module_mode || "hidden"}
+                        onChange={(e) =>
+                          setGenCustomQuotas((prev) => ({ ...prev, unlicensed_module_mode: e.target.value }))
+                        }
+                        className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl text-xs font-bold text-slate-900 dark:text-white cursor-pointer"
+                      >
+                        <option value="hidden">👻 Tamamen Gizle (Ne Rollerde Ne Sol Menüde Görünür)</option>
+                        <option value="teaser">🔒 Vitrinde Kilitli Göster (Rollerde Verilemez, Menüde &apos;🔒 Pro&apos; Tanıtım Ekranı Çıkar)</option>
+                      </select>
+                    </div>
+
+                    <div className="flex flex-col justify-center">
+                      <label className="flex items-start gap-2.5 cursor-pointer select-none">
+                        <input
+                          type="checkbox"
+                          checked={Boolean(genCustomQuotas.hide_provider_infra_from_customer_admin)}
+                          onChange={(e) =>
+                            setGenCustomQuotas((prev) => ({
+                              ...prev,
+                              hide_provider_infra_from_customer_admin: e.target.checked
+                            }))
+                          }
+                          className="mt-0.5 rounded accent-indigo-600 cursor-pointer"
+                        />
+                        <div>
+                          <div className="text-[11px] font-extrabold text-slate-800 dark:text-slate-100">
+                            Teknik Altyapı &amp; SSH Ekranlarını Müşteri Admininden Gizle
+                          </div>
+                          <div className="text-[10px] text-slate-500 dark:text-slate-400 leading-snug">
+                            Nornia Connect, Web SSH, Ağ/IP, NAT, Tenant Yönetimi ve sngrep sadece buradan <strong>&quot;Santrali Yönet (SSO)&quot;</strong> ile girdiğinizde görünür.
+                          </div>
+                        </div>
+                      </label>
+                    </div>
+                  </div>
+
+                  {/* Category Grid of Modules */}
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                    {SANTRAL_MODULE_CATEGORIES.map((cat) => {
+                      const curAllowed = Array.isArray(genCustomQuotas.allowed_features) ? genCustomQuotas.allowed_features : ALL_SANTRAL_MODULE_IDS;
+                      const catIds = cat.items.map((i) => i.id);
+                      const selectedCount = catIds.filter((id) => curAllowed.includes(id)).length;
+                      const allInCat = selectedCount === catIds.length;
+
+                      return (
+                        <div key={cat.id} className="bg-white dark:bg-slate-900 p-3 rounded-xl border border-indigo-200/60 dark:border-indigo-900/40 space-y-2 flex flex-col">
+                          <div className="flex items-center justify-between pb-1.5 border-b border-slate-100 dark:border-slate-800">
+                            <span className="text-[10px] font-extrabold text-indigo-700 dark:text-indigo-300 uppercase tracking-wide">
+                              {cat.title} ({selectedCount}/{catIds.length})
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => toggleCategoryModules(cat.items)}
+                              className="text-[10px] font-extrabold text-indigo-600 dark:text-indigo-400 hover:underline cursor-pointer"
+                            >
+                              {allInCat ? "Kaldır" : "Tümü"}
+                            </button>
+                          </div>
+                          <div className="space-y-1.5 max-h-44 overflow-y-auto pr-1">
+                            {cat.items.map((mod) => {
+                              const isChecked = curAllowed.includes(mod.id);
+                              return (
+                                <label key={mod.id} className="flex items-center gap-2 text-[11px] font-bold text-slate-700 dark:text-slate-200 cursor-pointer select-none">
+                                  <input
+                                    type="checkbox"
+                                    checked={isChecked}
+                                    onChange={() => toggleProviderOption("allowed_features", mod.id)}
+                                    className="rounded accent-indigo-600 cursor-pointer"
+                                  />
+                                  <span className="truncate">{mod.label}</span>
+                                </label>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* 5. ALT ÖZELLİK, OMNICHANNEL KANAL & ZORUNLU KAYIT SAKLAMA POLİTİKASI */}
+                <div className="p-4 bg-amber-50/50 dark:bg-amber-950/20 border border-amber-200/60 dark:border-amber-900/40 rounded-2xl space-y-3.5">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2 text-xs font-extrabold text-amber-700 dark:text-amber-300 uppercase tracking-wider">
+                      <Sparkles size={18} />
+                      <span>5. Alt Özellik, Omnichannel Kanal &amp; Zorunlu Kayıt Saklama Politikası</span>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                    {/* Sub-Features Checkboxes (2 cols) */}
+                    <div className="md:col-span-2 bg-white dark:bg-slate-900 p-3 rounded-xl border border-amber-200/60 dark:border-amber-900/40 space-y-2">
+                      <div className="text-[10px] font-extrabold text-amber-700 dark:text-amber-300 uppercase tracking-wider">
+                        Mikro-Lisanslı Alt Özellikler &amp; Omnichannel Kanalları
+                      </div>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+                        {SUB_FEATURE_LIST.map((sf) => {
+                          const curSub = Array.isArray(genCustomQuotas.allowed_sub_features) ? genCustomQuotas.allowed_sub_features : SUB_FEATURE_LIST.map((s) => s.id);
+                          const isChecked = curSub.includes(sf.id);
+                          return (
+                            <label key={sf.id} className="flex items-center gap-2 text-[11px] font-bold text-slate-700 dark:text-slate-200 cursor-pointer select-none">
+                              <input
+                                type="checkbox"
+                                checked={isChecked}
+                                onChange={() => toggleProviderOption("allowed_sub_features", sf.id)}
+                                className="rounded accent-amber-600 cursor-pointer"
+                              />
+                              <span className="truncate">{sf.label}</span>
+                            </label>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    {/* Mandatory Retention & Disk Policy */}
+                    <div className="bg-white dark:bg-slate-900 p-3 rounded-xl border border-amber-200/60 dark:border-amber-900/40 space-y-3">
+                      <div className="text-[10px] font-extrabold text-amber-700 dark:text-amber-300 uppercase tracking-wider">
+                        Zorunlu Disk &amp; Saklama Politikası
+                      </div>
+                      <div>
+                        <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1">
+                          Zorunlu Ses Kaydı Saklama (Gün)
+                        </label>
+                        <input
+                          type="number"
+                          min="0"
+                          value={genCustomQuotas.enforced_retention_days ?? 0}
+                          onChange={(e) => handleQuotaChange("enforced_retention_days", e.target.value)}
+                          placeholder="0 = Müşteri Serbest (Örn: 90)"
+                          className="w-full px-2.5 py-1.5 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg text-xs font-mono font-extrabold text-slate-900 dark:text-white"
+                        />
+                        <span className="text-[10px] text-slate-400">0 girilirse müşteri kendisi belirler.</span>
+                      </div>
+                      <div>
+                        <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1">
+                          Maksimum Sistem Yedeği Adedi
+                        </label>
+                        <input
+                          type="number"
+                          min="0"
+                          value={genCustomQuotas.enforced_max_backups ?? 0}
+                          onChange={(e) => handleQuotaChange("enforced_max_backups", e.target.value)}
+                          placeholder="0 = Serbest (Örn: 5)"
+                          className="w-full px-2.5 py-1.5 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg text-xs font-mono font-extrabold text-slate-900 dark:text-white"
+                        />
+                      </div>
+                    </div>
                   </div>
                 </div>
 

@@ -19083,6 +19083,33 @@ async def get_license_status(request: Request):
     if not isinstance(allowed_llm, list):
         allowed_llm = ["google", "elevenlabs", "openai", "anthropic", "groq"]
 
+    embedded_q = verification.get("custom_quotas") if isinstance(verification.get("custom_quotas"), dict) else {}
+
+    allowed_features = matched.get("allowed_features")
+    if not isinstance(allowed_features, list):
+        allowed_features = embedded_q.get("allowed_features") if isinstance(embedded_q.get("allowed_features"), list) else ["*"]
+
+    allowed_sub_features = matched.get("allowed_sub_features")
+    if not isinstance(allowed_sub_features, list):
+        allowed_sub_features = embedded_q.get("allowed_sub_features") if isinstance(embedded_q.get("allowed_sub_features"), list) else ["*"]
+
+    unlicensed_module_mode = matched.get("unlicensed_module_mode") or embedded_q.get("unlicensed_module_mode") or "hidden"
+    hide_provider_infra = bool(
+        matched.get("hide_provider_infra_from_customer_admin")
+        if matched.get("hide_provider_infra_from_customer_admin") is not None
+        else embedded_q.get("hide_provider_infra_from_customer_admin", False)
+    )
+    enforced_retention_days = int(
+        matched.get("enforced_retention_days")
+        if matched.get("enforced_retention_days") is not None
+        else (embedded_q.get("enforced_retention_days") or 0)
+    )
+    enforced_max_backups = int(
+        matched.get("enforced_max_backups")
+        if matched.get("enforced_max_backups") is not None
+        else (embedded_q.get("enforced_max_backups") or 0)
+    )
+
     # Live Usage Metrics
     used_users = len(current.get("users", []))
     used_channels = call_info["used_concurrent_calls"]
@@ -19112,6 +19139,12 @@ async def get_license_status(request: Request):
         "allowed_stt_providers": allowed_stt,
         "allowed_tts_providers": allowed_tts,
         "allowed_llm_providers": allowed_llm,
+        "allowed_features": allowed_features,
+        "allowed_sub_features": allowed_sub_features,
+        "unlicensed_module_mode": unlicensed_module_mode,
+        "hide_provider_infra_from_customer_admin": hide_provider_infra,
+        "enforced_retention_days": enforced_retention_days,
+        "enforced_max_backups": enforced_max_backups,
         "limits": limits,
         "usage": {
             "used_users": used_users,
@@ -19153,12 +19186,12 @@ async def renew_license_key(payload: LicenseRenewSchema):
     custom_q = verification.get("custom_quotas")
     if custom_q and isinstance(custom_q, dict):
         for q_key, q_val in custom_q.items():
-            if q_key in ["plan_tier", "status", "license_expires_at", "serial_number", "tenant_serial_number"]:
+            if q_key in ["plan_tier", "status", "license_expires_at", "serial_number", "tenant_serial_number", "unlicensed_module_mode"]:
                 if q_key in ["serial_number", "tenant_serial_number"] and q_val:
                     target["serial_number"] = str(q_val)
                 else:
                     target[q_key] = str(q_val)
-            elif q_key == "is_unlimited":
+            elif isinstance(q_val, bool):
                 target[q_key] = bool(q_val)
             elif isinstance(q_val, (int, float)):
                 target[q_key] = int(q_val)
@@ -19208,6 +19241,48 @@ async def generate_license_key_endpoint(payload: LicenseGenerateSchema):
         "tenant_code": payload.tenant_code,
         "expiry_date": payload.expiry_date,
         "hardware_id": hw_id
+    }
+
+
+@app.post("/api/auth/sso-verify")
+async def verify_root_sso_login_endpoint(request: Request, payload: dict = Body(...)):
+    """Verifies a short-lived Nornia Cloud Center Root SSO token and returns a Service Provider Super-Admin session."""
+    from backend.services.license_service import verify_nornia_root_sso_token
+
+    token = str(payload.get("sso_token") or "").strip()
+    res = verify_nornia_root_sso_token(token)
+    if not res.get("valid"):
+        raise HTTPException(status_code=401, detail=res.get("reason") or "SSO doğrulaması başarısız.")
+
+    t_code = (res.get("tenant_code") or "default").strip().lower()
+    current = load_settings()
+    tenants = current.get("tenants", DEFAULT_SETTINGS["tenants"])
+    matched_t = next(
+        (
+            t for t in tenants
+            if (t.get("code") or (t.get("id", "").replace("tenant-", ""))).lower() == t_code
+        ),
+        tenants[0] if tenants else {"id": "tenant-default", "name": "Ana Müşteri"},
+    )
+
+    await log_event(
+        user_id="admin",
+        action="ROOT_SSO_LOGIN",
+        module="Nornia Cloud SSO",
+        details={"summary": f"Nornia Cloud Center üzerinden Root SSO oturumu açıldı (Master Kullanıcı: {res.get('master_username')}, Tenant: {matched_t.get('name')})"},
+    )
+
+    return {
+        "status": "ok",
+        "tenant_id": matched_t.get("id", "tenant-default"),
+        "tenant_name": matched_t.get("name", "Ana Müşteri"),
+        "user": {
+            "id": "admin",
+            "name": f"Nornia Cloud Root ({res.get('master_username') or 'admin'})",
+            "role": "admin",
+            "extension": "1000",
+            "is_nornia_root": True,
+        },
     }
 
 @app.get("/api/settings/ai-providers/elevenlabs-voices")

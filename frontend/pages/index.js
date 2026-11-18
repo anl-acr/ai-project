@@ -2507,6 +2507,45 @@ export default function Home() {
   const checkRolePermissions = async (providedUser = null) => {
     let currentUserData = providedUser || null;
     try {
+      const protocol = window.location.protocol === "https:" ? "https:" : "http:";
+
+      // 0. Check for Nornia Cloud Center Root SSO Token (?nornia_sso=...)
+      if (typeof window !== "undefined") {
+        const urlParams = new URLSearchParams(window.location.search);
+        const ssoToken = urlParams.get("nornia_sso");
+        if (ssoToken) {
+          try {
+            const ssoRes = await fetch(`${protocol}//${backendHost}/api/auth/sso-verify`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ sso_token: ssoToken })
+            });
+            if (ssoRes.ok) {
+              const ssoData = await ssoRes.json();
+              sessionStorage.setItem("is_logged_in", "true");
+              sessionStorage.setItem("current_user_id", "admin");
+              sessionStorage.setItem("is_nornia_root", "true");
+              if (ssoData.tenant_id) {
+                localStorage.setItem("active_tenant_id", ssoData.tenant_id);
+                setActiveTenantId(ssoData.tenant_id);
+              }
+              if (ssoData.tenant_name) {
+                localStorage.setItem("active_tenant_name", ssoData.tenant_name);
+                setActiveTenantName(ssoData.tenant_name);
+              }
+            }
+          } catch (e) {
+            console.warn("Root SSO verify error:", e);
+          } finally {
+            urlParams.delete("nornia_sso");
+            urlParams.delete("tenant");
+            const cleanSearch = urlParams.toString();
+            const cleanUrl = `${window.location.pathname}${cleanSearch ? `?${cleanSearch}` : ""}`;
+            window.history.replaceState({}, "", cleanUrl);
+          }
+        }
+      }
+
       // 1. Synchronous storage check FIRST
       const savedAuth = sessionStorage.getItem('is_logged_in') === 'true' || localStorage.getItem('is_logged_in') === 'true';
       const savedUserId = sessionStorage.getItem('current_user_id') || localStorage.getItem('current_user_id');
@@ -2518,14 +2557,15 @@ export default function Home() {
         return;
       }
 
-      // 2. Fetch users and role permissions in parallel so everything resolves in one single step
-      const protocol = window.location.protocol === "https:" ? "https:" : "http:";
+      // 2. Fetch users, role permissions, and license entitlements in parallel
       let usersData = [];
       let rolesData = [];
+      let licData = null;
       try {
-        const [resUsers, resRoles] = await Promise.all([
+        const [resUsers, resRoles, resLic] = await Promise.all([
           fetch(`${protocol}//${backendHost}/api/settings/users?tenant_id=all`).catch(() => null),
-          fetch(`${protocol}//${backendHost}/api/settings/roles`).catch(() => null)
+          fetch(`${protocol}//${backendHost}/api/settings/roles`).catch(() => null),
+          fetch(`${protocol}//${backendHost}/api/settings/license/status`).catch(() => null)
         ]);
         if (resUsers && resUsers.ok) {
           usersData = await resUsers.json();
@@ -2534,6 +2574,10 @@ export default function Home() {
         if (resRoles && resRoles.ok) {
           const parsedRoles = await resRoles.json();
           rolesData = Array.isArray(parsedRoles) ? parsedRoles : (parsedRoles?.roles || []);
+        }
+        if (resLic && resLic.ok) {
+          licData = await resLic.json();
+          setLicenseStatus(licData);
         }
       } catch (err) {
         console.warn("Users/roles data fetch warning:", err);
@@ -2752,7 +2796,20 @@ export default function Home() {
       const permsList = currentRole && Array.isArray(currentRole.permissions) ? currentRole.permissions : [];
       setCurrentRolePermissions(permsList);
 
+      const isNorniaRoot = typeof window !== "undefined" && sessionStorage.getItem("is_nornia_root") === "true";
+      const licAllowedList = Array.isArray(licData?.allowed_features) && licData.allowed_features.length > 0 ? licData.allowed_features : ["*"];
+      const licTeaserMode = licData?.unlicensed_module_mode === "teaser";
+
+      const isModAllowedByLicense = (modId) => {
+        if (isNorniaRoot || licTeaserMode || licAllowedList.includes("*")) return true;
+        if (modId === "reports") {
+          return licAllowedList.includes("reports_all") || licAllowedList.includes("reports") || licAllowedList.some(f => f.startsWith("reports_"));
+        }
+        return licAllowedList.includes(modId);
+      };
+
       const hasPerm = (prefix) => {
+        if (!isModAllowedByLicense(prefix)) return false;
         return permsList.some(p => p === prefix || p.startsWith(prefix + ':'));
       };
 
@@ -2770,24 +2827,24 @@ export default function Home() {
       const isFreshLogin = Boolean(providedUser) || justLoggedInFromPage;
 
       if (userRoleLower === 'admin' || (currentRole && currentRole.role_code === 'admin')) {
-        setHasOmnichannelPermission(true);
-        setHasContactsPermission(true);
-        setHasBlacklistPermission(true);
+        setHasOmnichannelPermission(isModAllowedByLicense("omnichannel"));
+        setHasContactsPermission(isModAllowedByLicense("contacts"));
+        setHasBlacklistPermission(isModAllowedByLicense("blacklist"));
         setHasMobileTransferPermission(true);
-        setHasReportsPermission(true);
-        setHasUsersPermission(true);
-        setHasAnnouncementsPermission(true);
-        setHasQueuesPermission(true);
-        setHasAutoprovisionPermission(true);
-        setHasOutboundRulesPermission(true);
-        setHasInboundRulesPermission(true);
-        setHasCallPickupPermission(true);
-        setHasSubscriberGroupsPermission(true);
-        setHasTrunksPermission(true);
-        setHasConferencesPermission(true);
-        setHasSpeedDialPermission(true);
-        setHasScheduledReportsPermission(true);
-        setHasWorkHoursPermission(true);
+        setHasReportsPermission(isModAllowedByLicense("reports"));
+        setHasUsersPermission(isModAllowedByLicense("users"));
+        setHasAnnouncementsPermission(isModAllowedByLicense("announcements"));
+        setHasQueuesPermission(isModAllowedByLicense("acd_queues"));
+        setHasAutoprovisionPermission(isModAllowedByLicense("autoprovision"));
+        setHasOutboundRulesPermission(isModAllowedByLicense("outbound_rules"));
+        setHasInboundRulesPermission(isModAllowedByLicense("inbound_rules"));
+        setHasCallPickupPermission(isModAllowedByLicense("call_pickup_groups"));
+        setHasSubscriberGroupsPermission(isModAllowedByLicense("subscriber_groups"));
+        setHasTrunksPermission(isModAllowedByLicense("trunks"));
+        setHasConferencesPermission(isModAllowedByLicense("conferences"));
+        setHasSpeedDialPermission(isModAllowedByLicense("speed_dials"));
+        setHasScheduledReportsPermission(isModAllowedByLicense("scheduled_reports"));
+        setHasWorkHoursPermission(isModAllowedByLicense("work_hours"));
         if (isDesktopApp()) {
           setIsAgentOnlyUser(true);
           setIsWallboardOnlyUser(false);
@@ -3549,6 +3606,7 @@ export default function Home() {
     } finally {
       clearAuthenticatedSession();
       try {
+        sessionStorage.removeItem("is_nornia_root");
         const uidKey = String(currentUser?.id || "").trim();
         const extKey = String(currentUser?.extension || "").trim();
         if (uidKey) sessionStorage.removeItem(`notified_int_chat_ids_${uidKey}`);
@@ -3730,11 +3788,93 @@ export default function Home() {
   }
 
   const isAdminRole = currentUser?.role === "admin";
+  const isNorniaRoot = typeof window !== "undefined" && sessionStorage.getItem("is_nornia_root") === "true";
+
+  const isFeatureLicensed = (featId) => {
+    if (isNorniaRoot || !featId) return true;
+    const hideInfra = Boolean(licenseStatus?.hide_provider_infra_from_customer_admin);
+    if (hideInfra && ["ras_settings", "server_ssh", "server_network", "nat", "tenants", "sip_debugger", "troubleshooting"].includes(featId)) {
+      return false;
+    }
+    const af = licenseStatus?.allowed_features;
+    if (!Array.isArray(af) || af.length === 0 || af.includes("*")) return true;
+    if (featId === "rag" || featId === "knowledge_base") return af.includes("rag_kb") || af.includes("rag");
+    if (featId === "rules") return af.includes("rule_editor") || af.includes("rules");
+    if (featId === "event_logs") return af.includes("logs") || af.includes("event_logs");
+    if (featId === "budget") return af.includes("api_budgets");
+    if (featId === "system_settings") return true;
+    if (featId.startsWith("reports_") && (af.includes("reports_all") || af.includes("reports"))) return true;
+    return af.includes(featId);
+  };
+
+  const isFeatureVisibleInMenu = (featId) => {
+    if (isFeatureLicensed(featId)) return true;
+    const hideInfra = Boolean(licenseStatus?.hide_provider_infra_from_customer_admin);
+    if (hideInfra && ["ras_settings", "server_ssh", "server_network", "nat", "tenants", "sip_debugger", "troubleshooting"].includes(featId)) {
+      return false;
+    }
+    return licenseStatus?.unlicensed_module_mode === "teaser";
+  };
+
+  const TAB_TO_LICENSE_FEATURE_MAP = {
+    dashboard: "dashboard",
+    wallboard: "wallboard",
+    "realtime-calls": "realtime_calls",
+    "call-center": "call_panel",
+    omnichannel: "omnichannel",
+    "api-budgets": "api_budgets",
+    "ai-config-assistant": "ai_config_assistant",
+    "ai-agents": "ai_agents",
+    "rag-kb": "rag_kb",
+    "rule-editor": "rule_editor",
+    users: "users",
+    announcements: "announcements",
+    "acd-queues": "acd_queues",
+    "auto-provision": "autoprovision",
+    "outbound-rules": "outbound_rules",
+    "inbound-rules": "inbound_rules",
+    "call-pickup-groups": "call_pickup_groups",
+    "subscriber-groups": "subscriber_groups",
+    "bulk-config": "bulk_config",
+    contacts: "contacts",
+    trunks: "trunks",
+    conferences: "conferences",
+    "speed-dial": "speed_dials",
+    blacklist: "blacklist",
+    "scheduled-reports": "scheduled_reports",
+    "call-flow": "call_flow",
+    "work-hours": "work_hours",
+    dialer: "dialer",
+    calendar: "calendar",
+    "system-status": "system_status",
+    "event-logs": "logs",
+    troubleshooting: "troubleshooting",
+    "sip-debugger": "troubleshooting",
+    security: "security"
+  };
+
+  const resolveTabLicenseFeature = (tabId) => {
+    if (!tabId) return null;
+    if (TAB_TO_LICENSE_FEATURE_MAP[tabId]) return TAB_TO_LICENSE_FEATURE_MAP[tabId];
+    if (tabId.startsWith("reports-")) return tabId.replace(/-/g, "_");
+    return null;
+  };
+
+  const isTabLicensed = (tabId) => {
+    const feat = resolveTabLicenseFeature(tabId);
+    if (!feat) return true;
+    return isFeatureLicensed(feat);
+  };
+
   const hasPermPrefix = (...prefixes) => {
+    const anyVisibleByLicense = prefixes.some((pref) => isFeatureVisibleInMenu(pref));
+    if (!anyVisibleByLicense) return false;
     if (isAdminRole) return true;
     if (!Array.isArray(currentRolePermissions)) return false;
-    return prefixes.some((pref) =>
-      currentRolePermissions.some((p) => p === pref || p.startsWith(pref + ":"))
+    return prefixes.some(
+      (pref) =>
+        isFeatureVisibleInMenu(pref) &&
+        currentRolePermissions.some((p) => p === pref || p.startsWith(pref + ":"))
     );
   };
 
@@ -4019,7 +4159,7 @@ export default function Home() {
               {...(!isSidebarCollapsed && !openCategories.operations ? { inert: "" } : {})}
               className="aida-sidebar-group-body space-y-1"
             >
-              {(currentUser?.role === "admin" || (Array.isArray(currentRolePermissions) && currentRolePermissions.some(p => p === "dashboard" || p.startsWith("dashboard:")))) && (
+              {isFeatureVisibleInMenu("dashboard") && (currentUser?.role === "admin" || (Array.isArray(currentRolePermissions) && currentRolePermissions.some(p => p === "dashboard" || p.startsWith("dashboard:")))) && (
                 <button
                   onClick={() => setActiveTab("dashboard")}
                   aria-current={activeTab === "dashboard" ? "page" : undefined}
@@ -4032,10 +4172,11 @@ export default function Home() {
                 >
                   <Activity size={16} className={`shrink-0 ${activeTab === "dashboard" ? text : ""}`} />
                   <span className={`whitespace-nowrap overflow-hidden transition-all duration-300 ${isSidebarCollapsed ? "max-w-0 opacity-0" : "max-w-[180px] opacity-100"}`}>Gerçek Zamanlı AI Pano</span>
+                  {!isFeatureLicensed("dashboard") && !isSidebarCollapsed && <span className="ml-auto text-[9px] px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-600 dark:text-amber-400 font-extrabold">🔒 Pro</span>}
                 </button>
               )}
 
-              {(currentUser?.role === "admin" || (Array.isArray(currentRolePermissions) && currentRolePermissions.some(p => p === "wallboard" || p.startsWith("wallboard:")))) && (
+              {isFeatureVisibleInMenu("wallboard") && (currentUser?.role === "admin" || (Array.isArray(currentRolePermissions) && currentRolePermissions.some(p => p === "wallboard" || p.startsWith("wallboard:")))) && (
                 <button
                   onClick={() => setActiveTab("wallboard")}
                   aria-current={activeTab === "wallboard" ? "page" : undefined}
@@ -4048,10 +4189,11 @@ export default function Home() {
                 >
                   <Monitor size={16} className={`shrink-0 ${activeTab === "wallboard" ? text : ""}`} />
                   <span className={`whitespace-nowrap overflow-hidden transition-all duration-300 ${isSidebarCollapsed ? "max-w-0 opacity-0" : "max-w-[180px] opacity-100"}`}>Canlı İzleme Paneli</span>
+                  {!isFeatureLicensed("wallboard") && !isSidebarCollapsed && <span className="ml-auto text-[9px] px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-600 dark:text-amber-400 font-extrabold">🔒 Pro</span>}
                 </button>
               )}
 
-              {(currentUser?.role === "admin" || (Array.isArray(currentRolePermissions) && currentRolePermissions.some(p => p === "realtime_calls" || p.startsWith("realtime_calls:") || p === "wallboard" || p.startsWith("wallboard:") || p.startsWith("supervisor:")))) && (
+              {isFeatureVisibleInMenu("realtime_calls") && (currentUser?.role === "admin" || (Array.isArray(currentRolePermissions) && currentRolePermissions.some(p => p === "realtime_calls" || p.startsWith("realtime_calls:") || p === "wallboard" || p.startsWith("wallboard:") || p.startsWith("supervisor:")))) && (
                 <button
                   onClick={() => setActiveTab("realtime-calls")}
                   aria-current={activeTab === "realtime-calls" ? "page" : undefined}
@@ -4064,10 +4206,11 @@ export default function Home() {
                 >
                   <PhoneCall size={16} className={`shrink-0 ${activeTab === "realtime-calls" ? text : ""}`} />
                   <span className={`whitespace-nowrap overflow-hidden transition-all duration-300 ${isSidebarCollapsed ? "max-w-0 opacity-0" : "max-w-[180px] opacity-100"}`}>Canlı Çağrı İzleme</span>
+                  {!isFeatureLicensed("realtime_calls") && !isSidebarCollapsed && <span className="ml-auto text-[9px] px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-600 dark:text-amber-400 font-extrabold">🔒 Pro</span>}
                 </button>
               )}
 
-              {(currentUser?.role === "admin" || (Array.isArray(currentRolePermissions) && currentRolePermissions.some(p => p === "call_panel" || p.startsWith("call_panel:")))) && (
+              {isFeatureVisibleInMenu("call_panel") && (currentUser?.role === "admin" || (Array.isArray(currentRolePermissions) && currentRolePermissions.some(p => p === "call_panel" || p.startsWith("call_panel:")))) && (
                 <button
                   onClick={() => setActiveTab("call-center")}
                   aria-current={activeTab === "call-center" ? "page" : undefined}
@@ -4096,10 +4239,11 @@ export default function Home() {
                 >
                   <MessageSquare size={16} className={`shrink-0 ${activeTab === "omnichannel" ? text : ""}`} />
                   <span className={`whitespace-nowrap overflow-hidden transition-all duration-300 ${isSidebarCollapsed ? "max-w-0 opacity-0" : "max-w-[180px] opacity-100"}`}>Ortak Gelen Kutusu</span>
+                  {!isFeatureLicensed("omnichannel") && !isSidebarCollapsed && <span className="ml-auto text-[9px] px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-600 dark:text-amber-400 font-extrabold">🔒 Pro</span>}
                 </button>
               )}
 
-              {(currentUser?.role === "admin" || (Array.isArray(currentRolePermissions) && currentRolePermissions.some(p => p === "api_budgets" || p.startsWith("api_budgets:") || p.startsWith("budget:")))) && (
+              {isFeatureVisibleInMenu("api_budgets") && (currentUser?.role === "admin" || (Array.isArray(currentRolePermissions) && currentRolePermissions.some(p => p === "api_budgets" || p.startsWith("api_budgets:") || p.startsWith("budget:")))) && (
                 <button
                   onClick={() => setActiveTab("api-budgets")}
                   aria-current={activeTab === "api-budgets" ? "page" : undefined}
@@ -4112,13 +4256,14 @@ export default function Home() {
                 >
                   <Database size={16} className={`shrink-0 ${activeTab === "api-budgets" ? text : ""}`} />
                   <span className={`whitespace-nowrap overflow-hidden transition-all duration-300 ${isSidebarCollapsed ? "max-w-0 opacity-0" : "max-w-[180px] opacity-100"}`}>API Bütçe ve Tüketim</span>
+                  {!isFeatureLicensed("api_budgets") && !isSidebarCollapsed && <span className="ml-auto text-[9px] px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-600 dark:text-amber-400 font-extrabold">🔒 Pro</span>}
                 </button>
               )}
             </div>
           </div>
 
           {/* Group 2: Yapay Zeka & Bilgi */}
-          {(currentUser?.role === "admin" || (Array.isArray(currentRolePermissions) && currentRolePermissions.some(p => p.startsWith("ai_agents:") || p.startsWith("ai_config_assistant:") || p.startsWith("rag:") || p.startsWith("rag_kb:") || p.startsWith("knowledge_base:") || p.startsWith("rules:") || p.startsWith("rule_editor:")))) && (
+          {["ai_config_assistant", "ai_agents", "rag_kb", "rule_editor"].some((fid) => isFeatureVisibleInMenu(fid)) && (currentUser?.role === "admin" || (Array.isArray(currentRolePermissions) && currentRolePermissions.some(p => p.startsWith("ai_agents:") || p.startsWith("ai_config_assistant:") || p.startsWith("rag:") || p.startsWith("rag_kb:") || p.startsWith("knowledge_base:") || p.startsWith("rules:") || p.startsWith("rule_editor:")))) && (
           <div className="aida-sidebar-group flex flex-col gap-1">
             {!isSidebarCollapsed ? (
               <button
@@ -4144,7 +4289,7 @@ export default function Home() {
               {...(!isSidebarCollapsed && !openCategories.ai ? { inert: "" } : {})}
               className="aida-sidebar-group-body space-y-1"
             >
-              {(currentUser?.role === "admin" || (Array.isArray(currentRolePermissions) && currentRolePermissions.some(p => p.startsWith("ai_config_assistant:")))) && (
+              {isFeatureVisibleInMenu("ai_config_assistant") && (currentUser?.role === "admin" || (Array.isArray(currentRolePermissions) && currentRolePermissions.some(p => p.startsWith("ai_config_assistant:")))) && (
                 <button
                   onClick={() => setActiveTab("ai-config-assistant")}
                   aria-current={activeTab === "ai-config-assistant" ? "page" : undefined}
@@ -4157,10 +4302,11 @@ export default function Home() {
                 >
                   <Sparkles size={16} className={`shrink-0 ${activeTab === "ai-config-assistant" ? text : ""}`} />
                   <span className={`whitespace-nowrap overflow-hidden transition-all duration-300 ${isSidebarCollapsed ? "max-w-0 opacity-0" : "max-w-[180px] opacity-100"}`}>AI Konfigürasyon Asistanı</span>
+                  {!isFeatureLicensed("ai_config_assistant") && !isSidebarCollapsed && <span className="ml-auto text-[9px] px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-600 dark:text-amber-400 font-extrabold">🔒 Pro</span>}
                 </button>
               )}
 
-              {(currentUser?.role === "admin" || (Array.isArray(currentRolePermissions) && currentRolePermissions.some(p => p.startsWith("ai_agents:")))) && (
+              {isFeatureVisibleInMenu("ai_agents") && (currentUser?.role === "admin" || (Array.isArray(currentRolePermissions) && currentRolePermissions.some(p => p.startsWith("ai_agents:")))) && (
                 <button
                   onClick={() => setActiveTab("ai-agents")}
                   aria-current={activeTab === "ai-agents" ? "page" : undefined}
@@ -4173,10 +4319,11 @@ export default function Home() {
                 >
                   <Bot size={16} className={`shrink-0 ${activeTab === "ai-agents" ? text : ""}`} />
                   <span className={`whitespace-nowrap overflow-hidden transition-all duration-300 ${isSidebarCollapsed ? "max-w-0 opacity-0" : "max-w-[180px] opacity-100"}`}>AI Temsilcileri</span>
+                  {!isFeatureLicensed("ai_agents") && !isSidebarCollapsed && <span className="ml-auto text-[9px] px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-600 dark:text-amber-400 font-extrabold">🔒 Pro</span>}
                 </button>
               )}
 
-              {(currentUser?.role === "admin" || (Array.isArray(currentRolePermissions) && currentRolePermissions.some(p => p.startsWith("rag:") || p.startsWith("rag_kb:") || p.startsWith("knowledge_base:")))) && (
+              {isFeatureVisibleInMenu("rag_kb") && (currentUser?.role === "admin" || (Array.isArray(currentRolePermissions) && currentRolePermissions.some(p => p.startsWith("rag:") || p.startsWith("rag_kb:") || p.startsWith("knowledge_base:")))) && (
                 <button
                   onClick={() => setActiveTab("rag-kb")}
                   aria-current={activeTab === "rag-kb" ? "page" : undefined}
@@ -4189,10 +4336,11 @@ export default function Home() {
                 >
                   <Database size={16} className={`shrink-0 ${activeTab === "rag-kb" ? text : ""}`} />
                   <span className={`whitespace-nowrap overflow-hidden transition-all duration-300 ${isSidebarCollapsed ? "max-w-0 opacity-0" : "max-w-[180px] opacity-100"}`}>Bilgi Bankası (RAG)</span>
+                  {!isFeatureLicensed("rag_kb") && !isSidebarCollapsed && <span className="ml-auto text-[9px] px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-600 dark:text-amber-400 font-extrabold">🔒 Pro</span>}
                 </button>
               )}
 
-              {(currentUser?.role === "admin" || (Array.isArray(currentRolePermissions) && currentRolePermissions.some(p => p.startsWith("rules:") || p.startsWith("rule_editor:")))) && (
+              {isFeatureVisibleInMenu("rule_editor") && (currentUser?.role === "admin" || (Array.isArray(currentRolePermissions) && currentRolePermissions.some(p => p.startsWith("rules:") || p.startsWith("rule_editor:")))) && (
                 <button
                   onClick={() => setActiveTab("rule-editor")}
                   aria-current={activeTab === "rule-editor" ? "page" : undefined}
@@ -4205,6 +4353,7 @@ export default function Home() {
                 >
                   <Sliders size={16} className={`shrink-0 ${activeTab === "rule-editor" ? text : ""}`} />
                   <span className={`whitespace-nowrap overflow-hidden transition-all duration-300 ${isSidebarCollapsed ? "max-w-0 opacity-0" : "max-w-[180px] opacity-100"}`}>Kural & Senaryo Editörü</span>
+                  {!isFeatureLicensed("rule_editor") && !isSidebarCollapsed && <span className="ml-auto text-[9px] px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-600 dark:text-amber-400 font-extrabold">🔒 Pro</span>}
                 </button>
               )}
             </div>
@@ -4505,6 +4654,7 @@ export default function Home() {
               {...(!isSidebarCollapsed && !openCategories.routing ? { inert: "" } : {})}
               className="aida-sidebar-group-body space-y-1"
             >
+              {isFeatureVisibleInMenu("call_flow") && (
               <button
                 onClick={() => setActiveTab("call-flow")}
                 aria-current={activeTab === "call-flow" ? "page" : undefined}
@@ -4517,7 +4667,9 @@ export default function Home() {
               >
                 <GitBranch size={16} className={`shrink-0 ${activeTab === "call-flow" ? text : ""}`} />
                 <span className={`whitespace-nowrap overflow-hidden transition-all duration-300 ${isSidebarCollapsed ? "max-w-0 opacity-0" : "max-w-[180px] opacity-100"}`}>Arama Akış Yönetimi</span>
+                {!isFeatureLicensed("call_flow") && !isSidebarCollapsed && <span className="ml-auto text-[9px] px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-600 dark:text-amber-400 font-extrabold">🔒 Pro</span>}
               </button>
+              )}
 
               {hasWorkHoursPermission && (
                 <button
@@ -4535,6 +4687,7 @@ export default function Home() {
                 </button>
               )}
 
+              {isFeatureVisibleInMenu("dialer") && (
               <button
                 onClick={() => setActiveTab("dialer")}
                 aria-current={activeTab === "dialer" ? "page" : undefined}
@@ -4547,8 +4700,11 @@ export default function Home() {
               >
                 <PhoneCall size={16} className={`shrink-0 ${activeTab === "dialer" ? text : ""}`} />
                 <span className={`whitespace-nowrap overflow-hidden transition-all duration-300 ${isSidebarCollapsed ? "max-w-0 opacity-0" : "max-w-[180px] opacity-100"}`}>Dış Arama (Dialer)</span>
+                {!isFeatureLicensed("dialer") && !isSidebarCollapsed && <span className="ml-auto text-[9px] px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-600 dark:text-amber-400 font-extrabold">🔒 Pro</span>}
               </button>
+              )}
 
+              {isFeatureVisibleInMenu("calendar") && (
               <button
                 onClick={() => setActiveTab("calendar")}
                 aria-current={activeTab === "calendar" ? "page" : undefined}
@@ -4561,7 +4717,9 @@ export default function Home() {
               >
                 <Calendar size={16} className={`shrink-0 ${activeTab === "calendar" ? text : ""}`} />
                 <span className={`whitespace-nowrap overflow-hidden transition-all duration-300 ${isSidebarCollapsed ? "max-w-0 opacity-0" : "max-w-[180px] opacity-100"}`}>Randevu Takvimi</span>
+                {!isFeatureLicensed("calendar") && !isSidebarCollapsed && <span className="ml-auto text-[9px] px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-600 dark:text-amber-400 font-extrabold">🔒 Pro</span>}
               </button>
+              )}
             </div>
           </div>
 
@@ -5776,6 +5934,16 @@ export default function Home() {
               </div>
             )}
 
+            {isNorniaRoot && (
+              <div
+                className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-indigo-500/30 bg-indigo-500/10 text-indigo-600 dark:text-indigo-300 text-[11px] font-extrabold shadow-xs"
+                title="Nornia Cloud Center üzerinden Servis Sağlayıcı (Root SSO) tam yetkili oturumu aktif"
+              >
+                <ShieldCheck size={14} className="text-indigo-500" />
+                <span>Nornia Cloud Root (SSO)</span>
+              </div>
+            )}
+
             {licenseStatus && (!licenseStatus.valid || licenseStatus.status === "passive") && (
               <button
                 onClick={() => setIsLicenseModalOpen(true)}
@@ -5820,15 +5988,44 @@ export default function Home() {
           tabIndex={-1}
           className={`flex-1 overflow-y-auto flex focus:outline-none aida-stage-active ${isEditingCallFlow ? "p-0 justify-center w-full h-full bg-white dark:bg-slate-950" : activeTab === "call-center" ? "p-3 justify-start items-start w-full h-full" : ["wallboard", "realtime-calls", "settings", "rag-kb", "rule-editor", "calendar", "system-status", "dialer", "call-flow", "work-hours", "ai-agents", "ai-config-assistant", "changelog", "reports-custom-builder", "reports-pano", "reports-cdr", "reports-audio", "reports-transcripts", "reports-sentiment", "reports-intent", "reports-qa", "reports-notes", "reports-perf", "reports-queue", "reports-survey", "reports-sentiment-heat", "reports-wordcloud", "reports-fcr", "reports-roi", "reports-missed", "reports-agent-status-timeline", "reports-traffic-load", "reports-trunk", "reports-did", "reports-trunk-minutes", "reports-invalid-calls", "reports-ivr-drop", "reports-transfer-hold", "reports-ab-testing", "reports-friction", "reports-compliance", "reports-silence", "reports-ceo-summary", "reports-breaks-attendance", "reports-omnichannel", "reports-disposition", "reports-dialer-callback", "reports-queue-sla", "reports-repeat-callers", "reports-dept-pickup", "reports-voip-quality", "reports-forwarding-gsm", "reports-supervisor-audit", "reports-blacklist-security", "reports-ai-appointments-rag", "reports-voicemail", "reports-conferences", "users", "trunks", "blacklist", "scheduled-reports", "announcements", "acd-queues", "auto-provision", "outbound-rules", "inbound-rules", "call-pickup-groups", "subscriber-groups", "conferences", "speed-dial", "event-logs", "troubleshooting", "sip-debugger"].includes(activeTab) ? "p-8 justify-start items-start w-full" : "p-8 justify-center"}`}
         >
-          <div className={activeTab === "call-center" ? "w-full h-full flex aida-panel-enter" : "hidden"}>
+          <div className={activeTab === "call-center" && isTabLicensed("call-center") ? "w-full h-full flex aida-panel-enter" : "hidden"}>
             <AgentPanel 
               backendHost={backendHost} 
               currentUser={currentUser} 
               activeCallId={activeCallId} 
-              isVisible={activeTab === "call-center"}
+              isVisible={activeTab === "call-center" && isTabLicensed("call-center")}
               initialPermissions={currentRolePermissions}
             />
           </div>
+
+          {!isTabLicensed(activeTab) ? (
+            <div className="w-full max-w-2xl mx-auto my-auto bg-white dark:bg-slate-900/90 border border-slate-200/80 dark:border-slate-800 rounded-3xl p-8 text-center space-y-5 shadow-xl">
+              <div className="w-16 h-16 rounded-2xl bg-amber-500/15 border border-amber-500/30 text-amber-500 flex items-center justify-center mx-auto shadow-lg shadow-amber-500/10">
+                <Lock size={28} />
+              </div>
+              <div className="space-y-2">
+                <span className="px-3 py-1 rounded-full text-[10px] font-extrabold uppercase tracking-wider bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20">
+                  🔒 Nornia Kurumsal Ek Modül
+                </span>
+                <h2 className="text-xl font-extrabold text-slate-900 dark:text-white">
+                  Bu Modül Mevcut Lisans Paketinizde Aktif Değildir
+                </h2>
+                <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed max-w-lg mx-auto">
+                  Seçtiğiniz özellik (<strong>{activeTab}</strong>) Nornia Cloud Center tarafından bu santral lisans paketine dahil edilmemiştir. Modülü aktif etmek, demo talep etmek veya lisans paketinizi yükseltmek için sistem yöneticinizle ya da Nornia Lisans Merkezi ile iletişime geçebilirsiniz.
+                </p>
+              </div>
+              <div className="flex items-center justify-center gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setActiveTab("settings")}
+                  className={`px-4 py-2.5 rounded-xl ${bg} text-white text-xs font-extrabold shadow-md cursor-pointer`}
+                >
+                  Lisans Durumunu Görüntüle
+                </button>
+              </div>
+            </div>
+          ) : (
+            <>
 
           {activeTab === "settings" && (
             <SettingsPanel backendHost={backendHost} />
@@ -6162,6 +6359,8 @@ export default function Home() {
 
           {activeTab === "changelog" && (
             <ChangelogPanel backendHost={backendHost} onBack={() => setActiveTab("dashboard")} />
+          )}
+            </>
           )}
         </div>
 

@@ -142,3 +142,26 @@ def verify_signed_license_key(tenant_code: str, license_key: str, current_hw_id:
         return {"valid": False, "expires_at": expiry_date_str, "reason": f"Tarih hatası: {e}"}
 
     return {"valid": True, "expires_at": expiry_date_str, "reason": "Lisans Geçerli", "custom_quotas": custom_quotas}
+
+
+def generate_nornia_root_sso_token(tenant_code: str, hw_id: str = "UNBOUND", master_username: str = "admin") -> str:
+    """
+    Generates a short-lived (5-minute) HMAC-SHA256 signed Root SSO Token for 1-click Service Provider login from Nornia Cloud Center to a PBX.
+    """
+    import time
+    payload = {
+        "t": (tenant_code or "default").strip().lower(),
+        "hw": (hw_id or "UNBOUND").strip().upper(),
+        "u": (master_username or "admin").strip(),
+        "role": "nornia_root",
+        "exp": int(time.time()) + 300,
+    }
+    raw_bytes = json.dumps(payload, separators=(",", ":")).encode("utf-8")
+    b64_payload = base64.urlsafe_b64encode(raw_bytes).decode("utf-8").rstrip("=")
+    sig = hmac.new(
+        LICENSE_MASTER_SECRET.encode("utf-8"),
+        f"NORNIA_ROOT_SSO:{b64_payload}".encode("utf-8"),
+        hashlib.sha256,
+    ).hexdigest()[:16].upper()
+    return f"NSSO.{b64_payload}.{sig}"
+

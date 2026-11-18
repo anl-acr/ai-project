@@ -22,7 +22,8 @@ from license_center.backend.license_generator import (
     generate_signed_license_key,
     verify_signed_license_key,
     compute_system_serial_number,
-    generate_tenant_serial_number
+    generate_tenant_serial_number,
+    generate_nornia_root_sso_token
 )
 
 app = FastAPI(title="Nornia Cloud Center - Central License & Fleet Management API", version="2.5.0")
@@ -589,6 +590,77 @@ async def toggle_client_ssh_access(client_id: int, request: Request, db: AsyncSe
         "message": f"Santral SSH erişimi merkezden {state_label} durumuna getirildi.",
     }
 
+
+@app.post("/api/v1/clients/{client_id}/sso-token")
+async def create_client_root_sso_token(client_id: int, request: Request, db: AsyncSession = Depends(get_central_db)):
+    """Generates a short-lived HMAC-signed Root SSO token for passwordless Service Provider login into a client PBX."""
+    res = await db.execute(select(ClientServer).where(ClientServer.id == client_id))
+    client = res.scalars().first()
+    if not client:
+        raise HTTPException(status_code=404, detail="Müşteri bulunamadı.")
+
+    performed_by = request.headers.get("X-User-Name", "admin")
+    hw_id = (client.hardware_id or "UNBOUND").strip().upper()
+    t_code = (client.tenant_code or "default").strip().lower()
+    token = generate_nornia_root_sso_token(tenant_code=t_code, hw_id=hw_id, master_username=performed_by)
+
+    if client.connect_subdomain:
+        target_base = f"https://{client.connect_subdomain}.nornia.com.tr"
+    elif client.domain_name:
+        target_base = f"https://{client.domain_name}"
+    else:
+        target_base = f"http://{client.ip_address or '127.0.0.1'}:3000"
+
+    sso_url = f"{target_base}/?nornia_sso={token}&tenant={t_code}"
+
+    await log_master_action(
+        db,
+        performed_by,
+        "ROOT_SSO_LOGIN",
+        f"Santrale Merkezden Root SSO Girişi Başlatıldı: {client.company_name} ({t_code} | {hw_id})",
+        request.client.host if request.client else None,
+    )
+    return {
+        "success": True,
+        "sso_token": token,
+        "sso_url": sso_url,
+        "tenant_code": t_code,
+    }
+
+
+@app.post("/api/v1/clients/{client_id}/ota-update")
+async def trigger_client_remote_ota_update(client_id: int, request: Request, db: AsyncSession = Depends(get_central_db)):
+    """Sends a remote OTA Update command over the active Nornia Connect tunnel to pull latest code, build, and restart the PBX."""
+    from license_center.backend.connect_hub import trigger_pbx_ota_update
+
+    res = await db.execute(select(ClientServer).where(ClientServer.id == client_id))
+    client = res.scalars().first()
+    if not client:
+        raise HTTPException(status_code=404, detail="Müşteri bulunamadı.")
+
+    performed_by = request.headers.get("X-User-Name", "admin")
+    hw_id = (client.hardware_id or "").strip().upper()
+    sub = (client.connect_subdomain or "").strip().lower()
+
+    sent = await trigger_pbx_ota_update(hardware_id=hw_id, subdomain=sub, triggered_by=performed_by)
+    if not sent:
+        raise HTTPException(
+            status_code=400,
+            detail="Santralin Nornia Connect tüneli şu anda aktif değil. OTA güncelleme için tünelin bağlı olması gerekmektedir.",
+        )
+
+    await log_master_action(
+        db,
+        performed_by,
+        "OTA_UPDATE",
+        f"Uzaktan OTA Güncelleme Başlatıldı: {client.company_name} (Donanım: {hw_id}, Tünel: {sub}.nornia.com.tr)",
+        request.client.host if request.client else None,
+    )
+    return {
+        "success": True,
+        "message": f"{client.company_name} santraline Nornia Connect tüneli üzerinden OTA güncelleme emri iletildi. Santral arka planda güncellenip yeniden başlatılacak.",
+    }
+
 # --------------------------------------------------------------------------
 # License Key Generator Studio
 # --------------------------------------------------------------------------
@@ -664,6 +736,12 @@ async def generate_license(payload: LicenseGenerateSchema, request: Request, db:
         existing_log.created_at = datetime.datetime.utcnow()
 
     await db.commit()
+
+    try:
+        from license_center.backend.connect_hub import notify_pbx_license_sync
+        await notify_pbx_license_sync(hardware_id=hw_id, subdomain=client.connect_subdomain)
+    except Exception:
+        pass
 
     await log_master_action(db, payload.performed_by or "admin", "LICENSE_GENERATE", f"Yeni Lisans Key Üretildi ({t_code}): Key={key}, Bitiş={exp_date}, HW={hw_id}", request.client.host if request.client else None)
 

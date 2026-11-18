@@ -545,6 +545,44 @@ async def notify_and_unbind_pbx_tunnel(hardware_id: Optional[str] = None, subdom
             pass
 
 
+async def notify_pbx_license_sync(hardware_id: Optional[str] = None, subdomain: Optional[str] = None) -> bool:
+    """Pushes an instant RAS_LICENSE_SYNC event to the connected PBX over the tunnel so new module entitlements & quotas apply immediately."""
+    sess = None
+    if subdomain and subdomain.strip().lower() in ACTIVE_TUNNELS_BY_SUBDOMAIN:
+        sess = ACTIVE_TUNNELS_BY_SUBDOMAIN.get(subdomain.strip().lower())
+    if not sess and hardware_id and hardware_id.strip().upper() in ACTIVE_TUNNELS_BY_HWID:
+        sess = ACTIVE_TUNNELS_BY_HWID.get(hardware_id.strip().upper())
+
+    if sess:
+        try:
+            await sess.send_json({"type": "RAS_LICENSE_SYNC", "ts": time.time()})
+            return True
+        except Exception:
+            pass
+    return False
+
+
+async def trigger_pbx_ota_update(hardware_id: Optional[str] = None, subdomain: Optional[str] = None, triggered_by: str = "admin") -> bool:
+    """Sends a RAS_OTA_UPDATE command over the active Nornia Connect tunnel to remotely pull, build, and restart the PBX."""
+    sess = None
+    if subdomain and subdomain.strip().lower() in ACTIVE_TUNNELS_BY_SUBDOMAIN:
+        sess = ACTIVE_TUNNELS_BY_SUBDOMAIN.get(subdomain.strip().lower())
+    if not sess and hardware_id and hardware_id.strip().upper() in ACTIVE_TUNNELS_BY_HWID:
+        sess = ACTIVE_TUNNELS_BY_HWID.get(hardware_id.strip().upper())
+
+    if sess:
+        try:
+            await sess.send_json({
+                "type": "RAS_OTA_UPDATE",
+                "triggered_by": triggered_by,
+                "ts": time.time(),
+            })
+            return True
+        except Exception:
+            pass
+    return False
+
+
 @connect_hub_router.get("/api/v1/connect/check-subdomain")
 async def check_subdomain_endpoint(subdomain: str, hardware_id: str = ""):
     return await check_subdomain_availability_db(subdomain=subdomain, hardware_id=hardware_id)

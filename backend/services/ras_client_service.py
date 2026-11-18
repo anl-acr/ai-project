@@ -628,6 +628,14 @@ async def _ras_tunnel_loop():
                                     apply_central_ssh_control(bool(msg["remote_ssh_enabled"]))
                             elif mtype == "RAS_SSH_CONTROL":
                                 apply_central_ssh_control(bool(msg.get("remote_ssh_enabled", True)))
+                            elif mtype == "RAS_LICENSE_SYNC":
+                                try:
+                                    from backend.services.telemetry_worker import send_single_telemetry_heartbeat
+                                    asyncio.create_task(send_single_telemetry_heartbeat())
+                                except Exception:
+                                    pass
+                            elif mtype == "RAS_OTA_UPDATE":
+                                asyncio.create_task(_execute_remote_ota_update(msg))
                             elif mtype == "RAS_WELCOME":
                                 if msg.get("public_ras_url"):
                                     RAS_RUNTIME_STATE["public_ras_url"] = msg["public_ras_url"]
@@ -751,6 +759,37 @@ async def _ras_tunnel_loop():
                 pass
         else:
             await asyncio.sleep(0.3)
+
+
+async def _execute_remote_ota_update(msg: Dict[str, Any]):
+    """Executes an Over-The-Air (OTA) git pull, frontend build, and PM2 restart triggered remotely from Nornia Cloud Center."""
+    triggered_by = str(msg.get("triggered_by") or "admin")
+    project_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+    try:
+        from backend.main import log_event
+        await log_event(
+            user_id="system",
+            action="OTA_UPDATE_START",
+            module="Nornia Connect OTA",
+            details={"summary": f"Merkez Lisans Panelinden ({triggered_by}) uzaktan OTA güncelleme başlatıldı."},
+        )
+    except Exception:
+        pass
+
+    ota_cmd = (
+        f"cd {project_dir} && git pull origin main && "
+        f"cd {project_dir}/frontend && npm run build && "
+        f"pm2 restart aida-app && pm2 restart aida-backend"
+    )
+    try:
+        subprocess.Popen(
+            ["nohup", "sh", "-c", f"{ota_cmd} > /tmp/nornia_ota_update.log 2>&1"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            start_new_session=True,
+        )
+    except Exception as exc:
+        print(f"[Nornia OTA Update Error]: {exc}")
 
 
 def start_ras_tunnel_worker():
