@@ -42,6 +42,7 @@ class ClientServer(Base):
     ip_address = Column(String, nullable=True)
     domain_name = Column(String, nullable=True)
     connect_subdomain = Column(String, index=True, nullable=True) # Locked Nornia Connect subdomain (e.g. merkez)
+    remote_ssh_enabled = Column(Boolean, default=True) # Centrally managed SSH & Web SSH switch (True=Open, False=Locked/Closed)
     contact_email = Column(String, nullable=True)
     contact_phone = Column(String, nullable=True)
     plan_tier = Column(String, default="professional") # trial, starter, professional, enterprise

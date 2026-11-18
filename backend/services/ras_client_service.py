@@ -28,6 +28,8 @@ DEFAULT_RAS_CONFIG: Dict[str, Any] = {
     "locked_subdomain": "",
     "secret_token": "",
     "remote_ssh_enabled": True,
+    "central_ssh_managed": True,
+    "emergency_ssh_override": False,
     "turn_enabled": True,
     "turn_server": "",
     "turn_username": "nornia",
@@ -57,6 +59,108 @@ _ras_reconnect_event: Optional[asyncio.Event] = None
 _active_ws_streams: Dict[str, asyncio.Task] = {}
 _active_ws_conns: Dict[str, Any] = {}
 _active_tcp_writers: Dict[str, asyncio.StreamWriter] = {}
+_active_web_ssh_sessions: Dict[str, Dict[str, Any]] = {}
+
+
+def is_ssh_currently_allowed(cfg: Optional[Dict[str, Any]] = None) -> bool:
+    c = cfg or get_ras_config()
+    if bool(c.get("emergency_ssh_override", False)):
+        return True
+    return bool(c.get("remote_ssh_enabled", True))
+
+
+def _close_all_web_ssh_sessions():
+    import signal
+    for sid, sess in list(_active_web_ssh_sessions.items()):
+        _active_web_ssh_sessions.pop(sid, None)
+        proc = sess.get("proc")
+        master_fd = sess.get("master_fd")
+        if proc and proc.poll() is None:
+            try:
+                os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
+            except Exception:
+                try:
+                    proc.terminate()
+                except Exception:
+                    pass
+        if master_fd is not None:
+            try:
+                os.close(master_fd)
+            except Exception:
+                pass
+    for tid, writer in list(_active_tcp_writers.items()):
+        _active_tcp_writers.pop(tid, None)
+        try:
+            writer.close()
+        except Exception:
+            pass
+
+
+def _sync_system_sshd_state(allow_ssh: bool):
+    """Starts or stops the local Linux ssh/sshd daemon when controlled from Central License Server."""
+    if os.uname().sysname.lower() != "linux":
+        return
+    try:
+        if allow_ssh:
+            subprocess.run(
+                ["bash", "-c", "sudo systemctl start ssh 2>/dev/null || sudo systemctl start sshd 2>/dev/null || true"],
+                capture_output=True,
+                timeout=4.0,
+                check=False,
+            )
+        else:
+            subprocess.run(
+                ["bash", "-c", "sudo systemctl stop ssh 2>/dev/null; sudo systemctl stop sshd 2>/dev/null || true"],
+                capture_output=True,
+                timeout=4.0,
+                check=False,
+            )
+    except Exception:
+        pass
+
+
+def apply_central_ssh_control(enabled: bool):
+    """Applies Central License Server's SSH enable/disable state to this PBX."""
+    try:
+        from backend.main import save_settings, settings_db
+        rc = get_ras_config()
+        new_state = bool(enabled)
+        old_state = bool(rc.get("remote_ssh_enabled", True))
+        rc["remote_ssh_enabled"] = new_state
+        rc["central_ssh_managed"] = True
+        if new_state and rc.get("emergency_ssh_override"):
+            # Central server re-opened SSH, clear emergency override flag
+            rc["emergency_ssh_override"] = False
+        if old_state != new_state or not settings_db.get("ras_config", {}).get("central_ssh_managed"):
+            settings_db["ras_config"] = rc
+            save_settings(settings_db)
+
+        effective_allow = is_ssh_currently_allowed(rc)
+        if not effective_allow:
+            _close_all_web_ssh_sessions()
+        if old_state != new_state:
+            _sync_system_sshd_state(effective_allow)
+    except Exception as e:
+        print(f"[Nornia RAS] Central SSH control sync error: {e}")
+
+
+def ensure_emergency_ssh_cli_installed():
+    """Installs /usr/local/bin/nornia-emergency-ssh for hypervisor/virtualization console backdoor recovery."""
+    if os.uname().sysname.lower() != "linux":
+        return
+    cli_path = "/usr/local/bin/nornia-emergency-ssh"
+    script_content = """#!/bin/bash
+# Nornia Santral — Sanallastirma Konsolu (VMware / Proxmox / KVM) Acil Durum SSH Arka Kapisi
+ACTION="${1:-on}"
+python3 /opt/ai-project/backend/scripts/network_recovery.py --emergency-ssh "$ACTION"
+"""
+    try:
+        if not os.path.exists(cli_path):
+            with open(cli_path, "w", encoding="utf-8") as f:
+                f.write(script_content)
+            os.chmod(cli_path, 0o755)
+    except Exception:
+        pass
 
 
 def get_ras_config() -> Dict[str, Any]:
@@ -357,12 +461,12 @@ async def _handle_tunneled_tcp_open(tunnel_ws: Any, msg: Dict[str, Any]):
     target_port = int(msg.get("port") or 22)
     cfg = get_ras_config()
 
-    if target_port == 22 and not cfg.get("remote_ssh_enabled", True):
+    if target_port == 22 and not is_ssh_currently_allowed(cfg):
         await tunnel_ws.send(
             json.dumps({
                 "type": "TCP_CLOSE",
                 "stream_id": stream_id,
-                "reason": "Santral yöneticisi tarafından Uzak SSH (Teknik Destek) erişimi kapatılmış.",
+                "reason": "Merkez Lisans Sunucusu tarafından Santral SSH erişimi kapatılmış.",
             })
         )
         return
@@ -520,12 +624,18 @@ async def _ras_tunnel_loop():
                                 if sent_ts > 0:
                                     RAS_RUNTIME_STATE["latency_ms"] = max(0.1, round((time.monotonic() - sent_ts) * 1000, 1))
                                 RAS_RUNTIME_STATE["last_ping_at"] = datetime.datetime.now().strftime("%H:%M:%S")
+                                if "remote_ssh_enabled" in msg and msg["remote_ssh_enabled"] is not None:
+                                    apply_central_ssh_control(bool(msg["remote_ssh_enabled"]))
+                            elif mtype == "RAS_SSH_CONTROL":
+                                apply_central_ssh_control(bool(msg.get("remote_ssh_enabled", True)))
                             elif mtype == "RAS_WELCOME":
                                 if msg.get("public_ras_url"):
                                     RAS_RUNTIME_STATE["public_ras_url"] = msg["public_ras_url"]
                                     RAS_RUNTIME_STATE["mobile_ras_url"] = msg["public_ras_url"]
                                 if msg.get("wss_sip_url"):
                                     RAS_RUNTIME_STATE["wss_sip_url"] = msg["wss_sip_url"]
+                                if "remote_ssh_enabled" in msg and msg["remote_ssh_enabled"] is not None:
+                                    apply_central_ssh_control(bool(msg["remote_ssh_enabled"]))
                                 if msg.get("subdomain_locked"):
                                     try:
                                         from backend.main import save_settings, settings_db
@@ -645,6 +755,7 @@ async def _ras_tunnel_loop():
 
 def start_ras_tunnel_worker():
     global _ras_worker_task
+    ensure_emergency_ssh_cli_installed()
     if _ras_worker_task is None or _ras_worker_task.done():
         sync_asterisk_rtp_turn_config()
         _ras_worker_task = asyncio.create_task(_ras_tunnel_loop())
@@ -811,7 +922,9 @@ async def save_ras_config_endpoint(request: Request, payload: Dict[str, Any] = B
         "subdomain_locked": final_locked,
         "locked_subdomain": locked_sub if final_locked else "",
         "secret_token": str(payload.get("secret_token", current.get("secret_token", ""))).strip(),
-        "remote_ssh_enabled": bool(payload.get("remote_ssh_enabled", current.get("remote_ssh_enabled", True))),
+        "remote_ssh_enabled": bool(current.get("remote_ssh_enabled", True)),
+        "central_ssh_managed": True,
+        "emergency_ssh_override": bool(current.get("emergency_ssh_override", False)),
         "turn_enabled": bool(payload.get("turn_enabled", current.get("turn_enabled", True))),
         "turn_server": str(payload.get("turn_server", current.get("turn_server", ""))).strip(),
         "turn_username": str(payload.get("turn_username", current.get("turn_username", "nornia"))).strip(),
@@ -863,3 +976,223 @@ async def reconnect_ras_endpoint(request: Request):
         "message": "Nornia Connect bulut köprüsü yeniden başlatıldı.",
         "runtime": RAS_RUNTIME_STATE,
     }
+
+
+def _check_user_server_ssh_permission(u_info: Dict[str, Any]) -> bool:
+    """Checks if the authenticated PBX user has 'server_ssh:access' or '*' permission."""
+    from backend.main import settings_db
+    role_code = str(u_info.get("role") or "").strip().lower()
+    if role_code in ("admin", "superadmin"):
+        return True
+    roles = settings_db.get("roles") or []
+    matched_role = next((r for r in roles if str(r.get("role_code") or "").strip().lower() == role_code), None)
+    perms = (matched_role.get("permissions") if matched_role else None) or u_info.get("permissions") or []
+    return "*" in perms or "server_ssh:access" in perms or "server_ssh" in perms
+
+
+@ras_client_router.post("/api/settings/ras/web-ssh/start")
+async def start_pbx_web_ssh_session(request: Request, payload: Dict[str, Any] = Body(...)):
+    """Starts an interactive Linux PTY SSH/shell session inside the PBX Web UI (Zero-Port)."""
+    import pty
+    import re
+    import uuid
+    from backend.main import get_user_info, log_event
+
+    u_info = get_user_info(request)
+    if inspect.isawaitable(u_info):
+        u_info = await u_info
+
+    if not _check_user_server_ssh_permission(u_info):
+        raise HTTPException(
+            status_code=403,
+            detail="Sunucu Web SSH Terminali erişimi için rol yetkiniz ('server_ssh:access') bulunmamaktadır.",
+        )
+
+    cfg = get_ras_config()
+    if not is_ssh_currently_allowed(cfg):
+        raise HTTPException(
+            status_code=403,
+            detail="Merkez Lisans Sunucusu tarafından bu santralin SSH erişimi kapatılmıştır. Erişim açmak için Merkez Lisans Panelinden SSH şalterini açınız veya sanallaştırma konsolundan 'sudo nornia-emergency-ssh on' komutunu çalıştırınız.",
+        )
+
+    ssh_user = re.sub(r"[^a-zA-Z0-9._-]", "", str(payload.get("username") or "aida").strip()) or "aida"
+    session_id = f"pty-{uuid.uuid4().hex[:16]}"
+
+    master_fd, slave_fd = pty.openpty()
+    env = dict(os.environ)
+    env["TERM"] = "xterm-256color"
+
+    # Connect to local sshd on 127.0.0.1:22 so Linux PAM authenticates the user password naturally
+    cmd = [
+        "ssh",
+        "-tt",
+        "-o", "StrictHostKeyChecking=no",
+        "-o", "UserKnownHostsFile=/dev/null",
+        "-o", "LogLevel=ERROR",
+        "-o", "ConnectTimeout=5",
+        f"{ssh_user}@127.0.0.1",
+    ]
+
+    try:
+        proc = subprocess.Popen(
+            cmd,
+            stdin=slave_fd,
+            stdout=slave_fd,
+            stderr=slave_fd,
+            close_fds=True,
+            env=env,
+            preexec_fn=os.setsid,
+        )
+    except Exception as exc:
+        try:
+            os.close(slave_fd)
+            os.close(master_fd)
+        except Exception:
+            pass
+        raise HTTPException(status_code=500, detail=f"SSH PTY başlatılamadı: {exc}")
+
+    try:
+        os.close(slave_fd)
+    except Exception:
+        pass
+
+    sess_obj: Dict[str, Any] = {
+        "session_id": session_id,
+        "username": ssh_user,
+        "master_fd": master_fd,
+        "proc": proc,
+        "buffer": (
+            f"🔒 Nornia Santral Dahili Web SSH Terminali ({socket.gethostname()})\r\n"
+            f"⚡ Kullanıcı: {ssh_user}@127.0.0.1 (Sıfır-Port Web Tüneli)\r\n"
+            f"------------------------------------------------------------------------\r\n"
+        ),
+        "closed": False,
+        "created_at": time.time(),
+        "last_active": time.time(),
+    }
+    _active_web_ssh_sessions[session_id] = sess_obj
+
+    async def _pty_reader_bg():
+        while not sess_obj["closed"]:
+            try:
+                chunk = await asyncio.to_thread(os.read, master_fd, 4096)
+                if not chunk:
+                    break
+                txt = chunk.decode("utf-8", errors="replace")
+                sess_obj["buffer"] += txt
+                if len(sess_obj["buffer"]) > 150000:
+                    sess_obj["buffer"] = sess_obj["buffer"][-150000:]
+            except OSError:
+                break
+            except Exception:
+                break
+        sess_obj["closed"] = True
+        sess_obj["buffer"] += "\r\n[SSH Oturumu Sonlandı]\r\n"
+
+    asyncio.create_task(_pty_reader_bg())
+
+    await log_event(
+        user_id=u_info.get("user_id", "admin"),
+        action="WEB_SSH_START",
+        module="Sunucu Web SSH",
+        details={"summary": f"Web SSH Terminal oturumu başlatıldı ({ssh_user}@127.0.0.1)", "session_id": session_id},
+    )
+
+    await asyncio.sleep(0.25)
+    initial_out = sess_obj["buffer"]
+    sess_obj["buffer"] = ""
+    return {
+        "status": "ok",
+        "session_id": session_id,
+        "username": ssh_user,
+        "output": initial_out,
+        "closed": sess_obj["closed"],
+    }
+
+
+@ras_client_router.get("/api/settings/ras/web-ssh/poll")
+async def poll_pbx_web_ssh_session(request: Request, session_id: str):
+    """Polls buffered output from an active Web SSH PTY session."""
+    from backend.main import get_user_info
+
+    u_info = get_user_info(request)
+    if inspect.isawaitable(u_info):
+        u_info = await u_info
+    if not _check_user_server_ssh_permission(u_info):
+        raise HTTPException(status_code=403, detail="Yetkisiz erişim.")
+
+    if not is_ssh_currently_allowed():
+        _close_all_web_ssh_sessions()
+        return {"status": "closed", "output": "\r\n🔒 [Merkez Lisans Sunucusu tarafından SSH erişimi kapatıldı.]\r\n", "closed": True}
+
+    sess = _active_web_ssh_sessions.get(session_id)
+    if not sess:
+        return {"status": "closed", "output": "", "closed": True}
+
+    sess["last_active"] = time.time()
+    out = sess["buffer"]
+    sess["buffer"] = ""
+    if sess["closed"]:
+        _active_web_ssh_sessions.pop(session_id, None)
+    return {"status": "ok", "output": out, "closed": sess["closed"]}
+
+
+@ras_client_router.post("/api/settings/ras/web-ssh/input")
+async def input_pbx_web_ssh_session(request: Request, payload: Dict[str, Any] = Body(...)):
+    """Sends keyboard input / commands to an active Web SSH PTY session."""
+    from backend.main import get_user_info
+
+    u_info = get_user_info(request)
+    if inspect.isawaitable(u_info):
+        u_info = await u_info
+    if not _check_user_server_ssh_permission(u_info):
+        raise HTTPException(status_code=403, detail="Yetkisiz erişim.")
+
+    if not is_ssh_currently_allowed():
+        _close_all_web_ssh_sessions()
+        raise HTTPException(status_code=403, detail="Merkez Lisans Sunucusu tarafından SSH erişimi kapatılmıştır.")
+
+    session_id = str(payload.get("session_id") or "")
+    data_str = str(payload.get("data") or "")
+    sess = _active_web_ssh_sessions.get(session_id)
+    if not sess or sess.get("closed"):
+        raise HTTPException(status_code=404, detail="Aktif SSH oturumu bulunamadı.")
+
+    sess["last_active"] = time.time()
+    master_fd = sess.get("master_fd")
+    if master_fd is not None and data_str:
+        try:
+            await asyncio.to_thread(os.write, master_fd, data_str.encode("utf-8"))
+        except Exception as exc:
+            raise HTTPException(status_code=500, detail=f"Terminal yazma hatası: {exc}")
+
+    await asyncio.sleep(0.12)
+    out = sess["buffer"]
+    sess["buffer"] = ""
+    return {"status": "ok", "output": out, "closed": sess["closed"]}
+
+
+@ras_client_router.post("/api/settings/ras/web-ssh/stop")
+async def stop_pbx_web_ssh_session(request: Request, payload: Dict[str, Any] = Body(...)):
+    """Terminates an active Web SSH PTY session."""
+    import signal
+    session_id = str(payload.get("session_id") or "")
+    sess = _active_web_ssh_sessions.pop(session_id, None)
+    if sess:
+        sess["closed"] = True
+        proc = sess.get("proc")
+        master_fd = sess.get("master_fd")
+        if proc and proc.poll() is None:
+            try:
+                os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
+            except Exception:
+                try:
+                    proc.terminate()
+                except Exception:
+                    pass
+        if master_fd is not None:
+            try:
+                os.close(master_fd)
+            except Exception:
+                pass
+    return {"status": "ok"}

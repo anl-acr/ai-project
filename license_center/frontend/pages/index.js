@@ -84,10 +84,28 @@ export default function MasterDashboard() {
   const [showAuditLogsModal, setShowAuditLogsModal] = useState(false);
   const [unlockConfirmClient, setUnlockConfirmClient] = useState(null);
   const [unlockingSubdomain, setUnlockingSubdomain] = useState(false);
+  const [togglingSshId, setTogglingSshId] = useState(null);
+
+  const handleToggleClientSsh = async (client) => {
+    setTogglingSshId(client.id);
+    try {
+      const res = await fetch(`${API_BASE}/api/v1/clients/${client.id}/toggle-ssh`, {
+        method: "POST",
+        headers: { "X-User-Name": currentUser?.username || "admin" },
+      });
+      if (res.ok) {
+        await fetchData();
+      }
+    } catch (e) {
+      console.error("Toggle SSH error:", e);
+    } finally {
+      setTogglingSshId(null);
+    }
+  };
 
   // Remote Web SSH Terminal Modal state
   const [sshModalClient, setSshModalClient] = useState(null);
-  const [sshUsername, setSshUsername] = useState("root");
+  const [sshUsername, setSshUsername] = useState("aida");
   const [sshConnected, setSshConnected] = useState(false);
   const [sshOutput, setSshOutput] = useState("");
   const [sshInputLine, setSshInputLine] = useState("");
@@ -103,10 +121,10 @@ export default function MasterDashboard() {
     setSshModalClient(client);
     setSshConnected(false);
     setSshOutput(
-      `🔒 Nornia Connect Sıfır-Port SSH Köprüsü Hazır.\r\n` +
+      `🔒 Nornia Connect Sıfır-Port Web SSH Köprüsü Hazır.\r\n` +
       `Hedef Santral: ${client.company_name} (${client.connect_subdomain}.nornia.com.tr | ${client.hardware_id})\r\n` +
-      `SSH Tünel Portu: ${client.ssh_tunnel_port || 2222}\r\n` +
-      `Yukarıdan SSH kullanıcı adını (örn: root veya aida) girip "Canlı Terminal Bağlan" butonuna tıklayınız...\r\n`
+      `Merkez SSH Yetkisi: ${client.remote_ssh_enabled !== false ? "AÇIK (Aktif)" : "KAPALI (Merkezden Kilitli)"}\r\n` +
+      `Yukarıdan SSH kullanıcı adını (örn: aida veya root) girip "Canlı Terminal Bağlan" butonuna tıklayınız...\r\n`
     );
     setSshInputLine("");
     setSshIsPasswordMode(false);
@@ -823,7 +841,7 @@ export default function MasterDashboard() {
                           <ExternalLink size={11} />
                         </a>
                       </div>
-                      <div className="flex items-center justify-between gap-2 flex-wrap">
+                      <div className="flex items-center justify-between gap-1.5 flex-wrap">
                         <span
                           className={`px-2 py-0.5 rounded-md text-[10px] font-sans font-extrabold uppercase ${
                             client.tunnel_connected
@@ -831,24 +849,48 @@ export default function MasterDashboard() {
                               : "bg-slate-200 dark:bg-slate-800 text-slate-500"
                           }`}
                         >
-                          {client.tunnel_connected
-                            ? `● TÜNEL AKTİF (SSH :${client.ssh_tunnel_port || 2222})`
-                            : "○ TÜNEL BAĞLI DEĞİL"}
+                          {client.tunnel_connected ? "● TÜNEL AKTİF" : "○ TÜNEL BAĞLI DEĞİL"}
                         </span>
-                        <div className="flex items-center gap-1.5">
+                        <div className="flex items-center gap-1 flex-wrap">
                           <button
                             type="button"
-                            onClick={() => openSshModal(client)}
-                            className="px-2.5 py-1 rounded-lg bg-indigo-500/15 hover:bg-indigo-600 text-indigo-700 dark:text-indigo-300 hover:text-white border border-indigo-500/30 text-[10px] font-sans font-extrabold flex items-center gap-1 transition-colors cursor-pointer"
-                            title="Nornia Connect Tüneli Üzerinden Santrale Uzak SSH Bağlantısı Kur"
+                            disabled={togglingSshId === client.id}
+                            onClick={() => handleToggleClientSsh(client)}
+                            className={`px-2 py-1 rounded-lg border text-[10px] font-sans font-extrabold flex items-center gap-1 transition-colors cursor-pointer ${
+                              client.remote_ssh_enabled !== false
+                                ? "bg-emerald-500/15 hover:bg-rose-600 text-emerald-700 dark:text-emerald-300 hover:text-white border-emerald-500/30"
+                                : "bg-rose-500/15 hover:bg-emerald-600 text-rose-700 dark:text-rose-300 hover:text-white border-rose-500/30"
+                            }`}
+                            title={
+                              client.remote_ssh_enabled !== false
+                                ? "Santralde SSH Erişimi AÇIK — Kapatmak için tıklayın"
+                                : "Santralde SSH Erişimi KAPALI — Açmak için tıklayın"
+                            }
                           >
-                            <Terminal size={11} />
-                            <span>Uzak SSH</span>
+                            <Power size={10} />
+                            <span>
+                              {togglingSshId === client.id
+                                ? "..."
+                                : client.remote_ssh_enabled !== false
+                                ? "SSH Açık"
+                                : "SSH Kapalı"}
+                            </span>
                           </button>
+                          {client.remote_ssh_enabled !== false && (
+                            <button
+                              type="button"
+                              onClick={() => openSshModal(client)}
+                              className="px-2 py-1 rounded-lg bg-indigo-500/15 hover:bg-indigo-600 text-indigo-700 dark:text-indigo-300 hover:text-white border border-indigo-500/30 text-[10px] font-sans font-extrabold flex items-center gap-1 transition-colors cursor-pointer"
+                              title="Nornia Connect Sıfır-Port Web SSH Terminali Aç"
+                            >
+                              <Terminal size={11} />
+                              <span>Web SSH</span>
+                            </button>
+                          )}
                           <button
                             type="button"
                             onClick={() => setUnlockConfirmClient(client)}
-                            className="px-2.5 py-1 rounded-lg bg-amber-500/15 hover:bg-amber-500 text-amber-700 dark:text-amber-300 hover:text-white border border-amber-500/30 text-[10px] font-sans font-extrabold flex items-center gap-1 transition-colors cursor-pointer"
+                            className="px-2 py-1 rounded-lg bg-amber-500/15 hover:bg-amber-500 text-amber-700 dark:text-amber-300 hover:text-white border border-amber-500/30 text-[10px] font-sans font-extrabold flex items-center gap-1 transition-colors cursor-pointer"
                             title="Santraldeki Nornia Connect Alt Alan Adı Kilidini Serbest Bırak"
                           >
                             <Unlock size={11} />
@@ -1622,13 +1664,13 @@ export default function MasterDashboard() {
                 </div>
                 <div>
                   <h3 className="text-sm font-extrabold text-white flex items-center gap-2">
-                    <span>Nornia Connect Sıfır-Port Uzak SSH Köprüsü</span>
+                    <span>Nornia Connect Sıfır-Port Web SSH Terminali</span>
                     <span className="px-2 py-0.5 rounded-full text-[10px] bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 font-mono">
-                      {sshModalClient.connect_subdomain}.nornia.com.tr (Port :{sshModalClient.ssh_tunnel_port || 2222})
+                      {sshModalClient.connect_subdomain}.nornia.com.tr (Sıfır-Port HTTPS :443)
                     </span>
                   </h3>
                   <p className="text-[11px] text-slate-400">
-                    Santral tarafında hiçbir port açmadan, Nornia Connect WebSocket tüneli üzerinden doğrudan santralin yerel SSH (Port 22) servisine bağlanın.
+                    Hiçbir ek TCP portu harcamadan, doğrudan mevcut Nornia Connect HTTPS tüneli üzerinden santral kabuğuna erişin.
                   </p>
                 </div>
               </div>
@@ -1641,11 +1683,31 @@ export default function MasterDashboard() {
               </button>
             </div>
 
-            {/* Native Terminal SSH Commands */}
+            {/* Native Terminal & PBX Web UI SSH Options */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3 bg-slate-950/90 border border-slate-800 rounded-2xl p-3.5 text-xs">
               <div className="space-y-1">
+                <div className="text-[10px] font-extrabold text-emerald-400 uppercase">
+                  1. Santralin Kendi Web Arayüzündeki Dahili Web SSH Terminali:
+                </div>
+                <div className="flex items-center justify-between bg-slate-900 border border-slate-800 rounded-xl px-3 py-2 text-[11px]">
+                  <span className="text-slate-300 truncate">
+                    https://{sshModalClient.connect_subdomain}.nornia.com.tr (Sistem Ayarları ➔ Nornia Connect)
+                  </span>
+                  <a
+                    href={`https://${sshModalClient.connect_subdomain}.nornia.com.tr`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-[10px] font-extrabold flex items-center gap-1 shrink-0 ml-2"
+                  >
+                    <span>Santrali Aç</span>
+                    <ExternalLink size={11} />
+                  </a>
+                </div>
+              </div>
+
+              <div className="space-y-1">
                 <div className="text-[10px] font-extrabold text-indigo-400 uppercase">
-                  1. Kendi Bilgisayarınızdan (Mac / Linux — Port 443 HTTPS Üzerinden Sıfır-Port SSH):
+                  2. Kendi Bilgisayarınızdan (Mac / Linux — Port 443 HTTPS Sıfır-Port SSH):
                 </div>
                 <div className="flex items-center justify-between bg-slate-900 border border-slate-800 rounded-xl px-3 py-2 font-mono text-[11px] text-emerald-300">
                   <span className="truncate">
@@ -1663,28 +1725,6 @@ export default function MasterDashboard() {
                     title="Komutu Kopyala"
                   >
                     {copiedKey === "ssh-ext-cmd" ? <Check size={14} className="text-emerald-400" /> : <Copy size={14} />}
-                  </button>
-                </div>
-              </div>
-
-              <div className="space-y-1">
-                <div className="text-[10px] font-extrabold text-amber-400 uppercase">
-                  2. Merkez Sunucu (root@nornia) İçinden Doğrudan SSH:
-                </div>
-                <div className="flex items-center justify-between bg-slate-900 border border-slate-800 rounded-xl px-3 py-2 font-mono text-[11px] text-amber-300">
-                  <span>ssh -p {sshModalClient.ssh_tunnel_port || 2222} {sshUsername || "aida"}@127.0.0.1</span>
-                  <button
-                    type="button"
-                    onClick={() =>
-                      handleCopyText(
-                        `ssh -p ${sshModalClient.ssh_tunnel_port || 2222} ${sshUsername || "aida"}@127.0.0.1`,
-                        "ssh-loc-cmd"
-                      )
-                    }
-                    className="text-slate-400 hover:text-white ml-2 shrink-0 cursor-pointer"
-                    title="Komutu Kopyala"
-                  >
-                    {copiedKey === "ssh-loc-cmd" ? <Check size={14} className="text-emerald-400" /> : <Copy size={14} />}
                   </button>
                 </div>
               </div>

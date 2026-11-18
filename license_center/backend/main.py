@@ -78,14 +78,9 @@ async def on_startup():
 
         # Ensure Nginx default_server and Let's Encrypt certificates cover all registered connect_subdomains
         try:
-            from license_center.backend.connect_hub import (
-                ensure_ssh_tcp_listener_for_subdomain,
-                ensure_subdomain_ssl_and_nginx,
-            )
+            from license_center.backend.connect_hub import ensure_subdomain_ssl_and_nginx
             res_subs = await db.execute(select(ClientServer.connect_subdomain))
             all_subs = [s for (s,) in res_subs.all() if s]
-            for s_name in set(all_subs):
-                await ensure_ssh_tcp_listener_for_subdomain(s_name)
             first_sub = all_subs[0] if all_subs else "app"
             asyncio.create_task(ensure_subdomain_ssl_and_nginx(first_sub))
         except Exception as e_ssl:
@@ -379,8 +374,7 @@ async def get_clients(db: AsyncSession = Depends(get_central_db)):
             "tenant_code": c.tenant_code,
             "connect_subdomain": c.connect_subdomain or (tunnel_sess.subdomain if tunnel_sess else None),
             "tunnel_connected": bool(tunnel_sess),
-            "ssh_tunnel_port": (tunnel_sess.ssh_tunnel_port if tunnel_sess else 0),
-            "remote_ssh_enabled": (tunnel_sess.remote_ssh_enabled if tunnel_sess else False),
+            "remote_ssh_enabled": bool(c.remote_ssh_enabled if c.remote_ssh_enabled is not None else True),
             "tenant_serial_number": c.tenant_serial_number,
             "system_serial_number": c.system_serial_number or (compute_system_serial_number(c.hardware_id) if c.hardware_id and c.hardware_id not in ("UNBOUND", "Bilinmiyor") else "Henüz Bağlanmadı"),
             "hardware_id": c.hardware_id or "Bilinmiyor",
@@ -554,6 +548,46 @@ async def unlock_client_subdomain(client_id: int, request: Request, db: AsyncSes
     await notify_and_unbind_pbx_tunnel(hardware_id=hw_id, subdomain=old_sub)
     await log_master_action(db, performed_by, "SUBDOMAIN_UNLOCK", f"Nornia Connect Alt Alan Adı Kilidi Açıldı: {client.company_name} (Donanım: {hw_id}, Eski Subdomain: {old_sub})", request.client.host if request.client else None)
     return {"success": True, "message": f"'{old_sub}.nornia.com.tr' alt alan adı kilidi kaldırıldı ve serbest bırakıldı. Santral üzerinden yeni alt alan adı tanımlanabilir."}
+
+
+@app.post("/api/v1/clients/{client_id}/toggle-ssh")
+async def toggle_client_ssh_access(client_id: int, request: Request, db: AsyncSession = Depends(get_central_db)):
+    """Centrally enables or disables SSH & Web SSH access on the target PBX server."""
+    from license_center.backend.connect_hub import push_ssh_control_to_pbx
+    res = await db.execute(select(ClientServer).where(ClientServer.id == client_id))
+    client = res.scalars().first()
+    if not client:
+        raise HTTPException(status_code=404, detail="Müşteri bulunamadı.")
+
+    performed_by = request.headers.get("X-User-Name", "admin")
+    current_val = bool(client.remote_ssh_enabled if client.remote_ssh_enabled is not None else True)
+    new_val = not current_val
+    hw_id = client.hardware_id
+    sub = client.connect_subdomain
+
+    if hw_id and hw_id not in ("UNBOUND", "Bilinmiyor", "HW-UNKNOWN"):
+        res_all = await db.execute(select(ClientServer).where(func.upper(ClientServer.hardware_id) == hw_id.upper()))
+        for sibling in res_all.scalars().all():
+            sibling.remote_ssh_enabled = new_val
+    else:
+        client.remote_ssh_enabled = new_val
+
+    await db.commit()
+
+    await push_ssh_control_to_pbx(hardware_id=hw_id, subdomain=sub, enabled=new_val)
+    state_label = "AKTİF (AÇIK)" if new_val else "PASİF (KAPALI)"
+    await log_master_action(
+        db,
+        performed_by,
+        "SSH_CONTROL",
+        f"Santral SSH Erişimi Merkezden Değiştirildi: {client.company_name} (Donanım: {hw_id}) -> {state_label}",
+        request.client.host if request.client else None,
+    )
+    return {
+        "success": True,
+        "remote_ssh_enabled": new_val,
+        "message": f"Santral SSH erişimi merkezden {state_label} durumuna getirildi.",
+    }
 
 # --------------------------------------------------------------------------
 # License Key Generator Studio
@@ -773,6 +807,7 @@ async def receive_heartbeat(payload: HeartbeatSchema, request: Request, db: Asyn
             "system_serial_number": client.system_serial_number,
             "client_status": client.status,
             "remote_kill_switch": remote_kill_switch,
+            "remote_ssh_enabled": bool(client.remote_ssh_enabled if client.remote_ssh_enabled is not None else True),
             "latest_license_key": client.current_license_key,
             "license_expires_at": client.license_expires_at,
             "quotas": parsed_quotas

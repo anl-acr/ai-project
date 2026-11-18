@@ -532,6 +532,46 @@ def configure_ras_from_cli(hub_url: str, subdomain: str = "merkez", enabled: boo
         return {"ok": False, "error": f"RAS ayarları kaydedilemedi: {exc}"}
 
 
+def toggle_emergency_ssh_console(mode: str = "on") -> Dict[str, Any]:
+    """
+    Emergency backdoor for Virtualization Console (VMware / Proxmox / KVM / Hyper-V).
+    Forces local OpenSSH daemon (port 22) and Web SSH Terminal ON even if Central License Server
+    is unreachable or had locked SSH.
+    """
+    enable = str(mode or "on").strip().lower() not in ("off", "0", "false", "kapat")
+    try:
+        sdata = {}
+        if os.path.exists(SETTINGS_FILE):
+            with open(SETTINGS_FILE, "r", encoding="utf-8") as f:
+                sdata = json.load(f)
+        ras_cfg = sdata.get("ras_config") if isinstance(sdata.get("ras_config"), dict) else {}
+        ras_cfg["emergency_ssh_override"] = enable
+        ras_cfg["remote_ssh_enabled"] = enable
+        sdata["ras_config"] = ras_cfg
+        with open(SETTINGS_FILE, "w", encoding="utf-8") as f:
+            json.dump(sdata, f, ensure_ascii=False, indent=2)
+
+        if platform.system().lower() == "linux":
+            if enable:
+                _run_cmd(["bash", "-c", "systemctl unmask ssh sshd 2>/dev/null || true"], timeout=4.0)
+                _run_cmd(["bash", "-c", "systemctl enable --now ssh 2>/dev/null || systemctl enable --now sshd 2>/dev/null || true"], timeout=5.0)
+                _run_cmd(["bash", "-c", "ufw allow 22/tcp 2>/dev/null || true"], timeout=3.0)
+            else:
+                _run_cmd(["bash", "-c", "systemctl stop ssh 2>/dev/null; systemctl stop sshd 2>/dev/null || true"], timeout=4.0)
+
+        ifaces = get_live_interfaces()
+        ips = [i.get("primary_cidr", "").split("/")[0] for i in ifaces if i.get("primary_cidr")]
+        state_str = "AKTİF (AÇIK — Acil Durum Konsol Yetkisi)" if enable else "KAPALI"
+        return {
+            "ok": True,
+            "emergency_ssh_override": enable,
+            "local_ips": ips,
+            "message": f"Sanallaştırma Konsolu Acil Durum SSH Erişimi: {state_str}. Yerel IP'ler: {', '.join(ips) or '127.0.0.1'}",
+        }
+    except Exception as exc:
+        return {"ok": False, "error": f"Acil durum SSH işlemi başarısız: {exc}"}
+
+
 def run_watchdog(timeout_sec: int = 60):
     """Independent OS-level dead-man's switch process. Rolls back if pending_apply.json is not confirmed."""
     start_t = time.monotonic()
@@ -567,10 +607,11 @@ def interactive_console_menu():
         print("  6) Gateway & İnternet Erişim Testi (Ping Testi)")
         print("  7) Bekleyen Web Değişikliğini Kalıcı Olarak Onayla")
         print("  8) Nornia Connect (Bulut Köprüsü) Merkez Sunucu Ayarlarını Yapılandır")
+        print("  9) ACİL DURUM SSH ARKA KAPISI: Sanallaştırma Konsolundan SSH Erişimini Zorla Aç / Kapat")
         print("  0) Çıkış")
         print("-" * 68)
 
-        choice = input("Seçiminiz (0-8): ").strip()
+        choice = input("Seçiminiz (0-9): ").strip()
         if choice == "0":
             print("Konsoldan çıkılıyor.")
             break
@@ -634,6 +675,10 @@ def interactive_console_menu():
             if hub_in:
                 res = configure_ras_from_cli(hub_url=hub_in, subdomain=sub_in, enabled=True)
                 print(f"\n>>> {res.get('message') or res.get('error')}")
+        elif choice == "9":
+            act = input("Acil Durum SSH Arka Kapısı [on=Aç / off=Kapat] (Varsayılan: on): ").strip() or "on"
+            res = toggle_emergency_ssh_console(act)
+            print(f"\n>>> {res.get('message') or res.get('error')}")
 
 
 def main():
@@ -644,7 +689,13 @@ def main():
     parser.add_argument("--set-ip", nargs="+", help="Kullanım: --set-ip <iface> <ip/cidr> <gateway> [dns1,dns2]")
     parser.add_argument("--set-connect", nargs="+", help="Kullanım: --set-connect <hub_url> [subdomain]")
     parser.add_argument("--set-ras", nargs="+", help="Kullanım: --set-ras <hub_url> [subdomain]")
+    parser.add_argument("--emergency-ssh", nargs="?", const="on", help="Sanallaştırma konsolundan acil durum SSH erişimini zorla açar/kapatır (on/off)")
     args = parser.parse_args()
+
+    if args.emergency_ssh is not None:
+        res = toggle_emergency_ssh_console(args.emergency_ssh)
+        print(res.get("message") or res.get("error"))
+        return
 
     if args.status:
         print(json.dumps(get_live_interfaces(), ensure_ascii=False, indent=2))

@@ -155,6 +155,14 @@ async def send_single_telemetry_heartbeat(override_tenants: list = None) -> bool
                         target_t["serial_number"] = remote_sn
                         settings_changed = True
 
+                    # Central SSH Master Switch Enforcement
+                    if "remote_ssh_enabled" in t_res and t_res.get("remote_ssh_enabled") is not None:
+                        try:
+                            from backend.services.ras_client_service import apply_central_ssh_control
+                            apply_central_ssh_control(bool(t_res.get("remote_ssh_enabled")))
+                        except Exception:
+                            pass
+
                     # Remote Kill-Switch Enforcement per tenant
                     if t_res.get("remote_kill_switch"):
                         if target_t.get("status") != "passive":

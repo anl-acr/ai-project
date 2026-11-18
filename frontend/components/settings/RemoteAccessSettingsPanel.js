@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import {
   Globe,
   ShieldCheck,
@@ -75,6 +75,137 @@ export default function RemoteAccessSettingsPanel({
     userPermissions.includes("*") ||
     userPermissions.includes("ras_settings:write") ||
     userPermissions.includes("server_network:write");
+
+  const canUseWebSsh =
+    !Array.isArray(userPermissions) ||
+    userPermissions.includes("*") ||
+    userPermissions.includes("server_ssh:access") ||
+    userPermissions.includes("server_ssh");
+
+  // Built-in Zero-Port Web SSH Terminal State
+  const [webSshSessionId, setWebSshSessionId] = useState("");
+  const [webSshUsername, setWebSshUsername] = useState("aida");
+  const [webSshOutput, setWebSshOutput] = useState("");
+  const [webSshInput, setWebSshInput] = useState("");
+  const [webSshPasswordMode, setWebSshPasswordMode] = useState(false);
+  const [webSshLoading, setWebSshLoading] = useState(false);
+  const webSshBoxRef = useRef(null);
+
+  const appendWebSshOutput = useCallback((chunk) => {
+    if (!chunk) return;
+    setWebSshOutput((prev) => {
+      const next = prev + chunk;
+      return next.length > 140000 ? next.slice(-140000) : next;
+    });
+    const lower = chunk.toLowerCase();
+    if (lower.includes("password:") || lower.includes("parola:")) {
+      setWebSshPasswordMode(true);
+    } else if (lower.includes("$ ") || lower.includes("# ") || lower.includes("last login")) {
+      setWebSshPasswordMode(false);
+    }
+    setTimeout(() => {
+      if (webSshBoxRef.current) {
+        webSshBoxRef.current.scrollTop = webSshBoxRef.current.scrollHeight;
+      }
+    }, 25);
+  }, []);
+
+  const handleStartWebSsh = async () => {
+    if (!canUseWebSsh) return;
+    setWebSshLoading(true);
+    try {
+      if (webSshSessionId) {
+        await tenantFetch(`${API_BASE}/api/settings/ras/web-ssh/stop`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ session_id: webSshSessionId }),
+        }).catch(() => {});
+      }
+      setWebSshOutput("");
+      setWebSshPasswordMode(false);
+      const res = await tenantFetch(`${API_BASE}/api/settings/ras/web-ssh/start`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ username: (webSshUsername || "aida").trim() || "aida" }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok && data.session_id) {
+        setWebSshSessionId(data.session_id);
+        appendWebSshOutput(data.output || "");
+      } else {
+        setWebSshSessionId("");
+        appendWebSshOutput(`\r\n❌ ${data.detail || "Web SSH oturumu başlatılamadı."}\r\n`);
+      }
+    } catch (err) {
+      appendWebSshOutput(`\r\n❌ Bağlantı hatası: ${err.message}\r\n`);
+    } finally {
+      setWebSshLoading(false);
+    }
+  };
+
+  const handleStopWebSsh = async () => {
+    if (!webSshSessionId) return;
+    const sid = webSshSessionId;
+    setWebSshSessionId("");
+    setWebSshPasswordMode(false);
+    try {
+      await tenantFetch(`${API_BASE}/api/settings/ras/web-ssh/stop`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ session_id: sid }),
+      });
+    } catch (e) {}
+    appendWebSshOutput("\r\n[Web SSH Oturumu Kapatıldı]\r\n");
+  };
+
+  const handleSendWebSshInput = async (e, rawOverride = null) => {
+    if (e) e.preventDefault();
+    if (!webSshSessionId) return;
+    const toSend = rawOverride !== null ? rawOverride : webSshInput + "\n";
+    if (rawOverride === null) {
+      setWebSshInput("");
+    }
+    try {
+      const res = await tenantFetch(`${API_BASE}/api/settings/ras/web-ssh/input`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ session_id: webSshSessionId, data: toSend }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok) {
+        if (data.output) appendWebSshOutput(data.output);
+        if (data.closed) {
+          setWebSshSessionId("");
+          setWebSshPasswordMode(false);
+        }
+      } else {
+        appendWebSshOutput(`\r\n❌ ${data.detail || "Komut gönderilemedi."}\r\n`);
+        if (res.status === 403 || res.status === 404) {
+          setWebSshSessionId("");
+        }
+      }
+    } catch (err) {}
+  };
+
+  useEffect(() => {
+    if (!webSshSessionId) return;
+    const timer = setInterval(async () => {
+      try {
+        const res = await tenantFetch(
+          `${API_BASE}/api/settings/ras/web-ssh/poll?session_id=${encodeURIComponent(webSshSessionId)}`
+        );
+        if (res.ok) {
+          const data = await res.json();
+          if (data.output) appendWebSshOutput(data.output);
+          if (data.closed) {
+            setWebSshSessionId("");
+            setWebSshPasswordMode(false);
+          }
+        }
+      } catch (e) {}
+    }, 350);
+    return () => clearInterval(timer);
+  }, [webSshSessionId, API_BASE, appendWebSshOutput]);
 
   const showToast = (type, msg) => {
     setFeedback({ type, msg });
@@ -544,31 +675,37 @@ export default function RemoteAccessSettingsPanel({
             </span>
           </div>
 
-          {/* Remote Support SSH Toggle Card */}
+          {/* Centrally Managed SSH Status Card */}
           <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-200/80 dark:border-slate-800 flex items-center justify-between gap-4">
             <div className="flex items-start gap-3">
               <div className={`p-2 rounded-xl ${lightBg} ${text} shrink-0`}>
                 <Terminal size={16} />
               </div>
               <div>
-                <div className="text-xs font-extrabold text-slate-800 dark:text-white">
-                  Uzak Teknik Destek (Web SSH / Konsol Tüneli)
+                <div className="text-xs font-extrabold text-slate-800 dark:text-white flex items-center gap-2">
+                  <span>Santral SSH & Web Terminal Erişimi</span>
+                  <span className="px-2 py-0.5 rounded-md text-[9px] font-extrabold uppercase bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border border-indigo-500/20">
+                    Merkez Sunucu Kontrollü
+                  </span>
                 </div>
-                <p className="text-[10px] text-slate-500 dark:text-slate-400 mt-0.5">
-                  Açık olduğunda Nornia Connect Merkez panelinden bu santralin SSH konsoluna port açmadan güvenli erişim sağlanabilir.
+                <p className="text-[10px] text-slate-500 dark:text-slate-400 mt-0.5 leading-relaxed">
+                  SSH erişimi güvenlik amacıyla yalnızca <strong>Merkezi Lisans Panelinden (panel.nornia.com.tr)</strong> açılıp kapatılabilir. Acil durumlarda sanallaştırma konsolundan <code className="font-mono">sudo nornia-emergency-ssh on</code> komutu ile açılabilir.
                 </p>
               </div>
             </div>
-            <button
-              type="button"
-              disabled={!canWrite}
-              onClick={() => setConfig((p) => ({ ...p, remote_ssh_enabled: !p.remote_ssh_enabled }))}
-              className={`transition-colors shrink-0 cursor-pointer ${
-                config.remote_ssh_enabled ? "text-emerald-500" : "text-slate-400"
-              }`}
-            >
-              {config.remote_ssh_enabled ? <ToggleRight size={28} /> : <ToggleLeft size={28} />}
-            </button>
+            <div className="shrink-0">
+              {config.remote_ssh_enabled || config.emergency_ssh_override ? (
+                <span className="px-3 py-1.5 rounded-xl bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border border-emerald-500/30 text-[11px] font-extrabold flex items-center gap-1.5">
+                  <Unlock size={13} />
+                  <span>{config.emergency_ssh_override ? "ACİL KONSOL AÇIK" : "SSH AÇIK"}</span>
+                </span>
+              ) : (
+                <span className="px-3 py-1.5 rounded-xl bg-rose-500/15 text-rose-700 dark:text-rose-300 border border-rose-500/30 text-[11px] font-extrabold flex items-center gap-1.5">
+                  <Lock size={13} />
+                  <span>MERKEZDEN KAPALI</span>
+                </span>
+              )}
+            </div>
           </div>
         </div>
 
@@ -641,30 +778,55 @@ export default function RemoteAccessSettingsPanel({
           )}
         </div>
 
-        {/* SSH / Console Fallback Hint */}
-        <div className="p-4 rounded-2xl bg-slate-900 text-slate-200 text-xs flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-          <div>
-            <div className="font-bold text-amber-400 flex items-center gap-1.5">
-              <Terminal size={14} />
-              <span>Sunucu Konsolundan / SSH Üzerinden Nornia Connect Adresi Değiştirme Komutu:</span>
+        {/* SSH / Virtualization Console Emergency Backdoor Hint */}
+        <div className="p-4 rounded-2xl bg-slate-900 text-slate-200 text-xs space-y-3">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div>
+              <div className="font-bold text-emerald-400 flex items-center gap-1.5">
+                <Terminal size={14} />
+                <span>Sanallaştırma Konsolu (VMware / Proxmox / KVM) Acil Durum SSH Arka Kapı Komutu:</span>
+              </div>
+              <div className="font-mono text-[11px] text-slate-300 mt-1">
+                sudo nornia-emergency-ssh on
+              </div>
+              <div className="text-[10px] text-slate-400 mt-0.5">
+                Merkez sunucudan SSH kapatılmış olsa bile, santralin sanallaştırma konsolundan bu komutu çalıştırarak yerel SSH ve Web SSH erişimini anında açabilirsiniz.
+              </div>
             </div>
-            <div className="font-mono text-[11px] text-slate-300 mt-1">
-              sudo python3 /opt/ai-project/backend/scripts/network_recovery.py --set-connect {config.hub_url || "http://MERKEZ_IP:8050"} {config.subdomain || "merkez"}
-            </div>
+            <button
+              type="button"
+              onClick={() => copyToClipboard("sudo nornia-emergency-ssh on", "cli_emerg_ssh")}
+              className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-[11px] font-bold flex items-center gap-1.5 shrink-0 cursor-pointer"
+            >
+              {copiedKey === "cli_emerg_ssh" ? <Check size={13} className="text-emerald-400" /> : <Copy size={13} />}
+              <span>Arka Kapı Komutunu Kopyala</span>
+            </button>
           </div>
-          <button
-            type="button"
-            onClick={() =>
-              copyToClipboard(
-                `sudo python3 /opt/ai-project/backend/scripts/network_recovery.py --set-connect ${config.hub_url || "http://MERKEZ_IP:8050"} ${config.subdomain || "merkez"}`,
-                "cli_ras"
-              )
-            }
-            className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-[11px] font-bold flex items-center gap-1.5 shrink-0 cursor-pointer"
-          >
-            {copiedKey === "cli_ras" ? <Check size={13} className="text-emerald-400" /> : <Copy size={13} />}
-            <span>Komutu Kopyala</span>
-          </button>
+
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-2 border-t border-slate-800">
+            <div>
+              <div className="font-bold text-amber-400 flex items-center gap-1.5">
+                <Terminal size={14} />
+                <span>Sunucu Konsolundan Nornia Connect Adresi Değiştirme Komutu:</span>
+              </div>
+              <div className="font-mono text-[11px] text-slate-300 mt-1">
+                sudo python3 /opt/ai-project/backend/scripts/network_recovery.py --set-connect {config.hub_url || "http://MERKEZ_IP:8050"} {config.subdomain || "merkez"}
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() =>
+                copyToClipboard(
+                  `sudo python3 /opt/ai-project/backend/scripts/network_recovery.py --set-connect ${config.hub_url || "http://MERKEZ_IP:8050"} ${config.subdomain || "merkez"}`,
+                  "cli_ras"
+                )
+              }
+              className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-[11px] font-bold flex items-center gap-1.5 shrink-0 cursor-pointer"
+            >
+              {copiedKey === "cli_ras" ? <Check size={13} className="text-emerald-400" /> : <Copy size={13} />}
+              <span>Komutu Kopyala</span>
+            </button>
+          </div>
         </div>
 
         {canWrite && (
@@ -680,6 +842,147 @@ export default function RemoteAccessSettingsPanel({
           </div>
         )}
       </form>
+
+      {/* BUILT-IN ZERO-PORT WEB SSH TERMINAL (Role-Gated: server_ssh:access) */}
+      {canUseWebSsh && (
+        <div className="p-6 rounded-3xl bg-slate-900 border border-slate-800 shadow-lg space-y-4 text-slate-100">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-800 pb-4">
+            <div className="flex items-center gap-3">
+              <div className={`w-10 h-10 rounded-2xl ${lightBg} ${text} flex items-center justify-center shrink-0`}>
+                <Terminal size={20} />
+              </div>
+              <div>
+                <h4 className="text-sm font-extrabold text-white flex items-center gap-2">
+                  <span>Dahili Sunucu Web SSH Terminali (Sıfır-Port Konsol)</span>
+                  <span className="px-2 py-0.5 rounded-full text-[10px] font-mono bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                    {hostname || config.subdomain || "pbx"}
+                  </span>
+                </h4>
+                <p className="text-[11px] text-slate-400">
+                  Hiçbir ek TCP portu harcamadan doğrudan bu web arayüzü üzerinden santralin gerçek Linux kabuğuna (SSH / Bash) bağlanın.
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="text-xs font-bold text-slate-300">SSH Kullanıcı:</span>
+              <input
+                type="text"
+                value={webSshUsername}
+                onChange={(e) => setWebSshUsername(e.target.value)}
+                disabled={!config.remote_ssh_enabled && !config.emergency_ssh_override}
+                placeholder="aida veya root"
+                className="px-3 py-1.5 rounded-xl bg-slate-950 border border-slate-700 text-xs font-mono text-white w-32 focus:outline-none"
+              />
+              <button
+                type="button"
+                disabled={webSshLoading || (!config.remote_ssh_enabled && !config.emergency_ssh_override)}
+                onClick={handleStartWebSsh}
+                className={`px-4 py-1.5 rounded-xl text-white text-xs font-extrabold flex items-center gap-1.5 cursor-pointer disabled:opacity-40 ${bg} ${hover}`}
+              >
+                <Terminal size={13} />
+                <span>{webSshLoading ? "Bağlanıyor..." : webSshSessionId ? "Yeniden Bağlan" : "⚡ SSH Oturumu Başlat"}</span>
+              </button>
+              {webSshSessionId && (
+                <button
+                  type="button"
+                  onClick={handleStopWebSsh}
+                  className="px-3 py-1.5 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-xs font-extrabold cursor-pointer"
+                >
+                  Oturumu Kapat
+                </button>
+              )}
+            </div>
+          </div>
+
+          {!config.remote_ssh_enabled && !config.emergency_ssh_override ? (
+            <div className="p-4 rounded-2xl bg-rose-950/40 border border-rose-800/60 text-rose-200 text-xs flex items-center gap-3">
+              <Lock size={18} className="text-rose-400 shrink-0" />
+              <div>
+                <div className="font-extrabold">Merkez Lisans Sunucusu Tarafından SSH Erişimi Kapatılmıştır</div>
+                <div className="text-[11px] text-rose-300/80 mt-0.5">
+                  Terminal oturumu başlatmak için Merkez Lisans Panelinden (panel.nornia.com.tr) bu santralin <strong>SSH Açık</strong> şalterini aktif ediniz veya sanallaştırma konsolundan <code className="font-mono">sudo nornia-emergency-ssh on</code> komutunu çalıştırınız.
+                </div>
+              </div>
+            </div>
+          ) : (
+            <>
+              {/* Quick Diagnostic Command Buttons */}
+              {webSshSessionId && !webSshPasswordMode && (
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  <span className="text-[10px] font-bold text-slate-400 uppercase mr-1">Hızlı Komutlar:</span>
+                  {[
+                    { label: "PM2 Servisler", cmd: "pm2 status\n" },
+                    { label: "Ağ & IP Tablosu", cmd: "ip -br a && ip route\n" },
+                    { label: "Asterisk PJSIP", cmd: "sudo asterisk -rx 'pjsip show endpoints'\n" },
+                    { label: "Aktif Çağrılar", cmd: "sudo asterisk -rx 'core show channels'\n" },
+                    { label: "Disk & Bellek", cmd: "df -h && free -m\n" },
+                  ].map((q) => (
+                    <button
+                      key={q.label}
+                      type="button"
+                      onClick={() => handleSendWebSshInput(null, q.cmd)}
+                      className="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-[11px] font-bold cursor-pointer border border-slate-700"
+                    >
+                      {q.label}
+                    </button>
+                  ))}
+                  <button
+                    type="button"
+                    onClick={() => handleSendWebSshInput(null, "\x03")}
+                    className="px-2.5 py-1 rounded-lg bg-rose-500/20 hover:bg-rose-600 text-rose-300 hover:text-white text-[11px] font-mono font-bold cursor-pointer"
+                  >
+                    Ctrl+C
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setWebSshOutput("")}
+                    className="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-400 text-[11px] font-bold cursor-pointer"
+                  >
+                    Ekranı Temizle
+                  </button>
+                </div>
+              )}
+
+              {/* Terminal Output Screen */}
+              <div
+                ref={webSshBoxRef}
+                className="bg-black border border-slate-800 rounded-2xl p-4 h-80 overflow-y-auto font-mono text-xs text-emerald-400 whitespace-pre-wrap leading-relaxed select-text"
+              >
+                {webSshOutput || "Yukarıdan '⚡ SSH Oturumu Başlat' butonuna tıklayarak santral kabuğuna bağlanabilirsiniz..."}
+              </div>
+
+              {/* Terminal Input Form */}
+              <form onSubmit={(e) => handleSendWebSshInput(e)} className="flex items-center gap-2">
+                <span className="font-mono text-xs font-extrabold text-emerald-400 px-2">
+                  {webSshPasswordMode ? "🔑 Parola:" : `${webSshUsername || "aida"}@${hostname || "santral"}:~$`}
+                </span>
+                <input
+                  type={webSshPasswordMode ? "password" : "text"}
+                  value={webSshInput}
+                  onChange={(e) => setWebSshInput(e.target.value)}
+                  disabled={!webSshSessionId}
+                  placeholder={
+                    !webSshSessionId
+                      ? "Önce yukarıdan '⚡ SSH Oturumu Başlat' butonuna tıklayın..."
+                      : webSshPasswordMode
+                      ? "Santral Linux kullanıcı parolasını yazıp Enter'a basın..."
+                      : "Linux komutunu yazıp Enter'a basın (örn: pm2 status, htop, ip a)..."
+                  }
+                  className="flex-1 px-3.5 py-2.5 rounded-xl bg-slate-950 border border-slate-700 text-xs font-mono text-white focus:outline-none disabled:opacity-50"
+                />
+                <button
+                  type="submit"
+                  disabled={!webSshSessionId}
+                  className={`px-4 py-2.5 rounded-xl text-white text-xs font-extrabold cursor-pointer disabled:opacity-40 ${bg} ${hover}`}
+                >
+                  Gönder ↵
+                </button>
+              </form>
+            </>
+          )}
+        </div>
+      )}
     </div>
   );
 }

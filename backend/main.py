@@ -1574,6 +1574,7 @@ DEFAULT_SETTINGS = {
                 "realtime_calls:read", "realtime_calls:write", "realtime_calls:access",
                 "server_network:read", "server_network:write", "server_network:delete",
                 "ras_settings:read", "ras_settings:write",
+                "server_ssh:access",
                 "security:read", "security:write", "security:delete",
                 "customer_360:read", "customer_360:write",
                 "callback_tasks:read", "callback_tasks:write", "callback_tasks:delete",
