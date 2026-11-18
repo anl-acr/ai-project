@@ -50,15 +50,17 @@ export default function LoginModal({ onLoginSuccess }) {
       <div className="w-full max-w-md bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl shadow-2xl overflow-hidden p-8 space-y-6 relative text-slate-900 dark:text-slate-100">
         
         {/* Decorative Top Accent */}
-        <div className="absolute top-0 left-0 right-0 h-1.5 bg-gradient-to-r from-rose-600 via-rose-500 to-amber-500" />
+        <div className="absolute top-0 left-0 right-0 h-1.5 bg-gradient-to-r from-indigo-600 via-violet-500 to-rose-500" />
 
         {/* Header Branding */}
-        <div className="text-center space-y-2">
-          <div className="mx-auto w-14 h-14 rounded-2xl bg-rose-600 text-white flex items-center justify-center font-extrabold shadow-lg shadow-rose-600/30">
-            <ShieldCheck size={32} />
+        <div className="text-center space-y-2.5">
+          <div className="mx-auto w-16 h-16 rounded-2xl bg-slate-900 dark:bg-slate-800/80 border border-slate-200/80 dark:border-slate-700/80 flex items-center justify-center shadow-xl shadow-indigo-500/15 p-2.5">
+            <img src="/favicon.svg" alt="Nornia Logo" className="w-full h-full object-contain" />
           </div>
-          <h2 className="text-xl font-extrabold text-slate-900 dark:text-white tracking-tight">AIDA Control Center</h2>
-          <p className="text-xs font-semibold text-slate-500 dark:text-slate-400">Merkezi Lisans Otoritesi Giriş Paneli</p>
+          <div>
+            <h2 className="text-xl font-extrabold text-slate-900 dark:text-white tracking-tight">Nornia Cloud Center</h2>
+            <p className="text-xs font-semibold text-slate-500 dark:text-slate-400 mt-0.5">Merkezi Lisans Otoritesi &amp; Bulut Filo Yönetimi</p>
+          </div>
         </div>
 
         {/* Form */}

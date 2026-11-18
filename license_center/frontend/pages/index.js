@@ -31,7 +31,13 @@ import {
   Bot,
   GitMerge,
   Unlock,
-  ExternalLink
+  ExternalLink,
+  LayoutGrid,
+  List,
+  ChevronDown,
+  ChevronUp,
+  Sparkles,
+  Wifi
 } from "lucide-react";
 
 import LoginModal from "../components/LoginModal";
@@ -68,9 +74,17 @@ export default function MasterDashboard() {
   const [newAllowedTts, setNewAllowedTts] = useState(["google", "elevenlabs", "openai"]);
   const [newAllowedLlm, setNewAllowedLlm] = useState(["google", "elevenlabs", "openai", "anthropic", "groq"]);
 
-  // Search & Filter
+  // Search, Filter & View Mode
   const [searchTerm, setSearchTerm] = useState("");
   const [filterStatus, setFilterStatus] = useState("all");
+  const [viewMode, setViewMode] = useState("cards"); // "cards" | "table"
+  const [expandedClientIds, setExpandedClientIds] = useState({});
+  const [deleteConfirmClient, setDeleteConfirmClient] = useState(null);
+  const [deletingClient, setDeletingClient] = useState(false);
+
+  const toggleExpandClient = (clientId) => {
+    setExpandedClientIds((prev) => ({ ...prev, [clientId]: !prev[clientId] }));
+  };
 
   // Key Generator Studio Modal State
   const [keyGenModalClient, setKeyGenModalClient] = useState(null);
@@ -354,18 +368,22 @@ export default function MasterDashboard() {
     }
   };
 
-  const handleDeleteClient = async (clientId) => {
-    if (!window.confirm("Bu müşteriyi ve tüm kayıtlarını silmek istediğinize emin misiniz?")) return;
+  const confirmDeleteClient = async () => {
+    if (!deleteConfirmClient) return;
+    setDeletingClient(true);
     try {
-      const res = await fetch(`${API_BASE}/api/v1/clients/${clientId}`, {
+      const res = await fetch(`${API_BASE}/api/v1/clients/${deleteConfirmClient.id}`, {
         method: "DELETE",
         headers: { "X-User-Name": currentUser?.username || "admin" }
       });
       if (res.ok) {
+        setDeleteConfirmClient(null);
         fetchData();
       }
     } catch (e) {
       console.error("Delete client error:", e);
+    } finally {
+      setDeletingClient(false);
     }
   };
 
@@ -551,74 +569,84 @@ export default function MasterDashboard() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100 transition-colors duration-200 flex flex-col font-sans">
+    <div className="min-h-screen bg-slate-50 dark:bg-[#090d16] text-slate-900 dark:text-slate-100 transition-colors duration-200 flex flex-col font-sans">
       <Head>
-        <title>AIDA Master Console - Merkezi Lisans & Filo Yönetimi</title>
+        <title>Nornia Cloud Center — Merkezi Lisans &amp; Filo Yönetimi</title>
+        <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
       </Head>
 
       {/* Top Navbar */}
-      <header className="h-16 border-b border-slate-200 dark:border-slate-800/80 bg-white/90 dark:bg-slate-900/60 backdrop-blur-md px-8 flex items-center justify-between sticky top-0 z-30 shadow-xs dark:shadow-none">
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-2xl bg-rose-600 text-white flex items-center justify-center font-extrabold shadow-lg shadow-rose-600/30">
-            <ShieldCheck size={22} />
+      <header className="h-16 border-b border-slate-200/80 dark:border-slate-800/80 bg-white/95 dark:bg-slate-900/80 backdrop-blur-xl px-6 lg:px-10 flex items-center justify-between sticky top-0 z-30 shadow-xs dark:shadow-none">
+        <div className="flex items-center gap-3.5">
+          <div className="w-10 h-10 rounded-2xl bg-slate-900 dark:bg-slate-800 border border-slate-200/80 dark:border-slate-700/80 flex items-center justify-center p-1.5 shadow-md shadow-indigo-500/10">
+            <img src="/favicon.svg" alt="Nornia" className="w-full h-full object-contain" />
           </div>
           <div>
-            <h1 className="text-base font-extrabold tracking-tight text-slate-900 dark:text-white flex items-center gap-2">
-              AIDA Control Center <span className="text-[10px] bg-rose-500/10 dark:bg-rose-500/20 text-rose-600 dark:text-rose-400 border border-rose-500/20 dark:border-rose-500/30 px-2 py-0.5 rounded-full font-bold">v1.0 Master</span>
-            </h1>
-            <p className="text-xs text-slate-500 dark:text-slate-400 font-medium">Merkezi Lisans Otoritesi ve Sunucu İzleme Konsolu</p>
+            <div className="flex items-center gap-2">
+              <h1 className="text-base font-extrabold tracking-tight bg-gradient-to-r from-slate-900 via-indigo-900 to-slate-800 dark:from-white dark:via-indigo-200 dark:to-slate-300 bg-clip-text text-transparent">
+                Nornia Cloud Center
+              </h1>
+              <span className="text-[10px] bg-indigo-500/10 dark:bg-indigo-500/20 text-indigo-600 dark:text-indigo-300 border border-indigo-500/20 dark:border-indigo-500/30 px-2 py-0.5 rounded-full font-extrabold tracking-wide">
+                v2.5 Master
+              </span>
+            </div>
+            <p className="text-[11px] text-slate-500 dark:text-slate-400 font-medium">
+              Merkezi Lisans Otoritesi, Nornia Connect &amp; Filo Yönetim Konsolu
+            </p>
           </div>
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2.5">
           <button
             onClick={() => setShowAuditLogsModal(true)}
-            className="p-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors flex items-center gap-2 text-xs font-bold cursor-pointer shadow-xs dark:shadow-none"
+            className="px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors flex items-center gap-1.5 text-xs font-bold cursor-pointer shadow-xs dark:shadow-none"
             title="Sistem İşlem Logları"
           >
             <Terminal size={14} className="text-cyan-600 dark:text-cyan-400" />
-            <span>İşlem Logları</span>
+            <span className="hidden sm:inline">İşlem Logları</span>
           </button>
 
           <button
             onClick={() => setShowUsersModal(true)}
-            className="p-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors flex items-center gap-2 text-xs font-bold cursor-pointer shadow-xs dark:shadow-none"
+            className="px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors flex items-center gap-1.5 text-xs font-bold cursor-pointer shadow-xs dark:shadow-none"
             title="Master Kullanıcı Yönetimi"
           >
-            <Users size={14} className="text-rose-600 dark:text-rose-400" />
-            <span>Kullanıcılar</span>
+            <Users size={14} className="text-indigo-600 dark:text-indigo-400" />
+            <span className="hidden sm:inline">Kullanıcılar</span>
           </button>
 
           <button
             onClick={fetchData}
-            className="p-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors flex items-center gap-2 text-xs font-bold shadow-xs dark:shadow-none cursor-pointer"
+            className="px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors flex items-center gap-1.5 text-xs font-bold shadow-xs dark:shadow-none cursor-pointer"
+            title="Filo Verilerini Yenile"
           >
-            <RefreshCw size={14} className={loading ? "animate-spin text-rose-500" : ""} />
-            <span>Yenile</span>
+            <RefreshCw size={14} className={loading ? "animate-spin text-indigo-500" : ""} />
+            <span className="hidden sm:inline">Yenile</span>
           </button>
 
           <button
             onClick={toggleTheme}
-            className="p-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer shadow-xs dark:shadow-none"
+            className="h-9 w-9 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors flex items-center justify-center cursor-pointer shadow-xs dark:shadow-none"
             title={isDarkMode ? "Aydınlık Moda Geç" : "Karanlık Moda Geç"}
           >
-            {isDarkMode ? <Sun size={15} className="text-amber-400" /> : <Moon size={15} className="text-rose-600" />}
+            {isDarkMode ? <Sun size={15} className="text-amber-400" /> : <Moon size={15} className="text-indigo-600" />}
           </button>
 
+          {/* Unified Red Plus (+) Add Button per AGENTS.md rule */}
           <button
             onClick={() => setShowAddModal(true)}
-            className="px-4 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-xs font-extrabold flex items-center gap-2 shadow-md shadow-rose-600/20 transition-all cursor-pointer"
+            className="bg-rose-600 hover:bg-rose-500 text-white rounded-xl h-8 w-8 flex items-center justify-center shrink-0 shadow-md shadow-rose-600/25 transition-all cursor-pointer"
+            title="Yeni Müşteri & Sunucu Ekle"
           >
             <Plus size={16} />
-            <span>Yeni Müşteri & Sunucu Ekle</span>
           </button>
 
           {/* User Profile & Logout */}
           {currentUser && (
-            <div className="flex items-center gap-2 pl-2 border-l border-slate-200 dark:border-slate-800">
-              <div className="text-right text-xs">
-                <div className="font-extrabold text-slate-800 dark:text-white">{currentUser.full_name}</div>
-                <div className="text-[10px] text-rose-600 dark:text-rose-400 font-mono font-bold">@{currentUser.username}</div>
+            <div className="flex items-center gap-2 pl-2.5 ml-0.5 border-l border-slate-200 dark:border-slate-800">
+              <div className="text-right text-xs hidden md:block">
+                <div className="font-extrabold text-slate-800 dark:text-white leading-tight">{currentUser.full_name}</div>
+                <div className="text-[10px] text-indigo-600 dark:text-indigo-400 font-mono font-bold">@{currentUser.username}</div>
               </div>
               <button
                 onClick={handleLogout}
@@ -633,409 +661,696 @@ export default function MasterDashboard() {
       </header>
 
       {/* Main Container */}
-      <main className="flex-1 p-8 space-y-8 max-w-7xl mx-auto w-full">
+      <main className="flex-1 p-6 lg:p-8 space-y-6 max-w-[1440px] mx-auto w-full">
 
         {/* STATS OVERVIEW CARDS */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
-          <div className="p-5 bg-white dark:bg-slate-900/60 border border-slate-200/80 dark:border-slate-800 rounded-3xl space-y-2 shadow-sm dark:shadow-none">
-            <div className="flex items-center justify-between text-slate-500 dark:text-slate-400 text-xs font-bold uppercase tracking-wider">
-              <span>Toplam Kurulum</span>
-              <Server size={18} className="text-rose-600 dark:text-rose-500" />
+        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
+          <div className="p-4 lg:p-5 bg-white dark:bg-slate-900/70 border border-slate-200/80 dark:border-slate-800/90 rounded-2xl flex items-center justify-between shadow-xs dark:shadow-none">
+            <div className="space-y-1">
+              <div className="text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Toplam Kurulum</div>
+              <div className="text-2xl lg:text-3xl font-extrabold text-slate-900 dark:text-white">{stats.total_clients}</div>
+              <div className="text-[11px] text-slate-400 dark:text-slate-500 font-medium">Kayıtlı Santral &amp; Tenant</div>
             </div>
-            <div className="text-3xl font-extrabold text-slate-900 dark:text-white">{stats.total_clients}</div>
-            <div className="text-[11px] text-slate-400 dark:text-slate-500 font-semibold">Kayıtlı On-Premise Sunucu</div>
+            <div className="w-11 h-11 rounded-2xl bg-indigo-500/10 dark:bg-indigo-500/15 border border-indigo-500/20 text-indigo-600 dark:text-indigo-400 flex items-center justify-center shrink-0">
+              <Server size={20} />
+            </div>
           </div>
 
-          <div className="p-5 bg-white dark:bg-slate-900/60 border border-slate-200/80 dark:border-slate-800 rounded-3xl space-y-2 shadow-sm dark:shadow-none">
-            <div className="flex items-center justify-between text-slate-500 dark:text-slate-400 text-xs font-bold uppercase tracking-wider">
-              <span>Canlı Sunucular</span>
-              <Activity size={18} className="text-emerald-600 dark:text-emerald-400" />
+          <div className="p-4 lg:p-5 bg-white dark:bg-slate-900/70 border border-slate-200/80 dark:border-slate-800/90 rounded-2xl flex items-center justify-between shadow-xs dark:shadow-none">
+            <div className="space-y-1">
+              <div className="text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Canlı Sunucular</div>
+              <div className="text-2xl lg:text-3xl font-extrabold text-emerald-600 dark:text-emerald-400 flex items-center gap-2">
+                <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-ping" />
+                <span>{stats.online_count}</span>
+              </div>
+              <div className="text-[11px] text-slate-400 dark:text-slate-500 font-medium">Aktif Heartbeat &amp; Tünel</div>
             </div>
-            <div className="text-3xl font-extrabold text-emerald-600 dark:text-emerald-400 flex items-center gap-2">
-              <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-ping" />
-              {stats.online_count}
+            <div className="w-11 h-11 rounded-2xl bg-emerald-500/10 dark:bg-emerald-500/15 border border-emerald-500/20 text-emerald-600 dark:text-emerald-400 flex items-center justify-center shrink-0">
+              <Activity size={20} />
             </div>
-            <div className="text-[11px] text-slate-400 dark:text-slate-500 font-semibold">Son 15 dk'da Heartbeat Alan</div>
           </div>
 
-          <div className="p-5 bg-white dark:bg-slate-900/60 border border-slate-200/80 dark:border-slate-800 rounded-3xl space-y-2 shadow-sm dark:shadow-none">
-            <div className="flex items-center justify-between text-slate-500 dark:text-slate-400 text-xs font-bold uppercase tracking-wider">
-              <span>Süresi Yaklaşan</span>
-              <Clock size={18} className="text-amber-600 dark:text-amber-400" />
+          <div className="p-4 lg:p-5 bg-white dark:bg-slate-900/70 border border-slate-200/80 dark:border-slate-800/90 rounded-2xl flex items-center justify-between shadow-xs dark:shadow-none">
+            <div className="space-y-1">
+              <div className="text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Süresi Yaklaşan</div>
+              <div className="text-2xl lg:text-3xl font-extrabold text-amber-600 dark:text-amber-400">{stats.expiring_soon_count}</div>
+              <div className="text-[11px] text-slate-400 dark:text-slate-500 font-medium">15 Gün İçinde Dolacak</div>
             </div>
-            <div className="text-3xl font-extrabold text-amber-600 dark:text-amber-400">{stats.expiring_soon_count}</div>
-            <div className="text-[11px] text-slate-400 dark:text-slate-500 font-semibold">15 Gün İçinde Dolacak</div>
+            <div className="w-11 h-11 rounded-2xl bg-amber-500/10 dark:bg-amber-500/15 border border-amber-500/20 text-amber-600 dark:text-amber-400 flex items-center justify-center shrink-0">
+              <Clock size={20} />
+            </div>
           </div>
 
-          <div className="p-5 bg-white dark:bg-slate-900/60 border border-slate-200/80 dark:border-slate-800 rounded-3xl space-y-2 shadow-sm dark:shadow-none">
-            <div className="flex items-center justify-between text-slate-500 dark:text-slate-400 text-xs font-bold uppercase tracking-wider">
-              <span>Pasif / Durdurulan</span>
-              <ShieldAlert size={18} className="text-rose-600 dark:text-rose-500" />
+          <div className="p-4 lg:p-5 bg-white dark:bg-slate-900/70 border border-slate-200/80 dark:border-slate-800/90 rounded-2xl flex items-center justify-between shadow-xs dark:shadow-none">
+            <div className="space-y-1">
+              <div className="text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Pasif / Durdurulan</div>
+              <div className="text-2xl lg:text-3xl font-extrabold text-rose-600 dark:text-rose-500">{stats.expired_count}</div>
+              <div className="text-[11px] text-slate-400 dark:text-slate-500 font-medium">Askıda veya Süresi Biten</div>
             </div>
-            <div className="text-3xl font-extrabold text-rose-600 dark:text-rose-500">{stats.expired_count}</div>
-            <div className="text-[11px] text-slate-400 dark:text-slate-500 font-semibold">Lisanssız veya İptal Edilmiş</div>
+            <div className="w-11 h-11 rounded-2xl bg-rose-500/10 dark:bg-rose-500/15 border border-rose-500/20 text-rose-600 dark:text-rose-500 flex items-center justify-center shrink-0">
+              <ShieldAlert size={20} />
+            </div>
           </div>
 
-          <div className="p-5 bg-white dark:bg-slate-900/60 border border-slate-200/80 dark:border-slate-800 rounded-3xl space-y-2 shadow-sm dark:shadow-none">
-            <div className="flex items-center justify-between text-slate-500 dark:text-slate-400 text-xs font-bold uppercase tracking-wider">
-              <span>Canlı Aktif Çağrı</span>
-              <PhoneCall size={18} className="text-blue-600 dark:text-blue-400" />
+          <div className="p-4 lg:p-5 bg-white dark:bg-slate-900/70 border border-slate-200/80 dark:border-slate-800/90 rounded-2xl flex items-center justify-between shadow-xs dark:shadow-none col-span-2 md:col-span-1">
+            <div className="space-y-1">
+              <div className="text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Canlı Aktif Çağrı</div>
+              <div className="text-2xl lg:text-3xl font-extrabold text-blue-600 dark:text-blue-400">{stats.total_active_calls}</div>
+              <div className="text-[11px] text-slate-400 dark:text-slate-500 font-medium">Filo Geneli Görüşme</div>
             </div>
-            <div className="text-3xl font-extrabold text-blue-600 dark:text-blue-400">{stats.total_active_calls}</div>
-            <div className="text-[11px] text-slate-400 dark:text-slate-500 font-semibold">Tüm Sunucularda Anlık Görüşme</div>
+            <div className="w-11 h-11 rounded-2xl bg-blue-500/10 dark:bg-blue-500/15 border border-blue-500/20 text-blue-600 dark:text-blue-400 flex items-center justify-center shrink-0">
+              <PhoneCall size={20} />
+            </div>
           </div>
         </div>
 
-        {/* FILTER & SEARCH BAR */}
-        <div className="flex flex-col md:flex-row items-center justify-between gap-4 bg-white dark:bg-slate-900/40 p-4 rounded-3xl border border-slate-200/80 dark:border-slate-800/80 shadow-sm dark:shadow-none">
-          <div className="relative w-full md:w-96">
-            <Search size={16} className="absolute left-3.5 top-3.5 text-slate-400" />
+        {/* FILTER, SEARCH & VIEW MODE BAR */}
+        <div className="flex flex-col lg:flex-row items-stretch lg:items-center justify-between gap-3 bg-white dark:bg-slate-900/70 p-3.5 rounded-2xl border border-slate-200/80 dark:border-slate-800/90 shadow-xs dark:shadow-none">
+          <div className="relative flex-1 max-w-xl">
+            <Search size={15} className="absolute left-3.5 top-3 text-slate-400" />
             <input
               type="text"
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              placeholder="Firma adı, tenant kodu, Seri No veya Donanım ID ara..."
-              className="w-full text-xs font-semibold pl-10 pr-4 py-2.5 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-2xl focus:outline-none focus:border-rose-500 text-slate-900 dark:text-white placeholder:text-slate-400 dark:placeholder:text-slate-500"
+              placeholder="Firma adı, tenant kodu, alt alan adı (.nornia.com.tr), Seri No veya Donanım ID ara..."
+              className="w-full text-xs font-semibold pl-10 pr-4 py-2.5 bg-slate-50 dark:bg-slate-950/90 border border-slate-200/90 dark:border-slate-800 rounded-xl focus:outline-none focus:border-indigo-500 text-slate-900 dark:text-white placeholder:text-slate-400 dark:placeholder:text-slate-500"
             />
           </div>
 
-          <div className="flex items-center gap-2">
-            <button
-              onClick={() => setFilterStatus("all")}
-              className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-colors ${filterStatus === "all" ? "bg-rose-600 text-white" : "bg-slate-100 dark:bg-slate-900 text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-slate-800 hover:bg-slate-200 dark:hover:bg-slate-800"}`}
-            >
-              Tümü ({clients.length})
-            </button>
-            <button
-              onClick={() => setFilterStatus("online")}
-              className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-colors ${filterStatus === "online" ? "bg-emerald-600 text-white" : "bg-slate-100 dark:bg-slate-900 text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-slate-800 hover:bg-slate-200 dark:hover:bg-slate-800"}`}
-            >
-              🟢 Canlı ({stats.online_count})
-            </button>
-            <button
-              onClick={() => setFilterStatus("offline")}
-              className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-colors ${filterStatus === "offline" ? "bg-slate-700 text-white" : "bg-slate-100 dark:bg-slate-900 text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-slate-800 hover:bg-slate-200 dark:hover:bg-slate-800"}`}
-            >
-              ⚫ Çevrimdışı ({stats.offline_count})
-            </button>
-            <button
-              onClick={() => setFilterStatus("suspended")}
-              className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-colors ${filterStatus === "suspended" ? "bg-rose-700 text-white" : "bg-slate-100 dark:bg-slate-900 text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-slate-800 hover:bg-slate-200 dark:hover:bg-slate-800"}`}
-            >
-              🔴 İptal Edilen ({stats.expired_count})
-            </button>
+          <div className="flex flex-wrap items-center justify-between lg:justify-end gap-2">
+            {/* Status Filter Pills */}
+            <div className="flex items-center gap-1.5 bg-slate-100/80 dark:bg-slate-950/80 p-1 rounded-xl border border-slate-200/70 dark:border-slate-800/80">
+              <button
+                onClick={() => setFilterStatus("all")}
+                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                  filterStatus === "all"
+                    ? "bg-white dark:bg-slate-800 text-slate-900 dark:text-white shadow-xs"
+                    : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
+                }`}
+              >
+                Tümü ({clients.length})
+              </button>
+              <button
+                onClick={() => setFilterStatus("online")}
+                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
+                  filterStatus === "online"
+                    ? "bg-emerald-600 text-white shadow-xs"
+                    : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
+                }`}
+              >
+                <span className={`w-2 h-2 rounded-full ${filterStatus === "online" ? "bg-white" : "bg-emerald-500"}`} />
+                <span>Canlı ({stats.online_count})</span>
+              </button>
+              <button
+                onClick={() => setFilterStatus("offline")}
+                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
+                  filterStatus === "offline"
+                    ? "bg-slate-700 text-white shadow-xs"
+                    : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
+                }`}
+              >
+                <span className="w-2 h-2 rounded-full bg-slate-400" />
+                <span>Çevrimdışı ({stats.offline_count})</span>
+              </button>
+              <button
+                onClick={() => setFilterStatus("suspended")}
+                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
+                  filterStatus === "suspended"
+                    ? "bg-rose-600 text-white shadow-xs"
+                    : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
+                }`}
+              >
+                <span className={`w-2 h-2 rounded-full ${filterStatus === "suspended" ? "bg-white" : "bg-rose-500"}`} />
+                <span>Askıda ({stats.expired_count})</span>
+              </button>
+            </div>
+
+            {/* View Switcher: Cards vs Table */}
+            <div className="flex items-center gap-1 bg-slate-100/80 dark:bg-slate-950/80 p-1 rounded-xl border border-slate-200/70 dark:border-slate-800/80">
+              <button
+                type="button"
+                onClick={() => setViewMode("cards")}
+                className={`px-2.5 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer ${
+                  viewMode === "cards"
+                    ? "bg-white dark:bg-slate-800 text-indigo-600 dark:text-indigo-400 shadow-xs"
+                    : "text-slate-500 hover:text-slate-900 dark:hover:text-white"
+                }`}
+                title="Modern Kart Görünümü"
+              >
+                <LayoutGrid size={14} />
+                <span className="hidden sm:inline">Kartlar</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setViewMode("table")}
+                className={`px-2.5 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer ${
+                  viewMode === "table"
+                    ? "bg-white dark:bg-slate-800 text-indigo-600 dark:text-indigo-400 shadow-xs"
+                    : "text-slate-500 hover:text-slate-900 dark:hover:text-white"
+                }`}
+                title="Kurumsal Tablo Görünümü"
+              >
+                <List size={14} />
+                <span className="hidden sm:inline">Tablo</span>
+              </button>
+            </div>
           </div>
         </div>
 
-        {/* CLIENT SERVER FLEET GRID */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {filteredClients.map((client) => {
-            const isSuspended = client.status === "suspended";
-            const isExpired = client.days_left !== null && client.days_left <= 0;
+        {/* CLIENT SERVER FLEET: MODERN 2-COLUMN CARDS OR TABLE VIEW */}
+        {filteredClients.length === 0 ? (
+          <div className="bg-white dark:bg-slate-900/60 border border-slate-200/80 dark:border-slate-800 rounded-2xl p-12 text-center space-y-3">
+            <div className="w-12 h-12 rounded-2xl bg-slate-100 dark:bg-slate-800 text-slate-400 flex items-center justify-center mx-auto">
+              <Server size={22} />
+            </div>
+            <div className="text-sm font-extrabold text-slate-800 dark:text-slate-200">Eşleşen Sunucu veya Müşteri Bulunamadı</div>
+            <p className="text-xs text-slate-500 dark:text-slate-400 max-w-md mx-auto">
+              Arama kriterlerinize uygun kayıtlı bir Nornia kurulumu bulunmuyor veya henüz yeni müşteri eklenmedi.
+            </p>
+          </div>
+        ) : viewMode === "table" ? (
+          /* CORPORATE TABLE VIEW */
+          <div className="bg-white dark:bg-slate-900/80 border border-slate-200/80 dark:border-slate-800/90 rounded-2xl overflow-hidden shadow-xs dark:shadow-none">
+            <div className="overflow-x-auto">
+              <table className="w-full text-left border-collapse">
+                <thead>
+                  <tr className="border-b border-slate-200/80 dark:border-slate-800 bg-slate-50/80 dark:bg-slate-950/60 text-[11px] font-extrabold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
+                    <th className="py-3.5 px-4">Müşteri / Tenant</th>
+                    <th className="py-3.5 px-4">Nornia Connect &amp; SSH</th>
+                    <th className="py-3.5 px-4">Donanım &amp; Sürüm</th>
+                    <th className="py-3.5 px-4">Kaynak &amp; Kanal</th>
+                    <th className="py-3.5 px-4">Lisans Bitiş</th>
+                    <th className="py-3.5 px-4 text-right">İşlemler</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-200/70 dark:divide-slate-800/70 text-xs">
+                  {filteredClients.map((client) => {
+                    const isSuspended = client.status === "suspended";
+                    return (
+                      <tr key={client.id} className="hover:bg-slate-50/80 dark:hover:bg-slate-800/40 transition-colors">
+                        <td className="py-3.5 px-4">
+                          <div className="flex items-center gap-2.5">
+                            <span className={`w-2.5 h-2.5 rounded-full shrink-0 ${
+                              isSuspended ? "bg-rose-500" : client.is_online ? "bg-emerald-500 animate-pulse" : "bg-slate-400"
+                            }`} />
+                            <div>
+                              <div className="font-extrabold text-slate-900 dark:text-white text-sm">{client.company_name}</div>
+                              <div className="flex items-center gap-1.5 mt-0.5">
+                                <span className="font-mono text-[11px] text-indigo-600 dark:text-indigo-400 font-bold">{client.tenant_code}</span>
+                                <span className="text-slate-300 dark:text-slate-700">•</span>
+                                <span className="text-[10px] uppercase font-extrabold px-1.5 py-0.2 rounded bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400">
+                                  {client.plan_tier || "professional"}
+                                </span>
+                              </div>
+                            </div>
+                          </div>
+                        </td>
+                        <td className="py-3.5 px-4">
+                          {client.connect_subdomain ? (
+                            <div className="space-y-1">
+                              <div className="flex items-center gap-2">
+                                <a
+                                  href={`https://${client.connect_subdomain}.nornia.com.tr`}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="font-mono font-extrabold text-emerald-600 dark:text-emerald-400 hover:underline flex items-center gap-1"
+                                >
+                                  <span>{client.connect_subdomain}.nornia.com.tr</span>
+                                  <ExternalLink size={11} />
+                                </a>
+                                <span className={`px-1.5 py-0.5 rounded text-[9px] font-extrabold uppercase ${
+                                  client.tunnel_connected
+                                    ? "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400"
+                                    : "bg-slate-200 dark:bg-slate-800 text-slate-500"
+                                }`}>
+                                  {client.tunnel_connected ? "Tünel Aktif" : "Bağlı Değil"}
+                                </span>
+                              </div>
+                              <div className="flex items-center gap-1">
+                                <button
+                                  type="button"
+                                  disabled={togglingSshId === client.id}
+                                  onClick={() => handleToggleClientSsh(client)}
+                                  className={`px-2 py-0.5 rounded-md border text-[10px] font-extrabold flex items-center gap-1 cursor-pointer ${
+                                    client.remote_ssh_enabled !== false
+                                      ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-300 border-emerald-500/30"
+                                      : "bg-rose-500/10 text-rose-600 dark:text-rose-300 border-rose-500/30"
+                                  }`}
+                                >
+                                  <Power size={9} />
+                                  <span>{client.remote_ssh_enabled !== false ? "SSH Açık" : "SSH Kapalı"}</span>
+                                </button>
+                                {client.remote_ssh_enabled !== false && (
+                                  <button
+                                    type="button"
+                                    onClick={() => openSshModal(client)}
+                                    className="px-2 py-0.5 rounded-md bg-indigo-500/10 hover:bg-indigo-600 text-indigo-600 dark:text-indigo-300 hover:text-white border border-indigo-500/30 text-[10px] font-extrabold flex items-center gap-1 cursor-pointer"
+                                  >
+                                    <Terminal size={10} />
+                                    <span>Web SSH</span>
+                                  </button>
+                                )}
+                                <button
+                                  type="button"
+                                  onClick={() => setUnlockConfirmClient(client)}
+                                  className="px-2 py-0.5 rounded-md bg-amber-500/10 hover:bg-amber-500 text-amber-600 dark:text-amber-300 hover:text-white border border-amber-500/30 text-[10px] font-extrabold flex items-center gap-1 cursor-pointer"
+                                >
+                                  <Unlock size={10} />
+                                  <span>Kilidi Çöz</span>
+                                </button>
+                              </div>
+                            </div>
+                          ) : (
+                            <span className="text-slate-400 text-[11px]">Tünel Tanımsız</span>
+                          )}
+                        </td>
+                        <td className="py-3.5 px-4 font-mono">
+                          <div className="flex items-center gap-1 font-bold text-slate-800 dark:text-slate-200">
+                            <span>{client.hardware_id}</span>
+                            <button
+                              onClick={() => handleCopyText(client.hardware_id, `tbl-hw-${client.id}`)}
+                              className="text-slate-400 hover:text-indigo-500 cursor-pointer"
+                            >
+                              {copiedKey === `tbl-hw-${client.id}` ? <Check size={12} className="text-emerald-500" /> : <Copy size={12} />}
+                            </button>
+                          </div>
+                          <div className="text-[11px] text-slate-500">
+                            {client.ip_address || "127.0.0.1"} • {client.software_version || "v2.4.8"}
+                          </div>
+                        </td>
+                        <td className="py-3.5 px-4">
+                          <div className="flex items-center gap-2 font-mono text-[11px]">
+                            <span className="px-2 py-0.5 rounded-md bg-blue-500/10 text-blue-600 dark:text-blue-400 font-extrabold">
+                              {client.custom_quotas?.max_concurrent_calls ?? 4} +{client.custom_quotas?.tolerance_concurrent_calls ?? 0} Kanal
+                            </span>
+                            <span className="text-slate-500">
+                              CPU {client.cpu_usage_percent || 0}% • RAM {client.ram_usage_percent || 0}%
+                            </span>
+                          </div>
+                        </td>
+                        <td className="py-3.5 px-4">
+                          <div className="font-mono font-bold text-slate-800 dark:text-slate-200">
+                            {client.license_expires_at === "unlimited" ? "♾️ Limitsiz" : (client.license_expires_at || "-")}
+                          </div>
+                          {client.days_left !== null && client.days_left !== undefined && (
+                            <span className={`text-[10px] font-extrabold ${
+                              client.days_left <= 7 ? "text-rose-500" : client.days_left <= 30 ? "text-amber-500" : "text-emerald-500"
+                            }`}>
+                              {client.days_left} gün kaldı
+                            </span>
+                          )}
+                        </td>
+                        <td className="py-3.5 px-4 text-right">
+                          <div className="flex items-center justify-end gap-1.5">
+                            <button
+                              onClick={() => openKeyGenModal(client)}
+                              className="px-2.5 py-1.5 rounded-xl bg-indigo-50 dark:bg-indigo-500/15 hover:bg-indigo-600 text-indigo-600 dark:text-indigo-300 hover:text-white border border-indigo-200 dark:border-indigo-500/30 text-xs font-extrabold flex items-center gap-1 transition-all cursor-pointer"
+                            >
+                              <Edit3 size={12} />
+                              <span>Lisans &amp; Kota</span>
+                            </button>
+                            <button
+                              onClick={() => handleToggleSuspend(client)}
+                              className={`p-1.5 rounded-xl border transition-colors cursor-pointer ${
+                                isSuspended
+                                  ? "bg-emerald-50 dark:bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 border-emerald-200 dark:border-emerald-500/30"
+                                  : "bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border-slate-200 dark:border-slate-700 hover:text-rose-500"
+                              }`}
+                              title={isSuspended ? "Aktifleştir" : "Askıya Al"}
+                            >
+                              <Power size={14} />
+                            </button>
+                            <button
+                              onClick={() => setDeleteConfirmClient(client)}
+                              className="p-1.5 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:bg-rose-50 dark:hover:bg-rose-900/40 hover:text-rose-600 border border-slate-200 dark:border-slate-700 transition-colors cursor-pointer"
+                              title="Müşteriyi Sil"
+                            >
+                              <Trash2 size={14} />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        ) : (
+          /* MODERN SPACIOUS 2-COLUMN CLIENT CARDS */
+          <div className="grid grid-cols-1 xl:grid-cols-2 gap-5">
+            {filteredClients.map((client) => {
+              const isSuspended = client.status === "suspended";
+              const isExpired = client.days_left !== null && client.days_left <= 0;
+              const isExpanded = !!expandedClientIds[client.id];
+              const sttCount = (client.custom_quotas?.allowed_stt_providers || ["google", "deepgram", "openai", "elevenlabs"]).length;
+              const ttsCount = (client.custom_quotas?.allowed_tts_providers || ["google", "elevenlabs", "openai"]).length;
+              const llmCount = (client.custom_quotas?.allowed_llm_providers || ["google", "elevenlabs", "openai", "anthropic", "groq"]).length;
 
-            return (
-              <div 
-                key={client.id}
-                className={`relative bg-white dark:bg-slate-900/80 border rounded-3xl p-6 space-y-5 transition-all shadow-sm hover:shadow-md dark:shadow-xl ${
-                  isSuspended ? "border-rose-300 dark:border-rose-900/60 bg-rose-50/40 dark:bg-rose-950/10" :
-                  isExpired ? "border-amber-300 dark:border-amber-900/60 bg-amber-50/40 dark:bg-amber-950/10" : "border-slate-200/80 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700"
-                }`}
-              >
-                {/* Header */}
-                <div className="flex items-start justify-between">
-                  <div className="space-y-1">
-                    <div className="flex items-center gap-2">
-                      <span className={`w-2.5 h-2.5 rounded-full ${client.is_online ? "bg-emerald-500 animate-pulse" : "bg-slate-400 dark:bg-slate-600"}`} />
-                      <h3 className="font-extrabold text-base text-slate-900 dark:text-white">{client.company_name}</h3>
+              return (
+                <div
+                  key={client.id}
+                  className={`group relative bg-white dark:bg-slate-900/80 border rounded-2xl p-5 space-y-4 transition-all shadow-xs hover:shadow-md dark:shadow-none ${
+                    isSuspended
+                      ? "border-rose-300 dark:border-rose-900/60 bg-rose-50/20 dark:bg-rose-950/10"
+                      : isExpired
+                      ? "border-amber-300 dark:border-amber-900/60 bg-amber-50/20 dark:bg-amber-950/10"
+                      : "border-slate-200/80 dark:border-slate-800/90 hover:border-indigo-300 dark:hover:border-slate-700"
+                  }`}
+                >
+                  {/* 1. Card Header: Company Name, Tenant Pill, Plan Tier & Online/Days Status */}
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="flex items-start gap-3 min-w-0">
+                      <div className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 font-extrabold text-sm border ${
+                        isSuspended
+                          ? "bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-500/20"
+                          : client.is_online
+                          ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20"
+                          : "bg-slate-100 dark:bg-slate-800 text-slate-500 border-slate-200 dark:border-slate-700"
+                      }`}>
+                        {(client.company_name || "N").substring(0, 2).toUpperCase()}
+                      </div>
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <h3 className="font-extrabold text-base text-slate-900 dark:text-white truncate">
+                            {client.company_name}
+                          </h3>
+                          <span className="px-2 py-0.5 rounded-md text-[10px] font-mono font-extrabold bg-indigo-500/10 text-indigo-600 dark:text-indigo-300 border border-indigo-500/20">
+                            {client.tenant_code}
+                          </span>
+                          <span className="px-2 py-0.5 rounded-md text-[10px] font-extrabold uppercase bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200/70 dark:border-slate-700">
+                            {client.plan_tier || "professional"}
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-2 text-[11px] text-slate-500 dark:text-slate-400 mt-1 font-mono">
+                          <span className="flex items-center gap-1">
+                            <Cpu size={12} className="text-slate-400" />
+                            <strong className="text-slate-700 dark:text-slate-300">{client.hardware_id}</strong>
+                            <button
+                              onClick={() => handleCopyText(client.hardware_id, `hw-${client.id}`)}
+                              className="text-slate-400 hover:text-indigo-500 cursor-pointer"
+                              title="Donanım ID Kopyala"
+                            >
+                              {copiedKey === `hw-${client.id}` ? <Check size={11} className="text-emerald-500" /> : <Copy size={11} />}
+                            </button>
+                          </span>
+                          <span>•</span>
+                          <span>{client.ip_address || "127.0.0.1"}</span>
+                          <span>•</span>
+                          <span>{client.software_version || "v2.4.8"}</span>
+                        </div>
+                      </div>
                     </div>
-                    <p className="text-xs font-mono font-semibold text-rose-600 dark:text-rose-400">
-                      Tenant Code: <span className="text-slate-900 dark:text-white font-bold">{client.tenant_code}</span>
-                    </p>
-                  </div>
 
-                  <span className={`px-2.5 py-1 rounded-xl text-[11px] font-extrabold uppercase border ${
-                    isSuspended ? "bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-500/30" :
-                    client.is_online ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/30" : "bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border-slate-200 dark:border-slate-700"
-                  }`}>
-                    {isSuspended ? "🔴 İptal Edildi" : client.is_online ? "🟢 Online" : "⚫ Offline"}
-                  </span>
-                </div>
+                    <div className="flex flex-col items-end gap-1.5 shrink-0">
+                      <span className={`px-2.5 py-1 rounded-full text-[10px] font-extrabold uppercase tracking-wide flex items-center gap-1.5 border ${
+                        isSuspended
+                          ? "bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-500/30"
+                          : client.is_online
+                          ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/30"
+                          : "bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border-slate-200 dark:border-slate-700"
+                      }`}>
+                        <span className={`w-1.5 h-1.5 rounded-full ${
+                          isSuspended ? "bg-rose-500" : client.is_online ? "bg-emerald-500 animate-pulse" : "bg-slate-400"
+                        }`} />
+                        {isSuspended ? "Askıda" : client.is_online ? "Çevrimiçi" : "Çevrimdışı"}
+                      </span>
 
-                {/* Server Specs, Tenant Serial, System Serial & Hardware ID */}
-                <div className="p-3.5 bg-slate-50 dark:bg-slate-950 border border-slate-200/80 dark:border-slate-800/80 rounded-2xl space-y-2 text-xs font-mono">
-                  <div className="flex items-center justify-between text-slate-500 dark:text-slate-400">
-                    <span className="flex items-center gap-1.5 text-indigo-600 dark:text-indigo-400 font-sans font-bold">
-                      <Shield size={13} /> Tenant Seri No:
-                    </span>
-                    <span className="font-extrabold text-indigo-700 dark:text-indigo-300 flex items-center gap-1">
-                      {client.tenant_serial_number || "-"}
-                      {client.tenant_serial_number && (
-                        <button
-                          onClick={() => handleCopyText(client.tenant_serial_number, `tsn-${client.id}`)}
-                          className="hover:text-rose-600 dark:hover:text-rose-400 ml-1 cursor-pointer"
-                          title="Tenant Seri No Kopyala"
-                        >
-                          {copiedKey === `tsn-${client.id}` ? <Check size={12} className="text-emerald-500" /> : <Copy size={12} />}
-                        </button>
-                      )}
-                    </span>
-                  </div>
-
-                  <div className="flex items-center justify-between text-slate-500 dark:text-slate-400">
-                    <span className="flex items-center gap-1.5 text-slate-600 dark:text-slate-400 font-sans font-bold">
-                      <Server size={13} /> Sistem Seri No:
-                    </span>
-                    <span className="font-extrabold text-slate-900 dark:text-white flex items-center gap-1">
-                      {client.system_serial_number || "-"}
-                      {client.system_serial_number && client.system_serial_number !== "Henüz Bağlanmadı" && (
-                        <button
-                          onClick={() => handleCopyText(client.system_serial_number, `ssn-${client.id}`)}
-                          className="hover:text-rose-600 dark:hover:text-rose-400 ml-1 cursor-pointer"
-                          title="Sistem Seri No Kopyala"
-                        >
-                          {copiedKey === `ssn-${client.id}` ? <Check size={12} className="text-emerald-500" /> : <Copy size={12} />}
-                        </button>
-                      )}
-                    </span>
-                  </div>
-
-                  <div className="flex items-center justify-between text-slate-500 dark:text-slate-400">
-                    <span className="flex items-center gap-1.5 text-slate-600 dark:text-slate-400 font-sans font-bold">
-                      <Cpu size={13} /> Donanım ID:
-                    </span>
-                    <span className="font-extrabold text-slate-900 dark:text-white flex items-center gap-1">
-                      {client.hardware_id}
-                      <button 
-                        onClick={() => handleCopyText(client.hardware_id, `hw-${client.id}`)}
-                        className="hover:text-rose-600 dark:hover:text-rose-400 ml-1"
-                        title="Donanım ID Kopyala"
-                      >
-                        {copiedKey === `hw-${client.id}` ? <Check size={12} className="text-emerald-500" /> : <Copy size={12} />}
-                      </button>
-                    </span>
-                  </div>
-
-                  <div className="flex items-center justify-between text-slate-500 dark:text-slate-400">
-                    <span className="flex items-center gap-1.5 text-slate-600 dark:text-slate-400 font-sans font-bold">
-                      <Globe size={13} /> IP / Sürüm:
-                    </span>
-                    <span className="text-slate-700 dark:text-slate-300 font-semibold">
-                      {client.ip_address || "127.0.0.1"} ({client.software_version || "v2.4.8"})
-                    </span>
-                  </div>
-
-                  {client.connect_subdomain && (
-                    <div className="flex flex-col gap-1.5 pt-2 border-t border-slate-200/60 dark:border-slate-800/60">
-                      <div className="flex items-center justify-between text-slate-500 dark:text-slate-400">
-                        <span className="flex items-center gap-1.5 text-emerald-600 dark:text-emerald-400 font-sans font-bold">
-                          <Globe size={13} /> Nornia Connect:
+                      {client.days_left !== null && client.days_left !== undefined && (
+                        <span className={`text-[10px] font-extrabold px-2 py-0.5 rounded-md ${
+                          client.days_left <= 7
+                            ? "bg-rose-500/10 text-rose-600 dark:text-rose-400"
+                            : client.days_left <= 30
+                            ? "bg-amber-500/10 text-amber-600 dark:text-amber-400"
+                            : "text-slate-500 dark:text-slate-400"
+                        }`}>
+                          {client.license_expires_at === "unlimited" ? "♾️ Limitsiz Lisans" : `${client.days_left} gün kaldı`}
                         </span>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* 2. Nornia Connect & Zero-Port SSH Control Bar */}
+                  {client.connect_subdomain && (
+                    <div className="p-3 rounded-xl bg-slate-50/90 dark:bg-slate-950/70 border border-slate-200/80 dark:border-slate-800/80 flex flex-wrap items-center justify-between gap-2">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <span className={`w-2 h-2 rounded-full shrink-0 ${client.tunnel_connected ? "bg-emerald-500" : "bg-slate-400"}`} />
                         <a
                           href={`https://${client.connect_subdomain}.nornia.com.tr`}
                           target="_blank"
                           rel="noopener noreferrer"
-                          className="font-extrabold text-emerald-600 dark:text-emerald-400 hover:underline flex items-center gap-1.5"
+                          className="font-mono text-xs font-extrabold text-emerald-600 dark:text-emerald-400 hover:underline flex items-center gap-1 truncate"
                           title="Nornia Connect Tüneli Üzerinden Santral Arayüzünü Aç"
                         >
-                          <span>{client.connect_subdomain}.nornia.com.tr</span>
-                          <ExternalLink size={11} />
+                          <span>https://{client.connect_subdomain}.nornia.com.tr</span>
+                          <ExternalLink size={12} />
                         </a>
-                      </div>
-                      <div className="flex items-center justify-between gap-1.5 flex-wrap">
-                        <span
-                          className={`px-2 py-0.5 rounded-md text-[10px] font-sans font-extrabold uppercase ${
-                            client.tunnel_connected
-                              ? "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400"
-                              : "bg-slate-200 dark:bg-slate-800 text-slate-500"
-                          }`}
-                        >
-                          {client.tunnel_connected ? "● TÜNEL AKTİF" : "○ TÜNEL BAĞLI DEĞİL"}
+                        <span className={`px-2 py-0.5 rounded-md text-[10px] font-extrabold uppercase ${
+                          client.tunnel_connected
+                            ? "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400"
+                            : "bg-slate-200 dark:bg-slate-800 text-slate-500"
+                        }`}>
+                          {client.tunnel_connected ? "Tünel Aktif" : "Bağlı Değil"}
                         </span>
-                        <div className="flex items-center gap-1 flex-wrap">
+                      </div>
+
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <button
+                          type="button"
+                          disabled={togglingSshId === client.id}
+                          onClick={() => handleToggleClientSsh(client)}
+                          className={`px-2.5 py-1 rounded-lg border text-[11px] font-extrabold flex items-center gap-1 transition-colors cursor-pointer ${
+                            client.remote_ssh_enabled !== false
+                              ? "bg-emerald-500/15 hover:bg-rose-600 text-emerald-700 dark:text-emerald-300 hover:text-white border-emerald-500/30"
+                              : "bg-rose-500/15 hover:bg-emerald-600 text-rose-700 dark:text-rose-300 hover:text-white border-rose-500/30"
+                          }`}
+                          title={
+                            client.remote_ssh_enabled !== false
+                              ? "Santralde SSH Erişimi AÇIK — Kapatmak için tıklayın"
+                              : "Santralde SSH Erişimi KAPALI — Açmak için tıklayın"
+                          }
+                        >
+                          <Power size={11} />
+                          <span>
+                            {togglingSshId === client.id
+                              ? "..."
+                              : client.remote_ssh_enabled !== false
+                              ? "SSH Açık"
+                              : "SSH Kapalı"}
+                          </span>
+                        </button>
+
+                        {client.remote_ssh_enabled !== false && (
                           <button
                             type="button"
-                            disabled={togglingSshId === client.id}
-                            onClick={() => handleToggleClientSsh(client)}
-                            className={`px-2 py-1 rounded-lg border text-[10px] font-sans font-extrabold flex items-center gap-1 transition-colors cursor-pointer ${
-                              client.remote_ssh_enabled !== false
-                                ? "bg-emerald-500/15 hover:bg-rose-600 text-emerald-700 dark:text-emerald-300 hover:text-white border-emerald-500/30"
-                                : "bg-rose-500/15 hover:bg-emerald-600 text-rose-700 dark:text-rose-300 hover:text-white border-rose-500/30"
-                            }`}
-                            title={
-                              client.remote_ssh_enabled !== false
-                                ? "Santralde SSH Erişimi AÇIK — Kapatmak için tıklayın"
-                                : "Santralde SSH Erişimi KAPALI — Açmak için tıklayın"
-                            }
+                            onClick={() => openSshModal(client)}
+                            className="px-2.5 py-1 rounded-lg bg-indigo-500/15 hover:bg-indigo-600 text-indigo-700 dark:text-indigo-300 hover:text-white border border-indigo-500/30 text-[11px] font-extrabold flex items-center gap-1 transition-colors cursor-pointer"
+                            title="Nornia Connect Sıfır-Port Web SSH Terminali Aç"
                           >
-                            <Power size={10} />
-                            <span>
-                              {togglingSshId === client.id
-                                ? "..."
-                                : client.remote_ssh_enabled !== false
-                                ? "SSH Açık"
-                                : "SSH Kapalı"}
-                            </span>
+                            <Terminal size={11} />
+                            <span>Web SSH</span>
                           </button>
-                          {client.remote_ssh_enabled !== false && (
-                            <button
-                              type="button"
-                              onClick={() => openSshModal(client)}
-                              className="px-2 py-1 rounded-lg bg-indigo-500/15 hover:bg-indigo-600 text-indigo-700 dark:text-indigo-300 hover:text-white border border-indigo-500/30 text-[10px] font-sans font-extrabold flex items-center gap-1 transition-colors cursor-pointer"
-                              title="Nornia Connect Sıfır-Port Web SSH Terminali Aç"
-                            >
-                              <Terminal size={11} />
-                              <span>Web SSH</span>
-                            </button>
-                          )}
-                          <button
-                            type="button"
-                            onClick={() => setUnlockConfirmClient(client)}
-                            className="px-2 py-1 rounded-lg bg-amber-500/15 hover:bg-amber-500 text-amber-700 dark:text-amber-300 hover:text-white border border-amber-500/30 text-[10px] font-sans font-extrabold flex items-center gap-1 transition-colors cursor-pointer"
-                            title="Santraldeki Nornia Connect Alt Alan Adı Kilidini Serbest Bırak"
-                          >
-                            <Unlock size={11} />
-                            <span>Kilidi Çöz</span>
-                          </button>
+                        )}
+
+                        <button
+                          type="button"
+                          onClick={() => setUnlockConfirmClient(client)}
+                          className="px-2.5 py-1 rounded-lg bg-amber-500/15 hover:bg-amber-500 text-amber-700 dark:text-amber-300 hover:text-white border border-amber-500/30 text-[11px] font-extrabold flex items-center gap-1 transition-colors cursor-pointer"
+                          title="Santraldeki Nornia Connect Alt Alan Adı Kilidini Serbest Bırak"
+                        >
+                          <Unlock size={11} />
+                          <span>Kilidi Çöz</span>
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* 3. Compact 4-Column Telemetry & Quota Strip */}
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+                    <div className="p-2.5 rounded-xl bg-slate-50/80 dark:bg-slate-950/50 border border-slate-200/70 dark:border-slate-800/70">
+                      <div className="text-[10px] font-bold text-slate-400 uppercase">Çağrı Kanalı</div>
+                      <div className="text-xs font-extrabold font-mono text-blue-600 dark:text-blue-400 mt-0.5">
+                        {client.custom_quotas?.max_concurrent_calls ?? 4} Kanal
+                        <span className="text-[10px] text-amber-600 dark:text-amber-400 ml-1">
+                          (+{client.custom_quotas?.tolerance_concurrent_calls ?? 0})
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="p-2.5 rounded-xl bg-slate-50/80 dark:bg-slate-950/50 border border-slate-200/70 dark:border-slate-800/70">
+                      <div className="text-[10px] font-bold text-slate-400 uppercase">Canlı Görüşme</div>
+                      <div className="text-xs font-extrabold font-mono text-slate-800 dark:text-slate-200 mt-0.5 flex items-center gap-1.5">
+                        <PhoneCall size={12} className="text-emerald-500" />
+                        <span>{client.active_calls_count || 0} Aktif</span>
+                      </div>
+                    </div>
+
+                    <div className="p-2.5 rounded-xl bg-slate-50/80 dark:bg-slate-950/50 border border-slate-200/70 dark:border-slate-800/70">
+                      <div className="flex items-center justify-between text-[10px] font-bold text-slate-400 uppercase">
+                        <span>CPU / RAM</span>
+                        <span className="font-mono text-slate-700 dark:text-slate-300">
+                          {client.cpu_usage_percent || 0}% / {client.ram_usage_percent || 0}%
+                        </span>
+                      </div>
+                      <div className="w-full h-1.5 bg-slate-200 dark:bg-slate-800 rounded-full overflow-hidden mt-1.5 flex">
+                        <div
+                          className="bg-indigo-500 h-full transition-all"
+                          style={{ width: `${Math.min(100, client.cpu_usage_percent || 4)}%` }}
+                        />
+                      </div>
+                    </div>
+
+                    <div className="p-2.5 rounded-xl bg-slate-50/80 dark:bg-slate-950/50 border border-slate-200/70 dark:border-slate-800/70">
+                      <div className="text-[10px] font-bold text-slate-400 uppercase">AI Motor Yetkisi</div>
+                      <div className="text-[11px] font-extrabold text-purple-600 dark:text-purple-400 mt-0.5 flex items-center gap-1">
+                        <Sparkles size={11} />
+                        <span>{sttCount} STT • {ttsCount} TTS • {llmCount} LLM</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* 4. Collapsible Technical Details Drawer (Serials, Full License Key, AI Provider Badges) */}
+                  {isExpanded && (
+                    <div className="p-3.5 rounded-xl bg-slate-50 dark:bg-slate-950/80 border border-slate-200/80 dark:border-slate-800 space-y-3 text-xs animate-fadeIn">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 font-mono text-[11px]">
+                        <div className="flex items-center justify-between p-2 rounded-lg bg-white dark:bg-slate-900 border border-slate-200/70 dark:border-slate-800">
+                          <span className="text-slate-500 font-sans font-bold">Tenant Seri No:</span>
+                          <span className="font-extrabold text-indigo-600 dark:text-indigo-400 flex items-center gap-1">
+                            {client.tenant_serial_number || "-"}
+                            {client.tenant_serial_number && (
+                              <button
+                                onClick={() => handleCopyText(client.tenant_serial_number, `tsn-${client.id}`)}
+                                className="text-slate-400 hover:text-indigo-500 cursor-pointer"
+                              >
+                                {copiedKey === `tsn-${client.id}` ? <Check size={11} className="text-emerald-500" /> : <Copy size={11} />}
+                              </button>
+                            )}
+                          </span>
+                        </div>
+
+                        <div className="flex items-center justify-between p-2 rounded-lg bg-white dark:bg-slate-900 border border-slate-200/70 dark:border-slate-800">
+                          <span className="text-slate-500 font-sans font-bold">Sistem Seri No:</span>
+                          <span className="font-extrabold text-slate-800 dark:text-slate-200 flex items-center gap-1">
+                            {client.system_serial_number || "-"}
+                            {client.system_serial_number && client.system_serial_number !== "Henüz Bağlanmadı" && (
+                              <button
+                                onClick={() => handleCopyText(client.system_serial_number, `ssn-${client.id}`)}
+                                className="text-slate-400 hover:text-indigo-500 cursor-pointer"
+                              >
+                                {copiedKey === `ssn-${client.id}` ? <Check size={11} className="text-emerald-500" /> : <Copy size={11} />}
+                              </button>
+                            )}
+                          </span>
                         </div>
                       </div>
+
+                      {/* AI Providers Breakdown */}
+                      <div className="grid grid-cols-3 gap-2 pt-1">
+                        <div>
+                          <div className="text-[9px] font-extrabold text-slate-400 uppercase mb-1">İzinli STT</div>
+                          <div className="flex flex-wrap gap-1">
+                            {(client.custom_quotas?.allowed_stt_providers || ["google", "deepgram", "openai", "elevenlabs"]).map((p) => (
+                              <span key={p} className="px-1.5 py-0.5 rounded text-[9px] font-extrabold uppercase bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border border-indigo-500/20">{p}</span>
+                            ))}
+                          </div>
+                        </div>
+                        <div>
+                          <div className="text-[9px] font-extrabold text-slate-400 uppercase mb-1">İzinli TTS</div>
+                          <div className="flex flex-wrap gap-1">
+                            {(client.custom_quotas?.allowed_tts_providers || ["google", "elevenlabs", "openai"]).map((p) => (
+                              <span key={p} className="px-1.5 py-0.5 rounded text-[9px] font-extrabold uppercase bg-purple-500/10 text-purple-600 dark:text-purple-400 border border-purple-500/20">{p}</span>
+                            ))}
+                          </div>
+                        </div>
+                        <div>
+                          <div className="text-[9px] font-extrabold text-slate-400 uppercase mb-1">İzinli LLM</div>
+                          <div className="flex flex-wrap gap-1">
+                            {(client.custom_quotas?.allowed_llm_providers || ["google", "elevenlabs", "openai", "anthropic", "groq"]).map((p) => (
+                              <span key={p} className="px-1.5 py-0.5 rounded text-[9px] font-extrabold uppercase bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">{p}</span>
+                            ))}
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Full License Key Box */}
+                      {client.current_license_key && (
+                        <div className="p-2 bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-lg flex items-center justify-between text-[11px] font-mono gap-2">
+                          <span className="truncate text-slate-700 dark:text-slate-300 font-bold" title={client.current_license_key}>
+                            {client.current_license_key}
+                          </span>
+                          <button
+                            onClick={() => handleCopyText(client.current_license_key, `key-${client.id}`)}
+                            className="px-2 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:text-indigo-500 shrink-0 cursor-pointer flex items-center gap-1 font-sans font-bold text-[10px]"
+                          >
+                            {copiedKey === `key-${client.id}` ? <Check size={12} className="text-emerald-500" /> : <Copy size={12} />}
+                            <span>{copiedKey === `key-${client.id}` ? "Kopyalandı" : "Kopyala"}</span>
+                          </button>
+                        </div>
+                      )}
                     </div>
                   )}
-                </div>
 
-                {/* Live Telemetry Health Bar */}
-                <div className="grid grid-cols-3 gap-2 text-center p-3 bg-slate-50 dark:bg-slate-950/60 border border-slate-200/80 dark:border-slate-800/40 rounded-2xl">
-                  <div>
-                    <div className="text-[10px] font-bold text-slate-500 uppercase">CPU Kullanımı</div>
-                    <div className="text-xs font-extrabold font-mono text-slate-800 dark:text-slate-200">{client.cpu_usage_percent || 0}%</div>
-                  </div>
-                  <div>
-                    <div className="text-[10px] font-bold text-slate-500 uppercase">RAM Kullanımı</div>
-                    <div className="text-xs font-extrabold font-mono text-slate-800 dark:text-slate-200">{client.ram_usage_percent || 0}%</div>
-                  </div>
-                  <div>
-                    <div className="text-[10px] font-bold text-slate-500 uppercase">Canlı Çağrı</div>
-                    <div className="text-xs font-extrabold font-mono text-blue-600 dark:text-blue-400">{client.active_calls_count || 0}</div>
-                  </div>
-                </div>
+                  {/* 5. Clean Card Footer Bar */}
+                  <div className="flex items-center justify-between gap-2 pt-2 border-t border-slate-200/70 dark:border-slate-800/70">
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => toggleExpandClient(client.id)}
+                        className="px-2.5 py-1.5 rounded-xl bg-slate-100 dark:bg-slate-800/80 hover:bg-slate-200/80 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300 text-[11px] font-bold flex items-center gap-1 transition-colors cursor-pointer"
+                      >
+                        {isExpanded ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
+                        <span>{isExpanded ? "Detayları Gizle" : "Teknik Detay & Seri No"}</span>
+                      </button>
 
-                {/* Licensed Channel & AI Engines Summary on Card */}
-                <div className="p-3 bg-slate-50 dark:bg-slate-950/60 border border-slate-200/80 dark:border-slate-800/60 rounded-2xl space-y-2 text-[11px]">
-                  <div className="flex items-center justify-between flex-wrap gap-1.5">
-                    <span className="font-bold text-slate-600 dark:text-slate-400 flex items-center gap-1.5">
-                      <PhoneCall size={13} className="text-blue-500" />
-                      Eş Zamanlı Çağrı Kanalı:
-                    </span>
+                      {client.current_license_key && (
+                        <button
+                          type="button"
+                          onClick={() => handleCopyText(client.current_license_key, `fastkey-${client.id}`)}
+                          className="px-2.5 py-1.5 rounded-xl border border-slate-200 dark:border-slate-800 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-400 text-[11px] font-bold flex items-center gap-1 transition-colors cursor-pointer"
+                          title="Mevcut Lisans Anahtarını Kopyala"
+                        >
+                          {copiedKey === `fastkey-${client.id}` ? <Check size={12} className="text-emerald-500" /> : <Key size={12} />}
+                          <span>{copiedKey === `fastkey-${client.id}` ? "Key Kopyalandı" : "Key Kopyala"}</span>
+                        </button>
+                      )}
+                    </div>
+
                     <div className="flex items-center gap-1.5">
-                      <span className="font-mono font-extrabold text-blue-600 dark:text-blue-400 bg-blue-500/10 border border-blue-500/20 px-2 py-0.5 rounded-lg">
-                        {client.custom_quotas?.max_concurrent_calls ?? 4} Kanal
-                      </span>
-                      <span className={`font-mono font-extrabold px-2 py-0.5 rounded-lg border ${
-                        (client.custom_quotas?.tolerance_concurrent_calls ?? 0) > 0
-                          ? "text-amber-600 dark:text-amber-400 bg-amber-500/10 border-amber-500/25"
-                          : "text-slate-500 dark:text-slate-400 bg-slate-200/60 dark:bg-slate-800 border-slate-300 dark:border-slate-700"
-                      }`} title="Ana kanal limiti dolduğunda çağrıyı durdurmadan devreye girecek tolerans kanal adeti">
-                        +{client.custom_quotas?.tolerance_concurrent_calls ?? 0} Tolerans
-                      </span>
-                    </div>
-                  </div>
-                  <div className="grid grid-cols-3 gap-1.5 pt-1 border-t border-slate-200/60 dark:border-slate-800/60">
-                    <div>
-                      <div className="text-[9px] font-extrabold text-slate-400 uppercase mb-0.5">STT</div>
-                      <div className="flex flex-wrap gap-1">
-                        {(client.custom_quotas?.allowed_stt_providers || ["google", "deepgram", "openai", "elevenlabs"]).map((p) => (
-                          <span key={p} className="px-1.5 py-0.5 rounded text-[9px] font-extrabold uppercase bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border border-indigo-500/20">{p}</span>
-                        ))}
-                      </div>
-                    </div>
-                    <div>
-                      <div className="text-[9px] font-extrabold text-slate-400 uppercase mb-0.5">TTS</div>
-                      <div className="flex flex-wrap gap-1">
-                        {(client.custom_quotas?.allowed_tts_providers || ["google", "elevenlabs", "openai"]).map((p) => (
-                          <span key={p} className="px-1.5 py-0.5 rounded text-[9px] font-extrabold uppercase bg-purple-500/10 text-purple-600 dark:text-purple-400 border border-purple-500/20">{p}</span>
-                        ))}
-                      </div>
-                    </div>
-                    <div>
-                      <div className="text-[9px] font-extrabold text-slate-400 uppercase mb-0.5">LLM</div>
-                      <div className="flex flex-wrap gap-1">
-                        {(client.custom_quotas?.allowed_llm_providers || ["google", "elevenlabs", "openai", "anthropic", "groq"]).map((p) => (
-                          <span key={p} className="px-1.5 py-0.5 rounded text-[9px] font-extrabold uppercase bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">{p}</span>
-                        ))}
-                      </div>
+                      <button
+                        onClick={() => openKeyGenModal(client)}
+                        className="py-1.5 px-3 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white transition-all text-xs font-extrabold flex items-center gap-1.5 cursor-pointer shadow-xs"
+                        title="Müşteri lisans kotalarını düzenle veya yeni anahtar üret"
+                      >
+                        <Edit3 size={13} />
+                        <span>Lisans &amp; Kota Yönetimi</span>
+                      </button>
+
+                      <button
+                        onClick={() => handleToggleSuspend(client)}
+                        className={`p-1.5 rounded-xl border transition-colors cursor-pointer ${
+                          isSuspended
+                            ? "bg-emerald-50 dark:bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 border-emerald-200 dark:border-emerald-500/30 hover:bg-emerald-100"
+                            : "bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border-slate-200 dark:border-slate-700 hover:bg-rose-50 dark:hover:bg-rose-900/40 hover:text-rose-600 dark:hover:text-rose-400"
+                        }`}
+                        title={isSuspended ? "Uzaktan Aktifleştir" : "Uzaktan Durdur / Askıya Al"}
+                      >
+                        <Power size={15} />
+                      </button>
+
+                      <button
+                        onClick={() => setDeleteConfirmClient(client)}
+                        className="p-1.5 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:bg-rose-50 dark:hover:bg-rose-900/40 hover:text-rose-600 dark:hover:text-rose-400 border border-slate-200 dark:border-slate-700 transition-colors cursor-pointer"
+                        title="Müşteriyi Sil"
+                      >
+                        <Trash2 size={15} />
+                      </button>
                     </div>
                   </div>
                 </div>
-
-                {/* License Expiration Info */}
-                <div className="flex items-center justify-between text-xs pt-1 border-t border-slate-200/80 dark:border-slate-800/80">
-                  <div className="space-y-0.5">
-                    <div className="text-[11px] font-bold text-slate-500 dark:text-slate-400">Lisans Bitiş Tarihi</div>
-                    <div className="font-mono font-extrabold text-slate-900 dark:text-white">
-                      {client.license_expires_at === "unlimited" ? "♾️ Limitsiz" : (client.license_expires_at || "Belirtilmedi")}
-                    </div>
-                  </div>
-
-                  {client.days_left !== null && client.days_left !== undefined && (
-                    <div className={`text-xs font-extrabold px-2.5 py-1 rounded-xl ${
-                      client.days_left <= 7 ? "bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/30 animate-pulse" :
-                      client.days_left <= 30 ? "bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/30" : "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
-                    }`}>
-                      {client.days_left} gün kaldı
-                    </div>
-                  )}
-                </div>
-
-                {/* License Key Box */}
-                {client.current_license_key && (
-                  <div className="p-2.5 bg-slate-50 dark:bg-slate-950 border border-slate-200/80 dark:border-slate-800 rounded-xl flex items-center justify-between text-[11px] font-mono gap-2">
-                    <span className="truncate text-slate-700 dark:text-slate-300 font-bold max-w-[210px]" title={client.current_license_key}>
-                      {client.current_license_key.length > 32 
-                        ? `${client.current_license_key.substring(0, 20)}...${client.current_license_key.slice(-8)}` 
-                        : client.current_license_key}
-                    </span>
-                    <button
-                      onClick={() => handleCopyText(client.current_license_key, `key-${client.id}`)}
-                      className="p-1 rounded text-slate-500 hover:text-slate-800 dark:hover:text-white hover:bg-slate-200 dark:hover:bg-slate-800 shrink-0 cursor-pointer"
-                      title="Lisans Key Kopyala"
-                    >
-                      {copiedKey === `key-${client.id}` ? <Check size={14} className="text-emerald-500" /> : <Copy size={14} />}
-                    </button>
-                  </div>
-                )}
-
-                {/* Action Toolbar */}
-                <div className="flex items-center justify-between gap-2 pt-2 border-t border-slate-200/80 dark:border-slate-800/60">
-                  <button
-                    onClick={() => openKeyGenModal(client)}
-                    className="flex-1 py-2 px-3 rounded-xl bg-rose-50 dark:bg-rose-600/20 hover:bg-rose-600 text-rose-600 dark:text-rose-400 hover:text-white border border-rose-200 dark:border-rose-500/30 transition-all text-xs font-extrabold flex items-center justify-center gap-1.5 cursor-pointer shadow-xs dark:shadow-none"
-                    title="Müşteri lisans kotalarını düzenle veya yeni anahtar üret"
-                  >
-                    <Edit3 size={13} />
-                    <span>Lisans & Kotaları Düzenle / Key Üret</span>
-                  </button>
-
-                  <button
-                    onClick={() => handleToggleSuspend(client)}
-                    className={`p-2 rounded-xl border transition-colors cursor-pointer ${
-                      isSuspended ? "bg-emerald-50 dark:bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 border-emerald-200 dark:border-emerald-500/30 hover:bg-emerald-100" : "bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border-slate-200 dark:border-slate-700 hover:bg-rose-50 dark:hover:bg-rose-900/40 hover:text-rose-600 dark:hover:text-rose-400"
-                    }`}
-                    title={isSuspended ? "Uzaktan Aktifleştir" : "Uzaktan Durdur / Suspend"}
-                  >
-                    <Power size={15} />
-                  </button>
-
-                  <button
-                    onClick={() => handleDeleteClient(client.id)}
-                    className="p-2 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:bg-rose-50 dark:hover:bg-rose-900/40 hover:text-rose-600 dark:hover:text-rose-400 border border-slate-200 dark:border-slate-700 transition-colors cursor-pointer"
-                    title="Müşteriyi Sil"
-                  >
-                    <Trash2 size={15} />
-                  </button>
-                </div>
-              </div>
-            );
-          })}
-        </div>
+              );
+            })}
+          </div>
+        )}
 
       </main>
 
@@ -1588,6 +1903,47 @@ export default function MasterDashboard() {
         </div>
       )}
 
+
+      {/* CUSTOM DELETE CONFIRMATION MODAL */}
+      {deleteConfirmClient && (
+        <div className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-sm flex items-center justify-center p-4 animate-fadeIn">
+          <div className="w-full max-w-md bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-6 space-y-5 shadow-2xl text-slate-900 dark:text-slate-100">
+            <div className="flex items-start gap-3.5">
+              <div className="p-3 rounded-2xl bg-rose-500/15 text-rose-600 dark:text-rose-400 border border-rose-500/30 shrink-0 animate-pulse">
+                <AlertTriangle size={22} />
+              </div>
+              <div>
+                <h3 className="text-base font-extrabold text-slate-900 dark:text-white">
+                  Müşteri &amp; Lisans Kaydını Sil
+                </h3>
+                <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 leading-relaxed">
+                  <strong>{deleteConfirmClient.company_name}</strong> (<code className="font-mono font-bold text-rose-600 dark:text-rose-400">{deleteConfirmClient.tenant_code}</code>) müşterisini ve bu kayda ait tüm lisans/telemetri geçmişini kalıcı olarak silmek istediğinize emin misiniz?
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end gap-3 pt-3 border-t border-slate-200 dark:border-slate-800">
+              <button
+                type="button"
+                disabled={deletingClient}
+                onClick={() => setDeleteConfirmClient(null)}
+                className="px-4 py-2 rounded-xl border border-slate-200 dark:border-slate-700 text-xs font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
+              >
+                Vazgeç
+              </button>
+              <button
+                type="button"
+                disabled={deletingClient}
+                onClick={confirmDeleteClient}
+                className="px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-xs font-extrabold flex items-center gap-1.5 cursor-pointer shadow-sm"
+              >
+                <Trash2 size={13} />
+                <span>{deletingClient ? "Siliniyor..." : "Sil"}</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* SUBDOMAIN UNLOCK CONFIRMATION MODAL */}
       {unlockConfirmClient && (

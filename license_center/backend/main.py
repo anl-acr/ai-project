@@ -25,7 +25,7 @@ from license_center.backend.license_generator import (
     generate_tenant_serial_number
 )
 
-app = FastAPI(title="AIDA Control Center - Central License & Fleet Management API", version="1.0.0")
+app = FastAPI(title="Nornia Cloud Center - Central License & Fleet Management API", version="2.5.0")
 
 app.add_middleware(
     CORSMiddleware,

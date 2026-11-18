@@ -1047,15 +1047,6 @@ async def web_ssh_interactive_terminal(websocket: WebSocket, subdomain: str):
     try:
         env = dict(os.environ)
         env["TERM"] = "xterm-256color"
-        def _hub_pty_child_setup():
-            os.setsid()
-            try:
-                import fcntl
-                import termios
-                fcntl.ioctl(0, termios.TIOCSCTTY, 0)
-            except Exception:
-                pass
-
         proc = subprocess.Popen(
             [
                 "ssh",
@@ -1072,7 +1063,7 @@ async def web_ssh_interactive_terminal(websocket: WebSocket, subdomain: str):
             stderr=slave_fd,
             close_fds=True,
             env=env,
-            preexec_fn=_hub_pty_child_setup,
+            preexec_fn=os.setsid,
         )
         os.close(slave_fd)
         slave_fd = -1

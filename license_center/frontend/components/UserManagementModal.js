@@ -266,7 +266,7 @@ export default function UserManagementModal({ isOpen, onClose, currentUser }) {
                   required
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  placeholder="Örn: ahmet@aidapanel.com"
+                  placeholder="Örn: ahmet@nornia.com.tr"
                   className="w-full px-3.5 py-2.5 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-2xl focus:outline-none focus:border-rose-500 text-slate-900 dark:text-white"
                 />
               </div>
