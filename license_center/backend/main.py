@@ -76,6 +76,15 @@ async def on_startup():
             await db.commit()
             print("[AIDA License Master] Default admin user created (admin / admin123).")
 
+        # Ensure Nginx default_server and Let's Encrypt certificates cover all registered connect_subdomains
+        try:
+            from license_center.backend.connect_hub import ensure_subdomain_ssl_and_nginx
+            res_subs = await db.execute(select(ClientServer.connect_subdomain))
+            first_sub = next((s for (s,) in res_subs.all() if s), "app")
+            asyncio.create_task(ensure_subdomain_ssl_and_nginx(first_sub))
+        except Exception as e_ssl:
+            print(f"[AIDA License Master] Startup SSL sync warning: {e_ssl}")
+
 # Pydantic Schemas
 class ClientCreateSchema(BaseModel):
     company_name: str
@@ -512,7 +521,7 @@ async def delete_client(client_id: int, request: Request, db: AsyncSession = Dep
 
 @app.post("/api/v1/clients/{client_id}/unlock-subdomain")
 async def unlock_client_subdomain(client_id: int, request: Request, db: AsyncSession = Depends(get_central_db)):
-    """Unlocks only the Nornia Connect subdomain for a client without deleting the client record."""
+    """Unlocks the Nornia Connect subdomain across all tenant records sharing this server's hardware_id."""
     from license_center.backend.connect_hub import notify_and_unbind_pbx_tunnel
     res = await db.execute(select(ClientServer).where(ClientServer.id == client_id))
     client = res.scalars().first()
@@ -522,13 +531,21 @@ async def unlock_client_subdomain(client_id: int, request: Request, db: AsyncSes
     performed_by = request.headers.get("X-User-Name", "admin")
     old_sub = client.connect_subdomain
     hw_id = client.hardware_id
-    client.connect_subdomain = None
-    client.domain_name = None
+
+    if hw_id and hw_id not in ("UNBOUND", "Bilinmiyor", "HW-UNKNOWN"):
+        res_all = await db.execute(select(ClientServer).where(func.upper(ClientServer.hardware_id) == hw_id.upper()))
+        for sibling in res_all.scalars().all():
+            sibling.connect_subdomain = None
+            sibling.domain_name = None
+    else:
+        client.connect_subdomain = None
+        client.domain_name = None
+
     await db.commit()
 
     await notify_and_unbind_pbx_tunnel(hardware_id=hw_id, subdomain=old_sub)
-    await log_master_action(db, performed_by, "SUBDOMAIN_UNLOCK", f"Nornia Connect Alt Alan Adı Kilidi Açıldı: {client.company_name} (Eski Subdomain: {old_sub})", request.client.host if request.client else None)
-    return {"success": True, "message": f"'{old_sub}' alt alan adı kilidi kaldırıldı. Santral üzerinden yeni alt alan adı tanımlanabilir."}
+    await log_master_action(db, performed_by, "SUBDOMAIN_UNLOCK", f"Nornia Connect Alt Alan Adı Kilidi Açıldı: {client.company_name} (Donanım: {hw_id}, Eski Subdomain: {old_sub})", request.client.host if request.client else None)
+    return {"success": True, "message": f"'{old_sub}.nornia.com.tr' alt alan adı kilidi kaldırıldı ve serbest bırakıldı. Santral üzerinden yeni alt alan adı tanımlanabilir."}
 
 # --------------------------------------------------------------------------
 # License Key Generator Studio

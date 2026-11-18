@@ -2,10 +2,12 @@ import asyncio
 import base64
 import datetime
 import json
+import os
 import re
+import subprocess
 import time
 import uuid
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, HTTPException, Request, Response, WebSocket, WebSocketDisconnect
 from sqlalchemy import func, or_, select
@@ -201,6 +203,186 @@ async def check_subdomain_availability_db(subdomain: str, hardware_id: str = "")
     }
 
 
+_ssl_provision_lock = asyncio.Lock()
+
+
+async def ensure_subdomain_ssl_and_nginx(new_subdomain: str = ""):
+    """
+    Ensures Nginx routes *.nornia.com.tr as default_server on both 80 and 443 to 127.0.0.1:8050,
+    and automatically expands the Let's Encrypt certificate to include any newly registered subdomain (e.g. app.nornia.com.tr).
+    """
+    if not os.path.exists("/etc/nginx/sites-available"):
+        return
+
+    async with _ssl_provision_lock:
+        try:
+            os.makedirs("/var/www/html/.well-known/acme-challenge", exist_ok=True)
+            cert_dir = "/etc/letsencrypt/live/nornia.com.tr"
+            has_le_cert = os.path.exists(f"{cert_dir}/fullchain.pem") and os.path.exists(f"{cert_dir}/privkey.pem")
+            ssl_cert = f"{cert_dir}/fullchain.pem" if has_le_cert else "/etc/nginx/ssl/nornia_connect.crt"
+            ssl_key = f"{cert_dir}/privkey.pem" if has_le_cert else "/etc/nginx/ssl/nornia_connect.key"
+
+            nginx_conf = f"""map $http_upgrade $connection_upgrade {{
+    default upgrade;
+    ''      close;
+}}
+
+server {{
+    listen 80;
+    server_name panel.nornia.com.tr;
+
+    location /.well-known/acme-challenge/ {{
+        root /var/www/html;
+    }}
+
+    location / {{
+        return 301 https://$host$request_uri;
+    }}
+}}
+
+server {{
+    listen 443 ssl;
+    server_name panel.nornia.com.tr;
+
+    ssl_certificate {ssl_cert};
+    ssl_certificate_key {ssl_key};
+    ssl_protocols TLSv1.2 TLSv1.3;
+
+    client_max_body_size 50M;
+
+    location / {{
+        proxy_pass http://127.0.0.1:3050;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection $connection_upgrade;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }}
+}}
+
+server {{
+    listen 80 default_server;
+    server_name nornia.com.tr www.nornia.com.tr *.nornia.com.tr _;
+
+    location /.well-known/acme-challenge/ {{
+        root /var/www/html;
+    }}
+
+    location / {{
+        return 301 https://$host$request_uri;
+    }}
+}}
+
+server {{
+    listen 443 ssl default_server;
+    server_name nornia.com.tr www.nornia.com.tr *.nornia.com.tr _;
+
+    ssl_certificate {ssl_cert};
+    ssl_certificate_key {ssl_key};
+    ssl_protocols TLSv1.2 TLSv1.3;
+
+    client_max_body_size 100M;
+
+    location / {{
+        proxy_pass http://127.0.0.1:8050;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection $connection_upgrade;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header X-Forwarded-Host $http_host;
+        proxy_read_timeout 86400s;
+        proxy_send_timeout 86400s;
+    }}
+}}
+"""
+            cfg_path = "/etc/nginx/sites-available/nornia_connect_hub"
+            current_txt = ""
+            if os.path.exists(cfg_path):
+                with open(cfg_path, "r", encoding="utf-8") as f:
+                    current_txt = f.read()
+            if current_txt != nginx_conf:
+                with open(cfg_path, "w", encoding="utf-8") as f:
+                    f.write(nginx_conf)
+                await asyncio.to_thread(
+                    subprocess.run,
+                    ["systemctl", "reload", "nginx"],
+                    capture_output=True,
+                    timeout=5.0,
+                    check=False,
+                )
+
+            # Check if new_subdomain needs to be added to Let's Encrypt certificate
+            sub_clean = re.sub(r"[^a-z0-9-_]", "", str(new_subdomain or "").strip().lower())
+            if sub_clean and has_le_cert:
+                fqdn = f"{sub_clean}.nornia.com.tr"
+                chk_proc = await asyncio.to_thread(
+                    subprocess.run,
+                    ["openssl", "x509", "-in", ssl_cert, "-noout", "-text"],
+                    capture_output=True,
+                    text=True,
+                    timeout=4.0,
+                    check=False,
+                )
+                if f"DNS:{fqdn}" not in (chk_proc.stdout or ""):
+                    # Collect all active subdomains from DB + base domains
+                    domains = [
+                        "nornia.com.tr",
+                        "www.nornia.com.tr",
+                        "panel.nornia.com.tr",
+                        "connect.nornia.com.tr",
+                        "merkez.nornia.com.tr",
+                        fqdn,
+                    ]
+                    try:
+                        async with AsyncSessionLocal() as db:
+                            res_all = await db.execute(select(ClientServer.connect_subdomain))
+                            for (s_val,) in res_all.all():
+                                s_c = re.sub(r"[^a-z0-9-_]", "", str(s_val or "").strip().lower())
+                                if s_c and f"{s_c}.nornia.com.tr" not in domains:
+                                    domains.append(f"{s_c}.nornia.com.tr")
+                    except Exception:
+                        pass
+
+                    cmd = [
+                        "certbot",
+                        "certonly",
+                        "--webroot",
+                        "-w",
+                        "/var/www/html",
+                        "--non-interactive",
+                        "--agree-tos",
+                        "--expand",
+                        "--cert-name",
+                        "nornia.com.tr",
+                    ]
+                    for d in domains:
+                        cmd.extend(["-d", d])
+
+                    print(f"[Nornia Connect Hub] Yeni alt alan adı için SSL sertifikası genişletiliyor: {fqdn}")
+                    await asyncio.to_thread(
+                        subprocess.run,
+                        cmd,
+                        capture_output=True,
+                        text=True,
+                        timeout=45.0,
+                        check=False,
+                    )
+                    await asyncio.to_thread(
+                        subprocess.run,
+                        ["systemctl", "reload", "nginx"],
+                        capture_output=True,
+                        timeout=5.0,
+                        check=False,
+                    )
+        except Exception as exc:
+            print(f"[Nornia Connect Hub] Nginx/SSL otomatik güncelleme uyarısı: {exc}")
+
+
 async def bind_subdomain_to_hardware_db(
     subdomain: str,
     hardware_id: str,
@@ -219,7 +401,7 @@ async def bind_subdomain_to_hardware_db(
         return {"ok": True, "subdomain": sub, "locked": False}
 
     async with AsyncSessionLocal() as db:
-        # Find existing client by hardware_id or unbound tenant_code
+        # Find all existing client rows for this hardware_id (multi-tenant host) or unbound tenant_code
         res = await db.execute(
             select(ClientServer).where(
                 or_(
@@ -229,10 +411,10 @@ async def bind_subdomain_to_hardware_db(
                 )
             )
         )
-        client = res.scalars().first()
+        clients = res.scalars().all()
         sys_sn = compute_system_serial_number(hw)
 
-        if not client:
+        if not clients:
             t_sn = generate_tenant_serial_number(sub, 100)
             exp_date = "2027-12-31"
             gen_key = generate_signed_license_key(sub, exp_date, hw)
@@ -253,18 +435,20 @@ async def bind_subdomain_to_hardware_db(
             )
             db.add(client)
         else:
-            client.hardware_id = hw
-            client.system_serial_number = sys_sn
-            client.connect_subdomain = sub
-            client.domain_name = f"{sub}.nornia.com.tr"
-            if client_ip:
-                client.ip_address = client_ip
-            if version:
-                client.software_version = version
-            client.last_heartbeat_at = datetime.datetime.utcnow()
+            for client in clients:
+                client.hardware_id = hw
+                client.system_serial_number = sys_sn
+                client.connect_subdomain = sub
+                client.domain_name = f"{sub}.nornia.com.tr"
+                if client_ip:
+                    client.ip_address = client_ip
+                if version:
+                    client.software_version = version
+                client.last_heartbeat_at = datetime.datetime.utcnow()
 
         await db.commit()
 
+    asyncio.create_task(ensure_subdomain_ssl_and_nginx(sub))
     return {"ok": True, "subdomain": sub, "locked": True}
 
 

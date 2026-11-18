@@ -29,7 +29,9 @@ import {
   Sun,
   Moon,
   Bot,
-  GitMerge
+  GitMerge,
+  Unlock,
+  ExternalLink
 } from "lucide-react";
 
 import LoginModal from "../components/LoginModal";
@@ -80,6 +82,8 @@ export default function MasterDashboard() {
   // Modals state
   const [showUsersModal, setShowUsersModal] = useState(false);
   const [showAuditLogsModal, setShowAuditLogsModal] = useState(false);
+  const [unlockConfirmClient, setUnlockConfirmClient] = useState(null);
+  const [unlockingSubdomain, setUnlockingSubdomain] = useState(false);
 
   // Dark Mode State
   const [isDarkMode, setIsDarkMode] = useState(true);
@@ -695,24 +699,42 @@ export default function MasterDashboard() {
                   </div>
 
                   {client.connect_subdomain && (
-                    <div className="flex items-center justify-between text-slate-500 dark:text-slate-400 pt-1 border-t border-slate-200/60 dark:border-slate-800/60">
-                      <span className="flex items-center gap-1.5 text-emerald-600 dark:text-emerald-400 font-sans font-bold">
-                        <Globe size={13} /> Nornia Connect:
-                      </span>
-                      <a
-                        href={`https://${client.connect_subdomain}.nornia.com.tr`}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="font-extrabold text-emerald-600 dark:text-emerald-400 hover:underline flex items-center gap-1.5"
-                        title="Nornia Connect Tüneli Üzerinden Santral Arayüzünü Aç"
-                      >
-                        <span>{client.connect_subdomain}.nornia.com.tr</span>
-                        {client.tunnel_connected && (
-                          <span className="px-1.5 py-0.5 rounded bg-emerald-500/15 text-[9px] font-sans uppercase">
-                            TÜNEL AKTİF
-                          </span>
-                        )}
-                      </a>
+                    <div className="flex flex-col gap-1.5 pt-2 border-t border-slate-200/60 dark:border-slate-800/60">
+                      <div className="flex items-center justify-between text-slate-500 dark:text-slate-400">
+                        <span className="flex items-center gap-1.5 text-emerald-600 dark:text-emerald-400 font-sans font-bold">
+                          <Globe size={13} /> Nornia Connect:
+                        </span>
+                        <a
+                          href={`https://${client.connect_subdomain}.nornia.com.tr`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="font-extrabold text-emerald-600 dark:text-emerald-400 hover:underline flex items-center gap-1.5"
+                          title="Nornia Connect Tüneli Üzerinden Santral Arayüzünü Aç"
+                        >
+                          <span>{client.connect_subdomain}.nornia.com.tr</span>
+                          <ExternalLink size={11} />
+                        </a>
+                      </div>
+                      <div className="flex items-center justify-between gap-2">
+                        <span
+                          className={`px-2 py-0.5 rounded-md text-[10px] font-sans font-extrabold uppercase ${
+                            client.tunnel_connected
+                              ? "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400"
+                              : "bg-slate-200 dark:bg-slate-800 text-slate-500"
+                          }`}
+                        >
+                          {client.tunnel_connected ? "● TÜNEL AKTİF" : "○ TÜNEL BAĞLI DEĞİL"}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => setUnlockConfirmClient(client)}
+                          className="px-2.5 py-1 rounded-lg bg-amber-500/15 hover:bg-amber-500 text-amber-700 dark:text-amber-300 hover:text-white border border-amber-500/30 text-[10px] font-sans font-extrabold flex items-center gap-1 transition-colors cursor-pointer"
+                          title="Santraldeki Nornia Connect Alt Alan Adı Kilidini Serbest Bırak"
+                        >
+                          <Unlock size={11} />
+                          <span>İsim Kilidini Çöz / Serbest Bırak</span>
+                        </button>
+                      </div>
                     </div>
                   )}
                 </div>
@@ -1403,6 +1425,70 @@ export default function MasterDashboard() {
         </div>
       )}
 
+
+      {/* SUBDOMAIN UNLOCK CONFIRMATION MODAL */}
+      {unlockConfirmClient && (
+        <div className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-sm flex items-center justify-center p-4 animate-fadeIn">
+          <div className="w-full max-w-md bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-6 space-y-5 shadow-2xl text-slate-900 dark:text-slate-100">
+            <div className="flex items-start gap-3.5">
+              <div className="p-3 rounded-2xl bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30 shrink-0">
+                <Unlock size={22} />
+              </div>
+              <div>
+                <h3 className="text-base font-extrabold text-slate-900 dark:text-white">
+                  Nornia Connect İsim Kilidini Serbest Bırak
+                </h3>
+                <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 leading-relaxed">
+                  <strong>{unlockConfirmClient.company_name}</strong> ({unlockConfirmClient.hardware_id}) sunucusuna tanımlı{" "}
+                  <code className="font-mono font-bold text-amber-600 dark:text-amber-400">
+                    {unlockConfirmClient.connect_subdomain}.nornia.com.tr
+                  </code>{" "}
+                  alt alan adı kilidini kaldırmak istediğinize emin misiniz?
+                </p>
+                <p className="text-[11px] text-slate-400 mt-2">
+                  Bu işlem sonucunda mevcut tünel sonlandırılır, isim boşa çıkar ve santral arayüzünden yeni bir alt alan adı tanımlanmasına izin verilir.
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end gap-3 pt-3 border-t border-slate-200 dark:border-slate-800">
+              <button
+                type="button"
+                disabled={unlockingSubdomain}
+                onClick={() => setUnlockConfirmClient(null)}
+                className="px-4 py-2 rounded-xl border border-slate-200 dark:border-slate-700 text-xs font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
+              >
+                Vazgeç
+              </button>
+              <button
+                type="button"
+                disabled={unlockingSubdomain}
+                onClick={async () => {
+                  setUnlockingSubdomain(true);
+                  try {
+                    const res = await fetch(`${API_BASE}/api/v1/clients/${unlockConfirmClient.id}/unlock-subdomain`, {
+                      method: "POST",
+                      headers: { "X-User-Name": currentUser?.username || "admin" },
+                    });
+                    if (res.ok) {
+                      setUnlockConfirmClient(null);
+                      fetchData();
+                    }
+                  } catch (e) {
+                    console.error("Unlock subdomain error:", e);
+                  } finally {
+                    setUnlockingSubdomain(false);
+                  }
+                }}
+                className="px-4 py-2 rounded-xl bg-amber-600 hover:bg-amber-500 text-white text-xs font-extrabold flex items-center gap-1.5 cursor-pointer shadow-sm"
+              >
+                <Unlock size={13} />
+                <span>{unlockingSubdomain ? "Kilit Açılıyor..." : "Kilidi Aç & Serbest Bırak"}</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* USER MANAGEMENT MODAL */}
       <UserManagementModal
