@@ -487,7 +487,10 @@ export default function TenantManagementPanel({ backendHost }) {
         setErrorMsg(data.detail || "İşlem gerçekleştirilemedi.");
       } else {
         setShowModal(false);
-        fetchTenants();
+        await fetchTenants();
+        if (typeof window !== "undefined") {
+          window.dispatchEvent(new CustomEvent("tenantChanged", { detail: data }));
+        }
       }
     } catch (err) {
       setErrorMsg("Sunucuyla iletişim kurulamadı.");

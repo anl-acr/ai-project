@@ -32,6 +32,14 @@ export default function TenantSwitcher({ backendHost, currentUser }) {
       setActiveTenant(matched);
     }
     fetchTenants();
+
+    const handleExternalTenantUpdate = () => {
+      fetchTenants();
+    };
+    if (typeof window !== "undefined") {
+      window.addEventListener("tenantChanged", handleExternalTenantUpdate);
+      return () => window.removeEventListener("tenantChanged", handleExternalTenantUpdate);
+    }
   }, []);
 
   // Lock tenant for non-admin users based on currentUser.tenant_id or tenant_name
@@ -66,9 +74,13 @@ export default function TenantSwitcher({ backendHost, currentUser }) {
           const savedTenantId = localStorage.getItem("active_tenant_id") || "tenant-default";
           if (savedTenantId === "all") {
             setActiveTenant(ALL_TENANTS_OPTION);
+            localStorage.setItem("active_tenant_name", ALL_TENANTS_OPTION.name);
           } else {
             const matched = data.find(t => t.id === savedTenantId) || data[0];
             setActiveTenant(matched);
+            if (matched?.name) {
+              localStorage.setItem("active_tenant_name", matched.name);
+            }
           }
         }
       }
@@ -90,6 +102,9 @@ export default function TenantSwitcher({ backendHost, currentUser }) {
     setActiveTenant(tenant);
     if (typeof window !== "undefined") {
       localStorage.setItem("active_tenant_id", tenant.id);
+      if (tenant?.name) {
+        localStorage.setItem("active_tenant_name", tenant.name);
+      }
       window.dispatchEvent(new CustomEvent("tenantChanged", { detail: tenant }));
     }
     setIsOpen(false);

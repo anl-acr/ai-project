@@ -600,10 +600,60 @@ export default function Home() {
     return "tenant-default";
   });
 
+  const [activeTenantName, setActiveTenantName] = useState(() => {
+    if (typeof window !== "undefined") {
+      return localStorage.getItem("active_tenant_name") || "";
+    }
+    return "";
+  });
+
+  const resolveActiveTenantNameFromApi = useCallback(async (targetTenantId) => {
+    if (typeof window === "undefined") return;
+    try {
+      const tid = targetTenantId || localStorage.getItem("active_tenant_id") || "tenant-default";
+      if (tid === "all") {
+        setActiveTenantName("Tüm Sistemler");
+        localStorage.setItem("active_tenant_name", "Tüm Sistemler");
+        return;
+      }
+      const backendHostUrl = getBackendHost();
+      const API_BASE = `${window.location.protocol}//${backendHostUrl}`;
+      const res = await fetch(`${API_BASE}/api/settings/tenants`);
+      if (res.ok) {
+        const list = await res.json();
+        if (Array.isArray(list) && list.length > 0) {
+          const matched = list.find((t) => t.id === tid || t.code === tid) || list[0];
+          if (matched?.name) {
+            setActiveTenantName(matched.name);
+            localStorage.setItem("active_tenant_name", matched.name);
+          }
+        }
+      }
+    } catch (e) {}
+  }, []);
+
+  useEffect(() => {
+    resolveActiveTenantNameFromApi(activeTenantId);
+  }, [activeTenantId, resolveActiveTenantNameFromApi]);
+
+  useEffect(() => {
+    if (typeof document !== "undefined") {
+      document.title = activeTenantName ? `${activeTenantName} - Nornia` : "Nornia";
+    }
+  }, [activeTenantName]);
+
   useEffect(() => {
     const handleTenantChange = (e) => {
       const newTenantId = e.detail?.id || (typeof window !== "undefined" ? localStorage.getItem("active_tenant_id") : null) || "tenant-default";
       setActiveTenantId(newTenantId);
+      if (e.detail?.name) {
+        setActiveTenantName(e.detail.name);
+        if (typeof window !== "undefined") {
+          localStorage.setItem("active_tenant_name", e.detail.name);
+        }
+      } else {
+        resolveActiveTenantNameFromApi(newTenantId);
+      }
     };
     const handleOpenFullWebphone = () => {
       setActiveTab("call-center");
@@ -631,6 +681,12 @@ export default function Home() {
       if (res.ok) {
         const data = await res.json();
         setLicenseStatus(data);
+        if (data?.tenant_name && activeTenantId !== "all") {
+          setActiveTenantName(data.tenant_name);
+          if (typeof window !== "undefined") {
+            localStorage.setItem("active_tenant_name", data.tenant_name);
+          }
+        }
         if (!data.valid || data.status === "passive") {
           setIsLicenseModalOpen(true);
         }
@@ -3839,7 +3895,7 @@ export default function Home() {
   return (
     <div className="aida-app-shell h-screen overflow-hidden bg-slate-50 dark:bg-slate-950 text-slate-800 dark:text-slate-100 flex font-sans transition-colors duration-300">
       <Head>
-        <title>Nornia</title>
+        <title>{activeTenantName ? `${activeTenantName} - Nornia` : "Nornia"}</title>
         <meta name="description" content="Nornia — Akıllı İletişim Platformu" />
         <meta name="color-scheme" content="light dark" />
         <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
