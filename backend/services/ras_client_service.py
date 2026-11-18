@@ -1014,10 +1014,130 @@ def _check_user_server_ssh_permission(u_info: Dict[str, Any]) -> bool:
     return "*" in perms or "server_ssh:access" in perms or "server_ssh" in perms or "ras_settings:write" in perms
 
 
+def _set_pty_winsize(fd: int, rows: int = 30, cols: int = 120):
+    """Sets the terminal window size (TIOCSWINSZ) on the PTY master/slave file descriptor."""
+    try:
+        import fcntl
+        import struct
+        import termios
+        r = max(10, min(300, int(rows or 30)))
+        c = max(40, min(500, int(cols or 120)))
+        winsize = struct.pack("HHHH", r, c, 0, 0)
+        fcntl.ioctl(fd, termios.TIOCSWINSZ, winsize)
+    except Exception:
+        pass
+
+
+def _spawn_authenticated_ssh_pty_process(
+    sess_obj: Dict[str, Any],
+    ssh_user: str,
+    ssh_password: str = "",
+    rows: int = 30,
+    cols: int = 120,
+):
+    """Spawns the real Linux SSH/PAM process on an open PTY pair, strictly requiring password authentication."""
+    import pty
+    import re
+
+    clean_user = re.sub(r"[^a-zA-Z0-9._-]", "", str(ssh_user or "aida").strip()) or "aida"
+    master_fd, slave_fd = pty.openpty()
+    _set_pty_winsize(master_fd, rows, cols)
+    _set_pty_winsize(slave_fd, rows, cols)
+
+    env = dict(os.environ)
+    env["TERM"] = "xterm-256color"
+    env["COLORTERM"] = "truecolor"
+    env["LANG"] = env.get("LANG") or "en_US.UTF-8"
+
+    # Ensure local sshd is running on 127.0.0.1:22
+    sshd_listening = False
+    try:
+        with socket.create_connection(("127.0.0.1", 22), timeout=0.6):
+            sshd_listening = True
+    except Exception:
+        _sync_system_sshd_state(True)
+        try:
+            with socket.create_connection(("127.0.0.1", 22), timeout=1.0):
+                sshd_listening = True
+        except Exception:
+            sshd_listening = False
+
+    if sshd_listening:
+        # Force password/keyboard-interactive authentication (never bypass password via local pubkey)
+        cmd = [
+            "ssh",
+            "-tt",
+            "-o", "StrictHostKeyChecking=no",
+            "-o", "UserKnownHostsFile=/dev/null",
+            "-o", "LogLevel=ERROR",
+            "-o", "ConnectTimeout=8",
+            "-o", "PubkeyAuthentication=no",
+            "-o", "PreferredAuthentications=keyboard-interactive,password",
+            "-o", "NumberOfPasswordPrompts=3",
+            f"{clean_user}@127.0.0.1",
+        ]
+    else:
+        # Fallback to PAM su/login if sshd port 22 is unavailable
+        cmd = ["su", "-", clean_user] if os.path.exists("/bin/su") or os.path.exists("/usr/bin/su") else ["login", clean_user]
+
+    proc = subprocess.Popen(
+        cmd,
+        stdin=slave_fd,
+        stdout=slave_fd,
+        stderr=slave_fd,
+        close_fds=True,
+        env=env,
+        preexec_fn=os.setsid,
+    )
+    try:
+        os.close(slave_fd)
+    except Exception:
+        pass
+
+    sess_obj["username"] = clean_user
+    sess_obj["master_fd"] = master_fd
+    sess_obj["proc"] = proc
+    sess_obj["awaiting_username"] = False
+    sess_obj["password_sent"] = False
+
+    async def _pty_reader_bg():
+        while not sess_obj["closed"]:
+            try:
+                chunk = await asyncio.to_thread(os.read, master_fd, 8192)
+                if not chunk:
+                    break
+                txt = chunk.decode("utf-8", errors="replace")
+                sess_obj["buffer"] += txt
+                if len(sess_obj["buffer"]) > 200000:
+                    sess_obj["buffer"] = sess_obj["buffer"][-200000:]
+
+                # Auto-fill password if explicitly supplied in login form
+                if ssh_password and not sess_obj.get("password_sent"):
+                    low = txt.lower()
+                    if "password:" in low or "parola:" in low:
+                        sess_obj["password_sent"] = True
+                        try:
+                            await asyncio.sleep(0.06)
+                            await asyncio.to_thread(os.write, master_fd, (ssh_password + "\n").encode("utf-8"))
+                        except Exception:
+                            pass
+            except OSError:
+                break
+            except Exception:
+                break
+        sess_obj["closed"] = True
+        sess_obj["buffer"] += "\r\n\x1b[33m[SSH Oturumu Sonlandı — Yeniden bağlanmak için Enter'a veya Yeni Oturum butonuna basın]\x1b[0m\r\n"
+
+    asyncio.create_task(_pty_reader_bg())
+
+
 @ras_client_router.post("/api/settings/ras/web-ssh/start")
 async def start_pbx_web_ssh_session(request: Request, payload: Dict[str, Any] = Body(...)):
-    """Starts an interactive Linux PTY SSH/shell session inside the PBX Web UI (Zero-Port)."""
-    import pty
+    """
+    Starts an authentic macOS-Terminal / xterm.js interactive SSH session.
+    Strictly requires Linux SSH username & password authentication (never opens an unauthenticated shell).
+    If username is omitted, prompts `login as: ` directly inside the terminal first.
+    """
     import re
     import uuid
     from backend.main import get_user_info, log_event
@@ -1039,130 +1159,64 @@ async def start_pbx_web_ssh_session(request: Request, payload: Dict[str, Any] = 
             detail="Merkez Lisans Sunucusu tarafından bu santralin SSH erişimi kapatılmıştır. Erişim açmak için Merkez Lisans Panelinden SSH şalterini açınız veya sanallaştırma konsolundan 'sudo nornia-emergency-ssh on' komutunu çalıştırınız.",
         )
 
-    ssh_user = re.sub(r"[^a-zA-Z0-9._-]", "", str(payload.get("username") or "aida").strip()) or "aida"
+    raw_user = re.sub(r"[^a-zA-Z0-9._-]", "", str(payload.get("username") or "").strip())
     ssh_password = str(payload.get("password") or "")
-    req_mode = str(payload.get("mode") or "ssh").strip().lower()
+    rows = int(payload.get("rows") or 30)
+    cols = int(payload.get("cols") or 120)
     session_id = f"pty-{uuid.uuid4().hex[:16]}"
+    host_label = socket.gethostname()
 
-    master_fd, slave_fd = pty.openpty()
-    env = dict(os.environ)
-    env["TERM"] = "xterm-256color"
-
-    # Check if local port 22 (sshd) is listening
-    sshd_listening = False
-    if req_mode != "bash":
-        try:
-            with socket.create_connection(("127.0.0.1", 22), timeout=0.8):
-                sshd_listening = True
-        except Exception:
-            _sync_system_sshd_state(True)
-            try:
-                with socket.create_connection(("127.0.0.1", 22), timeout=1.0):
-                    sshd_listening = True
-            except Exception:
-                sshd_listening = False
-
-    if req_mode == "bash" or not sshd_listening:
-        shell_bin = "/bin/bash" if os.path.exists("/bin/bash") else "/bin/sh"
-        cmd = [shell_bin, "-i"]
-        mode_desc = f"Doğrudan Sistem Kabuğu ({shell_bin})"
-    else:
-        cmd = [
-            "ssh",
-            "-tt",
-            "-o", "StrictHostKeyChecking=no",
-            "-o", "UserKnownHostsFile=/dev/null",
-            "-o", "LogLevel=ERROR",
-            "-o", "ConnectTimeout=5",
-            f"{ssh_user}@127.0.0.1",
-        ]
-        mode_desc = f"SSH ({ssh_user}@127.0.0.1)"
-
-    try:
-        proc = subprocess.Popen(
-            cmd,
-            stdin=slave_fd,
-            stdout=slave_fd,
-            stderr=slave_fd,
-            close_fds=True,
-            env=env,
-            preexec_fn=os.setsid,
-        )
-    except Exception as exc:
-        try:
-            os.close(slave_fd)
-            os.close(master_fd)
-        except Exception:
-            pass
-        raise HTTPException(status_code=500, detail=f"SSH PTY başlatılamadı: {exc}")
-
-    try:
-        os.close(slave_fd)
-    except Exception:
-        pass
+    banner = (
+        f"\x1b[1;32mNornia Kurumsal Santral — Sıfır-Port SSH Terminali\x1b[0m \x1b[90m({host_label})\x1b[0m\r\n"
+    )
 
     sess_obj: Dict[str, Any] = {
         "session_id": session_id,
-        "username": ssh_user,
-        "master_fd": master_fd,
-        "proc": proc,
+        "username": raw_user,
+        "username_buf": "",
+        "awaiting_username": not bool(raw_user),
+        "master_fd": None,
+        "proc": None,
+        "rows": rows,
+        "cols": cols,
         "password_sent": False,
-        "buffer": (
-            f"🔒 Nornia Santral Dahili Web SSH Terminali ({socket.gethostname()})\r\n"
-            f"⚡ Bağlantı Modu: {mode_desc} | Sıfır-Port Web Tüneli\r\n"
-            f"------------------------------------------------------------------------\r\n"
-        ),
+        "buffer": banner,
         "closed": False,
         "created_at": time.time(),
         "last_active": time.time(),
     }
     _active_web_ssh_sessions[session_id] = sess_obj
 
-    async def _pty_reader_bg():
-        while not sess_obj["closed"]:
-            try:
-                chunk = await asyncio.to_thread(os.read, master_fd, 4096)
-                if not chunk:
-                    break
-                txt = chunk.decode("utf-8", errors="replace")
-                sess_obj["buffer"] += txt
-                if len(sess_obj["buffer"]) > 150000:
-                    sess_obj["buffer"] = sess_obj["buffer"][-150000:]
-
-                # Auto-fill password if provided in start payload
-                if ssh_password and not sess_obj.get("password_sent"):
-                    low = txt.lower()
-                    if "password:" in low or "parola:" in low:
-                        sess_obj["password_sent"] = True
-                        try:
-                            await asyncio.sleep(0.08)
-                            await asyncio.to_thread(os.write, master_fd, (ssh_password + "\n").encode("utf-8"))
-                        except Exception:
-                            pass
-            except OSError:
-                break
-            except Exception:
-                break
-        sess_obj["closed"] = True
-        sess_obj["buffer"] += "\r\n[SSH Oturumu Sonlandı]\r\n"
-
-    asyncio.create_task(_pty_reader_bg())
+    if not raw_user:
+        # Interactive "login as: " prompt inside the terminal just like real SSH / PuTTY / macOS Terminal
+        sess_obj["buffer"] += "login as: "
+    else:
+        try:
+            _spawn_authenticated_ssh_pty_process(
+                sess_obj=sess_obj,
+                ssh_user=raw_user,
+                ssh_password=ssh_password,
+                rows=rows,
+                cols=cols,
+            )
+        except Exception as exc:
+            _active_web_ssh_sessions.pop(session_id, None)
+            raise HTTPException(status_code=500, detail=f"SSH PTY başlatılamadı: {exc}")
+        await asyncio.sleep(0.25)
 
     await log_event(
         user_id=u_info.get("user_id", "admin"),
         action="WEB_SSH_START",
         module="Sunucu Web SSH",
-        details={"summary": f"Web SSH Terminal oturumu başlatıldı ({mode_desc})", "session_id": session_id},
+        details={"summary": f"Web SSH Terminal oturumu başlatıldı (Kullanıcı: {raw_user or 'Terminalden Soruluyor'})", "session_id": session_id},
     )
 
-    await asyncio.sleep(0.35)
     initial_out = sess_obj["buffer"]
     sess_obj["buffer"] = ""
     return {
         "status": "ok",
         "session_id": session_id,
-        "username": ssh_user,
-        "mode": "bash" if (req_mode == "bash" or not sshd_listening) else "ssh",
+        "username": raw_user,
         "output": initial_out,
         "closed": sess_obj["closed"],
     }
@@ -1197,7 +1251,8 @@ async def poll_pbx_web_ssh_session(request: Request, session_id: str):
 
 @ras_client_router.post("/api/settings/ras/web-ssh/input")
 async def input_pbx_web_ssh_session(request: Request, payload: Dict[str, Any] = Body(...)):
-    """Sends keyboard input / commands to an active Web SSH PTY session."""
+    """Sends raw xterm.js keystrokes / terminal input to an active Web SSH PTY session."""
+    import re
     from backend.main import get_user_info
 
     u_info = get_user_info(request)
@@ -1217,6 +1272,44 @@ async def input_pbx_web_ssh_session(request: Request, payload: Dict[str, Any] = 
         raise HTTPException(status_code=404, detail="Aktif SSH oturumu bulunamadı.")
 
     sess["last_active"] = time.time()
+
+    # Handle interactive "login as: " username prompt before spawning SSH PTY
+    if sess.get("awaiting_username"):
+        for ch in data_str:
+            if ch in ("\r", "\n"):
+                entered_user = re.sub(r"[^a-zA-Z0-9._-]", "", sess.get("username_buf", "").strip())
+                sess["username_buf"] = ""
+                if not entered_user:
+                    sess["buffer"] += "\r\nlogin as: "
+                else:
+                    sess["buffer"] += "\r\n"
+                    try:
+                        _spawn_authenticated_ssh_pty_process(
+                            sess_obj=sess,
+                            ssh_user=entered_user,
+                            rows=int(sess.get("rows") or 30),
+                            cols=int(sess.get("cols") or 120),
+                        )
+                        await asyncio.sleep(0.22)
+                    except Exception as exc:
+                        sess["buffer"] += f"\r\n\x1b[31mSSH başlatılamadı: {exc}\x1b[0m\r\nlogin as: "
+                        sess["awaiting_username"] = True
+                break
+            elif ch in ("\x7f", "\x08"):
+                if sess.get("username_buf"):
+                    sess["username_buf"] = sess["username_buf"][:-1]
+                    sess["buffer"] += "\b \b"
+            elif ch == "\x03":
+                sess["username_buf"] = ""
+                sess["buffer"] += "^C\r\nlogin as: "
+            elif ch.isprintable():
+                sess["username_buf"] = sess.get("username_buf", "") + ch
+                sess["buffer"] += ch
+
+        out = sess["buffer"]
+        sess["buffer"] = ""
+        return {"status": "ok", "output": out, "closed": sess["closed"], "username": sess.get("username")}
+
     master_fd = sess.get("master_fd")
     if master_fd is not None and data_str:
         try:
@@ -1224,10 +1317,26 @@ async def input_pbx_web_ssh_session(request: Request, payload: Dict[str, Any] = 
         except Exception as exc:
             raise HTTPException(status_code=500, detail=f"Terminal yazma hatası: {exc}")
 
-    await asyncio.sleep(0.12)
+    await asyncio.sleep(0.035)
     out = sess["buffer"]
     sess["buffer"] = ""
-    return {"status": "ok", "output": out, "closed": sess["closed"]}
+    return {"status": "ok", "output": out, "closed": sess["closed"], "username": sess.get("username")}
+
+
+@ras_client_router.post("/api/settings/ras/web-ssh/resize")
+async def resize_pbx_web_ssh_session(request: Request, payload: Dict[str, Any] = Body(...)):
+    """Dynamically resizes the Linux PTY window (TIOCSWINSZ) to match xterm.js rows and cols."""
+    session_id = str(payload.get("session_id") or "")
+    rows = int(payload.get("rows") or 30)
+    cols = int(payload.get("cols") or 120)
+    sess = _active_web_ssh_sessions.get(session_id)
+    if sess and not sess.get("closed"):
+        sess["rows"] = rows
+        sess["cols"] = cols
+        master_fd = sess.get("master_fd")
+        if master_fd is not None:
+            _set_pty_winsize(master_fd, rows, cols)
+    return {"status": "ok"}
 
 
 @ras_client_router.post("/api/settings/ras/web-ssh/stop")
