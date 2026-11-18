@@ -37,7 +37,11 @@ import {
   ChevronDown,
   ChevronUp,
   Sparkles,
-  Wifi
+  Wifi,
+  HardDrive,
+  Database,
+  Zap,
+  X
 } from "lucide-react";
 
 import LoginModal from "../components/LoginModal";
@@ -102,6 +106,57 @@ export default function MasterDashboard() {
   const [ssoLoadingId, setSsoLoadingId] = useState(null);
   const [otaLoadingId, setOtaLoadingId] = useState(null);
   const [actionBanner, setActionBanner] = useState(null);
+
+  // Live Telemetry & Health Inspector Dashboard Modal State
+  const [inspectorClient, setInspectorClient] = useState(null);
+  const [inspectorData, setInspectorData] = useState(null);
+  const [inspectorLoading, setInspectorLoading] = useState(false);
+
+  const fetchInspectorDashboard = async (clientId, isInitial = false) => {
+    if (!clientId) return;
+    if (isInitial) setInspectorLoading(true);
+    try {
+      const res = await fetch(`${API_BASE}/api/v1/clients/${clientId}/telemetry-dashboard`);
+      if (res.ok) {
+        const data = await res.json();
+        setInspectorData(data);
+      }
+    } catch (e) {
+      console.error("Inspector dashboard error:", e);
+    } finally {
+      if (isInitial) setInspectorLoading(false);
+    }
+  };
+
+  const openInspectorModal = (client) => {
+    setInspectorClient(client);
+    setInspectorData(null);
+    fetchInspectorDashboard(client.id, true);
+  };
+
+  useEffect(() => {
+    if (!inspectorClient) return;
+    const timer = setInterval(() => {
+      fetchInspectorDashboard(inspectorClient.id, false);
+    }, 4000);
+    return () => clearInterval(timer);
+  }, [inspectorClient]);
+
+  const buildSvgTrendPaths = (list, key, maxVal = 100, width = 480, height = 120) => {
+    if (!Array.isArray(list) || list.length === 0) return { line: "", area: "" };
+    const pts = list.length === 1 ? [list[0], list[0]] : list;
+    const stepX = width / (pts.length - 1);
+    const coords = pts.map((item, idx) => {
+      const raw = Number(item[key] || 0);
+      const clamped = Math.max(0, Math.min(maxVal || 1, raw));
+      const x = Math.round(idx * stepX * 10) / 10;
+      const y = Math.round((height - (clamped / (maxVal || 1)) * (height - 16) - 8) * 10) / 10;
+      return { x, y };
+    });
+    const line = `M ${coords.map((p) => `${p.x},${p.y}`).join(" L ")}`;
+    const area = `${line} L ${width},${height} L 0,${height} Z`;
+    return { line, area };
+  };
 
   const showBanner = (text, type = "success") => {
     setActionBanner({ text, type });
@@ -1220,11 +1275,18 @@ export default function MasterDashboard() {
                         <td className="py-3.5 px-4 text-right">
                           <div className="flex items-center justify-end gap-1.5">
                             <button
-                              onClick={() => openKeyGenModal(client)}
-                              className="px-2.5 py-1.5 rounded-xl bg-indigo-50 dark:bg-indigo-500/15 hover:bg-indigo-600 text-indigo-600 dark:text-indigo-300 hover:text-white border border-indigo-200 dark:border-indigo-500/30 text-xs font-extrabold flex items-center gap-1 transition-all cursor-pointer"
+                              onClick={() => openInspectorModal(client)}
+                              className="p-1.5 rounded-xl bg-cyan-50 dark:bg-cyan-500/15 hover:bg-cyan-600 text-cyan-600 dark:text-cyan-400 hover:text-white border border-cyan-200 dark:border-cyan-500/30 transition-all cursor-pointer"
+                              title="Canlı Sistem Sağlığı, CPU/RAM/Disk & Servisler Panosunu İncele"
                             >
-                              <Edit3 size={12} />
-                              <span>Lisans &amp; Kota</span>
+                              <Search size={14} />
+                            </button>
+                            <button
+                              onClick={() => openKeyGenModal(client)}
+                              className="p-1.5 rounded-xl bg-indigo-50 dark:bg-indigo-500/15 hover:bg-indigo-600 text-indigo-600 dark:text-indigo-300 hover:text-white border border-indigo-200 dark:border-indigo-500/30 transition-all cursor-pointer"
+                              title="Lisans, Modül & Kota Ayarlarını Düzenle"
+                            >
+                              <Edit3 size={14} />
                             </button>
                             <button
                               onClick={() => handleToggleSuspend(client)}
@@ -1584,17 +1646,24 @@ export default function MasterDashboard() {
 
                     <div className="flex items-center gap-1.5">
                       <button
-                        onClick={() => openKeyGenModal(client)}
-                        className="py-1.5 px-3 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white transition-all text-xs font-extrabold flex items-center gap-1.5 cursor-pointer shadow-xs"
-                        title="Müşteri lisans kotalarını düzenle veya yeni anahtar üret"
+                        onClick={() => openInspectorModal(client)}
+                        className="p-2 rounded-xl bg-cyan-50 dark:bg-cyan-500/15 hover:bg-cyan-600 text-cyan-600 dark:text-cyan-400 hover:text-white border border-cyan-200 dark:border-cyan-500/30 transition-all cursor-pointer shadow-xs"
+                        title="Canlı Sistem Sağlığı, CPU/RAM/Disk & Servisler Panosunu İncele"
                       >
-                        <Edit3 size={13} />
-                        <span>Lisans &amp; Kota Yönetimi</span>
+                        <Search size={15} />
+                      </button>
+
+                      <button
+                        onClick={() => openKeyGenModal(client)}
+                        className="p-2 rounded-xl bg-indigo-50 dark:bg-indigo-500/15 hover:bg-indigo-600 text-indigo-600 dark:text-indigo-300 hover:text-white border border-indigo-200 dark:border-indigo-500/30 transition-all cursor-pointer shadow-xs"
+                        title="Lisans, Modül & Kota Ayarlarını Düzenle"
+                      >
+                        <Edit3 size={15} />
                       </button>
 
                       <button
                         onClick={() => handleToggleSuspend(client)}
-                        className={`p-1.5 rounded-xl border transition-colors cursor-pointer ${
+                        className={`p-2 rounded-xl border transition-colors cursor-pointer ${
                           isSuspended
                             ? "bg-emerald-50 dark:bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 border-emerald-200 dark:border-emerald-500/30 hover:bg-emerald-100"
                             : "bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border-slate-200 dark:border-slate-700 hover:bg-rose-50 dark:hover:bg-rose-900/40 hover:text-rose-600 dark:hover:text-rose-400"
@@ -1606,7 +1675,7 @@ export default function MasterDashboard() {
 
                       <button
                         onClick={() => setDeleteConfirmClient(client)}
-                        className="p-1.5 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:bg-rose-50 dark:hover:bg-rose-900/40 hover:text-rose-600 dark:hover:text-rose-400 border border-slate-200 dark:border-slate-700 transition-colors cursor-pointer"
+                        className="p-2 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:bg-rose-50 dark:hover:bg-rose-900/40 hover:text-rose-600 dark:hover:text-rose-400 border border-slate-200 dark:border-slate-700 transition-colors cursor-pointer"
                         title="Müşteriyi Sil"
                       >
                         <Trash2 size={15} />
@@ -2366,6 +2435,373 @@ export default function MasterDashboard() {
         </div>
       )}
 
+
+      {/* LIVE SERVER TELEMETRY, RESOURCES & SERVICES HEALTH INSPECTOR DASHBOARD MODAL */}
+      {inspectorClient && (
+        <div className="fixed inset-0 z-50 bg-slate-950/70 backdrop-blur-md flex items-center justify-center p-4 animate-fadeIn">
+          <div className="w-full max-w-5xl max-h-[92vh] bg-white dark:bg-[#0b101b] border border-slate-200 dark:border-slate-800 rounded-3xl shadow-2xl overflow-hidden flex flex-col text-slate-900 dark:text-slate-100">
+            {/* Modal Top Header */}
+            <div className="px-6 py-4 border-b border-slate-200/80 dark:border-slate-800/80 bg-slate-50/80 dark:bg-slate-900/70 flex flex-wrap items-center justify-between gap-3">
+              <div className="flex items-center gap-3.5">
+                <div className="w-11 h-11 rounded-2xl bg-gradient-to-br from-cyan-500 to-indigo-600 text-white flex items-center justify-center shadow-lg shadow-cyan-500/20">
+                  <Activity size={22} />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <h3 className="text-base font-extrabold text-slate-900 dark:text-white">
+                      {inspectorClient.company_name} — Canlı Sistem &amp; Servis Sağlığı Panosu
+                    </h3>
+                    <span className="px-2 py-0.5 rounded-md text-[10px] font-mono font-extrabold bg-indigo-500/10 text-indigo-600 dark:text-indigo-300 border border-indigo-500/20">
+                      {inspectorClient.tenant_code}
+                    </span>
+                    <span className="px-2 py-0.5 rounded-md text-[10px] font-mono font-bold bg-slate-200/70 dark:bg-slate-800 text-slate-700 dark:text-slate-300">
+                      {inspectorClient.hardware_id}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-2 text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
+                    {inspectorData?.live_tunnel_fetched ? (
+                      <span className="flex items-center gap-1.5 text-emerald-600 dark:text-emerald-400 font-bold">
+                        <span className="w-2 h-2 rounded-full bg-emerald-500 animate-ping" />
+                        <span>Nornia Connect Tüneli Üzerinden Gerçek Zamanlı Akış ({inspectorClient.connect_subdomain}.nornia.com.tr)</span>
+                      </span>
+                    ) : (
+                      <span className="flex items-center gap-1.5 text-amber-600 dark:text-amber-400 font-semibold">
+                        <span className="w-2 h-2 rounded-full bg-amber-500" />
+                        <span>Son Heartbeat Telemetri Verisi ({inspectorClient.ip_address || "127.0.0.1"})</span>
+                      </span>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => fetchInspectorDashboard(inspectorClient.id, true)}
+                  className="px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 hover:bg-slate-100 dark:hover:bg-slate-800 text-xs font-bold flex items-center gap-1.5 cursor-pointer"
+                  title="Verileri Şimdi Yenile"
+                >
+                  <RefreshCw size={13} className={inspectorLoading ? "animate-spin text-cyan-500" : ""} />
+                  <span>Yenile</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setInspectorClient(null);
+                    setInspectorData(null);
+                  }}
+                  className="p-2 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-rose-500/15 hover:text-rose-500 text-slate-500 transition-colors cursor-pointer"
+                  title="Kapat"
+                >
+                  <X size={16} />
+                </button>
+              </div>
+            </div>
+
+            {/* Modal Body */}
+            <div className="p-6 overflow-y-auto space-y-6 flex-1">
+              {inspectorLoading && !inspectorData ? (
+                <div className="py-20 text-center space-y-3">
+                  <RefreshCw size={28} className="animate-spin text-cyan-500 mx-auto" />
+                  <p className="text-xs font-bold text-slate-500 dark:text-slate-400">
+                    Santral telemetri, kaynak ve servis durumu sorgulanıyor...
+                  </p>
+                </div>
+              ) : (() => {
+                const d = inspectorData || {
+                  cpu_usage: inspectorClient.cpu_usage_percent || 0,
+                  ram_usage: inspectorClient.ram_usage_percent || 0,
+                  ram_used_gb: 1.8,
+                  ram_total_gb: 8.0,
+                  disk_usage: 42.0,
+                  disk_used_gb: 21.0,
+                  disk_total_gb: 50.0,
+                  active_calls: inspectorClient.active_calls_count || 0,
+                  today_calls: 0,
+                  max_concurrent_calls: inspectorClient.custom_quotas?.max_concurrent_calls ?? 4,
+                  tolerance_concurrent_calls: inspectorClient.custom_quotas?.tolerance_concurrent_calls ?? 0,
+                  effective_max_calls: (inspectorClient.custom_quotas?.max_concurrent_calls ?? 4) + (inspectorClient.custom_quotas?.tolerance_concurrent_calls ?? 0),
+                  total_users: inspectorClient.total_users_count || 0,
+                  rec_file_count: 0,
+                  rec_total_size_mb: 0,
+                  services: [],
+                  history: []
+                };
+
+                const circ = 2 * Math.PI * 26;
+                const cpuPct = Math.min(100, Math.max(0, Number(d.cpu_usage || 0)));
+                const ramPct = Math.min(100, Math.max(0, Number(d.ram_usage || 0)));
+                const diskPct = Math.min(100, Math.max(0, Number(d.disk_usage || 0)));
+                const effMaxCalls = Math.max(1, Number(d.effective_max_calls || d.max_concurrent_calls || 4));
+                const callPct = Math.min(100, Math.round((Number(d.active_calls || 0) / effMaxCalls) * 100));
+
+                const cpuPaths = buildSvgTrendPaths(d.history, "cpu", 100, 480, 120);
+                const ramPaths = buildSvgTrendPaths(d.history, "ram", 100, 480, 120);
+                const callPaths = buildSvgTrendPaths(d.history, "calls", Math.max(effMaxCalls, 5), 480, 120);
+
+                return (
+                  <>
+                    {/* 1. TOP 4 RADIAL GAUGE CARDS: CPU, RAM, DISK, CHANNELS & CALLS */}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                      {/* CPU Gauge Card */}
+                      <div className="p-4 rounded-2xl bg-slate-50/90 dark:bg-slate-900/80 border border-slate-200/80 dark:border-slate-800 flex items-center justify-between">
+                        <div className="space-y-1">
+                          <span className="text-[10px] font-extrabold uppercase tracking-wider text-slate-400">İşlemci Yükü (CPU)</span>
+                          <div className="text-2xl font-extrabold font-mono text-slate-900 dark:text-white">{cpuPct}%</div>
+                          <div className={`text-[11px] font-bold ${cpuPct > 85 ? "text-rose-500" : cpuPct > 65 ? "text-amber-500" : "text-emerald-500"}`}>
+                            {cpuPct > 85 ? "Yüksek Yük" : cpuPct > 65 ? "Orta Yük" : "Optimal Performans"}
+                          </div>
+                        </div>
+                        <div className="relative w-16 h-16 flex items-center justify-center shrink-0">
+                          <svg className="w-full h-full -rotate-90" viewBox="0 0 64 64">
+                            <circle cx="32" cy="32" r="26" stroke="currentColor" strokeWidth="5.5" className="text-slate-200 dark:text-slate-800" fill="transparent" />
+                            <circle
+                              cx="32"
+                              cy="32"
+                              r="26"
+                              stroke="#f59e0b"
+                              strokeWidth="5.5"
+                              strokeLinecap="round"
+                              fill="transparent"
+                              strokeDasharray={circ}
+                              strokeDashoffset={circ * (1 - cpuPct / 100)}
+                            />
+                          </svg>
+                          <Cpu size={18} className="absolute text-amber-500" />
+                        </div>
+                      </div>
+
+                      {/* RAM Gauge Card */}
+                      <div className="p-4 rounded-2xl bg-slate-50/90 dark:bg-slate-900/80 border border-slate-200/80 dark:border-slate-800 flex items-center justify-between">
+                        <div className="space-y-1">
+                          <span className="text-[10px] font-extrabold uppercase tracking-wider text-slate-400">Bellek (RAM)</span>
+                          <div className="text-2xl font-extrabold font-mono text-slate-900 dark:text-white">{ramPct}%</div>
+                          <div className="text-[11px] font-mono font-bold text-indigo-600 dark:text-indigo-400">
+                            {d.ram_used_gb} GB / {d.ram_total_gb} GB
+                          </div>
+                        </div>
+                        <div className="relative w-16 h-16 flex items-center justify-center shrink-0">
+                          <svg className="w-full h-full -rotate-90" viewBox="0 0 64 64">
+                            <circle cx="32" cy="32" r="26" stroke="currentColor" strokeWidth="5.5" className="text-slate-200 dark:text-slate-800" fill="transparent" />
+                            <circle
+                              cx="32"
+                              cy="32"
+                              r="26"
+                              stroke="#6366f1"
+                              strokeWidth="5.5"
+                              strokeLinecap="round"
+                              fill="transparent"
+                              strokeDasharray={circ}
+                              strokeDashoffset={circ * (1 - ramPct / 100)}
+                            />
+                          </svg>
+                          <Database size={18} className="absolute text-indigo-500" />
+                        </div>
+                      </div>
+
+                      {/* Disk Storage Gauge Card */}
+                      <div className="p-4 rounded-2xl bg-slate-50/90 dark:bg-slate-900/80 border border-slate-200/80 dark:border-slate-800 flex items-center justify-between">
+                        <div className="space-y-1">
+                          <span className="text-[10px] font-extrabold uppercase tracking-wider text-slate-400">Disk &amp; Kayıt Alanı</span>
+                          <div className="text-2xl font-extrabold font-mono text-slate-900 dark:text-white">{diskPct}%</div>
+                          <div className="text-[11px] font-mono font-bold text-cyan-600 dark:text-cyan-400">
+                            {d.disk_used_gb} GB / {d.disk_total_gb} GB
+                          </div>
+                        </div>
+                        <div className="relative w-16 h-16 flex items-center justify-center shrink-0">
+                          <svg className="w-full h-full -rotate-90" viewBox="0 0 64 64">
+                            <circle cx="32" cy="32" r="26" stroke="currentColor" strokeWidth="5.5" className="text-slate-200 dark:text-slate-800" fill="transparent" />
+                            <circle
+                              cx="32"
+                              cy="32"
+                              r="26"
+                              stroke="#06b6d4"
+                              strokeWidth="5.5"
+                              strokeLinecap="round"
+                              fill="transparent"
+                              strokeDasharray={circ}
+                              strokeDashoffset={circ * (1 - diskPct / 100)}
+                            />
+                          </svg>
+                          <HardDrive size={18} className="absolute text-cyan-500" />
+                        </div>
+                      </div>
+
+                      {/* Concurrent Calls & Licensed Channels Card */}
+                      <div className="p-4 rounded-2xl bg-slate-50/90 dark:bg-slate-900/80 border border-slate-200/80 dark:border-slate-800 flex items-center justify-between">
+                        <div className="space-y-1">
+                          <span className="text-[10px] font-extrabold uppercase tracking-wider text-slate-400">Eş Zamanlı Çağrı / Kanal</span>
+                          <div className="text-2xl font-extrabold font-mono text-emerald-600 dark:text-emerald-400">
+                            {d.active_calls} <span className="text-sm text-slate-400">/ {d.max_concurrent_calls}</span>
+                            {d.tolerance_concurrent_calls > 0 && (
+                              <span className="text-xs text-amber-500 ml-1">(+{d.tolerance_concurrent_calls})</span>
+                            )}
+                          </div>
+                          <div className="text-[11px] font-bold text-slate-500 dark:text-slate-400">
+                            Bugün: <strong className="text-slate-800 dark:text-slate-200">{d.today_calls} Çağrı</strong> • <strong className="text-slate-800 dark:text-slate-200">{d.total_users} Abone</strong>
+                          </div>
+                        </div>
+                        <div className="relative w-16 h-16 flex items-center justify-center shrink-0">
+                          <svg className="w-full h-full -rotate-90" viewBox="0 0 64 64">
+                            <circle cx="32" cy="32" r="26" stroke="currentColor" strokeWidth="5.5" className="text-slate-200 dark:text-slate-800" fill="transparent" />
+                            <circle
+                              cx="32"
+                              cy="32"
+                              r="26"
+                              stroke="#10b981"
+                              strokeWidth="5.5"
+                              strokeLinecap="round"
+                              fill="transparent"
+                              strokeDasharray={circ}
+                              strokeDashoffset={circ * (1 - callPct / 100)}
+                            />
+                          </svg>
+                          <PhoneCall size={18} className="absolute text-emerald-500" />
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* 2. DUAL INTERACTIVE SVG TIME-SERIES CHARTS */}
+                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                      {/* CPU & RAM Area Chart */}
+                      <div className="p-4 rounded-2xl bg-slate-50/90 dark:bg-slate-900/80 border border-slate-200/80 dark:border-slate-800 space-y-3">
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <h4 className="text-xs font-extrabold uppercase tracking-wider text-slate-800 dark:text-slate-200 flex items-center gap-2">
+                              <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse" />
+                              <span>CPU &amp; Bellek (RAM) Performans Grafiği</span>
+                            </h4>
+                            <p className="text-[11px] text-slate-500 dark:text-slate-400">Gerçek zamanlı sistem kaynak kullanım eğrisi (%)</p>
+                          </div>
+                          <div className="flex items-center gap-3 text-[11px] font-extrabold font-mono">
+                            <span className="flex items-center gap-1.5 text-amber-500">
+                              <span className="w-2.5 h-2.5 rounded-sm bg-amber-500" />
+                              CPU {cpuPct}%
+                            </span>
+                            <span className="flex items-center gap-1.5 text-indigo-500">
+                              <span className="w-2.5 h-2.5 rounded-sm bg-indigo-500" />
+                              RAM {ramPct}%
+                            </span>
+                          </div>
+                        </div>
+
+                        <div className="relative h-36 w-full bg-white dark:bg-slate-950/80 rounded-xl border border-slate-200/70 dark:border-slate-800/80 overflow-hidden">
+                          <svg className="w-full h-full" viewBox="0 0 480 120" preserveAspectRatio="none">
+                            <defs>
+                              <linearGradient id="inspCpuGrad" x1="0" y1="0" x2="0" y2="1">
+                                <stop offset="0%" stopColor="#f59e0b" stopOpacity="0.28" />
+                                <stop offset="100%" stopColor="#f59e0b" stopOpacity="0.0" />
+                              </linearGradient>
+                              <linearGradient id="inspRamGrad" x1="0" y1="0" x2="0" y2="1">
+                                <stop offset="0%" stopColor="#6366f1" stopOpacity="0.28" />
+                                <stop offset="100%" stopColor="#6366f1" stopOpacity="0.0" />
+                              </linearGradient>
+                            </defs>
+                            <line x1="0" y1="30" x2="480" y2="30" stroke="currentColor" className="text-slate-200/70 dark:text-slate-800/70" strokeDasharray="3,3" />
+                            <line x1="0" y1="60" x2="480" y2="60" stroke="currentColor" className="text-slate-200/70 dark:text-slate-800/70" strokeDasharray="3,3" />
+                            <line x1="0" y1="90" x2="480" y2="90" stroke="currentColor" className="text-slate-200/70 dark:text-slate-800/70" strokeDasharray="3,3" />
+                            {ramPaths.area && <path d={ramPaths.area} fill="url(#inspRamGrad)" />}
+                            {ramPaths.line && <path d={ramPaths.line} fill="transparent" stroke="#6366f1" strokeWidth="2.2" strokeLinecap="round" />}
+                            {cpuPaths.area && <path d={cpuPaths.area} fill="url(#inspCpuGrad)" />}
+                            {cpuPaths.line && <path d={cpuPaths.line} fill="transparent" stroke="#f59e0b" strokeWidth="2.2" strokeLinecap="round" />}
+                          </svg>
+                        </div>
+                      </div>
+
+                      {/* Concurrent Calls & Channel Capacity Chart */}
+                      <div className="p-4 rounded-2xl bg-slate-50/90 dark:bg-slate-900/80 border border-slate-200/80 dark:border-slate-800 space-y-3">
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <h4 className="text-xs font-extrabold uppercase tracking-wider text-slate-800 dark:text-slate-200 flex items-center gap-2">
+                              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                              <span>Eş Zamanlı Çağrı &amp; Kanal Trafik Grafiği</span>
+                            </h4>
+                            <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                              Lisanslı Kanal: <strong>{d.max_concurrent_calls} Kanal</strong> (+{d.tolerance_concurrent_calls} Tolerans) • Ses Kaydı: <strong>{d.rec_file_count} .wav ({d.rec_total_size_mb} MB)</strong>
+                            </p>
+                          </div>
+                          <div className="text-xs font-extrabold font-mono text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2.5 py-1 rounded-lg">
+                            {d.active_calls} Aktif Çağrı
+                          </div>
+                        </div>
+
+                        <div className="relative h-36 w-full bg-white dark:bg-slate-950/80 rounded-xl border border-slate-200/70 dark:border-slate-800/80 overflow-hidden">
+                          <svg className="w-full h-full" viewBox="0 0 480 120" preserveAspectRatio="none">
+                            <defs>
+                              <linearGradient id="inspCallGrad" x1="0" y1="0" x2="0" y2="1">
+                                <stop offset="0%" stopColor="#10b981" stopOpacity="0.30" />
+                                <stop offset="100%" stopColor="#10b981" stopOpacity="0.0" />
+                              </linearGradient>
+                            </defs>
+                            <line x1="0" y1="30" x2="480" y2="30" stroke="currentColor" className="text-slate-200/70 dark:text-slate-800/70" strokeDasharray="3,3" />
+                            <line x1="0" y1="60" x2="480" y2="60" stroke="currentColor" className="text-slate-200/70 dark:text-slate-800/70" strokeDasharray="3,3" />
+                            <line x1="0" y1="90" x2="480" y2="90" stroke="currentColor" className="text-slate-200/70 dark:text-slate-800/70" strokeDasharray="3,3" />
+                            {callPaths.area && <path d={callPaths.area} fill="url(#inspCallGrad)" />}
+                            {callPaths.line && <path d={callPaths.line} fill="transparent" stroke="#10b981" strokeWidth="2.5" strokeLinecap="round" />}
+                          </svg>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* 3. CORE SERVICES & ENGINE HEALTH MATRIX */}
+                    <div className="space-y-3">
+                      <div className="flex items-center justify-between">
+                        <h4 className="text-xs font-extrabold uppercase tracking-wider text-slate-700 dark:text-slate-300 flex items-center gap-2">
+                          <Server size={15} className="text-cyan-500" />
+                          <span>Santral Çekirdek Servisleri &amp; Motor Durumları</span>
+                        </h4>
+                        <span className="text-[11px] font-mono text-slate-400">
+                          Sürüm: {d.software_version || "v2.5.0"} • IP: {d.ip_address || "127.0.0.1"}
+                        </span>
+                      </div>
+
+                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                        {(d.services || []).map((srv) => {
+                          const isOnline = srv.status === "online";
+                          const isLocked = srv.status === "locked";
+                          return (
+                            <div
+                              key={srv.id}
+                              className="p-3.5 rounded-2xl bg-slate-50/90 dark:bg-slate-900/80 border border-slate-200/80 dark:border-slate-800 flex items-start justify-between gap-3"
+                            >
+                              <div className="space-y-1 min-w-0">
+                                <div className="flex items-center gap-2">
+                                  <span className={`w-2 h-2 rounded-full shrink-0 ${
+                                    isOnline ? "bg-emerald-500 animate-pulse" : isLocked ? "bg-amber-500" : "bg-rose-500"
+                                  }`} />
+                                  <span className="text-xs font-extrabold text-slate-900 dark:text-white truncate">
+                                    {srv.name}
+                                  </span>
+                                </div>
+                                <p className="text-[11px] text-slate-500 dark:text-slate-400 truncate">
+                                  {srv.detail}
+                                </p>
+                              </div>
+
+                              <div className="flex flex-col items-end gap-1 shrink-0">
+                                <span className={`px-2 py-0.5 rounded-full text-[9px] font-extrabold uppercase border ${
+                                  isOnline
+                                    ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/30"
+                                    : isLocked
+                                    ? "bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/30"
+                                    : "bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-500/30"
+                                }`}>
+                                  {isOnline ? "AKTİF" : isLocked ? "KİLİTLİ" : "PASİF"}
+                                </span>
+                                <span className="text-[10px] font-mono text-slate-400">{srv.port}</span>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  </>
+                );
+              })()}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* CUSTOM DELETE CONFIRMATION MODAL */}
       {deleteConfirmClient && (

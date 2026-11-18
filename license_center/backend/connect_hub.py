@@ -583,6 +583,41 @@ async def trigger_pbx_ota_update(hardware_id: Optional[str] = None, subdomain: O
     return False
 
 
+async def fetch_pbx_live_system_stats(hardware_id: Optional[str] = None, subdomain: Optional[str] = None) -> Optional[Dict[str, Any]]:
+    """Queries /api/system/stats on the remote PBX through the active Nornia Connect WebSocket tunnel in real-time."""
+    sess = None
+    if subdomain and subdomain.strip().lower() in ACTIVE_TUNNELS_BY_SUBDOMAIN:
+        sess = ACTIVE_TUNNELS_BY_SUBDOMAIN.get(subdomain.strip().lower())
+    if not sess and hardware_id and hardware_id.strip().upper() in ACTIVE_TUNNELS_BY_HWID:
+        sess = ACTIVE_TUNNELS_BY_HWID.get(hardware_id.strip().upper())
+
+    if not sess:
+        return None
+
+    req_id = f"stat-{uuid.uuid4().hex[:10]}"
+    loop = asyncio.get_running_loop()
+    fut = loop.create_future()
+    sess.pending_http[req_id] = fut
+    try:
+        await sess.send_json({
+            "type": "HTTP_REQ",
+            "req_id": req_id,
+            "method": "GET",
+            "path": "/api/system/stats",
+            "query": "",
+            "headers": {"accept": "application/json"},
+            "public_host": f"{sess.subdomain}.nornia.com.tr",
+            "public_proto": "https",
+            "body_b64": "",
+        })
+        res_msg = await asyncio.wait_for(fut, timeout=3.5)
+        raw_bytes = base64.b64decode(res_msg.get("body_b64") or "")
+        return json.loads(raw_bytes.decode("utf-8"))
+    except Exception:
+        sess.pending_http.pop(req_id, None)
+        return None
+
+
 @connect_hub_router.get("/api/v1/connect/check-subdomain")
 async def check_subdomain_endpoint(subdomain: str, hardware_id: str = ""):
     return await check_subdomain_availability_db(subdomain=subdomain, hardware_id=hardware_id)
