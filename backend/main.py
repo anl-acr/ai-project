@@ -39838,18 +39838,31 @@ async def get_system_version_info():
         pass
 
     return {
-        "version": "v3.4.7",
+        "version": "v3.4.8",
         "commit_hash": live_commit,
         "release_date": "20 Kasım 2026",
         "status": "Güncel / Canlı Sürüm",
         "environment": "Production (On-Premise)",
         "changelog": [
             {
-                "version": "v3.4.7",
+                "version": "v3.4.8",
                 "commit_hash": live_commit,
                 "release_date": "20 Kasım 2026",
                 "badge": "Canlı Sürüm (Güncel)",
                 "badge_type": "current",
+                "title": "SIP Motoru Seçenek Etiketleri Sadeleştirildi (PJSIP / SIP)",
+                "summary": "SIP Cihazı Düzenleme modalındaki SIP Motoru seçenek etiketleri sadeleştirilerek yalnızca 'PJSIP' ve 'SIP' olarak güncellendi.",
+                "features": [],
+                "fixes": [
+                    "SIP Motoru seçim kutusundaki seçenekler 'PJSIP' ve 'SIP' olarak sadeleştirildi."
+                ]
+            },
+            {
+                "version": "v3.4.7",
+                "commit_hash": "aa92d88",
+                "release_date": "20 Kasım 2026",
+                "badge": "Önceki Sürüm",
+                "badge_type": "stable",
                 "title": "Hibrit PJSIP (5060) + chan_sip / Cisco UseCallManager BLF (5160) & Uzak Cisco Edge Desteği",
                 "summary": "Cisco Enterprise masa telefonlarının BLF ve UseCallManager özelliklerinin tam çalışabilmesi için cihaz bazlı 'SIP Motoru (PJSIP 5060 / chan_sip Cisco BLF 5160)' seçimi eklendi. Otomatik sip.conf/sip_custom.conf üretimi, birleşik PJSIP+SIP BLF hint/çaldırma, AMI PeerStatus canlı takip ve Hub Kamailio 5160/TCP uzak tünel desteği entegre edildi.",
                 "features": [

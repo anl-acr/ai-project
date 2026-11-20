@@ -9411,8 +9411,8 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
                         }}
                         className="w-full text-xs font-semibold px-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-950 text-slate-800 dark:text-slate-100 focus:outline-none"
                       >
-                        <option value="pjsip">PJSIP (Standart — Port 5060 • Yealink / Fanvil / Grandstream)</option>
-                        <option value="chan_sip">Legacy SIP / chan_sip (Cisco Enterprise BLF &amp; UseCallManager — Port 5160)</option>
+                        <option value="pjsip">PJSIP</option>
+                        <option value="chan_sip">SIP</option>
                       </select>
                       {sipDeviceDraft.sip_driver === "chan_sip" && (
                         <p className="mt-1 text-[10px] font-medium text-indigo-600 dark:text-indigo-400">
