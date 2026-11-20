@@ -1294,6 +1294,277 @@ async def download_central_db_backup(
     )
 
 
+# --------------------------------------------------------------------------
+# Panel Server Firewall Management (UFW Port & Access Control)
+# --------------------------------------------------------------------------
+def _run_ufw_cmd_sync(args: List[str], timeout: float = 8.0) -> Dict[str, Any]:
+    import shutil
+    import subprocess
+    ufw_bin = shutil.which("ufw")
+    if not ufw_bin:
+        return {"ok": False, "supported": False, "stdout": "", "stderr": "Bu sunucuda UFW yüklü değil (Linux sunucuda çalışır)."}
+    try:
+        proc = subprocess.run([ufw_bin] + args, capture_output=True, text=True, timeout=timeout)
+        return {
+            "ok": proc.returncode == 0,
+            "supported": True,
+            "stdout": (proc.stdout or "").strip(),
+            "stderr": (proc.stderr or "").strip(),
+        }
+    except Exception as ex:
+        return {"ok": False, "supported": True, "stdout": "", "stderr": str(ex)}
+
+
+def _parse_ufw_status_sync() -> Dict[str, Any]:
+    import re as _re
+    import shutil
+    import subprocess
+
+    ufw_bin = shutil.which("ufw")
+    listening_ports: List[Dict[str, Any]] = []
+    ss_bin = shutil.which("ss")
+    if ss_bin:
+        try:
+            ss_proc = subprocess.run([ss_bin, "-tulnp"], capture_output=True, text=True, timeout=5.0)
+            seen_lp = set()
+            for ln in (ss_proc.stdout or "").splitlines()[1:]:
+                parts = ln.split()
+                if len(parts) < 5:
+                    continue
+                proto = parts[0].lower().replace("6", "")
+                if proto not in ("tcp", "udp"):
+                    continue
+                local_addr = parts[4]
+                if ":" not in local_addr:
+                    continue
+                host_part, port_part = local_addr.rsplit(":", 1)
+                if not port_part.isdigit():
+                    continue
+                port_num = int(port_part)
+                host_clean = host_part.strip("[]")
+                is_public = host_clean in ("0.0.0.0", "*", "::", "")
+                proc_m = _re.search(r'"([^"]+)"', ln)
+                proc_name = proc_m.group(1) if proc_m else "-"
+                lp_key = (proto, port_num, host_clean)
+                if lp_key in seen_lp:
+                    continue
+                seen_lp.add(lp_key)
+                listening_ports.append({
+                    "protocol": proto,
+                    "port": port_num,
+                    "bind": host_clean or "0.0.0.0",
+                    "is_public": is_public,
+                    "process": proc_name,
+                })
+            listening_ports.sort(key=lambda x: (not x["is_public"], x["port"], x["protocol"]))
+        except Exception:
+            pass
+
+    if not ufw_bin:
+        return {
+            "supported": False,
+            "enabled": False,
+            "default_incoming": "unknown",
+            "default_outgoing": "unknown",
+            "rules": [],
+            "listening_ports": listening_ports,
+            "message": "UFW yalnızca Linux panel sunucusunda aktiftir.",
+        }
+
+    verbose_res = _run_ufw_cmd_sync(["status", "verbose"])
+    num_res = _run_ufw_cmd_sync(["status", "numbered"])
+
+    raw_v = verbose_res.get("stdout") or ""
+    enabled = "status: active" in raw_v.lower()
+    def_in = "deny"
+    def_out = "allow"
+    m_def = _re.search(r"Default:\s*([a-z]+)\s*\(incoming\),\s*([a-z]+)\s*\(outgoing\)", raw_v, flags=_re.IGNORECASE)
+    if m_def:
+        def_in = m_def.group(1).lower()
+        def_out = m_def.group(2).lower()
+
+    rules: List[Dict[str, Any]] = []
+    for ln in (num_res.get("stdout") or "").splitlines():
+        m_r = _re.match(r"^\[\s*(\d+)\]\s+(.+?)\s{2,}(ALLOW IN|DENY IN|REJECT IN|LIMIT IN|ALLOW OUT|DENY OUT|ALLOW|DENY|REJECT|LIMIT)\s+(.+)$", ln.strip())
+        if not m_r:
+            continue
+        r_num = int(m_r.group(1))
+        to_val = m_r.group(2).strip()
+        act_val = m_r.group(3).strip().upper()
+        from_val = m_r.group(4).strip()
+        is_crit = any(tok in to_val for tok in ("22/tcp", "22 ", "443/tcp", "443 ", "80/tcp", "80 ")) or to_val in ("22", "80", "443")
+        rules.append({
+            "num": r_num,
+            "to": to_val,
+            "action": act_val,
+            "from_ip": from_val,
+            "is_critical": is_crit,
+        })
+
+    return {
+        "supported": True,
+        "enabled": enabled,
+        "default_incoming": def_in,
+        "default_outgoing": def_out,
+        "rules": rules,
+        "listening_ports": listening_ports,
+        "raw_error": verbose_res.get("stderr") or "",
+    }
+
+
+@app.get("/api/v1/security/firewall/status")
+async def get_panel_firewall_status():
+    """Returns live UFW firewall status, numbered port rules, and listening ports on the panel server."""
+    return await asyncio.to_thread(_parse_ufw_status_sync)
+
+
+@app.post("/api/v1/security/firewall/toggle")
+async def toggle_panel_firewall(request: Request, payload: Dict[str, Any] = Body(...), db: AsyncSession = Depends(get_central_db)):
+    """Enables or disables UFW safely (always ensuring SSH 22, HTTP 80, HTTPS 443 are allowed before enabling)."""
+    s_info = getattr(request.state, "master_user", None) or {}
+    performed_by = s_info.get("u") or request.headers.get("X-User-Name", "admin")
+    want_enable = bool(payload.get("enabled", True))
+
+    def _do_toggle():
+        if want_enable:
+            _run_ufw_cmd_sync(["default", "deny", "incoming"])
+            _run_ufw_cmd_sync(["default", "allow", "outgoing"])
+            _run_ufw_cmd_sync(["allow", "22/tcp"])
+            _run_ufw_cmd_sync(["allow", "80/tcp"])
+            _run_ufw_cmd_sync(["allow", "443/tcp"])
+            return _run_ufw_cmd_sync(["--force", "enable"])
+        return _run_ufw_cmd_sync(["--force", "disable"])
+
+    res = await asyncio.to_thread(_do_toggle)
+    if not res.get("supported"):
+        raise HTTPException(status_code=400, detail=res.get("stderr") or "UFW bu sunucuda desteklenmiyor.")
+    if not res.get("ok"):
+        raise HTTPException(status_code=500, detail=res.get("stderr") or "Güvenlik duvarı durumu değiştirilemedi.")
+
+    await log_master_action(
+        db,
+        performed_by,
+        "FIREWALL_TOGGLE",
+        f"Panel Güvenlik Duvarı (UFW) {'Aktif Edildi (22/80/443 korumalı)' if want_enable else 'Devre Dışı Bırakıldı'}",
+        extract_client_ip(request),
+    )
+    status_data = await asyncio.to_thread(_parse_ufw_status_sync)
+    return {"success": True, **status_data}
+
+
+@app.post("/api/v1/security/firewall/rules")
+async def add_panel_firewall_rule(request: Request, payload: Dict[str, Any] = Body(...), db: AsyncSession = Depends(get_central_db)):
+    """Adds a strictly validated UFW port rule (allow/deny, tcp/udp/any, optional source IP/CIDR)."""
+    import re as _re
+    s_info = getattr(request.state, "master_user", None) or {}
+    performed_by = s_info.get("u") or request.headers.get("X-User-Name", "admin")
+
+    port_raw = str(payload.get("port") or "").strip()
+    proto = str(payload.get("protocol") or "tcp").strip().lower()
+    action = str(payload.get("action") or "allow").strip().lower()
+    source_ip = str(payload.get("source_ip") or "").strip()
+
+    if not _re.match(r"^\d{1,5}(:\d{1,5})?$", port_raw):
+        raise HTTPException(status_code=400, detail="Geçersiz port biçimi. Örn: 443 veya 8000:8010")
+    for p_seg in port_raw.split(":"):
+        if not (1 <= int(p_seg) <= 65535):
+            raise HTTPException(status_code=400, detail="Port numarası 1 ile 65535 arasında olmalıdır.")
+
+    if proto not in ("tcp", "udp", "any"):
+        raise HTTPException(status_code=400, detail="Protokol tcp, udp veya any olmalıdır.")
+    if action not in ("allow", "deny"):
+        raise HTTPException(status_code=400, detail="Aksiyon allow (İzin Ver) veya deny (Engelle) olmalıdır.")
+
+    if action == "deny" and port_raw in ("22", "443") and (not source_ip or source_ip.lower() in ("any", "anywhere", "0.0.0.0/0")):
+        raise HTTPException(status_code=400, detail="Kilitlenme koruması: Tüm dünyaya 22 (SSH) veya 443 (HTTPS Panel) portları kapatılamaz.")
+
+    if source_ip and source_ip.lower() not in ("any", "anywhere"):
+        if not _re.match(r"^[0-9a-fA-F.:/]+$", source_ip):
+            raise HTTPException(status_code=400, detail="Geçersiz kaynak IP / CIDR adresi.")
+        cmd = [action, "from", source_ip, "to", "any", "port", port_raw]
+        if proto in ("tcp", "udp"):
+            cmd += ["proto", proto]
+    else:
+        port_spec = f"{port_raw}/{proto}" if proto in ("tcp", "udp") else port_raw
+        cmd = [action, port_spec]
+
+    res = await asyncio.to_thread(_run_ufw_cmd_sync, cmd)
+    if not res.get("supported"):
+        raise HTTPException(status_code=400, detail=res.get("stderr") or "UFW bu sunucuda desteklenmiyor.")
+    if not res.get("ok"):
+        raise HTTPException(status_code=500, detail=res.get("stderr") or "Kural eklenemedi.")
+
+    await log_master_action(
+        db,
+        performed_by,
+        "FIREWALL_RULE_ADD",
+        f"Güvenlik Duvarı Kuralı Eklendi: {action.upper()} Port={port_raw}/{proto} Kaynak={source_ip or 'Anywhere'}",
+        extract_client_ip(request),
+    )
+    status_data = await asyncio.to_thread(_parse_ufw_status_sync)
+    return {"success": True, **status_data}
+
+
+@app.delete("/api/v1/security/firewall/rules/{rule_num}")
+async def delete_panel_firewall_rule(rule_num: int, request: Request, db: AsyncSession = Depends(get_central_db)):
+    """Deletes a numbered UFW rule safely."""
+    s_info = getattr(request.state, "master_user", None) or {}
+    performed_by = s_info.get("u") or request.headers.get("X-User-Name", "admin")
+    if rule_num < 1 or rule_num > 500:
+        raise HTTPException(status_code=400, detail="Geçersiz kural numarası.")
+
+    res = await asyncio.to_thread(_run_ufw_cmd_sync, ["--force", "delete", str(rule_num)])
+    if not res.get("supported"):
+        raise HTTPException(status_code=400, detail=res.get("stderr") or "UFW bu sunucuda desteklenmiyor.")
+    if not res.get("ok"):
+        raise HTTPException(status_code=500, detail=res.get("stderr") or "Kural silinemedi.")
+
+    await log_master_action(
+        db,
+        performed_by,
+        "FIREWALL_RULE_DELETE",
+        f"Güvenlik Duvarı Kuralı Silindi: #{rule_num}",
+        extract_client_ip(request),
+    )
+    status_data = await asyncio.to_thread(_parse_ufw_status_sync)
+    return {"success": True, **status_data}
+
+
+@app.post("/api/v1/security/firewall/harden-preset")
+async def apply_panel_firewall_harden_preset(request: Request, db: AsyncSession = Depends(get_central_db)):
+    """Applies recommended Nornia Panel firewall hardening: allow ONLY 22/tcp, 80/tcp, 443/tcp and block public 8050/3050."""
+    s_info = getattr(request.state, "master_user", None) or {}
+    performed_by = s_info.get("u") or request.headers.get("X-User-Name", "admin")
+
+    def _do_harden():
+        chk = _run_ufw_cmd_sync(["default", "deny", "incoming"])
+        if not chk.get("supported"):
+            return chk
+        _run_ufw_cmd_sync(["default", "allow", "outgoing"])
+        _run_ufw_cmd_sync(["allow", "22/tcp"])
+        _run_ufw_cmd_sync(["allow", "80/tcp"])
+        _run_ufw_cmd_sync(["allow", "443/tcp"])
+        for internal_p in ("8050", "8050/tcp", "3050", "3050/tcp"):
+            _run_ufw_cmd_sync(["--force", "delete", "allow", internal_p])
+        return _run_ufw_cmd_sync(["--force", "enable"])
+
+    res = await asyncio.to_thread(_do_harden)
+    if not res.get("supported"):
+        raise HTTPException(status_code=400, detail=res.get("stderr") or "UFW bu sunucuda desteklenmiyor.")
+    if not res.get("ok"):
+        raise HTTPException(status_code=500, detail=res.get("stderr") or "Önerilen güvenlik duvarı profili uygulanamadı.")
+
+    await log_master_action(
+        db,
+        performed_by,
+        "FIREWALL_HARDEN_PRESET",
+        "Önerilen Panel Güvenlik Duvarı Profili Uygulandı (Sadece 22, 80, 443 açık; 8050 ve 3050 dışarıya kapatıldı)",
+        extract_client_ip(request),
+    )
+    status_data = await asyncio.to_thread(_parse_ufw_status_sync)
+    return {"success": True, **status_data}
+
+
 @app.get("/api/v1/users")
 async def get_master_users(db: AsyncSession = Depends(get_central_db)):
     """Returns list of all central master portal users."""
@@ -2367,6 +2638,61 @@ async def trigger_client_remote_ota_update(client_id: int, request: Request, db:
     return {
         "success": True,
         "message": f"{client.company_name} santraline Nornia Connect tüneli üzerinden OTA güncelleme emri iletildi. Santral arka planda güncellenip yeniden başlatılacak.",
+    }
+
+
+@app.post("/api/v1/clients/bulk-ota-update")
+async def trigger_bulk_remote_ota_update(
+    request: Request,
+    payload: Dict[str, Any] = Body(...),
+    db: AsyncSession = Depends(get_central_db),
+):
+    """Triggers remote OTA Update across multiple selected PBX servers that have active Nornia Connect tunnels."""
+    from license_center.backend.connect_hub import trigger_pbx_ota_update
+
+    raw_ids = payload.get("client_ids") or []
+    client_ids = []
+    for x in raw_ids:
+        try:
+            client_ids.append(int(x))
+        except Exception:
+            pass
+    if not client_ids:
+        raise HTTPException(status_code=400, detail="Toplu OTA güncelleme için en az bir santral seçiniz.")
+
+    s_info = getattr(request.state, "master_user", None) or {}
+    performed_by = s_info.get("u") or request.headers.get("X-User-Name", "admin")
+
+    res = await db.execute(select(ClientServer).where(ClientServer.id.in_(client_ids)))
+    clients = res.scalars().all()
+
+    triggered: List[Dict[str, Any]] = []
+    skipped: List[Dict[str, Any]] = []
+
+    for c in clients:
+        hw_id = (c.hardware_id or "").strip().upper()
+        sub = (c.connect_subdomain or "").strip().lower()
+        sent = await trigger_pbx_ota_update(hardware_id=hw_id, subdomain=sub, triggered_by=performed_by)
+        if sent:
+            triggered.append({"id": c.id, "company_name": c.company_name, "subdomain": sub})
+        else:
+            skipped.append({"id": c.id, "company_name": c.company_name, "reason": "Tünel aktif değil"})
+
+    await log_master_action(
+        db,
+        performed_by,
+        "BULK_OTA_UPDATE",
+        f"Toplu OTA Güncelleme Gönderildi: Başarılı={len(triggered)} ({', '.join(x['company_name'] for x in triggered) or '-'}), Atlanan={len(skipped)}",
+        extract_client_ip(request),
+    )
+
+    return {
+        "success": True,
+        "triggered_count": len(triggered),
+        "skipped_count": len(skipped),
+        "triggered": triggered,
+        "skipped": skipped,
+        "message": f"{len(triggered)} santrale OTA güncelleme emri iletildi" + (f" ({len(skipped)} santral tünel kapalı olduğu için atlandı)." if skipped else "."),
     }
 
 

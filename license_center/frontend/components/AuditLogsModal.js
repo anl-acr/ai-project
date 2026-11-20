@@ -75,6 +75,36 @@ const ACTION_META = {
     badge: "bg-cyan-500/12 text-cyan-700 dark:text-cyan-300 border-cyan-500/30",
     icon: Shield
   },
+  BULK_OTA_UPDATE: {
+    label: "Toplu OTA Güncelleme",
+    category: "tunnel",
+    badge: "bg-cyan-500/12 text-cyan-700 dark:text-cyan-300 border-cyan-500/30",
+    icon: RefreshCw
+  },
+  FIREWALL_TOGGLE: {
+    label: "Güvenlik Duvarı Durumu",
+    category: "security",
+    badge: "bg-amber-500/12 text-amber-700 dark:text-amber-300 border-amber-500/30",
+    icon: Shield
+  },
+  FIREWALL_RULE_ADD: {
+    label: "Port Kuralı Eklendi",
+    category: "security",
+    badge: "bg-emerald-500/12 text-emerald-700 dark:text-emerald-300 border-emerald-500/30",
+    icon: ShieldCheck
+  },
+  FIREWALL_RULE_DELETE: {
+    label: "Port Kuralı Silindi",
+    category: "security",
+    badge: "bg-rose-500/12 text-rose-700 dark:text-rose-300 border-rose-500/30",
+    icon: Trash2
+  },
+  FIREWALL_HARDEN_PRESET: {
+    label: "Önerilen Firewall Profili",
+    category: "security",
+    badge: "bg-emerald-500/12 text-emerald-700 dark:text-emerald-300 border-emerald-500/30",
+    icon: ShieldCheck
+  },
   PACKAGE_TEMPLATE_UPDATE: {
     label: "Paket Şablonu Güncellendi",
     category: "license",

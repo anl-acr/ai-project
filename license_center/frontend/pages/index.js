@@ -43,6 +43,7 @@ import {
   WifiOff,
   HardDrive,
   Database,
+  Download,
   Zap,
   X,
   Settings
@@ -175,6 +176,140 @@ export default function MasterDashboard() {
   const [expiringSoonDays, setExpiringSoonDays] = useState(15);
   const [savingExpiringDays, setSavingExpiringDays] = useState(false);
   const [expiringDaysSavedToast, setExpiringDaysSavedToast] = useState(false);
+
+  // Bulk Fleet Selection, Excel/CSV Export & Bulk OTA Update
+  const [selectedClientIds, setSelectedClientIds] = useState([]);
+  const [showBulkOtaModal, setShowBulkOtaModal] = useState(false);
+  const [bulkOtaLoading, setBulkOtaLoading] = useState(false);
+  const [bulkOtaFeedback, setBulkOtaFeedback] = useState(null);
+
+  const toggleSelectClient = (cid) => {
+    setSelectedClientIds((prev) =>
+      prev.includes(cid) ? prev.filter((x) => x !== cid) : [...prev, cid]
+    );
+  };
+
+  const handleExportFleetCsv = (onlySelected = false) => {
+    const targetList =
+      onlySelected && selectedClientIds.length > 0
+        ? clients.filter((c) => selectedClientIds.includes(c.id))
+        : sortedFilteredClients;
+    if (!targetList || targetList.length === 0) return;
+
+    const csvEscape = (v) => {
+      const s = String(v ?? "").replace(/"/g, '""');
+      return `"${s}"`;
+    };
+
+    const headers = [
+      "Firma Adı",
+      "Kiracı Kodu",
+      "Durum",
+      "Çevrimiçi",
+      "Tünel",
+      "Nornia Connect Adresi",
+      "Paket",
+      "Lisans Bitiş",
+      "Kalan Gün",
+      "Ek Süre Bitiş",
+      "Eş Zamanlı Kanal",
+      "Tolerans Kanal",
+      "Abone Limiti",
+      "Aktif Kullanıcı",
+      "Aktif Çağrı",
+      "Yazılım Sürümü",
+      "CPU (%)",
+      "RAM (%)",
+      "Disk (%)",
+      "IP Adresi",
+      "Donanım ID",
+      "Sistem Seri No",
+      "Tenant Seri No",
+      "Son Heartbeat"
+    ];
+
+    const rows = targetList.map((c) => {
+      const effExp = resolveClientExpiryDate(c);
+      const graceExp = c.license_grace_until || c.custom_quotas?.license_grace_until || "";
+      return [
+        c.company_name || "",
+        c.tenant_code || "",
+        c.status === "suspended" ? "Askıda" : c.status === "expired" ? "Süresi Doldu" : "Aktif",
+        c.is_online ? "Canlı" : "Çevrimdışı",
+        c.tunnel_connected ? "Bağlı" : "Kapalı",
+        c.connect_subdomain ? `${c.connect_subdomain}.nornia.com.tr` : c.domain_name || "",
+        c.plan_tier || "professional",
+        formatExpiryDateTR(effExp),
+        effExp === "unlimited" ? "Süresiz" : (c.days_left ?? ""),
+        graceExp ? formatExpiryDateTR(graceExp) : "",
+        c.custom_quotas?.max_concurrent_calls ?? 4,
+        c.custom_quotas?.tolerance_concurrent_calls ?? 0,
+        getClientUserLicenseCount(c),
+        c.total_users_count ?? 0,
+        c.active_calls_count ?? 0,
+        c.software_version || "",
+        Math.round(Number(c.cpu_usage_percent || 0) * 10) / 10,
+        Math.round(Number(c.ram_usage_percent || 0) * 10) / 10,
+        Math.round(Number(c.disk_usage_percent || 0) * 10) / 10,
+        c.ip_address || "",
+        c.hardware_id || "",
+        c.system_serial_number || "",
+        c.tenant_serial_number || "",
+        c.last_heartbeat_at || ""
+      ];
+    });
+
+    const csvLines = [
+      headers.map(csvEscape).join(";"),
+      ...rows.map((r) => r.map(csvEscape).join(";"))
+    ].join("\r\n");
+
+    const blob = new Blob(["\uFEFF" + csvLines], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    const dateTag = new Date().toISOString().slice(0, 10);
+    a.href = url;
+    a.download = `nornia_filo_raporu_${dateTag}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
+  const handleExecuteBulkOta = async () => {
+    if (selectedClientIds.length === 0) return;
+    setBulkOtaLoading(true);
+    setBulkOtaFeedback(null);
+    try {
+      const res = await fetch(`${API_BASE}/api/v1/clients/bulk-ota-update`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-User-Name": currentUser?.username || "admin"
+        },
+        body: JSON.stringify({ client_ids: selectedClientIds })
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok) {
+        setBulkOtaFeedback({
+          type: "ok",
+          text: data.message || `${data.triggered_count || 0} santrale OTA güncelleme gönderildi.`
+        });
+        setSelectedClientIds([]);
+        setShowBulkOtaModal(false);
+        setTimeout(() => setBulkOtaFeedback(null), 6000);
+      } else {
+        setBulkOtaFeedback({
+          type: "err",
+          text: data.detail || "Toplu OTA güncelleme başlatılamadı."
+        });
+      }
+    } catch (e) {
+      setBulkOtaFeedback({ type: "err", text: "Sunucuya bağlanılamadı." });
+    } finally {
+      setBulkOtaLoading(false);
+    }
+  };
   const [loading, setLoading] = useState(false);
 
   // Add Client Modal State
@@ -1772,6 +1907,69 @@ export default function MasterDashboard() {
           </div>
         )}
 
+        {/* FLEET BULK ACTION & EXCEL EXPORT BAR */}
+        {(selectedClientIds.length > 0 || bulkOtaFeedback || filteredClients.length > 0) && (
+          <div className="flex flex-wrap items-center justify-between gap-2.5">
+            <div className="flex flex-wrap items-center gap-2">
+              {selectedClientIds.length > 0 && (
+                <div className="flex flex-wrap items-center gap-2 px-3 py-2 rounded-2xl bg-indigo-50/90 dark:bg-indigo-950/40 border border-indigo-200 dark:border-indigo-800/70 text-xs">
+                  <span className="font-extrabold text-indigo-700 dark:text-indigo-300">
+                    {selectedClientIds.length} santral seçildi
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setShowBulkOtaModal(true)}
+                    className="px-3 py-1.5 rounded-xl bg-cyan-600 hover:bg-cyan-500 text-white text-[11px] font-extrabold flex items-center gap-1.5 shadow-xs transition-colors cursor-pointer"
+                  >
+                    <RefreshCw size={12} />
+                    <span>Toplu OTA Güncelle</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleExportFleetCsv(true)}
+                    className="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-[11px] font-extrabold flex items-center gap-1.5 shadow-xs transition-colors cursor-pointer"
+                  >
+                    <Download size={12} />
+                    <span>Seçilileri Excel İndir</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setSelectedClientIds([])}
+                    className="px-2.5 py-1.5 rounded-xl bg-white dark:bg-slate-900 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700 text-[11px] font-bold transition-colors cursor-pointer"
+                  >
+                    Temizle
+                  </button>
+                </div>
+              )}
+
+              {bulkOtaFeedback && (
+                <div
+                  className={`px-3.5 py-2 rounded-2xl border text-xs font-bold flex items-center gap-2 ${
+                    bulkOtaFeedback.type === "ok"
+                      ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-700 dark:text-emerald-300"
+                      : "bg-rose-500/10 border-rose-500/30 text-rose-700 dark:text-rose-300"
+                  }`}
+                >
+                  {bulkOtaFeedback.type === "ok" ? <Check size={14} /> : <AlertTriangle size={14} />}
+                  <span>{bulkOtaFeedback.text}</span>
+                </div>
+              )}
+            </div>
+
+            {filteredClients.length > 0 && selectedClientIds.length === 0 && (
+              <button
+                type="button"
+                onClick={() => handleExportFleetCsv(false)}
+                className="ml-auto px-3.5 py-2 rounded-xl bg-white dark:bg-slate-900 hover:bg-emerald-600 text-emerald-700 dark:text-emerald-400 hover:text-white border border-slate-200 dark:border-slate-800 hover:border-emerald-500 text-xs font-extrabold flex items-center gap-1.5 shadow-xs transition-colors cursor-pointer"
+                title="Tüm listelenen santral filosunu Excel (CSV) olarak dışa aktar"
+              >
+                <Download size={14} />
+                <span>Filo Excel İndir</span>
+              </button>
+            )}
+          </div>
+        )}
+
         {/* CLIENT SERVER FLEET: MODERN 2-COLUMN CARDS OR TABLE VIEW */}
         {filteredClients.length === 0 ? (
           <div className="bg-white dark:bg-slate-900/60 border border-slate-200/80 dark:border-slate-800 rounded-2xl p-12 text-center space-y-3">
@@ -1790,6 +1988,26 @@ export default function MasterDashboard() {
               <table className="w-full text-left border-collapse">
                 <thead>
                   <tr className="border-b border-slate-200/80 dark:border-slate-800 bg-slate-50/80 dark:bg-slate-950/60 text-[11px] font-extrabold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
+                    <th className="py-3.5 pl-4 pr-1 w-9">
+                      <input
+                        type="checkbox"
+                        checked={
+                          paginatedClients.length > 0 &&
+                          paginatedClients.every((c) => selectedClientIds.includes(c.id))
+                        }
+                        onChange={(e) => {
+                          if (e.target.checked) {
+                            const pageIds = paginatedClients.map((c) => c.id);
+                            setSelectedClientIds((prev) => Array.from(new Set([...prev, ...pageIds])));
+                          } else {
+                            const pageIdSet = new Set(paginatedClients.map((c) => c.id));
+                            setSelectedClientIds((prev) => prev.filter((id) => !pageIdSet.has(id)));
+                          }
+                        }}
+                        className="w-4 h-4 rounded border-slate-300 dark:border-slate-600 accent-indigo-600 cursor-pointer"
+                        title="Bu sayfadaki tüm santralleri seç"
+                      />
+                    </th>
                     <th className="py-3.5 px-4 whitespace-nowrap">Müşteri / Tenant</th>
                     <th className="py-3.5 px-4 whitespace-nowrap">Santral Seri No &amp; Donanım</th>
                     <th className="py-3.5 px-4 whitespace-nowrap">Nornia Connect &amp; SSH</th>
@@ -1820,9 +2038,21 @@ export default function MasterDashboard() {
                         className={`transition-colors align-middle ${
                           hasAlert
                             ? "bg-rose-50/95 dark:bg-rose-950/45 hover:bg-rose-100/90 dark:hover:bg-rose-950/65 shadow-[inset_4px_0_0_0_#e11d48]"
-                            : "hover:bg-slate-50/80 dark:hover:bg-slate-800/40"
+                            : selectedClientIds.includes(client.id)
+                              ? "bg-indigo-50/70 dark:bg-indigo-950/25 hover:bg-indigo-50 dark:hover:bg-indigo-950/40"
+                              : "hover:bg-slate-50/80 dark:hover:bg-slate-800/40"
                         }`}
                       >
+                        {/* 0. Seçim Kutusu */}
+                        <td className="py-3.5 pl-4 pr-1 w-9">
+                          <input
+                            type="checkbox"
+                            checked={selectedClientIds.includes(client.id)}
+                            onChange={() => toggleSelectClient(client.id)}
+                            className="w-4 h-4 rounded border-slate-300 dark:border-slate-600 accent-indigo-600 cursor-pointer"
+                            title={`${client.company_name} seç`}
+                          />
+                        </td>
                         {/* 1. Müşteri / Tenant */}
                         <td className="py-3.5 px-4">
                           <div className="flex items-start gap-2.5">
@@ -4732,6 +4962,74 @@ export default function MasterDashboard() {
         packageTemplates={packageTemplates}
         onTemplatesUpdated={fetchPackageTemplates}
       />
+
+      {/* BULK OTA UPDATE CONFIRMATION MODAL */}
+      {showBulkOtaModal && (
+        <div className="fixed inset-0 z-[9995] flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-sm animate-fadeIn">
+          <div className="w-full max-w-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-6 shadow-2xl space-y-5 text-slate-900 dark:text-slate-100">
+            <div className="flex items-center gap-3">
+              <div className="w-12 h-12 rounded-2xl bg-cyan-500/15 text-cyan-600 dark:text-cyan-400 border border-cyan-500/25 flex items-center justify-center shrink-0">
+                <RefreshCw size={22} className={bulkOtaLoading ? "animate-spin" : ""} />
+              </div>
+              <div>
+                <h4 className="text-base font-extrabold text-slate-900 dark:text-white">
+                  Toplu OTA Güncelleme Başlat ({selectedClientIds.length} Santral)
+                </h4>
+                <p className="text-xs text-slate-500 dark:text-slate-400 font-semibold">
+                  Tüneli aktif olan seçili santrallere uzaktan son sürüm güncelleme komutu gönderilir.
+                </p>
+              </div>
+            </div>
+
+            <div className="max-h-56 overflow-y-auto space-y-1.5 pr-1">
+              {clients
+                .filter((c) => selectedClientIds.includes(c.id))
+                .map((c) => (
+                  <div
+                    key={c.id}
+                    className="px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-950/60 border border-slate-200/80 dark:border-slate-800 flex items-center justify-between gap-2 text-xs"
+                  >
+                    <div className="min-w-0">
+                      <div className="font-extrabold text-slate-800 dark:text-slate-100 truncate">{c.company_name}</div>
+                      <div className="font-mono text-[10px] text-slate-500 truncate">
+                        {c.connect_subdomain ? `${c.connect_subdomain}.nornia.com.tr` : c.tenant_code} • {c.software_version || "-"}
+                      </div>
+                    </div>
+                    <span
+                      className={`px-2 py-0.5 rounded-md text-[10px] font-extrabold shrink-0 ${
+                        c.tunnel_connected
+                          ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300"
+                          : "bg-amber-500/15 text-amber-700 dark:text-amber-300"
+                      }`}
+                    >
+                      {c.tunnel_connected ? "Güncellenecek" : "Tünel Kapalı (Atlanır)"}
+                    </span>
+                  </div>
+                ))}
+            </div>
+
+            <div className="flex items-center justify-end gap-2.5 pt-1">
+              <button
+                type="button"
+                disabled={bulkOtaLoading}
+                onClick={() => setShowBulkOtaModal(false)}
+                className="px-4 py-2.5 rounded-xl text-xs font-bold border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer disabled:opacity-50"
+              >
+                Vazgeç
+              </button>
+              <button
+                type="button"
+                disabled={bulkOtaLoading}
+                onClick={handleExecuteBulkOta}
+                className="px-4 py-2.5 rounded-xl text-xs font-extrabold text-white bg-cyan-600 hover:bg-cyan-500 shadow-lg shadow-cyan-600/25 flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+              >
+                <RefreshCw size={13} className={bulkOtaLoading ? "animate-spin" : ""} />
+                <span>{bulkOtaLoading ? "Gönderiliyor..." : "Toplu OTA Başlat"}</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* PERSONAL ACCOUNT SETTINGS MODAL (PASSWORD & 2FA) */}
       <AccountSettingsModal

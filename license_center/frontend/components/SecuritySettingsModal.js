@@ -38,6 +38,152 @@ export default function SecuritySettingsModal({ isOpen, onClose, currentUser, on
   const [backupInfo, setBackupInfo] = useState(null);
   const [creatingBackup, setCreatingBackup] = useState(false);
 
+  // Panel Server UFW Firewall Port Management
+  const [fwStatus, setFwStatus] = useState(null);
+  const [fwLoading, setFwLoading] = useState(false);
+  const [fwBusy, setFwBusy] = useState(false);
+  const [fwPort, setFwPort] = useState("");
+  const [fwProto, setFwProto] = useState("tcp");
+  const [fwAction, setFwAction] = useState("allow");
+  const [fwSourceIp, setFwSourceIp] = useState("");
+  const [fwFeedback, setFwFeedback] = useState(null); // { type: 'ok'|'err', text }
+  const [fwDeleteRuleTarget, setFwDeleteRuleTarget] = useState(null);
+  const [showFwHardenConfirm, setShowFwHardenConfirm] = useState(false);
+
+  const fetchFirewallStatus = async () => {
+    setFwLoading(true);
+    try {
+      const res = await fetch("/api/v1/security/firewall/status");
+      if (res.ok) {
+        setFwStatus(await res.json());
+      }
+    } catch (e) {
+      console.error("Failed to fetch firewall status:", e);
+    } finally {
+      setFwLoading(false);
+    }
+  };
+
+  const handleToggleFirewall = async () => {
+    if (!fwStatus?.supported) return;
+    setFwBusy(true);
+    setFwFeedback(null);
+    try {
+      const res = await fetch("/api/v1/security/firewall/toggle", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-User-Name": currentUser?.username || "admin"
+        },
+        body: JSON.stringify({ enabled: !fwStatus.enabled })
+      });
+      const d = await res.json().catch(() => ({}));
+      if (res.ok) {
+        setFwStatus(d);
+        setFwFeedback({
+          type: "ok",
+          text: d.enabled
+            ? "Güvenlik duvarı (UFW) aktif edildi (22/80/443 kilit korumalı)."
+            : "Güvenlik duvarı (UFW) devre dışı bırakıldı."
+        });
+      } else {
+        setFwFeedback({ type: "err", text: d.detail || "Güvenlik duvarı durumu değiştirilemedi." });
+      }
+    } catch (e) {
+      setFwFeedback({ type: "err", text: "Sunucuya bağlanılamadı." });
+    } finally {
+      setFwBusy(false);
+    }
+  };
+
+  const handleAddFirewallRule = async (e) => {
+    e.preventDefault();
+    if (!fwPort.trim()) {
+      setFwFeedback({ type: "err", text: "Lütfen bir port numarası giriniz (örn. 443 veya 8050)." });
+      return;
+    }
+    setFwBusy(true);
+    setFwFeedback(null);
+    try {
+      const res = await fetch("/api/v1/security/firewall/rules", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-User-Name": currentUser?.username || "admin"
+        },
+        body: JSON.stringify({
+          port: fwPort.trim(),
+          protocol: fwProto,
+          action: fwAction,
+          source_ip: fwSourceIp.trim()
+        })
+      });
+      const d = await res.json().catch(() => ({}));
+      if (res.ok) {
+        setFwStatus(d);
+        setFwPort("");
+        setFwSourceIp("");
+        setFwFeedback({ type: "ok", text: "Port kuralı başarıyla eklendi." });
+      } else {
+        setFwFeedback({ type: "err", text: d.detail || "Port kuralı eklenemedi." });
+      }
+    } catch (e) {
+      setFwFeedback({ type: "err", text: "Sunucuya bağlanılamadı." });
+    } finally {
+      setFwBusy(false);
+    }
+  };
+
+  const confirmDeleteFirewallRule = async () => {
+    if (!fwDeleteRuleTarget) return;
+    setFwBusy(true);
+    setFwFeedback(null);
+    try {
+      const res = await fetch(`/api/v1/security/firewall/rules/${fwDeleteRuleTarget.num}`, {
+        method: "DELETE",
+        headers: { "X-User-Name": currentUser?.username || "admin" }
+      });
+      const d = await res.json().catch(() => ({}));
+      if (res.ok) {
+        setFwStatus(d);
+        setFwFeedback({ type: "ok", text: `#${fwDeleteRuleTarget.num} kuralı silindi.` });
+      } else {
+        setFwFeedback({ type: "err", text: d.detail || "Kural silinemedi." });
+      }
+    } catch (e) {
+      setFwFeedback({ type: "err", text: "Sunucuya bağlanılamadı." });
+    } finally {
+      setFwBusy(false);
+      setFwDeleteRuleTarget(null);
+    }
+  };
+
+  const confirmApplyFirewallHardenPreset = async () => {
+    setFwBusy(true);
+    setFwFeedback(null);
+    try {
+      const res = await fetch("/api/v1/security/firewall/harden-preset", {
+        method: "POST",
+        headers: { "X-User-Name": currentUser?.username || "admin" }
+      });
+      const d = await res.json().catch(() => ({}));
+      if (res.ok) {
+        setFwStatus(d);
+        setFwFeedback({
+          type: "ok",
+          text: "Önerilen Panel Profili uygulandı: Sadece 22, 80, 443 açık; 8050 ve 3050 dışarıya kapatıldı."
+        });
+      } else {
+        setFwFeedback({ type: "err", text: d.detail || "Profil uygulanamadı." });
+      }
+    } catch (e) {
+      setFwFeedback({ type: "err", text: "Sunucuya bağlanılamadı." });
+    } finally {
+      setFwBusy(false);
+      setShowFwHardenConfirm(false);
+    }
+  };
+
   const fetchBackupInfo = async () => {
     try {
       const res = await fetch("/api/v1/system/backups");
@@ -78,6 +224,7 @@ export default function SecuritySettingsModal({ isOpen, onClose, currentUser, on
     if (isOpen) {
       fetchSecurityData();
       fetchBackupInfo();
+      fetchFirewallStatus();
     }
   }, [isOpen]);
 
@@ -701,6 +848,215 @@ export default function SecuritySettingsModal({ isOpen, onClose, currentUser, on
               </div>
             )}
           </div>
+
+          {/* 5. Panel Server Firewall Management (UFW Port & Access Control) */}
+          <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-950/70 border border-slate-200/80 dark:border-slate-800 space-y-3.5">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <div className="font-extrabold text-slate-800 dark:text-slate-200 uppercase tracking-wider flex items-center gap-2 flex-wrap">
+                  <Shield size={15} className="text-emerald-500" />
+                  <span>5. Panel Sunucusu Güvenlik Duvarı (UFW Port Yönetimi)</span>
+                  {fwStatus?.supported && (
+                    <span
+                      className={`px-2 py-0.5 rounded-md text-[10px] font-extrabold border ${
+                        fwStatus.enabled
+                          ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border-emerald-500/25"
+                          : "bg-amber-500/15 text-amber-700 dark:text-amber-300 border-amber-500/25"
+                      }`}
+                    >
+                      {fwStatus.enabled ? "UFW Aktif" : "UFW Pasif"}
+                    </span>
+                  )}
+                </div>
+                <p className="text-[11px] text-slate-500 mt-0.5">
+                  Panel sunucusunda dış dünyaya açık TCP/UDP portlarını yönetin. Nginx arkasındaki <strong>8050</strong> ve <strong>3050</strong> portlarının dışarıya kapalı, yalnızca <strong>22 / 80 / 443</strong> açık olması önerilir.
+                </p>
+              </div>
+
+              {fwStatus?.supported && (
+                <div className="flex items-center gap-2 flex-wrap">
+                  <button
+                    type="button"
+                    disabled={fwBusy}
+                    onClick={() => setShowFwHardenConfirm(true)}
+                    className="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-[11px] font-extrabold shadow-sm flex items-center gap-1.5 transition-colors cursor-pointer disabled:opacity-50"
+                    title="Sadece 22, 80, 443 açık bırakılır; 8050 ve 3050 dışarıya kapatılır"
+                  >
+                    <ShieldCheck size={13} />
+                    <span>Önerilen Panel Profili (22/80/443)</span>
+                  </button>
+                  <button
+                    type="button"
+                    disabled={fwBusy}
+                    onClick={handleToggleFirewall}
+                    className={`px-3 py-1.5 rounded-xl text-[11px] font-extrabold border transition-colors cursor-pointer disabled:opacity-50 ${
+                      fwStatus.enabled
+                        ? "bg-white dark:bg-slate-900 hover:bg-rose-600 text-rose-600 dark:text-rose-400 hover:text-white border-rose-200 dark:border-rose-800"
+                        : "bg-white dark:bg-slate-900 hover:bg-emerald-600 text-emerald-700 dark:text-emerald-400 hover:text-white border-emerald-200 dark:border-emerald-800"
+                    }`}
+                  >
+                    {fwStatus.enabled ? "UFW Kapat" : "UFW Aç"}
+                  </button>
+                </div>
+              )}
+            </div>
+
+            {fwFeedback && (
+              <div
+                className={`p-2.5 rounded-xl border text-xs font-bold flex items-center gap-2 ${
+                  fwFeedback.type === "ok"
+                    ? "bg-emerald-500/10 border-emerald-500/25 text-emerald-700 dark:text-emerald-300"
+                    : "bg-rose-500/10 border-rose-500/25 text-rose-700 dark:text-rose-300"
+                }`}
+              >
+                {fwFeedback.type === "ok" ? <Check size={14} /> : <AlertTriangle size={14} />}
+                <span>{fwFeedback.text}</span>
+              </div>
+            )}
+
+            {fwLoading && !fwStatus ? (
+              <div className="p-4 text-center text-slate-400 text-xs font-semibold">Güvenlik duvarı durumu okunuyor...</div>
+            ) : !fwStatus?.supported ? (
+              <div className="p-3.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200/70 dark:border-slate-800 text-xs text-slate-500">
+                {fwStatus?.message || "UFW yalnızca Linux panel sunucusunda çalışır."}
+              </div>
+            ) : (
+              <>
+                {/* Live Listening Ports Overview */}
+                {Array.isArray(fwStatus.listening_ports) && fwStatus.listening_ports.length > 0 && (
+                  <div className="space-y-1.5">
+                    <div className="text-[10px] font-extrabold uppercase tracking-wider text-slate-400">
+                      Sunucuda Dinlenen Portlar (Canlı)
+                    </div>
+                    <div className="flex flex-wrap gap-1.5">
+                      {fwStatus.listening_ports.map((lp, idx) => {
+                        const isInternalExposed = lp.is_public && (lp.port === 8050 || lp.port === 3050);
+                        return (
+                          <span
+                            key={`${lp.protocol}-${lp.port}-${lp.bind}-${idx}`}
+                            className={`px-2 py-1 rounded-lg font-mono text-[10.5px] font-bold border ${
+                              isInternalExposed
+                                ? "bg-amber-500/15 text-amber-800 dark:text-amber-300 border-amber-500/30"
+                                : lp.is_public
+                                  ? "bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-200 border-slate-200 dark:border-slate-700"
+                                  : "bg-slate-100 dark:bg-slate-900/50 text-slate-500 border-slate-200/60 dark:border-slate-800"
+                            }`}
+                            title={`Süreç: ${lp.process} | Bağlı Adres: ${lp.bind}`}
+                          >
+                            {lp.port}/{lp.protocol} ({lp.is_public ? "0.0.0.0" : lp.bind}) • {lp.process}
+                          </span>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+
+                {/* Add Port Rule Form */}
+                <form onSubmit={handleAddFirewallRule} className="grid grid-cols-2 sm:grid-cols-12 gap-2 items-end p-3 rounded-xl bg-white dark:bg-slate-900 border border-slate-200/70 dark:border-slate-800">
+                  <div className="col-span-1 sm:col-span-3">
+                    <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Port / Aralık</label>
+                    <input
+                      type="text"
+                      value={fwPort}
+                      onChange={(e) => setFwPort(e.target.value)}
+                      placeholder="443 veya 8050"
+                      className="w-full px-2.5 py-1.5 rounded-lg bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-700 font-mono text-xs font-bold focus:outline-none focus:border-indigo-500"
+                    />
+                  </div>
+                  <div className="col-span-1 sm:col-span-2">
+                    <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Protokol</label>
+                    <select
+                      value={fwProto}
+                      onChange={(e) => setFwProto(e.target.value)}
+                      className="w-full px-2 py-1.5 rounded-lg bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-700 text-xs font-bold focus:outline-none focus:border-indigo-500"
+                    >
+                      <option value="tcp">TCP</option>
+                      <option value="udp">UDP</option>
+                      <option value="any">TCP+UDP</option>
+                    </select>
+                  </div>
+                  <div className="col-span-1 sm:col-span-2">
+                    <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Aksiyon</label>
+                    <select
+                      value={fwAction}
+                      onChange={(e) => setFwAction(e.target.value)}
+                      className="w-full px-2 py-1.5 rounded-lg bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-700 text-xs font-bold focus:outline-none focus:border-indigo-500"
+                    >
+                      <option value="allow">İzin Ver</option>
+                      <option value="deny">Engelle</option>
+                    </select>
+                  </div>
+                  <div className="col-span-1 sm:col-span-4">
+                    <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Kaynak IP (Boş = Tümü)</label>
+                    <input
+                      type="text"
+                      value={fwSourceIp}
+                      onChange={(e) => setFwSourceIp(e.target.value)}
+                      placeholder="Örn: 78.189.210.15"
+                      className="w-full px-2.5 py-1.5 rounded-lg bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-700 font-mono text-xs font-bold focus:outline-none focus:border-indigo-500"
+                    />
+                  </div>
+                  <div className="col-span-2 sm:col-span-1 flex justify-end">
+                    <button
+                      type="submit"
+                      disabled={fwBusy}
+                      className="bg-rose-600 hover:bg-rose-500 rounded-xl h-8 w-8 flex items-center justify-center shrink-0 text-white shadow-sm cursor-pointer disabled:opacity-50"
+                      title="Yeni Port Kuralı Ekle"
+                    >
+                      <Plus size={16} />
+                    </button>
+                  </div>
+                </form>
+
+                {/* Numbered UFW Rules List */}
+                <div className="space-y-1.5 max-h-52 overflow-y-auto pr-1">
+                  {(!fwStatus.rules || fwStatus.rules.length === 0) ? (
+                    <div className="p-4 text-center text-slate-400 text-xs bg-white dark:bg-slate-900 rounded-xl border border-slate-200/60 dark:border-slate-800">
+                      Tanımlı UFW kuralı bulunmuyor.
+                    </div>
+                  ) : (
+                    fwStatus.rules.map((r) => (
+                      <div
+                        key={r.num}
+                        className="px-3 py-2 rounded-xl bg-white dark:bg-slate-900 border border-slate-200/70 dark:border-slate-800 flex items-center justify-between gap-2 text-xs"
+                      >
+                        <div className="flex items-center gap-2 flex-wrap min-w-0">
+                          <span className="font-mono text-[10px] font-extrabold text-slate-400">#{r.num}</span>
+                          <span className="font-mono font-extrabold text-slate-800 dark:text-slate-100">{r.to}</span>
+                          <span
+                            className={`px-2 py-0.5 rounded-md text-[10px] font-extrabold border ${
+                              r.action.startsWith("ALLOW")
+                                ? "bg-emerald-500/12 text-emerald-700 dark:text-emerald-300 border-emerald-500/25"
+                                : "bg-rose-500/12 text-rose-700 dark:text-rose-300 border-rose-500/25"
+                            }`}
+                          >
+                            {r.action.startsWith("ALLOW") ? "İZİN VER" : "ENGELLE"}
+                          </span>
+                          <span className="font-mono text-[11px] text-slate-500 dark:text-slate-400">
+                            Kaynak: {r.from_ip === "Anywhere" ? "Tümü" : r.from_ip}
+                          </span>
+                          {r.is_critical && (
+                            <span className="px-1.5 py-0.5 rounded text-[9px] font-extrabold bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border border-indigo-500/20">
+                              Kritik Port
+                            </span>
+                          )}
+                        </div>
+                        <button
+                          type="button"
+                          disabled={fwBusy}
+                          onClick={() => setFwDeleteRuleTarget(r)}
+                          className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40 transition-colors cursor-pointer shrink-0"
+                          title={`#${r.num} kuralını sil`}
+                        >
+                          <Trash2 size={14} />
+                        </button>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </>
+            )}
+          </div>
         </div>
       </div>
 
@@ -790,6 +1146,84 @@ export default function SecuritySettingsModal({ isOpen, onClose, currentUser, on
                 className="w-1/2 py-2.5 rounded-xl text-xs font-extrabold text-white bg-rose-600 hover:bg-rose-500 shadow-lg shadow-rose-600/30 cursor-pointer"
               >
                 Sil
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* CUSTOM DELETE CONFIRMATION MODAL FOR UFW RULE */}
+      {fwDeleteRuleTarget && (
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-sm animate-fadeIn">
+          <div className="w-full max-w-sm bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-6 shadow-2xl space-y-5 text-center text-slate-900 dark:text-slate-100">
+            <div className="relative mx-auto flex items-center justify-center w-14 h-14 rounded-2xl bg-rose-500/10 text-rose-500 border border-rose-500/20">
+              <span className="absolute inset-0 rounded-2xl bg-rose-500/20 animate-ping" />
+              <AlertTriangle size={28} className="relative z-10" />
+            </div>
+            <div className="space-y-1.5">
+              <h4 className="text-base font-extrabold text-slate-900 dark:text-white">Güvenlik Duvarı Kuralını Sil?</h4>
+              <p className="text-xs text-slate-500 dark:text-slate-400 font-semibold leading-relaxed">
+                <span className="font-mono font-bold text-slate-900 dark:text-white">#{fwDeleteRuleTarget.num} • {fwDeleteRuleTarget.to} ({fwDeleteRuleTarget.action})</span> kuralını silmek istediğinize emin misiniz?
+                {fwDeleteRuleTarget.is_critical && (
+                  <span className="block mt-1.5 text-rose-600 dark:text-rose-400 font-extrabold">
+                    Dikkat: Bu kritik bir panel/SSH erişim portudur!
+                  </span>
+                )}
+              </p>
+            </div>
+            <div className="flex items-center justify-center gap-3 pt-2">
+              <button
+                type="button"
+                onClick={() => setFwDeleteRuleTarget(null)}
+                className="w-1/2 py-2.5 rounded-xl text-xs font-bold border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
+              >
+                Vazgeç
+              </button>
+              <button
+                type="button"
+                disabled={fwBusy}
+                onClick={confirmDeleteFirewallRule}
+                className="w-1/2 py-2.5 rounded-xl text-xs font-extrabold text-white bg-rose-600 hover:bg-rose-500 shadow-lg shadow-rose-600/30 cursor-pointer disabled:opacity-50"
+              >
+                Sil
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* CUSTOM CONFIRMATION MODAL FOR RECOMMENDED HARDEN PRESET */}
+      {showFwHardenConfirm && (
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-sm animate-fadeIn">
+          <div className="w-full max-w-md bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-6 shadow-2xl space-y-5 text-slate-900 dark:text-slate-100">
+            <div className="flex items-center gap-3">
+              <div className="w-12 h-12 rounded-2xl bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/25 flex items-center justify-center shrink-0">
+                <ShieldCheck size={24} />
+              </div>
+              <div>
+                <h4 className="text-base font-extrabold text-slate-900 dark:text-white">Önerilen Panel Profilini Uygula</h4>
+                <p className="text-xs text-slate-500 dark:text-slate-400 font-semibold">Güvenli otomatik UFW yapılandırması</p>
+              </div>
+            </div>
+            <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-950/60 border border-slate-200/80 dark:border-slate-800 text-xs space-y-1.5 text-slate-700 dark:text-slate-300 font-medium">
+              <div>• <strong>Varsayılan Gelen Trafik:</strong> Engelle (Deny)</div>
+              <div>• <strong>Açık Bırakılacak Portlar:</strong> <code className="font-mono font-extrabold text-emerald-600">22/tcp (SSH)</code>, <code className="font-mono font-extrabold text-emerald-600">80/tcp</code>, <code className="font-mono font-extrabold text-emerald-600">443/tcp (HTTPS)</code></div>
+              <div>• <strong>Dışarıya Kapatılacak İç Portlar:</strong> <code className="font-mono font-extrabold text-rose-600">8050</code> ve <code className="font-mono font-extrabold text-rose-600">3050</code> (yalnızca Nginx üzerinden yerel erişim)</div>
+            </div>
+            <div className="flex items-center justify-end gap-2.5">
+              <button
+                type="button"
+                onClick={() => setShowFwHardenConfirm(false)}
+                className="px-4 py-2.5 rounded-xl text-xs font-bold border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
+              >
+                Vazgeç
+              </button>
+              <button
+                type="button"
+                disabled={fwBusy}
+                onClick={confirmApplyFirewallHardenPreset}
+                className="px-4 py-2.5 rounded-xl text-xs font-extrabold text-white bg-emerald-600 hover:bg-emerald-500 shadow-lg shadow-emerald-600/25 cursor-pointer disabled:opacity-50"
+              >
+                {fwBusy ? "Uygulanıyor..." : "Profili Uygula"}
               </button>
             </div>
           </div>

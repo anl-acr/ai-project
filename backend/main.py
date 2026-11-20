@@ -39664,18 +39664,38 @@ async def get_system_version_info():
         pass
 
     return {
-        "version": "v3.3.9",
+        "version": "v3.4.0",
         "commit_hash": live_commit,
         "release_date": "20 Kasım 2026",
         "status": "Güncel / Canlı Sürüm",
         "environment": "Production (On-Premise)",
         "changelog": [
             {
-                "version": "v3.3.9",
+                "version": "v3.4.0",
                 "commit_hash": live_commit,
                 "release_date": "20 Kasım 2026",
                 "badge": "Canlı Sürüm (Güncel)",
                 "badge_type": "current",
+                "title": "Panel Güvenlik Duvarı (UFW Port Yönetimi), Filo Excel Dışa Aktar & Toplu OTA Güncelleme",
+                "summary": "Merkezi panel Güvenlik Kalkanına canlı UFW port yönetim arayüzü (tek tıkla 22/80/443 güvenli profil + manuel port/IP kuralları + canlı dinlenen portlar), filo tablosuna ise Excel (CSV) dışa aktarma ve çoklu seçimle Toplu OTA Güncelleme eklendi.",
+                "features": [
+                    {
+                        "title": "Panel Sunucusu Güvenlik Duvarı (UFW Port Yönetimi)",
+                        "desc": "Güvenlik Kalkanı içinden UFW aç/kapat (22/80/443 kilit korumalı), tek tıkla Önerilen Panel Profili (sadece 22/80/443 açık, 8050 ve 3050 dışarıya kapalı), özel port/IP kuralı ekleme-silme ve canlı dinlenen port listesi eklendi."
+                    },
+                    {
+                        "title": "Filo Excel (CSV) Dışa Aktar & Toplu OTA Güncelleme",
+                        "desc": "Müşteri/santral tablosuna çoklu seçim kutuları, tek tıkla Excel (UTF-8 BOM CSV) dışa aktarım ve seçili santrallere toplu uzaktan OTA güncelleme (/api/v1/clients/bulk-ota-update) eklendi."
+                    }
+                ],
+                "fixes": []
+            },
+            {
+                "version": "v3.3.9",
+                "commit_hash": "d87c807",
+                "release_date": "20 Kasım 2026",
+                "badge": "Önceki Sürüm",
+                "badge_type": "stable",
                 "title": "Nornia Cloud Center Güvenlik Sıkılaştırması, Oturum Token Koruması & SQLite WAL/Yedekleme",
                 "summary": "Merkez panelin tüm admin API ve Web SSH uç noktaları sunucu taraflı imzalı Bearer Session Token ile koruma altına alındı; CORS daraltıldı, gerçek proxy IP loglaması düzeltildi, SQLite WAL modu + 30 günlük otomatik telemetri temizliği + tek tıkla veritabanı yedekleme eklendi.",
                 "features": [
