@@ -39695,18 +39695,32 @@ async def get_system_version_info():
         pass
 
     return {
-        "version": "v3.4.1",
+        "version": "v3.4.2",
         "commit_hash": live_commit,
         "release_date": "20 Kasım 2026",
         "status": "Güncel / Canlı Sürüm",
         "environment": "Production (On-Premise)",
         "changelog": [
             {
-                "version": "v3.4.1",
+                "version": "v3.4.2",
                 "commit_hash": live_commit,
                 "release_date": "20 Kasım 2026",
                 "badge": "Canlı Sürüm (Güncel)",
                 "badge_type": "current",
+                "title": "SIP/RTP Edge Hub 1:1 NAT Desteği (Kamailio Advertise + RTPEngine local!public) & POSIX Regex Düzeltmesi",
+                "summary": "Hub sunucusu 1:1 NAT arkasında olduğunda (ör. yerel 172.20.x.x -> dış 213.74.x.x) Kamailio listen...advertise ve RTPEngine ext/local!public yapılandırması otomatik ayarlanacak şekilde güncellendi; Kamailio 5.7 POSIX ERE regex hatası düzeltildi.",
+                "features": [],
+                "fixes": [
+                    "Kamailio 5.7'de servis başlangıcını engelleyen PCRE (?i) regex sözdizimi POSIX ERE uyumlu hale getirildi.",
+                    "1:1 NAT arkasındaki Hub sunucuları için yerel bind IP ve gerçek dış IP (api.ipify.org) otomatik ayrıştırılarak Kamailio advertise ve RTPEngine ext/BIND!PUBLIC yapılandırması eklendi."
+                ]
+            },
+            {
+                "version": "v3.4.1",
+                "commit_hash": "bea1324",
+                "release_date": "20 Kasım 2026",
+                "badge": "Önceki Sürüm",
+                "badge_type": "stable",
                 "title": "Nornia SIP/RTP Edge v2 (Uzak Masa Telefonu 5060 UDP/TCP/TLS + Otomatik WireGuard + Kamailio + RTPEngine)",
                 "summary": "Santral tarafında hiçbir port açmadan dışarıdaki fiziksel SIP masa telefonlarının (Yealink, Fanvil, Grandstream vb.) 5060 UDP/TCP ve 5061 TLS üzerinden çift yönlü sesli görüşme ile sisteme kayıt olabilmesi için hibrit Nornia SIP/RTP Edge v2 mimarisi eklendi.",
                 "features": [

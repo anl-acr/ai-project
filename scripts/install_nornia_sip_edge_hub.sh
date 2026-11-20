@@ -34,19 +34,35 @@ echo "==========================================================================
 echo "  NORNIA SIP/RTP EDGE v2 — MERKEZ HUB KURULUMU BAŞLIYOR"
 echo "=============================================================================="
 
-# 1. Hub Genel IPv4 Adresini Otomatik Tespit Et
-if [[ -z "${HUB_PUBLIC_IP:-}" ]]; then
-  HUB_PUBLIC_IP="$(ip -4 route get 1.1.1.1 2>/dev/null | awk '{for(i=1;i<=NF;i++) if ($i=="src") print $(i+1)}' | head -n1 || true)"
+# 1. Hub Yerel Bind IP'si ve Gerçek Dış (Public) IPv4 Adresini Otomatik Tespit Et
+if [[ -z "${HUB_BIND_IP:-}" ]]; then
+  HUB_BIND_IP="$(ip -4 route get 1.1.1.1 2>/dev/null | awk '{for(i=1;i<=NF;i++) if ($i=="src") print $(i+1)}' | head -n1 || true)"
 fi
 if [[ -z "${HUB_PUBLIC_IP:-}" ]]; then
-  HUB_PUBLIC_IP="$(curl -4 -fsS --max-time 4 https://api.ipify.org 2>/dev/null || true)"
+  HUB_PUBLIC_IP="$(curl -4 -fsS --max-time 4 https://api.ipify.org 2>/dev/null || curl -4 -fsS --max-time 4 https://ifconfig.me/ip 2>/dev/null || true)"
 fi
 if [[ -z "${HUB_PUBLIC_IP:-}" ]]; then
-  echo "[HATA] Hub sunucusunun genel IPv4 adresi tespit edilemedi."
-  echo "       Lütfen 'sudo HUB_PUBLIC_IP=<GENEL_IP> bash $0' şeklinde çalıştırın."
+  HUB_PUBLIC_IP="${HUB_BIND_IP}"
+fi
+if [[ -z "${HUB_BIND_IP:-}" ]]; then
+  HUB_BIND_IP="${HUB_PUBLIC_IP}"
+fi
+if [[ -z "${HUB_BIND_IP:-}" || -z "${HUB_PUBLIC_IP:-}" ]]; then
+  echo "[HATA] Hub sunucusunun IPv4 adresi tespit edilemedi."
+  echo "       Lütfen 'sudo HUB_BIND_IP=<YEREL_IP> HUB_PUBLIC_IP=<DIS_IP> bash $0' şeklinde çalıştırın."
   exit 1
 fi
-echo "[1/7] Hub Genel IPv4 Adresi: ${HUB_PUBLIC_IP}"
+if [[ "${HUB_BIND_IP}" != "${HUB_PUBLIC_IP}" ]]; then
+  echo "[1/7] Hub 1:1 NAT Algılandı -> Yerel Bind: ${HUB_BIND_IP} | Dış (Advertise) IP: ${HUB_PUBLIC_IP}"
+  RTP_EXT_SPEC="ext/${HUB_BIND_IP}!${HUB_PUBLIC_IP}"
+  KAM_ADV_5060=" advertise ${HUB_PUBLIC_IP}:5060"
+  KAM_ADV_5061=" advertise ${HUB_PUBLIC_IP}:5061"
+else
+  echo "[1/7] Hub Genel IPv4 Adresi: ${HUB_PUBLIC_IP}"
+  RTP_EXT_SPEC="ext/${HUB_PUBLIC_IP}"
+  KAM_ADV_5060=""
+  KAM_ADV_5061=""
+fi
 
 # 2. Paketleri Kur (WireGuard, Kamailio, RTPEngine, Fail2Ban)
 echo "[2/7] Sistem paketleri kuruluyor (wireguard, kamailio, rtpengine, fail2ban)..."
@@ -106,12 +122,12 @@ else
   systemctl restart "wg-quick@${WG_IFACE}"
 fi
 
-# 4. RTPEngine Dual-Interface Yapılandırması (ext/<PUB_IP> <-> int/10.200.0.1)
-echo "[4/7] RTPEngine medya rölesi (ext/${HUB_PUBLIC_IP} <-> int/${WG_HUB_IP}, UDP ${RTP_PORT_MIN}-${RTP_PORT_MAX}) yapılandırılıyor..."
+# 4. RTPEngine Dual-Interface Yapılandırması (ext/<BIND>[!<PUB>] <-> int/10.200.0.1)
+echo "[4/7] RTPEngine medya rölesi (${RTP_EXT_SPEC} <-> int/${WG_HUB_IP}, UDP ${RTP_PORT_MIN}-${RTP_PORT_MAX}) yapılandırılıyor..."
 mkdir -p /etc/rtpengine
 cat > /etc/rtpengine/rtpengine.conf <<EOF
 [rtpengine]
-interface = ext/${HUB_PUBLIC_IP};int/${WG_HUB_IP}
+interface = ${RTP_EXT_SPEC};int/${WG_HUB_IP}
 foreground = false
 log-stderr = false
 listen-ng = 127.0.0.1:22222
@@ -213,7 +229,7 @@ EOF
   chmod +x /etc/letsencrypt/renewal-hooks/deploy/nornia-kamailio-tls.sh
 
   TLS_ENABLE_LINE="enable_tls=yes"
-  TLS_LISTEN_LINE="listen=tls:${HUB_PUBLIC_IP}:5061"
+  TLS_LISTEN_LINE="listen=tls:${HUB_BIND_IP}:5061${KAM_ADV_5061}"
   TLS_MOD_BLOCK='loadmodule "tls.so"
 modparam("tls", "config", "/etc/kamailio/tls.cfg")'
   echo "      Let's Encrypt TLS sertifikası bulundu (${LE_CERT_DIR}) -> SIP TLS 5061 aktif."
@@ -274,8 +290,8 @@ user_agent_header="User-Agent: Nornia-Edge"
 
 ${TLS_ENABLE_LINE}
 
-listen=udp:${HUB_PUBLIC_IP}:5060
-listen=tcp:${HUB_PUBLIC_IP}:5060
+listen=udp:${HUB_BIND_IP}:5060${KAM_ADV_5060}
+listen=tcp:${HUB_BIND_IP}:5060${KAM_ADV_5060}
 ${TLS_LISTEN_LINE}
 listen=udp:${WG_HUB_IP}:5060
 listen=tcp:${WG_HUB_IP}:5060
@@ -309,6 +325,7 @@ ${TLS_MOD_BLOCK}
 modparam("tm", "failure_reply_mode", 3)
 modparam("tm", "fr_timer", 30000)
 modparam("tm", "fr_inv_timer", 120000)
+modparam("tm", "reparse_on_dns_failover", 0)
 
 modparam("rr", "enable_full_lr", 1)
 modparam("rr", "enable_double_rr", 1)
@@ -349,8 +366,8 @@ request_route {
         exit;
     }
 
-    # 3b. Known SIP Scanner User-Agent Drop (Silent)
-    if (\$ua =~ "(?i)(friendly-scanner|sipvicious|sipcli|sipsak|sundayddr|VaxSIPUserAgent|iWar|sip-scan|eyeBeam|pplsip)") {
+    # 3b. Known SIP Scanner User-Agent Drop (Silent — POSIX ERE, case-insensitive in Kamailio core)
+    if (\$ua =~ "(friendly-scanner|sipvicious|sipcli|sipsak|sundayddr|vaxsipuseragent|iwar|sip-scan|pplsip)") {
         xlog("L_WARN", "NORNIA_SEC_DROP scanner src=\$si ua=\$ua rd=\$rd\n");
         \$sht(ipban=>\$si) = 1;
         exit;
@@ -531,7 +548,7 @@ fi
 mkdir -p /etc/systemd/system/kamailio.service.d
 cat > /etc/systemd/system/kamailio.service.d/nornia-routes.conf <<'EOF'
 [Service]
-ExecStartPost=/usr/local/bin/nornia-load-kamailio-routes.sh
+ExecStartPost=+/usr/local/bin/nornia-load-kamailio-routes.sh
 EOF
 systemctl daemon-reload
 
@@ -589,7 +606,8 @@ echo ""
 echo "=============================================================================="
 echo "  NORNIA SIP/RTP EDGE v2 KURULUMU TAMAMLANDI!"
 echo "=============================================================================="
-echo "  Hub Genel IP        : ${HUB_PUBLIC_IP}"
+echo "  Hub Yerel Bind IP   : ${HUB_BIND_IP}"
+echo "  Hub Dış (Public) IP : ${HUB_PUBLIC_IP}"
 echo "  WireGuard Arayüzü   : ${WG_IFACE} (${WG_HUB_IP}/16 — Port ${WG_PORT}/UDP)"
 echo "  Hub WG Public Key   : ${HUB_PUB_KEY}"
 echo "  Kamailio SIP Edge   : 5060 (UDP/TCP)${TLS_LISTEN_LINE:+ | 5061 (TLS)}"
