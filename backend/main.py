@@ -38907,18 +38907,34 @@ async def get_system_version_info():
         pass
 
     return {
-        "version": "v3.2.8",
+        "version": "v3.2.9",
         "commit_hash": live_commit,
         "release_date": "20 Kasım 2026",
         "status": "Güncel / Canlı Sürüm",
         "environment": "Production (On-Premise)",
         "changelog": [
             {
-                "version": "v3.2.8",
+                "version": "v3.2.9",
                 "commit_hash": live_commit,
                 "release_date": "20 Kasım 2026",
                 "badge": "Canlı Sürüm (Güncel)",
                 "badge_type": "current",
+                "title": "Lisans Yenileme Stüdyosu Sol Başlık Menülü (Rol Ekranı Stili) Geniş Tasarım",
+                "summary": "Lisans Yenileme Stüdyosu penceresi genişletilerek (max-w-6xl) santraldeki Rol ekranı gibi sol tarafta kategori başlıkları ve sağda ilgili ayar paneli olacak şekilde baştan tasarlandı.",
+                "features": [
+                    {
+                        "title": "📑 Sol Başlık Menülü (Split-View) Lisans Stüdyosu",
+                        "desc": "6 temiz sol sekme (Paket & Geçerlilik, Modüller & Raporlar, Alt Özellikler & Kanallar, Yapay Zeka & Motorlar, Santral & Akış Kotaları, Saklama & Güvenlik), canlı sayaç rozetleri, sol alt özet kartı ve sabit alt kaydetme çubuğu eklendi."
+                    }
+                ],
+                "fixes": []
+            },
+            {
+                "version": "v3.2.8",
+                "commit_hash": "f701ea2",
+                "release_date": "20 Kasım 2026",
+                "badge": "Önceki Sürüm",
+                "badge_type": "stable",
                 "title": "Lisans Yenileme Stüdyosu 'Tolerans Çağrı Kanalı' Hizalama Düzeltmesi",
                 "summary": "Lisans Yenileme Stüdyosu penceresindeki 'Tolerans Çağrı Kanalı (+Adet)' etiketinden '(+Adet)' kaldırılarak kutucuk hizalaması düzeltildi.",
                 "features": [],

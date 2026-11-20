@@ -891,9 +891,13 @@ export default function MasterDashboard() {
   const [genStatus, setGenStatus] = useState("active");
   const [isGeneratingKey, setIsGeneratingKey] = useState(false);
   const [genError, setGenError] = useState("");
+  const [keyGenActiveTab, setKeyGenActiveTab] = useState("general");
+  const [keyGenModuleSearch, setKeyGenModuleSearch] = useState("");
 
   const openKeyGenModal = (client) => {
     setKeyGenModalClient(client);
+    setKeyGenActiveTab("general");
+    setKeyGenModuleSearch("");
     const exp = resolveClientExpiryDate(client) || "2027-12-31";
     const isUnl = exp === "unlimited" || client.plan_tier === "unlimited";
     setGenExpiryDate(isUnl ? "" : exp);
@@ -2749,663 +2753,899 @@ export default function MasterDashboard() {
         </div>
       )}
 
-      {/* KEY GENERATOR MODAL */}
-      {keyGenModalClient && (
-        <div className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-6 w-full max-w-3xl max-h-[90vh] overflow-y-auto space-y-5 shadow-2xl text-slate-900 dark:text-slate-100">
-            <h3 className="text-base font-extrabold text-slate-900 dark:text-white flex items-center gap-2">
-              <Key size={18} className="text-rose-600 dark:text-rose-500" />
-              Lisans Yenileme Stüdyosu - {keyGenModalClient.company_name}
-            </h3>
+      {/* KEY GENERATOR MODAL — ROLE-STYLE LEFT SIDEBAR SPLIT STUDIO */}
+      {keyGenModalClient && (() => {
+        const activeTpl = (packageTemplates && packageTemplates[genPlanTier]) || DEFAULT_PACKAGE_TEMPLATES[genPlanTier] || DEFAULT_PACKAGE_TEMPLATES.professional;
+        const curAllowedMods = Array.isArray(genCustomQuotas.allowed_features)
+          ? genCustomQuotas.allowed_features.includes("*")
+            ? [...ALL_SANTRAL_MODULE_IDS]
+            : genCustomQuotas.allowed_features
+          : [...ALL_SANTRAL_MODULE_IDS];
+        const curAllowedSubs = Array.isArray(genCustomQuotas.allowed_sub_features)
+          ? genCustomQuotas.allowed_sub_features.includes("*")
+            ? [...ALL_SUB_FEATURE_IDS]
+            : genCustomQuotas.allowed_sub_features
+          : [...ALL_SUB_FEATURE_IDS];
+        const aiEngineCnt =
+          (genCustomQuotas.allowed_stt_providers || []).length +
+          (genCustomQuotas.allowed_tts_providers || []).length +
+          (genCustomQuotas.allowed_llm_providers || []).length;
+        const maxCallsVal = genCustomQuotas.max_concurrent_calls !== undefined ? genCustomQuotas.max_concurrent_calls : 4;
+        const maxUsersVal = genCustomQuotas.max_users !== undefined ? genCustomQuotas.max_users : 50;
+        const retentionVal = Number(genCustomQuotas.enforced_retention_days ?? 0);
 
-            <form onSubmit={handleGenerateCustomKey} className="space-y-4 text-xs font-semibold">
-              <div className="p-3.5 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-2xl flex flex-col md:flex-row md:items-center justify-between gap-2 text-xs">
-                <div>
-                  <div className="flex flex-wrap items-center gap-3 text-slate-500 dark:text-slate-400">
-                    <span>
-                      Tenant Code: <span className="font-mono text-slate-900 dark:text-white font-extrabold">{keyGenModalClient.tenant_code}</span>
-                    </span>
-                    {keyGenModalClient.tenant_serial_number && (
-                      <span className="inline-flex items-center gap-1">
-                        Tenant Seri No: <strong className="font-mono text-indigo-600 dark:text-indigo-400">{keyGenModalClient.tenant_serial_number}</strong>
-                      </span>
-                    )}
-                    {keyGenModalClient.system_serial_number && (
-                      <span className="inline-flex items-center gap-1">
-                        Sistem Seri No: <strong className="font-mono text-slate-800 dark:text-slate-200">{keyGenModalClient.system_serial_number}</strong>
-                      </span>
-                    )}
+        const studioTabs = [
+          {
+            id: "general",
+            label: "Paket & Geçerlilik",
+            desc: "Plan, durum, süre & donanım",
+            icon: Shield,
+            badge: activeTpl.shortName || genPlanTier
+          },
+          {
+            id: "modules",
+            label: "Modüller & Raporlar",
+            desc: "Santral modül görünürlüğü",
+            icon: Layers,
+            badge: `${curAllowedMods.length}/${ALL_SANTRAL_MODULE_IDS.length}`
+          },
+          {
+            id: "subfeatures",
+            label: "Alt Özellikler & Kanallar",
+            desc: "WebPhone & Omnichannel",
+            icon: Sparkles,
+            badge: `${curAllowedSubs.length}/${ALL_SUB_FEATURE_IDS.length}`
+          },
+          {
+            id: "ai",
+            label: "Yapay Zeka & Motorlar",
+            desc: "AI hakları, STT / TTS / LLM",
+            icon: Bot,
+            badge: `${aiEngineCnt} Motor`
+          },
+          {
+            id: "pbx",
+            label: "Santral & Akış Kotaları",
+            desc: "Kanal, abone, hat & kuyruk",
+            icon: PhoneCall,
+            badge: `${maxCallsVal}K • ${maxUsersVal}A`
+          },
+          {
+            id: "retention",
+            label: "Saklama & Güvenlik",
+            desc: "Kayıt süresi, yedek & altyapı",
+            icon: HardDrive,
+            badge: retentionVal > 0 ? `${retentionVal} Gün` : "Serbest"
+          }
+        ];
+
+        const modQ = keyGenModuleSearch.trim().toLowerCase();
+        const subGroups = ["Abone & WebPhone", "Omnichannel Kanalları", "AI WebPhone"];
+
+        return (
+          <div className="fixed inset-0 z-50 bg-slate-950/65 backdrop-blur-sm flex items-center justify-center p-4 animate-fadeIn">
+            <form
+              onSubmit={handleGenerateCustomKey}
+              className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl w-full max-w-6xl h-[88vh] flex flex-col overflow-hidden shadow-2xl text-slate-900 dark:text-slate-100"
+            >
+              {/* Top Header */}
+              <div className="px-6 py-4 border-b border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-950/50 flex flex-wrap items-center justify-between gap-3 shrink-0">
+                <div className="flex items-center gap-3.5 min-w-0">
+                  <div className="w-10 h-10 rounded-2xl bg-gradient-to-br from-rose-600 to-indigo-600 text-white flex items-center justify-center shadow-md shadow-rose-600/20 shrink-0">
+                    <Key size={18} />
                   </div>
-                  <div className="text-slate-500 dark:text-slate-400 mt-1 flex items-center gap-1.5 flex-wrap">
-                    <span>Mevcut Lisans Key:</span>
-                    {keyGenModalClient.current_license_key ? (
-                      <span className="font-mono text-slate-800 dark:text-slate-200 font-bold bg-white dark:bg-slate-900 px-2 py-0.5 rounded border border-slate-200 dark:border-slate-800 text-[11px] truncate max-w-[340px]" title={keyGenModalClient.current_license_key}>
-                        {keyGenModalClient.current_license_key.length > 35 
-                          ? `${keyGenModalClient.current_license_key.substring(0, 22)}...${keyGenModalClient.current_license_key.slice(-10)}` 
-                          : keyGenModalClient.current_license_key}
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <h3 className="text-base font-extrabold text-slate-900 dark:text-white truncate">
+                        Lisans Yenileme Stüdyosu — {keyGenModalClient.company_name}
+                      </h3>
+                      <span className="px-2 py-0.5 rounded-md font-mono text-[10px] font-extrabold bg-indigo-500/10 text-indigo-700 dark:text-indigo-300 border border-indigo-500/20">
+                        {keyGenModalClient.tenant_code}
                       </span>
-                    ) : (
-                      <span className="font-mono text-slate-400 font-bold">Henüz Üretilmedi</span>
-                    )}
+                    </div>
+                    <div className="flex items-center gap-2.5 flex-wrap text-[11px] text-slate-500 dark:text-slate-400 mt-0.5 font-mono">
+                      {keyGenModalClient.system_serial_number && (
+                        <span>
+                          Santral Seri: <strong className="text-slate-700 dark:text-slate-200">{keyGenModalClient.system_serial_number}</strong>
+                        </span>
+                      )}
+                      {keyGenModalClient.tenant_serial_number && (
+                        <span>
+                          • Tenant Seri: <strong className="text-indigo-600 dark:text-indigo-400">{keyGenModalClient.tenant_serial_number}</strong>
+                        </span>
+                      )}
+                    </div>
                   </div>
                 </div>
 
-                {keyGenModalClient.current_license_key && (
+                <div className="flex items-center gap-2 shrink-0">
+                  {keyGenModalClient.current_license_key && (
+                    <button
+                      type="button"
+                      onClick={() => handleCopyText(keyGenModalClient.current_license_key, "modal-cur-key")}
+                      className="h-9 px-3 rounded-xl bg-white dark:bg-slate-900 hover:bg-slate-100 dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-200 text-xs font-bold cursor-pointer flex items-center gap-1.5 shadow-xs"
+                    >
+                      {copiedKey === "modal-cur-key" ? <Check size={13} className="text-emerald-500" /> : <Copy size={13} />}
+                      <span>{copiedKey === "modal-cur-key" ? "Kopyalandı!" : "Key Kopyala"}</span>
+                    </button>
+                  )}
                   <button
                     type="button"
-                    onClick={() => handleCopyText(keyGenModalClient.current_license_key, "modal-cur-key")}
-                    className="px-2.5 py-1 rounded-xl bg-white dark:bg-slate-900 hover:bg-slate-100 dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-200 text-[11px] font-bold cursor-pointer shrink-0 flex items-center gap-1 shadow-xs"
+                    onClick={() => setKeyGenModalClient(null)}
+                    className="w-9 h-9 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-500 dark:text-slate-400 flex items-center justify-center transition-colors cursor-pointer"
+                    title="Kapat"
                   >
-                    {copiedKey === "modal-cur-key" ? <Check size={12} className="text-emerald-500" /> : <Copy size={12} />}
-                    <span>{copiedKey === "modal-cur-key" ? "Kopyalandı!" : "Key Kopyala"}</span>
+                    <X size={16} />
                   </button>
-                )}
+                </div>
               </div>
 
-              {/* Key Controls: Plan Tier, Status, Expiry, HW ID & Concurrent Call Limit */}
-              <div className="p-4 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-2xl space-y-4">
-                <div className="text-xs font-extrabold uppercase text-slate-500 dark:text-slate-400 tracking-wider flex items-center gap-1.5">
-                  <Shield size={16} className="text-rose-500" />
-                  <span>Lisans Paketi, Durum & Geçerlilik Yapılandırması</span>
-                </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-                  {/* Lisans Paketi / Planı */}
+              {/* Split Body: Left Sidebar Headings + Right Editor Panel */}
+              <div className="flex flex-1 overflow-hidden min-h-0">
+                {/* Left Sidebar Tabs (RoleSettings style) */}
+                <aside className="w-60 sm:w-68 lg:w-72 bg-slate-50/70 dark:bg-slate-950/40 border-r border-slate-200/80 dark:border-slate-800/80 p-3.5 shrink-0 overflow-y-auto flex flex-col justify-between gap-4">
                   <div>
-                    <label className="block text-slate-700 dark:text-slate-300 font-bold mb-1">Lisans Paketi / Planı</label>
-                    <select
-                      value={genPlanTier}
-                      onChange={(e) => applyPackageTemplateToKeyGen(e.target.value)}
-                      className="w-full px-3.5 py-2.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl focus:outline-none focus:border-rose-500 font-bold text-slate-900 dark:text-white cursor-pointer text-xs"
-                    >
-                      {PACKAGE_TIER_ORDER.map((tk) => {
-                        const tpl = (packageTemplates && packageTemplates[tk]) || DEFAULT_PACKAGE_TEMPLATES[tk];
+                    <div className="text-[10px] font-extrabold text-slate-400 dark:text-slate-500 uppercase tracking-widest px-2.5 mb-2.5">
+                      Lisans Başlıkları
+                    </div>
+                    <nav className="space-y-1">
+                      {studioTabs.map((tab) => {
+                        const TabIcon = tab.icon;
+                        const isActive = keyGenActiveTab === tab.id;
                         return (
-                          <option key={tk} value={tk}>
-                            {tpl.name}
-                          </option>
+                          <button
+                            key={tab.id}
+                            type="button"
+                            onClick={() => setKeyGenActiveTab(tab.id)}
+                            className={`w-full px-3 py-2.5 rounded-2xl text-left transition-all cursor-pointer flex items-center justify-between gap-2 border ${
+                              isActive
+                                ? "bg-white dark:bg-slate-900 border-indigo-200 dark:border-indigo-800/80 shadow-xs text-indigo-700 dark:text-indigo-300"
+                                : "border-transparent text-slate-600 dark:text-slate-400 hover:bg-white/70 dark:hover:bg-slate-900/50 hover:text-slate-900 dark:hover:text-slate-100"
+                            }`}
+                          >
+                            <div className="flex items-center gap-2.5 min-w-0">
+                              <div
+                                className={`w-8 h-8 rounded-xl flex items-center justify-center shrink-0 transition-colors ${
+                                  isActive
+                                    ? "bg-indigo-600 text-white shadow-xs"
+                                    : "bg-slate-200/70 dark:bg-slate-800 text-slate-500 dark:text-slate-400"
+                                }`}
+                              >
+                                <TabIcon size={15} />
+                              </div>
+                              <div className="min-w-0">
+                                <div className="text-xs font-extrabold truncate">{tab.label}</div>
+                                <div className="text-[10px] text-slate-400 dark:text-slate-500 font-medium truncate">
+                                  {tab.desc}
+                                </div>
+                              </div>
+                            </div>
+                            <span
+                              className={`px-1.5 py-0.5 rounded-md font-mono text-[10px] font-extrabold shrink-0 ${
+                                isActive
+                                  ? "bg-indigo-500/12 text-indigo-700 dark:text-indigo-300"
+                                  : "bg-slate-200/70 dark:bg-slate-800 text-slate-500 dark:text-slate-400"
+                              }`}
+                            >
+                              {tab.badge}
+                            </span>
+                          </button>
                         );
                       })}
-                    </select>
+                    </nav>
                   </div>
 
-                  {/* Müşteri Durumu */}
-                  <div>
-                    <label className="block text-slate-700 dark:text-slate-300 font-bold mb-1">Müşteri Durumu</label>
-                    <select
-                      value={genStatus}
-                      onChange={(e) => setGenStatus(e.target.value)}
-                      className="w-full px-3.5 py-2.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl focus:outline-none focus:border-rose-500 font-bold text-slate-900 dark:text-white cursor-pointer text-xs"
-                    >
-                      <option value="active">🟢 Aktif (Erişim & AI Açık)</option>
-                      <option value="passive">🔴 Pasif (Erişim & AI Kapalı)</option>
-                    </select>
-                  </div>
-
-                  {/* Eş Zamanlı Çağrı Kanalı Limiti */}
-                  <div>
-                    <label className="block text-blue-600 dark:text-blue-400 font-extrabold mb-1" title="AI Agent + Otomatik Arama (Dialer) + Kullanıcı Gelen/Giden Çağrı Kanalı">
-                      Eş Zamanlı Çağrı Kanalı
-                    </label>
-                    <input
-                      type="number"
-                      min="1"
-                      value={genCustomQuotas.max_concurrent_calls !== undefined ? genCustomQuotas.max_concurrent_calls : 4}
-                      onChange={(e) => handleQuotaChange("max_concurrent_calls", e.target.value)}
-                      className="w-full px-3.5 py-2.5 bg-blue-50/60 dark:bg-blue-950/30 border border-blue-300 dark:border-blue-800 rounded-xl focus:outline-none focus:border-blue-500 font-mono font-extrabold text-slate-900 dark:text-white text-xs"
-                    />
-                  </div>
-
-                  {/* Tolerans Eş Zamanlı Çağrı Adeti */}
-                  <div>
-                    <label className="block text-amber-600 dark:text-amber-400 font-extrabold mb-1 whitespace-nowrap" title="0 girilirse ana limit dolduğunda çağrı durdurulur. 1 veya üstü girilirse çağrı kesilmez, +N tolerans kanalı devreye girer ve E-Posta / WhatsApp bildirimi gönderilir.">
-                      Tolerans Çağrı Kanalı
-                    </label>
-                    <input
-                      type="number"
-                      min="0"
-                      value={genCustomQuotas.tolerance_concurrent_calls !== undefined ? genCustomQuotas.tolerance_concurrent_calls : 0}
-                      onChange={(e) => handleQuotaChange("tolerance_concurrent_calls", e.target.value)}
-                      className="w-full px-3.5 py-2.5 bg-amber-50/60 dark:bg-amber-950/30 border border-amber-300 dark:border-amber-800 rounded-xl focus:outline-none focus:border-amber-500 font-mono font-extrabold text-slate-900 dark:text-white text-xs"
-                    />
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  {/* Yeni Bitiş Tarihi */}
-                  <div>
-                    <div className="flex items-center justify-between mb-1">
-                      <label className="text-slate-700 dark:text-slate-300 font-bold">Lisans Bitiş Tarihi</label>
-                      <label className="flex items-center gap-1.5 text-xs font-extrabold text-rose-600 dark:text-rose-400 cursor-pointer">
-                        <input
-                          type="checkbox"
-                          checked={genIsUnlimited}
-                          onChange={(e) => {
-                            setGenIsUnlimited(e.target.checked);
-                            if (e.target.checked) setGenExpiryDate("");
-                          }}
-                          className="rounded border-slate-300 text-rose-600 focus:ring-rose-500 cursor-pointer"
-                        />
-                        <span>♾️ Limitsiz</span>
-                      </label>
+                  {/* Compact Live License Summary Card at Sidebar Bottom */}
+                  <div className="p-3.5 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 space-y-2 text-[11px]">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[10px] font-extrabold uppercase tracking-wider text-slate-400">Özet</span>
+                      <span
+                        className={`px-2 py-0.5 rounded-full text-[9px] font-extrabold uppercase ${
+                          genStatus === "active"
+                            ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300"
+                            : "bg-rose-500/15 text-rose-700 dark:text-rose-300"
+                        }`}
+                      >
+                        {genStatus === "active" ? "Aktif" : "Pasif"}
+                      </span>
                     </div>
-                    <input
-                      type="date"
-                      disabled={genIsUnlimited}
-                      value={genIsUnlimited ? "" : genExpiryDate}
-                      onChange={(e) => setGenExpiryDate(e.target.value)}
-                      className="w-full px-3.5 py-2.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl focus:outline-none focus:border-rose-500 font-mono font-bold text-slate-900 dark:text-white disabled:opacity-40 text-xs"
-                    />
+                    <div className="space-y-1 font-mono text-[11px]">
+                      <div className="flex items-center justify-between">
+                        <span className="text-slate-500 font-sans font-semibold">Bitiş:</span>
+                        <strong className="text-slate-800 dark:text-slate-100">
+                          {genIsUnlimited ? "♾️ Limitsiz" : formatExpiryDateTR(genExpiryDate)}
+                        </strong>
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <span className="text-slate-500 font-sans font-semibold">Donanım:</span>
+                        <strong className="text-slate-800 dark:text-slate-100 truncate max-w-[125px]" title={genHwId}>
+                          {genHwId || "UNBOUND"}
+                        </strong>
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setShowPackagesModal(true)}
+                      className="w-full mt-1 px-2.5 py-1.5 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-purple-600 text-slate-700 dark:text-slate-300 hover:text-white text-[10px] font-extrabold flex items-center justify-center gap-1.5 cursor-pointer transition-colors"
+                    >
+                      <Layers size={11} />
+                      <span>Paket Şablonlarını Düzenle</span>
+                    </button>
                   </div>
+                </aside>
 
-                  {/* Hedef Donanım ID */}
-                  <div>
-                    <label className="block text-slate-700 dark:text-slate-300 font-bold mb-1">Hedef Donanım ID (Machine Binding)</label>
-                    <input
-                      type="text"
-                      value={genHwId}
-                      onChange={(e) => setGenHwId(e.target.value)}
-                      placeholder="UNBOUND veya HW-361B-F973"
-                      className="w-full px-3.5 py-2.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl focus:outline-none focus:border-rose-500 font-mono font-bold text-slate-900 dark:text-white text-xs"
-                    />
-                  </div>
-                </div>
-
-                {/* Live Feature-Based Package Summary Bar */}
-                {(() => {
-                  const activeTpl = (packageTemplates && packageTemplates[genPlanTier]) || DEFAULT_PACKAGE_TEMPLATES[genPlanTier] || DEFAULT_PACKAGE_TEMPLATES.professional;
-                  const modCnt = Array.isArray(genCustomQuotas.allowed_features)
-                    ? genCustomQuotas.allowed_features.includes("*")
-                      ? ALL_SANTRAL_MODULE_IDS.length
-                      : genCustomQuotas.allowed_features.length
-                    : 0;
-                  const subCnt = Array.isArray(genCustomQuotas.allowed_sub_features)
-                    ? genCustomQuotas.allowed_sub_features.includes("*")
-                      ? ALL_SUB_FEATURE_IDS.length
-                      : genCustomQuotas.allowed_sub_features.length
-                    : 0;
-                  const aiCnt =
-                    (genCustomQuotas.allowed_stt_providers || []).length +
-                    (genCustomQuotas.allowed_tts_providers || []).length +
-                    (genCustomQuotas.allowed_llm_providers || []).length;
-                  return (
-                    <div className="p-3 rounded-xl bg-white dark:bg-slate-900 border border-indigo-200/80 dark:border-indigo-900/50 flex flex-wrap items-center justify-between gap-2.5">
-                      <div className="space-y-0.5">
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <span className={`px-2 py-0.5 rounded-md border text-[10px] font-extrabold ${activeTpl.badgeClass || "bg-indigo-500/15 text-indigo-700 border-indigo-500/30"}`}>
-                            {activeTpl.name}
-                          </span>
-                          <span className="text-[11px] font-extrabold text-slate-800 dark:text-slate-100">
-                            Açık: <span className="font-mono text-indigo-600 dark:text-indigo-400">{modCnt}/{ALL_SANTRAL_MODULE_IDS.length}</span> Modül •{" "}
-                            <span className="font-mono text-emerald-600 dark:text-emerald-400">{subCnt}/{ALL_SUB_FEATURE_IDS.length}</span> Alt Özellik •{" "}
-                            <span className="font-mono text-purple-600 dark:text-purple-400">{aiCnt}</span> AI Motoru
-                          </span>
-                        </div>
-                        <p className="text-[10px] text-slate-500 dark:text-slate-400">
-                          {activeTpl.tagline} — Paket değiştirince özellikler otomatik güncellenir, kanal/abone sayıları korunur.
+                {/* Right Detail Content Panel */}
+                <div className="flex-1 overflow-y-auto p-6 space-y-5 text-xs font-semibold">
+                  {/* TAB 1: PAKET & GEÇERLİLİK */}
+                  {keyGenActiveTab === "general" && (
+                    <div className="space-y-5">
+                      <div>
+                        <h4 className="text-sm font-extrabold text-slate-900 dark:text-white flex items-center gap-2">
+                          <Shield size={16} className="text-rose-500" />
+                          <span>Lisans Paketi, Durum &amp; Geçerlilik Yapılandırması</span>
+                        </h4>
+                        <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5 font-medium">
+                          Paket değiştirdiğinizde özellik/modül şablonu otomatik uygulanır; çağrı kanalı ve abone kotaları korunur.
                         </p>
                       </div>
-                      <div className="flex items-center gap-1.5 shrink-0">
+
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 p-4 rounded-2xl bg-slate-50/70 dark:bg-slate-950/60 border border-slate-200/80 dark:border-slate-800">
+                        {/* Lisans Paketi */}
+                        <div>
+                          <label className="block text-slate-700 dark:text-slate-300 font-bold mb-1.5">
+                            Lisans Paketi / Planı
+                          </label>
+                          <select
+                            value={genPlanTier}
+                            onChange={(e) => applyPackageTemplateToKeyGen(e.target.value)}
+                            className="w-full px-3.5 py-2.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl focus:outline-none focus:border-indigo-500 font-bold text-slate-900 dark:text-white cursor-pointer text-xs"
+                          >
+                            {PACKAGE_TIER_ORDER.map((tk) => {
+                              const tpl = (packageTemplates && packageTemplates[tk]) || DEFAULT_PACKAGE_TEMPLATES[tk];
+                              return (
+                                <option key={tk} value={tk}>
+                                  {tpl.name}
+                                </option>
+                              );
+                            })}
+                          </select>
+                        </div>
+
+                        {/* Müşteri Durumu */}
+                        <div>
+                          <label className="block text-slate-700 dark:text-slate-300 font-bold mb-1.5">
+                            Müşteri Durumu
+                          </label>
+                          <select
+                            value={genStatus}
+                            onChange={(e) => setGenStatus(e.target.value)}
+                            className="w-full px-3.5 py-2.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl focus:outline-none focus:border-indigo-500 font-bold text-slate-900 dark:text-white cursor-pointer text-xs"
+                          >
+                            <option value="active">🟢 Aktif (Erişim &amp; AI Açık)</option>
+                            <option value="passive">🔴 Pasif (Erişim &amp; AI Kapalı)</option>
+                          </select>
+                        </div>
+
+                        {/* Eş Zamanlı Çağrı Kanalı */}
+                        <div>
+                          <label className="block text-blue-600 dark:text-blue-400 font-extrabold mb-1.5" title="AI Agent + Otomatik Arama (Dialer) + Kullanıcı Gelen/Giden Çağrı Kanalı">
+                            Eş Zamanlı Çağrı Kanalı
+                          </label>
+                          <input
+                            type="number"
+                            min="1"
+                            value={maxCallsVal}
+                            onChange={(e) => handleQuotaChange("max_concurrent_calls", e.target.value)}
+                            className="w-full px-3.5 py-2.5 bg-blue-50/60 dark:bg-blue-950/30 border border-blue-300 dark:border-blue-800 rounded-xl focus:outline-none focus:border-blue-500 font-mono font-extrabold text-slate-900 dark:text-white text-xs"
+                          />
+                        </div>
+
+                        {/* Tolerans Çağrı Kanalı */}
+                        <div>
+                          <label className="block text-amber-600 dark:text-amber-400 font-extrabold mb-1.5" title="0 girilirse ana limit dolduğunda çağrı durdurulur. 1 veya üstü girilirse çağrı kesilmez, +N tolerans kanalı devreye girer.">
+                            Tolerans Çağrı Kanalı
+                          </label>
+                          <input
+                            type="number"
+                            min="0"
+                            value={genCustomQuotas.tolerance_concurrent_calls !== undefined ? genCustomQuotas.tolerance_concurrent_calls : 0}
+                            onChange={(e) => handleQuotaChange("tolerance_concurrent_calls", e.target.value)}
+                            className="w-full px-3.5 py-2.5 bg-amber-50/60 dark:bg-amber-950/30 border border-amber-300 dark:border-amber-800 rounded-xl focus:outline-none focus:border-amber-500 font-mono font-extrabold text-slate-900 dark:text-white text-xs"
+                          />
+                        </div>
+
+                        {/* Lisans Bitiş Tarihi */}
+                        <div>
+                          <div className="flex items-center justify-between mb-1.5">
+                            <label className="text-slate-700 dark:text-slate-300 font-bold">Lisans Bitiş Tarihi</label>
+                            <label className="flex items-center gap-1.5 text-xs font-extrabold text-rose-600 dark:text-rose-400 cursor-pointer">
+                              <input
+                                type="checkbox"
+                                checked={genIsUnlimited}
+                                onChange={(e) => {
+                                  setGenIsUnlimited(e.target.checked);
+                                  if (e.target.checked) setGenExpiryDate("");
+                                }}
+                                className="rounded border-slate-300 text-rose-600 focus:ring-rose-500 cursor-pointer"
+                              />
+                              <span>♾️ Limitsiz</span>
+                            </label>
+                          </div>
+                          <input
+                            type="date"
+                            disabled={genIsUnlimited}
+                            value={genIsUnlimited ? "" : genExpiryDate}
+                            onChange={(e) => setGenExpiryDate(e.target.value)}
+                            className="w-full px-3.5 py-2.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl focus:outline-none focus:border-indigo-500 font-mono font-bold text-slate-900 dark:text-white disabled:opacity-40 text-xs"
+                          />
+                        </div>
+
+                        {/* Hedef Donanım ID */}
+                        <div>
+                          <label className="block text-slate-700 dark:text-slate-300 font-bold mb-1.5">
+                            Hedef Donanım ID (Machine Binding)
+                          </label>
+                          <input
+                            type="text"
+                            value={genHwId}
+                            onChange={(e) => setGenHwId(e.target.value)}
+                            placeholder="UNBOUND veya HW-361B-F973"
+                            className="w-full px-3.5 py-2.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl focus:outline-none focus:border-indigo-500 font-mono font-bold text-slate-900 dark:text-white text-xs"
+                          />
+                        </div>
+                      </div>
+
+                      {/* Active Package Feature Summary */}
+                      <div className="p-4 rounded-2xl bg-indigo-50/60 dark:bg-indigo-950/25 border border-indigo-200/80 dark:border-indigo-900/50 flex flex-wrap items-center justify-between gap-3">
+                        <div className="space-y-1">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className={`px-2.5 py-0.5 rounded-lg border text-[11px] font-extrabold ${activeTpl.badgeClass || "bg-indigo-500/15 text-indigo-700 border-indigo-500/30"}`}>
+                              {activeTpl.name}
+                            </span>
+                            <span className="text-xs font-extrabold text-slate-800 dark:text-slate-100">
+                              <span className="font-mono text-indigo-600 dark:text-indigo-400">{curAllowedMods.length}/{ALL_SANTRAL_MODULE_IDS.length}</span> Modül •{" "}
+                              <span className="font-mono text-emerald-600 dark:text-emerald-400">{curAllowedSubs.length}/{ALL_SUB_FEATURE_IDS.length}</span> Alt Özellik •{" "}
+                              <span className="font-mono text-purple-600 dark:text-purple-400">{aiEngineCnt}</span> AI Motoru
+                            </span>
+                          </div>
+                          <p className="text-[11px] text-slate-600 dark:text-slate-400 font-medium">
+                            {activeTpl.tagline}
+                          </p>
+                        </div>
                         <button
                           type="button"
                           onClick={() => applyPackageTemplateToKeyGen(genPlanTier)}
-                          className="px-2.5 py-1.5 rounded-lg bg-indigo-50 dark:bg-indigo-950/50 hover:bg-indigo-600 text-indigo-700 dark:text-indigo-300 hover:text-white border border-indigo-200 dark:border-indigo-800 text-[10px] font-extrabold cursor-pointer transition-colors"
-                          title="Seçili paketin özellik şablonunu tekrar uygula"
+                          className="px-3 py-2 rounded-xl bg-white dark:bg-slate-900 hover:bg-indigo-600 text-indigo-700 dark:text-indigo-300 hover:text-white border border-indigo-200 dark:border-indigo-800 text-[11px] font-extrabold cursor-pointer transition-colors shrink-0"
                         >
-                          Şablonu Uygula
+                          Şablonu Tekrar Uygula
                         </button>
+                      </div>
+
+                      {/* Current Key Strip */}
+                      <div className="p-4 rounded-2xl bg-slate-50/70 dark:bg-slate-950/60 border border-slate-200/80 dark:border-slate-800 space-y-1.5">
+                        <div className="text-[10px] font-extrabold uppercase tracking-wider text-slate-400">
+                          Mevcut Lisans Anahtarı
+                        </div>
+                        <div className="font-mono text-xs text-slate-700 dark:text-slate-200 break-all">
+                          {keyGenModalClient.current_license_key
+                            ? keyGenModalClient.current_license_key.length > 70
+                              ? `${keyGenModalClient.current_license_key.substring(0, 48)}...${keyGenModalClient.current_license_key.slice(-14)}`
+                              : keyGenModalClient.current_license_key
+                            : "Henüz üretilmedi"}
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* TAB 2: MODÜLLER & RAPORLAR */}
+                  {keyGenActiveTab === "modules" && (
+                    <div className="space-y-4">
+                      <div className="flex flex-wrap items-center justify-between gap-3">
+                        <div>
+                          <h4 className="text-sm font-extrabold text-slate-900 dark:text-white flex items-center gap-2">
+                            <Layers size={16} className="text-indigo-500" />
+                            <span>Santral Modül &amp; Rapor Yetkileri ({curAllowedMods.length}/{ALL_SANTRAL_MODULE_IDS.length})</span>
+                          </h4>
+                          <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5 font-medium">
+                            Kapattığınız modüller müşterinin santralinde ve Roller ekranında görünmez; müşteri Admin hesabıyla bile açamaz.
+                          </p>
+                        </div>
+
+                        <div className="relative w-full sm:w-60">
+                          <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                          <input
+                            type="text"
+                            value={keyGenModuleSearch}
+                            onChange={(e) => setKeyGenModuleSearch(e.target.value)}
+                            placeholder="Modül veya rapor ara..."
+                            className="w-full pl-8 pr-3 py-1.5 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-xs text-slate-900 dark:text-white focus:outline-none focus:border-indigo-500"
+                          />
+                        </div>
+                      </div>
+
+                      {/* Quick Package Presets + Unlicensed Behavior */}
+                      <div className="p-3.5 rounded-2xl bg-slate-50/70 dark:bg-slate-950/60 border border-slate-200/80 dark:border-slate-800 flex flex-wrap items-center justify-between gap-3">
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <span className="text-[10px] font-extrabold uppercase tracking-wider text-slate-400 mr-1">
+                            Hızlı Şablon:
+                          </span>
+                          {[
+                            { id: "starter", label: "Starter", cls: "bg-sky-600 border-sky-600" },
+                            { id: "professional", label: "Professional", cls: "bg-indigo-600 border-indigo-600" },
+                            { id: "enterprise", label: "Enterprise", cls: "bg-purple-600 border-purple-600" },
+                            { id: "unlimited", label: "Limitsiz", cls: "bg-emerald-600 border-emerald-600" }
+                          ].map((p) => (
+                            <button
+                              key={p.id}
+                              type="button"
+                              onClick={() => applyPackageTemplateToKeyGen(p.id)}
+                              className={`px-2.5 py-1 rounded-lg text-[10px] font-extrabold cursor-pointer border transition-colors ${
+                                genPlanTier === p.id
+                                  ? `${p.cls} text-white`
+                                  : "bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:border-indigo-400"
+                              }`}
+                            >
+                              {p.label}
+                            </button>
+                          ))}
+                        </div>
+
+                        <select
+                          value={genCustomQuotas.unlicensed_module_mode || "hidden"}
+                          onChange={(e) =>
+                            setGenCustomQuotas((prev) => ({ ...prev, unlicensed_module_mode: e.target.value }))
+                          }
+                          className="px-3 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl text-[11px] font-bold text-slate-800 dark:text-white cursor-pointer"
+                          title="Satılmayan modüllerin santraldeki davranışı"
+                        >
+                          <option value="hidden">👻 Lisanssız Modülleri Gizle</option>
+                          <option value="teaser">🔒 Kilitli Göster (Teaser)</option>
+                        </select>
+                      </div>
+
+                      {/* 2-Column Clean Category Grid */}
+                      <div className="grid grid-cols-1 lg:grid-cols-2 gap-3.5">
+                        {SANTRAL_MODULE_CATEGORIES.map((cat) => {
+                          const catItems = modQ
+                            ? cat.items.filter(
+                                (it) => it.label.toLowerCase().includes(modQ) || it.id.toLowerCase().includes(modQ)
+                              )
+                            : cat.items;
+                          if (modQ && catItems.length === 0) return null;
+                          const catIds = cat.items.map((i) => i.id);
+                          const selectedCount = catIds.filter((id) => curAllowedMods.includes(id)).length;
+                          const allInCat = selectedCount === catIds.length;
+
+                          return (
+                            <div
+                              key={cat.id}
+                              className="bg-slate-50/60 dark:bg-slate-950/50 p-3.5 rounded-2xl border border-slate-200/80 dark:border-slate-800 space-y-2.5 flex flex-col"
+                            >
+                              <div className="flex items-center justify-between pb-2 border-b border-slate-200/70 dark:border-slate-800">
+                                <span className="text-[11px] font-extrabold text-slate-800 dark:text-slate-100">
+                                  {cat.title}{" "}
+                                  <span className="font-mono text-indigo-600 dark:text-indigo-400">
+                                    ({selectedCount}/{catIds.length})
+                                  </span>
+                                </span>
+                                <button
+                                  type="button"
+                                  onClick={() => toggleCategoryModules(cat.items)}
+                                  className="px-2 py-0.5 rounded-md bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-[10px] font-extrabold text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 cursor-pointer"
+                                >
+                                  {allInCat ? "Kaldır" : "Tümü"}
+                                </button>
+                              </div>
+                              <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+                                {catItems.map((mod) => {
+                                  const isChecked = curAllowedMods.includes(mod.id);
+                                  return (
+                                    <label
+                                      key={mod.id}
+                                      className={`px-2.5 py-1.5 rounded-xl border flex items-center gap-2 cursor-pointer transition-colors select-none ${
+                                        isChecked
+                                          ? "bg-white dark:bg-slate-900 border-indigo-400/70 dark:border-indigo-700 text-slate-900 dark:text-white font-bold"
+                                          : "bg-white/50 dark:bg-slate-900/40 border-slate-200/70 dark:border-slate-800 text-slate-500 dark:text-slate-400"
+                                      }`}
+                                    >
+                                      <input
+                                        type="checkbox"
+                                        checked={isChecked}
+                                        onChange={() => toggleProviderOption("allowed_features", mod.id)}
+                                        className="rounded accent-indigo-600 cursor-pointer shrink-0"
+                                      />
+                                      <span className="text-[11px] truncate" title={mod.label}>
+                                        {mod.label}
+                                      </span>
+                                    </label>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* TAB 3: ALT ÖZELLİKLER & KANALLAR */}
+                  {keyGenActiveTab === "subfeatures" && (
+                    <div className="space-y-4">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <div>
+                          <h4 className="text-sm font-extrabold text-slate-900 dark:text-white flex items-center gap-2">
+                            <Sparkles size={16} className="text-amber-500" />
+                            <span>Gelişmiş Abone, WebPhone &amp; Omnichannel Alt Özellikleri ({curAllowedSubs.length}/{ALL_SUB_FEATURE_IDS.length})</span>
+                          </h4>
+                          <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5 font-medium">
+                            Müşterinin santralinde açık olacak kanalları ve WebPhone / abone yeteneklerini seçin.
+                          </p>
+                        </div>
+                        <div className="flex items-center gap-1.5">
+                          <button
+                            type="button"
+                            onClick={() => setGenCustomQuotas((prev) => ({ ...prev, allowed_sub_features: [...ALL_SUB_FEATURE_IDS] }))}
+                            className="px-2.5 py-1 rounded-lg bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 text-[11px] font-extrabold cursor-pointer"
+                          >
+                            Tümünü Aç
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setGenCustomQuotas((prev) => ({ ...prev, allowed_sub_features: [] }))}
+                            className="px-2.5 py-1 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:text-rose-500 text-[11px] font-extrabold cursor-pointer"
+                          >
+                            Temizle
+                          </button>
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+                        {subGroups.map((grp) => (
+                          <div
+                            key={grp}
+                            className="p-4 rounded-2xl bg-slate-50/70 dark:bg-slate-950/60 border border-slate-200/80 dark:border-slate-800 space-y-2"
+                          >
+                            <div className="text-[11px] font-extrabold uppercase tracking-wider text-amber-700 dark:text-amber-300 pb-2 border-b border-slate-200/70 dark:border-slate-800">
+                              {grp}
+                            </div>
+                            <div className="space-y-1.5">
+                              {SUB_FEATURE_LIST.filter((s) => s.group === grp).map((sf) => {
+                                const isChecked = curAllowedSubs.includes(sf.id);
+                                return (
+                                  <label
+                                    key={sf.id}
+                                    className={`px-3 py-2 rounded-xl border flex items-center gap-2.5 cursor-pointer transition-colors select-none ${
+                                      isChecked
+                                        ? "bg-white dark:bg-slate-900 border-amber-400/70 dark:border-amber-700 text-slate-900 dark:text-white font-bold"
+                                        : "bg-white/50 dark:bg-slate-900/40 border-slate-200/70 dark:border-slate-800 text-slate-500 dark:text-slate-400"
+                                    }`}
+                                  >
+                                    <input
+                                      type="checkbox"
+                                      checked={isChecked}
+                                      onChange={() => toggleProviderOption("allowed_sub_features", sf.id)}
+                                      className="rounded accent-amber-600 cursor-pointer shrink-0"
+                                    />
+                                    <span className="text-[11px] leading-snug">{sf.label}</span>
+                                  </label>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* TAB 4: YAPAY ZEKA & MOTORLAR */}
+                  {keyGenActiveTab === "ai" && (
+                    <div className="space-y-5">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <div>
+                          <h4 className="text-sm font-extrabold text-slate-900 dark:text-white flex items-center gap-2">
+                            <Bot size={16} className="text-purple-500" />
+                            <span>Yapay Zeka Lisans Hakları &amp; Motor Yetkileri</span>
+                          </h4>
+                          <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5 font-medium">
+                            AI temsilci, bilgi bankası ve senaryo haklarını ile izin verilen STT / TTS / LLM motorlarını yönetin.
+                          </p>
+                        </div>
+                        <div className="flex items-center gap-1.5">
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setGenCustomQuotas((prev) => ({
+                                ...prev,
+                                allowed_stt_providers: STT_PROVIDER_LIST.map((p) => p.id),
+                                allowed_tts_providers: TTS_PROVIDER_LIST.map((p) => p.id),
+                                allowed_llm_providers: LLM_PROVIDER_LIST.map((p) => p.id)
+                              }))
+                            }
+                            className="px-2.5 py-1 rounded-lg bg-purple-50 dark:bg-purple-950/40 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-800 text-[11px] font-extrabold cursor-pointer"
+                          >
+                            Tüm Motorları Aç
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setGenCustomQuotas((prev) => ({
+                                ...prev,
+                                allowed_stt_providers: [],
+                                allowed_tts_providers: [],
+                                allowed_llm_providers: []
+                              }))
+                            }
+                            className="px-2.5 py-1 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:text-rose-500 text-[11px] font-extrabold cursor-pointer"
+                          >
+                            Tümünü Kapat
+                          </button>
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-3.5">
+                        {AI_QUOTA_FIELDS.map((q) => (
+                          <div
+                            key={q.key}
+                            className="bg-slate-50/70 dark:bg-slate-950/60 p-4 rounded-2xl border border-purple-200/70 dark:border-purple-900/40 space-y-2"
+                          >
+                            <div className="flex items-center justify-between">
+                              <span className="text-xs font-extrabold text-slate-700 dark:text-slate-200">{q.label}</span>
+                              <span className="text-[10px] text-purple-600 dark:text-purple-400 font-mono font-bold">{q.unit}</span>
+                            </div>
+                            <input
+                              type="number"
+                              min="0"
+                              value={genCustomQuotas[q.key] !== undefined ? genCustomQuotas[q.key] : q.defaultVal}
+                              onChange={(e) => handleQuotaChange(q.key, e.target.value)}
+                              className="w-full px-3 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl text-xs font-mono font-extrabold text-slate-900 dark:text-white focus:outline-none focus:border-purple-500"
+                            />
+                          </div>
+                        ))}
+                      </div>
+
+                      <div className="grid grid-cols-1 lg:grid-cols-3 gap-3.5">
+                        {[
+                          { title: "İzin Verilen STT (Ses Tanıma)", key: "allowed_stt_providers", list: STT_PROVIDER_LIST },
+                          { title: "İzin Verilen TTS (Seslendirme)", key: "allowed_tts_providers", list: TTS_PROVIDER_LIST },
+                          { title: "İzin Verilen LLM (Dil Modeli)", key: "allowed_llm_providers", list: LLM_PROVIDER_LIST }
+                        ].map((grp) => (
+                          <div
+                            key={grp.key}
+                            className="bg-slate-50/70 dark:bg-slate-950/60 p-4 rounded-2xl border border-purple-200/70 dark:border-purple-900/40 space-y-2.5"
+                          >
+                            <div className="text-[11px] font-extrabold text-purple-700 dark:text-purple-300 uppercase tracking-wider pb-1.5 border-b border-purple-200/50 dark:border-purple-900/40">
+                              {grp.title}
+                            </div>
+                            <div className="space-y-1.5">
+                              {grp.list.map((p) => {
+                                const checked = (genCustomQuotas[grp.key] || []).includes(p.id);
+                                return (
+                                  <label
+                                    key={p.id}
+                                    className={`px-2.5 py-2 rounded-xl border flex items-center gap-2 cursor-pointer select-none ${
+                                      checked
+                                        ? "bg-white dark:bg-slate-900 border-purple-400/70 dark:border-purple-700 text-slate-900 dark:text-white font-bold"
+                                        : "bg-white/50 dark:bg-slate-900/40 border-slate-200/70 dark:border-slate-800 text-slate-500"
+                                    }`}
+                                  >
+                                    <input
+                                      type="checkbox"
+                                      checked={checked}
+                                      onChange={() => toggleProviderOption(grp.key, p.id)}
+                                      className="rounded accent-purple-600 cursor-pointer shrink-0"
+                                    />
+                                    <span className="text-[11px] leading-snug">{p.label}</span>
+                                  </label>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* TAB 5: SANTRAL & AKIŞ KOTALARI */}
+                  {keyGenActiveTab === "pbx" && (
+                    <div className="space-y-5">
+                      <div>
+                        <h4 className="text-sm font-extrabold text-slate-900 dark:text-white flex items-center gap-2">
+                          <PhoneCall size={16} className="text-blue-500" />
+                          <span>Santral, Dahili &amp; Çağrı Akışı Kapasite Kotaları</span>
+                        </h4>
+                        <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5 font-medium">
+                          Bu sayılar müşteriye özeldir ve paket şablonu değiştiğinde ezilmez.
+                        </p>
+                      </div>
+
+                      <div className="space-y-2.5">
+                        <div className="text-[11px] font-extrabold uppercase tracking-wider text-blue-600 dark:text-blue-400">
+                          Santral &amp; Dahili Limitleri
+                        </div>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                          {PBX_QUOTA_FIELDS.map((q) => (
+                            <div
+                              key={q.key}
+                              className="bg-slate-50/70 dark:bg-slate-950/60 p-3 rounded-2xl border border-slate-200/80 dark:border-slate-800 space-y-1.5"
+                            >
+                              <div className="flex items-center justify-between gap-2">
+                                <span className="text-[11px] font-bold text-slate-700 dark:text-slate-200 truncate">{q.label}</span>
+                                <span className="text-[9px] text-blue-600 dark:text-blue-400 font-mono font-bold shrink-0">{q.unit}</span>
+                              </div>
+                              <input
+                                type="number"
+                                min="0"
+                                value={genCustomQuotas[q.key] !== undefined ? genCustomQuotas[q.key] : q.defaultVal}
+                                onChange={(e) => handleQuotaChange(q.key, e.target.value)}
+                                className="w-full px-3 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl text-xs font-mono font-extrabold text-slate-900 dark:text-white focus:outline-none focus:border-blue-500"
+                              />
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+
+                      <div className="space-y-2.5">
+                        <div className="text-[11px] font-extrabold uppercase tracking-wider text-emerald-600 dark:text-emerald-400">
+                          Çağrı Yönlendirme &amp; Akış Limitleri
+                        </div>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                          {FLOW_QUOTA_FIELDS.map((q) => (
+                            <div
+                              key={q.key}
+                              className="bg-slate-50/70 dark:bg-slate-950/60 p-3 rounded-2xl border border-slate-200/80 dark:border-slate-800 space-y-1.5"
+                            >
+                              <div className="flex items-center justify-between gap-2">
+                                <span className="text-[11px] font-bold text-slate-700 dark:text-slate-200 truncate">{q.label}</span>
+                                <span className="text-[9px] text-emerald-600 dark:text-emerald-400 font-mono font-bold shrink-0">{q.unit}</span>
+                              </div>
+                              <input
+                                type="number"
+                                min="0"
+                                value={genCustomQuotas[q.key] !== undefined ? genCustomQuotas[q.key] : q.defaultVal}
+                                onChange={(e) => handleQuotaChange(q.key, e.target.value)}
+                                className="w-full px-3 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl text-xs font-mono font-extrabold text-slate-900 dark:text-white focus:outline-none focus:border-emerald-500"
+                              />
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* TAB 6: SAKLAMA & GÜVENLİK POLİTİKASI */}
+                  {keyGenActiveTab === "retention" && (
+                    <div className="space-y-5">
+                      <div>
+                        <h4 className="text-sm font-extrabold text-slate-900 dark:text-white flex items-center gap-2">
+                          <HardDrive size={16} className="text-amber-500" />
+                          <span>Zorunlu Saklama, Yedekleme &amp; Altyapı Görünürlük Politikası</span>
+                        </h4>
+                        <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5 font-medium">
+                          Merkezden zorunlu ses kaydı saklama süresi, maksimum yedek adedi ve servis sağlayıcı altyapı kilidini ayarlayın.
+                        </p>
+                      </div>
+
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div className="p-4 rounded-2xl bg-slate-50/70 dark:bg-slate-950/60 border border-slate-200/80 dark:border-slate-800 space-y-2">
+                          <label className="block text-xs font-extrabold text-slate-800 dark:text-slate-200">
+                            Zorunlu Ses Kaydı Saklama Süresi (Gün)
+                          </label>
+                          <input
+                            type="number"
+                            min="0"
+                            value={genCustomQuotas.enforced_retention_days ?? 0}
+                            onChange={(e) => handleQuotaChange("enforced_retention_days", e.target.value)}
+                            placeholder="0 = Müşteri Serbest (Örn: 90)"
+                            className="w-full px-3.5 py-2.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl text-xs font-mono font-extrabold text-slate-900 dark:text-white"
+                          />
+                          <p className="text-[11px] text-slate-500 dark:text-slate-400 font-medium">
+                            0 girilirse müşteri santral içinden kendi saklama süresini belirler. 0&apos;dan büyük bir değer girilirse santralde kilitlenir.
+                          </p>
+                        </div>
+
+                        <div className="p-4 rounded-2xl bg-slate-50/70 dark:bg-slate-950/60 border border-slate-200/80 dark:border-slate-800 space-y-2">
+                          <label className="block text-xs font-extrabold text-slate-800 dark:text-slate-200">
+                            Maksimum Sistem Yedeği Adedi
+                          </label>
+                          <input
+                            type="number"
+                            min="0"
+                            value={genCustomQuotas.enforced_max_backups ?? 0}
+                            onChange={(e) => handleQuotaChange("enforced_max_backups", e.target.value)}
+                            placeholder="0 = Serbest (Örn: 5)"
+                            className="w-full px-3.5 py-2.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl text-xs font-mono font-extrabold text-slate-900 dark:text-white"
+                          />
+                          <p className="text-[11px] text-slate-500 dark:text-slate-400 font-medium">
+                            Disk dolmasını önlemek için santralde tutulabilecek en fazla yedek sayısını sınırlar (0 = sınırsız).
+                          </p>
+                        </div>
+                      </div>
+
+                      <div className="p-4 rounded-2xl bg-indigo-50/60 dark:bg-indigo-950/25 border border-indigo-200/80 dark:border-indigo-900/50">
+                        <label className="flex items-start gap-3 cursor-pointer select-none">
+                          <input
+                            type="checkbox"
+                            checked={Boolean(genCustomQuotas.hide_provider_infra_from_customer_admin)}
+                            onChange={(e) =>
+                              setGenCustomQuotas((prev) => ({
+                                ...prev,
+                                hide_provider_infra_from_customer_admin: e.target.checked
+                              }))
+                            }
+                            className="mt-1 rounded accent-indigo-600 cursor-pointer"
+                          />
+                          <div>
+                            <div className="text-xs font-extrabold text-slate-900 dark:text-white">
+                              Teknik Altyapı &amp; SSH Ekranlarını Müşteri Admininden Gizle
+                            </div>
+                            <p className="text-[11px] text-slate-600 dark:text-slate-400 mt-0.5 leading-relaxed font-medium">
+                              İşaretlendiğinde Nornia Connect, Web SSH Terminali, Ağ/IP, NAT, Multi-Tenant ve sngrep ekranları müşteri yöneticisinden gizlenir; yalnızca bu panelden Root SSO ile giriş yaptığınızda görünür.
+                            </p>
+                          </div>
+                        </label>
+                      </div>
+                    </div>
+                  )}
+
+                  {genError && (
+                    <div className="p-3.5 bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800 rounded-2xl text-xs font-bold text-rose-600 dark:text-rose-400 flex items-center gap-2">
+                      <AlertTriangle size={16} />
+                      <span>{genError}</span>
+                    </div>
+                  )}
+
+                  {generatedResultKey && (
+                    <div className="p-4 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 rounded-2xl space-y-2">
+                      <div className="text-emerald-600 dark:text-emerald-400 font-extrabold flex items-center gap-1.5">
+                        <Check size={16} /> Yeni İmzalı Key Başarıyla Üretildi ve Santrale İletildi!
+                      </div>
+                      <div className="p-2.5 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl text-xs font-mono text-slate-900 dark:text-white flex items-center justify-between gap-2 shadow-xs">
+                        <span className="truncate">{generatedResultKey}</span>
                         <button
                           type="button"
-                          onClick={() => setShowPackagesModal(true)}
-                          className="px-2.5 py-1.5 rounded-lg bg-slate-100 dark:bg-slate-800 hover:bg-purple-600 text-slate-700 dark:text-slate-300 hover:text-white text-[10px] font-extrabold flex items-center gap-1 cursor-pointer transition-colors"
-                          title="Paket şablonlarını düzenle"
+                          onClick={() => handleCopyText(generatedResultKey, "gen-modal-res")}
+                          className="px-2.5 py-1 rounded bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-[11px] font-bold cursor-pointer shrink-0"
                         >
-                          <Layers size={11} />
-                          <span>Şablonları Düzenle</span>
+                          {copiedKey === "gen-modal-res" ? "Kopyalandı!" : "Kopyala"}
                         </button>
                       </div>
                     </div>
-                  );
-                })()}
+                  )}
+                </div>
               </div>
 
-              {/* Categorized 19 Custom Quotas Editor */}
-              <div className="space-y-4 pt-2 border-t border-slate-200 dark:border-slate-800">
-
-                {/* 1. YAPAY ZEKA LİSANS HAKLARI & KOTALARI */}
-                <div className="p-4 bg-purple-50/50 dark:bg-purple-950/20 border border-purple-200/60 dark:border-purple-900/40 rounded-2xl space-y-3">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2 text-xs font-extrabold text-purple-700 dark:text-purple-300 uppercase tracking-wider">
-                      <Bot size={18} />
-                      <span>1. Yapay Zeka Lisans Hakları & Kotaları</span>
-                    </div>
-                    <span className="text-[10px] font-bold px-2.5 py-0.5 rounded-lg bg-purple-100 dark:bg-purple-900/40 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-800/50">
-                      ⚡ Kotaları Düzenle
-                    </span>
-                  </div>
-
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                    {AI_QUOTA_FIELDS.map(q => (
-                      <div key={q.key} className="bg-white dark:bg-slate-900 p-3 rounded-xl border border-purple-200/60 dark:border-purple-900/40 shadow-xs space-y-1.5">
-                        <div className="flex items-center justify-between">
-                          <span className="text-[11px] font-bold text-slate-700 dark:text-slate-200 truncate">{q.label}</span>
-                          <span className="text-[9px] text-purple-600 dark:text-purple-400 font-mono font-bold">{q.unit}</span>
-                        </div>
-                        <input
-                          type="number"
-                          min="0"
-                          value={genCustomQuotas[q.key] !== undefined ? genCustomQuotas[q.key] : q.defaultVal}
-                          onChange={(e) => handleQuotaChange(q.key, e.target.value)}
-                          className="w-full px-2.5 py-1 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg text-xs font-mono font-extrabold text-slate-900 dark:text-white focus:outline-none focus:border-rose-500"
-                        />
-                      </div>
-                    ))}
-                  </div>
-
-                  {/* Allowed STT, TTS, and LLM Engines Selection */}
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-3 pt-2 border-t border-purple-200/50 dark:border-purple-900/40">
-                    {/* STT Providers */}
-                    <div className="bg-white dark:bg-slate-900 p-3 rounded-xl border border-purple-200/60 dark:border-purple-900/40 shadow-xs space-y-2">
-                      <div className="text-[10px] font-extrabold text-purple-700 dark:text-purple-300 uppercase tracking-wider">
-                        İzin Verilen STT (Ses Tanıma)
-                      </div>
-                      <div className="space-y-1.5">
-                        {STT_PROVIDER_LIST.map(p => {
-                          const checked = (genCustomQuotas.allowed_stt_providers || []).includes(p.id);
-                          return (
-                            <label key={p.id} className="flex items-center gap-2 text-[11px] font-bold text-slate-700 dark:text-slate-200 cursor-pointer select-none">
-                              <input
-                                type="checkbox"
-                                checked={checked}
-                                onChange={() => toggleProviderOption("allowed_stt_providers", p.id)}
-                                className="rounded accent-purple-600 cursor-pointer"
-                              />
-                              <span className="truncate">{p.label}</span>
-                            </label>
-                          );
-                        })}
-                      </div>
-                    </div>
-
-                    {/* TTS Providers */}
-                    <div className="bg-white dark:bg-slate-900 p-3 rounded-xl border border-purple-200/60 dark:border-purple-900/40 shadow-xs space-y-2">
-                      <div className="text-[10px] font-extrabold text-purple-700 dark:text-purple-300 uppercase tracking-wider">
-                        İzin Verilen TTS (Seslendirme)
-                      </div>
-                      <div className="space-y-1.5">
-                        {TTS_PROVIDER_LIST.map(p => {
-                          const checked = (genCustomQuotas.allowed_tts_providers || []).includes(p.id);
-                          return (
-                            <label key={p.id} className="flex items-center gap-2 text-[11px] font-bold text-slate-700 dark:text-slate-200 cursor-pointer select-none">
-                              <input
-                                type="checkbox"
-                                checked={checked}
-                                onChange={() => toggleProviderOption("allowed_tts_providers", p.id)}
-                                className="rounded accent-purple-600 cursor-pointer"
-                              />
-                              <span className="truncate">{p.label}</span>
-                            </label>
-                          );
-                        })}
-                      </div>
-                    </div>
-
-                    {/* LLM Providers */}
-                    <div className="bg-white dark:bg-slate-900 p-3 rounded-xl border border-purple-200/60 dark:border-purple-900/40 shadow-xs space-y-2">
-                      <div className="text-[10px] font-extrabold text-purple-700 dark:text-purple-300 uppercase tracking-wider">
-                        İzin Verilen LLM (Dil Modeli)
-                      </div>
-                      <div className="space-y-1.5">
-                        {LLM_PROVIDER_LIST.map(p => {
-                          const checked = (genCustomQuotas.allowed_llm_providers || []).includes(p.id);
-                          return (
-                            <label key={p.id} className="flex items-center gap-2 text-[11px] font-bold text-slate-700 dark:text-slate-200 cursor-pointer select-none">
-                              <input
-                                type="checkbox"
-                                checked={checked}
-                                onChange={() => toggleProviderOption("allowed_llm_providers", p.id)}
-                                className="rounded accent-purple-600 cursor-pointer"
-                              />
-                              <span className="truncate">{p.label}</span>
-                            </label>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  </div>
+              {/* Sticky Footer */}
+              <div className="px-6 py-4 border-t border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-950/50 flex flex-wrap items-center justify-between gap-3 shrink-0">
+                <div className="text-[11px] font-bold text-slate-500 dark:text-slate-400">
+                  <span className="text-slate-800 dark:text-slate-200 font-extrabold">{activeTpl.name}</span> •{" "}
+                  <span className="font-mono text-indigo-600 dark:text-indigo-400">{curAllowedMods.length}</span> modül •{" "}
+                  <span className="font-mono text-emerald-600 dark:text-emerald-400">{curAllowedSubs.length}</span> alt özellik
                 </div>
 
-                {/* 2. SANTRAL & DAHİLİ LİSANS HAKLARI & KOTALARI */}
-                <div className="p-4 bg-blue-50/50 dark:bg-blue-950/20 border border-blue-200/60 dark:border-blue-900/40 rounded-2xl space-y-3">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2 text-xs font-extrabold text-blue-700 dark:text-blue-300 uppercase tracking-wider">
-                      <PhoneCall size={18} />
-                      <span>2. Santral & Dahili Lisans Hakları & Kotaları</span>
-                    </div>
-                    <span className="text-[10px] font-bold px-2.5 py-0.5 rounded-lg bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800/50">
-                      ⚡ Kotaları Düzenle
-                    </span>
-                  </div>
-
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                    {PBX_QUOTA_FIELDS.map(q => (
-                      <div key={q.key} className="bg-white dark:bg-slate-900 p-3 rounded-xl border border-blue-200/60 dark:border-blue-900/40 shadow-xs space-y-1.5">
-                        <div className="flex items-center justify-between">
-                          <span className="text-[11px] font-bold text-slate-700 dark:text-slate-200 truncate">{q.label}</span>
-                          <span className="text-[9px] text-blue-600 dark:text-blue-400 font-mono font-bold">{q.unit}</span>
-                        </div>
-                        <input
-                          type="number"
-                          min="0"
-                          value={genCustomQuotas[q.key] !== undefined ? genCustomQuotas[q.key] : q.defaultVal}
-                          onChange={(e) => handleQuotaChange(q.key, e.target.value)}
-                          className="w-full px-2.5 py-1 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg text-xs font-mono font-extrabold text-slate-900 dark:text-white focus:outline-none focus:border-rose-500"
-                        />
-                      </div>
-                    ))}
-                  </div>
+                <div className="flex items-center gap-2.5">
+                  <button
+                    type="button"
+                    onClick={() => setKeyGenModalClient(null)}
+                    className="px-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 text-xs font-bold text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
+                  >
+                    Kapat
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={isGeneratingKey}
+                    className={`px-5 py-2.5 rounded-xl text-xs font-extrabold shadow-lg shadow-rose-600/20 cursor-pointer flex items-center gap-2 transition-all ${
+                      isGeneratingKey ? "bg-slate-400 text-white cursor-not-allowed" : "bg-rose-600 hover:bg-rose-500 text-white"
+                    }`}
+                  >
+                    {isGeneratingKey ? <RefreshCw size={14} className="animate-spin" /> : <Key size={14} />}
+                    <span>{isGeneratingKey ? "Key Üretiliyor & Kaydediliyor..." : "Yeni Key Üret & Kaydet"}</span>
+                  </button>
                 </div>
-
-                {/* 3. ÇAĞRI YÖNLENDİRME & AKIŞ LİSANS HAKLARI & KOTALARI */}
-                <div className="p-4 bg-emerald-50/50 dark:bg-emerald-950/20 border border-emerald-200/60 dark:border-emerald-900/40 rounded-2xl space-y-3">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2 text-xs font-extrabold text-emerald-700 dark:text-emerald-300 uppercase tracking-wider">
-                      <GitMerge size={18} />
-                      <span>3. Çağrı Yönlendirme & Akış Lisans Hakları & Kotaları</span>
-                    </div>
-                    <span className="text-[10px] font-bold px-2.5 py-0.5 rounded-lg bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800/50">
-                      ⚡ Kotaları Düzenle
-                    </span>
-                  </div>
-
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                    {FLOW_QUOTA_FIELDS.map(q => (
-                      <div key={q.key} className="bg-white dark:bg-slate-900 p-3 rounded-xl border border-emerald-200/60 dark:border-emerald-900/40 shadow-xs space-y-1.5">
-                        <div className="flex items-center justify-between">
-                          <span className="text-[11px] font-bold text-slate-700 dark:text-slate-200 truncate">{q.label}</span>
-                          <span className="text-[9px] text-emerald-600 dark:text-emerald-400 font-mono font-bold">{q.unit}</span>
-                        </div>
-                        <input
-                          type="number"
-                          min="0"
-                          value={genCustomQuotas[q.key] !== undefined ? genCustomQuotas[q.key] : q.defaultVal}
-                          onChange={(e) => handleQuotaChange(q.key, e.target.value)}
-                          className="w-full px-2.5 py-1 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg text-xs font-mono font-extrabold text-slate-900 dark:text-white focus:outline-none focus:border-rose-500"
-                        />
-                      </div>
-                    ))}
-                  </div>
-                </div>
-
-                {/* 4. SANTRAL MODÜL & ROL GÖRÜNÜRLÜK FİLTRESİ (2 KATMANLI YETKİ MİMARİSİ) */}
-                <div className="p-4 bg-indigo-50/50 dark:bg-indigo-950/20 border border-indigo-200/60 dark:border-indigo-900/40 rounded-2xl space-y-3.5">
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <div>
-                      <div className="flex items-center gap-2 text-xs font-extrabold text-indigo-700 dark:text-indigo-300 uppercase tracking-wider">
-                        <Layers size={18} />
-                        <span>4. Santral Modül &amp; Rol Görünürlük Filtresi (Satılan Modüller)</span>
-                      </div>
-                      <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
-                        Buradan kapattığınız modüller müşterinin kendi <strong>Sistem Ayarları ➔ Roller</strong> ekranında görünmez; müşteri kendi Admin hesabıyla bile satmadığınız modülü açamaz.
-                      </p>
-                    </div>
-
-                    {/* Quick Package Presets */}
-                    <div className="flex items-center gap-1.5 flex-wrap">
-                      <button
-                        type="button"
-                        onClick={() => applyPackageTemplateToKeyGen("starter")}
-                        className={`px-2.5 py-1 rounded-lg text-[10px] font-extrabold cursor-pointer border transition-colors ${
-                          genPlanTier === "starter"
-                            ? "bg-sky-600 text-white border-sky-600"
-                            : "bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:border-sky-400"
-                        }`}
-                      >
-                        Starter (IP Santral)
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => applyPackageTemplateToKeyGen("professional")}
-                        className={`px-2.5 py-1 rounded-lg text-[10px] font-extrabold cursor-pointer border transition-colors ${
-                          genPlanTier === "professional"
-                            ? "bg-indigo-600 text-white border-indigo-600"
-                            : "bg-white dark:bg-slate-900 border-indigo-200 dark:border-indigo-800 text-indigo-700 dark:text-indigo-300 hover:border-indigo-400"
-                        }`}
-                      >
-                        Professional (Çağrı Merkezi)
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => applyPackageTemplateToKeyGen("enterprise")}
-                        className={`px-2.5 py-1 rounded-lg text-[10px] font-extrabold cursor-pointer border transition-colors ${
-                          genPlanTier === "enterprise"
-                            ? "bg-purple-600 text-white border-purple-600"
-                            : "bg-white dark:bg-slate-900 border-purple-200 dark:border-purple-800 text-purple-700 dark:text-purple-300 hover:border-purple-400"
-                        }`}
-                      >
-                        Enterprise (AI &amp; Kurumsal)
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => applyPackageTemplateToKeyGen("unlimited")}
-                        className={`px-2.5 py-1 rounded-lg text-[10px] font-extrabold cursor-pointer border transition-colors ${
-                          genPlanTier === "unlimited"
-                            ? "bg-emerald-600 text-white border-emerald-600"
-                            : "bg-white dark:bg-slate-900 border-emerald-200 dark:border-emerald-800 text-emerald-700 dark:text-emerald-300 hover:border-emerald-400"
-                        }`}
-                      >
-                        Limitsiz (Tümü)
-                      </button>
-                    </div>
-                  </div>
-
-                  {/* Unlicensed Module Display Mode & Provider Infrastructure Lock */}
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3 p-3 bg-white dark:bg-slate-900 rounded-xl border border-indigo-200/60 dark:border-indigo-900/40">
-                    <div>
-                      <label className="block text-[11px] font-extrabold text-slate-700 dark:text-slate-200 mb-1">
-                        Satılmayan Modüllerin Santraldeki Davranışı
-                      </label>
-                      <select
-                        value={genCustomQuotas.unlicensed_module_mode || "hidden"}
-                        onChange={(e) =>
-                          setGenCustomQuotas((prev) => ({ ...prev, unlicensed_module_mode: e.target.value }))
-                        }
-                        className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl text-xs font-bold text-slate-900 dark:text-white cursor-pointer"
-                      >
-                        <option value="hidden">👻 Tamamen Gizle (Ne Rollerde Ne Sol Menüde Görünür)</option>
-                        <option value="teaser">🔒 Vitrinde Kilitli Göster (Rollerde Verilemez, Menüde &apos;🔒 Pro&apos; Tanıtım Ekranı Çıkar)</option>
-                      </select>
-                    </div>
-
-                    <div className="flex flex-col justify-center">
-                      <label className="flex items-start gap-2.5 cursor-pointer select-none">
-                        <input
-                          type="checkbox"
-                          checked={Boolean(genCustomQuotas.hide_provider_infra_from_customer_admin)}
-                          onChange={(e) =>
-                            setGenCustomQuotas((prev) => ({
-                              ...prev,
-                              hide_provider_infra_from_customer_admin: e.target.checked
-                            }))
-                          }
-                          className="mt-0.5 rounded accent-indigo-600 cursor-pointer"
-                        />
-                        <div>
-                          <div className="text-[11px] font-extrabold text-slate-800 dark:text-slate-100">
-                            Teknik Altyapı &amp; SSH Ekranlarını Müşteri Admininden Gizle
-                          </div>
-                          <div className="text-[10px] text-slate-500 dark:text-slate-400 leading-snug">
-                            Nornia Connect, Web SSH, Ağ/IP, NAT, Tenant Yönetimi ve sngrep sadece buradan <strong>&quot;Santrali Yönet (SSO)&quot;</strong> ile girdiğinizde görünür.
-                          </div>
-                        </div>
-                      </label>
-                    </div>
-                  </div>
-
-                  {/* Category Grid of Modules */}
-                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-                    {SANTRAL_MODULE_CATEGORIES.map((cat) => {
-                      const curAllowed = Array.isArray(genCustomQuotas.allowed_features) ? genCustomQuotas.allowed_features : ALL_SANTRAL_MODULE_IDS;
-                      const catIds = cat.items.map((i) => i.id);
-                      const selectedCount = catIds.filter((id) => curAllowed.includes(id)).length;
-                      const allInCat = selectedCount === catIds.length;
-
-                      return (
-                        <div key={cat.id} className="bg-white dark:bg-slate-900 p-3 rounded-xl border border-indigo-200/60 dark:border-indigo-900/40 space-y-2 flex flex-col">
-                          <div className="flex items-center justify-between pb-1.5 border-b border-slate-100 dark:border-slate-800">
-                            <span className="text-[10px] font-extrabold text-indigo-700 dark:text-indigo-300 uppercase tracking-wide">
-                              {cat.title} ({selectedCount}/{catIds.length})
-                            </span>
-                            <button
-                              type="button"
-                              onClick={() => toggleCategoryModules(cat.items)}
-                              className="text-[10px] font-extrabold text-indigo-600 dark:text-indigo-400 hover:underline cursor-pointer"
-                            >
-                              {allInCat ? "Kaldır" : "Tümü"}
-                            </button>
-                          </div>
-                          <div className="space-y-1.5 max-h-44 overflow-y-auto pr-1">
-                            {cat.items.map((mod) => {
-                              const isChecked = curAllowed.includes(mod.id);
-                              return (
-                                <label key={mod.id} className="flex items-center gap-2 text-[11px] font-bold text-slate-700 dark:text-slate-200 cursor-pointer select-none">
-                                  <input
-                                    type="checkbox"
-                                    checked={isChecked}
-                                    onChange={() => toggleProviderOption("allowed_features", mod.id)}
-                                    className="rounded accent-indigo-600 cursor-pointer"
-                                  />
-                                  <span className="truncate">{mod.label}</span>
-                                </label>
-                              );
-                            })}
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-
-                {/* 5. ALT ÖZELLİK, OMNICHANNEL KANAL & ZORUNLU KAYIT SAKLAMA POLİTİKASI */}
-                <div className="p-4 bg-amber-50/50 dark:bg-amber-950/20 border border-amber-200/60 dark:border-amber-900/40 rounded-2xl space-y-3.5">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2 text-xs font-extrabold text-amber-700 dark:text-amber-300 uppercase tracking-wider">
-                      <Sparkles size={18} />
-                      <span>5. Alt Özellik, Omnichannel Kanal &amp; Zorunlu Kayıt Saklama Politikası</span>
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                    {/* Sub-Features Checkboxes (2 cols) */}
-                    <div className="md:col-span-2 bg-white dark:bg-slate-900 p-3 rounded-xl border border-amber-200/60 dark:border-amber-900/40 space-y-2">
-                      <div className="text-[10px] font-extrabold text-amber-700 dark:text-amber-300 uppercase tracking-wider">
-                        Mikro-Lisanslı Alt Özellikler &amp; Omnichannel Kanalları
-                      </div>
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
-                        {SUB_FEATURE_LIST.map((sf) => {
-                          const curSub = Array.isArray(genCustomQuotas.allowed_sub_features) ? genCustomQuotas.allowed_sub_features : SUB_FEATURE_LIST.map((s) => s.id);
-                          const isChecked = curSub.includes(sf.id);
-                          return (
-                            <label key={sf.id} className="flex items-center gap-2 text-[11px] font-bold text-slate-700 dark:text-slate-200 cursor-pointer select-none">
-                              <input
-                                type="checkbox"
-                                checked={isChecked}
-                                onChange={() => toggleProviderOption("allowed_sub_features", sf.id)}
-                                className="rounded accent-amber-600 cursor-pointer"
-                              />
-                              <span className="truncate">{sf.label}</span>
-                            </label>
-                          );
-                        })}
-                      </div>
-                    </div>
-
-                    {/* Mandatory Retention & Disk Policy */}
-                    <div className="bg-white dark:bg-slate-900 p-3 rounded-xl border border-amber-200/60 dark:border-amber-900/40 space-y-3">
-                      <div className="text-[10px] font-extrabold text-amber-700 dark:text-amber-300 uppercase tracking-wider">
-                        Zorunlu Disk &amp; Saklama Politikası
-                      </div>
-                      <div>
-                        <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1">
-                          Zorunlu Ses Kaydı Saklama (Gün)
-                        </label>
-                        <input
-                          type="number"
-                          min="0"
-                          value={genCustomQuotas.enforced_retention_days ?? 0}
-                          onChange={(e) => handleQuotaChange("enforced_retention_days", e.target.value)}
-                          placeholder="0 = Müşteri Serbest (Örn: 90)"
-                          className="w-full px-2.5 py-1.5 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg text-xs font-mono font-extrabold text-slate-900 dark:text-white"
-                        />
-                        <span className="text-[10px] text-slate-400">0 girilirse müşteri kendisi belirler.</span>
-                      </div>
-                      <div>
-                        <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1">
-                          Maksimum Sistem Yedeği Adedi
-                        </label>
-                        <input
-                          type="number"
-                          min="0"
-                          value={genCustomQuotas.enforced_max_backups ?? 0}
-                          onChange={(e) => handleQuotaChange("enforced_max_backups", e.target.value)}
-                          placeholder="0 = Serbest (Örn: 5)"
-                          className="w-full px-2.5 py-1.5 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg text-xs font-mono font-extrabold text-slate-900 dark:text-white"
-                        />
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-              </div>
-
-              {genError && (
-                <div className="p-3.5 bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800 rounded-2xl text-xs font-bold text-rose-600 dark:text-rose-400 flex items-center gap-2">
-                  <AlertTriangle size={16} />
-                  <span>{genError}</span>
-                </div>
-              )}
-
-              {generatedResultKey && (
-                <div className="p-4 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 rounded-2xl space-y-2">
-                  <div className="text-emerald-600 dark:text-emerald-400 font-extrabold flex items-center gap-1.5">
-                    <Check size={16} /> Yeni İmzalı Key Başarıyla Üretildi!
-                  </div>
-                  <div className="p-2.5 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl text-xs font-mono text-slate-900 dark:text-white flex items-center justify-between shadow-xs">
-                    <span className="truncate max-w-[500px]">{generatedResultKey}</span>
-                    <button
-                      type="button"
-                      onClick={() => handleCopyText(generatedResultKey, "gen-modal-res")}
-                      className="px-2.5 py-1 rounded bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-[11px] font-bold cursor-pointer shrink-0"
-                    >
-                      {copiedKey === "gen-modal-res" ? "Kopyalandı!" : "Kopyala"}
-                    </button>
-                  </div>
-                </div>
-              )}
-
-              <div className="flex items-center justify-end gap-3 pt-3 border-t border-slate-200 dark:border-slate-800">
-                <button
-                  type="button"
-                  onClick={() => setKeyGenModalClient(null)}
-                  className="px-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
-                >
-                  Kapat
-                </button>
-                <button
-                  type="submit"
-                  disabled={isGeneratingKey}
-                  className={`px-5 py-2.5 rounded-xl font-extrabold shadow-lg shadow-rose-600/20 cursor-pointer flex items-center gap-2 transition-all ${
-                    isGeneratingKey ? "bg-slate-400 text-white cursor-not-allowed" : "bg-rose-600 hover:bg-rose-500 text-white"
-                  }`}
-                >
-                  {isGeneratingKey && <RefreshCw size={14} className="animate-spin" />}
-                  {isGeneratingKey ? "Key Üretiliyor & Kaydediliyor..." : "Yeni Key Üret & Kaydet"}
-                </button>
               </div>
             </form>
           </div>
-        </div>
-      )}
+        );
+      })()}
 
 
       {/* LIVE SERVER TELEMETRY, RESOURCES & SERVICES HEALTH INSPECTOR DASHBOARD MODAL */}
