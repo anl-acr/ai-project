@@ -38907,18 +38907,34 @@ async def get_system_version_info():
         pass
 
     return {
-        "version": "v3.2.4",
+        "version": "v3.2.5",
         "commit_hash": live_commit,
         "release_date": "20 Kasım 2026",
         "status": "Güncel / Canlı Sürüm",
         "environment": "Production (On-Premise)",
         "changelog": [
             {
-                "version": "v3.2.4",
+                "version": "v3.2.5",
                 "commit_hash": live_commit,
                 "release_date": "20 Kasım 2026",
                 "badge": "Canlı Sürüm (Güncel)",
                 "badge_type": "current",
+                "title": "Nornia Cloud Center Üst Bar Navigasyon Ortalama",
+                "summary": "Panel sunucusundaki Paketler, Güvenlik Kalkanı, İşlem Logları ve Kullanıcılar butonları üst barın tam ortasına hizalandı.",
+                "features": [
+                    {
+                        "title": "🧭 3 Bölgeli Dengeli Üst Bar",
+                        "desc": "Solda marka logosu, ortada yönetim butonları (Paketler, Güvenlik Kalkanı, İşlem Logları, Kullanıcılar) ve sağda arama, tema, ekle (+) ve avatar menüsü yer alacak şekilde düzenlendi."
+                    }
+                ],
+                "fixes": []
+            },
+            {
+                "version": "v3.2.4",
+                "commit_hash": "891b827",
+                "release_date": "20 Kasım 2026",
+                "badge": "Önceki Sürüm",
+                "badge_type": "stable",
                 "title": "Üst Bar 'Uygula' Butonu İkon-Only Tasarımı & Arama Çubuğu Çakışma Düzeltmesi",
                 "summary": "Santral üst barındaki 'Uygula' butonu sade dairesel ikon butonuna dönüştürüldü ve arama alanıyla üst üste binme sorunu giderildi.",
                 "features": [],

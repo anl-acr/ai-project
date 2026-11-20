@@ -1291,47 +1291,49 @@ export default function MasterDashboard() {
       </Head>
 
       {/* Top Navbar */}
-      <header className="h-16 border-b border-slate-200/80 dark:border-slate-800/80 bg-white/95 dark:bg-slate-900/80 backdrop-blur-xl px-6 lg:px-10 flex items-center justify-between sticky top-0 z-30 shadow-xs dark:shadow-none">
-        <div className="flex items-center gap-3.5">
-          <div className="w-10 h-10 rounded-2xl bg-slate-900 dark:bg-slate-800 border border-slate-200/80 dark:border-slate-700/80 flex items-center justify-center p-1.5 shadow-md shadow-indigo-500/10">
+      <header className="h-16 border-b border-slate-200/80 dark:border-slate-800/80 bg-white/95 dark:bg-slate-900/80 backdrop-blur-xl px-6 lg:px-10 flex items-center justify-between gap-4 sticky top-0 z-30 shadow-xs dark:shadow-none">
+        {/* Left: Brand */}
+        <div className="flex-1 flex items-center gap-3.5 min-w-0">
+          <div className="w-10 h-10 shrink-0 rounded-2xl bg-slate-900 dark:bg-slate-800 border border-slate-200/80 dark:border-slate-700/80 flex items-center justify-center p-1.5 shadow-md shadow-indigo-500/10">
             <img src="/favicon.svg" alt="Nornia" className="w-full h-full object-contain" />
           </div>
-          <div>
-            <h1 className="text-base font-extrabold tracking-tight bg-gradient-to-r from-slate-900 via-indigo-900 to-slate-800 dark:from-white dark:via-indigo-200 dark:to-slate-300 bg-clip-text text-transparent">
+          <div className="min-w-0">
+            <h1 className="text-base font-extrabold tracking-tight bg-gradient-to-r from-slate-900 via-indigo-900 to-slate-800 dark:from-white dark:via-indigo-200 dark:to-slate-300 bg-clip-text text-transparent truncate">
               Nornia Cloud Center
             </h1>
-            <p className="text-[11px] text-slate-500 dark:text-slate-400 font-medium">
+            <p className="text-[11px] text-slate-500 dark:text-slate-400 font-medium truncate">
               Merkezi Lisans &amp; Tünel Sunucusu
             </p>
           </div>
         </div>
 
-        <div className="flex items-center gap-2.5">
+        {/* Center: Primary Navigation Actions */}
+        <nav className="flex items-center justify-center gap-2 shrink-0">
           <button
             onClick={() => setShowPackagesModal(true)}
-            className="px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors flex items-center gap-1.5 text-xs font-bold cursor-pointer shadow-xs dark:shadow-none"
+            className="px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors flex items-center gap-1.5 text-xs font-bold cursor-pointer shadow-xs dark:shadow-none whitespace-nowrap"
             title="Lisans Paket Şablonlarını Düzenle (Starter / Professional / Enterprise Özellikleri)"
           >
             <Layers size={14} className="text-purple-600 dark:text-purple-400" />
-            <span className="hidden sm:inline">Paketler</span>
+            <span className="hidden lg:inline">Paketler</span>
           </button>
 
           <button
             onClick={() => setShowSecurityModal(true)}
-            className="px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors flex items-center gap-1.5 text-xs font-bold cursor-pointer shadow-xs dark:shadow-none"
-            title="Merkez Güvenlik Kalkanı (Brute-Force, Engelli IP & Auto-Logout)"
+            className="px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors flex items-center gap-1.5 text-xs font-bold cursor-pointer shadow-xs dark:shadow-none whitespace-nowrap"
+            title="Merkez Güvenlik Kalkanı (SMTP, Brute-Force & IP Yönetimi)"
           >
             <Shield size={14} className="text-rose-600 dark:text-rose-400" />
-            <span className="hidden sm:inline">Güvenlik Kalkanı</span>
+            <span className="hidden lg:inline">Güvenlik Kalkanı</span>
           </button>
 
           <button
             onClick={() => setShowAuditLogsModal(true)}
-            className="px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors flex items-center gap-1.5 text-xs font-bold cursor-pointer shadow-xs dark:shadow-none"
+            className="px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors flex items-center gap-1.5 text-xs font-bold cursor-pointer shadow-xs dark:shadow-none whitespace-nowrap"
             title="Sistem İşlem Logları"
           >
             <Terminal size={14} className="text-cyan-600 dark:text-cyan-400" />
-            <span className="hidden sm:inline">İşlem Logları</span>
+            <span className="hidden lg:inline">İşlem Logları</span>
           </button>
 
           <button
@@ -1339,12 +1341,16 @@ export default function MasterDashboard() {
               setInitialEditUserId(null);
               setShowUsersModal(true);
             }}
-            className="px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors flex items-center gap-1.5 text-xs font-bold cursor-pointer shadow-xs dark:shadow-none"
+            className="px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors flex items-center gap-1.5 text-xs font-bold cursor-pointer shadow-xs dark:shadow-none whitespace-nowrap"
             title="Master Kullanıcı Yönetimi & Kullanıcı Bazlı 2FA"
           >
             <Users size={14} className="text-indigo-600 dark:text-indigo-400" />
-            <span className="hidden sm:inline">Kullanıcılar</span>
+            <span className="hidden lg:inline">Kullanıcılar</span>
           </button>
+        </nav>
+
+        {/* Right: Utilities & Avatar */}
+        <div className="flex-1 flex items-center justify-end gap-2.5 min-w-0">
 
           {/* Topbar Search Icon & Popover */}
           <div className="relative" ref={topbarSearchRef}>
