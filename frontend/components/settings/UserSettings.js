@@ -1116,7 +1116,7 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
         ? (overrides.max_activations ? Math.max(1, Math.min(10, Number(overrides.max_activations))) : 5)
         : (overrides.max_activations ? Math.max(1, Math.min(5, Number(overrides.max_activations))) : 1),
       sip_driver: isWebPhone || isVirtualSub ? "pjsip" : (overrides.sip_driver === "chan_sip" ? "chan_sip" : "pjsip"),
-      transport: isWebPhone ? "WSS" : (overrides.sip_driver === "chan_sip" ? (overrides.transport || "TCP") : (overrides.remote_access ? "UDP" : (overrides.transport || "UDP"))),
+      transport: isWebPhone ? "WSS" : (overrides.remote_access ? "TCP" : (overrides.sip_driver === "chan_sip" ? (overrides.transport || "TCP") : (overrides.transport || "UDP"))),
       remote_access: isWebPhone || isVirtualSub ? false : Boolean(overrides.remote_access),
       is_active: overrides.is_active !== false,
       is_deletable: !isWebPhone,
@@ -1463,10 +1463,10 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
         remote_access: isWeb ? false : Boolean(sipDeviceDraft.remote_access),
         transport: isWeb
           ? "WSS"
+          : sipDeviceDraft.remote_access
+          ? "TCP"
           : sipDeviceDraft.sip_driver === "chan_sip"
           ? (sipDeviceDraft.transport === "UDP" ? "UDP" : "TCP")
-          : sipDeviceDraft.remote_access
-          ? "UDP"
           : (sipDeviceDraft.transport || "UDP"),
         is_virtual: false,
         is_deletable: !isWeb,
@@ -4444,11 +4444,13 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
                                                                             {copiedDeviceKey === `su-${dev.id}` ? <Check size={11} className="text-emerald-500" /> : <Copy size={11} />}
                                                                         </button>
                                                                         <span>•</span>
-                                                                        <span className="font-semibold">{isWebPhone ? "WSS / WebRTC" : (dev.transport || "UDP")}</span>
-                                                                        {!isWebPhone && dev.brand && (
+                                                                        <span className="font-semibold">
+                                                                            {isWebPhone ? "WSS / WebRTC" : (dev.remote_access ? "TCP" : (dev.transport || "UDP"))}
+                                                                        </span>
+                                                                        {!isWebPhone && (dev.brand_model || dev.brand) && (
                                                                             <>
                                                                                 <span>•</span>
-                                                                                <span>{dev.brand} {dev.model || ""}</span>
+                                                                                <span>{dev.brand_model || `${dev.brand} ${dev.model || ""}`.trim()}</span>
                                                                             </>
                                                                         )}
                                                                         {!isWebPhone && dev.mac && (
@@ -9406,7 +9408,7 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
                           setSipDeviceDraft((prev) => ({
                             ...prev,
                             sip_driver: nextDrv,
-                            transport: nextDrv === "chan_sip" ? "TCP" : (prev.remote_access ? "UDP" : (prev.transport || "UDP"))
+                            transport: prev.remote_access ? "TCP" : (nextDrv === "chan_sip" ? "TCP" : (prev.transport || "UDP"))
                           }));
                         }}
                         className="w-full text-xs font-semibold px-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-950 text-slate-800 dark:text-slate-100 focus:outline-none"
@@ -9456,9 +9458,14 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
                         <select
                           id="sip-dev-transport"
                           name="transport"
-                          value={sipDeviceDraft.transport === "UDP" ? "UDP" : "TCP"}
+                          disabled={Boolean(sipDeviceDraft.remote_access)}
+                          value={sipDeviceDraft.remote_access ? "TCP" : (sipDeviceDraft.transport === "UDP" ? "UDP" : "TCP")}
                           onChange={(e) => setSipDeviceDraft((prev) => ({ ...prev, transport: e.target.value }))}
-                          className="w-full text-xs font-semibold px-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-950 text-slate-800 dark:text-slate-100 focus:outline-none"
+                          className={`w-full text-xs font-semibold px-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 focus:outline-none ${
+                            sipDeviceDraft.remote_access
+                              ? "bg-slate-100/80 dark:bg-slate-900 text-slate-500 dark:text-slate-400 cursor-not-allowed opacity-80"
+                              : "bg-slate-50/60 dark:bg-slate-950 text-slate-800 dark:text-slate-100"
+                          }`}
                         >
                           <option value="TCP">TCP (Cisco Önerilen - 5160)</option>
                           <option value="UDP">UDP (Standart - 5160)</option>
@@ -9468,7 +9475,7 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
                           id="sip-dev-transport"
                           name="transport"
                           disabled={Boolean(sipDeviceDraft.remote_access)}
-                          value={sipDeviceDraft.remote_access ? "UDP" : (sipDeviceDraft.transport || "UDP")}
+                          value={sipDeviceDraft.remote_access ? "TCP" : (sipDeviceDraft.transport || "UDP")}
                           onChange={(e) => setSipDeviceDraft((prev) => ({ ...prev, transport: e.target.value }))}
                           className={`w-full text-xs font-semibold px-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 focus:outline-none ${
                             sipDeviceDraft.remote_access
@@ -9481,9 +9488,9 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
                           <option value="TLS">TLS (Şifreli Sinyalizasyon)</option>
                         </select>
                       )}
-                      {!isWebPhoneDraft && sipDeviceDraft.sip_driver !== "chan_sip" && sipDeviceDraft.remote_access && (
+                      {!isWebPhoneDraft && sipDeviceDraft.remote_access && (
                         <p className="mt-1 text-[10px] font-medium text-slate-500 dark:text-slate-400">
-                          Uzak erişimde Hub (UDP/TCP/TLS — Cisco dahil) dönüşümü otomatik yapar; santral bacağı UDP kalır.
+                          Uzak erişim açık: Dış bağlantıda önerilen TCP sabitlenir; Hub (UDP/TCP/TLS) dönüşümü otomatik yönetir.
                         </p>
                       )}
                     </div>
@@ -9498,7 +9505,7 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
                       <span>Uzak Erişim (Nornia SIP Edge)</span>
                     </div>
                     <div className="text-[11px] text-slate-500 dark:text-slate-400">
-                      Cihaz ofis dışından bağlanıyorsa açın; Transport santral tarafında UDP olarak sabitlenir, dışarıda telefon UDP/TCP (Cisco dahil) veya TLS kullanabilir.
+                      Cihaz ofis dışından bağlanıyorsa açın; Transport TCP olarak sabitlenir ve Hub protokol dönüşümünü otomatik yönetir.
                     </div>
                   </div>
                   <button
@@ -9512,7 +9519,7 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
                         return {
                           ...prev,
                           remote_access: nextRemote,
-                          transport: nextRemote ? "UDP" : (prev.transport || "UDP")
+                          transport: nextRemote ? "TCP" : (prev.sip_driver === "chan_sip" ? "TCP" : (prev.transport || "UDP"))
                         };
                       })
                     }

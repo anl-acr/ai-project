@@ -39846,18 +39846,32 @@ async def get_system_version_info():
         pass
 
     return {
-        "version": "v3.5.0",
+        "version": "v3.5.1",
         "commit_hash": live_commit,
         "release_date": "20 Kasım 2026",
         "status": "Güncel / Canlı Sürüm",
         "environment": "Production (On-Premise)",
         "changelog": [
             {
-                "version": "v3.5.0",
+                "version": "v3.5.1",
                 "commit_hash": live_commit,
                 "release_date": "20 Kasım 2026",
                 "badge": "Canlı Sürüm (Güncel)",
                 "badge_type": "current",
+                "title": "Uzak Erişim Açıkken Transport'un TCP Gösterilmesi & SIP Cihaz Kartında Canlı Marka/Model",
+                "summary": "SIP cihazlarında Uzak Erişim (Nornia SIP Edge) açıldığında hem düzenleme modalındaki pasif Transport kutusunda hem de cihaz listesi kartında TCP gösterilecek şekilde güncellendi; bağlı cihaz kartında da canlı SIP User-Agent marka/model (örn. Yealink SIP-T42S) gösterimi eklendi.",
+                "features": [],
+                "fixes": [
+                    "Uzak Erişim açıkken Transport alanı hem modalda hem cihaz kartında TCP olarak görüntülenir (Asterisk iç WireGuard bacağı arka planda uyumlu kalmaya devam eder).",
+                    "SIP cihazı kartında sabit varsayılan model yerine bağlı telefonun gerçek canlı marka/model bilgisi gösterilir."
+                ]
+            },
+            {
+                "version": "v3.5.0",
+                "commit_hash": "b0e0abd",
+                "release_date": "20 Kasım 2026",
+                "badge": "Önceki Sürüm",
+                "badge_type": "stable",
                 "title": "Kullanıcı Durum Balonunda Aktif Masa Telefonu (Cihaz Adı + Gerçek IP + Marka/Model) Gösterimi",
                 "summary": "Kullanıcılar tablosundaki yeşil durum LED'i üzerine gelindiğinde Web Telefonu ile birlikte bağlı tüm fiziksel masa telefonları (PJSIP ve Cisco chan_sip) cihaz adı, Kamailio Path başlığından çözümlenen gerçek dış IP adresi ve canlı SIP User-Agent marka/model bilgisiyle birlikte gösterilecek şekilde geliştirildi.",
                 "features": [

@@ -304,7 +304,7 @@ def normalize_user_sip_devices(
             dev_driver = "chan_sip" if raw_drv in ("chan_sip", "sip", "cisco_sip") else "pjsip"
             dev_remote = bool(dev.get("remote_access", False))
             if dev_driver == "pjsip" and dev_remote:
-                dev_tr = "UDP"
+                dev_tr = "TCP"
             else:
                 dev_tr = str(dev.get("transport") or ("TCP" if dev_driver == "chan_sip" else "UDP")).strip().upper()
                 if dev_tr not in ("UDP", "TCP", "TLS"):
