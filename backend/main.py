@@ -39286,18 +39286,31 @@ async def get_system_version_info():
         pass
 
     return {
-        "version": "v3.3.5",
+        "version": "v3.3.6",
         "commit_hash": live_commit,
         "release_date": "20 Kasım 2026",
         "status": "Güncel / Canlı Sürüm",
         "environment": "Production (On-Premise)",
         "changelog": [
             {
-                "version": "v3.3.5",
+                "version": "v3.3.6",
                 "commit_hash": live_commit,
                 "release_date": "20 Kasım 2026",
                 "badge": "Canlı Sürüm (Güncel)",
                 "badge_type": "current",
+                "title": "Sistem Bilgi Paneli Üst Başlık Sadeleştirmesi",
+                "summary": "Sistem, Ağ & Lisans Bilgileri çekmecesinin üst başlığındaki yenile (refresh) butonu kaldırıldı.",
+                "features": [],
+                "fixes": [
+                    "Sistem, Ağ & Lisans Bilgileri paneli başlığındaki 'Bilgileri Yenile' butonu kaldırıldı."
+                ]
+            },
+            {
+                "version": "v3.3.5",
+                "commit_hash": "99f7034",
+                "release_date": "20 Kasım 2026",
+                "badge": "Önceki Sürüm",
+                "badge_type": "stable",
                 "title": "Üst Bar Sistem, Ağ & Lisans Bilgi Paneli ('i' Butonu)",
                 "summary": "Santral üst barında avatarın soluna 'i' bilgi butonu eklendi; tıklanınca cihaz/OS/firmware/uptime, Nornia FQDN, LAN/WAN/NAT ağ ayarları ve canlı lisans/kapasite bilgilerini gösteren şık sağ çekmece açılır.",
                 "features": [

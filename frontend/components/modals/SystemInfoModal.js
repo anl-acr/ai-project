@@ -217,15 +217,6 @@ export default function SystemInfoModal({ isOpen, onClose, backendHost, onOpenLi
           <div className="flex items-center gap-1.5 shrink-0">
             <button
               type="button"
-              onClick={fetchOverview}
-              disabled={loading}
-              className="p-2 rounded-xl text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-white hover:bg-slate-200/60 dark:hover:bg-slate-800 transition-colors cursor-pointer disabled:opacity-50"
-              title="Bilgileri Yenile"
-            >
-              <RefreshCw size={15} className={loading ? "animate-spin" : ""} />
-            </button>
-            <button
-              type="button"
               onClick={onClose}
               className="p-2 rounded-xl text-slate-400 hover:text-slate-700 dark:hover:text-white hover:bg-slate-200/60 dark:hover:bg-slate-800 transition-colors cursor-pointer"
               title="Kapat"
