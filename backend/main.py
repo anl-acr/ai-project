@@ -4788,6 +4788,7 @@ remove_existing=yes
             else:
                 dev_tr_line = "transport=transport-udp\n"
 
+            dev_rewrite_contact = "no" if dev_is_remote else "yes"
             conf_content += f"""
 ; --- SIP DEVICE: {_safe_cid_label(dev.get('name') or dev_su, dev_su)} ({cid_ext_val}) ---
 [{dev_su}]
@@ -4798,7 +4799,7 @@ allow={dev_codecs}
 dtmf_mode={dev_dtmf}
 direct_media=no
 force_rport=yes
-rewrite_contact=yes
+rewrite_contact={dev_rewrite_contact}
 rtp_symmetric=yes
 {pjsip_ep_safety_lines}media_use_received_transport=yes
 send_pai=yes
@@ -5933,7 +5934,7 @@ same => n,GotoIf($["${{FWD_STATUS}}"="LOOP"]?fwd_loop_blocked)
 same => n,GotoIf($["${{FWD_STATUS}}"="ALLOW"]?forward_call:dial_pjsip)
 
 ; 2. PJSIP Dahili Arama (WebPhone + Tüm Aktif SIP Cihazları Eşzamanlı)
-same => n(dial_pjsip),Set(AG_EP_LIST=${{CURL(http://{backend_host}/api/subscriber/resolve_agent_ring_targets?extension=${{EXTEN}}&format=list)}})
+same => n(dial_pjsip),Set(AG_EP_LIST=${{CURL(http://{backend_host}/api/subscriber/resolve_agent_ring_targets?extension=${{EXTEN}}&format=list&caller_channel=${{URIENCODE(${{CHANNEL(name)}})}})}})
 same => n,GotoIf($["${{AG_EP_LIST}}" = "NONE" | "${{AG_EP_LIST}}" = ""]?after_dial_pjsip)
 same => n,Gosub(build_multi_pjsip_dial_sub,s,1(${{AG_EP_LIST}}))
 same => n,GotoIf($["${{MULTI_DIAL_STR}}" = ""]?after_dial_pjsip)
@@ -15662,7 +15663,7 @@ async def log_invalid_dialplan_call(
     return Response(content="LOGGED", media_type="text/plain")
 
 @app.get("/api/subscriber/resolve_agent_ring_targets")
-async def resolve_agent_ring_targets(extension: str = "", format: str = "", for_queue: int = 0, db: AsyncSession = Depends(get_db)):
+async def resolve_agent_ring_targets(extension: str = "", format: str = "", for_queue: int = 0, caller_channel: str = "", db: AsyncSession = Depends(get_db)):
     """
     Resolves the WebRTC endpoint and all active SIP Devices (`sip_devices`) for a subscriber
     according to their active profile's enabled devices (`web_phone`, `desk_phone`, `pc_app`, `mobile_app`).
@@ -15842,6 +15843,16 @@ async def resolve_agent_ring_targets(extension: str = "", format: str = "", for_
 
     if fmt_clean == "list":
         all_eps = ([web_ep] if web_ep else []) + active_sip_eps
+        if caller_channel and len(all_eps) > 1:
+            m_cc = re.match(r"^(?:PJSIP|SIP|IAX2)/([^-\;@/]+)", str(caller_channel or "").strip(), re.IGNORECASE)
+            if m_cc:
+                c_ep_low = m_cc.group(1).strip().lower()
+                filtered_eps = [
+                    ep_x for ep_x in all_eps
+                    if ep_x.lower() != c_ep_low and ep_x.lower() != f"sip/{c_ep_low}"
+                ]
+                if filtered_eps:
+                    all_eps = filtered_eps
         if not all_eps:
             return Response(content="NONE", media_type="text/plain")
         if live_extension_call_state.get(ext_str, {}).get("state") != "busy":
@@ -40035,18 +40046,34 @@ async def get_system_version_info():
         pass
 
     return {
-        "version": "v3.5.2",
+        "version": "v3.5.3",
         "commit_hash": live_commit,
         "release_date": "20 Kasım 2026",
         "status": "Güncel / Canlı Sürüm",
         "environment": "Production (On-Premise)",
         "changelog": [
             {
-                "version": "v3.5.2",
+                "version": "v3.5.3",
                 "commit_hash": live_commit,
                 "release_date": "20 Kasım 2026",
                 "badge": "Canlı Sürüm (Güncel)",
                 "badge_type": "current",
+                "title": "Uzak SIP Edge Çift Yönlü Çağrı (483 Loop Fix) & RTPEngine Çift Yönlü Ses (NAT Fix)",
+                "summary": "Web Telefonu'ndan uzak masa telefonuna arama yapıldığında oluşan 483 Too Many Hops döngüsü ve tek yönlü ses sorunu giderildi; ayrıca aynı dahilideki bir cihaz diğerini aradığında kendini çaldırmaması sağlandı.",
+                "features": [],
+                "fixes": [
+                    "Uzak Erişim (SIP Edge) açık masa telefonlarında Asterisk PJSIP rewrite_contact=no yapılarak Path yönlendirmesinin bozulması (483 Too Many Hops) engellendi.",
+                    "Hub Kamailio tarafında REGISTER Path başlığı WireGuard soketi seçildikten sonra yazılacak ve FROM_PBX aramalarında telefonun açık TCP/UDP/TLS soketi üzerinden yönlendirilecek şekilde güncellendi.",
+                    "Kamailio RTPEngine bayraklarına SIP-source-address / trust-address / RTP/AVP eklenerek NAT arkasındaki masa telefonlarına dönüş sesinin kesilmesi giderildi ve RTPEngine log-level=6 ile paket istatistikleri açıldı.",
+                    "Aynı dahili üzerindeki Web Telefonu ile Masa Telefonu birbirini aradığında arayan cihaz hedef listeden hariç tutularak yalnızca diğer cihazların çalması sağlandı."
+                ]
+            },
+            {
+                "version": "v3.5.2",
+                "commit_hash": "1fb2215",
+                "release_date": "20 Kasım 2026",
+                "badge": "Önceki Sürüm",
+                "badge_type": "stable",
                 "title": "Çağrı Detayında Kullanılan Cihaz (Web / Masaüstü / Mobil / Masa Telefonu) Gösterimi",
                 "summary": "Raporlar ekranındaki 'Detaylı Arama Akışı & Ses Kayıtları' penceresine Kullanılan Cihaz alanı eklendi; çağrıyı başlatan veya yanıtlayan cihaz (Web Telefonu, Masaüstü Uygulama, Mobil Uygulama ya da bağlı fiziksel masa telefonunun adı ve marka/modeli) Asterisk kanal bilgisinden otomatik çözümlenip kaydedilir.",
                 "features": [

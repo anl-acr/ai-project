@@ -1111,6 +1111,7 @@ remove_existing=yes
                 else:
                     d_tr_line = "transport=transport-udp\n"
 
+                d_rewrite_contact = "no" if d_is_remote else "yes"
                 pjsip_custom_content += f"""
 ; SIP Device: {d_label} ({d_su}) -> Ext {ext}
 [{d_su}]
@@ -1121,7 +1122,7 @@ allow={d_allow}
 dtmf_mode={d_dtmf}
 direct_media=no
 force_rport=yes
-rewrite_contact=yes
+rewrite_contact={d_rewrite_contact}
 rtp_symmetric=yes
 {pjsip_ep_safety_lines}media_use_received_transport=yes
 send_pai=yes
@@ -2035,7 +2036,7 @@ same => n,GotoIf($["${FWD_STATUS}"="LOOP"]?fwd_loop_blocked)
 same => n,GotoIf($["${FWD_STATUS}"="ALLOW"]?forward_call:dial_pjsip)
 
 ; 2. PJSIP Dahili Arama (WebPhone + Tüm Aktif SIP Cihazları Eşzamanlı)
-same => n(dial_pjsip),Set(AG_EP_LIST=${CURL(http://127.0.0.1:8000/api/subscriber/resolve_agent_ring_targets?extension=${EXTEN}&format=list)})
+same => n(dial_pjsip),Set(AG_EP_LIST=${CURL(http://127.0.0.1:8000/api/subscriber/resolve_agent_ring_targets?extension=${EXTEN}&format=list&caller_channel=${URIENCODE(${CHANNEL(name)})})})
 same => n,GotoIf($["${AG_EP_LIST}" = "NONE" | "${AG_EP_LIST}" = ""]?after_dial_pjsip)
 same => n,Gosub(build_multi_pjsip_dial_sub,s,1(${AG_EP_LIST}))
 same => n,GotoIf($["${MULTI_DIAL_STR}" = ""]?after_dial_pjsip)

@@ -138,7 +138,7 @@ port-max = ${RTP_PORT_MAX}
 timeout = 60
 silent-timeout = 3600
 tos = 184
-log-level = 5
+log-level = 6
 delete-delay = 0
 table = -1
 EOF
@@ -232,10 +232,13 @@ EOF
 
   TLS_ENABLE_LINE="enable_tls=yes"
   TLS_LISTEN_LINE="listen=tls:${HUB_BIND_IP}:5061${KAM_ADV_5061}"
+  TLS_FROM_PBX_BRANCH="        } else if (\$du != \$null && \$du =~ \"transport=(tls|TLS)\") {
+            \$fs = \"tls:${HUB_BIND_IP}:5061\";"
   TLS_MOD_BLOCK='loadmodule "tls.so"
 modparam("tls", "config", "/etc/kamailio/tls.cfg")'
   echo "      Let's Encrypt TLS sertifikası bulundu (${LE_CERT_DIR}) -> SIP TLS 5061 aktif."
 else
+  TLS_FROM_PBX_BRANCH=""
   echo "      Let's Encrypt sertifikası bulunamadı -> Yalnızca 5060 UDP/TCP aktif."
 fi
 
@@ -285,6 +288,9 @@ log_stderror=no
 log_facility=LOG_LOCAL0
 children=4
 auto_aliases=no
+alias="${HUB_PUBLIC_IP}"
+alias="${HUB_BIND_IP}"
+alias="${WG_HUB_IP}"
 mhomed=1
 server_signature=no
 server_header="Server: Nornia-Edge"
@@ -405,7 +411,7 @@ request_route {
             if (is_method("BYE")) {
                 rtpengine_delete();
             } else if (has_body("application/sdp")) {
-                rtpengine_manage("direction=ext direction=int ICE=remove replace-origin replace-session-connection");
+                rtpengine_manage("SIP-source-address replace-origin replace-session-connection ICE=remove RTP/AVP direction=ext direction=int");
             }
             t_on_reply("REPLY_FROM_PBX");
             t_relay();
@@ -456,8 +462,17 @@ request_route {
         if (!(\$hdr(Supported) =~ "path")) {
             append_hf("Supported: path\r\n");
         }
-        add_path_received();
         \$du = \$var(target_pbx);
+        if (\$Rp == 5160) {
+            if (\$proto == "tcp") {
+                \$fs = "tcp:${WG_HUB_IP}:5160";
+            } else {
+                \$fs = "udp:${WG_HUB_IP}:5160";
+            }
+        } else {
+            \$fs = "udp:${WG_HUB_IP}:5060";
+        }
+        add_path_received();
         if (!t_relay()) {
             sl_reply_error();
         }
@@ -467,13 +482,22 @@ request_route {
     if (nat_uac_test("19")) {
         fix_nated_contact();
     }
+    \$du = \$var(target_pbx);
+    if (\$Rp == 5160) {
+        if (\$proto == "tcp") {
+            \$fs = "tcp:${WG_HUB_IP}:5160";
+        } else {
+            \$fs = "udp:${WG_HUB_IP}:5160";
+        }
+    } else {
+        \$fs = "udp:${WG_HUB_IP}:5060";
+    }
     record_route();
 
     if (has_body("application/sdp")) {
-        rtpengine_manage("direction=ext direction=int ICE=remove replace-origin replace-session-connection");
+        rtpengine_manage("SIP-source-address replace-origin replace-session-connection ICE=remove RTP/AVP direction=ext direction=int");
     }
 
-    \$du = \$var(target_pbx);
     t_on_reply("REPLY_FROM_PBX");
     t_on_failure("MANAGE_FAILURE");
     if (!t_relay()) {
@@ -496,7 +520,7 @@ route[FROM_PBX] {
             if (is_method("BYE")) {
                 rtpengine_delete();
             } else if (has_body("application/sdp")) {
-                rtpengine_manage("direction=int direction=ext ICE=remove replace-origin replace-session-connection");
+                rtpengine_manage("trust-address replace-origin replace-session-connection ICE=remove RTP/AVP direction=int direction=ext");
             }
             t_on_reply("REPLY_FROM_EXT");
             t_relay();
@@ -514,11 +538,36 @@ route[FROM_PBX] {
     }
 
     # Initial request from PBX -> Deskphone (uses Path Route header populated on REGISTER)
-    loose_route();
-    record_route();
+    if (loose_route()) {
+        if (\$du != \$null && \$du =~ "transport=(tcp|TCP)") {
+            if (\$Rp == 5160) {
+                \$fs = "tcp:${HUB_BIND_IP}:5160";
+            } else {
+                \$fs = "tcp:${HUB_BIND_IP}:5060";
+            }
+${TLS_FROM_PBX_BRANCH}
+        } else {
+            if (\$Rp == 5160) {
+                \$fs = "udp:${HUB_BIND_IP}:5160";
+            } else {
+                \$fs = "udp:${HUB_BIND_IP}:5060";
+            }
+        }
+    }
+
+    # Self-loop guard: never loop an INVITE/OPTIONS back to Kamailio itself
+    if (\$du == \$null && (\$rd == "${WG_HUB_IP}" || \$rd == "${HUB_PUBLIC_IP}" || \$rd == "${HUB_BIND_IP}")) {
+        xlog("L_WARN", "NORNIA_LOOP_GUARD from_pbx method=\$rm ru=\$ru du=\$du\n");
+        sl_send_reply("480", "Temporarily Unavailable");
+        exit;
+    }
+
+    if (!is_method("OPTIONS")) {
+        record_route();
+    }
 
     if (has_body("application/sdp")) {
-        rtpengine_manage("direction=int direction=ext ICE=remove replace-origin replace-session-connection");
+        rtpengine_manage("trust-address replace-origin replace-session-connection ICE=remove RTP/AVP direction=int direction=ext");
     }
 
     t_on_reply("REPLY_FROM_EXT");
@@ -531,7 +580,7 @@ route[FROM_PBX] {
 
 onreply_route[REPLY_FROM_PBX] {
     if (has_body("application/sdp")) {
-        rtpengine_manage("direction=int direction=ext ICE=remove replace-origin replace-session-connection");
+        rtpengine_manage("trust-address replace-origin replace-session-connection ICE=remove RTP/AVP direction=int direction=ext");
     }
 }
 
@@ -540,7 +589,7 @@ onreply_route[REPLY_FROM_EXT] {
         fix_nated_contact();
     }
     if (has_body("application/sdp")) {
-        rtpengine_manage("direction=ext direction=int ICE=remove replace-origin replace-session-connection");
+        rtpengine_manage("SIP-source-address replace-origin replace-session-connection ICE=remove RTP/AVP direction=ext direction=int");
     }
 }
 
