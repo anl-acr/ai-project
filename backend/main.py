@@ -38886,18 +38886,34 @@ async def get_system_version_info():
         pass
 
     return {
-        "version": "v3.0.7",
+        "version": "v3.0.8",
         "commit_hash": live_commit,
         "release_date": "20 Kasım 2026",
         "status": "Güncel / Canlı Sürüm",
         "environment": "Production (On-Premise)",
         "changelog": [
             {
-                "version": "v3.0.7",
+                "version": "v3.0.8",
                 "commit_hash": live_commit,
                 "release_date": "20 Kasım 2026",
                 "badge": "Canlı Sürüm (Güncel)",
                 "badge_type": "current",
+                "title": "Nornia Cloud Center Durum Filtre Sekmelerinin Kaldırılması & Arayüz Sadeleştirme",
+                "summary": "Nornia Cloud Center ana sayfasındaki mükerrer durum filtre sekmeleri (Tümü / Canlı / Çevrimdışı / Askıda) kaldırılarak yalnızca aktif filtre rozetleri ve Kartlar / Tablo görünüm seçici bırakıldı.",
+                "features": [
+                    {
+                        "title": "✨ Daha Sade Filo Ekranı",
+                        "desc": "Tıklanabilir KPI kutucukları eklendiği için alttaki mükerrer durum sekmeleri kaldırıldı; Kartlar / Tablo geçişi sağa hizalanarak sayfa ferahlatıldı."
+                    }
+                ],
+                "fixes": []
+            },
+            {
+                "version": "v3.0.7",
+                "commit_hash": "8c6a5c6",
+                "release_date": "20 Kasım 2026",
+                "badge": "Önceki Sürüm",
+                "badge_type": "stable",
                 "title": "Nornia Cloud Center Çevrimdışı & Toplam Abone KPI Kutucukları ve Tıklanabilir Sunucu Detay Popup'ı",
                 "summary": "Nornia Cloud Center özet kartlarına Çevrimdışı Sunucular ve sunuculardaki kullanıcı lisans kotası (max_users) toplamını gösteren Toplam Abone kutucukları eklendi; tüm 7 KPI kutucuğu tıklandığında ilgili durumdaki sunucuları detayları ve hızlı eylemleriyle listeleyen açılır pencere (popup) devreye alındı.",
                 "features": [

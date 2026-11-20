@@ -1355,55 +1355,29 @@ export default function MasterDashboard() {
           </button>
         </div>
 
-        {/* FILTER & VIEW MODE BAR */}
-        <div className="flex flex-wrap items-center justify-between gap-3 bg-white dark:bg-slate-900/70 p-3 rounded-2xl border border-slate-200/80 dark:border-slate-800/90 shadow-xs dark:shadow-none">
+        {/* ACTIVE FILTER CHIPS & VIEW MODE SWITCHER */}
+        <div className="flex flex-wrap items-center justify-between gap-2">
           <div className="flex flex-wrap items-center gap-2">
-            {/* Status Filter Pills */}
-            <div className="flex items-center gap-1.5 bg-slate-100/80 dark:bg-slate-950/80 p-1 rounded-xl border border-slate-200/70 dark:border-slate-800/80">
-              <button
-                onClick={() => setFilterStatus("all")}
-                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-                  filterStatus === "all"
-                    ? "bg-white dark:bg-slate-800 text-slate-900 dark:text-white shadow-xs"
-                    : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
-                }`}
-              >
-                Tümü ({clients.length})
-              </button>
-              <button
-                onClick={() => setFilterStatus("online")}
-                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
-                  filterStatus === "online"
-                    ? "bg-emerald-600 text-white shadow-xs"
-                    : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
-                }`}
-              >
-                <span className={`w-2 h-2 rounded-full ${filterStatus === "online" ? "bg-white" : "bg-emerald-500"}`} />
-                <span>Canlı ({onlineClientsList.length})</span>
-              </button>
-              <button
-                onClick={() => setFilterStatus("offline")}
-                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
-                  filterStatus === "offline"
-                    ? "bg-slate-700 text-white shadow-xs"
-                    : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
-                }`}
-              >
-                <span className="w-2 h-2 rounded-full bg-slate-400" />
-                <span>Çevrimdışı ({offlineClientsList.length})</span>
-              </button>
-              <button
-                onClick={() => setFilterStatus("suspended")}
-                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
-                  filterStatus === "suspended"
-                    ? "bg-rose-600 text-white shadow-xs"
-                    : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
-                }`}
-              >
-                <span className={`w-2 h-2 rounded-full ${filterStatus === "suspended" ? "bg-white" : "bg-rose-500"}`} />
-                <span>Askıda ({expiredClientsList.length})</span>
-              </button>
-            </div>
+            {filterStatus !== "all" && (
+              <span className="px-2.5 py-1.5 rounded-xl bg-slate-200/80 dark:bg-slate-800 border border-slate-300/70 dark:border-slate-700 text-slate-700 dark:text-slate-200 text-xs font-bold flex items-center gap-1.5">
+                <span>
+                  Filtre:{" "}
+                  {filterStatus === "online"
+                    ? "Canlı"
+                    : filterStatus === "offline"
+                      ? "Çevrimdışı"
+                      : "Askıda"}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setFilterStatus("all")}
+                  className="hover:text-rose-500 cursor-pointer"
+                  title="Durum filtresini temizle"
+                >
+                  <X size={12} />
+                </button>
+              </span>
+            )}
 
             {searchTerm.trim() && (
               <span className="px-2.5 py-1.5 rounded-xl bg-indigo-500/10 border border-indigo-500/25 text-indigo-700 dark:text-indigo-300 text-xs font-bold flex items-center gap-1.5">
@@ -1421,15 +1395,15 @@ export default function MasterDashboard() {
             )}
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 ml-auto">
             {/* View Switcher: Cards vs Table */}
-            <div className="flex items-center gap-1 bg-slate-100/80 dark:bg-slate-950/80 p-1 rounded-xl border border-slate-200/70 dark:border-slate-800/80">
+            <div className="flex items-center gap-1 bg-white dark:bg-slate-900/80 p-1 rounded-xl border border-slate-200/80 dark:border-slate-800 shadow-xs dark:shadow-none">
               <button
                 type="button"
                 onClick={() => setViewMode("cards")}
                 className={`px-2.5 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer ${
                   viewMode === "cards"
-                    ? "bg-white dark:bg-slate-800 text-indigo-600 dark:text-indigo-400 shadow-xs"
+                    ? "bg-slate-100 dark:bg-slate-800 text-indigo-600 dark:text-indigo-400 shadow-xs"
                     : "text-slate-500 hover:text-slate-900 dark:hover:text-white"
                 }`}
                 title="Modern Kart Görünümü"
@@ -1442,7 +1416,7 @@ export default function MasterDashboard() {
                 onClick={() => setViewMode("table")}
                 className={`px-2.5 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer ${
                   viewMode === "table"
-                    ? "bg-white dark:bg-slate-800 text-indigo-600 dark:text-indigo-400 shadow-xs"
+                    ? "bg-slate-100 dark:bg-slate-800 text-indigo-600 dark:text-indigo-400 shadow-xs"
                     : "text-slate-500 hover:text-slate-900 dark:hover:text-white"
                 }`}
                 title="Kurumsal Tablo Görünümü"
