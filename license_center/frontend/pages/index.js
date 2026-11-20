@@ -1517,16 +1517,20 @@ export default function MasterDashboard() {
                 <thead>
                   <tr className="border-b border-slate-200/80 dark:border-slate-800 bg-slate-50/80 dark:bg-slate-950/60 text-[11px] font-extrabold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
                     <th className="py-3.5 px-4">Müşteri / Tenant</th>
+                    <th className="py-3.5 px-4">Santral Seri No &amp; Donanım</th>
                     <th className="py-3.5 px-4">Nornia Connect &amp; SSH</th>
-                    <th className="py-3.5 px-4">Donanım &amp; Sürüm</th>
                     <th className="py-3.5 px-4">Kaynak &amp; Kanal</th>
-                    <th className="py-3.5 px-4">Lisans Bitiş</th>
+                    <th className="py-3.5 px-4">Lisans Bitiş Tarihi</th>
                     <th className="py-3.5 px-4 text-right">İşlemler</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-200/70 dark:divide-slate-800/70 text-xs">
                   {filteredClients.map((client) => {
                     const isSuspended = client.status === "suspended";
+                    const pbxSerial =
+                      client.system_serial_number && client.system_serial_number !== "Henüz Bağlanmadı"
+                        ? client.system_serial_number
+                        : client.tenant_serial_number || "Henüz Bağlanmadı";
                     return (
                       <tr key={client.id} className="hover:bg-slate-50/80 dark:hover:bg-slate-800/40 transition-colors">
                         <td className="py-3.5 px-4">
@@ -1546,15 +1550,46 @@ export default function MasterDashboard() {
                             </div>
                           </div>
                         </td>
+                        <td className="py-3.5 px-4 font-mono">
+                          <div className="flex items-center gap-1.5 font-extrabold text-indigo-700 dark:text-indigo-300">
+                            <span>{pbxSerial}</span>
+                            {pbxSerial && pbxSerial !== "Henüz Bağlanmadı" && (
+                              <button
+                                onClick={() => handleCopyText(pbxSerial, `tbl-sn-${client.id}`)}
+                                className="text-slate-400 hover:text-indigo-500 cursor-pointer"
+                                title="Santral Seri Numarasını Kopyala"
+                              >
+                                {copiedKey === `tbl-sn-${client.id}` ? <Check size={12} className="text-emerald-500" /> : <Copy size={12} />}
+                              </button>
+                            )}
+                          </div>
+                          <div className="flex items-center gap-1 text-[11px] text-slate-500 mt-0.5">
+                            <span>{client.hardware_id}</span>
+                            <button
+                              onClick={() => handleCopyText(client.hardware_id, `tbl-hw-${client.id}`)}
+                              className="text-slate-400 hover:text-indigo-500 cursor-pointer"
+                              title="Donanım ID Kopyala"
+                            >
+                              {copiedKey === `tbl-hw-${client.id}` ? <Check size={11} className="text-emerald-500" /> : <Copy size={11} />}
+                            </button>
+                            <span>•</span>
+                            <span>{client.ip_address || "127.0.0.1"}</span>
+                            <span>•</span>
+                            <span>{client.software_version || "v2.4.8"}</span>
+                          </div>
+                        </td>
                         <td className="py-3.5 px-4">
                           {client.connect_subdomain ? (
                             <div className="space-y-1">
-                              <div className="flex items-center gap-2">
+                              <div className="flex items-center gap-1.5 flex-wrap">
+                                <span className="px-2 py-0.5 rounded-md bg-emerald-500/10 border border-emerald-500/25 font-mono text-[11px] font-extrabold text-emerald-700 dark:text-emerald-300">
+                                  {client.connect_subdomain}
+                                </span>
                                 <a
                                   href={`https://${client.connect_subdomain}.nornia.com.tr`}
                                   target="_blank"
                                   rel="noopener noreferrer"
-                                  className="font-mono font-extrabold text-emerald-600 dark:text-emerald-400 hover:underline flex items-center gap-1"
+                                  className="font-mono text-[11px] font-bold text-slate-600 dark:text-slate-300 hover:text-emerald-600 dark:hover:text-emerald-400 hover:underline flex items-center gap-1"
                                 >
                                   <span>{client.connect_subdomain}.nornia.com.tr</span>
                                   <ExternalLink size={11} />
@@ -1621,20 +1656,6 @@ export default function MasterDashboard() {
                             <span className="text-slate-400 text-[11px]">Tünel Tanımsız</span>
                           )}
                         </td>
-                        <td className="py-3.5 px-4 font-mono">
-                          <div className="flex items-center gap-1 font-bold text-slate-800 dark:text-slate-200">
-                            <span>{client.hardware_id}</span>
-                            <button
-                              onClick={() => handleCopyText(client.hardware_id, `tbl-hw-${client.id}`)}
-                              className="text-slate-400 hover:text-indigo-500 cursor-pointer"
-                            >
-                              {copiedKey === `tbl-hw-${client.id}` ? <Check size={12} className="text-emerald-500" /> : <Copy size={12} />}
-                            </button>
-                          </div>
-                          <div className="text-[11px] text-slate-500">
-                            {client.ip_address || "127.0.0.1"} • {client.software_version || "v2.4.8"}
-                          </div>
-                        </td>
                         <td className="py-3.5 px-4">
                           <div className="flex items-center gap-2 font-mono text-[11px]">
                             <span className="px-2 py-0.5 rounded-md bg-blue-500/10 text-blue-600 dark:text-blue-400 font-extrabold">
@@ -1651,7 +1672,7 @@ export default function MasterDashboard() {
                           </div>
                           {client.days_left !== null && client.days_left !== undefined && (
                             <span className={`text-[10px] font-extrabold ${
-                              client.days_left <= 7 ? "text-rose-500" : client.days_left <= 30 ? "text-amber-500" : "text-emerald-500"
+                              client.days_left <= 7 ? "text-rose-500" : client.days_left <= expiringSoonDays ? "text-amber-500" : "text-emerald-500"
                             }`}>
                               {client.days_left} gün kaldı
                             </span>
@@ -1878,6 +1899,74 @@ export default function MasterDashboard() {
                       </div>
                     </div>
                   )}
+
+                  {/* 2.5 Key Identity Strip: Santral Seri No, Lisans Bitiş Tarihi & Nornia Connect İsim */}
+                  {(() => {
+                    const cardSerial =
+                      client.system_serial_number && client.system_serial_number !== "Henüz Bağlanmadı"
+                        ? client.system_serial_number
+                        : client.tenant_serial_number || "Henüz Bağlanmadı";
+                    return (
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                        <div className="p-2.5 rounded-xl bg-slate-50/80 dark:bg-slate-950/50 border border-slate-200/70 dark:border-slate-800/70 min-w-0">
+                          <div className="text-[10px] font-bold text-slate-400 uppercase">Santral Seri No</div>
+                          <div className="text-xs font-extrabold font-mono text-indigo-700 dark:text-indigo-300 mt-0.5 flex items-center gap-1.5">
+                            <span className="truncate">{cardSerial}</span>
+                            {cardSerial && cardSerial !== "Henüz Bağlanmadı" && (
+                              <button
+                                type="button"
+                                onClick={() => handleCopyText(cardSerial, `card-sn-${client.id}`)}
+                                className="text-slate-400 hover:text-indigo-500 cursor-pointer shrink-0"
+                                title="Santral Seri Numarasını Kopyala"
+                              >
+                                {copiedKey === `card-sn-${client.id}` ? (
+                                  <Check size={11} className="text-emerald-500" />
+                                ) : (
+                                  <Copy size={11} />
+                                )}
+                              </button>
+                            )}
+                          </div>
+                        </div>
+
+                        <div className="p-2.5 rounded-xl bg-slate-50/80 dark:bg-slate-950/50 border border-slate-200/70 dark:border-slate-800/70 min-w-0">
+                          <div className="text-[10px] font-bold text-slate-400 uppercase">Lisans Bitiş Tarihi</div>
+                          <div className="text-xs font-extrabold font-mono text-slate-800 dark:text-slate-200 mt-0.5 flex items-center gap-1.5 flex-wrap">
+                            <span>
+                              {client.license_expires_at === "unlimited"
+                                ? "♾️ Limitsiz"
+                                : client.license_expires_at || "—"}
+                            </span>
+                            {client.days_left !== null &&
+                              client.days_left !== undefined &&
+                              client.license_expires_at !== "unlimited" && (
+                                <span
+                                  className={`text-[10px] font-extrabold ${
+                                    client.days_left <= 7
+                                      ? "text-rose-500"
+                                      : client.days_left <= expiringSoonDays
+                                        ? "text-amber-500"
+                                        : "text-emerald-600 dark:text-emerald-400"
+                                  }`}
+                                >
+                                  ({client.days_left}g)
+                                </span>
+                              )}
+                          </div>
+                        </div>
+
+                        <div className="p-2.5 rounded-xl bg-slate-50/80 dark:bg-slate-950/50 border border-slate-200/70 dark:border-slate-800/70 min-w-0">
+                          <div className="text-[10px] font-bold text-slate-400 uppercase">Nornia Connect Adı</div>
+                          <div className="text-xs font-extrabold font-mono text-emerald-700 dark:text-emerald-400 mt-0.5 truncate flex items-center gap-1">
+                            <Globe size={12} className="shrink-0 text-emerald-500" />
+                            <span className="truncate">
+                              {client.connect_subdomain ? client.connect_subdomain : "Tanımsız"}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })()}
 
                   {/* 3. Compact 4-Column Telemetry & Quota Strip */}
                   <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
