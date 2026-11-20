@@ -583,6 +583,26 @@ async def trigger_pbx_ota_update(hardware_id: Optional[str] = None, subdomain: O
     return False
 
 
+async def trigger_pbx_license_sync(hardware_id: Optional[str] = None, subdomain: Optional[str] = None) -> bool:
+    """Sends a RAS_LICENSE_SYNC command over the active Nornia Connect tunnel so the PBX pulls new license & quotas immediately."""
+    sess = None
+    if subdomain and subdomain.strip().lower() in ACTIVE_TUNNELS_BY_SUBDOMAIN:
+        sess = ACTIVE_TUNNELS_BY_SUBDOMAIN.get(subdomain.strip().lower())
+    if not sess and hardware_id and hardware_id.strip().upper() in ACTIVE_TUNNELS_BY_HWID:
+        sess = ACTIVE_TUNNELS_BY_HWID.get(hardware_id.strip().upper())
+
+    if sess:
+        try:
+            await sess.send_json({
+                "type": "RAS_LICENSE_SYNC",
+                "ts": time.time(),
+            })
+            return True
+        except Exception:
+            pass
+    return False
+
+
 async def fetch_pbx_live_system_stats(hardware_id: Optional[str] = None, subdomain: Optional[str] = None) -> Optional[Dict[str, Any]]:
     """Queries /api/system/stats on the remote PBX through the active Nornia Connect WebSocket tunnel in real-time."""
     sess = None

@@ -44,6 +44,10 @@ def _resolve_heartbeat_url(current_settings: dict) -> str:
     ras_cfg = current_settings.get("ras_config") if isinstance(current_settings, dict) else {}
     hub_raw = str((ras_cfg or {}).get("hub_url") or "").strip().rstrip("/")
     if hub_raw:
+        if hub_raw.startswith("wss://"):
+            hub_raw = "https://" + hub_raw[6:]
+        elif hub_raw.startswith("ws://"):
+            hub_raw = "http://" + hub_raw[5:]
         if not hub_raw.startswith(("http://", "https://")):
             # If IP address, use port 8050; if domain, use https
             host_part = hub_raw.split(":")[0]
@@ -55,6 +59,13 @@ def _resolve_heartbeat_url(current_settings: dict) -> str:
     return "https://connect.nornia.com.tr/api/v1/telemetry/heartbeat"
 
 def load_settings():
+    try:
+        from backend.main import load_settings as main_load_settings
+        data = main_load_settings()
+        if isinstance(data, dict):
+            return data
+    except Exception:
+        pass
     if os.path.exists(SETTINGS_FILE):
         try:
             with open(SETTINGS_FILE, "r", encoding="utf-8") as f:
@@ -64,6 +75,12 @@ def load_settings():
     return {}
 
 def save_settings(data):
+    try:
+        from backend.main import save_settings as main_save_settings
+        main_save_settings(data)
+        return
+    except Exception as e:
+        print(f"[Telemetry Worker] Main save_settings fallback: {e}")
     try:
         with open(SETTINGS_FILE, "w", encoding="utf-8") as f:
             json.dump(data, f, indent=4, ensure_ascii=False)
@@ -216,14 +233,22 @@ async def send_single_telemetry_heartbeat(override_tenants: list = None) -> bool
                 settings_changed = False
 
                 for t_res in tenants_resp:
-                    t_code = t_res.get("tenant_code")
+                    t_code = str(t_res.get("tenant_code") or "").strip().lower()
+                    remote_sn_match = str(t_res.get("serial_number") or t_res.get("tenant_serial_number") or "").strip().upper()
                     target_t = next(
                         (
                             t for t in tenants
-                            if (t.get("code") or (t.get("id", "").replace("tenant-", ""))) == t_code
+                            if str(t.get("code") or (t.get("id", "").replace("tenant-", ""))).strip().lower() == t_code
                         ),
                         None
                     )
+                    if not target_t and remote_sn_match:
+                        target_t = next(
+                            (t for t in tenants if str(t.get("serial_number") or "").strip().upper() == remote_sn_match),
+                            None
+                        )
+                    if not target_t and len(tenants) == 1 and len(tenants_resp) == 1:
+                        target_t = tenants[0]
                     if not target_t:
                         continue
 
@@ -240,17 +265,23 @@ async def send_single_telemetry_heartbeat(override_tenants: list = None) -> bool
                         except Exception:
                             pass
 
-                    # Remote Kill-Switch Enforcement per tenant
+                    # Remote Kill-Switch / Re-Activation Enforcement per tenant
                     if t_res.get("remote_kill_switch"):
                         if target_t.get("status") != "passive":
                             print(f"[Telemetry Worker] REMOTE KILL-SWITCH RECEIVED! Tenant '{t_code}' suspended on Central Portal.")
                             target_t["status"] = "passive"
                             settings_changed = True
+                    elif t_res.get("client_status") == "active" and target_t.get("status") == "passive":
+                        print(f"[Telemetry Worker] REMOTE RE-ACTIVATION RECEIVED! Tenant '{t_code}' restored to active.")
+                        target_t["status"] = "active"
+                        settings_changed = True
 
                     # Remote Quota & Module Entitlement Update Enforcement per tenant
                     quotas = t_res.get("quotas") or t_res.get("custom_quotas")
                     if quotas and isinstance(quotas, dict):
                         for q_key, q_val in quotas.items():
+                            if q_val is None:
+                                continue
                             if isinstance(q_val, bool):
                                 if target_t.get(q_key) != q_val:
                                     target_t[q_key] = q_val
@@ -263,7 +294,7 @@ async def send_single_telemetry_heartbeat(override_tenants: list = None) -> bool
                                 if target_t.get(q_key) != q_val:
                                     target_t[q_key] = q_val
                                     settings_changed = True
-                            elif isinstance(q_val, str) and q_key in ("unlicensed_module_mode", "plan_tier"):
+                            elif isinstance(q_val, str) and q_key in ("unlicensed_module_mode", "plan_tier", "license_expires_at"):
                                 if target_t.get(q_key) != q_val:
                                     target_t[q_key] = q_val
                                     settings_changed = True
@@ -280,27 +311,35 @@ async def send_single_telemetry_heartbeat(override_tenants: list = None) -> bool
                                 current_settings["recording_retention"] = rec_cfg
                                 settings_changed = True
 
+                    # Sync expiry even when license key hasn't changed
+                    latest_expiry = t_res.get("license_expires_at")
+                    if latest_expiry and target_t.get("license_expires_at") != latest_expiry:
+                        target_t["license_expires_at"] = latest_expiry
+                        settings_changed = True
+
                     # Remote License Auto-Renewal Enforcement per tenant
                     latest_key = t_res.get("latest_license_key")
-                    latest_expiry = t_res.get("license_expires_at")
                     if latest_key and latest_key != target_t.get("license_key"):
-                        print(f"[Telemetry Worker] REMOTE LICENSE AUTO-RENEWAL RECEIVED! Tenant '{t_code}' updating key to: {latest_key}")
+                        print(f"[Telemetry Worker] REMOTE LICENSE AUTO-RENEWAL RECEIVED! Tenant '{t_code}' updating key.")
                         target_t["license_key"] = latest_key
                         if latest_expiry:
                             target_t["license_expires_at"] = latest_expiry
-                        target_t["status"] = "active"
+                        if not t_res.get("remote_kill_switch"):
+                            target_t["status"] = "active"
 
                         # Check if latest_key has embedded Base64 quotas
                         v_key = verify_license_key(t_code, latest_key)
                         if v_key.get("custom_quotas") and isinstance(v_key["custom_quotas"], dict):
                             for q_k, q_v in v_key["custom_quotas"].items():
+                                if q_v is None:
+                                    continue
                                 if isinstance(q_v, bool):
                                     target_t[q_k] = q_v
                                 elif isinstance(q_v, (int, float)):
                                     target_t[q_k] = int(q_v)
                                 elif isinstance(q_v, list):
                                     target_t[q_k] = q_v
-                                elif isinstance(q_v, str) and q_k in ("unlicensed_module_mode", "plan_tier"):
+                                elif isinstance(q_v, str) and q_k in ("unlicensed_module_mode", "plan_tier", "license_expires_at"):
                                     target_t[q_k] = q_v
 
                         settings_changed = True
@@ -308,6 +347,7 @@ async def send_single_telemetry_heartbeat(override_tenants: list = None) -> bool
                 if settings_changed:
                     current_settings["tenants"] = tenants
                     save_settings(current_settings)
+                    print(f"[Telemetry Worker] Central license & quota updates persisted to DB + settings.json ({len(tenants)} tenant(s)).")
                     try:
                         from backend.main import settings_db
                         if isinstance(settings_db, dict):
@@ -315,9 +355,8 @@ async def send_single_telemetry_heartbeat(override_tenants: list = None) -> bool
                     except Exception:
                         pass
                 return True
-    except Exception:
-        # Silent fallback if Central Server is offline or air-gapped network
-        pass
+    except Exception as exc:
+        print(f"[Telemetry Worker] Heartbeat sync warning: {exc}")
     return False
 
 

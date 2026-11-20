@@ -19064,14 +19064,37 @@ async def get_license_status(request: Request):
     if verification.get("expires_at") == "unlimited":
         plan_tier = "unlimited"
 
+    embedded_q = verification.get("custom_quotas") if isinstance(verification.get("custom_quotas"), dict) else {}
+
     limits = dict(get_plan_limits(plan_tier))
     call_info = get_tenant_concurrent_call_info(matched.get("id", "tenant-default"), current)
     limits["max_concurrent_calls"] = call_info["max_concurrent_calls"]
     limits["tolerance_concurrent_calls"] = call_info["tolerance_concurrent_calls"]
     limits["effective_max_concurrent_calls"] = call_info["effective_max_concurrent_calls"]
     limits["channels"] = call_info["max_concurrent_calls"]
-    limits["users"] = matched.get("max_users", limits.get("users", 50))
-    limits["ai_agents"] = matched.get("max_agents", limits.get("ai_agents", 20))
+    limits["max_channels"] = call_info["max_concurrent_calls"]
+
+    raw_max_users = matched.get("max_users")
+    if raw_max_users is None:
+        raw_max_users = embedded_q.get("max_users")
+    eff_max_users = int(raw_max_users) if raw_max_users is not None else int(limits.get("max_users", 50))
+    limits["max_users"] = eff_max_users
+    limits["users"] = eff_max_users
+
+    raw_max_agents = matched.get("max_agents")
+    if raw_max_agents is None:
+        raw_max_agents = matched.get("max_ai_agents")
+    if raw_max_agents is None:
+        raw_max_agents = embedded_q.get("max_agents", embedded_q.get("max_ai_agents"))
+    eff_max_agents = int(raw_max_agents) if raw_max_agents is not None else int(limits.get("max_ai_agents", 20))
+    limits["max_ai_agents"] = eff_max_agents
+    limits["ai_agents"] = eff_max_agents
+
+    raw_max_tenants = matched.get("max_tenants")
+    if raw_max_tenants is None:
+        raw_max_tenants = embedded_q.get("max_tenants")
+    if raw_max_tenants is not None:
+        limits["max_tenants"] = int(raw_max_tenants)
 
     allowed_stt = matched.get("allowed_stt_providers")
     if not isinstance(allowed_stt, list):
@@ -19082,8 +19105,6 @@ async def get_license_status(request: Request):
     allowed_llm = matched.get("allowed_llm_providers")
     if not isinstance(allowed_llm, list):
         allowed_llm = ["google", "elevenlabs", "openai", "anthropic", "groq"]
-
-    embedded_q = verification.get("custom_quotas") if isinstance(verification.get("custom_quotas"), dict) else {}
 
     allowed_features = matched.get("allowed_features")
     if not isinstance(allowed_features, list):
@@ -38886,18 +38907,38 @@ async def get_system_version_info():
         pass
 
     return {
-        "version": "v3.2.1",
+        "version": "v3.2.2",
         "commit_hash": live_commit,
         "release_date": "20 Kasım 2026",
         "status": "Güncel / Canlı Sürüm",
         "environment": "Production (On-Premise)",
         "changelog": [
             {
-                "version": "v3.2.1",
+                "version": "v3.2.2",
                 "commit_hash": live_commit,
                 "release_date": "20 Kasım 2026",
                 "badge": "Canlı Sürüm (Güncel)",
                 "badge_type": "current",
+                "title": "Merkezi Panel → Santral Lisans & Kota Senkronizasyon Hatası Düzeltmesi + Anlık Tünel İtimi (~1 sn)",
+                "summary": "Panel sunucusundan değiştirilen lisans adetlerinin (abone, çağrı kanalı, AI asistan vb.) santralde görünmemesine yol açan PostgreSQL kalıcılık ve API alan eşleştirme hataları giderildi; aktif Nornia Connect tüneli üzerinden ~1 saniyede anlık senkronizasyon eklendi.",
+                "features": [
+                    {
+                        "title": "⚡ Nornia Connect Üzerinden Anlık Lisans Senkronizasyonu (~1 sn)",
+                        "desc": "Panelden lisans veya kota kaydedildiğinde aktif tünel üzerinden santrale RAS_LICENSE_SYNC sinyali gönderilir; santral 60 sn beklemeden yeni lisans ve kotaları anında çeker."
+                    }
+                ],
+                "fixes": [
+                    "telemetry_worker.py yalnızca settings.json'a yazıp PostgreSQL SystemSetting tablosunu güncellemediği için sonraki yüklemede yeni lisans kotalarının silinmesi hatası düzeltildi (artık backend.main.save_settings ile DB + JSON + bellek birlikte güncelleniyor).",
+                    "GET /api/settings/license/status endpoint'inde limits['max_users'], limits['max_ai_agents'] ve limits['max_channels'] alanlarının paket varsayılanında kalması giderilerek santral UI'da güncel lisans adetlerinin görünmesi sağlandı.",
+                    "Büyük/küçük harf farkı nedeniyle tenant_code eşleşmemesi sorunu ve generate_license içinde plan_tier/status güncelleme eksikliği düzeltildi."
+                ]
+            },
+            {
+                "version": "v3.2.1",
+                "commit_hash": "0571243",
+                "release_date": "20 Kasım 2026",
+                "badge": "Önceki Sürüm",
+                "badge_type": "stable",
                 "title": "Nornia Cloud Center Güvenlik Kalkanı Sadeleştirme (Tekrarlayan 2FA Kartı Kaldırıldı)",
                 "summary": "Kullanıcı yönetimi ve kişisel Avatar → Ayarlar ekranlarında zaten mevcut olan 'İki Aşamalı Doğrulama (2FA — Kullanıcı Bazlı)' özet kartı Güvenlik Kalkanı penceresinden kaldırıldı.",
                 "features": [

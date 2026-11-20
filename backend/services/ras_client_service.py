@@ -641,6 +641,13 @@ async def _ras_tunnel_loop():
                                     pass
                             elif mtype == "RAS_OTA_UPDATE":
                                 asyncio.create_task(_execute_remote_ota_update(msg))
+                            elif mtype == "RAS_LICENSE_SYNC":
+                                try:
+                                    from backend.services.telemetry_worker import send_single_telemetry_heartbeat
+                                    print("[Nornia Connect] Instant license/quota sync signal received from Central Panel.")
+                                    asyncio.create_task(send_single_telemetry_heartbeat())
+                                except Exception:
+                                    pass
                             elif mtype == "RAS_WELCOME":
                                 if msg.get("public_ras_url"):
                                     RAS_RUNTIME_STATE["public_ras_url"] = msg["public_ras_url"]

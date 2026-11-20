@@ -1858,6 +1858,12 @@ async def update_client(client_id: int, payload: ClientCreateSchema, request: Re
     await db.commit()
     await db.refresh(client)
 
+    try:
+        from license_center.backend.connect_hub import trigger_pbx_license_sync
+        asyncio.create_task(trigger_pbx_license_sync(hardware_id=client.hardware_id, subdomain=client.connect_subdomain))
+    except Exception:
+        pass
+
     action_name = "CLIENT_SUSPEND" if client.status == "suspended" else "CLIENT_UPDATE"
     await log_master_action(db, payload.performed_by or "admin", action_name, f"Müşteri Bilgileri Güncellendi ({client.company_name}): Durum={client.status}, Bitiş={client.license_expires_at}", request.client.host if request.client else None)
 
@@ -2230,10 +2236,12 @@ async def generate_license(payload: LicenseGenerateSchema, request: Request, db:
         client.tenant_serial_number = resolved_t_sn
         if resolved_sys_sn:
             client.system_serial_number = resolved_sys_sn
+        if payload.plan_tier:
+            client.plan_tier = payload.plan_tier
         client.current_license_key = key
         client.license_expires_at = exp_date
         client.hardware_id = hw_id
-        client.status = "active"
+        client.status = str(quotas.get("status") or "active")
 
     # Safely insert or update LicenseRecord to avoid UNIQUE constraint exception on identical keys
     rec_res = await db.execute(select(LicenseRecord).where(LicenseRecord.license_key == key))
@@ -2253,6 +2261,13 @@ async def generate_license(payload: LicenseGenerateSchema, request: Request, db:
         existing_log.created_at = datetime.datetime.utcnow()
 
     await db.commit()
+
+    # Push instant license/quota sync signal over active Nornia Connect tunnel (~1s update on PBX)
+    try:
+        from license_center.backend.connect_hub import trigger_pbx_license_sync
+        asyncio.create_task(trigger_pbx_license_sync(hardware_id=client.hardware_id, subdomain=client.connect_subdomain))
+    except Exception:
+        pass
 
     try:
         from license_center.backend.connect_hub import notify_pbx_license_sync
