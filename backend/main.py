@@ -39040,18 +39040,31 @@ async def get_system_version_info():
         pass
 
     return {
-        "version": "v3.3.2",
+        "version": "v3.3.3",
         "commit_hash": live_commit,
         "release_date": "20 Kasım 2026",
         "status": "Güncel / Canlı Sürüm",
         "environment": "Production (On-Premise)",
         "changelog": [
             {
-                "version": "v3.3.2",
+                "version": "v3.3.3",
                 "commit_hash": live_commit,
                 "release_date": "20 Kasım 2026",
                 "badge": "Canlı Sürüm (Güncel)",
                 "badge_type": "current",
+                "title": "Lisans Uyarı Popup'ı Kalan Gün Vurgusu",
+                "summary": "Santral girişindeki son 7 gün / ek süre lisans uyarı penceresinde kalan gün sayısı kırmızı renk ile vurgulandı.",
+                "features": [],
+                "fixes": [
+                    "Lisans uyarı popup başlığındaki kalan gün sayısı (örn. '1 gün' / 'bugün') kırmızı (rose-600) renk ile belirginleştirildi."
+                ]
+            },
+            {
+                "version": "v3.3.2",
+                "commit_hash": "2bd62fd",
+                "release_date": "20 Kasım 2026",
+                "badge": "Önceki Sürüm",
+                "badge_type": "stable",
                 "title": "SSH Terminal Başlığı Sadeleştirmesi",
                 "summary": "Nornia Connect SSH terminali karşılama başlığı 'Nornia SSH Terminali' olarak güncellendi.",
                 "features": [],

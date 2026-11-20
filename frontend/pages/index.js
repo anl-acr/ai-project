@@ -11779,13 +11779,17 @@ export default function Home() {
                     )}
                   </div>
                   <h3 className="text-base sm:text-lg font-extrabold text-slate-900 dark:text-white mt-1 leading-snug">
-                    {licenseStatus.in_grace_period
-                      ? Number(licenseStatus.grace_days_left || 0) <= 0
-                        ? "Lisans süreniz doldu — Tanımlı ek süreniz bugün sona eriyor!"
-                        : `Lisans süreniz doldu — Ek sürenizin bitmesine ${licenseStatus.grace_days_left} gün kaldı!`
-                      : Number(licenseStatus.days_left || 0) <= 0
-                        ? "Lisans süreniz bugün sona eriyor!"
-                        : `Lisans sürenizin bitmesine ${licenseStatus.days_left} gün kaldı!`}
+                    {licenseStatus.in_grace_period ? (
+                      Number(licenseStatus.grace_days_left || 0) <= 0 ? (
+                        <>Lisans süreniz doldu — Tanımlı ek süreniz <span className="text-rose-600 dark:text-rose-400">bugün</span> sona eriyor!</>
+                      ) : (
+                        <>Lisans süreniz doldu — Ek sürenizin bitmesine <span className="text-rose-600 dark:text-rose-400">{licenseStatus.grace_days_left} gün</span> kaldı!</>
+                      )
+                    ) : Number(licenseStatus.days_left || 0) <= 0 ? (
+                      <>Lisans süreniz <span className="text-rose-600 dark:text-rose-400">bugün</span> sona eriyor!</>
+                    ) : (
+                      <>Lisans sürenizin bitmesine <span className="text-rose-600 dark:text-rose-400">{licenseStatus.days_left} gün</span> kaldı!</>
+                    )}
                   </h3>
                   <p className="text-xs font-semibold text-slate-600 dark:text-slate-400 mt-1 flex flex-wrap items-center gap-x-3 gap-y-1">
                     {licenseStatus.license_expires_at && (
