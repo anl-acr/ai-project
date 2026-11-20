@@ -3975,6 +3975,8 @@ def regenerate_pjsip_custom_conf(background_tasks: Optional[BackgroundTasks] = N
         local_nets = [net.strip() for net in local_nets.split(",") if net.strip()]
     if not local_nets:
         local_nets = ["192.168.0.0/16", "10.0.0.0/8", "172.16.0.0/12", "127.0.0.1/32"]
+    if "10.200.0.0/16" not in local_nets and "10.0.0.0/8" not in local_nets:
+        local_nets.append("10.200.0.0/16")
 
     nat_lines = ""
     if extern_ip:
@@ -4146,6 +4148,7 @@ verify_client=no
     # When custom per-trunk local bind IPs exist on port 5060, bind default [transport-udp]/[transport-tcp]
     # to the primary server LAN IP so Linux UDP/TCP sockets on port 5060 do not collide with 0.0.0.0:5060
     default_bind_addr = "0.0.0.0"
+    wg_edge_ip = ""
     if custom_bind_map:
         try:
             from backend.scripts.network_recovery import get_live_interfaces
@@ -4153,13 +4156,40 @@ verify_client=no
                 p_cidr = str(iface.get("primary_cidr") or "").strip()
                 if p_cidr:
                     cand_ip = p_cidr.split("/")[0].strip()
-                    if cand_ip and cand_ip != "127.0.0.1" and cand_ip not in custom_bind_map:
+                    if cand_ip.startswith("10.200."):
+                        wg_edge_ip = cand_ip
+                        continue
+                    if cand_ip and cand_ip != "127.0.0.1" and cand_ip not in custom_bind_map and default_bind_addr == "0.0.0.0":
                         default_bind_addr = f"{cand_ip}:5060"
-                        break
         except Exception:
             pass
+        if not wg_edge_ip and os.path.isfile("/etc/wireguard/wg-nornia.conf"):
+            try:
+                with open("/etc/wireguard/wg-nornia.conf", "r", encoding="utf-8") as _fwg:
+                    for _ln in _fwg:
+                        if _ln.strip().lower().startswith("address"):
+                            _rhs = _ln.split("=", 1)[1].strip().split(",")[0].split("/")[0].strip()
+                            if _rhs.startswith("10.200."):
+                                wg_edge_ip = _rhs
+                                break
+            except Exception:
+                pass
 
     custom_transports_block = ""
+    if custom_bind_map and wg_edge_ip:
+        custom_transports_block += f"""[transport-udp-wgedge]
+type=transport
+protocol=udp
+bind={wg_edge_ip}:5060
+local_net=10.200.0.0/16
+
+[transport-tcp-wgedge]
+type=transport
+protocol=tcp
+bind={wg_edge_ip}:5060
+local_net=10.200.0.0/16
+
+"""
     for b_ip, b_info in custom_bind_map.items():
         s_ip = b_info["safe_ip"]
         b_net = b_info["local_net"]
@@ -4745,6 +4775,7 @@ password={_esc_pjsip_val(dev_pwd)}
 type=aor
 max_contacts={dev_max_c}
 remove_existing=yes
+support_path=yes
 qualify_frequency=30
 mailboxes={cid_ext_val}@default
 """
@@ -39664,18 +39695,42 @@ async def get_system_version_info():
         pass
 
     return {
-        "version": "v3.4.0",
+        "version": "v3.4.1",
         "commit_hash": live_commit,
         "release_date": "20 Kasım 2026",
         "status": "Güncel / Canlı Sürüm",
         "environment": "Production (On-Premise)",
         "changelog": [
             {
-                "version": "v3.4.0",
+                "version": "v3.4.1",
                 "commit_hash": live_commit,
                 "release_date": "20 Kasım 2026",
                 "badge": "Canlı Sürüm (Güncel)",
                 "badge_type": "current",
+                "title": "Nornia SIP/RTP Edge v2 (Uzak Masa Telefonu 5060 UDP/TCP/TLS + Otomatik WireGuard + Kamailio + RTPEngine)",
+                "summary": "Santral tarafında hiçbir port açmadan dışarıdaki fiziksel SIP masa telefonlarının (Yealink, Fanvil, Grandstream vb.) 5060 UDP/TCP ve 5061 TLS üzerinden çift yönlü sesli görüşme ile sisteme kayıt olabilmesi için hibrit Nornia SIP/RTP Edge v2 mimarisi eklendi.",
+                "features": [
+                    {
+                        "title": "Sıfır-Dokunuşlu WireGuard Tüneli (10.200.0.0/16) & 5 Katmanlı Güvenlik Kalkanı",
+                        "desc": "Santral WireGuard anahtarını otomatik üretip mevcut 443/WSS tüneli üzerinden Hub'a bildirir; Hub benzersiz 10.200.x.y IP atar, Kamailio nornia_routes tablosunu kesintisiz günceller ve RTPEngine çift yönlü medya köprüsü kurar. Zero-IP Drop, Scanner UA filtresi, Pike/Fail2Ban ve WireGuard istemci izolasyonu yerleşiktir."
+                    },
+                    {
+                        "title": "Panel & Santral SIP Edge Canlı Durum Kartları + Tek Tıkla UFW Port Kontrolü",
+                        "desc": "Merkez Panel Filo tablosunda canlı SIP Edge 10.200.x.y durumu, Güvenlik Kalkanı içinde WireGuard/Kamailio/RTPEngine servis göstergeleri ile tek tıkla SIP Edge port açma/kapatma ve Santral Uzak Erişim ekranında masa telefonu SIP domain/port bilgi kartı eklendi."
+                    },
+                    {
+                        "title": "Asterisk PJSIP Path Desteği & Çoklu-VLAN (/30) WireGuard Uyumluluğu",
+                        "desc": "Masa telefonu AOR bloklarına support_path=yes, PJSIP local_net listesine 10.200.0.0/16 ve çoklu-/30 trunk kullanan santrallerde otomatik wg-nornia SIP transport bağlama desteği eklendi."
+                    }
+                ],
+                "fixes": []
+            },
+            {
+                "version": "v3.4.0",
+                "commit_hash": "505cfb0",
+                "release_date": "20 Kasım 2026",
+                "badge": "Önceki Sürüm",
+                "badge_type": "stable",
                 "title": "Panel Güvenlik Duvarı (UFW Port Yönetimi), Filo Excel Dışa Aktar & Toplu OTA Güncelleme",
                 "summary": "Merkezi panel Güvenlik Kalkanına canlı UFW port yönetim arayüzü (tek tıkla 22/80/443 güvenli profil + manuel port/IP kuralları + canlı dinlenen portlar), filo tablosuna ise Excel (CSV) dışa aktarma ve çoklu seçimle Toplu OTA Güncelleme eklendi.",
                 "features": [

@@ -562,6 +562,66 @@ export default function RemoteAccessSettingsPanel({
                 </button>
               </div>
             </div>
+
+            {/* Remote SIP Deskphone Edge (5060 UDP/TCP + 5061 TLS via WireGuard) */}
+            <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-200/80 dark:border-slate-800 space-y-2">
+              <div className="flex items-center justify-between gap-2 flex-wrap">
+                <div className="text-[11px] font-bold text-slate-500 flex items-center gap-1.5">
+                  <ShieldCheck size={13} className={text} />
+                  <span>Uzak Masa Telefonu (SIP/RTP Edge — 5060)</span>
+                </div>
+                <span
+                  className={`px-2 py-0.5 rounded-full text-[10px] font-extrabold border ${
+                    runtime.sip_edge?.active
+                      ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border-emerald-500/30"
+                      : runtime.sip_edge?.wg_installed === false
+                        ? "bg-amber-500/15 text-amber-700 dark:text-amber-300 border-amber-500/30"
+                        : "bg-slate-200/70 dark:bg-slate-800 text-slate-500 dark:text-slate-400 border-slate-300/60 dark:border-slate-700"
+                  }`}
+                >
+                  {runtime.sip_edge?.active
+                    ? `WireGuard Aktif (${runtime.sip_edge.pbx_tunnel_ip})`
+                    : runtime.sip_edge?.wg_installed === false
+                      ? "WireGuard Kurulu Değil"
+                      : "Hub Bekleniyor"}
+                </span>
+              </div>
+
+              <div className="flex items-center justify-between gap-2">
+                <code className="text-xs font-mono font-extrabold text-slate-900 dark:text-white truncate">
+                  {runtime.sip_edge?.sip_domain || (config.subdomain ? `${config.subdomain}.nornia.com.tr` : "-")}
+                </code>
+                <button
+                  type="button"
+                  onClick={() =>
+                    copyToClipboard(
+                      runtime.sip_edge?.sip_domain || (config.subdomain ? `${config.subdomain}.nornia.com.tr` : ""),
+                      "sip_edge_domain"
+                    )
+                  }
+                  className="p-1.5 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-800 text-slate-500 cursor-pointer shrink-0"
+                  title="SIP Sunucu Adresini Kopyala"
+                >
+                  {copiedKey === "sip_edge_domain" ? (
+                    <Check size={14} className="text-emerald-500" />
+                  ) : (
+                    <Copy size={14} />
+                  )}
+                </button>
+              </div>
+
+              <div className="text-[10.5px] text-slate-500 dark:text-slate-400 flex flex-wrap items-center gap-x-3 gap-y-1">
+                <span>
+                  Portlar: <strong className="font-mono text-slate-700 dark:text-slate-200">5060 (UDP/TCP)</strong> •{" "}
+                  <strong className="font-mono text-slate-700 dark:text-slate-200">5061 (TLS)</strong>
+                </span>
+                {runtime.sip_edge?.last_error && !runtime.sip_edge?.active && (
+                  <span className="text-amber-600 dark:text-amber-400 font-semibold">
+                    ({runtime.sip_edge.last_error})
+                  </span>
+                )}
+              </div>
+            </div>
           </div>
 
           {/* Card B: TURN Media Relay & Central SSH Status */}

@@ -4,6 +4,7 @@ import datetime
 import inspect
 import json
 import os
+import shutil
 import socket
 import ssl
 import subprocess
@@ -52,7 +53,144 @@ RAS_RUNTIME_STATE: Dict[str, Any] = {
     "bytes_tx": 0,
     "bytes_rx": 0,
     "reconnect_count": 0,
+    "sip_edge": {
+        "enabled": False,
+        "wg_installed": False,
+        "wg_active": False,
+        "pbx_tunnel_ip": "",
+        "hub_endpoint": "",
+        "sip_domain": "",
+        "sip_port": 5060,
+        "sip_tls_port": 5061,
+    },
 }
+
+_PBX_WG_IFACE = "wg-nornia"
+_PBX_WG_DIR = "/etc/wireguard"
+_PBX_WG_PRIV_PATH = "/etc/wireguard/nornia_wg.key"
+_PBX_WG_PUB_PATH = "/etc/wireguard/nornia_wg_public.key"
+_PBX_WG_CONF_PATH = "/etc/wireguard/wg-nornia.conf"
+
+
+def ensure_pbx_wg_keypair_sync() -> str:
+    """
+    Ensures a persistent WireGuard keypair exists on this PBX when `wg` is installed.
+    Returns the Base64 public key string (or empty string if WireGuard is not installed).
+    """
+    wg_bin = shutil.which("wg")
+    if not wg_bin:
+        RAS_RUNTIME_STATE["sip_edge"]["wg_installed"] = False
+        return ""
+    RAS_RUNTIME_STATE["sip_edge"]["wg_installed"] = True
+    try:
+        os.makedirs(_PBX_WG_DIR, mode=0o700, exist_ok=True)
+        if os.path.isfile(_PBX_WG_PRIV_PATH) and os.path.isfile(_PBX_WG_PUB_PATH):
+            with open(_PBX_WG_PUB_PATH, "r", encoding="utf-8") as fp:
+                pub = fp.read().strip()
+                if len(pub) >= 40:
+                    return pub
+        gen_priv = subprocess.run([wg_bin, "genkey"], capture_output=True, text=True, timeout=4.0)
+        if gen_priv.returncode != 0 or not gen_priv.stdout.strip():
+            return ""
+        priv_val = gen_priv.stdout.strip()
+        gen_pub = subprocess.run([wg_bin, "pubkey"], input=priv_val + "\n", capture_output=True, text=True, timeout=4.0)
+        if gen_pub.returncode != 0 or not gen_pub.stdout.strip():
+            return ""
+        pub_val = gen_pub.stdout.strip()
+        with open(_PBX_WG_PRIV_PATH, "w", encoding="utf-8") as f_pr:
+            f_pr.write(priv_val + "\n")
+        os.chmod(_PBX_WG_PRIV_PATH, 0o600)
+        with open(_PBX_WG_PUB_PATH, "w", encoding="utf-8") as f_pu:
+            f_pu.write(pub_val + "\n")
+        os.chmod(_PBX_WG_PUB_PATH, 0o644)
+        return pub_val
+    except Exception as ex_wg:
+        print(f"[Nornia SIP Edge] PBX WireGuard keygen warning: {ex_wg}")
+        return ""
+
+
+def apply_pbx_sip_edge_wireguard_sync(sip_edge_cfg: Dict[str, Any]):
+    """
+    Auto-configures and brings up `/etc/wireguard/wg-nornia.conf` using Hub-provisioned parameters.
+    Strictly routes ONLY `AllowedIPs = 10.200.0.1/32` (Hub Kamailio/RTPEngine) so PBX default gateway
+    and operator /30 VLAN policy routes are NEVER affected.
+    """
+    if not isinstance(sip_edge_cfg, dict) or not sip_edge_cfg.get("enabled"):
+        RAS_RUNTIME_STATE["sip_edge"]["enabled"] = False
+        RAS_RUNTIME_STATE["sip_edge"]["wg_active"] = False
+        return
+
+    hub_pub = str(sip_edge_cfg.get("hub_public_key") or "").strip()
+    hub_ep = str(sip_edge_cfg.get("hub_endpoint") or "").strip()
+    pbx_cidr = str(sip_edge_cfg.get("pbx_tunnel_cidr") or "").strip()
+    pbx_ip = str(sip_edge_cfg.get("pbx_tunnel_ip") or "").strip()
+    hub_ip = str(sip_edge_cfg.get("hub_tunnel_ip") or "10.200.0.1").strip()
+    sip_dom = str(sip_edge_cfg.get("sip_domain") or "").strip()
+
+    RAS_RUNTIME_STATE["sip_edge"].update({
+        "enabled": True,
+        "pbx_tunnel_ip": pbx_ip,
+        "hub_endpoint": hub_ep,
+        "sip_domain": sip_dom,
+        "sip_port": int(sip_edge_cfg.get("sip_port") or 5060),
+        "sip_tls_port": int(sip_edge_cfg.get("sip_tls_port") or 5061),
+    })
+
+    wg_bin = shutil.which("wg")
+    wg_quick_bin = shutil.which("wg-quick")
+    if not (wg_bin and wg_quick_bin and hub_pub and hub_ep and pbx_cidr and os.path.isfile(_PBX_WG_PRIV_PATH)):
+        return
+
+    try:
+        with open(_PBX_WG_PRIV_PATH, "r", encoding="utf-8") as fp:
+            pbx_priv = fp.read().strip()
+        if not pbx_priv:
+            return
+
+        conf_text = "\n".join([
+            "# Auto-managed by Nornia Connect SIP/RTP Edge v2",
+            "[Interface]",
+            f"Address = {pbx_cidr}",
+            f"PrivateKey = {pbx_priv}",
+            "MTU = 1380",
+            "",
+            "[Peer]",
+            f"PublicKey = {hub_pub}",
+            f"Endpoint = {hub_ep}",
+            f"AllowedIPs = {hub_ip}/32",
+            "PersistentKeepalive = 25",
+            "",
+        ])
+        need_write = True
+        if os.path.isfile(_PBX_WG_CONF_PATH):
+            try:
+                with open(_PBX_WG_CONF_PATH, "r", encoding="utf-8") as fold:
+                    if fold.read() == conf_text:
+                        need_write = False
+            except Exception:
+                pass
+        if need_write:
+            with open(_PBX_WG_CONF_PATH, "w", encoding="utf-8") as fw:
+                fw.write(conf_text)
+            os.chmod(_PBX_WG_CONF_PATH, 0o600)
+
+        chk = subprocess.run([wg_bin, "show", _PBX_WG_IFACE], capture_output=True, text=True, timeout=3.0)
+        if chk.returncode != 0:
+            up_res = subprocess.run([wg_quick_bin, "up", _PBX_WG_IFACE], capture_output=True, text=True, timeout=10.0)
+            RAS_RUNTIME_STATE["sip_edge"]["wg_active"] = (up_res.returncode == 0)
+            if up_res.returncode == 0:
+                print(f"[Nornia SIP Edge] WireGuard tüneli aktif: {_PBX_WG_IFACE} ({pbx_ip} <-> {hub_ip}) | SIP: {sip_dom}:5060")
+            else:
+                print(f"[Nornia SIP Edge] wg-quick up warning: {up_res.stderr}")
+        else:
+            if need_write:
+                subprocess.run([wg_quick_bin, "down", _PBX_WG_IFACE], capture_output=True, text=True, timeout=6.0)
+                up2 = subprocess.run([wg_quick_bin, "up", _PBX_WG_IFACE], capture_output=True, text=True, timeout=10.0)
+                RAS_RUNTIME_STATE["sip_edge"]["wg_active"] = (up2.returncode == 0)
+            else:
+                RAS_RUNTIME_STATE["sip_edge"]["wg_active"] = True
+    except Exception as ex_apply:
+        print(f"[Nornia SIP Edge] Apply WireGuard error: {ex_apply}")
 
 _ras_worker_task: Optional[asyncio.Task] = None
 _ras_reconnect_event: Optional[asyncio.Event] = None
@@ -575,6 +713,7 @@ async def _ras_tunnel_loop():
                         live_pbx_ver = get_current_pbx_version()
                     except Exception:
                         live_pbx_ver = ""
+                    pbx_wg_pubkey = await asyncio.to_thread(ensure_pbx_wg_keypair_sync)
                     hello_payload = {
                         "type": "RAS_REGISTER",
                         "hardware_id": hw_id,
@@ -584,6 +723,7 @@ async def _ras_tunnel_loop():
                         "remote_ssh_enabled": bool(cfg.get("remote_ssh_enabled", True)),
                         "local_ips": local_ips,
                         "version": live_pbx_ver,
+                        "wg_public_key": pbx_wg_pubkey,
                     }
                     t0 = time.monotonic()
                     await tunnel_ws.send(json.dumps(hello_payload))
@@ -656,6 +796,8 @@ async def _ras_tunnel_loop():
                                     RAS_RUNTIME_STATE["wss_sip_url"] = msg["wss_sip_url"]
                                 if "remote_ssh_enabled" in msg and msg["remote_ssh_enabled"] is not None:
                                     apply_central_ssh_control(bool(msg["remote_ssh_enabled"]))
+                                if isinstance(msg.get("sip_edge"), dict):
+                                    asyncio.create_task(asyncio.to_thread(apply_pbx_sip_edge_wireguard_sync, msg["sip_edge"]))
                                 if msg.get("subdomain_locked"):
                                     try:
                                         from backend.main import save_settings, settings_db

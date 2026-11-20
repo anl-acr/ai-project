@@ -308,6 +308,8 @@ stunaddr=stun.l.google.com:19302
             local_nets = [net.strip() for net in local_nets.split(",") if net.strip()]
         if not local_nets:
             local_nets = ["192.168.0.0/16", "10.0.0.0/8", "172.16.0.0/12", "127.0.0.1/32"]
+        if "10.200.0.0/16" not in local_nets and "10.0.0.0/8" not in local_nets:
+            local_nets.append("10.200.0.0/16")
 
         import hashlib
         def resolve_secure_sip_password(ext_val, raw_pwd=""):
@@ -502,6 +504,7 @@ verify_client=no
                 custom_bind_map_s[lbi["local_ip"]] = lbi
 
         default_bind_addr_s = "0.0.0.0"
+        wg_edge_ip_s = ""
         if custom_bind_map_s:
             try:
                 from backend.scripts.network_recovery import get_live_interfaces
@@ -509,13 +512,40 @@ verify_client=no
                     pc = str(ifc.get("primary_cidr") or "").strip()
                     if pc:
                         cip = pc.split("/")[0].strip()
-                        if cip and cip != "127.0.0.1" and cip not in custom_bind_map_s:
+                        if cip.startswith("10.200."):
+                            wg_edge_ip_s = cip
+                            continue
+                        if cip and cip != "127.0.0.1" and cip not in custom_bind_map_s and default_bind_addr_s == "0.0.0.0":
                             default_bind_addr_s = f"{cip}:5060"
-                            break
             except Exception:
                 pass
+            if not wg_edge_ip_s and os.path.isfile("/etc/wireguard/wg-nornia.conf"):
+                try:
+                    with open("/etc/wireguard/wg-nornia.conf", "r", encoding="utf-8") as _fwgs:
+                        for _ln in _fwgs:
+                            if _ln.strip().lower().startswith("address"):
+                                _rhs = _ln.split("=", 1)[1].strip().split(",")[0].split("/")[0].strip()
+                                if _rhs.startswith("10.200."):
+                                    wg_edge_ip_s = _rhs
+                                    break
+                except Exception:
+                    pass
 
         custom_transports_s = ""
+        if custom_bind_map_s and wg_edge_ip_s:
+            custom_transports_s += f"""[transport-udp-wgedge]
+type=transport
+protocol=udp
+bind={wg_edge_ip_s}:5060
+local_net=10.200.0.0/16
+
+[transport-tcp-wgedge]
+type=transport
+protocol=tcp
+bind={wg_edge_ip_s}:5060
+local_net=10.200.0.0/16
+
+"""
         for b_ip, b_info in custom_bind_map_s.items():
             s_ip = b_info["safe_ip"]
             b_net = b_info["local_net"]
@@ -1077,6 +1107,7 @@ password={esc_dpwd}
 type=aor
 max_contacts={d_max}
 remove_existing=yes
+support_path=yes
 qualify_frequency=30
 mailboxes={ext}@default
 """

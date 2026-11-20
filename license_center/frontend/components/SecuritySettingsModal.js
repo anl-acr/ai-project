@@ -50,6 +50,54 @@ export default function SecuritySettingsModal({ isOpen, onClose, currentUser, on
   const [fwDeleteRuleTarget, setFwDeleteRuleTarget] = useState(null);
   const [showFwHardenConfirm, setShowFwHardenConfirm] = useState(false);
 
+  // Nornia SIP/RTP Edge v2 Live Status (WireGuard + Kamailio + RTPEngine)
+  const [sipEdgeStatus, setSipEdgeStatus] = useState(null);
+  const [sipEdgeBusy, setSipEdgeBusy] = useState(false);
+
+  const fetchSipEdgeStatus = async () => {
+    try {
+      const res = await fetch("/api/v1/security/sip-edge/status");
+      if (res.ok) {
+        setSipEdgeStatus(await res.json());
+      }
+    } catch (e) {
+      console.error("Failed to fetch SIP Edge status:", e);
+    }
+  };
+
+  const handleSipEdgePortsAction = async (actionType) => {
+    setSipEdgeBusy(true);
+    setFwFeedback(null);
+    try {
+      const res = await fetch("/api/v1/security/firewall/sip-edge-ports", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-User-Name": currentUser?.username || "admin"
+        },
+        body: JSON.stringify({ action: actionType })
+      });
+      const d = await res.json().catch(() => ({}));
+      if (res.ok) {
+        setFwStatus(d);
+        setFwFeedback({
+          type: "ok",
+          text:
+            actionType === "open"
+              ? "SIP Edge portları açıldı (51820/udp WireGuard, 5060/udp+tcp, 5061/tcp SIP, 20000:40000/udp RTP)."
+              : "SIP Edge portları güvenlik duvarından kaldırıldı."
+        });
+        fetchSipEdgeStatus();
+      } else {
+        setFwFeedback({ type: "err", text: d.detail || "SIP Edge port işlemi başarısız oldu." });
+      }
+    } catch (e) {
+      setFwFeedback({ type: "err", text: "Sunucuya bağlanılamadı." });
+    } finally {
+      setSipEdgeBusy(false);
+    }
+  };
+
   const fetchFirewallStatus = async () => {
     setFwLoading(true);
     try {
@@ -225,6 +273,7 @@ export default function SecuritySettingsModal({ isOpen, onClose, currentUser, on
       fetchSecurityData();
       fetchBackupInfo();
       fetchFirewallStatus();
+      fetchSipEdgeStatus();
     }
   }, [isOpen]);
 
@@ -913,6 +962,87 @@ export default function SecuritySettingsModal({ isOpen, onClose, currentUser, on
                 <span>{fwFeedback.text}</span>
               </div>
             )}
+
+            {/* Nornia SIP/RTP Edge v2 Live Status & One-Click Port Control */}
+            <div className="p-3.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 space-y-2.5">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div>
+                  <div className="text-[11px] font-extrabold text-slate-800 dark:text-slate-100 flex items-center gap-2 flex-wrap">
+                    <span>Nornia SIP/RTP Edge v2 (Uzak Masa Telefonu 5060)</span>
+                    <span
+                      className={`px-2 py-0.5 rounded-md text-[10px] font-extrabold border ${
+                        sipEdgeStatus?.ready
+                          ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border-emerald-500/25"
+                          : "bg-amber-500/15 text-amber-700 dark:text-amber-300 border-amber-500/25"
+                      }`}
+                    >
+                      {sipEdgeStatus?.ready
+                        ? `HAZIR (${sipEdgeStatus.active_peers_count || 0}/${sipEdgeStatus.peers_count || 0} Santral)`
+                        : "KURULUM BEKLİYOR"}
+                    </span>
+                  </div>
+                  <p className="text-[10.5px] text-slate-500 mt-0.5">
+                    Portlar: <code className="font-mono font-bold">51820/udp</code> (WireGuard),{" "}
+                    <code className="font-mono font-bold">5060/udp+tcp</code>,{" "}
+                    <code className="font-mono font-bold">5061/tcp</code> (Kamailio),{" "}
+                    <code className="font-mono font-bold">20000:40000/udp</code> (RTPEngine)
+                  </p>
+                </div>
+
+                {fwStatus?.supported && (
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      type="button"
+                      disabled={sipEdgeBusy || fwBusy}
+                      onClick={() => handleSipEdgePortsAction("open")}
+                      className="px-2.5 py-1.5 rounded-lg bg-teal-600 hover:bg-teal-500 text-white text-[10.5px] font-extrabold cursor-pointer transition-colors disabled:opacity-50"
+                      title="WireGuard (51820), Kamailio (5060/5061) ve RTPEngine (20000-40000) portlarını UFW'de açar"
+                    >
+                      {sipEdgeBusy ? "..." : "SIP Edge Portlarını Aç"}
+                    </button>
+                    <button
+                      type="button"
+                      disabled={sipEdgeBusy || fwBusy}
+                      onClick={() => handleSipEdgePortsAction("close")}
+                      className="px-2.5 py-1.5 rounded-lg bg-slate-100 dark:bg-slate-800 hover:bg-rose-600 text-slate-600 dark:text-slate-300 hover:text-white border border-slate-200 dark:border-slate-700 text-[10.5px] font-extrabold cursor-pointer transition-colors disabled:opacity-50"
+                      title="SIP Edge port kurallarını UFW'den kaldırır"
+                    >
+                      Kapat
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              <div className="flex flex-wrap items-center gap-1.5 text-[10.5px]">
+                <span
+                  className={`px-2 py-0.5 rounded-md font-bold border ${
+                    sipEdgeStatus?.wg_active
+                      ? "bg-emerald-500/12 text-emerald-700 dark:text-emerald-300 border-emerald-500/25"
+                      : "bg-slate-100 dark:bg-slate-800 text-slate-500 border-slate-200 dark:border-slate-700"
+                  }`}
+                >
+                  WireGuard (wg0): {sipEdgeStatus?.wg_active ? "Aktif" : "Pasif"}
+                </span>
+                <span
+                  className={`px-2 py-0.5 rounded-md font-bold border ${
+                    sipEdgeStatus?.kamailio_active
+                      ? "bg-emerald-500/12 text-emerald-700 dark:text-emerald-300 border-emerald-500/25"
+                      : "bg-slate-100 dark:bg-slate-800 text-slate-500 border-slate-200 dark:border-slate-700"
+                  }`}
+                >
+                  Kamailio (5060/5061): {sipEdgeStatus?.kamailio_active ? "Aktif" : "Pasif"}
+                </span>
+                <span
+                  className={`px-2 py-0.5 rounded-md font-bold border ${
+                    sipEdgeStatus?.rtpengine_active
+                      ? "bg-emerald-500/12 text-emerald-700 dark:text-emerald-300 border-emerald-500/25"
+                      : "bg-slate-100 dark:bg-slate-800 text-slate-500 border-slate-200 dark:border-slate-700"
+                  }`}
+                >
+                  RTPEngine (20000-40000): {sipEdgeStatus?.rtpengine_active ? "Aktif" : "Pasif"}
+                </span>
+              </div>
+            </div>
 
             {fwLoading && !fwStatus ? (
               <div className="p-4 text-center text-slate-400 text-xs font-semibold">Güvenlik duvarı durumu okunuyor...</div>

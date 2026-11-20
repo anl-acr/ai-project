@@ -709,6 +709,23 @@ async def pbx_ras_tunnel_endpoint(websocket: WebSocket):
                 ACTIVE_TUNNELS_BY_HWID[session.hardware_id] = session
                 session.remote_ssh_enabled = bool(bind_res.get("remote_ssh_enabled", True))
 
+                # Auto-provision WireGuard + Kamailio SIP/RTP Edge if PBX sent its WG public key
+                sip_edge_cfg = {"enabled": False}
+                req_wg_pubkey = str(msg.get("wg_public_key") or "").strip()
+                if req_wg_pubkey:
+                    try:
+                        from license_center.backend.database import AsyncSessionLocal as _EdgeSess
+                        from license_center.backend.sip_edge_manager import provision_pbx_sip_edge
+                        async with _EdgeSess() as edge_db:
+                            sip_edge_cfg = await provision_pbx_sip_edge(
+                                edge_db,
+                                subdomain=session.subdomain,
+                                hardware_id=session.hardware_id,
+                                wg_public_key=req_wg_pubkey,
+                            )
+                    except Exception as ex_edge:
+                        print(f"[Nornia SIP Edge Provision Warning]: {ex_edge}")
+
                 await session.send_json({
                     "type": "RAS_WELCOME",
                     "subdomain": session.subdomain,
@@ -717,6 +734,7 @@ async def pbx_ras_tunnel_endpoint(websocket: WebSocket):
                     "remote_ssh_enabled": session.remote_ssh_enabled,
                     "public_ras_url": f"https://{session.subdomain}.nornia.com.tr",
                     "wss_sip_url": f"wss://{session.subdomain}.nornia.com.tr/ras-sip-ws",
+                    "sip_edge": sip_edge_cfg,
                 })
 
             elif mtype == "PING":

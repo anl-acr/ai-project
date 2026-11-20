@@ -80,6 +80,9 @@ class ClientServer(Base):
     domain_name = Column(String, nullable=True)
     connect_subdomain = Column(String, index=True, nullable=True) # Locked Nornia Connect subdomain (e.g. merkez)
     remote_ssh_enabled = Column(Boolean, default=True) # Centrally managed SSH & Web SSH switch (True=Open, False=Locked/Closed)
+    wg_public_key = Column(String, nullable=True) # Auto-provisioned WireGuard public key from PBX
+    wg_tunnel_ip = Column(String, index=True, nullable=True) # Allocated 10.200.x.y private SIP/Media tunnel IP
+    sip_edge_enabled = Column(Boolean, default=True) # Per-PBX SIP 5060/5061 + RTP Edge routing toggle
     contact_email = Column(String, nullable=True)
     contact_phone = Column(String, nullable=True)
     plan_tier = Column(String, default="professional") # trial, starter, professional, enterprise

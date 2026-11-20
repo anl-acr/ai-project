@@ -490,6 +490,13 @@ async def on_startup():
         except Exception as e_ssl:
             print(f"[AIDA License Master] Startup SSL sync warning: {e_ssl}")
 
+        # Hydrate WireGuard & Kamailio SIP/RTP Edge routes from DB on Hub startup
+        try:
+            from license_center.backend.sip_edge_manager import sync_all_sip_edge_peers_from_db
+            await sync_all_sip_edge_peers_from_db(db)
+        except Exception as e_edge:
+            print(f"[AIDA License Master] Startup SIP Edge sync warning: {e_edge}")
+
 # Pydantic Schemas
 class ClientCreateSchema(BaseModel):
     company_name: str
@@ -1565,6 +1572,51 @@ async def apply_panel_firewall_harden_preset(request: Request, db: AsyncSession 
     return {"success": True, **status_data}
 
 
+@app.get("/api/v1/security/sip-edge/status")
+async def get_sip_edge_status_endpoint():
+    """Returns live Hub status of Nornia SIP/RTP Edge (WireGuard wg0, Kamailio 5060/5061, RTPEngine 20000-40000)."""
+    from license_center.backend.sip_edge_manager import get_sip_edge_live_status_sync
+    return await asyncio.to_thread(get_sip_edge_live_status_sync)
+
+
+@app.post("/api/v1/security/firewall/sip-edge-ports")
+async def toggle_sip_edge_firewall_ports(
+    request: Request,
+    payload: Dict[str, Any] = Body(...),
+    db: AsyncSession = Depends(get_central_db),
+):
+    """Safely opens or closes the Nornia SIP/RTP Edge ports (51820/udp, 5060/udp+tcp, 5061/tcp, 20000:40000/udp) in UFW."""
+    s_info = getattr(request.state, "master_user", None) or {}
+    performed_by = s_info.get("u") or request.headers.get("X-User-Name", "admin")
+    want_open = bool(payload.get("enabled", True))
+    edge_ports = ["51820/udp", "5060/udp", "5060/tcp", "5061/tcp", "20000:40000/udp"]
+
+    def _do_edge_ports():
+        chk = _run_ufw_cmd_sync(["status"])
+        if not chk.get("supported"):
+            return chk
+        for p_spec in edge_ports:
+            if want_open:
+                _run_ufw_cmd_sync(["allow", p_spec])
+            else:
+                _run_ufw_cmd_sync(["--force", "delete", "allow", p_spec])
+        return {"ok": True, "supported": True}
+
+    res = await asyncio.to_thread(_do_edge_ports)
+    if not res.get("supported"):
+        raise HTTPException(status_code=400, detail=res.get("stderr") or "UFW bu sunucuda desteklenmiyor.")
+
+    await log_master_action(
+        db,
+        performed_by,
+        "FIREWALL_RULE_ADD" if want_open else "FIREWALL_RULE_DELETE",
+        f"Nornia SIP/RTP Edge Portları (51820, 5060, 5061, 20000-40000) {'Açıldı' if want_open else 'Kapatıldı'}",
+        extract_client_ip(request),
+    )
+    status_data = await asyncio.to_thread(_parse_ufw_status_sync)
+    return {"success": True, **status_data}
+
+
 @app.get("/api/v1/users")
 async def get_master_users(db: AsyncSession = Depends(get_central_db)):
     """Returns list of all central master portal users."""
@@ -2257,6 +2309,13 @@ async def get_clients(db: AsyncSession = Depends(get_central_db)):
     now = datetime.datetime.utcnow()
     fifteen_mins_ago = now - datetime.timedelta(minutes=15)
     db_modified = False
+
+    wg_peers_live = {}
+    try:
+        from license_center.backend.sip_edge_manager import _read_live_wg_peers_sync
+        wg_peers_live = await asyncio.to_thread(_read_live_wg_peers_sync)
+    except Exception:
+        wg_peers_live = {}
     
     for c in clients:
         if not c.tenant_serial_number:
@@ -2335,12 +2394,17 @@ async def get_clients(db: AsyncSession = Depends(get_central_db)):
         for fs_name in parsed_failed_services:
             alert_reasons.append(f"Servis Kapalı: {fs_name}")
 
+        wg_peer_info = wg_peers_live.get((c.wg_public_key or "").strip(), {}) if c.wg_public_key else {}
         output.append({
             "id": c.id,
             "company_name": c.company_name,
             "tenant_code": c.tenant_code,
             "connect_subdomain": c.connect_subdomain or (tunnel_sess.subdomain if tunnel_sess else None),
             "tunnel_connected": bool(tunnel_sess),
+            "wg_tunnel_ip": c.wg_tunnel_ip,
+            "wg_connected": bool(wg_peer_info.get("connected")),
+            "wg_last_handshake_sec": wg_peer_info.get("last_handshake_sec"),
+            "sip_edge_enabled": bool(c.sip_edge_enabled if c.sip_edge_enabled is not None else True),
             "remote_ssh_enabled": bool(c.remote_ssh_enabled if c.remote_ssh_enabled is not None else True),
             "tenant_serial_number": c.tenant_serial_number,
             "system_serial_number": c.system_serial_number or (compute_system_serial_number(c.hardware_id) if c.hardware_id and c.hardware_id not in ("UNBOUND", "Bilinmiyor") else "Henüz Bağlanmadı"),
@@ -2473,6 +2537,15 @@ async def update_client(client_id: int, payload: ClientCreateSchema, request: Re
     except Exception:
         pass
 
+    try:
+        from license_center.backend.sip_edge_manager import revoke_pbx_sip_edge, sync_all_sip_edge_peers_from_db
+        if client.status == "suspended" or client.sip_edge_enabled is False:
+            await revoke_pbx_sip_edge(db, client.wg_public_key)
+        else:
+            await sync_all_sip_edge_peers_from_db(db)
+    except Exception as ex_edge_upd:
+        print(f"[SIP Edge Update Sync Warning]: {ex_edge_upd}")
+
     action_name = "CLIENT_SUSPEND" if client.status == "suspended" else "CLIENT_UPDATE"
     await log_master_action(db, payload.performed_by or "admin", action_name, f"Müşteri Bilgileri Güncellendi ({client.company_name}): Durum={client.status}, Bitiş={client.license_expires_at}", extract_client_ip(request))
 
@@ -2491,11 +2564,17 @@ async def delete_client(client_id: int, request: Request, db: AsyncSession = Dep
     company = client.company_name
     hw_to_unbind = client.hardware_id
     sub_to_unbind = client.connect_subdomain or client.tenant_code
+    wg_pk_to_revoke = client.wg_public_key
 
     await db.delete(client)
     await db.commit()
 
     await notify_and_unbind_pbx_tunnel(hardware_id=hw_to_unbind, subdomain=sub_to_unbind)
+    try:
+        from license_center.backend.sip_edge_manager import revoke_pbx_sip_edge
+        await revoke_pbx_sip_edge(db, wg_pk_to_revoke)
+    except Exception:
+        pass
 
     await log_master_action(db, performed_by, "CLIENT_DELETE", f"Müşteri Kaydı ve Nornia Connect Alt Alan Adı Kilidi Silindi: {company} (#{client_id}, Subdomain: {sub_to_unbind})", extract_client_ip(request))
     return {"success": True, "message": f"Müşteri #{client_id} silindi ve santraldeki Nornia Connect isim kilidi kaldırıldı."}
@@ -3044,6 +3123,15 @@ async def generate_license(payload: LicenseGenerateSchema, request: Request, db:
         asyncio.create_task(trigger_pbx_license_sync(hardware_id=client.hardware_id, subdomain=client.connect_subdomain))
     except Exception:
         pass
+
+    try:
+        from license_center.backend.sip_edge_manager import revoke_pbx_sip_edge, sync_all_sip_edge_peers_from_db
+        if client.status == "suspended" or client.sip_edge_enabled is False:
+            await revoke_pbx_sip_edge(db, client.wg_public_key)
+        else:
+            await sync_all_sip_edge_peers_from_db(db)
+    except Exception as ex_edge_upd:
+        print(f"[SIP Edge Update Sync Warning]: {ex_edge_upd}")
 
     try:
         from license_center.backend.connect_hub import notify_pbx_license_sync

@@ -2165,6 +2165,25 @@ export default function MasterDashboard() {
                                 }`}>
                                   {client.tunnel_connected ? "Tünel Aktif" : "Bağlı Değil"}
                                 </span>
+                                {client.wg_tunnel_ip && (
+                                  <span
+                                    className={`px-1.5 py-0.5 rounded-md text-[9px] font-mono font-extrabold flex items-center gap-1 border ${
+                                      client.wg_connected
+                                        ? "bg-teal-500/15 text-teal-700 dark:text-teal-300 border-teal-500/30"
+                                        : "bg-slate-100 dark:bg-slate-800/80 text-slate-500 dark:text-slate-400 border-slate-300/60 dark:border-slate-700"
+                                    }`}
+                                    title={`Uzak Masa Telefonu (SIP/RTP Edge): ${client.connect_subdomain}.nornia.com.tr:5060 (UDP/TCP) • WireGuard Tünel IP: ${client.wg_tunnel_ip}${
+                                      client.wg_connected ? " (Aktif)" : " (Beklemede)"
+                                    }`}
+                                  >
+                                    <span
+                                      className={`w-1.5 h-1.5 rounded-full ${
+                                        client.wg_connected ? "bg-teal-500" : "bg-slate-400"
+                                      }`}
+                                    />
+                                    <span>SIP Edge {client.wg_tunnel_ip}</span>
+                                  </span>
+                                )}
                               </div>
                               <div className="flex items-center gap-1.5">
                                 <button
