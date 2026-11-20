@@ -36388,14 +36388,21 @@ async def new_get_users_endpoint(request: Request, user_info: dict = Depends(get
                         "env": w_env,
                     })
             else:
+                from backend.services.ami_manager import format_sip_device_brand_model
                 d_su = str(d_item.get("sip_username") or "").strip()
                 d_on = bool(d_act and d_su and d_su in registered_endpoints)
                 d_live_ip = (registered_endpoints.get_ip(d_su) if d_su else "") or d_item.get("ip") or ""
                 d_meta = (registered_endpoints.get_meta(d_su, ip=d_live_ip) if d_su else None) or {}
                 d_ua = str(d_meta.get("user_agent") or "").strip()
+                d_brand_model = format_sip_device_brand_model(
+                    user_agent=d_ua,
+                    brand=str(d_item.get("brand") or ""),
+                    model=str(d_item.get("model") or ""),
+                )
                 d_item["is_online"] = d_on
                 d_item["live_ip"] = d_live_ip
                 d_item["user_agent"] = d_ua
+                d_item["brand_model"] = d_brand_model
                 if d_on:
                     any_dev_reg = True
                     if not online_dev_ip and d_live_ip:
@@ -36406,7 +36413,8 @@ async def new_get_users_endpoint(request: Request, user_info: dict = Depends(get
                         "type_label": d_type_label,
                         "sip_username": d_su,
                         "ip": d_live_ip,
-                        "env": d_ua or d_su,
+                        "brand_model": d_brand_model,
+                        "env": d_brand_model or d_su,
                     })
         u["sip_devices"] = norm_devs
         if norm_devs and not u.get("sip_username"):
@@ -39838,18 +39846,36 @@ async def get_system_version_info():
         pass
 
     return {
-        "version": "v3.4.9",
+        "version": "v3.5.0",
         "commit_hash": live_commit,
         "release_date": "20 Kasım 2026",
         "status": "Güncel / Canlı Sürüm",
         "environment": "Production (On-Premise)",
         "changelog": [
             {
-                "version": "v3.4.9",
+                "version": "v3.5.0",
                 "commit_hash": live_commit,
                 "release_date": "20 Kasım 2026",
                 "badge": "Canlı Sürüm (Güncel)",
                 "badge_type": "current",
+                "title": "Kullanıcı Durum Balonunda Aktif Masa Telefonu (Cihaz Adı + Gerçek IP + Marka/Model) Gösterimi",
+                "summary": "Kullanıcılar tablosundaki yeşil durum LED'i üzerine gelindiğinde Web Telefonu ile birlikte bağlı tüm fiziksel masa telefonları (PJSIP ve Cisco chan_sip) cihaz adı, Kamailio Path başlığından çözümlenen gerçek dış IP adresi ve canlı SIP User-Agent marka/model bilgisiyle birlikte gösterilecek şekilde geliştirildi.",
+                "features": [
+                    {
+                        "title": "Gerçek IP & Canlı Marka/Model (User-Agent) Çözümleme",
+                        "desc": "Uzak SIP Edge üzerinden bağlanan masa telefonlarında 10.200.0.1 tünel IP'si yerine Path (received=sip:...) başlığındaki gerçek IP ve Asterisk PJSIP/chan_sip User-Agent marka/model bilgisi (örn. Yealink SIP-T42S) canlı olarak gösterilir."
+                    }
+                ],
+                "fixes": [
+                    "AMI PJSIPShowContacts yanıtında eksik kalan uzak masa telefonu kayıtları için hızlı Asterisk CLI zenginleştirme katmanı eklendi."
+                ]
+            },
+            {
+                "version": "v3.4.9",
+                "commit_hash": "bdbbb53",
+                "release_date": "20 Kasım 2026",
+                "badge": "Önceki Sürüm",
+                "badge_type": "stable",
                 "title": "Modal (<dialog>) İçi Bilgi ('i') Tooltip Üst Katman (Top-Layer) Düzeltmesi",
                 "summary": "Yerel <dialog> pencerelerinin (ör. SIP Cihazı Ayarlarını Düzenle) içindeki 'i' bilgi butonlarına gelindiğinde açıklama baloncuğunun modalın arkasında kalması sorunu popover='manual' Top-Layer yükseltmesi ve overflow:visible ile giderildi.",
                 "features": [],

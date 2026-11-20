@@ -3477,7 +3477,7 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
                                     ip: dt === "virtual_subscriber" ? (d.trunk ? `Trunk: ${d.trunk}` : "") : (d.live_ip || d.ip || (dt === "web_phone" ? u.ip_address : "") || ""),
                                     env: dt === "web_phone"
                                       ? [u.client_browser, u.client_os].filter(Boolean).join(" / ")
-                                      : (d.user_agent || d.sip_username || ""),
+                                      : (d.brand_model || d.user_agent || [d.brand, d.model].filter(Boolean).join(" ") || d.sip_username || ""),
                                   };
                                 });
                           const activeDevsList = rawOnlineDevs.length > 0

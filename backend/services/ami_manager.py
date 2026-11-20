@@ -290,6 +290,53 @@ def parse_browser_and_os_from_ua(user_agent: str, client_browser: str = "", clie
     return (browser_name, os_name)
 
 
+def _extract_real_sip_ip(uri: str = "", path: str = "", via_addr: str = "") -> str:
+    """
+    Extracts the real deskphone/client IP address from Asterisk PJSIP/SIP contact info.
+    Prioritizes Kamailio SIP Edge `Path: <...;received=sip:<REAL_IP>:...>` over WireGuard relay IP (10.200.0.1).
+    """
+    import re
+    p_s = str(path or "").strip()
+    if p_s:
+        m_rcv = re.search(r"received=sips?:(?:\[)?((?:\d{1,3}\.){3}\d{1,3})", p_s, re.IGNORECASE)
+        if m_rcv and m_rcv.group(1) not in ("127.0.0.1", "0.0.0.0", "10.200.0.1"):
+            return m_rcv.group(1)
+    v_s = str(via_addr or "").strip()
+    if v_s:
+        m_via = re.search(r"\b((?:\d{1,3}\.){3}\d{1,3})\b", v_s)
+        if m_via and m_via.group(1) not in ("127.0.0.1", "0.0.0.0", "10.200.0.1"):
+            return m_via.group(1)
+    u_s = str(uri or "").strip()
+    if u_s:
+        m_uri = re.search(r"\b((?:\d{1,3}\.){3}\d{1,3})\b", u_s)
+        if m_uri and m_uri.group(1) not in ("127.0.0.1", "0.0.0.0"):
+            return m_uri.group(1)
+    return ""
+
+
+def format_sip_device_brand_model(user_agent: str = "", brand: str = "", model: str = "") -> str:
+    """
+    Formats a SIP User-Agent string (e.g. 'Yealink SIP-T42S 66.86.0.160' or 'Cisco/SPA504G-7.5.5')
+    into a clean Brand + Model display string, falling back to configured brand/model.
+    """
+    import re
+    ua = str(user_agent or "").strip()
+    if ua and ua.lower() not in ("unknown", "none", "cisco/chan_sip"):
+        # Strip trailing long dotted firmware versions like ' 66.86.0.160' or '-7.5.5' or '/2.4.12.3'
+        cleaned = re.sub(r"[\s/\-]+[vV]?\d+\.\d+(?:\.\d+){1,4}.*$", "", ua).strip()
+        cleaned = re.sub(r"[/]+", " ", cleaned).strip()
+        cleaned = re.sub(r"\s{2,}", " ", cleaned).strip()
+        if cleaned and len(cleaned) >= 3:
+            return cleaned[:42]
+        return ua[:42]
+    b_s = str(brand or "").strip()
+    m_s = str(model or "").strip()
+    if b_s and m_s and b_s.lower() in m_s.lower():
+        return m_s[:42]
+    joined = " ".join([x for x in (b_s, m_s) if x]).strip()
+    return joined[:42]
+
+
 class RegisteredEndpointsDict(dict):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -300,19 +347,24 @@ class RegisteredEndpointsDict(dict):
         k = str(key)
         ip_s = str(ip or "").strip()
         existing = self.get(k, "")
-        if not (ip_s in ("", "127.0.0.1", "::1", "localhost") and existing and existing not in ("", "127.0.0.1", "::1", "localhost")):
+        weak_ips = ("", "127.0.0.1", "::1", "localhost", "10.200.0.1")
+        if not (ip_s in weak_ips and existing and existing not in weak_ips):
             self[k] = ip_s
         eff_ip = self.get(k, "") or ip_s
         if browser or os_name or device_key or user_agent:
             cur_m = self._meta.get(k) or {}
+            new_ua = str(user_agent or "").strip()
+            old_ua = str(cur_m.get("user_agent") or "").strip()
+            # Prefer specific SIP User-Agent over generic fallback tag
+            best_ua = new_ua if (new_ua and (new_ua.lower() != "cisco/chan_sip" or not old_ua)) else old_ua
             meta_entry = {
                 "browser": str(browser or cur_m.get("browser") or "").strip(),
                 "os": str(os_name or cur_m.get("os") or "").strip(),
                 "device_key": str(device_key or cur_m.get("device_key") or "").strip().upper(),
-                "user_agent": str(user_agent or cur_m.get("user_agent") or "").strip(),
+                "user_agent": best_ua,
             }
             self._meta[k] = meta_entry
-            if eff_ip and eff_ip not in ("", "127.0.0.1", "::1", "localhost") and (browser or os_name or device_key):
+            if eff_ip and eff_ip not in weak_ips and (browser or os_name or device_key):
                 self._ip_meta[eff_ip] = dict(meta_entry)
 
     def record_meta(self, keys=None, ip="", browser="", os_name="", device_key=""):
@@ -700,19 +752,19 @@ def register_event_handlers(manager: Manager):
 
     @manager.register_event('ContactStatus')
     def handle_contact_status(m, event):
-        import re
-        aor = event.get('AOR')
-        status = event.get('ContactStatus')
-        uri = event.get('URI') or event.get('Contact') or event.get('ViaAddress') or ""
-        ua_val = str(event.get('UserAgent') or "").strip()
-        ip_match = re.search(r'\b(?:\d{1,3}\.){3}\d{1,3}\b', uri)
-        extracted_ip = ip_match.group(0) if ip_match else ""
+        aor = event.get('AOR') or event.get('EndpointName') or event.get('Endpoint')
+        status = str(event.get('ContactStatus') or event.get('Status') or "").strip()
+        uri = event.get('URI') or event.get('Contact') or ""
+        path_val = event.get('Path') or ""
+        via_val = event.get('ViaAddress') or event.get('ViaAddr') or ""
+        ua_val = str(event.get('UserAgent') or event.get('User-Agent') or "").strip()
+        extracted_ip = _extract_real_sip_ip(uri=uri, path=path_val, via_addr=via_val)
         if aor:
-            aor_str = str(aor).strip()
+            aor_str = str(aor).split(";@")[0].split("/")[0].strip()
             mapped_ext = _resolve_sip_peer_to_ext(aor_str)
-            if status in ["Reachable", "Created", "Registered", "NonQualified", "Avail"]:
+            if status in ["Reachable", "Created", "Registered", "NonQualified", "NonQual", "Avail", "Available"]:
                 registered_endpoints.add(aor_str, extracted_ip, user_agent=ua_val)
-                print(f"[AMI] Endpoint Kaydedildi: {aor_str} (Dahili: {mapped_ext or aor_str}, IP: {extracted_ip})")
+                print(f"[AMI] Endpoint Kaydedildi: {aor_str} (Dahili: {mapped_ext or aor_str}, IP: {extracted_ip}, UA: {ua_val})")
                 if not mapped_ext:
                     asyncio.create_task(_handle_trunk_health_transition(aor_str, True, f"ContactStatus={status}", extracted_ip))
                 try:
@@ -1120,15 +1172,16 @@ async def get_ami_manager() -> Manager:
                 res = await asyncio.wait_for(mgr.send_action({"Action": "PJSIPShowContacts"}), timeout=2.5)
                 for r in _iter_ami_responses(res):
                     if hasattr(r, "get") and r.get('Event') == 'ContactList':
-                        aor = r.get('AOR') or r.get('Endpoint') or r.get('ObjectName')
-                        status = r.get('Status') or r.get('ContactStatus')
-                        uri = r.get('URI') or r.get('ViaAddress') or ""
-                        ua_val = str(r.get('UserAgent') or "").strip()
-                        import re
-                        ip_match = re.search(r'\b(?:\d{1,3}\.){3}\d{1,3}\b', uri)
-                        extracted_ip = ip_match.group(0) if ip_match else ""
-                        if aor and status in ["Reachable", "Created", "Registered", "NonQualified", "Avail"]:
-                            registered_endpoints.add(str(aor).strip(), extracted_ip, user_agent=ua_val)
+                        raw_aor = str(r.get('AOR') or r.get('Endpoint') or r.get('ObjectName') or "").strip()
+                        aor = raw_aor.split(";@")[0].split("/")[0].strip()
+                        status = str(r.get('Status') or r.get('ContactStatus') or "").strip()
+                        uri = str(r.get('URI') or r.get('Uri') or "")
+                        path_val = str(r.get('Path') or "")
+                        via_val = str(r.get('ViaAddress') or r.get('ViaAddr') or "")
+                        ua_val = str(r.get('UserAgent') or r.get('User-Agent') or "").strip()
+                        extracted_ip = _extract_real_sip_ip(uri=uri, path=path_val, via_addr=via_val)
+                        if aor and status in ["Reachable", "Created", "Registered", "NonQualified", "NonQual", "Avail", "Available"]:
+                            registered_endpoints.add(aor, extracted_ip, user_agent=ua_val)
             except Exception as ex:
                 print(f"[AMI] Error fetching initial contacts: {ex}")
             # Also sync legacy chan_sip (Cisco UseCallManager) peers if chan_sip is loaded
@@ -1154,42 +1207,144 @@ async def get_ami_manager() -> Manager:
 _last_pjsip_contacts_sync_ts = 0.0
 
 
+def _sync_asterisk_cli_contacts_sync():
+    """
+    Fast Asterisk CLI fallback/enrichment for live PJSIP & chan_sip contacts.
+    Guarantees real deskphone IP (parsed from Kamailio `Path` received=sip:...) and live `user_agent`
+    (e.g. 'Yealink SIP-T42S 66.86.0.160') even when AMI ContactList omits Path/UserAgent.
+    """
+    import re
+    import shutil
+    import subprocess
+
+    ast_bin = shutil.which("asterisk")
+    if not ast_bin:
+        return
+
+    try:
+        r_list = subprocess.run([ast_bin, "-rx", "pjsip show contacts"], capture_output=True, text=True, timeout=2.0)
+        if r_list.returncode == 0 and r_list.stdout:
+            for ln in r_list.stdout.splitlines():
+                s = ln.strip()
+                if not s.startswith("Contact:"):
+                    continue
+                parts = s.split()
+                if len(parts) < 4:
+                    continue
+                aor_uri = parts[1]
+                status = parts[3] if len(parts) > 3 else ""
+                if "/" not in aor_uri:
+                    continue
+                aor_name, uri_part = aor_uri.split("/", 1)
+                aor_name = aor_name.strip()
+                if not aor_name:
+                    continue
+                if status.lower() not in ("avail", "nonqual", "nonqualified", "created", "reachable", "registered"):
+                    continue
+                cur_ip = registered_endpoints.get_ip(aor_name)
+                cur_meta = registered_endpoints._meta.get(aor_name) or {}
+                cur_ua = str(cur_meta.get("user_agent") or "").strip()
+                ext_ip = _extract_real_sip_ip(uri=uri_part)
+                ua_found = cur_ua
+                # If contact is routed via Kamailio (10.200.0.1) or lacks UserAgent, query `pjsip show contact`
+                needs_detail = (not cur_ua) or (ext_ip in ("", "10.200.0.1") and cur_ip in ("", "10.200.0.1"))
+                if needs_detail:
+                    contact_hash = parts[2].strip() if len(parts) > 2 else ""
+                    # Asterisk contact object key in `pjsip show contact` is `<aor>;@<hash>` or `<aor>/sip:...`
+                    c_lookup = f"{aor_name};@{contact_hash}" if contact_hash and len(contact_hash) >= 6 else aor_uri
+                    try:
+                        r_det = subprocess.run([ast_bin, "-rx", f"pjsip show contact {c_lookup}"], capture_output=True, text=True, timeout=1.5)
+                        if r_det.returncode != 0 or "Unable to find" in (r_det.stdout or ""):
+                            r_det = subprocess.run([ast_bin, "-rx", f"pjsip show aor {aor_name}"], capture_output=True, text=True, timeout=1.5)
+                        det_txt = r_det.stdout or ""
+                        m_ua = re.search(r"(?mi)^\s*user_agent\s*:\s*(.+)$", det_txt)
+                        if m_ua and m_ua.group(1).strip():
+                            ua_found = m_ua.group(1).strip()
+                        m_path = re.search(r"(?mi)^\s*path\s*:\s*(.+)$", det_txt)
+                        m_via = re.search(r"(?mi)^\s*via_addr\s*:\s*(.+)$", det_txt)
+                        m_uri = re.search(r"(?mi)^\s*uri\s*:\s*(.+)$", det_txt)
+                        better_ip = _extract_real_sip_ip(
+                            uri=m_uri.group(1).strip() if m_uri else uri_part,
+                            path=m_path.group(1).strip() if m_path else "",
+                            via_addr=m_via.group(1).strip() if m_via else "",
+                        )
+                        if better_ip:
+                            ext_ip = better_ip
+                    except Exception:
+                        pass
+                registered_endpoints.add(aor_name, ext_ip, user_agent=ua_found)
+    except Exception:
+        pass
+
+    # Also check legacy chan_sip (Cisco UseCallManager) peers via CLI if loaded
+    try:
+        r_sip = subprocess.run([ast_bin, "-rx", "sip show peers"], capture_output=True, text=True, timeout=1.5)
+        if r_sip.returncode == 0 and r_sip.stdout and "No such command" not in r_sip.stdout:
+            for ln in r_sip.stdout.splitlines():
+                m_sp = re.match(r"^\s*([A-Za-z0-9_.-]+)(?:/[^\s]+)?\s+((?:\d{1,3}\.){3}\d{1,3})\s+.*\bOK\s*\(", ln)
+                if m_sp:
+                    p_name = m_sp.group(1).strip()
+                    p_ip = m_sp.group(2).strip()
+                    cur_ua = str((registered_endpoints._meta.get(p_name) or {}).get("user_agent") or "").strip()
+                    if not cur_ua or cur_ua.lower() == "cisco/chan_sip":
+                        try:
+                            r_p = subprocess.run([ast_bin, "-rx", f"sip show peer {p_name}"], capture_output=True, text=True, timeout=1.2)
+                            m_pua = re.search(r"(?mi)^\s*Useragent\s*:\s*(.+)$", r_p.stdout or "")
+                            if m_pua and m_pua.group(1).strip():
+                                cur_ua = m_pua.group(1).strip()
+                        except Exception:
+                            pass
+                    registered_endpoints.add(p_name, p_ip, user_agent=cur_ua or "Cisco/chan_sip")
+    except Exception:
+        pass
+
+
 async def sync_pjsip_contacts_live(max_age_sec: float = 4.0):
     global _last_pjsip_contacts_sync_ts
     import time
-    import re
     now_m = time.monotonic()
     if (now_m - _last_pjsip_contacts_sync_ts) < max_age_sec:
         return
     _last_pjsip_contacts_sync_ts = now_m
     mgr = manager_instance
     if not mgr:
-        return
+        try:
+            mgr = await asyncio.wait_for(get_ami_manager(), timeout=2.0)
+        except Exception:
+            mgr = None
+    if mgr:
+        try:
+            res = await asyncio.wait_for(mgr.send_action({"Action": "PJSIPShowContacts"}), timeout=1.5)
+            for r in _iter_ami_responses(res):
+                if hasattr(r, "get") and r.get('Event') == 'ContactList':
+                    raw_aor = str(r.get('AOR') or r.get('Endpoint') or r.get('ObjectName') or "").strip()
+                    aor = raw_aor.split(";@")[0].split("/")[0].strip()
+                    status = str(r.get('Status') or r.get('ContactStatus') or "").strip()
+                    uri = str(r.get('URI') or r.get('Uri') or "")
+                    path_val = str(r.get('Path') or "")
+                    via_val = str(r.get('ViaAddress') or r.get('ViaAddr') or "")
+                    ua_val = str(r.get('UserAgent') or r.get('User-Agent') or "").strip()
+                    extracted_ip = _extract_real_sip_ip(uri=uri, path=path_val, via_addr=via_val)
+                    if aor and status in ["Reachable", "Created", "Registered", "NonQualified", "NonQual", "Avail", "Available"]:
+                        registered_endpoints.add(aor, extracted_ip, user_agent=ua_val)
+        except Exception:
+            pass
+        try:
+            res_sip = await asyncio.wait_for(mgr.send_action({"Action": "SIPpeers"}), timeout=1.5)
+            for r in _iter_ami_responses(res_sip):
+                if hasattr(r, "get") and r.get('Event') == 'PeerEntry':
+                    p_obj = str(r.get('ObjectName') or "").strip()
+                    p_st = str(r.get('Status') or "").strip()
+                    p_ip = str(r.get('IPaddress') or "").strip()
+                    if p_ip in ("-none-", "0.0.0.0"):
+                        p_ip = ""
+                    if p_obj and (p_st.upper().startswith("OK") or (p_ip and p_st.upper() not in ("UNREACHABLE", "UNKNOWN", "UNMONITORED"))):
+                        registered_endpoints.add(p_obj, p_ip, user_agent="Cisco/chan_sip")
+        except Exception:
+            pass
+    # Run lightweight CLI enrichment for real Kamailio Path IP & live phone User-Agent (brand/model)
     try:
-        res = await asyncio.wait_for(mgr.send_action({"Action": "PJSIPShowContacts"}), timeout=1.5)
-        for r in _iter_ami_responses(res):
-            if hasattr(r, "get") and r.get('Event') == 'ContactList':
-                aor = str(r.get('AOR') or r.get('Endpoint') or r.get('ObjectName') or "").strip()
-                status = str(r.get('Status') or r.get('ContactStatus') or "").strip()
-                uri = str(r.get('URI') or r.get('ViaAddress') or "")
-                ua_val = str(r.get('UserAgent') or "").strip()
-                ip_match = re.search(r'\b(?:\d{1,3}\.){3}\d{1,3}\b', uri)
-                extracted_ip = ip_match.group(0) if ip_match else ""
-                if aor and status in ["Reachable", "Created", "Registered", "NonQualified", "Avail"]:
-                    registered_endpoints.add(aor, extracted_ip, user_agent=ua_val)
-    except Exception:
-        pass
-    try:
-        res_sip = await asyncio.wait_for(mgr.send_action({"Action": "SIPpeers"}), timeout=1.5)
-        for r in _iter_ami_responses(res_sip):
-            if hasattr(r, "get") and r.get('Event') == 'PeerEntry':
-                p_obj = str(r.get('ObjectName') or "").strip()
-                p_st = str(r.get('Status') or "").strip()
-                p_ip = str(r.get('IPaddress') or "").strip()
-                if p_ip in ("-none-", "0.0.0.0"):
-                    p_ip = ""
-                if p_obj and (p_st.upper().startswith("OK") or (p_ip and p_st.upper() not in ("UNREACHABLE", "UNKNOWN", "UNMONITORED"))):
-                    registered_endpoints.add(p_obj, p_ip, user_agent="Cisco/chan_sip")
+        await asyncio.to_thread(_sync_asterisk_cli_contacts_sync)
     except Exception:
         pass
 
