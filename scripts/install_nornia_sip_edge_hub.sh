@@ -157,7 +157,7 @@ if [[ -f /etc/default/rtpengine-daemon ]]; then
 fi
 
 RTP_SVC=""
-for svc in rtpengine ngcp-rtpengine-daemon rtpengine-daemon; do
+for svc in rtpengine-daemon ngcp-rtpengine-daemon rtpengine; do
   if systemctl list-unit-files | grep -q "^${svc}\.service"; then
     RTP_SVC="$svc"
     break

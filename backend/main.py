@@ -5788,6 +5788,14 @@ same => n,Hangup()
 ; Çağrı Yönlendirme (Her Zaman, Meşgulde, Zaman Aşımında, İptal Kodu) Prefix'leri
 {dynamic_feature_dialplan}
 
+; Ses ve Yankı Testi (Echo Test — *43)
+exten => *43,1,NoOp(Ses ve Yanki Testi [*43]: Kanal=${{CHANNEL(name)}}, Arayan=${{CALLERID(num)}})
+same => n,Answer()
+same => n,Wait(0.5)
+same => n,Playback(beep)
+same => n,Echo()
+same => n,Hangup()
+
 ; +90 veya + ile başlayan dış hat aramalarını başında + olmadan yönlendir
 exten => _+X.,1,Goto(webrtc_agents,${{EXTEN:1}},1)
 
@@ -40051,18 +40059,36 @@ async def get_system_version_info():
         pass
 
     return {
-        "version": "v3.5.5",
+        "version": "v3.5.6",
         "commit_hash": live_commit,
         "release_date": "21 Kasım 2026",
         "status": "Güncel / Canlı Sürüm",
         "environment": "Production (On-Premise)",
         "changelog": [
             {
-                "version": "v3.5.5",
+                "version": "v3.5.6",
                 "commit_hash": live_commit,
                 "release_date": "21 Kasım 2026",
                 "badge": "Canlı Sürüm (Güncel)",
                 "badge_type": "current",
+                "title": "Dahili Ses & Yankı Testi (*43 Echo Test) & RTPEngine Servis Yeniden Başlatma Fix",
+                "summary": "WebPhone ve masa telefonlarının çift yönlü ses yolunu dış hatta ihtiyaç duymadan anında test edebilmek için standart *43 Ses & Yankı Testi (Echo) eklendi; Hub kurulum betiğinde Ubuntu rtpengine-daemon servis yeniden başlatma sırası düzeltildi.",
+                "features": [
+                    {
+                        "title": "Dahili *43 Ses & Yankı Testi (Echo Test)",
+                        "desc": "Herhangi bir WebPhone veya masa telefonundan *43 tuşlandığında santral çağrıyı yanıtlar, bip sesi çalar ve mikrofon sesini canlı olarak geri yansıtır."
+                    }
+                ],
+                "fixes": [
+                    "install_nornia_sip_edge_hub.sh betiğinde rtpengine-daemon servisi önceliklendirilerek yapılandırma değişikliklerinin anında devreye girmesi sağlandı."
+                ]
+            },
+            {
+                "version": "v3.5.5",
+                "commit_hash": "e5c4afd",
+                "release_date": "21 Kasım 2026",
+                "badge": "Önceki Sürüm",
+                "badge_type": "stable",
                 "title": "Asterisk PJSIP Path Route Koruma (PJSIP_DIAL_CONTACTS Fix) & Kamailio TCP Reuse Fix",
                 "summary": "Web Telefonu'ndan uzak SIP Edge masa telefonunu ararken Asterisk PJSIP_DIAL_CONTACTS() fonksiyonunun Path Route başlığını düşürmesi sorunu çözüldü; SIP Edge aktif santrallerde tüm masa telefonlarında rewrite_contact=no otomatikleştirildi ve Kamailio TCP soket çakışması giderildi.",
                 "features": [],

@@ -1889,6 +1889,14 @@ same => n(hangup_transfer),Hangup()
 
 __WEBRTC_FEATURES_BLOCK__
 
+; Ses ve Yankı Testi (Echo Test — *43)
+exten => *43,1,NoOp(Ses ve Yanki Testi [*43]: Kanal=${CHANNEL(name)}, Arayan=${CALLERID(num)})
+same => n,Answer()
+same => n,Wait(0.5)
+same => n,Playback(beep)
+same => n,Echo()
+same => n,Hangup()
+
 ; +90 veya + ile başlayan dış hat aramalarını başında + olmadan yönlendir
 exten => _+X.,1,Goto(webrtc_agents,${EXTEN:1},1)
 
