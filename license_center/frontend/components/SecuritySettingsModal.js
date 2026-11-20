@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { Shield, ShieldAlert, ShieldCheck, Clock, Lock, Unlock, Plus, Trash2, X, Check, AlertTriangle, Globe, Smartphone, Key } from "lucide-react";
+import { Shield, ShieldAlert, ShieldCheck, Clock, Lock, Unlock, Plus, Trash2, X, Check, AlertTriangle, Globe, Smartphone, Key, Mail, Send } from "lucide-react";
 
 export default function SecuritySettingsModal({ isOpen, onClose, currentUser, onPolicyUpdated, onOpenUser2FA }) {
   const [loading, setLoading] = useState(false);
@@ -13,6 +13,19 @@ export default function SecuritySettingsModal({ isOpen, onClose, currentUser, on
   const [blockedIps, setBlockedIps] = useState([]);
   const [totpSummary, setTotpSummary] = useState({ total_users: 0, enabled_users: 0, users: [] });
   const [statusMsg, setStatusMsg] = useState("");
+
+  // Central SMTP Settings for E-Mail 2FA
+  const [smtpHost, setSmtpHost] = useState("");
+  const [smtpPort, setSmtpPort] = useState(587);
+  const [smtpUser, setSmtpUser] = useState("");
+  const [smtpPassword, setSmtpPassword] = useState("");
+  const [smtpFromEmail, setSmtpFromEmail] = useState("");
+  const [smtpUseTls, setSmtpUseTls] = useState(true);
+  const [hasSmtpPassword, setHasSmtpPassword] = useState(false);
+  const [smtpConfigured, setSmtpConfigured] = useState(false);
+  const [smtpTestEmail, setSmtpTestEmail] = useState("");
+  const [smtpTesting, setSmtpTesting] = useState(false);
+  const [smtpFeedback, setSmtpFeedback] = useState(null); // { type: 'ok'|'err', text }
 
   // Manual IP Ban Modal
   const [showBanModal, setShowBanModal] = useState(false);
@@ -41,6 +54,17 @@ export default function SecuritySettingsModal({ isOpen, onClose, currentUser, on
           setBlockDurationMinutes(data.policy.block_duration_minutes ?? 60);
           setAutoLogoutMinutes(data.policy.auto_logout_minutes ?? 15);
           setWhitelistedIps(Array.isArray(data.policy.whitelisted_ips) ? data.policy.whitelisted_ips : []);
+          setSmtpHost(data.policy.smtp_host || "");
+          setSmtpPort(data.policy.smtp_port ?? 587);
+          setSmtpUser(data.policy.smtp_user || "");
+          setSmtpFromEmail(data.policy.smtp_from_email || "");
+          setSmtpUseTls(data.policy.smtp_use_tls !== false);
+          setHasSmtpPassword(Boolean(data.policy.has_smtp_password));
+          setSmtpConfigured(Boolean(data.policy.smtp_configured));
+          setSmtpPassword("");
+        }
+        if (!smtpTestEmail && currentUser?.email) {
+          setSmtpTestEmail(currentUser.email);
         }
         setBlockedIps(Array.isArray(data.blocked_ips) ? data.blocked_ips : []);
         if (data.totp_summary) {
@@ -69,12 +93,21 @@ export default function SecuritySettingsModal({ isOpen, onClose, currentUser, on
           max_failed_attempts: Number(maxFailedAttempts) || 5,
           block_duration_minutes: Number(blockDurationMinutes) || 60,
           auto_logout_minutes: Number(autoLogoutMinutes) || 0,
-          whitelisted_ips: wlToSave
+          whitelisted_ips: wlToSave,
+          smtp_host: smtpHost.trim(),
+          smtp_port: Number(smtpPort) || 587,
+          smtp_user: smtpUser.trim(),
+          smtp_password: smtpPassword.trim(),
+          smtp_from_email: smtpFromEmail.trim(),
+          smtp_use_tls: smtpUseTls
         })
       });
       if (res.ok) {
         const data = await res.json();
-        setStatusMsg("Güvenlik politikası başarıyla kaydedildi.");
+        setStatusMsg("Güvenlik ve SMTP politikası başarıyla kaydedildi.");
+        setSmtpPassword("");
+        setHasSmtpPassword(Boolean(data.policy?.has_smtp_password));
+        setSmtpConfigured(Boolean(data.policy?.smtp_configured));
         sessionStorage.setItem("master_auto_logout_mins", String(data.policy.auto_logout_minutes));
         if (onPolicyUpdated) {
           onPolicyUpdated(data.policy);
@@ -85,6 +118,43 @@ export default function SecuritySettingsModal({ isOpen, onClose, currentUser, on
       console.error("Save policy error:", e);
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleTestSmtp = async () => {
+    const cleanTo = (smtpTestEmail || currentUser?.email || "").trim();
+    if (!cleanTo || !cleanTo.includes("@")) {
+      setSmtpFeedback({ type: "err", text: "Test için geçerli bir alıcı e-posta adresi giriniz." });
+      return;
+    }
+    setSmtpTesting(true);
+    setSmtpFeedback(null);
+    try {
+      const res = await fetch("/api/v1/security/smtp-test", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-User-Name": currentUser?.username || "admin"
+        },
+        body: JSON.stringify({
+          to_email: cleanTo,
+          smtp_host: smtpHost.trim(),
+          smtp_port: Number(smtpPort) || 587,
+          smtp_user: smtpUser.trim(),
+          smtp_password: smtpPassword.trim(),
+          smtp_from_email: smtpFromEmail.trim(),
+          smtp_use_tls: smtpUseTls
+        })
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(data.detail || "Test e-postası gönderilemedi.");
+      }
+      setSmtpFeedback({ type: "ok", text: data.message || `Test e-postası ${cleanTo} adresine gönderildi.` });
+    } catch (e) {
+      setSmtpFeedback({ type: "err", text: e.message || "SMTP bağlantı hatası." });
+    } finally {
+      setSmtpTesting(false);
     }
   };
 
@@ -199,7 +269,7 @@ export default function SecuritySettingsModal({ isOpen, onClose, currentUser, on
                   </span>
                 </div>
                 <p className="text-[11px] text-slate-500">
-                  Her kullanıcı için ayrı ayrı Google / Microsoft Authenticator 2FA açıp kapatabilirsiniz.
+                  Her kullanıcı için ayrı ayrı Google/Microsoft Authenticator ve/veya E-Posta OTP 2FA açıp kapatabilirsiniz.
                 </p>
               </div>
               {onOpenUser2FA && (
@@ -216,31 +286,187 @@ export default function SecuritySettingsModal({ isOpen, onClose, currentUser, on
 
             {Array.isArray(totpSummary.users) && totpSummary.users.length > 0 && (
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                {totpSummary.users.map((u) => (
-                  <div
-                    key={u.id}
-                    className="px-3 py-2 rounded-xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 flex items-center justify-between gap-2"
-                  >
-                    <div className="min-w-0">
-                      <div className="font-extrabold text-slate-800 dark:text-slate-100 truncate">
-                        {u.full_name}{" "}
-                        <span className="font-mono text-[10px] text-slate-400">@{u.username}</span>
-                      </div>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => onOpenUser2FA && onOpenUser2FA(u.id)}
-                      className={`px-2.5 py-1 rounded-lg text-[10px] font-extrabold border flex items-center gap-1 shrink-0 cursor-pointer transition-colors ${
-                        u.totp_enabled
-                          ? "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border-emerald-500/30 hover:bg-emerald-500/25"
-                          : "bg-indigo-500/10 text-indigo-600 dark:text-indigo-300 border-indigo-500/25 hover:bg-indigo-600 hover:text-white"
-                      }`}
+                {totpSummary.users.map((u) => {
+                  const activeAny = Boolean(u.totp_enabled || u.email_2fa_enabled);
+                  const methodLabels = [
+                    u.totp_enabled ? "Auth" : null,
+                    u.email_2fa_enabled ? "E-Posta" : null
+                  ].filter(Boolean);
+                  return (
+                    <div
+                      key={u.id}
+                      className="px-3 py-2 rounded-xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 flex items-center justify-between gap-2"
                     >
-                      {u.totp_enabled ? <ShieldCheck size={11} /> : <Key size={11} />}
-                      <span>{u.totp_enabled ? "2FA Açık (Yönet)" : "2FA Aç / Kur"}</span>
-                    </button>
-                  </div>
-                ))}
+                      <div className="min-w-0">
+                        <div className="font-extrabold text-slate-800 dark:text-slate-100 truncate">
+                          {u.full_name}{" "}
+                          <span className="font-mono text-[10px] text-slate-400">@{u.username}</span>
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => onOpenUser2FA && onOpenUser2FA(u.id)}
+                        className={`px-2.5 py-1 rounded-lg text-[10px] font-extrabold border flex items-center gap-1 shrink-0 cursor-pointer transition-colors ${
+                          activeAny
+                            ? "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border-emerald-500/30 hover:bg-emerald-500/25"
+                            : "bg-indigo-500/10 text-indigo-600 dark:text-indigo-300 border-indigo-500/25 hover:bg-indigo-600 hover:text-white"
+                        }`}
+                      >
+                        {activeAny ? <ShieldCheck size={11} /> : <Key size={11} />}
+                        <span>
+                          {activeAny ? `2FA (${methodLabels.join(" + ")})` : "2FA Aç / Kur"}
+                        </span>
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+
+          {/* 0.5 Central SMTP Settings for E-Mail 2FA */}
+          <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-950/70 border border-slate-200/80 dark:border-slate-800 space-y-3.5">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <div className="font-extrabold text-slate-800 dark:text-slate-200 uppercase tracking-wider flex items-center gap-2">
+                  <Mail size={15} className="text-sky-500" />
+                  <span>E-Posta (SMTP) Sunucu Ayarları (2FA Kod Gönderimi)</span>
+                  <span
+                    className={`px-2 py-0.5 rounded-full text-[10px] font-extrabold ${
+                      smtpConfigured
+                        ? "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400"
+                        : "bg-amber-500/15 text-amber-600 dark:text-amber-400"
+                    }`}
+                  >
+                    {smtpConfigured ? "BAĞLI" : "YAPILANDIRILMADI"}
+                  </span>
+                </div>
+                <p className="text-[11px] text-slate-500">
+                  E-Posta 2FA doğrulama kodlarının gönderileceği kurumsal SMTP sunucu bilgilerini tanımlayın.
+                </p>
+              </div>
+              <button
+                type="button"
+                disabled={saving}
+                onClick={() => handleSavePolicy(null)}
+                className="px-4 py-2 rounded-xl bg-sky-600 hover:bg-sky-500 text-white font-extrabold cursor-pointer shadow-sm"
+              >
+                {saving ? "Kaydediliyor..." : "SMTP Kaydet"}
+              </button>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+              <div>
+                <label className="block font-bold text-slate-600 dark:text-slate-400 mb-1">
+                  SMTP Sunucusu (Host)
+                </label>
+                <input
+                  type="text"
+                  value={smtpHost}
+                  onChange={(e) => setSmtpHost(e.target.value)}
+                  placeholder="Örn: smtp.gmail.com veya mail.nornia.com.tr"
+                  className="w-full px-3 py-2 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 font-mono text-slate-900 dark:text-white"
+                />
+              </div>
+
+              <div>
+                <label className="block font-bold text-slate-600 dark:text-slate-400 mb-1">
+                  Port (587 TLS / 465 SSL)
+                </label>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="number"
+                    value={smtpPort}
+                    onChange={(e) => setSmtpPort(Number(e.target.value))}
+                    className="w-24 px-3 py-2 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 font-mono text-slate-900 dark:text-white"
+                  />
+                  <label className="flex items-center gap-1.5 text-[11px] font-bold text-slate-600 dark:text-slate-300 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={smtpUseTls}
+                      onChange={(e) => setSmtpUseTls(e.target.checked)}
+                      className="rounded accent-sky-600"
+                    />
+                    <span>TLS / SSL</span>
+                  </label>
+                </div>
+              </div>
+
+              <div>
+                <label className="block font-bold text-slate-600 dark:text-slate-400 mb-1">
+                  Gönderen E-Posta (From)
+                </label>
+                <input
+                  type="email"
+                  value={smtpFromEmail}
+                  onChange={(e) => setSmtpFromEmail(e.target.value)}
+                  placeholder="Örn: noreply@nornia.com.tr"
+                  className="w-full px-3 py-2 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white"
+                />
+              </div>
+
+              <div>
+                <label className="block font-bold text-slate-600 dark:text-slate-400 mb-1">
+                  SMTP Kullanıcı Adı
+                </label>
+                <input
+                  type="text"
+                  value={smtpUser}
+                  onChange={(e) => setSmtpUser(e.target.value)}
+                  placeholder="Örn: noreply@nornia.com.tr"
+                  className="w-full px-3 py-2 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 font-mono text-slate-900 dark:text-white"
+                />
+              </div>
+
+              <div>
+                <label className="block font-bold text-slate-600 dark:text-slate-400 mb-1">
+                  SMTP Şifre / Uygulama Şifresi
+                </label>
+                <input
+                  type="password"
+                  value={smtpPassword}
+                  onChange={(e) => setSmtpPassword(e.target.value)}
+                  placeholder={hasSmtpPassword ? "•••••••• (Kayıtlı — değiştirmek için yazın)" : "SMTP şifresi"}
+                  className="w-full px-3 py-2 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 font-mono text-slate-900 dark:text-white"
+                />
+              </div>
+
+              <div>
+                <label className="block font-bold text-slate-600 dark:text-slate-400 mb-1">
+                  SMTP Test E-Postası Gönder
+                </label>
+                <div className="flex items-center gap-1.5">
+                  <input
+                    type="email"
+                    value={smtpTestEmail}
+                    onChange={(e) => setSmtpTestEmail(e.target.value)}
+                    placeholder="test@nornia.com.tr"
+                    className="flex-1 min-w-0 px-3 py-2 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white"
+                  />
+                  <button
+                    type="button"
+                    disabled={smtpTesting}
+                    onClick={handleTestSmtp}
+                    className="px-3 py-2 rounded-xl bg-slate-800 dark:bg-slate-700 hover:bg-sky-600 text-white font-extrabold flex items-center gap-1 shrink-0 cursor-pointer transition-colors disabled:opacity-50"
+                    title="Test 2FA E-Postası Gönder"
+                  >
+                    <Send size={12} />
+                    <span>{smtpTesting ? "..." : "Test"}</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            {smtpFeedback && (
+              <div
+                className={`p-2.5 rounded-xl border text-[11px] font-extrabold flex items-center gap-2 ${
+                  smtpFeedback.type === "ok"
+                    ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-700 dark:text-emerald-300"
+                    : "bg-rose-50 dark:bg-rose-950/60 border-rose-200 dark:border-rose-800 text-rose-600 dark:text-rose-400"
+                }`}
+              >
+                {smtpFeedback.type === "ok" ? <Check size={14} /> : <AlertTriangle size={14} />}
+                <span>{smtpFeedback.text}</span>
               </div>
             )}
           </div>

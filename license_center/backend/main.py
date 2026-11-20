@@ -4,11 +4,16 @@ import time
 import hmac
 import base64
 import struct
+import secrets
+import smtplib
+import ssl
 import urllib.parse
 import datetime
 import asyncio
 import hashlib
 import json
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
 from typing import List, Optional, Dict, Any
 from fastapi import FastAPI, Depends, HTTPException, Request, Body
 from fastapi.middleware.cors import CORSMiddleware
@@ -363,16 +368,196 @@ class MasterUserCreateSchema(BaseModel):
     performed_by: Optional[str] = "admin"
 
 # --------------------------------------------------------------------------
-# Auth, 2FA (TOTP), Brute-Force Guard & User Management Endpoints
+# E-Mail 2FA OTP Engine & Central SMTP Mailer
+# --------------------------------------------------------------------------
+_MASTER_EMAIL_OTP_STORE: Dict[str, Dict[str, Any]] = {}
+
+
+def mask_email_address(email_str: str) -> str:
+    raw = str(email_str or "").strip()
+    if "@" not in raw:
+        return raw
+    local, domain = raw.split("@", 1)
+    if len(local) <= 2:
+        masked_local = (local[0] + "***") if local else "***"
+    else:
+        masked_local = local[:2] + "***" + local[-1]
+    return f"{masked_local}@{domain}"
+
+
+def generate_master_email_otp(cache_key: str, email_str: str, ttl_seconds: int = 300) -> Dict[str, Any]:
+    code = str(secrets.randbelow(900000) + 100000)
+    now = time.time()
+    _MASTER_EMAIL_OTP_STORE[cache_key] = {
+        "code": code,
+        "email": str(email_str or "").strip(),
+        "sent_at": now,
+        "expires_at": now + ttl_seconds,
+    }
+    return {
+        "code": code,
+        "expires_in": ttl_seconds,
+        "masked_email": mask_email_address(email_str),
+    }
+
+
+def verify_master_email_otp(cache_key: str, code: str, consume: bool = True) -> bool:
+    if not cache_key or not code:
+        return False
+    clean_code = "".join(ch for ch in str(code).strip() if ch.isdigit())
+    if len(clean_code) != 6:
+        return False
+    entry = _MASTER_EMAIL_OTP_STORE.get(cache_key)
+    if not entry:
+        return False
+    if time.time() > float(entry.get("expires_at", 0)):
+        _MASTER_EMAIL_OTP_STORE.pop(cache_key, None)
+        return False
+    if hmac.compare_digest(str(entry.get("code", "")), clean_code):
+        if consume:
+            _MASTER_EMAIL_OTP_STORE.pop(cache_key, None)
+        return True
+    return False
+
+
+def resolve_master_smtp_config(pol: Optional[MasterSecurityPolicy]) -> Dict[str, Any]:
+    host = ((pol.smtp_host if pol else "") or os.getenv("SMTP_HOST") or "").strip()
+    port = int((pol.smtp_port if pol and pol.smtp_port else 0) or os.getenv("SMTP_PORT") or 587)
+    user = ((pol.smtp_user if pol else "") or os.getenv("SMTP_USER") or "").strip()
+    password = ((pol.smtp_password if pol else "") or os.getenv("SMTP_PASSWORD") or os.getenv("SMTP_PASS") or "").strip()
+    from_email = ((pol.smtp_from_email if pol else "") or os.getenv("SMTP_FROM") or user or "").strip()
+    use_tls = bool(pol.smtp_use_tls) if (pol and pol.smtp_use_tls is not None) else True
+    return {
+        "host": host,
+        "port": port,
+        "user": user,
+        "password": password,
+        "from_email": from_email,
+        "use_tls": use_tls,
+        "configured": bool(host and user and password),
+    }
+
+
+def _send_smtp_sync(smtp_cfg: Dict[str, Any], to_email: str, subject: str, html_body: str, plain_body: str):
+    msg = MIMEMultipart("alternative")
+    msg["Subject"] = subject
+    sender = smtp_cfg.get("from_email") or smtp_cfg.get("user") or "noreply@nornia.com.tr"
+    msg["From"] = f"Nornia Cloud Center <{sender}>"
+    msg["To"] = to_email
+    msg.attach(MIMEText(plain_body, "plain", "utf-8"))
+    msg.attach(MIMEText(html_body, "html", "utf-8"))
+
+    host = smtp_cfg["host"]
+    port = int(smtp_cfg["port"] or 587)
+    user = smtp_cfg["user"]
+    password = smtp_cfg["password"]
+    use_tls = bool(smtp_cfg.get("use_tls", True))
+
+    context = ssl.create_default_context()
+    if port == 465:
+        with smtplib.SMTP_SSL(host, port, timeout=15, context=context) as server:
+            server.login(user, password)
+            server.sendmail(sender, [to_email], msg.as_string())
+    else:
+        with smtplib.SMTP(host, port, timeout=15) as server:
+            server.ehlo()
+            if use_tls:
+                server.starttls(context=context)
+                server.ehlo()
+            server.login(user, password)
+            server.sendmail(sender, [to_email], msg.as_string())
+
+
+async def send_master_2fa_email_otp(
+    pol: MasterSecurityPolicy,
+    to_email: str,
+    user_name: str,
+    otp_code: str,
+    ttl_seconds: int = 300,
+) -> Dict[str, Any]:
+    clean_to = str(to_email or "").strip()
+    if not clean_to or "@" not in clean_to:
+        return {"ok": False, "error": "Kullanıcıya tanımlı geçerli bir e-posta adresi bulunamadı."}
+
+    smtp_cfg = resolve_master_smtp_config(pol)
+    if not smtp_cfg["configured"]:
+        return {
+            "ok": False,
+            "smtp_missing": True,
+            "error": "SMTP sunucu ayarları henüz yapılmamış. Lütfen Güvenlik Kalkanı → E-Posta (SMTP) Sunucu Ayarları bölümünden SMTP bilgilerini kaydediniz.",
+        }
+
+    tr_now = (datetime.datetime.utcnow() + datetime.timedelta(hours=3)).strftime("%d.%m.%Y %H:%M:%S")
+    mins = max(1, ttl_seconds // 60)
+    subject = f"🔐 [Nornia Cloud Center] 2FA Doğrulama Kodunuz: {otp_code}"
+    plain_body = (
+        f"Merhaba {user_name or 'Kullanıcı'},\n\n"
+        f"Nornia Cloud Center paneline güvenli giriş / 2FA doğrulaması için 6 haneli tek kullanımlık kodunuz:\n\n"
+        f"    {otp_code}\n\n"
+        f"Bu kod {mins} dakika boyunca geçerlidir.\n"
+        f"Tarih/Saat (TR): {tr_now}\n\n"
+        f"Bu işlemi siz başlatmadıysanız lütfen şifrenizi hemen değiştiriniz."
+    )
+    html_body = f"""
+    <html>
+      <body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif; background-color: #f8fafc; padding: 24px; color: #0f172a;">
+        <div style="max-width: 520px; margin: 0 auto; background: #ffffff; border: 1px solid #e2e8f0; border-radius: 18px; overflow: hidden; box-shadow: 0 4px 16px rgba(15, 23, 42, 0.06);">
+          <div style="background: linear-gradient(135deg, #4f46e5, #e11d48); color: #ffffff; padding: 18px 24px; font-weight: 800; font-size: 16px;">
+            🔐 Nornia Cloud Center — İki Aşamalı Doğrulama (2FA)
+          </div>
+          <div style="padding: 24px; line-height: 1.6; font-size: 14px;">
+            <p style="margin-top: 0; color: #334155;">Merhaba <strong>{user_name or 'Kullanıcı'}</strong>,</p>
+            <p style="color: #475569;">Nornia Cloud Center hesabınız için tek kullanımlık 6 haneli doğrulama kodunuz:</p>
+            <div style="background: #f1f5f9; border: 2px dashed #cbd5e1; border-radius: 14px; padding: 18px; text-align: center; margin: 20px 0;">
+              <span style="font-family: 'Courier New', monospace; font-size: 32px; font-weight: 900; letter-spacing: 8px; color: #0f172a;">{otp_code}</span>
+            </div>
+            <p style="font-size: 12px; color: #64748b; margin-bottom: 4px;">⏱️ Bu kod <strong>{mins} dakika</strong> boyunca geçerlidir.</p>
+            <p style="font-size: 12px; color: #94a3b8; margin-top: 0;">Tarih / Saat (TR): {tr_now}</p>
+            <hr style="border: none; border-top: 1px solid #e2e8f0; margin: 18px 0;" />
+            <p style="font-size: 11px; color: #94a3b8; margin-bottom: 0;">Bu işlemi siz başlatmadıysanız lütfen yönetici şifrenizi derhal güncelleyiniz.</p>
+          </div>
+        </div>
+      </body>
+    </html>
+    """
+    try:
+        await asyncio.to_thread(_send_smtp_sync, smtp_cfg, clean_to, subject, html_body, plain_body)
+        return {"ok": True, "masked_email": mask_email_address(clean_to)}
+    except Exception as e:
+        return {"ok": False, "error": f"E-posta gönderilemedi: {str(e)}"}
+
+
+# --------------------------------------------------------------------------
+# Auth, 2FA (TOTP + E-Mail OTP), Brute-Force Guard & User Management Endpoints
 # --------------------------------------------------------------------------
 class Verify2FASchema(BaseModel):
     temp_token: str
     code: str
+    method: Optional[str] = None  # "totp" | "email" | None (auto)
+
+
+class ResendEmail2FASchema(BaseModel):
+    temp_token: str
+
+
+def _serialize_master_user(u: MasterUser) -> Dict[str, Any]:
+    return {
+        "id": u.id,
+        "username": u.username,
+        "full_name": u.full_name,
+        "email": u.email,
+        "role": u.role,
+        "is_active": u.is_active,
+        "totp_enabled": bool(u.totp_enabled),
+        "email_2fa_enabled": bool(getattr(u, "email_2fa_enabled", False)),
+        "last_login_at": u.last_login_at.isoformat() if u.last_login_at else None,
+        "created_at": u.created_at.isoformat() if u.created_at else None,
+    }
 
 
 @app.post("/api/v1/auth/login")
 async def login_master_user(payload: LoginSchema, request: Request, db: AsyncSession = Depends(get_central_db)):
-    """Authenticates central master user with Brute-Force IP protection and 2FA (TOTP) support."""
+    """Authenticates central master user with Brute-Force IP protection and 2FA (TOTP + E-Mail OTP) support."""
     client_ip = extract_client_ip(request)
     pol = await get_or_create_security_policy(db)
     await check_ip_blocked(db, client_ip, pol)
@@ -395,15 +580,38 @@ async def login_master_user(payload: LoginSchema, request: Request, db: AsyncSes
     if not user.is_active:
         raise HTTPException(status_code=403, detail="Bu kullanıcı hesabı pasife alınmıştır.")
 
-    # Check if 2FA (Google Authenticator) is enabled for this user
-    if user.totp_enabled and user.totp_secret:
+    # Check if 2FA (Authenticator TOTP and/or E-Mail OTP) is enabled for this user
+    has_totp = bool(user.totp_enabled and user.totp_secret)
+    has_email = bool(getattr(user, "email_2fa_enabled", False) and user.email)
+    if has_totp or has_email:
+        methods = []
+        if has_totp:
+            methods.append("totp")
+        if has_email:
+            methods.append("email")
+        default_method = "totp" if has_totp else "email"
         temp_token = generate_2fa_temp_token(user.id, user.username)
+
+        email_sent = False
+        email_error = None
+        if default_method == "email":
+            otp_info = generate_master_email_otp(f"login:{user.id}", user.email, ttl_seconds=300)
+            send_res = await send_master_2fa_email_otp(pol, user.email, user.full_name, otp_info["code"], ttl_seconds=300)
+            email_sent = bool(send_res.get("ok"))
+            if not email_sent:
+                email_error = send_res.get("error")
+
         return {
             "success": True,
             "requires_2fa": True,
             "temp_token": temp_token,
             "username": user.username,
             "full_name": user.full_name,
+            "methods": methods,
+            "default_method": default_method,
+            "masked_email": mask_email_address(user.email) if has_email else None,
+            "email_sent": email_sent,
+            "email_error": email_error,
         }
 
     _FAILED_LOGIN_TRACKER.pop(client_ip, None)
@@ -416,21 +624,44 @@ async def login_master_user(payload: LoginSchema, request: Request, db: AsyncSes
         "success": True,
         "requires_2fa": False,
         "auto_logout_minutes": pol.auto_logout_minutes,
-        "user": {
-            "id": user.id,
-            "username": user.username,
-            "full_name": user.full_name,
-            "email": user.email,
-            "role": user.role,
-            "totp_enabled": bool(user.totp_enabled),
-            "last_login_at": user.last_login_at.isoformat() if user.last_login_at else None
-        }
+        "user": _serialize_master_user(user),
+    }
+
+
+@app.post("/api/v1/auth/resend-email-2fa")
+async def resend_master_user_email_2fa(payload: ResendEmail2FASchema, request: Request, db: AsyncSession = Depends(get_central_db)):
+    """Sends or resends the 6-digit E-Mail 2FA OTP during an active login challenge."""
+    client_ip = extract_client_ip(request)
+    pol = await get_or_create_security_policy(db)
+    await check_ip_blocked(db, client_ip, pol)
+
+    uid = verify_2fa_temp_token(payload.temp_token)
+    if not uid:
+        raise HTTPException(status_code=401, detail="2FA doğrulama oturumu süresi doldu. Lütfen tekrar giriş yapınız.")
+
+    res = await db.execute(select(MasterUser).where(MasterUser.id == uid))
+    user = res.scalars().first()
+    if not user or not user.is_active:
+        raise HTTPException(status_code=401, detail="Kullanıcı bulunamadı veya pasif.")
+    if not getattr(user, "email_2fa_enabled", False) or not user.email:
+        raise HTTPException(status_code=400, detail="Bu kullanıcıda E-Posta 2FA aktif değil.")
+
+    otp_info = generate_master_email_otp(f"login:{user.id}", user.email, ttl_seconds=300)
+    send_res = await send_master_2fa_email_otp(pol, user.email, user.full_name, otp_info["code"], ttl_seconds=300)
+    if not send_res.get("ok"):
+        raise HTTPException(status_code=400, detail=send_res.get("error") or "Doğrulama e-postası gönderilemedi.")
+
+    return {
+        "success": True,
+        "masked_email": otp_info["masked_email"],
+        "expires_in": otp_info["expires_in"],
+        "message": f"6 haneli doğrulama kodu {otp_info['masked_email']} adresine gönderildi.",
     }
 
 
 @app.post("/api/v1/auth/verify-2fa")
 async def verify_master_user_2fa(payload: Verify2FASchema, request: Request, db: AsyncSession = Depends(get_central_db)):
-    """Verifies the 6-digit TOTP Authenticator code after password step."""
+    """Verifies the 6-digit TOTP Authenticator or E-Mail OTP code after password step."""
     client_ip = extract_client_ip(request)
     pol = await get_or_create_security_policy(db)
     await check_ip_blocked(db, client_ip, pol)
@@ -444,29 +675,41 @@ async def verify_master_user_2fa(payload: Verify2FASchema, request: Request, db:
     if not user or not user.is_active:
         raise HTTPException(status_code=401, detail="Kullanıcı bulunamadı veya pasif.")
 
-    if not verify_totp_code(user.totp_secret, payload.code):
-        await log_master_action(db, user.username, "USER_2FA_FAILED", f"Hatalı 2FA Authenticator Kodu ({user.username})", client_ip, user.id)
+    req_method = (payload.method or "").strip().lower()
+    verified = False
+    used_method_label = "Authenticator"
+
+    if req_method == "email":
+        if getattr(user, "email_2fa_enabled", False) and verify_master_email_otp(f"login:{user.id}", payload.code, consume=True):
+            verified = True
+            used_method_label = "E-Posta OTP"
+    elif req_method == "totp":
+        if user.totp_enabled and user.totp_secret and verify_totp_code(user.totp_secret, payload.code):
+            verified = True
+            used_method_label = "Authenticator"
+    else:
+        if user.totp_enabled and user.totp_secret and verify_totp_code(user.totp_secret, payload.code):
+            verified = True
+            used_method_label = "Authenticator"
+        elif getattr(user, "email_2fa_enabled", False) and verify_master_email_otp(f"login:{user.id}", payload.code, consume=True):
+            verified = True
+            used_method_label = "E-Posta OTP"
+
+    if not verified:
+        await log_master_action(db, user.username, "USER_2FA_FAILED", f"Hatalı 2FA Kodu ({used_method_label} - {user.username})", client_ip, user.id)
         rem = await record_failed_login_attempt(db, client_ip, user.username, pol)
-        raise HTTPException(status_code=401, detail=f"6 haneli Authenticator doğrulama kodu hatalı. (Kalan deneme hakkı: {rem})")
+        raise HTTPException(status_code=401, detail=f"6 haneli doğrulama kodu hatalı veya süresi dolmuş. (Kalan deneme hakkı: {rem})")
 
     _FAILED_LOGIN_TRACKER.pop(client_ip, None)
     user.last_login_at = datetime.datetime.utcnow()
     await db.commit()
 
-    await log_master_action(db, user.username, "USER_LOGIN_2FA", f"2FA Doğrulaması ile Başarılı Giriş ({user.full_name})", client_ip, user.id)
+    await log_master_action(db, user.username, "USER_LOGIN_2FA", f"2FA ({used_method_label}) ile Başarılı Giriş ({user.full_name})", client_ip, user.id)
 
     return {
         "success": True,
         "auto_logout_minutes": pol.auto_logout_minutes,
-        "user": {
-            "id": user.id,
-            "username": user.username,
-            "full_name": user.full_name,
-            "email": user.email,
-            "role": user.role,
-            "totp_enabled": bool(user.totp_enabled),
-            "last_login_at": user.last_login_at.isoformat() if user.last_login_at else None
-        }
+        "user": _serialize_master_user(user),
     }
 
 
@@ -486,17 +729,7 @@ async def get_master_users(db: AsyncSession = Depends(get_central_db)):
     """Returns list of all central master portal users."""
     res = await db.execute(select(MasterUser).order_by(MasterUser.id.asc()))
     users = res.scalars().all()
-    return [{
-        "id": u.id,
-        "username": u.username,
-        "full_name": u.full_name,
-        "email": u.email,
-        "role": u.role,
-        "is_active": u.is_active,
-        "totp_enabled": bool(u.totp_enabled),
-        "last_login_at": u.last_login_at.isoformat() if u.last_login_at else None,
-        "created_at": u.created_at.isoformat() if u.created_at else None
-    } for u in users]
+    return [_serialize_master_user(u) for u in users]
 
 
 _PENDING_TOTP_SECRETS: Dict[int, str] = {}
@@ -565,7 +798,7 @@ async def enable_master_user_2fa(user_id: int, request: Request, payload: Dict[s
 
 @app.post("/api/v1/users/{user_id}/2fa/disable")
 async def disable_master_user_2fa(user_id: int, request: Request, db: AsyncSession = Depends(get_central_db)):
-    """Disables 2FA for a master user."""
+    """Disables Authenticator (TOTP) 2FA for a master user."""
     res = await db.execute(select(MasterUser).where(MasterUser.id == user_id))
     u = res.scalars().first()
     if not u:
@@ -577,12 +810,92 @@ async def disable_master_user_2fa(user_id: int, request: Request, db: AsyncSessi
     await db.commit()
     performed_by = request.headers.get("X-User-Name", u.username)
     await log_master_action(db, performed_by, "USER_2FA_DISABLED", f"2FA (Google Authenticator) Devre Dışı Bırakıldı: {u.full_name} (@{u.username})", extract_client_ip(request), u.id)
-    return {"success": True, "totp_enabled": False, "message": "2 Aşamalı Doğrulama devre dışı bırakıldı."}
+    return {"success": True, "totp_enabled": False, "message": "Authenticator 2FA devre dışı bırakıldı."}
+
+
+@app.post("/api/v1/users/{user_id}/2fa/email/send-test")
+async def send_master_user_email_2fa_setup_code(user_id: int, request: Request, payload: Dict[str, Any] = Body(default={}), db: AsyncSession = Depends(get_central_db)):
+    """Sends a 6-digit verification code to the user's e-mail address to verify & enable E-Mail 2FA."""
+    res = await db.execute(select(MasterUser).where(MasterUser.id == user_id))
+    u = res.scalars().first()
+    if not u:
+        raise HTTPException(status_code=404, detail="Kullanıcı bulunamadı.")
+
+    target_email = str((payload or {}).get("email") or u.email or "").strip().lower()
+    if not target_email or "@" not in target_email:
+        raise HTTPException(status_code=400, detail="Bu kullanıcı için geçerli bir e-posta adresi tanımlı değil.")
+
+    pol = await get_or_create_security_policy(db)
+    otp_info = generate_master_email_otp(f"setup:{u.id}", target_email, ttl_seconds=300)
+    send_res = await send_master_2fa_email_otp(pol, target_email, u.full_name, otp_info["code"], ttl_seconds=300)
+    if not send_res.get("ok"):
+        raise HTTPException(status_code=400, detail=send_res.get("error") or "Doğrulama e-postası gönderilemedi.")
+
+    return {
+        "success": True,
+        "masked_email": otp_info["masked_email"],
+        "email": target_email,
+        "expires_in": otp_info["expires_in"],
+        "message": f"6 haneli doğrulama kodu {target_email} adresine gönderildi.",
+    }
+
+
+@app.post("/api/v1/users/{user_id}/2fa/email/enable")
+async def enable_master_user_email_2fa(user_id: int, request: Request, payload: Dict[str, Any] = Body(...), db: AsyncSession = Depends(get_central_db)):
+    """Verifies the 6-digit E-Mail OTP code and activates E-Mail 2FA for the user."""
+    res = await db.execute(select(MasterUser).where(MasterUser.id == user_id))
+    u = res.scalars().first()
+    if not u:
+        raise HTTPException(status_code=404, detail="Kullanıcı bulunamadı.")
+
+    code = str((payload or {}).get("code") or "").strip()
+    if not verify_master_email_otp(f"setup:{u.id}", code, consume=True):
+        raise HTTPException(status_code=400, detail="Girilen 6 haneli e-posta doğrulama kodu hatalı veya süresi dolmuş.")
+
+    u.email_2fa_enabled = True
+    await db.commit()
+    performed_by = request.headers.get("X-User-Name", u.username)
+    await log_master_action(db, performed_by, "USER_2FA_EMAIL_ENABLED", f"2FA (E-Posta OTP) Aktifleştirildi: {u.full_name} (@{u.username} - {u.email})", extract_client_ip(request), u.id)
+    return {"success": True, "email_2fa_enabled": True, "message": "E-Posta ile 2 Aşamalı Doğrulama (2FA) başarıyla aktifleştirildi."}
+
+
+@app.post("/api/v1/users/{user_id}/2fa/email/disable")
+async def disable_master_user_email_2fa(user_id: int, request: Request, db: AsyncSession = Depends(get_central_db)):
+    """Disables E-Mail 2FA for a master user."""
+    res = await db.execute(select(MasterUser).where(MasterUser.id == user_id))
+    u = res.scalars().first()
+    if not u:
+        raise HTTPException(status_code=404, detail="Kullanıcı bulunamadı.")
+
+    u.email_2fa_enabled = False
+    _MASTER_EMAIL_OTP_STORE.pop(f"setup:{u.id}", None)
+    _MASTER_EMAIL_OTP_STORE.pop(f"login:{u.id}", None)
+    await db.commit()
+    performed_by = request.headers.get("X-User-Name", u.username)
+    await log_master_action(db, performed_by, "USER_2FA_EMAIL_DISABLED", f"2FA (E-Posta OTP) Devre Dışı Bırakıldı: {u.full_name} (@{u.username})", extract_client_ip(request), u.id)
+    return {"success": True, "email_2fa_enabled": False, "message": "E-Posta 2FA devre dışı bırakıldı."}
 
 
 # --------------------------------------------------------------------------
-# Central Security Shield Endpoints (Brute-Force Policy, Blocked IPs, Auto-Logout)
+# Central Security Shield Endpoints (Brute-Force Policy, Blocked IPs, Auto-Logout, SMTP)
 # --------------------------------------------------------------------------
+def _serialize_security_policy(pol: MasterSecurityPolicy) -> Dict[str, Any]:
+    smtp_cfg = resolve_master_smtp_config(pol)
+    return {
+        "max_failed_attempts": pol.max_failed_attempts,
+        "block_duration_minutes": pol.block_duration_minutes,
+        "auto_logout_minutes": pol.auto_logout_minutes,
+        "whitelisted_ips": parse_whitelisted_ips(pol),
+        "smtp_host": pol.smtp_host or "",
+        "smtp_port": pol.smtp_port or 587,
+        "smtp_user": pol.smtp_user or "",
+        "smtp_from_email": pol.smtp_from_email or "",
+        "smtp_use_tls": bool(pol.smtp_use_tls) if pol.smtp_use_tls is not None else True,
+        "has_smtp_password": bool(pol.smtp_password),
+        "smtp_configured": smtp_cfg["configured"],
+    }
+
+
 @app.get("/api/v1/security/settings")
 async def get_central_security_settings(request: Request, db: AsyncSession = Depends(get_central_db)):
     pol = await get_or_create_security_policy(db)
@@ -621,22 +934,19 @@ async def get_central_security_settings(request: Request, db: AsyncSession = Dep
         "id": u.id,
         "username": u.username,
         "full_name": u.full_name,
+        "email": u.email,
         "role": u.role,
         "totp_enabled": bool(u.totp_enabled),
+        "email_2fa_enabled": bool(getattr(u, "email_2fa_enabled", False)),
     } for u in all_users]
 
     return {
         "client_ip": extract_client_ip(request),
-        "policy": {
-            "max_failed_attempts": pol.max_failed_attempts,
-            "block_duration_minutes": pol.block_duration_minutes,
-            "auto_logout_minutes": pol.auto_logout_minutes,
-            "whitelisted_ips": parse_whitelisted_ips(pol),
-        },
+        "policy": _serialize_security_policy(pol),
         "blocked_ips": active_blks,
         "totp_summary": {
             "total_users": len(totp_users),
-            "enabled_users": sum(1 for x in totp_users if x["totp_enabled"]),
+            "enabled_users": sum(1 for x in totp_users if x["totp_enabled"] or x["email_2fa_enabled"]),
             "users": totp_users,
         },
     }
@@ -655,24 +965,62 @@ async def update_central_security_policy(request: Request, payload: Dict[str, An
         clean_wl = [str(ip).strip() for ip in payload["whitelisted_ips"] if str(ip).strip()]
         pol.whitelisted_ips_json = json.dumps(list(dict.fromkeys(clean_wl)))
 
+    # SMTP Settings for Central E-Mail 2FA
+    if "smtp_host" in payload:
+        pol.smtp_host = str(payload.get("smtp_host") or "").strip()
+    if "smtp_port" in payload:
+        try:
+            pol.smtp_port = max(1, min(65535, int(payload.get("smtp_port") or 587)))
+        except Exception:
+            pol.smtp_port = 587
+    if "smtp_user" in payload:
+        pol.smtp_user = str(payload.get("smtp_user") or "").strip()
+    if "smtp_password" in payload and str(payload.get("smtp_password") or "").strip():
+        pol.smtp_password = str(payload.get("smtp_password")).strip()
+    if "smtp_from_email" in payload:
+        pol.smtp_from_email = str(payload.get("smtp_from_email") or "").strip()
+    if "smtp_use_tls" in payload:
+        pol.smtp_use_tls = bool(payload.get("smtp_use_tls"))
+
     await db.commit()
     performed_by = request.headers.get("X-User-Name", "admin")
     await log_master_action(
         db,
         performed_by,
         "SECURITY_POLICY_UPDATE",
-        f"Merkez Güvenlik Politikası Güncellendi: MaxHata={pol.max_failed_attempts}, BlokSüresi={pol.block_duration_minutes}dk, AutoLogout={pol.auto_logout_minutes}dk",
+        f"Merkez Güvenlik Politikası Güncellendi: MaxHata={pol.max_failed_attempts}, BlokSüresi={pol.block_duration_minutes}dk, AutoLogout={pol.auto_logout_minutes}dk, SMTP={pol.smtp_host or 'Yok'}",
         extract_client_ip(request),
     )
     return {
         "success": True,
-        "policy": {
-            "max_failed_attempts": pol.max_failed_attempts,
-            "block_duration_minutes": pol.block_duration_minutes,
-            "auto_logout_minutes": pol.auto_logout_minutes,
-            "whitelisted_ips": parse_whitelisted_ips(pol),
-        },
+        "policy": _serialize_security_policy(pol),
     }
+
+
+@app.post("/api/v1/security/smtp-test")
+async def test_central_smtp_settings(request: Request, payload: Dict[str, Any] = Body(...), db: AsyncSession = Depends(get_central_db)):
+    """Sends a test 2FA e-mail using saved or provided SMTP settings."""
+    pol = await get_or_create_security_policy(db)
+    to_email = str((payload or {}).get("to_email") or "").strip()
+    if not to_email or "@" not in to_email:
+        raise HTTPException(status_code=400, detail="Test e-postası için geçerli bir alıcı adresi giriniz.")
+
+    # Allow testing unsaved form inputs seamlessly
+    temp_pol = MasterSecurityPolicy(
+        smtp_host=str(payload.get("smtp_host") if payload.get("smtp_host") is not None else (pol.smtp_host or "")).strip(),
+        smtp_port=int(payload.get("smtp_port") or pol.smtp_port or 587),
+        smtp_user=str(payload.get("smtp_user") if payload.get("smtp_user") is not None else (pol.smtp_user or "")).strip(),
+        smtp_password=str(payload.get("smtp_password") or "").strip() or (pol.smtp_password or ""),
+        smtp_from_email=str(payload.get("smtp_from_email") if payload.get("smtp_from_email") is not None else (pol.smtp_from_email or "")).strip(),
+        smtp_use_tls=bool(payload["smtp_use_tls"]) if "smtp_use_tls" in payload else (bool(pol.smtp_use_tls) if pol.smtp_use_tls is not None else True),
+    )
+
+    test_code = str(secrets.randbelow(900000) + 100000)
+    send_res = await send_master_2fa_email_otp(temp_pol, to_email, "Yönetici (SMTP Testi)", test_code, ttl_seconds=300)
+    if not send_res.get("ok"):
+        raise HTTPException(status_code=400, detail=send_res.get("error") or "Test e-postası gönderilemedi.")
+
+    return {"success": True, "message": f"Test 2FA e-postası {to_email} adresine başarıyla gönderildi."}
 
 
 @app.post("/api/v1/security/blocked-ips")
@@ -744,17 +1092,7 @@ async def create_master_user(payload: MasterUserCreateSchema, request: Request, 
     await db.refresh(new_u)
 
     await log_master_action(db, payload.performed_by or "admin", "USER_CREATE", f"Yeni Kullanıcı Oluşturuldu: {new_u.full_name} ({new_u.username}) [Rol: {new_u.role}]", extract_client_ip(request))
-    return {
-        "id": new_u.id,
-        "username": new_u.username,
-        "full_name": new_u.full_name,
-        "email": new_u.email,
-        "role": new_u.role,
-        "is_active": new_u.is_active,
-        "totp_enabled": bool(new_u.totp_enabled),
-        "last_login_at": new_u.last_login_at.isoformat() if new_u.last_login_at else None,
-        "created_at": new_u.created_at.isoformat() if new_u.created_at else None,
-    }
+    return _serialize_master_user(new_u)
 
 @app.put("/api/v1/users/{user_id}")
 async def update_master_user(user_id: int, payload: MasterUserCreateSchema, request: Request, db: AsyncSession = Depends(get_central_db)):
@@ -775,17 +1113,7 @@ async def update_master_user(user_id: int, payload: MasterUserCreateSchema, requ
     await db.commit()
     await db.refresh(u)
     await log_master_action(db, payload.performed_by or "admin", "USER_UPDATE", f"Kullanıcı Bilgileri Güncellendi: {u.full_name} ({u.username})", extract_client_ip(request))
-    return {
-        "id": u.id,
-        "username": u.username,
-        "full_name": u.full_name,
-        "email": u.email,
-        "role": u.role,
-        "is_active": u.is_active,
-        "totp_enabled": bool(u.totp_enabled),
-        "last_login_at": u.last_login_at.isoformat() if u.last_login_at else None,
-        "created_at": u.created_at.isoformat() if u.created_at else None,
-    }
+    return _serialize_master_user(u)
 
 @app.delete("/api/v1/users/{user_id}")
 async def delete_master_user(user_id: int, request: Request, db: AsyncSession = Depends(get_central_db)):

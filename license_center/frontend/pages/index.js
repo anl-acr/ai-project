@@ -1026,7 +1026,7 @@ export default function MasterDashboard() {
               >
                 <div className="font-extrabold text-slate-800 dark:text-white leading-tight flex items-center justify-end gap-1.5">
                   <span>{currentUser.full_name}</span>
-                  {currentUser.totp_enabled && (
+                  {(currentUser.totp_enabled || currentUser.email_2fa_enabled) && (
                     <span className="px-1.5 py-0.5 rounded-md bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30 text-[9px] font-extrabold">
                       2FA
                     </span>
@@ -3221,6 +3221,11 @@ export default function MasterDashboard() {
         }}
         currentUser={currentUser}
         onCurrentUserUpdated={(u) => setCurrentUser(u)}
+        onOpenSecuritySmtp={() => {
+          setShowUsersModal(false);
+          setInitialEditUserId(null);
+          setShowSecurityModal(true);
+        }}
         initialEditUserId={initialEditUserId}
       />
 

@@ -26,7 +26,14 @@ async def init_central_db():
             "ALTER TABLE client_servers ADD COLUMN connect_subdomain VARCHAR;",
             "ALTER TABLE client_servers ADD COLUMN remote_ssh_enabled BOOLEAN DEFAULT 1;",
             "ALTER TABLE master_users ADD COLUMN totp_secret VARCHAR;",
-            "ALTER TABLE master_users ADD COLUMN totp_enabled BOOLEAN DEFAULT 0;"
+            "ALTER TABLE master_users ADD COLUMN totp_enabled BOOLEAN DEFAULT 0;",
+            "ALTER TABLE master_users ADD COLUMN email_2fa_enabled BOOLEAN DEFAULT 0;",
+            "ALTER TABLE master_security_policy ADD COLUMN smtp_host VARCHAR DEFAULT '';",
+            "ALTER TABLE master_security_policy ADD COLUMN smtp_port INTEGER DEFAULT 587;",
+            "ALTER TABLE master_security_policy ADD COLUMN smtp_user VARCHAR DEFAULT '';",
+            "ALTER TABLE master_security_policy ADD COLUMN smtp_password VARCHAR DEFAULT '';",
+            "ALTER TABLE master_security_policy ADD COLUMN smtp_from_email VARCHAR DEFAULT '';",
+            "ALTER TABLE master_security_policy ADD COLUMN smtp_use_tls BOOLEAN DEFAULT 1;"
         ]:
             try:
                 await conn.execute(text(ddl))

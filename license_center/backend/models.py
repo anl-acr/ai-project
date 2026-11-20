@@ -16,6 +16,7 @@ class MasterUser(Base):
     avatar = Column(String, nullable=True)
     totp_secret = Column(String, nullable=True)
     totp_enabled = Column(Boolean, default=False)
+    email_2fa_enabled = Column(Boolean, default=False)
     last_login_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
 
@@ -40,6 +41,12 @@ class MasterSecurityPolicy(Base):
     block_duration_minutes = Column(Integer, default=60)
     auto_logout_minutes = Column(Integer, default=15) # 0 = disabled
     whitelisted_ips_json = Column(Text, default="[]")
+    smtp_host = Column(String, default="")
+    smtp_port = Column(Integer, default=587)
+    smtp_user = Column(String, default="")
+    smtp_password = Column(String, default="")
+    smtp_from_email = Column(String, default="")
+    smtp_use_tls = Column(Boolean, default=True)
     updated_at = Column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow)
 
 

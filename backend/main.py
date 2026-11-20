@@ -38886,18 +38886,44 @@ async def get_system_version_info():
         pass
 
     return {
-        "version": "v3.0.3",
+        "version": "v3.0.4",
         "commit_hash": live_commit,
         "release_date": "20 Kasım 2026",
         "status": "Güncel / Canlı Sürüm",
         "environment": "Production (On-Premise)",
         "changelog": [
             {
-                "version": "v3.0.3",
+                "version": "v3.0.4",
                 "commit_hash": live_commit,
                 "release_date": "20 Kasım 2026",
                 "badge": "Canlı Sürüm (Güncel)",
                 "badge_type": "current",
+                "title": "Nornia Cloud Center E-Posta 2FA (E-Mail OTP) & Merkezi SMTP Sunucu Yönetimi",
+                "summary": "Nornia Cloud Center kullanıcı düzenleme ekranına Authenticator (TOTP) yanında bağımsız olarak açılıp kapatılabilen E-Posta 2FA (6 haneli tek kullanımlık e-posta doğrulama kodu) desteği ve Güvenlik Kalkanı içine merkezi SMTP sunucu ayarları + test gönderimi eklendi.",
+                "features": [
+                    {
+                        "title": "📧 Kullanıcı Bazlı E-Posta 2FA (E-Mail OTP)",
+                        "desc": "Her kullanıcı için Authenticator (Google/Microsoft) ve E-Posta 2FA yöntemleri ayrı ayrı açılıp kapatılabilir. E-Posta 2FA etkinleştirilirken kullanıcının adresine 6 haneli doğrulama kodu gönderilerek doğrulanır."
+                    },
+                    {
+                        "title": "🔄 Çoklu 2FA Giriş Ekranı (Authenticator + E-Posta)",
+                        "desc": "Her iki yöntemi birden aktif olan kullanıcılar giriş ekranında Authenticator veya E-Posta Kodu arasında anında geçiş yapabilir ve süreli tekrar gönderim (cooldown) ile yeni kod isteyebilir."
+                    },
+                    {
+                        "title": "📮 Merkezi SMTP Sunucu Ayarları & Tek Tıkla Test",
+                        "desc": "Güvenlik Kalkanı içine SMTP Host, Port (587 TLS / 465 SSL), kullanıcı adı, şifre, gönderen adresi ve tek tıkla SMTP test e-postası gönderimi eklendi."
+                    }
+                ],
+                "fixes": [
+                    "E-Posta 2FA kurulumu sırasında SMTP henüz tanımlanmamışsa kullanıcıyı tek tıkla Güvenlik Kalkanı → SMTP ayarlarına yönlendiren akıllı uyarı eklendi."
+                ]
+            },
+            {
+                "version": "v3.0.3",
+                "commit_hash": "b280e6d",
+                "release_date": "20 Kasım 2026",
+                "badge": "Önceki Sürüm",
+                "badge_type": "stable",
                 "title": "Nornia Cloud Center Kullanıcı Bazlı 2FA (Google / Microsoft Authenticator) & Merkezi Güvenlik Kalkanı",
                 "summary": "Nornia Cloud Center panelinde kullanıcı düzenleme penceresinin içine kullanıcı bazlı 2FA açma/kapama anahtarı, çevrimdışı yerel SVG QR kod kurulumu, yeniden cihaz eşleştirme ve Güvenlik Kalkanı kullanıcı 2FA özet ekranı eklendi.",
                 "features": [
