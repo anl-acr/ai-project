@@ -1006,6 +1006,49 @@ async def update_master_user_preferences(user_id: int, request: Request, payload
     }
 
 
+@app.post("/api/v1/users/{user_id}/change-password")
+async def change_master_user_password(user_id: int, request: Request, payload: Dict[str, Any] = Body(...), db: AsyncSession = Depends(get_central_db)):
+    """Self-service password update requiring current password verification."""
+    res = await db.execute(select(MasterUser).where(MasterUser.id == user_id))
+    u = res.scalars().first()
+    if not u:
+        raise HTTPException(status_code=404, detail="Kullanıcı bulunamadı.")
+
+    current_pw = str(payload.get("current_password") or "")
+    new_pw = str(payload.get("new_password") or "")
+    confirm_pw = payload.get("confirm_password")
+
+    if not current_pw.strip():
+        raise HTTPException(status_code=400, detail="Lütfen mevcut şifrenizi giriniz.")
+    if hash_password(current_pw) != u.password_hash:
+        raise HTTPException(status_code=400, detail="Mevcut şifreniz hatalı.")
+    if len(new_pw.strip()) < 6:
+        raise HTTPException(status_code=400, detail="Yeni şifre en az 6 karakter olmalıdır.")
+    if confirm_pw is not None and str(confirm_pw) != new_pw:
+        raise HTTPException(status_code=400, detail="Yeni şifre ve şifre tekrarı eşleşmiyor.")
+    if new_pw.strip() == current_pw.strip():
+        raise HTTPException(status_code=400, detail="Yeni şifre mevcut şifrenizle aynı olamaz.")
+
+    u.password_hash = hash_password(new_pw)
+    await db.commit()
+    await db.refresh(u)
+
+    performed_by = request.headers.get("X-User-Name", u.username)
+    await log_master_action(
+        db,
+        performed_by,
+        "USER_PASSWORD_CHANGE",
+        f"Kullanıcı Kendi Şifresini Güncelledi: {u.full_name} (@{u.username})",
+        extract_client_ip(request),
+        u.id,
+    )
+    return {
+        "success": True,
+        "message": "Şifreniz başarıyla güncellendi.",
+        "user": _serialize_master_user(u),
+    }
+
+
 @app.post("/api/v1/users/{user_id}/2fa/config")
 async def save_master_user_2fa_config(user_id: int, request: Request, payload: Dict[str, Any] = Body(...), db: AsyncSession = Depends(get_central_db)):
     """Saves the user's complete 2FA configuration (enabled, single/all/any mode, active methods order)."""

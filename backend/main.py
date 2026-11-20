@@ -38886,18 +38886,38 @@ async def get_system_version_info():
         pass
 
     return {
-        "version": "v3.1.8",
+        "version": "v3.1.9",
         "commit_hash": live_commit,
         "release_date": "20 Kasım 2026",
         "status": "Güncel / Canlı Sürüm",
         "environment": "Production (On-Premise)",
         "changelog": [
             {
-                "version": "v3.1.8",
+                "version": "v3.1.9",
                 "commit_hash": live_commit,
                 "release_date": "20 Kasım 2026",
                 "badge": "Canlı Sürüm (Güncel)",
                 "badge_type": "current",
+                "title": "Nornia Cloud Center Kullanıcı Avatar Menüsü & Kişisel Hesap Ayarları (Şifre + 2FA)",
+                "summary": "Üst bara açılır kullanıcı avatar menüsü (Ayarlar ve en altta Çıkış Yap) eklendi; kullanıcıların kendi şifrelerini güvenli biçimde değiştirebileceği ve 2FA konfigürasyonunu yönetebileceği kişisel Hesap Ayarları penceresi oluşturuldu.",
+                "features": [
+                    {
+                        "title": "👤 Avatar İkonu & Açılır Hesap Menüsü",
+                        "desc": "Sağ üst köşeye baş harf avatarı ve 2FA durum noktası eklendi; tıklandığında kullanıcı bilgileri, Ayarlar sekmesi ve en altta Çıkış Yap butonu açılır."
+                    },
+                    {
+                        "title": "🔐 Kişisel Şifre Değiştirme & 2FA Konfigürasyon Penceresi",
+                        "desc": "Ayarlar içinde 'Şifre Ayarları' (mevcut şifre doğrulamalı güç göstergeli şifre güncelleme) ve '2FA Konfigürasyonu' (E-Posta / Google / Microsoft Authenticator, Tek/VE/VEYA modları ve QR eşleştirme) sekmeleri eklendi."
+                    }
+                ],
+                "fixes": []
+            },
+            {
+                "version": "v3.1.8",
+                "commit_hash": "949004e",
+                "release_date": "20 Kasım 2026",
+                "badge": "Önceki Sürüm",
+                "badge_type": "stable",
                 "title": "Nornia Cloud Center Kritik Alarm Önceliklendirme (Kırmızı Vurgu), Servis Sağlık Takibi & Sayfalama",
                 "summary": "CPU, RAM veya DİSK kritik eşiği (%85+) aştığında ya da santralin temel servislerinden biri durduğunda ilgili sunucuyu otomatik olarak listenin en üst sırasına kırmızı arka plan ve alarm etiketleriyle sabitleyen izleme altyapısı ile sayfa yapısı eklendi.",
                 "features": [

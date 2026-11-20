@@ -44,13 +44,15 @@ import {
   HardDrive,
   Database,
   Zap,
-  X
+  X,
+  Settings
 } from "lucide-react";
 
 import LoginModal from "../components/LoginModal";
 import UserManagementModal from "../components/UserManagementModal";
 import AuditLogsModal from "../components/AuditLogsModal";
 import SecuritySettingsModal from "../components/SecuritySettingsModal";
+import AccountSettingsModal, { getUserInitials } from "../components/AccountSettingsModal";
 
 const API_BASE = "";
 
@@ -207,6 +209,28 @@ export default function MasterDashboard() {
   const [initialEditUserId, setInitialEditUserId] = useState(null);
   const [showAuditLogsModal, setShowAuditLogsModal] = useState(false);
   const [showSecurityModal, setShowSecurityModal] = useState(false);
+  const [showAvatarMenu, setShowAvatarMenu] = useState(false);
+  const avatarMenuRef = useRef(null);
+  const [showAccountSettingsModal, setShowAccountSettingsModal] = useState(false);
+  const [accountSettingsTab, setAccountSettingsTab] = useState("password");
+
+  useEffect(() => {
+    if (!showAvatarMenu) return;
+    const handleOutside = (e) => {
+      if (avatarMenuRef.current && !avatarMenuRef.current.contains(e.target)) {
+        setShowAvatarMenu(false);
+      }
+    };
+    const handleEsc = (e) => {
+      if (e.key === "Escape") setShowAvatarMenu(false);
+    };
+    document.addEventListener("mousedown", handleOutside);
+    document.addEventListener("keydown", handleEsc);
+    return () => {
+      document.removeEventListener("mousedown", handleOutside);
+      document.removeEventListener("keydown", handleEsc);
+    };
+  }, [showAvatarMenu]);
   const [autoLogoutMinutes, setAutoLogoutMinutes] = useState(15);
   const [idleLogoutMessage, setIdleLogoutMessage] = useState("");
   const lastActivityRef = useRef(Date.now());
@@ -1440,35 +1464,131 @@ export default function MasterDashboard() {
             <Plus size={16} />
           </button>
 
-          {/* User Profile & Logout */}
+          {/* User Avatar Dropdown Menu */}
           {currentUser && (
-            <div className="flex items-center gap-2 pl-2.5 ml-0.5 border-l border-slate-200 dark:border-slate-800">
+            <div ref={avatarMenuRef} className="relative pl-2.5 ml-0.5 border-l border-slate-200 dark:border-slate-800">
               <button
                 type="button"
-                onClick={() => {
-                  setInitialEditUserId(currentUser.id || null);
-                  setShowUsersModal(true);
-                }}
-                className="text-right text-xs hidden md:block hover:opacity-80 transition-opacity cursor-pointer"
-                title="Profil & Kendi 2FA Ayarlarınız"
+                onClick={() => setShowAvatarMenu((prev) => !prev)}
+                className="flex items-center gap-2.5 px-2 py-1 rounded-2xl hover:bg-slate-100/90 dark:hover:bg-slate-800/80 transition-colors cursor-pointer"
+                title="Hesap Menüsü"
+                aria-expanded={showAvatarMenu}
+                aria-haspopup="menu"
               >
-                <div className="font-extrabold text-slate-800 dark:text-white leading-tight flex items-center justify-end gap-1.5">
-                  <span>{currentUser.full_name}</span>
-                  {(currentUser.totp_enabled || currentUser.email_2fa_enabled) && (
-                    <span className="px-1.5 py-0.5 rounded-md bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30 text-[9px] font-extrabold">
-                      2FA
-                    </span>
-                  )}
+                <div className="text-right text-xs hidden md:block">
+                  <div className="font-extrabold text-slate-800 dark:text-white leading-tight flex items-center justify-end gap-1.5">
+                    <span>{currentUser.full_name}</span>
+                  </div>
+                  <div className="text-[10px] text-indigo-600 dark:text-indigo-400 font-mono font-bold">
+                    @{currentUser.username}
+                  </div>
                 </div>
-                <div className="text-[10px] text-indigo-600 dark:text-indigo-400 font-mono font-bold">@{currentUser.username}</div>
+
+                <div className="relative shrink-0">
+                  <div className="w-9 h-9 rounded-full bg-gradient-to-br from-indigo-600 to-violet-600 text-white font-black text-xs flex items-center justify-center shadow-md shadow-indigo-500/25 ring-2 ring-white dark:ring-slate-900">
+                    {getUserInitials(currentUser)}
+                  </div>
+                  <span
+                    className={`absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full border-2 border-white dark:border-slate-900 ${
+                      currentUser.two_factor_enabled || currentUser.totp_enabled || currentUser.email_2fa_enabled
+                        ? "bg-emerald-500"
+                        : "bg-slate-400"
+                    }`}
+                    title={
+                      currentUser.two_factor_enabled || currentUser.totp_enabled || currentUser.email_2fa_enabled
+                        ? "2FA Koruması Aktif"
+                        : "2FA Kapalı"
+                    }
+                  />
+                </div>
+
+                <ChevronDown
+                  size={14}
+                  className={`text-slate-400 transition-transform duration-150 ${
+                    showAvatarMenu ? "rotate-180 text-indigo-500" : ""
+                  }`}
+                />
               </button>
-              <button
-                onClick={() => handleLogout("manual")}
-                className="p-2 rounded-xl text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
-                title="Çıkış Yap"
-              >
-                <LogOut size={16} />
-              </button>
+
+              {showAvatarMenu && (
+                <div
+                  role="menu"
+                  className="absolute right-0 mt-2 w-64 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-2xl shadow-slate-950/15 dark:shadow-black/50 overflow-hidden z-50 animate-fadeIn"
+                >
+                  {/* Profile Header */}
+                  <div className="px-4 py-3.5 bg-slate-50/80 dark:bg-slate-950/60 border-b border-slate-200/80 dark:border-slate-800 flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-full bg-gradient-to-br from-indigo-600 to-violet-600 text-white font-black text-xs flex items-center justify-center shrink-0 shadow-sm">
+                      {getUserInitials(currentUser)}
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <div className="font-extrabold text-xs text-slate-900 dark:text-white truncate">
+                        {currentUser.full_name}
+                      </div>
+                      <div className="text-[11px] font-mono font-bold text-indigo-600 dark:text-indigo-400 truncate">
+                        @{currentUser.username}
+                      </div>
+                      <div className="mt-1">
+                        <span
+                          className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[9px] font-extrabold uppercase ${
+                            currentUser.two_factor_enabled || currentUser.totp_enabled || currentUser.email_2fa_enabled
+                              ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 border border-emerald-500/25"
+                              : "bg-slate-200/80 dark:bg-slate-800 text-slate-500 dark:text-slate-400"
+                          }`}
+                        >
+                          <ShieldCheck size={9} />
+                          {currentUser.two_factor_enabled || currentUser.totp_enabled || currentUser.email_2fa_enabled
+                            ? "2FA Aktif"
+                            : "2FA Kapalı"}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Settings Item */}
+                  <div className="p-1.5">
+                    <button
+                      type="button"
+                      role="menuitem"
+                      onClick={() => {
+                        setShowAvatarMenu(false);
+                        setAccountSettingsTab("password");
+                        setShowAccountSettingsModal(true);
+                      }}
+                      className="w-full px-3 py-2.5 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800/80 text-left flex items-center gap-3 transition-colors cursor-pointer group"
+                    >
+                      <div className="w-8 h-8 rounded-xl bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 group-hover:bg-indigo-600 group-hover:text-white flex items-center justify-center transition-colors shrink-0">
+                        <Settings size={15} />
+                      </div>
+                      <div className="min-w-0">
+                        <div className="text-xs font-extrabold text-slate-800 dark:text-slate-100">
+                          Ayarlar
+                        </div>
+                        <div className="text-[10px] text-slate-500 dark:text-slate-400 font-medium">
+                          Şifre ve 2FA konfigürasyonu
+                        </div>
+                      </div>
+                    </button>
+                  </div>
+
+                  {/* Bottom Logout Button */}
+                  <div className="p-1.5 border-t border-slate-200/80 dark:border-slate-800 bg-slate-50/40 dark:bg-slate-950/30">
+                    <button
+                      type="button"
+                      role="menuitem"
+                      onClick={() => {
+                        setShowAvatarMenu(false);
+                        handleLogout("manual");
+                      }}
+                      className="w-full px-3 py-2.5 rounded-xl hover:bg-rose-50 dark:hover:bg-rose-950/50 text-rose-600 dark:text-rose-400 text-left flex items-center gap-3 transition-colors cursor-pointer group"
+                    >
+                      <div className="w-8 h-8 rounded-xl bg-rose-500/10 text-rose-600 dark:text-rose-400 group-hover:bg-rose-600 group-hover:text-white flex items-center justify-center transition-colors shrink-0">
+                        <LogOut size={15} />
+                      </div>
+                      <div className="text-xs font-extrabold">Çıkış Yap</div>
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
           )}
         </div>
@@ -4221,6 +4341,18 @@ export default function MasterDashboard() {
             setAutoLogoutMinutes(Number(pol.auto_logout_minutes));
           }
         }}
+      />
+      {/* PERSONAL ACCOUNT SETTINGS MODAL (PASSWORD & 2FA) */}
+      <AccountSettingsModal
+        isOpen={showAccountSettingsModal}
+        onClose={() => setShowAccountSettingsModal(false)}
+        currentUser={currentUser}
+        onCurrentUserUpdated={(u) => setCurrentUser(u)}
+        onOpenSecuritySmtp={() => {
+          setShowAccountSettingsModal(false);
+          setShowSecurityModal(true);
+        }}
+        initialTab={accountSettingsTab}
       />
     </div>
   );
