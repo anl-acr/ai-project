@@ -40046,18 +40046,31 @@ async def get_system_version_info():
         pass
 
     return {
-        "version": "v3.5.3",
+        "version": "v3.5.4",
         "commit_hash": live_commit,
-        "release_date": "20 Kasım 2026",
+        "release_date": "21 Kasım 2026",
         "status": "Güncel / Canlı Sürüm",
         "environment": "Production (On-Premise)",
         "changelog": [
             {
-                "version": "v3.5.3",
+                "version": "v3.5.4",
                 "commit_hash": live_commit,
-                "release_date": "20 Kasım 2026",
+                "release_date": "21 Kasım 2026",
                 "badge": "Canlı Sürüm (Güncel)",
                 "badge_type": "current",
+                "title": "Sistem Lisans Yönetimi Modalı Ekran Sığdırma & Sabit Alt Buton Düzeni",
+                "summary": "Sistem Lisans Yönetimi modalı küçük ve orta boy ekranlarda üstten/alttan taşmayacak şekilde max-h-[92vh] kaydırılabilir içerik ve sabit üst başlık + sabit alt doğrulama butonlarıyla güncellendi.",
+                "features": [],
+                "fixes": [
+                    "Lisans süresi dolduğunda veya pencere açıldığında 'Lisansı Doğrula & Aktifleştir' butonunun ekran dışına taşması giderildi."
+                ]
+            },
+            {
+                "version": "v3.5.3",
+                "commit_hash": "22d6d0b",
+                "release_date": "20 Kasım 2026",
+                "badge": "Önceki Sürüm",
+                "badge_type": "stable",
                 "title": "Uzak SIP Edge Çift Yönlü Çağrı (483 Loop Fix) & RTPEngine Çift Yönlü Ses (NAT Fix)",
                 "summary": "Web Telefonu'ndan uzak masa telefonuna arama yapıldığında oluşan 483 Too Many Hops döngüsü ve tek yönlü ses sorunu giderildi; ayrıca aynı dahilideki bir cihaz diğerini aradığında kendini çaldırmaması sağlandı.",
                 "features": [],
