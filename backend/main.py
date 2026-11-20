@@ -38907,18 +38907,38 @@ async def get_system_version_info():
         pass
 
     return {
-        "version": "v3.2.5",
+        "version": "v3.2.6",
         "commit_hash": live_commit,
         "release_date": "20 Kasım 2026",
         "status": "Güncel / Canlı Sürüm",
         "environment": "Production (On-Premise)",
         "changelog": [
             {
-                "version": "v3.2.5",
+                "version": "v3.2.6",
                 "commit_hash": live_commit,
                 "release_date": "20 Kasım 2026",
                 "badge": "Canlı Sürüm (Güncel)",
                 "badge_type": "current",
+                "title": "Nornia Cloud Center İşlem ve Denetim Kayıtları Tam Türkçe & Modern Yenileme",
+                "summary": "İşlem Logları penceresindeki tüm İngilizce aksiyon kodları (LICENSE_GENERATE, OTA_UPDATE, ROOT_SSO_LOGIN vb.) ve teknik ifadeler Türkçeleştirildi; taşan sütunlar, arama/kategori filtreleri, satır detay açılımı ve sayfalama ile modernleştirildi.",
+                "features": [
+                    {
+                        "title": "🇹🇷 %100 Türkçe Aksiyon Rozetleri & Temiz Detay Formatı",
+                        "desc": "Tüm işlem kodları renkli ikonlu Türkçe etiketlere çevrildi; uzun Base64 lisans kodları satırı bozmadan sadeleştirildi."
+                    },
+                    {
+                        "title": "🔍 Kategori Filtreleri, Canlı Arama, Satır Detayı & Sayfalama",
+                        "desc": "Tümü / Oturum & Giriş / Lisans & Müşteri / Güvenlik & 2FA / Sistem & Sunucu sekmeleri, anlık arama, tıklanınca açılan tam detay + kopyalama alanı ve sayfalama eklendi."
+                    }
+                ],
+                "fixes": []
+            },
+            {
+                "version": "v3.2.5",
+                "commit_hash": "102912e",
+                "release_date": "20 Kasım 2026",
+                "badge": "Önceki Sürüm",
+                "badge_type": "stable",
                 "title": "Nornia Cloud Center Üst Bar Navigasyon Ortalama",
                 "summary": "Panel sunucusundaki Paketler, Güvenlik Kalkanı, İşlem Logları ve Kullanıcılar butonları üst barın tam ortasına hizalandı.",
                 "features": [
