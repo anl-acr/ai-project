@@ -135,7 +135,17 @@ session_keep_alive=15000
             print(f"[Sync Script] http.conf hatası: {e}")
 
     # Update /etc/asterisk/rtp.conf for WebRTC RTP NAT, ICE, STUN & Nornia TURN Relay
-    ras_cfg_sync = settings.get("ras_config") if isinstance(settings.get("ras_config"), dict) else {}
+    ras_cfg_sync = {}
+    try:
+        import json as _json_rtp
+        _s_path_rtp = os.path.join(BASE_DIR, "settings.json")
+        if os.path.isfile(_s_path_rtp):
+            with open(_s_path_rtp, "r", encoding="utf-8") as _f_rtp_s:
+                _s_loaded_rtp = _json_rtp.load(_f_rtp_s)
+                if isinstance(_s_loaded_rtp, dict) and isinstance(_s_loaded_rtp.get("ras_config"), dict):
+                    ras_cfg_sync = _s_loaded_rtp.get("ras_config")
+    except Exception:
+        ras_cfg_sync = {}
     has_wg_edge_sync = os.path.isfile("/etc/wireguard/wg-nornia.conf")
     turn_lines_sync = ""
     if has_wg_edge_sync or (ras_cfg_sync.get("enabled") and ras_cfg_sync.get("turn_enabled", True)):
