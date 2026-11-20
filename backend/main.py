@@ -38886,18 +38886,44 @@ async def get_system_version_info():
         pass
 
     return {
-        "version": "v3.0.4",
+        "version": "v3.0.5",
         "commit_hash": live_commit,
         "release_date": "20 Kasım 2026",
         "status": "Güncel / Canlı Sürüm",
         "environment": "Production (On-Premise)",
         "changelog": [
             {
-                "version": "v3.0.4",
+                "version": "v3.0.5",
                 "commit_hash": live_commit,
                 "release_date": "20 Kasım 2026",
                 "badge": "Canlı Sürüm (Güncel)",
                 "badge_type": "current",
+                "title": "Nornia Cloud Center Santral Tarzı 2FA Tasarımı, 2 Aşamalı Zorunlu (VE) / Yedekli (VEYA) Mod ve Google / Microsoft Authenticator Ayrımı",
+                "summary": "Nornia Cloud Center kullanıcı düzenleme ekranındaki 2FA bölümü santral sunucusundaki tasarımla birebir uyumlu hale getirildi (WhatsApp hariç): Tek Yöntem, 2 Aşamalı Zorunlu (VE Modu) ve Esnek/Yedekli (VEYA Modu) çalışma modları; E-Posta, Google Authenticator ve Microsoft Authenticator kartları ile girişte gerçek 2 aşamalı doğrulama akışı eklendi.",
+                "features": [
+                    {
+                        "title": "🛡️ Doğrulama Çalışma Modları (Tek / 2 Aşamalı VE / Esnek VEYA)",
+                        "desc": "Kullanıcı bazlı Tek Yöntem (Standart), 2 Aşamalı Zorunlu (VE Modu — örn. önce E-Posta ardından Google Authenticator) ve Esnek/Yedekli (VEYA Modu) seçenekleri ile doğrulama sırası değiştirme (1 ⇄ 2) eklendi."
+                    },
+                    {
+                        "title": "📱 E-Posta + Google Authenticator + Microsoft Authenticator Kartları",
+                        "desc": "Her yöntem için ayrı kart, '+ Birlikte Kullan' kısayolu, yan yana QR kurulum paneli, manuel kurulum anahtarı kopyalama, 'Yeni QR / Anahtar Üret' ve 'Test Et & Eşleştir' akışı eklendi."
+                    },
+                    {
+                        "title": "🔐 Giriş Ekranında Gerçek 2 Aşamalı Adım Takibi & İlk Giriş QR Eşleştirme",
+                        "desc": "VE Modu aktif kullanıcılar girişte adım adım doğrulama yapar; önceden eşleştirilmemiş Authenticator yöntemleri ilk girişte doğrudan QR kod okutularak tamamlanabilir."
+                    }
+                ],
+                "fixes": [
+                    "Google Authenticator ve Microsoft Authenticator için birbirinden bağımsız TOTP gizli anahtarları (secret) ve eşleştirme durumları desteklendi."
+                ]
+            },
+            {
+                "version": "v3.0.4",
+                "commit_hash": "a1363fc",
+                "release_date": "20 Kasım 2026",
+                "badge": "Önceki Sürüm",
+                "badge_type": "stable",
                 "title": "Nornia Cloud Center E-Posta 2FA (E-Mail OTP) & Merkezi SMTP Sunucu Yönetimi",
                 "summary": "Nornia Cloud Center kullanıcı düzenleme ekranına Authenticator (TOTP) yanında bağımsız olarak açılıp kapatılabilen E-Posta 2FA (6 haneli tek kullanımlık e-posta doğrulama kodu) desteği ve Güvenlik Kalkanı içine merkezi SMTP sunucu ayarları + test gönderimi eklendi.",
                 "features": [

@@ -528,12 +528,147 @@ async def send_master_2fa_email_otp(
 
 
 # --------------------------------------------------------------------------
-# Auth, 2FA (TOTP + E-Mail OTP), Brute-Force Guard & User Management Endpoints
+# Auth, Multi-Method & 2-Stage 2FA (E-Mail + Google/Microsoft Authenticator)
 # --------------------------------------------------------------------------
+VALID_2FA_METHODS = ("email", "google_auth", "microsoft_auth")
+_LOGIN_2FA_CHALLENGES: Dict[str, Dict[str, Any]] = {}
+_PENDING_TOTP_SECRETS: Dict[str, str] = {}  # key: f"{user_id}:{method}"
+
+
+def _build_local_qr_svg_data_uri(text_val: str) -> str:
+    """Generates a zero-dependency local SVG QR data URI so 2FA QR never depends on external services."""
+    try:
+        from backend.services.totp_service import generate_qr_svg_data_uri
+        return generate_qr_svg_data_uri(text_val)
+    except Exception:
+        return ""
+
+
+def _method_display_label(method_id: str) -> str:
+    return {
+        "email": "E-Posta (E-Mail)",
+        "google_auth": "Google Authenticator",
+        "microsoft_auth": "Microsoft Authenticator",
+    }.get(method_id, "Authenticator")
+
+
+def _parse_user_2fa_secrets(u: MasterUser) -> Dict[str, Dict[str, Any]]:
+    raw = getattr(u, "two_factor_secrets_json", None) or "{}"
+    try:
+        data = json.loads(raw)
+        if not isinstance(data, dict):
+            data = {}
+    except Exception:
+        data = {}
+
+    # Legacy migration: populate google_auth from totp_secret/totp_enabled
+    if u.totp_secret and not (data.get("google_auth") or {}).get("secret"):
+        data["google_auth"] = {
+            "secret": u.totp_secret,
+            "enrolled": bool(u.totp_enabled),
+        }
+    if getattr(u, "email_2fa_enabled", False) and not (data.get("email") or {}).get("enrolled"):
+        data["email"] = {"enrolled": True}
+    return data
+
+
+def _parse_user_2fa_methods(u: MasterUser) -> List[str]:
+    raw = getattr(u, "two_factor_methods_json", None) or "[]"
+    try:
+        arr = json.loads(raw)
+        if not isinstance(arr, list):
+            arr = []
+    except Exception:
+        arr = []
+
+    clean: List[str] = []
+    for item in arr:
+        m = str(item or "").strip().lower()
+        if m == "totp" or m == "app":
+            m = "google_auth"
+        if m in VALID_2FA_METHODS and m not in clean:
+            clean.append(m)
+
+    # Legacy fallback if JSON list wasn't populated yet
+    if not clean:
+        if getattr(u, "email_2fa_enabled", False):
+            clean.append("email")
+        if bool(u.totp_enabled and u.totp_secret):
+            clean.append("google_auth")
+    return clean
+
+
+def _get_user_2fa_state(u: MasterUser) -> Dict[str, Any]:
+    active_methods = _parse_user_2fa_methods(u)
+    secrets_map = _parse_user_2fa_secrets(u)
+    raw_mode = str(getattr(u, "two_factor_mode", None) or "single").strip().lower()
+    if raw_mode not in ("single", "all", "any"):
+        raw_mode = "single"
+    if len(active_methods) <= 1:
+        effective_mode = "single"
+    else:
+        effective_mode = raw_mode if raw_mode in ("all", "any") else "any"
+
+    enabled = len(active_methods) > 0
+    meta = {}
+    for m in VALID_2FA_METHODS:
+        entry = secrets_map.get(m) or {}
+        meta[m] = {
+            "enrolled": bool(entry.get("enrolled")),
+            "has_secret": bool(entry.get("secret")) if m != "email" else bool(u.email),
+        }
+
+    return {
+        "enabled": enabled,
+        "mode": effective_mode,
+        "active_methods": active_methods,
+        "meta": meta,
+        "secrets_map": secrets_map,
+    }
+
+
+def _sync_legacy_2fa_columns(u: MasterUser, active_methods: List[str], mode: str, secrets_map: Dict[str, Dict[str, Any]]):
+    clean_methods = [m for m in active_methods if m in VALID_2FA_METHODS]
+    clean_methods = list(dict.fromkeys(clean_methods))
+    if len(clean_methods) <= 1:
+        clean_mode = "single"
+    else:
+        clean_mode = mode if mode in ("all", "any") else "all"
+
+    u.two_factor_methods_json = json.dumps(clean_methods)
+    u.two_factor_mode = clean_mode
+    u.two_factor_secrets_json = json.dumps(secrets_map)
+    u.email_2fa_enabled = "email" in clean_methods
+    has_app = ("google_auth" in clean_methods) or ("microsoft_auth" in clean_methods)
+    u.totp_enabled = has_app
+    # Sync primary totp_secret for backwards compatibility
+    primary_sec = (
+        (secrets_map.get("google_auth") or {}).get("secret")
+        if "google_auth" in clean_methods
+        else (secrets_map.get("microsoft_auth") or {}).get("secret")
+    )
+    if primary_sec:
+        u.totp_secret = primary_sec
+    elif not has_app:
+        u.totp_secret = None
+
+
+def _build_totp_qr_bundle(u: MasterUser, method_id: str, secret: str) -> Dict[str, str]:
+    issuer = "Nornia Cloud Center" if method_id == "google_auth" else "Nornia Cloud Center (MS)"
+    label = urllib.parse.quote(f"{issuer}:{u.username}")
+    issuer_enc = urllib.parse.quote(issuer)
+    otpauth_url = f"otpauth://totp/{label}?secret={secret}&issuer={issuer_enc}&algorithm=SHA1&digits=6&period=30"
+    return {
+        "secret": secret,
+        "otpauth_url": otpauth_url,
+        "qr_svg_data_uri": _build_local_qr_svg_data_uri(otpauth_url),
+    }
+
+
 class Verify2FASchema(BaseModel):
     temp_token: str
     code: str
-    method: Optional[str] = None  # "totp" | "email" | None (auto)
+    method: Optional[str] = None  # "email" | "google_auth" | "microsoft_auth" | "totp" | None
 
 
 class ResendEmail2FASchema(BaseModel):
@@ -541,6 +676,7 @@ class ResendEmail2FASchema(BaseModel):
 
 
 def _serialize_master_user(u: MasterUser) -> Dict[str, Any]:
+    st = _get_user_2fa_state(u)
     return {
         "id": u.id,
         "username": u.username,
@@ -548,8 +684,12 @@ def _serialize_master_user(u: MasterUser) -> Dict[str, Any]:
         "email": u.email,
         "role": u.role,
         "is_active": u.is_active,
-        "totp_enabled": bool(u.totp_enabled),
-        "email_2fa_enabled": bool(getattr(u, "email_2fa_enabled", False)),
+        "totp_enabled": ("google_auth" in st["active_methods"]) or ("microsoft_auth" in st["active_methods"]),
+        "email_2fa_enabled": "email" in st["active_methods"],
+        "two_factor_enabled": st["enabled"],
+        "two_factor_mode": st["mode"],
+        "two_factor_methods": st["active_methods"],
+        "two_factor_meta": st["meta"],
         "last_login_at": u.last_login_at.isoformat() if u.last_login_at else None,
         "created_at": u.created_at.isoformat() if u.created_at else None,
     }
@@ -557,7 +697,7 @@ def _serialize_master_user(u: MasterUser) -> Dict[str, Any]:
 
 @app.post("/api/v1/auth/login")
 async def login_master_user(payload: LoginSchema, request: Request, db: AsyncSession = Depends(get_central_db)):
-    """Authenticates central master user with Brute-Force IP protection and 2FA (TOTP + E-Mail OTP) support."""
+    """Authenticates central master user with Brute-Force IP protection and single/2-stage 2FA support."""
     client_ip = extract_client_ip(request)
     pol = await get_or_create_security_policy(db)
     await check_ip_blocked(db, client_ip, pol)
@@ -580,17 +720,30 @@ async def login_master_user(payload: LoginSchema, request: Request, db: AsyncSes
     if not user.is_active:
         raise HTTPException(status_code=403, detail="Bu kullanıcı hesabı pasife alınmıştır.")
 
-    # Check if 2FA (Authenticator TOTP and/or E-Mail OTP) is enabled for this user
-    has_totp = bool(user.totp_enabled and user.totp_secret)
-    has_email = bool(getattr(user, "email_2fa_enabled", False) and user.email)
-    if has_totp or has_email:
-        methods = []
-        if has_totp:
-            methods.append("totp")
-        if has_email:
-            methods.append("email")
-        default_method = "totp" if has_totp else "email"
+    st = _get_user_2fa_state(user)
+    if st["enabled"] and st["active_methods"]:
+        methods = st["active_methods"]
+        mode = st["mode"]  # single | all | any
+        secrets_map = st["secrets_map"]
+        # Ensure secrets exist for any active authenticator methods (supports first-login enrollment!)
+        dirty_sec = False
+        for m in methods:
+            if m in ("google_auth", "microsoft_auth") and not (secrets_map.get(m) or {}).get("secret"):
+                secrets_map[m] = {"secret": generate_totp_secret(), "enrolled": False}
+                dirty_sec = True
+        if dirty_sec:
+            _sync_legacy_2fa_columns(user, methods, mode, secrets_map)
+            await db.commit()
+
+        default_method = methods[0]
         temp_token = generate_2fa_temp_token(user.id, user.username)
+        _LOGIN_2FA_CHALLENGES[temp_token] = {
+            "user_id": user.id,
+            "mode": mode,
+            "required_methods": list(methods),
+            "verified_methods": [],
+            "expires_at": time.time() + 600,
+        }
 
         email_sent = False
         email_error = None
@@ -601,17 +754,30 @@ async def login_master_user(payload: LoginSchema, request: Request, db: AsyncSes
             if not email_sent:
                 email_error = send_res.get("error")
 
+        # Provide first-login QR enrollment bundle if any active authenticator is not yet enrolled
+        enrollment_bundles = {}
+        for m in methods:
+            if m in ("google_auth", "microsoft_auth"):
+                entry = secrets_map.get(m) or {}
+                if entry.get("secret") and not entry.get("enrolled"):
+                    enrollment_bundles[m] = _build_totp_qr_bundle(user, m, entry["secret"])
+
         return {
             "success": True,
             "requires_2fa": True,
             "temp_token": temp_token,
             "username": user.username,
             "full_name": user.full_name,
+            "mode": mode,
             "methods": methods,
+            "required_methods": methods,
+            "verified_methods": [],
             "default_method": default_method,
-            "masked_email": mask_email_address(user.email) if has_email else None,
+            "current_step_method": default_method,
+            "masked_email": mask_email_address(user.email) if "email" in methods else None,
             "email_sent": email_sent,
             "email_error": email_error,
+            "enrollment_bundles": enrollment_bundles,
         }
 
     _FAILED_LOGIN_TRACKER.pop(client_ip, None)
@@ -643,7 +809,8 @@ async def resend_master_user_email_2fa(payload: ResendEmail2FASchema, request: R
     user = res.scalars().first()
     if not user or not user.is_active:
         raise HTTPException(status_code=401, detail="Kullanıcı bulunamadı veya pasif.")
-    if not getattr(user, "email_2fa_enabled", False) or not user.email:
+    st = _get_user_2fa_state(user)
+    if "email" not in st["active_methods"] or not user.email:
         raise HTTPException(status_code=400, detail="Bu kullanıcıda E-Posta 2FA aktif değil.")
 
     otp_info = generate_master_email_otp(f"login:{user.id}", user.email, ttl_seconds=300)
@@ -661,7 +828,7 @@ async def resend_master_user_email_2fa(payload: ResendEmail2FASchema, request: R
 
 @app.post("/api/v1/auth/verify-2fa")
 async def verify_master_user_2fa(payload: Verify2FASchema, request: Request, db: AsyncSession = Depends(get_central_db)):
-    """Verifies the 6-digit TOTP Authenticator or E-Mail OTP code after password step."""
+    """Verifies a 6-digit 2FA code (supporting single, flexible VEYA, and 2-stage mandatory VE modes)."""
     client_ip = extract_client_ip(request)
     pol = await get_or_create_security_policy(db)
     await check_ip_blocked(db, client_ip, pol)
@@ -675,39 +842,116 @@ async def verify_master_user_2fa(payload: Verify2FASchema, request: Request, db:
     if not user or not user.is_active:
         raise HTTPException(status_code=401, detail="Kullanıcı bulunamadı veya pasif.")
 
+    st = _get_user_2fa_state(user)
+    secrets_map = st["secrets_map"]
+    challenge = _LOGIN_2FA_CHALLENGES.get(payload.temp_token)
+    if not challenge or challenge.get("user_id") != user.id:
+        challenge = {
+            "user_id": user.id,
+            "mode": st["mode"],
+            "required_methods": list(st["active_methods"]),
+            "verified_methods": [],
+            "expires_at": time.time() + 600,
+        }
+        _LOGIN_2FA_CHALLENGES[payload.temp_token] = challenge
+
+    mode = challenge.get("mode", st["mode"])
+    required_methods: List[str] = list(challenge.get("required_methods") or st["active_methods"])
+    verified_methods: List[str] = list(challenge.get("verified_methods") or [])
+
     req_method = (payload.method or "").strip().lower()
-    verified = False
-    used_method_label = "Authenticator"
+    if req_method in ("totp", "app"):
+        req_method = "google_auth" if "google_auth" in required_methods else (
+            "microsoft_auth" if "microsoft_auth" in required_methods else "google_auth"
+        )
 
-    if req_method == "email":
-        if getattr(user, "email_2fa_enabled", False) and verify_master_email_otp(f"login:{user.id}", payload.code, consume=True):
-            verified = True
-            used_method_label = "E-Posta OTP"
-    elif req_method == "totp":
-        if user.totp_enabled and user.totp_secret and verify_totp_code(user.totp_secret, payload.code):
-            verified = True
-            used_method_label = "Authenticator"
+    # In mandatory VE (all) mode, enforce the next unverified step if no specific method given
+    remaining_before = [m for m in required_methods if m not in verified_methods]
+    if mode == "all" and remaining_before and req_method not in remaining_before:
+        req_method = remaining_before[0]
+
+    def _verify_for_method(m_id: str) -> bool:
+        if m_id == "email":
+            return verify_master_email_otp(f"login:{user.id}", payload.code, consume=True)
+        if m_id in ("google_auth", "microsoft_auth"):
+            sec = (secrets_map.get(m_id) or {}).get("secret") or (user.totp_secret if m_id == "google_auth" else None)
+            return bool(sec and verify_totp_code(sec, payload.code))
+        return False
+
+    matched_method = None
+    if req_method in required_methods:
+        if _verify_for_method(req_method):
+            matched_method = req_method
     else:
-        if user.totp_enabled and user.totp_secret and verify_totp_code(user.totp_secret, payload.code):
-            verified = True
-            used_method_label = "Authenticator"
-        elif getattr(user, "email_2fa_enabled", False) and verify_master_email_otp(f"login:{user.id}", payload.code, consume=True):
-            verified = True
-            used_method_label = "E-Posta OTP"
+        for cand in remaining_before or required_methods:
+            if _verify_for_method(cand):
+                matched_method = cand
+                break
 
-    if not verified:
-        await log_master_action(db, user.username, "USER_2FA_FAILED", f"Hatalı 2FA Kodu ({used_method_label} - {user.username})", client_ip, user.id)
+    if not matched_method:
+        fail_label = _method_display_label(req_method) if req_method else "2FA"
+        await log_master_action(db, user.username, "USER_2FA_FAILED", f"Hatalı 2FA Kodu ({fail_label} - {user.username})", client_ip, user.id)
         rem = await record_failed_login_attempt(db, client_ip, user.username, pol)
-        raise HTTPException(status_code=401, detail=f"6 haneli doğrulama kodu hatalı veya süresi dolmuş. (Kalan deneme hakkı: {rem})")
+        raise HTTPException(status_code=401, detail=f"6 haneli {fail_label} doğrulama kodu hatalı veya süresi dolmuş. (Kalan deneme hakkı: {rem})")
 
+    # Mark method enrolled if it was enrolled during first login
+    if not (secrets_map.get(matched_method) or {}).get("enrolled"):
+        entry = dict(secrets_map.get(matched_method) or {})
+        entry["enrolled"] = True
+        secrets_map[matched_method] = entry
+        _sync_legacy_2fa_columns(user, st["active_methods"], st["mode"], secrets_map)
+        await db.commit()
+
+    if matched_method not in verified_methods:
+        verified_methods.append(matched_method)
+        challenge["verified_methods"] = verified_methods
+
+    # If VE (all) mode still has remaining steps, advance to next step!
+    remaining_after = [m for m in required_methods if m not in verified_methods]
+    if mode == "all" and remaining_after:
+        next_method = remaining_after[0]
+        email_sent = False
+        email_error = None
+        if next_method == "email":
+            otp_info = generate_master_email_otp(f"login:{user.id}", user.email, ttl_seconds=300)
+            send_res = await send_master_2fa_email_otp(pol, user.email, user.full_name, otp_info["code"], ttl_seconds=300)
+            email_sent = bool(send_res.get("ok"))
+            if not email_sent:
+                email_error = send_res.get("error")
+
+        enrollment_bundles = {}
+        if next_method in ("google_auth", "microsoft_auth"):
+            entry = secrets_map.get(next_method) or {}
+            if entry.get("secret") and not entry.get("enrolled"):
+                enrollment_bundles[next_method] = _build_totp_qr_bundle(user, next_method, entry["secret"])
+
+        return {
+            "success": True,
+            "completed": False,
+            "requires_next_step": True,
+            "mode": mode,
+            "required_methods": required_methods,
+            "verified_methods": verified_methods,
+            "current_step_method": next_method,
+            "masked_email": mask_email_address(user.email) if "email" in required_methods else None,
+            "email_sent": email_sent,
+            "email_error": email_error,
+            "enrollment_bundles": enrollment_bundles,
+            "message": f"{_method_display_label(matched_method)} doğrulandı. Şimdi {_method_display_label(next_method)} kodunu giriniz.",
+        }
+
+    # Login fully completed!
+    _LOGIN_2FA_CHALLENGES.pop(payload.temp_token, None)
     _FAILED_LOGIN_TRACKER.pop(client_ip, None)
     user.last_login_at = datetime.datetime.utcnow()
     await db.commit()
 
-    await log_master_action(db, user.username, "USER_LOGIN_2FA", f"2FA ({used_method_label}) ile Başarılı Giriş ({user.full_name})", client_ip, user.id)
+    labels = " + ".join(_method_display_label(m) for m in verified_methods)
+    await log_master_action(db, user.username, "USER_LOGIN_2FA", f"2FA ({labels}) ile Başarılı Giriş ({user.full_name})", client_ip, user.id)
 
     return {
         "success": True,
+        "completed": True,
         "auto_logout_minutes": pol.auto_logout_minutes,
         "user": _serialize_master_user(user),
     }
@@ -732,85 +976,178 @@ async def get_master_users(db: AsyncSession = Depends(get_central_db)):
     return [_serialize_master_user(u) for u in users]
 
 
-_PENDING_TOTP_SECRETS: Dict[int, str] = {}
-
-
-def _build_local_qr_svg_data_uri(text_val: str) -> str:
-    """Generates a zero-dependency local SVG QR data URI so 2FA QR never depends on external services."""
-    try:
-        from backend.services.totp_service import generate_qr_svg_data_uri
-        return generate_qr_svg_data_uri(text_val)
-    except Exception:
-        return ""
-
-
-@app.post("/api/v1/users/{user_id}/2fa/setup")
-async def setup_master_user_2fa(user_id: int, request: Request, db: AsyncSession = Depends(get_central_db)):
-    """Generates a new TOTP secret, otpauth:// URI, and offline SVG QR for Google/Microsoft Authenticator setup."""
+@app.post("/api/v1/users/{user_id}/2fa/config")
+async def save_master_user_2fa_config(user_id: int, request: Request, payload: Dict[str, Any] = Body(...), db: AsyncSession = Depends(get_central_db)):
+    """Saves the user's complete 2FA configuration (enabled, single/all/any mode, active methods order)."""
     res = await db.execute(select(MasterUser).where(MasterUser.id == user_id))
     u = res.scalars().first()
     if not u:
         raise HTTPException(status_code=404, detail="Kullanıcı bulunamadı.")
 
-    secret = generate_totp_secret()
-    _PENDING_TOTP_SECRETS[u.id] = secret
-    if not u.totp_enabled:
-        u.totp_secret = secret
-        await db.commit()
+    enabled = bool(payload.get("enabled", False))
+    mode = str(payload.get("mode") or "single").strip().lower()
+    if mode not in ("single", "all", "any"):
+        mode = "single"
 
-    issuer = "Nornia Cloud Center"
-    label = urllib.parse.quote(f"{issuer}:{u.username}")
-    issuer_enc = urllib.parse.quote(issuer)
-    otpauth_url = f"otpauth://totp/{label}?secret={secret}&issuer={issuer_enc}&algorithm=SHA1&digits=6&period=30"
-    qr_svg_data_uri = _build_local_qr_svg_data_uri(otpauth_url)
+    raw_methods = payload.get("active_methods")
+    if not isinstance(raw_methods, list):
+        raw_methods = []
+    clean_methods = [str(m).strip().lower() for m in raw_methods if str(m).strip().lower() in VALID_2FA_METHODS]
+    clean_methods = list(dict.fromkeys(clean_methods))
 
+    st = _get_user_2fa_state(u)
+    secrets_map = st["secrets_map"]
+
+    if not enabled:
+        clean_methods = []
+        mode = "single"
+    else:
+        if not clean_methods:
+            clean_methods = ["google_auth"]
+        if mode == "single":
+            clean_methods = [clean_methods[0]]
+        # Auto-generate TOTP secret if an authenticator method is selected and doesn't have one yet
+        for m in clean_methods:
+            if m in ("google_auth", "microsoft_auth") and not (secrets_map.get(m) or {}).get("secret"):
+                secrets_map[m] = {"secret": generate_totp_secret(), "enrolled": False}
+
+    _sync_legacy_2fa_columns(u, clean_methods, mode, secrets_map)
+    await db.commit()
+    await db.refresh(u)
+
+    performed_by = request.headers.get("X-User-Name", u.username)
+    if enabled:
+        mode_lbl = {"single": "Tek Yöntem", "all": "2 Aşamalı Zorunlu (VE)", "any": "Esnek / Yedekli (VEYA)"}.get(mode, mode)
+        m_lbls = " + ".join(_method_display_label(m) for m in clean_methods)
+        await log_master_action(db, performed_by, "USER_2FA_CONFIG", f"2FA Ayarları Güncellendi ({u.username}): {mode_lbl} [{m_lbls}]", extract_client_ip(request), u.id)
+    else:
+        await log_master_action(db, performed_by, "USER_2FA_DISABLED", f"2FA Kapatıldı: {u.full_name} (@{u.username})", extract_client_ip(request), u.id)
+
+    return {"success": True, "user": _serialize_master_user(u)}
+
+
+@app.post("/api/v1/users/{user_id}/2fa/setup")
+async def setup_master_user_2fa(user_id: int, request: Request, payload: Dict[str, Any] = Body(default={}), db: AsyncSession = Depends(get_central_db)):
+    """Returns existing or fresh TOTP secret, otpauth:// URI, and local SVG QR for google_auth or microsoft_auth."""
+    res = await db.execute(select(MasterUser).where(MasterUser.id == user_id))
+    u = res.scalars().first()
+    if not u:
+        raise HTTPException(status_code=404, detail="Kullanıcı bulunamadı.")
+
+    method_id = str((payload or {}).get("method") or "google_auth").strip().lower()
+    if method_id not in ("google_auth", "microsoft_auth"):
+        method_id = "google_auth"
+    reset_flag = bool((payload or {}).get("reset", False))
+
+    st = _get_user_2fa_state(u)
+    secrets_map = st["secrets_map"]
+    existing_entry = secrets_map.get(method_id) or {}
+    existing_secret = existing_entry.get("secret")
+    is_enrolled = bool(existing_entry.get("enrolled"))
+
+    pending_key = f"{u.id}:{method_id}"
+    if reset_flag or not existing_secret:
+        secret = generate_totp_secret()
+        if is_enrolled and reset_flag:
+            # Keep active secret safe until new QR is verified!
+            _PENDING_TOTP_SECRETS[pending_key] = secret
+        else:
+            secrets_map[method_id] = {"secret": secret, "enrolled": False}
+            _PENDING_TOTP_SECRETS.pop(pending_key, None)
+            _sync_legacy_2fa_columns(u, st["active_methods"], st["mode"], secrets_map)
+            await db.commit()
+    else:
+        secret = existing_secret
+        _PENDING_TOTP_SECRETS.pop(pending_key, None)
+
+    bundle = _build_totp_qr_bundle(u, method_id, secret)
     return {
         "success": True,
         "user_id": u.id,
         "username": u.username,
-        "secret": secret,
-        "otpauth_url": otpauth_url,
-        "qr_svg_data_uri": qr_svg_data_uri,
+        "method": method_id,
+        "enrolled": is_enrolled and not reset_flag,
+        **bundle,
     }
 
 
 @app.post("/api/v1/users/{user_id}/2fa/enable")
 async def enable_master_user_2fa(user_id: int, request: Request, payload: Dict[str, Any] = Body(...), db: AsyncSession = Depends(get_central_db)):
-    """Verifies the 6-digit code from the user's Authenticator app and activates 2FA."""
-    res = await db.execute(select(MasterUser).where(MasterUser.id == user_id))
-    u = res.scalars().first()
-    candidate_secret = _PENDING_TOTP_SECRETS.get(user_id) or (u.totp_secret if u else None)
-    if not u or not candidate_secret:
-        raise HTTPException(status_code=400, detail="Önce 2FA QR kurulumu başlatılmalıdır.")
-
-    code = str(payload.get("code") or "").strip()
-    if not verify_totp_code(candidate_secret, code):
-        raise HTTPException(status_code=400, detail="Girilen 6 haneli doğrulama kodu hatalı. Lütfen Authenticator uygulamanızdaki güncel kodu giriniz.")
-
-    u.totp_secret = candidate_secret
-    u.totp_enabled = True
-    _PENDING_TOTP_SECRETS.pop(u.id, None)
-    await db.commit()
-    performed_by = request.headers.get("X-User-Name", u.username)
-    await log_master_action(db, performed_by, "USER_2FA_ENABLED", f"2FA (Google Authenticator) Aktifleştirildi: {u.full_name} (@{u.username})", extract_client_ip(request), u.id)
-    return {"success": True, "totp_enabled": True, "message": "2 Aşamalı Doğrulama (2FA) başarıyla aktifleştirildi."}
-
-
-@app.post("/api/v1/users/{user_id}/2fa/disable")
-async def disable_master_user_2fa(user_id: int, request: Request, db: AsyncSession = Depends(get_central_db)):
-    """Disables Authenticator (TOTP) 2FA for a master user."""
+    """Verifies the 6-digit code for Google/Microsoft Authenticator or E-Mail and marks that method enrolled."""
     res = await db.execute(select(MasterUser).where(MasterUser.id == user_id))
     u = res.scalars().first()
     if not u:
         raise HTTPException(status_code=404, detail="Kullanıcı bulunamadı.")
 
-    u.totp_enabled = False
-    u.totp_secret = None
-    _PENDING_TOTP_SECRETS.pop(u.id, None)
+    method_id = str((payload or {}).get("method") or "google_auth").strip().lower()
+    if method_id not in VALID_2FA_METHODS:
+        method_id = "google_auth"
+    code = str((payload or {}).get("code") or "").strip()
+
+    st = _get_user_2fa_state(u)
+    secrets_map = st["secrets_map"]
+
+    if method_id == "email":
+        if not verify_master_email_otp(f"setup:{u.id}", code, consume=True):
+            raise HTTPException(status_code=400, detail="Girilen 6 haneli e-posta doğrulama kodu hatalı veya süresi dolmuş.")
+        secrets_map["email"] = {"enrolled": True}
+    else:
+        pending_key = f"{u.id}:{method_id}"
+        candidate_secret = _PENDING_TOTP_SECRETS.get(pending_key) or (secrets_map.get(method_id) or {}).get("secret") or u.totp_secret
+        if not candidate_secret:
+            raise HTTPException(status_code=400, detail="Önce 2FA QR kurulumu başlatılmalıdır.")
+        if not verify_totp_code(candidate_secret, code):
+            raise HTTPException(status_code=400, detail=f"Girilen 6 haneli {_method_display_label(method_id)} kodu hatalı. Lütfen uygulamanızdaki güncel kodu giriniz.")
+        secrets_map[method_id] = {"secret": candidate_secret, "enrolled": True}
+        _PENDING_TOTP_SECRETS.pop(pending_key, None)
+
+    req_active = payload.get("active_methods")
+    if isinstance(req_active, list) and req_active:
+        next_methods = [str(m).strip().lower() for m in req_active if str(m).strip().lower() in VALID_2FA_METHODS]
+    else:
+        next_methods = list(st["active_methods"])
+    if method_id not in next_methods:
+        next_methods.append(method_id)
+
+    req_mode = str(payload.get("mode") or st["mode"] or "single").strip().lower()
+    if req_mode not in ("single", "all", "any"):
+        req_mode = "single"
+    if req_mode == "single":
+        next_methods = [method_id]
+
+    _sync_legacy_2fa_columns(u, next_methods, req_mode, secrets_map)
     await db.commit()
+    await db.refresh(u)
+
     performed_by = request.headers.get("X-User-Name", u.username)
-    await log_master_action(db, performed_by, "USER_2FA_DISABLED", f"2FA (Google Authenticator) Devre Dışı Bırakıldı: {u.full_name} (@{u.username})", extract_client_ip(request), u.id)
-    return {"success": True, "totp_enabled": False, "message": "Authenticator 2FA devre dışı bırakıldı."}
+    await log_master_action(db, performed_by, "USER_2FA_ENABLED", f"2FA ({_method_display_label(method_id)}) Doğrulandı & Eşleştirildi: {u.full_name} (@{u.username})", extract_client_ip(request), u.id)
+    return {
+        "success": True,
+        "method": method_id,
+        "user": _serialize_master_user(u),
+        "message": f"{_method_display_label(method_id)} başarıyla doğrulandı ve eşleştirildi!",
+    }
+
+
+@app.post("/api/v1/users/{user_id}/2fa/disable")
+async def disable_master_user_2fa(user_id: int, request: Request, db: AsyncSession = Depends(get_central_db)):
+    """Disables all 2FA for a master user."""
+    res = await db.execute(select(MasterUser).where(MasterUser.id == user_id))
+    u = res.scalars().first()
+    if not u:
+        raise HTTPException(status_code=404, detail="Kullanıcı bulunamadı.")
+
+    st = _get_user_2fa_state(u)
+    _sync_legacy_2fa_columns(u, [], "single", st["secrets_map"])
+    u.totp_enabled = False
+    u.email_2fa_enabled = False
+    for m in ("google_auth", "microsoft_auth"):
+        _PENDING_TOTP_SECRETS.pop(f"{u.id}:{m}", None)
+    await db.commit()
+    await db.refresh(u)
+    performed_by = request.headers.get("X-User-Name", u.username)
+    await log_master_action(db, performed_by, "USER_2FA_DISABLED", f"2FA Devre Dışı Bırakıldı: {u.full_name} (@{u.username})", extract_client_ip(request), u.id)
+    return {"success": True, "user": _serialize_master_user(u), "message": "2 Aşamalı Doğrulama devre dışı bırakıldı."}
 
 
 @app.post("/api/v1/users/{user_id}/2fa/email/send-test")
@@ -842,38 +1179,30 @@ async def send_master_user_email_2fa_setup_code(user_id: int, request: Request, 
 
 @app.post("/api/v1/users/{user_id}/2fa/email/enable")
 async def enable_master_user_email_2fa(user_id: int, request: Request, payload: Dict[str, Any] = Body(...), db: AsyncSession = Depends(get_central_db)):
-    """Verifies the 6-digit E-Mail OTP code and activates E-Mail 2FA for the user."""
-    res = await db.execute(select(MasterUser).where(MasterUser.id == user_id))
-    u = res.scalars().first()
-    if not u:
-        raise HTTPException(status_code=404, detail="Kullanıcı bulunamadı.")
-
-    code = str((payload or {}).get("code") or "").strip()
-    if not verify_master_email_otp(f"setup:{u.id}", code, consume=True):
-        raise HTTPException(status_code=400, detail="Girilen 6 haneli e-posta doğrulama kodu hatalı veya süresi dolmuş.")
-
-    u.email_2fa_enabled = True
-    await db.commit()
-    performed_by = request.headers.get("X-User-Name", u.username)
-    await log_master_action(db, performed_by, "USER_2FA_EMAIL_ENABLED", f"2FA (E-Posta OTP) Aktifleştirildi: {u.full_name} (@{u.username} - {u.email})", extract_client_ip(request), u.id)
-    return {"success": True, "email_2fa_enabled": True, "message": "E-Posta ile 2 Aşamalı Doğrulama (2FA) başarıyla aktifleştirildi."}
+    """Backwards-compatible endpoint to verify & activate E-Mail 2FA."""
+    merged = dict(payload or {})
+    merged["method"] = "email"
+    return await enable_master_user_2fa(user_id, request, merged, db)
 
 
 @app.post("/api/v1/users/{user_id}/2fa/email/disable")
 async def disable_master_user_email_2fa(user_id: int, request: Request, db: AsyncSession = Depends(get_central_db)):
-    """Disables E-Mail 2FA for a master user."""
+    """Removes E-Mail 2FA from active methods for a master user."""
     res = await db.execute(select(MasterUser).where(MasterUser.id == user_id))
     u = res.scalars().first()
     if not u:
         raise HTTPException(status_code=404, detail="Kullanıcı bulunamadı.")
 
-    u.email_2fa_enabled = False
+    st = _get_user_2fa_state(u)
+    next_methods = [m for m in st["active_methods"] if m != "email"]
+    _sync_legacy_2fa_columns(u, next_methods, st["mode"], st["secrets_map"])
     _MASTER_EMAIL_OTP_STORE.pop(f"setup:{u.id}", None)
     _MASTER_EMAIL_OTP_STORE.pop(f"login:{u.id}", None)
     await db.commit()
+    await db.refresh(u)
     performed_by = request.headers.get("X-User-Name", u.username)
     await log_master_action(db, performed_by, "USER_2FA_EMAIL_DISABLED", f"2FA (E-Posta OTP) Devre Dışı Bırakıldı: {u.full_name} (@{u.username})", extract_client_ip(request), u.id)
-    return {"success": True, "email_2fa_enabled": False, "message": "E-Posta 2FA devre dışı bırakıldı."}
+    return {"success": True, "user": _serialize_master_user(u), "message": "E-Posta 2FA devre dışı bırakıldı."}
 
 
 # --------------------------------------------------------------------------
@@ -930,15 +1259,21 @@ async def get_central_security_settings(request: Request, db: AsyncSession = Dep
     # 2FA summary across all master users
     res_users = await db.execute(select(MasterUser).order_by(MasterUser.id.asc()))
     all_users = res_users.scalars().all()
-    totp_users = [{
-        "id": u.id,
-        "username": u.username,
-        "full_name": u.full_name,
-        "email": u.email,
-        "role": u.role,
-        "totp_enabled": bool(u.totp_enabled),
-        "email_2fa_enabled": bool(getattr(u, "email_2fa_enabled", False)),
-    } for u in all_users]
+    totp_users = []
+    for u in all_users:
+        st_u = _get_user_2fa_state(u)
+        totp_users.append({
+            "id": u.id,
+            "username": u.username,
+            "full_name": u.full_name,
+            "email": u.email,
+            "role": u.role,
+            "totp_enabled": ("google_auth" in st_u["active_methods"]) or ("microsoft_auth" in st_u["active_methods"]),
+            "email_2fa_enabled": "email" in st_u["active_methods"],
+            "two_factor_enabled": st_u["enabled"],
+            "two_factor_mode": st_u["mode"],
+            "two_factor_methods": st_u["active_methods"],
+        })
 
     return {
         "client_ip": extract_client_ip(request),

@@ -287,11 +287,21 @@ export default function SecuritySettingsModal({ isOpen, onClose, currentUser, on
             {Array.isArray(totpSummary.users) && totpSummary.users.length > 0 && (
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                 {totpSummary.users.map((u) => {
-                  const activeAny = Boolean(u.totp_enabled || u.email_2fa_enabled);
-                  const methodLabels = [
-                    u.totp_enabled ? "Auth" : null,
-                    u.email_2fa_enabled ? "E-Posta" : null
-                  ].filter(Boolean);
+                  const mList =
+                    Array.isArray(u.two_factor_methods) && u.two_factor_methods.length > 0
+                      ? u.two_factor_methods
+                      : [
+                          ...(u.email_2fa_enabled ? ["email"] : []),
+                          ...(u.totp_enabled ? ["google_auth"] : [])
+                        ];
+                  const activeAny = Boolean(u.two_factor_enabled || mList.length > 0);
+                  const shortMap = {
+                    email: "E-Posta",
+                    google_auth: "Google Auth",
+                    microsoft_auth: "MS Auth"
+                  };
+                  const methodLabels = mList.map((m) => shortMap[m] || m);
+                  const modePrefix = u.two_factor_mode === "all" && mList.length >= 2 ? "2 Aşamalı" : "2FA";
                   return (
                     <div
                       key={u.id}
@@ -308,13 +318,13 @@ export default function SecuritySettingsModal({ isOpen, onClose, currentUser, on
                         onClick={() => onOpenUser2FA && onOpenUser2FA(u.id)}
                         className={`px-2.5 py-1 rounded-lg text-[10px] font-extrabold border flex items-center gap-1 shrink-0 cursor-pointer transition-colors ${
                           activeAny
-                            ? "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border-emerald-500/30 hover:bg-emerald-500/25"
+                            ? "bg-amber-500/15 text-amber-700 dark:text-amber-300 border-amber-500/30 hover:bg-amber-500/25"
                             : "bg-indigo-500/10 text-indigo-600 dark:text-indigo-300 border-indigo-500/25 hover:bg-indigo-600 hover:text-white"
                         }`}
                       >
                         {activeAny ? <ShieldCheck size={11} /> : <Key size={11} />}
                         <span>
-                          {activeAny ? `2FA (${methodLabels.join(" + ")})` : "2FA Aç / Kur"}
+                          {activeAny ? `${modePrefix} (${methodLabels.join(" + ")})` : "2FA Aç / Kur"}
                         </span>
                       </button>
                     </div>

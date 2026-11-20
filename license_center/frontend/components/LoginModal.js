@@ -12,8 +12,15 @@ import {
   Mail,
   Smartphone,
   Send,
-  Check
+  Check,
+  CheckCircle
 } from "lucide-react";
+
+const METHOD_LABELS = {
+  email: "E-Posta (E-Mail)",
+  google_auth: "Google Authenticator",
+  microsoft_auth: "Microsoft Authenticator"
+};
 
 export default function LoginModal({ onLoginSuccess, idleLogoutMessage = "" }) {
   const [username, setUsername] = useState("");
@@ -28,12 +35,15 @@ export default function LoginModal({ onLoginSuccess, idleLogoutMessage = "" }) {
   const [tempToken, setTempToken] = useState("");
   const [totpCode, setTotpCode] = useState("");
   const [pendingUserLabel, setPendingUserLabel] = useState("");
-  const [availableMethods, setAvailableMethods] = useState(["totp"]);
-  const [active2faMethod, setActive2faMethod] = useState("totp");
+  const [twoFactorMode, setTwoFactorMode] = useState("single"); // single | all | any
+  const [availableMethods, setAvailableMethods] = useState(["google_auth"]);
+  const [verifiedMethods, setVerifiedMethods] = useState([]);
+  const [active2faMethod, setActive2faMethod] = useState("google_auth");
   const [maskedEmail, setMaskedEmail] = useState("");
   const [emailSentOnce, setEmailSentOnce] = useState(false);
   const [resendingEmail, setResendingEmail] = useState(false);
   const [resendCooldown, setResendCooldown] = useState(0);
+  const [enrollmentBundles, setEnrollmentBundles] = useState({});
 
   useEffect(() => {
     if (resendCooldown <= 0) return;
@@ -72,18 +82,27 @@ export default function LoginModal({ onLoginSuccess, idleLogoutMessage = "" }) {
 
       if (data.requires_2fa && data.temp_token) {
         const methods =
-          Array.isArray(data.methods) && data.methods.length > 0 ? data.methods : ["totp"];
-        const defMethod = data.default_method || methods[0] || "totp";
+          Array.isArray(data.required_methods) && data.required_methods.length > 0
+            ? data.required_methods
+            : Array.isArray(data.methods) && data.methods.length > 0
+              ? data.methods
+              : ["google_auth"];
+        const mode = data.mode || (methods.length > 1 ? "any" : "single");
+        const stepMethod = data.current_step_method || data.default_method || methods[0];
+
         setRequires2FA(true);
         setTempToken(data.temp_token);
         setPendingUserLabel(data.full_name || data.username || username.trim());
+        setTwoFactorMode(mode);
         setAvailableMethods(methods);
-        setActive2faMethod(defMethod);
+        setVerifiedMethods(Array.isArray(data.verified_methods) ? data.verified_methods : []);
+        setActive2faMethod(stepMethod);
         setMaskedEmail(data.masked_email || "");
         setEmailSentOnce(Boolean(data.email_sent));
+        setEnrollmentBundles(data.enrollment_bundles || {});
         setTotpCode("");
 
-        if (defMethod === "email") {
+        if (stepMethod === "email") {
           if (data.email_sent) {
             setInfoMsg(
               `6 haneli doğrulama kodu ${data.masked_email || "e-posta adresinize"} gönderildi.`
@@ -138,7 +157,8 @@ export default function LoginModal({ onLoginSuccess, idleLogoutMessage = "" }) {
     }
   };
 
-  const handleSelectMethod = (methodKey) => {
+  const handleSelectFlexibleMethod = (methodKey) => {
+    if (twoFactorMode === "all") return;
     setActive2faMethod(methodKey);
     setErrorMsg("");
     setInfoMsg("");
@@ -155,7 +175,7 @@ export default function LoginModal({ onLoginSuccess, idleLogoutMessage = "" }) {
       setErrorMsg(
         active2faMethod === "email"
           ? "Lütfen e-postanıza gelen 6 haneli doğrulama kodunu giriniz."
-          : "Lütfen Authenticator uygulamanızdaki 6 haneli kodu giriniz."
+          : `Lütfen ${METHOD_LABELS[active2faMethod] || "Authenticator"} uygulamanızdaki 6 haneli kodu giriniz.`
       );
       return;
     }
@@ -179,6 +199,35 @@ export default function LoginModal({ onLoginSuccess, idleLogoutMessage = "" }) {
         throw new Error(data.detail || "2FA doğrulama kodu hatalı.");
       }
 
+      // 2-Stage VE (all) mode: advance smoothly to Step 2!
+      if (data.requires_next_step && data.current_step_method) {
+        setVerifiedMethods(Array.isArray(data.verified_methods) ? data.verified_methods : []);
+        setActive2faMethod(data.current_step_method);
+        setTotpCode("");
+        if (data.enrollment_bundles) {
+          setEnrollmentBundles((prev) => ({ ...prev, ...data.enrollment_bundles }));
+        }
+        if (data.current_step_method === "email") {
+          if (data.email_sent) {
+            setEmailSentOnce(true);
+            setResendCooldown(30);
+            setInfoMsg(
+              data.message ||
+                `1. adım doğrulandı. 6 haneli kod ${data.masked_email || maskedEmail || "e-posta adresinize"} gönderildi.`
+            );
+          } else if (data.email_error) {
+            setInfoMsg(data.message || "1. adım doğrulandı.");
+            setErrorMsg(data.email_error);
+          }
+        } else {
+          setInfoMsg(
+            data.message ||
+              `1. adım doğrulandı. Şimdi ${METHOD_LABELS[data.current_step_method] || "Authenticator"} kodunu giriniz.`
+          );
+        }
+        return;
+      }
+
       if (data.user) {
         sessionStorage.setItem("master_user", JSON.stringify(data.user));
         if (data.auto_logout_minutes !== undefined) {
@@ -193,11 +242,15 @@ export default function LoginModal({ onLoginSuccess, idleLogoutMessage = "" }) {
     }
   };
 
+  const currentEnrollBundle = enrollmentBundles?.[active2faMethod];
+  const currentStepIdx = Math.max(0, availableMethods.indexOf(active2faMethod));
+  const isTwoStageAll = twoFactorMode === "all" && availableMethods.length >= 2;
+
   return (
-    <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-sm animate-fadeIn">
-      <div className="w-full max-w-md bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl shadow-2xl overflow-hidden p-8 space-y-6 relative text-slate-900 dark:text-slate-100">
+    <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-sm animate-fadeIn overflow-y-auto">
+      <div className="w-full max-w-md bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl shadow-2xl overflow-hidden p-8 space-y-5 relative text-slate-900 dark:text-slate-100 my-auto">
         {/* Decorative Top Accent */}
-        <div className="absolute top-0 left-0 right-0 h-1.5 bg-gradient-to-r from-indigo-600 via-violet-500 to-rose-500" />
+        <div className="absolute top-0 left-0 right-0 h-1.5 bg-gradient-to-r from-indigo-600 via-amber-500 to-rose-500" />
 
         {/* Header Branding */}
         <div className="text-center space-y-2.5">
@@ -210,7 +263,9 @@ export default function LoginModal({ onLoginSuccess, idleLogoutMessage = "" }) {
             </h2>
             <p className="text-xs font-semibold text-slate-500 dark:text-slate-400 mt-0.5">
               {requires2FA
-                ? "2 Aşamalı Güvenlik Doğrulaması (2FA)"
+                ? isTwoStageAll
+                  ? `2 Aşamalı Zorunlu Doğrulama (Adım ${currentStepIdx + 1}/${availableMethods.length})`
+                  : "2 Aşamalı Güvenlik Doğrulaması (2FA)"
                 : "Merkezi Lisans Otoritesi & Bulut Filo Yönetimi"}
             </p>
           </div>
@@ -225,33 +280,70 @@ export default function LoginModal({ onLoginSuccess, idleLogoutMessage = "" }) {
 
         {requires2FA ? (
           <form onSubmit={handleVerify2FA} className="space-y-4">
-            {/* Method Switcher if user has BOTH Authenticator and E-Mail 2FA enabled */}
-            {availableMethods.length > 1 && (
-              <div className="grid grid-cols-2 gap-1.5 p-1 rounded-2xl bg-slate-100 dark:bg-slate-950 border border-slate-200 dark:border-slate-800">
-                <button
-                  type="button"
-                  onClick={() => handleSelectMethod("totp")}
-                  className={`py-2 px-3 rounded-xl text-[11px] font-extrabold flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
-                    active2faMethod === "totp"
-                      ? "bg-white dark:bg-slate-800 text-indigo-600 dark:text-indigo-300 shadow-xs"
-                      : "text-slate-500 hover:text-slate-800 dark:hover:text-slate-200"
-                  }`}
-                >
-                  <Smartphone size={13} />
-                  <span>Authenticator</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleSelectMethod("email")}
-                  className={`py-2 px-3 rounded-xl text-[11px] font-extrabold flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
-                    active2faMethod === "email"
-                      ? "bg-white dark:bg-slate-800 text-sky-600 dark:text-sky-300 shadow-xs"
-                      : "text-slate-500 hover:text-slate-800 dark:hover:text-slate-200"
-                  }`}
-                >
-                  <Mail size={13} />
-                  <span>E-Posta Kodu</span>
-                </button>
+            {/* 2-Stage VE Mode Progress Stepper */}
+            {isTwoStageAll && (
+              <div className="flex items-center gap-2">
+                {availableMethods.map((mId, idx) => {
+                  const isDone = verifiedMethods.includes(mId);
+                  const isCurr = active2faMethod === mId;
+                  return (
+                    <div
+                      key={mId}
+                      className={`flex-1 px-2.5 py-2 rounded-xl border text-[10px] font-extrabold flex items-center gap-1.5 ${
+                        isDone
+                          ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-700 dark:text-emerald-300"
+                          : isCurr
+                            ? "bg-amber-500/15 border-amber-500/50 text-amber-800 dark:text-amber-300"
+                            : "bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800 text-slate-400"
+                      }`}
+                    >
+                      {isDone ? (
+                        <CheckCircle size={13} className="shrink-0" />
+                      ) : (
+                        <span className="w-4 h-4 rounded-full bg-current/15 flex items-center justify-center text-[9px] shrink-0">
+                          {idx + 1}
+                        </span>
+                      )}
+                      <span className="truncate">{METHOD_LABELS[mId] || mId}</span>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
+            {/* Flexible VEYA Mode Switcher */}
+            {twoFactorMode === "any" && availableMethods.length > 1 && (
+              <div className="flex flex-wrap gap-1.5 p-1 rounded-2xl bg-slate-100 dark:bg-slate-950 border border-slate-200 dark:border-slate-800">
+                {availableMethods.map((mId) => {
+                  const active = active2faMethod === mId;
+                  return (
+                    <button
+                      key={mId}
+                      type="button"
+                      onClick={() => handleSelectFlexibleMethod(mId)}
+                      className={`flex-1 min-w-[100px] py-2 px-2.5 rounded-xl text-[11px] font-extrabold flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
+                        active
+                          ? "bg-white dark:bg-slate-800 text-amber-700 dark:text-amber-300 shadow-xs"
+                          : "text-slate-500 hover:text-slate-800 dark:hover:text-slate-200"
+                      }`}
+                    >
+                      {mId === "email" ? (
+                        <Mail size={13} />
+                      ) : mId === "microsoft_auth" ? (
+                        <KeyRound size={13} />
+                      ) : (
+                        <Smartphone size={13} />
+                      )}
+                      <span className="truncate">
+                        {mId === "email"
+                          ? "E-Posta"
+                          : mId === "microsoft_auth"
+                            ? "MS Auth"
+                            : "Google Auth"}
+                      </span>
+                    </button>
+                  );
+                })}
               </div>
             )}
 
@@ -270,11 +362,36 @@ export default function LoginModal({ onLoginSuccess, idleLogoutMessage = "" }) {
                 </p>
               ) : (
                 <p className="text-[11px] text-slate-500 dark:text-slate-400">
-                  Lütfen cep telefonunuzdaki <strong>Google / Microsoft Authenticator</strong>{" "}
+                  Lütfen cep telefonunuzdaki{" "}
+                  <strong>{METHOD_LABELS[active2faMethod] || "Authenticator"}</strong>{" "}
                   uygulamasında üretilen 6 haneli doğrulama kodunu giriniz.
                 </p>
               )}
             </div>
+
+            {/* First-Login Inline QR Enrollment if user hasn't scanned QR yet */}
+            {currentEnrollBundle && (
+              <div className="p-3.5 rounded-2xl bg-amber-50/70 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800/60 space-y-2.5 text-center">
+                <div className="text-[11px] font-extrabold text-amber-800 dark:text-amber-300">
+                  İlk Kurulum — {METHOD_LABELS[active2faMethod]} ile QR Kodu Tarayın
+                </div>
+                <div className="mx-auto w-36 h-36 p-2 bg-white rounded-xl border border-slate-200 flex items-center justify-center">
+                  <img
+                    src={
+                      currentEnrollBundle.qr_svg_data_uri ||
+                      `https://api.qrserver.com/v1/create-qr-code/?size=160x160&data=${encodeURIComponent(
+                        currentEnrollBundle.otpauth_url || ""
+                      )}`
+                    }
+                    alt="First Login 2FA QR"
+                    className="w-full h-full object-contain"
+                  />
+                </div>
+                <div className="font-mono text-[11px] font-extrabold text-slate-700 dark:text-slate-200 select-all">
+                  {currentEnrollBundle.secret}
+                </div>
+              </div>
+            )}
 
             {infoMsg && (
               <div className="p-2.5 bg-emerald-50 dark:bg-emerald-950/50 border border-emerald-200 dark:border-emerald-800 rounded-2xl text-[11px] font-bold text-emerald-700 dark:text-emerald-300 flex items-center gap-2">
@@ -286,11 +403,11 @@ export default function LoginModal({ onLoginSuccess, idleLogoutMessage = "" }) {
             <div>
               <div className="flex items-center justify-between mb-1.5">
                 <label className="text-xs font-bold text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
-                  <KeyRound size={14} className="text-indigo-500" />
+                  <KeyRound size={14} className="text-amber-500" />
                   <span>
                     {active2faMethod === "email"
                       ? "6 Haneli E-Posta Kodu"
-                      : "6 Haneli Authenticator Kodu"}
+                      : `6 Haneli ${METHOD_LABELS[active2faMethod] || "Authenticator"} Kodu`}
                   </span>
                 </label>
 
@@ -324,7 +441,7 @@ export default function LoginModal({ onLoginSuccess, idleLogoutMessage = "" }) {
                 value={totpCode}
                 onChange={(e) => setTotpCode(e.target.value.replace(/[^0-9]/g, ""))}
                 placeholder="000000"
-                className="w-full px-4 py-3.5 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-2xl focus:outline-none focus:border-indigo-500 text-center font-mono text-lg tracking-[0.4em] font-extrabold text-slate-900 dark:text-white"
+                className="w-full px-4 py-3.5 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-2xl focus:outline-none focus:border-amber-500 text-center font-mono text-lg tracking-[0.4em] font-extrabold text-slate-900 dark:text-white"
               />
             </div>
 
@@ -344,7 +461,11 @@ export default function LoginModal({ onLoginSuccess, idleLogoutMessage = "" }) {
                 <span>Doğrulanıyor...</span>
               ) : (
                 <>
-                  <span>Doğrula &amp; Giriş Yap</span>
+                  <span>
+                    {isTwoStageAll && currentStepIdx + 1 < availableMethods.length
+                      ? `Adım ${currentStepIdx + 1} Doğrula & Devam Et`
+                      : "Doğrula & Giriş Yap"}
+                  </span>
                   <ArrowRight size={16} />
                 </>
               )}
@@ -358,8 +479,10 @@ export default function LoginModal({ onLoginSuccess, idleLogoutMessage = "" }) {
                 setTotpCode("");
                 setErrorMsg("");
                 setInfoMsg("");
+                setVerifiedMethods([]);
                 setEmailSentOnce(false);
                 setResendCooldown(0);
+                setEnrollmentBundles({});
               }}
               className="w-full py-2.5 rounded-2xl border border-slate-200 dark:border-slate-800 text-xs font-bold text-slate-500 hover:text-slate-800 dark:hover:text-white flex items-center justify-center gap-1.5 cursor-pointer"
             >

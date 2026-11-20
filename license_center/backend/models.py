@@ -17,6 +17,9 @@ class MasterUser(Base):
     totp_secret = Column(String, nullable=True)
     totp_enabled = Column(Boolean, default=False)
     email_2fa_enabled = Column(Boolean, default=False)
+    two_factor_mode = Column(String, default="single")  # single | all | any
+    two_factor_methods_json = Column(Text, default="[]")  # ["email", "google_auth", "microsoft_auth"]
+    two_factor_secrets_json = Column(Text, default="{}")  # {"google_auth": {"secret": "...", "enrolled": true}, ...}
     last_login_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
 
