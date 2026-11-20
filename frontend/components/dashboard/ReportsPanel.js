@@ -1077,6 +1077,33 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
   const [activeAudioCall, setActiveAudioCall] = useState(null);
   const [isTimelineOpen, setIsTimelineOpen] = useState(false);
   const [selectedTimelineCall, setSelectedTimelineCall] = useState(null);
+  const [timelineSplitChannels, setTimelineSplitChannels] = useState(null);
+  const [timelineAudioView, setTimelineAudioView] = useState("combined");
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!isTimelineOpen || !selectedTimelineCall?.id) {
+      setTimelineSplitChannels(null);
+      setTimelineAudioView("combined");
+      return;
+    }
+    setTimelineSplitChannels(null);
+    setTimelineAudioView("combined");
+    const proto = typeof window !== "undefined" ? window.location.protocol : "https:";
+    fetch(`${proto}//${backendHost}/api/recordings/${encodeURIComponent(selectedTimelineCall.id)}/channels`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => {
+        if (!cancelled && data) {
+          setTimelineSplitChannels(data);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setTimelineSplitChannels(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [isTimelineOpen, selectedTimelineCall?.id, backendHost]);
   const [isTranscriptPopupOpen, setIsTranscriptPopupOpen] = useState(false);
   const [isSummaryPopupOpen, setIsSummaryPopupOpen] = useState(false);
   const [selectedTranscriptCall, setSelectedTranscriptCall] = useState(null);
@@ -6800,14 +6827,135 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                             </span>
                           )}
                         </div>
-                        <WaveformAudioPlayer
-                          src={`${window.location.protocol}//${backendHost}${seg.recording_path}`}
-                          initialDuration={seg.duration_sec || selectedTimelineCall.talk_duration || selectedTimelineCall.duration}
-                          size="sm"
-                          barCount={28}
-                          title={seg.label}
-                          className="w-full"
-                        />
+                        {seg.kind === "master" && timelineSplitChannels?.available ? (
+                          <div className="flex flex-col gap-2.5">
+                            <div className="flex items-center justify-between gap-2 flex-wrap">
+                              <div className="inline-flex items-center gap-1 p-1 rounded-xl bg-white/80 dark:bg-slate-950/70 border border-slate-200/80 dark:border-slate-800">
+                                {[
+                                  { id: "combined", label: "Birleşik" },
+                                  { id: "split", label: "Arayan + Aranan Ayrı" },
+                                  { id: "rx", label: "Yalnız Arayan" },
+                                  { id: "tx", label: "Yalnız Aranan" },
+                                ].map((tab) => (
+                                  <button
+                                    key={tab.id}
+                                    type="button"
+                                    onClick={() => setTimelineAudioView(tab.id)}
+                                    className={`px-2.5 py-1 rounded-lg text-[10px] font-extrabold transition cursor-pointer ${
+                                      timelineAudioView === tab.id
+                                        ? `text-white shadow-sm ${bg}`
+                                        : "text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800"
+                                    }`}
+                                  >
+                                    {tab.label}
+                                  </button>
+                                ))}
+                              </div>
+                              <div className="flex items-center gap-1.5 flex-wrap text-[9.5px] font-bold">
+                                {timelineSplitChannels.rx && (
+                                  <span
+                                    className={`px-2 py-0.5 rounded-md border ${
+                                      timelineSplitChannels.rx.has_audio === false
+                                        ? "bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-500/25"
+                                        : "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border-emerald-500/25"
+                                    }`}
+                                  >
+                                    Arayan: {timelineSplitChannels.rx.has_audio === false ? "Sessiz" : "Ses Var"}
+                                    {typeof timelineSplitChannels.rx.peak_db === "number" && timelineSplitChannels.rx.peak_db > -90
+                                      ? ` (${timelineSplitChannels.rx.peak_db} dB)`
+                                      : ""}
+                                  </span>
+                                )}
+                                {timelineSplitChannels.tx && (
+                                  <span
+                                    className={`px-2 py-0.5 rounded-md border ${
+                                      timelineSplitChannels.tx.has_audio === false
+                                        ? "bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-500/25"
+                                        : "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border-emerald-500/25"
+                                    }`}
+                                  >
+                                    Aranan: {timelineSplitChannels.tx.has_audio === false ? "Sessiz" : "Ses Var"}
+                                    {typeof timelineSplitChannels.tx.peak_db === "number" && timelineSplitChannels.tx.peak_db > -90
+                                      ? ` (${timelineSplitChannels.tx.peak_db} dB)`
+                                      : ""}
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+
+                            {timelineAudioView === "combined" && (
+                              <WaveformAudioPlayer
+                                key={`${seg.id || "master"}-combined`}
+                                src={`${window.location.protocol}//${backendHost}${seg.recording_path}`}
+                                initialDuration={seg.duration_sec || selectedTimelineCall.talk_duration || selectedTimelineCall.duration}
+                                size="sm"
+                                barCount={28}
+                                title={seg.label}
+                                className="w-full"
+                              />
+                            )}
+
+                            {(timelineAudioView === "split" || timelineAudioView === "rx") && timelineSplitChannels.rx && (
+                              <div className="p-2.5 rounded-xl bg-white/90 dark:bg-slate-900/90 border border-slate-200/80 dark:border-slate-800 flex flex-col gap-1.5">
+                                <div className="flex items-center justify-between gap-2">
+                                  <span className={"text-[10px] font-extrabold uppercase tracking-wider " + text}>
+                                    Arayan Kanalı (RX — Başlatan Taraf)
+                                  </span>
+                                  <span className="text-[9.5px] font-mono font-bold text-slate-400">
+                                    {timelineSplitChannels.rx.has_audio === false ? "Ses Algılanmadı" : "Aktif Ses"}
+                                  </span>
+                                </div>
+                                <WaveformAudioPlayer
+                                  key={`${seg.id || "master"}-rx`}
+                                  src={`${window.location.protocol}//${backendHost}${timelineSplitChannels.rx.url}`}
+                                  initialDuration={timelineSplitChannels.rx.duration_sec || seg.duration_sec || selectedTimelineCall.talk_duration || selectedTimelineCall.duration}
+                                  size="sm"
+                                  barCount={28}
+                                  title="Arayan Kanalı (RX)"
+                                  className="w-full"
+                                />
+                              </div>
+                            )}
+
+                            {(timelineAudioView === "split" || timelineAudioView === "tx") && timelineSplitChannels.tx && (
+                              <div className="p-2.5 rounded-xl bg-white/90 dark:bg-slate-900/90 border border-slate-200/80 dark:border-slate-800 flex flex-col gap-1.5">
+                                <div className="flex items-center justify-between gap-2">
+                                  <span className={"text-[10px] font-extrabold uppercase tracking-wider " + text}>
+                                    Aranan Kanalı (TX — Karşı Taraf)
+                                  </span>
+                                  <span className="text-[9.5px] font-mono font-bold text-slate-400">
+                                    {timelineSplitChannels.tx.has_audio === false ? "Ses Algılanmadı" : "Aktif Ses"}
+                                  </span>
+                                </div>
+                                <WaveformAudioPlayer
+                                  key={`${seg.id || "master"}-tx`}
+                                  src={`${window.location.protocol}//${backendHost}${timelineSplitChannels.tx.url}`}
+                                  initialDuration={timelineSplitChannels.tx.duration_sec || seg.duration_sec || selectedTimelineCall.talk_duration || selectedTimelineCall.duration}
+                                  size="sm"
+                                  barCount={28}
+                                  title="Aranan Kanalı (TX)"
+                                  className="w-full"
+                                />
+                              </div>
+                            )}
+                          </div>
+                        ) : (
+                          <>
+                            <WaveformAudioPlayer
+                              src={`${window.location.protocol}//${backendHost}${seg.recording_path}`}
+                              initialDuration={seg.duration_sec || selectedTimelineCall.talk_duration || selectedTimelineCall.duration}
+                              size="sm"
+                              barCount={28}
+                              title={seg.label}
+                              className="w-full"
+                            />
+                            {seg.kind === "master" && timelineSplitChannels && !timelineSplitChannels.available && (
+                              <p className="text-[9.5px] text-slate-400 dark:text-slate-500 font-semibold">
+                                Arayan / Aranan ayrı ses kanalları v3.5.8 sonrası yapılan yeni çağrılarda otomatik kaydedilir.
+                              </p>
+                            )}
+                          </>
+                        )}
                       </div>
                     ))}
                   </div>

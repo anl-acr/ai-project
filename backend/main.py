@@ -343,6 +343,82 @@ async def auto_api_prefix_middleware(request: Request, call_next):
 # Serve call recordings statically with fallback search in Asterisk spool directory
 os.makedirs(RECORDINGS_DIR, exist_ok=True)
 
+@app.get("/api/recordings/{call_id}/channels")
+async def get_recording_split_channels(call_id: str):
+    """Returns separate caller (RX) and callee (TX) WAV recording URLs + instant PCM signal level diagnostics."""
+    import wave as _wave_ch
+    import struct as _struct_ch
+    import math as _math_ch
+
+    safe_id = os.path.basename(str(call_id or "").strip())
+    if not safe_id or safe_id.startswith("."):
+        return {"available": False, "rx": None, "tx": None}
+
+    ret_cfg = settings_db.get("recording_retention") or {}
+    custom_ext_dir = str(ret_cfg.get("external_mount_path") or "/mnt/nas/ai-recordings").strip() or "/mnt/nas/ai-recordings"
+    sub_remote = str(ret_cfg.get("external_remote_path") or "").strip().strip("/")
+    search_dirs = [RECORDINGS_DIR, "/var/spool/asterisk/monitor", custom_ext_dir, "/mnt/nas/ai-recordings", "/mnt/nas/smb-recordings"]
+    if sub_remote:
+        search_dirs.insert(2, os.path.join(custom_ext_dir, sub_remote))
+
+    def _inspect_track(suffix: str):
+        fname = f"{safe_id}_{suffix}.wav"
+        found_path = None
+        for d in search_dirs:
+            cand = os.path.join(d, fname)
+            if os.path.isfile(cand) and os.path.getsize(cand) > 44:
+                found_path = cand
+                break
+        if not found_path:
+            return None
+        # Mirror from Asterisk spool into project recordings dir for persistence
+        proj_dest = os.path.join(RECORDINGS_DIR, fname)
+        if found_path != proj_dest and not os.path.exists(proj_dest):
+            try:
+                shutil.copy2(found_path, proj_dest)
+            except Exception:
+                pass
+        size_b = os.path.getsize(found_path)
+        has_audio = None
+        peak_db = None
+        dur_sec = 0.0
+        try:
+            with _wave_ch.open(found_path, "rb") as wf:
+                nframes = wf.getnframes()
+                fr = wf.getframerate() or 8000
+                sw = wf.getsampwidth()
+                dur_sec = round(nframes / float(fr), 2) if fr else 0.0
+                if sw == 2 and nframes > 0:
+                    raw = wf.readframes(min(nframes, fr * 120))
+                    total_samples = len(raw) // 2
+                    step = max(1, total_samples // 4000)
+                    peak = 0
+                    for i in range(0, total_samples, step):
+                        v = abs(_struct_ch.unpack_from("<h", raw, i * 2)[0])
+                        if v > peak:
+                            peak = v
+                    has_audio = bool(peak > 120)
+                    peak_db = round(20.0 * _math_ch.log10(peak / 32768.0), 1) if peak > 0 else -96.0
+        except Exception:
+            pass
+        return {
+            "url": f"/api/recordings/{fname}",
+            "filename": fname,
+            "size_bytes": size_b,
+            "duration_sec": dur_sec,
+            "has_audio": has_audio,
+            "peak_db": peak_db,
+        }
+
+    rx_info = _inspect_track("rx")
+    tx_info = _inspect_track("tx")
+    return {
+        "available": bool(rx_info or tx_info),
+        "rx": rx_info,
+        "tx": tx_info,
+    }
+
+
 @app.get("/api/recordings/{filename}")
 async def get_recording_file(filename: str):
     """Dynamically serves call audio recording files from project recordings directory, Asterisk spool directory, or configured external NAS/File Server storage."""
@@ -5660,7 +5736,7 @@ same => n,Set(CURL_RESULT=${{CURL(http://{backend_host}/api/calls/register?call_
 same => n,GotoIf($["${{CURL_RESULT}}" = "BLOCKED"]?hangup_blocked_x)
 same => n,Progress()
 same => n,Answer()
-same => n,MixMonitor(/var/spool/asterisk/monitor/${{CALL_UUID}}.wav)
+same => n,MixMonitor(/var/spool/asterisk/monitor/${{CALL_UUID}}.wav,r(/var/spool/asterisk/monitor/${{CALL_UUID}}_rx.wav)t(/var/spool/asterisk/monitor/${{CALL_UUID}}_tx.wav))
 same => n,AudioSocket(${{CALL_UUID}},{audiosocket_host})
 same => n,Hangup()
 same => n(hangup_blocked_x),NoOp(KARA LISTE / TANIMSIZ DID / GUVENLIK ENGELI: Arayan reddedildi -> ${{CALLERID(num)}})
@@ -5683,7 +5759,7 @@ same => n,Set(CURL_RESULT=${{CURL(http://{backend_host}/api/calls/register?call_
 same => n,GotoIf($["${{CURL_RESULT}}" = "BLOCKED"]?hangup_blocked_plus)
 same => n,Progress()
 same => n,Answer()
-same => n,MixMonitor(/var/spool/asterisk/monitor/${{CALL_UUID}}.wav)
+same => n,MixMonitor(/var/spool/asterisk/monitor/${{CALL_UUID}}.wav,r(/var/spool/asterisk/monitor/${{CALL_UUID}}_rx.wav)t(/var/spool/asterisk/monitor/${{CALL_UUID}}_tx.wav))
 same => n,AudioSocket(${{CALL_UUID}},{audiosocket_host})
 same => n,Hangup()
 same => n(hangup_blocked_plus),NoOp(KARA LISTE / TANIMSIZ DID / GUVENLIK ENGELI: Arayan reddedildi -> ${{CALLERID(num)}})
@@ -5710,7 +5786,7 @@ same => n,Set(CURL_RESULT=${{CURL(http://{backend_host}/api/calls/register?call_
 same => n,GotoIf($["${{CURL_RESULT}}" = "BLOCKED"]?hangup_blocked_s)
 same => n,Progress()
 same => n,Answer()
-same => n,MixMonitor(/var/spool/asterisk/monitor/${{CALL_UUID}}.wav)
+same => n,MixMonitor(/var/spool/asterisk/monitor/${{CALL_UUID}}.wav,r(/var/spool/asterisk/monitor/${{CALL_UUID}}_rx.wav)t(/var/spool/asterisk/monitor/${{CALL_UUID}}_tx.wav))
 same => n,AudioSocket(${{CALL_UUID}},{audiosocket_host})
 same => n,Hangup()
 same => n(hangup_blocked_s),NoOp(KARA LISTE / GUVENLIK ENGELI: Arayan reddedildi -> ${{CALLERID(num)}})
@@ -5728,7 +5804,7 @@ same => n(done_def_h),Hangup()
 ; Yapay zeka aramayı insana aktarmak istediğinde AMI üzerinden bu dahili extension'a yönlendirir
 exten => transfer_to_human,1,NoOp(Yapay zeka cagriyi temsilciye aktariyor: ${{UNIQUEID}})
 same => n,StopMixMonitor()
-same => n,MixMonitor(/var/spool/asterisk/monitor/${{CALL_UUID}}.wav,ab)
+same => n,MixMonitor(/var/spool/asterisk/monitor/${{CALL_UUID}}.wav,abr(/var/spool/asterisk/monitor/${{CALL_UUID}}_rx.wav)t(/var/spool/asterisk/monitor/${{CALL_UUID}}_tx.wav))
 same => n,Playback(/var/spool/asterisk/monitor/tr_aktariliyor)
 same => n,Gosub(queue_router_sub,s,1(temsilci_kuyrugu))
 same => n,GotoIf($["${{DIALSTATUS}}" != "ANSWER"]?hangup_transfer)
@@ -5821,7 +5897,7 @@ same => n,Set(MD5_VAL=${{MD5(${{UNIQUEID}}${{EPOCH}})}})
 same => n,Set(__CALL_UUID=${{MD5_VAL:0:8}}-${{MD5_VAL:8:4}}-4${{MD5_VAL:13:3}}-a${{MD5_VAL:17:3}}-${{MD5_VAL:20:12}})
 same => n,Set(CURL_RESULT=${{CURL(http://{backend_host}/api/calls/register?call_id=${{CALL_UUID}}&did=${{EXTEN}}&caller=${{CALLERID(num)}}&asterisk_id=${{UNIQUEID}}&channel=${{URIENCODE(${{CHANNEL(name)}})}})}})
 same => n,GotoIf($["${{CURL_RESULT}}" = "BLOCKED"]?deny_out)
-same => n,MixMonitor(/var/spool/asterisk/monitor/${{CALL_UUID}}.wav,b)
+same => n,MixMonitor(/var/spool/asterisk/monitor/${{CALL_UUID}}.wav,br(/var/spool/asterisk/monitor/${{CALL_UUID}}_rx.wav)t(/var/spool/asterisk/monitor/${{CALL_UUID}}_tx.wav))
 same => n,Set(DIAL_NUM=${{IF($["${{EXTEN:0:1}}"="0"]?90${{EXTEN:1}}:${{EXTEN}})}})
 same => n,Gosub(outbound_failover_dial_sub,s,1(${{EXTEN}},${{DIAL_NUM}},60,0))
 same => n,Hangup()
@@ -5889,7 +5965,7 @@ same => n(q_ext_already_reg),Set(__APPEND_REC=1)
 same => n,Set(TR_MARK=${{CURL(http://{backend_host}/api/calls/mark_transfer_leg?call_id=${{URIENCODE(${{CALL_UUID}})}}&target_ext=${{URIENCODE(${{EXTEN}})}}&caller=${{URIENCODE(${{CALLERID(num)}})}}&channel=${{URIENCODE(${{CHANNEL(name)}})}}&blindtransfer=${{URIENCODE(${{BLINDTRANSFER}})}}&transferer=${{URIENCODE(${{TRANSFERERNAME}})}})}})
 same => n(q_ext_do_mix),Answer()
 same => n,StopMixMonitor()
-same => n,MixMonitor(/var/spool/asterisk/monitor/${{CALL_UUID}}.wav,${{IF($["${{APPEND_REC}}"="1"]?ab:b)}})
+same => n,MixMonitor(/var/spool/asterisk/monitor/${{CALL_UUID}}.wav,${{IF($["${{APPEND_REC}}"="1"]?ab:b)}}r(/var/spool/asterisk/monitor/${{CALL_UUID}}_rx.wav)t(/var/spool/asterisk/monitor/${{CALL_UUID}}_tx.wav))
 same => n,Gosub(queue_router_sub,s,1(${{CUT(SPEC_TARGET,|,2)}}))
 same => n,Hangup()
 same => n(speeddial_route_ext),NoOp(HIZLI ARAMA YONLENDIRMESI: Kod=${{EXTEN}} -> Hedef=${{CUT(SPEC_TARGET,|,2)}} Hop=${{SD_HOP}})
@@ -5900,7 +5976,7 @@ same => n(emergency_route_ext),NoOp(ACIL DURUM ARAMASI [ACL/LIMIT BYPASS]: Araya
 same => n,Set(MD5_VAL=${{MD5(${{UNIQUEID}}${{EPOCH}})}})
 same => n,Set(__CALL_UUID=${{MD5_VAL:0:8}}-${{MD5_VAL:8:4}}-4${{MD5_VAL:13:3}}-a${{MD5_VAL:17:3}}-${{MD5_VAL:20:12}})
 same => n,Set(CURL_RESULT=${{CURL(http://{backend_host}/api/calls/register?call_id=${{CALL_UUID}}&did=${{EXTEN}}&caller=${{CALLERID(num)}}&asterisk_id=${{UNIQUEID}}&direction=outbound&channel=${{URIENCODE(${{CHANNEL(name)}})}})}})
-same => n,MixMonitor(/var/spool/asterisk/monitor/${{CALL_UUID}}.wav,b)
+same => n,MixMonitor(/var/spool/asterisk/monitor/${{CALL_UUID}}.wav,br(/var/spool/asterisk/monitor/${{CALL_UUID}}_rx.wav)t(/var/spool/asterisk/monitor/${{CALL_UUID}}_tx.wav))
 same => n,Gosub(outbound_failover_dial_sub,s,1(${{EXTEN}},${{EXTEN}},60,1))
 same => n,Hangup()
 same => n(outbound_route_ext),NoOp(Prefixli veya 7+ haneli dis arama yonlendiriliyor: Arayan=${{CALLERID(num)}}, Aranan=${{EXTEN}})
@@ -5923,14 +5999,14 @@ same => n,Set(MD5_VAL=${{MD5(${{UNIQUEID}}${{EPOCH}})}})
 same => n,Set(__CALL_UUID=${{MD5_VAL:0:8}}-${{MD5_VAL:8:4}}-4${{MD5_VAL:13:3}}-a${{MD5_VAL:17:3}}-${{MD5_VAL:20:12}})
 same => n,Set(CURL_RESULT=${{CURL(http://{backend_host}/api/calls/register?call_id=${{CALL_UUID}}&did=${{EXTEN}}&caller=${{CALLERID(num)}}&asterisk_id=${{UNIQUEID}}&channel=${{URIENCODE(${{CHANNEL(name)}})}})}})
 same => n,GotoIf($["${{CURL_RESULT}}" = "BLOCKED"]?deny_out_ext)
-same => n,MixMonitor(/var/spool/asterisk/monitor/${{CALL_UUID}}.wav,b)
+same => n,MixMonitor(/var/spool/asterisk/monitor/${{CALL_UUID}}.wav,br(/var/spool/asterisk/monitor/${{CALL_UUID}}_rx.wav)t(/var/spool/asterisk/monitor/${{CALL_UUID}}_tx.wav))
 same => n,Set(DIAL_NUM=${{IF($["${{EXTEN:0:1}}"="0"]?90${{EXTEN:1}}:${{EXTEN}})}})
 same => n,Gosub(outbound_failover_dial_sub,s,1(${{EXTEN}},${{DIAL_NUM}},60,0))
 same => n,Hangup()
 same => n(allow),NoOp(ACL ONAYLANDI: On Yonlendirme Kontrol Ediliyor)
 same => n,Set(ORIG_EXTEN=${{EXTEN}})
 same => n,StopMixMonitor()
-same => n,MixMonitor(/var/spool/asterisk/monitor/${{CALL_UUID}}.wav,${{IF($["${{APPEND_REC}}"="1"]?ab:b)}})
+same => n,MixMonitor(/var/spool/asterisk/monitor/${{CALL_UUID}}.wav,${{IF($["${{APPEND_REC}}"="1"]?ab:b)}}r(/var/spool/asterisk/monitor/${{CALL_UUID}}_rx.wav)t(/var/spool/asterisk/monitor/${{CALL_UUID}}_tx.wav))
 
 ; 1. Ön Yönlendirme, Yönetici-Sekreter Filtresi ve Aktif Profil Kontrolü
 same => n,Set(FWD_PRE=${{CURL(http://{backend_host}/api/subscriber/resolve_forwarding?extension=${{EXTEN}}&dialstatus=BEFORE_DIAL&caller=${{URIENCODE(${{CALLERID(num)}})}}&channel=${{URIENCODE(${{CHANNEL(name)}})}}&chain=${{URIENCODE(${{FWD_CHAIN}})}})}})
@@ -6409,7 +6485,7 @@ same => n,GotoIf($[${{CONF_PIN_TRY}} < 3]?conf_ask_pin)
 same => n,Hangup(21)
 same => n(conf_chk_rec),StopMixMonitor()
 same => n,GotoIf($["${{CONF_REC}}" != "1"]?conf_enter)
-same => n,MixMonitor(/var/spool/asterisk/monitor/${{CALL_UUID}}.wav,ab)
+same => n,MixMonitor(/var/spool/asterisk/monitor/${{CALL_UUID}}.wav,abr(/var/spool/asterisk/monitor/${{CALL_UUID}}_rx.wav)t(/var/spool/asterisk/monitor/${{CALL_UUID}}_tx.wav))
 same => n(conf_enter),Playback(/var/spool/asterisk/monitor/tr_konferans_hosgeldiniz)
 same => n,Set(CONFBRIDGE(user,timeout)=14400)
 same => n,Set(CONFBRIDGE(user,announce_only_user)=yes)
@@ -6465,7 +6541,7 @@ same => n,Set(CURLOPT(httptimeout)=2)
 same => n,Set(CURL_RESULT=${{CURL(http://{backend_host}/api/calls/register?call_id=${{CALL_UUID}}&did=${{EXTEN}}&caller=${{URIENCODE(${{INV_PART}})}}&asterisk_id=${{UNIQUEID}}&direction=conference)}})
 same => n,Set(CONF_JOIN_RES=${{CURL(http://{backend_host}/api/conferences/participant_joined?room=${{URIENCODE(${{EXTEN}})}}&caller=${{URIENCODE(${{INV_PART}})}}&call_id=${{URIENCODE(${{CALL_UUID}})}}&invited=1)}})
 same => n,GotoIf($["${{CONF_REC_EN}}" != "1"]?cj_enter)
-same => n,MixMonitor(/var/spool/asterisk/monitor/${{CALL_UUID}}.wav,ab)
+same => n,MixMonitor(/var/spool/asterisk/monitor/${{CALL_UUID}}.wav,abr(/var/spool/asterisk/monitor/${{CALL_UUID}}_rx.wav)t(/var/spool/asterisk/monitor/${{CALL_UUID}}_tx.wav))
 same => n(cj_enter),Playback(/var/spool/asterisk/monitor/tr_konferans_hosgeldiniz)
 same => n,Set(CONFBRIDGE(user,timeout)=14400)
 same => n,Set(CONFBRIDGE(user,announce_only_user)=yes)
@@ -40059,18 +40135,38 @@ async def get_system_version_info():
         pass
 
     return {
-        "version": "v3.5.7",
+        "version": "v3.5.8",
         "commit_hash": live_commit,
         "release_date": "21 Kasım 2026",
         "status": "Güncel / Canlı Sürüm",
         "environment": "Production (On-Premise)",
         "changelog": [
             {
-                "version": "v3.5.7",
+                "version": "v3.5.8",
                 "commit_hash": live_commit,
                 "release_date": "21 Kasım 2026",
                 "badge": "Canlı Sürüm (Güncel)",
                 "badge_type": "current",
+                "title": "Arayan / Aranan Çift Kanal (Split Audio) Ses Kaydı & Sinyal Analizi",
+                "summary": "Asterisk MixMonitor kayıtları artık birleşik ana kayda ek olarak Arayan (RX) ve Aranan (TX) seslerini ayrı ayrı kaydeder; Raporlar ekranındaki büyüteç (Detaylı Arama Akışı & Ses Kayıtları) penceresinde iki taraf ayrı oynatıcılarla ve anlık ses/sessizlik (dB) etiketiyle dinlenebilir.",
+                "features": [
+                    {
+                        "title": "Çift Kanal Arayan (RX) / Aranan (TX) MixMonitor Kaydı",
+                        "desc": "Tüm gelen, giden ve dahili çağrılarda ana .wav kaydına ek olarak _rx.wav (Arayan) ve _tx.wav (Aranan) dosyaları otomatik kaydedilir."
+                    },
+                    {
+                        "title": "Detaylı Arama Akışında Kanal Ayırıcı & Ses Sinyal Göstergesi",
+                        "desc": "Birleşik, Arayan + Aranan Ayrı, Yalnız Arayan ve Yalnız Aranan sekmeleri ile her iki tarafın ses seviyesi (dB) ve sessiz kanal tespiti anlık gösterilir."
+                    }
+                ],
+                "fixes": []
+            },
+            {
+                "version": "v3.5.7",
+                "commit_hash": "18a6488",
+                "release_date": "21 Kasım 2026",
+                "badge": "Önceki Sürüm",
+                "badge_type": "stable",
                 "title": "Zero-Port-Forward WebPhone Çift Yönlü Ses (Coturn WireGuard TURN + ICE Timeout Fix)",
                 "summary": "Santral önünde dışarıdan içeri hiçbir port açık olmadığında WebPhone (WebRTC) çağrılarının %100 kesintisiz çift yönlü sesle çalışması için Hub Coturn TURN sunucusu WireGuard (10.200.0.1:3478) + açık 35000-40000 medya aralığına bağlandı, sync_asterisk.py rtp.conf TURN silme hatası ve WebPhone 400ms ICE kesme hatası giderildi.",
                 "features": [
