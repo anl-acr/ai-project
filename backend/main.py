@@ -39838,18 +39838,31 @@ async def get_system_version_info():
         pass
 
     return {
-        "version": "v3.4.8",
+        "version": "v3.4.9",
         "commit_hash": live_commit,
         "release_date": "20 Kasım 2026",
         "status": "Güncel / Canlı Sürüm",
         "environment": "Production (On-Premise)",
         "changelog": [
             {
-                "version": "v3.4.8",
+                "version": "v3.4.9",
                 "commit_hash": live_commit,
                 "release_date": "20 Kasım 2026",
                 "badge": "Canlı Sürüm (Güncel)",
                 "badge_type": "current",
+                "title": "Modal (<dialog>) İçi Bilgi ('i') Tooltip Üst Katman (Top-Layer) Düzeltmesi",
+                "summary": "Yerel <dialog> pencerelerinin (ör. SIP Cihazı Ayarlarını Düzenle) içindeki 'i' bilgi butonlarına gelindiğinde açıklama baloncuğunun modalın arkasında kalması sorunu popover='manual' Top-Layer yükseltmesi ve overflow:visible ile giderildi.",
+                "features": [],
+                "fixes": [
+                    "InfoTooltipLayer bileşeninde <dialog open> içindeki bilgi balonları dinamik popover='manual' + showPopover() ile modalın üst katmanına çıkarıldı ve ok kırpılması (overflow: visible) düzeltildi."
+                ]
+            },
+            {
+                "version": "v3.4.8",
+                "commit_hash": "6f826fc",
+                "release_date": "20 Kasım 2026",
+                "badge": "Önceki Sürüm",
+                "badge_type": "stable",
                 "title": "SIP Motoru Seçenek Etiketleri Sadeleştirildi (PJSIP / SIP)",
                 "summary": "SIP Cihazı Düzenleme modalındaki SIP Motoru seçenek etiketleri sadeleştirilerek yalnızca 'PJSIP' ve 'SIP' olarak güncellendi.",
                 "features": [],

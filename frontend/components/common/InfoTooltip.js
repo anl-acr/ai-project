@@ -157,17 +157,32 @@ export function InfoTooltipLayer() {
         if (typeof popEl.hidePopover === "function" && popEl.matches(":popover-open")) {
           popEl.hidePopover();
         }
+        popEl.removeAttribute("popover");
       } catch (_e) {}
       return;
     }
 
-    // Only promote to native Top Layer when anchor is inside a native <dialog open>
+    // Promote to native Top Layer when anchor is inside a native <dialog open>
+    // so the tooltip renders ABOVE the modal and its backdrop instead of behind it.
     const insideNativeDialog = Boolean(tip.anchorEl.closest?.("dialog[open]"));
     if (insideNativeDialog) {
       try {
-        if (typeof popEl.showPopover === "function" && !popEl.matches(":popover-open")) {
+        if (popEl.getAttribute("popover") !== "manual") {
+          popEl.setAttribute("popover", "manual");
+        }
+        if (typeof popEl.hidePopover === "function" && popEl.matches(":popover-open")) {
+          popEl.hidePopover();
+        }
+        if (typeof popEl.showPopover === "function") {
           popEl.showPopover();
         }
+      } catch (_e) {}
+    } else {
+      try {
+        if (typeof popEl.hidePopover === "function" && popEl.matches(":popover-open")) {
+          popEl.hidePopover();
+        }
+        popEl.removeAttribute("popover");
       } catch (_e) {}
     }
 
@@ -234,6 +249,7 @@ export function InfoTooltipLayer() {
         position: "fixed",
         inset: "auto",
         margin: 0,
+        overflow: "visible",
         top: isVisible ? `${coords.top}px` : "-9999px",
         left: isVisible ? `${coords.left}px` : "-9999px",
         opacity: isVisible && coords.top > -9000 ? 1 : 0,
