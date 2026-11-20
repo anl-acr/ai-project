@@ -10,7 +10,6 @@ export default function SecuritySettingsModal({ isOpen, onClose, currentUser, on
   const [whitelistedIps, setWhitelistedIps] = useState([]);
   const [newWhitelistIp, setNewWhitelistIp] = useState("");
   const [blockedIps, setBlockedIps] = useState([]);
-  const [totpSummary, setTotpSummary] = useState({ total_users: 0, enabled_users: 0, users: [] });
   const [statusMsg, setStatusMsg] = useState("");
 
   // Central SMTP Settings for E-Mail 2FA
@@ -65,9 +64,6 @@ export default function SecuritySettingsModal({ isOpen, onClose, currentUser, on
           setSmtpTestEmail(currentUser.email);
         }
         setBlockedIps(Array.isArray(data.blocked_ips) ? data.blocked_ips : []);
-        if (data.totp_summary) {
-          setTotpSummary(data.totp_summary);
-        }
       }
     } catch (e) {
       console.error("Security settings fetch error:", e);
@@ -251,86 +247,7 @@ export default function SecuritySettingsModal({ isOpen, onClose, currentUser, on
             </div>
           )}
 
-          {/* 0. Per-User 2FA (Google / Microsoft Authenticator) Overview */}
-          <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-950/70 border border-slate-200/80 dark:border-slate-800 space-y-3">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <div>
-                <div className="font-extrabold text-slate-800 dark:text-slate-200 uppercase tracking-wider flex items-center gap-2">
-                  <Smartphone size={15} className="text-indigo-500" />
-                  <span>
-                    İki Aşamalı Doğrulama (2FA — Kullanıcı Bazlı){" "}
-                    <span className="text-indigo-600 dark:text-indigo-400">
-                      ({totpSummary.enabled_users}/{totpSummary.total_users} Aktif)
-                    </span>
-                  </span>
-                </div>
-                <p className="text-[11px] text-slate-500">
-                  Her kullanıcı için ayrı ayrı Google/Microsoft Authenticator ve/veya E-Posta OTP 2FA açıp kapatabilirsiniz.
-                </p>
-              </div>
-              {onOpenUser2FA && (
-                <button
-                  type="button"
-                  onClick={() => onOpenUser2FA(null)}
-                  className="px-3.5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-extrabold text-[11px] flex items-center gap-1.5 cursor-pointer shadow-sm"
-                >
-                  <Key size={13} />
-                  <span>Kullanıcılar &amp; 2FA Ayarları</span>
-                </button>
-              )}
-            </div>
-
-            {Array.isArray(totpSummary.users) && totpSummary.users.length > 0 && (
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                {totpSummary.users.map((u) => {
-                  const mList =
-                    Array.isArray(u.two_factor_methods) && u.two_factor_methods.length > 0
-                      ? u.two_factor_methods
-                      : [
-                          ...(u.email_2fa_enabled ? ["email"] : []),
-                          ...(u.totp_enabled ? ["google_auth"] : [])
-                        ];
-                  const activeAny = Boolean(u.two_factor_enabled || mList.length > 0);
-                  const shortMap = {
-                    email: "E-Posta",
-                    google_auth: "Google Auth",
-                    microsoft_auth: "MS Auth"
-                  };
-                  const methodLabels = mList.map((m) => shortMap[m] || m);
-                  const modePrefix = u.two_factor_mode === "all" && mList.length >= 2 ? "2 Aşamalı" : "2FA";
-                  return (
-                    <div
-                      key={u.id}
-                      className="px-3 py-2 rounded-xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 flex items-center justify-between gap-2"
-                    >
-                      <div className="min-w-0">
-                        <div className="font-extrabold text-slate-800 dark:text-slate-100 truncate">
-                          {u.full_name}{" "}
-                          <span className="font-mono text-[10px] text-slate-400">@{u.username}</span>
-                        </div>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => onOpenUser2FA && onOpenUser2FA(u.id)}
-                        className={`px-2.5 py-1 rounded-lg text-[10px] font-extrabold border flex items-center gap-1 shrink-0 cursor-pointer transition-colors ${
-                          activeAny
-                            ? "bg-amber-500/15 text-amber-700 dark:text-amber-300 border-amber-500/30 hover:bg-amber-500/25"
-                            : "bg-indigo-500/10 text-indigo-600 dark:text-indigo-300 border-indigo-500/25 hover:bg-indigo-600 hover:text-white"
-                        }`}
-                      >
-                        {activeAny ? <ShieldCheck size={11} /> : <Key size={11} />}
-                        <span>
-                          {activeAny ? `${modePrefix} (${methodLabels.join(" + ")})` : "2FA Aç / Kur"}
-                        </span>
-                      </button>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-          </div>
-
-          {/* 0.5 Central SMTP Settings for E-Mail 2FA */}
+          {/* Central SMTP Settings for E-Mail 2FA */}
           <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-950/70 border border-slate-200/80 dark:border-slate-800 space-y-3.5">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div>

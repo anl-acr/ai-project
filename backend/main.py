@@ -38886,18 +38886,34 @@ async def get_system_version_info():
         pass
 
     return {
-        "version": "v3.2.0",
+        "version": "v3.2.1",
         "commit_hash": live_commit,
         "release_date": "20 Kasım 2026",
         "status": "Güncel / Canlı Sürüm",
         "environment": "Production (On-Premise)",
         "changelog": [
             {
-                "version": "v3.2.0",
+                "version": "v3.2.1",
                 "commit_hash": live_commit,
                 "release_date": "20 Kasım 2026",
                 "badge": "Canlı Sürüm (Güncel)",
                 "badge_type": "current",
+                "title": "Nornia Cloud Center Güvenlik Kalkanı Sadeleştirme (Tekrarlayan 2FA Kartı Kaldırıldı)",
+                "summary": "Kullanıcı yönetimi ve kişisel Avatar → Ayarlar ekranlarında zaten mevcut olan 'İki Aşamalı Doğrulama (2FA — Kullanıcı Bazlı)' özet kartı Güvenlik Kalkanı penceresinden kaldırıldı.",
+                "features": [
+                    {
+                        "title": "🧹 Güvenlik Kalkanı Arayüz Sadeleştirmesi",
+                        "desc": "Tekrarlayan kullanıcı bazlı 2FA listesi kaldırılarak Güvenlik Kalkanı yalnızca SMTP, Brute-Force Koruması, IP Beyaz Liste ve Bloklu IP yönetimine odaklandı."
+                    }
+                ],
+                "fixes": []
+            },
+            {
+                "version": "v3.2.0",
+                "commit_hash": "17c4a08",
+                "release_date": "20 Kasım 2026",
+                "badge": "Önceki Sürüm",
+                "badge_type": "stable",
                 "title": "Nornia Cloud Center Kullanıcı Bazlı Otomatik Oturum Kapatma (Avatar → Ayarlar)",
                 "summary": "Hareketsizlikte Otomatik Oturum Kapatma (Auto-Logout) ayarı Güvenlik Kalkanı'ndan alınarak Avatar menüsü altındaki kişisel Hesap Ayarları penceresine taşındı ve her kullanıcının kendi süresini bağımsız yönetebilmesi sağlandı.",
                 "features": [
