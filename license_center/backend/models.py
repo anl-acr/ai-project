@@ -21,6 +21,7 @@ class MasterUser(Base):
     two_factor_methods_json = Column(Text, default="[]")  # ["email", "google_auth", "microsoft_auth"]
     two_factor_secrets_json = Column(Text, default="{}")  # {"google_auth": {"secret": "...", "enrolled": true}, ...}
     expiring_soon_days = Column(Integer, default=15)  # 7, 15, 30, 60, 90, 120
+    auto_logout_minutes = Column(Integer, default=15)  # 0=off, 5, 15, 30, 60...
     last_login_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
 

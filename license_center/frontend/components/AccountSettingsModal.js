@@ -16,8 +16,37 @@ import {
   Eye,
   EyeOff,
   Lock,
-  User
+  User,
+  Clock
 } from "lucide-react";
+
+const AUTO_LOGOUT_OPTIONS = [
+  {
+    value: 5,
+    title: "5 Dakika",
+    desc: "Yüksek güvenlik — 5 dakika hareketsizlikte oturum otomatik kapanır."
+  },
+  {
+    value: 15,
+    title: "15 Dakika (Önerilen)",
+    desc: "Dengeli güvenlik — 15 dakika hareketsizlikte otomatik çıkış yapılır."
+  },
+  {
+    value: 30,
+    title: "30 Dakika",
+    desc: "30 dakika boyunca fare veya klavye hareketi olmazsa oturum sonlanır."
+  },
+  {
+    value: 60,
+    title: "1 Saat (60 Dakika)",
+    desc: "Uzun çalışma oturumları için 1 saat hareketsizlik toleransı."
+  },
+  {
+    value: 0,
+    title: "Kapalı (Otomatik Çıkış Yapma)",
+    desc: "Oturum siz manuel olarak çıkış yapana kadar açık kalır."
+  }
+];
 
 const METHOD_DEFS = [
   {
@@ -109,6 +138,11 @@ export default function AccountSettingsModal({
   const [statusFeedback, setStatusFeedback] = useState(null);
   const [secretCopied, setSecretCopied] = useState(false);
   const [confirmDisable2fa, setConfirmDisable2fa] = useState(false);
+
+  // Auto-Logout Preference State
+  const [autoLogoutMinutes, setAutoLogoutMinutes] = useState(15);
+  const [savingAutoLogout, setSavingAutoLogout] = useState(false);
+  const [autoLogoutFeedback, setAutoLogoutFeedback] = useState(null);
 
   const syncUser = (updatedUserObj) => {
     if (!updatedUserObj) return;
@@ -208,6 +242,11 @@ export default function AccountSettingsModal({
     if (isEnabled && (initialFocus === "google_auth" || initialFocus === "microsoft_auth")) {
       fetchTotpSetupForMethod(u, initialFocus, false);
     }
+
+    const savedIdle = u.auto_logout_minutes !== undefined && u.auto_logout_minutes !== null
+      ? Number(u.auto_logout_minutes)
+      : 15;
+    setAutoLogoutMinutes(Number.isNaN(savedIdle) ? 15 : savedIdle);
   };
 
   useEffect(() => {
@@ -221,6 +260,7 @@ export default function AccountSettingsModal({
     setShowConfirmPw(false);
     setPwFeedback(null);
     setStatusFeedback(null);
+    setAutoLogoutFeedback(null);
     setTestCode("");
     setSecretCopied(false);
     setConfirmDisable2fa(false);
@@ -551,6 +591,39 @@ export default function AccountSettingsModal({
     }
   };
 
+  const handleSaveAutoLogout = async () => {
+    setSavingAutoLogout(true);
+    setAutoLogoutFeedback(null);
+    try {
+      const mins = Number(autoLogoutMinutes) || 0;
+      const res = await fetch(`/api/v1/users/${userObj.id}/preferences`, {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+          "X-User-Name": userObj.username || "admin"
+        },
+        body: JSON.stringify({ auto_logout_minutes: mins })
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.detail || "Otomatik oturum ayarı kaydedilemedi.");
+      try {
+        sessionStorage.setItem("master_auto_logout_mins", String(mins));
+      } catch (e) {}
+      if (data.user) syncUser(data.user);
+      setAutoLogoutFeedback({
+        type: "ok",
+        text:
+          mins === 0
+            ? "Otomatik oturum kapatma kapatıldı. Oturumunuz manuel çıkış yapana kadar açık kalacaktır."
+            : `Otomatik oturum kapatma süresi ${mins} dakika olarak kaydedildi ve hemen aktif edildi.`
+      });
+    } catch (err) {
+      setAutoLogoutFeedback({ type: "err", text: err.message || "Ayar kaydedilirken hata oluştu." });
+    } finally {
+      setSavingAutoLogout(false);
+    }
+  };
+
   const handleCopySecret = (sec) => {
     if (!sec) return;
     navigator.clipboard?.writeText(sec);
@@ -643,6 +716,33 @@ export default function AccountSettingsModal({
               }`}
             >
               {is2faCurrentlyActive ? "Aktif" : "Kapalı"}
+            </span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => {
+              setActiveTab("session");
+              setAutoLogoutFeedback(null);
+            }}
+            className={`px-4 py-2.5 text-xs font-extrabold border-b-2 transition-colors flex items-center gap-2 cursor-pointer ${
+              activeTab === "session"
+                ? "border-indigo-600 text-indigo-600 dark:text-indigo-400"
+                : "border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200"
+            }`}
+          >
+            <Clock size={14} />
+            <span>Otomatik Oturum</span>
+            <span
+              className={`px-1.5 py-0.5 rounded-md text-[9px] font-extrabold font-mono ${
+                Number(userObj.auto_logout_minutes ?? 15) > 0
+                  ? "bg-amber-500/15 text-amber-700 dark:text-amber-300"
+                  : "bg-slate-100 dark:bg-slate-800 text-slate-500"
+              }`}
+            >
+              {Number(userObj.auto_logout_minutes ?? 15) > 0
+                ? `${Number(userObj.auto_logout_minutes ?? 15)} dk`
+                : "Kapalı"}
             </span>
           </button>
         </div>
@@ -819,6 +919,77 @@ export default function AccountSettingsModal({
                 </div>
               )}
             </form>
+          ) : activeTab === "session" ? (
+            /* AUTO-LOGOUT SESSION PREFERENCE TAB */
+            <div className="space-y-4">
+              <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-950/60 border border-slate-200 dark:border-slate-800 flex items-center gap-3.5">
+                <div className="w-10 h-10 rounded-xl bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30 flex items-center justify-center shrink-0">
+                  <Clock size={18} />
+                </div>
+                <div>
+                  <div className="text-xs font-extrabold text-slate-900 dark:text-white">
+                    Hareketsizlikte Otomatik Oturum Kapatma (Auto-Logout)
+                  </div>
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
+                    Bu ayar yalnızca sizin kullanıcı hesabınız (<strong className="font-mono">@{userObj.username}</strong>) için geçerlidir. Belirlediğiniz süre boyunca fare veya klavye hareketi olmazsa oturumunuz güvenlik amacıyla otomatik sonlandırılır.
+                  </p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                {AUTO_LOGOUT_OPTIONS.map((opt) => {
+                  const selected = Number(autoLogoutMinutes) === opt.value;
+                  return (
+                    <button
+                      key={opt.value}
+                      type="button"
+                      onClick={() => {
+                        setAutoLogoutMinutes(opt.value);
+                        setAutoLogoutFeedback(null);
+                      }}
+                      className={`p-3.5 rounded-2xl border text-left transition-all cursor-pointer flex items-start justify-between gap-2.5 ${
+                        selected
+                          ? "bg-indigo-50/80 dark:bg-indigo-950/35 border-indigo-500 ring-2 ring-indigo-500/20"
+                          : "bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700"
+                      }`}
+                    >
+                      <div className="space-y-1">
+                        <div
+                          className={`text-xs font-extrabold ${
+                            selected ? "text-indigo-700 dark:text-indigo-300" : "text-slate-800 dark:text-slate-100"
+                          }`}
+                        >
+                          {opt.title}
+                        </div>
+                        <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-snug">
+                          {opt.desc}
+                        </p>
+                      </div>
+                      {selected && (
+                        <CheckCircle size={16} className="text-indigo-600 dark:text-indigo-400 shrink-0 mt-0.5" />
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+
+              {autoLogoutFeedback && (
+                <div
+                  className={`p-3.5 rounded-xl border text-xs font-extrabold flex items-start gap-2 ${
+                    autoLogoutFeedback.type === "ok"
+                      ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-700 dark:text-emerald-300"
+                      : "bg-rose-50 dark:bg-rose-950/60 border-rose-200 dark:border-rose-800 text-rose-600 dark:text-rose-400"
+                  }`}
+                >
+                  {autoLogoutFeedback.type === "ok" ? (
+                    <Check size={15} className="shrink-0 mt-0.5" />
+                  ) : (
+                    <AlertTriangle size={15} className="shrink-0 mt-0.5" />
+                  )}
+                  <span>{autoLogoutFeedback.text}</span>
+                </div>
+              )}
+            </div>
           ) : (
             /* 2FA CONFIGURATION TAB */
             <div className="space-y-4">
@@ -1237,6 +1408,16 @@ export default function AccountSettingsModal({
             >
               <KeyRound size={14} />
               <span>{savingPassword ? "Güncelleniyor..." : "Şifreyi Güncelle"}</span>
+            </button>
+          ) : activeTab === "session" ? (
+            <button
+              type="button"
+              disabled={savingAutoLogout}
+              onClick={handleSaveAutoLogout}
+              className="px-5 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white text-xs font-extrabold shadow-md shadow-indigo-500/20 flex items-center gap-2 cursor-pointer transition-colors"
+            >
+              <Clock size={14} />
+              <span>{savingAutoLogout ? "Kaydediliyor..." : "Oturum Ayarını Kaydet"}</span>
             </button>
           ) : (
             <button

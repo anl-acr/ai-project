@@ -488,21 +488,10 @@ export default function MasterDashboard() {
       } catch (e) {}
     }
     const savedIdleMins = sessionStorage.getItem("master_auto_logout_mins");
-    if (savedIdleMins !== null) {
+    if (savedIdleMins !== null && !Number.isNaN(Number(savedIdleMins))) {
       setAutoLogoutMinutes(Number(savedIdleMins));
     }
     setIsAuthChecking(false);
-
-    // Fetch live security policy (auto_logout_minutes)
-    fetch("/api/v1/security/settings")
-      .then((r) => (r.ok ? r.json() : null))
-      .then((d) => {
-        if (d?.policy && d.policy.auto_logout_minutes !== undefined) {
-          setAutoLogoutMinutes(Number(d.policy.auto_logout_minutes));
-          sessionStorage.setItem("master_auto_logout_mins", String(d.policy.auto_logout_minutes));
-        }
-      })
-      .catch(() => {});
 
     const savedTheme = localStorage.getItem("master_theme");
     const isDark = savedTheme ? savedTheme === "dark" : false;
@@ -568,9 +557,39 @@ export default function MasterDashboard() {
     };
   }, [currentUser, autoLogoutMinutes]);
 
-  // Sync per-user expiringSoonDays preference whenever currentUser changes
+  // Sync per-user preferences (auto_logout_minutes & expiring_soon_days) whenever currentUser changes
   useEffect(() => {
     if (!currentUser) return;
+
+    // 1. Sync per-user Auto-Logout preference
+    if (currentUser.auto_logout_minutes !== undefined && currentUser.auto_logout_minutes !== null) {
+      const mins = Number(currentUser.auto_logout_minutes);
+      if (!Number.isNaN(mins) && mins >= 0) {
+        setAutoLogoutMinutes(mins);
+        try {
+          sessionStorage.setItem("master_auto_logout_mins", String(mins));
+        } catch (e) {}
+      }
+    } else {
+      fetch("/api/v1/users")
+        .then((r) => (r.ok ? r.json() : null))
+        .then((list) => {
+          if (!Array.isArray(list)) return;
+          const me = list.find((u) => u.id === currentUser.id);
+          if (me && me.auto_logout_minutes !== undefined && me.auto_logout_minutes !== null) {
+            const dbMins = Number(me.auto_logout_minutes);
+            if (!Number.isNaN(dbMins) && dbMins >= 0) {
+              setAutoLogoutMinutes(dbMins);
+              try {
+                sessionStorage.setItem("master_auto_logout_mins", String(dbMins));
+              } catch (e) {}
+            }
+          }
+        })
+        .catch(() => {});
+    }
+
+    // 2. Sync per-user expiringSoonDays preference
     const validOpts = [7, 15, 30, 60, 90, 120];
     const fromUser = Number(currentUser.expiring_soon_days);
     if (validOpts.includes(fromUser)) {
@@ -1564,7 +1583,7 @@ export default function MasterDashboard() {
                           Ayarlar
                         </div>
                         <div className="text-[10px] text-slate-500 dark:text-slate-400 font-medium">
-                          Şifre ve 2FA konfigürasyonu
+                          Şifre, 2FA ve otomatik oturum
                         </div>
                       </div>
                     </button>
@@ -4335,11 +4354,6 @@ export default function MasterDashboard() {
           setShowSecurityModal(false);
           setInitialEditUserId(uid || null);
           setShowUsersModal(true);
-        }}
-        onPolicyUpdated={(pol) => {
-          if (pol?.auto_logout_minutes !== undefined) {
-            setAutoLogoutMinutes(Number(pol.auto_logout_minutes));
-          }
         }}
       />
       {/* PERSONAL ACCOUNT SETTINGS MODAL (PASSWORD & 2FA) */}

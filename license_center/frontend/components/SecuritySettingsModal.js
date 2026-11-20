@@ -7,7 +7,6 @@ export default function SecuritySettingsModal({ isOpen, onClose, currentUser, on
   const [clientIp, setClientIp] = useState("");
   const [maxFailedAttempts, setMaxFailedAttempts] = useState(5);
   const [blockDurationMinutes, setBlockDurationMinutes] = useState(60);
-  const [autoLogoutMinutes, setAutoLogoutMinutes] = useState(15);
   const [whitelistedIps, setWhitelistedIps] = useState([]);
   const [newWhitelistIp, setNewWhitelistIp] = useState("");
   const [blockedIps, setBlockedIps] = useState([]);
@@ -52,7 +51,6 @@ export default function SecuritySettingsModal({ isOpen, onClose, currentUser, on
         if (data.policy) {
           setMaxFailedAttempts(data.policy.max_failed_attempts ?? 5);
           setBlockDurationMinutes(data.policy.block_duration_minutes ?? 60);
-          setAutoLogoutMinutes(data.policy.auto_logout_minutes ?? 15);
           setWhitelistedIps(Array.isArray(data.policy.whitelisted_ips) ? data.policy.whitelisted_ips : []);
           setSmtpHost(data.policy.smtp_host || "");
           setSmtpPort(data.policy.smtp_port ?? 587);
@@ -92,7 +90,6 @@ export default function SecuritySettingsModal({ isOpen, onClose, currentUser, on
         body: JSON.stringify({
           max_failed_attempts: Number(maxFailedAttempts) || 5,
           block_duration_minutes: Number(blockDurationMinutes) || 60,
-          auto_logout_minutes: Number(autoLogoutMinutes) || 0,
           whitelisted_ips: wlToSave,
           smtp_host: smtpHost.trim(),
           smtp_port: Number(smtpPort) || 587,
@@ -108,7 +105,6 @@ export default function SecuritySettingsModal({ isOpen, onClose, currentUser, on
         setSmtpPassword("");
         setHasSmtpPassword(Boolean(data.policy?.has_smtp_password));
         setSmtpConfigured(Boolean(data.policy?.smtp_configured));
-        sessionStorage.setItem("master_auto_logout_mins", String(data.policy.auto_logout_minutes));
         if (onPolicyUpdated) {
           onPolicyUpdated(data.policy);
         }
@@ -481,12 +477,12 @@ export default function SecuritySettingsModal({ isOpen, onClose, currentUser, on
             )}
           </div>
 
-          {/* 1. Brute-Force & Auto-Logout Policy Controls */}
+          {/* 1. Brute-Force Policy Controls */}
           <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-950/70 border border-slate-200/80 dark:border-slate-800 space-y-4">
             <div className="flex items-center justify-between">
               <div className="font-extrabold text-slate-800 dark:text-slate-200 uppercase tracking-wider flex items-center gap-2">
                 <Lock size={15} className="text-rose-500" />
-                <span>1. Brute-Force Koruması &amp; Otomatik Oturum Kapatma (Auto-Logout)</span>
+                <span>1. Brute-Force Koruması</span>
               </div>
               <button
                 type="button"
@@ -498,7 +494,7 @@ export default function SecuritySettingsModal({ isOpen, onClose, currentUser, on
               </button>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="p-3.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 space-y-1.5">
                 <label className="block font-extrabold text-slate-700 dark:text-slate-200">
                   Maksimum Hatalı Giriş Hakkı
@@ -534,27 +530,6 @@ export default function SecuritySettingsModal({ isOpen, onClose, currentUser, on
                 </select>
                 <p className="text-[10px] text-slate-400">
                   Süre dolduğunda IP engeli otomatik kalkar veya aşağıdan manuel açılabilir.
-                </p>
-              </div>
-
-              <div className="p-3.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 space-y-1.5">
-                <label className="block font-extrabold text-slate-700 dark:text-slate-200 flex items-center gap-1.5">
-                  <Clock size={13} className="text-amber-500" />
-                  <span>Hareketsizlikte Auto-Logout</span>
-                </label>
-                <select
-                  value={autoLogoutMinutes}
-                  onChange={(e) => setAutoLogoutMinutes(Number(e.target.value))}
-                  className="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 font-bold text-slate-900 dark:text-white cursor-pointer"
-                >
-                  <option value={5}>5 Dakika Hareketsizlikte Kapat</option>
-                  <option value={15}>15 Dakika Hareketsizlikte Kapat (Önerilen)</option>
-                  <option value={30}>30 Dakika Hareketsizlikte Kapat</option>
-                  <option value={60}>1 Saat Hareketsizlikte Kapat</option>
-                  <option value={0}>Kapalı (Otomatik Çıkış Yapma)</option>
-                </select>
-                <p className="text-[10px] text-slate-400">
-                  Fare veya klavye hareketi olmazsa oturumu otomatik sonlandırır.
                 </p>
               </div>
             </div>

@@ -694,6 +694,7 @@ def _serialize_master_user(u: MasterUser) -> Dict[str, Any]:
         "two_factor_methods": st["active_methods"],
         "two_factor_meta": st["meta"],
         "expiring_soon_days": int(getattr(u, "expiring_soon_days", None) or 15),
+        "auto_logout_minutes": 15 if getattr(u, "auto_logout_minutes", None) is None else int(getattr(u, "auto_logout_minutes", 15)),
         "last_login_at": u.last_login_at.isoformat() if u.last_login_at else None,
         "created_at": u.created_at.isoformat() if u.created_at else None,
     }
@@ -793,7 +794,7 @@ async def login_master_user(payload: LoginSchema, request: Request, db: AsyncSes
     return {
         "success": True,
         "requires_2fa": False,
-        "auto_logout_minutes": pol.auto_logout_minutes,
+        "auto_logout_minutes": 15 if getattr(user, "auto_logout_minutes", None) is None else int(user.auto_logout_minutes),
         "user": _serialize_master_user(user),
     }
 
@@ -956,7 +957,7 @@ async def verify_master_user_2fa(payload: Verify2FASchema, request: Request, db:
     return {
         "success": True,
         "completed": True,
-        "auto_logout_minutes": pol.auto_logout_minutes,
+        "auto_logout_minutes": 15 if getattr(user, "auto_logout_minutes", None) is None else int(user.auto_logout_minutes),
         "user": _serialize_master_user(user),
     }
 
@@ -982,7 +983,7 @@ async def get_master_users(db: AsyncSession = Depends(get_central_db)):
 
 @app.put("/api/v1/users/{user_id}/preferences")
 async def update_master_user_preferences(user_id: int, request: Request, payload: Dict[str, Any] = Body(...), db: AsyncSession = Depends(get_central_db)):
-    """Saves per-user dashboard preferences such as expiring_soon_days (7, 15, 30, 60, 90, 120)."""
+    """Saves per-user dashboard preferences such as expiring_soon_days and auto_logout_minutes."""
     res = await db.execute(select(MasterUser).where(MasterUser.id == user_id))
     u = res.scalars().first()
     if not u:
@@ -997,11 +998,32 @@ async def update_master_user_preferences(user_id: int, request: Request, payload
             raise HTTPException(status_code=400, detail="Geçerli seçenekler: 7, 15, 30, 60, 90 veya 120 gün.")
         u.expiring_soon_days = days_val
 
+    if "auto_logout_minutes" in payload:
+        try:
+            raw_mins = payload.get("auto_logout_minutes")
+            mins_val = int(0 if raw_mins is None else raw_mins)
+        except Exception:
+            raise HTTPException(status_code=400, detail="Geçersiz otomatik çıkış süresi.")
+        if mins_val < 0 or mins_val > 1440:
+            raise HTTPException(status_code=400, detail="Otomatik çıkış süresi 0 ile 1440 dakika arasında olmalıdır.")
+        u.auto_logout_minutes = mins_val
+        performed_by = request.headers.get("X-User-Name", u.username)
+        lbl = "Kapalı" if mins_val == 0 else f"{mins_val} Dakika"
+        await log_master_action(
+            db,
+            performed_by,
+            "USER_AUTO_LOGOUT_PREF",
+            f"Kullanıcı Otomatik Oturum Kapatma Süresini Güncelledi ({u.username}): {lbl}",
+            extract_client_ip(request),
+            u.id,
+        )
+
     await db.commit()
     await db.refresh(u)
     return {
         "success": True,
         "expiring_soon_days": int(u.expiring_soon_days or 15),
+        "auto_logout_minutes": 15 if u.auto_logout_minutes is None else int(u.auto_logout_minutes),
         "user": _serialize_master_user(u),
     }
 

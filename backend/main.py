@@ -38886,18 +38886,38 @@ async def get_system_version_info():
         pass
 
     return {
-        "version": "v3.1.9",
+        "version": "v3.2.0",
         "commit_hash": live_commit,
         "release_date": "20 Kasım 2026",
         "status": "Güncel / Canlı Sürüm",
         "environment": "Production (On-Premise)",
         "changelog": [
             {
-                "version": "v3.1.9",
+                "version": "v3.2.0",
                 "commit_hash": live_commit,
                 "release_date": "20 Kasım 2026",
                 "badge": "Canlı Sürüm (Güncel)",
                 "badge_type": "current",
+                "title": "Nornia Cloud Center Kullanıcı Bazlı Otomatik Oturum Kapatma (Avatar → Ayarlar)",
+                "summary": "Hareketsizlikte Otomatik Oturum Kapatma (Auto-Logout) ayarı Güvenlik Kalkanı'ndan alınarak Avatar menüsü altındaki kişisel Hesap Ayarları penceresine taşındı ve her kullanıcının kendi süresini bağımsız yönetebilmesi sağlandı.",
+                "features": [
+                    {
+                        "title": "⏱️ Kişisel Otomatik Oturum Kapatma Sekmesi",
+                        "desc": "Avatar → Ayarlar → Otomatik Oturum sekmesinden her kullanıcı kendi hesabına özel 5 dk / 15 dk / 30 dk / 1 saat / Kapalı seçeneğini kaydedebilir."
+                    },
+                    {
+                        "title": "🛡️ Sadeleştirilmiş Brute-Force Politikası",
+                        "desc": "Güvenlik Kalkanı 1. bölümü yalnızca Brute-Force Koruması (Maksimum Hatalı Giriş Hakkı ve Otomatik IP Bloklama Süresi) olarak düzenlendi."
+                    }
+                ],
+                "fixes": []
+            },
+            {
+                "version": "v3.1.9",
+                "commit_hash": "4225e8a",
+                "release_date": "20 Kasım 2026",
+                "badge": "Önceki Sürüm",
+                "badge_type": "stable",
                 "title": "Nornia Cloud Center Kullanıcı Avatar Menüsü & Kişisel Hesap Ayarları (Şifre + 2FA)",
                 "summary": "Üst bara açılır kullanıcı avatar menüsü (Ayarlar ve en altta Çıkış Yap) eklendi; kullanıcıların kendi şifrelerini güvenli biçimde değiştirebileceği ve 2FA konfigürasyonunu yönetebileceği kişisel Hesap Ayarları penceresi oluşturuldu.",
                 "features": [
