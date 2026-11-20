@@ -5638,7 +5638,7 @@ same => n,StopMixMonitor()
 same => n,GotoIf($["${{CALL_UUID}}" = ""]?done_qsub_h)
 same => n,Set(CURLOPT(conntimeout)=1)
 same => n,Set(CURLOPT(httptimeout)=2)
-same => n,Set(CURL_RESULT=${{CURL(http://{backend_host}/api/calls/end?call_id=${{CALL_UUID}}&dialstatus=${{DIALSTATUS}}&hangupcause=${{HANGUPCAUSE}}&queuestatus=${{QUEUESTATUS}}&memberinterface=${{URIENCODE(${{MEMBERINTERFACE}})}}&hangupsource=${{URIENCODE(${{CHANNEL(hangupsource)}})}}&trunk=${{URIENCODE(${{OUT_TRUNK_NAME}})}}&answeredtime=${{ANSWEREDTIME}}&dialedtime=${{DIALEDTIME}})}})
+same => n,Set(CURL_RESULT=${{CURL(http://{backend_host}/api/calls/end?call_id=${{CALL_UUID}}&dialstatus=${{DIALSTATUS}}&hangupcause=${{HANGUPCAUSE}}&queuestatus=${{QUEUESTATUS}}&memberinterface=${{URIENCODE(${{MEMBERINTERFACE}})}}&hangupsource=${{URIENCODE(${{CHANNEL(hangupsource)}})}}&trunk=${{URIENCODE(${{OUT_TRUNK_NAME}})}}&answeredtime=${{ANSWEREDTIME}}&dialedtime=${{DIALEDTIME}}&channel=${{URIENCODE(${{CHANNEL(name)}})}}&peer_channel=${{URIENCODE(${{BRIDGEPEER}})}})}})
 same => n(done_qsub_h),NoOp(Kuyruk Hangup tamamlandi)
 
 [default]
@@ -5721,7 +5721,7 @@ same => n,StopMixMonitor()
 same => n,GotoIf($["${{CALL_UUID}}" = ""]?done_def_h)
 same => n,Set(CURLOPT(conntimeout)=1)
 same => n,Set(CURLOPT(httptimeout)=2)
-same => n,Set(CURL_RESULT=${{CURL(http://{backend_host}/api/calls/end?call_id=${{CALL_UUID}}&dialstatus=${{DIALSTATUS}}&hangupcause=${{HANGUPCAUSE}}&queuestatus=${{QUEUESTATUS}}&memberinterface=${{URIENCODE(${{MEMBERINTERFACE}})}}&hangupsource=${{URIENCODE(${{CHANNEL(hangupsource)}})}}&trunk=${{URIENCODE(${{OUT_TRUNK_NAME}})}}&answeredtime=${{ANSWEREDTIME}}&dialedtime=${{DIALEDTIME}})}})
+same => n,Set(CURL_RESULT=${{CURL(http://{backend_host}/api/calls/end?call_id=${{CALL_UUID}}&dialstatus=${{DIALSTATUS}}&hangupcause=${{HANGUPCAUSE}}&queuestatus=${{QUEUESTATUS}}&memberinterface=${{URIENCODE(${{MEMBERINTERFACE}})}}&hangupsource=${{URIENCODE(${{CHANNEL(hangupsource)}})}}&trunk=${{URIENCODE(${{OUT_TRUNK_NAME}})}}&answeredtime=${{ANSWEREDTIME}}&dialedtime=${{DIALEDTIME}}&channel=${{URIENCODE(${{CHANNEL(name)}})}}&peer_channel=${{URIENCODE(${{BRIDGEPEER}})}})}})
 same => n(done_def_h),Hangup()
 
 ; Yapay zeka aramayı insana aktarmak istediğinde AMI üzerinden bu dahili extension'a yönlendirir
@@ -5810,7 +5810,7 @@ same => n,Hangup(21)
 same => n(allow_out),NoOp(Dis arama onaylandi: Arayan=${{CALLERID(num)}}, Aranan=${{EXTEN}})
 same => n,Set(MD5_VAL=${{MD5(${{UNIQUEID}}${{EPOCH}})}})
 same => n,Set(__CALL_UUID=${{MD5_VAL:0:8}}-${{MD5_VAL:8:4}}-4${{MD5_VAL:13:3}}-a${{MD5_VAL:17:3}}-${{MD5_VAL:20:12}})
-same => n,Set(CURL_RESULT=${{CURL(http://{backend_host}/api/calls/register?call_id=${{CALL_UUID}}&did=${{EXTEN}}&caller=${{CALLERID(num)}}&asterisk_id=${{UNIQUEID}})}})
+same => n,Set(CURL_RESULT=${{CURL(http://{backend_host}/api/calls/register?call_id=${{CALL_UUID}}&did=${{EXTEN}}&caller=${{CALLERID(num)}}&asterisk_id=${{UNIQUEID}}&channel=${{URIENCODE(${{CHANNEL(name)}})}})}})
 same => n,GotoIf($["${{CURL_RESULT}}" = "BLOCKED"]?deny_out)
 same => n,MixMonitor(/var/spool/asterisk/monitor/${{CALL_UUID}}.wav,b)
 same => n,Set(DIAL_NUM=${{IF($["${{EXTEN:0:1}}"="0"]?90${{EXTEN:1}}:${{EXTEN}})}})
@@ -5822,7 +5822,7 @@ same => n,StopMixMonitor()
 same => n,GotoIf($["${{CALL_UUID}}" = ""]?done_h)
 same => n,Set(CURLOPT(conntimeout)=1)
 same => n,Set(CURLOPT(httptimeout)=2)
-same => n,Set(CURL_RESULT=${{CURL(http://{backend_host}/api/calls/end?call_id=${{CALL_UUID}}&dialstatus=${{DIALSTATUS}}&hangupcause=${{HANGUPCAUSE}}&queuestatus=${{QUEUESTATUS}}&memberinterface=${{URIENCODE(${{MEMBERINTERFACE}})}}&hangupsource=${{URIENCODE(${{CHANNEL(hangupsource)}})}}&trunk=${{URIENCODE(${{OUT_TRUNK_NAME}})}}&answeredtime=${{ANSWEREDTIME}}&dialedtime=${{DIALEDTIME}})}})
+same => n,Set(CURL_RESULT=${{CURL(http://{backend_host}/api/calls/end?call_id=${{CALL_UUID}}&dialstatus=${{DIALSTATUS}}&hangupcause=${{HANGUPCAUSE}}&queuestatus=${{QUEUESTATUS}}&memberinterface=${{URIENCODE(${{MEMBERINTERFACE}})}}&hangupsource=${{URIENCODE(${{CHANNEL(hangupsource)}})}}&trunk=${{URIENCODE(${{OUT_TRUNK_NAME}})}}&answeredtime=${{ANSWEREDTIME}}&dialedtime=${{DIALEDTIME}}&channel=${{URIENCODE(${{CHANNEL(name)}})}}&peer_channel=${{URIENCODE(${{BRIDGEPEER}})}})}})
 same => n(done_h),NoOp(Hangup tamamlandi)
 
 ; İç hat (Diğer temsilciler & Dahililer: 10-999999), Konferans Odaları, Kuyruklar, Hızlı Aramalar, Acil Durum (112 vb.) ve Prefix'li Dış Aramalar (>= 7 hane)
@@ -5849,7 +5849,7 @@ same => n,Set(__FWD_CHAIN=${{FWD_CHAIN}}${{EXTEN}}|)
 same => n(after_fwd_chain_guard),GotoIf($["${{CALL_UUID}}" != ""]?already_registered_int)
 same => n,Set(MD5_VAL=${{MD5(${{UNIQUEID}}${{EPOCH}})}})
 same => n,Set(__CALL_UUID=${{MD5_VAL:0:8}}-${{MD5_VAL:8:4}}-4${{MD5_VAL:13:3}}-a${{MD5_VAL:17:3}}-${{MD5_VAL:20:12}})
-same => n,Set(CURL_RESULT=${{CURL(http://{backend_host}/api/calls/register?call_id=${{CALL_UUID}}&did=${{EXTEN}}&caller=${{CALLERID(num)}}&asterisk_id=${{UNIQUEID}})}})
+same => n,Set(CURL_RESULT=${{CURL(http://{backend_host}/api/calls/register?call_id=${{CALL_UUID}}&did=${{EXTEN}}&caller=${{CALLERID(num)}}&asterisk_id=${{UNIQUEID}}&channel=${{URIENCODE(${{CHANNEL(name)}})}})}})
 same => n,GotoIf($["${{CURL_RESULT}}" = "BLOCKED"]?deny)
 same => n,Goto(check_int_acl)
 same => n(already_registered_int),Set(__APPEND_REC=1)
@@ -5865,7 +5865,7 @@ same => n(conf_route_ext),NoOp(KONFERANS ODASI ARAMASI: Oda=${{EXTEN}}, Arayan=$
 same => n,GotoIf($["${{CALL_UUID}}" != ""]?conf_already_reg)
 same => n,Set(MD5_VAL=${{MD5(${{UNIQUEID}}${{EPOCH}})}})
 same => n,Set(__CALL_UUID=${{MD5_VAL:0:8}}-${{MD5_VAL:8:4}}-4${{MD5_VAL:13:3}}-a${{MD5_VAL:17:3}}-${{MD5_VAL:20:12}})
-same => n,Set(CURL_RESULT=${{CURL(http://{backend_host}/api/calls/register?call_id=${{CALL_UUID}}&did=${{EXTEN}}&caller=${{CALLERID(num)}}&asterisk_id=${{UNIQUEID}})}})
+same => n,Set(CURL_RESULT=${{CURL(http://{backend_host}/api/calls/register?call_id=${{CALL_UUID}}&did=${{EXTEN}}&caller=${{CALLERID(num)}}&asterisk_id=${{UNIQUEID}}&channel=${{URIENCODE(${{CHANNEL(name)}})}})}})
 same => n,GotoIf($["${{CURL_RESULT}}" = "BLOCKED"]?deny)
 same => n(conf_already_reg),Gosub(conference_bridge_sub,s,1(${{CUT(SPEC_TARGET,|,2)}},${{CUT(SPEC_TARGET,|,3)}},${{CUT(SPEC_TARGET,|,4)}}))
 same => n,Hangup()
@@ -5873,7 +5873,7 @@ same => n(queue_route_ext),NoOp(DAHILI KUYRUK ARAMASI: Kuyruk=${{CUT(SPEC_TARGET
 same => n,GotoIf($["${{CALL_UUID}}" != ""]?q_ext_already_reg)
 same => n,Set(MD5_VAL=${{MD5(${{UNIQUEID}}${{EPOCH}})}})
 same => n,Set(__CALL_UUID=${{MD5_VAL:0:8}}-${{MD5_VAL:8:4}}-4${{MD5_VAL:13:3}}-a${{MD5_VAL:17:3}}-${{MD5_VAL:20:12}})
-same => n,Set(CURL_RESULT=${{CURL(http://{backend_host}/api/calls/register?call_id=${{CALL_UUID}}&did=${{EXTEN}}&caller=${{CALLERID(num)}}&asterisk_id=${{UNIQUEID}})}})
+same => n,Set(CURL_RESULT=${{CURL(http://{backend_host}/api/calls/register?call_id=${{CALL_UUID}}&did=${{EXTEN}}&caller=${{CALLERID(num)}}&asterisk_id=${{UNIQUEID}}&channel=${{URIENCODE(${{CHANNEL(name)}})}})}})
 same => n,GotoIf($["${{CURL_RESULT}}" = "BLOCKED"]?deny)
 same => n,Goto(q_ext_do_mix)
 same => n(q_ext_already_reg),Set(__APPEND_REC=1)
@@ -5890,7 +5890,7 @@ same => n,Goto(webrtc_agents,${{CUT(SPEC_TARGET,|,2)}},1)
 same => n(emergency_route_ext),NoOp(ACIL DURUM ARAMASI [ACL/LIMIT BYPASS]: Arayan=${{CALLERID(num)}}, Acil=${{EXTEN}})
 same => n,Set(MD5_VAL=${{MD5(${{UNIQUEID}}${{EPOCH}})}})
 same => n,Set(__CALL_UUID=${{MD5_VAL:0:8}}-${{MD5_VAL:8:4}}-4${{MD5_VAL:13:3}}-a${{MD5_VAL:17:3}}-${{MD5_VAL:20:12}})
-same => n,Set(CURL_RESULT=${{CURL(http://{backend_host}/api/calls/register?call_id=${{CALL_UUID}}&did=${{EXTEN}}&caller=${{CALLERID(num)}}&asterisk_id=${{UNIQUEID}}&direction=outbound)}})
+same => n,Set(CURL_RESULT=${{CURL(http://{backend_host}/api/calls/register?call_id=${{CALL_UUID}}&did=${{EXTEN}}&caller=${{CALLERID(num)}}&asterisk_id=${{UNIQUEID}}&direction=outbound&channel=${{URIENCODE(${{CHANNEL(name)}})}})}})
 same => n,MixMonitor(/var/spool/asterisk/monitor/${{CALL_UUID}}.wav,b)
 same => n,Gosub(outbound_failover_dial_sub,s,1(${{EXTEN}},${{EXTEN}},60,1))
 same => n,Hangup()
@@ -5912,7 +5912,7 @@ same => n,Hangup(21)
 same => n(allow_out_ext),NoOp(Dis arama onaylandi: Arayan=${{CALLERID(num)}}, Aranan=${{EXTEN}})
 same => n,Set(MD5_VAL=${{MD5(${{UNIQUEID}}${{EPOCH}})}})
 same => n,Set(__CALL_UUID=${{MD5_VAL:0:8}}-${{MD5_VAL:8:4}}-4${{MD5_VAL:13:3}}-a${{MD5_VAL:17:3}}-${{MD5_VAL:20:12}})
-same => n,Set(CURL_RESULT=${{CURL(http://{backend_host}/api/calls/register?call_id=${{CALL_UUID}}&did=${{EXTEN}}&caller=${{CALLERID(num)}}&asterisk_id=${{UNIQUEID}})}})
+same => n,Set(CURL_RESULT=${{CURL(http://{backend_host}/api/calls/register?call_id=${{CALL_UUID}}&did=${{EXTEN}}&caller=${{CALLERID(num)}}&asterisk_id=${{UNIQUEID}}&channel=${{URIENCODE(${{CHANNEL(name)}})}})}})
 same => n,GotoIf($["${{CURL_RESULT}}" = "BLOCKED"]?deny_out_ext)
 same => n,MixMonitor(/var/spool/asterisk/monitor/${{CALL_UUID}}.wav,b)
 same => n,Set(DIAL_NUM=${{IF($["${{EXTEN:0:1}}"="0"]?90${{EXTEN:1}}:${{EXTEN}})}})
@@ -20371,14 +20371,146 @@ def resolve_call_agent_name_snapshot(caller: str, callee: str, status: str = "",
     return ""
 
 
+def _resolve_call_device_info_from_channel(channel_str: str = "", ext_hint: str = "") -> Optional[Dict[str, Any]]:
+    """
+    Resolves an Asterisk channel (e.g. 'PJSIP/qST5JFuQ-0000001a', 'SIP/cisco1000-00000001',
+    'PJSIP/W1000abc-00000002') into a human-friendly Turkish device label:
+    - Web Telefonu (Chrome / macOS)
+    - Masaüstü Uygulama (macOS / Windows)
+    - Mobil Uygulama (iOS / Android)
+    - Masa Telefonu 1 (Yealink SIP-T42S) / Patron Odası — Masa Telefonu (Cisco CP8841)
+    """
+    ch_s = str(channel_str or "").strip()
+    if not ch_s:
+        return None
+    m_ch = re.match(r"^(?:PJSIP|SIP|IAX2)/([^-\;@/]+)", ch_s, re.IGNORECASE)
+    if not m_ch:
+        return None
+    ep_name = m_ch.group(1).strip()
+    if not ep_name or ep_name.lower() in ("operator_trunk", "s", "anonymous"):
+        return None
+
+    from backend.services.ami_manager import registered_endpoints, format_sip_device_brand_model
+    from backend.services.autoprovision_service import normalize_user_sip_devices
+
+    ep_low = ep_name.lower()
+    matched_dev = None
+    matched_ext = str(ext_hint or "").strip()
+    for u in (settings_db.get("users", []) or []):
+        if not isinstance(u, dict):
+            continue
+        u_devs = normalize_user_sip_devices(u, settings_db.get("autoprovision", []), settings_db.get("user_deskphone_configs", {}))
+        for d in u_devs:
+            if not isinstance(d, dict):
+                continue
+            d_su = str(d.get("sip_username") or "").strip().lower()
+            if d_su and d_su == ep_low:
+                matched_dev = d
+                matched_ext = str(u.get("extension") or matched_ext).strip()
+                break
+        if matched_dev:
+            break
+
+    meta = (registered_endpoints.get_meta(ep_name) if ep_name else None) or {}
+    ua_s = str(meta.get("user_agent") or "").strip()
+    br_s = str(meta.get("browser") or "").strip()
+    os_s = str(meta.get("os") or "").strip()
+
+    if matched_dev:
+        d_type = str(matched_dev.get("device_type") or "desk_phone").strip().lower()
+        d_name = str(matched_dev.get("name") or "").strip()
+        if d_type in ("web_phone", "desktop_app", "mobile_app"):
+            if matched_ext and (not br_s or not os_s or not ua_s):
+                ext_meta = registered_endpoints.get_meta(matched_ext) or {}
+                if not ua_s:
+                    ua_s = str(ext_meta.get("user_agent") or "").strip()
+                if not br_s:
+                    br_s = str(ext_meta.get("browser") or "").strip()
+                if not os_s:
+                    os_s = str(ext_meta.get("os") or "").strip()
+            ua_low = f"{ua_s} {br_s} {os_s}".lower()
+            if d_type == "desktop_app" or "electron" in ua_low or "nornia desktop" in ua_low or "desktop" in ua_low:
+                base_lbl = "Masaüstü Uygulama"
+                detail_env = os_s or br_s
+            elif d_type == "mobile_app" or any(mk in ua_low for mk in ("ios", "iphone", "ipad", "android", "mobile", "capacitor")):
+                base_lbl = "Mobil Uygulama"
+                detail_env = os_s or br_s
+            else:
+                base_lbl = d_name or "Web Telefonu"
+                detail_env = " / ".join([x for x in (br_s, os_s) if x])
+            full_lbl = f"{base_lbl} ({detail_env})" if detail_env else base_lbl
+            return {
+                "label": full_lbl,
+                "device_name": base_lbl,
+                "device_type": d_type,
+                "brand_model": detail_env,
+                "sip_username": ep_name,
+                "channel": ch_s,
+            }
+        type_lbl = (
+            "DECT Telefon" if d_type == "dect"
+            else "SIP İstemci" if d_type == "softphone"
+            else "Sanal Abone" if d_type == "virtual_subscriber"
+            else "Masa Telefonu"
+        )
+        bm = format_sip_device_brand_model(
+            user_agent=ua_s,
+            brand=str(matched_dev.get("brand") or ""),
+            model=str(matched_dev.get("model") or ""),
+        )
+        clean_name = d_name or type_lbl
+        if type_lbl.lower() in clean_name.lower():
+            base_part = clean_name
+        else:
+            base_part = f"{clean_name} — {type_lbl}"
+        full_lbl = f"{base_part} ({bm})" if bm else base_part
+        return {
+            "label": full_lbl,
+            "device_name": clean_name,
+            "device_type": d_type,
+            "brand_model": bm,
+            "sip_username": ep_name,
+            "channel": ch_s,
+        }
+
+    # Fallback if endpoint matches numeric extension / webphone prefix without explicit user device hit
+    if ep_low.startswith("w") and any(ch.isdigit() for ch in ep_low):
+        detail_env = " / ".join([x for x in (br_s, os_s) if x])
+        return {
+            "label": f"Web Telefonu ({detail_env})" if detail_env else "Web Telefonu",
+            "device_name": "Web Telefonu",
+            "device_type": "web_phone",
+            "brand_model": detail_env,
+            "sip_username": ep_name,
+            "channel": ch_s,
+        }
+    return None
+
+
 @app.get("/api/calls/register")
-async def register_call_endpoint(call_id: str, did: str, caller: str, asterisk_id: Optional[str] = None, direction: Optional[str] = None):
+async def register_call_endpoint(
+    call_id: str,
+    did: str,
+    caller: str,
+    asterisk_id: Optional[str] = None,
+    direction: Optional[str] = None,
+    channel: Optional[str] = None,
+):
     from fastapi import Response
     try:
         if asterisk_id:
             from backend.services.ami_manager import call_id_to_asterisk_id
             call_id_to_asterisk_id[call_id] = asterisk_id
             print(f"[AMI] Mapped Call UUID {call_id} -> Asterisk Uniqueid {asterisk_id}")
+
+        resolved_device_info = None
+        try:
+            from backend.services.ami_manager import active_channels
+            eff_chan = str(channel or "").strip() or str(active_channels.get(str(asterisk_id or "").strip()) or "").strip()
+            if eff_chan:
+                resolved_device_info = _resolve_call_device_info_from_channel(eff_chan, ext_hint=caller)
+        except Exception:
+            resolved_device_info = None
 
         # Toll-Fraud / SIP Scanner & Hatalı Numara Koruması: Kaydet ve anında sonlandır
         did_str_check = str(did or "").strip()
@@ -20748,6 +20880,7 @@ async def register_call_endpoint(call_id: str, did: str, caller: str, asterisk_i
 
             db_call = await session.get(Call, call_id)
             if not db_call:
+                init_td = {"device_info": resolved_device_info} if resolved_device_info else None
                 new_call = Call(
                     id=call_id,
                     caller_number=caller or "Bilinmeyen",
@@ -20756,7 +20889,8 @@ async def register_call_endpoint(call_id: str, did: str, caller: str, asterisk_i
                     tenant_id=call_tenant,
                     start_time=datetime.datetime.utcnow(),
                     trunk_name=matched_trunk_name,
-                    agent_name=resolved_agent_name or None
+                    agent_name=resolved_agent_name or None,
+                    transfer_details=init_td,
                 )
                 session.add(new_call)
                 await session.commit()
@@ -20771,6 +20905,17 @@ async def register_call_endpoint(call_id: str, did: str, caller: str, asterisk_i
                     db_call.trunk_name = matched_trunk_name
                 if resolved_agent_name and not db_call.agent_name:
                     db_call.agent_name = resolved_agent_name
+                if resolved_device_info:
+                    cur_td_r = db_call.transfer_details if isinstance(db_call.transfer_details, dict) else {}
+                    if not cur_td_r.get("device_info"):
+                        cur_td_r = dict(cur_td_r)
+                        cur_td_r["device_info"] = resolved_device_info
+                        db_call.transfer_details = cur_td_r
+                        try:
+                            from sqlalchemy.orm.attributes import flag_modified
+                            flag_modified(db_call, "transfer_details")
+                        except Exception:
+                            pass
                 await session.commit()
 
             if did and (str(did).startswith("*8") or str(did).startswith("**")):
@@ -21033,7 +21178,9 @@ async def end_call_endpoint(
     hangupsource: Optional[str] = None,
     trunk: Optional[str] = None,
     answeredtime: Optional[str] = None,
-    dialedtime: Optional[str] = None
+    dialedtime: Optional[str] = None,
+    channel: Optional[str] = None,
+    peer_channel: Optional[str] = None,
 ):
     try:
         from backend.services.ami_manager import recording_paused_state
@@ -21065,6 +21212,30 @@ async def end_call_endpoint(
             db_call.end_time = datetime.datetime.utcnow()
             if trunk and str(trunk).strip() and not db_call.trunk_name:
                 db_call.trunk_name = str(trunk).strip()
+            try:
+                cur_td_end = db_call.transfer_details if isinstance(db_call.transfer_details, dict) else {}
+                if not cur_td_end.get("device_info"):
+                    cand_ch_list = [peer_channel, memberinterface, channel, hangupsource]
+                    found_dev_end = None
+                    for cand_ch in cand_ch_list:
+                        if cand_ch and str(cand_ch).strip():
+                            found_dev_end = _resolve_call_device_info_from_channel(
+                                str(cand_ch).strip(),
+                                ext_hint=str(db_call.callee_number or db_call.caller_number or ""),
+                            )
+                            if found_dev_end:
+                                break
+                    if found_dev_end:
+                        cur_td_end = dict(cur_td_end)
+                        cur_td_end["device_info"] = found_dev_end
+                        db_call.transfer_details = cur_td_end
+                        try:
+                            from sqlalchemy.orm.attributes import flag_modified
+                            flag_modified(db_call, "transfer_details")
+                        except Exception:
+                            pass
+            except Exception:
+                pass
 
             dur_sec = 0
             if db_call.start_time:
@@ -23347,6 +23518,15 @@ async def list_calls(
                 c.voicemail_duration = vm_audio_sec
                 c.talk_duration = resolved_talk_sec
                 c.duration_talk = resolved_talk_sec
+                raw_td_out = getattr(c, "transfer_details", None)
+                if isinstance(raw_td_out, str):
+                    try:
+                        raw_td_out = json.loads(raw_td_out)
+                    except Exception:
+                        raw_td_out = {}
+                dev_info_out = (raw_td_out or {}).get("device_info") if isinstance(raw_td_out, dict) else None
+                c.device_info = dev_info_out if isinstance(dev_info_out, dict) else None
+                c.device_label = str((dev_info_out or {}).get("label") or "").strip() if isinstance(dev_info_out, dict) else ""
                 if c_is_q_i:
                     c.duration_queue = total_wall_sec if is_unanswered_st else max(0, total_wall_sec - resolved_talk_sec)
                 else:
@@ -24360,6 +24540,15 @@ async def get_call_details(call_id: str, db: AsyncSession = Depends(get_db)):
         db.expunge(call)
         call.talk_duration = resolved_talk_sec
         call.duration_talk = resolved_talk_sec
+        raw_td_det = getattr(call, "transfer_details", None)
+        if isinstance(raw_td_det, str):
+            try:
+                raw_td_det = json.loads(raw_td_det)
+            except Exception:
+                raw_td_det = {}
+        dev_info_det = (raw_td_det or {}).get("device_info") if isinstance(raw_td_det, dict) else None
+        call.device_info = dev_info_det if isinstance(dev_info_det, dict) else None
+        call.device_label = str((dev_info_det or {}).get("label") or "").strip() if isinstance(dev_info_det, dict) else ""
     except Exception:
         pass
     return call
@@ -39846,18 +40035,38 @@ async def get_system_version_info():
         pass
 
     return {
-        "version": "v3.5.1",
+        "version": "v3.5.2",
         "commit_hash": live_commit,
         "release_date": "20 Kasım 2026",
         "status": "Güncel / Canlı Sürüm",
         "environment": "Production (On-Premise)",
         "changelog": [
             {
-                "version": "v3.5.1",
+                "version": "v3.5.2",
                 "commit_hash": live_commit,
                 "release_date": "20 Kasım 2026",
                 "badge": "Canlı Sürüm (Güncel)",
                 "badge_type": "current",
+                "title": "Çağrı Detayında Kullanılan Cihaz (Web / Masaüstü / Mobil / Masa Telefonu) Gösterimi",
+                "summary": "Raporlar ekranındaki 'Detaylı Arama Akışı & Ses Kayıtları' penceresine Kullanılan Cihaz alanı eklendi; çağrıyı başlatan veya yanıtlayan cihaz (Web Telefonu, Masaüstü Uygulama, Mobil Uygulama ya da bağlı fiziksel masa telefonunun adı ve marka/modeli) Asterisk kanal bilgisinden otomatik çözümlenip kaydedilir.",
+                "features": [
+                    {
+                        "title": "Otomatik Kanal → Cihaz Çözümleyici (PJSIP & Cisco chan_sip)",
+                        "desc": "Asterisk dialplan üzerinden /api/calls/register ve /api/calls/end çağrılarına kanal ve köprü (BRIDGEPEER) bilgileri iletilerek hem giden hem gelen çağrılarda hangi cihazın kullanıldığı kaydedilir."
+                    },
+                    {
+                        "title": "Çağrı Özeti Kartında Kullanılan Cihaz Alanı",
+                        "desc": "Detaylı Arama Akışı modalında çağrının yapıldığı cihaz adı ve modeli (örn. Masa Telefonu 1 (Yealink SIP-T42S) veya Web Telefonu (Chrome / macOS)) doğrudan gösterilir."
+                    }
+                ],
+                "fixes": []
+            },
+            {
+                "version": "v3.5.1",
+                "commit_hash": "59f1ca0",
+                "release_date": "20 Kasım 2026",
+                "badge": "Önceki Sürüm",
+                "badge_type": "stable",
                 "title": "Uzak Erişim Açıkken Transport'un TCP Gösterilmesi & SIP Cihaz Kartında Canlı Marka/Model",
                 "summary": "SIP cihazlarında Uzak Erişim (Nornia SIP Edge) açıldığında hem düzenleme modalındaki pasif Transport kutusunda hem de cihaz listesi kartında TCP gösterilecek şekilde güncellendi; bağlı cihaz kartında da canlı SIP User-Agent marka/model (örn. Yealink SIP-T42S) gösterimi eklendi.",
                 "features": [],

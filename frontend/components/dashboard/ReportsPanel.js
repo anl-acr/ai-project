@@ -6569,6 +6569,17 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
           const modalTransfer = getTransferMetadata(selectedTimelineCall);
           const modalVoicemail = isVoicemailCall(selectedTimelineCall);
           const modalAudioSegments = getCallAudioSegments(selectedTimelineCall);
+          const modalDeviceInfo =
+            selectedTimelineCall?.device_info ||
+            selectedTimelineCall?.transfer_details?.device_info ||
+            null;
+          const modalDeviceLabel = String(
+            selectedTimelineCall?.device_label ||
+              modalDeviceInfo?.label ||
+              modalPickup?.deviceSource ||
+              modalTransfer?.deviceSource ||
+              ""
+          ).trim();
 
           return (
           <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-sm z-50 flex items-center justify-center animate-in fade-in duration-200 p-4">
@@ -6617,7 +6628,20 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                   <p className="text-[8px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">Kapatan Taraf</p>
                   <p className="text-[10px] font-bold text-slate-700 dark:text-slate-300 mt-0.5">{hangupLabel}</p>
                 </div>
-                <div className="col-span-2 pt-2 border-t border-slate-100 dark:border-slate-800/70">
+                <div className="pt-2 border-t border-slate-100 dark:border-slate-800/70">
+                  <p className="text-[8px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">Kullanılan Cihaz</p>
+                  <p className="text-[11px] font-bold text-slate-800 dark:text-slate-200 mt-0.5 flex items-center gap-1.5 flex-wrap">
+                    {modalDeviceLabel ? (
+                      <>
+                        <Phone size={11} className={text + " shrink-0"} />
+                        <span>{modalDeviceLabel}</span>
+                      </>
+                    ) : (
+                      <span className="text-slate-400 dark:text-slate-500 font-semibold">—</span>
+                    )}
+                  </p>
+                </div>
+                <div className="pt-2 border-t border-slate-100 dark:border-slate-800/70">
                   <p className="text-[8px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">Benzersiz Çağrı ID</p>
                   <p className="text-[10px] font-mono font-bold text-slate-550 dark:text-slate-400 mt-0.5 break-all">{selectedTimelineCall.id}</p>
                 </div>
