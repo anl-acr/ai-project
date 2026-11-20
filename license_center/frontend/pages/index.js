@@ -1516,12 +1516,12 @@ export default function MasterDashboard() {
               <table className="w-full text-left border-collapse">
                 <thead>
                   <tr className="border-b border-slate-200/80 dark:border-slate-800 bg-slate-50/80 dark:bg-slate-950/60 text-[11px] font-extrabold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
-                    <th className="py-3.5 px-4">Müşteri / Tenant</th>
-                    <th className="py-3.5 px-4">Santral Seri No &amp; Donanım</th>
-                    <th className="py-3.5 px-4">Nornia Connect &amp; SSH</th>
-                    <th className="py-3.5 px-4">Kaynak &amp; Kanal</th>
-                    <th className="py-3.5 px-4">Lisans Bitiş Tarihi</th>
-                    <th className="py-3.5 px-4 text-right">İşlemler</th>
+                    <th className="py-3.5 px-4 whitespace-nowrap">Müşteri / Tenant</th>
+                    <th className="py-3.5 px-4 whitespace-nowrap">Santral Seri No &amp; Donanım</th>
+                    <th className="py-3.5 px-4 whitespace-nowrap">Nornia Connect &amp; SSH</th>
+                    <th className="py-3.5 px-4 whitespace-nowrap">Kaynaklar &amp; Kanal</th>
+                    <th className="py-3.5 px-4 whitespace-nowrap">Lisans Bitiş</th>
+                    <th className="py-3.5 px-4 text-right whitespace-nowrap">İşlemler</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-200/70 dark:divide-slate-800/70 text-xs">
@@ -1531,30 +1531,46 @@ export default function MasterDashboard() {
                       client.system_serial_number && client.system_serial_number !== "Henüz Bağlanmadı"
                         ? client.system_serial_number
                         : client.tenant_serial_number || "Henüz Bağlanmadı";
+                    const cpuVal = Math.round(Number(client.cpu_usage_percent || 0) * 10) / 10;
+                    const ramVal = Math.round(Number(client.ram_usage_percent || 0) * 10) / 10;
+                    const diskVal = Math.round(Number(client.disk_usage_percent || 0) * 10) / 10;
+                    const maxCalls = client.custom_quotas?.max_concurrent_calls ?? 4;
+                    const tolCalls = client.custom_quotas?.tolerance_concurrent_calls ?? 0;
+                    const userQuota = getClientUserLicenseCount(client);
+                    const meterBarColor = (val) =>
+                      val >= 85 ? "bg-rose-500" : val >= 70 ? "bg-amber-500" : "bg-indigo-500";
+
                     return (
-                      <tr key={client.id} className="hover:bg-slate-50/80 dark:hover:bg-slate-800/40 transition-colors">
-                        <td className="py-3.5 px-4">
+                      <tr key={client.id} className="hover:bg-slate-50/80 dark:hover:bg-slate-800/40 transition-colors align-middle">
+                        {/* 1. Müşteri / Tenant */}
+                        <td className="py-3.5 px-4 whitespace-nowrap">
                           <div className="flex items-center gap-2.5">
                             <span className={`w-2.5 h-2.5 rounded-full shrink-0 ${
                               isSuspended ? "bg-rose-500" : client.is_online ? "bg-emerald-500 animate-pulse" : "bg-slate-400"
                             }`} />
                             <div>
-                              <div className="font-extrabold text-slate-900 dark:text-white text-sm">{client.company_name}</div>
-                              <div className="flex items-center gap-1.5 mt-0.5">
-                                <span className="font-mono text-[11px] text-indigo-600 dark:text-indigo-400 font-bold">{client.tenant_code}</span>
-                                <span className="text-slate-300 dark:text-slate-700">•</span>
-                                <span className="text-[10px] uppercase font-extrabold px-1.5 py-0.2 rounded bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400">
+                              <div className="font-extrabold text-slate-900 dark:text-white text-sm leading-tight">
+                                {client.company_name}
+                              </div>
+                              <div className="flex items-center gap-1.5 mt-1">
+                                <span className="font-mono text-[11px] text-indigo-600 dark:text-indigo-400 font-bold">
+                                  {client.tenant_code}
+                                </span>
+                                <span className="text-[10px] uppercase font-extrabold px-1.5 py-0.5 rounded-md bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border border-slate-200/70 dark:border-slate-700">
                                   {client.plan_tier || "professional"}
                                 </span>
                               </div>
                             </div>
                           </div>
                         </td>
-                        <td className="py-3.5 px-4 font-mono">
-                          <div className="flex items-center gap-1.5 font-extrabold text-indigo-700 dark:text-indigo-300">
+
+                        {/* 2. Santral Seri No & Donanım */}
+                        <td className="py-3.5 px-4 font-mono whitespace-nowrap">
+                          <div className="flex items-center gap-1.5 font-extrabold text-indigo-700 dark:text-indigo-300 text-[12px]">
                             <span>{pbxSerial}</span>
                             {pbxSerial && pbxSerial !== "Henüz Bağlanmadı" && (
                               <button
+                                type="button"
                                 onClick={() => handleCopyText(pbxSerial, `tbl-sn-${client.id}`)}
                                 className="text-slate-400 hover:text-indigo-500 cursor-pointer"
                                 title="Santral Seri Numarasını Kopyala"
@@ -1563,74 +1579,72 @@ export default function MasterDashboard() {
                               </button>
                             )}
                           </div>
-                          <div className="flex items-center gap-1 text-[11px] text-slate-500 mt-0.5">
-                            <span>{client.hardware_id}</span>
+                          <div className="flex items-center gap-1.5 text-[11px] text-slate-500 dark:text-slate-400 mt-1">
+                            <span className="font-semibold text-slate-600 dark:text-slate-300">{client.hardware_id}</span>
                             <button
+                              type="button"
                               onClick={() => handleCopyText(client.hardware_id, `tbl-hw-${client.id}`)}
                               className="text-slate-400 hover:text-indigo-500 cursor-pointer"
                               title="Donanım ID Kopyala"
                             >
                               {copiedKey === `tbl-hw-${client.id}` ? <Check size={11} className="text-emerald-500" /> : <Copy size={11} />}
                             </button>
-                            <span>•</span>
+                            <span className="text-slate-300 dark:text-slate-700">•</span>
                             <span>{client.ip_address || "127.0.0.1"}</span>
-                            <span>•</span>
-                            <span>{client.software_version || "—"}</span>
+                            <span className="text-slate-300 dark:text-slate-700">•</span>
+                            <span className="px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-[10px] font-bold text-slate-600 dark:text-slate-300">
+                              {client.software_version || "—"}
+                            </span>
                           </div>
                         </td>
-                        <td className="py-3.5 px-4">
+
+                        {/* 3. Nornia Connect (Root SSO on click) & SSH */}
+                        <td className="py-3.5 px-4 whitespace-nowrap">
                           {client.connect_subdomain ? (
-                            <div className="space-y-1">
-                              <div className="flex items-center gap-1.5 flex-wrap">
-                                <span className="px-2 py-0.5 rounded-md bg-emerald-500/10 border border-emerald-500/25 font-mono text-[11px] font-extrabold text-emerald-700 dark:text-emerald-300">
-                                  {client.connect_subdomain}
-                                </span>
-                                <a
-                                  href={`https://${client.connect_subdomain}.nornia.com.tr`}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  className="font-mono text-[11px] font-bold text-slate-600 dark:text-slate-300 hover:text-emerald-600 dark:hover:text-emerald-400 hover:underline flex items-center gap-1"
-                                >
-                                  <span>{client.connect_subdomain}.nornia.com.tr</span>
-                                  <ExternalLink size={11} />
-                                </a>
-                                <span className={`px-1.5 py-0.5 rounded text-[9px] font-extrabold uppercase ${
-                                  client.tunnel_connected
-                                    ? "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400"
-                                    : "bg-slate-200 dark:bg-slate-800 text-slate-500"
-                                }`}>
-                                  {client.tunnel_connected ? "Tünel Aktif" : "Bağlı Değil"}
-                                </span>
-                              </div>
-                              <div className="flex items-center gap-1">
+                            <div className="space-y-1.5">
+                              <div className="flex items-center gap-2">
                                 <button
                                   type="button"
                                   disabled={ssoLoadingId === client.id}
                                   onClick={() => handleRootSsoLogin(client)}
-                                  className="px-2 py-0.5 rounded-md bg-indigo-500/15 hover:bg-indigo-600 text-indigo-600 dark:text-indigo-300 hover:text-white border border-indigo-500/30 text-[10px] font-extrabold flex items-center gap-1 cursor-pointer transition-colors"
-                                  title="Şifre yazmadan Nornia Root (Servis Sağlayıcı) tam yetkisiyle santrale doğrudan giriş yap"
+                                  className="font-mono text-xs font-extrabold text-indigo-600 dark:text-indigo-400 hover:text-emerald-600 dark:hover:text-emerald-400 hover:underline flex items-center gap-1.5 cursor-pointer disabled:opacity-50 transition-colors"
+                                  title="Root SSO ile şifre girmeden santral paneline doğrudan bağlan"
                                 >
-                                  <ShieldCheck size={10} />
-                                  <span>{ssoLoadingId === client.id ? "..." : "Root SSO"}</span>
+                                  <ShieldCheck size={13} className="text-indigo-500 shrink-0" />
+                                  <span>
+                                    {ssoLoadingId === client.id
+                                      ? "Bağlanıyor..."
+                                      : `${client.connect_subdomain}.nornia.com.tr`}
+                                  </span>
+                                  <ExternalLink size={11} className="opacity-70 shrink-0" />
                                 </button>
+                                <span className={`px-1.5 py-0.5 rounded-md text-[9px] font-extrabold uppercase tracking-wide ${
+                                  client.tunnel_connected
+                                    ? "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/25"
+                                    : "bg-slate-200/80 dark:bg-slate-800 text-slate-500 border border-slate-300/60 dark:border-slate-700"
+                                }`}>
+                                  {client.tunnel_connected ? "Tünel Aktif" : "Bağlı Değil"}
+                                </span>
+                              </div>
+                              <div className="flex items-center gap-1.5">
                                 <button
                                   type="button"
                                   disabled={otaLoadingId === client.id || !client.tunnel_connected}
                                   onClick={() => handleRemoteOtaUpdate(client)}
-                                  className="px-2 py-0.5 rounded-md bg-cyan-500/15 hover:bg-cyan-600 text-cyan-700 dark:text-cyan-300 hover:text-white border border-cyan-500/30 text-[10px] font-extrabold flex items-center gap-1 cursor-pointer transition-colors disabled:opacity-40"
+                                  className="px-2 py-1 rounded-lg bg-cyan-500/10 hover:bg-cyan-600 text-cyan-700 dark:text-cyan-300 hover:text-white border border-cyan-500/25 text-[10px] font-extrabold flex items-center gap-1 whitespace-nowrap cursor-pointer transition-colors disabled:opacity-40"
                                   title="Nornia Connect tüneli üzerinden santrali uzaktan tek tıkla güncelle (OTA Update)"
                                 >
                                   <RefreshCw size={10} className={otaLoadingId === client.id ? "animate-spin" : ""} />
-                                  <span>{otaLoadingId === client.id ? "..." : "OTA Güncelle"}</span>
+                                  <span>{otaLoadingId === client.id ? "Güncelleniyor..." : "OTA Güncelle"}</span>
                                 </button>
                                 <button
                                   type="button"
                                   disabled={togglingSshId === client.id}
                                   onClick={() => handleToggleClientSsh(client)}
-                                  className={`px-2 py-0.5 rounded-md border text-[10px] font-extrabold flex items-center gap-1 cursor-pointer transition-colors ${
+                                  className={`px-2 py-1 rounded-lg border text-[10px] font-extrabold flex items-center gap-1 whitespace-nowrap cursor-pointer transition-colors ${
                                     client.remote_ssh_enabled !== false
-                                      ? "bg-emerald-500/10 hover:bg-rose-600 text-emerald-600 dark:text-emerald-300 hover:text-white border-emerald-500/30"
-                                      : "bg-rose-500/10 hover:bg-emerald-600 text-rose-600 dark:text-rose-300 hover:text-white border-rose-500/30"
+                                      ? "bg-emerald-500/10 hover:bg-rose-600 text-emerald-700 dark:text-emerald-300 hover:text-white border-emerald-500/25"
+                                      : "bg-rose-500/10 hover:bg-emerald-600 text-rose-700 dark:text-rose-300 hover:text-white border-rose-500/25"
                                   }`}
                                   title={
                                     client.remote_ssh_enabled !== false
@@ -1638,13 +1652,13 @@ export default function MasterDashboard() {
                                       : "Santralde SSH Erişimi KAPALI — Açmak için tıklayın"
                                   }
                                 >
-                                  <Power size={9} />
+                                  <Power size={10} />
                                   <span>{togglingSshId === client.id ? "..." : client.remote_ssh_enabled !== false ? "SSH Açık" : "SSH Kapalı"}</span>
                                 </button>
                                 <button
                                   type="button"
                                   onClick={() => setUnlockConfirmClient(client)}
-                                  className="px-2 py-0.5 rounded-md bg-amber-500/10 hover:bg-amber-500 text-amber-600 dark:text-amber-300 hover:text-white border border-amber-500/30 text-[10px] font-extrabold flex items-center gap-1 cursor-pointer"
+                                  className="px-2 py-1 rounded-lg bg-amber-500/10 hover:bg-amber-500 text-amber-700 dark:text-amber-300 hover:text-white border border-amber-500/25 text-[10px] font-extrabold flex items-center gap-1 whitespace-nowrap cursor-pointer transition-colors"
                                   title="Santraldeki Nornia Connect Alt Alan Adı Kilidini Serbest Bırak"
                                 >
                                   <Unlock size={10} />
@@ -1653,32 +1667,78 @@ export default function MasterDashboard() {
                               </div>
                             </div>
                           ) : (
-                            <span className="text-slate-400 text-[11px]">Tünel Tanımsız</span>
+                            <span className="text-slate-400 text-[11px] font-semibold">Tünel Tanımsız</span>
                           )}
                         </td>
-                        <td className="py-3.5 px-4">
-                          <div className="flex items-center gap-2 font-mono text-[11px]">
-                            <span className="px-2 py-0.5 rounded-md bg-blue-500/10 text-blue-600 dark:text-blue-400 font-extrabold">
-                              {client.custom_quotas?.max_concurrent_calls ?? 4} +{client.custom_quotas?.tolerance_concurrent_calls ?? 0} Kanal
-                            </span>
-                            <span className="text-slate-500">
-                              CPU {client.cpu_usage_percent || 0}% • RAM {client.ram_usage_percent || 0}%
-                            </span>
+
+                        {/* 4. Kaynaklar (CPU / RAM / DISK) & Kapasite */}
+                        <td className="py-3.5 px-4 whitespace-nowrap">
+                          <div className="space-y-1.5 min-w-[210px]">
+                            <div className="flex items-center gap-1.5">
+                              <span className="px-2 py-0.5 rounded-md bg-blue-500/10 border border-blue-500/20 text-blue-700 dark:text-blue-300 font-mono text-[10px] font-extrabold">
+                                {maxCalls}{tolCalls > 0 ? `+${tolCalls}` : ""} Kanal
+                              </span>
+                              <span className="px-2 py-0.5 rounded-md bg-violet-500/10 border border-violet-500/20 text-violet-700 dark:text-violet-300 font-mono text-[10px] font-extrabold">
+                                {userQuota} Abone
+                              </span>
+                            </div>
+                            <div className="grid grid-cols-3 gap-2">
+                              {[
+                                { label: "CPU", val: cpuVal },
+                                { label: "RAM", val: ramVal },
+                                { label: "DİSK", val: diskVal }
+                              ].map((m) => (
+                                <div key={m.label} className="space-y-0.5">
+                                  <div className="flex items-center justify-between text-[10px] font-mono">
+                                    <span className="font-bold text-slate-400">{m.label}</span>
+                                    <span className={`font-extrabold ${
+                                      m.val >= 85
+                                        ? "text-rose-600 dark:text-rose-400"
+                                        : m.val >= 70
+                                          ? "text-amber-600 dark:text-amber-400"
+                                          : "text-slate-700 dark:text-slate-200"
+                                    }`}>
+                                      %{m.val}
+                                    </span>
+                                  </div>
+                                  <div className="w-full h-1.5 bg-slate-200/80 dark:bg-slate-800 rounded-full overflow-hidden">
+                                    <div
+                                      className={`h-full rounded-full transition-all ${meterBarColor(m.val)}`}
+                                      style={{ width: `${Math.min(100, Math.max(4, m.val))}%` }}
+                                    />
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
                           </div>
                         </td>
-                        <td className="py-3.5 px-4">
-                          <div className="font-mono font-bold text-slate-800 dark:text-slate-200">
-                            {client.license_expires_at === "unlimited" ? "♾️ Limitsiz" : (client.license_expires_at || "-")}
+
+                        {/* 5. Lisans Bitiş */}
+                        <td className="py-3.5 px-4 whitespace-nowrap">
+                          <div className="font-mono font-extrabold text-slate-800 dark:text-slate-200 text-xs">
+                            {client.license_expires_at === "unlimited"
+                              ? "♾️ Limitsiz"
+                              : client.license_expires_at || "—"}
                           </div>
-                          {client.days_left !== null && client.days_left !== undefined && (
-                            <span className={`text-[10px] font-extrabold ${
-                              client.days_left <= 7 ? "text-rose-500" : client.days_left <= expiringSoonDays ? "text-amber-500" : "text-emerald-500"
+                          {client.days_left !== null && client.days_left !== undefined && client.license_expires_at !== "unlimited" ? (
+                            <span className={`inline-block mt-1 px-2 py-0.5 rounded-md text-[10px] font-extrabold ${
+                              client.days_left <= 7
+                                ? "bg-rose-500/10 text-rose-600 dark:text-rose-400"
+                                : client.days_left <= expiringSoonDays
+                                  ? "bg-amber-500/10 text-amber-600 dark:text-amber-400"
+                                  : "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
                             }`}>
                               {client.days_left} gün kaldı
                             </span>
+                          ) : (
+                            <span className="text-[10px] text-slate-400 font-semibold">
+                              {client.license_expires_at === "unlimited" ? "Süresiz" : "Tarih yok"}
+                            </span>
                           )}
                         </td>
-                        <td className="py-3.5 px-4 text-right">
+
+                        {/* 6. İşlemler */}
+                        <td className="py-3.5 px-4 text-right whitespace-nowrap">
                           <div className="flex items-center justify-end gap-1.5">
                             <button
                               onClick={() => openInspectorModal(client)}
@@ -1988,18 +2048,28 @@ export default function MasterDashboard() {
                       </div>
                     </div>
 
-                    <div className="p-2.5 rounded-xl bg-slate-50/80 dark:bg-slate-950/50 border border-slate-200/70 dark:border-slate-800/70">
-                      <div className="flex items-center justify-between text-[10px] font-bold text-slate-400 uppercase">
-                        <span>CPU / RAM</span>
-                        <span className="font-mono text-slate-700 dark:text-slate-300">
-                          {client.cpu_usage_percent || 0}% / {client.ram_usage_percent || 0}%
-                        </span>
-                      </div>
-                      <div className="w-full h-1.5 bg-slate-200 dark:bg-slate-800 rounded-full overflow-hidden mt-1.5 flex">
-                        <div
-                          className="bg-indigo-500 h-full transition-all"
-                          style={{ width: `${Math.min(100, client.cpu_usage_percent || 4)}%` }}
-                        />
+                    <div className="p-2.5 rounded-xl bg-slate-50/80 dark:bg-slate-950/50 border border-slate-200/70 dark:border-slate-800/70 space-y-1">
+                      <div className="text-[10px] font-bold text-slate-400 uppercase">CPU / RAM / DİSK</div>
+                      <div className="grid grid-cols-3 gap-1.5 font-mono text-[10px]">
+                        {[
+                          { k: "C", v: Math.round(Number(client.cpu_usage_percent || 0)) },
+                          { k: "R", v: Math.round(Number(client.ram_usage_percent || 0)) },
+                          { k: "D", v: Math.round(Number(client.disk_usage_percent || 0)) }
+                        ].map((m) => (
+                          <div key={m.k} className="space-y-0.5">
+                            <div className="font-extrabold text-slate-700 dark:text-slate-200">
+                              {m.k}:{m.v}%
+                            </div>
+                            <div className="w-full h-1 bg-slate-200 dark:bg-slate-800 rounded-full overflow-hidden">
+                              <div
+                                className={`h-full rounded-full ${
+                                  m.v >= 85 ? "bg-rose-500" : m.v >= 70 ? "bg-amber-500" : "bg-indigo-500"
+                                }`}
+                                style={{ width: `${Math.min(100, Math.max(6, m.v))}%` }}
+                              />
+                            </div>
+                          </div>
+                        ))}
                       </div>
                     </div>
 

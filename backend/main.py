@@ -38886,18 +38886,40 @@ async def get_system_version_info():
         pass
 
     return {
-        "version": "v3.1.3",
+        "version": "v3.1.4",
         "commit_hash": live_commit,
         "release_date": "20 Kasım 2026",
         "status": "Güncel / Canlı Sürüm",
         "environment": "Production (On-Premise)",
         "changelog": [
             {
-                "version": "v3.1.3",
+                "version": "v3.1.4",
                 "commit_hash": live_commit,
                 "release_date": "20 Kasım 2026",
                 "badge": "Canlı Sürüm (Güncel)",
                 "badge_type": "current",
+                "title": "Nornia Cloud Center Tablo Görünümü Yeniden Tasarımı, Disk Telemetrisi & Tek Tıkla Root SSO Bağlantısı",
+                "summary": "Tablo (liste) görünümünde Nornia Connect adresine tıklandığında doğrudan Root SSO ile giriş yapılması sağlandı; mükerrer Root SSO butonu ve sol alt-alan adı etiketi kaldırıldı. Santral heartbeat ve pano görünümlerine canlı Disk kullanım yüzdesi ile renkli CPU / RAM / DİSK göstergeleri eklendi.",
+                "features": [
+                    {
+                        "title": "🔗 Tek Tıkla Root SSO Bağlantısı (Doğrudan Domain Üzerinden)",
+                        "desc": "Liste görünümünde domain adresine (örn. app.nornia.com.tr) tıklandığında doğrudan Root SSO ile giriş yapılır; ayrı Root SSO butonu ve solundaki mükerrer alt-alan adı rozeti kaldırıldı."
+                    },
+                    {
+                        "title": "💾 Canlı Disk Kullanımı & Yenilenen Kaynak Göstergeleri (CPU / RAM / DİSK)",
+                        "desc": "Santral telemetrisine canlı Disk doluluk oranı (disk_percent) eklendi; tablo ve kart görünümlerinde kırılmasız tek satır hizalama, kapasite rozetleri ve renkli CPU / RAM / DİSK barları devreye alındı."
+                    }
+                ],
+                "fixes": [
+                    "Tablo satırlarında Donanım ID, aksiyon butonları ve kanal etiketlerinin iki satıra bölünerek bozulması (wrapping) giderildi."
+                ]
+            },
+            {
+                "version": "v3.1.3",
+                "commit_hash": "03f6421",
+                "release_date": "20 Kasım 2026",
+                "badge": "Önceki Sürüm",
+                "badge_type": "stable",
                 "title": "Santral & Nornia Cloud Center Canlı Sürüm Numarası Otomatik Senkronizasyonu",
                 "summary": "Santral telemetri heartbeat ve Nornia Connect tünel kaydında sabit kalmış eski sürüm numaraları (v2.4.8 / v2.4.9) kaldırılarak santralin gerçek canlı sürümünü otomatik okuyan dinamik versiyon senkronizasyonu eklendi.",
                 "features": [],

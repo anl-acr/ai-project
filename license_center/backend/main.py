@@ -347,6 +347,7 @@ class HeartbeatSchema(BaseModel):
     software_version: Optional[str] = None
     cpu_percent: Optional[float] = 0.0
     memory_percent: Optional[float] = 0.0
+    disk_percent: Optional[float] = 0.0
     active_calls: Optional[int] = 0
     total_users: Optional[int] = 0
     whatsapp_status: Optional[str] = "offline"
@@ -1633,6 +1634,7 @@ async def get_clients(db: AsyncSession = Depends(get_central_db)):
             "software_version": c.software_version,
             "cpu_usage_percent": c.cpu_usage_percent,
             "ram_usage_percent": c.ram_usage_percent,
+            "disk_usage_percent": round(float(getattr(c, "disk_usage_percent", 0.0) or 0.0), 1),
             "active_calls_count": c.active_calls_count,
             "total_users_count": c.total_users_count,
             "whatsapp_status": c.whatsapp_status,
@@ -1956,7 +1958,7 @@ async def get_client_telemetry_dashboard(client_id: int, db: AsyncSession = Depe
     ram_now = round(float((live_stats or {}).get("ram_usage") if live_stats else (client.ram_usage_percent or 0.0)), 1)
     ram_used_gb = (live_stats or {}).get("ram_used_gb", round((ram_now / 100.0) * 8.0, 1))
     ram_total_gb = (live_stats or {}).get("ram_total_gb", 8.0)
-    disk_now = round(float((live_stats or {}).get("disk_usage", 42.0)), 1)
+    disk_now = round(float((live_stats or {}).get("disk_usage", getattr(client, "disk_usage_percent", 0.0) or 42.0)), 1)
     disk_used_gb = (live_stats or {}).get("disk_used_gb", 24.5)
     disk_total_gb = (live_stats or {}).get("disk_total_gb", 50.0)
     active_calls_now = int((live_stats or {}).get("active_calls_count") if live_stats else (client.active_calls_count or 0))
@@ -2243,6 +2245,8 @@ async def receive_heartbeat(payload: HeartbeatSchema, request: Request, db: Asyn
         client.hardware_id = hw_id
         client.cpu_usage_percent = payload.cpu_percent or 0.0
         client.ram_usage_percent = payload.memory_percent or 0.0
+        if payload.disk_percent is not None:
+            client.disk_usage_percent = payload.disk_percent or 0.0
         client.active_calls_count = payload.active_calls or 0
         client.total_users_count = payload.total_users or 0
         client.whatsapp_status = payload.whatsapp_status or "offline"

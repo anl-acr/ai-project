@@ -113,10 +113,14 @@ async def send_single_telemetry_heartbeat(override_tenants: list = None) -> bool
             current_settings["tenants"] = tenants
             save_settings(current_settings)
 
-        # System CPU & RAM usage (non-blocking)
+        # System CPU, RAM & Disk usage (non-blocking)
         cpu_pct = psutil.cpu_percent(interval=None)
         mem = psutil.virtual_memory()
         mem_pct = mem.percent
+        try:
+            disk_pct = psutil.disk_usage("/").percent
+        except Exception:
+            disk_pct = 0.0
 
         # Active call count fallback
         active_calls = 0
@@ -142,6 +146,7 @@ async def send_single_telemetry_heartbeat(override_tenants: list = None) -> bool
             "software_version": get_current_pbx_version(),
             "cpu_percent": round(cpu_pct, 1),
             "memory_percent": round(mem_pct, 1),
+            "disk_percent": round(disk_pct, 1),
             "active_calls": active_calls,
             "total_users": len(current_settings.get("users", [])),
             "whatsapp_status": "connected" if current_settings.get("channels", {}).get("whatsapp_phone_number_id") else "offline",
