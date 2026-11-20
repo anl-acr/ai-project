@@ -1115,7 +1115,8 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
       max_activations: isWebPhone
         ? (overrides.max_activations ? Math.max(1, Math.min(10, Number(overrides.max_activations))) : 5)
         : (overrides.max_activations ? Math.max(1, Math.min(5, Number(overrides.max_activations))) : 1),
-      transport: isWebPhone ? "WSS" : (overrides.remote_access ? "UDP" : (overrides.transport || "UDP")),
+      sip_driver: isWebPhone || isVirtualSub ? "pjsip" : (overrides.sip_driver === "chan_sip" ? "chan_sip" : "pjsip"),
+      transport: isWebPhone ? "WSS" : (overrides.sip_driver === "chan_sip" ? (overrides.transport || "TCP") : (overrides.remote_access ? "UDP" : (overrides.transport || "UDP"))),
       remote_access: isWebPhone || isVirtualSub ? false : Boolean(overrides.remote_access),
       is_active: overrides.is_active !== false,
       is_deletable: !isWebPhone,
@@ -1458,8 +1459,15 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
         sip_username: cleanSu,
         sip_password: (sipDeviceDraft.sip_password || "").trim() || generateSipPasswordStr(),
         max_activations: Math.max(1, Math.min(isWeb ? 10 : 5, Number(sipDeviceDraft.max_activations) || (isWeb ? 5 : 1))),
+        sip_driver: isWeb ? "pjsip" : (sipDeviceDraft.sip_driver === "chan_sip" ? "chan_sip" : "pjsip"),
         remote_access: isWeb ? false : Boolean(sipDeviceDraft.remote_access),
-        transport: isWeb ? "WSS" : (sipDeviceDraft.remote_access ? "UDP" : (sipDeviceDraft.transport || "UDP")),
+        transport: isWeb
+          ? "WSS"
+          : sipDeviceDraft.sip_driver === "chan_sip"
+          ? (sipDeviceDraft.transport === "UDP" ? "UDP" : "TCP")
+          : sipDeviceDraft.remote_access
+          ? "UDP"
+          : (sipDeviceDraft.transport || "UDP"),
         is_virtual: false,
         is_deletable: !isWeb,
         is_active: sipDeviceDraft.is_active !== false
@@ -9384,6 +9392,36 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
                     </div>
                   </div>
 
+                  {!isWebPhoneDraft && (
+                    <div>
+                      <label htmlFor="sip-dev-driver" className="block text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1.5">
+                        SIP Motoru (Sürücü)
+                      </label>
+                      <select
+                        id="sip-dev-driver"
+                        name="sip_driver"
+                        value={sipDeviceDraft.sip_driver === "chan_sip" ? "chan_sip" : "pjsip"}
+                        onChange={(e) => {
+                          const nextDrv = e.target.value === "chan_sip" ? "chan_sip" : "pjsip";
+                          setSipDeviceDraft((prev) => ({
+                            ...prev,
+                            sip_driver: nextDrv,
+                            transport: nextDrv === "chan_sip" ? "TCP" : (prev.remote_access ? "UDP" : (prev.transport || "UDP"))
+                          }));
+                        }}
+                        className="w-full text-xs font-semibold px-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-950 text-slate-800 dark:text-slate-100 focus:outline-none"
+                      >
+                        <option value="pjsip">PJSIP (Standart — Port 5060 • Yealink / Fanvil / Grandstream)</option>
+                        <option value="chan_sip">Legacy SIP / chan_sip (Cisco Enterprise BLF &amp; UseCallManager — Port 5160)</option>
+                      </select>
+                      {sipDeviceDraft.sip_driver === "chan_sip" && (
+                        <p className="mt-1 text-[10px] font-medium text-indigo-600 dark:text-indigo-400">
+                          Cisco Enterprise (78xx/79xx/88xx/89xx) BLF &amp; UseCallManager aktif — Yerel: &lt;santral-ip&gt;:5160 (TCP) • Uzak: &lt;alt-alan&gt;.nornia.com.tr:5160 (TCP).
+                        </p>
+                      )}
+                    </div>
+                  )}
+
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div>
                       <label htmlFor="sip-dev-max-activations" className="block text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1.5">
@@ -9414,6 +9452,17 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
                           value="WSS / WebRTC (DTLS-SRTP - 8089)"
                           className="w-full text-xs font-semibold px-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-100/70 dark:bg-slate-900 text-slate-600 dark:text-slate-300 cursor-not-allowed focus:outline-none"
                         />
+                      ) : sipDeviceDraft.sip_driver === "chan_sip" ? (
+                        <select
+                          id="sip-dev-transport"
+                          name="transport"
+                          value={sipDeviceDraft.transport === "UDP" ? "UDP" : "TCP"}
+                          onChange={(e) => setSipDeviceDraft((prev) => ({ ...prev, transport: e.target.value }))}
+                          className="w-full text-xs font-semibold px-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-950 text-slate-800 dark:text-slate-100 focus:outline-none"
+                        >
+                          <option value="TCP">TCP (Cisco Önerilen - 5160)</option>
+                          <option value="UDP">UDP (Standart - 5160)</option>
+                        </select>
                       ) : (
                         <select
                           id="sip-dev-transport"
@@ -9432,7 +9481,7 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
                           <option value="TLS">TLS (Şifreli Sinyalizasyon)</option>
                         </select>
                       )}
-                      {!isWebPhoneDraft && sipDeviceDraft.remote_access && (
+                      {!isWebPhoneDraft && sipDeviceDraft.sip_driver !== "chan_sip" && sipDeviceDraft.remote_access && (
                         <p className="mt-1 text-[10px] font-medium text-slate-500 dark:text-slate-400">
                           Uzak erişimde Hub (UDP/TCP/TLS — Cisco dahil) dönüşümü otomatik yapar; santral bacağı UDP kalır.
                         </p>

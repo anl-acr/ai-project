@@ -756,6 +756,26 @@ def register_event_handlers(manager: Manager):
                     except Exception as e_dc:
                         print(f"[AMI AutoPause Disconnect Hook Error]: {e_dc}")
 
+    @manager.register_event('PeerStatus')
+    def handle_peer_status(m, event):
+        import re
+        raw_peer = str(event.get('Peer') or "").strip()
+        if not raw_peer.upper().startswith("SIP/"):
+            return
+        peer_name = raw_peer[4:].strip()
+        p_status = str(event.get('PeerStatus') or "").strip()
+        addr = str(event.get('Address') or "").strip()
+        ip_m = re.search(r'\b(?:\d{1,3}\.){3}\d{1,3}\b', addr)
+        extracted_ip = ip_m.group(0) if ip_m else ""
+        if peer_name:
+            mapped_ext = _resolve_sip_peer_to_ext(peer_name)
+            if p_status in ("Registered", "Reachable"):
+                registered_endpoints.add(peer_name, extracted_ip, user_agent="Cisco/chan_sip")
+                print(f"[AMI] chan_sip Peer Kaydedildi: {peer_name} (Dahili: {mapped_ext or peer_name}, IP: {extracted_ip})")
+            elif p_status in ("Unregistered", "Unreachable", "Lagged"):
+                registered_endpoints.discard(peer_name)
+                print(f"[AMI] chan_sip Peer Koptu: {peer_name} ({p_status})")
+
     @manager.register_event('Registry')
     def handle_registry_event(m, event):
         domain = str(event.get('Domain') or event.get('Username') or "").strip()
@@ -1111,6 +1131,20 @@ async def get_ami_manager() -> Manager:
                             registered_endpoints.add(str(aor).strip(), extracted_ip, user_agent=ua_val)
             except Exception as ex:
                 print(f"[AMI] Error fetching initial contacts: {ex}")
+            # Also sync legacy chan_sip (Cisco UseCallManager) peers if chan_sip is loaded
+            try:
+                res_sip = await asyncio.wait_for(mgr.send_action({"Action": "SIPpeers"}), timeout=2.0)
+                for r in _iter_ami_responses(res_sip):
+                    if hasattr(r, "get") and r.get('Event') == 'PeerEntry':
+                        p_obj = str(r.get('ObjectName') or "").strip()
+                        p_st = str(r.get('Status') or "").strip()
+                        p_ip = str(r.get('IPaddress') or "").strip()
+                        if p_ip in ("-none-", "0.0.0.0"):
+                            p_ip = ""
+                        if p_obj and (p_st.upper().startswith("OK") or (p_ip and p_st.upper() not in ("UNREACHABLE", "UNKNOWN", "UNMONITORED"))):
+                            registered_endpoints.add(p_obj, p_ip, user_agent="Cisco/chan_sip")
+            except Exception:
+                pass
         except Exception as e:
             print(f"[AMI] Connection error: {e}")
             manager_instance = None
@@ -1143,6 +1177,19 @@ async def sync_pjsip_contacts_live(max_age_sec: float = 4.0):
                 extracted_ip = ip_match.group(0) if ip_match else ""
                 if aor and status in ["Reachable", "Created", "Registered", "NonQualified", "Avail"]:
                     registered_endpoints.add(aor, extracted_ip, user_agent=ua_val)
+    except Exception:
+        pass
+    try:
+        res_sip = await asyncio.wait_for(mgr.send_action({"Action": "SIPpeers"}), timeout=1.5)
+        for r in _iter_ami_responses(res_sip):
+            if hasattr(r, "get") and r.get('Event') == 'PeerEntry':
+                p_obj = str(r.get('ObjectName') or "").strip()
+                p_st = str(r.get('Status') or "").strip()
+                p_ip = str(r.get('IPaddress') or "").strip()
+                if p_ip in ("-none-", "0.0.0.0"):
+                    p_ip = ""
+                if p_obj and (p_st.upper().startswith("OK") or (p_ip and p_st.upper() not in ("UNREACHABLE", "UNKNOWN", "UNMONITORED"))):
+                    registered_endpoints.add(p_obj, p_ip, user_agent="Cisco/chan_sip")
     except Exception:
         pass
 

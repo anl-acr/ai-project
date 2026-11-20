@@ -293,10 +293,22 @@ def normalize_user_sip_devices(
 
         if dev_type == "web_phone":
             dev_tr = "WSS"
+            dev_driver = "pjsip"
+            dev_remote = False
+        elif dev_type == "virtual_subscriber":
+            dev_tr = "UDP"
+            dev_driver = "pjsip"
+            dev_remote = False
         else:
-            dev_tr = str(dev.get("transport") or "UDP").strip().upper()
-            if dev_tr not in ("UDP", "TCP", "TLS"):
+            raw_drv = str(dev.get("sip_driver") or "pjsip").strip().lower()
+            dev_driver = "chan_sip" if raw_drv in ("chan_sip", "sip", "cisco_sip") else "pjsip"
+            dev_remote = bool(dev.get("remote_access", False))
+            if dev_driver == "pjsip" and dev_remote:
                 dev_tr = "UDP"
+            else:
+                dev_tr = str(dev.get("transport") or ("TCP" if dev_driver == "chan_sip" else "UDP")).strip().upper()
+                if dev_tr not in ("UDP", "TCP", "TLS"):
+                    dev_tr = "TCP" if dev_driver == "chan_sip" else "UDP"
 
         mac_colon, _ = normalize_mac_address(dev.get("mac") or "")
         raw_brand = str(dev.get("brand") or "").strip()
@@ -356,6 +368,8 @@ def normalize_user_sip_devices(
             "sip_username": cand_su,
             "sip_password": dev_pwd,
             "max_activations": dev_max_act,
+            "sip_driver": dev_driver,
+            "remote_access": dev_remote,
             "transport": dev_tr,
             "is_active": dev.get("is_active") is not False,
             "is_deletable": dev_type != "web_phone",

@@ -1588,8 +1588,12 @@ async def toggle_sip_edge_firewall_ports(
     """Safely opens or closes the Nornia SIP/RTP Edge ports (51820/udp, 5060/udp+tcp, 5061/tcp, 20000:40000/udp) in UFW."""
     s_info = getattr(request.state, "master_user", None) or {}
     performed_by = s_info.get("u") or request.headers.get("X-User-Name", "admin")
-    want_open = bool(payload.get("enabled", True))
-    edge_ports = ["51820/udp", "5060/udp", "5060/tcp", "5061/tcp", "20000:40000/udp"]
+    raw_action = str(payload.get("action") or "").strip().lower()
+    if raw_action in ("open", "close"):
+        want_open = (raw_action == "open")
+    else:
+        want_open = bool(payload.get("enabled", True))
+    edge_ports = ["51820/udp", "5060/udp", "5060/tcp", "5061/tcp", "5160/tcp", "5160/udp", "20000:40000/udp"]
 
     def _do_edge_ports():
         chk = _run_ufw_cmd_sync(["status"])

@@ -928,6 +928,7 @@ qualify_frequency=30
 
         seen_exts = set()
         seen_sip_eps = set()
+        chan_sip_blocks_s = []
         if not has_1000_in_users:
             seen_sip_eps.add("1000")
             seen_sip_eps.add(resolve_user_webphone_sip_username("1000", "").lower())
@@ -1063,6 +1064,41 @@ remove_existing=yes
                     d_max = max(1, min(10, int(dev_obj.get("max_activations") or 1)))
                 except Exception:
                     d_max = 1
+                d_codecs_raw = dev_obj.get("codecs")
+                d_allow = _norm_codecs({"codecs": d_codecs_raw}) if d_codecs_raw else "g722,alaw,ulaw,g729"
+                d_dtmf = str(dev_obj.get("dtmf_mode") or "rfc4733").strip().lower()
+                if d_dtmf not in ("rfc4733", "info", "inband"):
+                    d_dtmf = "rfc4733"
+                d_driver = str(dev_obj.get("sip_driver") or "pjsip").strip().lower()
+                if d_driver in ("chan_sip", "sip", "cisco_sip"):
+                    csip_dtmf_s = "rfc2833" if d_dtmf == "rfc4733" else d_dtmf
+                    csip_tr_raw_s = str(dev_obj.get("transport") or "TCP").strip().upper()
+                    csip_tr_s = "udp,tcp" if csip_tr_raw_s == "UDP" else "tcp,udp"
+                    csip_allow_lines_s = "\n".join([f"allow={c.strip()}" for c in d_allow.split(",") if c.strip()])
+                    csip_pg_s = f"namedcallgroup={pg_names_s}\nnamedpickupgroup={pg_names_s}\n" if pg_names_s else ""
+                    chan_sip_blocks_s.append(
+                        f"; --- CISCO / chan_sip DEVICE: {d_label} ({d_su}) -> Ext {ext} ---\n"
+                        f"[{d_su}]\n"
+                        f"type=friend\n"
+                        f"host=dynamic\n"
+                        f"secret={esc_dpwd}\n"
+                        f"context=webrtc_agents\n"
+                        f"callerid=\"{safe_nm}\" <{ext}>\n"
+                        f"mailbox={ext}@default\n"
+                        f"disallow=all\n"
+                        f"{csip_allow_lines_s}\n"
+                        f"dtmfmode={csip_dtmf_s}\n"
+                        f"transport={csip_tr_s}\n"
+                        f"directmedia=no\n"
+                        f"nat=force_rport,comedia\n"
+                        f"qualify=yes\n"
+                        f"callcounter=yes\n"
+                        f"subscribecontext=webrtc_agents\n"
+                        f"cisco_usecallmanager=yes\n"
+                        f"dndbusy=yes\n"
+                        f"{csip_pg_s}"
+                    )
+                    continue
                 d_is_remote = bool(dev_obj.get("remote_access", False))
                 d_tr_raw = "UDP" if d_is_remote else str(dev_obj.get("transport") or "UDP").strip().upper()
                 if d_tr_raw == "TLS" and has_ast_cert:
@@ -1074,11 +1110,6 @@ remove_existing=yes
                     d_tr_line = "transport=transport-tcp\n"
                 else:
                     d_tr_line = "transport=transport-udp\n"
-                d_codecs_raw = dev_obj.get("codecs")
-                d_allow = _norm_codecs({"codecs": d_codecs_raw}) if d_codecs_raw else "g722,alaw,ulaw,g729"
-                d_dtmf = str(dev_obj.get("dtmf_mode") or "rfc4733").strip().lower()
-                if d_dtmf not in ("rfc4733", "info", "inband"):
-                    d_dtmf = "rfc4733"
 
                 pjsip_custom_content += f"""
 ; SIP Device: {d_label} ({d_su}) -> Ext {ext}
@@ -1186,10 +1217,85 @@ Event=>check-sync;reboot=false
                 pass
             print("[Sync Script] /etc/asterisk/pjsip.conf temizlendi ve #include pjsip_custom.conf eklendi.")
 
+            # Sync chan_sip (Cisco Enterprise UseCallManager BLF on Port 5160)
+            sip_custom_s_content = (
+                "; ==========================================\n"
+                "; DINAMIK OLARAK OLUSTURULAN chan_sip (CISCO BLF / USECALLMANAGER - PORT 5160)\n"
+                "; ==========================================\n\n"
+                + "\n".join(chan_sip_blocks_s)
+            )
+            try:
+                local_sip_c = os.path.join(os.path.dirname(BASE_DIR), "asterisk_config", "sip_custom.conf")
+                with open(local_sip_c, "w", encoding="utf-8") as lsf:
+                    lsf.write(sip_custom_s_content)
+            except Exception:
+                pass
+            try:
+                with open("/etc/asterisk/sip_custom.conf", "w", encoding="utf-8") as esf:
+                    esf.write(sip_custom_s_content)
+                os.chmod("/etc/asterisk/sip_custom.conf", 0o644)
+                if chan_sip_blocks_s:
+                    if os.path.isfile("/etc/asterisk/sip.conf") and not os.path.isfile("/etc/asterisk/sip.conf.orig"):
+                        try:
+                            import shutil as _sh_cs
+                            _sh_cs.copy2("/etc/asterisk/sip.conf", "/etc/asterisk/sip.conf.orig")
+                        except Exception:
+                            pass
+                    nat_ext_sip_s = f"externaddr={extern_ip}\n" if (nat_enabled and extern_ip) else ""
+                    clean_sip_main_s = f"""; ==========================================
+; Asterisk chan_sip Main Configuration (Cisco Enterprise BLF — Port 5160)
+; ==========================================
+[general]
+context=webrtc_agents
+allowoverlap=no
+udpbindaddr=0.0.0.0:5160
+tcpenable=yes
+tcpbindaddr=0.0.0.0:5160
+transport=tcp,udp
+srvlookup=yes
+callcounter=yes
+allowsubscribe=yes
+subscribecontext=webrtc_agents
+notifyringing=yes
+notifyhold=yes
+notifycid=yes
+limitonpeers=yes
+cisco_usecallmanager=yes
+nat=force_rport,comedia
+directmedia=no
+qualify=yes
+qualifyfreq=30
+{nat_ext_sip_s}localnet=10.0.0.0/8
+localnet=172.16.0.0/12
+localnet=192.168.0.0/16
+localnet=10.200.0.0/16
+
+#include /etc/asterisk/sip_custom.conf
+"""
+                    with open("/etc/asterisk/sip.conf", "w", encoding="utf-8") as smf:
+                        smf.write(clean_sip_main_s)
+                    os.chmod("/etc/asterisk/sip.conf", 0o644)
+                    if os.path.isfile("/etc/asterisk/modules.conf"):
+                        try:
+                            with open("/etc/asterisk/modules.conf", "r", encoding="utf-8") as fmcs:
+                                mcs_txt = fmcs.read()
+                            mcs_new = re.sub(r"(?m)^\s*noload\s*=>\s*chan_sip\.so\b", "; noload => chan_sip.so ; enabled by Nornia Cisco BLF", mcs_txt)
+                            if mcs_new != mcs_txt:
+                                with open("/etc/asterisk/modules.conf", "w", encoding="utf-8") as fmcs_w:
+                                    fmcs_w.write(mcs_new)
+                        except Exception:
+                            pass
+                    print(f"[Sync Script] chan_sip (Port 5160, {len(chan_sip_blocks_s)} Cisco cihaz) güncellendi.")
+            except Exception as e_cs_s:
+                print(f"[Sync Script] chan_sip yazma uyarısı: {e_cs_s}")
+
         ast_reload_timeout = 10.0 if os.path.exists("/etc/asterisk") else 2.0
         subprocess.run(["asterisk", "-rx", "module reload res_pjsip_notify.so"], check=False, timeout=ast_reload_timeout)
         subprocess.run(["asterisk", "-rx", "pjsip reload"], check=False, timeout=ast_reload_timeout)
         subprocess.run(["asterisk", "-rx", "pjsip send register *all"], check=False, timeout=ast_reload_timeout)
+        if chan_sip_blocks_s:
+            subprocess.run(["asterisk", "-rx", "module load chan_sip.so"], check=False, timeout=ast_reload_timeout)
+            subprocess.run(["asterisk", "-rx", "sip reload"], check=False, timeout=ast_reload_timeout)
         print("[Sync Script] Asterisk PJSIP başarıyla yenilendi (pjsip reload & register).")
     except Exception as e_pjsip:
         print(f"[Sync Script] PJSIP oluşturma hatası: {e_pjsip}")
@@ -1356,8 +1462,10 @@ same => n,Hangup()
                     if hd.get("is_active") is False or hd_t == "virtual_subscriber":
                         continue
                     h_su = str(hd.get("sip_username") or "").strip()
-                    if h_su and h_su != h_ext and not h_su.isdigit() and f"PJSIP/{h_su}" not in hint_eps_s:
-                        hint_eps_s.append(f"PJSIP/{h_su}")
+                    h_drv = str(hd.get("sip_driver") or "pjsip").strip().lower()
+                    h_tech = "SIP" if h_drv in ("chan_sip", "sip", "cisco_sip") else "PJSIP"
+                    if h_su and h_su != h_ext and not h_su.isdigit() and f"{h_tech}/{h_su}" not in hint_eps_s:
+                        hint_eps_s.append(f"{h_tech}/{h_su}")
             if not has_h_web:
                 def_w_h = resolve_user_webphone_sip_username(h_ext, "")
                 hint_eps_s.insert(0, f"PJSIP/{def_w_h}")
@@ -2088,7 +2196,16 @@ same => n,GotoIf($["${MP_LIST}" = "" | "${MP_LIST}" = "NONE"]?mp_ret)
 same => n,Set(MP_IDX=1)
 same => n(mp_loop),Set(MP_EP=${CUT(MP_LIST,&,${MP_IDX})})
 same => n,GotoIf($["${MP_EP}" = ""]?mp_done)
-same => n,GotoIf($["${MP_FB}" = ""]?mp_fb_first:mp_fb_append)
+same => n,GotoIf($["${MP_EP:0:4}" = "SIP/"]?mp_sip_fb:mp_pjsip_fb)
+same => n(mp_sip_fb),GotoIf($["${MP_FB}" = ""]?mp_sfb_first:mp_sfb_append)
+same => n(mp_sfb_first),Set(MP_FB=${MP_EP})
+same => n,Goto(mp_sip_chk)
+same => n(mp_sfb_append),Set(MP_FB=${MP_FB}&${MP_EP})
+same => n(mp_sip_chk),Set(MP_SIP_ST=${DEVICE_STATE(${MP_EP})})
+same => n,GotoIf($["${MP_SIP_ST}" = "UNAVAILABLE" | "${MP_SIP_ST}" = "INVALID"]?mp_next)
+same => n,Set(MP_CUR_C=${MP_EP})
+same => n,Goto(mp_c_add)
+same => n(mp_pjsip_fb),GotoIf($["${MP_FB}" = ""]?mp_fb_first:mp_fb_append)
 same => n(mp_fb_first),Set(MP_FB=PJSIP/${MP_EP})
 same => n,Goto(mp_chk_type)
 same => n(mp_fb_append),Set(MP_FB=${MP_FB}&PJSIP/${MP_EP})

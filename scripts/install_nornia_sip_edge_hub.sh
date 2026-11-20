@@ -57,11 +57,13 @@ if [[ "${HUB_BIND_IP}" != "${HUB_PUBLIC_IP}" ]]; then
   RTP_EXT_SPEC="ext/${HUB_BIND_IP}!${HUB_PUBLIC_IP}"
   KAM_ADV_5060=" advertise ${HUB_PUBLIC_IP}:5060"
   KAM_ADV_5061=" advertise ${HUB_PUBLIC_IP}:5061"
+  KAM_ADV_5160=" advertise ${HUB_PUBLIC_IP}:5160"
 else
   echo "[1/7] Hub Genel IPv4 Adresi: ${HUB_PUBLIC_IP}"
   RTP_EXT_SPEC="ext/${HUB_PUBLIC_IP}"
   KAM_ADV_5060=""
   KAM_ADV_5061=""
+  KAM_ADV_5160=""
 fi
 
 # 2. Paketleri Kur (WireGuard, Kamailio, RTPEngine, Fail2Ban)
@@ -292,9 +294,13 @@ ${TLS_ENABLE_LINE}
 
 listen=udp:${HUB_BIND_IP}:5060${KAM_ADV_5060}
 listen=tcp:${HUB_BIND_IP}:5060${KAM_ADV_5060}
+listen=tcp:${HUB_BIND_IP}:5160${KAM_ADV_5160}
+listen=udp:${HUB_BIND_IP}:5160${KAM_ADV_5160}
 ${TLS_LISTEN_LINE}
 listen=udp:${WG_HUB_IP}:5060
 listen=tcp:${WG_HUB_IP}:5060
+listen=tcp:${WG_HUB_IP}:5160
+listen=udp:${WG_HUB_IP}:5160
 
 tcp_connection_lifetime=3605
 tcp_max_connections=4096
@@ -431,6 +437,14 @@ request_route {
         # Silent drop — scanners hitting raw IP or invalid domain receive ZERO reply
         xlog("L_WARN", "NORNIA_SEC_DROP unknown_domain src=\$si method=\$rm rd=\$rd\n");
         exit;
+    }
+
+    # Port 5160 = Legacy chan_sip / Cisco UseCallManager BLF bridge (preserves TCP to PBX:5160)
+    if (\$Rp == 5160) {
+        \$var(target_pbx) = \$(var(target_pbx){s.replace,:5060,:5160});
+        if (\$proto == "tcp") {
+            \$var(target_pbx) = \$var(target_pbx) + ";transport=tcp";
+        }
     }
 
     # 4. Forward Valid External Request to Customer PBX over WireGuard
@@ -593,8 +607,10 @@ if command -v ufw >/dev/null 2>&1; then
     ufw allow 5060/udp comment "Nornia Kamailio SIP UDP" >/dev/null || true
     ufw allow 5060/tcp comment "Nornia Kamailio SIP TCP" >/dev/null || true
     ufw allow 5061/tcp comment "Nornia Kamailio SIP TLS" >/dev/null || true
+    ufw allow 5160/tcp comment "Nornia Kamailio Cisco chan_sip TCP" >/dev/null || true
+    ufw allow 5160/udp comment "Nornia Kamailio Cisco chan_sip UDP" >/dev/null || true
     ufw allow "${RTP_PORT_MIN}:${RTP_PORT_MAX}/udp" comment "Nornia RTPEngine Media" >/dev/null || true
-    echo "      UFW portları açıldı: ${WG_PORT}/udp, 5060/udp+tcp, 5061/tcp, ${RTP_PORT_MIN}:${RTP_PORT_MAX}/udp"
+    echo "      UFW portları açıldı: ${WG_PORT}/udp, 5060/udp+tcp, 5061/tcp, 5160/tcp+udp, ${RTP_PORT_MIN}:${RTP_PORT_MAX}/udp"
   else
     echo "      UFW şu an pasif; Panel Güvenlik Kalkanından tek tıkla aktif edebilirsiniz."
   fi
