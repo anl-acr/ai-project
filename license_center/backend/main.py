@@ -12,11 +12,13 @@ import datetime
 import asyncio
 import hashlib
 import json
+import sqlite3
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from typing import List, Optional, Dict, Any
 from fastapi import FastAPI, Depends, HTTPException, Request, Body
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse, FileResponse
 from pydantic import BaseModel
 from sqlalchemy import select, func, update, delete
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -26,7 +28,7 @@ PROJECT_ROOT = os.path.abspath(os.path.join(BASE_DIR, "..", ".."))
 if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 
-from license_center.backend.database import get_central_db, init_central_db, AsyncSessionLocal
+from license_center.backend.database import get_central_db, init_central_db, AsyncSessionLocal, DB_PATH, BACKUPS_DIR
 from license_center.backend.models import (
     ClientServer,
     LicenseRecord,
@@ -50,11 +52,135 @@ app = FastAPI(title="Nornia Cloud Center - Central License & Fleet Management AP
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=[
+        "https://panel.nornia.com.tr",
+        "https://connect.nornia.com.tr",
+        "http://localhost:3050",
+        "http://127.0.0.1:3050",
+    ],
+    allow_origin_regex=r"^https://([a-z0-9-]+\.)?nornia\.com\.tr$",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# --------------------------------------------------------------------------
+# Signed Master Panel Session Token Engine (HMAC-SHA256) & Global Auth Guard
+# --------------------------------------------------------------------------
+MASTER_SESSION_TTL_SECONDS = 12 * 3600
+_REVOKED_MASTER_TOKENS: Dict[str, int] = {}  # sha256(token) -> exp_ts
+
+
+def generate_master_session_token(user: MasterUser) -> str:
+    """Issues a 12-hour HMAC-SHA256 signed session token for authenticated panel users."""
+    now_ts = int(time.time())
+    payload = {
+        "uid": int(user.id),
+        "u": str(user.username or "admin"),
+        "r": str(user.role or "admin"),
+        "iat": now_ts,
+        "exp": now_ts + MASTER_SESSION_TTL_SECONDS,
+        "jti": secrets.token_hex(6),
+    }
+    b64_payload = base64.urlsafe_b64encode(
+        json.dumps(payload, separators=(",", ":")).encode("utf-8")
+    ).decode("utf-8").rstrip("=")
+    sig = hmac.new(
+        LICENSE_MASTER_SECRET.encode("utf-8"),
+        f"NORNIA_MASTER_SESSION:{b64_payload}".encode("utf-8"),
+        hashlib.sha256,
+    ).hexdigest()[:16].upper()
+    return f"MSESS.{b64_payload}.{sig}"
+
+
+def verify_master_session_token(token: Optional[str]) -> Optional[Dict[str, Any]]:
+    """Verifies signature, expiration, and logout revocation for a Master Panel session token."""
+    if not token or not isinstance(token, str):
+        return None
+    raw = token.strip()
+    if not raw.startswith("MSESS."):
+        return None
+    parts = raw.split(".")
+    if len(parts) != 3:
+        return None
+    _, b64_payload, sig = parts
+    expected_sig = hmac.new(
+        LICENSE_MASTER_SECRET.encode("utf-8"),
+        f"NORNIA_MASTER_SESSION:{b64_payload}".encode("utf-8"),
+        hashlib.sha256,
+    ).hexdigest()[:16].upper()
+    if not hmac.compare_digest(sig.upper(), expected_sig):
+        return None
+    tok_hash = hashlib.sha256(raw.encode("utf-8")).hexdigest()
+    if tok_hash in _REVOKED_MASTER_TOKENS:
+        return None
+    try:
+        padded = b64_payload + "=" * (-len(b64_payload) % 4)
+        data = json.loads(base64.urlsafe_b64decode(padded.encode("utf-8")).decode("utf-8"))
+        if int(data.get("exp") or 0) < int(time.time()):
+            return None
+        return data
+    except Exception:
+        return None
+
+
+def revoke_master_session_token(token: Optional[str]):
+    """Marks a session token as revoked immediately upon logout and prunes expired revocations."""
+    now_ts = int(time.time())
+    for k, exp_v in list(_REVOKED_MASTER_TOKENS.items()):
+        if exp_v < now_ts:
+            _REVOKED_MASTER_TOKENS.pop(k, None)
+    if not token or not isinstance(token, str) or not token.strip().startswith("MSESS."):
+        return
+    raw = token.strip()
+    tok_hash = hashlib.sha256(raw.encode("utf-8")).hexdigest()
+    _REVOKED_MASTER_TOKENS[tok_hash] = now_ts + MASTER_SESSION_TTL_SECONDS
+
+
+def extract_master_token_from_request(request: Request) -> Optional[str]:
+    auth_hdr = str(request.headers.get("authorization") or "").strip()
+    if auth_hdr.lower().startswith("bearer "):
+        return auth_hdr[7:].strip()
+    q_tok = request.query_params.get("token")
+    if q_tok:
+        return str(q_tok).strip()
+    return None
+
+
+_PUBLIC_V1_EXACT_PATHS = {
+    "/api/v1/auth/login",
+    "/api/v1/auth/verify-2fa",
+    "/api/v1/auth/resend-email-2fa",
+    "/api/v1/telemetry/heartbeat",
+    "/api/v1/connect/check-subdomain",
+    "/api/v1/ras/tunnel",
+}
+_PUBLIC_V1_PREFIXES = (
+    "/api/v1/connect/ssh-proxy/",
+    "/api/v1/connect/tcp-relay/",
+)
+
+
+@app.middleware("http")
+async def enforce_master_panel_auth(request: Request, call_next):
+    path = request.url.path or ""
+    if request.method == "OPTIONS":
+        return await call_next(request)
+    if path.startswith("/api/v1/"):
+        is_public = (
+            path in _PUBLIC_V1_EXACT_PATHS
+            or any(path.startswith(pref) for pref in _PUBLIC_V1_PREFIXES)
+        )
+        if not is_public:
+            tok = extract_master_token_from_request(request)
+            session_info = verify_master_session_token(tok)
+            if not session_info:
+                return JSONResponse(
+                    status_code=401,
+                    content={"detail": "Yetkisiz erişim veya oturum süresi doldu. Lütfen tekrar giriş yapın."},
+                )
+            request.state.master_user = session_info
+    return await call_next(request)
 
 def hash_password(password: str) -> str:
     """Computes SHA-256 hash for secure user password storage."""
@@ -271,10 +397,71 @@ async def log_master_action(db: AsyncSession, username: str, action: str, detail
     except Exception as e:
         print(f"[Audit Log Error]: {e}")
 
+def _create_sqlite_online_backup_sync(dest_path: str) -> str:
+    """Performs a WAL-safe online SQLite backup using Python's native sqlite3 backup API."""
+    os.makedirs(os.path.dirname(dest_path), exist_ok=True)
+    src_conn = sqlite3.connect(DB_PATH, timeout=15)
+    dst_conn = sqlite3.connect(dest_path)
+    try:
+        src_conn.backup(dst_conn)
+    finally:
+        dst_conn.close()
+        src_conn.close()
+    return dest_path
+
+
+def _prune_old_backup_files_sync(keep_daily: int = 14):
+    """Keeps the most recent daily backup files inside BACKUPS_DIR."""
+    if not os.path.isdir(BACKUPS_DIR):
+        return
+    files = []
+    for fname in os.listdir(BACKUPS_DIR):
+        if fname.startswith("license_center_") and fname.endswith(".db"):
+            full_p = os.path.join(BACKUPS_DIR, fname)
+            if os.path.isfile(full_p):
+                files.append((os.path.getmtime(full_p), full_p))
+    files.sort(reverse=True)
+    for _, old_path in files[keep_daily:]:
+        try:
+            os.remove(old_path)
+        except Exception:
+            pass
+
+
+async def run_central_db_maintenance():
+    """Prunes TelemetryLog rows older than 30 days and creates/refreshes today's online SQLite backup."""
+    try:
+        cutoff = datetime.datetime.utcnow() - datetime.timedelta(days=30)
+        async with AsyncSessionLocal() as db:
+            res = await db.execute(delete(TelemetryLog).where(TelemetryLog.recorded_at < cutoff))
+            deleted_cnt = res.rowcount or 0
+            await db.commit()
+            if deleted_cnt > 0:
+                print(f"[Central Maintenance] Pruned {deleted_cnt} TelemetryLog rows older than 30 days.")
+    except Exception as e_prune:
+        print(f"[Central Maintenance] TelemetryLog prune warning: {e_prune}")
+
+    try:
+        today_tag = (datetime.datetime.utcnow() + datetime.timedelta(hours=3)).strftime("%Y%m%d")
+        daily_path = os.path.join(BACKUPS_DIR, f"license_center_auto_{today_tag}.db")
+        await asyncio.to_thread(_create_sqlite_online_backup_sync, daily_path)
+        await asyncio.to_thread(_prune_old_backup_files_sync, 14)
+    except Exception as e_bkp:
+        print(f"[Central Maintenance] Daily SQLite backup warning: {e_bkp}")
+
+
+async def periodic_central_maintenance_loop():
+    await asyncio.sleep(25)
+    while True:
+        await run_central_db_maintenance()
+        await asyncio.sleep(6 * 3600)
+
+
 @app.on_event("startup")
 async def on_startup():
     await init_central_db()
-    print("[AIDA License Master] Central License Database initialized.")
+    print("[AIDA License Master] Central License Database initialized (WAL enabled).")
+    asyncio.create_task(periodic_central_maintenance_loop())
     
     # Auto-seed default superadmin user if no users exist
     async with AsyncSessionLocal() as db:
@@ -791,10 +978,12 @@ async def login_master_user(payload: LoginSchema, request: Request, db: AsyncSes
     await db.commit()
     
     await log_master_action(db, user.username, "USER_LOGIN", f"Başarılı Kullanıcı Girişi ({user.full_name})", client_ip, user.id)
+    access_token = generate_master_session_token(user)
     
     return {
         "success": True,
         "requires_2fa": False,
+        "access_token": access_token,
         "auto_logout_minutes": 15 if getattr(user, "auto_logout_minutes", None) is None else int(user.auto_logout_minutes),
         "user": _serialize_master_user(user),
     }
@@ -954,24 +1143,155 @@ async def verify_master_user_2fa(payload: Verify2FASchema, request: Request, db:
 
     labels = " + ".join(_method_display_label(m) for m in verified_methods)
     await log_master_action(db, user.username, "USER_LOGIN_2FA", f"2FA ({labels}) ile Başarılı Giriş ({user.full_name})", client_ip, user.id)
+    access_token = generate_master_session_token(user)
 
     return {
         "success": True,
         "completed": True,
+        "access_token": access_token,
         "auto_logout_minutes": 15 if getattr(user, "auto_logout_minutes", None) is None else int(user.auto_logout_minutes),
         "user": _serialize_master_user(user),
     }
 
 
+@app.get("/api/v1/auth/me")
+async def get_authenticated_master_me(request: Request, db: AsyncSession = Depends(get_central_db)):
+    """Validates active Bearer token and returns current authenticated master user profile."""
+    s_info = getattr(request.state, "master_user", None) or {}
+    uid = s_info.get("uid")
+    if not uid:
+        raise HTTPException(status_code=401, detail="Oturum geçersiz.")
+    res = await db.execute(select(MasterUser).where(MasterUser.id == int(uid)))
+    u = res.scalars().first()
+    if not u or not u.is_active:
+        raise HTTPException(status_code=401, detail="Kullanıcı aktif değil.")
+    return {
+        "valid": True,
+        "user": _serialize_master_user(u),
+        "auto_logout_minutes": 15 if getattr(u, "auto_logout_minutes", None) is None else int(u.auto_logout_minutes),
+    }
+
+
 @app.post("/api/v1/auth/logout")
 async def logout_master_user(request: Request, db: AsyncSession = Depends(get_central_db)):
-    """Logs user logout event."""
-    username = request.headers.get("X-User-Name", "admin")
+    """Logs user logout event and immediately revokes the active session token."""
+    tok = extract_master_token_from_request(request)
+    revoke_master_session_token(tok)
+    s_info = getattr(request.state, "master_user", None) or {}
+    username = s_info.get("u") or request.headers.get("X-User-Name", "admin")
     reason = request.headers.get("X-Logout-Reason", "manual")
     action_code = "AUTO_LOGOUT" if reason == "idle_timeout" else "USER_LOGOUT"
     msg = f"Hareketsizlik Nedeniyle Otomatik Oturum Kapatıldı ({username})" if reason == "idle_timeout" else f"Kullanıcı Çıkış Yaptı ({username})"
     await log_master_action(db, username, action_code, msg, extract_client_ip(request))
     return {"success": True, "message": "Çıkış yapıldı."}
+
+
+@app.get("/api/v1/system/backups")
+async def list_central_db_backups(db: AsyncSession = Depends(get_central_db)):
+    """Returns SQLite DB health (WAL mode, size, telemetry log count) and recent daily backup snapshots."""
+    os.makedirs(BACKUPS_DIR, exist_ok=True)
+    db_size_bytes = os.path.getsize(DB_PATH) if os.path.exists(DB_PATH) else 0
+    wal_path = f"{DB_PATH}-wal"
+    wal_size_bytes = os.path.getsize(wal_path) if os.path.exists(wal_path) else 0
+
+    journal_mode = "unknown"
+    try:
+        from sqlalchemy import text as _sq_text
+        res_jm = await db.execute(_sq_text("PRAGMA journal_mode;"))
+        journal_mode = str(res_jm.scalar() or "unknown").upper()
+    except Exception:
+        pass
+
+    t_count = 0
+    try:
+        res_tc = await db.execute(select(func.count(TelemetryLog.id)))
+        t_count = int(res_tc.scalar() or 0)
+    except Exception:
+        pass
+
+    backups = []
+    try:
+        for fname in os.listdir(BACKUPS_DIR):
+            if fname.endswith(".db"):
+                full_p = os.path.join(BACKUPS_DIR, fname)
+                if os.path.isfile(full_p):
+                    st = os.stat(full_p)
+                    backups.append({
+                        "filename": fname,
+                        "size_kb": round(st.st_size / 1024.0, 1),
+                        "created_at": datetime.datetime.utcfromtimestamp(st.st_mtime).isoformat(),
+                    })
+        backups.sort(key=lambda x: x["created_at"], reverse=True)
+    except Exception:
+        pass
+
+    return {
+        "db_size_mb": round((db_size_bytes + wal_size_bytes) / (1024.0 * 1024.0), 2),
+        "journal_mode": journal_mode,
+        "telemetry_log_count": t_count,
+        "retention_days": 30,
+        "backups": backups[:20],
+    }
+
+
+@app.post("/api/v1/system/backups/create")
+async def create_central_db_backup_now(request: Request, db: AsyncSession = Depends(get_central_db)):
+    """Creates an immediate WAL-safe online SQLite backup snapshot."""
+    s_info = getattr(request.state, "master_user", None) or {}
+    performed_by = s_info.get("u") or request.headers.get("X-User-Name", "admin")
+    ts_tag = (datetime.datetime.utcnow() + datetime.timedelta(hours=3)).strftime("%Y%m%d_%H%M%S")
+    fname = f"license_center_manual_{ts_tag}.db"
+    dest_path = os.path.join(BACKUPS_DIR, fname)
+    await asyncio.to_thread(_create_sqlite_online_backup_sync, dest_path)
+    await asyncio.to_thread(_prune_old_backup_files_sync, 20)
+    size_kb = round(os.path.getsize(dest_path) / 1024.0, 1)
+    await log_master_action(
+        db,
+        performed_by,
+        "DB_BACKUP_CREATE",
+        f"Merkezi Veritabanı Yedeği Oluşturuldu: {fname} ({size_kb} KB)",
+        extract_client_ip(request),
+    )
+    return {"success": True, "filename": fname, "size_kb": size_kb}
+
+
+@app.get("/api/v1/system/backups/download")
+async def download_central_db_backup(
+    request: Request,
+    filename: Optional[str] = None,
+    db: AsyncSession = Depends(get_central_db),
+):
+    """Streams either a named backup file or a freshly created live WAL-safe snapshot as a .db download."""
+    s_info = getattr(request.state, "master_user", None) or {}
+    performed_by = s_info.get("u") or request.headers.get("X-User-Name", "admin")
+
+    if filename:
+        safe_name = os.path.basename(str(filename).strip())
+        if not safe_name.endswith(".db") or "/" in safe_name or "\\" in safe_name:
+            raise HTTPException(status_code=400, detail="Geçersiz yedek dosya adı.")
+        target_path = os.path.join(BACKUPS_DIR, safe_name)
+        if not os.path.isfile(target_path):
+            raise HTTPException(status_code=404, detail="Yedek dosyası bulunamadı.")
+        dl_name = safe_name
+    else:
+        ts_tag = (datetime.datetime.utcnow() + datetime.timedelta(hours=3)).strftime("%Y%m%d_%H%M%S")
+        dl_name = f"nornia_panel_backup_{ts_tag}.db"
+        target_path = os.path.join(BACKUPS_DIR, f"license_center_download_{ts_tag}.db")
+        await asyncio.to_thread(_create_sqlite_online_backup_sync, target_path)
+        await asyncio.to_thread(_prune_old_backup_files_sync, 20)
+
+    await log_master_action(
+        db,
+        performed_by,
+        "DB_BACKUP_DOWNLOAD",
+        f"Merkezi Veritabanı Yedeği İndirildi: {dl_name}",
+        extract_client_ip(request),
+    )
+    return FileResponse(
+        path=target_path,
+        media_type="application/octet-stream",
+        filename=dl_name,
+    )
 
 
 @app.get("/api/v1/users")
@@ -1560,7 +1880,7 @@ async def delete_master_user(user_id: int, request: Request, db: AsyncSession = 
     performed_by = request.headers.get("X-User-Name", "admin")
     await db.delete(u)
     await db.commit()
-    await log_master_action(db, performed_by, "USER_DELETE", f"Kullanıcı Silindi: {u.full_name} ({u.username})", request.client.host if request.client else None)
+    await log_master_action(db, performed_by, "USER_DELETE", f"Kullanıcı Silindi: {u.full_name} ({u.username})", extract_client_ip(request))
     return {"success": True, "message": f"Kullanıcı #{user_id} silindi."}
 
 # --------------------------------------------------------------------------
@@ -1839,7 +2159,7 @@ async def create_client(payload: ClientCreateSchema, request: Request, db: Async
     db.add(lic_log)
     await db.commit()
 
-    await log_master_action(db, payload.performed_by or "admin", "CLIENT_CREATE", f"Yeni Müşteri & Sunucu Eklendi: {new_client.company_name} ({t_code}) [Donanım: {hw_id}]", request.client.host if request.client else None)
+    await log_master_action(db, payload.performed_by or "admin", "CLIENT_CREATE", f"Yeni Müşteri & Sunucu Eklendi: {new_client.company_name} ({t_code}) [Donanım: {hw_id}]", extract_client_ip(request))
 
     return new_client
 
@@ -1883,7 +2203,7 @@ async def update_client(client_id: int, payload: ClientCreateSchema, request: Re
         pass
 
     action_name = "CLIENT_SUSPEND" if client.status == "suspended" else "CLIENT_UPDATE"
-    await log_master_action(db, payload.performed_by or "admin", action_name, f"Müşteri Bilgileri Güncellendi ({client.company_name}): Durum={client.status}, Bitiş={client.license_expires_at}", request.client.host if request.client else None)
+    await log_master_action(db, payload.performed_by or "admin", action_name, f"Müşteri Bilgileri Güncellendi ({client.company_name}): Durum={client.status}, Bitiş={client.license_expires_at}", extract_client_ip(request))
 
     return client
 
@@ -1906,7 +2226,7 @@ async def delete_client(client_id: int, request: Request, db: AsyncSession = Dep
 
     await notify_and_unbind_pbx_tunnel(hardware_id=hw_to_unbind, subdomain=sub_to_unbind)
 
-    await log_master_action(db, performed_by, "CLIENT_DELETE", f"Müşteri Kaydı ve Nornia Connect Alt Alan Adı Kilidi Silindi: {company} (#{client_id}, Subdomain: {sub_to_unbind})", request.client.host if request.client else None)
+    await log_master_action(db, performed_by, "CLIENT_DELETE", f"Müşteri Kaydı ve Nornia Connect Alt Alan Adı Kilidi Silindi: {company} (#{client_id}, Subdomain: {sub_to_unbind})", extract_client_ip(request))
     return {"success": True, "message": f"Müşteri #{client_id} silindi ve santraldeki Nornia Connect isim kilidi kaldırıldı."}
 
 
@@ -1935,7 +2255,7 @@ async def unlock_client_subdomain(client_id: int, request: Request, db: AsyncSes
     await db.commit()
 
     await notify_and_unbind_pbx_tunnel(hardware_id=hw_id, subdomain=old_sub)
-    await log_master_action(db, performed_by, "SUBDOMAIN_UNLOCK", f"Nornia Connect Alt Alan Adı Kilidi Açıldı: {client.company_name} (Donanım: {hw_id}, Eski Subdomain: {old_sub})", request.client.host if request.client else None)
+    await log_master_action(db, performed_by, "SUBDOMAIN_UNLOCK", f"Nornia Connect Alt Alan Adı Kilidi Açıldı: {client.company_name} (Donanım: {hw_id}, Eski Subdomain: {old_sub})", extract_client_ip(request))
     return {"success": True, "message": f"'{old_sub}.nornia.com.tr' alt alan adı kilidi kaldırıldı ve serbest bırakıldı. Santral üzerinden yeni alt alan adı tanımlanabilir."}
 
 
@@ -1970,7 +2290,7 @@ async def toggle_client_ssh_access(client_id: int, request: Request, db: AsyncSe
         performed_by,
         "SSH_CONTROL",
         f"Santral SSH Erişimi Merkezden Değiştirildi: {client.company_name} (Donanım: {hw_id}) -> {state_label}",
-        request.client.host if request.client else None,
+        extract_client_ip(request),
     )
     return {
         "success": True,
@@ -2006,7 +2326,7 @@ async def create_client_root_sso_token(client_id: int, request: Request, db: Asy
         performed_by,
         "ROOT_SSO_LOGIN",
         f"Santrale Merkezden Root SSO Girişi Başlatıldı: {client.company_name} ({t_code} | {hw_id})",
-        request.client.host if request.client else None,
+        extract_client_ip(request),
     )
     return {
         "success": True,
@@ -2042,7 +2362,7 @@ async def trigger_client_remote_ota_update(client_id: int, request: Request, db:
         performed_by,
         "OTA_UPDATE",
         f"Uzaktan OTA Güncelleme Başlatıldı: {client.company_name} (Donanım: {hw_id}, Tünel: {sub}.nornia.com.tr)",
-        request.client.host if request.client else None,
+        extract_client_ip(request),
     )
     return {
         "success": True,
@@ -2405,7 +2725,7 @@ async def generate_license(payload: LicenseGenerateSchema, request: Request, db:
     except Exception:
         pass
 
-    await log_master_action(db, payload.performed_by or "admin", "LICENSE_GENERATE", f"Yeni Lisans Key Üretildi ({t_code}): Key={key}, Bitiş={exp_date}, HW={hw_id}", request.client.host if request.client else None)
+    await log_master_action(db, payload.performed_by or "admin", "LICENSE_GENERATE", f"Yeni Lisans Key Üretildi ({t_code}): Key={key}, Bitiş={exp_date}, HW={hw_id}", extract_client_ip(request))
 
     return {
         "license_key": key,
@@ -2424,7 +2744,7 @@ async def receive_heartbeat(payload: HeartbeatSchema, request: Request, db: Asyn
     if forwarded:
         client_ip = forwarded.split(",")[0].strip()
     else:
-        client_ip = request.client.host if request.client else None
+        client_ip = extract_client_ip(request)
 
     if (not client_ip or client_ip in ["127.0.0.1", "localhost", "::1"]) and (payload.public_ip or payload.ip_address):
         client_ip = payload.public_ip or payload.ip_address

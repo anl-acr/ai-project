@@ -116,6 +116,9 @@ export default function LoginModal({ onLoginSuccess, idleLogoutMessage = "" }) {
       }
 
       if (data.user) {
+        if (data.access_token) {
+          sessionStorage.setItem("master_access_token", data.access_token);
+        }
         sessionStorage.setItem("master_user", JSON.stringify(data.user));
         if (data.auto_logout_minutes !== undefined) {
           sessionStorage.setItem("master_auto_logout_mins", String(data.auto_logout_minutes));
@@ -229,6 +232,9 @@ export default function LoginModal({ onLoginSuccess, idleLogoutMessage = "" }) {
       }
 
       if (data.user) {
+        if (data.access_token) {
+          sessionStorage.setItem("master_access_token", data.access_token);
+        }
         sessionStorage.setItem("master_user", JSON.stringify(data.user));
         if (data.auto_logout_minutes !== undefined) {
           sessionStorage.setItem("master_auto_logout_mins", String(data.auto_logout_minutes));

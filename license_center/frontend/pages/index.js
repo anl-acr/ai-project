@@ -434,7 +434,8 @@ export default function MasterDashboard() {
     const host = window.location.hostname === "panel.nornia.com.tr"
       ? "connect.nornia.com.tr"
       : `${window.location.hostname}:8050`;
-    const wsUrl = `${proto}//${host}/api/v1/connect/web-ssh/${encodeURIComponent(sub)}?user=${encodeURIComponent(userClean)}`;
+    const wsTok = typeof window !== "undefined" ? (sessionStorage.getItem("master_access_token") || "") : "";
+    const wsUrl = `${proto}//${host}/api/v1/connect/web-ssh/${encodeURIComponent(sub)}?user=${encodeURIComponent(userClean)}&token=${encodeURIComponent(wsTok)}`;
 
     try {
       const ws = new WebSocket(wsUrl);
@@ -495,19 +496,28 @@ export default function MasterDashboard() {
   // Dark Mode State
   const [isDarkMode, setIsDarkMode] = useState(true);
 
-  // Check login state on mount
+  // Check login state on mount & listen for global 401 session expiration
   useEffect(() => {
     const savedUser = sessionStorage.getItem("master_user");
-    if (savedUser) {
+    const savedToken = sessionStorage.getItem("master_access_token");
+    if (savedUser && savedToken) {
       try {
         setCurrentUser(JSON.parse(savedUser));
       } catch (e) {}
+    } else if (savedUser && !savedToken) {
+      sessionStorage.removeItem("master_user");
     }
     const savedIdleMins = sessionStorage.getItem("master_auto_logout_mins");
     if (savedIdleMins !== null && !Number.isNaN(Number(savedIdleMins))) {
       setAutoLogoutMinutes(Number(savedIdleMins));
     }
     setIsAuthChecking(false);
+
+    const onUnauthorized = () => {
+      setIdleLogoutMessage("Oturum süreniz doldu veya yetkilendirme geçersiz. Lütfen tekrar giriş yapın.");
+      setCurrentUser(null);
+    };
+    window.addEventListener("nornia_master_unauthorized", onUnauthorized);
 
     const savedTheme = localStorage.getItem("master_theme");
     const isDark = savedTheme ? savedTheme === "dark" : false;
@@ -517,6 +527,7 @@ export default function MasterDashboard() {
     } else {
       document.documentElement.classList.remove("dark");
     }
+    return () => window.removeEventListener("nornia_master_unauthorized", onUnauthorized);
   }, []);
 
   const toggleTheme = () => {
@@ -541,6 +552,7 @@ export default function MasterDashboard() {
         }
       });
     } catch (e) {}
+    sessionStorage.removeItem("master_access_token");
     sessionStorage.removeItem("master_user");
     setCurrentUser(null);
   };

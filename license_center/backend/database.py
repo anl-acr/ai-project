@@ -1,12 +1,34 @@
 import os
+from sqlalchemy import event, text
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
 from sqlalchemy.orm import sessionmaker, declarative_base
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DB_PATH = os.path.join(BASE_DIR, "license_center.db")
+BACKUPS_DIR = os.path.join(BASE_DIR, "backups")
 DATABASE_URL = f"sqlite+aiosqlite:///{DB_PATH}"
 
-engine = create_async_engine(DATABASE_URL, echo=False)
+engine = create_async_engine(
+    DATABASE_URL,
+    echo=False,
+    connect_args={"timeout": 15},
+)
+
+
+@event.listens_for(engine.sync_engine, "connect")
+def _set_sqlite_pragmas(dbapi_connection, _connection_record):
+    cursor = dbapi_connection.cursor()
+    try:
+        cursor.execute("PRAGMA journal_mode=WAL;")
+        cursor.execute("PRAGMA synchronous=NORMAL;")
+        cursor.execute("PRAGMA busy_timeout=5000;")
+        cursor.execute("PRAGMA foreign_keys=ON;")
+    except Exception:
+        pass
+    finally:
+        cursor.close()
+
+
 AsyncSessionLocal = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 Base = declarative_base()
 
@@ -14,10 +36,15 @@ async def get_central_db():
     async with AsyncSessionLocal() as session:
         yield session
 
-from sqlalchemy import text
-
 async def init_central_db():
+    os.makedirs(BACKUPS_DIR, exist_ok=True)
     async with engine.begin() as conn:
+        try:
+            await conn.execute(text("PRAGMA journal_mode=WAL;"))
+            await conn.execute(text("PRAGMA synchronous=NORMAL;"))
+            await conn.execute(text("PRAGMA busy_timeout=5000;"))
+        except Exception:
+            pass
         await conn.run_sync(Base.metadata.create_all)
         for ddl in [
             "ALTER TABLE client_servers ADD COLUMN custom_quotas TEXT;",

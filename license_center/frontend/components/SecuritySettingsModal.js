@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { Shield, ShieldAlert, ShieldCheck, Clock, Lock, Unlock, Plus, Trash2, X, Check, AlertTriangle, Globe, Smartphone, Key, Mail, Send } from "lucide-react";
+import { Shield, ShieldAlert, ShieldCheck, Clock, Lock, Unlock, Plus, Trash2, X, Check, AlertTriangle, Globe, Smartphone, Key, Mail, Send, Database, Download, RefreshCw } from "lucide-react";
 
 export default function SecuritySettingsModal({ isOpen, onClose, currentUser, onPolicyUpdated, onOpenUser2FA }) {
   const [loading, setLoading] = useState(false);
@@ -34,9 +34,50 @@ export default function SecuritySettingsModal({ isOpen, onClose, currentUser, on
   // Custom Unban Delete Confirmation Modal
   const [unbanTarget, setUnbanTarget] = useState(null);
 
+  // Central SQLite WAL & Backup Status
+  const [backupInfo, setBackupInfo] = useState(null);
+  const [creatingBackup, setCreatingBackup] = useState(false);
+
+  const fetchBackupInfo = async () => {
+    try {
+      const res = await fetch("/api/v1/system/backups");
+      if (res.ok) {
+        setBackupInfo(await res.json());
+      }
+    } catch (e) {
+      console.error("Failed to fetch backup info:", e);
+    }
+  };
+
+  const handleCreateBackupNow = async () => {
+    setCreatingBackup(true);
+    try {
+      const res = await fetch("/api/v1/system/backups/create", { method: "POST" });
+      if (res.ok) {
+        const d = await res.json();
+        setStatusMsg(`Veritabanı yedeği oluşturuldu: ${d.filename} (${d.size_kb} KB)`);
+        setTimeout(() => setStatusMsg(""), 4000);
+        fetchBackupInfo();
+      }
+    } catch (e) {
+      console.error("Create backup error:", e);
+    } finally {
+      setCreatingBackup(false);
+    }
+  };
+
+  const handleDownloadBackup = (filename = "") => {
+    const tok = typeof window !== "undefined" ? (sessionStorage.getItem("master_access_token") || "") : "";
+    const qs = new URLSearchParams();
+    if (filename) qs.set("filename", filename);
+    if (tok) qs.set("token", tok);
+    window.open(`/api/v1/system/backups/download?${qs.toString()}`, "_blank");
+  };
+
   useEffect(() => {
     if (isOpen) {
       fetchSecurityData();
+      fetchBackupInfo();
     }
   }, [isOpen]);
 
@@ -573,6 +614,87 @@ export default function SecuritySettingsModal({ isOpen, onClose, currentUser, on
                     >
                       <Unlock size={13} />
                       <span>Engeli Kaldır</span>
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* 4. Central Database Backup & Maintenance (SQLite WAL) */}
+          <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-950/70 border border-slate-200/80 dark:border-slate-800 space-y-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <div className="font-extrabold text-slate-800 dark:text-slate-200 uppercase tracking-wider flex items-center gap-2">
+                  <Database size={15} className="text-indigo-500" />
+                  <span>4. Merkezi Veritabanı Yedekleme & Bakım</span>
+                  {backupInfo?.journal_mode && (
+                    <span className="px-2 py-0.5 rounded-md text-[10px] font-extrabold bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border border-emerald-500/25">
+                      {backupInfo.journal_mode} Aktif
+                    </span>
+                  )}
+                </div>
+                <p className="text-[11px] text-slate-500 mt-0.5">
+                  Günlük otomatik SQLite çevrimiçi yedekleme (son 14 gün) ve 30 günlük telemetri log temizliği aktiftir.
+                </p>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  disabled={creatingBackup}
+                  onClick={handleCreateBackupNow}
+                  className="px-3 py-1.5 rounded-xl bg-white dark:bg-slate-900 hover:bg-indigo-600 text-indigo-700 dark:text-indigo-300 hover:text-white border border-indigo-200 dark:border-indigo-800 text-[11px] font-extrabold flex items-center gap-1.5 transition-colors cursor-pointer disabled:opacity-50"
+                >
+                  <RefreshCw size={12} className={creatingBackup ? "animate-spin" : ""} />
+                  <span>{creatingBackup ? "Alınıyor..." : "Şimdi Yedek Al"}</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleDownloadBackup("")}
+                  className="px-3 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-[11px] font-extrabold flex items-center gap-1.5 shadow-sm transition-colors cursor-pointer"
+                >
+                  <Download size={12} />
+                  <span>Canlı Yedeği İndir (.db)</span>
+                </button>
+              </div>
+            </div>
+
+            {backupInfo && (
+              <div className="grid grid-cols-3 gap-2 text-[11px]">
+                <div className="p-2.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200/70 dark:border-slate-800">
+                  <div className="text-[10px] font-bold text-slate-400 uppercase">Veritabanı Boyutu</div>
+                  <div className="font-mono font-extrabold text-slate-800 dark:text-slate-100 mt-0.5">{backupInfo.db_size_mb} MB</div>
+                </div>
+                <div className="p-2.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200/70 dark:border-slate-800">
+                  <div className="text-[10px] font-bold text-slate-400 uppercase">Telemetri Kayıtları</div>
+                  <div className="font-mono font-extrabold text-slate-800 dark:text-slate-100 mt-0.5">{Number(backupInfo.telemetry_log_count || 0).toLocaleString("tr-TR")} satır</div>
+                </div>
+                <div className="p-2.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200/70 dark:border-slate-800">
+                  <div className="text-[10px] font-bold text-slate-400 uppercase">Kayıtlı Yedekler</div>
+                  <div className="font-mono font-extrabold text-slate-800 dark:text-slate-100 mt-0.5">{(backupInfo.backups || []).length} dosya</div>
+                </div>
+              </div>
+            )}
+
+            {backupInfo?.backups && backupInfo.backups.length > 0 && (
+              <div className="max-h-36 overflow-y-auto space-y-1.5 pr-1">
+                {backupInfo.backups.slice(0, 6).map((bk) => (
+                  <div
+                    key={bk.filename}
+                    className="px-3 py-2 rounded-xl bg-white dark:bg-slate-900 border border-slate-200/70 dark:border-slate-800 flex items-center justify-between gap-2 text-[11px]"
+                  >
+                    <div className="min-w-0">
+                      <div className="font-mono font-bold text-slate-800 dark:text-slate-200 truncate">{bk.filename}</div>
+                      <div className="text-[10px] text-slate-400">{bk.size_kb} KB</div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => handleDownloadBackup(bk.filename)}
+                      className="px-2.5 py-1 rounded-lg bg-slate-100 dark:bg-slate-800 hover:bg-indigo-600 text-slate-700 dark:text-slate-200 hover:text-white text-[10px] font-extrabold flex items-center gap-1 transition-colors cursor-pointer shrink-0"
+                    >
+                      <Download size={11} />
+                      <span>İndir</span>
                     </button>
                   </div>
                 ))}

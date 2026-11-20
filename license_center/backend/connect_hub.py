@@ -1062,6 +1062,15 @@ async def web_ssh_interactive_terminal(websocket: WebSocket, subdomain: str):
     """
     import pty
     import signal
+    from license_center.backend.main import verify_master_session_token
+
+    ws_token = websocket.query_params.get("token") or ""
+    auth_hdr = str(websocket.headers.get("authorization") or "").strip()
+    if not ws_token and auth_hdr.lower().startswith("bearer "):
+        ws_token = auth_hdr[7:].strip()
+    if not verify_master_session_token(ws_token):
+        await websocket.close(code=4401, reason="Unauthorized")
+        return
 
     await websocket.accept()
     session = resolve_target_pbx_session(subdomain=subdomain)

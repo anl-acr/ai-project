@@ -39664,18 +39664,40 @@ async def get_system_version_info():
         pass
 
     return {
-        "version": "v3.3.8",
+        "version": "v3.3.9",
         "commit_hash": live_commit,
         "release_date": "20 Kasım 2026",
         "status": "Güncel / Canlı Sürüm",
         "environment": "Production (On-Premise)",
         "changelog": [
             {
-                "version": "v3.3.8",
+                "version": "v3.3.9",
                 "commit_hash": live_commit,
                 "release_date": "20 Kasım 2026",
                 "badge": "Canlı Sürüm (Güncel)",
                 "badge_type": "current",
+                "title": "Nornia Cloud Center Güvenlik Sıkılaştırması, Oturum Token Koruması & SQLite WAL/Yedekleme",
+                "summary": "Merkez panelin tüm admin API ve Web SSH uç noktaları sunucu taraflı imzalı Bearer Session Token ile koruma altına alındı; CORS daraltıldı, gerçek proxy IP loglaması düzeltildi, SQLite WAL modu + 30 günlük otomatik telemetri temizliği + tek tıkla veritabanı yedekleme eklendi.",
+                "features": [
+                    {
+                        "title": "Zorunlu İmzalı Oturum Token (HMAC Bearer) & Web SSH Koruması",
+                        "desc": "Tüm /api/v1/* yönetim endpoint'leri ve /api/v1/connect/web-ssh/* WebSocket bağlantıları sunucu tarafında imzalı oturum token'ı ile doğrulanır; çıkış yapıldığında token anında iptal edilir."
+                    },
+                    {
+                        "title": "SQLite WAL Modu, 30 Günlük Otomatik Temizlik & Tek Tıkla Yedekleme",
+                        "desc": "Merkez veritabanı WAL moduna geçirildi, 30 günden eski TelemetryLog kayıtları otomatik temizlenir, günlük çevrimiçi yedekler saklanır ve Güvenlik Kalkanı içinden tek tıkla .db yedeği alınabilir/indirilebilir."
+                    }
+                ],
+                "fixes": [
+                    "Panel CORS ayarları *.nornia.com.tr ile sınırlandırıldı ve Nginx arkasındaki tüm denetim loglarında 127.0.0.1 yerine gerçek istemci IP adresi kaydedilecek şekilde düzeltildi."
+                ]
+            },
+            {
+                "version": "v3.3.8",
+                "commit_hash": "9bfab4d",
+                "release_date": "20 Kasım 2026",
+                "badge": "Önceki Sürüm",
+                "badge_type": "stable",
                 "title": "SBC / SIP Gateway Modu (Şeffaf Trunk-to-Trunk Transit + CallerID & Prefix Yönlendirme)",
                 "summary": "Nornia'nın 3+ operatör /30 VLAN hattı ile başka bir PBX santral arasında şeffaf SIP Gateway / SBC olarak çalışması için gerekli tüm gelen/giden transit yönlendirme, CallerID/Prefix kural motoru ve PJSIP header önceliklendirme altyapısı eklendi.",
                 "features": [

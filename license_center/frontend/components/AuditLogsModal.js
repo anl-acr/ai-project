@@ -63,6 +63,18 @@ const ACTION_META = {
     badge: "bg-amber-500/12 text-amber-700 dark:text-amber-300 border-amber-500/30",
     icon: Unlock
   },
+  DB_BACKUP_CREATE: {
+    label: "Veritabanı Yedeği Alındı",
+    category: "security",
+    badge: "bg-emerald-500/12 text-emerald-700 dark:text-emerald-300 border-emerald-500/30",
+    icon: ShieldCheck
+  },
+  DB_BACKUP_DOWNLOAD: {
+    label: "Veritabanı Yedeği İndirildi",
+    category: "security",
+    badge: "bg-cyan-500/12 text-cyan-700 dark:text-cyan-300 border-cyan-500/30",
+    icon: Shield
+  },
   PACKAGE_TEMPLATE_UPDATE: {
     label: "Paket Şablonu Güncellendi",
     category: "license",
