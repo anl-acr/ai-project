@@ -38886,18 +38886,32 @@ async def get_system_version_info():
         pass
 
     return {
-        "version": "v3.1.2",
+        "version": "v3.1.3",
         "commit_hash": live_commit,
         "release_date": "20 Kasım 2026",
         "status": "Güncel / Canlı Sürüm",
         "environment": "Production (On-Premise)",
         "changelog": [
             {
-                "version": "v3.1.2",
+                "version": "v3.1.3",
                 "commit_hash": live_commit,
                 "release_date": "20 Kasım 2026",
                 "badge": "Canlı Sürüm (Güncel)",
                 "badge_type": "current",
+                "title": "Santral & Nornia Cloud Center Canlı Sürüm Numarası Otomatik Senkronizasyonu",
+                "summary": "Santral telemetri heartbeat ve Nornia Connect tünel kaydında sabit kalmış eski sürüm numaraları (v2.4.8 / v2.4.9) kaldırılarak santralin gerçek canlı sürümünü otomatik okuyan dinamik versiyon senkronizasyonu eklendi.",
+                "features": [],
+                "fixes": [
+                    "telemetry_worker.py ve ras_client_service.py içindeki sabit 'v2.4.9' / 'v2.4.8' sürüm değerleri kaldırıldı; artık get_current_pbx_version() ile santralin gerçek sürümü doğrudan backend/main.py üzerinden okunup Nornia Cloud Center'a bildiriliyor.",
+                    "Merkez sunucu ve arayüzdeki eski varsayılan sürüm fallback değerleri temizlendi."
+                ]
+            },
+            {
+                "version": "v3.1.2",
+                "commit_hash": "1a9a2d9",
+                "release_date": "20 Kasım 2026",
+                "badge": "Önceki Sürüm",
+                "badge_type": "stable",
                 "title": "Nornia Cloud Center Sunucu Kartı & Tablo Satırlarında Santral Seri No, Lisans Bitiş ve Connect Adı",
                 "summary": "Nornia Cloud Center sunucu kartlarına ve tablo (satır) görünümüne Santral Seri Numarası (tek tıkla kopyalanabilir), Lisans Bitiş Tarihi (kalan gün bilgisiyle) ve Nornia Connect İsim bilgisi doğrudan görünür şekilde eklendi.",
                 "features": [

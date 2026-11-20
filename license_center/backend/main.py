@@ -344,7 +344,7 @@ class HeartbeatSchema(BaseModel):
     tenant_code: Optional[str] = None
     tenant_serial_number: Optional[str] = None
     license_key: Optional[str] = None
-    software_version: Optional[str] = "v2.4.9"
+    software_version: Optional[str] = None
     cpu_percent: Optional[float] = 0.0
     memory_percent: Optional[float] = 0.0
     active_calls: Optional[int] = 0
@@ -2028,7 +2028,7 @@ async def get_client_telemetry_dashboard(client_id: int, db: AsyncSession = Depe
         "tenant_code": client.tenant_code,
         "hardware_id": client.hardware_id,
         "connect_subdomain": client.connect_subdomain,
-        "software_version": client.software_version or "v2.5.0",
+        "software_version": client.software_version or "—",
         "ip_address": client.ip_address or "127.0.0.1",
         "live_tunnel_fetched": live_stats is not None,
         "tunnel_connected": tunnel_connected,

@@ -1,5 +1,6 @@
 import asyncio
 import os
+import re
 import sys
 import json
 import datetime
@@ -11,6 +12,30 @@ from backend.services.license_service import verify_license_key, generate_tenant
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SETTINGS_FILE = os.path.join(BASE_DIR, "settings.json")
 LICENSE_CENTER_URL = os.getenv("LICENSE_CENTER_URL", "")
+_VERSION_CACHE = {"mtime": 0.0, "version": ""}
+
+
+def get_current_pbx_version() -> str:
+    """Dynamically reads the live PBX version from backend/main.py get_system_version_info() so telemetry & tunnel never drift."""
+    main_py = os.path.join(BASE_DIR, "main.py")
+    try:
+        st = os.stat(main_py)
+        if _VERSION_CACHE["version"] and _VERSION_CACHE["mtime"] == st.st_mtime:
+            return _VERSION_CACHE["version"]
+        with open(main_py, "r", encoding="utf-8", errors="ignore") as f:
+            content = f.read()
+        idx = content.find("async def get_system_version_info")
+        if idx != -1:
+            snippet = content[idx : idx + 2000]
+            m = re.search(r'"version"\s*:\s*"(v[0-9]+\.[0-9]+\.[0-9]+[^"]*)"', snippet)
+            if m:
+                ver = m.group(1).strip()
+                _VERSION_CACHE["mtime"] = st.st_mtime
+                _VERSION_CACHE["version"] = ver
+                return ver
+    except Exception:
+        pass
+    return _VERSION_CACHE["version"] or "v3.1.3"
 
 
 def _resolve_heartbeat_url(current_settings: dict) -> str:
@@ -114,7 +139,7 @@ async def send_single_telemetry_heartbeat(override_tenants: list = None) -> bool
         payload = {
             "hardware_id": hw_id,
             "system_serial_number": sys_serial,
-            "software_version": "v2.4.9",
+            "software_version": get_current_pbx_version(),
             "cpu_percent": round(cpu_pct, 1),
             "memory_percent": round(mem_pct, 1),
             "active_calls": active_calls,

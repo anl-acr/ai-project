@@ -454,7 +454,7 @@ async def bind_subdomain_to_hardware_db(
     hardware_id: str,
     hostname: str = "",
     client_ip: str = "",
-    version: str = "v2.4.8",
+    version: str = "",
 ) -> Dict[str, Any]:
     """Verifies availability and permanently binds (locks) subdomain <-> hardware_id in Central License DB."""
     check = await check_subdomain_availability_db(subdomain, hardware_id)
@@ -498,7 +498,7 @@ async def bind_subdomain_to_hardware_db(
                 status="active",
                 current_license_key=gen_key,
                 license_expires_at=exp_date,
-                software_version=version or "v2.4.8",
+                software_version=version or None,
                 last_heartbeat_at=datetime.datetime.utcnow(),
             )
             db.add(client)

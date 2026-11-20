@@ -570,6 +570,11 @@ async def _ras_tunnel_loop():
                 async with websockets.connect(ws_url, **conn_kwargs) as tunnel_ws:
                     connected_once = True
                     # Send initial registration handshake
+                    try:
+                        from backend.services.telemetry_worker import get_current_pbx_version
+                        live_pbx_ver = get_current_pbx_version()
+                    except Exception:
+                        live_pbx_ver = ""
                     hello_payload = {
                         "type": "RAS_REGISTER",
                         "hardware_id": hw_id,
@@ -578,7 +583,7 @@ async def _ras_tunnel_loop():
                         "secret_token": str(cfg.get("secret_token") or ""),
                         "remote_ssh_enabled": bool(cfg.get("remote_ssh_enabled", True)),
                         "local_ips": local_ips,
-                        "version": "v2.4.8",
+                        "version": live_pbx_ver,
                     }
                     t0 = time.monotonic()
                     await tunnel_ws.send(json.dumps(hello_payload))

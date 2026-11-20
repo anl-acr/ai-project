@@ -1575,7 +1575,7 @@ export default function MasterDashboard() {
                             <span>•</span>
                             <span>{client.ip_address || "127.0.0.1"}</span>
                             <span>•</span>
-                            <span>{client.software_version || "v2.4.8"}</span>
+                            <span>{client.software_version || "—"}</span>
                           </div>
                         </td>
                         <td className="py-3.5 px-4">
@@ -1782,7 +1782,7 @@ export default function MasterDashboard() {
                           <span>•</span>
                           <span>{client.ip_address || "127.0.0.1"}</span>
                           <span>•</span>
-                          <span>{client.software_version || "v2.4.8"}</span>
+                          <span>{client.software_version || "—"}</span>
                         </div>
                       </div>
                     </div>
@@ -3031,7 +3031,7 @@ export default function MasterDashboard() {
                   disk_used_gb: 21.0,
                   disk_total_gb: 50.0,
                   ip_address: inspectorClient.ip_address || "-",
-                  software_version: inspectorClient.software_version || "v2.5.0",
+                  software_version: inspectorClient.software_version || "—",
                   active_calls: inspectorClient.active_calls_count || 0,
                   today_calls: 0,
                   max_concurrent_calls: inspectorClient.custom_quotas?.max_concurrent_calls ?? 4,
@@ -3270,7 +3270,7 @@ export default function MasterDashboard() {
                           <span>Santral Çekirdek Servisleri &amp; Motor Durumları</span>
                         </h4>
                         <span className="text-[11px] font-mono text-slate-400">
-                          Sürüm: {d.software_version || "v2.5.0"} • IP: {d.ip_address || "127.0.0.1"}
+                          Sürüm: {d.software_version || "—"} • IP: {d.ip_address || "127.0.0.1"}
                         </span>
                       </div>
 
