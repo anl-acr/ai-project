@@ -439,6 +439,9 @@ request_route {
     append_hf("X-Real-IP: \$si\r\n");
 
     if (is_method("REGISTER")) {
+        if (!(\$hdr(Supported) =~ "path")) {
+            append_hf("Supported: path\r\n");
+        }
         add_path_received();
         \$du = \$var(target_pbx);
         if (!t_relay()) {

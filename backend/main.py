@@ -39698,18 +39698,31 @@ async def get_system_version_info():
         pass
 
     return {
-        "version": "v3.4.4",
+        "version": "v3.4.5",
         "commit_hash": live_commit,
         "release_date": "20 Kasım 2026",
         "status": "Güncel / Canlı Sürüm",
         "environment": "Production (On-Premise)",
         "changelog": [
             {
-                "version": "v3.4.4",
+                "version": "v3.4.5",
                 "commit_hash": live_commit,
                 "release_date": "20 Kasım 2026",
                 "badge": "Canlı Sürüm (Güncel)",
                 "badge_type": "current",
+                "title": "Kamailio RFC 3327 Supported: path Başlığı (Yealink / Masa Telefonu Asterisk 18 Kayıt Düzeltmesi)",
+                "summary": "Supported: path başlığı göndermeyen masa telefonlarında (Yealink vb.) Asterisk 18 res_pjsip_registrar'ın Path başlığını 'Invalid modifications by intervening proxy' diyerek reddetmesini önlemek için Kamailio REGISTER akışına otomatik Supported: path eklendi.",
+                "features": [],
+                "fixes": [
+                    "Kamailio SIP Edge REGISTER işleyicisine RFC 3327 uyumlu Supported: path başlığı otomatik eklendi."
+                ]
+            },
+            {
+                "version": "v3.4.4",
+                "commit_hash": "e8af411",
+                "release_date": "20 Kasım 2026",
+                "badge": "Önceki Sürüm",
+                "badge_type": "stable",
                 "title": "Panel Filo Tablosunda SIP Edge Tünel IP Yerleşimi Düzenlemesi",
                 "summary": "Nornia Cloud Center filo tablosu ve kart görünümünde SIP Edge WireGuard tünel IP etiketi Nornia Connect sütunundan alınarak santralin gerçek yerel IP adresinin hemen altına taşındı.",
                 "features": [],
