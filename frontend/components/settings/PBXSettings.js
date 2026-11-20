@@ -76,7 +76,9 @@ const DEFAULT_SIP_HEADERS = {
   local_interface: "",
   local_bind_cidr: "",
   local_gateway: "",
-  target_subnets: ""
+  target_subnets: "",
+  extra_match_dids: "",
+  transit_pbx_mode: false
 };
 
 const MAXPTIME_OPTIONS = Array.from({ length: 29 }, (_, idx) => (idx + 2) * 10); // 20, 30, 40, ..., 300
@@ -1192,13 +1194,22 @@ export default function PBXSettings({ viewMode = "pbx", backendHost = "localhost
                                     if (typeof sh === "string") {
                                       try { sh = JSON.parse(sh); } catch (e) { sh = {}; }
                                     }
-                                    if (sh && sh.local_bind_enabled && sh.local_bind_cidr) {
+                                    if (sh && (sh.local_bind_enabled && sh.local_bind_cidr || sh.transit_pbx_mode)) {
                                       return (
-                                        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400 border border-indigo-200/60 dark:border-indigo-800/50 text-[9px] font-bold w-fit">
-                                          Çıkış IP: {sh.local_bind_cidr}
-                                          {sh.local_gateway ? ` ➔ GW: ${sh.local_gateway}` : ""}
-                                          {sh.local_interface ? ` (${sh.local_interface})` : ""}
-                                        </span>
+                                        <div className="flex flex-wrap items-center gap-1 mt-0.5">
+                                          {sh.local_bind_enabled && sh.local_bind_cidr && (
+                                            <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400 border border-indigo-200/60 dark:border-indigo-800/50 text-[9px] font-bold w-fit">
+                                              Çıkış IP: {sh.local_bind_cidr}
+                                              {sh.local_gateway ? ` ➔ GW: ${sh.local_gateway}` : ""}
+                                              {sh.local_interface ? ` (${sh.local_interface})` : ""}
+                                            </span>
+                                          )}
+                                          {sh.transit_pbx_mode && (
+                                            <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border border-emerald-200/70 dark:border-emerald-800/50 text-[9px] font-extrabold w-fit">
+                                              Transit Santral (Diğer PBX)
+                                            </span>
+                                          )}
+                                        </div>
                                       );
                                     }
                                     return null;
@@ -1856,10 +1867,66 @@ export default function PBXSettings({ viewMode = "pbx", backendHost = "localhost
                                 </span>
                               </div>
                             </div>
+
+                            <div>
+                              <label className="text-[11px] font-bold text-slate-600 dark:text-slate-300 uppercase block mb-1">
+                                5. Ek DID Eşleştirme Blokları (Opsiyonel — Aynı SBC Çoklu Hat)
+                              </label>
+                              <input
+                                type="text"
+                                value={newTrunk.sip_headers?.extra_match_dids || ""}
+                                onChange={(e) => handleSipHeaderChange("extra_match_dids", e.target.value)}
+                                placeholder="Örn: 0212555, 90212555, 0850360"
+                                className="w-full px-3 py-2 text-xs font-mono rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-800 dark:text-white focus:outline-none focus:border-primary"
+                              />
+                              <span className="text-[10px] text-slate-400 mt-1 block">
+                                Bu hat üzerinden birden fazla DID bloğu geliyorsa ve aynı SBC IP'si paylaşılıyorsa, gelen çağrıyı kesin ayırt etmek için numara öneklerini virgülle yazabilirsiniz.
+                              </span>
+                            </div>
                           </div>
                         )}
                       </div>
                     )}
+
+                    {/* İÇ SANTRAL / TRANSIT TRUNK MODU (SBC / SIP GATEWAY) */}
+                    <div className="p-4 rounded-2xl bg-emerald-50/50 dark:bg-emerald-950/20 border border-emerald-200/70 dark:border-emerald-900/50">
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                        <div className="flex items-start gap-2.5">
+                          <div className="p-2 rounded-xl bg-emerald-100 dark:bg-emerald-900/40 text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5">
+                            <Server size={16} />
+                          </div>
+                          <div>
+                            <div className="text-[11px] font-extrabold text-slate-800 dark:text-white uppercase tracking-wider flex items-center gap-2 flex-wrap">
+                              <span>İç Santral / Transit Trunk Modu (Diğer Santral Bağlantısı)</span>
+                              <span className="px-2 py-0.5 rounded-full text-[9px] font-bold bg-emerald-100 dark:bg-emerald-900/50 text-emerald-700 dark:text-emerald-300">
+                                SIP Gateway
+                              </span>
+                            </div>
+                            <p className="text-[10px] text-slate-500 dark:text-slate-400 mt-0.5 leading-relaxed">
+                              Bu dış hat başka bir telefon santraline (ör. Yeastar, FreePBX, Cisco vb.) bağlıysa aktif edin. Bu hattan gelen tüm dış arama istekleri otomatik olarak <strong>Giden Arama Kuralları</strong> motoruna yönlendirilir (CallerID veya Önek eşleşmesine göre doğru operatör hattından şeffaf olarak çıkarılır).
+                            </p>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-2 bg-white dark:bg-slate-900 px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-800 shrink-0 self-start sm:self-center">
+                          <span className="text-[11px] font-bold text-slate-700 dark:text-slate-300">
+                            {newTrunk.sip_headers?.transit_pbx_mode ? "Aktif" : "Kapalı"}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              handleSipHeaderChange("transit_pbx_mode", !newTrunk.sip_headers?.transit_pbx_mode)
+                            }
+                            className={`transition-colors ${
+                              newTrunk.sip_headers?.transit_pbx_mode ? "text-emerald-500" : "text-slate-400"
+                            }`}
+                            title="İç Santral / Transit Trunk Modunu Aç/Kapat"
+                          >
+                            {newTrunk.sip_headers?.transit_pbx_mode ? <ToggleRight size={26} /> : <ToggleLeft size={26} />}
+                          </button>
+                        </div>
+                      </div>
+                    </div>
                   </div>
                 )}
 

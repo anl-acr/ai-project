@@ -4093,6 +4093,7 @@ def regenerate_pjsip_custom_conf(background_tasks: Optional[BackgroundTasks] = N
         "[global]\n"
         "type=global\n"
         f"{ua_line_main}"
+        "endpoint_identifier_order=header,ip,username,anonymous\n"
         "max_forwards=70\n"
         "keep_alive_interval=30\n"
         "unidentified_request_count=15\n"
@@ -4349,6 +4350,13 @@ qualify_frequency=30
                 hdr_patterns.append(did.replace("+", r"\+"))
             if username and username != did:
                 hdr_patterns.append(username.replace("+", r"\+"))
+            sh_extra_dids = str(_parse_trunk_sip_headers(t).get("extra_match_dids") or "").strip()
+            for ed in re.split(r"[,;\s\n]+", sh_extra_dids):
+                ed_c = ed.strip()
+                if ed_c:
+                    esc_ed = ed_c.replace("+", r"\+").replace(".", r"\.")
+                    if esc_ed not in hdr_patterns:
+                        hdr_patterns.append(esc_ed)
             hdr_regex = "|".join(hdr_patterns)
             identify_hdr_block = (
                 f"[{name}-identify-hdr]\n"
@@ -4987,7 +4995,7 @@ def regenerate_queues_conf(background_tasks: Optional[BackgroundTasks] = None):
     else:
         run_queue_reload()
 
-def _build_trunk_inbound_contexts(trunks_list: list) -> str:
+def _build_trunk_inbound_contexts(trunks_list: list, backend_host: str = "127.0.0.1:8000") -> str:
     header_map = {
         "from": "From",
         "contact": "Contact",
@@ -5061,12 +5069,55 @@ def _build_trunk_inbound_contexts(trunks_list: list) -> str:
                 lines.append(f"same => n,NoOp(Trunk [{name}] Aktif Kanal: ${{GROUP_COUNT({name}@trunk_limit)}} / {max_ch})")
                 lines.append(f"same => n,GotoIf($[${{GROUP_COUNT({name}@trunk_limit)}} > {max_ch}]?limit_exceeded)")
 
-            lines.append("same => n,Goto(default,${RESOLVED_DID},1)")
+            is_transit_pbx = bool(sip_hdrs.get("transit_pbx_mode", False))
+            if is_transit_pbx:
+                lines.append(f"same => n,NoOp(TRANSIT SANTRAL TRUNK [{name}]: Dis arama istegi -> ${{RESOLVED_DID}} Arayan=${{CALLERID(num)}})")
+                lines.append("same => n,Goto(trunk-transit-out,${RESOLVED_DID},1)")
+            else:
+                # Transparent Pre-Answer Trunk-to-Trunk Forwarding check (no Answer() before peer PBX answers!)
+                lines.append("same => n,Set(CURLOPT(conntimeout)=1)")
+                lines.append("same => n,Set(CURLOPT(httptimeout)=2)")
+                lines.append(f"same => n,Set(IN_FWD=${{CURL(http://{backend_host}/api/inbound/resolve_trunk_forward?trunk={name}&did=${{URIENCODE(${{RESOLVED_DID}})}}&caller=${{URIENCODE(${{CALLERID(num)}})}}&caller_name=${{URIENCODE(${{CALLERID(name)}})}})}})")
+                lines.append("same => n,GotoIf($[\"${IN_FWD}\" = \"BLOCKED\"]?in_fwd_blocked)")
+                lines.append("same => n,GotoIf($[\"${CUT(IN_FWD,|,1)}\" = \"TRUNK\"]?in_fwd_trunk)")
+                lines.append("same => n,Goto(default,${RESOLVED_DID},1)")
+                lines.append("same => n(in_fwd_trunk),NoOp(SEFFAF TRUNK-TO-TRUNK AKTARIM [NO ANSWER]: ${IN_FWD})")
+                lines.append("same => n,Set(TIMEOUT(absolute)=7200)")
+                lines.append("same => n,Set(UUID_VAL=${UUID()})")
+                lines.append("same => n,Set(MD5_VAL=${MD5(${UNIQUEID}${EPOCH})})")
+                lines.append("same => n,Set(__CALL_UUID=${IF($[${ISNULL(${UUID_VAL})}]?${MD5_VAL:0:8}-${MD5_VAL:8:4}-4${MD5_VAL:13:3}-a${MD5_VAL:17:3}-${MD5_VAL:20:12}:${UUID_VAL})})")
+                lines.append("same => n,Set(__OUT_TRUNK_NAME=${CUT(IN_FWD,|,2)})")
+                lines.append("same => n,Set(FWD_CID_NUM=${CUT(IN_FWD,|,3)})")
+                lines.append("same => n,Set(FWD_CID_NAME=${CUT(IN_FWD,|,4)})")
+                lines.append("same => n,Set(FWD_DIAL_STR=${CUT(IN_FWD,|,5)})")
+                lines.append("same => n,Set(__OUT_HDR_DIVERSION=${CUT(IN_FWD,|,6)})")
+                lines.append("same => n,Set(__OUT_HDR_RPID=${CUT(IN_FWD,|,7)})")
+                lines.append("same => n,Set(__OUT_HDR_PAI=${CUT(IN_FWD,|,8)})")
+                lines.append("same => n,Set(__OUT_HDR_PPI=${CUT(IN_FWD,|,9)})")
+                lines.append("same => n,Set(__OUT_MAXPTIME=${CUT(IN_FWD,|,10)})")
+                lines.append(f"same => n,Set(REG_RES=${{CURL(http://{backend_host}/api/calls/register?call_id=${{CALL_UUID}}&did=${{URIENCODE(${{RESOLVED_DID}})}}&caller=${{URIENCODE(${{CALLERID(num)}})}}&asterisk_id=${{UNIQUEID}}&direction=transit_in)}})")
+                lines.append("same => n,GotoIf($[\"${REG_RES}\" = \"BLOCKED\"]?in_fwd_blocked)")
+                lines.append("same => n,GotoIf($[\"${FWD_CID_NUM}\" = \"\"]?in_fwd_chk_name)")
+                lines.append("same => n,Set(CALLERID(num)=${FWD_CID_NUM})")
+                lines.append("same => n(in_fwd_chk_name),GotoIf($[\"${FWD_CID_NAME}\" = \"\"]?in_fwd_dial)")
+                lines.append("same => n,Set(CALLERID(name)=${FWD_CID_NAME})")
+                lines.append("same => n(in_fwd_dial),Dial(${FWD_DIAL_STR},120,b(trunk-outbound-headers^s^1))")
+                lines.append("same => n,Hangup()")
+                lines.append("same => n(in_fwd_blocked),NoOp(GELEN TRUNK AKTARIM ENGELLENDI [LISANS / KARA LISTE])")
+                lines.append("same => n,Hangup(21)")
             if limit_enabled and limit_dir in ("both", "inbound"):
                 lines.append(f"same => n(limit_exceeded),NoOp(TRUNK CAGRI LIMITI ASILDI [{name}]: Max={max_ch})")
                 lines.append("same => n,Busy(5)")
                 lines.append("same => n,Hangup(17)")
             lines.append("")
+
+        lines.append("exten => h,1,NoOp(Trunk Inbound Hangup: Call=${CALL_UUID}, Status=${DIALSTATUS}, Cause=${HANGUPCAUSE})")
+        lines.append("same => n,GotoIf($[\"${CALL_UUID}\" = \"\"]?done_tr_h)")
+        lines.append("same => n,Set(CURLOPT(conntimeout)=1)")
+        lines.append("same => n,Set(CURLOPT(httptimeout)=2)")
+        lines.append(f"same => n,Set(CURL_H=${{CURL(http://{backend_host}/api/calls/end?call_id=${{CALL_UUID}}&dialstatus=${{DIALSTATUS}}&hangupcause=${{HANGUPCAUSE}}&hangupsource=${{URIENCODE(${{CHANNEL(hangupsource)}})}}&trunk=${{URIENCODE(${{OUT_TRUNK_NAME}})}}&answeredtime=${{ANSWEREDTIME}}&dialedtime=${{DIALEDTIME}})}})")
+        lines.append("same => n(done_tr_h),NoOp(Trunk Inbound Hangup tamamlandi)")
+        lines.append("")
 
         blocks.append("\n".join(lines))
     return "\n".join(blocks)
@@ -5100,7 +5151,7 @@ def regenerate_extensions_custom_conf(background_tasks: Optional[BackgroundTasks
                 if t.get(extra_k) in (None, {}, []) and dt.get(extra_k) not in (None, {}, []):
                     t[extra_k] = dt.get(extra_k)
 
-    trunk_inbound_contexts = _build_trunk_inbound_contexts(trunks_list)
+    trunk_inbound_contexts = _build_trunk_inbound_contexts(trunks_list, backend_host=backend_host)
 
     pbx_cfg = settings_db.get("pbx", {}) if isinstance(settings_db.get("pbx"), dict) else {}
     num_plan = pbx_cfg.get("numbering_plan", {}) if isinstance(pbx_cfg.get("numbering_plan"), dict) else {}
@@ -5937,22 +5988,64 @@ same => n,Set(CALLERID(num)=${{CUT(HD_ID_RES,|,2)}})
 same => n,Set(CALLERID(name)=${{CUT(HD_ID_RES,|,3)}})
 same => n(hd_cid_done),Return()
 
+[trunk-transit-out]
+; Diğer Santral (Transit SIP Trunk) üzerinden gelen dış arama isteklerini CallerID veya Prefix kurallarına göre operatör hatlarına yönlendirir (Answer() yapmadan şeffaf geçiş)
+exten => _X.,1,NoOp(TRANSIT DIS ARAMA: Trunk=${{INBOUND_TRUNK_NAME}}, Arayan=${{CALLERID(num)}}, Aranan=${{EXTEN}})
+same => n,Set(TIMEOUT(absolute)=7200)
+same => n,Set(CURLOPT(conntimeout)=1)
+same => n,Set(CURLOPT(httptimeout)=2)
+same => n,Set(UUID_VAL=${{UUID()}})
+same => n,Set(MD5_VAL=${{MD5(${{UNIQUEID}}${{EPOCH}})}})
+same => n,Set(__CALL_UUID=${{IF($[${{ISNULL(${{UUID_VAL}})}}]?${{MD5_VAL:0:8}}-${{MD5_VAL:8:4}}-4${{MD5_VAL:13:3}}-a${{MD5_VAL:17:3}}-${{MD5_VAL:20:12}}:${{UUID_VAL}})}})
+same => n,Set(TR_EM_CHK=${{CURL(http://{backend_host}/api/trunks/check_emergency?callee=${{URIENCODE(${{EXTEN}})}})}})
+same => n,Set(TR_IS_EM=${{IF($["${{TR_EM_CHK}}" = "EMERGENCY"]?1:0)}})
+same => n,Set(TR_REG_RES=${{CURL(http://{backend_host}/api/calls/register?call_id=${{CALL_UUID}}&did=${{URIENCODE(${{EXTEN}})}}&caller=${{URIENCODE(${{CALLERID(num)}})}}&asterisk_id=${{UNIQUEID}}&direction=transit_out)}})
+same => n,GotoIf($["${{TR_REG_RES}}" = "BLOCKED"]?tr_out_blocked)
+same => n,Gosub(outbound_failover_dial_sub,s,1(${{EXTEN}},${{EXTEN}},90,${{TR_IS_EM}},1))
+same => n,Hangup()
+same => n(tr_out_blocked),NoOp(TRANSIT DIS ARAMA ENGELLENDI [LISANS / KARA LISTE]: ${{CALLERID(num)}} -> ${{EXTEN}})
+same => n,Hangup(21)
+
+exten => _+X.,1,NoOp(TRANSIT +DIS ARAMA: Trunk=${{INBOUND_TRUNK_NAME}}, Arayan=${{CALLERID(num)}}, Aranan=${{EXTEN}})
+same => n,Set(TIMEOUT(absolute)=7200)
+same => n,Set(CURLOPT(conntimeout)=1)
+same => n,Set(CURLOPT(httptimeout)=2)
+same => n,Set(UUID_VAL=${{UUID()}})
+same => n,Set(MD5_VAL=${{MD5(${{UNIQUEID}}${{EPOCH}})}})
+same => n,Set(__CALL_UUID=${{IF($[${{ISNULL(${{UUID_VAL}})}}]?${{MD5_VAL:0:8}}-${{MD5_VAL:8:4}}-4${{MD5_VAL:13:3}}-a${{MD5_VAL:17:3}}-${{MD5_VAL:20:12}}:${{UUID_VAL}})}})
+same => n,Set(TR_EM_CHK=${{CURL(http://{backend_host}/api/trunks/check_emergency?callee=${{URIENCODE(${{EXTEN}})}})}})
+same => n,Set(TR_IS_EM=${{IF($["${{TR_EM_CHK}}" = "EMERGENCY"]?1:0)}})
+same => n,Set(TR_REG_RES=${{CURL(http://{backend_host}/api/calls/register?call_id=${{CALL_UUID}}&did=${{URIENCODE(${{EXTEN}})}}&caller=${{URIENCODE(${{CALLERID(num)}})}}&asterisk_id=${{UNIQUEID}}&direction=transit_out)}})
+same => n,GotoIf($["${{TR_REG_RES}}" = "BLOCKED"]?tr_out_blocked_p)
+same => n,Gosub(outbound_failover_dial_sub,s,1(${{EXTEN}},${{EXTEN}},90,${{TR_IS_EM}},1))
+same => n,Hangup()
+same => n(tr_out_blocked_p),NoOp(TRANSIT +DIS ARAMA ENGELLENDI [LISANS / KARA LISTE]: ${{CALLERID(num)}} -> ${{EXTEN}})
+same => n,Hangup(21)
+
+exten => h,1,NoOp(Transit Dis Arama Sonlandi: Call=${{CALL_UUID}}, Status=${{DIALSTATUS}}, Cause=${{HANGUPCAUSE}})
+same => n,GotoIf($["${{CALL_UUID}}" = ""]?done_tr_out_h)
+same => n,Set(CURLOPT(conntimeout)=1)
+same => n,Set(CURLOPT(httptimeout)=2)
+same => n,Set(CURL_H=${{CURL(http://{backend_host}/api/calls/end?call_id=${{CALL_UUID}}&dialstatus=${{DIALSTATUS}}&hangupcause=${{HANGUPCAUSE}}&hangupsource=${{URIENCODE(${{CHANNEL(hangupsource)}})}}&trunk=${{URIENCODE(${{OUT_TRUNK_NAME}})}}&answeredtime=${{ANSWEREDTIME}}&dialedtime=${{DIALEDTIME}})}})
+same => n(done_tr_out_h),NoOp(Transit Dis Arama Hangup tamamlandi)
+
 [outbound_failover_dial_sub]
-; ARG1 = callee, ARG2 = dial_num, ARG3 = timeout_sec, ARG4 = is_emergency (0/1)
+; ARG1 = callee, ARG2 = dial_num, ARG3 = timeout_sec, ARG4 = is_emergency (0/1), ARG5 = is_transit (0/1)
 exten => s,1,Set(OB_CALLEE=${{ARG1}})
 same => n,Set(OB_DIAL_NUM=${{ARG2}})
 same => n,Set(OB_TIMEOUT=${{IF($["${{ARG3}}" = ""]?60:${{ARG3}})}})
 same => n,Set(OB_IS_EM=${{IF($["${{ARG4}}" = "1"]?1:0)}})
+same => n,Set(OB_IS_TRANSIT=${{IF($["${{ARG5}}" = "1"]?1:0)}})
 same => n,Set(ORIG_SUB_EXT=${{CALLERID(num)}})
 same => n,Set(ORIG_SUB_NAME=${{CALLERID(name)}})
 same => n,Set(OB_TRY_IDX=0)
 same => n(ob_try_loop),GotoIf($[${{OB_TRY_IDX}} > 8]?ob_exhausted)
 same => n,Set(CURLOPT(conntimeout)=1)
 same => n,Set(CURLOPT(httptimeout)=2)
-same => n,Set(OUT_CFG=${{CURL(http://{backend_host}/api/trunks/resolve_outbound_dial?call_id=${{URIENCODE(${{CALL_UUID}})}}&caller=${{URIENCODE(${{ORIG_SUB_EXT}})}}&caller_name=${{URIENCODE(${{ORIG_SUB_NAME}})}}&callee=${{URIENCODE(${{OB_CALLEE}})}}&dial_num=${{URIENCODE(${{OB_DIAL_NUM}})}}&orig_caller=${{URIENCODE(${{ORIG_CALLER_NUM}})}}&orig_name=${{URIENCODE(${{ORIG_CALLER_NAME}})}}&try_idx=${{OB_TRY_IDX}}&is_emergency=${{OB_IS_EM}}&channel=${{URIENCODE(${{CHANNEL(name)}})}})}})
+same => n,Set(OUT_CFG=${{CURL(http://{backend_host}/api/trunks/resolve_outbound_dial?call_id=${{URIENCODE(${{CALL_UUID}})}}&caller=${{URIENCODE(${{ORIG_SUB_EXT}})}}&caller_name=${{URIENCODE(${{ORIG_SUB_NAME}})}}&callee=${{URIENCODE(${{OB_CALLEE}})}}&dial_num=${{URIENCODE(${{OB_DIAL_NUM}})}}&orig_caller=${{URIENCODE(${{ORIG_CALLER_NUM}})}}&orig_name=${{URIENCODE(${{ORIG_CALLER_NAME}})}}&try_idx=${{OB_TRY_IDX}}&is_emergency=${{OB_IS_EM}}&is_transit=${{OB_IS_TRANSIT}}&source_trunk=${{URIENCODE(${{INBOUND_TRUNK_NAME}})}}&channel=${{URIENCODE(${{CHANNEL(name)}})}})}})
 same => n,GotoIf($["${{OUT_CFG}}" = "EXHAUSTED"]?ob_exhausted)
 same => n,GotoIf($["${{CUT(OUT_CFG,|,1)}}" = "ALLOW"]?ob_apply_cfg)
-same => n,GotoIf($[${{OB_TRY_IDX}} > 0]?ob_exhausted)
+same => n,GotoIf($[${{OB_TRY_IDX}} > 0 | "${{OB_IS_TRANSIT}}" = "1"]?ob_exhausted)
 same => n,Set(CALLERID(num)=908503607390)
 same => n,Set(CALLERID(name)=908503607390)
 same => n,Dial(PJSIP/Operator_Trunk/sip:${{OB_DIAL_NUM}}@ikonsip.com:5060,${{OB_TIMEOUT}},r)
@@ -5977,9 +6070,12 @@ same => n,Set(CALLERID(num)=${{OUT_CID_NUM}})
 same => n(ob_chk_cid_name),Set(CALLERID(name)=${{CALLERID(num)}})
 same => n,GotoIf($["${{OUT_CID_NAME}}" = ""]?ob_do_dial)
 same => n,Set(CALLERID(name)=${{OUT_CID_NAME}})
-same => n(ob_do_dial),NoOp(Dis Hat Denemesi #${{OB_TRY_IDX}}: Trunk=${{OUT_TRUNK_NAME}} Dial=${{OUT_DIAL_STR}})
+same => n(ob_do_dial),NoOp(Dis Hat Denemesi #${{OB_TRY_IDX}} [Transit=${{OB_IS_TRANSIT}}]: Trunk=${{OUT_TRUNK_NAME}} Dial=${{OUT_DIAL_STR}})
+same => n,GotoIf($["${{OB_IS_TRANSIT}}" = "1"]?ob_do_dial_transit)
 same => n,Dial(${{OUT_DIAL_STR}},${{OB_TIMEOUT}},rb(trunk-outbound-headers^s^1))
-same => n,GotoIf($["${{DIALSTATUS}}" = "CHANUNAVAIL" | "${{DIALSTATUS}}" = "CONGESTION"]?ob_next_trunk)
+same => n,Goto(ob_after_dial)
+same => n(ob_do_dial_transit),Dial(${{OUT_DIAL_STR}},${{OB_TIMEOUT}},b(trunk-outbound-headers^s^1))
+same => n(ob_after_dial),GotoIf($["${{DIALSTATUS}}" = "CHANUNAVAIL" | "${{DIALSTATUS}}" = "CONGESTION"]?ob_next_trunk)
 same => n,Return()
 same => n(ob_next_trunk),NoOp(Trunk #${{OB_TRY_IDX}} [${{OUT_TRUNK_NAME}}] Ulasilamadi/Dolu [${{DIALSTATUS}}], Siradaki Yedek Trunk Deneniyor...)
 same => n,Set(OB_TRY_IDX=$[${{OB_TRY_IDX}} + 1])
@@ -6405,18 +6501,72 @@ def _asterisk_pattern_to_regex(pat_raw: str) -> tuple[str, str]:
     return "".join(out), fixed_prefix
 
 
-def _match_and_transform_outbound_number(callee_raw: str, caller_ext: str = "", users_list: list = None) -> dict:
+def _caller_id_matches_outbound_rule(caller_candidates: list, rule_obj: dict) -> tuple:
     """
-    Evaluates configured outbound_rules against callee_raw (e.g. '99805071796372' or '05071796372'):
-    - Matches patterns (pattern, strip, prepend)
-    - Strips rule access prefix (explicit strip count/prefix or smart prefix detection before 05.../02.../03.../04.../0850...)
-    - Normalizes target number for SIP trunk ('905071796372') and ACL check ('05071796372')
+    Evaluates optional `caller_id_patterns` on an outbound rule against caller_candidates (caller_ext, orig_caller).
+    Returns (is_allowed: bool, is_specific_cid_match: bool).
+    - If `caller_id_patterns` is empty: (True, False) — matches any caller.
+    - If `caller_id_patterns` is non-empty: matches via Asterisk pattern regex OR Turkish last-10-digits equality
+      (so 02121112233, 902121112233, +902121112233 and 2121112233 all match seamlessly!).
+    """
+    raw_cids = rule_obj.get("caller_id_patterns")
+    if isinstance(raw_cids, str):
+        cid_pats = [x.strip() for x in re.split(r"[,;\s\n]+", raw_cids) if x.strip()]
+    elif isinstance(raw_cids, list):
+        cid_pats = [str(x or "").strip() for x in raw_cids if str(x or "").strip()]
+    else:
+        cid_pats = []
+
+    if not cid_pats:
+        return (True, False)
+
+    clean_cands = []
+    for c in (caller_candidates or []):
+        cs = str(c or "").strip()
+        if cs and cs not in clean_cands:
+            clean_cands.append(cs)
+            if cs.startswith("+"):
+                clean_cands.append(cs[1:])
+
+    for cand in clean_cands:
+        cand_digits = re.sub(r"\D", "", cand)
+        cand_last10 = cand_digits[-10:] if len(cand_digits) >= 10 else ""
+        for pat in cid_pats:
+            if pat in ("*", "ALL", "all"):
+                return (True, False)
+            # Direct / Asterisk pattern match
+            try:
+                rx, _ = _asterisk_pattern_to_regex(pat)
+                if re.match(rx, cand) or (cand_digits and re.match(rx, cand_digits)):
+                    return (True, True)
+            except Exception:
+                pass
+            # Smart Turkish last-10-digits match for concrete numbers (no wildcard chars)
+            if not any(ch in pat for ch in ("X", "Z", "N", "x", "z", "n", ".", "[", "]", "*", "!")):
+                pat_digits = re.sub(r"\D", "", pat)
+                if len(pat_digits) >= 10 and cand_last10 and pat_digits[-10:] == cand_last10:
+                    return (True, True)
+                if pat_digits and cand_digits and pat_digits == cand_digits:
+                    return (True, True)
+
+    return (False, True)
+
+
+def _match_and_transform_outbound_number(callee_raw: str, caller_ext: str = "", users_list: list = None, orig_caller: str = "") -> dict:
+    """
+    Evaluates configured outbound_rules against callee_raw & caller_ext/orig_caller with 4-tier priority:
+      1. Specific CallerID match + Specific Dial Pattern (e.g. CallerID 0212... + Prefix/Pattern)
+      2. Specific CallerID match + Catch-all Dial Pattern (e.g. CallerID 0212... -> Operator Trunk 1)
+      3. Any CallerID + Specific Dial Pattern (e.g. Prefix 91. -> Operator Trunk 1, 92. -> Trunk 2)
+      4. Any CallerID + Catch-all Fallback Rule
+    Supports strip, prepend, and `number_format_mode` ('auto' vs 'passthrough').
     """
     raw = str(callee_raw or "").strip()
     clean_num = raw[1:] if raw.startswith("+") else raw
     outbound_rules = settings_db.get("outbound_rules", [])
     u_list = users_list if users_list is not None else settings_db.get("users", [])
     caller_str = str(caller_ext or "").strip()
+    caller_candidates = [x for x in (caller_str, str(orig_caller or "").strip()) if x]
     caller_user = next((u for u in u_list if str(u.get("extension") or "").strip() == caller_str), None)
     caller_uid = str(caller_user.get("id") or "") if caller_user else ""
     uid_to_ext_map = {
@@ -6453,18 +6603,27 @@ def _match_and_transform_outbound_number(callee_raw: str, caller_ext: str = "", 
             return True
         return caller_str in allowed_tokens or (bool(caller_uid) and caller_uid in allowed_tokens)
 
-    matched_rule = None
-    matched_pat_obj = None
-    matched_fixed_prefix = ""
+    def _is_catchall_pattern(pat_str: str) -> bool:
+        p = str(pat_str or "").strip().upper()
+        return p in ("", "X.", "_X.", ".", ".*", "*")
+
+    tier1_match = None  # Specific CID + Specific Pattern
+    tier2_match = None  # Specific CID + Catch-all Pattern
+    tier3_match = None  # Any CID + Specific Pattern
+    tier4_match = None  # Any CID + Catch-all Pattern
+
     has_defined_patterns = False
     pattern_matched_any_rule = False
     has_catchall_rule = False
     catchall_allowed_rule = False
 
-    # Pass 1: Look for explicit pattern match in active outbound_rules
     for rule in outbound_rules:
         if rule.get("is_active", True) is False:
             continue
+        cid_ok, is_specific_cid = _caller_id_matches_outbound_rule(caller_candidates, rule)
+        if not cid_ok:
+            continue
+
         caller_allowed_for_rule = _is_caller_allowed_in_rule(rule)
         patterns = rule.get("patterns") or []
         non_empty_pats = []
@@ -6472,49 +6631,59 @@ def _match_and_transform_outbound_number(callee_raw: str, caller_ext: str = "", 
             pat_str = str((pat_obj.get("pattern") if isinstance(pat_obj, dict) else pat_obj) or "").strip()
             if pat_str:
                 non_empty_pats.append((pat_obj, pat_str))
+
         if not non_empty_pats:
             has_catchall_rule = True
             if caller_allowed_for_rule:
                 catchall_allowed_rule = True
+                if is_specific_cid and not tier2_match:
+                    tier2_match = (rule, None, "")
+                elif not is_specific_cid and not tier4_match:
+                    tier4_match = (rule, None, "")
             continue
+
         for pat_obj, pat_str in non_empty_pats:
-            has_defined_patterns = True
+            is_ca_pat = _is_catchall_pattern(pat_str)
+            if is_ca_pat:
+                has_catchall_rule = True
+            else:
+                has_defined_patterns = True
             rx, fixed_pref = _asterisk_pattern_to_regex(pat_str)
             try:
                 if re.match(rx, clean_num) or (raw != clean_num and re.match(rx, raw)):
                     pattern_matched_any_rule = True
-                    if caller_allowed_for_rule and not matched_rule:
-                        matched_rule = rule
-                        matched_pat_obj = pat_obj if isinstance(pat_obj, dict) else {"pattern": pat_str}
-                        matched_fixed_prefix = fixed_pref
+                    if caller_allowed_for_rule:
+                        p_dict = pat_obj if isinstance(pat_obj, dict) else {"pattern": pat_str}
+                        if is_ca_pat:
+                            catchall_allowed_rule = True
+                            if is_specific_cid and not tier2_match:
+                                tier2_match = (rule, p_dict, fixed_pref)
+                            elif not is_specific_cid and not tier4_match:
+                                tier4_match = (rule, p_dict, fixed_pref)
+                        else:
+                            if is_specific_cid and not tier1_match:
+                                tier1_match = (rule, p_dict, fixed_pref)
+                            elif not is_specific_cid and not tier3_match:
+                                tier3_match = (rule, p_dict, fixed_pref)
                         break
             except Exception:
                 pass
-        if matched_rule:
-            break
 
-    # Pass 2: If no pattern explicitly matched, pick first active catch-all (or fallback) rule allowed for caller
+    chosen = tier1_match or tier2_match or tier3_match or tier4_match
+    matched_rule = chosen[0] if chosen else None
+    matched_pat_obj = chosen[1] if chosen else None
+    matched_fixed_prefix = chosen[2] if chosen else ""
+
+    # Fallback: if no rule matched at all and no specific CID blocked everything, pick first allowed non-CID-restricted rule
     if not matched_rule:
         for rule in outbound_rules:
             if rule.get("is_active", True) is False:
                 continue
-            if not _is_caller_allowed_in_rule(rule):
+            cid_ok, _ = _caller_id_matches_outbound_rule(caller_candidates, rule)
+            if not cid_ok or not _is_caller_allowed_in_rule(rule):
                 continue
-            r_pats = [
-                str((p.get("pattern") if isinstance(p, dict) else p) or "").strip()
-                for p in (rule.get("patterns") or [])
-            ]
-            if not any(r_pats):
-                matched_rule = rule
-                break
-        if not matched_rule:
-            for rule in outbound_rules:
-                if rule.get("is_active", True) is False:
-                    continue
-                if not _is_caller_allowed_in_rule(rule):
-                    continue
-                matched_rule = rule
-                break
+            matched_rule = rule
+            break
 
     working = clean_num
     prepend_val = ""
@@ -6548,9 +6717,10 @@ def _match_and_transform_outbound_number(callee_raw: str, caller_ext: str = "", 
     if re.match(r"^([2345]\d{9}|850\d{7}|800\d{7})$", acl_number):
         acl_number = "0" + acl_number
 
-    # trunk_dial_number: format suitable for SIP trunk (905071796372 for Turkish numbers unless prepend explicitly set '0')
+    # trunk_dial_number: respect 'passthrough' mode if configured on matched_rule, else auto-normalize Turkish 90...
+    num_fmt_mode = str((matched_rule or {}).get("number_format_mode") or "auto").strip().lower()
     trunk_dial_number = working
-    if prepend_val != "0":
+    if num_fmt_mode != "passthrough" and prepend_val != "0":
         if re.match(r"^0([2345]\d{9}|850\d{7}|800\d{7})$", trunk_dial_number):
             trunk_dial_number = "90" + trunk_dial_number[1:]
         elif re.match(r"^([2345]\d{9}|850\d{7}|800\d{7})$", trunk_dial_number):
@@ -6561,7 +6731,7 @@ def _match_and_transform_outbound_number(callee_raw: str, caller_ext: str = "", 
         "matched_pattern": matched_pat_obj,
         "has_defined_patterns": has_defined_patterns,
         "pattern_matched_any_rule": pattern_matched_any_rule,
-        "pattern_matched_allowed_rule": matched_pat_obj is not None,
+        "pattern_matched_allowed_rule": matched_pat_obj is not None or (matched_rule is not None and (tier2_match is not None or tier4_match is not None)),
         "has_catchall_rule": has_catchall_rule,
         "catchall_allowed_rule": catchall_allowed_rule,
         "acl_number": acl_number,
@@ -6624,6 +6794,186 @@ def _get_callflow_outbound_override(call_id: str = "", callee: str = "") -> Opti
     return None
 
 
+@app.get("/api/inbound/resolve_trunk_forward", response_class=PlainTextResponse)
+async def resolve_inbound_trunk_forward_endpoint(
+    trunk: str = "",
+    did: str = "",
+    caller: str = "",
+    caller_name: str = "",
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Pre-Answer Transparent Inbound Trunk-to-Trunk Forwarding resolver for SBC / SIP Gateway mode.
+    Evaluates active `inbound_rules` where `destination_type == 'trunk'` matching the incoming trunk & DID.
+    Returns:
+      - 'BLOCKED' when license is hard-expired or caller/DID is blacklisted
+      - 'TRUNK|TARGET_TRUNK|CID_NUM|CID_NAME|DIAL_STR|DIV|RPID|PAI|PPI|MAXPTIME' for zero-answer transparent forwarding
+      - 'NORMAL' to continue standard Nornia PBX [default] inbound flow
+    """
+    try:
+        from backend.services.license_service import is_tenant_license_hard_expired
+        is_hard_exp, exp_rsn = is_tenant_license_hard_expired(settings_db, "tenant-default")
+        if is_hard_exp:
+            print(f"[License Block] Inbound trunk forward rejected (expired license): trunk={trunk} did={did} ({exp_rsn})")
+            return "BLOCKED"
+
+        caller_s = str(caller or "").strip()
+        caller_nm_s = str(caller_name or "").strip() or caller_s
+        did_s = str(did or "").strip()
+        trunk_s = str(trunk or "").strip()
+
+        is_bl, _ = await is_phone_or_value_blacklisted(caller_s)
+        if not is_bl and did_s and did_s != "s":
+            is_bl, _ = await is_phone_or_value_blacklisted(did_s)
+        if is_bl:
+            return "BLOCKED"
+
+        inbound_rules = settings_db.get("inbound_rules", []) or []
+        active_trunk_rules = [
+            r for r in inbound_rules
+            if r.get("active") is not False
+            and r.get("enabled") is not False
+            and str(r.get("destination_type") or "").strip().lower() in ("trunk", "sip_trunk")
+        ]
+        if not active_trunk_rules:
+            return "NORMAL"
+
+        trunks_list = []
+        try:
+            res_t = await db.execute(select(Trunk).order_by(Trunk.id))
+            for row in res_t.scalars().all():
+                trunks_list.append({c.name: getattr(row, c.name) for c in row.__table__.columns})
+        except Exception:
+            pass
+        if not trunks_list:
+            trunks_list = list(settings_db.get("trunks", []) or [])
+        disk_trunks_map = {str(dt.get("trunk_name") or dt.get("id") or ""): dt for dt in (settings_db.get("trunks", []) or [])}
+        for t in trunks_list:
+            tk = str(t.get("trunk_name") or t.get("id") or "")
+            dt = disk_trunks_map.get(tk)
+            if dt:
+                for extra_k in ("codecs", "call_limit_enabled", "call_limit_direction", "max_channels", "sip_headers"):
+                    if t.get(extra_k) in (None, {}, []) and dt.get(extra_k) not in (None, {}, []):
+                        t[extra_k] = dt.get(extra_k)
+
+        def _matches_source_trunk(rule_obj: dict) -> bool:
+            r_tids = rule_obj.get("trunk_ids") or []
+            if not r_tids:
+                return True
+            if not trunk_s:
+                return False
+            t_low = trunk_s.lower()
+            for tid in r_tids:
+                tid_s = str(tid or "").strip()
+                if not tid_s:
+                    continue
+                if tid_s.lower() == t_low:
+                    return True
+                t_obj = next(
+                    (
+                        x for x in trunks_list
+                        if str(x.get("id") or "") == tid_s
+                        or str(x.get("trunk_name") or "").lower() == tid_s.lower()
+                    ),
+                    None,
+                )
+                if t_obj:
+                    raw_n = str(t_obj.get("trunk_name") or t_obj.get("name") or "")
+                    if raw_n.lower() == t_low or _sanitize_trunk_name(raw_n).lower() == t_low:
+                        return True
+            return False
+
+        matched_specific = None
+        matched_catchall = None
+        for rule in active_trunk_rules:
+            if not _matches_source_trunk(rule):
+                continue
+            mode = str(rule.get("did_match_mode") or "all").strip().lower()
+            if mode == "specific":
+                for p in (rule.get("did_patterns") or []):
+                    if _did_pattern_matches_main(did_s, p):
+                        matched_specific = rule
+                        break
+                if matched_specific:
+                    break
+            else:
+                if not matched_catchall:
+                    matched_catchall = rule
+
+        matched_rule = matched_specific or matched_catchall
+        if not matched_rule:
+            return "NORMAL"
+
+        dest_id = str(matched_rule.get("destination_id") or "").strip()
+        if not dest_id:
+            return "NORMAL"
+
+        target_trunk = next(
+            (
+                t for t in trunks_list
+                if (t.get("is_active", True) is not False)
+                and (
+                    str(t.get("id") or "") == dest_id
+                    or str(t.get("trunk_name") or "").lower() == dest_id.lower()
+                    or _sanitize_trunk_name(t.get("trunk_name") or "").lower() == dest_id.lower()
+                )
+            ),
+            None,
+        )
+        if not target_trunk:
+            return "NORMAL"
+
+        target_raw_name = str(target_trunk.get("trunk_name") or target_trunk.get("name") or "")
+        target_safe_name = _sanitize_trunk_name(target_raw_name)
+        # Anti-loop: never forward directly back into the same trunk it arrived from
+        if trunk_s and target_safe_name.lower() == trunk_s.lower():
+            return "NORMAL"
+
+        t_type = str(target_trunk.get("trunk_type") or "peer").lower()
+        t_host = str(target_trunk.get("host") or "").strip()
+        t_port = int(target_trunk.get("port") or 5060)
+        sip_hdrs = _parse_trunk_sip_headers(target_trunk)
+        realm = str(sip_hdrs.get("realm") or "").strip()
+        domain = realm or t_host or "localhost"
+        maxptime = str(sip_hdrs.get("maxptime") or "").strip()
+
+        if t_type == "account":
+            dial_str = f"PJSIP/{did_s}@{target_safe_name}"
+        else:
+            dial_str = f"PJSIP/{target_safe_name}/sip:{did_s}@{t_host}:{t_port}"
+
+        def _s_hdr(mode_key: str, custom_key: str, suffix: str = "") -> str:
+            m = str(sip_hdrs.get(mode_key) or "none").strip().lower()
+            if not m or m == "none":
+                return ""
+            val = str(sip_hdrs.get(custom_key) or "").strip() if m == "custom" else caller_s
+            return f"<sip:{val}@{domain}>{suffix}" if val else ""
+
+        div_hdr = _s_hdr("outbound_diversion", "outbound_diversion_custom", ";reason=unconditional")
+        rpid_hdr = _s_hdr("outbound_rpid", "outbound_rpid_custom", ";party=calling;privacy=off;screen=no")
+        pai_hdr = _s_hdr("outbound_pai", "outbound_pai_custom", "")
+        ppi_hdr = _s_hdr("outbound_ppi", "outbound_ppi_custom", "")
+
+        def _sp(v: str) -> str:
+            return str(v or "").replace("|", "").replace("\n", "").replace("\r", "").strip()
+
+        return "|".join([
+            "TRUNK",
+            _sp(target_safe_name),
+            _sp(caller_s),
+            _sp(caller_nm_s),
+            _sp(dial_str),
+            _sp(div_hdr),
+            _sp(rpid_hdr),
+            _sp(pai_hdr),
+            _sp(ppi_hdr),
+            _sp(maxptime),
+        ])
+    except Exception as e_in_fwd:
+        print(f"[resolve_inbound_trunk_forward error]: {e_in_fwd}")
+        return "NORMAL"
+
+
 @app.get("/api/trunks/resolve_outbound_dial", response_class=PlainTextResponse)
 async def resolve_outbound_dial_endpoint(
     call_id: str = "",
@@ -6635,6 +6985,8 @@ async def resolve_outbound_dial_endpoint(
     orig_name: str = "",
     try_idx: int = 0,
     is_emergency: int = 0,
+    is_transit: int = 0,
+    source_trunk: str = "",
     channel: str = "",
     db: AsyncSession = Depends(get_db)
 ):
@@ -6708,18 +7060,39 @@ async def resolve_outbound_dial_endpoint(
                     if t.get(extra_k) in (None, {}, []) and dt.get(extra_k) not in (None, {}, []):
                         t[extra_k] = dt.get(extra_k)
 
+        is_transit_call = bool(int(is_transit or 0) == 1)
+        src_trunk_low = str(source_trunk or "").strip().lower()
+
         if is_em:
             matched_rule = None
             resolved_target_num = re.sub(r"[^0-9]", "", raw_target_in) or raw_target_in
         else:
-            # Match outbound rule & strip prefix (e.g. 99805071796372 -> 905071796372)
-            transform_info = _match_and_transform_outbound_number(callee or dial_num, caller_ext=caller, users_list=users_list)
+            # Match outbound rule by CallerID and/or Prefix & strip/prepend
+            transform_info = _match_and_transform_outbound_number(
+                callee or dial_num,
+                caller_ext=caller,
+                users_list=users_list,
+                orig_caller=orig_caller,
+            )
             matched_rule = transform_info.get("matched_rule")
             resolved_target_num = transform_info.get("trunk_dial_number") or dial_num or callee
 
         active_trunks = [t for t in trunks_list if t.get("is_active", True) is not False]
+        if is_transit_call:
+            # Anti-loop protection: never send a transit call back out via the peer PBX trunk it came from or any transit_pbx_mode trunk
+            filtered_transit = []
+            for t in active_trunks:
+                sh_t = _parse_trunk_sip_headers(t)
+                if sh_t.get("transit_pbx_mode"):
+                    continue
+                t_raw_nm = str(t.get("trunk_name") or t.get("name") or "")
+                if src_trunk_low and (t_raw_nm.lower() == src_trunk_low or _sanitize_trunk_name(t_raw_nm).lower() == src_trunk_low):
+                    continue
+                filtered_transit.append(t)
+            active_trunks = filtered_transit
+
         if not active_trunks:
-            if int(try_idx or 0) > 0:
+            if int(try_idx or 0) > 0 or is_transit_call:
                 return "EXHAUSTED"
             return f"ALLOW|Operator_Trunk|0|30|908503607390|908503607390|PJSIP/Operator_Trunk/sip:{resolved_target_num}@ikonsip.com:5060|||||"
 
@@ -6837,8 +7210,13 @@ async def resolve_outbound_dial_endpoint(
         out_from_user_custom = str(sip_hdrs.get("outbound_from_user_custom") or "").strip()
         if is_em and ext_callerid:
             default_cid_num = ext_callerid
+        elif matched_rule and (matched_rule.get("caller_id") or matched_rule.get("outbound_caller_id")):
+            default_cid_num = rule_cid
+        elif is_transit_call and len(re.sub(r"\D", "", orig_num)) >= 7:
+            # Preserve exact CallerID / DID sent by the peer PBX on transit outbound calls
+            default_cid_num = orig_num
         else:
-            default_cid_num = rule_cid if (matched_rule and (matched_rule.get("caller_id") or matched_rule.get("outbound_caller_id"))) else t_did
+            default_cid_num = t_did
         cid_num = _resolve_num_val(out_from_user_mode, out_from_user_custom, default_cid_num)
         if cf_override:
             cf_cid_mode = str(cf_override.get("caller_id_mode") or "").lower()
@@ -19839,7 +20217,7 @@ async def register_call_endpoint(call_id: str, did: str, caller: str, asterisk_i
                 for c in (settings_db.get("conferences") or [])
             )
         )
-        if did_str_check.startswith("0") and dir_hint_top != "inbound" and not is_conference_call:
+        if did_str_check.startswith("0") and dir_hint_top not in ("inbound", "transit_in", "transit_out") and not is_conference_call:
             is_fraud, fraud_reason = is_suspicious_or_fraud_outbound_number(did_str_check, allow_international=False)
             if is_fraud and ("FRAUD_SCANNER" in fraud_reason or "INVALID_TR_NATIONAL_LENGTH" in fraud_reason or "INVALID_TR_AREA_CODE" in fraud_reason):
                 from backend.services.ami_manager import hangup_call
@@ -39286,18 +39664,46 @@ async def get_system_version_info():
         pass
 
     return {
-        "version": "v3.3.7",
+        "version": "v3.3.8",
         "commit_hash": live_commit,
         "release_date": "20 Kasım 2026",
         "status": "Güncel / Canlı Sürüm",
         "environment": "Production (On-Premise)",
         "changelog": [
             {
-                "version": "v3.3.7",
+                "version": "v3.3.8",
                 "commit_hash": live_commit,
                 "release_date": "20 Kasım 2026",
                 "badge": "Canlı Sürüm (Güncel)",
                 "badge_type": "current",
+                "title": "SBC / SIP Gateway Modu (Şeffaf Trunk-to-Trunk Transit + CallerID & Prefix Yönlendirme)",
+                "summary": "Nornia'nın 3+ operatör /30 VLAN hattı ile başka bir PBX santral arasında şeffaf SIP Gateway / SBC olarak çalışması için gerekli tüm gelen/giden transit yönlendirme, CallerID/Prefix kural motoru ve PJSIP header önceliklendirme altyapısı eklendi.",
+                "features": [
+                    {
+                        "title": "Şeffaf Gelen Trunk-to-Trunk Aktarım (Zero-Answer)",
+                        "desc": "Gelen Arama Kurallarına 'Dış Hat / Diğer Santral (SIP Trunk - Şeffaf İletim)' hedefi ve /api/inbound/resolve_trunk_forward eklendi; çağrılar Answer() yapılmadan orijinal DID ve CallerID korunarak diğer santrale aktarılır."
+                    },
+                    {
+                        "title": "İç Santral / Transit Trunk Modu ([trunk-transit-out])",
+                        "desc": "Dış Hat Ayarlarına 'İç Santral / Transit Trunk Modu' eklendi; diğer santralden gelen dış arama istekleri doğrudan giden kural motoruna girer, anti-loop koruması ve yedek hat (failover) ile operatör hatlarından çıkar."
+                    },
+                    {
+                        "title": "CallerID (Arayan Numara) & Prefix Bazlı Hat Seçimi",
+                        "desc": "Giden Arama Kurallarına 'Arayan Numara (CallerID / DID) Eşleşmesi' ve 'Operatöre Giden Numara Formatı (Otomatik 90... / Aynen İlet)' eklendi; hem CallerID hem önek (prefix) ile 4 katmanlı öncelikli hat seçimi sağlanır."
+                    },
+                    {
+                        "title": "Aynı SBC Çoklu /30 Hat PJSIP Header Önceliği",
+                        "desc": "Global PJSIP ayarına endpoint_identifier_order=header,ip,username,anonymous ve çoklu /30 hatlara opsiyonel Ek DID Eşleştirme Blokları (extra_match_dids) eklendi."
+                    }
+                ],
+                "fixes": []
+            },
+            {
+                "version": "v3.3.7",
+                "commit_hash": "bb3ca2e",
+                "release_date": "20 Kasım 2026",
+                "badge": "Önceki Sürüm",
+                "badge_type": "stable",
                 "title": "Ek Süre (Grace Period) Kümülatif Uzatma Desteği",
                 "summary": "Merkezi paneldeki +3/+7/+15/+30 Gün ek süre hızlı butonları, mevcut ileri tarihli bir Ek Süre varsa doğrudan onun üzerine ekleyecek şekilde güncellendi.",
                 "features": [],

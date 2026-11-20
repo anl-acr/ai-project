@@ -484,6 +484,10 @@ export default function InboundRulesPanel({ backendHost }) {
         destTypeLabel = "Çağrı Akışı";
         const cf = callFlows.find(x => x.id === rule.destination_id);
         destName = cf ? cf.name : String(rule.destination_id || "");
+      } else if (rule.destination_type === "trunk") {
+        destTypeLabel = "SIP Trunk";
+        const trk = trunks.find(x => String(x.id) === String(rule.destination_id) || x.trunk_name === rule.destination_id);
+        destName = trk ? (trk.trunk_name || trk.host) : String(rule.destination_id || "");
       }
 
       return {
@@ -535,6 +539,7 @@ export default function InboundRulesPanel({ backendHost }) {
           let destination_type = "user";
           if (typeRaw.includes("kuyruk") || typeRaw === "queue") destination_type = "queue";
           else if (typeRaw.includes("akış") || typeRaw.includes("akis") || typeRaw === "call_flow") destination_type = "call_flow";
+          else if (typeRaw.includes("trunk") || typeRaw.includes("santral") || typeRaw.includes("hat")) destination_type = "trunk";
 
           const destRaw = String(row["Hedef"] || "").trim();
           let destination_id = destRaw;
@@ -702,6 +707,9 @@ export default function InboundRulesPanel({ backendHost }) {
                   } else if (rule.destination_type === "call_flow") {
                     const cf = callFlows.find(x => x.id === rule.destination_id);
                     destName = cf ? `Akış: ${cf.name}` : "Akış (Silinmiş)";
+                  } else if (rule.destination_type === "trunk") {
+                    const trk = trunks.find(x => String(x.id) === String(rule.destination_id) || x.trunk_name === rule.destination_id);
+                    destName = trk ? `SIP Trunk (Şeffaf): ${trk.trunk_name || trk.host}` : "SIP Trunk (Silinmiş)";
                   }
 
                   return (
@@ -918,6 +926,7 @@ export default function InboundRulesPanel({ backendHost }) {
                       <option value="user">Kullanıcı / Abone Grubu</option>
                       <option value="queue">Kuyruk</option>
                       <option value="call_flow">Arama Akış Yönetimi</option>
+                      <option value="trunk">Dış Hat / Diğer Santral (SIP Trunk - Şeffaf İletim)</option>
                     </select>
                   </div>
 
@@ -925,6 +934,26 @@ export default function InboundRulesPanel({ backendHost }) {
                     <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">
                       Hedef Seçimi
                     </label>
+                    {formData.destination_type === "trunk" && (
+                      <div className="space-y-1.5">
+                        <select
+                          name="destination_id"
+                          value={formData.destination_id}
+                          onChange={handleChange}
+                          className={`w-full text-sm px-4 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50/50 dark:bg-slate-800 focus:outline-none focus:ring-2 ${ring} text-slate-800 dark:text-white transition-all`}
+                        >
+                          <option value="">Hedef SIP Trunk (Diğer Santral) Seçiniz...</option>
+                          {trunks.map(t => (
+                            <option key={t.id} value={t.id}>
+                              {t.trunk_name || t.host} ({t.host}:{t.port || 5060}){t.sip_headers?.transit_pbx_mode ? " — Transit Santral" : ""}
+                            </option>
+                          ))}
+                        </select>
+                        <p className="text-[10px] text-emerald-600 dark:text-emerald-400 font-semibold">
+                          Çağrı cevaplanmadan (Answer yapılmadan), orijinal DID ve arayan numara (CallerID) korunarak doğrudan seçili SIP Trunk&apos;a iletilir.
+                        </p>
+                      </div>
+                    )}
                     {formData.destination_type === "user" && (
                       <select
                         name="destination_id"

@@ -256,6 +256,8 @@ export default function OutboundRulesPanel({ backendHost }) {
   const [formData, setFormData] = useState({
     name: "",
     caller_id: "",
+    caller_id_patterns_text: "",
+    number_format_mode: "auto",
     patterns: [{ pattern: "", strip: "", prepend: "" }],
     trunk_ids: [],
     allowed_users: [],
@@ -484,6 +486,10 @@ export default function OutboundRulesPanel({ backendHost }) {
       setFormData({
         name: rule.name || "",
         caller_id: rule.caller_id || "",
+        caller_id_patterns_text: Array.isArray(rule.caller_id_patterns)
+          ? rule.caller_id_patterns.join(", ")
+          : String(rule.caller_id_patterns || ""),
+        number_format_mode: rule.number_format_mode || "auto",
         patterns: rule.patterns && rule.patterns.length > 0 ? rule.patterns : [{ pattern: rule.pattern || "", strip: "", prepend: "" }],
         trunk_ids: rule.trunk_ids || (rule.trunk_id ? [rule.trunk_id] : []),
         allowed_users: initialAllowed,
@@ -499,6 +505,8 @@ export default function OutboundRulesPanel({ backendHost }) {
       setFormData({
         name: "",
         caller_id: "",
+        caller_id_patterns_text: "",
+        number_format_mode: "auto",
         patterns: [{ pattern: "", strip: "", prepend: "" }],
         trunk_ids: [],
         allowed_users: [],
@@ -568,11 +576,19 @@ export default function OutboundRulesPanel({ backendHost }) {
       }
     }
 
+    const parsedCidPatterns = String(formData.caller_id_patterns_text || "")
+      .split(/[,;\n\s]+/)
+      .map(s => s.trim())
+      .filter(Boolean);
+
     const payload = {
       id: selectedRule ? selectedRule.id : null,
       ...formData,
+      caller_id_patterns: parsedCidPatterns,
+      number_format_mode: formData.number_format_mode || "auto",
       pin_code: String(formData.pin_code || "").replace(/\D/g, "").slice(0, 10)
     };
+    delete payload.caller_id_patterns_text;
 
     setSaving(true);
     setFormError("");
@@ -903,9 +919,14 @@ export default function OutboundRulesPanel({ backendHost }) {
                         />
                       </td>
                       <td className="py-3 px-4">
-                        <div className="flex flex-col">
+                        <div className="flex flex-col gap-0.5">
                           <span className="text-sm font-bold text-slate-800 dark:text-slate-200">{rule.name}</span>
-                          <span className="text-[11px] font-mono text-slate-500 mt-0.5">{patterns.map(p => p.pattern).join(", ")}</span>
+                          <span className="text-[11px] font-mono text-slate-500">{patterns.map(p => p.pattern).join(", ")}</span>
+                          {Array.isArray(rule.caller_id_patterns) && rule.caller_id_patterns.length > 0 && (
+                            <span className="inline-flex items-center gap-1 text-[10px] font-mono font-bold text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200/70 dark:border-emerald-800/50 rounded px-1.5 py-0.5 w-fit mt-0.5">
+                              CallerID: {rule.caller_id_patterns.join(", ")}
+                            </span>
+                          )}
                         </div>
                       </td>
                       <td className="py-3 px-4">
@@ -1069,7 +1090,7 @@ export default function OutboundRulesPanel({ backendHost }) {
                     />
                   </div>
                   <div>
-                    <label htmlFor="outbound-rule-callerid" className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">Görünür Numara</label>
+                    <label htmlFor="outbound-rule-callerid" className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">Görünür Numara (Çıkış CallerID Override)</label>
                     <input
                       id="outbound-rule-callerid"
                       type="text"
@@ -1079,9 +1100,50 @@ export default function OutboundRulesPanel({ backendHost }) {
                       inputMode="tel"
                       autoCorrect="off"
                       spellCheck={false}
-                      placeholder="Örn: 908503607390"
+                      placeholder="Boş bırakılırsa arayan numara / hat DID kullanılır"
                       className={`w-full text-sm px-4 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 focus:outline-none focus:ring-2 ${ring} text-slate-800 dark:text-white transition-all`}
                     />
+                  </div>
+                </div>
+
+                {/* CallerID Eşleşmesi & Numara Formatı (Transit / Çoklu Hat Seçimi) */}
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-6 p-4 rounded-xl bg-emerald-50/40 dark:bg-emerald-950/15 border border-emerald-200/70 dark:border-emerald-900/40">
+                  <div className="md:col-span-2">
+                    <label htmlFor="outbound-rule-cid-patterns" className="block text-xs font-bold text-emerald-800 dark:text-emerald-300 mb-1.5">
+                      Arayan Numara (CallerID / DID) Eşleşmesi (Opsiyonel — Transit & Hat Seçimi)
+                    </label>
+                    <input
+                      id="outbound-rule-cid-patterns"
+                      type="text"
+                      name="caller_id_patterns_text"
+                      value={formData.caller_id_patterns_text}
+                      onChange={handleChange}
+                      autoCorrect="off"
+                      spellCheck={false}
+                      placeholder="Örn: 02121112233, 02121112234 veya 0212555. (Boş = Tüm Arayanlar)"
+                      className={`w-full text-sm font-mono px-4 py-2 rounded-xl border border-emerald-200 dark:border-emerald-800 bg-white dark:bg-slate-900 focus:outline-none focus:ring-2 ${ring} text-slate-800 dark:text-white transition-all`}
+                    />
+                    <p className="text-[10.5px] text-slate-500 dark:text-slate-400 mt-1 leading-relaxed">
+                      Diğer santralden gelen dış aramalarda <code className="font-mono">From/PAI</code> içinde bu numaralarla eşleşen çağrılar (0212 / 90212 / +90212 otomatik eşlenir) doğrudan bu kuralın dış hattından çıkarılır. Önek (Prefix) kullanmak için arama düzenine <code className="font-mono">91.</code> yazıp <code className="font-mono">Çıkar: 2</code> verebilirsiniz.
+                    </p>
+                  </div>
+                  <div>
+                    <label htmlFor="outbound-rule-num-fmt" className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">
+                      Operatöre Giden Numara Formatı
+                    </label>
+                    <select
+                      id="outbound-rule-num-fmt"
+                      name="number_format_mode"
+                      value={formData.number_format_mode || "auto"}
+                      onChange={handleChange}
+                      className={`w-full text-sm px-3.5 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 focus:outline-none focus:ring-2 ${ring} text-slate-800 dark:text-white transition-all`}
+                    >
+                      <option value="auto">Otomatik (90... E.164)</option>
+                      <option value="passthrough">Aynen İlet (Değiştirme)</option>
+                    </select>
+                    <p className="text-[10px] text-slate-400 mt-1">
+                      Operatör <code className="font-mono">0532...</code> bekliyorsa <strong>Aynen İlet</strong> seçin.
+                    </p>
                   </div>
                 </div>
               </div>
