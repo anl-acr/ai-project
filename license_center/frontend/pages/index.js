@@ -2856,10 +2856,10 @@ export default function MasterDashboard() {
                     />
                   </div>
 
-                  {/* Tolerans Eş Zamanlı Çağrı Adeti (+Kanal) */}
+                  {/* Tolerans Eş Zamanlı Çağrı Adeti */}
                   <div>
-                    <label className="block text-amber-600 dark:text-amber-400 font-extrabold mb-1" title="0 girilirse ana limit dolduğunda çağrı durdurulur. 1 veya üstü girilirse çağrı kesilmez, +N tolerans kanalı devreye girer ve E-Posta / WhatsApp bildirimi gönderilir.">
-                      Tolerans Çağrı Kanalı (+Adet)
+                    <label className="block text-amber-600 dark:text-amber-400 font-extrabold mb-1 whitespace-nowrap" title="0 girilirse ana limit dolduğunda çağrı durdurulur. 1 veya üstü girilirse çağrı kesilmez, +N tolerans kanalı devreye girer ve E-Posta / WhatsApp bildirimi gönderilir.">
+                      Tolerans Çağrı Kanalı
                     </label>
                     <input
                       type="number"

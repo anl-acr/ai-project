@@ -38907,18 +38907,31 @@ async def get_system_version_info():
         pass
 
     return {
-        "version": "v3.2.7",
+        "version": "v3.2.8",
         "commit_hash": live_commit,
         "release_date": "20 Kasım 2026",
         "status": "Güncel / Canlı Sürüm",
         "environment": "Production (On-Premise)",
         "changelog": [
             {
-                "version": "v3.2.7",
+                "version": "v3.2.8",
                 "commit_hash": live_commit,
                 "release_date": "20 Kasım 2026",
                 "badge": "Canlı Sürüm (Güncel)",
                 "badge_type": "current",
+                "title": "Lisans Yenileme Stüdyosu 'Tolerans Çağrı Kanalı' Hizalama Düzeltmesi",
+                "summary": "Lisans Yenileme Stüdyosu penceresindeki 'Tolerans Çağrı Kanalı (+Adet)' etiketinden '(+Adet)' kaldırılarak kutucuk hizalaması düzeltildi.",
+                "features": [],
+                "fixes": [
+                    "Lisans düzenleme penceresinde 'Tolerans Çağrı Kanalı' başlığındaki '(+Adet)' ibaresi kaldırılarak satır kayması giderildi."
+                ]
+            },
+            {
+                "version": "v3.2.7",
+                "commit_hash": "22eeb6a",
+                "release_date": "20 Kasım 2026",
+                "badge": "Önceki Sürüm",
+                "badge_type": "stable",
                 "title": "Nornia Cloud Center İşlem Logları Başlık Sadeleştirmesi",
                 "summary": "İşlem ve Denetim Kayıtları penceresinin üst sağındaki Yenile (Refresh) butonu kaldırıldı.",
                 "features": [],
