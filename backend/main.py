@@ -38886,18 +38886,34 @@ async def get_system_version_info():
         pass
 
     return {
-        "version": "v3.0.9",
+        "version": "v3.1.0",
         "commit_hash": live_commit,
         "release_date": "20 Kasım 2026",
         "status": "Güncel / Canlı Sürüm",
         "environment": "Production (On-Premise)",
         "changelog": [
             {
-                "version": "v3.0.9",
+                "version": "v3.1.0",
                 "commit_hash": live_commit,
                 "release_date": "20 Kasım 2026",
                 "badge": "Canlı Sürüm (Güncel)",
                 "badge_type": "current",
+                "title": "Nornia Cloud Center Başlık Sadeleştirme (Merkezi Lisans & Tünel Sunucusu)",
+                "summary": "Nornia Cloud Center üst başlığındaki sürüm/lisans rozeti kaldırılarak alt başlık 'Merkezi Lisans & Tünel Sunucusu' olarak güncellendi.",
+                "features": [
+                    {
+                        "title": "🏷️ Sadeleştirilmiş Üst Başlık & Giriş Alt Başlığı",
+                        "desc": "'v2.5 Master' rozeti kaldırıldı ve başlık alt metni 'Merkezi Lisans & Tünel Sunucusu' olarak güncellendi."
+                    }
+                ],
+                "fixes": []
+            },
+            {
+                "version": "v3.0.9",
+                "commit_hash": "6b5db31",
+                "release_date": "20 Kasım 2026",
+                "badge": "Önceki Sürüm",
+                "badge_type": "stable",
                 "title": "Nornia Cloud Center İkon Tabanlı Görünüm Seçici",
                 "summary": "Nornia Cloud Center Kartlar / Tablo görünüm seçici üzerindeki metin etiketleri kaldırılarak yalnızca ikonlardan oluşan kompakt tasarıma geçildi.",
                 "features": [

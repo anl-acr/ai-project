@@ -266,7 +266,7 @@ export default function LoginModal({ onLoginSuccess, idleLogoutMessage = "" }) {
                 ? isTwoStageAll
                   ? `2 Aşamalı Zorunlu Doğrulama (Adım ${currentStepIdx + 1}/${availableMethods.length})`
                   : "2 Aşamalı Güvenlik Doğrulaması (2FA)"
-                : "Merkezi Lisans Otoritesi & Bulut Filo Yönetimi"}
+                : "Merkezi Lisans & Tünel Sunucusu"}
             </p>
           </div>
         </div>

@@ -1050,7 +1050,7 @@ export default function MasterDashboard() {
   return (
     <div className="min-h-screen bg-slate-50 dark:bg-[#090d16] text-slate-900 dark:text-slate-100 transition-colors duration-200 flex flex-col font-sans">
       <Head>
-        <title>Nornia Cloud Center — Merkezi Lisans &amp; Filo Yönetimi</title>
+        <title>Nornia Cloud Center — Merkezi Lisans &amp; Tünel Sunucusu</title>
         <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
       </Head>
 
@@ -1061,16 +1061,11 @@ export default function MasterDashboard() {
             <img src="/favicon.svg" alt="Nornia" className="w-full h-full object-contain" />
           </div>
           <div>
-            <div className="flex items-center gap-2">
-              <h1 className="text-base font-extrabold tracking-tight bg-gradient-to-r from-slate-900 via-indigo-900 to-slate-800 dark:from-white dark:via-indigo-200 dark:to-slate-300 bg-clip-text text-transparent">
-                Nornia Cloud Center
-              </h1>
-              <span className="text-[10px] bg-indigo-500/10 dark:bg-indigo-500/20 text-indigo-600 dark:text-indigo-300 border border-indigo-500/20 dark:border-indigo-500/30 px-2 py-0.5 rounded-full font-extrabold tracking-wide">
-                v2.5 Master
-              </span>
-            </div>
+            <h1 className="text-base font-extrabold tracking-tight bg-gradient-to-r from-slate-900 via-indigo-900 to-slate-800 dark:from-white dark:via-indigo-200 dark:to-slate-300 bg-clip-text text-transparent">
+              Nornia Cloud Center
+            </h1>
             <p className="text-[11px] text-slate-500 dark:text-slate-400 font-medium">
-              Merkezi Lisans Otoritesi, Nornia Connect &amp; Filo Yönetim Konsolu
+              Merkezi Lisans &amp; Tünel Sunucusu
             </p>
           </div>
         </div>
