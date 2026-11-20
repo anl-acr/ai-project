@@ -35,6 +35,7 @@ from license_center.backend.models import (
     MasterAuditLog,
     MasterBlockedIP,
     MasterSecurityPolicy,
+    MasterPackageTemplate,
 )
 from license_center.backend.license_generator import (
     generate_signed_license_key,
@@ -2183,6 +2184,118 @@ async def get_client_telemetry_dashboard(client_id: int, db: AsyncSession = Depe
         "history": history_series,
         "system_logs": ((live_stats or {}).get("system_logs") or [])[:15],
     }
+
+# --------------------------------------------------------------------------
+# Package Template Management (Feature-Based License Tiers)
+# --------------------------------------------------------------------------
+@app.get("/api/v1/packages")
+async def list_package_templates(db: AsyncSession = Depends(get_central_db)):
+    """Returns all customized feature-based license package templates stored in DB."""
+    res = await db.execute(select(MasterPackageTemplate).order_by(MasterPackageTemplate.id.asc()))
+    rows = res.scalars().all()
+    items = []
+    for r in rows:
+        cfg = {}
+        try:
+            cfg = json.loads(r.config_json or "{}")
+            if not isinstance(cfg, dict):
+                cfg = {}
+        except Exception:
+            cfg = {}
+        items.append({
+            "tier_key": r.tier_key,
+            "name": r.name,
+            "tagline": r.tagline or "",
+            "allowed_features": cfg.get("allowed_features"),
+            "allowed_sub_features": cfg.get("allowed_sub_features"),
+            "allowed_stt_providers": cfg.get("allowed_stt_providers"),
+            "allowed_tts_providers": cfg.get("allowed_tts_providers"),
+            "allowed_llm_providers": cfg.get("allowed_llm_providers"),
+            "unlicensed_module_mode": cfg.get("unlicensed_module_mode", "hidden"),
+            "is_customized": True,
+            "updated_at": r.updated_at.isoformat() if r.updated_at else None,
+        })
+    return {"packages": items}
+
+
+@app.put("/api/v1/packages/{tier_key}")
+async def upsert_package_template(tier_key: str, request: Request, payload: Dict[str, Any] = Body(...), db: AsyncSession = Depends(get_central_db)):
+    """Creates or updates a feature-based package template override."""
+    clean_key = (tier_key or "").strip().lower()
+    if clean_key not in ("trial", "starter", "professional", "enterprise", "unlimited"):
+        raise HTTPException(status_code=400, detail="Geçersiz paket anahtarı.")
+
+    res = await db.execute(select(MasterPackageTemplate).where(MasterPackageTemplate.tier_key == clean_key))
+    row = res.scalars().first()
+
+    cfg = {
+        "allowed_features": payload.get("allowed_features") if isinstance(payload.get("allowed_features"), list) else [],
+        "allowed_sub_features": payload.get("allowed_sub_features") if isinstance(payload.get("allowed_sub_features"), list) else [],
+        "allowed_stt_providers": payload.get("allowed_stt_providers") if isinstance(payload.get("allowed_stt_providers"), list) else [],
+        "allowed_tts_providers": payload.get("allowed_tts_providers") if isinstance(payload.get("allowed_tts_providers"), list) else [],
+        "allowed_llm_providers": payload.get("allowed_llm_providers") if isinstance(payload.get("allowed_llm_providers"), list) else [],
+        "unlicensed_module_mode": str(payload.get("unlicensed_module_mode") or "hidden"),
+    }
+    name = str(payload.get("name") or clean_key.title()).strip()
+    tagline = str(payload.get("tagline") or "").strip()
+
+    if not row:
+        row = MasterPackageTemplate(
+            tier_key=clean_key,
+            name=name,
+            tagline=tagline,
+            config_json=json.dumps(cfg),
+        )
+        db.add(row)
+    else:
+        row.name = name
+        row.tagline = tagline
+        row.config_json = json.dumps(cfg)
+
+    await db.commit()
+    await db.refresh(row)
+
+    performed_by = request.headers.get("X-User-Name", "admin")
+    await log_master_action(
+        db,
+        performed_by,
+        "PACKAGE_TEMPLATE_UPDATE",
+        f"Lisans Paket Şablonu Güncellendi: {name} ({clean_key}) — {len(cfg['allowed_features'])} modül, {len(cfg['allowed_sub_features'])} alt özellik",
+        extract_client_ip(request),
+    )
+
+    return {
+        "success": True,
+        "package": {
+            "tier_key": row.tier_key,
+            "name": row.name,
+            "tagline": row.tagline or "",
+            **cfg,
+            "is_customized": True,
+            "updated_at": row.updated_at.isoformat() if row.updated_at else None,
+        },
+    }
+
+
+@app.post("/api/v1/packages/{tier_key}/reset")
+async def reset_package_template(tier_key: str, request: Request, db: AsyncSession = Depends(get_central_db)):
+    """Deletes custom override for a package tier so it reverts to built-in defaults."""
+    clean_key = (tier_key or "").strip().lower()
+    res = await db.execute(select(MasterPackageTemplate).where(MasterPackageTemplate.tier_key == clean_key))
+    row = res.scalars().first()
+    if row:
+        await db.delete(row)
+        await db.commit()
+        performed_by = request.headers.get("X-User-Name", "admin")
+        await log_master_action(
+            db,
+            performed_by,
+            "PACKAGE_TEMPLATE_RESET",
+            f"Lisans Paket Şablonu Varsayılana Sıfırlandı: {clean_key}",
+            extract_client_ip(request),
+        )
+    return {"success": True, "tier_key": clean_key}
+
 
 # --------------------------------------------------------------------------
 # License Key Generator Studio

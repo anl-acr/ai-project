@@ -3850,7 +3850,9 @@ export default function Home() {
     "event-logs": "logs",
     troubleshooting: "troubleshooting",
     "sip-debugger": "troubleshooting",
-    security: "security"
+    security: "security",
+    "smart-callback": "smart_callback",
+    "reports-agent-status-timeline": "agent_timeline"
   };
 
   const resolveTabLicenseFeature = (tabId) => {
@@ -5994,6 +5996,7 @@ export default function Home() {
               currentUser={currentUser} 
               activeCallId={activeCallId} 
               isVisible={activeTab === "call-center" && isTabLicensed("call-center")}
+              licenseStatus={licenseStatus}
               initialPermissions={currentRolePermissions}
             />
           </div>

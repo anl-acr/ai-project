@@ -53,6 +53,20 @@ import UserManagementModal from "../components/UserManagementModal";
 import AuditLogsModal from "../components/AuditLogsModal";
 import SecuritySettingsModal from "../components/SecuritySettingsModal";
 import AccountSettingsModal, { getUserInitials } from "../components/AccountSettingsModal";
+import PackageTemplatesModal from "../components/PackageTemplatesModal";
+import {
+  STT_PROVIDER_LIST,
+  TTS_PROVIDER_LIST,
+  LLM_PROVIDER_LIST,
+  SANTRAL_MODULE_CATEGORIES,
+  ALL_SANTRAL_MODULE_IDS,
+  SUB_FEATURE_LIST,
+  ALL_SUB_FEATURE_IDS,
+  DEFAULT_PACKAGE_TEMPLATES,
+  PACKAGE_TIER_ORDER,
+  mergePackageTemplates,
+  computeDatePlusDaysISO
+} from "../utils/licensePackages";
 
 const API_BASE = "";
 
@@ -209,6 +223,8 @@ export default function MasterDashboard() {
   const [initialEditUserId, setInitialEditUserId] = useState(null);
   const [showAuditLogsModal, setShowAuditLogsModal] = useState(false);
   const [showSecurityModal, setShowSecurityModal] = useState(false);
+  const [showPackagesModal, setShowPackagesModal] = useState(false);
+  const [packageTemplates, setPackageTemplates] = useState(() => mergePackageTemplates([]));
   const [showAvatarMenu, setShowAvatarMenu] = useState(false);
   const avatarMenuRef = useRef(null);
   const [showAccountSettingsModal, setShowAccountSettingsModal] = useState(false);
@@ -682,8 +698,19 @@ export default function MasterDashboard() {
     };
   }, [showTopbarSearch]);
 
+  const fetchPackageTemplates = async () => {
+    try {
+      const resPkg = await fetch(`${API_BASE}/api/v1/packages`);
+      if (resPkg.ok) {
+        const dPkg = await resPkg.json();
+        setPackageTemplates(mergePackageTemplates(dPkg?.packages || []));
+      }
+    } catch (e) {}
+  };
+
   useEffect(() => {
     fetchData();
+    fetchPackageTemplates();
     const interval = setInterval(fetchData, 15000); // Auto-refresh fleet every 15s
     return () => clearInterval(interval);
   }, []);
@@ -712,16 +739,41 @@ export default function MasterDashboard() {
   const toggleNewProvider = (listState, setListState, providerId) => {
     setListState((prev) => {
       if (prev.includes(providerId)) {
-        if (prev.length <= 1) return prev;
         return prev.filter((id) => id !== providerId);
       }
       return [...prev, providerId];
     });
   };
 
+  const handleSelectNewPlanTier = (nextTier) => {
+    setPlanTier(nextTier);
+    const tpl = (packageTemplates && packageTemplates[nextTier]) || DEFAULT_PACKAGE_TEMPLATES[nextTier];
+    if (!tpl) return;
+    setNewAllowedStt(Array.isArray(tpl.allowed_stt_providers) ? [...tpl.allowed_stt_providers] : []);
+    setNewAllowedTts(Array.isArray(tpl.allowed_tts_providers) ? [...tpl.allowed_tts_providers] : []);
+    setNewAllowedLlm(Array.isArray(tpl.allowed_llm_providers) ? [...tpl.allowed_llm_providers] : []);
+    if (tpl.auto_expiry_days) {
+      setExpiryDate(computeDatePlusDaysISO(tpl.auto_expiry_days));
+    } else if (tpl.auto_unlimited) {
+      setExpiryDate("unlimited");
+    }
+  };
+
   const handleCreateClient = async (e) => {
     e.preventDefault();
     if (!companyName || !tenantCode) return;
+
+    const tpl = (packageTemplates && packageTemplates[planTier]) || DEFAULT_PACKAGE_TEMPLATES[planTier] || DEFAULT_PACKAGE_TEMPLATES.professional;
+    const tplFeatures = Array.isArray(tpl.allowed_features)
+      ? tpl.allowed_features.includes("*")
+        ? ["*"]
+        : [...tpl.allowed_features]
+      : [...ALL_SANTRAL_MODULE_IDS];
+    const tplSubs = Array.isArray(tpl.allowed_sub_features)
+      ? tpl.allowed_sub_features.includes("*")
+        ? ["*"]
+        : [...tpl.allowed_sub_features]
+      : [...ALL_SUB_FEATURE_IDS];
 
     try {
       const res = await fetch(`${API_BASE}/api/v1/clients`, {
@@ -734,14 +786,19 @@ export default function MasterDashboard() {
           company_name: companyName,
           tenant_code: tenantCode.toLowerCase().trim(),
           hardware_id: hardwareId.trim() || "UNBOUND",
-          license_expires_at: expiryDate,
+          license_expires_at: tpl.auto_unlimited ? "unlimited" : expiryDate,
           plan_tier: planTier,
           custom_quotas: {
+            plan_tier: planTier,
+            is_unlimited: Boolean(tpl.auto_unlimited),
             max_concurrent_calls: parseInt(newMaxConcurrentCalls, 10) || 4,
             tolerance_concurrent_calls: Math.max(0, parseInt(newToleranceConcurrentCalls, 10) || 0),
             allowed_stt_providers: newAllowedStt,
             allowed_tts_providers: newAllowedTts,
-            allowed_llm_providers: newAllowedLlm
+            allowed_llm_providers: newAllowedLlm,
+            allowed_features: tplFeatures,
+            allowed_sub_features: tplSubs,
+            unlicensed_module_mode: tpl.unlicensed_module_mode || "hidden"
           }
         })
       });
@@ -804,27 +861,6 @@ export default function MasterDashboard() {
     { key: "max_scenarios", label: "Senaryo Editörü", defaultVal: 30, unit: "Akış" }
   ];
 
-  const STT_PROVIDER_LIST = [
-    { id: "google", label: "Google Gemini STT (Dahili)" },
-    { id: "deepgram", label: "Deepgram Nova-2 STT" },
-    { id: "openai", label: "OpenAI Whisper STT" },
-    { id: "elevenlabs", label: "ElevenLabs Scribe / ConvAI STT" }
-  ];
-
-  const TTS_PROVIDER_LIST = [
-    { id: "google", label: "Google Gemini Dahili Ses Motoru" },
-    { id: "elevenlabs", label: "ElevenLabs TTS (Kütüphane & Klon Ses)" },
-    { id: "openai", label: "OpenAI TTS (Alloy / Nova / Shimmer)" }
-  ];
-
-  const LLM_PROVIDER_LIST = [
-    { id: "google", label: "Google Gemini (Multimodal Live)" },
-    { id: "elevenlabs", label: "ElevenLabs (Conversational AI)" },
-    { id: "openai", label: "OpenAI (GPT-4o / Realtime)" },
-    { id: "anthropic", label: "Anthropic (Claude 3.5 Sonnet)" },
-    { id: "groq", label: "Groq (Fast LLM - Llama 3)" }
-  ];
-
   const PBX_QUOTA_FIELDS = [
     { key: "max_concurrent_calls", label: "Eş Zamanlı Çağrı Kanalı (AI+Dialer+User)", defaultVal: 4, unit: "Kanal" },
     { key: "tolerance_concurrent_calls", label: "Tolerans Eş Zamanlı Çağrı (+Kanal)", defaultVal: 0, unit: "+Kanal" },
@@ -847,134 +883,6 @@ export default function MasterDashboard() {
   const FLOW_QUOTA_FIELDS = [
     { key: "max_call_flows", label: "Arama Akış Yönetimi (Workflows)", defaultVal: 20, unit: "Akış" },
     { key: "max_dialers", label: "Dış Arama Dialer", defaultVal: 10, unit: "Dialer" }
-  ];
-
-  const SANTRAL_MODULE_CATEGORIES = [
-    {
-      id: "operations",
-      title: "Operasyon & Canlı İzleme",
-      items: [
-        { id: "dashboard", label: "Gerçek Zamanlı AI Pano" },
-        { id: "wallboard", label: "Canlı İzleme Paneli (Wallboard)" },
-        { id: "realtime_calls", label: "Canlı Çağrı İzleme & Müdahale" },
-        { id: "supervisor", label: "Süpervizör İşlemleri" },
-        { id: "call_monitor", label: "Dinleme / Sufle / Araya Girme" },
-        { id: "call_panel", label: "Temsilci Çağrı Paneli (WebPhone)" },
-        { id: "cti_integration", label: "CTI & CRM Entegrasyonu" },
-        { id: "customer_360", label: "Müşteri 360° Kartı" },
-        { id: "callback_tasks", label: "Geri Arama Planlayıcı" },
-        { id: "crisis_alerts", label: "Canlı Kriz & Duygu Radarı" },
-        { id: "live_translator", label: "Canlı Çeviri & Simultane Tercüman" },
-        { id: "omnichannel", label: "Ortak Gelen Kutusu (Omnichannel)" },
-        { id: "api_budgets", label: "API Bütçe ve Tüketim" }
-      ]
-    },
-    {
-      id: "ai",
-      title: "Yapay Zeka & Bilgi Bankası",
-      items: [
-        { id: "ai_agents", label: "AI Temsilcileri" },
-        { id: "ai_config_assistant", label: "AI Konfigürasyon Asistanı" },
-        { id: "rag_kb", label: "Bilgi Bankası (RAG)" },
-        { id: "rule_editor", label: "Kural & Senaryo Editörü" },
-        { id: "ai_providers", label: "Yapay Zeka API Ayarları" },
-        { id: "ai_task_routing", label: "AI Görev & Model Yönlendirme" }
-      ]
-    },
-    {
-      id: "pbx",
-      title: "Santral & Haberleşme",
-      items: [
-        { id: "users", label: "Kullanıcılar & Dahililer" },
-        { id: "announcements", label: "Anons Yönetimi" },
-        { id: "acd_queues", label: "ACD Kuyruk" },
-        { id: "autoprovision", label: "Oto Provizyon" },
-        { id: "outbound_rules", label: "Giden Arama Kuralı" },
-        { id: "inbound_rules", label: "Gelen Arama Kuralı" },
-        { id: "call_pickup_groups", label: "Çağrı Toplama Grubu" },
-        { id: "subscriber_groups", label: "Abone Grubu" },
-        { id: "bulk_config", label: "Toplu Konfigürasyon Merkezi" },
-        { id: "contacts", label: "Rehber" },
-        { id: "trunks", label: "Dış Hat Tanımı (SIP Trunk)" },
-        { id: "conferences", label: "Konferans Odaları" },
-        { id: "speed_dials", label: "Hızlı Arama" },
-        { id: "blacklist", label: "Numara Engelleme" },
-        { id: "scheduled_reports", label: "Zamanlanmış Raporlar" }
-      ]
-    },
-    {
-      id: "routing",
-      title: "Çağrı Akışı & Yönlendirme",
-      items: [
-        { id: "call_flow", label: "Arama Akış Yönetimi (IVR)" },
-        { id: "work_hours", label: "Mesai Saatleri & Resmi Tatiller" },
-        { id: "dialer", label: "Dış Arama (Auto-Dialer)" },
-        { id: "calendar", label: "Randevu Takvimi" }
-      ]
-    },
-    {
-      id: "reports",
-      title: "Raporlama & İleri Analitik",
-      items: [
-        { id: "reports_all", label: "Tüm Standart & Kurumsal Raporlar" },
-        { id: "reports_custom_builder", label: "Özel Rapor Tasarımcısı & AI Rapor" },
-        { id: "reports_pano", label: "Rapor Panosu" },
-        { id: "reports_cdr", label: "CDR Çağrı Kayıtları" },
-        { id: "reports_audio", label: "Ses Kayıtları" },
-        { id: "reports_transcripts", label: "Çağrı Transkriptleri" },
-        { id: "reports_sentiment", label: "Duygu Analizi & Isı Haritası" },
-        { id: "reports_qa", label: "AI Kalite Değerlendirmeleri" },
-        { id: "reports_perf", label: "Temsilci Performans & KPI" },
-        { id: "reports_roi", label: "AI vs İnsan ROI Paneli" },
-        { id: "reports_ceo_summary", label: "CEO Özet Raporu" }
-      ]
-    },
-    {
-      id: "settings_integrations",
-      title: "Entegrasyonlar, Kalite & Sistem",
-      items: [
-        { id: "pbx", label: "Santral Entegrasyonu" },
-        { id: "qa", label: "Çağrı Kalite Kontrol Ayarları" },
-        { id: "locations", label: "Lokasyon ve Departmanlar" },
-        { id: "numbering_plan", label: "Numara Planı" },
-        { id: "lang_detect", label: "Otomatik Dil Algılama" },
-        { id: "emotion_management", label: "Dinamik Duygu Yönetimi" },
-        { id: "ai_whisper", label: "AI Fısıldama Yönetimi" },
-        { id: "voice_biometrics", label: "Biyometrik Ses Analizi" },
-        { id: "channels", label: "Kanal Entegrasyonları" },
-        { id: "breaks", label: "Mola Tanımları" },
-        { id: "canned_responses", label: "Hızlı Cevaplar" },
-        { id: "crm_integrations", label: "Hazır CRM Entegrasyon Marketi" },
-        { id: "active_directory", label: "Active Directory (LDAP & SSO)" },
-        { id: "universal_api", label: "Evrensel API Sihirbazı" },
-        { id: "api_management", label: "Kurumsal Dış API & Token" },
-        { id: "autoprovision_templates", label: "Otoprovizyon Şablonları" },
-        { id: "roi_settings", label: "ROI Rapor Ayarları" },
-        { id: "ssl", label: "SSL Sertifikaları" },
-        { id: "backup_restore", label: "Sistem Yedekleme" },
-        { id: "recording_retention", label: "Kayıt & Saklama Sistemi" },
-        { id: "email_notifications", label: "E-Mail Bildirimleri" },
-        { id: "restore_points", label: "Geri Yükleme Noktası" },
-        { id: "system_status", label: "Sistem Panosu & Sağlık" },
-        { id: "logs", label: "Olay Günlükleri" },
-        { id: "security", label: "Güvenlik Kalkanı" }
-      ]
-    }
-  ];
-
-  const ALL_SANTRAL_MODULE_IDS = SANTRAL_MODULE_CATEGORIES.flatMap((c) => c.items.map((i) => i.id));
-
-  const SUB_FEATURE_LIST = [
-    { id: "whatsapp", label: "WhatsApp Business Cloud API Kanalı" },
-    { id: "instagram_meta", label: "Instagram & Facebook Messenger Kanalı" },
-    { id: "telegram", label: "Telegram Bot Kanalı" },
-    { id: "email", label: "E-Posta (IMAP/SMTP) Kanalı" },
-    { id: "live_translation", label: "WebPhone: Anlık Altyazı Konuşma Çevirisi" },
-    { id: "voice_interpreter", label: "WebPhone: Simultane Çift Yönlü Sesli Tercüman" },
-    { id: "ai_note_assistant", label: "WebPhone: AI Çağrı Özeti & Sonuç Kodu Asistanı" },
-    { id: "call_monitor", label: "Süpervizör: Canlı Dinleme / Sufle / Araya Girme" },
-    { id: "pause_recording", label: "KVKK & Kredi Kartı Ses Kaydı Maskeleme" },
-    { id: "cti_screen_pop", label: "CTI Müşteri Kartı Otomatik Açma (Screen Pop)" }
   ];
 
   const [genCustomQuotas, setGenCustomQuotas] = useState({});
@@ -1001,22 +909,22 @@ export default function MasterDashboard() {
     [...AI_QUOTA_FIELDS, ...PBX_QUOTA_FIELDS, ...FLOW_QUOTA_FIELDS].forEach(f => {
       initQ[f.key] = existingQuotas[f.key] !== undefined ? existingQuotas[f.key] : f.defaultVal;
     });
-    initQ.allowed_stt_providers = Array.isArray(existingQuotas.allowed_stt_providers) && existingQuotas.allowed_stt_providers.length > 0
+    initQ.allowed_stt_providers = Array.isArray(existingQuotas.allowed_stt_providers)
       ? existingQuotas.allowed_stt_providers
       : STT_PROVIDER_LIST.map(p => p.id);
-    initQ.allowed_tts_providers = Array.isArray(existingQuotas.allowed_tts_providers) && existingQuotas.allowed_tts_providers.length > 0
+    initQ.allowed_tts_providers = Array.isArray(existingQuotas.allowed_tts_providers)
       ? existingQuotas.allowed_tts_providers
       : TTS_PROVIDER_LIST.map(p => p.id);
-    initQ.allowed_llm_providers = Array.isArray(existingQuotas.allowed_llm_providers) && existingQuotas.allowed_llm_providers.length > 0
+    initQ.allowed_llm_providers = Array.isArray(existingQuotas.allowed_llm_providers)
       ? existingQuotas.allowed_llm_providers
       : LLM_PROVIDER_LIST.map(p => p.id);
 
     initQ.allowed_features = Array.isArray(existingQuotas.allowed_features) && existingQuotas.allowed_features.length > 0 && !existingQuotas.allowed_features.includes("*")
       ? existingQuotas.allowed_features
-      : ALL_SANTRAL_MODULE_IDS;
-    initQ.allowed_sub_features = Array.isArray(existingQuotas.allowed_sub_features) && existingQuotas.allowed_sub_features.length > 0 && !existingQuotas.allowed_sub_features.includes("*")
+      : [...ALL_SANTRAL_MODULE_IDS];
+    initQ.allowed_sub_features = Array.isArray(existingQuotas.allowed_sub_features) && !existingQuotas.allowed_sub_features.includes("*")
       ? existingQuotas.allowed_sub_features
-      : SUB_FEATURE_LIST.map(s => s.id);
+      : [...ALL_SUB_FEATURE_IDS];
     initQ.unlicensed_module_mode = existingQuotas.unlicensed_module_mode || "hidden";
     initQ.hide_provider_infra_from_customer_admin = existingQuotas.hide_provider_infra_from_customer_admin !== undefined
       ? Boolean(existingQuotas.hide_provider_infra_from_customer_admin)
@@ -1031,25 +939,55 @@ export default function MasterDashboard() {
     setGenCustomQuotas(initQ);
   };
 
+  const applyPackageTemplateToKeyGen = (tierKey) => {
+    const tpl = (packageTemplates && packageTemplates[tierKey]) || DEFAULT_PACKAGE_TEMPLATES[tierKey];
+    if (!tpl) return;
+    setGenPlanTier(tierKey);
+
+    const featList = Array.isArray(tpl.allowed_features)
+      ? tpl.allowed_features.includes("*")
+        ? [...ALL_SANTRAL_MODULE_IDS]
+        : [...tpl.allowed_features]
+      : [...ALL_SANTRAL_MODULE_IDS];
+    const subList = Array.isArray(tpl.allowed_sub_features)
+      ? tpl.allowed_sub_features.includes("*")
+        ? [...ALL_SUB_FEATURE_IDS]
+        : [...tpl.allowed_sub_features]
+      : [...ALL_SUB_FEATURE_IDS];
+
+    // Apply ONLY feature/module/AI-engine template — preserve customer-specific user/channel quotas!
+    setGenCustomQuotas((prev) => ({
+      ...prev,
+      allowed_features: featList,
+      allowed_sub_features: subList,
+      allowed_stt_providers: Array.isArray(tpl.allowed_stt_providers) ? [...tpl.allowed_stt_providers] : [],
+      allowed_tts_providers: Array.isArray(tpl.allowed_tts_providers) ? [...tpl.allowed_tts_providers] : [],
+      allowed_llm_providers: Array.isArray(tpl.allowed_llm_providers) ? [...tpl.allowed_llm_providers] : [],
+      unlicensed_module_mode: tpl.unlicensed_module_mode || prev.unlicensed_module_mode || "hidden"
+    }));
+
+    if (tpl.auto_unlimited) {
+      setGenIsUnlimited(true);
+    } else if (tpl.auto_expiry_days) {
+      setGenIsUnlimited(false);
+      setGenExpiryDate(computeDatePlusDaysISO(tpl.auto_expiry_days));
+    } else if (genIsUnlimited) {
+      setGenIsUnlimited(false);
+      if (!genExpiryDate) {
+        setGenExpiryDate(computeDatePlusDaysISO(365));
+      }
+    }
+  };
+
   const applyModulePreset = (presetType) => {
     if (presetType === "all") {
-      setGenCustomQuotas((prev) => ({ ...prev, allowed_features: [...ALL_SANTRAL_MODULE_IDS] }));
-    } else if (presetType === "pbx_only") {
-      const pbxAndRoutingIds = [
-        "call_panel", "users", "announcements", "acd_queues", "autoprovision",
-        "outbound_rules", "inbound_rules", "call_pickup_groups", "subscriber_groups",
-        "bulk_config", "contacts", "trunks", "conferences", "speed_dials", "blacklist",
-        "call_flow", "work_hours", "reports_pano", "reports_cdr", "reports_audio",
-        "pbx", "locations", "numbering_plan", "breaks", "autoprovision_templates",
-        "ssl", "backup_restore", "recording_retention", "email_notifications",
-        "restore_points", "system_status", "logs", "security"
-      ];
-      setGenCustomQuotas((prev) => ({ ...prev, allowed_features: pbxAndRoutingIds }));
+      applyPackageTemplateToKeyGen("enterprise");
+    } else if (presetType === "pbx_only" || presetType === "starter") {
+      applyPackageTemplateToKeyGen("starter");
     } else if (presetType === "professional") {
-      const proIds = ALL_SANTRAL_MODULE_IDS.filter(
-        (id) => !["voice_biometrics", "live_translator", "crisis_alerts", "reports_custom_builder", "active_directory"].includes(id)
-      );
-      setGenCustomQuotas((prev) => ({ ...prev, allowed_features: proIds }));
+      applyPackageTemplateToKeyGen("professional");
+    } else if (presetType === "enterprise" || presetType === "unlimited" || presetType === "trial") {
+      applyPackageTemplateToKeyGen(presetType);
     }
   };
 
@@ -1071,7 +1009,6 @@ export default function MasterDashboard() {
     setGenCustomQuotas(prev => {
       const currentList = Array.isArray(prev[quotaKey]) ? prev[quotaKey] : [];
       if (currentList.includes(providerId)) {
-        if (currentList.length <= 1) return prev; // Keep at least 1 selected
         return { ...prev, [quotaKey]: currentList.filter(id => id !== providerId) };
       } else {
         return { ...prev, [quotaKey]: [...currentList, providerId] };
@@ -1370,6 +1307,15 @@ export default function MasterDashboard() {
         </div>
 
         <div className="flex items-center gap-2.5">
+          <button
+            onClick={() => setShowPackagesModal(true)}
+            className="px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors flex items-center gap-1.5 text-xs font-bold cursor-pointer shadow-xs dark:shadow-none"
+            title="Lisans Paket Şablonlarını Düzenle (Starter / Professional / Enterprise Özellikleri)"
+          >
+            <Layers size={14} className="text-purple-600 dark:text-purple-400" />
+            <span className="hidden sm:inline">Paketler</span>
+          </button>
+
           <button
             onClick={() => setShowSecurityModal(true)}
             className="px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors flex items-center gap-1.5 text-xs font-bold cursor-pointer shadow-xs dark:shadow-none"
@@ -2707,15 +2653,20 @@ export default function MasterDashboard() {
                 </div>
 
                 <div>
-                  <label className="block text-slate-600 dark:text-slate-400 mb-1">Paket Türü</label>
+                  <label className="block text-slate-600 dark:text-slate-400 mb-1">Paket Türü (Özellik Şablonu)</label>
                   <select
                     value={planTier}
-                    onChange={(e) => setPlanTier(e.target.value)}
+                    onChange={(e) => handleSelectNewPlanTier(e.target.value)}
                     className="w-full px-3.5 py-2.5 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-2xl focus:outline-none focus:border-rose-500 text-slate-900 dark:text-white"
                   >
-                    <option value="starter">Starter Paket</option>
-                    <option value="professional">Professional Paket</option>
-                    <option value="enterprise">Enterprise Paket</option>
+                    {PACKAGE_TIER_ORDER.map((tk) => {
+                      const tpl = (packageTemplates && packageTemplates[tk]) || DEFAULT_PACKAGE_TEMPLATES[tk];
+                      return (
+                        <option key={tk} value={tk}>
+                          {tpl.name}
+                        </option>
+                      );
+                    })}
                   </select>
                 </div>
               </div>
@@ -2858,14 +2809,17 @@ export default function MasterDashboard() {
                     <label className="block text-slate-700 dark:text-slate-300 font-bold mb-1">Lisans Paketi / Planı</label>
                     <select
                       value={genPlanTier}
-                      onChange={(e) => setGenPlanTier(e.target.value)}
+                      onChange={(e) => applyPackageTemplateToKeyGen(e.target.value)}
                       className="w-full px-3.5 py-2.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl focus:outline-none focus:border-rose-500 font-bold text-slate-900 dark:text-white cursor-pointer text-xs"
                     >
-                      <option value="trial">Trial / Deneme Süresi (30 Gün)</option>
-                      <option value="starter">Starter / Başlangıç Paket</option>
-                      <option value="professional">Professional Paket</option>
-                      <option value="enterprise">Enterprise / Kurumsal Özel</option>
-                      <option value="unlimited">Limitsiz / Özel Paket</option>
+                      {PACKAGE_TIER_ORDER.map((tk) => {
+                        const tpl = (packageTemplates && packageTemplates[tk]) || DEFAULT_PACKAGE_TEMPLATES[tk];
+                        return (
+                          <option key={tk} value={tk}>
+                            {tpl.name}
+                          </option>
+                        );
+                      })}
                     </select>
                   </div>
 
@@ -2950,6 +2904,63 @@ export default function MasterDashboard() {
                     />
                   </div>
                 </div>
+
+                {/* Live Feature-Based Package Summary Bar */}
+                {(() => {
+                  const activeTpl = (packageTemplates && packageTemplates[genPlanTier]) || DEFAULT_PACKAGE_TEMPLATES[genPlanTier] || DEFAULT_PACKAGE_TEMPLATES.professional;
+                  const modCnt = Array.isArray(genCustomQuotas.allowed_features)
+                    ? genCustomQuotas.allowed_features.includes("*")
+                      ? ALL_SANTRAL_MODULE_IDS.length
+                      : genCustomQuotas.allowed_features.length
+                    : 0;
+                  const subCnt = Array.isArray(genCustomQuotas.allowed_sub_features)
+                    ? genCustomQuotas.allowed_sub_features.includes("*")
+                      ? ALL_SUB_FEATURE_IDS.length
+                      : genCustomQuotas.allowed_sub_features.length
+                    : 0;
+                  const aiCnt =
+                    (genCustomQuotas.allowed_stt_providers || []).length +
+                    (genCustomQuotas.allowed_tts_providers || []).length +
+                    (genCustomQuotas.allowed_llm_providers || []).length;
+                  return (
+                    <div className="p-3 rounded-xl bg-white dark:bg-slate-900 border border-indigo-200/80 dark:border-indigo-900/50 flex flex-wrap items-center justify-between gap-2.5">
+                      <div className="space-y-0.5">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className={`px-2 py-0.5 rounded-md border text-[10px] font-extrabold ${activeTpl.badgeClass || "bg-indigo-500/15 text-indigo-700 border-indigo-500/30"}`}>
+                            {activeTpl.name}
+                          </span>
+                          <span className="text-[11px] font-extrabold text-slate-800 dark:text-slate-100">
+                            Açık: <span className="font-mono text-indigo-600 dark:text-indigo-400">{modCnt}/{ALL_SANTRAL_MODULE_IDS.length}</span> Modül •{" "}
+                            <span className="font-mono text-emerald-600 dark:text-emerald-400">{subCnt}/{ALL_SUB_FEATURE_IDS.length}</span> Alt Özellik •{" "}
+                            <span className="font-mono text-purple-600 dark:text-purple-400">{aiCnt}</span> AI Motoru
+                          </span>
+                        </div>
+                        <p className="text-[10px] text-slate-500 dark:text-slate-400">
+                          {activeTpl.tagline} — Paket değiştirince özellikler otomatik güncellenir, kanal/abone sayıları korunur.
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-1.5 shrink-0">
+                        <button
+                          type="button"
+                          onClick={() => applyPackageTemplateToKeyGen(genPlanTier)}
+                          className="px-2.5 py-1.5 rounded-lg bg-indigo-50 dark:bg-indigo-950/50 hover:bg-indigo-600 text-indigo-700 dark:text-indigo-300 hover:text-white border border-indigo-200 dark:border-indigo-800 text-[10px] font-extrabold cursor-pointer transition-colors"
+                          title="Seçili paketin özellik şablonunu tekrar uygula"
+                        >
+                          Şablonu Uygula
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setShowPackagesModal(true)}
+                          className="px-2.5 py-1.5 rounded-lg bg-slate-100 dark:bg-slate-800 hover:bg-purple-600 text-slate-700 dark:text-slate-300 hover:text-white text-[10px] font-extrabold flex items-center gap-1 cursor-pointer transition-colors"
+                          title="Paket şablonlarını düzenle"
+                        >
+                          <Layers size={11} />
+                          <span>Şablonları Düzenle</span>
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })()}
               </div>
 
               {/* Categorized 19 Custom Quotas Editor */}
@@ -3137,24 +3148,47 @@ export default function MasterDashboard() {
                     <div className="flex items-center gap-1.5 flex-wrap">
                       <button
                         type="button"
-                        onClick={() => applyModulePreset("all")}
-                        className="px-2.5 py-1 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-[10px] font-extrabold cursor-pointer"
+                        onClick={() => applyPackageTemplateToKeyGen("starter")}
+                        className={`px-2.5 py-1 rounded-lg text-[10px] font-extrabold cursor-pointer border transition-colors ${
+                          genPlanTier === "starter"
+                            ? "bg-sky-600 text-white border-sky-600"
+                            : "bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:border-sky-400"
+                        }`}
                       >
-                        Tüm Modülleri Aç
+                        Starter (IP Santral)
                       </button>
                       <button
                         type="button"
-                        onClick={() => applyModulePreset("professional")}
-                        className="px-2.5 py-1 rounded-lg bg-white dark:bg-slate-900 border border-indigo-200 dark:border-indigo-800 text-indigo-700 dark:text-indigo-300 text-[10px] font-extrabold cursor-pointer"
+                        onClick={() => applyPackageTemplateToKeyGen("professional")}
+                        className={`px-2.5 py-1 rounded-lg text-[10px] font-extrabold cursor-pointer border transition-colors ${
+                          genPlanTier === "professional"
+                            ? "bg-indigo-600 text-white border-indigo-600"
+                            : "bg-white dark:bg-slate-900 border-indigo-200 dark:border-indigo-800 text-indigo-700 dark:text-indigo-300 hover:border-indigo-400"
+                        }`}
                       >
-                        Profesyonel Paket
+                        Professional (Çağrı Merkezi)
                       </button>
                       <button
                         type="button"
-                        onClick={() => applyModulePreset("pbx_only")}
-                        className="px-2.5 py-1 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 text-[10px] font-extrabold cursor-pointer"
+                        onClick={() => applyPackageTemplateToKeyGen("enterprise")}
+                        className={`px-2.5 py-1 rounded-lg text-[10px] font-extrabold cursor-pointer border transition-colors ${
+                          genPlanTier === "enterprise"
+                            ? "bg-purple-600 text-white border-purple-600"
+                            : "bg-white dark:bg-slate-900 border-purple-200 dark:border-purple-800 text-purple-700 dark:text-purple-300 hover:border-purple-400"
+                        }`}
                       >
-                        Sadece Standart IP Santral (AI Kapalı)
+                        Enterprise (AI &amp; Kurumsal)
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => applyPackageTemplateToKeyGen("unlimited")}
+                        className={`px-2.5 py-1 rounded-lg text-[10px] font-extrabold cursor-pointer border transition-colors ${
+                          genPlanTier === "unlimited"
+                            ? "bg-emerald-600 text-white border-emerald-600"
+                            : "bg-white dark:bg-slate-900 border-emerald-200 dark:border-emerald-800 text-emerald-700 dark:text-emerald-300 hover:border-emerald-400"
+                        }`}
+                      >
+                        Limitsiz (Tümü)
                       </button>
                     </div>
                   </div>
@@ -4356,6 +4390,15 @@ export default function MasterDashboard() {
           setShowUsersModal(true);
         }}
       />
+      {/* PACKAGE TEMPLATES MANAGEMENT MODAL */}
+      <PackageTemplatesModal
+        isOpen={showPackagesModal}
+        onClose={() => setShowPackagesModal(false)}
+        currentUser={currentUser}
+        packageTemplates={packageTemplates}
+        onTemplatesUpdated={fetchPackageTemplates}
+      />
+
       {/* PERSONAL ACCOUNT SETTINGS MODAL (PASSWORD & 2FA) */}
       <AccountSettingsModal
         isOpen={showAccountSettingsModal}

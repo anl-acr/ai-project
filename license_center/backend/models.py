@@ -141,3 +141,14 @@ class TelemetryLog(Base):
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
 
     client = relationship("ClientServer", back_populates="telemetry_logs")
+
+
+class MasterPackageTemplate(Base):
+    __tablename__ = "master_package_templates"
+
+    id = Column(Integer, primary_key=True, index=True)
+    tier_key = Column(String, unique=True, index=True, nullable=False)  # trial, starter, professional, enterprise, unlimited
+    name = Column(String, nullable=False)
+    tagline = Column(String, nullable=True)
+    config_json = Column(Text, default="{}")  # allowed_features, allowed_sub_features, stt/tts/llm, unlicensed_module_mode
+    updated_at = Column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow)

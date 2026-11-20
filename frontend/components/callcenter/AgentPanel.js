@@ -465,7 +465,7 @@ function resolveInitialAgentTab(prefs, perms, currentUser = null) {
   return safeAllowed[0].id;
 }
 
-export default function AgentPanel({ backendHost, currentUser, activeCallId, isVisible = true, initialPermissions = null }) {
+export default function AgentPanel({ backendHost, currentUser, activeCallId, isVisible = true, initialPermissions = null, licenseStatus = null }) {
   const { bg, hover, text, border, ring, lightBg, lightText, borderLight } = useTheme();
   const [panelPrefs, setPanelPrefs] = useState(() => loadCallPanelPrefs(currentUser));
   const [rolePermissions, setRolePermissions] = useState(() =>
@@ -664,33 +664,53 @@ export default function AgentPanel({ backendHost, currentUser, activeCallId, isV
       return perms.includes(permCode);
     };
 
+    const isNorniaRoot = typeof window !== "undefined" && sessionStorage.getItem("is_nornia_root") === "true";
+    const licSubs = licenseStatus?.allowed_sub_features;
+    const isSubLicensed = (subId) => {
+      if (isNorniaRoot || !subId) return true;
+      if (!Array.isArray(licSubs) || licSubs.includes("*")) return true;
+      return licSubs.includes(subId);
+    };
+
     const isRoleAdmin = String(currentUser?.role || "").toLowerCase() === "admin";
     const canLiveTranslate =
-      isRoleAdmin ||
-      Boolean(
-        perms &&
-          (perms.includes("call_panel:live_translation") ||
-            perms.includes("live_translator:access") ||
-            perms.includes("live_translator"))
-      );
+      isSubLicensed("live_translation") &&
+      (isRoleAdmin ||
+        Boolean(
+          perms &&
+            (perms.includes("call_panel:live_translation") ||
+              perms.includes("live_translator:access") ||
+              perms.includes("live_translator"))
+        ));
     const canVoiceInterpret =
-      isRoleAdmin ||
-      Boolean(
-        perms &&
-          (perms.includes("call_panel:voice_interpreter") ||
-            perms.includes("live_translator:access") ||
-            perms.includes("live_translator"))
-      );
+      isSubLicensed("voice_interpreter") &&
+      (isRoleAdmin ||
+        Boolean(
+          perms &&
+            (perms.includes("call_panel:voice_interpreter") ||
+              perms.includes("live_translator:access") ||
+              perms.includes("live_translator"))
+        ));
     const canCtiScreenPop =
-      isRoleAdmin ||
-      !perms ||
-      perms.includes("call_panel:cti_screen_pop") ||
-      perms.includes("cti_integration:read") ||
-      perms.includes("cti_integration:write");
+      isSubLicensed("cti_screen_pop") &&
+      (isRoleAdmin ||
+        !perms ||
+        perms.includes("call_panel:cti_screen_pop") ||
+        perms.includes("cti_integration:read") ||
+        perms.includes("cti_integration:write"));
     const canPauseRecording =
-      isRoleAdmin || Boolean(perms && perms.includes("call_panel:pause_recording"));
+      isSubLicensed("pause_recording") &&
+      (isRoleAdmin || Boolean(perms && perms.includes("call_panel:pause_recording")));
     const canAiNoteAssistant =
-      isRoleAdmin || checkWebphoneFeature("call_panel:ai_note_assistant");
+      isSubLicensed("ai_note_assistant") &&
+      (isRoleAdmin || checkWebphoneFeature("call_panel:ai_note_assistant"));
+
+    const checkTabWithLicense = (permCode) => {
+      if (permCode === "call_panel:tab_voicemail" && !isSubLicensed("voicemail")) return false;
+      if (permCode === "call_panel:tab_chat" && !isSubLicensed("internal_chat")) return false;
+      if (permCode === "call_panel:tab_deskphone" && !isSubLicensed("deskphone_blf")) return false;
+      return checkTab(permCode);
+    };
 
     return {
       rawPermissions: perms || [],
@@ -705,14 +725,14 @@ export default function AgentPanel({ backendHost, currentUser, activeCallId, isV
       canLiveTranslate,
       canVoiceInterpret,
       canPauseRecording,
-      maskPhoneNumbers: Boolean(perms && perms.includes("call_panel:webphone_mask_number")),
+      maskPhoneNumbers: isSubLicensed("mask_number") && Boolean(perms && perms.includes("call_panel:webphone_mask_number")),
       agentsCanSeeStatus: checkAgentsFeature("call_panel:agents_status"),
       agentsCanSeeDuration: checkAgentsFeature("call_panel:agents_duration"),
       agentsCanSeeCallCounts: checkAgentsFeature("call_panel:agents_call_counts"),
       agentsCanSeeLoginLogout: checkAgentsFeature("call_panel:agents_login_logout"),
-      checkTab
+      checkTab: checkTabWithLicense
     };
-  }, [rolePermissions, currentUser?.role]);
+  }, [rolePermissions, currentUser?.role, licenseStatus]);
 
   useEffect(() => {
     webphoneManager.setCtiPermissionAllowed(callPanelPerms.canCtiScreenPop !== false);

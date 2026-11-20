@@ -27,6 +27,13 @@ def generate_tenant_serial_number(tenant_code: str, tenant_num_id: int = 100) ->
     return f"SN-TNT-2026-{num_part}-{sig}"
 
 PLAN_LIMITS = {
+    "trial": {
+        "max_users": 50,
+        "max_channels": 10,
+        "max_ai_agents": 10,
+        "max_tenants": 3,
+        "label": "Trial / Deneme Paketi (30 Gün)"
+    },
     "starter": {
         "max_users": 5,
         "max_channels": 2,

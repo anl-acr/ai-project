@@ -38907,18 +38907,42 @@ async def get_system_version_info():
         pass
 
     return {
-        "version": "v3.2.2",
+        "version": "v3.2.3",
         "commit_hash": live_commit,
         "release_date": "20 Kasım 2026",
         "status": "Güncel / Canlı Sürüm",
         "environment": "Production (On-Premise)",
         "changelog": [
             {
-                "version": "v3.2.2",
+                "version": "v3.2.3",
                 "commit_hash": live_commit,
                 "release_date": "20 Kasım 2026",
                 "badge": "Canlı Sürüm (Güncel)",
                 "badge_type": "current",
+                "title": "Özellik Bazlı Lisans Paket Mimarisi (104 Modül + 19 Alt Özellik + Dinamik Paket Şablonu Yönetimi)",
+                "summary": "Nornia PBX'in tüm gerçek modülleri (44 rapor, gelişmiş abone özellikleri, omnichannel, AI suite ve altyapı araçları) lisans kataloğuna eklendi; paket seçildiğinde kotaları ezmeden ilgili özellik setini otomatik uygulayan yapı ve düzenlenebilir Paket Şablonları yönetimi oluşturuldu.",
+                "features": [
+                    {
+                        "title": "📦 Özellik Bazlı 5 Lisans Paketi (Trial / Starter / Professional / Enterprise / Limitsiz)",
+                        "desc": "Paket seçildiğinde ilgili paketin izinli modülleri, alt özellikleri, AI motorları ve süresi (Trial: +30 gün, Limitsiz: süresiz) otomatik uygulanır; müşteri bazlı çağrı kanalı ve abone sayıları korunur."
+                    },
+                    {
+                        "title": "🎛️ Panelden Düzenlenebilir Paket Şablonları Yönetimi",
+                        "desc": "Üst bara eklenen 'Paketler' penceresi ile Starter, Professional, Enterprise, Limitsiz ve Trial paketlerinin içerdiği tüm modül/alt özellik/AI motorları kod değiştirmeden düzenlenip kaydedilebilir veya varsayılana sıfırlanabilir."
+                    },
+                    {
+                        "title": "🔒 Eksiksiz 104 Modül + 19 Alt Özellik Kataloğu & AgentPanel Kancaları",
+                        "desc": "Eksik 34 rapor, Sorun İnceleme (sngrep), Akıllı Geri Arama, Multi-Tenant, Sesli Posta, Dahili Sohbet, Masa Telefonum BLF, Boss-Secretary, Hot-Desking, Follow-Me ve AI WebPhone özellikleri kataloglandı ve santral Temsilci Panelinde lisans kontrolüne bağlandı."
+                    }
+                ],
+                "fixes": []
+            },
+            {
+                "version": "v3.2.2",
+                "commit_hash": "51ebefe",
+                "release_date": "20 Kasım 2026",
+                "badge": "Önceki Sürüm",
+                "badge_type": "stable",
                 "title": "Merkezi Panel → Santral Lisans & Kota Senkronizasyon Hatası Düzeltmesi + Anlık Tünel İtimi (~1 sn)",
                 "summary": "Panel sunucusundan değiştirilen lisans adetlerinin (abone, çağrı kanalı, AI asistan vb.) santralde görünmemesine yol açan PostgreSQL kalıcılık ve API alan eşleştirme hataları giderildi; aktif Nornia Connect tüneli üzerinden ~1 saniyede anlık senkronizasyon eklendi.",
                 "features": [
