@@ -40059,18 +40059,38 @@ async def get_system_version_info():
         pass
 
     return {
-        "version": "v3.5.6",
+        "version": "v3.5.7",
         "commit_hash": live_commit,
         "release_date": "21 Kasım 2026",
         "status": "Güncel / Canlı Sürüm",
         "environment": "Production (On-Premise)",
         "changelog": [
             {
-                "version": "v3.5.6",
+                "version": "v3.5.7",
                 "commit_hash": live_commit,
                 "release_date": "21 Kasım 2026",
                 "badge": "Canlı Sürüm (Güncel)",
                 "badge_type": "current",
+                "title": "Zero-Port-Forward WebPhone Çift Yönlü Ses (Coturn WireGuard TURN + ICE Timeout Fix)",
+                "summary": "Santral önünde dışarıdan içeri hiçbir port açık olmadığında WebPhone (WebRTC) çağrılarının %100 kesintisiz çift yönlü sesle çalışması için Hub Coturn TURN sunucusu WireGuard (10.200.0.1:3478) + açık 35000-40000 medya aralığına bağlandı, sync_asterisk.py rtp.conf TURN silme hatası ve WebPhone 400ms ICE kesme hatası giderildi.",
+                "features": [
+                    {
+                        "title": "Hub Coturn WireGuard TURN Rölesi (Zero-Port-Forward WebRTC)",
+                        "desc": "Hub Coturn hem dış IP (213.74.216.246:3478) hem WireGuard (10.200.0.1:3478) üzerinden dinler; Asterisk rtp.conf otomatik 10.200.0.1:3478 TURN adresi ile yapılandırılarak santralde sıfır port açıkken dahi %100 çift yönlü WebRTC sesi sağlanır."
+                    }
+                ],
+                "fixes": [
+                    "sync_asterisk.py betiğinin /etc/asterisk/rtp.conf dosyasından icesupport=yes ve turnaddr satırlarını silmesi düzeltildi.",
+                    "WebPhone answerCall/makeCall içindeki sabit 400ms iceGatheringTimeout kaldırılarak TURN relay adaylarının toplanmasına izin veren dinamik zaman aşımı (2200ms tavan) uygulandı.",
+                    "build_ras_ice_servers() varsayılan TURN kimlik bilgileri eklendi; RTPEngine (20000-34999) ve Coturn (35000-40000) port aralıkları mevcut açık 20000-40000 aralığına uyumlu biçimde bölündü ve tos=0 yapıldı."
+                ]
+            },
+            {
+                "version": "v3.5.6",
+                "commit_hash": "c8ea9dc",
+                "release_date": "21 Kasım 2026",
+                "badge": "Önceki Sürüm",
+                "badge_type": "stable",
                 "title": "Dahili Ses & Yankı Testi (*43 Echo Test) & RTPEngine Servis Yeniden Başlatma Fix",
                 "summary": "WebPhone ve masa telefonlarının çift yönlü ses yolunu dış hatta ihtiyaç duymadan anında test edebilmek için standart *43 Ses & Yankı Testi (Echo) eklendi; Hub kurulum betiğinde Ubuntu rtpengine-daemon servis yeniden başlatma sırası düzeltildi.",
                 "features": [
@@ -42581,8 +42601,8 @@ async def get_webrtc_config(request: Request, db: AsyncSession = Depends(get_db)
         try:
             from backend.services.ras_client_service import build_ras_ice_servers, get_ras_config
             ras_cfg_now = get_ras_config()
-            if is_ras_tunneled or ras_cfg_now.get("enabled"):
-                ice_servers_list = build_ras_ice_servers(ras_cfg_now)
+            if is_ras_tunneled or ras_cfg_now.get("enabled") or os.path.isfile("/etc/wireguard/wg-nornia.conf"):
+                ice_servers_list = build_ras_ice_servers(ras_cfg_now, fallback_host=raw_host_hdr)
         except Exception:
             pass
 

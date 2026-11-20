@@ -1111,7 +1111,7 @@ class WebphoneManager {
       },
       ...(customSdhFactory ? { sessionDescriptionHandlerFactory: customSdhFactory } : {}),
       sessionDescriptionHandlerFactoryOptions: {
-        iceGatheringTimeout: Array.isArray(config.iceServers) && config.iceServers.length > 0 ? 1200 : 400,
+        iceGatheringTimeout: Array.isArray(config.iceServers) && config.iceServers.length > 0 ? 2200 : 1000,
         peerConnectionConfiguration: {
           iceServers: Array.isArray(config.iceServers) ? config.iceServers : []
         }
@@ -2977,6 +2977,17 @@ class WebphoneManager {
     }
   }
 
+  getIceGatheringTimeout() {
+    const servers = this.state?.webrtcConfig?.iceServers;
+    const hasTurn =
+      Array.isArray(servers) &&
+      servers.some((s) => {
+        const urls = Array.isArray(s?.urls) ? s.urls : [s?.urls || s?.url || ""];
+        return urls.some((u) => /^turns?:/i.test(String(u || "")));
+      });
+    return hasTurn ? 2200 : 1000;
+  }
+
   buildSafeSessionConstraints() {
     const activeMode = this.state.noiseSuppressionMode || getSavedNoiseSuppressionMode();
     const selectedMic = typeof window !== "undefined" ? localStorage.getItem("selected_mic") : null;
@@ -3024,7 +3035,7 @@ class WebphoneManager {
       await line.session.accept({
         sessionDescriptionHandlerOptions: {
           constraints,
-          iceGatheringTimeout: 400
+          iceGatheringTimeout: this.getIceGatheringTimeout()
         }
       });
       line.callStatus = "InCall";
@@ -3084,7 +3095,7 @@ class WebphoneManager {
       earlyMedia: true,
       sessionDescriptionHandlerOptions: {
         constraints,
-        iceGatheringTimeout: 400
+        iceGatheringTimeout: this.getIceGatheringTimeout()
       }
     });
 

@@ -134,19 +134,57 @@ session_keep_alive=15000
         except Exception as e:
             print(f"[Sync Script] http.conf hatası: {e}")
 
-    # Update /etc/asterisk/rtp.conf for WebRTC RTP NAT & STUN
-    rtp_content = """; ==========================================
-; Asterisk RTP Configuration
+    # Update /etc/asterisk/rtp.conf for WebRTC RTP NAT, ICE, STUN & Nornia TURN Relay
+    ras_cfg_sync = settings.get("ras_config") if isinstance(settings.get("ras_config"), dict) else {}
+    has_wg_edge_sync = os.path.isfile("/etc/wireguard/wg-nornia.conf")
+    turn_lines_sync = ""
+    if has_wg_edge_sync or (ras_cfg_sync.get("enabled") and ras_cfg_sync.get("turn_enabled", True)):
+        t_host_s, t_port_s = "", "3478"
+        if has_wg_edge_sync:
+            t_host_s, t_port_s = "10.200.0.1", "3478"
+        else:
+            raw_ts = str(ras_cfg_sync.get("turn_server") or "").strip()
+            if not raw_ts and ras_cfg_sync.get("hub_url"):
+                try:
+                    import urllib.parse as _up_sync
+                    p_u = _up_sync.urlparse(str(ras_cfg_sync.get("hub_url")).strip())
+                    if p_u.hostname:
+                        raw_ts = f"{p_u.hostname}:3478"
+                except Exception:
+                    pass
+            if raw_ts:
+                clean_ts = raw_ts.replace("turn:", "").replace("turns:", "").split("?")[0].strip()
+                t_host_s, _, t_p_part = clean_ts.partition(":")
+                t_port_s = t_p_part or "3478"
+        if t_host_s:
+            t_user_s = str(ras_cfg_sync.get("turn_username") or "nornia").strip()
+            t_pass_s = str(ras_cfg_sync.get("turn_password") or "nornia_turn_secret_2026").strip()
+            turn_lines_sync = (
+                f"turnaddr={t_host_s}:{t_port_s}\n"
+                f"turnusername={t_user_s}\n"
+                f"turnpassword={t_pass_s}\n"
+            )
+
+    rtp_content = f"""; ==========================================
+; Asterisk RTP & ICE / TURN Configuration
 ; ==========================================
 [general]
 rtpstart=10000
 rtpend=20000
+icesupport=yes
 stunaddr=stun.l.google.com:19302
-"""
+{turn_lines_sync}"""
     if os.path.exists("/etc/asterisk"):
         try:
             with open("/etc/asterisk/rtp.conf", "w", encoding="utf-8") as f:
                 f.write(rtp_content)
+            subprocess.run(
+                ["asterisk", "-rx", "module reload res_rtp_asterisk.so"],
+                capture_output=True,
+                text=True,
+                timeout=2.0,
+                check=False,
+            )
         except Exception as e:
             print(f"[Sync Script] rtp.conf error: {e}")
 

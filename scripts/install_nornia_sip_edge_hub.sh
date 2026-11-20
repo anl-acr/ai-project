@@ -27,7 +27,9 @@ WG_IFACE="wg0"
 WG_HUB_IP="10.200.0.1"
 WG_PORT="51820"
 RTP_PORT_MIN="20000"
-RTP_PORT_MAX="40000"
+RTP_PORT_MAX="34999"
+TURN_PORT_MIN="35000"
+TURN_PORT_MAX="40000"
 SIP_BASE_DOMAIN="${NORNIA_SIP_BASE_DOMAIN:-nornia.com.tr}"
 
 echo "=============================================================================="
@@ -137,7 +139,7 @@ port-min = ${RTP_PORT_MIN}
 port-max = ${RTP_PORT_MAX}
 timeout = 60
 silent-timeout = 3600
-tos = 184
+tos = 0
 log-level = 6
 delete-delay = 0
 table = -1
@@ -643,6 +645,35 @@ EOF
 systemctl enable fail2ban >/dev/null 2>&1 || true
 systemctl restart fail2ban || true
 
+# 6b. Coturn WebRTC TURN/STUN Rölesi (Zero-Port-Forward PBX için WireGuard 10.200.0.1 + Dış IP)
+if command -v turnserver >/dev/null 2>&1 || systemctl list-unit-files | grep -q "^coturn\.service"; then
+  echo "[6b/7] Coturn WebRTC TURN rölesi (${HUB_BIND_IP} + ${WG_HUB_IP}:3478, UDP ${TURN_PORT_MIN}-${TURN_PORT_MAX}) yapılandırılıyor..."
+  sed -i 's/#TURNSERVER_ENABLED=1/TURNSERVER_ENABLED=1/g' /etc/default/coturn 2>/dev/null || true
+  if [[ "${HUB_BIND_IP}" != "${HUB_PUBLIC_IP}" ]]; then
+    TURN_EXT_LINE="external-ip=${HUB_PUBLIC_IP}/${HUB_BIND_IP}"
+  else
+    TURN_EXT_LINE="external-ip=${HUB_PUBLIC_IP}"
+  fi
+  cat > /etc/turnserver.conf <<EOF
+listening-port=3478
+listening-ip=${HUB_BIND_IP}
+listening-ip=${WG_HUB_IP}
+relay-ip=${HUB_BIND_IP}
+${TURN_EXT_LINE}
+min-port=${TURN_PORT_MIN}
+max-port=${TURN_PORT_MAX}
+fingerprint
+lt-cred-mech
+user=nornia:nornia_turn_secret_2026
+realm=nornia.connect
+no-cli
+no-tlsv1
+no-tlsv1_1
+EOF
+  systemctl enable coturn >/dev/null 2>&1 || true
+  systemctl restart coturn || true
+fi
+
 # 7. UFW Portlarını Aç (UFW kurulu ve aktifse) ve Hub'ı Yeniden Başlat
 echo "[7/7] Güvenlik duvarı (UFW) SIP Edge portları ve Nornia Connect Hub senkronizasyonu..."
 if command -v ufw >/dev/null 2>&1; then
@@ -653,8 +684,10 @@ if command -v ufw >/dev/null 2>&1; then
     ufw allow 5061/tcp comment "Nornia Kamailio SIP TLS" >/dev/null || true
     ufw allow 5160/tcp comment "Nornia Kamailio Cisco chan_sip TCP" >/dev/null || true
     ufw allow 5160/udp comment "Nornia Kamailio Cisco chan_sip UDP" >/dev/null || true
-    ufw allow "${RTP_PORT_MIN}:${RTP_PORT_MAX}/udp" comment "Nornia RTPEngine Media" >/dev/null || true
-    echo "      UFW portları açıldı: ${WG_PORT}/udp, 5060/udp+tcp, 5061/tcp, 5160/tcp+udp, ${RTP_PORT_MIN}:${RTP_PORT_MAX}/udp"
+    ufw allow 3478/udp comment "Nornia Coturn WebRTC TURN UDP" >/dev/null || true
+    ufw allow 3478/tcp comment "Nornia Coturn WebRTC TURN TCP" >/dev/null || true
+    ufw allow "${RTP_PORT_MIN}:${TURN_PORT_MAX}/udp" comment "Nornia RTPEngine + Coturn Media" >/dev/null || true
+    echo "      UFW portları açıldı: ${WG_PORT}/udp, 5060/udp+tcp, 5061/tcp, 5160/tcp+udp, 3478/udp+tcp, ${RTP_PORT_MIN}:${TURN_PORT_MAX}/udp"
   else
     echo "      UFW şu an pasif; Panel Güvenlik Kalkanından tek tıkla aktif edebilirsiniz."
   fi

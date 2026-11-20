@@ -367,12 +367,13 @@ def get_ras_config() -> Dict[str, Any]:
     return merged
 
 
-def build_ras_ice_servers(ras_cfg: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
+def build_ras_ice_servers(ras_cfg: Optional[Dict[str, Any]] = None, fallback_host: str = "") -> List[Dict[str, Any]]:
     cfg = ras_cfg or get_ras_config()
     ice_servers: List[Dict[str, Any]] = [
         {"urls": ["stun:stun.l.google.com:19302", "stun:stun1.l.google.com:19302"]}
     ]
-    if not cfg.get("enabled") or not cfg.get("turn_enabled"):
+    has_wg_edge = os.path.isfile(_PBX_WG_CONF_PATH)
+    if not ((cfg.get("enabled") and cfg.get("turn_enabled", True)) or has_wg_edge):
         return ice_servers
 
     turn_srv = str(cfg.get("turn_server") or "").strip()
@@ -383,13 +384,17 @@ def build_ras_ice_servers(ras_cfg: Optional[Dict[str, Any]] = None) -> List[Dict
                 turn_srv = f"{parsed.hostname}:3478"
         except Exception:
             pass
+    if not turn_srv and fallback_host:
+        clean_fb = str(fallback_host).split(":")[0].strip()
+        if clean_fb and clean_fb not in ("localhost", "127.0.0.1"):
+            turn_srv = f"{clean_fb}:3478"
 
     if turn_srv:
         if not turn_srv.startswith(("turn:", "turns:")):
             turn_srv = f"turn:{turn_srv}"
         turn_entry: Dict[str, Any] = {"urls": [turn_srv, f"{turn_srv}?transport=tcp"]}
-        t_user = str(cfg.get("turn_username") or "").strip()
-        t_pass = str(cfg.get("turn_password") or "").strip()
+        t_user = str(cfg.get("turn_username") or "nornia").strip()
+        t_pass = str(cfg.get("turn_password") or "nornia_turn_secret_2026").strip()
         if t_user:
             turn_entry["username"] = t_user
         if t_pass:
@@ -404,7 +409,8 @@ def sync_asterisk_rtp_turn_config(ras_cfg: Optional[Dict[str, Any]] = None):
         return
     cfg = ras_cfg or get_ras_config()
     turn_lines = ""
-    if cfg.get("enabled") and cfg.get("turn_enabled"):
+    has_wg_edge = os.path.isfile(_PBX_WG_CONF_PATH)
+    if (cfg.get("enabled") and cfg.get("turn_enabled", True)) or has_wg_edge:
         turn_srv = str(cfg.get("turn_server") or "").strip()
         if not turn_srv and cfg.get("hub_url"):
             try:
@@ -413,10 +419,16 @@ def sync_asterisk_rtp_turn_config(ras_cfg: Optional[Dict[str, Any]] = None):
                     turn_srv = f"{parsed.hostname}:3478"
             except Exception:
                 pass
-        if turn_srv:
+        if has_wg_edge:
+            # Prefer WireGuard Hub TURN IP (10.200.0.1:3478) to avoid LAN Hairpin NAT and bypass outbound/inbound firewall blocks
+            turn_host, turn_port = "10.200.0.1", "3478"
+        elif turn_srv:
             clean_turn = turn_srv.replace("turn:", "").replace("turns:", "").split("?")[0].strip()
             turn_host, _, turn_port = clean_turn.partition(":")
             turn_port = turn_port or "3478"
+        else:
+            turn_host, turn_port = "", ""
+        if turn_host:
             t_user = str(cfg.get("turn_username") or "nornia").strip()
             t_pass = str(cfg.get("turn_password") or "nornia_turn_secret_2026").strip()
             turn_lines = (
