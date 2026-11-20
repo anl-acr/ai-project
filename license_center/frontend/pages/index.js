@@ -849,7 +849,7 @@ export default function MasterDashboard() {
 
   const openKeyGenModal = (client) => {
     setKeyGenModalClient(client);
-    const exp = client.license_expires_at || "2027-12-31";
+    const exp = resolveClientExpiryDate(client) || "2027-12-31";
     const isUnl = exp === "unlimited" || client.plan_tier === "unlimited";
     setGenExpiryDate(isUnl ? "" : exp);
     setGenIsUnlimited(isUnl);
@@ -1018,6 +1018,30 @@ export default function MasterDashboard() {
     if (filterStatus === "suspended") return matchSearch && c.status === "suspended";
     return matchSearch;
   });
+
+  const resolveClientExpiryDate = (c) => {
+    if (c?.license_expires_at) return c.license_expires_at;
+    const rawKey = c?.current_license_key || "";
+    if (!rawKey) return null;
+    const basePart = String(rawKey).trim().split(".")[0];
+    const parts = basePart.split("-");
+    if (parts.length >= 5) {
+      const seg = (parts[parts.length - 3] || "").trim().toUpperCase();
+      if (seg === "UNLIMITED") return "unlimited";
+      if (/^\d{8}$/.test(seg)) {
+        return `${seg.slice(0, 4)}-${seg.slice(4, 6)}-${seg.slice(6, 8)}`;
+      }
+    }
+    return null;
+  };
+
+  const formatExpiryDateTR = (expStr) => {
+    if (!expStr) return "—";
+    if (expStr === "unlimited") return "♾️ Limitsiz";
+    const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(expStr).trim());
+    if (m) return `${m[3]}.${m[2]}.${m[1]}`;
+    return expStr;
+  };
 
   const getClientUserLicenseCount = (c) => {
     const raw = c?.custom_quotas?.max_users;
@@ -1715,26 +1739,31 @@ export default function MasterDashboard() {
 
                         {/* 5. Lisans Bitiş */}
                         <td className="py-3.5 px-4 whitespace-nowrap">
-                          <div className="font-mono font-extrabold text-slate-800 dark:text-slate-200 text-xs">
-                            {client.license_expires_at === "unlimited"
-                              ? "♾️ Limitsiz"
-                              : client.license_expires_at || "—"}
-                          </div>
-                          {client.days_left !== null && client.days_left !== undefined && client.license_expires_at !== "unlimited" ? (
-                            <span className={`inline-block mt-1 px-2 py-0.5 rounded-md text-[10px] font-extrabold ${
-                              client.days_left <= 7
-                                ? "bg-rose-500/10 text-rose-600 dark:text-rose-400"
-                                : client.days_left <= expiringSoonDays
-                                  ? "bg-amber-500/10 text-amber-600 dark:text-amber-400"
-                                  : "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
-                            }`}>
-                              {client.days_left} gün kaldı
-                            </span>
-                          ) : (
-                            <span className="text-[10px] text-slate-400 font-semibold">
-                              {client.license_expires_at === "unlimited" ? "Süresiz" : "Tarih yok"}
-                            </span>
-                          )}
+                          {(() => {
+                            const effExp = resolveClientExpiryDate(client);
+                            return (
+                              <>
+                                <div className="font-mono font-extrabold text-slate-800 dark:text-slate-200 text-xs">
+                                  {formatExpiryDateTR(effExp)}
+                                </div>
+                                {client.days_left !== null && client.days_left !== undefined && effExp !== "unlimited" ? (
+                                  <span className={`inline-block mt-1 px-2 py-0.5 rounded-md text-[10px] font-extrabold ${
+                                    client.days_left <= 7
+                                      ? "bg-rose-500/10 text-rose-600 dark:text-rose-400"
+                                      : client.days_left <= expiringSoonDays
+                                        ? "bg-amber-500/10 text-amber-600 dark:text-amber-400"
+                                        : "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
+                                  }`}>
+                                    {client.days_left} gün kaldı
+                                  </span>
+                                ) : (
+                                  <span className="text-[10px] text-slate-400 font-semibold">
+                                    {effExp === "unlimited" ? "Süresiz" : effExp ? "" : "Tarih yok"}
+                                  </span>
+                                )}
+                              </>
+                            );
+                          })()}
                         </td>
 
                         {/* 6. İşlemler */}
@@ -1991,28 +2020,29 @@ export default function MasterDashboard() {
 
                         <div className="p-2.5 rounded-xl bg-slate-50/80 dark:bg-slate-950/50 border border-slate-200/70 dark:border-slate-800/70 min-w-0">
                           <div className="text-[10px] font-bold text-slate-400 uppercase">Lisans Bitiş Tarihi</div>
-                          <div className="text-xs font-extrabold font-mono text-slate-800 dark:text-slate-200 mt-0.5 flex items-center gap-1.5 flex-wrap">
-                            <span>
-                              {client.license_expires_at === "unlimited"
-                                ? "♾️ Limitsiz"
-                                : client.license_expires_at || "—"}
-                            </span>
-                            {client.days_left !== null &&
-                              client.days_left !== undefined &&
-                              client.license_expires_at !== "unlimited" && (
-                                <span
-                                  className={`text-[10px] font-extrabold ${
-                                    client.days_left <= 7
-                                      ? "text-rose-500"
-                                      : client.days_left <= expiringSoonDays
-                                        ? "text-amber-500"
-                                        : "text-emerald-600 dark:text-emerald-400"
-                                  }`}
-                                >
-                                  ({client.days_left}g)
-                                </span>
-                              )}
-                          </div>
+                          {(() => {
+                            const effExp = resolveClientExpiryDate(client);
+                            return (
+                              <div className="text-xs font-extrabold font-mono text-slate-800 dark:text-slate-200 mt-0.5 flex items-center gap-1.5 flex-wrap">
+                                <span>{formatExpiryDateTR(effExp)}</span>
+                                {client.days_left !== null &&
+                                  client.days_left !== undefined &&
+                                  effExp !== "unlimited" && (
+                                    <span
+                                      className={`text-[10px] font-extrabold ${
+                                        client.days_left <= 7
+                                          ? "text-rose-500"
+                                          : client.days_left <= expiringSoonDays
+                                            ? "text-amber-500"
+                                            : "text-emerald-600 dark:text-emerald-400"
+                                      }`}
+                                    >
+                                      ({client.days_left}g)
+                                    </span>
+                                  )}
+                              </div>
+                            );
+                          })()}
                         </div>
 
                         <div className="p-2.5 rounded-xl bg-slate-50/80 dark:bg-slate-950/50 border border-slate-200/70 dark:border-slate-800/70 min-w-0">

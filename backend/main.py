@@ -38886,18 +38886,32 @@ async def get_system_version_info():
         pass
 
     return {
-        "version": "v3.1.4",
+        "version": "v3.1.5",
         "commit_hash": live_commit,
         "release_date": "20 Kasım 2026",
         "status": "Güncel / Canlı Sürüm",
         "environment": "Production (On-Premise)",
         "changelog": [
             {
-                "version": "v3.1.4",
+                "version": "v3.1.5",
                 "commit_hash": live_commit,
                 "release_date": "20 Kasım 2026",
                 "badge": "Canlı Sürüm (Güncel)",
                 "badge_type": "current",
+                "title": "Nornia Cloud Center Lisans Bitiş Tarihi Otomatik Çözümleme & Liste/Kart Senkronizasyonu",
+                "summary": "Heartbeat ile otomatik kaydedilen sunucularda lisans anahtarı (AIDA-...) içinde bulunan bitiş tarihinin veritabanına yazılmaması nedeniyle listede 'Tarih yok' görünmesi sorunu giderildi; tarihler DD.MM.YYYY formatında ve kalan gün bilgisiyle tüm görünümlerde senkronize edildi.",
+                "features": [],
+                "fixes": [
+                    "Mevcut ve yeni otomatik kayıt olan sunucuların lisans bitiş tarihi AIDA lisans anahtarından otomatik çözümlenip veritabanına işlendi.",
+                    "Tablo ve kart görünümlerindeki Lisans Bitiş Tarihi alanı düzenleme ekranıyla uyumlu olarak GG.AA.YYYY (örn. 31.12.2027) biçiminde gösterilmeye başlandı."
+                ]
+            },
+            {
+                "version": "v3.1.4",
+                "commit_hash": "9661f79",
+                "release_date": "20 Kasım 2026",
+                "badge": "Önceki Sürüm",
+                "badge_type": "stable",
                 "title": "Nornia Cloud Center Tablo Görünümü Yeniden Tasarımı, Disk Telemetrisi & Tek Tıkla Root SSO Bağlantısı",
                 "summary": "Tablo (liste) görünümünde Nornia Connect adresine tıklandığında doğrudan Root SSO ile giriş yapılması sağlandı; mükerrer Root SSO butonu ve sol alt-alan adı etiketi kaldırıldı. Santral heartbeat ve pano görünümlerine canlı Disk kullanım yüzdesi ile renkli CPU / RAM / DİSK göstergeleri eklendi.",
                 "features": [

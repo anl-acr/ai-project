@@ -1515,6 +1515,26 @@ async def get_master_audit_logs(db: AsyncSession = Depends(get_central_db)):
 # --------------------------------------------------------------------------
 # Fleet Dashboard & Stats
 # --------------------------------------------------------------------------
+def _extract_expiry_from_license_key(license_key: Optional[str]) -> Optional[str]:
+    """Extracts YYYY-MM-DD or 'unlimited' from an AIDA-{TENANT}-{YYYYMMDD|UNLIMITED}-{HW8}-{SIG8}[.B64] key."""
+    if not license_key or not isinstance(license_key, str):
+        return None
+    base_part = license_key.strip().split(".", 1)[0]
+    parts = base_part.split("-")
+    if len(parts) < 5:
+        return None
+    exp_seg = parts[-3].strip().upper()
+    if exp_seg == "UNLIMITED":
+        return "unlimited"
+    if len(exp_seg) == 8 and exp_seg.isdigit():
+        try:
+            dt = datetime.datetime.strptime(exp_seg, "%Y%m%d")
+            return dt.strftime("%Y-%m-%d")
+        except Exception:
+            return None
+    return None
+
+
 @app.get("/api/v1/dashboard/stats")
 @app.get("/api/v1/stats")
 async def get_dashboard_stats(expiring_days: int = 15, db: AsyncSession = Depends(get_central_db)):
@@ -1545,7 +1565,7 @@ async def get_dashboard_stats(expiring_days: int = 15, db: AsyncSession = Depend
                 pass
         total_licensed_subscribers += max(0, user_quota)
 
-        exp_str = c.license_expires_at
+        exp_str = c.license_expires_at or _extract_expiry_from_license_key(c.current_license_key)
         if exp_str and exp_str != "unlimited":
             try:
                 exp_d = datetime.datetime.strptime(exp_str, "%Y-%m-%d")
@@ -1586,6 +1606,11 @@ async def get_clients(db: AsyncSession = Depends(get_central_db)):
         if not c.system_serial_number and c.hardware_id and c.hardware_id not in ("UNBOUND", "Bilinmiyor", "HW-UNKNOWN"):
             c.system_serial_number = compute_system_serial_number(c.hardware_id)
             db_modified = True
+        if not c.license_expires_at and c.current_license_key:
+            extracted_exp = _extract_expiry_from_license_key(c.current_license_key)
+            if extracted_exp:
+                c.license_expires_at = extracted_exp
+                db_modified = True
 
         from license_center.backend.connect_hub import ACTIVE_TUNNELS_BY_HWID, ACTIVE_TUNNELS_BY_SUBDOMAIN
         c_sub = (c.connect_subdomain or "").strip().lower()
@@ -2213,6 +2238,7 @@ async def receive_heartbeat(payload: HeartbeatSchema, request: Request, db: Asyn
         )
         client = res.scalars().first()
 
+        extracted_hb_exp = _extract_expiry_from_license_key(t_item.license_key)
         if not client:
             client = ClientServer(
                 company_name=(t_item.company_name or "").strip() or f"Otomatik Kayıt ({t_code})",
@@ -2225,11 +2251,17 @@ async def receive_heartbeat(payload: HeartbeatSchema, request: Request, db: Asyn
                 ip_address=client_ip,
                 status="active",
                 current_license_key=t_item.license_key,
+                license_expires_at=extracted_hb_exp,
                 software_version=payload.software_version
             )
             db.add(client)
             await db.commit()
             await db.refresh(client)
+
+        if not client.license_expires_at:
+            fallback_exp = extracted_hb_exp or _extract_expiry_from_license_key(client.current_license_key)
+            if fallback_exp:
+                client.license_expires_at = fallback_exp
 
         if t_item.company_name and t_item.company_name.strip():
             client.company_name = t_item.company_name.strip()
