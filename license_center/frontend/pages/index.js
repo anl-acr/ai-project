@@ -81,6 +81,9 @@ export default function MasterDashboard() {
 
   // Search, Filter & View Mode
   const [searchTerm, setSearchTerm] = useState("");
+  const [showTopbarSearch, setShowTopbarSearch] = useState(false);
+  const topbarSearchRef = useRef(null);
+  const topbarSearchInputRef = useRef(null);
   const [filterStatus, setFilterStatus] = useState("all");
   const [viewMode, setViewMode] = useState("cards"); // "cards" | "table"
   const [expandedClientIds, setExpandedClientIds] = useState({});
@@ -439,6 +442,30 @@ export default function MasterDashboard() {
       clearInterval(idleCheckTimer);
     };
   }, [currentUser, autoLogoutMinutes]);
+
+  // Topbar Search Keyboard Shortcut (Cmd/Ctrl+K, Esc) & Click-Outside
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
+        e.preventDefault();
+        setShowTopbarSearch(true);
+        setTimeout(() => topbarSearchInputRef.current?.focus(), 30);
+      } else if (e.key === "Escape" && showTopbarSearch) {
+        setShowTopbarSearch(false);
+      }
+    };
+    const handleClickOutside = (e) => {
+      if (showTopbarSearch && topbarSearchRef.current && !topbarSearchRef.current.contains(e.target)) {
+        setShowTopbarSearch(false);
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+      document.removeEventListener("mousedown", handleClickOutside);
+    };
+  }, [showTopbarSearch]);
 
   useEffect(() => {
     fetchData();
@@ -986,14 +1013,71 @@ export default function MasterDashboard() {
             <span className="hidden sm:inline">Kullanıcılar</span>
           </button>
 
-          <button
-            onClick={fetchData}
-            className="px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors flex items-center gap-1.5 text-xs font-bold shadow-xs dark:shadow-none cursor-pointer"
-            title="Filo Verilerini Yenile"
-          >
-            <RefreshCw size={14} className={loading ? "animate-spin text-indigo-500" : ""} />
-            <span className="hidden sm:inline">Yenile</span>
-          </button>
+          {/* Topbar Search Icon & Popover */}
+          <div className="relative" ref={topbarSearchRef}>
+            <button
+              type="button"
+              onClick={() => {
+                setShowTopbarSearch((prev) => {
+                  const next = !prev;
+                  if (next) {
+                    setTimeout(() => topbarSearchInputRef.current?.focus(), 30);
+                  }
+                  return next;
+                });
+              }}
+              className={`h-9 w-9 rounded-xl border transition-colors flex items-center justify-center cursor-pointer shadow-xs dark:shadow-none relative ${
+                showTopbarSearch || searchTerm.trim()
+                  ? "border-indigo-500/60 bg-indigo-50 dark:bg-indigo-950/50 text-indigo-600 dark:text-indigo-400"
+                  : "border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800"
+              }`}
+              title="Sunucu / Firma Ara (Ctrl+K)"
+            >
+              <Search size={15} />
+              {searchTerm.trim() && !showTopbarSearch && (
+                <span className="absolute -top-1 -right-1 w-2.5 h-2.5 rounded-full bg-indigo-600 ring-2 ring-white dark:ring-slate-900" />
+              )}
+            </button>
+
+            {showTopbarSearch && (
+              <div className="absolute right-0 top-11 z-50 w-80 sm:w-96 p-2.5 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-2xl animate-fadeIn">
+                <div className="relative flex items-center">
+                  <Search size={15} className="absolute left-3 text-slate-400 pointer-events-none" />
+                  <input
+                    ref={topbarSearchInputRef}
+                    type="text"
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                    placeholder="Firma, tenant kodu, alt alan adı, Seri No veya Donanım ID ara..."
+                    className="w-full text-xs font-semibold pl-9 pr-8 py-2.5 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl focus:outline-none focus:border-indigo-500 text-slate-900 dark:text-white placeholder:text-slate-400 dark:placeholder:text-slate-500"
+                  />
+                  {searchTerm && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSearchTerm("");
+                        topbarSearchInputRef.current?.focus();
+                      }}
+                      className="absolute right-2.5 p-1 rounded-lg text-slate-400 hover:text-slate-700 dark:hover:text-white cursor-pointer"
+                      title="Temizle"
+                    >
+                      <X size={13} />
+                    </button>
+                  )}
+                </div>
+                <div className="flex items-center justify-between px-1 pt-2 text-[10px] font-semibold text-slate-400">
+                  <span>
+                    {searchTerm.trim()
+                      ? `${filteredClients.length} sonuç bulundu`
+                      : "Anlık filtreleme (ESC ile kapat)"}
+                  </span>
+                  <span className="font-mono text-[9px] px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-500">
+                    ⌘K
+                  </span>
+                </div>
+              </div>
+            )}
+          </div>
 
           <button
             onClick={toggleTheme}
@@ -1121,20 +1205,9 @@ export default function MasterDashboard() {
           </div>
         </div>
 
-        {/* FILTER, SEARCH & VIEW MODE BAR */}
-        <div className="flex flex-col lg:flex-row items-stretch lg:items-center justify-between gap-3 bg-white dark:bg-slate-900/70 p-3.5 rounded-2xl border border-slate-200/80 dark:border-slate-800/90 shadow-xs dark:shadow-none">
-          <div className="relative flex-1 max-w-xl">
-            <Search size={15} className="absolute left-3.5 top-3 text-slate-400" />
-            <input
-              type="text"
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              placeholder="Firma adı, tenant kodu, alt alan adı (.nornia.com.tr), Seri No veya Donanım ID ara..."
-              className="w-full text-xs font-semibold pl-10 pr-4 py-2.5 bg-slate-50 dark:bg-slate-950/90 border border-slate-200/90 dark:border-slate-800 rounded-xl focus:outline-none focus:border-indigo-500 text-slate-900 dark:text-white placeholder:text-slate-400 dark:placeholder:text-slate-500"
-            />
-          </div>
-
-          <div className="flex flex-wrap items-center justify-between lg:justify-end gap-2">
+        {/* FILTER & VIEW MODE BAR */}
+        <div className="flex flex-wrap items-center justify-between gap-3 bg-white dark:bg-slate-900/70 p-3 rounded-2xl border border-slate-200/80 dark:border-slate-800/90 shadow-xs dark:shadow-none">
+          <div className="flex flex-wrap items-center gap-2">
             {/* Status Filter Pills */}
             <div className="flex items-center gap-1.5 bg-slate-100/80 dark:bg-slate-950/80 p-1 rounded-xl border border-slate-200/70 dark:border-slate-800/80">
               <button
@@ -1182,6 +1255,23 @@ export default function MasterDashboard() {
               </button>
             </div>
 
+            {searchTerm.trim() && (
+              <span className="px-2.5 py-1.5 rounded-xl bg-indigo-500/10 border border-indigo-500/25 text-indigo-700 dark:text-indigo-300 text-xs font-bold flex items-center gap-1.5">
+                <Search size={12} />
+                <span>&ldquo;{searchTerm.trim()}&rdquo;</span>
+                <button
+                  type="button"
+                  onClick={() => setSearchTerm("")}
+                  className="hover:text-rose-500 cursor-pointer"
+                  title="Arama filtresini temizle"
+                >
+                  <X size={12} />
+                </button>
+              </span>
+            )}
+          </div>
+
+          <div className="flex items-center gap-2">
             {/* View Switcher: Cards vs Table */}
             <div className="flex items-center gap-1 bg-slate-100/80 dark:bg-slate-950/80 p-1 rounded-xl border border-slate-200/70 dark:border-slate-800/80">
               <button

@@ -38886,18 +38886,36 @@ async def get_system_version_info():
         pass
 
     return {
-        "version": "v3.0.5",
+        "version": "v3.0.6",
         "commit_hash": live_commit,
         "release_date": "20 Kasım 2026",
         "status": "Güncel / Canlı Sürüm",
         "environment": "Production (On-Premise)",
         "changelog": [
             {
-                "version": "v3.0.5",
+                "version": "v3.0.6",
                 "commit_hash": live_commit,
                 "release_date": "20 Kasım 2026",
                 "badge": "Canlı Sürüm (Güncel)",
                 "badge_type": "current",
+                "title": "Nornia Cloud Center Üst Menü Sadeleştirme & Açılır Arama (Search) İkonu",
+                "summary": "Nornia Cloud Center üst çubuğundaki manuel 'Yenile' butonu kaldırılarak yerine kompakt Arama (Search) ikonu + açılır arama kutusu (⌘K / Ctrl+K) getirildi; ana sayfadaki sabit arama kutusu kaldırılarak filtre çubuğu sadeleştirildi.",
+                "features": [
+                    {
+                        "title": "🔍 Üst Menü Kompakt Arama İkonu & Kısayol (⌘K / Ctrl+K)",
+                        "desc": "Manuel Yenile butonu yerine üst çubuğa açılır arama ikonu eklendi; aktif arama filtresi varsa hem ikon üzerinde nokta göstergesi hem de tek tıkla temizlenebilir filtre etiketi görünür."
+                    }
+                ],
+                "fixes": [
+                    "Ana sayfadaki sabit arama çubuğu kaldırılarak durum filtreleri ve kart/tablo görünüm geçişi daha ferah tek satıra taşındı."
+                ]
+            },
+            {
+                "version": "v3.0.5",
+                "commit_hash": "b1de231",
+                "release_date": "20 Kasım 2026",
+                "badge": "Önceki Sürüm",
+                "badge_type": "stable",
                 "title": "Nornia Cloud Center Santral Tarzı 2FA Tasarımı, 2 Aşamalı Zorunlu (VE) / Yedekli (VEYA) Mod ve Google / Microsoft Authenticator Ayrımı",
                 "summary": "Nornia Cloud Center kullanıcı düzenleme ekranındaki 2FA bölümü santral sunucusundaki tasarımla birebir uyumlu hale getirildi (WhatsApp hariç): Tek Yöntem, 2 Aşamalı Zorunlu (VE Modu) ve Esnek/Yedekli (VEYA Modu) çalışma modları; E-Posta, Google Authenticator ve Microsoft Authenticator kartları ile girişte gerçek 2 aşamalı doğrulama akışı eklendi.",
                 "features": [
