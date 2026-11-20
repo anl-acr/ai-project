@@ -38907,18 +38907,31 @@ async def get_system_version_info():
         pass
 
     return {
-        "version": "v3.2.9",
+        "version": "v3.3.0",
         "commit_hash": live_commit,
         "release_date": "20 Kasım 2026",
         "status": "Güncel / Canlı Sürüm",
         "environment": "Production (On-Premise)",
         "changelog": [
             {
-                "version": "v3.2.9",
+                "version": "v3.3.0",
                 "commit_hash": live_commit,
                 "release_date": "20 Kasım 2026",
                 "badge": "Canlı Sürüm (Güncel)",
                 "badge_type": "current",
+                "title": "Nornia Cloud Center Avatar Alanı Sadeleştirmesi (@kullanici Kaldırıldı)",
+                "summary": "Üst bar avatar alanı ve açılır hesap menüsündeki @kullanici ibaresi kaldırılarak yalnızca ad soyad ve avatar görünümü bırakıldı.",
+                "features": [],
+                "fixes": [
+                    "Üst bar ve avatar açılır menüsündeki @kullanici etiketi kaldırıldı."
+                ]
+            },
+            {
+                "version": "v3.2.9",
+                "commit_hash": "91044fe",
+                "release_date": "20 Kasım 2026",
+                "badge": "Önceki Sürüm",
+                "badge_type": "stable",
                 "title": "Lisans Yenileme Stüdyosu Sol Başlık Menülü (Rol Ekranı Stili) Geniş Tasarım",
                 "summary": "Lisans Yenileme Stüdyosu penceresi genişletilerek (max-w-6xl) santraldeki Rol ekranı gibi sol tarafta kategori başlıkları ve sağda ilgili ayar paneli olacak şekilde baştan tasarlandı.",
                 "features": [

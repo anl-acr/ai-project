@@ -1454,9 +1454,6 @@ export default function MasterDashboard() {
                   <div className="font-extrabold text-slate-800 dark:text-white leading-tight flex items-center justify-end gap-1.5">
                     <span>{currentUser.full_name}</span>
                   </div>
-                  <div className="text-[10px] text-indigo-600 dark:text-indigo-400 font-mono font-bold">
-                    @{currentUser.username}
-                  </div>
                 </div>
 
                 <div className="relative shrink-0">
@@ -1498,9 +1495,6 @@ export default function MasterDashboard() {
                     <div className="min-w-0 flex-1">
                       <div className="font-extrabold text-xs text-slate-900 dark:text-white truncate">
                         {currentUser.full_name}
-                      </div>
-                      <div className="text-[11px] font-mono font-bold text-indigo-600 dark:text-indigo-400 truncate">
-                        @{currentUser.username}
                       </div>
                       <div className="mt-1">
                         <span
