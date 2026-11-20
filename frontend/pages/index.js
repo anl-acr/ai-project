@@ -673,13 +673,12 @@ export default function Home() {
   const [licenseStatus, setLicenseStatus] = useState(null);
   const [isLicenseModalOpen, setIsLicenseModalOpen] = useState(false);
   const [showLicenseWarningModal, setShowLicenseWarningModal] = useState(false);
+  const dismissedLicenseWarnRef = React.useRef(new Set());
 
   const dismissLicenseWarningModal = () => {
     setShowLicenseWarningModal(false);
-    if (typeof window !== "undefined") {
-      const tid = licenseStatus?.tenant_id || activeTenantId || "default";
-      sessionStorage.setItem(`nornia_license_expiry_warn_seen_${tid}`, "1");
-    }
+    const tid = licenseStatus?.tenant_id || activeTenantId || "default";
+    dismissedLicenseWarnRef.current.add(tid);
   };
 
   const fetchGlobalLicenseStatus = async () => {
@@ -704,11 +703,9 @@ export default function Home() {
           const isInGrace = Boolean(data?.in_grace_period);
           const dLeft = data?.days_left;
           const isExpiringSoon = !data?.is_unlimited && dLeft !== null && dLeft !== undefined && Number(dLeft) <= 7;
-          if ((isInGrace || isExpiringSoon) && typeof window !== "undefined") {
-            const warnKey = `nornia_license_expiry_warn_seen_${data?.tenant_id || activeTenantId || "default"}`;
-            if (!sessionStorage.getItem(warnKey)) {
-              setShowLicenseWarningModal(true);
-            }
+          const warnTid = data?.tenant_id || activeTenantId || "default";
+          if ((isInGrace || isExpiringSoon) && !dismissedLicenseWarnRef.current.has(warnTid)) {
+            setShowLicenseWarningModal(true);
           }
         }
       }
@@ -3634,6 +3631,8 @@ export default function Home() {
         if (extKey) sessionStorage.removeItem(`notified_int_chat_ids_${extKey}`);
       } catch (e) {}
       setInternalChatToast(null);
+      dismissedLicenseWarnRef.current.clear();
+      setShowLicenseWarningModal(false);
       setCurrentUser(null);
       setIsLoggedIn(false);
       if (isNativeElectron()) {

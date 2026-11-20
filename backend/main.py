@@ -39040,18 +39040,31 @@ async def get_system_version_info():
         pass
 
     return {
-        "version": "v3.3.3",
+        "version": "v3.3.4",
         "commit_hash": live_commit,
         "release_date": "20 Kasım 2026",
         "status": "Güncel / Canlı Sürüm",
         "environment": "Production (On-Premise)",
         "changelog": [
             {
-                "version": "v3.3.3",
+                "version": "v3.3.4",
                 "commit_hash": live_commit,
                 "release_date": "20 Kasım 2026",
                 "badge": "Canlı Sürüm (Güncel)",
                 "badge_type": "current",
+                "title": "Lisans Uyarı Popup'ı Yeniden Giriş & Sayfa Yenileme Düzeltmesi",
+                "summary": "Aynı tarayıcı sekmesinde çıkış-giriş veya sayfa yenileme sonrası sessionStorage yüzünden lisans uyarı penceresinin tekrar açılmaması sorunu giderildi.",
+                "features": [],
+                "fixes": [
+                    "Lisans uyarı popup'ı kapatma durumu kalıcı sessionStorage yerine oturum içi bellek (useRef) ile yönetilecek şekilde güncellendi; artık her yeni giriş veya sayfa yenilemede bir kez gösterilir, menüler arası geçişte tekrar açılmaz."
+                ]
+            },
+            {
+                "version": "v3.3.3",
+                "commit_hash": "ab0b1c6",
+                "release_date": "20 Kasım 2026",
+                "badge": "Önceki Sürüm",
+                "badge_type": "stable",
                 "title": "Lisans Uyarı Popup'ı Kalan Gün Vurgusu",
                 "summary": "Santral girişindeki son 7 gün / ek süre lisans uyarı penceresinde kalan gün sayısı kırmızı renk ile vurgulandı.",
                 "features": [],
