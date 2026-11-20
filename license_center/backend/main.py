@@ -1502,8 +1502,20 @@ async def get_dashboard_stats(db: AsyncSession = Depends(get_central_db)):
     expired_count = sum(1 for c in clients if c.status in ["expired", "suspended"])
     expiring_soon_count = 0
     total_active_calls = sum(c.active_calls_count or 0 for c in clients)
+    total_licensed_subscribers = 0
     
     for c in clients:
+        # Sum licensed user quota (max_users) per server (default 50 if unset)
+        user_quota = 50
+        if c.custom_quotas:
+            try:
+                parsed_q = json.loads(c.custom_quotas)
+                if isinstance(parsed_q, dict) and parsed_q.get("max_users") is not None:
+                    user_quota = int(parsed_q.get("max_users"))
+            except Exception:
+                pass
+        total_licensed_subscribers += max(0, user_quota)
+
         exp_str = c.license_expires_at
         if exp_str and exp_str != "unlimited":
             try:
@@ -1520,7 +1532,8 @@ async def get_dashboard_stats(db: AsyncSession = Depends(get_central_db)):
         "offline_count": total_clients - online_count,
         "expiring_soon_count": expiring_soon_count,
         "expired_count": expired_count,
-        "total_active_calls": total_active_calls
+        "total_active_calls": total_active_calls,
+        "total_licensed_subscribers": total_licensed_subscribers,
     }
 
 # --------------------------------------------------------------------------

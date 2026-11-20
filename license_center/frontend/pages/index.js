@@ -38,6 +38,7 @@ import {
   ChevronUp,
   Sparkles,
   Wifi,
+  WifiOff,
   HardDrive,
   Database,
   Zap,
@@ -62,8 +63,10 @@ export default function MasterDashboard() {
     offline_count: 0,
     expired_count: 0,
     expiring_soon_count: 0,
-    total_active_calls: 0
+    total_active_calls: 0,
+    total_licensed_subscribers: 0
   });
+  const [kpiModalKey, setKpiModalKey] = useState(null);
   const [loading, setLoading] = useState(false);
 
   // Add Client Modal State
@@ -941,6 +944,96 @@ export default function MasterDashboard() {
     return matchSearch;
   });
 
+  const getClientUserLicenseCount = (c) => {
+    const raw = c?.custom_quotas?.max_users;
+    if (raw !== undefined && raw !== null && raw !== "" && !Number.isNaN(Number(raw))) {
+      return Math.max(0, Number(raw));
+    }
+    return 50;
+  };
+
+  const onlineClientsList = clients.filter((c) => Boolean(c.is_online));
+  const offlineClientsList = clients.filter((c) => !c.is_online);
+  const expiringSoonClientsList = clients.filter(
+    (c) =>
+      c.status === "active" &&
+      typeof c.days_left === "number" &&
+      c.days_left >= 0 &&
+      c.days_left <= 15
+  );
+  const expiredClientsList = clients.filter(
+    (c) => c.status === "expired" || c.status === "suspended"
+  );
+  const activeCallClientsList = [...clients]
+    .filter((c) => Number(c.active_calls_count || 0) > 0)
+    .sort((a, b) => Number(b.active_calls_count || 0) - Number(a.active_calls_count || 0));
+  const totalLicensedSubscribers =
+    clients.length > 0
+      ? clients.reduce((acc, c) => acc + getClientUserLicenseCount(c), 0)
+      : Number(stats.total_licensed_subscribers || 0);
+  const totalRegisteredSubscribers = clients.reduce(
+    (acc, c) => acc + Number(c.total_users_count || 0),
+    0
+  );
+
+  const kpiModalConfig = (() => {
+    if (!kpiModalKey) return null;
+    const map = {
+      total: {
+        title: "Toplam Kurulum — Tüm Sunucular",
+        subtitle: "Merkezi lisans otoritesine kayıtlı tüm santral ve tenant sunucuları",
+        accent: "indigo",
+        filterShortcut: "all",
+        list: clients
+      },
+      online: {
+        title: "Canlı Sunucular",
+        subtitle: "Aktif Heartbeat veya Nornia Connect tüneli bağlı olan çevrimiçi sunucular",
+        accent: "emerald",
+        filterShortcut: "online",
+        list: onlineClientsList
+      },
+      offline: {
+        title: "Çevrimdışı Sunucular",
+        subtitle: "Son 15 dakikada heartbeat veya aktif tünel bağlantısı alınamayan sunucular",
+        accent: "slate",
+        filterShortcut: "offline",
+        list: offlineClientsList
+      },
+      expiring_soon: {
+        title: "Süresi Yaklaşan Sunucular (15 Gün)",
+        subtitle: "Lisans bitiş tarihine 15 gün veya daha az kalmış aktif sunucular",
+        accent: "amber",
+        filterShortcut: null,
+        list: expiringSoonClientsList
+      },
+      expired: {
+        title: "Pasif / Durdurulan Sunucular",
+        subtitle: "Askıya alınmış veya lisans süresi dolmuş sunucular",
+        accent: "rose",
+        filterShortcut: "suspended",
+        list: expiredClientsList
+      },
+      subscribers: {
+        title: "Toplam Abone Lisans Dağılımı",
+        subtitle: `Sunuculardaki kullanıcı lisans kotası toplamı: ${totalLicensedSubscribers.toLocaleString("tr-TR")} Abone (${totalRegisteredSubscribers.toLocaleString("tr-TR")} aktif kayıtlı)`,
+        accent: "violet",
+        filterShortcut: null,
+        list: [...clients].sort(
+          (a, b) => getClientUserLicenseCount(b) - getClientUserLicenseCount(a)
+        )
+      },
+      active_calls: {
+        title: "Canlı Aktif Çağrı Olan Sunucular",
+        subtitle: `Filo genelinde şu an toplam ${stats.total_active_calls || 0} aktif görüşme yürütülüyor`,
+        accent: "blue",
+        filterShortcut: null,
+        list: activeCallClientsList
+      }
+    };
+    return map[kpiModalKey] || null;
+  })();
+
   if (!currentUser && !isAuthChecking) {
     return (
       <LoginModal
@@ -1144,65 +1237,122 @@ export default function MasterDashboard() {
           </div>
         )}
 
-        {/* STATS OVERVIEW CARDS */}
-        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
-          <div className="p-4 lg:p-5 bg-white dark:bg-slate-900/70 border border-slate-200/80 dark:border-slate-800/90 rounded-2xl flex items-center justify-between shadow-xs dark:shadow-none">
-            <div className="space-y-1">
-              <div className="text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Toplam Kurulum</div>
-              <div className="text-2xl lg:text-3xl font-extrabold text-slate-900 dark:text-white">{stats.total_clients}</div>
-              <div className="text-[11px] text-slate-400 dark:text-slate-500 font-medium">Kayıtlı Santral &amp; Tenant</div>
+        {/* STATS OVERVIEW CARDS (7 CLICKABLE KPI CARDS) */}
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-7 gap-3.5">
+          <button
+            type="button"
+            onClick={() => setKpiModalKey("total")}
+            title="Tüm kayıtlı sunucuları görüntülemek için tıklayın"
+            className="text-left p-4 bg-white dark:bg-slate-900/70 border border-slate-200/80 dark:border-slate-800/90 hover:border-indigo-400/70 dark:hover:border-indigo-500/60 hover:-translate-y-0.5 transition-all rounded-2xl flex items-center justify-between gap-2 shadow-xs dark:shadow-none cursor-pointer group"
+          >
+            <div className="space-y-1 min-w-0">
+              <div className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider truncate">Toplam Kurulum</div>
+              <div className="text-2xl font-extrabold text-slate-900 dark:text-white">{clients.length || stats.total_clients}</div>
+              <div className="text-[10px] text-slate-400 dark:text-slate-500 font-medium truncate">Kayıtlı Santral &amp; Tenant</div>
             </div>
-            <div className="w-11 h-11 rounded-2xl bg-indigo-500/10 dark:bg-indigo-500/15 border border-indigo-500/20 text-indigo-600 dark:text-indigo-400 flex items-center justify-center shrink-0">
-              <Server size={20} />
+            <div className="w-10 h-10 rounded-2xl bg-indigo-500/10 dark:bg-indigo-500/15 border border-indigo-500/20 text-indigo-600 dark:text-indigo-400 flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform">
+              <Server size={18} />
             </div>
-          </div>
+          </button>
 
-          <div className="p-4 lg:p-5 bg-white dark:bg-slate-900/70 border border-slate-200/80 dark:border-slate-800/90 rounded-2xl flex items-center justify-between shadow-xs dark:shadow-none">
-            <div className="space-y-1">
-              <div className="text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Canlı Sunucular</div>
-              <div className="text-2xl lg:text-3xl font-extrabold text-emerald-600 dark:text-emerald-400 flex items-center gap-2">
-                <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-ping" />
-                <span>{stats.online_count}</span>
+          <button
+            type="button"
+            onClick={() => setKpiModalKey("online")}
+            title="Canlı (çevrimiçi) sunucuları görüntülemek için tıklayın"
+            className="text-left p-4 bg-white dark:bg-slate-900/70 border border-slate-200/80 dark:border-slate-800/90 hover:border-emerald-400/70 dark:hover:border-emerald-500/60 hover:-translate-y-0.5 transition-all rounded-2xl flex items-center justify-between gap-2 shadow-xs dark:shadow-none cursor-pointer group"
+          >
+            <div className="space-y-1 min-w-0">
+              <div className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider truncate">Canlı Sunucular</div>
+              <div className="text-2xl font-extrabold text-emerald-600 dark:text-emerald-400 flex items-center gap-2">
+                <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-ping shrink-0" />
+                <span>{onlineClientsList.length}</span>
               </div>
-              <div className="text-[11px] text-slate-400 dark:text-slate-500 font-medium">Aktif Heartbeat &amp; Tünel</div>
+              <div className="text-[10px] text-slate-400 dark:text-slate-500 font-medium truncate">Aktif Heartbeat &amp; Tünel</div>
             </div>
-            <div className="w-11 h-11 rounded-2xl bg-emerald-500/10 dark:bg-emerald-500/15 border border-emerald-500/20 text-emerald-600 dark:text-emerald-400 flex items-center justify-center shrink-0">
-              <Activity size={20} />
+            <div className="w-10 h-10 rounded-2xl bg-emerald-500/10 dark:bg-emerald-500/15 border border-emerald-500/20 text-emerald-600 dark:text-emerald-400 flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform">
+              <Activity size={18} />
             </div>
-          </div>
+          </button>
 
-          <div className="p-4 lg:p-5 bg-white dark:bg-slate-900/70 border border-slate-200/80 dark:border-slate-800/90 rounded-2xl flex items-center justify-between shadow-xs dark:shadow-none">
-            <div className="space-y-1">
-              <div className="text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Süresi Yaklaşan</div>
-              <div className="text-2xl lg:text-3xl font-extrabold text-amber-600 dark:text-amber-400">{stats.expiring_soon_count}</div>
-              <div className="text-[11px] text-slate-400 dark:text-slate-500 font-medium">15 Gün İçinde Dolacak</div>
+          <button
+            type="button"
+            onClick={() => setKpiModalKey("offline")}
+            title="Çevrimdışı sunucuları görüntülemek için tıklayın"
+            className="text-left p-4 bg-white dark:bg-slate-900/70 border border-slate-200/80 dark:border-slate-800/90 hover:border-slate-400 dark:hover:border-slate-600 hover:-translate-y-0.5 transition-all rounded-2xl flex items-center justify-between gap-2 shadow-xs dark:shadow-none cursor-pointer group"
+          >
+            <div className="space-y-1 min-w-0">
+              <div className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider truncate">Çevrimdışı</div>
+              <div className="text-2xl font-extrabold text-slate-600 dark:text-slate-300">{offlineClientsList.length}</div>
+              <div className="text-[10px] text-slate-400 dark:text-slate-500 font-medium truncate">Bağlantı Bekleyen</div>
             </div>
-            <div className="w-11 h-11 rounded-2xl bg-amber-500/10 dark:bg-amber-500/15 border border-amber-500/20 text-amber-600 dark:text-amber-400 flex items-center justify-center shrink-0">
-              <Clock size={20} />
+            <div className="w-10 h-10 rounded-2xl bg-slate-500/10 dark:bg-slate-500/15 border border-slate-500/20 text-slate-600 dark:text-slate-400 flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform">
+              <WifiOff size={18} />
             </div>
-          </div>
+          </button>
 
-          <div className="p-4 lg:p-5 bg-white dark:bg-slate-900/70 border border-slate-200/80 dark:border-slate-800/90 rounded-2xl flex items-center justify-between shadow-xs dark:shadow-none">
-            <div className="space-y-1">
-              <div className="text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Pasif / Durdurulan</div>
-              <div className="text-2xl lg:text-3xl font-extrabold text-rose-600 dark:text-rose-500">{stats.expired_count}</div>
-              <div className="text-[11px] text-slate-400 dark:text-slate-500 font-medium">Askıda veya Süresi Biten</div>
+          <button
+            type="button"
+            onClick={() => setKpiModalKey("expiring_soon")}
+            title="Lisans süresi yaklaşan sunucuları görüntülemek için tıklayın"
+            className="text-left p-4 bg-white dark:bg-slate-900/70 border border-slate-200/80 dark:border-slate-800/90 hover:border-amber-400/70 dark:hover:border-amber-500/60 hover:-translate-y-0.5 transition-all rounded-2xl flex items-center justify-between gap-2 shadow-xs dark:shadow-none cursor-pointer group"
+          >
+            <div className="space-y-1 min-w-0">
+              <div className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider truncate">Süresi Yaklaşan</div>
+              <div className="text-2xl font-extrabold text-amber-600 dark:text-amber-400">{expiringSoonClientsList.length}</div>
+              <div className="text-[10px] text-slate-400 dark:text-slate-500 font-medium truncate">15 Gün İçinde Dolacak</div>
             </div>
-            <div className="w-11 h-11 rounded-2xl bg-rose-500/10 dark:bg-rose-500/15 border border-rose-500/20 text-rose-600 dark:text-rose-500 flex items-center justify-center shrink-0">
-              <ShieldAlert size={20} />
+            <div className="w-10 h-10 rounded-2xl bg-amber-500/10 dark:bg-amber-500/15 border border-amber-500/20 text-amber-600 dark:text-amber-400 flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform">
+              <Clock size={18} />
             </div>
-          </div>
+          </button>
 
-          <div className="p-4 lg:p-5 bg-white dark:bg-slate-900/70 border border-slate-200/80 dark:border-slate-800/90 rounded-2xl flex items-center justify-between shadow-xs dark:shadow-none col-span-2 md:col-span-1">
-            <div className="space-y-1">
-              <div className="text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Canlı Aktif Çağrı</div>
-              <div className="text-2xl lg:text-3xl font-extrabold text-blue-600 dark:text-blue-400">{stats.total_active_calls}</div>
-              <div className="text-[11px] text-slate-400 dark:text-slate-500 font-medium">Filo Geneli Görüşme</div>
+          <button
+            type="button"
+            onClick={() => setKpiModalKey("expired")}
+            title="Pasif veya durdurulan sunucuları görüntülemek için tıklayın"
+            className="text-left p-4 bg-white dark:bg-slate-900/70 border border-slate-200/80 dark:border-slate-800/90 hover:border-rose-400/70 dark:hover:border-rose-500/60 hover:-translate-y-0.5 transition-all rounded-2xl flex items-center justify-between gap-2 shadow-xs dark:shadow-none cursor-pointer group"
+          >
+            <div className="space-y-1 min-w-0">
+              <div className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider truncate">Pasif / Durdurulan</div>
+              <div className="text-2xl font-extrabold text-rose-600 dark:text-rose-500">{expiredClientsList.length}</div>
+              <div className="text-[10px] text-slate-400 dark:text-slate-500 font-medium truncate">Askıda veya Süresi Biten</div>
             </div>
-            <div className="w-11 h-11 rounded-2xl bg-blue-500/10 dark:bg-blue-500/15 border border-blue-500/20 text-blue-600 dark:text-blue-400 flex items-center justify-center shrink-0">
-              <PhoneCall size={20} />
+            <div className="w-10 h-10 rounded-2xl bg-rose-500/10 dark:bg-rose-500/15 border border-rose-500/20 text-rose-600 dark:text-rose-500 flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform">
+              <ShieldAlert size={18} />
             </div>
-          </div>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setKpiModalKey("subscribers")}
+            title="Sunucu bazlı toplam abone lisans dağılımını görüntülemek için tıklayın"
+            className="text-left p-4 bg-white dark:bg-slate-900/70 border border-slate-200/80 dark:border-slate-800/90 hover:border-violet-400/70 dark:hover:border-violet-500/60 hover:-translate-y-0.5 transition-all rounded-2xl flex items-center justify-between gap-2 shadow-xs dark:shadow-none cursor-pointer group"
+          >
+            <div className="space-y-1 min-w-0">
+              <div className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider truncate">Toplam Abone</div>
+              <div className="text-2xl font-extrabold text-violet-600 dark:text-violet-400">{totalLicensedSubscribers.toLocaleString("tr-TR")}</div>
+              <div className="text-[10px] text-slate-400 dark:text-slate-500 font-medium truncate">Lisanslı Kullanıcı Adeti</div>
+            </div>
+            <div className="w-10 h-10 rounded-2xl bg-violet-500/10 dark:bg-violet-500/15 border border-violet-500/20 text-violet-600 dark:text-violet-400 flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform">
+              <Users size={18} />
+            </div>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setKpiModalKey("active_calls")}
+            title="Aktif çağrı yürüten sunucuları görüntülemek için tıklayın"
+            className="text-left p-4 bg-white dark:bg-slate-900/70 border border-slate-200/80 dark:border-slate-800/90 hover:border-blue-400/70 dark:hover:border-blue-500/60 hover:-translate-y-0.5 transition-all rounded-2xl flex items-center justify-between gap-2 shadow-xs dark:shadow-none cursor-pointer group col-span-2 sm:col-span-1"
+          >
+            <div className="space-y-1 min-w-0">
+              <div className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider truncate">Canlı Aktif Çağrı</div>
+              <div className="text-2xl font-extrabold text-blue-600 dark:text-blue-400">{stats.total_active_calls}</div>
+              <div className="text-[10px] text-slate-400 dark:text-slate-500 font-medium truncate">Filo Geneli Görüşme</div>
+            </div>
+            <div className="w-10 h-10 rounded-2xl bg-blue-500/10 dark:bg-blue-500/15 border border-blue-500/20 text-blue-600 dark:text-blue-400 flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform">
+              <PhoneCall size={18} />
+            </div>
+          </button>
         </div>
 
         {/* FILTER & VIEW MODE BAR */}
@@ -1229,7 +1379,7 @@ export default function MasterDashboard() {
                 }`}
               >
                 <span className={`w-2 h-2 rounded-full ${filterStatus === "online" ? "bg-white" : "bg-emerald-500"}`} />
-                <span>Canlı ({stats.online_count})</span>
+                <span>Canlı ({onlineClientsList.length})</span>
               </button>
               <button
                 onClick={() => setFilterStatus("offline")}
@@ -1240,7 +1390,7 @@ export default function MasterDashboard() {
                 }`}
               >
                 <span className="w-2 h-2 rounded-full bg-slate-400" />
-                <span>Çevrimdışı ({stats.offline_count})</span>
+                <span>Çevrimdışı ({offlineClientsList.length})</span>
               </button>
               <button
                 onClick={() => setFilterStatus("suspended")}
@@ -1251,7 +1401,7 @@ export default function MasterDashboard() {
                 }`}
               >
                 <span className={`w-2 h-2 rounded-full ${filterStatus === "suspended" ? "bg-white" : "bg-rose-500"}`} />
-                <span>Askıda ({stats.expired_count})</span>
+                <span>Askıda ({expiredClientsList.length})</span>
               </button>
             </div>
 
@@ -3298,6 +3448,247 @@ export default function MasterDashboard() {
                 Gönder ↵
               </button>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* KPI STATUS SERVERS POPUP MODAL */}
+      {kpiModalConfig && (
+        <div
+          className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-sm flex items-center justify-center p-4 animate-fadeIn"
+          onClick={() => setKpiModalKey(null)}
+        >
+          <div
+            className="w-full max-w-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl shadow-2xl overflow-hidden flex flex-col max-h-[85vh] text-slate-900 dark:text-slate-100"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Header */}
+            <div className="px-6 py-4 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between bg-slate-50/70 dark:bg-slate-950/50">
+              <div className="flex items-center gap-3 min-w-0">
+                <div
+                  className={`w-10 h-10 rounded-2xl flex items-center justify-center shrink-0 border ${
+                    kpiModalConfig.accent === "emerald"
+                      ? "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border-emerald-500/30"
+                      : kpiModalConfig.accent === "amber"
+                        ? "bg-amber-500/15 text-amber-600 dark:text-amber-400 border-amber-500/30"
+                        : kpiModalConfig.accent === "rose"
+                          ? "bg-rose-500/15 text-rose-600 dark:text-rose-400 border-rose-500/30"
+                          : kpiModalConfig.accent === "violet"
+                            ? "bg-violet-500/15 text-violet-600 dark:text-violet-400 border-violet-500/30"
+                            : kpiModalConfig.accent === "blue"
+                              ? "bg-blue-500/15 text-blue-600 dark:text-blue-400 border-blue-500/30"
+                              : kpiModalConfig.accent === "slate"
+                                ? "bg-slate-500/15 text-slate-600 dark:text-slate-300 border-slate-500/30"
+                                : "bg-indigo-500/15 text-indigo-600 dark:text-indigo-400 border-indigo-500/30"
+                  }`}
+                >
+                  {kpiModalKey === "online" ? (
+                    <Activity size={19} />
+                  ) : kpiModalKey === "offline" ? (
+                    <WifiOff size={19} />
+                  ) : kpiModalKey === "expiring_soon" ? (
+                    <Clock size={19} />
+                  ) : kpiModalKey === "expired" ? (
+                    <ShieldAlert size={19} />
+                  ) : kpiModalKey === "subscribers" ? (
+                    <Users size={19} />
+                  ) : kpiModalKey === "active_calls" ? (
+                    <PhoneCall size={19} />
+                  ) : (
+                    <Server size={19} />
+                  )}
+                </div>
+                <div className="min-w-0">
+                  <h3 className="text-sm sm:text-base font-extrabold text-slate-900 dark:text-white flex items-center gap-2 truncate">
+                    <span className="truncate">{kpiModalConfig.title}</span>
+                    <span className="px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-slate-200/80 dark:bg-slate-800 text-slate-700 dark:text-slate-300 shrink-0">
+                      {kpiModalConfig.list.length} Sunucu
+                    </span>
+                  </h3>
+                  <p className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 truncate">
+                    {kpiModalConfig.subtitle}
+                  </p>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setKpiModalKey(null)}
+                className="p-2 rounded-xl text-slate-400 hover:text-slate-700 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer shrink-0"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            {/* Body Server List */}
+            <div className="p-5 overflow-y-auto flex-1 space-y-2.5">
+              {kpiModalConfig.list.length === 0 ? (
+                <div className="py-12 text-center space-y-2">
+                  <div className="text-sm font-extrabold text-slate-700 dark:text-slate-300">
+                    Bu kategoride kayıtlı sunucu bulunmuyor.
+                  </div>
+                  <p className="text-xs text-slate-400">
+                    Filo durumu güncellendiğinde ilgili sunucular burada otomatik listelenir.
+                  </p>
+                </div>
+              ) : (
+                kpiModalConfig.list.map((c) => {
+                  const userQuota = getClientUserLicenseCount(c);
+                  const maxCalls = Number(c.custom_quotas?.max_concurrent_calls ?? 4);
+                  const tolCalls = Number(c.custom_quotas?.tolerance_concurrent_calls ?? 0);
+                  return (
+                    <div
+                      key={c.id}
+                      className="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-950/80 border border-slate-200/90 dark:border-slate-800 flex flex-wrap items-center justify-between gap-3 hover:border-slate-300 dark:hover:border-slate-700 transition-colors"
+                    >
+                      <div className="flex items-center gap-3 min-w-0 flex-1">
+                        <span
+                          className={`w-2.5 h-2.5 rounded-full shrink-0 ${
+                            c.is_online
+                              ? "bg-emerald-500 shadow-sm shadow-emerald-500/60"
+                              : "bg-slate-400"
+                          }`}
+                          title={c.is_online ? "Çevrimiçi" : "Çevrimdışı"}
+                        />
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="font-extrabold text-xs sm:text-sm text-slate-900 dark:text-white truncate">
+                              {c.company_name}
+                            </span>
+                            <span className="text-[10px] font-mono font-bold text-indigo-600 dark:text-indigo-400">
+                              @{c.tenant_code}
+                            </span>
+                            <span
+                              className={`px-2 py-0.5 rounded-full text-[10px] font-extrabold border ${
+                                c.status === "suspended" || c.status === "expired"
+                                  ? "bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-500/30"
+                                  : c.is_online
+                                    ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/30"
+                                    : "bg-slate-200/80 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border-slate-300 dark:border-slate-700"
+                              }`}
+                            >
+                              {c.status === "suspended"
+                                ? "Askıda"
+                                : c.status === "expired"
+                                  ? "Süresi Doldu"
+                                  : c.is_online
+                                    ? "Canlı"
+                                    : "Çevrimdışı"}
+                            </span>
+                          </div>
+                          <div className="text-[11px] text-slate-500 dark:text-slate-400 font-medium flex flex-wrap items-center gap-x-3 gap-y-0.5 mt-0.5">
+                            {c.domain_name && <span className="font-mono">{c.domain_name}</span>}
+                            {c.ip_address && <span className="font-mono">{c.ip_address}</span>}
+                            <span>
+                              Bitiş:{" "}
+                              <strong className="text-slate-700 dark:text-slate-300">
+                                {c.license_expires_at === "unlimited"
+                                  ? "Sınırsız"
+                                  : c.license_expires_at || "—"}
+                              </strong>
+                              {typeof c.days_left === "number" && (
+                                <span className="ml-1 text-amber-600 dark:text-amber-400 font-bold">
+                                  ({c.days_left} gün)
+                                </span>
+                              )}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Contextual Metric + Quick Actions */}
+                      <div className="flex items-center gap-2 shrink-0">
+                        {kpiModalKey === "subscribers" ? (
+                          <div className="px-3 py-1.5 rounded-xl bg-violet-500/10 border border-violet-500/25 text-right">
+                            <div className="text-xs font-extrabold text-violet-700 dark:text-violet-300">
+                              {userQuota.toLocaleString("tr-TR")} Abone Lisansı
+                            </div>
+                            <div className="text-[10px] text-slate-500 dark:text-slate-400 font-semibold">
+                              {Number(c.total_users_count || 0)} aktif kullanıcı
+                            </div>
+                          </div>
+                        ) : kpiModalKey === "active_calls" ? (
+                          <div className="px-3 py-1.5 rounded-xl bg-blue-500/10 border border-blue-500/25 text-right">
+                            <div className="text-xs font-extrabold text-blue-700 dark:text-blue-300">
+                              {Number(c.active_calls_count || 0)} Aktif Çağrı
+                            </div>
+                            <div className="text-[10px] text-slate-500 dark:text-slate-400 font-semibold">
+                              Kapasite: {maxCalls}{tolCalls > 0 ? ` (+${tolCalls})` : ""} Kanal
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="px-2.5 py-1 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-[10px] font-bold text-slate-600 dark:text-slate-300">
+                            {userQuota} Abone • {Number(c.active_calls_count || 0)} Çağrı
+                          </div>
+                        )}
+
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setKpiModalKey(null);
+                            openInspectorModal(c);
+                          }}
+                          className="p-2 rounded-xl bg-white dark:bg-slate-900 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 text-slate-500 hover:text-emerald-600 dark:hover:text-emerald-400 border border-slate-200 dark:border-slate-800 cursor-pointer transition-colors"
+                          title="Canlı Sağlık & Telemetri Denetçisi"
+                        >
+                          <Activity size={14} />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setKpiModalKey(null);
+                            openKeyGenModal(c);
+                          }}
+                          className="p-2 rounded-xl bg-white dark:bg-slate-900 hover:bg-indigo-50 dark:hover:bg-indigo-950/40 text-slate-500 hover:text-indigo-600 dark:hover:text-indigo-400 border border-slate-200 dark:border-slate-800 cursor-pointer transition-colors"
+                          title="Lisans & Kota Düzenle"
+                        >
+                          <Edit3 size={14} />
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+
+            {/* Footer */}
+            <div className="px-6 py-3.5 border-t border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-950/50 flex flex-wrap items-center justify-between gap-2 text-xs">
+              <div className="font-bold text-slate-500 dark:text-slate-400">
+                {kpiModalKey === "subscribers" ? (
+                  <span>
+                    Genel Toplam:{" "}
+                    <strong className="text-violet-600 dark:text-violet-400">
+                      {totalLicensedSubscribers.toLocaleString("tr-TR")} Lisanslı Abone
+                    </strong>{" "}
+                    ({totalRegisteredSubscribers.toLocaleString("tr-TR")} aktif kayıtlı)
+                  </span>
+                ) : (
+                  <span>Toplam {kpiModalConfig.list.length} sunucu listeleniyor</span>
+                )}
+              </div>
+
+              <div className="flex items-center gap-2">
+                {kpiModalConfig.filterShortcut && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setFilterStatus(kpiModalConfig.filterShortcut);
+                      setKpiModalKey(null);
+                    }}
+                    className="px-3.5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-extrabold cursor-pointer transition-colors"
+                  >
+                    Ana Listede Filtrele
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={() => setKpiModalKey(null)}
+                  className="px-4 py-2 rounded-xl border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 text-xs font-bold cursor-pointer transition-colors"
+                >
+                  Kapat
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       )}

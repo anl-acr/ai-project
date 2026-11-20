@@ -38886,18 +38886,40 @@ async def get_system_version_info():
         pass
 
     return {
-        "version": "v3.0.6",
+        "version": "v3.0.7",
         "commit_hash": live_commit,
         "release_date": "20 Kasım 2026",
         "status": "Güncel / Canlı Sürüm",
         "environment": "Production (On-Premise)",
         "changelog": [
             {
-                "version": "v3.0.6",
+                "version": "v3.0.7",
                 "commit_hash": live_commit,
                 "release_date": "20 Kasım 2026",
                 "badge": "Canlı Sürüm (Güncel)",
                 "badge_type": "current",
+                "title": "Nornia Cloud Center Çevrimdışı & Toplam Abone KPI Kutucukları ve Tıklanabilir Sunucu Detay Popup'ı",
+                "summary": "Nornia Cloud Center özet kartlarına Çevrimdışı Sunucular ve sunuculardaki kullanıcı lisans kotası (max_users) toplamını gösteren Toplam Abone kutucukları eklendi; tüm 7 KPI kutucuğu tıklandığında ilgili durumdaki sunucuları detayları ve hızlı eylemleriyle listeleyen açılır pencere (popup) devreye alındı.",
+                "features": [
+                    {
+                        "title": "📊 Çevrimdışı & Toplam Abone (Lisanslı Kullanıcı) KPI Kartları",
+                        "desc": "Özet panosuna Çevrimdışı sunucu sayısı ve tüm sunuculardaki kullanıcı lisans adetlerinin toplamını gösteren Toplam Abone kartı eklendi."
+                    },
+                    {
+                        "title": "🪟 Tıklanabilir KPI Kartları & Sunucu Listesi Popup'ı",
+                        "desc": "Herhangi bir KPI kutucuğuna tıklandığında ilgili durumdaki sunucuları, abone lisans dağılımını, canlı çağrı durumunu ve tek tıkla Telemetri / Düzenle / Ana Listede Filtrele kısayollarını gösteren popup açılır."
+                    }
+                ],
+                "fixes": [
+                    "Üst KPI kartları ile durum filtre sekmelerindeki çevrimiçi/çevrimdışı sayaçları tek kaynaktan senkronize edildi."
+                ]
+            },
+            {
+                "version": "v3.0.6",
+                "commit_hash": "2e56aad",
+                "release_date": "20 Kasım 2026",
+                "badge": "Önceki Sürüm",
+                "badge_type": "stable",
                 "title": "Nornia Cloud Center Üst Menü Sadeleştirme & Açılır Arama (Search) İkonu",
                 "summary": "Nornia Cloud Center üst çubuğundaki manuel 'Yenile' butonu kaldırılarak yerine kompakt Arama (Search) ikonu + açılır arama kutusu (⌘K / Ctrl+K) getirildi; ana sayfadaki sabit arama kutusu kaldırılarak filtre çubuğu sadeleştirildi.",
                 "features": [

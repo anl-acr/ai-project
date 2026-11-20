@@ -38,7 +38,7 @@ export default function ChangelogPanel({ onBack, backendHost = "localhost:8000" 
     setTimeout(() => setCopied(false), 2000);
   };
 
-  const currentVer = versionData?.version || "v3.0.6";
+  const currentVer = versionData?.version || "v3.0.7";
   const commitHash = versionData?.commit_hash || "auto";
   const releaseDate = versionData?.release_date || "16 Kasım 2026";
   const changelogList = versionData?.changelog || [];
