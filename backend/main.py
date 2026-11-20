@@ -39698,18 +39698,31 @@ async def get_system_version_info():
         pass
 
     return {
-        "version": "v3.4.3",
+        "version": "v3.4.4",
         "commit_hash": live_commit,
         "release_date": "20 Kasım 2026",
         "status": "Güncel / Canlı Sürüm",
         "environment": "Production (On-Premise)",
         "changelog": [
             {
-                "version": "v3.4.3",
+                "version": "v3.4.4",
                 "commit_hash": live_commit,
                 "release_date": "20 Kasım 2026",
                 "badge": "Canlı Sürüm (Güncel)",
                 "badge_type": "current",
+                "title": "Panel Filo Tablosunda SIP Edge Tünel IP Yerleşimi Düzenlemesi",
+                "summary": "Nornia Cloud Center filo tablosu ve kart görünümünde SIP Edge WireGuard tünel IP etiketi Nornia Connect sütunundan alınarak santralin gerçek yerel IP adresinin hemen altına taşındı.",
+                "features": [],
+                "fixes": [
+                    "Panel filo tablosunda SIP Edge IP rozeti santral donanım/yerel IP bilgisinin altına hizalanarak sütun taşması giderildi."
+                ]
+            },
+            {
+                "version": "v3.4.3",
+                "commit_hash": "ba5d921",
+                "release_date": "20 Kasım 2026",
+                "badge": "Önceki Sürüm",
+                "badge_type": "stable",
                 "title": "SIP Edge Otomatik Aynı-LAN Endpoint Algılama (Hairpin NAT Koruması) & Eş Zamanlı Yerel+Uzak Masa Telefonu Uyumu",
                 "summary": "Santral ve Hub aynı yerel alt ağda (ör. 172.20.5.0/24) bulunduğunda Hairpin NAT takılmasını önlemek için WireGuard otomatik LAN endpoint seçimi eklendi; çoklu-/30 VLAN kullanan santrallerde hem yerel ofis içi hem de uzak 5060 masa telefonlarının aynı anda sorunsuz çalışması sağlandı.",
                 "features": [
