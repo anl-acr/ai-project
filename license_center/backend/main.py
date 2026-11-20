@@ -499,22 +499,37 @@ async def get_master_users(db: AsyncSession = Depends(get_central_db)):
     } for u in users]
 
 
+_PENDING_TOTP_SECRETS: Dict[int, str] = {}
+
+
+def _build_local_qr_svg_data_uri(text_val: str) -> str:
+    """Generates a zero-dependency local SVG QR data URI so 2FA QR never depends on external services."""
+    try:
+        from backend.services.totp_service import generate_qr_svg_data_uri
+        return generate_qr_svg_data_uri(text_val)
+    except Exception:
+        return ""
+
+
 @app.post("/api/v1/users/{user_id}/2fa/setup")
 async def setup_master_user_2fa(user_id: int, request: Request, db: AsyncSession = Depends(get_central_db)):
-    """Generates a new TOTP secret and otpauth:// URI for Google/Microsoft Authenticator QR setup."""
+    """Generates a new TOTP secret, otpauth:// URI, and offline SVG QR for Google/Microsoft Authenticator setup."""
     res = await db.execute(select(MasterUser).where(MasterUser.id == user_id))
     u = res.scalars().first()
     if not u:
         raise HTTPException(status_code=404, detail="Kullanıcı bulunamadı.")
 
     secret = generate_totp_secret()
-    u.totp_secret = secret
-    await db.commit()
+    _PENDING_TOTP_SECRETS[u.id] = secret
+    if not u.totp_enabled:
+        u.totp_secret = secret
+        await db.commit()
 
     issuer = "Nornia Cloud Center"
     label = urllib.parse.quote(f"{issuer}:{u.username}")
     issuer_enc = urllib.parse.quote(issuer)
     otpauth_url = f"otpauth://totp/{label}?secret={secret}&issuer={issuer_enc}&algorithm=SHA1&digits=6&period=30"
+    qr_svg_data_uri = _build_local_qr_svg_data_uri(otpauth_url)
 
     return {
         "success": True,
@@ -522,6 +537,7 @@ async def setup_master_user_2fa(user_id: int, request: Request, db: AsyncSession
         "username": u.username,
         "secret": secret,
         "otpauth_url": otpauth_url,
+        "qr_svg_data_uri": qr_svg_data_uri,
     }
 
 
@@ -530,14 +546,17 @@ async def enable_master_user_2fa(user_id: int, request: Request, payload: Dict[s
     """Verifies the 6-digit code from the user's Authenticator app and activates 2FA."""
     res = await db.execute(select(MasterUser).where(MasterUser.id == user_id))
     u = res.scalars().first()
-    if not u or not u.totp_secret:
+    candidate_secret = _PENDING_TOTP_SECRETS.get(user_id) or (u.totp_secret if u else None)
+    if not u or not candidate_secret:
         raise HTTPException(status_code=400, detail="Önce 2FA QR kurulumu başlatılmalıdır.")
 
     code = str(payload.get("code") or "").strip()
-    if not verify_totp_code(u.totp_secret, code):
+    if not verify_totp_code(candidate_secret, code):
         raise HTTPException(status_code=400, detail="Girilen 6 haneli doğrulama kodu hatalı. Lütfen Authenticator uygulamanızdaki güncel kodu giriniz.")
 
+    u.totp_secret = candidate_secret
     u.totp_enabled = True
+    _PENDING_TOTP_SECRETS.pop(u.id, None)
     await db.commit()
     performed_by = request.headers.get("X-User-Name", u.username)
     await log_master_action(db, performed_by, "USER_2FA_ENABLED", f"2FA (Google Authenticator) Aktifleştirildi: {u.full_name} (@{u.username})", extract_client_ip(request), u.id)
@@ -554,6 +573,7 @@ async def disable_master_user_2fa(user_id: int, request: Request, db: AsyncSessi
 
     u.totp_enabled = False
     u.totp_secret = None
+    _PENDING_TOTP_SECRETS.pop(u.id, None)
     await db.commit()
     performed_by = request.headers.get("X-User-Name", u.username)
     await log_master_action(db, performed_by, "USER_2FA_DISABLED", f"2FA (Google Authenticator) Devre Dışı Bırakıldı: {u.full_name} (@{u.username})", extract_client_ip(request), u.id)
@@ -594,6 +614,17 @@ async def get_central_security_settings(request: Request, db: AsyncSession = Dep
     if dirty:
         await db.commit()
 
+    # 2FA summary across all master users
+    res_users = await db.execute(select(MasterUser).order_by(MasterUser.id.asc()))
+    all_users = res_users.scalars().all()
+    totp_users = [{
+        "id": u.id,
+        "username": u.username,
+        "full_name": u.full_name,
+        "role": u.role,
+        "totp_enabled": bool(u.totp_enabled),
+    } for u in all_users]
+
     return {
         "client_ip": extract_client_ip(request),
         "policy": {
@@ -603,6 +634,11 @@ async def get_central_security_settings(request: Request, db: AsyncSession = Dep
             "whitelisted_ips": parse_whitelisted_ips(pol),
         },
         "blocked_ips": active_blks,
+        "totp_summary": {
+            "total_users": len(totp_users),
+            "enabled_users": sum(1 for x in totp_users if x["totp_enabled"]),
+            "users": totp_users,
+        },
     }
 
 
@@ -707,8 +743,18 @@ async def create_master_user(payload: MasterUserCreateSchema, request: Request, 
     await db.commit()
     await db.refresh(new_u)
 
-    await log_master_action(db, payload.performed_by or "admin", "USER_CREATE", f"Yeni Kullanıcı Oluşturuldu: {new_u.full_name} ({new_u.username}) [Rol: {new_u.role}]", request.client.host if request.client else None)
-    return new_u
+    await log_master_action(db, payload.performed_by or "admin", "USER_CREATE", f"Yeni Kullanıcı Oluşturuldu: {new_u.full_name} ({new_u.username}) [Rol: {new_u.role}]", extract_client_ip(request))
+    return {
+        "id": new_u.id,
+        "username": new_u.username,
+        "full_name": new_u.full_name,
+        "email": new_u.email,
+        "role": new_u.role,
+        "is_active": new_u.is_active,
+        "totp_enabled": bool(new_u.totp_enabled),
+        "last_login_at": new_u.last_login_at.isoformat() if new_u.last_login_at else None,
+        "created_at": new_u.created_at.isoformat() if new_u.created_at else None,
+    }
 
 @app.put("/api/v1/users/{user_id}")
 async def update_master_user(user_id: int, payload: MasterUserCreateSchema, request: Request, db: AsyncSession = Depends(get_central_db)):
@@ -727,8 +773,19 @@ async def update_master_user(user_id: int, payload: MasterUserCreateSchema, requ
         u.password_hash = hash_password(payload.password)
 
     await db.commit()
-    await log_master_action(db, payload.performed_by or "admin", "USER_UPDATE", f"Kullanıcı Bilgileri Güncellendi: {u.full_name} ({u.username})", request.client.host if request.client else None)
-    return u
+    await db.refresh(u)
+    await log_master_action(db, payload.performed_by or "admin", "USER_UPDATE", f"Kullanıcı Bilgileri Güncellendi: {u.full_name} ({u.username})", extract_client_ip(request))
+    return {
+        "id": u.id,
+        "username": u.username,
+        "full_name": u.full_name,
+        "email": u.email,
+        "role": u.role,
+        "is_active": u.is_active,
+        "totp_enabled": bool(u.totp_enabled),
+        "last_login_at": u.last_login_at.isoformat() if u.last_login_at else None,
+        "created_at": u.created_at.isoformat() if u.created_at else None,
+    }
 
 @app.delete("/api/v1/users/{user_id}")
 async def delete_master_user(user_id: int, request: Request, db: AsyncSession = Depends(get_central_db)):

@@ -38886,18 +38886,42 @@ async def get_system_version_info():
         pass
 
     return {
-        "version": "v3.0.2",
+        "version": "v3.0.3",
         "commit_hash": live_commit,
-        "release_date": "16 Kasım 2026",
+        "release_date": "20 Kasım 2026",
         "status": "Güncel / Canlı Sürüm",
         "environment": "Production (On-Premise)",
         "changelog": [
             {
-                "version": "v3.0.2",
+                "version": "v3.0.3",
                 "commit_hash": live_commit,
-                "release_date": "16 Kasım 2026",
+                "release_date": "20 Kasım 2026",
                 "badge": "Canlı Sürüm (Güncel)",
                 "badge_type": "current",
+                "title": "Nornia Cloud Center Kullanıcı Bazlı 2FA (Google / Microsoft Authenticator) & Merkezi Güvenlik Kalkanı",
+                "summary": "Nornia Cloud Center panelinde kullanıcı düzenleme penceresinin içine kullanıcı bazlı 2FA açma/kapama anahtarı, çevrimdışı yerel SVG QR kod kurulumu, yeniden cihaz eşleştirme ve Güvenlik Kalkanı kullanıcı 2FA özet ekranı eklendi.",
+                "features": [
+                    {
+                        "title": "🔐 Kullanıcı İçi 2FA Açma / Kapama Anahtarı & Satır İçi QR Kurulumu",
+                        "desc": "Merkezi Portal Kullanıcı Yönetimi penceresinde her kullanıcının kendi düzenleme ekranına kullanıcı bazlı 2FA (Google / Microsoft Authenticator) aç/kapat anahtarı, yerel SVG QR kodu, tek tıkla kopyalanabilir kurulum anahtarı ve 6 haneli doğrulama akışı eklendi."
+                    },
+                    {
+                        "title": "🛡️ Güvenlik Kalkanı Kullanıcı Bazlı 2FA Özeti & Hızlı Erişim",
+                        "desc": "Güvenlik Kalkanı ekranına tüm kullanıcıların 2FA aktiflik durumunu gösteren özet kartı ve tek tıkla ilgili kullanıcının 2FA ayarına geçiş eklendi; üst çubuktaki kullanıcı profiline tıklayarak kendi 2FA ayarlarınıza anında ulaşabilirsiniz."
+                    }
+                ],
+                "fixes": [
+                    "2FA QR kodunun dış servislere bağımlı kalmadan backend tarafından yerel SVG olarak üretilmesi sağlandı.",
+                    "Aktif 2FA kullanan hesapta yeni cihaz eşleştirme iptal edilse bile mevcut 2FA anahtarının bozulmaması sağlandı.",
+                    "2FA kapatma işlemi için özel onay penceresi eklendi ve API hatalarının sessizce yutulması engellendi."
+                ]
+            },
+            {
+                "version": "v3.0.2",
+                "commit_hash": "d9c8586",
+                "release_date": "16 Kasım 2026",
+                "badge": "Önceki Sürüm",
+                "badge_type": "stable",
                 "title": "Nornia Web Marka Kimliği (N Logosu & Renkli Başlık), Runa Masaüstü/Mobil Uygulama İkonu (R Logosu) ve VoIP / Arayüz İyileştirmeleri",
                 "summary": "Web arayüzü ve tarayıcı sekmesi Nornia (Akıllı İletişim Platformu) marka kimliğine ve yeni N harfli renkli logoya kavuşturuldu. Masaüstü ve Mobil uygulamalar Runa markası ve R harfli uygulama ikonuyla güncellendi; aktif çağrı ses barları, kuyruk/kullanıcı çalma süresi düzenlemeleri ve bildirim merkezi iyileştirmeleri tamamlandı.",
                 "features": [
