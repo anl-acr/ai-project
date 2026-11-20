@@ -39286,18 +39286,31 @@ async def get_system_version_info():
         pass
 
     return {
-        "version": "v3.3.6",
+        "version": "v3.3.7",
         "commit_hash": live_commit,
         "release_date": "20 Kasım 2026",
         "status": "Güncel / Canlı Sürüm",
         "environment": "Production (On-Premise)",
         "changelog": [
             {
-                "version": "v3.3.6",
+                "version": "v3.3.7",
                 "commit_hash": live_commit,
                 "release_date": "20 Kasım 2026",
                 "badge": "Canlı Sürüm (Güncel)",
                 "badge_type": "current",
+                "title": "Ek Süre (Grace Period) Kümülatif Uzatma Desteği",
+                "summary": "Merkezi paneldeki +3/+7/+15/+30 Gün ek süre hızlı butonları, mevcut ileri tarihli bir Ek Süre varsa doğrudan onun üzerine ekleyecek şekilde güncellendi.",
+                "features": [],
+                "fixes": [
+                    "applyGraceDaysOffset() hesaplaması max(bugün, lisans bitişi, mevcut ek süre) baz alınarak kümülatif ek süre uzatma destekleyecek şekilde iyileştirildi."
+                ]
+            },
+            {
+                "version": "v3.3.6",
+                "commit_hash": "1cd57e7",
+                "release_date": "20 Kasım 2026",
+                "badge": "Önceki Sürüm",
+                "badge_type": "stable",
                 "title": "Sistem Bilgi Paneli Üst Başlık Sadeleştirmesi",
                 "summary": "Sistem, Ağ & Lisans Bilgileri çekmecesinin üst başlığındaki yenile (refresh) butonu kaldırıldı.",
                 "features": [],

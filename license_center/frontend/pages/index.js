@@ -897,7 +897,15 @@ export default function MasterDashboard() {
 
   const applyGraceDaysOffset = (daysToAdd) => {
     const todayStr = new Date().toISOString().slice(0, 10);
-    const baseStr = !genIsUnlimited && genExpiryDate && genExpiryDate > todayStr ? genExpiryDate : todayStr;
+    const candidates = [todayStr];
+    if (!genIsUnlimited && genExpiryDate && genExpiryDate > todayStr) {
+      candidates.push(genExpiryDate);
+    }
+    if (!genIsUnlimited && genGraceUntil && genGraceUntil > todayStr) {
+      candidates.push(genGraceUntil);
+    }
+    candidates.sort();
+    const baseStr = candidates[candidates.length - 1];
     const baseDate = new Date(`${baseStr}T00:00:00`);
     if (isNaN(baseDate.getTime())) return;
     baseDate.setDate(baseDate.getDate() + Number(daysToAdd || 0));
