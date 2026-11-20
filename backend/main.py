@@ -40147,18 +40147,33 @@ async def get_system_version_info():
         pass
 
     return {
-        "version": "v3.5.9",
+        "version": "v3.6.0",
         "commit_hash": live_commit,
         "release_date": "21 Kasım 2026",
         "status": "Güncel / Canlı Sürüm",
         "environment": "Production (On-Premise)",
         "changelog": [
             {
-                "version": "v3.5.9",
+                "version": "v3.6.0",
                 "commit_hash": live_commit,
                 "release_date": "21 Kasım 2026",
                 "badge": "Canlı Sürüm (Güncel)",
                 "badge_type": "current",
+                "title": "WebPhone Mikrofon Seçim Kalıcılığı, Muted-Track Koruması & Canlı RTP Tanılama",
+                "summary": "Ses Donanımı penceresinde seçilen mikrofon artık anında kaydedilir ve aktif çağrıya uygulanır; sessiz/muted mikrofon track'leri otomatik sistem varsayılan mikrofonuna düşer, DSP hatasında ham mikrofon korunur ve canlı RTP gönderici teşhis logu eklendi.",
+                "features": [],
+                "fixes": [
+                    "Ses Giriş Aygıtı (Mikrofon) seçim kutusu değiştiğinde selected_mic ve selected_mic_label anında localStorage'a kaydedilir.",
+                    "acquireAudioStreamWithFallback() içinde sessiz (muted) veya sonlanmış mikrofon track'i gelirse sistem varsayılan mikrofonuna otomatik geçiş yapılır; processMicrophoneStream hatasında ham mikrofon korunur.",
+                    "Yeni arama başlatma/yanıtlama anında rawMicSuppressed sıfırlanır ve 1.5 sn sonra canlı WebRTC outbound-rtp / media-source ses seviyesi konsola yazılır."
+                ]
+            },
+            {
+                "version": "v3.5.9",
+                "commit_hash": "4d67dd9",
+                "release_date": "21 Kasım 2026",
+                "badge": "Önceki Sürüm",
+                "badge_type": "stable",
                 "title": "WebRTC Opus/G.729 Transcode Koruma (Tek Yönlü WebPhone Ses Kesin Çözümü)",
                 "summary": "Asterisk'te codec_opus.so veya codec_g729.so yüklü olmadığında Chrome WebRTC'nin opus ile gönderdiği sesin Asterisk tarafından çözülemeyip sessizliğe düşmesi (tek yönlü ses / *43 yankı yokluğu) giderildi; PJSIP allow listesi yalnızca sunucuda kurulu gerçek codec modüllerini (ulaw, alaw, g722) içerecek şekilde otomatik filtrelendi.",
                 "features": [],

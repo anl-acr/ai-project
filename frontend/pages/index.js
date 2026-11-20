@@ -9753,6 +9753,14 @@ export default function Home() {
                     onChange={(e) => {
                       const nextId = e.target.value;
                       setSelectedMic(nextId);
+                      try {
+                        localStorage.setItem("selected_mic", nextId);
+                        const matchedIn = audioDevices.inputs.find((d) => d.deviceId === nextId);
+                        if (matchedIn?.label) {
+                          localStorage.setItem("selected_mic_label", matchedIn.label);
+                        }
+                      } catch (err) {}
+                      webphoneManager.applyAudioDevicePreferences({ forceReplaceMic: true });
                       if (isTestingMic) {
                         startMicLoopbackTest(noiseSuppressionMode, nextId, selectedSpeaker);
                       }

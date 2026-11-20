@@ -2564,6 +2564,7 @@ class WebphoneManager {
         this.attachRemoteAudioForLine(currentLine);
         this.syncLinesToState({ activeLineId: lineId });
         this.applyAllLinesAudioState();
+        this.logActiveSenderDiagnostics(currentLine);
         this.triggerCtiScreenPop(currentLine, "on_answer", false);
 
         this.logWebrtcCallToBackend("answer", {
@@ -2903,19 +2904,33 @@ class WebphoneManager {
 
     const hasCustomMic = Boolean(resolvedMicId && resolvedMicId !== "default");
 
-    const processAndTrack = async (rawStream) => {
+    const processAndTrack = async (rawStream, sourceTag = "default") => {
+      const rawT = rawStream?.getAudioTracks?.()?.[0];
+      console.info("[WebphoneManager] 🎙️ Mic acquired:", {
+        sourceTag,
+        label: rawT?.label || "(no-label)",
+        deviceId: rawT?.getSettings?.()?.deviceId || "",
+        enabled: rawT?.enabled,
+        muted: rawT?.muted,
+        readyState: rawT?.readyState,
+        activeMode,
+        selectedMic,
+        selectedMicLabel,
+        resolvedMicId
+      });
       let processed = rawStream;
       try {
         processed = await processMicrophoneStream(rawStream, activeMode);
       } catch (procErr) {
-        rawStream.getTracks().forEach((t) => {
-          try {
-            t.stop();
-          } catch (e) {}
-        });
-        throw procErr;
+        console.warn("[WebphoneManager] processMicrophoneStream failed, falling back to raw mic stream:", procErr);
+        processed = rawStream;
       }
       return this.registerAcquiredMicBundle(rawStream, processed, sdh);
+    };
+
+    const isUsableMicStream = (st) => {
+      const t = st?.getAudioTracks?.()?.[0];
+      return Boolean(t && t.readyState === "live" && t.muted !== true);
     };
 
     // 1. Try with exact resolved microphone first so Chrome strictly uses the selected headset mic
@@ -2924,13 +2939,21 @@ class WebphoneManager {
         const rawExact = await navigator.mediaDevices.getUserMedia(
           buildMicConstraintsForMode(activeMode, { exact: resolvedMicId })
         );
-        return await processAndTrack(rawExact);
+        if (isUsableMicStream(rawExact)) {
+          return await processAndTrack(rawExact, "exact");
+        }
+        console.warn("[WebphoneManager] Selected exact mic track is muted/ended, trying system default mic:", rawExact?.getAudioTracks?.()?.[0]?.label);
+        rawExact.getTracks().forEach((t) => { try { t.stop(); } catch (e) {} });
       } catch (errExact) {
         try {
           const rawIdeal = await navigator.mediaDevices.getUserMedia(
             buildMicConstraintsForMode(activeMode, { ideal: resolvedMicId })
           );
-          return await processAndTrack(rawIdeal);
+          if (isUsableMicStream(rawIdeal)) {
+            return await processAndTrack(rawIdeal, "ideal");
+          }
+          console.warn("[WebphoneManager] Selected ideal mic track is muted/ended, trying system default mic:", rawIdeal?.getAudioTracks?.()?.[0]?.label);
+          rawIdeal.getTracks().forEach((t) => { try { t.stop(); } catch (e) {} });
         } catch (errIdeal) {
           console.warn("[WebphoneManager] Preferred mic temporarily unavailable, falling back to system default mic:", errIdeal);
         }
@@ -2942,11 +2965,11 @@ class WebphoneManager {
       const rawDefault = await navigator.mediaDevices.getUserMedia(
         buildMicConstraintsForMode(activeMode, null)
       );
-      return await processAndTrack(rawDefault);
+      return await processAndTrack(rawDefault, "default");
     } catch (err2) {
       try {
         const rawBasic = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
-        return await processAndTrack(rawBasic);
+        return await processAndTrack(rawBasic, "basic");
       } catch (err3) {
         console.warn("[WebphoneManager] Default getUserMedia failed, using silent fallback stream:", err3);
         const errName = String(err3?.name || "NotAllowedError");
@@ -2975,6 +2998,43 @@ class WebphoneManager {
         throw err3;
       }
     }
+  }
+
+  logActiveSenderDiagnostics(line) {
+    setTimeout(async () => {
+      try {
+        const pc = line?.session?.sessionDescriptionHandler?.peerConnection;
+        if (!pc) return;
+        const senders = pc.getSenders().map((s) => ({
+          kind: s.track?.kind,
+          label: s.track?.label,
+          enabled: s.track?.enabled,
+          muted: s.track?.muted,
+          readyState: s.track?.readyState
+        }));
+        const stats = await pc.getStats();
+        let outRtp = null;
+        let mediaSrc = null;
+        stats.forEach((r) => {
+          if (r.type === "outbound-rtp" && r.kind === "audio") {
+            outRtp = { packetsSent: r.packetsSent, bytesSent: r.bytesSent, active: r.active, codecId: r.codecId };
+          }
+          if (r.type === "media-source" && r.kind === "audio") {
+            mediaSrc = { audioLevel: r.audioLevel, totalAudioEnergy: r.totalAudioEnergy };
+          }
+        });
+        console.info("[WebphoneManager] 📡 Active RTP sender diagnostics (1.5s):", {
+          senders,
+          outRtp,
+          mediaSrc,
+          isMuted: line?.isMuted,
+          isOnHold: line?.isOnHold,
+          rawMicSuppressed: this.rawMicSuppressed,
+          activeLineId: this.state.activeLineId,
+          lineId: line?.id
+        });
+      } catch (e) {}
+    }, 1500);
   }
 
   getIceGatheringTimeout() {
@@ -3031,6 +3091,7 @@ class WebphoneManager {
         }
       }
 
+      this.rawMicSuppressed = false;
       const constraints = this.buildSafeSessionConstraints();
       await line.session.accept({
         sessionDescriptionHandlerOptions: {
@@ -3044,6 +3105,7 @@ class WebphoneManager {
       this.attachRemoteAudioForLine(line);
       this.syncLinesToState({ activeLineId: line.id });
       this.applyAllLinesAudioState();
+      this.logActiveSenderDiagnostics(line);
     } catch (err) {
       console.error("[WebphoneManager] Answer error:", err);
       this.setCallNotification({
@@ -3091,6 +3153,7 @@ class WebphoneManager {
     const targetURI = SIP.UserAgent.makeURI(`sip:${cleanTarget}@${hostOnly}`);
     const constraints = this.buildSafeSessionConstraints();
 
+    this.rawMicSuppressed = false;
     const inviter = new SIP.Inviter(this.userAgent, targetURI, {
       earlyMedia: true,
       sessionDescriptionHandlerOptions: {
@@ -3169,6 +3232,7 @@ class WebphoneManager {
         this.attachRemoteAudioForLine(currentLine);
         this.syncLinesToState({ activeLineId: lineId });
         this.applyAllLinesAudioState();
+        this.logActiveSenderDiagnostics(currentLine);
 
         if (currentLine.autoConferenceOnAnswer) {
           currentLine.autoConferenceOnAnswer = false;
