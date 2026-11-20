@@ -3169,6 +3169,252 @@ async def get_public_ip():
         except Exception as e2:
             return {"status": "error", "message": f"Dış IP adresi tespit edilemedi: {e2}", "ip": None}
 
+@app.get("/api/system/overview")
+async def get_system_overview(request: Request):
+    """Returns real-time system hardware, OS, uptime, network (FQDN, LAN/WAN/NAT), and cryptographic license summary."""
+    import ipaddress
+    import platform
+    import socket
+    from backend.services.hardware_info import get_system_hardware_fingerprint
+    from backend.services.license_service import evaluate_tenant_effective_license, get_plan_limits
+
+    user_info = get_user_info(request)
+    tenant_id = user_info.get("tenant_id", "tenant-default")
+    current = load_settings()
+    tenants = current.get("tenants", DEFAULT_SETTINGS["tenants"])
+    matched = next((t for t in tenants if t.get("id") == tenant_id), tenants[0] if tenants else {})
+
+    t_code = (matched or {}).get("code") or str((matched or {}).get("id", "default")).replace("tenant-", "")
+    hw_info = get_system_hardware_fingerprint()
+    ev = evaluate_tenant_effective_license(matched or {})
+    embedded_q = ev.get("custom_quotas") if isinstance(ev.get("custom_quotas"), dict) else {}
+
+    plan_tier = (matched or {}).get("plan_tier") or "professional"
+    if ev.get("is_unlimited"):
+        plan_tier = "unlimited"
+    limits = dict(get_plan_limits(plan_tier))
+    call_info = get_tenant_concurrent_call_info((matched or {}).get("id", "tenant-default"), current)
+
+    raw_max_users = (matched or {}).get("max_users")
+    if raw_max_users is None:
+        raw_max_users = embedded_q.get("max_users")
+    eff_max_users = int(raw_max_users) if raw_max_users is not None else int(limits.get("max_users", 50))
+
+    raw_max_agents = (matched or {}).get("max_agents")
+    if raw_max_agents is None:
+        raw_max_agents = (matched or {}).get("max_ai_agents")
+    if raw_max_agents is None:
+        raw_max_agents = embedded_q.get("max_agents", embedded_q.get("max_ai_agents"))
+    eff_max_agents = int(raw_max_agents) if raw_max_agents is not None else int(limits.get("max_ai_agents", 10))
+
+    allowed_features = (matched or {}).get("allowed_features")
+    if not isinstance(allowed_features, list):
+        allowed_features = embedded_q.get("allowed_features") if isinstance(embedded_q.get("allowed_features"), list) else ["*"]
+
+    # OS Name detection
+    os_name = f"{platform.system()} {platform.release()}"
+    try:
+        if os.path.exists("/etc/os-release"):
+            with open("/etc/os-release", "r", encoding="utf-8", errors="ignore") as f_os:
+                for ln in f_os:
+                    if ln.startswith("PRETTY_NAME="):
+                        os_name = ln.split("=", 1)[1].strip().strip('"').strip("'")
+                        break
+        elif platform.system().lower() == "darwin":
+            mac_v = platform.mac_ver()[0]
+            if mac_v:
+                os_name = f"macOS {mac_v}"
+    except Exception:
+        pass
+
+    # Real OS Uptime detection
+    uptime_seconds = 0
+    try:
+        if os.path.exists("/proc/uptime"):
+            with open("/proc/uptime", "r", encoding="utf-8") as f_up:
+                uptime_seconds = int(float(f_up.read().split()[0]))
+        else:
+            import psutil
+            uptime_seconds = max(0, int(time.time() - psutil.boot_time()))
+    except Exception:
+        uptime_seconds = 0
+
+    up_days = uptime_seconds // 86400
+    up_rem = uptime_seconds % 86400
+    up_hours = up_rem // 3600
+    up_mins = (up_rem % 3600) // 60
+    up_secs = up_rem % 60
+    uptime_formatted = f"{up_days} gün {up_hours:02d}:{up_mins:02d}:{up_secs:02d}"
+
+    # Turkey UTC+3 live system time
+    now_tr = datetime.datetime.utcnow() + datetime.timedelta(hours=3)
+    tr_weekdays = ["Pzt", "Sal", "Çar", "Per", "Cum", "Cmt", "Paz"]
+    sys_time_str = f"{now_tr.strftime('%d/%m/%Y %H:%M:%S')} {tr_weekdays[now_tr.weekday()]}"
+
+    # Software / Firmware Version
+    ver_info = await get_system_version_info()
+    fw_ver = ver_info.get("version") or "v3.3.5"
+    fw_commit = ver_info.get("commit_hash") or ""
+
+    # Live Network Interfaces (LAN / WAN / DNS / NAT / Nornia FQDN)
+    ifaces = []
+    try:
+        from backend.scripts.network_recovery import get_live_interfaces
+        ifaces = get_live_interfaces()
+    except Exception:
+        ifaces = []
+
+    def _split_cidr(cidr_str):
+        if not cidr_str:
+            return ("", "")
+        try:
+            iface_ip = ipaddress.IPv4Interface(str(cidr_str).strip())
+            return (str(iface_ip.ip), str(iface_ip.netmask))
+        except Exception:
+            return (str(cidr_str).split("/")[0], "")
+
+    primary_if = None
+    secondary_if = None
+    for ifc in ifaces:
+        if ifc.get("primary_cidr") and ifc.get("gateway"):
+            primary_if = ifc
+            break
+    if not primary_if:
+        for ifc in ifaces:
+            if ifc.get("is_up") and ifc.get("primary_cidr"):
+                primary_if = ifc
+                break
+    if not primary_if and ifaces:
+        primary_if = ifaces[0]
+
+    for ifc in ifaces:
+        if primary_if and ifc.get("name") == primary_if.get("name"):
+            continue
+        if ifc.get("primary_cidr"):
+            secondary_if = ifc
+            break
+
+    lan_ip, lan_mask = _split_cidr((primary_if or {}).get("primary_cidr"))
+    sec_cidrs = (primary_if or {}).get("secondary_cidrs") or []
+    lan_ip2, lan_mask2 = _split_cidr(sec_cidrs[0]) if sec_cidrs else ("", "")
+
+    dns_servers = []
+    try:
+        if os.path.exists("/etc/resolv.conf"):
+            with open("/etc/resolv.conf", "r", encoding="utf-8", errors="ignore") as f_dns:
+                for ln in f_dns:
+                    s_ln = ln.strip()
+                    if s_ln.startswith("nameserver "):
+                        ns_val = s_ln.split()[1].strip()
+                        if ns_val and ns_val not in dns_servers:
+                            dns_servers.append(ns_val)
+    except Exception:
+        pass
+    net_cfg = current.get("network") if isinstance(current.get("network"), dict) else {}
+    if not dns_servers:
+        for dk in ("dns1", "dns2", "primary_dns", "secondary_dns"):
+            dv = str(net_cfg.get(dk) or "").strip()
+            if dv and dv not in dns_servers:
+                dns_servers.append(dv)
+
+    # Nornia Connect FQDN & Tunnel State
+    nornia_fqdn = ""
+    ras_connected = False
+    public_ras_url = ""
+    try:
+        from backend.services.ras_client_service import get_ras_config, RAS_RUNTIME_STATE, _compute_public_ras_urls
+        ras_cfg = get_ras_config()
+        ras_connected = bool(RAS_RUNTIME_STATE.get("connected"))
+        urls = _compute_public_ras_urls(ras_cfg.get("hub_url", ""), ras_cfg.get("subdomain", ""))
+        public_ras_url = RAS_RUNTIME_STATE.get("public_ras_url") or urls.get("public_ras_url") or ""
+        if public_ras_url:
+            nornia_fqdn = public_ras_url.replace("https://", "").replace("http://", "").strip("/")
+        elif ras_cfg.get("subdomain"):
+            nornia_fqdn = f"{ras_cfg.get('subdomain')}.nornia.com.tr"
+    except Exception:
+        pass
+
+    nat_cfg = current.get("nat") if isinstance(current.get("nat"), dict) else DEFAULT_SETTINGS.get("nat", {})
+    wan_ip, wan_mask = _split_cidr((secondary_if or {}).get("primary_cidr"))
+
+    return {
+        "device": {
+            "device_name": (matched or {}).get("name") or socket.gethostname(),
+            "hostname": socket.gethostname(),
+            "product_model": "Nornia Enterprise AI PBX",
+            "serial_number": hw_info.get("system_serial_number") or "-",
+            "tenant_serial_number": (matched or {}).get("serial_number") or "-",
+            "hardware_id": hw_info.get("hardware_id") or "-",
+            "os_name": os_name,
+            "firmware_version": fw_ver,
+            "commit_hash": fw_commit,
+            "system_time": sys_time_str,
+            "server_timestamp_ms": int(time.time() * 1000),
+            "uptime_seconds": uptime_seconds,
+            "uptime_formatted": uptime_formatted,
+            "max_extensions": eff_max_users,
+            "used_extensions": len(current.get("users", [])),
+            "max_concurrent_calls": call_info["max_concurrent_calls"],
+            "tolerance_concurrent_calls": call_info["tolerance_concurrent_calls"],
+            "used_concurrent_calls": call_info["used_concurrent_calls"],
+        },
+        "network": {
+            "nornia_fqdn": nornia_fqdn or "-",
+            "ras_connected": ras_connected,
+            "public_ras_url": public_ras_url,
+            "lan": {
+                "interface": (primary_if or {}).get("name") or "eth0",
+                "type": "Statik IP Adresi" if (primary_if or {}).get("mode") == "static" else "DHCP",
+                "mac": str((primary_if or {}).get("mac") or "-").upper(),
+                "ip": lan_ip or "-",
+                "netmask": lan_mask or "-",
+                "gateway": (primary_if or {}).get("gateway") or "-",
+                "dns1": dns_servers[0] if len(dns_servers) > 0 else "-",
+                "dns2": dns_servers[1] if len(dns_servers) > 1 else "-",
+                "ip2": lan_ip2 or "-",
+                "netmask2": lan_mask2 or "-",
+            },
+            "wan": {
+                "interface": (secondary_if or {}).get("name") or "-",
+                "ip": wan_ip or str(nat_cfg.get("extern_ip") or "").strip() or "-",
+                "netmask": wan_mask or "-",
+                "gateway": (secondary_if or {}).get("gateway") or "-",
+                "public_ip": str(nat_cfg.get("extern_ip") or "").strip() or "-",
+                "tunnel_status": "Bağlı (Aktif)" if ras_connected else "Kapalı",
+            },
+            "nat": {
+                "enabled": bool(nat_cfg.get("enabled", False)),
+                "extern_ip": str(nat_cfg.get("extern_ip") or "").strip() or "-",
+                "local_nets": nat_cfg.get("local_nets") if isinstance(nat_cfg.get("local_nets"), list) else [],
+            },
+        },
+        "license": {
+            "valid": bool(ev.get("valid")) and not bool(ev.get("hard_expired")),
+            "hard_expired": bool(ev.get("hard_expired")),
+            "in_grace_period": bool(ev.get("in_grace_period")),
+            "is_unlimited": bool(ev.get("is_unlimited")),
+            "reason": ev.get("reason") or "",
+            "plan_tier": plan_tier,
+            "plan_label": limits.get("label") or plan_tier,
+            "tenant_name": (matched or {}).get("name") or "-",
+            "tenant_code": t_code,
+            "license_expires_at": (matched or {}).get("license_expires_at") or "",
+            "days_left": ev.get("days_left"),
+            "license_grace_until": ev.get("license_grace_until") or "",
+            "grace_days_left": ev.get("grace_days_left"),
+            "used_users": len(current.get("users", [])),
+            "max_users": eff_max_users,
+            "used_channels": call_info["used_concurrent_calls"],
+            "max_concurrent_calls": call_info["max_concurrent_calls"],
+            "tolerance_concurrent_calls": call_info["tolerance_concurrent_calls"],
+            "used_ai_agents": len(current.get("ai_agents", [])),
+            "max_ai_agents": eff_max_agents,
+            "allowed_features_is_all": "*" in allowed_features,
+            "allowed_features_count": len(allowed_features),
+        },
+    }
+
+
 @app.post("/api/settings/ssl")
 async def upload_ssl_certificates(
     cert: UploadFile = File(...),
@@ -39040,18 +39286,38 @@ async def get_system_version_info():
         pass
 
     return {
-        "version": "v3.3.4",
+        "version": "v3.3.5",
         "commit_hash": live_commit,
         "release_date": "20 Kasım 2026",
         "status": "Güncel / Canlı Sürüm",
         "environment": "Production (On-Premise)",
         "changelog": [
             {
-                "version": "v3.3.4",
+                "version": "v3.3.5",
                 "commit_hash": live_commit,
                 "release_date": "20 Kasım 2026",
                 "badge": "Canlı Sürüm (Güncel)",
                 "badge_type": "current",
+                "title": "Üst Bar Sistem, Ağ & Lisans Bilgi Paneli ('i' Butonu)",
+                "summary": "Santral üst barında avatarın soluna 'i' bilgi butonu eklendi; tıklanınca cihaz/OS/firmware/uptime, Nornia FQDN, LAN/WAN/NAT ağ ayarları ve canlı lisans/kapasite bilgilerini gösteren şık sağ çekmece açılır.",
+                "features": [
+                    {
+                        "title": "Hızlı Sistem, Ağ & Lisans Bilgi Çekmecesi",
+                        "desc": "Cihaz Adı, Ürün Modeli, Seri No, İşletim Sistemi, Firmware, canlı Sistem Zamanı & Çalışma Süresi, Maksimum İç Hat / Eşzamanlı Çağrı, Nornia FQDN, açılır LAN (IPv4/MAC/DNS)/WAN/NAT akordeonları ve canlı lisans/kota kartı tek panelde toplandı."
+                    },
+                    {
+                        "title": "GET /api/system/overview Endpoint'i",
+                        "desc": "Gerçek zamanlı sunucu ağ arayüzlerini, DNS, NAT, Nornia Connect FQDN, işletim sistemi, çalışma süresi ve kriptografik lisans özetini tek istekte sunar."
+                    }
+                ],
+                "fixes": []
+            },
+            {
+                "version": "v3.3.4",
+                "commit_hash": "ad68d53",
+                "release_date": "20 Kasım 2026",
+                "badge": "Önceki Sürüm",
+                "badge_type": "stable",
                 "title": "Lisans Uyarı Popup'ı Yeniden Giriş & Sayfa Yenileme Düzeltmesi",
                 "summary": "Aynı tarayıcı sekmesinde çıkış-giriş veya sayfa yenileme sonrası sessionStorage yüzünden lisans uyarı penceresinin tekrar açılmaması sorunu giderildi.",
                 "features": [],

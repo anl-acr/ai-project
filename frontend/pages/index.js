@@ -83,6 +83,7 @@ import {
   Mail,
   Copy,
   RefreshCw,
+  Info,
   Hash,
   Coffee,
   Tag,
@@ -248,6 +249,7 @@ const EventLogsPanel = dynamicPanel(() => import("../components/settings/EventLo
 const SecurityPanel = dynamicPanel(() => import("../components/security/SecurityPanel"));
 const TroubleshootingPanel = dynamicPanel(() => import("../components/dashboard/TroubleshootingPanel"));
 const LicenseModal = dynamic(() => import("../components/modals/LicenseModal"), { ssr: false });
+const SystemInfoModal = dynamic(() => import("../components/modals/SystemInfoModal"), { ssr: false });
 const APIBudgetSettings = dynamicPanel(() => import("../components/settings/APIBudgetSettings"));
 const QueueSurveyReportPanel = dynamicPanel(() => import("../components/reports/QueueSurveyReportPanel"));
 const EnterpriseReportsPanel = dynamicPanel(() => import("../components/reports/EnterpriseReportsPanel"));
@@ -672,6 +674,7 @@ export default function Home() {
   // Global License Enforcement State
   const [licenseStatus, setLicenseStatus] = useState(null);
   const [isLicenseModalOpen, setIsLicenseModalOpen] = useState(false);
+  const [isSystemInfoOpen, setIsSystemInfoOpen] = useState(false);
   const [showLicenseWarningModal, setShowLicenseWarningModal] = useState(false);
   const dismissedLicenseWarnRef = React.useRef(new Set());
 
@@ -5628,11 +5631,33 @@ export default function Home() {
             }
 
             if (token === "widget:profile") {
+              const showLicAlertDot = Boolean(
+                licenseStatus &&
+                  !licenseStatus.is_unlimited &&
+                  (licenseStatus.in_grace_period ||
+                    licenseStatus.hard_expired ||
+                    (licenseStatus.days_left !== null &&
+                      licenseStatus.days_left !== undefined &&
+                      Number(licenseStatus.days_left) <= 7))
+              );
               return (
-                <div key="widget:profile" ref={profileDropdownRef} className="relative shrink-0">
+                <div key="widget:profile" className="flex items-center gap-2 shrink-0">
                   <button
                     type="button"
-                    onClick={() => setProfileDropdownOpen(!profileDropdownOpen)}
+                    onClick={() => setIsSystemInfoOpen(true)}
+                    className="relative p-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors shadow-sm cursor-pointer shrink-0"
+                    title="Sistem, Ağ ve Lisans Bilgileri"
+                    aria-label="Sistem, Ağ ve Lisans Bilgileri"
+                  >
+                    <Info size={14} className={text} />
+                    {showLicAlertDot && (
+                      <span className="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 rounded-full bg-rose-500 ring-2 ring-white dark:ring-slate-900 animate-pulse" />
+                    )}
+                  </button>
+                  <div ref={profileDropdownRef} className="relative shrink-0">
+                    <button
+                      type="button"
+                      onClick={() => setProfileDropdownOpen(!profileDropdownOpen)}
                     aria-expanded={profileDropdownOpen}
                     aria-label="Kullanıcı Profili ve Menüsü"
                     className={`flex items-center rounded-full border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 hover:bg-slate-50 dark:hover:bg-slate-800/80 transition-all shadow-sm focus:outline-none group cursor-pointer ${
@@ -5826,6 +5851,7 @@ export default function Home() {
                       </div>
                     </div>
                   )}
+                  </div>
                 </div>
               );
             }
@@ -11870,6 +11896,19 @@ export default function Home() {
               </div>
             </div>
           </div>
+        )}
+
+        {/* Global System, Network & License Info Drawer */}
+        {isSystemInfoOpen && (
+          <SystemInfoModal
+            isOpen={isSystemInfoOpen}
+            onClose={() => setIsSystemInfoOpen(false)}
+            backendHost={backendHost}
+            onOpenLicenseModal={() => {
+              setIsSystemInfoOpen(false);
+              setIsLicenseModalOpen(true);
+            }}
+          />
         )}
 
         {/* Global License Verification & Renewal Modal */}
