@@ -38907,18 +38907,31 @@ async def get_system_version_info():
         pass
 
     return {
-        "version": "v3.2.6",
+        "version": "v3.2.7",
         "commit_hash": live_commit,
         "release_date": "20 Kasım 2026",
         "status": "Güncel / Canlı Sürüm",
         "environment": "Production (On-Premise)",
         "changelog": [
             {
-                "version": "v3.2.6",
+                "version": "v3.2.7",
                 "commit_hash": live_commit,
                 "release_date": "20 Kasım 2026",
                 "badge": "Canlı Sürüm (Güncel)",
                 "badge_type": "current",
+                "title": "Nornia Cloud Center İşlem Logları Başlık Sadeleştirmesi",
+                "summary": "İşlem ve Denetim Kayıtları penceresinin üst sağındaki Yenile (Refresh) butonu kaldırıldı.",
+                "features": [],
+                "fixes": [
+                    "İşlem ve Denetim Kayıtları penceresinden gereksiz Yenile (Refresh) butonu kaldırıldı."
+                ]
+            },
+            {
+                "version": "v3.2.6",
+                "commit_hash": "f03f09c",
+                "release_date": "20 Kasım 2026",
+                "badge": "Önceki Sürüm",
+                "badge_type": "stable",
                 "title": "Nornia Cloud Center İşlem ve Denetim Kayıtları Tam Türkçe & Modern Yenileme",
                 "summary": "İşlem Logları penceresindeki tüm İngilizce aksiyon kodları (LICENSE_GENERATE, OTA_UPDATE, ROOT_SSO_LOGIN vb.) ve teknik ifadeler Türkçeleştirildi; taşan sütunlar, arama/kategori filtreleri, satır detay açılımı ve sayfalama ile modernleştirildi.",
                 "features": [

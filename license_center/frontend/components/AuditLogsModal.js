@@ -369,15 +369,6 @@ export default function AuditLogsModal({ isOpen, onClose }) {
           <div className="flex items-center gap-2 shrink-0">
             <button
               type="button"
-              onClick={fetchAuditLogs}
-              className="h-9 px-3 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors flex items-center gap-1.5 text-xs font-bold cursor-pointer"
-              title="Kayıtları Yenile"
-            >
-              <RefreshCw size={14} className={loading ? "animate-spin text-cyan-600 dark:text-cyan-400" : ""} />
-              <span className="hidden sm:inline">Yenile</span>
-            </button>
-            <button
-              type="button"
               onClick={onClose}
               className="w-9 h-9 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-500 dark:text-slate-400 flex items-center justify-center transition-colors cursor-pointer"
               title="Kapat"
