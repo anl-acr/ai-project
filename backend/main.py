@@ -4739,6 +4739,9 @@ remove_existing=yes
             dev_tr_raw = str(dev.get("transport") or "UDP").strip().upper()
             if dev_tr_raw == "TLS" and has_ast_cert:
                 dev_tr_line = "transport=transport-tls\nmedia_encryption=sdes\n"
+            elif custom_bind_map:
+                # Multi-VLAN /30 mode: omit explicit transport so deskphones work over BOTH local LAN and wg-nornia (10.200.x.y)
+                dev_tr_line = ""
             elif dev_tr_raw in ("TCP", "TLS"):
                 dev_tr_line = "transport=transport-tcp\n"
             else:
@@ -39695,18 +39698,40 @@ async def get_system_version_info():
         pass
 
     return {
-        "version": "v3.4.2",
+        "version": "v3.4.3",
         "commit_hash": live_commit,
         "release_date": "20 Kasım 2026",
         "status": "Güncel / Canlı Sürüm",
         "environment": "Production (On-Premise)",
         "changelog": [
             {
-                "version": "v3.4.2",
+                "version": "v3.4.3",
                 "commit_hash": live_commit,
                 "release_date": "20 Kasım 2026",
                 "badge": "Canlı Sürüm (Güncel)",
                 "badge_type": "current",
+                "title": "SIP Edge Otomatik Aynı-LAN Endpoint Algılama (Hairpin NAT Koruması) & Eş Zamanlı Yerel+Uzak Masa Telefonu Uyumu",
+                "summary": "Santral ve Hub aynı yerel alt ağda (ör. 172.20.5.0/24) bulunduğunda Hairpin NAT takılmasını önlemek için WireGuard otomatik LAN endpoint seçimi eklendi; çoklu-/30 VLAN kullanan santrallerde hem yerel ofis içi hem de uzak 5060 masa telefonlarının aynı anda sorunsuz çalışması sağlandı.",
+                "features": [
+                    {
+                        "title": "Otomatik LAN / WAN WireGuard Endpoint Seçimi",
+                        "desc": "Hub, RAS_WELCOME içinde hem genel (connect.nornia.com.tr:51820) hem de yerel (hub_lan_endpoint) adresi paylaşır. Santral aynı alt ağdaysa yerel IP üzerinden doğrudan, farklı ağdaysa internet üzerinden otomatik bağlanır."
+                    },
+                    {
+                        "title": "Eş Zamanlı Yerel LAN + Uzak SIP Edge Masa Telefonu Desteği",
+                        "desc": "Ofis içi masa telefonları yerel IP'den (<1 ms doğrudan LAN sesiyle), ev/şube masa telefonları ise <musteri>.nornia.com.tr:5060 üzerinden aynı santralde bir arada sorunsuz çalışır."
+                    }
+                ],
+                "fixes": [
+                    "Santral Uzak Erişim ekranındaki SIP Edge WireGuard canlı durum rozeti (active/wg_active) senkronize edildi."
+                ]
+            },
+            {
+                "version": "v3.4.2",
+                "commit_hash": "4d332b0",
+                "release_date": "20 Kasım 2026",
+                "badge": "Önceki Sürüm",
+                "badge_type": "stable",
                 "title": "SIP/RTP Edge Hub 1:1 NAT Desteği (Kamailio Advertise + RTPEngine local!public) & POSIX Regex Düzeltmesi",
                 "summary": "Hub sunucusu 1:1 NAT arkasında olduğunda (ör. yerel 172.20.x.x -> dış 213.74.x.x) Kamailio listen...advertise ve RTPEngine ext/local!public yapılandırması otomatik ayarlanacak şekilde güncellendi; Kamailio 5.7 POSIX ERE regex hatası düzeltildi.",
                 "features": [],

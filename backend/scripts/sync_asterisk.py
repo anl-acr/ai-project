@@ -1066,6 +1066,9 @@ remove_existing=yes
                 d_tr_raw = str(dev_obj.get("transport") or "UDP").strip().upper()
                 if d_tr_raw == "TLS" and has_ast_cert:
                     d_tr_line = "transport=transport-tls\nmedia_encryption=sdes\n"
+                elif custom_bind_map_s:
+                    # Multi-VLAN /30 mode: omit explicit transport so deskphones work over BOTH local LAN and wg-nornia (10.200.x.y)
+                    d_tr_line = ""
                 elif d_tr_raw in ("TCP", "TLS"):
                     d_tr_line = "transport=transport-tcp\n"
                 else:

@@ -55,13 +55,16 @@ RAS_RUNTIME_STATE: Dict[str, Any] = {
     "reconnect_count": 0,
     "sip_edge": {
         "enabled": False,
+        "active": False,
         "wg_installed": False,
         "wg_active": False,
         "pbx_tunnel_ip": "",
         "hub_endpoint": "",
+        "endpoint_mode": "",
         "sip_domain": "",
         "sip_port": 5060,
         "sip_tls_port": 5061,
+        "last_error": "",
     },
 }
 
@@ -109,6 +112,36 @@ def ensure_pbx_wg_keypair_sync() -> str:
         return ""
 
 
+def _select_best_wg_endpoint(hub_ep: str, hub_lan_ip: str, hub_lan_ep: str) -> tuple[str, str]:
+    """
+    If this PBX shares the exact same local LAN subnet as the Hub (e.g. both on 172.20.5.0/24
+    in the same datacenter/office), use the Hub's LAN endpoint directly to avoid UDP Hairpin NAT.
+    Otherwise use the public Hub endpoint (connect.nornia.com.tr:51820).
+    """
+    if hub_lan_ip and hub_lan_ep:
+        try:
+            import ipaddress
+            hub_addr = ipaddress.IPv4Address(hub_lan_ip)
+            ip_bin = shutil.which("ip")
+            if ip_bin:
+                r = subprocess.run([ip_bin, "-4", "-o", "addr", "show"], capture_output=True, text=True, timeout=2.0)
+                if r.returncode == 0 and r.stdout:
+                    for ln in r.stdout.splitlines():
+                        parts = ln.split()
+                        if "inet" in parts:
+                            cidr = parts[parts.index("inet") + 1]
+                            if "/" in cidr and not cidr.startswith("127.") and not cidr.startswith("10.200."):
+                                try:
+                                    iface_net = ipaddress.IPv4Interface(cidr).network
+                                    if hub_addr in iface_net and str(ipaddress.IPv4Interface(cidr).ip) != hub_lan_ip:
+                                        return hub_lan_ep, "lan"
+                                except Exception:
+                                    pass
+        except Exception:
+            pass
+    return hub_ep, "wan"
+
+
 def apply_pbx_sip_edge_wireguard_sync(sip_edge_cfg: Dict[str, Any]):
     """
     Auto-configures and brings up `/etc/wireguard/wg-nornia.conf` using Hub-provisioned parameters.
@@ -117,28 +150,39 @@ def apply_pbx_sip_edge_wireguard_sync(sip_edge_cfg: Dict[str, Any]):
     """
     if not isinstance(sip_edge_cfg, dict) or not sip_edge_cfg.get("enabled"):
         RAS_RUNTIME_STATE["sip_edge"]["enabled"] = False
+        RAS_RUNTIME_STATE["sip_edge"]["active"] = False
         RAS_RUNTIME_STATE["sip_edge"]["wg_active"] = False
+        RAS_RUNTIME_STATE["sip_edge"]["last_error"] = str((sip_edge_cfg or {}).get("reason") or "")
         return
 
     hub_pub = str(sip_edge_cfg.get("hub_public_key") or "").strip()
-    hub_ep = str(sip_edge_cfg.get("hub_endpoint") or "").strip()
+    hub_ep_raw = str(sip_edge_cfg.get("hub_endpoint") or "").strip()
+    hub_lan_ip = str(sip_edge_cfg.get("hub_lan_ip") or "").strip()
+    hub_lan_ep = str(sip_edge_cfg.get("hub_lan_endpoint") or "").strip()
+    hub_ep, ep_mode = _select_best_wg_endpoint(hub_ep_raw, hub_lan_ip, hub_lan_ep)
     pbx_cidr = str(sip_edge_cfg.get("pbx_tunnel_cidr") or "").strip()
     pbx_ip = str(sip_edge_cfg.get("pbx_tunnel_ip") or "").strip()
     hub_ip = str(sip_edge_cfg.get("hub_tunnel_ip") or "10.200.0.1").strip()
     sip_dom = str(sip_edge_cfg.get("sip_domain") or "").strip()
 
+    wg_bin = shutil.which("wg")
+    wg_quick_bin = shutil.which("wg-quick")
     RAS_RUNTIME_STATE["sip_edge"].update({
         "enabled": True,
+        "wg_installed": bool(wg_bin and wg_quick_bin),
         "pbx_tunnel_ip": pbx_ip,
         "hub_endpoint": hub_ep,
+        "endpoint_mode": ep_mode,
         "sip_domain": sip_dom,
         "sip_port": int(sip_edge_cfg.get("sip_port") or 5060),
         "sip_tls_port": int(sip_edge_cfg.get("sip_tls_port") or 5061),
     })
 
-    wg_bin = shutil.which("wg")
-    wg_quick_bin = shutil.which("wg-quick")
     if not (wg_bin and wg_quick_bin and hub_pub and hub_ep and pbx_cidr and os.path.isfile(_PBX_WG_PRIV_PATH)):
+        RAS_RUNTIME_STATE["sip_edge"]["active"] = False
+        RAS_RUNTIME_STATE["sip_edge"]["wg_active"] = False
+        if not wg_bin:
+            RAS_RUNTIME_STATE["sip_edge"]["last_error"] = "apt install -y wireguard"
         return
 
     try:
@@ -177,19 +221,28 @@ def apply_pbx_sip_edge_wireguard_sync(sip_edge_cfg: Dict[str, Any]):
         chk = subprocess.run([wg_bin, "show", _PBX_WG_IFACE], capture_output=True, text=True, timeout=3.0)
         if chk.returncode != 0:
             up_res = subprocess.run([wg_quick_bin, "up", _PBX_WG_IFACE], capture_output=True, text=True, timeout=10.0)
-            RAS_RUNTIME_STATE["sip_edge"]["wg_active"] = (up_res.returncode == 0)
-            if up_res.returncode == 0:
-                print(f"[Nornia SIP Edge] WireGuard tüneli aktif: {_PBX_WG_IFACE} ({pbx_ip} <-> {hub_ip}) | SIP: {sip_dom}:5060")
+            is_ok = (up_res.returncode == 0)
+            RAS_RUNTIME_STATE["sip_edge"]["wg_active"] = is_ok
+            RAS_RUNTIME_STATE["sip_edge"]["active"] = is_ok
+            RAS_RUNTIME_STATE["sip_edge"]["last_error"] = "" if is_ok else (up_res.stderr or "").strip()
+            if is_ok:
+                print(f"[Nornia SIP Edge] WireGuard tüneli aktif ({ep_mode.upper()}): {_PBX_WG_IFACE} ({pbx_ip} <-> {hub_ip} via {hub_ep}) | SIP: {sip_dom}:5060")
             else:
                 print(f"[Nornia SIP Edge] wg-quick up warning: {up_res.stderr}")
         else:
             if need_write:
                 subprocess.run([wg_quick_bin, "down", _PBX_WG_IFACE], capture_output=True, text=True, timeout=6.0)
                 up2 = subprocess.run([wg_quick_bin, "up", _PBX_WG_IFACE], capture_output=True, text=True, timeout=10.0)
-                RAS_RUNTIME_STATE["sip_edge"]["wg_active"] = (up2.returncode == 0)
+                is_ok2 = (up2.returncode == 0)
+                RAS_RUNTIME_STATE["sip_edge"]["wg_active"] = is_ok2
+                RAS_RUNTIME_STATE["sip_edge"]["active"] = is_ok2
+                RAS_RUNTIME_STATE["sip_edge"]["last_error"] = "" if is_ok2 else (up2.stderr or "").strip()
             else:
                 RAS_RUNTIME_STATE["sip_edge"]["wg_active"] = True
+                RAS_RUNTIME_STATE["sip_edge"]["active"] = True
+                RAS_RUNTIME_STATE["sip_edge"]["last_error"] = ""
     except Exception as ex_apply:
+        RAS_RUNTIME_STATE["sip_edge"]["last_error"] = str(ex_apply)
         print(f"[Nornia SIP Edge] Apply WireGuard error: {ex_apply}")
 
 _ras_worker_task: Optional[asyncio.Task] = None

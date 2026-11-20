@@ -45,6 +45,21 @@ def is_valid_wg_pubkey(key: Optional[str]) -> bool:
     return bool(_WG_PUBKEY_RE.match(key.strip()))
 
 
+def get_hub_lan_ip() -> str:
+    """Detects Hub's primary local interface IPv4 (e.g. 172.20.5.251) so same-LAN PBXs avoid Hairpin NAT."""
+    ip_bin = shutil.which("ip")
+    if ip_bin:
+        r = _run_cmd([ip_bin, "-4", "route", "get", "1.1.1.1"], timeout=2.0)
+        if r["ok"] and r["stdout"]:
+            parts = r["stdout"].split()
+            for idx, tok in enumerate(parts):
+                if tok == "src" and idx + 1 < len(parts):
+                    cand = parts[idx + 1].strip()
+                    if cand and not cand.startswith("127."):
+                        return cand
+    return ""
+
+
 def get_hub_wg_public_key() -> str:
     if os.path.isfile(WG_HUB_PUBKEY_PATH):
         try:
@@ -306,10 +321,13 @@ async def provision_pbx_sip_edge(
     await asyncio.to_thread(_apply_wg_peer_sync, pk_clean, client.wg_tunnel_ip, False)
     await sync_all_sip_edge_peers_from_db(db)
 
+    hub_lan_ip = get_hub_lan_ip()
     return {
         "enabled": True,
         "hub_public_key": hub_pubkey,
         "hub_endpoint": f"{HUB_PUBLIC_DOMAIN}:{WG_LISTEN_PORT}",
+        "hub_lan_ip": hub_lan_ip,
+        "hub_lan_endpoint": f"{hub_lan_ip}:{WG_LISTEN_PORT}" if hub_lan_ip else "",
         "hub_tunnel_ip": WG_HUB_TUNNEL_IP,
         "pbx_tunnel_ip": client.wg_tunnel_ip,
         "pbx_tunnel_cidr": f"{client.wg_tunnel_ip}/16",
