@@ -4788,7 +4788,7 @@ remove_existing=yes
             else:
                 dev_tr_line = "transport=transport-udp\n"
 
-            dev_rewrite_contact = "no" if dev_is_remote else "yes"
+            dev_rewrite_contact = "no" if (dev_is_remote or os.path.isfile("/etc/wireguard/wg-nornia.conf")) else "yes"
             conf_content += f"""
 ; --- SIP DEVICE: {_safe_cid_label(dev.get('name') or dev_su, dev_su)} ({cid_ext_val}) ---
 [{dev_su}]
@@ -6112,8 +6112,13 @@ same => n(mp_chk_type),Set(MP_AT_PART=${{CUT(MP_EP,@,2)}})
 same => n,GotoIf($["${{MP_AT_PART}}" != ""]?mp_trunk_ep:mp_chk_c)
 same => n(mp_trunk_ep),Set(MP_CUR_C=PJSIP/${{MP_EP}})
 same => n,Goto(mp_c_add)
-same => n(mp_chk_c),Set(MP_CUR_C=${{PJSIP_DIAL_CONTACTS(${{MP_EP}})}})
-same => n,GotoIf($["${{MP_CUR_C}}" = ""]?mp_next)
+same => n(mp_chk_c),Set(MP_RAW_C=${{PJSIP_DIAL_CONTACTS(${{MP_EP}})}})
+same => n,GotoIf($["${{MP_RAW_C}}" = ""]?mp_next)
+same => n,Set(MP_C_SECOND=${{CUT(MP_RAW_C,&,2)}})
+same => n,GotoIf($["${{MP_C_SECOND}}" != ""]?mp_use_multi_c:mp_use_single_ep)
+same => n(mp_use_single_ep),Set(MP_CUR_C=PJSIP/${{MP_EP}})
+same => n,Goto(mp_c_add)
+same => n(mp_use_multi_c),Set(MP_CUR_C=${{MP_RAW_C}})
 same => n(mp_c_add),GotoIf($["${{MP_CONTACTS}}" = ""]?mp_c_first:mp_c_append)
 same => n(mp_c_first),Set(MP_CONTACTS=${{MP_CUR_C}})
 same => n,Goto(mp_next)
@@ -40046,18 +40051,33 @@ async def get_system_version_info():
         pass
 
     return {
-        "version": "v3.5.4",
+        "version": "v3.5.5",
         "commit_hash": live_commit,
         "release_date": "21 Kasım 2026",
         "status": "Güncel / Canlı Sürüm",
         "environment": "Production (On-Premise)",
         "changelog": [
             {
-                "version": "v3.5.4",
+                "version": "v3.5.5",
                 "commit_hash": live_commit,
                 "release_date": "21 Kasım 2026",
                 "badge": "Canlı Sürüm (Güncel)",
                 "badge_type": "current",
+                "title": "Asterisk PJSIP Path Route Koruma (PJSIP_DIAL_CONTACTS Fix) & Kamailio TCP Reuse Fix",
+                "summary": "Web Telefonu'ndan uzak SIP Edge masa telefonunu ararken Asterisk PJSIP_DIAL_CONTACTS() fonksiyonunun Path Route başlığını düşürmesi sorunu çözüldü; SIP Edge aktif santrallerde tüm masa telefonlarında rewrite_contact=no otomatikleştirildi ve Kamailio TCP soket çakışması giderildi.",
+                "features": [],
+                "fixes": [
+                    "[build_multi_pjsip_dial_sub] tek kayıtlı SIP cihazlarda PJSIP_DIAL_CONTACTS() ham URI'si yerine doğrudan PJSIP/<endpoint> kullanarak Asterisk'in Path Route başlığını (received=...) INVITE paketine eklemesini sağlar.",
+                    "SIP Edge (wg-nornia) aktif santrallerde tüm fiziksel SIP cihazlarında rewrite_contact=no otomatik uygulanır.",
+                    "Kamailio'da tcp_reuse_port=yes aktif edilip FROM_PBX TCP bağlantılarında mhomed ile mevcut açık TCP oturumunun kullanılması sağlandı."
+                ]
+            },
+            {
+                "version": "v3.5.4",
+                "commit_hash": "6eed8d1",
+                "release_date": "21 Kasım 2026",
+                "badge": "Önceki Sürüm",
+                "badge_type": "stable",
                 "title": "Sistem Lisans Yönetimi Modalı Ekran Sığdırma & Sabit Alt Buton Düzeni",
                 "summary": "Sistem Lisans Yönetimi modalı küçük ve orta boy ekranlarda üstten/alttan taşmayacak şekilde max-h-[92vh] kaydırılabilir içerik ve sabit üst başlık + sabit alt doğrulama butonlarıyla güncellendi.",
                 "features": [],

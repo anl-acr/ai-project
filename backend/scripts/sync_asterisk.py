@@ -1111,7 +1111,7 @@ remove_existing=yes
                 else:
                     d_tr_line = "transport=transport-udp\n"
 
-                d_rewrite_contact = "no" if d_is_remote else "yes"
+                d_rewrite_contact = "no" if (d_is_remote or os.path.isfile("/etc/wireguard/wg-nornia.conf")) else "yes"
                 pjsip_custom_content += f"""
 ; SIP Device: {d_label} ({d_su}) -> Ext {ext}
 [{d_su}]
@@ -2214,8 +2214,13 @@ same => n(mp_chk_type),Set(MP_AT_PART=${CUT(MP_EP,@,2)})
 same => n,GotoIf($["${MP_AT_PART}" != ""]?mp_trunk_ep:mp_chk_c)
 same => n(mp_trunk_ep),Set(MP_CUR_C=PJSIP/${MP_EP})
 same => n,Goto(mp_c_add)
-same => n(mp_chk_c),Set(MP_CUR_C=${PJSIP_DIAL_CONTACTS(${MP_EP})})
-same => n,GotoIf($["${MP_CUR_C}" = ""]?mp_next)
+same => n(mp_chk_c),Set(MP_RAW_C=${PJSIP_DIAL_CONTACTS(${MP_EP})})
+same => n,GotoIf($["${MP_RAW_C}" = ""]?mp_next)
+same => n,Set(MP_C_SECOND=${CUT(MP_RAW_C,&,2)})
+same => n,GotoIf($["${MP_C_SECOND}" != ""]?mp_use_multi_c:mp_use_single_ep)
+same => n(mp_use_single_ep),Set(MP_CUR_C=PJSIP/${MP_EP})
+same => n,Goto(mp_c_add)
+same => n(mp_use_multi_c),Set(MP_CUR_C=${MP_RAW_C})
 same => n(mp_c_add),GotoIf($["${MP_CONTACTS}" = ""]?mp_c_first:mp_c_append)
 same => n(mp_c_first),Set(MP_CONTACTS=${MP_CUR_C})
 same => n,Goto(mp_next)

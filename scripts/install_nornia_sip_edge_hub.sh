@@ -310,6 +310,7 @@ listen=udp:${WG_HUB_IP}:5160
 
 tcp_connection_lifetime=3605
 tcp_max_connections=4096
+tcp_reuse_port=yes
 
 ####### Modules ########
 loadmodule "kex.so"
@@ -539,14 +540,8 @@ route[FROM_PBX] {
 
     # Initial request from PBX -> Deskphone (uses Path Route header populated on REGISTER)
     if (loose_route()) {
-        if (\$du != \$null && \$du =~ "transport=(tcp|TCP)") {
-            if (\$Rp == 5160) {
-                \$fs = "tcp:${HUB_BIND_IP}:5160";
-            } else {
-                \$fs = "tcp:${HUB_BIND_IP}:5060";
-            }
-${TLS_FROM_PBX_BRANCH}
-        } else {
+        # For UDP force external UDP socket; for TCP/TLS let mhomed reuse the phone's existing inbound TCP/TLS connection
+        if (\$du == \$null || !(\$du =~ "transport=(tcp|TCP|tls|TLS)")) {
             if (\$Rp == 5160) {
                 \$fs = "udp:${HUB_BIND_IP}:5160";
             } else {
