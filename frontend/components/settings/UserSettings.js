@@ -1115,7 +1115,8 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
       max_activations: isWebPhone
         ? (overrides.max_activations ? Math.max(1, Math.min(10, Number(overrides.max_activations))) : 5)
         : (overrides.max_activations ? Math.max(1, Math.min(5, Number(overrides.max_activations))) : 1),
-      transport: isWebPhone ? "WSS" : (overrides.transport || "UDP"),
+      transport: isWebPhone ? "WSS" : (overrides.remote_access ? "UDP" : (overrides.transport || "UDP")),
+      remote_access: isWebPhone || isVirtualSub ? false : Boolean(overrides.remote_access),
       is_active: overrides.is_active !== false,
       is_deletable: !isWebPhone,
       trunk: overrides.trunk || "",
@@ -1457,7 +1458,8 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
         sip_username: cleanSu,
         sip_password: (sipDeviceDraft.sip_password || "").trim() || generateSipPasswordStr(),
         max_activations: Math.max(1, Math.min(isWeb ? 10 : 5, Number(sipDeviceDraft.max_activations) || (isWeb ? 5 : 1))),
-        transport: isWeb ? "WSS" : (sipDeviceDraft.transport || "UDP"),
+        remote_access: isWeb ? false : Boolean(sipDeviceDraft.remote_access),
+        transport: isWeb ? "WSS" : (sipDeviceDraft.remote_access ? "UDP" : (sipDeviceDraft.transport || "UDP")),
         is_virtual: false,
         is_deletable: !isWeb,
         is_active: sipDeviceDraft.is_active !== false
@@ -9416,18 +9418,64 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
                         <select
                           id="sip-dev-transport"
                           name="transport"
-                          value={sipDeviceDraft.transport || "UDP"}
+                          disabled={Boolean(sipDeviceDraft.remote_access)}
+                          value={sipDeviceDraft.remote_access ? "UDP" : (sipDeviceDraft.transport || "UDP")}
                           onChange={(e) => setSipDeviceDraft((prev) => ({ ...prev, transport: e.target.value }))}
-                          className="w-full text-xs font-semibold px-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-950 text-slate-800 dark:text-slate-100 focus:outline-none"
+                          className={`w-full text-xs font-semibold px-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 focus:outline-none ${
+                            sipDeviceDraft.remote_access
+                              ? "bg-slate-100/80 dark:bg-slate-900 text-slate-500 dark:text-slate-400 cursor-not-allowed opacity-80"
+                              : "bg-slate-50/60 dark:bg-slate-950 text-slate-800 dark:text-slate-100"
+                          }`}
                         >
                           <option value="UDP">UDP (Standart - 5060)</option>
                           <option value="TCP">TCP (Güvenilir Akış - 5060)</option>
                           <option value="TLS">TLS (Şifreli Sinyalizasyon)</option>
                         </select>
                       )}
+                      {!isWebPhoneDraft && sipDeviceDraft.remote_access && (
+                        <p className="mt-1 text-[10px] font-medium text-slate-500 dark:text-slate-400">
+                          Uzak erişimde Hub (UDP/TCP/TLS — Cisco dahil) dönüşümü otomatik yapar; santral bacağı UDP kalır.
+                        </p>
+                      )}
                     </div>
                   </div>
                 </>
+              )}
+
+              {!isWebPhoneDraft && !isVirtualDraft && (
+                <div className="flex items-center justify-between gap-3 p-3.5 rounded-xl border border-slate-200/80 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-950/50">
+                  <div>
+                    <div className="text-xs font-bold text-slate-800 dark:text-white flex items-center gap-1.5">
+                      <span>Uzak Erişim (Nornia SIP Edge)</span>
+                    </div>
+                    <div className="text-[11px] text-slate-500 dark:text-slate-400">
+                      Cihaz ofis dışından bağlanıyorsa açın; Transport santral tarafında UDP olarak sabitlenir, dışarıda telefon UDP/TCP (Cisco dahil) veya TLS kullanabilir.
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    role="switch"
+                    aria-checked={Boolean(sipDeviceDraft.remote_access)}
+                    aria-label="Uzak Erişim Durumu"
+                    onClick={() =>
+                      setSipDeviceDraft((prev) => {
+                        const nextRemote = !Boolean(prev.remote_access);
+                        return {
+                          ...prev,
+                          remote_access: nextRemote,
+                          transport: nextRemote ? "UDP" : (prev.transport || "UDP")
+                        };
+                      })
+                    }
+                    className="shrink-0"
+                  >
+                    {sipDeviceDraft.remote_access ? (
+                      <ToggleRight size={30} className={text} />
+                    ) : (
+                      <ToggleLeft size={30} className="text-slate-400" />
+                    )}
+                  </button>
+                </div>
               )}
 
               <div className="flex items-center justify-between p-3.5 rounded-xl border border-slate-200/80 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-950/50">

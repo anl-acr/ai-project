@@ -4736,7 +4736,8 @@ remove_existing=yes
                 dev_max_c = max(1, min(5, int(dev.get("max_activations") or 1)))
             except Exception:
                 dev_max_c = 2
-            dev_tr_raw = str(dev.get("transport") or "UDP").strip().upper()
+            dev_is_remote = bool(dev.get("remote_access", False))
+            dev_tr_raw = "UDP" if dev_is_remote else str(dev.get("transport") or "UDP").strip().upper()
             if dev_tr_raw == "TLS" and has_ast_cert:
                 dev_tr_line = "transport=transport-tls\nmedia_encryption=sdes\n"
             elif custom_bind_map:
@@ -39698,18 +39699,34 @@ async def get_system_version_info():
         pass
 
     return {
-        "version": "v3.4.5",
+        "version": "v3.4.6",
         "commit_hash": live_commit,
         "release_date": "20 Kasım 2026",
         "status": "Güncel / Canlı Sürüm",
         "environment": "Production (On-Premise)",
         "changelog": [
             {
-                "version": "v3.4.5",
+                "version": "v3.4.6",
                 "commit_hash": live_commit,
                 "release_date": "20 Kasım 2026",
                 "badge": "Canlı Sürüm (Güncel)",
                 "badge_type": "current",
+                "title": "SIP Cihazı 'Uzak Erişim (Nornia SIP Edge)' Anahtarı & Otomatik Transport Koruması",
+                "summary": "SIP Cihazı Düzenleme modalına 'SIP Cihazı Aktif' satırının hemen üzerine 'Uzak Erişim (Nornia SIP Edge)' anahtarı eklendi. Açıldığında santral iç bacağı otomatik UDP'ye kilitlenip Transport seçimi pasif yapılır; dışarıdaki telefonlar (Cisco TCP, Yealink UDP/TCP/TLS) Hub Kamailio dönüşümüyle sorunsuz bağlanır.",
+                "features": [
+                    {
+                        "title": "Uzak Erişim (Nornia SIP Edge) Anahtarı",
+                        "desc": "Uzak erişim açıldığında santral PJSIP bacağı otomatik UDP olarak korunur ve yanlışlıkla TCP/TLS seçilerek WireGuard tünelinin reddedilmesi engellenir; ofis içi Cisco (TCP) cihazlarda ise anahtar kapalı bırakılarak doğrudan yerel TCP 5060 seçilebilir."
+                    }
+                ],
+                "fixes": []
+            },
+            {
+                "version": "v3.4.5",
+                "commit_hash": "42258da",
+                "release_date": "20 Kasım 2026",
+                "badge": "Önceki Sürüm",
+                "badge_type": "stable",
                 "title": "Kamailio RFC 3327 Supported: path Başlığı (Yealink / Masa Telefonu Asterisk 18 Kayıt Düzeltmesi)",
                 "summary": "Supported: path başlığı göndermeyen masa telefonlarında (Yealink vb.) Asterisk 18 res_pjsip_registrar'ın Path başlığını 'Invalid modifications by intervening proxy' diyerek reddetmesini önlemek için Kamailio REGISTER akışına otomatik Supported: path eklendi.",
                 "features": [],

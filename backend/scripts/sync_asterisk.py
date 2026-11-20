@@ -1063,7 +1063,8 @@ remove_existing=yes
                     d_max = max(1, min(10, int(dev_obj.get("max_activations") or 1)))
                 except Exception:
                     d_max = 1
-                d_tr_raw = str(dev_obj.get("transport") or "UDP").strip().upper()
+                d_is_remote = bool(dev_obj.get("remote_access", False))
+                d_tr_raw = "UDP" if d_is_remote else str(dev_obj.get("transport") or "UDP").strip().upper()
                 if d_tr_raw == "TLS" and has_ast_cert:
                     d_tr_line = "transport=transport-tls\nmedia_encryption=sdes\n"
                 elif custom_bind_map_s:
