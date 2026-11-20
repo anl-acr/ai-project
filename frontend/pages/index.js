@@ -5898,39 +5898,47 @@ export default function Home() {
               </div>
             </>
           ) : (
-            <div className="flex items-center justify-center gap-2 shrink-0">
+            <div className="flex items-center justify-center gap-2 min-w-0 shrink">
               {(topbarPrefs.layoutZones?.center || []).map((tok) => renderHeaderToken(tok, "center"))}
             </div>
           )}
 
           {/* Sağ Bölge */}
-          <div className={`${isHorizontalCallCenterBar ? "shrink-0" : "flex-1 justify-end"} flex items-center gap-2.5 text-xs font-semibold text-slate-600 dark:text-slate-400 min-w-0`}>
+          <div className={`${isHorizontalCallCenterBar ? "shrink-0" : "flex-1 justify-end shrink-0"} flex items-center gap-2.5 text-xs font-semibold text-slate-600 dark:text-slate-400 whitespace-nowrap`}>
             {!isDesktopMode && currentUser?.role === 'admin' && hasPendingChanges && (
-              <div className="flex items-center gap-2 relative">
+              <div className="flex items-center gap-1.5 relative shrink-0">
                 <button
+                  type="button"
                   onClick={handleApplyChanges}
                   disabled={isApplying || applyStatus === 'success'}
-                  className={`flex items-center gap-2 px-4 py-2 rounded-xl text-white font-bold transition-all shadow-sm ${
+                  title={
+                    applyStatus === 'success'
+                      ? 'Değişiklikler Uygulandı'
+                      : applyStatus === 'error'
+                        ? 'Değişiklikler Uygulanamadı — Tekrar Dene'
+                        : isApplying
+                          ? 'Değişiklikler Uygulanıyor...'
+                          : 'Değişiklikleri Uygula'
+                  }
+                  aria-label="Değişiklikleri Uygula"
+                  className={`h-9 w-9 rounded-full flex items-center justify-center shrink-0 text-white transition-all shadow-sm cursor-pointer ${
                     applyStatus === 'success' ? 'bg-emerald-500 cursor-default' :
                     applyStatus === 'error' ? 'bg-rose-600 hover:bg-rose-500' :
-                    isApplying ? 'bg-slate-400 cursor-not-allowed' : 'bg-rose-600 hover:bg-rose-500 shadow-rose-500/20 animate-pulse'
+                    isApplying ? 'bg-slate-400 cursor-not-allowed' : `${bg} ${hover} animate-pulse`
                   }`}
                 >
                   {applyStatus === 'success' ? <CheckCircle size={16} /> :
                    applyStatus === 'error' ? <AlertTriangle size={16} /> :
                    isApplying ? <Activity size={16} className="animate-spin" /> : <Layers size={16} />}
-                  
-                  {applyStatus === 'success' ? 'Uygulandı' :
-                   applyStatus === 'error' ? 'Uygulanamadı' : 'Uygula'}
                 </button>
                 {applyStatus === 'error' && (
                   <button
                     type="button"
                     onClick={() => setShowApplyErrorModal(true)}
-                    className="p-1 rounded-xl bg-rose-100/80 dark:bg-rose-955/40 text-rose-500 hover:bg-rose-200 dark:hover:bg-rose-900/60 transition-all cursor-pointer flex items-center justify-center border border-rose-200 dark:border-rose-900/50 shadow-sm"
+                    className="h-9 w-9 rounded-full bg-rose-100/80 dark:bg-rose-950/40 text-rose-500 hover:bg-rose-200 dark:hover:bg-rose-900/60 transition-all cursor-pointer flex items-center justify-center shrink-0 border border-rose-200 dark:border-rose-900/50 shadow-sm"
                     title="Hata detayını görüntülemek için tıklayın"
                   >
-                    <AlertTriangle size={18} className="animate-pulse text-rose-600 dark:text-rose-400" />
+                    <AlertTriangle size={16} className="animate-pulse text-rose-600 dark:text-rose-400" />
                   </button>
                 )}
               </div>

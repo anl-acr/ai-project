@@ -38907,18 +38907,32 @@ async def get_system_version_info():
         pass
 
     return {
-        "version": "v3.2.3",
+        "version": "v3.2.4",
         "commit_hash": live_commit,
         "release_date": "20 Kasım 2026",
         "status": "Güncel / Canlı Sürüm",
         "environment": "Production (On-Premise)",
         "changelog": [
             {
-                "version": "v3.2.3",
+                "version": "v3.2.4",
                 "commit_hash": live_commit,
                 "release_date": "20 Kasım 2026",
                 "badge": "Canlı Sürüm (Güncel)",
                 "badge_type": "current",
+                "title": "Üst Bar 'Uygula' Butonu İkon-Only Tasarımı & Arama Çubuğu Çakışma Düzeltmesi",
+                "summary": "Santral üst barındaki 'Uygula' butonu sade dairesel ikon butonuna dönüştürüldü ve arama alanıyla üst üste binme sorunu giderildi.",
+                "features": [],
+                "fixes": [
+                    "Üst bardaki 'Uygula' butonu yalnızca ikon (tooltip açıklamalı) olacak şekilde güncellendi.",
+                    "Arama çubuğu ile sağ üst araç butonları arasındaki flex yerleşim çakışması giderildi."
+                ]
+            },
+            {
+                "version": "v3.2.3",
+                "commit_hash": "1d97921",
+                "release_date": "20 Kasım 2026",
+                "badge": "Önceki Sürüm",
+                "badge_type": "stable",
                 "title": "Özellik Bazlı Lisans Paket Mimarisi (104 Modül + 19 Alt Özellik + Dinamik Paket Şablonu Yönetimi)",
                 "summary": "Nornia PBX'in tüm gerçek modülleri (44 rapor, gelişmiş abone özellikleri, omnichannel, AI suite ve altyapı araçları) lisans kataloğuna eklendi; paket seçildiğinde kotaları ezmeden ilgili özellik setini otomatik uygulayan yapı ve düzenlenebilir Paket Şablonları yönetimi oluşturuldu.",
                 "features": [
