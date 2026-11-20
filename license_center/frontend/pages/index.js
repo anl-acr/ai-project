@@ -92,7 +92,7 @@ export default function MasterDashboard() {
   const topbarSearchRef = useRef(null);
   const topbarSearchInputRef = useRef(null);
   const [filterStatus, setFilterStatus] = useState("all");
-  const [viewMode, setViewMode] = useState("cards"); // "cards" | "table"
+  const [viewMode, setViewMode] = useState("table"); // default corporate list/table view
   const [expandedClientIds, setExpandedClientIds] = useState({});
   const [deleteConfirmClient, setDeleteConfirmClient] = useState(null);
   const [deletingClient, setDeletingClient] = useState(false);
@@ -1451,8 +1451,8 @@ export default function MasterDashboard() {
           </button>
         </div>
 
-        {/* ACTIVE FILTER CHIPS & VIEW MODE SWITCHER */}
-        <div className="flex flex-wrap items-center justify-between gap-2">
+        {/* ACTIVE FILTER CHIPS (ONLY VISIBLE WHEN A FILTER OR SEARCH IS ACTIVE) */}
+        {(filterStatus !== "all" || searchTerm.trim()) && (
           <div className="flex flex-wrap items-center gap-2">
             {filterStatus !== "all" && (
               <span className="px-2.5 py-1.5 rounded-xl bg-slate-200/80 dark:bg-slate-800 border border-slate-300/70 dark:border-slate-700 text-slate-700 dark:text-slate-200 text-xs font-bold flex items-center gap-1.5">
@@ -1490,37 +1490,7 @@ export default function MasterDashboard() {
               </span>
             )}
           </div>
-
-          <div className="flex items-center gap-2 ml-auto">
-            {/* View Switcher: Icon-only Cards vs Table */}
-            <div className="flex items-center gap-1 bg-white dark:bg-slate-900/80 p-1 rounded-xl border border-slate-200/80 dark:border-slate-800 shadow-xs dark:shadow-none">
-              <button
-                type="button"
-                onClick={() => setViewMode("cards")}
-                className={`h-8 w-8 rounded-lg flex items-center justify-center transition-all cursor-pointer ${
-                  viewMode === "cards"
-                    ? "bg-slate-100 dark:bg-slate-800 text-indigo-600 dark:text-indigo-400 shadow-xs"
-                    : "text-slate-500 hover:text-slate-900 dark:hover:text-white"
-                }`}
-                title="Kart Görünümü"
-              >
-                <LayoutGrid size={15} />
-              </button>
-              <button
-                type="button"
-                onClick={() => setViewMode("table")}
-                className={`h-8 w-8 rounded-lg flex items-center justify-center transition-all cursor-pointer ${
-                  viewMode === "table"
-                    ? "bg-slate-100 dark:bg-slate-800 text-indigo-600 dark:text-indigo-400 shadow-xs"
-                    : "text-slate-500 hover:text-slate-900 dark:hover:text-white"
-                }`}
-                title="Tablo Görünümü"
-              >
-                <List size={15} />
-              </button>
-            </div>
-          </div>
-        </div>
+        )}
 
         {/* CLIENT SERVER FLEET: MODERN 2-COLUMN CARDS OR TABLE VIEW */}
         {filteredClients.length === 0 ? (

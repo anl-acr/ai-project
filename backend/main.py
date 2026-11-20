@@ -38886,18 +38886,34 @@ async def get_system_version_info():
         pass
 
     return {
-        "version": "v3.1.5",
+        "version": "v3.1.6",
         "commit_hash": live_commit,
         "release_date": "20 Kasım 2026",
         "status": "Güncel / Canlı Sürüm",
         "environment": "Production (On-Premise)",
         "changelog": [
             {
-                "version": "v3.1.5",
+                "version": "v3.1.6",
                 "commit_hash": live_commit,
                 "release_date": "20 Kasım 2026",
                 "badge": "Canlı Sürüm (Güncel)",
                 "badge_type": "current",
+                "title": "Nornia Cloud Center Varsayılan Liste Görünümü & Görünüm Seçicinin Kaldırılması",
+                "summary": "Nornia Cloud Center sunucu ekranında kart/liste geçiş seçicisi kaldırılarak kurumsal liste (tablo) görünümü tek ve varsayılan görünüm olarak ayarlandı.",
+                "features": [
+                    {
+                        "title": "📋 Varsayılan Liste Görünümü",
+                        "desc": "Kart/Liste geçiş butonları kaldırıldı; sayfa doğrudan kurumsal liste görünümü ile açılır ve gereksiz dikey boşluk ortadan kaldırıldı."
+                    }
+                ],
+                "fixes": []
+            },
+            {
+                "version": "v3.1.5",
+                "commit_hash": "ff1f93d",
+                "release_date": "20 Kasım 2026",
+                "badge": "Önceki Sürüm",
+                "badge_type": "stable",
                 "title": "Nornia Cloud Center Lisans Bitiş Tarihi Otomatik Çözümleme & Liste/Kart Senkronizasyonu",
                 "summary": "Heartbeat ile otomatik kaydedilen sunucularda lisans anahtarı (AIDA-...) içinde bulunan bitiş tarihinin veritabanına yazılmaması nedeniyle listede 'Tarih yok' görünmesi sorunu giderildi; tarihler DD.MM.YYYY formatında ve kalan gün bilgisiyle tüm görünümlerde senkronize edildi.",
                 "features": [],
