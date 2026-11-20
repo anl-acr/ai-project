@@ -175,16 +175,184 @@ def verify_license_key(tenant_code: str, license_key: str) -> dict:
     if sig_part.upper() not in [sig_1, sig_2]:
         return {"valid": False, "expires_at": expiry_date_str, "reason": "Lisans imza doğrulaması başarısız (Lisans Anahtarı Geçersiz veya Değiştirilmiş)."}
 
-    # Expiry Check
+    # Expiry Check (Evaluated in Turkey UTC+3 local time so expiry date is valid through 23:59:59 TR)
     try:
         exp_date = datetime.datetime.strptime(expiry_date_str, "%Y-%m-%d").replace(hour=23, minute=59, second=59)
-        now = datetime.datetime.utcnow()
-        if exp_date < now:
-            return {"valid": False, "expires_at": expiry_date_str, "reason": f"Lisans süreniz dolmuştur (Bitiş Tarihi: {expiry_date_str})."}
+        now_tr = datetime.datetime.utcnow() + datetime.timedelta(hours=3)
+        if exp_date < now_tr:
+            return {
+                "valid": False,
+                "expired_only": True,
+                "expires_at": expiry_date_str,
+                "reason": f"Lisans süreniz dolmuştur (Bitiş Tarihi: {expiry_date_str}).",
+                "hardware_id": current_hw_info["hardware_id"],
+                "embedded_tenant_code": key_tenant_code,
+                "custom_quotas": custom_quotas,
+            }
     except Exception as e:
         return {"valid": False, "expires_at": expiry_date_str, "reason": f"Tarih hesaplama hatası: {e}"}
 
-    return {"valid": True, "expires_at": expiry_date_str, "reason": "Lisans ve Donanım Doğrulaması Başarılı", "hardware_id": current_hw_info["hardware_id"], "embedded_tenant_code": key_tenant_code, "custom_quotas": custom_quotas}
+    return {"valid": True, "expired_only": False, "expires_at": expiry_date_str, "reason": "Lisans ve Donanım Doğrulaması Başarılı", "hardware_id": current_hw_info["hardware_id"], "embedded_tenant_code": key_tenant_code, "custom_quotas": custom_quotas}
+
+
+def evaluate_tenant_effective_license(tenant: dict) -> dict:
+    """
+    Single-source evaluator for a tenant's effective license state, combining:
+    - Cryptographic HMAC & hardware-binding verification (verify_license_key)
+    - Central remote kill-switch / suspension flag (remotely_suspended)
+    - Optional Grace Period ("Ek Süre" -> license_grace_until: YYYY-MM-DD)
+
+    Grace Period ONLY extends naturally expired (validly signed & hardware-bound) licenses;
+    it never bypasses hardware cloning, invalid signatures, or explicit central suspension.
+    """
+    if not isinstance(tenant, dict):
+        return {
+            "valid": False,
+            "hard_expired": True,
+            "in_grace_period": False,
+            "is_unlimited": False,
+            "days_left": 0,
+            "grace_days_left": None,
+            "expires_at": None,
+            "license_grace_until": "",
+            "reason": "Kiracı kaydı bulunamadı.",
+            "verification": {},
+            "custom_quotas": {},
+        }
+
+    t_code = tenant.get("code") or str(tenant.get("id", "default")).replace("tenant-", "")
+    t_key = tenant.get("license_key") or ""
+    verification = verify_license_key(t_code, t_key)
+    embedded_q = verification.get("custom_quotas") if isinstance(verification.get("custom_quotas"), dict) else {}
+
+    now_tr = datetime.datetime.utcnow() + datetime.timedelta(hours=3)
+    today_tr = now_tr.date()
+
+    # Resolve grace date (tenant field takes precedence, fallback to embedded key quotas)
+    raw_grace = tenant.get("license_grace_until")
+    if raw_grace is None:
+        raw_grace = embedded_q.get("license_grace_until")
+    grace_str = str(raw_grace or "").strip()[:10]
+    grace_date_obj = None
+    if len(grace_str) == 10:
+        try:
+            grace_date_obj = datetime.datetime.strptime(grace_str, "%Y-%m-%d").date()
+        except Exception:
+            grace_str = ""
+            grace_date_obj = None
+    else:
+        grace_str = ""
+
+    # Determine unlimited & days_left
+    ver_exp = verification.get("expires_at")
+    is_unlimited = bool(
+        ver_exp == "unlimited"
+        or str(tenant.get("license_expires_at") or "").strip().lower() in ("unlimited", "limitsiz", "suresiz")
+        or str(tenant.get("plan_tier") or "").strip().lower() == "unlimited"
+    )
+    eff_exp_str = ver_exp if (ver_exp and ver_exp != "unlimited") else str(tenant.get("license_expires_at") or "").strip()[:10]
+    days_left = None
+    if not is_unlimited and eff_exp_str and len(eff_exp_str) == 10:
+        try:
+            exp_d_obj = datetime.datetime.strptime(eff_exp_str, "%Y-%m-%d").date()
+            days_left = max(0, (exp_d_obj - today_tr).days)
+        except Exception:
+            days_left = None
+
+    # Explicit central kill-switch / suspension always locks hard
+    if tenant.get("remotely_suspended"):
+        return {
+            "valid": False,
+            "hard_expired": True,
+            "in_grace_period": False,
+            "is_unlimited": is_unlimited,
+            "days_left": days_left,
+            "grace_days_left": None,
+            "expires_at": "unlimited" if is_unlimited else eff_exp_str,
+            "license_grace_until": grace_str,
+            "reason": "Lisansınız merkezi yönetim paneli tarafından askıya alınmıştır.",
+            "verification": verification,
+            "custom_quotas": embedded_q,
+        }
+
+    # Case 1: Cryptographically valid and not expired
+    if verification.get("valid"):
+        # Check if manually set to passive without grace/reason (only if remotely_suspended wasn't set,
+        # check_and_update_tenant_expiration reactivates valid keys automatically).
+        return {
+            "valid": True,
+            "hard_expired": False,
+            "in_grace_period": False,
+            "is_unlimited": is_unlimited,
+            "days_left": days_left,
+            "grace_days_left": None,
+            "expires_at": "unlimited" if is_unlimited else (eff_exp_str or verification.get("expires_at")),
+            "license_grace_until": grace_str,
+            "reason": verification.get("reason") or "Lisans ve Donanım Doğrulaması Başarılı",
+            "verification": verification,
+            "custom_quotas": embedded_q,
+        }
+
+    # Case 2: Validly signed & hardware-matched, ONLY expired — check Grace Period ("Ek Süre")
+    if verification.get("expired_only") and grace_date_obj is not None and grace_date_obj >= today_tr:
+        grace_days_left = max(0, (grace_date_obj - today_tr).days)
+        return {
+            "valid": True,
+            "hard_expired": False,
+            "in_grace_period": True,
+            "is_unlimited": False,
+            "days_left": 0,
+            "grace_days_left": grace_days_left,
+            "expires_at": eff_exp_str or verification.get("expires_at"),
+            "license_grace_until": grace_str,
+            "reason": f"Ana lisans süresi doldu, Ek Süre (Grace Period) devrede (Son Tarih: {grace_str}).",
+            "verification": verification,
+            "custom_quotas": embedded_q,
+        }
+
+    # Case 3: Hard expired, tampered, hardware-mismatched, or missing key
+    reason_msg = verification.get("reason") or "Lisans süreniz dolmuştur."
+    if verification.get("expired_only") and grace_str:
+        reason_msg = f"Lisans ve tanımlı ek süre ({grace_str}) sona ermiştir."
+
+    return {
+        "valid": False,
+        "hard_expired": True,
+        "in_grace_period": False,
+        "is_unlimited": False,
+        "days_left": 0,
+        "grace_days_left": 0 if grace_str else None,
+        "expires_at": eff_exp_str or verification.get("expires_at"),
+        "license_grace_until": grace_str,
+        "reason": reason_msg,
+        "verification": verification,
+        "custom_quotas": embedded_q,
+    }
+
+
+def is_tenant_license_hard_expired(settings_obj: dict, tenant_id: str = "tenant-default") -> tuple:
+    """
+    Fast helper for call, AI, Omnichannel, IMAP, and Dialer enforcement points.
+    Returns (is_hard_expired: bool, reason: str).
+    """
+    if not isinstance(settings_obj, dict):
+        return (False, "")
+    tenants = settings_obj.get("tenants")
+    if not isinstance(tenants, list) or len(tenants) == 0:
+        return (False, "")
+    tid_norm = str(tenant_id or "tenant-default").strip().lower()
+    matched = next(
+        (
+            t for t in tenants
+            if str(t.get("id") or "").strip().lower() == tid_norm
+            or str(t.get("code") or "").strip().lower() == tid_norm
+        ),
+        tenants[0]
+    )
+    if not matched:
+        return (False, "")
+    ev = evaluate_tenant_effective_license(matched)
+    return (bool(ev.get("hard_expired")), str(ev.get("reason") or ""))
 
 
 def verify_nornia_root_sso_token(token: str) -> dict:

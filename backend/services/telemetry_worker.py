@@ -267,20 +267,28 @@ async def send_single_telemetry_heartbeat(override_tenants: list = None) -> bool
 
                     # Remote Kill-Switch / Re-Activation Enforcement per tenant
                     if t_res.get("remote_kill_switch"):
-                        if target_t.get("status") != "passive":
+                        if target_t.get("status") != "passive" or not target_t.get("remotely_suspended"):
                             print(f"[Telemetry Worker] REMOTE KILL-SWITCH RECEIVED! Tenant '{t_code}' suspended on Central Portal.")
                             target_t["status"] = "passive"
+                            target_t["remotely_suspended"] = True
                             settings_changed = True
-                    elif t_res.get("client_status") == "active" and target_t.get("status") == "passive":
-                        print(f"[Telemetry Worker] REMOTE RE-ACTIVATION RECEIVED! Tenant '{t_code}' restored to active.")
-                        target_t["status"] = "active"
-                        settings_changed = True
+                    else:
+                        if target_t.get("remotely_suspended"):
+                            target_t["remotely_suspended"] = False
+                            settings_changed = True
+                        if t_res.get("client_status") == "active" and target_t.get("status") == "passive":
+                            print(f"[Telemetry Worker] REMOTE RE-ACTIVATION RECEIVED! Tenant '{t_code}' restored to active.")
+                            target_t["status"] = "active"
+                            settings_changed = True
 
                     # Remote Quota & Module Entitlement Update Enforcement per tenant
                     quotas = t_res.get("quotas") or t_res.get("custom_quotas")
                     if quotas and isinstance(quotas, dict):
                         for q_key, q_val in quotas.items():
                             if q_val is None:
+                                if q_key == "license_grace_until" and target_t.get("license_grace_until"):
+                                    target_t["license_grace_until"] = ""
+                                    settings_changed = True
                                 continue
                             if isinstance(q_val, bool):
                                 if target_t.get(q_key) != q_val:
@@ -294,10 +302,14 @@ async def send_single_telemetry_heartbeat(override_tenants: list = None) -> bool
                                 if target_t.get(q_key) != q_val:
                                     target_t[q_key] = q_val
                                     settings_changed = True
-                            elif isinstance(q_val, str) and q_key in ("unlicensed_module_mode", "plan_tier", "license_expires_at"):
+                            elif isinstance(q_val, str) and q_key in ("unlicensed_module_mode", "plan_tier", "license_expires_at", "license_grace_until"):
                                 if target_t.get(q_key) != q_val:
                                     target_t[q_key] = q_val
                                     settings_changed = True
+
+                        if "license_grace_until" not in quotas and target_t.get("license_grace_until"):
+                            target_t["license_grace_until"] = ""
+                            settings_changed = True
 
                         # Enforce Central Recording Retention Policy if configured (> 0)
                         enf_ret = int(quotas.get("enforced_retention_days") or 0)
@@ -332,6 +344,8 @@ async def send_single_telemetry_heartbeat(override_tenants: list = None) -> bool
                         if v_key.get("custom_quotas") and isinstance(v_key["custom_quotas"], dict):
                             for q_k, q_v in v_key["custom_quotas"].items():
                                 if q_v is None:
+                                    if q_k == "license_grace_until":
+                                        target_t["license_grace_until"] = ""
                                     continue
                                 if isinstance(q_v, bool):
                                     target_t[q_k] = q_v
@@ -339,7 +353,7 @@ async def send_single_telemetry_heartbeat(override_tenants: list = None) -> bool
                                     target_t[q_k] = int(q_v)
                                 elif isinstance(q_v, list):
                                     target_t[q_k] = q_v
-                                elif isinstance(q_v, str) and q_k in ("unlicensed_module_mode", "plan_tier", "license_expires_at"):
+                                elif isinstance(q_v, str) and q_k in ("unlicensed_module_mode", "plan_tier", "license_expires_at", "license_grace_until"):
                                     target_t[q_k] = q_v
 
                         settings_changed = True

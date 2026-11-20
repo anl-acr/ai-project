@@ -116,7 +116,11 @@ export default function LicenseModal({ isOpen, onClose, backendHost, onLicenseUp
 
   if (!isOpen) return null;
 
-  const isExpired = licenseStatus && (!licenseStatus.valid || licenseStatus.status === "passive");
+  const isExpired = Boolean(licenseStatus && (licenseStatus.hard_expired || (!licenseStatus.valid && !licenseStatus.in_grace_period)));
+  const isInGrace = Boolean(licenseStatus && !isExpired && licenseStatus.in_grace_period);
+  const emNumbersText = Array.isArray(licenseStatus?.emergency_numbers) && licenseStatus.emergency_numbers.length > 0
+    ? licenseStatus.emergency_numbers.join(", ")
+    : "112, 110, 155";
 
   return (
     <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-sm animate-fadeIn">
@@ -159,7 +163,13 @@ export default function LicenseModal({ isOpen, onClose, backendHost, onLicenseUp
         <div className="p-6 space-y-5">
           
           {/* Status Box */}
-          <div className={`p-4 rounded-2xl border ${isExpired ? "bg-rose-50/80 dark:bg-rose-950/30 border-rose-200 dark:border-rose-900/50 text-rose-900 dark:text-rose-200" : "bg-emerald-50/80 dark:bg-emerald-950/30 border-emerald-200 dark:border-emerald-900/50 text-emerald-900 dark:text-emerald-200"}`}>
+          <div className={`p-4 rounded-2xl border ${
+            isExpired
+              ? "bg-rose-50/80 dark:bg-rose-950/30 border-rose-200 dark:border-rose-900/50 text-rose-900 dark:text-rose-200"
+              : isInGrace
+                ? "bg-amber-50/80 dark:bg-amber-950/30 border-amber-200 dark:border-amber-900/50 text-amber-900 dark:text-amber-200"
+                : "bg-emerald-50/80 dark:bg-emerald-950/30 border-emerald-200 dark:border-emerald-900/50 text-emerald-900 dark:text-emerald-200"
+          }`}>
             <div className="flex items-start justify-between">
               <div>
                 <div className="text-xs font-bold uppercase tracking-wider opacity-75 mb-1 flex items-center gap-1.5">
@@ -171,6 +181,10 @@ export default function LicenseModal({ isOpen, onClose, backendHost, onLicenseUp
                     <span className="text-rose-600 dark:text-rose-400 flex items-center gap-1.5">
                       <AlertTriangle size={16} /> Lisans Süresi Doldu veya İmzası Geçersiz
                     </span>
+                  ) : isInGrace ? (
+                    <span className="text-amber-700 dark:text-amber-400 flex items-center gap-1.5">
+                      <AlertTriangle size={16} /> Ek Süre (Grace Period) Devrede
+                    </span>
                   ) : (
                     <span className="text-emerald-600 dark:text-emerald-400 flex items-center gap-1.5">
                       <Check size={16} /> Lisansınız Aktif ve Geçerli
@@ -181,22 +195,36 @@ export default function LicenseModal({ isOpen, onClose, backendHost, onLicenseUp
 
               {licenseStatus && (
                 <div className="text-right">
-                  <div className="text-xs font-bold opacity-75">Bitiş Tarihi</div>
+                  <div className="text-xs font-bold opacity-75">{isInGrace ? "Ek Süre Bitiş" : "Bitiş Tarihi"}</div>
                   <div className="text-xs font-mono font-extrabold">
-                    {licenseStatus.is_unlimited ? "♾️ Limitsiz Süresiz" : (licenseStatus.license_expires_at || "Belirtilmedi")}
+                    {isInGrace
+                      ? (licenseStatus.license_grace_until || "-")
+                      : licenseStatus.is_unlimited
+                        ? "♾️ Limitsiz Süresiz"
+                        : (licenseStatus.license_expires_at || "Belirtilmedi")}
                   </div>
-                  {licenseStatus.days_left !== null && licenseStatus.days_left !== undefined && (
+                  {isInGrace ? (
                     <div className="text-[11px] font-bold mt-0.5 opacity-90">
-                      ({licenseStatus.days_left} gün kaldı)
+                      ({Number(licenseStatus.grace_days_left || 0) <= 0 ? "Bugün doluyor" : `${licenseStatus.grace_days_left} gün ek süre`})
+                    </div>
+                  ) : licenseStatus.days_left !== null && licenseStatus.days_left !== undefined && !licenseStatus.is_unlimited && (
+                    <div className="text-[11px] font-bold mt-0.5 opacity-90">
+                      ({licenseStatus.days_left <= 0 ? "Bugün doluyor" : `${licenseStatus.days_left} gün kaldı`})
                     </div>
                   )}
                 </div>
               )}
             </div>
 
+            {isInGrace && (
+              <p className="mt-3 text-xs leading-relaxed text-amber-800 dark:text-amber-300 border-t border-amber-200/60 dark:border-amber-900/40 pt-2 font-medium">
+                ⏳ Ana lisans süreniz ({licenseStatus.license_expires_at}) dolmuştur; tanımlı ek süre ({licenseStatus.license_grace_until}) boyunca santraliniz kesintisiz çalışmaya devam edecektir. Kesinti yaşamamak için ek süre dolmadan lisansınızı yenileyiniz.
+              </p>
+            )}
+
             {isExpired && (
               <p className="mt-3 text-xs leading-relaxed text-rose-700 dark:text-rose-300 border-t border-rose-200/60 dark:border-rose-900/40 pt-2 font-medium">
-                ⚠️ Sunucunuzdaki lisans süresi dolduğu için sesli yapay zeka ve santral arama servisleri durdurulmuştur. İşlemlere devam etmek için lütfen yeni Lisans Anahtarı giriniz.
+                ⚠️ Lisans süresi dolduğu için Web Paneli, dışarıdan gelen çağrılar, Omnichannel (WhatsApp/Sosyal Medya/E-Posta), Yapay Zeka sesli asistan, Auto-Dialer ve normal aramalar durdurulmuştur. Masa telefonları aktif olup yalnızca sistemde tanımlı acil durum numaralarını ({emNumbersText}) arayabilir. Devam etmek için yeni Lisans Anahtarı giriniz.
               </p>
             )}
           </div>

@@ -672,6 +672,15 @@ export default function Home() {
   // Global License Enforcement State
   const [licenseStatus, setLicenseStatus] = useState(null);
   const [isLicenseModalOpen, setIsLicenseModalOpen] = useState(false);
+  const [showLicenseWarningModal, setShowLicenseWarningModal] = useState(false);
+
+  const dismissLicenseWarningModal = () => {
+    setShowLicenseWarningModal(false);
+    if (typeof window !== "undefined") {
+      const tid = licenseStatus?.tenant_id || activeTenantId || "default";
+      sessionStorage.setItem(`nornia_license_expiry_warn_seen_${tid}`, "1");
+    }
+  };
 
   const fetchGlobalLicenseStatus = async () => {
     try {
@@ -687,8 +696,20 @@ export default function Home() {
             localStorage.setItem("active_tenant_name", data.tenant_name);
           }
         }
-        if (!data.valid || data.status === "passive") {
+        const isHardExpired = Boolean(data?.hard_expired || (!data?.valid && !data?.in_grace_period));
+        if (isHardExpired) {
+          setShowLicenseWarningModal(false);
           setIsLicenseModalOpen(true);
+        } else {
+          const isInGrace = Boolean(data?.in_grace_period);
+          const dLeft = data?.days_left;
+          const isExpiringSoon = !data?.is_unlimited && dLeft !== null && dLeft !== undefined && Number(dLeft) <= 7;
+          if ((isInGrace || isExpiringSoon) && typeof window !== "undefined") {
+            const warnKey = `nornia_license_expiry_warn_seen_${data?.tenant_id || activeTenantId || "default"}`;
+            if (!sessionStorage.getItem(warnKey)) {
+              setShowLicenseWarningModal(true);
+            }
+          }
         }
       }
     } catch (e) {
@@ -11720,6 +11741,132 @@ export default function Home() {
               }
             }}
           />
+        )}
+
+        {/* Last-7-Days / Grace Period First-Login License Expiry Warning Popup */}
+        {showLicenseWarningModal && licenseStatus && !isLicenseModalOpen && (
+          <div className="fixed inset-0 z-[9998] flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-sm animate-fadeIn">
+            <div className="relative w-full max-w-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl shadow-2xl overflow-hidden text-slate-900 dark:text-slate-100">
+              {/* Header */}
+              <div className={`p-5 sm:p-6 border-b ${
+                licenseStatus.in_grace_period
+                  ? "bg-rose-500/10 border-rose-500/20"
+                  : "bg-amber-500/10 border-amber-500/20"
+              } flex items-start gap-3.5`}>
+                <div className={`relative flex items-center justify-center w-12 h-12 rounded-2xl shrink-0 ${
+                  licenseStatus.in_grace_period
+                    ? "bg-rose-100 dark:bg-rose-950/60 text-rose-600 dark:text-rose-400"
+                    : "bg-amber-100 dark:bg-amber-950/60 text-amber-600 dark:text-amber-400"
+                }`}>
+                  <span className={`absolute inset-0 rounded-2xl animate-ping opacity-30 ${
+                    licenseStatus.in_grace_period ? "bg-rose-500" : "bg-amber-500"
+                  }`} />
+                  <AlertTriangle size={24} className="relative z-10" />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className={`px-2 py-0.5 rounded-md text-[10px] font-extrabold uppercase tracking-wider ${
+                      licenseStatus.in_grace_period
+                        ? "bg-rose-600 text-white"
+                        : "bg-amber-500 text-white"
+                    }`}>
+                      {licenseStatus.in_grace_period ? "Ek Süre Devrede" : "Lisans Süresi Yaklaşıyor"}
+                    </span>
+                    {licenseStatus.tenant_name && (
+                      <span className="text-xs font-bold text-slate-500 dark:text-slate-400 truncate">
+                        {licenseStatus.tenant_name}
+                      </span>
+                    )}
+                  </div>
+                  <h3 className="text-base sm:text-lg font-extrabold text-slate-900 dark:text-white mt-1 leading-snug">
+                    {licenseStatus.in_grace_period
+                      ? Number(licenseStatus.grace_days_left || 0) <= 0
+                        ? "Lisans süreniz doldu — Tanımlı ek süreniz bugün sona eriyor!"
+                        : `Lisans süreniz doldu — Ek sürenizin bitmesine ${licenseStatus.grace_days_left} gün kaldı!`
+                      : Number(licenseStatus.days_left || 0) <= 0
+                        ? "Lisans süreniz bugün sona eriyor!"
+                        : `Lisans sürenizin bitmesine ${licenseStatus.days_left} gün kaldı!`}
+                  </h3>
+                  <p className="text-xs font-semibold text-slate-600 dark:text-slate-400 mt-1 flex flex-wrap items-center gap-x-3 gap-y-1">
+                    {licenseStatus.license_expires_at && (
+                      <span className="inline-flex items-center gap-1">
+                        <Clock size={12} />
+                        Lisans Bitiş: <strong className="font-mono text-slate-800 dark:text-slate-200">{String(licenseStatus.license_expires_at).split("-").reverse().join(".")}</strong>
+                      </span>
+                    )}
+                    {licenseStatus.in_grace_period && licenseStatus.license_grace_until && (
+                      <span className="inline-flex items-center gap-1 text-rose-600 dark:text-rose-400">
+                        <Clock size={12} />
+                        Ek Süre Bitiş: <strong className="font-mono">{String(licenseStatus.license_grace_until).split("-").reverse().join(".")}</strong>
+                      </span>
+                    )}
+                  </p>
+                </div>
+              </div>
+
+              {/* Body — Features that will stop working */}
+              <div className="p-5 sm:p-6 space-y-4">
+                <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-950/60 border border-slate-200/80 dark:border-slate-800 space-y-2.5">
+                  <div className="text-xs font-extrabold uppercase tracking-wider text-rose-600 dark:text-rose-400 flex items-center gap-1.5">
+                    <ShieldAlert size={14} />
+                    <span>Lisans Süresi Dolduğunda Durdurulacak Özellikler</span>
+                  </div>
+                  <ul className="space-y-2 text-xs text-slate-700 dark:text-slate-300 font-medium">
+                    <li className="flex items-start gap-2.5">
+                      <Lock size={14} className="text-rose-500 shrink-0 mt-0.5" />
+                      <span><strong className="text-slate-900 dark:text-white">Web Yönetim & Temsilci Paneli:</strong> Arayüz erişimi kilitlenecek, yalnızca lisans yenileme ekranı kullanılabilecektir.</span>
+                    </li>
+                    <li className="flex items-start gap-2.5">
+                      <PhoneOff size={14} className="text-rose-500 shrink-0 mt-0.5" />
+                      <span><strong className="text-slate-900 dark:text-white">Dışarıdan Gelen Çağrılar (SIP Trunk / DID):</strong> Santrale dışarıdan gelen tüm telefon çağrıları otomatik olarak kapatılacaktır.</span>
+                    </li>
+                    <li className="flex items-start gap-2.5">
+                      <MessageSquare size={14} className="text-rose-500 shrink-0 mt-0.5" />
+                      <span><strong className="text-slate-900 dark:text-white">Omnichannel Kanalları:</strong> WhatsApp, Instagram, Facebook, Telegram ve E-Posta mesaj alımı ve gönderimi kapatılacaktır.</span>
+                    </li>
+                    <li className="flex items-start gap-2.5">
+                      <Bot size={14} className="text-rose-500 shrink-0 mt-0.5" />
+                      <span><strong className="text-slate-900 dark:text-white">Yapay Zeka (AI) Sesli Asistan & Auto-Dialer:</strong> Tüm AI sesli çağrıları, normal dış/dahili aramalar ve otomatik arama kampanyaları durdurulacaktır.</span>
+                    </li>
+                  </ul>
+                </div>
+
+                {/* Emergency Phone Exception Notice */}
+                <div className="p-3.5 rounded-2xl bg-emerald-50/80 dark:bg-emerald-950/25 border border-emerald-200/80 dark:border-emerald-900/50 flex items-start gap-2.5">
+                  <PhoneCall size={16} className="text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5" />
+                  <div className="text-xs text-emerald-900 dark:text-emerald-200 leading-relaxed">
+                    <strong className="font-extrabold">Masa Telefonları & Acil Durum Güvencesi:</strong> Kayıtlı masa telefonları santralde aktif kalmaya devam edecek, ancak yalnızca sistemde tanımlı acil durum numaralarını{" "}
+                    <span className="font-mono font-extrabold">
+                      ({Array.isArray(licenseStatus.emergency_numbers) && licenseStatus.emergency_numbers.length > 0 ? licenseStatus.emergency_numbers.join(", ") : "112, 110, 155"})
+                    </span>{" "}
+                    arayabilecektir.
+                  </div>
+                </div>
+              </div>
+
+              {/* Footer Actions */}
+              <div className="px-5 sm:px-6 py-4 bg-slate-50/80 dark:bg-slate-950/60 border-t border-slate-200/80 dark:border-slate-800 flex flex-wrap items-center justify-end gap-2.5">
+                <button
+                  type="button"
+                  onClick={dismissLicenseWarningModal}
+                  className="px-4 py-2.5 rounded-xl bg-white dark:bg-slate-900 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 text-xs font-extrabold transition-colors cursor-pointer"
+                >
+                  Anladım, Devam Et
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    dismissLicenseWarningModal();
+                    setIsLicenseModalOpen(true);
+                  }}
+                  className={`px-4 py-2.5 rounded-xl ${bg} ${hover} text-white text-xs font-extrabold shadow-sm flex items-center gap-1.5 transition-all cursor-pointer`}
+                >
+                  <Key size={14} />
+                  <span>Lisans Yenile</span>
+                </button>
+              </div>
+            </div>
+          </div>
         )}
 
         {/* Global License Verification & Renewal Modal */}

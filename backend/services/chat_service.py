@@ -72,6 +72,7 @@ async def handle_inbound_chat_message(
     recipient_phone_id: str = None,
     recipient_phone_num: str = None,
     sender_display_name: str = None,
+    tenant_id: str = "tenant-default",
 ):
     """
     Handles an incoming customer chat message from social channels (whatsapp, instagram, telegram, facebook, mail).
@@ -80,7 +81,16 @@ async def handle_inbound_chat_message(
     """
     print(f"[Chat Service] Inbound message from {sender_info} on channel {channel} (Recipient ID: {recipient_phone_id}): '{text}'")
     try:
-        from backend.main import is_phone_or_value_blacklisted
+        from backend.main import is_phone_or_value_blacklisted, settings_db, add_system_log
+        from backend.services.license_service import is_tenant_license_hard_expired
+        is_hard_exp, exp_reason = is_tenant_license_hard_expired(settings_db, tenant_id or "tenant-default")
+        if is_hard_exp:
+            print(f"[Omnichannel License Block] Dropped inbound {channel} message from {sender_info}: {exp_reason}")
+            try:
+                add_system_log("LICENSE_BLOCK", "WARNING", f"Omnichannel ({channel}) gelen mesajı lisans süresi dolduğu için engellendi: {sender_info}")
+            except Exception:
+                pass
+            return None
         async with AsyncSessionLocal() as session:
             # Check blacklist (flexible phone / last-10-digits & email check)
             is_bl, _ = await is_phone_or_value_blacklisted(sender_info, session)

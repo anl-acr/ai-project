@@ -395,10 +395,14 @@ async def poll_imap_inbox():
                         tenant_Targets.append((str(t_id).strip(), t_cfg))
 
             seen_accounts = set()
+            from backend.services.license_service import is_tenant_license_hard_expired
             for target_tenant_id, channels_cfg in tenant_Targets:
                 if not isinstance(channels_cfg, dict):
                     continue
                 if channels_cfg.get("email_enabled") is False:
+                    continue
+                is_hard_exp, _ = is_tenant_license_hard_expired(settings_db, target_tenant_id)
+                if is_hard_exp:
                     continue
 
                 imap_host = str(channels_cfg.get("email_imap_host") or "").strip()

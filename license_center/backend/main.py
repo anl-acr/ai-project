@@ -1702,6 +1702,20 @@ async def get_clients(db: AsyncSession = Depends(get_central_db)):
                 parsed_quotas = json.loads(c.custom_quotas)
             except Exception:
                 pass
+
+        grace_until_str = str((parsed_quotas or {}).get("license_grace_until") or "").strip()[:10]
+        in_grace_period = False
+        grace_days_left = None
+        if len(grace_until_str) == 10:
+            try:
+                now_tr_d = (datetime.datetime.utcnow() + datetime.timedelta(hours=3)).date()
+                g_d = datetime.datetime.strptime(grace_until_str, "%Y-%m-%d").date()
+                if g_d >= now_tr_d:
+                    grace_days_left = max(0, (g_d - now_tr_d).days)
+                    if days_left is not None and days_left <= 0:
+                        in_grace_period = True
+            except Exception:
+                grace_until_str = ""
                 
         parsed_failed_services = []
         raw_fs = getattr(c, "failed_services_json", None)
@@ -1748,6 +1762,9 @@ async def get_clients(db: AsyncSession = Depends(get_central_db)):
             "status": c.status,
             "current_license_key": c.current_license_key,
             "license_expires_at": c.license_expires_at,
+            "license_grace_until": grace_until_str,
+            "in_grace_period": in_grace_period,
+            "grace_days_left": grace_days_left,
             "custom_quotas": parsed_quotas,
             "is_online": is_online,
             "last_heartbeat_at": c.last_heartbeat_at.isoformat() if c.last_heartbeat_at else None,
@@ -2532,7 +2549,17 @@ async def receive_heartbeat(payload: HeartbeatSchema, request: Request, db: Asyn
             except Exception:
                 pass
 
-        remote_kill_switch = (client.status in ["suspended", "expired"])
+        grace_active = False
+        grace_str_hb = str((parsed_quotas or {}).get("license_grace_until") or "").strip()[:10]
+        if len(grace_str_hb) == 10:
+            try:
+                now_tr_hb = (datetime.datetime.utcnow() + datetime.timedelta(hours=3)).date()
+                if datetime.datetime.strptime(grace_str_hb, "%Y-%m-%d").date() >= now_tr_hb:
+                    grace_active = True
+            except Exception:
+                pass
+
+        remote_kill_switch = (client.status == "suspended") or (client.status == "expired" and not grace_active)
 
         tenants_response.append({
             "tenant_code": t_code,

@@ -888,11 +888,24 @@ export default function MasterDashboard() {
   const [genCustomQuotas, setGenCustomQuotas] = useState({});
   const [genPlanTier, setGenPlanTier] = useState("professional");
   const [genIsUnlimited, setGenIsUnlimited] = useState(false);
+  const [genGraceUntil, setGenGraceUntil] = useState("");
   const [genStatus, setGenStatus] = useState("active");
   const [isGeneratingKey, setIsGeneratingKey] = useState(false);
   const [genError, setGenError] = useState("");
   const [keyGenActiveTab, setKeyGenActiveTab] = useState("general");
   const [keyGenModuleSearch, setKeyGenModuleSearch] = useState("");
+
+  const applyGraceDaysOffset = (daysToAdd) => {
+    const todayStr = new Date().toISOString().slice(0, 10);
+    const baseStr = !genIsUnlimited && genExpiryDate && genExpiryDate > todayStr ? genExpiryDate : todayStr;
+    const baseDate = new Date(`${baseStr}T00:00:00`);
+    if (isNaN(baseDate.getTime())) return;
+    baseDate.setDate(baseDate.getDate() + Number(daysToAdd || 0));
+    const y = baseDate.getFullYear();
+    const m = String(baseDate.getMonth() + 1).padStart(2, "0");
+    const d = String(baseDate.getDate()).padStart(2, "0");
+    setGenGraceUntil(`${y}-${m}-${d}`);
+  };
 
   const openKeyGenModal = (client) => {
     setKeyGenModalClient(client);
@@ -902,6 +915,7 @@ export default function MasterDashboard() {
     const isUnl = exp === "unlimited" || client.plan_tier === "unlimited";
     setGenExpiryDate(isUnl ? "" : exp);
     setGenIsUnlimited(isUnl);
+    setGenGraceUntil(isUnl ? "" : (client.license_grace_until || client.custom_quotas?.license_grace_until || ""));
     setGenHwId(client.hardware_id || "UNBOUND");
     setGenPlanTier(client.plan_tier || "professional");
     setGenStatus(client.status || "active");
@@ -1029,12 +1043,14 @@ export default function MasterDashboard() {
     setGeneratedResultKey("");
 
     const finalExpiry = genIsUnlimited ? "unlimited" : (genExpiryDate || "2027-12-31");
+    const finalGrace = genIsUnlimited ? "" : (genGraceUntil || "").trim();
     const finalQuotas = {
       ...genCustomQuotas,
       plan_tier: genPlanTier,
       status: genStatus,
       is_unlimited: genIsUnlimited,
-      license_expires_at: finalExpiry
+      license_expires_at: finalExpiry,
+      license_grace_until: finalGrace
     };
 
     try {
@@ -1974,15 +1990,26 @@ export default function MasterDashboard() {
                                   {formatExpiryDateTR(effExp)}
                                 </div>
                                 {client.days_left !== null && client.days_left !== undefined && effExp !== "unlimited" ? (
-                                  <span className={`inline-block mt-1 px-2 py-0.5 rounded-md text-[10px] font-extrabold ${
-                                    client.days_left <= 7
-                                      ? "bg-rose-500/10 text-rose-600 dark:text-rose-400"
-                                      : client.days_left <= expiringSoonDays
-                                        ? "bg-amber-500/10 text-amber-600 dark:text-amber-400"
-                                        : "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
-                                  }`}>
-                                    {client.days_left} gün kaldı
-                                  </span>
+                                  <div className="flex flex-col items-start gap-1 mt-1">
+                                    <span className={`inline-block px-2 py-0.5 rounded-md text-[10px] font-extrabold ${
+                                      client.days_left <= 7
+                                        ? "bg-rose-500/10 text-rose-600 dark:text-rose-400"
+                                        : client.days_left <= expiringSoonDays
+                                          ? "bg-amber-500/10 text-amber-600 dark:text-amber-400"
+                                          : "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
+                                    }`}>
+                                      {client.days_left <= 0 ? "Süresi Doldu" : `${client.days_left} gün kaldı`}
+                                    </span>
+                                    {(client.license_grace_until || client.custom_quotas?.license_grace_until) && (
+                                      <span
+                                        className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-extrabold bg-amber-500/15 text-amber-700 dark:text-amber-300 border border-amber-500/30"
+                                        title="Tanımlı Ek Süre (Grace Period) Bitiş Tarihi"
+                                      >
+                                        <Clock size={9} />
+                                        Ek Süre: {formatExpiryDateTR(client.license_grace_until || client.custom_quotas?.license_grace_until)}
+                                      </span>
+                                    )}
+                                  </div>
                                 ) : (
                                   <span className="text-[10px] text-slate-400 font-semibold">
                                     {effExp === "unlimited" ? "Süresiz" : effExp ? "" : "Tarih yok"}
@@ -3086,6 +3113,53 @@ export default function MasterDashboard() {
                             placeholder="UNBOUND veya HW-361B-F973"
                             className="w-full px-3.5 py-2.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl focus:outline-none focus:border-indigo-500 font-mono font-bold text-slate-900 dark:text-white text-xs"
                           />
+                        </div>
+                      </div>
+
+                      {/* Ek Süre Bitiş Tarihi (Grace Period) */}
+                      <div className="p-4 rounded-2xl bg-amber-50/70 dark:bg-amber-950/20 border border-amber-200/80 dark:border-amber-800/50 space-y-3">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <div>
+                            <div className="text-xs font-extrabold text-amber-800 dark:text-amber-300 flex items-center gap-1.5">
+                              <Clock size={14} className="text-amber-600 dark:text-amber-400" />
+                              <span>Ek Süre Bitiş Tarihi (Grace Period)</span>
+                            </div>
+                            <p className="text-[11px] text-amber-700/90 dark:text-amber-300/80 font-medium mt-0.5">
+                              Ana lisans süresi dolsa bile seçilen ek süre tarihine kadar santral tüm özellikleriyle çalışmaya devam eder. Bu tarih de geçildiğinde santral kilitlenir ve masa telefonları yalnızca acil durum numaralarını arayabilir.
+                            </p>
+                          </div>
+                        </div>
+
+                        <div className="flex flex-wrap items-center gap-2.5">
+                          <input
+                            type="date"
+                            disabled={genIsUnlimited}
+                            value={genIsUnlimited ? "" : genGraceUntil}
+                            onChange={(e) => setGenGraceUntil(e.target.value)}
+                            className="px-3.5 py-2 bg-white dark:bg-slate-900 border border-amber-300 dark:border-amber-700 rounded-xl focus:outline-none focus:border-amber-500 font-mono font-bold text-slate-900 dark:text-white disabled:opacity-40 text-xs"
+                          />
+                          <div className="flex flex-wrap items-center gap-1.5">
+                            {[3, 7, 15, 30].map((d) => (
+                              <button
+                                key={d}
+                                type="button"
+                                disabled={genIsUnlimited}
+                                onClick={() => applyGraceDaysOffset(d)}
+                                className="px-2.5 py-1.5 rounded-xl bg-white dark:bg-slate-900 hover:bg-amber-500 text-amber-800 dark:text-amber-300 hover:text-white border border-amber-300 dark:border-amber-700 text-[11px] font-extrabold cursor-pointer transition-colors disabled:opacity-40"
+                              >
+                                +{d} Gün
+                              </button>
+                            ))}
+                            {genGraceUntil && !genIsUnlimited && (
+                              <button
+                                type="button"
+                                onClick={() => setGenGraceUntil("")}
+                                className="px-2.5 py-1.5 rounded-xl bg-rose-50 dark:bg-rose-950/40 hover:bg-rose-600 text-rose-600 dark:text-rose-400 hover:text-white border border-rose-200 dark:border-rose-800 text-[11px] font-extrabold cursor-pointer transition-colors"
+                              >
+                                Temizle
+                              </button>
+                            )}
+                          </div>
                         </div>
                       </div>
 

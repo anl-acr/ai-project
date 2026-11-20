@@ -6421,6 +6421,14 @@ async def resolve_outbound_dial_endpoint(
         raw_target_in = str(callee or dial_num or "").strip()
         is_em = bool(int(is_emergency or 0) == 1 or is_configured_emergency_number(raw_target_in, settings_db))
 
+        # Lisans süresi (ve ek süre) dolduysa acil durum dışındaki tüm giden trunk aramalarını engelle
+        if not is_em:
+            from backend.services.license_service import is_tenant_license_hard_expired
+            is_hard_exp, exp_rsn = is_tenant_license_hard_expired(settings_db, "tenant-default")
+            if is_hard_exp:
+                print(f"[License Block] Outbound trunk dial blocked (non-emergency): {caller} -> {raw_target_in} ({exp_rsn})")
+                return "EXHAUSTED"
+
         trunks_list = []
         users_list = []
         try:
@@ -8874,6 +8882,13 @@ async def control_dialer(payload: DialerControlPayload, user_info: dict = Depend
     action = payload.action
     if action == "start":
         t_id = user_info.get("tenant_id") or "tenant-default"
+        from backend.services.license_service import is_tenant_license_hard_expired
+        is_hard_exp, exp_rsn = is_tenant_license_hard_expired(settings_db, t_id)
+        if is_hard_exp:
+            raise HTTPException(
+                status_code=403,
+                detail=f"Lisans süreniz dolduğu için Otomatik Arama (Dialer) başlatılamaz. ({exp_rsn})"
+            )
         call_info = get_tenant_concurrent_call_info(t_id)
         base_max = call_info["max_concurrent_calls"]
         tol_max = call_info["tolerance_concurrent_calls"]
@@ -14177,8 +14192,24 @@ async def is_phone_or_value_blacklisted(val_to_check: str, session=None) -> tupl
 @app.get("/api/acl/check_subscriber_call")
 async def check_subscriber_call(caller: str, callee: str):
     from fastapi import Response
+    from backend.services.pbx_enterprise_features import is_configured_emergency_number
+    from backend.services.license_service import is_tenant_license_hard_expired
     caller_str = str(caller or "").strip()
     callee_str = str(callee or "").strip()
+    if is_configured_emergency_number(callee_str, settings_db):
+        return Response(content="ALLOW", media_type="text/plain")
+    is_hard_exp, exp_rsn = is_tenant_license_hard_expired(settings_db, "tenant-default")
+    if is_hard_exp:
+        print(f"[License Block] Internal subscriber call denied (expired license): {caller_str} -> {callee_str} ({exp_rsn})")
+        await record_call_error_event(
+            caller=caller_str,
+            callee=callee_str,
+            category="unauthorized",
+            direction="internal",
+            reason_msg="Lisans süresi dolduğu için dahili çağrı engellendi (Yalnızca acil numaralar aktif)",
+            status_val="blocked",
+        )
+        return Response(content="DENY", media_type="text/plain")
     is_bl_caller, bl_rc = await is_phone_or_value_blacklisted(caller_str)
     is_bl_callee, bl_rd = await is_phone_or_value_blacklisted(callee_str)
     if is_bl_caller or is_bl_callee:
@@ -14375,6 +14406,21 @@ async def check_outbound_call(
     if is_configured_emergency_number(callee_str, settings_db):
         add_system_log("EMERGENCY", "WARNING", f"Acil Durum Çağrısı Başlatıldı (ACL/Limit Bypass): Dahili {caller_str or '-'} -> {callee_str}")
         return Response(content="ALLOW", media_type="text/plain")
+
+    # LİSANS SÜRESİ KONTROLÜ: Süre (ve ek süre) dolduğunda masa telefonları yalnızca yukarıdaki acil durum numaralarını arayabilir!
+    from backend.services.license_service import is_tenant_license_hard_expired
+    is_hard_exp, exp_rsn = is_tenant_license_hard_expired(settings_db, "tenant-default")
+    if is_hard_exp:
+        print(f"[License Block] Outbound call denied (expired license): {caller_str} -> {callee_str} ({exp_rsn})")
+        await record_call_error_event(
+            caller=caller_str,
+            callee=callee_str,
+            category="unauthorized",
+            direction="outbound",
+            reason_msg="Lisans süresi dolduğu için giden çağrı engellendi (Yalnızca acil durum numaraları aranabilir)",
+            status_val="blocked",
+        )
+        return Response(content="DENY:LICENSE_EXPIRED", media_type="text/plain")
 
     all_users = settings_db.get("users", [])
     uid_to_ext = {str(u.get("id") or "").strip(): str(u.get("extension") or "").strip() for u in all_users if u.get("id") and u.get("extension")}
@@ -18500,7 +18546,8 @@ def clone_tenant_config(source_tenant_id: str, target_tenant_id: str):
 
 
 def check_and_update_tenant_expiration(tenants):
-    """Checks license expiration dates & cryptographic HMAC signatures for all tenants and automatically updates status to passive when expired or tampered."""
+    """Checks license expiration dates, active Grace Period (Ek Süre), & cryptographic HMAC signatures for all tenants and automatically updates status to passive when hard-expired or tampered."""
+    from backend.services.license_service import evaluate_tenant_effective_license
 
     changed = False
     for t in tenants:
@@ -18518,45 +18565,58 @@ def check_and_update_tenant_expiration(tenants):
             except Exception as e:
                 print(f"[License Key Auto-Gen Error]: {e}")
                 
-        verification = verify_license_key(t_code, t_key)
+        ev = evaluate_tenant_effective_license(t)
+        verification = ev.get("verification") or {}
         
-        if not verification.get("valid"):
+        if ev.get("hard_expired") or not ev.get("valid"):
             if t.get("status") != "passive":
                 t["status"] = "passive"
                 changed = True
-                add_system_log("TENANT_MANAGEMENT", "LICENSE_EXPIRED", f"Kiracı Lisansı Geçersiz/Doldu (Pasif Yapıldı): {t.get('name')} ({t.get('id')}) - Nedeni: {verification.get('reason')}")
+                add_system_log("TENANT_MANAGEMENT", "LICENSE_EXPIRED", f"Kiracı Lisansı Geçersiz/Doldu (Pasif Yapıldı): {t.get('name')} ({t.get('id')}) - Nedeni: {ev.get('reason')}")
                 try:
                     from backend.services.notification_service import trigger_notification_bg
                     trigger_notification_bg(
                         "license_limit_reached",
                         f"Lisans Süresi Doldu / Pasif Yapıldı: {t.get('name')}",
-                        f"'{t.get('name')}' ({t.get('id')}) müşterisinin lisans süresi sona erdi veya doğrulama başarısız oldu ({verification.get('reason')}). Hesap otomatik olarak pasife alındı.",
+                        f"'{t.get('name')}' ({t.get('id')}) müşterisinin lisans süresi sona erdi veya doğrulama başarısız oldu ({ev.get('reason')}). Hesap otomatik olarak pasife alındı.",
                         severity="critical",
                         tenant_id=t.get("id") or "tenant-default"
                     )
                 except Exception:
                     pass
         else:
-            # If valid and previously passive due to old expiration, reactivate automatically
+            # Valid or in active Grace Period — reactivate if previously passive due to expiration
             verified_expiry = verification.get("expires_at")
             if verified_expiry and verified_expiry != "unlimited":
                 if t.get("license_expires_at") != verified_expiry:
                     t["license_expires_at"] = verified_expiry
                     changed = True
-            if t.get("status") == "passive":
+            if t.get("status") == "passive" and not t.get("remotely_suspended"):
                 t["status"] = "active"
                 changed = True
-                add_system_log("TENANT_MANAGEMENT", "LICENSE_RENEWED", f"Kiracı Lisansı Yenilendi (Aktif Yapıldı): {t.get('name')} ({t.get('id')})")
+                add_system_log(
+                    "TENANT_MANAGEMENT",
+                    "LICENSE_RENEWED",
+                    f"Kiracı Lisansı Aktif Yapıldı ({'Ek Süre Devrede' if ev.get('in_grace_period') else 'Yenilendi'}): {t.get('name')} ({t.get('id')})"
+                )
 
             # Embedded Base64 Quotas application
-            custom_q = verification.get("custom_quotas")
+            custom_q = ev.get("custom_quotas")
             if custom_q and isinstance(custom_q, dict):
                 for q_key, q_val in custom_q.items():
-                    if isinstance(q_val, (int, float)):
+                    if isinstance(q_val, bool):
+                        if t.get(q_key) != q_val:
+                            t[q_key] = q_val
+                            changed = True
+                    elif isinstance(q_val, (int, float)):
                         if t.get(q_key) != int(q_val):
                             t[q_key] = int(q_val)
                             changed = True
                     elif isinstance(q_val, list):
+                        if t.get(q_key) != q_val:
+                            t[q_key] = q_val
+                            changed = True
+                    elif isinstance(q_val, str) and q_key in ("unlicensed_module_mode", "plan_tier", "license_grace_until"):
                         if t.get(q_key) != q_val:
                             t[q_key] = q_val
                             changed = True
@@ -19048,23 +19108,25 @@ async def get_license_status(request: Request):
         save_settings(current)
         settings_db["tenants"] = tenants
 
-    verification = verify_license_key(t_code, matched.get("license_key", ""))
+    from backend.services.license_service import evaluate_tenant_effective_license
+    from backend.services.pbx_enterprise_features import normalize_emergency_config
+
+    ev = evaluate_tenant_effective_license(matched)
+    verification = ev.get("verification") or {}
     hw_info = get_system_hardware_fingerprint()
-    
-    days_left = None
-    if verification.get("expires_at") and verification["expires_at"] != "unlimited":
-        try:
-            exp_d = datetime.datetime.strptime(verification["expires_at"], "%Y-%m-%d")
-            delta = exp_d - datetime.datetime.utcnow()
-            days_left = max(0, delta.days + 1)
-        except Exception:
-            pass
+    days_left = ev.get("days_left")
+    in_grace_period = bool(ev.get("in_grace_period"))
+    license_grace_until = ev.get("license_grace_until") or ""
+    grace_days_left = ev.get("grace_days_left")
+    hard_expired = bool(ev.get("hard_expired"))
+    emergency_cfg = normalize_emergency_config((current.get("numbering_plan") or {}).get("emergency_numbers"))
+    emergency_numbers = emergency_cfg.get("numbers") or ["112"]
 
     plan_tier = matched.get("plan_tier") or "professional"
-    if verification.get("expires_at") == "unlimited":
+    if ev.get("is_unlimited"):
         plan_tier = "unlimited"
 
-    embedded_q = verification.get("custom_quotas") if isinstance(verification.get("custom_quotas"), dict) else {}
+    embedded_q = ev.get("custom_quotas") if isinstance(ev.get("custom_quotas"), dict) else {}
 
     limits = dict(get_plan_limits(plan_tier))
     call_info = get_tenant_concurrent_call_info(matched.get("id", "tenant-default"), current)
@@ -19149,10 +19211,15 @@ async def get_license_status(request: Request):
         "status": matched.get("status"),
         "license_key": matched.get("license_key"),
         "license_expires_at": matched.get("license_expires_at"),
-        "valid": verification.get("valid", False) and matched.get("status") != "passive",
-        "reason": verification.get("reason"),
+        "license_grace_until": license_grace_until,
+        "in_grace_period": in_grace_period,
+        "grace_days_left": grace_days_left,
+        "hard_expired": hard_expired,
+        "emergency_numbers": emergency_numbers,
+        "valid": bool(ev.get("valid")) and not hard_expired,
+        "reason": ev.get("reason"),
         "days_left": days_left,
-        "is_unlimited": verification.get("expires_at") == "unlimited" or not matched.get("license_expires_at"),
+        "is_unlimited": bool(ev.get("is_unlimited")),
         "server_hardware_id": hw_info.get("hardware_id"),
         "max_concurrent_calls": call_info["max_concurrent_calls"],
         "tolerance_concurrent_calls": call_info["tolerance_concurrent_calls"],
@@ -19189,13 +19256,19 @@ async def renew_license_key(payload: LicenseRenewSchema):
     if not target:
         raise HTTPException(status_code=404, detail="Müşteri / Kiracı bulunamadı.")
         
+    from backend.services.license_service import evaluate_tenant_effective_license
     t_code = target.get("code") or target.get("id", "default").replace("tenant-", "")
-    verification = verify_license_key(t_code, payload.license_key)
+    probe_tenant = dict(target)
+    probe_tenant["license_key"] = payload.license_key.strip()
+    probe_tenant["remotely_suspended"] = False
+    probe_eval = evaluate_tenant_effective_license(probe_tenant)
+    verification = probe_eval.get("verification") or verify_license_key(t_code, payload.license_key)
     
-    if not verification.get("valid"):
-        raise HTTPException(status_code=400, detail=f"Lisans Anahtarı Geçersiz: {verification.get('reason')}")
+    if not probe_eval.get("valid"):
+        raise HTTPException(status_code=400, detail=f"Lisans Anahtarı Geçersiz: {probe_eval.get('reason')}")
         
     target["license_key"] = payload.license_key.strip()
+    target["remotely_suspended"] = False
     embedded_code = verification.get("embedded_tenant_code")
     if embedded_code:
         target["code"] = embedded_code
@@ -19207,17 +19280,19 @@ async def renew_license_key(payload: LicenseRenewSchema):
     custom_q = verification.get("custom_quotas")
     if custom_q and isinstance(custom_q, dict):
         for q_key, q_val in custom_q.items():
-            if q_key in ["plan_tier", "status", "license_expires_at", "serial_number", "tenant_serial_number", "unlicensed_module_mode"]:
+            if q_key in ["plan_tier", "status", "license_expires_at", "license_grace_until", "serial_number", "tenant_serial_number", "unlicensed_module_mode"]:
                 if q_key in ["serial_number", "tenant_serial_number"] and q_val:
                     target["serial_number"] = str(q_val)
                 else:
-                    target[q_key] = str(q_val)
+                    target[q_key] = str(q_val if q_val is not None else "")
             elif isinstance(q_val, bool):
                 target[q_key] = bool(q_val)
             elif isinstance(q_val, (int, float)):
                 target[q_key] = int(q_val)
             elif isinstance(q_val, list):
                 target[q_key] = q_val
+        if "license_grace_until" not in custom_q:
+            target["license_grace_until"] = ""
 
     current["tenants"] = tenants
     save_settings(current)
@@ -19584,6 +19659,47 @@ async def register_call_endpoint(call_id: str, did: str, caller: str, asterisk_i
                             call_tenant = trunk_found.tenant_id
             except Exception as e_tenant:
                 print(f"[Call Register Tenant Error]: {e_tenant}")
+
+            # --- LİSANS SÜRESİ KONTROLÜ (Dışarıdan gelen tüm çağrılar & acil dışı çağrılar engellenir, acil durum numaraları serbest bırakılır) ---
+            if not is_emergency_did:
+                try:
+                    from backend.services.license_service import is_tenant_license_hard_expired
+                    is_hard_exp_call, exp_rsn_call = is_tenant_license_hard_expired(settings_db, call_tenant)
+                    if is_hard_exp_call:
+                        from backend.services.ami_manager import hangup_call
+                        print(f"[License Block] Call blocked in /api/calls/register (direction={direction}): {caller} -> {did} ({exp_rsn_call})")
+                        add_system_log("LICENSE_BLOCK", "WARNING", f"Lisans süresi dolduğu için çağrı reddedildi ({direction}): {caller} -> {did}")
+                        existing_lic_call = await session.get(Call, call_id)
+                        if existing_lic_call:
+                            existing_lic_call.caller_number = caller or existing_lic_call.caller_number or "Bilinmeyen"
+                            existing_lic_call.callee_number = did or existing_lic_call.callee_number or "s"
+                            existing_lic_call.status = "blocked"
+                            existing_lic_call.tenant_id = call_tenant
+                            existing_lic_call.end_time = datetime.datetime.utcnow()
+                            existing_lic_call.hangup_source = "license_expired"
+                            existing_lic_call.ended_by = "system"
+                            if matched_trunk_name and not existing_lic_call.trunk_name:
+                                existing_lic_call.trunk_name = matched_trunk_name
+                        else:
+                            new_lic_call = Call(
+                                id=call_id,
+                                caller_number=caller or "Bilinmeyen",
+                                callee_number=did or "s",
+                                status="blocked",
+                                tenant_id=call_tenant,
+                                start_time=datetime.datetime.utcnow(),
+                                end_time=datetime.datetime.utcnow(),
+                                hangup_source="license_expired",
+                                ended_by="system",
+                                trunk_name=matched_trunk_name,
+                                agent_name=resolved_agent_name,
+                            )
+                            session.add(new_lic_call)
+                        await session.commit()
+                        await hangup_call(call_id, caller_number=caller)
+                        return Response(content="BLOCKED", media_type="text/plain")
+                except Exception as e_lic_blk:
+                    print(f"[License Block Register Warning]: {e_lic_blk}")
 
             try:
                 is_bl, bl_reason = (False, "") if is_emergency_did else await is_phone_or_value_blacklisted(caller, session=session)
@@ -20334,11 +20450,15 @@ async def end_call_endpoint(
             except Exception as ex_an:
                 print(f"[End Call Retention/Analyzer Trigger Error]: {ex_an}")
 
-            # Trigger automated WhatsApp Missed Call greeting if call was unanswered (skip for invalid/unmapped DID/blacklisted calls)
+            # Trigger automated WhatsApp Missed Call greeting if call was unanswered (skip for invalid/unmapped DID/blacklisted/license-expired calls)
+            from backend.services.license_service import is_tenant_license_hard_expired
+            _is_lic_exp_mc, _ = is_tenant_license_hard_expired(settings_db, getattr(db_call, "tenant_id", None) or "tenant-default")
             if (
-                resolved_status in ["no_answer", "busy", "failed", "cancelled"]
+                not _is_lic_exp_mc
+                and resolved_status in ["no_answer", "busy", "failed", "cancelled"]
                 and not hangup_src_val.startswith("call_error:")
                 and not hangup_src_val.startswith("blacklist:")
+                and not hangup_src_val.startswith("license_expired")
                 and not hangup_src_val.startswith("conference:")
             ):
                 caller_num = str(db_call.caller_number or "").strip()
@@ -26450,6 +26570,11 @@ class ChatMessageSendSchema(BaseModel):
 @app.post("/api/omnichannel/chats/{session_id}/send")
 async def send_representative_message(session_id: str, payload: ChatMessageSendSchema, request: Request):
     import datetime
+    from backend.services.license_service import is_tenant_license_hard_expired
+    _req_user = get_user_info(request)
+    _is_exp_omni, _exp_rsn_omni = is_tenant_license_hard_expired(settings_db, _req_user.get("tenant_id") or "tenant-default")
+    if _is_exp_omni:
+        raise HTTPException(status_code=403, detail=f"Lisans süreniz dolduğu için Omnichannel mesajlaşma kapatılmıştır. ({_exp_rsn_omni})")
     async with AsyncSessionLocal() as session:
         stmt = select(ChatSession).where(ChatSession.id == session_id)
         result = await session.execute(stmt)
@@ -26932,6 +27057,10 @@ async def compose_new_omnichannel_message(
     import datetime
     from sqlalchemy import func
     target_tenant = user_info.get("tenant_id") or "tenant-default"
+    from backend.services.license_service import is_tenant_license_hard_expired
+    _is_exp_comp, _exp_rsn_comp = is_tenant_license_hard_expired(settings_db, target_tenant)
+    if _is_exp_comp:
+        raise HTTPException(status_code=403, detail=f"Lisans süreniz dolduğu için Omnichannel mesajlaşma kapatılmıştır. ({_exp_rsn_comp})")
     ch_norm = str(payload.channel or "email").strip().lower()
     if ch_norm == "mail":
         ch_norm = "email"
@@ -27236,7 +27365,11 @@ async def send_whatsapp_broadcast_campaign(
     user_info: dict = Depends(get_user_info)
 ):
     from backend.services.whatsapp_service import send_whatsapp_message, send_whatsapp_media, sanitize_phone_number, resolve_whatsapp_credentials
+    from backend.services.license_service import is_tenant_license_hard_expired
     target_tenant = user_info.get("tenant_id") or "tenant-default"
+    _is_exp_bc, _exp_rsn_bc = is_tenant_license_hard_expired(settings_db, target_tenant)
+    if _is_exp_bc:
+        raise HTTPException(status_code=403, detail=f"Lisans süreniz dolduğu için WhatsApp toplu gönderim kapatılmıştır. ({_exp_rsn_bc})")
     recipients_list = payload.recipients or []
 
     # Check credentials first
@@ -38907,18 +39040,42 @@ async def get_system_version_info():
         pass
 
     return {
-        "version": "v3.3.0",
+        "version": "v3.3.1",
         "commit_hash": live_commit,
         "release_date": "20 Kasım 2026",
         "status": "Güncel / Canlı Sürüm",
         "environment": "Production (On-Premise)",
         "changelog": [
             {
-                "version": "v3.3.0",
+                "version": "v3.3.1",
                 "commit_hash": live_commit,
                 "release_date": "20 Kasım 2026",
                 "badge": "Canlı Sürüm (Güncel)",
                 "badge_type": "current",
+                "title": "Lisans Ek Süre (Grace Period), Tam Sıkılaştırma (Acil Durum İstisnası) & Son 7 Gün Uyarı Popup'ı",
+                "summary": "Merkezi panele seçilebilir Ek Süre (Grace Period) bitiş tarihi eklendi; lisans süresi dolduğunda gelen çağrılar, Omnichannel, AI ve normal aramalar kapatılırken masa telefonları yalnızca tanımlı acil durum numaralarını arayabilecek şekilde yapılandırıldı; son 7 gün kala santral girişinde bilgilendirme popup'ı eklendi.",
+                "features": [
+                    {
+                        "title": "Panel Ek Süre (Grace Period) Tarihi Yönetimi",
+                        "desc": "Lisans Yenileme Stüdyosu → Paket & Geçerlilik sekmesine Ek Süre Bitiş Tarihi (+3/+7/+15/+30 Gün hızlı butonları) eklendi; ana lisans bitse bile belirlenen tarihe kadar santral kesintisiz çalışır."
+                    },
+                    {
+                        "title": "Lisans Bitişinde Tam Kapatma & Acil Durum Güvencesi",
+                        "desc": "Lisans ve ek süre dolduğunda Web Paneli, dışarıdan gelen tüm SIP çağrıları, Omnichannel (WhatsApp/Instagram/Facebook/Telegram/E-Posta), AI Sesli Asistan, Auto-Dialer ve normal dahili/dış aramalar engellenir; masa telefonları yalnızca tanımlı acil durum numaralarını (112 vb.) arayabilir."
+                    },
+                    {
+                        "title": "Son 1 Hafta & Ek Süre İlk Giriş Uyarı Popup'ı",
+                        "desc": "Lisans bitimine 7 gün veya daha az kaldığında (ya da Ek Süre devredeyken) santral arayüzüne ilk girişte kalan gün sayısını ve durdurulacak özellikleri listeleyen uyarı ekranı açılır."
+                    }
+                ],
+                "fixes": []
+            },
+            {
+                "version": "v3.3.0",
+                "commit_hash": "06a9008",
+                "release_date": "20 Kasım 2026",
+                "badge": "Önceki Sürüm",
+                "badge_type": "stable",
                 "title": "Nornia Cloud Center Avatar Alanı Sadeleştirmesi (@kullanici Kaldırıldı)",
                 "summary": "Üst bar avatar alanı ve açılır hesap menüsündeki @kullanici ibaresi kaldırılarak yalnızca ad soyad ve avatar görünümü bırakıldı.",
                 "features": [],
