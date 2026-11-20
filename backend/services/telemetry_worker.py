@@ -73,6 +73,47 @@ def save_settings(data):
 _CACHED_PUBLIC_IP = None
 
 
+async def _probe_local_tcp_port(port: int, timeout: float = 0.35) -> bool:
+    try:
+        reader, writer = await asyncio.wait_for(asyncio.open_connection("127.0.0.1", port), timeout=timeout)
+        writer.close()
+        try:
+            await writer.wait_closed()
+        except Exception:
+            pass
+        return True
+    except Exception:
+        return False
+
+
+async def _collect_pbx_services_health() -> tuple:
+    """Probes core local PBX services in parallel and returns (services_health_dict, failed_service_labels)."""
+    ami_ok, audio_ok, pg5444_ok, pg5432_ok, ui_ok = await asyncio.gather(
+        _probe_local_tcp_port(5038),
+        _probe_local_tcp_port(9092),
+        _probe_local_tcp_port(5444),
+        _probe_local_tcp_port(5432),
+        _probe_local_tcp_port(3000),
+    )
+    pg_ok = bool(pg5444_ok or pg5432_ok)
+    health_map = {
+        "asterisk_ami": bool(ami_ok),
+        "audiosocket_ai": bool(audio_ok),
+        "postgresql_db": bool(pg_ok),
+        "frontend_ui": bool(ui_ok),
+    }
+    failed = []
+    if not ami_ok:
+        failed.append("Asterisk PBX (5038)")
+    if not audio_ok:
+        failed.append("AI AudioSocket (9092)")
+    if not pg_ok:
+        failed.append("PostgreSQL DB (5444)")
+    if not ui_ok:
+        failed.append("Web Arayüz (3000)")
+    return health_map, failed
+
+
 async def send_single_telemetry_heartbeat(override_tenants: list = None) -> bool:
     """Sends an immediate telemetry & tenant sync heartbeat to the Central License Server."""
     global _CACHED_PUBLIC_IP
@@ -113,7 +154,7 @@ async def send_single_telemetry_heartbeat(override_tenants: list = None) -> bool
             current_settings["tenants"] = tenants
             save_settings(current_settings)
 
-        # System CPU, RAM & Disk usage (non-blocking)
+        # System CPU, RAM, Disk & Core PBX Services Health (non-blocking)
         cpu_pct = psutil.cpu_percent(interval=None)
         mem = psutil.virtual_memory()
         mem_pct = mem.percent
@@ -121,6 +162,10 @@ async def send_single_telemetry_heartbeat(override_tenants: list = None) -> bool
             disk_pct = psutil.disk_usage("/").percent
         except Exception:
             disk_pct = 0.0
+        try:
+            services_health, failed_services = await _collect_pbx_services_health()
+        except Exception:
+            services_health, failed_services = {}, []
 
         # Active call count fallback
         active_calls = 0
@@ -147,6 +192,8 @@ async def send_single_telemetry_heartbeat(override_tenants: list = None) -> bool
             "cpu_percent": round(cpu_pct, 1),
             "memory_percent": round(mem_pct, 1),
             "disk_percent": round(disk_pct, 1),
+            "services_health": services_health,
+            "failed_services": failed_services,
             "active_calls": active_calls,
             "total_users": len(current_settings.get("users", [])),
             "whatsapp_status": "connected" if current_settings.get("channels", {}).get("whatsapp_phone_number_id") else "offline",

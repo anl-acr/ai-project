@@ -348,6 +348,8 @@ class HeartbeatSchema(BaseModel):
     cpu_percent: Optional[float] = 0.0
     memory_percent: Optional[float] = 0.0
     disk_percent: Optional[float] = 0.0
+    services_health: Optional[Dict[str, Any]] = None
+    failed_services: Optional[List[str]] = None
     active_calls: Optional[int] = 0
     total_users: Optional[int] = 0
     whatsapp_status: Optional[str] = "offline"
@@ -1635,6 +1637,33 @@ async def get_clients(db: AsyncSession = Depends(get_central_db)):
             except Exception:
                 pass
                 
+        parsed_failed_services = []
+        raw_fs = getattr(c, "failed_services_json", None)
+        if raw_fs:
+            try:
+                arr_fs = json.loads(raw_fs)
+                if isinstance(arr_fs, list):
+                    parsed_failed_services = [str(x) for x in arr_fs if x]
+            except Exception:
+                pass
+
+        alert_reasons = []
+        cpu_v = round(float(c.cpu_usage_percent or 0.0), 1)
+        ram_v = round(float(c.ram_usage_percent or 0.0), 1)
+        disk_v = round(float(getattr(c, "disk_usage_percent", 0.0) or 0.0), 1)
+        if not is_online:
+            alert_reasons.append("Sunucu Çevrimdışı")
+        if (c.connect_subdomain or (tunnel_sess.subdomain if tunnel_sess else None)) and not bool(tunnel_sess):
+            alert_reasons.append("Tünel Kopuk")
+        if cpu_v >= 85:
+            alert_reasons.append(f"Kritik CPU (%{cpu_v})")
+        if ram_v >= 85:
+            alert_reasons.append(f"Kritik RAM (%{ram_v})")
+        if disk_v >= 85:
+            alert_reasons.append(f"Kritik Disk (%{disk_v})")
+        for fs_name in parsed_failed_services:
+            alert_reasons.append(f"Servis Kapalı: {fs_name}")
+
         output.append({
             "id": c.id,
             "company_name": c.company_name,
@@ -1657,9 +1686,12 @@ async def get_clients(db: AsyncSession = Depends(get_central_db)):
             "is_online": is_online,
             "last_heartbeat_at": c.last_heartbeat_at.isoformat() if c.last_heartbeat_at else None,
             "software_version": c.software_version,
-            "cpu_usage_percent": c.cpu_usage_percent,
-            "ram_usage_percent": c.ram_usage_percent,
-            "disk_usage_percent": round(float(getattr(c, "disk_usage_percent", 0.0) or 0.0), 1),
+            "cpu_usage_percent": cpu_v,
+            "ram_usage_percent": ram_v,
+            "disk_usage_percent": disk_v,
+            "failed_services": parsed_failed_services,
+            "has_alert": len(alert_reasons) > 0,
+            "alert_reasons": alert_reasons,
             "active_calls_count": c.active_calls_count,
             "total_users_count": c.total_users_count,
             "whatsapp_status": c.whatsapp_status,
@@ -2279,6 +2311,8 @@ async def receive_heartbeat(payload: HeartbeatSchema, request: Request, db: Asyn
         client.ram_usage_percent = payload.memory_percent or 0.0
         if payload.disk_percent is not None:
             client.disk_usage_percent = payload.disk_percent or 0.0
+        if payload.failed_services is not None:
+            client.failed_services_json = json.dumps([str(x) for x in payload.failed_services if x])
         client.active_calls_count = payload.active_calls or 0
         client.total_users_count = payload.total_users or 0
         client.whatsapp_status = payload.whatsapp_status or "offline"

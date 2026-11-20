@@ -38886,18 +38886,42 @@ async def get_system_version_info():
         pass
 
     return {
-        "version": "v3.1.7",
+        "version": "v3.1.8",
         "commit_hash": live_commit,
         "release_date": "20 Kasım 2026",
         "status": "Güncel / Canlı Sürüm",
         "environment": "Production (On-Premise)",
         "changelog": [
             {
-                "version": "v3.1.7",
+                "version": "v3.1.8",
                 "commit_hash": live_commit,
                 "release_date": "20 Kasım 2026",
                 "badge": "Canlı Sürüm (Güncel)",
                 "badge_type": "current",
+                "title": "Nornia Cloud Center Kritik Alarm Önceliklendirme (Kırmızı Vurgu), Servis Sağlık Takibi & Sayfalama",
+                "summary": "CPU, RAM veya DİSK kritik eşiği (%85+) aştığında ya da santralin temel servislerinden biri durduğunda ilgili sunucuyu otomatik olarak listenin en üst sırasına kırmızı arka plan ve alarm etiketleriyle sabitleyen izleme altyapısı ile sayfa yapısı eklendi.",
+                "features": [
+                    {
+                        "title": "🚨 Kritik Alarm En Üste Sabitleme & Kırmızı Satır Vurgusu",
+                        "desc": "CPU/RAM/DİSK %85+ kullanımı, sunucu çevrimdışı durumu, tünel kopması veya duran servis tespit edildiğinde sunucu otomatik olarak 1. sayfanın en üst sırasına çıkarılır; kırmızı arka plan, ALARM rozeti ve sorun etiketleriyle anında fark edilir."
+                    },
+                    {
+                        "title": "🩺 Santral Çekirdek Servis Sağlık Telemetrisi",
+                        "desc": "Santral heartbeat worker'ı Asterisk PBX (5038), AI AudioSocket (9092), PostgreSQL DB (5444) ve Web Arayüz (3000) servislerini paralel TCP kontrolü ile izleyip çalışmayan servisleri anlık olarak panel sunucusuna bildirir."
+                    },
+                    {
+                        "title": "📄 Sunucu Listesi Sayfalama (Pagination) Yapısı",
+                        "desc": "Artan sunucu sayısı için sayfa başına 10 / 25 / 50 / 100 kayıt seçici, toplam kayıt aralığı, alarmlı sunucu sayacı ve Önceki/Sonraki/Sayfa Numarası gezinti çubuğu eklendi."
+                    }
+                ],
+                "fixes": []
+            },
+            {
+                "version": "v3.1.7",
+                "commit_hash": "68e94b6",
+                "release_date": "20 Kasım 2026",
+                "badge": "Önceki Sürüm",
+                "badge_type": "stable",
                 "title": "Nornia Cloud Center CPU / RAM / DİSK Devir Saati (Tachometer) Göstergeleri",
                 "summary": "Sunucu listesinde CPU, RAM ve DİSK kullanım oranları yatay çubuklar yerine hareketli ibreli ve kırmızı kritik bölge (%80+) vurgulu devir saati (tachometer) SVG göstergelerine dönüştürüldü.",
                 "features": [

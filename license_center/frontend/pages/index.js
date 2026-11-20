@@ -36,6 +36,8 @@ import {
   List,
   ChevronDown,
   ChevronUp,
+  ChevronLeft,
+  ChevronRight,
   Sparkles,
   Wifi,
   WifiOff,
@@ -75,7 +77,11 @@ function MiniTachometerGauge({ label, value }) {
 
   return (
     <div
-      className="flex flex-col items-center justify-center px-1.5 py-1 rounded-xl bg-slate-50/90 dark:bg-slate-950/70 border border-slate-200/70 dark:border-slate-800/80 min-w-[68px]"
+      className={`flex flex-col items-center justify-center px-1.5 py-1 rounded-xl border min-w-[68px] ${
+        numVal >= 85
+          ? "bg-rose-50 dark:bg-rose-950/70 border-rose-300 dark:border-rose-700/80"
+          : "bg-slate-50/90 dark:bg-slate-950/70 border-slate-200/70 dark:border-slate-800/80"
+      }`}
       title={`${label} Kullanımı: %${numVal}`}
     >
       <svg viewBox="0 0 64 40" className="w-[58px] h-[36px] overflow-visible">
@@ -175,9 +181,15 @@ export default function MasterDashboard() {
   const topbarSearchInputRef = useRef(null);
   const [filterStatus, setFilterStatus] = useState("all");
   const [viewMode, setViewMode] = useState("table"); // default corporate list/table view
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
   const [expandedClientIds, setExpandedClientIds] = useState({});
   const [deleteConfirmClient, setDeleteConfirmClient] = useState(null);
   const [deletingClient, setDeletingClient] = useState(false);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchTerm, filterStatus, pageSize]);
 
   const toggleExpandClient = (clientId) => {
     setExpandedClientIds((prev) => ({ ...prev, [clientId]: !prev[clientId] }));
@@ -1101,6 +1113,67 @@ export default function MasterDashboard() {
     return matchSearch;
   });
 
+  const getClientAlertReasons = (c) => {
+    if (!c) return [];
+    const reasons = [];
+    const pushUnique = (msg) => {
+      if (msg && !reasons.includes(msg)) reasons.push(msg);
+    };
+    if (Array.isArray(c.alert_reasons) && c.alert_reasons.length > 0) {
+      c.alert_reasons.forEach((r) => pushUnique(String(r)));
+    }
+    const cpuV = Math.round(Number(c.cpu_usage_percent || 0) * 10) / 10;
+    const ramV = Math.round(Number(c.ram_usage_percent || 0) * 10) / 10;
+    const diskV = Math.round(Number(c.disk_usage_percent || 0) * 10) / 10;
+    if (!c.is_online) pushUnique("Sunucu Çevrimdışı");
+    if (c.connect_subdomain && !c.tunnel_connected) pushUnique("Tünel Kopuk");
+    if (cpuV >= 85 && !reasons.some((r) => r.startsWith("Kritik CPU"))) {
+      pushUnique(`Kritik CPU (%${cpuV})`);
+    }
+    if (ramV >= 85 && !reasons.some((r) => r.startsWith("Kritik RAM"))) {
+      pushUnique(`Kritik RAM (%${ramV})`);
+    }
+    if (diskV >= 85 && !reasons.some((r) => r.startsWith("Kritik Disk"))) {
+      pushUnique(`Kritik Disk (%${diskV})`);
+    }
+    if (Array.isArray(c.failed_services)) {
+      c.failed_services.forEach((svc) => {
+        if (svc) pushUnique(`Servis Kapalı: ${svc}`);
+      });
+    }
+    return reasons;
+  };
+
+  const sortedClients = [...filteredClients].sort((a, b) => {
+    const alertsA = getClientAlertReasons(a);
+    const alertsB = getClientAlertReasons(b);
+    const hasA = alertsA.length > 0 ? 1 : 0;
+    const hasB = alertsB.length > 0 ? 1 : 0;
+    if (hasA !== hasB) return hasB - hasA;
+    if (alertsA.length !== alertsB.length) return alertsB.length - alertsA.length;
+    return 0;
+  });
+
+  const alertServersCount = sortedClients.filter((c) => getClientAlertReasons(c).length > 0).length;
+  const totalPages = Math.max(1, Math.ceil(sortedClients.length / pageSize));
+  const safeCurrentPage = Math.min(currentPage, totalPages);
+  const pageStartIndex = (safeCurrentPage - 1) * pageSize;
+  const paginatedClients = sortedClients.slice(pageStartIndex, pageStartIndex + pageSize);
+
+  const getPaginationNumbers = () => {
+    if (totalPages <= 7) {
+      return Array.from({ length: totalPages }, (_, i) => i + 1);
+    }
+    const pages = [1];
+    const start = Math.max(2, safeCurrentPage - 1);
+    const end = Math.min(totalPages - 1, safeCurrentPage + 1);
+    if (start > 2) pages.push("...");
+    for (let p = start; p <= end; p++) pages.push(p);
+    if (end < totalPages - 1) pages.push("...");
+    pages.push(totalPages);
+    return pages;
+  };
+
   const resolveClientExpiryDate = (c) => {
     if (c?.license_expires_at) return c.license_expires_at;
     const rawKey = c?.current_license_key || "";
@@ -1601,8 +1674,10 @@ export default function MasterDashboard() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-200/70 dark:divide-slate-800/70 text-xs">
-                  {filteredClients.map((client) => {
+                  {paginatedClients.map((client) => {
                     const isSuspended = client.status === "suspended";
+                    const alertReasons = getClientAlertReasons(client);
+                    const hasAlert = alertReasons.length > 0;
                     const pbxSerial =
                       client.system_serial_number && client.system_serial_number !== "Henüz Bağlanmadı"
                         ? client.system_serial_number
@@ -1613,20 +1688,41 @@ export default function MasterDashboard() {
                     const maxCalls = client.custom_quotas?.max_concurrent_calls ?? 4;
                     const tolCalls = client.custom_quotas?.tolerance_concurrent_calls ?? 0;
                     const userQuota = getClientUserLicenseCount(client);
-                    const meterBarColor = (val) =>
-                      val >= 85 ? "bg-rose-500" : val >= 70 ? "bg-amber-500" : "bg-indigo-500";
 
                     return (
-                      <tr key={client.id} className="hover:bg-slate-50/80 dark:hover:bg-slate-800/40 transition-colors align-middle">
+                      <tr
+                        key={client.id}
+                        className={`transition-colors align-middle ${
+                          hasAlert
+                            ? "bg-rose-50/95 dark:bg-rose-950/45 hover:bg-rose-100/90 dark:hover:bg-rose-950/65 shadow-[inset_4px_0_0_0_#e11d48]"
+                            : "hover:bg-slate-50/80 dark:hover:bg-slate-800/40"
+                        }`}
+                      >
                         {/* 1. Müşteri / Tenant */}
-                        <td className="py-3.5 px-4 whitespace-nowrap">
-                          <div className="flex items-center gap-2.5">
-                            <span className={`w-2.5 h-2.5 rounded-full shrink-0 ${
-                              isSuspended ? "bg-rose-500" : client.is_online ? "bg-emerald-500 animate-pulse" : "bg-slate-400"
+                        <td className="py-3.5 px-4">
+                          <div className="flex items-start gap-2.5">
+                            <span className={`w-2.5 h-2.5 rounded-full shrink-0 mt-1.5 ${
+                              hasAlert
+                                ? "bg-rose-600 animate-pulse ring-4 ring-rose-500/25"
+                                : isSuspended
+                                  ? "bg-rose-500"
+                                  : client.is_online
+                                    ? "bg-emerald-500 animate-pulse"
+                                    : "bg-slate-400"
                             }`} />
-                            <div>
-                              <div className="font-extrabold text-slate-900 dark:text-white text-sm leading-tight">
-                                {client.company_name}
+                            <div className="min-w-0">
+                              <div className="flex items-center gap-1.5 flex-wrap">
+                                <span className={`font-extrabold text-sm leading-tight ${
+                                  hasAlert ? "text-rose-950 dark:text-rose-100" : "text-slate-900 dark:text-white"
+                                }`}>
+                                  {client.company_name}
+                                </span>
+                                {hasAlert && (
+                                  <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-rose-600 text-white text-[9px] font-black uppercase tracking-wider shadow-xs">
+                                    <AlertTriangle size={9} />
+                                    ALARM
+                                  </span>
+                                )}
                               </div>
                               <div className="flex items-center gap-1.5 mt-1">
                                 <span className="font-mono text-[11px] text-indigo-600 dark:text-indigo-400 font-bold">
@@ -1636,6 +1732,19 @@ export default function MasterDashboard() {
                                   {client.plan_tier || "professional"}
                                 </span>
                               </div>
+                              {hasAlert && (
+                                <div className="flex flex-wrap gap-1 mt-1.5 max-w-[280px]">
+                                  {alertReasons.map((reason, rIdx) => (
+                                    <span
+                                      key={rIdx}
+                                      className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-rose-600/15 dark:bg-rose-500/25 border border-rose-500/35 text-rose-700 dark:text-rose-200 text-[10px] font-extrabold leading-tight"
+                                    >
+                                      <AlertTriangle size={9} className="shrink-0" />
+                                      <span>{reason}</span>
+                                    </span>
+                                  ))}
+                                </div>
+                              )}
                             </div>
                           </div>
                         </td>
@@ -1837,6 +1946,87 @@ export default function MasterDashboard() {
                   })}
                 </tbody>
               </table>
+            </div>
+
+            {/* Pagination Footer */}
+            <div className="px-4 py-3 border-t border-slate-200/80 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-950/50 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs">
+              <div className="flex items-center gap-2.5 flex-wrap justify-center sm:justify-start">
+                <span className="text-slate-600 dark:text-slate-400 font-semibold">
+                  Gösterilen:{" "}
+                  <strong className="text-slate-900 dark:text-white font-mono">
+                    {sortedClients.length === 0 ? 0 : pageStartIndex + 1}–{Math.min(pageStartIndex + pageSize, sortedClients.length)}
+                  </strong>{" "}
+                  / <strong className="text-slate-900 dark:text-white font-mono">{sortedClients.length}</strong> sunucu
+                </span>
+                {alertServersCount > 0 && (
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-rose-500/15 text-rose-700 dark:text-rose-300 border border-rose-500/30 text-[11px] font-extrabold">
+                    <AlertTriangle size={11} />
+                    {alertServersCount} Alarmlı Sunucu Üstte
+                  </span>
+                )}
+              </div>
+
+              <div className="flex items-center gap-3 flex-wrap justify-center sm:justify-end">
+                <div className="flex items-center gap-1.5">
+                  <span className="text-[11px] font-semibold text-slate-500 dark:text-slate-400">Sayfa başı:</span>
+                  <select
+                    value={pageSize}
+                    onChange={(e) => setPageSize(Number(e.target.value))}
+                    className="px-2 py-1 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 font-mono text-xs font-bold focus:outline-none focus:ring-2 focus:ring-indigo-500/40 cursor-pointer"
+                  >
+                    {[10, 25, 50, 100].map((sz) => (
+                      <option key={sz} value={sz}>
+                        {sz}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="flex items-center gap-1">
+                  <button
+                    type="button"
+                    disabled={safeCurrentPage <= 1}
+                    onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                    className="px-2.5 py-1.5 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-1 font-bold text-[11px] transition-colors cursor-pointer"
+                    title="Önceki Sayfa"
+                  >
+                    <ChevronLeft size={13} />
+                    <span>Önceki</span>
+                  </button>
+
+                  {getPaginationNumbers().map((pg, idx) =>
+                    pg === "..." ? (
+                      <span key={`ellipsis-${idx}`} className="px-1.5 text-slate-400 font-bold select-none">
+                        …
+                      </span>
+                    ) : (
+                      <button
+                        key={pg}
+                        type="button"
+                        onClick={() => setCurrentPage(pg)}
+                        className={`min-w-[30px] h-[30px] px-2 rounded-lg font-mono text-xs font-extrabold transition-colors cursor-pointer ${
+                          pg === safeCurrentPage
+                            ? "bg-indigo-600 text-white shadow-xs"
+                            : "bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800"
+                        }`}
+                      >
+                        {pg}
+                      </button>
+                    )
+                  )}
+
+                  <button
+                    type="button"
+                    disabled={safeCurrentPage >= totalPages}
+                    onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                    className="px-2.5 py-1.5 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-1 font-bold text-[11px] transition-colors cursor-pointer"
+                    title="Sonraki Sayfa"
+                  >
+                    <span>Sonraki</span>
+                    <ChevronRight size={13} />
+                  </button>
+                </div>
+              </div>
             </div>
           </div>
         ) : (

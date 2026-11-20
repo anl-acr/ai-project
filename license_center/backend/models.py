@@ -92,6 +92,7 @@ class ClientServer(Base):
     cpu_usage_percent = Column(Float, default=0.0)
     ram_usage_percent = Column(Float, default=0.0)
     disk_usage_percent = Column(Float, default=0.0)
+    failed_services_json = Column(Text, default="[]")
     active_calls_count = Column(Integer, default=0)
     total_users_count = Column(Integer, default=0)
     whatsapp_status = Column(String, default="offline")
