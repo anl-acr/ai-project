@@ -38886,18 +38886,34 @@ async def get_system_version_info():
         pass
 
     return {
-        "version": "v3.1.0",
+        "version": "v3.1.1",
         "commit_hash": live_commit,
         "release_date": "20 Kasım 2026",
         "status": "Güncel / Canlı Sürüm",
         "environment": "Production (On-Premise)",
         "changelog": [
             {
-                "version": "v3.1.0",
+                "version": "v3.1.1",
                 "commit_hash": live_commit,
                 "release_date": "20 Kasım 2026",
                 "badge": "Canlı Sürüm (Güncel)",
                 "badge_type": "current",
+                "title": "Nornia Cloud Center Kullanıcı Bazlı 'Süresi Yaklaşan' Gün Eşiği Seçimi (7-15-30-60-90-120 Gün)",
+                "summary": "Süresi Yaklaşan Sunucular popup penceresine kullanıcı bazlı kaydedilebilen 7, 15, 30, 60, 90 ve 120 günlük uyarı süresi seçici eklendi; seçilen gün eşiği veritabanına kaydedilerek KPI kartı ve popup listesi anlık güncellenir.",
+                "features": [
+                    {
+                        "title": "⏱️ Kullanıcı Bazlı Süresi Yaklaşan Eşiği (7-15-30-60-90-120 Gün)",
+                        "desc": "Her kullanıcı 'Süresi Yaklaşan' popup içinden kendi uyarı gün eşiğini seçebilir; tercih sunucu veritabanına kaydedilir ve sonraki girişlerde otomatik hatırlanır."
+                    }
+                ],
+                "fixes": []
+            },
+            {
+                "version": "v3.1.0",
+                "commit_hash": "b7de7c5",
+                "release_date": "20 Kasım 2026",
+                "badge": "Önceki Sürüm",
+                "badge_type": "stable",
                 "title": "Nornia Cloud Center Başlık Sadeleştirme (Merkezi Lisans & Tünel Sunucusu)",
                 "summary": "Nornia Cloud Center üst başlığındaki sürüm/lisans rozeti kaldırılarak alt başlık 'Merkezi Lisans & Tünel Sunucusu' olarak güncellendi.",
                 "features": [

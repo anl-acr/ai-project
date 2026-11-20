@@ -690,6 +690,7 @@ def _serialize_master_user(u: MasterUser) -> Dict[str, Any]:
         "two_factor_mode": st["mode"],
         "two_factor_methods": st["active_methods"],
         "two_factor_meta": st["meta"],
+        "expiring_soon_days": int(getattr(u, "expiring_soon_days", None) or 15),
         "last_login_at": u.last_login_at.isoformat() if u.last_login_at else None,
         "created_at": u.created_at.isoformat() if u.created_at else None,
     }
@@ -974,6 +975,32 @@ async def get_master_users(db: AsyncSession = Depends(get_central_db)):
     res = await db.execute(select(MasterUser).order_by(MasterUser.id.asc()))
     users = res.scalars().all()
     return [_serialize_master_user(u) for u in users]
+
+
+@app.put("/api/v1/users/{user_id}/preferences")
+async def update_master_user_preferences(user_id: int, request: Request, payload: Dict[str, Any] = Body(...), db: AsyncSession = Depends(get_central_db)):
+    """Saves per-user dashboard preferences such as expiring_soon_days (7, 15, 30, 60, 90, 120)."""
+    res = await db.execute(select(MasterUser).where(MasterUser.id == user_id))
+    u = res.scalars().first()
+    if not u:
+        raise HTTPException(status_code=404, detail="Kullanıcı bulunamadı.")
+
+    if "expiring_soon_days" in payload:
+        try:
+            days_val = int(payload.get("expiring_soon_days") or 15)
+        except Exception:
+            raise HTTPException(status_code=400, detail="Geçersiz gün değeri.")
+        if days_val not in (7, 15, 30, 60, 90, 120):
+            raise HTTPException(status_code=400, detail="Geçerli seçenekler: 7, 15, 30, 60, 90 veya 120 gün.")
+        u.expiring_soon_days = days_val
+
+    await db.commit()
+    await db.refresh(u)
+    return {
+        "success": True,
+        "expiring_soon_days": int(u.expiring_soon_days or 15),
+        "user": _serialize_master_user(u),
+    }
 
 
 @app.post("/api/v1/users/{user_id}/2fa/config")
@@ -1489,8 +1516,9 @@ async def get_master_audit_logs(db: AsyncSession = Depends(get_central_db)):
 # --------------------------------------------------------------------------
 @app.get("/api/v1/dashboard/stats")
 @app.get("/api/v1/stats")
-async def get_dashboard_stats(db: AsyncSession = Depends(get_central_db)):
+async def get_dashboard_stats(expiring_days: int = 15, db: AsyncSession = Depends(get_central_db)):
     """Returns real-time fleet overview metrics."""
+    threshold_days = expiring_days if expiring_days in (7, 15, 30, 60, 90, 120) else 15
     res_clients = await db.execute(select(ClientServer))
     clients = res_clients.scalars().all()
     
@@ -1521,7 +1549,7 @@ async def get_dashboard_stats(db: AsyncSession = Depends(get_central_db)):
             try:
                 exp_d = datetime.datetime.strptime(exp_str, "%Y-%m-%d")
                 days_left = (exp_d - now).days
-                if 0 <= days_left <= 15 and c.status == "active":
+                if 0 <= days_left <= threshold_days and c.status == "active":
                     expiring_soon_count += 1
             except Exception:
                 pass

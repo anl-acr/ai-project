@@ -67,6 +67,10 @@ export default function MasterDashboard() {
     total_licensed_subscribers: 0
   });
   const [kpiModalKey, setKpiModalKey] = useState(null);
+  const EXPIRING_DAY_OPTIONS = [7, 15, 30, 60, 90, 120];
+  const [expiringSoonDays, setExpiringSoonDays] = useState(15);
+  const [savingExpiringDays, setSavingExpiringDays] = useState(false);
+  const [expiringDaysSavedToast, setExpiringDaysSavedToast] = useState(false);
   const [loading, setLoading] = useState(false);
 
   // Add Client Modal State
@@ -445,6 +449,77 @@ export default function MasterDashboard() {
       clearInterval(idleCheckTimer);
     };
   }, [currentUser, autoLogoutMinutes]);
+
+  // Sync per-user expiringSoonDays preference whenever currentUser changes
+  useEffect(() => {
+    if (!currentUser) return;
+    const validOpts = [7, 15, 30, 60, 90, 120];
+    const fromUser = Number(currentUser.expiring_soon_days);
+    if (validOpts.includes(fromUser)) {
+      setExpiringSoonDays(fromUser);
+      try {
+        localStorage.setItem(`master_expiring_days_${currentUser.id}`, String(fromUser));
+      } catch (e) {}
+      return;
+    }
+    try {
+      const localVal = Number(localStorage.getItem(`master_expiring_days_${currentUser.id}`));
+      if (validOpts.includes(localVal)) {
+        setExpiringSoonDays(localVal);
+      }
+    } catch (e) {}
+    // Also fetch latest persisted preference from DB in case sessionStorage predated this field
+    fetch("/api/v1/users")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((list) => {
+        if (!Array.isArray(list)) return;
+        const me = list.find((u) => u.id === currentUser.id);
+        const dbDays = Number(me?.expiring_soon_days);
+        if (validOpts.includes(dbDays)) {
+          setExpiringSoonDays(dbDays);
+          try {
+            localStorage.setItem(`master_expiring_days_${currentUser.id}`, String(dbDays));
+            const nextUser = { ...currentUser, expiring_soon_days: dbDays };
+            sessionStorage.setItem("master_user", JSON.stringify(nextUser));
+          } catch (e) {}
+        }
+      })
+      .catch(() => {});
+  }, [currentUser?.id, currentUser?.expiring_soon_days]);
+
+  const handleChangeExpiringSoonDays = async (days) => {
+    setExpiringSoonDays(days);
+    setExpiringDaysSavedToast(false);
+    if (!currentUser?.id) return;
+    try {
+      localStorage.setItem(`master_expiring_days_${currentUser.id}`, String(days));
+    } catch (e) {}
+    setSavingExpiringDays(true);
+    try {
+      const res = await fetch(`/api/v1/users/${currentUser.id}/preferences`, {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+          "X-User-Name": currentUser.username || "admin"
+        },
+        body: JSON.stringify({ expiring_soon_days: days })
+      });
+      if (res.ok) {
+        const data = await res.json().catch(() => ({}));
+        const updatedUser = data?.user || { ...currentUser, expiring_soon_days: days };
+        setCurrentUser(updatedUser);
+        try {
+          sessionStorage.setItem("master_user", JSON.stringify(updatedUser));
+        } catch (e) {}
+        setExpiringDaysSavedToast(true);
+        setTimeout(() => setExpiringDaysSavedToast(false), 2200);
+      }
+    } catch (e) {
+      console.error("Save expiring_soon_days error:", e);
+    } finally {
+      setSavingExpiringDays(false);
+    }
+  };
 
   // Topbar Search Keyboard Shortcut (Cmd/Ctrl+K, Esc) & Click-Outside
   useEffect(() => {
@@ -954,13 +1029,15 @@ export default function MasterDashboard() {
 
   const onlineClientsList = clients.filter((c) => Boolean(c.is_online));
   const offlineClientsList = clients.filter((c) => !c.is_online);
-  const expiringSoonClientsList = clients.filter(
-    (c) =>
-      c.status === "active" &&
-      typeof c.days_left === "number" &&
-      c.days_left >= 0 &&
-      c.days_left <= 15
-  );
+  const expiringSoonClientsList = [...clients]
+    .filter(
+      (c) =>
+        c.status === "active" &&
+        typeof c.days_left === "number" &&
+        c.days_left >= 0 &&
+        c.days_left <= expiringSoonDays
+    )
+    .sort((a, b) => Number(a.days_left ?? 9999) - Number(b.days_left ?? 9999));
   const expiredClientsList = clients.filter(
     (c) => c.status === "expired" || c.status === "suspended"
   );
@@ -1001,8 +1078,8 @@ export default function MasterDashboard() {
         list: offlineClientsList
       },
       expiring_soon: {
-        title: "Süresi Yaklaşan Sunucular (15 Gün)",
-        subtitle: "Lisans bitiş tarihine 15 gün veya daha az kalmış aktif sunucular",
+        title: `Süresi Yaklaşan Sunucular (${expiringSoonDays} Gün)`,
+        subtitle: `Lisans bitiş tarihine ${expiringSoonDays} gün veya daha az kalmış aktif sunucular`,
         accent: "amber",
         filterShortcut: null,
         list: expiringSoonClientsList
@@ -1294,7 +1371,7 @@ export default function MasterDashboard() {
             <div className="space-y-1 min-w-0">
               <div className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider truncate">Süresi Yaklaşan</div>
               <div className="text-2xl font-extrabold text-amber-600 dark:text-amber-400">{expiringSoonClientsList.length}</div>
-              <div className="text-[10px] text-slate-400 dark:text-slate-500 font-medium truncate">15 Gün İçinde Dolacak</div>
+              <div className="text-[10px] text-slate-400 dark:text-slate-500 font-medium truncate">{expiringSoonDays} Gün İçinde Dolacak</div>
             </div>
             <div className="w-10 h-10 rounded-2xl bg-amber-500/10 dark:bg-amber-500/15 border border-amber-500/20 text-amber-600 dark:text-amber-400 flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform">
               <Clock size={18} />
@@ -3486,6 +3563,44 @@ export default function MasterDashboard() {
                 <X size={18} />
               </button>
             </div>
+
+            {/* Per-User Expiring Soon Threshold Selector (7-15-30-60-90-120 Days) */}
+            {kpiModalKey === "expiring_soon" && (
+              <div className="px-6 py-3 border-b border-slate-200/80 dark:border-slate-800 bg-amber-50/40 dark:bg-amber-950/20 flex flex-wrap items-center justify-between gap-2.5">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="text-[11px] font-extrabold text-slate-700 dark:text-slate-300">
+                    Uyarı Süresi:
+                  </span>
+                  <div className="flex items-center gap-1 bg-white dark:bg-slate-900 p-1 rounded-xl border border-slate-200 dark:border-slate-800">
+                    {EXPIRING_DAY_OPTIONS.map((d) => {
+                      const active = expiringSoonDays === d;
+                      return (
+                        <button
+                          key={d}
+                          type="button"
+                          disabled={savingExpiringDays}
+                          onClick={() => handleChangeExpiringSoonDays(d)}
+                          className={`px-2.5 py-1 rounded-lg text-[11px] font-extrabold transition-all cursor-pointer ${
+                            active
+                              ? "bg-amber-500 text-white shadow-xs"
+                              : "text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-white"
+                          }`}
+                        >
+                          {d} Gün
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {expiringDaysSavedToast && (
+                  <span className="px-2.5 py-1 rounded-full bg-emerald-500/15 border border-emerald-500/30 text-emerald-700 dark:text-emerald-300 text-[10px] font-extrabold flex items-center gap-1 animate-fadeIn">
+                    <Check size={11} />
+                    <span>Kaydedildi</span>
+                  </span>
+                )}
+              </div>
+            )}
 
             {/* Body Server List */}
             <div className="p-5 overflow-y-auto flex-1 space-y-2.5">

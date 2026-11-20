@@ -31,6 +31,7 @@ async def init_central_db():
             "ALTER TABLE master_users ADD COLUMN two_factor_mode VARCHAR DEFAULT 'single';",
             "ALTER TABLE master_users ADD COLUMN two_factor_methods_json TEXT DEFAULT '[]';",
             "ALTER TABLE master_users ADD COLUMN two_factor_secrets_json TEXT DEFAULT '{}';",
+            "ALTER TABLE master_users ADD COLUMN expiring_soon_days INTEGER DEFAULT 15;",
             "ALTER TABLE master_security_policy ADD COLUMN smtp_host VARCHAR DEFAULT '';",
             "ALTER TABLE master_security_policy ADD COLUMN smtp_port INTEGER DEFAULT 587;",
             "ALTER TABLE master_security_policy ADD COLUMN smtp_user VARCHAR DEFAULT '';",
