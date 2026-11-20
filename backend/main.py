@@ -38886,18 +38886,34 @@ async def get_system_version_info():
         pass
 
     return {
-        "version": "v3.1.6",
+        "version": "v3.1.7",
         "commit_hash": live_commit,
         "release_date": "20 Kasım 2026",
         "status": "Güncel / Canlı Sürüm",
         "environment": "Production (On-Premise)",
         "changelog": [
             {
-                "version": "v3.1.6",
+                "version": "v3.1.7",
                 "commit_hash": live_commit,
                 "release_date": "20 Kasım 2026",
                 "badge": "Canlı Sürüm (Güncel)",
                 "badge_type": "current",
+                "title": "Nornia Cloud Center CPU / RAM / DİSK Devir Saati (Tachometer) Göstergeleri",
+                "summary": "Sunucu listesinde CPU, RAM ve DİSK kullanım oranları yatay çubuklar yerine hareketli ibreli ve kırmızı kritik bölge (%80+) vurgulu devir saati (tachometer) SVG göstergelerine dönüştürüldü.",
+                "features": [
+                    {
+                        "title": "🏎️ Devir Saati (Tachometer) CPU / RAM / DİSK Göstergeleri",
+                        "desc": "Her sunucu satırında CPU, RAM ve DİSK için 180° ibreli, renk kodlu (yeşil / turuncu / kırmızı kritik bölge) canlı devir saati grafikleri eklendi."
+                    }
+                ],
+                "fixes": []
+            },
+            {
+                "version": "v3.1.6",
+                "commit_hash": "0d95d2a",
+                "release_date": "20 Kasım 2026",
+                "badge": "Önceki Sürüm",
+                "badge_type": "stable",
                 "title": "Nornia Cloud Center Varsayılan Liste Görünümü & Görünüm Seçicinin Kaldırılması",
                 "summary": "Nornia Cloud Center sunucu ekranında kart/liste geçiş seçicisi kaldırılarak kurumsal liste (tablo) görünümü tek ve varsayılan görünüm olarak ayarlandı.",
                 "features": [

@@ -52,6 +52,88 @@ import SecuritySettingsModal from "../components/SecuritySettingsModal";
 
 const API_BASE = "";
 
+function MiniTachometerGauge({ label, value }) {
+  const numVal = Number.isFinite(Number(value)) ? Number(value) : 0;
+  const clamped = Math.max(0, Math.min(100, numVal));
+  const r = 24;
+  const arcLen = Math.PI * r; // ~75.398
+  const dashOffset = arcLen * (1 - clamped / 100);
+  const needleAngle = -90 + (clamped / 100) * 180;
+  const strokeColor =
+    clamped >= 80 ? "#f43f5e" : clamped >= 60 ? "#f59e0b" : "#10b981";
+  const textClass =
+    clamped >= 80
+      ? "text-rose-600 dark:text-rose-400"
+      : clamped >= 60
+        ? "text-amber-600 dark:text-amber-400"
+        : "text-slate-800 dark:text-slate-100";
+
+  // Subtle redline zone arc (80% -> 100%, i.e. 144deg -> 180deg)
+  const redStartAngle = (180 - 144) * (Math.PI / 180); // 36deg from right
+  const rx1 = 32 + r * Math.cos(redStartAngle);
+  const ry1 = 34 - r * Math.sin(redStartAngle);
+
+  return (
+    <div
+      className="flex flex-col items-center justify-center px-1.5 py-1 rounded-xl bg-slate-50/90 dark:bg-slate-950/70 border border-slate-200/70 dark:border-slate-800/80 min-w-[68px]"
+      title={`${label} Kullanımı: %${numVal}`}
+    >
+      <svg viewBox="0 0 64 40" className="w-[58px] h-[36px] overflow-visible">
+        {/* Background semi-circle track */}
+        <path
+          d="M 8 34 A 24 24 0 0 1 56 34"
+          fill="none"
+          stroke="currentColor"
+          className="text-slate-200 dark:text-slate-800"
+          strokeWidth="5.5"
+          strokeLinecap="round"
+        />
+        {/* Subtle Redline zone (80%-100%) */}
+        <path
+          d={`M ${rx1.toFixed(2)} ${ry1.toFixed(2)} A 24 24 0 0 1 56 34`}
+          fill="none"
+          stroke="rgba(244, 63, 94, 0.25)"
+          strokeWidth="5.5"
+          strokeLinecap="round"
+        />
+        {/* Active progress arc */}
+        <path
+          d="M 8 34 A 24 24 0 0 1 56 34"
+          fill="none"
+          stroke={strokeColor}
+          strokeWidth="5.5"
+          strokeLinecap="round"
+          strokeDasharray={arcLen}
+          strokeDashoffset={dashOffset}
+          style={{ transition: "stroke-dashoffset 0.45s ease, stroke 0.3s ease" }}
+        />
+        {/* Tachometer needle */}
+        <g
+          transform={`rotate(${needleAngle.toFixed(1)}, 32, 34)`}
+          style={{ transition: "transform 0.45s cubic-bezier(0.22, 1, 0.36, 1)" }}
+        >
+          <line
+            x1="32"
+            y1="34"
+            x2="32"
+            y2="14"
+            stroke={strokeColor}
+            strokeWidth="2"
+            strokeLinecap="round"
+          />
+        </g>
+        {/* Center pivot hub */}
+        <circle cx="32" cy="34" r="3" fill={strokeColor} />
+        <circle cx="32" cy="34" r="1.2" className="fill-white dark:fill-slate-900" />
+      </svg>
+      <div className="flex items-baseline gap-1 -mt-0.5 font-mono leading-none">
+        <span className="text-[9px] font-bold text-slate-400">{label}</span>
+        <span className={`text-[10px] font-extrabold ${textClass}`}>%{numVal}</span>
+      </div>
+    </div>
+  );
+}
+
 export default function MasterDashboard() {
   const [currentUser, setCurrentUser] = useState(null);
   const [isAuthChecking, setIsAuthChecking] = useState(true);
@@ -1665,9 +1747,9 @@ export default function MasterDashboard() {
                           )}
                         </td>
 
-                        {/* 4. Kaynaklar (CPU / RAM / DISK) & Kapasite */}
-                        <td className="py-3.5 px-4 whitespace-nowrap">
-                          <div className="space-y-1.5 min-w-[210px]">
+                        {/* 4. Kaynaklar (CPU / RAM / DISK Devir Saati) & Kapasite */}
+                        <td className="py-3 px-4 whitespace-nowrap">
+                          <div className="space-y-1.5">
                             <div className="flex items-center gap-1.5">
                               <span className="px-2 py-0.5 rounded-md bg-blue-500/10 border border-blue-500/20 text-blue-700 dark:text-blue-300 font-mono text-[10px] font-extrabold">
                                 {maxCalls}{tolCalls > 0 ? `+${tolCalls}` : ""} Kanal
@@ -1676,33 +1758,10 @@ export default function MasterDashboard() {
                                 {userQuota} Abone
                               </span>
                             </div>
-                            <div className="grid grid-cols-3 gap-2">
-                              {[
-                                { label: "CPU", val: cpuVal },
-                                { label: "RAM", val: ramVal },
-                                { label: "DİSK", val: diskVal }
-                              ].map((m) => (
-                                <div key={m.label} className="space-y-0.5">
-                                  <div className="flex items-center justify-between text-[10px] font-mono">
-                                    <span className="font-bold text-slate-400">{m.label}</span>
-                                    <span className={`font-extrabold ${
-                                      m.val >= 85
-                                        ? "text-rose-600 dark:text-rose-400"
-                                        : m.val >= 70
-                                          ? "text-amber-600 dark:text-amber-400"
-                                          : "text-slate-700 dark:text-slate-200"
-                                    }`}>
-                                      %{m.val}
-                                    </span>
-                                  </div>
-                                  <div className="w-full h-1.5 bg-slate-200/80 dark:bg-slate-800 rounded-full overflow-hidden">
-                                    <div
-                                      className={`h-full rounded-full transition-all ${meterBarColor(m.val)}`}
-                                      style={{ width: `${Math.min(100, Math.max(4, m.val))}%` }}
-                                    />
-                                  </div>
-                                </div>
-                              ))}
+                            <div className="flex items-center gap-1.5">
+                              <MiniTachometerGauge label="CPU" value={cpuVal} />
+                              <MiniTachometerGauge label="RAM" value={ramVal} />
+                              <MiniTachometerGauge label="DİSK" value={diskVal} />
                             </div>
                           </div>
                         </td>
