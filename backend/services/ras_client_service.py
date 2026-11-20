@@ -1227,7 +1227,7 @@ async def start_pbx_web_ssh_session(request: Request, payload: Dict[str, Any] = 
     host_label = socket.gethostname()
 
     banner = (
-        f"\x1b[1;32mNornia Kurumsal Santral — Sıfır-Port SSH Terminali\x1b[0m \x1b[90m({host_label})\x1b[0m\r\n"
+        f"\x1b[1;32mNornia SSH Terminali\x1b[0m \x1b[90m({host_label})\x1b[0m\r\n"
     )
 
     sess_obj: Dict[str, Any] = {

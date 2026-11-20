@@ -39040,18 +39040,31 @@ async def get_system_version_info():
         pass
 
     return {
-        "version": "v3.3.1",
+        "version": "v3.3.2",
         "commit_hash": live_commit,
         "release_date": "20 Kasım 2026",
         "status": "Güncel / Canlı Sürüm",
         "environment": "Production (On-Premise)",
         "changelog": [
             {
-                "version": "v3.3.1",
+                "version": "v3.3.2",
                 "commit_hash": live_commit,
                 "release_date": "20 Kasım 2026",
                 "badge": "Canlı Sürüm (Güncel)",
                 "badge_type": "current",
+                "title": "SSH Terminal Başlığı Sadeleştirmesi",
+                "summary": "Nornia Connect SSH terminali karşılama başlığı 'Nornia SSH Terminali' olarak güncellendi.",
+                "features": [],
+                "fixes": [
+                    "SSH terminali açılış başlığı 'Nornia Kurumsal Santral — Sıfır-Port SSH Terminali' yerine 'Nornia SSH Terminali' yapıldı."
+                ]
+            },
+            {
+                "version": "v3.3.1",
+                "commit_hash": "023620b",
+                "release_date": "20 Kasım 2026",
+                "badge": "Önceki Sürüm",
+                "badge_type": "stable",
                 "title": "Lisans Ek Süre (Grace Period), Tam Sıkılaştırma (Acil Durum İstisnası) & Son 7 Gün Uyarı Popup'ı",
                 "summary": "Merkezi panele seçilebilir Ek Süre (Grace Period) bitiş tarihi eklendi; lisans süresi dolduğunda gelen çağrılar, Omnichannel, AI ve normal aramalar kapatılırken masa telefonları yalnızca tanımlı acil durum numaralarını arayabilecek şekilde yapılandırıldı; son 7 gün kala santral girişinde bilgilendirme popup'ı eklendi.",
                 "features": [
