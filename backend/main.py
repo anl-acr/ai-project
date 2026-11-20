@@ -4187,6 +4187,13 @@ def regenerate_pjsip_custom_conf(background_tasks: Optional[BackgroundTasks] = N
         "unidentified_request_period=60\n"
         "unidentified_request_prune_interval=30\n\n"
     )
+    has_codec_opus = os.path.isfile("/usr/lib/asterisk/modules/codec_opus.so")
+    has_codec_g729 = os.path.isfile("/usr/lib/asterisk/modules/codec_g729.so")
+    safe_webrtc_allow = ",".join(
+        ["ulaw", "alaw", "g722"]
+        + (["g729"] if has_codec_g729 else [])
+        + (["opus"] if has_codec_opus else [])
+    )
     pjsip_ep_safety_lines = (
         "rtp_timeout=60\n"
         "rtp_timeout_hold=600\n"
@@ -4370,7 +4377,7 @@ from_domain={op_from_domain}
 type=endpoint
 context=webrtc_agents
 disallow=all
-allow=ulaw,alaw,g722,g729,opus
+allow={safe_webrtc_allow}
 direct_media=no
 force_rport=yes
 rewrite_contact=no
@@ -4779,7 +4786,7 @@ trust_id_inbound={trust_id_in}
 type=endpoint
 context=webrtc_agents
 disallow=all
-allow=ulaw,alaw,g722,g729,opus
+allow={safe_webrtc_allow}
 direct_media=no
 force_rport=yes
 rtp_symmetric=yes
@@ -4813,8 +4820,13 @@ remove_existing=yes
                 continue
 
             raw_c_list = [str(c).strip().lower() for c in (dev.get("codecs") or ["g722", "alaw", "ulaw", "g729"]) if str(c).strip()]
-            safe_c_list = [c for c in raw_c_list if c in ("g722", "alaw", "ulaw", "g729", "gsm", "opus")]
-            dev_codecs = ",".join(safe_c_list or ["g722", "alaw", "ulaw", "g729"])
+            allowed_dev_pool = {"g722", "alaw", "ulaw", "gsm"}
+            if has_codec_g729:
+                allowed_dev_pool.add("g729")
+            if has_codec_opus:
+                allowed_dev_pool.add("opus")
+            safe_c_list = [c for c in raw_c_list if c in allowed_dev_pool]
+            dev_codecs = ",".join(safe_c_list or ["g722", "alaw", "ulaw"])
             dev_dtmf = str(dev.get("dtmf_mode") or "rfc4733").strip().lower()
             if dev_dtmf not in ("rfc4733", "info", "inband"):
                 dev_dtmf = "rfc4733"
@@ -40135,18 +40147,31 @@ async def get_system_version_info():
         pass
 
     return {
-        "version": "v3.5.8",
+        "version": "v3.5.9",
         "commit_hash": live_commit,
         "release_date": "21 Kasım 2026",
         "status": "Güncel / Canlı Sürüm",
         "environment": "Production (On-Premise)",
         "changelog": [
             {
-                "version": "v3.5.8",
+                "version": "v3.5.9",
                 "commit_hash": live_commit,
                 "release_date": "21 Kasım 2026",
                 "badge": "Canlı Sürüm (Güncel)",
                 "badge_type": "current",
+                "title": "WebRTC Opus/G.729 Transcode Koruma (Tek Yönlü WebPhone Ses Kesin Çözümü)",
+                "summary": "Asterisk'te codec_opus.so veya codec_g729.so yüklü olmadığında Chrome WebRTC'nin opus ile gönderdiği sesin Asterisk tarafından çözülemeyip sessizliğe düşmesi (tek yönlü ses / *43 yankı yokluğu) giderildi; PJSIP allow listesi yalnızca sunucuda kurulu gerçek codec modüllerini (ulaw, alaw, g722) içerecek şekilde otomatik filtrelendi.",
+                "features": [],
+                "fixes": [
+                    "WebPhone ve masa telefonu PJSIP endpoint allow satırları /usr/lib/asterisk/modules/codec_opus.so ve codec_g729.so varlığını kontrol ederek güvenli ulaw,alaw,g722 listesini üretir; tek yönlü WebPhone mikrofon sessizliği tamamen giderildi."
+                ]
+            },
+            {
+                "version": "v3.5.8",
+                "commit_hash": "11cfd3a",
+                "release_date": "21 Kasım 2026",
+                "badge": "Önceki Sürüm",
+                "badge_type": "stable",
                 "title": "Arayan / Aranan Çift Kanal (Split Audio) Ses Kaydı & Sinyal Analizi",
                 "summary": "Asterisk MixMonitor kayıtları artık birleşik ana kayda ek olarak Arayan (RX) ve Aranan (TX) seslerini ayrı ayrı kaydeder; Raporlar ekranındaki büyüteç (Detaylı Arama Akışı & Ses Kayıtları) penceresinde iki taraf ayrı oynatıcılarla ve anlık ses/sessizlik (dB) etiketiyle dinlenebilir.",
                 "features": [

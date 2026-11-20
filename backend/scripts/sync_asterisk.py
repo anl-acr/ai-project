@@ -509,6 +509,13 @@ stunaddr=stun.l.google.com:19302
             "unidentified_request_period=60\n"
             "unidentified_request_prune_interval=30\n\n"
         )
+        has_codec_opus_s = os.path.isfile("/usr/lib/asterisk/modules/codec_opus.so")
+        has_codec_g729_s = os.path.isfile("/usr/lib/asterisk/modules/codec_g729.so")
+        safe_webrtc_allow_s = ",".join(
+            ["ulaw", "alaw", "g722"]
+            + (["g729"] if has_codec_g729_s else [])
+            + (["opus"] if has_codec_opus_s else [])
+        )
         pjsip_ep_safety_lines = (
             "rtp_timeout=60\n"
             "rtp_timeout_hold=600\n"
@@ -899,7 +906,7 @@ trust_id_inbound={trust_id_in}
 type=endpoint
 context=webrtc_agents
 disallow=all
-allow=ulaw,alaw,g722,g729,opus
+allow={safe_webrtc_allow_s}
 direct_media=no
 force_rport=yes
 rewrite_contact=no
@@ -1075,7 +1082,7 @@ qualify_frequency=30
 type=endpoint
 context=webrtc_agents
 disallow=all
-allow=ulaw,alaw,g722,g729,opus
+allow={safe_webrtc_allow_s}
 direct_media=no
 force_rport=yes
 rewrite_contact=no
@@ -1113,7 +1120,12 @@ remove_existing=yes
                 except Exception:
                     d_max = 1
                 d_codecs_raw = dev_obj.get("codecs")
-                d_allow = _norm_codecs({"codecs": d_codecs_raw}) if d_codecs_raw else "g722,alaw,ulaw,g729"
+                d_allow_raw = _norm_codecs({"codecs": d_codecs_raw}) if d_codecs_raw else "g722,alaw,ulaw,g729"
+                d_allow_parts = [
+                    c.strip() for c in d_allow_raw.split(",")
+                    if c.strip() and (c.strip() != "opus" or has_codec_opus_s) and (c.strip() != "g729" or has_codec_g729_s)
+                ]
+                d_allow = ",".join(d_allow_parts) if d_allow_parts else "g722,alaw,ulaw"
                 d_dtmf = str(dev_obj.get("dtmf_mode") or "rfc4733").strip().lower()
                 if d_dtmf not in ("rfc4733", "info", "inband"):
                     d_dtmf = "rfc4733"
