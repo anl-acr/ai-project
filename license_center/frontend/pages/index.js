@@ -1396,33 +1396,31 @@ export default function MasterDashboard() {
           </div>
 
           <div className="flex items-center gap-2 ml-auto">
-            {/* View Switcher: Cards vs Table */}
+            {/* View Switcher: Icon-only Cards vs Table */}
             <div className="flex items-center gap-1 bg-white dark:bg-slate-900/80 p-1 rounded-xl border border-slate-200/80 dark:border-slate-800 shadow-xs dark:shadow-none">
               <button
                 type="button"
                 onClick={() => setViewMode("cards")}
-                className={`px-2.5 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer ${
+                className={`h-8 w-8 rounded-lg flex items-center justify-center transition-all cursor-pointer ${
                   viewMode === "cards"
                     ? "bg-slate-100 dark:bg-slate-800 text-indigo-600 dark:text-indigo-400 shadow-xs"
                     : "text-slate-500 hover:text-slate-900 dark:hover:text-white"
                 }`}
-                title="Modern Kart Görünümü"
+                title="Kart Görünümü"
               >
-                <LayoutGrid size={14} />
-                <span className="hidden sm:inline">Kartlar</span>
+                <LayoutGrid size={15} />
               </button>
               <button
                 type="button"
                 onClick={() => setViewMode("table")}
-                className={`px-2.5 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer ${
+                className={`h-8 w-8 rounded-lg flex items-center justify-center transition-all cursor-pointer ${
                   viewMode === "table"
                     ? "bg-slate-100 dark:bg-slate-800 text-indigo-600 dark:text-indigo-400 shadow-xs"
                     : "text-slate-500 hover:text-slate-900 dark:hover:text-white"
                 }`}
-                title="Kurumsal Tablo Görünümü"
+                title="Tablo Görünümü"
               >
-                <List size={14} />
-                <span className="hidden sm:inline">Tablo</span>
+                <List size={15} />
               </button>
             </div>
           </div>

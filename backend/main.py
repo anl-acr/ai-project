@@ -38886,18 +38886,34 @@ async def get_system_version_info():
         pass
 
     return {
-        "version": "v3.0.8",
+        "version": "v3.0.9",
         "commit_hash": live_commit,
         "release_date": "20 Kasım 2026",
         "status": "Güncel / Canlı Sürüm",
         "environment": "Production (On-Premise)",
         "changelog": [
             {
-                "version": "v3.0.8",
+                "version": "v3.0.9",
                 "commit_hash": live_commit,
                 "release_date": "20 Kasım 2026",
                 "badge": "Canlı Sürüm (Güncel)",
                 "badge_type": "current",
+                "title": "Nornia Cloud Center İkon Tabanlı Görünüm Seçici",
+                "summary": "Nornia Cloud Center Kartlar / Tablo görünüm seçici üzerindeki metin etiketleri kaldırılarak yalnızca ikonlardan oluşan kompakt tasarıma geçildi.",
+                "features": [
+                    {
+                        "title": "🧩 İkon Odaklı Kart / Tablo Geçişi",
+                        "desc": "Kart ve tablo görünüm butonları yalnızca ikon ve hover açıklamasıyla (tooltip) sadeleştirildi."
+                    }
+                ],
+                "fixes": []
+            },
+            {
+                "version": "v3.0.8",
+                "commit_hash": "44a3a07",
+                "release_date": "20 Kasım 2026",
+                "badge": "Önceki Sürüm",
+                "badge_type": "stable",
                 "title": "Nornia Cloud Center Durum Filtre Sekmelerinin Kaldırılması & Arayüz Sadeleştirme",
                 "summary": "Nornia Cloud Center ana sayfasındaki mükerrer durum filtre sekmeleri (Tümü / Canlı / Çevrimdışı / Askıda) kaldırılarak yalnızca aktif filtre rozetleri ve Kartlar / Tablo görünüm seçici bırakıldı.",
                 "features": [
