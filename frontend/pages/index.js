@@ -273,13 +273,15 @@ export default function Home() {
   const sidebarActiveItemCls = `${lightBg} ${text} border-primary/25 dark:border-primary/35 shadow-sm`;
   const sidebarInactiveItemCls = "text-slate-500 dark:text-slate-400 border-transparent hover:text-slate-900 dark:hover:text-white hover:bg-slate-50 dark:hover:bg-slate-800/40";
   const backendHost = getBackendHost();
-  const [systemVersion, setSystemVersion] = useState("v3.6.2");
+  const [systemVersion, setSystemVersion] = useState("v3.6.3");
+  const [availableUpdateVer, setAvailableUpdateVer] = useState("");
   const [activeTab, setActiveTabRaw] = useState("dashboard"); // dashboard, call-center, pbx-settings, channel-settings, rag-kb, rule-editor
 
   useEffect(() => {
     if (typeof window === "undefined") return;
     let active = true;
-    fetch(`${window.location.protocol}//${backendHost}/api/settings/version`)
+    const proto = window.location.protocol;
+    fetch(`${proto}//${backendHost}/api/settings/version`)
       .then((r) => (r.ok ? r.json() : null))
       .then((d) => {
         if (active && d?.version) {
@@ -287,6 +289,29 @@ export default function Home() {
         }
       })
       .catch(() => {});
+
+    // Lightweight check against Central Panel approved updates (never direct Git)
+    let uid = "";
+    try {
+      const uRaw = localStorage.getItem("aida_user") || sessionStorage.getItem("aida_user");
+      if (uRaw) {
+        const parsedU = JSON.parse(uRaw);
+        uid = String(parsedU?.id || parsedU?.extension || "");
+      }
+    } catch (e) {}
+    fetch(`${proto}//${backendHost}/api/system/update/check`, {
+      headers: uid ? { "X-User-ID": uid } : {}
+    })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (active && d?.update_available && d?.latest_version) {
+          setAvailableUpdateVer(String(d.latest_version).trim());
+        } else if (active) {
+          setAvailableUpdateVer("");
+        }
+      })
+      .catch(() => {});
+
     return () => {
       active = false;
     };
@@ -5420,10 +5445,19 @@ export default function Home() {
           </p>
           <button
             onClick={() => setActiveTab("changelog")}
-            title={`Sistem Versiyonu ve Değişiklik Günlüğü (${systemVersion} On-Premise)`}
-            className="flex items-center gap-1 text-[10px] font-bold text-slate-500 dark:text-slate-400 hover:text-primary dark:hover:text-primary hover:underline transition cursor-pointer bg-transparent border-0 p-0 outline-none focus-visible:ring-2 focus-visible:ring-primary/50 rounded"
+            title={
+              availableUpdateVer
+                ? `Yeni Güncelleme Mevcut (${availableUpdateVer}) — Güncelleme Merkezini Aç`
+                : `Sistem Versiyonu ve Güncelleme Merkezi (${systemVersion} On-Premise)`
+            }
+            className="flex items-center gap-1.5 text-[10px] font-bold text-slate-500 dark:text-slate-400 hover:text-primary dark:hover:text-primary hover:underline transition cursor-pointer bg-transparent border-0 p-0 outline-none focus-visible:ring-2 focus-visible:ring-primary/50 rounded"
           >
             <span>{isSidebarCollapsed ? systemVersion : `${systemVersion} (On-Premise)`}</span>
+            {availableUpdateVer && !isSidebarCollapsed && (
+              <span className={`px-1.5 py-0.5 rounded-full text-[9px] font-black text-white ${bg} animate-pulse`}>
+                Yeni
+              </span>
+            )}
           </button>
         </div>
       </aside>

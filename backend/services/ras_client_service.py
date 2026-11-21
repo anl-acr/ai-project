@@ -980,35 +980,125 @@ async def _ras_tunnel_loop():
             await asyncio.sleep(0.3)
 
 
-async def _execute_remote_ota_update(msg: Dict[str, Any]):
-    """Executes an Over-The-Air (OTA) git pull, frontend build, and PM2 restart triggered remotely from Nornia Cloud Center."""
-    triggered_by = str(msg.get("triggered_by") or "admin")
+def resolve_central_hub_base_url(explicit_hub_url: str = "") -> str:
+    """Resolves the Central Nornia Hub HTTP(S) base URL cleanly from explicit param, env, or ras_config."""
+    cand = str(explicit_hub_url or "").strip().rstrip("/")
+    if not cand:
+        env_u = str(os.getenv("LICENSE_CENTER_URL") or "").strip()
+        if env_u:
+            cand = env_u.split("/api/")[0].rstrip("/")
+    if not cand:
+        try:
+            rc = get_ras_config()
+            cand = str((rc or {}).get("hub_url") or "").strip().rstrip("/")
+        except Exception:
+            cand = ""
+    if not cand:
+        cand = "https://panel.nornia.com.tr"
+    if cand.startswith("wss://"):
+        cand = "https://" + cand[6:]
+    elif cand.startswith("ws://"):
+        cand = "http://" + cand[5:]
+    if not cand.startswith(("http://", "https://")):
+        host_part = cand.split(":")[0]
+        if all(p.isdigit() for p in host_part.split(".")) and ":" not in cand:
+            cand = f"http://{cand}:8050"
+        else:
+            cand = f"https://{cand}"
+    return cand.rstrip("/")
+
+
+def spawn_nornia_updater(
+    mode: str = "now",
+    target_version: str = "",
+    target_commit: str = "",
+    triggered_by: str = "admin",
+    source: str = "pbx",
+    hub_url: str = "",
+    hardware_id: str = "",
+) -> bool:
+    """Launches the unified detached backend/scripts/nornia_updater.py process safely."""
+    import sys as _sys
     project_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+    script_path = os.path.join(project_dir, "backend", "scripts", "nornia_updater.py")
+    if not os.path.isfile(script_path):
+        print(f"[Nornia Updater Error]: Script not found at {script_path}")
+        return False
+
+    resolved_hub = resolve_central_hub_base_url(hub_url)
+    hw_id = str(hardware_id or "").strip().upper()
+    if not hw_id:
+        try:
+            from backend.services.hardware_info import get_hardware_id
+            hw_id = str(get_hardware_id() or "").strip().upper()
+        except Exception:
+            hw_id = ""
+
+    cmd = [
+        "nohup",
+        _sys.executable,
+        script_path,
+        "--mode",
+        str(mode or "now").strip(),
+        "--triggered-by",
+        str(triggered_by or "admin").strip(),
+        "--source",
+        str(source or "pbx").strip(),
+        "--hub-url",
+        resolved_hub,
+        "--hardware-id",
+        hw_id,
+    ]
+    if target_version:
+        cmd.extend(["--target-version", str(target_version).strip()])
+    if target_commit:
+        cmd.extend(["--target-commit", str(target_commit).strip()])
+
+    try:
+        subprocess.Popen(
+            cmd,
+            cwd=project_dir,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            start_new_session=True,
+        )
+        return True
+    except Exception as exc:
+        print(f"[Nornia Updater Spawn Error]: {exc}")
+        return False
+
+
+async def _execute_remote_ota_update(msg: Dict[str, Any]):
+    """Executes an Over-The-Air (OTA) update via the unified safe nornia_updater.py engine."""
+    triggered_by = str(msg.get("triggered_by") or "admin")
+    target_version = str(msg.get("target_version") or "").strip()
+    target_commit = str(msg.get("target_commit") or "").strip()
+    mode = str(msg.get("mode") or "now").strip().lower()
+    if mode not in ("now", "after_calls"):
+        mode = "now"
+    hub_url = str(msg.get("hub_url") or "").strip()
+
     try:
         from backend.main import log_event
         await log_event(
             user_id="system",
             action="OTA_UPDATE_START",
             module="Nornia Connect OTA",
-            details={"summary": f"Merkez Lisans Panelinden ({triggered_by}) uzaktan OTA güncelleme başlatıldı."},
+            details={
+                "summary": f"Merkez Lisans Panelinden ({triggered_by}) uzaktan OTA güncelleme başlatıldı (Hedef: {target_version or 'Son'}, Mod: {mode})."
+            },
         )
     except Exception:
         pass
 
-    ota_cmd = (
-        f"cd {project_dir} && git pull origin main && "
-        f"cd {project_dir}/frontend && npm run build && "
-        f"pm2 restart aida-app && pm2 restart aida-backend"
+    spawn_nornia_updater(
+        mode=mode,
+        target_version=target_version,
+        target_commit=target_commit,
+        triggered_by=triggered_by,
+        source="central_panel_ota",
+        hub_url=hub_url,
     )
-    try:
-        subprocess.Popen(
-            ["nohup", "sh", "-c", f"{ota_cmd} > /tmp/nornia_ota_update.log 2>&1"],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            start_new_session=True,
-        )
-    except Exception as exc:
-        print(f"[Nornia OTA Update Error]: {exc}")
 
 
 def start_ras_tunnel_worker():

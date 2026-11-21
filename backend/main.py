@@ -1657,7 +1657,7 @@ DEFAULT_SETTINGS = {
                 "customer_360:read", "customer_360:write",
                 "callback_tasks:read", "callback_tasks:write", "callback_tasks:delete",
                 "crisis_alerts:access",
-                "system_version:access"
+                "system_version:access", "system_version:read", "system_version:write"
             ],
             "allowed_breaks": [1, 2, 3, 4]
         },
@@ -1732,7 +1732,7 @@ DEFAULT_SETTINGS = {
                 "customer_360:read", "customer_360:write",
                 "callback_tasks:read", "callback_tasks:write", "callback_tasks:delete",
                 "crisis_alerts:access",
-                "system_version:access"
+                "system_version:access", "system_version:read"
             ],
             "allowed_breaks": [1, 2, 3, 4]
         },
@@ -2899,7 +2899,7 @@ def load_settings(force_reload: bool = False, persist: bool = False):
                 if r.get("role_code") == "admin" and "restore_points:delete" not in new_perms:
                     new_perms.append("restore_points:delete")
                 if r.get("role_code") == "admin":
-                    for net_p in ("server_network:read", "server_network:write", "server_network:delete", "ras_settings:read", "ras_settings:write"):
+                    for net_p in ("server_network:read", "server_network:write", "server_network:delete", "ras_settings:read", "ras_settings:write", "system_version:read", "system_version:write"):
                         if net_p not in new_perms:
                             new_perms.append(net_p)
                 for sup_perm in (
@@ -40889,6 +40889,345 @@ async def set_needs_apply(status: dict):
     settings_db["needs_apply"] = status.get("needs_apply", True)
     save_settings(settings_db)
 
+def _read_pbx_updater_runtime_status() -> dict:
+    status_path = "/tmp/nornia_update_status.json"
+    log_path = "/tmp/nornia_ota_update.log"
+    lock_path = "/tmp/nornia_update.lock"
+    rollback_path = "/tmp/nornia_last_good_release.json"
+
+    is_running = False
+    if os.path.exists(lock_path):
+        try:
+            with open(lock_path, "r", encoding="utf-8") as lf:
+                pid_v = int((lf.read() or "0").strip())
+            if pid_v > 0:
+                os.kill(pid_v, 0)
+                is_running = True
+        except Exception:
+            is_running = False
+
+    st_data = {}
+    if os.path.exists(status_path):
+        try:
+            with open(status_path, "r", encoding="utf-8") as sf:
+                st_data = json.load(sf)
+        except Exception:
+            st_data = {}
+
+    if not is_running and st_data.get("status") in ("starting", "waiting_calls", "updating", "rolling_back"):
+        st_data["status"] = "idle"
+
+    log_tail = ""
+    if os.path.exists(log_path):
+        try:
+            with open(log_path, "r", encoding="utf-8", errors="replace") as f_log:
+                lines = f_log.readlines()
+                log_tail = "".join(lines[-120:])
+        except Exception:
+            log_tail = ""
+
+    rollback_info = None
+    if os.path.exists(rollback_path):
+        try:
+            with open(rollback_path, "r", encoding="utf-8") as rf:
+                rb = json.load(rf)
+                if isinstance(rb, dict) and (rb.get("previous_commit_full") or rb.get("previous_commit")):
+                    rollback_info = {
+                        "previous_version": rb.get("previous_version") or "",
+                        "previous_commit": rb.get("previous_commit") or "",
+                        "saved_at": rb.get("saved_at") or "",
+                    }
+        except Exception:
+            rollback_info = None
+
+    from backend.services.ami_manager import active_channels
+    live_calls_cnt = len(
+        [c for c in active_channels.values() if c and not str(c).lower().startswith("local/")]
+    ) // 2
+    if active_channels and live_calls_cnt == 0:
+        live_calls_cnt = 1
+
+    return {
+        "is_running": is_running,
+        "status": st_data.get("status") or "idle",
+        "mode": st_data.get("mode") or "",
+        "source": st_data.get("source") or "",
+        "triggered_by": st_data.get("triggered_by") or "",
+        "previous_version": st_data.get("previous_version") or "",
+        "current_version": st_data.get("current_version") or "",
+        "target_version": st_data.get("target_version") or "",
+        "target_commit": st_data.get("target_commit") or "",
+        "step_index": int(st_data.get("step_index") or 0),
+        "total_steps": int(st_data.get("total_steps") or 6),
+        "step_label": st_data.get("step_label") or "",
+        "progress": int(st_data.get("progress") or 0),
+        "active_calls_waiting": int(st_data.get("active_calls_waiting") or 0),
+        "active_calls_count": live_calls_cnt,
+        "started_at": st_data.get("started_at"),
+        "updated_at": st_data.get("updated_at"),
+        "finished_at": st_data.get("finished_at"),
+        "error": st_data.get("error") or "",
+        "log_tail": log_tail,
+        "rollback_info": rollback_info,
+    }
+
+
+def _user_can_execute_system_update(user_info: dict) -> bool:
+    role_val = str(user_info.get("role") or "").strip().lower()
+    if role_val in ("admin", "superadmin"):
+        return True
+    uid = user_info.get("user_id")
+    matched_u = next((u for u in (settings_db.get("users") or []) if str(u.get("id")) == str(uid)), None)
+    if matched_u:
+        u_role = str(matched_u.get("role") or "").strip().lower()
+        if u_role in ("admin", "superadmin"):
+            return True
+        matched_r = next(
+            (
+                r for r in (settings_db.get("roles") or [])
+                if str(r.get("role_code") or "").strip().lower() == u_role
+                or str(r.get("name") or "").strip().lower() == u_role
+            ),
+            None,
+        )
+        if matched_r:
+            return "system_version:write" in (matched_r.get("permissions") or [])
+    return False
+
+
+async def _query_central_panel_for_updates() -> dict:
+    """Queries ONLY the Central Nornia Panel (/api/v1/updates/check) — never polls GitHub directly."""
+    import httpx
+    from backend.services.ras_client_service import resolve_central_hub_base_url
+    from backend.services.hardware_info import get_hardware_id
+
+    ver_info = await get_system_version_info()
+    cur_ver = str(ver_info.get("version") or "").strip()
+    hw_id = ""
+    try:
+        hw_id = str(get_hardware_id() or "").strip().upper()
+    except Exception:
+        hw_id = ""
+    t_code = ""
+    try:
+        tenants = settings_db.get("tenants") or []
+        if tenants and isinstance(tenants[0], dict):
+            t_code = str(tenants[0].get("code") or tenants[0].get("id") or "").strip().lower()
+    except Exception:
+        t_code = ""
+
+    hub_base = resolve_central_hub_base_url()
+    candidate_bases = [hub_base]
+    # Also try panel.nornia.com.tr if hub_base was connect.nornia.com.tr
+    if "connect.nornia.com.tr" in hub_base:
+        candidate_bases.append(hub_base.replace("connect.nornia.com.tr", "panel.nornia.com.tr"))
+
+    params = {
+        "hardware_id": hw_id,
+        "tenant_code": t_code,
+        "current_version": cur_ver,
+    }
+    last_err = ""
+    async with httpx.AsyncClient(timeout=6.0, verify=False) as client:
+        for base in candidate_bases:
+            try:
+                resp = await client.get(f"{base}/api/v1/updates/check", params=params)
+                if resp.status_code == 200:
+                    data = resp.json()
+                    if isinstance(data, dict) and "update_available" in data:
+                        data["hub_url"] = base
+                        data["hardware_id"] = hw_id
+                        return data
+                else:
+                    last_err = f"HTTP {resp.status_code}"
+            except Exception as exc:
+                last_err = str(exc)
+
+    return {
+        "reachable": False,
+        "update_available": False,
+        "self_update_allowed": False,
+        "update_channel": "stable",
+        "current_version": cur_ver,
+        "latest_version": cur_ver,
+        "target_commit": "",
+        "pending_releases": [],
+        "total_features_count": 0,
+        "total_fixes_count": 0,
+        "hub_url": hub_base,
+        "hardware_id": hw_id,
+        "error": f"Merkez Güncelleme Sunucusuna ulaşılamadı ({last_err or 'bağlantı hatası'}).",
+    }
+
+
+@app.get("/api/system/update/check")
+async def pbx_system_update_check(user_info: dict = Depends(get_user_info)):
+    """Checks Central Nornia Panel for approved releases, changelogs, and self-update permission."""
+    res = await _query_central_panel_for_updates()
+    rt = _read_pbx_updater_runtime_status()
+    res["active_calls_count"] = rt["active_calls_count"]
+    res["rollback_info"] = rt["rollback_info"]
+    res["runtime_status"] = rt
+    res["can_execute_role"] = _user_can_execute_system_update(user_info)
+    return res
+
+
+@app.get("/api/system/update/status")
+async def pbx_system_update_status(user_info: dict = Depends(get_user_info)):
+    """Returns real-time 6-step update progress, live console log tail, and rollback availability."""
+    rt = _read_pbx_updater_runtime_status()
+    rt["can_execute_role"] = _user_can_execute_system_update(user_info)
+    return rt
+
+
+class PBXUpdateStartSchema(BaseModel):
+    mode: Optional[str] = "now"  # "now" | "after_calls"
+
+
+@app.post("/api/system/update/start")
+async def pbx_system_update_start(
+    payload: PBXUpdateStartSchema,
+    user_info: dict = Depends(get_user_info),
+):
+    """Starts a safe, Central-approved update on this PBX using the unified nornia_updater.py engine."""
+    if not _user_can_execute_system_update(user_info):
+        raise HTTPException(status_code=403, detail="Sistem güncelleme başlatma yetkiniz bulunmamaktadır.")
+
+    rt = _read_pbx_updater_runtime_status()
+    if rt.get("is_running"):
+        raise HTTPException(status_code=409, detail="Şu anda devam eden bir güncelleme işlemi zaten mevcut.")
+
+    # Always re-verify with Central Panel before starting!
+    central_info = await _query_central_panel_for_updates()
+    if not central_info.get("reachable"):
+        raise HTTPException(
+            status_code=503,
+            detail=central_info.get("error") or "Merkez Güncelleme Sunucusuna ulaşılamadığı için güncelleme başlatılamadı.",
+        )
+    if not central_info.get("self_update_allowed"):
+        raise HTTPException(
+            status_code=403,
+            detail="Bu santral için uzaktan/yerel kendi kendine güncelleme izni Merkez Yönetim Paneli tarafından kilitlenmiştir.",
+        )
+    if not central_info.get("update_available"):
+        raise HTTPException(status_code=400, detail="Santraliniz zaten kanalındaki en güncel sürümde çalışıyor.")
+
+    mode = str(payload.mode or "now").strip().lower()
+    if mode not in ("now", "after_calls"):
+        mode = "now"
+
+    target_ver = str(central_info.get("latest_version") or "").strip()
+    target_commit = str(central_info.get("target_commit") or "").strip()
+    hub_url = str(central_info.get("hub_url") or "").strip()
+    hw_id = str(central_info.get("hardware_id") or "").strip()
+    actor = str(user_info.get("username") or user_info.get("full_name") or user_info.get("user_id") or "admin")
+
+    from backend.services.ras_client_service import spawn_nornia_updater
+    launched = spawn_nornia_updater(
+        mode=mode,
+        target_version=target_ver,
+        target_commit=target_commit,
+        triggered_by=actor,
+        source="pbx_ui",
+        hub_url=hub_url,
+        hardware_id=hw_id,
+    )
+    if not launched:
+        raise HTTPException(status_code=500, detail="Güncelleme motoru (nornia_updater.py) başlatılamadı.")
+
+    try:
+        await log_event(
+            user_id=str(user_info.get("user_id") or "admin"),
+            action="PBX_UPDATE_START",
+            module="Sistem Güncelleme",
+            details={
+                "summary": f"Santral arayüzünden güncelleme başlatıldı ({central_info.get('current_version')} → {target_ver}, Mod: {mode}).",
+                "target_version": target_ver,
+                "target_commit": target_commit,
+                "mode": mode,
+            },
+        )
+    except Exception:
+        pass
+
+    return {
+        "success": True,
+        "target_version": target_ver,
+        "target_commit": target_commit,
+        "mode": mode,
+        "message": (
+            f"{target_ver} güncellemesi aktif çağrılar biter bitmez otomatik başlayacaktır."
+            if mode == "after_calls"
+            else f"{target_ver} sürümüne güncelleme başlatıldı. İlerlemeyi bu ekrandan canlı takip edebilirsiniz."
+        ),
+    }
+
+
+@app.post("/api/system/update/cancel")
+async def pbx_system_update_cancel(user_info: dict = Depends(get_user_info)):
+    """Cancels a queued 'after_calls' update while it is still waiting for active calls to finish."""
+    if not _user_can_execute_system_update(user_info):
+        raise HTTPException(status_code=403, detail="Bu işlem için yetkiniz yok.")
+    try:
+        with open("/tmp/nornia_update_cancel", "w", encoding="utf-8") as cf:
+            cf.write("cancel")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"İptal sinyali yazılamadı: {e}")
+    return {"success": True, "message": "Bekleyen güncelleme iptal edildi."}
+
+
+@app.post("/api/system/update/rollback")
+async def pbx_system_update_rollback(user_info: dict = Depends(get_user_info)):
+    """Rolls back the PBX cleanly to the last saved good release checkpoint."""
+    if not _user_can_execute_system_update(user_info):
+        raise HTTPException(status_code=403, detail="Geri alma yetkiniz bulunmamaktadır.")
+
+    rt = _read_pbx_updater_runtime_status()
+    if rt.get("is_running"):
+        raise HTTPException(status_code=409, detail="Devam eden bir güncelleme varken geri alma başlatılamaz.")
+    rb_info = rt.get("rollback_info")
+    if not rb_info:
+        raise HTTPException(status_code=400, detail="Geri dönülecek kayıtlı önceki sürüm noktası bulunamadı.")
+
+    central_info = await _query_central_panel_for_updates()
+    if central_info.get("reachable") and not central_info.get("self_update_allowed"):
+        raise HTTPException(
+            status_code=403,
+            detail="Bu santralde güncelleme/geri alma yetkisi Merkez Yönetim Paneli tarafından kilitlenmiştir.",
+        )
+
+    actor = str(user_info.get("username") or user_info.get("full_name") or user_info.get("user_id") or "admin")
+    from backend.services.ras_client_service import spawn_nornia_updater
+    launched = spawn_nornia_updater(
+        mode="rollback",
+        target_version=str(rb_info.get("previous_version") or ""),
+        triggered_by=actor,
+        source="pbx_ui_rollback",
+        hub_url=str(central_info.get("hub_url") or ""),
+        hardware_id=str(central_info.get("hardware_id") or ""),
+    )
+    if not launched:
+        raise HTTPException(status_code=500, detail="Geri alma motoru başlatılamadı.")
+
+    try:
+        await log_event(
+            user_id=str(user_info.get("user_id") or "admin"),
+            action="PBX_UPDATE_ROLLBACK",
+            module="Sistem Güncelleme",
+            details={
+                "summary": f"Önceki sürüme geri dönüş başlatıldı -> {rb_info.get('previous_version')} ({rb_info.get('previous_commit')}).",
+            },
+        )
+    except Exception:
+        pass
+
+    return {
+        "success": True,
+        "target_version": rb_info.get("previous_version") or "",
+        "message": f"Önceki sürüme ({rb_info.get('previous_version')}) geri alma işlemi başlatıldı.",
+    }
+
+
 @app.get("/api/settings/version")
 @app.get("/api/version")
 @app.get("/version")
@@ -40907,18 +41246,34 @@ async def get_system_version_info():
         pass
 
     return {
-        "version": "v3.6.2",
+        "version": "v3.6.3",
         "commit_hash": live_commit,
         "release_date": "21 Kasım 2026",
         "status": "Güncel / Canlı Sürüm",
         "environment": "Production (On-Premise)",
         "changelog": [
             {
-                "version": "v3.6.2",
+                "version": "v3.6.3",
                 "commit_hash": live_commit,
                 "release_date": "21 Kasım 2026",
                 "badge": "Canlı Sürüm (Güncel)",
                 "badge_type": "current",
+                "title": "Merkezi Kontrollü Santral Güncelleme Merkezi & Çoklu Makine Filo Sürüm Yönetimi",
+                "summary": "Tüm santraller için Merkez Panel otoritesine bağlı güvenli güncelleme motoru (nornia_updater.py), santral arayüzünden güncelleme sorgulama/sürüm notu önizleme/aktif çağrı korumalı güncelleme, otomatik geri alma (rollback) ve Merkez Panel'de makine bazlı kanal (Kararlı/Beta/Sabit) ile Self-Update izin kontrolü eklendi.",
+                "features": [
+                    "Santral Güncelleme Merkezi: Santral yöneticisi Merkez Panel'den onaylı yeni sürümleri sorgulayabilir, bekleyen tüm özellik ve hata düzeltmelerini güncelleme öncesinde inceleyebilir.",
+                    "Merkez Panel Sürüm Kayıt Merkezi & Kanal Yönetimi: Sürümleri repodan tek tıkla içe aktarma, Beta (Pilot) kanalında test edip Kararlı (Stable) kanala yükseltme ve makine bazlı 'Santralden Güncelleme İzni' açma/kilitleme.",
+                    "Ortak Güvenli Güncelleme Motoru (nornia_updater.py): Hem Merkez Panel OTA hem santral güncellemesi aynı 6 adımlı bağımsız motoru kullanır (commit kilidi, Asterisk sync_asterisk.py + features reload, Next.js build, PM2 sağlık kontrolü ve hata anında otomatik rollback).",
+                    "Aktif Çağrı Koruması ('Çağrılar Bitince Güncelle') ve canlı 6 adımlı ilerleme + teknik log izleme."
+                ],
+                "fixes": []
+            },
+            {
+                "version": "v3.6.2",
+                "commit_hash": "cccee23",
+                "release_date": "21 Kasım 2026",
+                "badge": "Kararlı",
+                "badge_type": "stable",
                 "title": "Çağrı Toplama (Pickup) Kendi Aramasını Hariç Tutma & Dinamik Sol Menü Sürüm Göstergesi",
                 "summary": "Aynı toplama grubundaki başka bir dahiliyi kendiniz aradığınızda ekranınızda çıkan hatalı 'Çağrıyı Çek' uyarısı AMI Linkedid, ConnectedLineNum, SIP kullanıcı adı çözümlemesi ve istemci aktif arama filtresi ile tamamen giderildi; sol alt menüdeki versiyon göstergesi dinamik hale getirildi.",
                 "features": [],

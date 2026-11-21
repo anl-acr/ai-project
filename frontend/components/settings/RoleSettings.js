@@ -260,7 +260,7 @@ const SYSTEM_FEATURES = [
   { id: "tenant_license", name: "Lisans & Key Yönetimi", icon: Lock, type: "crud", color: "rose" },
   { id: "email_notifications", name: "E-Mail Bildirimleri", icon: Mail, type: "crud", color: "blue" },
   { id: "restore_points", name: "Geri Yükleme Noktası", icon: RotateCcw, type: "crud", color: "emerald" },
-  { id: "system_version", name: "Sistem Versiyonu & Günlük", icon: GitBranch, type: "access", color: "indigo" }
+  { id: "system_version", name: "Sistem Versiyonu, Güncelleme Merkezi & Günlük", icon: GitBranch, type: "crud_partial", color: "indigo" }
 ];
 
 export const normalizeRolePermissionsList = (rawPerms = []) => {

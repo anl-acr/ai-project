@@ -93,6 +93,14 @@ class ClientServer(Base):
     # Telemetry metrics
     last_heartbeat_at = Column(DateTime, nullable=True)
     software_version = Column(String, default="v2.4.8")
+    update_channel = Column(String, default="stable") # stable, beta, pinned
+    self_update_allowed = Column(Boolean, default=False) # Centrally managed PBX self-update switch
+    update_status = Column(String, default="idle") # idle, waiting_calls, updating, success, failed, rolled_back
+    update_progress = Column(Integer, default=0)
+    update_step = Column(String, default="")
+    update_target_version = Column(String, default="")
+    update_last_error = Column(Text, default="")
+    update_updated_at = Column(DateTime, nullable=True)
     cpu_usage_percent = Column(Float, default=0.0)
     ram_usage_percent = Column(Float, default=0.0)
     disk_usage_percent = Column(Float, default=0.0)
@@ -155,3 +163,23 @@ class MasterPackageTemplate(Base):
     tagline = Column(String, nullable=True)
     config_json = Column(Text, default="{}")  # allowed_features, allowed_sub_features, stt/tts/llm, unlicensed_module_mode
     updated_at = Column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow)
+
+
+class SystemRelease(Base):
+    __tablename__ = "system_releases"
+
+    id = Column(Integer, primary_key=True, index=True)
+    version = Column(String, unique=True, index=True, nullable=False)  # e.g. v3.6.3
+    commit_hash = Column(String, default="")  # exact git commit hash pinned for this release
+    channel = Column(String, default="stable", index=True)  # stable, beta
+    release_date = Column(String, default="")
+    title = Column(String, default="")
+    summary = Column(Text, default="")
+    features_json = Column(Text, default="[]")  # JSON list of features (strings or {title, desc})
+    fixes_json = Column(Text, default="[]")  # JSON list of bug fixes
+    is_published = Column(Boolean, default=True)
+    is_mandatory = Column(Boolean, default=False)
+    requires_asterisk_reload = Column(Boolean, default=True)
+    created_by = Column(String, default="admin")
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+    published_at = Column(DateTime, default=datetime.datetime.utcnow)

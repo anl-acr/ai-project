@@ -44,6 +44,7 @@ import {
   HardDrive,
   Database,
   Download,
+  DownloadCloud,
   Zap,
   X,
   Settings
@@ -53,6 +54,7 @@ import LoginModal from "../components/LoginModal";
 import UserManagementModal from "../components/UserManagementModal";
 import AuditLogsModal from "../components/AuditLogsModal";
 import SecuritySettingsModal from "../components/SecuritySettingsModal";
+import ReleaseCenterModal from "../components/ReleaseCenterModal";
 import AccountSettingsModal, { getUserInitials } from "../components/AccountSettingsModal";
 import PackageTemplatesModal from "../components/PackageTemplatesModal";
 import {
@@ -276,6 +278,9 @@ export default function MasterDashboard() {
     URL.revokeObjectURL(url);
   };
 
+  const [bulkOtaMode, setBulkOtaMode] = useState("after_calls");
+  const [showReleaseCenterModal, setShowReleaseCenterModal] = useState(false);
+
   const handleExecuteBulkOta = async () => {
     if (selectedClientIds.length === 0) return;
     setBulkOtaLoading(true);
@@ -287,7 +292,7 @@ export default function MasterDashboard() {
           "Content-Type": "application/json",
           "X-User-Name": currentUser?.username || "admin"
         },
-        body: JSON.stringify({ client_ids: selectedClientIds })
+        body: JSON.stringify({ client_ids: selectedClientIds, mode: bulkOtaMode })
       });
       const data = await res.json().catch(() => ({}));
       if (res.ok) {
@@ -1491,6 +1496,15 @@ export default function MasterDashboard() {
           >
             <Layers size={14} className="text-purple-600 dark:text-purple-400" />
             <span className="hidden lg:inline">Paketler</span>
+          </button>
+
+          <button
+            onClick={() => setShowReleaseCenterModal(true)}
+            className="px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors flex items-center gap-1.5 text-xs font-bold cursor-pointer shadow-xs dark:shadow-none whitespace-nowrap"
+            title="Merkez Sürüm Kayıtları, Kanal & Santral Güncelleme Politikaları"
+          >
+            <DownloadCloud size={14} className="text-emerald-600 dark:text-emerald-400" />
+            <span className="hidden lg:inline">Sürüm Merkezi</span>
           </button>
 
           <button
@@ -5002,6 +5016,16 @@ export default function MasterDashboard() {
         onTemplatesUpdated={fetchPackageTemplates}
       />
 
+      {/* CENTRAL RELEASE & FLEET UPDATE POLICY MODAL */}
+      <ReleaseCenterModal
+        isOpen={showReleaseCenterModal}
+        onClose={() => setShowReleaseCenterModal(false)}
+        apiBase={API_BASE}
+        currentUser={currentUser}
+        clients={clients}
+        onRefreshClients={fetchData}
+      />
+
       {/* BULK OTA UPDATE CONFIRMATION MODAL */}
       {showBulkOtaModal && (
         <div className="fixed inset-0 z-[9995] flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-sm animate-fadeIn">
@@ -5045,6 +5069,39 @@ export default function MasterDashboard() {
                     </span>
                   </div>
                 ))}
+            </div>
+
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={() => setBulkOtaMode("after_calls")}
+                className={`p-2.5 rounded-xl border text-left transition cursor-pointer ${
+                  bulkOtaMode === "after_calls"
+                    ? "bg-cyan-500/10 border-cyan-500 text-cyan-800 dark:text-cyan-200"
+                    : "bg-slate-50 dark:bg-slate-950/60 border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400"
+                }`}
+              >
+                <div className="text-xs font-extrabold flex items-center gap-1.5">
+                  <Clock size={13} />
+                  Çağrılar Bitince (Önerilen)
+                </div>
+                <div className="text-[10px] opacity-80 mt-0.5">Aktif görüşmeler bitene kadar bekler, sonra günceller.</div>
+              </button>
+              <button
+                type="button"
+                onClick={() => setBulkOtaMode("now")}
+                className={`p-2.5 rounded-xl border text-left transition cursor-pointer ${
+                  bulkOtaMode === "now"
+                    ? "bg-indigo-500/10 border-indigo-500 text-indigo-800 dark:text-indigo-200"
+                    : "bg-slate-50 dark:bg-slate-950/60 border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400"
+                }`}
+              >
+                <div className="text-xs font-extrabold flex items-center gap-1.5">
+                  <Zap size={13} />
+                  Hemen Güncelle
+                </div>
+                <div className="text-[10px] opacity-80 mt-0.5">Beklemeden tüm seçili santrallerde derleme başlatır.</div>
+              </button>
             </div>
 
             <div className="flex items-center justify-end gap-2.5 pt-1">

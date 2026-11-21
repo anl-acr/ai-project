@@ -562,7 +562,15 @@ async def notify_pbx_license_sync(hardware_id: Optional[str] = None, subdomain: 
     return False
 
 
-async def trigger_pbx_ota_update(hardware_id: Optional[str] = None, subdomain: Optional[str] = None, triggered_by: str = "admin") -> bool:
+async def trigger_pbx_ota_update(
+    hardware_id: Optional[str] = None,
+    subdomain: Optional[str] = None,
+    triggered_by: str = "admin",
+    target_version: str = "",
+    target_commit: str = "",
+    mode: str = "now",
+    hub_url: str = "",
+) -> bool:
     """Sends a RAS_OTA_UPDATE command over the active Nornia Connect tunnel to remotely pull, build, and restart the PBX."""
     sess = None
     if subdomain and subdomain.strip().lower() in ACTIVE_TUNNELS_BY_SUBDOMAIN:
@@ -575,6 +583,10 @@ async def trigger_pbx_ota_update(hardware_id: Optional[str] = None, subdomain: O
             await sess.send_json({
                 "type": "RAS_OTA_UPDATE",
                 "triggered_by": triggered_by,
+                "target_version": str(target_version or "").strip(),
+                "target_commit": str(target_commit or "").strip(),
+                "mode": str(mode or "now").strip(),
+                "hub_url": str(hub_url or "").strip(),
                 "ts": time.time(),
             })
             return True

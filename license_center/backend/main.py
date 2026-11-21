@@ -38,6 +38,7 @@ from license_center.backend.models import (
     MasterBlockedIP,
     MasterSecurityPolicy,
     MasterPackageTemplate,
+    SystemRelease,
 )
 from license_center.backend.license_generator import (
     generate_signed_license_key,
@@ -154,6 +155,8 @@ _PUBLIC_V1_EXACT_PATHS = {
     "/api/v1/telemetry/heartbeat",
     "/api/v1/connect/check-subdomain",
     "/api/v1/ras/tunnel",
+    "/api/v1/updates/check",
+    "/api/v1/updates/report-status",
 }
 _PUBLIC_V1_PREFIXES = (
     "/api/v1/connect/ssh-proxy/",
@@ -2428,6 +2431,14 @@ async def get_clients(db: AsyncSession = Depends(get_central_db)):
             "is_online": is_online,
             "last_heartbeat_at": c.last_heartbeat_at.isoformat() if c.last_heartbeat_at else None,
             "software_version": c.software_version,
+            "update_channel": c.update_channel or "stable",
+            "self_update_allowed": bool(c.self_update_allowed) if c.self_update_allowed is not None else False,
+            "update_status": c.update_status or "idle",
+            "update_progress": int(c.update_progress or 0),
+            "update_step": c.update_step or "",
+            "update_target_version": c.update_target_version or "",
+            "update_last_error": c.update_last_error or "",
+            "update_updated_at": c.update_updated_at.isoformat() if c.update_updated_at else None,
             "cpu_usage_percent": cpu_v,
             "ram_usage_percent": ram_v,
             "disk_usage_percent": disk_v,
@@ -2690,9 +2701,79 @@ async def create_client_root_sso_token(client_id: int, request: Request, db: Asy
     }
 
 
+def _parse_semver_tuple(ver_str: str) -> tuple:
+    import re
+    m = re.search(r"(\d+)\.(\d+)\.(\d+)", str(ver_str or ""))
+    if not m:
+        return (0, 0, 0)
+    return (int(m.group(1)), int(m.group(2)), int(m.group(3)))
+
+
+def _serialize_release_row(r: SystemRelease) -> dict:
+    try:
+        feats = json.loads(r.features_json or "[]")
+    except Exception:
+        feats = []
+    try:
+        fixes = json.loads(r.fixes_json or "[]")
+    except Exception:
+        fixes = []
+    return {
+        "id": r.id,
+        "version": r.version,
+        "commit_hash": r.commit_hash or "",
+        "channel": r.channel or "stable",
+        "release_date": r.release_date or "",
+        "title": r.title or "",
+        "summary": r.summary or "",
+        "features": feats if isinstance(feats, list) else [],
+        "fixes": fixes if isinstance(fixes, list) else [],
+        "is_published": bool(r.is_published),
+        "is_mandatory": bool(r.is_mandatory),
+        "requires_asterisk_reload": bool(r.requires_asterisk_reload if r.requires_asterisk_reload is not None else True),
+        "created_by": r.created_by or "admin",
+        "created_at": r.created_at.isoformat() if r.created_at else None,
+        "published_at": r.published_at.isoformat() if r.published_at else None,
+    }
+
+
+async def _get_latest_published_release_for_channel(db: AsyncSession, channel: str) -> Optional[SystemRelease]:
+    ch = str(channel or "stable").strip().lower()
+    if ch == "pinned":
+        return None
+    allowed_channels = ["stable", "beta"] if ch == "beta" else ["stable"]
+    res = await db.execute(
+        select(SystemRelease).where(
+            SystemRelease.is_published == True,
+            SystemRelease.channel.in_(allowed_channels),
+        )
+    )
+    rows = res.scalars().all()
+    if not rows:
+        return None
+    rows.sort(key=lambda x: _parse_semver_tuple(x.version), reverse=True)
+    return rows[0]
+
+
+def _resolve_hub_public_url(request: Request) -> str:
+    env_url = str(os.getenv("NORNIA_HUB_PUBLIC_URL") or "").strip().rstrip("/")
+    if env_url:
+        return env_url
+    xf_proto = (request.headers.get("x-forwarded-proto") or request.url.scheme or "https").split(",")[0].strip()
+    xf_host = (request.headers.get("x-forwarded-host") or request.headers.get("host") or "").split(",")[0].strip()
+    if xf_host:
+        return f"{xf_proto}://{xf_host}"
+    return "https://panel.nornia.com.tr"
+
+
 @app.post("/api/v1/clients/{client_id}/ota-update")
-async def trigger_client_remote_ota_update(client_id: int, request: Request, db: AsyncSession = Depends(get_central_db)):
-    """Sends a remote OTA Update command over the active Nornia Connect tunnel to pull latest code, build, and restart the PBX."""
+async def trigger_client_remote_ota_update(
+    client_id: int,
+    request: Request,
+    payload: Optional[Dict[str, Any]] = Body(default=None),
+    db: AsyncSession = Depends(get_central_db),
+):
+    """Sends a remote OTA Update command over the active Nornia Connect tunnel using the unified nornia_updater.py engine."""
     from license_center.backend.connect_hub import trigger_pbx_ota_update
 
     res = await db.execute(select(ClientServer).where(ClientServer.id == client_id))
@@ -2700,27 +2781,62 @@ async def trigger_client_remote_ota_update(client_id: int, request: Request, db:
     if not client:
         raise HTTPException(status_code=404, detail="Müşteri bulunamadı.")
 
-    performed_by = request.headers.get("X-User-Name", "admin")
+    body = payload if isinstance(payload, dict) else {}
+    mode = str(body.get("mode") or "now").strip().lower()
+    if mode not in ("now", "after_calls"):
+        mode = "now"
+
+    target_rel = None
+    if body.get("release_id"):
+        r_res = await db.execute(select(SystemRelease).where(SystemRelease.id == int(body["release_id"])))
+        target_rel = r_res.scalars().first()
+    if not target_rel:
+        target_rel = await _get_latest_published_release_for_channel(db, client.update_channel or "stable")
+
+    target_version = str(body.get("target_version") or (target_rel.version if target_rel else "")).strip()
+    target_commit = str(body.get("target_commit") or (target_rel.commit_hash if target_rel else "")).strip()
+    hub_url = _resolve_hub_public_url(request)
+
+    s_info = getattr(request.state, "master_user", None) or {}
+    performed_by = s_info.get("u") or request.headers.get("X-User-Name", "admin")
     hw_id = (client.hardware_id or "").strip().upper()
     sub = (client.connect_subdomain or "").strip().lower()
 
-    sent = await trigger_pbx_ota_update(hardware_id=hw_id, subdomain=sub, triggered_by=performed_by)
+    sent = await trigger_pbx_ota_update(
+        hardware_id=hw_id,
+        subdomain=sub,
+        triggered_by=performed_by,
+        target_version=target_version,
+        target_commit=target_commit,
+        mode=mode,
+        hub_url=hub_url,
+    )
     if not sent:
         raise HTTPException(
             status_code=400,
             detail="Santralin Nornia Connect tüneli şu anda aktif değil. OTA güncelleme için tünelin bağlı olması gerekmektedir.",
         )
 
+    client.update_status = "waiting_calls" if mode == "after_calls" else "updating"
+    client.update_progress = 5
+    client.update_step = "Aktif çağrıların bitmesi bekleniyor..." if mode == "after_calls" else "OTA güncelleme emri santrale iletildi..."
+    client.update_target_version = target_version or "Son Sürüm"
+    client.update_last_error = ""
+    client.update_updated_at = datetime.datetime.utcnow()
+    await db.commit()
+
     await log_master_action(
         db,
         performed_by,
         "OTA_UPDATE",
-        f"Uzaktan OTA Güncelleme Başlatıldı: {client.company_name} (Donanım: {hw_id}, Tünel: {sub}.nornia.com.tr)",
+        f"Uzaktan OTA Güncelleme Başlatıldı: {client.company_name} (Hedef: {target_version or 'Son'}, Mod: {mode}, Donanım: {hw_id})",
         extract_client_ip(request),
     )
     return {
         "success": True,
-        "message": f"{client.company_name} santraline Nornia Connect tüneli üzerinden OTA güncelleme emri iletildi. Santral arka planda güncellenip yeniden başlatılacak.",
+        "target_version": target_version,
+        "mode": mode,
+        "message": f"{client.company_name} santraline OTA güncelleme emri iletildi ({target_version or 'Son Sürüm'} • {'Çağrılar Bitince' if mode == 'after_calls' else 'Hemen'}).",
     }
 
 
@@ -2743,6 +2859,11 @@ async def trigger_bulk_remote_ota_update(
     if not client_ids:
         raise HTTPException(status_code=400, detail="Toplu OTA güncelleme için en az bir santral seçiniz.")
 
+    mode = str(payload.get("mode") or "after_calls").strip().lower()
+    if mode not in ("now", "after_calls"):
+        mode = "after_calls"
+    hub_url = _resolve_hub_public_url(request)
+
     s_info = getattr(request.state, "master_user", None) or {}
     performed_by = s_info.get("u") or request.headers.get("X-User-Name", "admin")
 
@@ -2753,19 +2874,40 @@ async def trigger_bulk_remote_ota_update(
     skipped: List[Dict[str, Any]] = []
 
     for c in clients:
+        if (c.update_channel or "stable") == "pinned" and not payload.get("force_pinned"):
+            skipped.append({"id": c.id, "company_name": c.company_name, "reason": "Kanal sabit (pinned)"})
+            continue
+        rel = await _get_latest_published_release_for_channel(db, c.update_channel or "stable")
+        t_ver = rel.version if rel else ""
+        t_commit = rel.commit_hash if rel else ""
         hw_id = (c.hardware_id or "").strip().upper()
         sub = (c.connect_subdomain or "").strip().lower()
-        sent = await trigger_pbx_ota_update(hardware_id=hw_id, subdomain=sub, triggered_by=performed_by)
+        sent = await trigger_pbx_ota_update(
+            hardware_id=hw_id,
+            subdomain=sub,
+            triggered_by=performed_by,
+            target_version=t_ver,
+            target_commit=t_commit,
+            mode=mode,
+            hub_url=hub_url,
+        )
         if sent:
-            triggered.append({"id": c.id, "company_name": c.company_name, "subdomain": sub})
+            c.update_status = "waiting_calls" if mode == "after_calls" else "updating"
+            c.update_progress = 5
+            c.update_step = "Aktif çağrıların bitmesi bekleniyor..." if mode == "after_calls" else "OTA güncelleme başlatıldı..."
+            c.update_target_version = t_ver or "Son Sürüm"
+            c.update_last_error = ""
+            c.update_updated_at = datetime.datetime.utcnow()
+            triggered.append({"id": c.id, "company_name": c.company_name, "subdomain": sub, "target_version": t_ver})
         else:
             skipped.append({"id": c.id, "company_name": c.company_name, "reason": "Tünel aktif değil"})
 
+    await db.commit()
     await log_master_action(
         db,
         performed_by,
         "BULK_OTA_UPDATE",
-        f"Toplu OTA Güncelleme Gönderildi: Başarılı={len(triggered)} ({', '.join(x['company_name'] for x in triggered) or '-'}), Atlanan={len(skipped)}",
+        f"Toplu OTA Güncelleme Gönderildi (Mod={mode}): Başarılı={len(triggered)}, Atlanan={len(skipped)}",
         extract_client_ip(request),
     )
 
@@ -2775,8 +2917,466 @@ async def trigger_bulk_remote_ota_update(
         "skipped_count": len(skipped),
         "triggered": triggered,
         "skipped": skipped,
-        "message": f"{len(triggered)} santrale OTA güncelleme emri iletildi" + (f" ({len(skipped)} santral tünel kapalı olduğu için atlandı)." if skipped else "."),
+        "message": f"{len(triggered)} santrale OTA güncelleme emri iletildi" + (f" ({len(skipped)} santral atlandı)." if skipped else "."),
     }
+
+
+@app.patch("/api/v1/clients/{client_id}/update-policy")
+async def update_client_update_policy(
+    client_id: int,
+    request: Request,
+    payload: Dict[str, Any] = Body(...),
+    db: AsyncSession = Depends(get_central_db),
+):
+    """Configures per-PBX update channel (stable/beta/pinned) and whether the PBX admin can self-update."""
+    res = await db.execute(select(ClientServer).where(ClientServer.id == client_id))
+    client = res.scalars().first()
+    if not client:
+        raise HTTPException(status_code=404, detail="Müşteri bulunamadı.")
+
+    if "update_channel" in payload:
+        ch = str(payload.get("update_channel") or "stable").strip().lower()
+        if ch not in ("stable", "beta", "pinned"):
+            raise HTTPException(status_code=400, detail="Geçersiz kanal (stable, beta veya pinned olmalı).")
+        client.update_channel = ch
+    if "self_update_allowed" in payload:
+        client.self_update_allowed = bool(payload.get("self_update_allowed"))
+
+    await db.commit()
+    s_info = getattr(request.state, "master_user", None) or {}
+    performed_by = s_info.get("u") or request.headers.get("X-User-Name", "admin")
+    await log_master_action(
+        db,
+        performed_by,
+        "UPDATE_POLICY_CHANGE",
+        f"Güncelleme Politikası Değişti ({client.company_name}): Kanal={client.update_channel}, Santralden Güncelleme İzni={'Açık' if client.self_update_allowed else 'Kapalı'}",
+        extract_client_ip(request),
+    )
+    return {
+        "success": True,
+        "client_id": client.id,
+        "update_channel": client.update_channel,
+        "self_update_allowed": bool(client.self_update_allowed),
+    }
+
+
+@app.get("/api/v1/releases")
+async def list_system_releases(db: AsyncSession = Depends(get_central_db)):
+    """Lists all registered Nornia PBX releases sorted by semantic version descending."""
+    res = await db.execute(select(SystemRelease))
+    rows = res.scalars().all()
+    rows.sort(key=lambda r: _parse_semver_tuple(r.version), reverse=True)
+    return [_serialize_release_row(r) for r in rows]
+
+
+@app.post("/api/v1/releases")
+async def create_system_release(
+    request: Request,
+    payload: Dict[str, Any] = Body(...),
+    db: AsyncSession = Depends(get_central_db),
+):
+    ver = str(payload.get("version") or "").strip()
+    if not ver:
+        raise HTTPException(status_code=400, detail="Sürüm numarası (ör: v3.6.3) zorunludur.")
+    if not ver.startswith("v"):
+        ver = f"v{ver}"
+    channel = str(payload.get("channel") or "stable").strip().lower()
+    if channel not in ("stable", "beta"):
+        channel = "stable"
+
+    existing = await db.execute(select(SystemRelease).where(SystemRelease.version == ver))
+    if existing.scalars().first():
+        raise HTTPException(status_code=400, detail=f"{ver} sürümü zaten kayıtlı.")
+
+    s_info = getattr(request.state, "master_user", None) or {}
+    performed_by = s_info.get("u") or request.headers.get("X-User-Name", "admin")
+    rel = SystemRelease(
+        version=ver,
+        commit_hash=str(payload.get("commit_hash") or "").strip(),
+        channel=channel,
+        release_date=str(payload.get("release_date") or datetime.datetime.now().strftime("%d.%m.%Y")).strip(),
+        title=str(payload.get("title") or "").strip(),
+        summary=str(payload.get("summary") or "").strip(),
+        features_json=json.dumps(payload.get("features") or [], ensure_ascii=False),
+        fixes_json=json.dumps(payload.get("fixes") or [], ensure_ascii=False),
+        is_published=bool(payload.get("is_published", True)),
+        is_mandatory=bool(payload.get("is_mandatory", False)),
+        requires_asterisk_reload=bool(payload.get("requires_asterisk_reload", True)),
+        created_by=performed_by,
+        published_at=datetime.datetime.utcnow() if payload.get("is_published", True) else None,
+    )
+    db.add(rel)
+    await db.commit()
+    await db.refresh(rel)
+    await log_master_action(
+        db,
+        performed_by,
+        "RELEASE_CREATE",
+        f"Yeni Sürüm Kaydedildi: {rel.version} (Kanal: {rel.channel}, Commit: {rel.commit_hash or '-'}, Yayın: {'Aktif' if rel.is_published else 'Taslak'})",
+        extract_client_ip(request),
+    )
+    return _serialize_release_row(rel)
+
+
+@app.put("/api/v1/releases/{release_id}")
+async def update_system_release(
+    release_id: int,
+    request: Request,
+    payload: Dict[str, Any] = Body(...),
+    db: AsyncSession = Depends(get_central_db),
+):
+    res = await db.execute(select(SystemRelease).where(SystemRelease.id == release_id))
+    rel = res.scalars().first()
+    if not rel:
+        raise HTTPException(status_code=404, detail="Sürüm kaydı bulunamadı.")
+
+    if "commit_hash" in payload:
+        rel.commit_hash = str(payload.get("commit_hash") or "").strip()
+    if "channel" in payload and str(payload.get("channel") or "").strip().lower() in ("stable", "beta"):
+        rel.channel = str(payload.get("channel")).strip().lower()
+    if "release_date" in payload:
+        rel.release_date = str(payload.get("release_date") or "").strip()
+    if "title" in payload:
+        rel.title = str(payload.get("title") or "").strip()
+    if "summary" in payload:
+        rel.summary = str(payload.get("summary") or "").strip()
+    if "features" in payload and isinstance(payload["features"], list):
+        rel.features_json = json.dumps(payload["features"], ensure_ascii=False)
+    if "fixes" in payload and isinstance(payload["fixes"], list):
+        rel.fixes_json = json.dumps(payload["fixes"], ensure_ascii=False)
+    if "is_published" in payload:
+        rel.is_published = bool(payload["is_published"])
+        if rel.is_published and not rel.published_at:
+            rel.published_at = datetime.datetime.utcnow()
+    if "is_mandatory" in payload:
+        rel.is_mandatory = bool(payload["is_mandatory"])
+    if "requires_asterisk_reload" in payload:
+        rel.requires_asterisk_reload = bool(payload["requires_asterisk_reload"])
+
+    await db.commit()
+    await db.refresh(rel)
+    s_info = getattr(request.state, "master_user", None) or {}
+    performed_by = s_info.get("u") or request.headers.get("X-User-Name", "admin")
+    await log_master_action(
+        db,
+        performed_by,
+        "RELEASE_UPDATE",
+        f"Sürüm Güncellendi: {rel.version} (Kanal: {rel.channel}, Yayın: {'Aktif' if rel.is_published else 'Taslak'})",
+        extract_client_ip(request),
+    )
+    return _serialize_release_row(rel)
+
+
+@app.delete("/api/v1/releases/{release_id}")
+async def delete_system_release(
+    release_id: int,
+    request: Request,
+    db: AsyncSession = Depends(get_central_db),
+):
+    res = await db.execute(select(SystemRelease).where(SystemRelease.id == release_id))
+    rel = res.scalars().first()
+    if not rel:
+        raise HTTPException(status_code=404, detail="Sürüm kaydı bulunamadı.")
+    ver_label = rel.version
+    await db.delete(rel)
+    await db.commit()
+    s_info = getattr(request.state, "master_user", None) or {}
+    performed_by = s_info.get("u") or request.headers.get("X-User-Name", "admin")
+    await log_master_action(db, performed_by, "RELEASE_DELETE", f"Sürüm Silindi: {ver_label}", extract_client_ip(request))
+    return {"success": True, "deleted_version": ver_label}
+
+
+@app.post("/api/v1/releases/import-from-repo")
+async def import_releases_from_repo(
+    request: Request,
+    payload: Optional[Dict[str, Any]] = Body(default=None),
+    db: AsyncSession = Depends(get_central_db),
+):
+    """
+    Fetches latest git origin/main on the Central Hub server (optional) and parses the structured
+    changelog entries from backend/main.py into SystemRelease records automatically.
+    """
+    import ast
+    import subprocess
+
+    body = payload if isinstance(payload, dict) else {}
+    target_channel = str(body.get("channel") or "beta").strip().lower()
+    if target_channel not in ("stable", "beta"):
+        target_channel = "beta"
+    auto_publish = bool(body.get("is_published", True))
+    max_entries = max(1, min(15, int(body.get("limit") or 5)))
+    do_git_fetch = bool(body.get("git_fetch", True))
+
+    head_commit = ""
+    source_code = ""
+    if do_git_fetch:
+        try:
+            await asyncio.to_thread(
+                subprocess.run,
+                ["git", "fetch", "origin", "main"],
+                cwd=PROJECT_ROOT,
+                capture_output=True,
+                timeout=20,
+            )
+            r_sha = await asyncio.to_thread(
+                subprocess.run,
+                ["git", "rev-parse", "--short", "origin/main"],
+                cwd=PROJECT_ROOT,
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+            if r_sha.returncode == 0 and (r_sha.stdout or "").strip():
+                head_commit = r_sha.stdout.strip()
+            r_blob = await asyncio.to_thread(
+                subprocess.run,
+                ["git", "show", "origin/main:backend/main.py"],
+                cwd=PROJECT_ROOT,
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
+            if r_blob.returncode == 0 and r_blob.stdout:
+                source_code = r_blob.stdout
+        except Exception as e_gf:
+            print(f"[Release Import] git fetch/show fallback to local file: {e_gf}")
+
+    if not source_code:
+        local_main = os.path.join(PROJECT_ROOT, "backend", "main.py")
+        if os.path.isfile(local_main):
+            with open(local_main, "r", encoding="utf-8") as f:
+                source_code = f.read()
+        try:
+            r_lsha = subprocess.run(
+                ["git", "rev-parse", "--short", "HEAD"],
+                cwd=PROJECT_ROOT,
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+            head_commit = head_commit or (r_lsha.stdout or "").strip()
+        except Exception:
+            pass
+
+    if not source_code:
+        raise HTTPException(status_code=500, detail="Kaynak kodundan sürüm günlüğü okunamadı.")
+
+    # Parse `get_system_version_info` return dict AST safely without importing backend/main.py
+    parsed_entries = []
+    idx = source_code.find("async def get_system_version_info")
+    if idx != -1:
+        snippet = source_code[idx : idx + 35000]
+        cl_idx = snippet.find('"changelog": [')
+        if cl_idx != -1:
+            bracket_start = snippet.find("[", cl_idx)
+            depth = 0
+            in_str = False
+            str_ch = ""
+            esc = False
+            end_pos = -1
+            for pos in range(bracket_start, len(snippet)):
+                ch = snippet[pos]
+                if in_str:
+                    if esc:
+                        esc = False
+                    elif ch == "\\":
+                        esc = True
+                    elif ch == str_ch:
+                        in_str = False
+                else:
+                    if ch in ('"', "'"):
+                        in_str = True
+                        str_ch = ch
+                    elif ch == "[":
+                        depth += 1
+                    elif ch == "]":
+                        depth -= 1
+                        if depth == 0:
+                            end_pos = pos + 1
+                            break
+            if end_pos != -1:
+                list_src = snippet[bracket_start:end_pos].replace("live_commit", f'"{head_commit}"')
+                try:
+                    parsed_entries = ast.literal_eval(list_src)
+                except Exception as e_ast:
+                    print(f"[Release Import AST Warning]: {e_ast}")
+
+    if not parsed_entries:
+        raise HTTPException(status_code=500, detail="Sürüm günlüğü (changelog) ayrıştırılamadı.")
+
+    s_info = getattr(request.state, "master_user", None) or {}
+    performed_by = s_info.get("u") or request.headers.get("X-User-Name", "admin")
+
+    imported = []
+    skipped = []
+    for idx_e, item in enumerate(parsed_entries[:max_entries]):
+        if not isinstance(item, dict):
+            continue
+        ver = str(item.get("version") or "").strip()
+        if not ver:
+            continue
+        ex_res = await db.execute(select(SystemRelease).where(SystemRelease.version == ver))
+        ex_row = ex_res.scalars().first()
+        c_hash = str(item.get("commit_hash") or "").strip()
+        if idx_e == 0 and head_commit:
+            c_hash = head_commit
+        if ex_row:
+            if idx_e == 0 and head_commit and not ex_row.commit_hash:
+                ex_row.commit_hash = head_commit
+            skipped.append(ver)
+            continue
+        new_rel = SystemRelease(
+            version=ver,
+            commit_hash=c_hash,
+            channel=target_channel if idx_e == 0 else "stable",
+            release_date=str(item.get("release_date") or "").strip(),
+            title=str(item.get("title") or "").strip(),
+            summary=str(item.get("summary") or "").strip(),
+            features_json=json.dumps(item.get("features") or [], ensure_ascii=False),
+            fixes_json=json.dumps(item.get("fixes") or [], ensure_ascii=False),
+            is_published=auto_publish,
+            is_mandatory=False,
+            requires_asterisk_reload=True,
+            created_by=performed_by,
+            published_at=datetime.datetime.utcnow() if auto_publish else None,
+        )
+        db.add(new_rel)
+        imported.append(ver)
+
+    await db.commit()
+    await log_master_action(
+        db,
+        performed_by,
+        "RELEASE_IMPORT",
+        f"Repodan Sürüm İçe Aktarıldı (Kanal={target_channel}): Yeni={imported or 'Yok'}, Mevcut={skipped}",
+        extract_client_ip(request),
+    )
+    return {
+        "success": True,
+        "imported": imported,
+        "skipped": skipped,
+        "head_commit": head_commit,
+        "message": (
+            f"{len(imported)} yeni sürüm içeri aktarıldı ({', '.join(imported)})."
+            if imported
+            else "Tüm güncel sürümler zaten Sürüm Kayıt Merkezinde mevcut."
+        ),
+    }
+
+
+@app.get("/api/v1/updates/check")
+async def pbx_check_central_updates(
+    hardware_id: Optional[str] = None,
+    tenant_code: Optional[str] = None,
+    current_version: Optional[str] = None,
+    db: AsyncSession = Depends(get_central_db),
+):
+    """
+    Authoritative PBX Update Check Endpoint.
+    PBXs NEVER query Git directly — they ask the Central Panel what releases are approved
+    for their assigned channel (stable/beta/pinned) and whether self-update is allowed.
+    """
+    hw_s = str(hardware_id or "").strip().upper()
+    tc_s = str(tenant_code or "").strip().lower()
+    cur_ver = str(current_version or "").strip()
+
+    client = None
+    if hw_s and hw_s != "UNBOUND":
+        res = await db.execute(select(ClientServer).where(ClientServer.hardware_id == hw_s))
+        client = res.scalars().first()
+    if not client and tc_s:
+        res = await db.execute(select(ClientServer).where(ClientServer.tenant_code == tc_s))
+        client = res.scalars().first()
+
+    update_channel = (client.update_channel or "stable").strip().lower() if client else "stable"
+    self_update_allowed = bool(client.self_update_allowed) if (client and client.self_update_allowed is not None) else False
+    if not cur_ver and client and client.software_version:
+        cur_ver = str(client.software_version).strip()
+    cur_tuple = _parse_semver_tuple(cur_ver)
+
+    if update_channel == "pinned":
+        return {
+            "reachable": True,
+            "update_available": False,
+            "self_update_allowed": False,
+            "update_channel": "pinned",
+            "current_version": cur_ver,
+            "latest_version": cur_ver,
+            "target_commit": "",
+            "pending_releases": [],
+            "total_features_count": 0,
+            "total_fixes_count": 0,
+            "message": "Bu santral Merkez Panel tarafından mevcut sürümde sabitlenmiştir (Pinned).",
+        }
+
+    allowed_channels = ["stable", "beta"] if update_channel == "beta" else ["stable"]
+    rel_res = await db.execute(
+        select(SystemRelease).where(
+            SystemRelease.is_published == True,
+            SystemRelease.channel.in_(allowed_channels),
+        )
+    )
+    all_pub = rel_res.scalars().all()
+    all_pub.sort(key=lambda r: _parse_semver_tuple(r.version), reverse=True)
+
+    pending = [r for r in all_pub if _parse_semver_tuple(r.version) > cur_tuple]
+    serialized_pending = [_serialize_release_row(r) for r in pending]
+    latest_row = all_pub[0] if all_pub else None
+
+    total_feats = sum(len(x.get("features") or []) for x in serialized_pending)
+    total_fixes = sum(len(x.get("fixes") or []) for x in serialized_pending)
+
+    return {
+        "reachable": True,
+        "update_available": len(pending) > 0,
+        "self_update_allowed": self_update_allowed,
+        "update_channel": update_channel,
+        "current_version": cur_ver,
+        "latest_version": latest_row.version if latest_row else cur_ver,
+        "target_commit": (latest_row.commit_hash or "") if latest_row else "",
+        "pending_releases": serialized_pending,
+        "total_features_count": total_feats,
+        "total_fixes_count": total_fixes,
+        "checked_at": datetime.datetime.utcnow().isoformat() + "Z",
+    }
+
+
+@app.post("/api/v1/updates/report-status")
+async def pbx_report_update_status(
+    payload: Dict[str, Any] = Body(...),
+    db: AsyncSession = Depends(get_central_db),
+):
+    """Receives live step-by-step progress callbacks from nornia_updater.py on each PBX server."""
+    hw_s = str(payload.get("hardware_id") or "").strip().upper()
+    if not hw_s:
+        return {"ok": False}
+
+    res = await db.execute(select(ClientServer).where(ClientServer.hardware_id == hw_s))
+    clients = res.scalars().all()
+    if not clients:
+        return {"ok": False}
+
+    st_val = str(payload.get("status") or "updating").strip().lower()
+    prog_val = max(0, min(100, int(payload.get("progress") or 0)))
+    step_lbl = str(payload.get("step_label") or "").strip()[:240]
+    t_ver = str(payload.get("target_version") or "").strip()
+    c_ver = str(payload.get("current_version") or "").strip()
+    err_s = str(payload.get("error") or "").strip()[:1000]
+    now_dt = datetime.datetime.utcnow()
+
+    for c in clients:
+        c.update_status = st_val
+        c.update_progress = prog_val
+        c.update_step = step_lbl
+        if t_ver:
+            c.update_target_version = t_ver
+        if c_ver and st_val in ("success", "rolled_back"):
+            c.software_version = c_ver
+        c.update_last_error = err_s
+        c.update_updated_at = now_dt
+
+    await db.commit()
+    return {"ok": True}
 
 
 @app.get("/api/v1/clients/{client_id}/telemetry-dashboard")
