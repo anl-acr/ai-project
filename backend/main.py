@@ -42275,18 +42275,32 @@ async def get_system_version_info():
         pass
 
     return {
-        "version": "v3.7.5",
+        "version": "v3.7.6",
         "commit_hash": live_commit,
         "release_date": "22 Kasım 2026",
         "status": "Güncel / Canlı Sürüm",
         "environment": "Production (On-Premise)",
         "changelog": [
             {
-                "version": "v3.7.5",
+                "version": "v3.7.6",
                 "commit_hash": live_commit,
                 "release_date": "22 Kasım 2026",
                 "badge": "Canlı Sürüm (Güncel)",
                 "badge_type": "current",
+                "title": "Yealink T42S & Klasik T2x/T4x Saha Modelleri (56 Model Kataloğu)",
+                "summary": "Yealink T42S başta olmak üzere sahada yaygın kullanılan T21P E2, T23G, T27G, T29G, T41P ve T42G modelleri hem Masa Telefonum görsel tasarımcısına hem Kullanıcı SIP cihaz listesine eklendi.",
+                "features": [
+                    "Yealink T42S (6 Tuş × 3 Sayfa = 15 DSS, Monokrom Gigabit) ile T21P E2, T23G, T27G (EXP40), T29G (EXP40), T41P ve T42G modelleri tam gövde önizlemesiyle kataloğa eklendi (toplam 56 model).",
+                    "Kullanıcı Ayarları > SIP Cihazları model açılır listesi de tüm 4-marka (Yealink, Grandstream, Fanvil, Cisco) modelleriyle senkronize edildi."
+                ],
+                "fixes": []
+            },
+            {
+                "version": "v3.7.5",
+                "commit_hash": "c7d1d1b",
+                "release_date": "22 Kasım 2026",
+                "badge": "Kararlı",
+                "badge_type": "stable",
                 "title": "Masa Telefonum — Model-Bazlı Canlı Görsel Tasarımcı, Dinamik Santral İsimli BLF, Zincirleme Meşguliyet Modülleri (1–4) & Tek Tıkla Reboot",
                 "summary": "Kullanıcıların kendi masa telefonlarını (Yealink, Grandstream, Fanvil, Cisco — 49 model) gerçek gövde simülasyonu üzerinde görsel olarak yapılandırabilmesi, 1–4 adet zincirleme meşguliyet modülü (EXP43/EXP50/GBX20/CP-8800 KEM) yönetebilmesi ve tek tıkla oto-provizyon + Reboot gönderebilmesi sağlandı.",
                 "features": [

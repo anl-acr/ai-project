@@ -30,8 +30,9 @@ VENDOR_OUI_MAP: Dict[str, str] = {
 
 SUPPORTED_PHONE_MODELS: Dict[str, List[str]] = {
     "Yealink": [
+        "T21P E2", "T23G", "T27G", "T29G",
         "T30P", "T31P", "T31G", "T33P", "T33G",
-        "T40G", "T41S", "T42U", "T43U", "T46S", "T46U", "T48S", "T48U",
+        "T40G", "T41P", "T41S", "T42G", "T42S", "T42U", "T43U", "T46S", "T46U", "T48S", "T48U",
         "T53", "T53W", "T54W", "T57W", "T58W",
     ],
     "Grandstream": [
@@ -123,13 +124,20 @@ EXPANSION_MODULE_CATALOG: Dict[str, Dict[str, Any]] = {
 
 PHONE_MODEL_CATALOG: List[Dict[str, Any]] = [
     # --- YEALINK ---
+    {"brand": "Yealink", "model": "T21P E2", "label": "Yealink SIP-T21P E2 (2 Hat • Monokrom LCD)", "screen": "mono", "layout": "left_only", "dss_per_page": 2, "dss_pages": 1, "max_dss": 2, "soft_keys": 4, "expansion_model": None, "max_expansions": 0},
+    {"brand": "Yealink", "model": "T23G", "label": "Yealink SIP-T23G (3 Hat • Monokrom Gigabit)", "screen": "mono", "layout": "left_only", "dss_per_page": 3, "dss_pages": 1, "max_dss": 3, "soft_keys": 4, "expansion_model": None, "max_expansions": 0},
+    {"brand": "Yealink", "model": "T27G", "label": "Yealink SIP-T27G (8 Tuş × 3 Sayfa • EXP40 Destekli)", "screen": "mono", "layout": "split", "dss_per_page": 8, "dss_pages": 3, "max_dss": 21, "soft_keys": 4, "expansion_model": "EXP40", "max_expansions": 4},
+    {"brand": "Yealink", "model": "T29G", "label": "Yealink SIP-T29G (10 Tuş × 3 Sayfa • Renkli • EXP40)", "screen": "color", "layout": "split", "dss_per_page": 10, "dss_pages": 3, "max_dss": 27, "soft_keys": 4, "expansion_model": "EXP40", "max_expansions": 4},
     {"brand": "Yealink", "model": "T30P", "label": "Yealink SIP-T30 / T30P (Giriş • Monokrom)", "screen": "mono", "layout": "compact", "dss_per_page": 2, "dss_pages": 1, "max_dss": 2, "soft_keys": 4, "expansion_model": None, "max_expansions": 0},
     {"brand": "Yealink", "model": "T31P", "label": "Yealink SIP-T31P (2 Hat • Monokrom LCD)", "screen": "mono", "layout": "left_only", "dss_per_page": 2, "dss_pages": 1, "max_dss": 2, "soft_keys": 4, "expansion_model": None, "max_expansions": 0},
     {"brand": "Yealink", "model": "T31G", "label": "Yealink SIP-T31G (2 Hat • Gigabit Monokrom)", "screen": "mono", "layout": "left_only", "dss_per_page": 2, "dss_pages": 1, "max_dss": 2, "soft_keys": 4, "expansion_model": None, "max_expansions": 0},
     {"brand": "Yealink", "model": "T33P", "label": "Yealink SIP-T33P (4 Tuş × 3 Sayfa • Renkli)", "screen": "color", "layout": "split", "dss_per_page": 4, "dss_pages": 3, "max_dss": 12, "soft_keys": 4, "expansion_model": None, "max_expansions": 0},
     {"brand": "Yealink", "model": "T33G", "label": "Yealink SIP-T33G (4 Tuş × 3 Sayfa • Renkli Gigabit)", "screen": "color", "layout": "split", "dss_per_page": 4, "dss_pages": 3, "max_dss": 12, "soft_keys": 4, "expansion_model": None, "max_expansions": 0},
     {"brand": "Yealink", "model": "T40G", "label": "Yealink SIP-T40G (3+3 Tuş • Monokrom)", "screen": "mono", "layout": "split", "dss_per_page": 6, "dss_pages": 3, "max_dss": 15, "soft_keys": 4, "expansion_model": None, "max_expansions": 0},
+    {"brand": "Yealink", "model": "T41P", "label": "Yealink SIP-T41P (6 Tuş × 3 Sayfa • Monokrom)", "screen": "mono", "layout": "split", "dss_per_page": 6, "dss_pages": 3, "max_dss": 15, "soft_keys": 4, "expansion_model": None, "max_expansions": 0},
     {"brand": "Yealink", "model": "T41S", "label": "Yealink SIP-T41S (6 Tuş × 3 Sayfa • Monokrom)", "screen": "mono", "layout": "split", "dss_per_page": 6, "dss_pages": 3, "max_dss": 15, "soft_keys": 4, "expansion_model": None, "max_expansions": 0},
+    {"brand": "Yealink", "model": "T42G", "label": "Yealink SIP-T42G (6 Tuş × 3 Sayfa • Monokrom Gigabit)", "screen": "mono", "layout": "split", "dss_per_page": 6, "dss_pages": 3, "max_dss": 15, "soft_keys": 4, "expansion_model": None, "max_expansions": 0},
+    {"brand": "Yealink", "model": "T42S", "label": "Yealink SIP-T42S (6 Tuş × 3 Sayfa = 15 DSS • Monokrom Gigabit)", "screen": "mono", "layout": "split", "dss_per_page": 6, "dss_pages": 3, "max_dss": 15, "soft_keys": 4, "expansion_model": None, "max_expansions": 0},
     {"brand": "Yealink", "model": "T42U", "label": "Yealink SIP-T42U (6 Tuş × 3 Sayfa • Monokrom)", "screen": "mono", "layout": "split", "dss_per_page": 6, "dss_pages": 3, "max_dss": 15, "soft_keys": 4, "expansion_model": None, "max_expansions": 0},
     {"brand": "Yealink", "model": "T43U", "label": "Yealink SIP-T43U (8 Tuş × 3 Sayfa • EXP43 Destekli)", "screen": "mono", "layout": "split", "dss_per_page": 8, "dss_pages": 3, "max_dss": 21, "soft_keys": 4, "expansion_model": "EXP43", "max_expansions": 3},
     {"brand": "Yealink", "model": "T46S", "label": "Yealink SIP-T46S (10 Tuş × 3 Sayfa • Renkli • EXP40)", "screen": "color", "layout": "split", "dss_per_page": 10, "dss_pages": 3, "max_dss": 27, "soft_keys": 4, "expansion_model": "EXP40", "max_expansions": 4},

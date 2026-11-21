@@ -88,11 +88,18 @@ const SIP_VENDOR_OUI_MAP = {
 };
 
 const SIP_PHONE_MODELS = {
-  Yealink: ["T31P", "T31G", "T33G", "T43U", "T46U", "T48U", "T54W", "T58W"],
-  Fanvil: ["X3U", "X4U", "X5U", "X6U", "V62", "V64", "V65"],
-  Grandstream: ["GRP2602", "GRP2612", "GRP2614", "GXP1625", "GXP2140", "GXP2170"],
-  Snom: ["D315", "D385", "D717", "D735", "D785"],
-  Cisco: ["SPA504G", "CP-7821", "CP-8841"],
+  Yealink: [
+    "T21P E2", "T23G", "T27G", "T29G",
+    "T30P", "T31P", "T31G", "T33P", "T33G",
+    "T40G", "T41P", "T41S", "T42G", "T42S", "T42U", "T43U", "T46S", "T46U", "T48S", "T48U",
+    "T53", "T53W", "T54W", "T57W", "T58W"
+  ],
+  Grandstream: [
+    "GXP1625", "GXP1628", "GXP2135", "GXP2140", "GXP2170",
+    "GRP2602", "GRP2612", "GRP2613", "GRP2614", "GRP2615", "GRP2616", "GRP2624", "GRP2634", "GRP2636"
+  ],
+  Fanvil: ["X3S", "X3U", "X4U", "X5U", "X6U", "X7", "X7C", "X210", "V62", "V64", "V65"],
+  Cisco: ["7821", "7841", "8811", "8841", "8851", "8861"],
   Gigaset: ["N510 IP PRO", "Maxwell 3"]
 };
 
