@@ -340,6 +340,7 @@ static.auto_provision.server.url = {{PROVISION_URL}}
 static.auto_provision.power_on = 1
 static.auto_provision.repeat.enable = 1
 static.auto_provision.repeat.minutes = 60
+static.security.trust_certificates = 0
 sip.notify_reboot_enable = 1
 
 # --- SIP Hesap 1 ---
@@ -1530,6 +1531,7 @@ def generate_yealink_common_boot_cfg() -> str:
             "local_time.summer_time = 0",
             "sip.notify_reboot_enable = 1",
             "static.auto_provision.power_on = 1",
+            "static.security.trust_certificates = 0",
             "features.direct_ip_call_enable = 0",
             "",
         ]
@@ -2113,11 +2115,13 @@ def generate_provisioning_config(
                 "static.auto_provision.power_on = 1",
                 "static.auto_provision.repeat.enable = 1",
                 "static.auto_provision.repeat.minutes = 60",
+                "static.security.trust_certificates = 0",
                 "",
             ]
             if provision_server_url
             else [
                 "static.auto_provision.power_on = 1",
+                "static.security.trust_certificates = 0",
                 "",
             ]
         ),

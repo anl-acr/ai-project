@@ -14323,17 +14323,65 @@ def _build_tenant_user_sip_devices_map(target_tenant: str) -> dict:
     return out
 
 
+AUTOPROV_RECENT_LOGS: list = []
+
+
+def _log_autoprovision_hit(
+    tenant_id: str,
+    filename: str,
+    client_ip: str,
+    user_agent: str,
+    status_code: int,
+    detail: str,
+    mode: str = "",
+    mac_hex: str = "",
+    ext: str = "",
+    sip_username: str = "",
+) -> None:
+    try:
+        now_tr = (datetime.datetime.utcnow() + datetime.timedelta(hours=3)).strftime("%Y-%m-%d %H:%M:%S")
+        rec = {
+            "timestamp": now_tr,
+            "tenant_id": tenant_id or "tenant-default",
+            "filename": str(filename or ""),
+            "client_ip": str(client_ip or ""),
+            "user_agent": str(user_agent or "")[:120],
+            "status_code": int(status_code),
+            "detail": str(detail or ""),
+            "mode": str(mode or "").upper(),
+            "mac": str(mac_hex or "").upper(),
+            "extension": str(ext or ""),
+            "sip_username": str(sip_username or ""),
+        }
+        AUTOPROV_RECENT_LOGS.insert(0, rec)
+        if len(AUTOPROV_RECENT_LOGS) > 80:
+            del AUTOPROV_RECENT_LOGS[80:]
+        print(
+            f"[AUTOPROV] {now_tr} {status_code} mode={rec['mode'] or 'AUTO'} "
+            f"ip={rec['client_ip']} file={rec['filename']} ext={rec['extension']} "
+            f"sip={rec['sip_username']} ua={rec['user_agent']} -> {rec['detail']}",
+            flush=True,
+        )
+    except Exception:
+        pass
+
+
 @app.get("/api/settings/autoprovision")
 async def get_autoprovision(user_info: dict = Depends(get_user_info)):
     from backend.services.autoprovision_service import PHONE_MODEL_CATALOG
     target_tenant = user_info.get("tenant_id") or "tenant-default"
     devices = _build_enriched_autoprovision_list(target_tenant)
     user_sip_devices = _build_tenant_user_sip_devices_map(target_tenant)
+    recent_logs = [
+        lg for lg in AUTOPROV_RECENT_LOGS
+        if target_tenant in ("all", "global") or lg.get("tenant_id") in (target_tenant, "all", "global")
+    ][:25]
     return {
         "status": "success",
         "devices": devices,
         "model_catalog": PHONE_MODEL_CATALOG,
         "user_sip_devices": user_sip_devices,
+        "recent_logs": recent_logs,
     }
 
 
@@ -15900,12 +15948,44 @@ async def _render_autoprovision_file_for_phone(
         generate_provisioning_config,
         resolve_provisioning_endpoints,
     )
+    client_ip = extract_client_ip(request)
+    user_agent = request.headers.get("user-agent") or ""
+    fn_clean = str(filename or "").strip()
+    fn_low = fn_clean.lower()
+    req_host = request.headers.get("host") or ""
+    req_scheme = request.headers.get("x-forwarded-proto") or request.url.scheme or "http"
+    query_mode = str(explicit_mode or request.query_params.get("mode") or "").strip().lower()
+
     tenant_id = resolve_tenant_by_provisioning_token(settings_db, token)
     if not tenant_id:
+        _log_autoprovision_hit("unknown", fn_clean, client_ip, user_agent, 403, "Geçersiz provizyon anahtarı", mode=query_mode)
         raise HTTPException(status_code=403, detail="Geçersiz provizyon anahtarı.")
 
-    fn_clean = str(filename or "").strip()
-    if re.match(r"^y0000000000\d+\.cfg$", fn_clean, re.IGNORECASE):
+    # CRITICAL FOR YEALINK v81+ (T42S, T46U, T54W, etc.):
+    # Yealink requests <mac>.boot and y000000000000.boot BEFORE <mac>.cfg.
+    # If <mac>.boot returns HTTP 200 with .cfg parameters (no include:config), Yealink ABORTS and never downloads <mac>.cfg!
+    # Returning 404 for .boot and auxiliary sidecar files ensures phones cleanly fall back to y0000000000XX.cfg and <mac>.cfg.
+    if (
+        fn_low.endswith(".boot")
+        or fn_low.endswith("-local.cfg")
+        or fn_low.endswith("-contact.xml")
+        or fn_low.endswith("-security.enc")
+        or fn_low.endswith((".enc", ".rom", ".bin", ".wav", ".png", ".jpg", ".jpeg", ".tar", ".gz", ".zip", ".rfs"))
+    ):
+        _log_autoprovision_hit(
+            tenant_id, fn_clean, client_ip, user_agent, 404,
+            "Boot / yardımcı dosya atlandı (cihaz ana .cfg dosyasını çekecek)",
+            mode=query_mode,
+        )
+        raise HTTPException(status_code=404, detail="Boot/yardımcı dosya mevcut değil; cihaz ana .cfg dosyasını çekmelidir.")
+
+    # Yealink model-level common cfg (e.g. y000000000067.cfg for T42S, y000000000108.cfg for T46U, y000000000124.cfg for T33G)
+    if re.match(r"^y\d{10,14}\.cfg$", fn_clean, re.IGNORECASE):
+        _log_autoprovision_hit(
+            tenant_id, fn_clean, client_ip, user_agent, 200,
+            "Yealink ortak model yapılandırması gönderildi",
+            mode=query_mode,
+        )
         return PlainTextResponse(generate_yealink_common_boot_cfg())
 
     mac_hex = extract_mac_from_provision_filename(fn_clean)
@@ -15917,11 +15997,6 @@ async def _render_autoprovision_file_for_phone(
     pickup_cfg = ((pbx_cfg.get("numbering_plan") or {}).get("call_pickup") or {})
     pickup_group = str(pickup_cfg.get("group") or "*8").strip() or "*8"
     pickup_directed = str(pickup_cfg.get("directed") or "**").strip() or "**"
-
-    client_ip = extract_client_ip(request)
-    req_host = request.headers.get("host") or ""
-    req_scheme = request.headers.get("x-forwarded-proto") or request.url.scheme or "http"
-    query_mode = str(explicit_mode or request.query_params.get("mode") or "").strip().lower()
 
     # Map autoprovision entries by normalized mac hex to pick up custom template & connection_mode
     ap_by_mac = {}
@@ -15936,7 +16011,40 @@ async def _render_autoprovision_file_for_phone(
     ap_target_su = str((ap_target_rec or {}).get("sip_username") or "").strip()
     ap_target_dev_id = str((ap_target_rec or {}).get("sip_device_id") or "").strip()
 
+    # Merge PostgreSQL SystemUser rows (source of truth on production) + settings_db["users"]
+    merged_users: list = []
+    seen_exts: set = set()
+    seen_uids: set = set()
+    try:
+        from backend.database.config import SyncSessionLocal
+        from backend.database.models import SystemUser
+        with SyncSessionLocal() as session:
+            db_rows = session.query(SystemUser).all()
+            for r in db_rows:
+                r_tid = getattr(r, "tenant_id", None) or "tenant-default"
+                if tenant_id not in ("all", "global") and r_tid != tenant_id:
+                    continue
+                u_dict = {col.name: getattr(r, col.name) for col in SystemUser.__table__.columns}
+                merged_users.append(u_dict)
+                if u_dict.get("extension"):
+                    seen_exts.add(str(u_dict.get("extension")).strip())
+                if u_dict.get("id") is not None:
+                    seen_uids.add(str(u_dict.get("id")).strip())
+    except Exception:
+        pass
     for u in settings_db.get("users", []) or []:
+        if not isinstance(u, dict):
+            continue
+        u_tid = u.get("tenant_id") or "tenant-default"
+        if tenant_id not in ("all", "global") and u_tid != tenant_id:
+            continue
+        ext_s = str(u.get("extension") or "").strip()
+        uid_s = str(u.get("id") or "").strip()
+        if (ext_s and ext_s in seen_exts) or (uid_s and uid_s in seen_uids):
+            continue
+        merged_users.append(u)
+
+    for u in merged_users:
         u_tid = u.get("tenant_id") or "tenant-default"
         if tenant_id not in ("all", "global") and u_tid != tenant_id:
             continue
@@ -16020,7 +16128,7 @@ async def _render_autoprovision_file_for_phone(
                     phone_prefs=eff_prefs,
                     ext_name_map=ext_name_map,
                 )
-                # Stamp live provisioning fetch timestamp so Desk Phone Studio progress bar detects boot pull!
+                # Stamp live provisioning fetch timestamp so Desk Phone Studio progress bar & Autoprovision panel detect pull!
                 try:
                     now_prov_tr = (datetime.datetime.utcnow() + datetime.timedelta(hours=3)).strftime("%Y-%m-%d %H:%M:%S")
                     if "user_deskphone_configs" not in settings_db or not isinstance(settings_db.get("user_deskphone_configs"), dict):
@@ -16029,17 +16137,56 @@ async def _render_autoprovision_file_for_phone(
                         if isinstance(settings_db["user_deskphone_configs"].get(k_stamp), dict):
                             settings_db["user_deskphone_configs"][k_stamp]["last_provisioned_at"] = now_prov_tr
                             settings_db["user_deskphone_configs"][k_stamp]["last_provisioned_ip"] = client_ip or ""
-                    if isinstance(u.get("sip_devices"), list):
-                        for sd_item in u["sip_devices"]:
-                            if isinstance(sd_item, dict) and str(sd_item.get("sip_username") or "").strip() == dev_su:
-                                sd_item["last_provisioned_at"] = now_prov_tr
-                                sd_item["last_provisioned_ip"] = client_ip or ""
-                                break
+                    if isinstance(ap_rec, dict) and ap_rec:
+                        ap_rec["last_provisioned_at"] = now_prov_tr
+                        if client_ip and not str(ap_rec.get("ip") or "").strip():
+                            ap_rec["ip"] = client_ip
+                    for u_mem in settings_db.get("users", []) or []:
+                        if isinstance(u_mem, dict) and str(u_mem.get("extension") or "").strip() == ext_s and isinstance(u_mem.get("sip_devices"), list):
+                            for sd_item in u_mem["sip_devices"]:
+                                if isinstance(sd_item, dict) and str(sd_item.get("sip_username") or "").strip() == dev_su:
+                                    sd_item["last_provisioned_at"] = now_prov_tr
+                                    sd_item["last_provisioned_ip"] = client_ip or ""
+                                    break
                 except Exception:
                     pass
+                _log_autoprovision_hit(
+                    tenant_id, fn_clean, client_ip, user_agent, 200,
+                    f"Konfigürasyon gönderildi ({prov_ep['effective_mode'].upper()} • SIP: {prov_ep['pbx_host']})",
+                    mode=prov_ep["effective_mode"],
+                    mac_hex=dev_mac_hex or mac_hex,
+                    ext=ext_s,
+                    sip_username=dev_su,
+                )
                 return Response(content=content_text, media_type=media_type)
 
+    _log_autoprovision_hit(
+        tenant_id, fn_clean, client_ip, user_agent, 404,
+        "Eşleşen MAC / SIP cihazı bulunamadı",
+        mode=query_mode,
+        mac_hex=mac_hex,
+    )
     raise HTTPException(status_code=404, detail="Eşleşen SIP cihazı bulunamadı.")
+
+
+@app.get("/api/prov/{token}/lan")
+async def autoprovision_lan_root_info(token: str, request: Request):
+    """Bilgilendirme: Telefonlar bu temel URL altına /<mac>.cfg ekleyerek otomatik istek atar."""
+    from backend.services.autoprovision_service import resolve_tenant_by_provisioning_token
+    tenant_id = resolve_tenant_by_provisioning_token(settings_db, token)
+    if not tenant_id:
+        raise HTTPException(status_code=403, detail="Geçersiz provizyon anahtarı.")
+    return {"status": "ready", "mode": "lan", "message": "Nornia LAN Oto-Provizyon sunucusu aktif. Telefonlar otomatik olarak /<mac>.cfg veya /cfg<mac>.xml çeker."}
+
+
+@app.get("/api/prov/{token}/wan")
+async def autoprovision_wan_root_info(token: str, request: Request):
+    """Bilgilendirme: Telefonlar bu temel URL altına /<mac>.cfg ekleyerek otomatik istek atar."""
+    from backend.services.autoprovision_service import resolve_tenant_by_provisioning_token
+    tenant_id = resolve_tenant_by_provisioning_token(settings_db, token)
+    if not tenant_id:
+        raise HTTPException(status_code=403, detail="Geçersiz provizyon anahtarı.")
+    return {"status": "ready", "mode": "wan", "message": "Nornia WAN Oto-Provizyon sunucusu aktif. Telefonlar otomatik olarak /<mac>.cfg veya /cfg<mac>.xml çeker."}
 
 
 @app.get("/api/prov/{token}/lan/{filename}")
@@ -42868,18 +43015,34 @@ async def get_system_version_info():
         pass
 
     return {
-        "version": "v3.8.3",
+        "version": "v3.8.4",
         "commit_hash": live_commit,
         "release_date": "22 Kasım 2026",
         "status": "Güncel / Canlı Sürüm",
         "environment": "Production (On-Premise)",
         "changelog": [
             {
-                "version": "v3.8.3",
+                "version": "v3.8.4",
                 "commit_hash": live_commit,
                 "release_date": "22 Kasım 2026",
                 "badge": "Canlı Sürüm (Güncel)",
                 "badge_type": "current",
+                "title": "Yealink .boot Protokol Düzeltmesi, HTTPS Sertifika Uyumluluğu & Canlı Provizyon İstek Günlüğü",
+                "summary": "Yealink v81+ (T42S/T46U/T54W) cihazların <mac>.boot isteğinde konfigürasyonu durdurmasına yol açan .boot yanıtı düzeltildi, tüm 3 haneli Yealink model ortak dosyaları desteklendi ve canlı provizyon istek izleme paneli eklendi.",
+                "features": [
+                    "Yealink .boot & Yardımcı Dosya Düzeltmesi: <mac>.boot, y000000000000.boot ve *-local.cfg / *-security.enc istekleri artık 404 dönerek Yealink telefonların doğrudan y0000000000XX.cfg ve <mac>.cfg dosyalarını sorunsuz çekmesini sağlar.",
+                    "Tüm Yealink Ortak Model Dosyaları: y000000000067.cfg (T42S) yanında y000000000108.cfg (T46U) ve y000000000124.cfg (T33G) gibi 3 haneli kodlu tüm ortak dosyalar desteklenir.",
+                    "HTTPS Sertifika Uyumu (static.security.trust_certificates = 0): Yealink şablonları ve ortak boot dosyalarına eklenerek sonraki HTTPS çekimleri ve uzak XML rehber bağlantıları güvence altına alındı.",
+                    "Canlı Provizyon İstek Günlüğü & PostgreSQL Kullanıcı Senkronu: Telefonlardan gelen her provizyon isteği (dosya adı, HTTP 200/404, IP, zaman) Oto Provizyon panelinde anlık görüntülenir."
+                ],
+                "fixes": []
+            },
+            {
+                "version": "v3.8.3",
+                "commit_hash": "4263d29",
+                "release_date": "22 Kasım 2026",
+                "badge": "Kararlı",
+                "badge_type": "stable",
                 "title": "Oto Provizyon: Modele Göre Otomatik Şablon Seçimi, Aranabilir Şablon Listesi & PostgreSQL SIP Cihaz Seçicisi",
                 "summary": "Marka/Model seçildiğinde o modele ait şablon otomatik seçilir ve şablon listesinde canlı arama yapılabilir; kullanıcı altındaki SIP cihazı seçicisi PostgreSQL SystemUser ile tam senkronize edilip her zaman görünür hale getirildi.",
                 "features": [

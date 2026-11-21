@@ -61,6 +61,7 @@ export default function AutoprovisionPanel({ backendHost = "localhost:8000" }) {
   const [devices, setDevices] = useState([]);
   const [modelCatalog, setModelCatalog] = useState([]);
   const [userSipDevicesMap, setUserSipDevicesMap] = useState({});
+  const [recentLogs, setRecentLogs] = useState([]);
   const [users, setUsers] = useState([]);
   const [templates, setTemplates] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -166,6 +167,9 @@ export default function AutoprovisionPanel({ backendHost = "localhost:8000" }) {
         }
         if (dataDev.user_sip_devices && typeof dataDev.user_sip_devices === "object") {
           setUserSipDevicesMap(dataDev.user_sip_devices);
+        }
+        if (Array.isArray(dataDev.recent_logs)) {
+          setRecentLogs(dataDev.recent_logs);
         }
       }
 
@@ -777,6 +781,14 @@ export default function AutoprovisionPanel({ backendHost = "localhost:8000" }) {
             </div>
           </div>
 
+          <div className="flex items-start gap-2 px-3 py-2 rounded-xl bg-amber-50/80 dark:bg-amber-950/20 border border-amber-200/70 dark:border-amber-800/40 text-[11px] text-amber-800 dark:text-amber-300">
+            <AlertTriangle size={14} className="shrink-0 mt-0.5 text-amber-500" />
+            <span>
+              <strong>Yealink HTTPS İpucu:</strong> WAN (<code className="font-mono">https://</code>) URL ile ilk kez provizyon yaparken telefon web arayüzünden{" "}
+              <strong>Security → Trusted Certificates → Only Accept Trusted Certificates = Disabled</strong> yapıp kaydedin (veya santralle aynı ağdaysanız <strong>LAN HTTP</strong> adresini kullanın).
+            </span>
+          </div>
+
           {showNetEditor && (
             <div className="pt-3 border-t border-slate-100 dark:border-slate-800 grid grid-cols-1 md:grid-cols-5 gap-3 items-end">
               <div>
@@ -1065,68 +1077,123 @@ export default function AutoprovisionPanel({ backendHost = "localhost:8000" }) {
           )}
         </div>
 
-        {/* Right Side: Real LAN Network Scanner */}
-        <div className="xl:col-span-4 flex flex-col p-5 bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800/85 rounded-2xl shadow-sm min-h-[380px]">
-          <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800/60 pb-3 mb-4">
-            <h4 className="font-bold text-xs uppercase tracking-wider text-slate-700 dark:text-slate-300 flex items-center gap-2">
-              <Wifi size={14} className={text} />
-              Ağdaki Yeni Cihazlar
-            </h4>
-            <button
-              type="button"
-              onClick={scanNetwork}
-              disabled={scanning}
-              className={`px-3 py-1.5 ${bg} ${hover} text-white rounded-lg text-[10px] font-bold transition-all shadow-sm flex items-center gap-1.5 disabled:opacity-50 cursor-pointer`}
-            >
-              <RefreshCw size={11} className={scanning ? "animate-spin" : ""} />
-              <span>{scanning ? "Taranıyor..." : "Ağı Tara"}</span>
-            </button>
-          </div>
+        {/* Right Side: Real LAN Network Scanner + Live Provisioning Hit Log */}
+        <div className="xl:col-span-4 flex flex-col gap-5">
+          <div className="flex flex-col p-5 bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800/85 rounded-2xl shadow-sm min-h-[260px]">
+            <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800/60 pb-3 mb-4">
+              <h4 className="font-bold text-xs uppercase tracking-wider text-slate-700 dark:text-slate-300 flex items-center gap-2">
+                <Wifi size={14} className={text} />
+                Ağdaki Yeni Cihazlar
+              </h4>
+              <button
+                type="button"
+                onClick={scanNetwork}
+                disabled={scanning}
+                className={`px-3 py-1.5 ${bg} ${hover} text-white rounded-lg text-[10px] font-bold transition-all shadow-sm flex items-center gap-1.5 disabled:opacity-50 cursor-pointer`}
+              >
+                <RefreshCw size={11} className={scanning ? "animate-spin" : ""} />
+                <span>{scanning ? "Taranıyor..." : "Ağı Tara"}</span>
+              </button>
+            </div>
 
-          <div className="flex-1 overflow-y-auto pr-1">
-            {scanning ? (
-              <div className="flex flex-col items-center justify-center py-12 gap-3 text-slate-400">
-                <RefreshCw size={24} className={`animate-spin ${text}`} />
-                <span className="text-xs font-semibold">Yerel ağdaki IP telefonlar taranıyor...</span>
-              </div>
-            ) : scanResults.length > 0 ? (
-              <div className="space-y-2.5">
-                {scanMessage && (
-                  <p className="text-[11px] font-semibold text-emerald-600 dark:text-emerald-400 mb-2">{scanMessage}</p>
-                )}
-                {scanResults.map((dev, i) => (
-                  <div
-                    key={i}
-                    className={`flex flex-col p-3 rounded-xl border border-slate-200/70 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-800/30 hover:${border} transition-all cursor-pointer group`}
-                    onClick={() => handleSelectDiscovered(dev)}
-                  >
-                    <div className="flex items-center justify-between mb-1">
-                      <p className="text-xs font-bold text-slate-800 dark:text-white flex items-center gap-1.5">
-                        <Smartphone size={12} className="text-slate-400" />
-                        {dev.brand} {dev.model}
-                      </p>
-                      <div className={`p-1 ${bg} text-white rounded-md`}>
-                        <Plus size={12} />
+            <div className="flex-1 overflow-y-auto pr-1">
+              {scanning ? (
+                <div className="flex flex-col items-center justify-center py-10 gap-3 text-slate-400">
+                  <RefreshCw size={24} className={`animate-spin ${text}`} />
+                  <span className="text-xs font-semibold">Yerel ağdaki IP telefonlar taranıyor...</span>
+                </div>
+              ) : scanResults.length > 0 ? (
+                <div className="space-y-2.5">
+                  {scanMessage && (
+                    <p className="text-[11px] font-semibold text-emerald-600 dark:text-emerald-400 mb-2">{scanMessage}</p>
+                  )}
+                  {scanResults.map((dev, i) => (
+                    <div
+                      key={i}
+                      className={`flex flex-col p-3 rounded-xl border border-slate-200/70 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-800/30 hover:${border} transition-all cursor-pointer group`}
+                      onClick={() => handleSelectDiscovered(dev)}
+                    >
+                      <div className="flex items-center justify-between mb-1">
+                        <p className="text-xs font-bold text-slate-800 dark:text-white flex items-center gap-1.5">
+                          <Smartphone size={12} className="text-slate-400" />
+                          {dev.brand} {dev.model}
+                        </p>
+                        <div className={`p-1 ${bg} text-white rounded-md`}>
+                          <Plus size={12} />
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-3">
+                        <p className="text-[10px] font-mono text-slate-600 dark:text-slate-300 bg-white dark:bg-slate-900 px-1.5 py-0.5 rounded border border-slate-200 dark:border-slate-700">
+                          {String(dev.mac || "").toUpperCase()}
+                        </p>
+                        <p className="text-[10px] font-mono text-slate-400">{dev.ip}</p>
                       </div>
                     </div>
-                    <div className="flex items-center gap-3">
-                      <p className="text-[10px] font-mono text-slate-600 dark:text-slate-300 bg-white dark:bg-slate-900 px-1.5 py-0.5 rounded border border-slate-200 dark:border-slate-700">
-                        {String(dev.mac || "").toUpperCase()}
-                      </p>
-                      <p className="text-[10px] font-mono text-slate-400">{dev.ip}</p>
+                  ))}
+                </div>
+              ) : (
+                <div className="flex flex-col items-center justify-center py-8 text-center text-slate-400 px-3">
+                  <AlertTriangle size={22} className="text-amber-500 mb-2 opacity-80" />
+                  <p className="text-xs font-semibold text-slate-600 dark:text-slate-300">
+                    {scanMessage || "Henüz yeni cihaz bulunamadı."}
+                  </p>
+                  <p className="text-[10px] mt-1.5 leading-relaxed">
+                    Telefon santralle aynı VLAN&apos;daysa <strong>Ağı Tara</strong> ile bulunur; farklı VLAN/şubedeyse üstteki <strong>+</strong> butonuyla MAC adresini yazıp eşleştirebilirsiniz.
+                  </p>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Live Provisioning Request Log */}
+          <div className="flex flex-col p-4 bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800/85 rounded-2xl shadow-sm">
+            <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800/60 pb-2.5 mb-3">
+              <h4 className="font-bold text-[11px] uppercase tracking-wider text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
+                <FileCode size={13} className={text} />
+                Son Provizyon İstekleri
+              </h4>
+              <button
+                type="button"
+                onClick={fetchData}
+                className="inline-flex items-center gap-1 px-2 py-1 rounded-lg border border-slate-200 dark:border-slate-700 text-[10px] font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
+                title="İstek Günlüğünü Yenile"
+              >
+                <RefreshCw size={10} />
+                <span>Yenile</span>
+              </button>
+            </div>
+            {recentLogs.length === 0 ? (
+              <p className="text-[11px] text-slate-400 text-center py-4">
+                Henüz telefonlardan gelen provizyon isteği kaydedilmedi. Telefondan <strong>Auto Provision Now</strong> dediğinizde istekler burada anlık görünür.
+              </p>
+            ) : (
+              <div className="space-y-1.5 max-h-56 overflow-y-auto pr-1">
+                {recentLogs.map((lg, idx) => (
+                  <div
+                    key={`${lg.timestamp}-${lg.filename}-${idx}`}
+                    className="p-2 rounded-xl bg-slate-50/80 dark:bg-slate-800/40 border border-slate-200/60 dark:border-slate-800 text-[10px] space-y-0.5"
+                  >
+                    <div className="flex items-center justify-between gap-1.5">
+                      <span className="font-mono font-bold text-slate-800 dark:text-slate-100 truncate">
+                        {lg.filename}
+                      </span>
+                      <span
+                        className={`px-1.5 py-0.5 rounded font-mono font-extrabold shrink-0 ${
+                          lg.status_code === 200
+                            ? "bg-emerald-100 dark:bg-emerald-950/50 text-emerald-700 dark:text-emerald-300"
+                            : "bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300"
+                        }`}
+                      >
+                        {lg.status_code}
+                      </span>
+                    </div>
+                    <div className="text-slate-500 dark:text-slate-400 truncate">{lg.detail}</div>
+                    <div className="flex items-center justify-between text-[9px] text-slate-400 font-mono">
+                      <span>{lg.client_ip || "-"}</span>
+                      <span>{lg.timestamp}</span>
                     </div>
                   </div>
                 ))}
-              </div>
-            ) : (
-              <div className="flex flex-col items-center justify-center py-10 text-center text-slate-400 px-3">
-                <AlertTriangle size={24} className="text-amber-500 mb-2 opacity-80" />
-                <p className="text-xs font-semibold text-slate-600 dark:text-slate-300">
-                  {scanMessage || "Henüz yeni cihaz bulunamadı."}
-                </p>
-                <p className="text-[10px] mt-1.5 leading-relaxed">
-                  Telefon santralle aynı VLAN&apos;daysa <strong>Ağı Tara</strong> ile bulunur; farklı VLAN/şubedeyse üstteki <strong>+</strong> butonuyla MAC adresini yazıp eşleştirebilirsiniz.
-                </p>
               </div>
             )}
           </div>
