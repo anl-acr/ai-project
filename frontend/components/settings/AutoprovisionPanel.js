@@ -13,6 +13,7 @@ import {
   Tag,
   User,
   FileText,
+  FileCode,
   Download,
   Upload,
   Copy,

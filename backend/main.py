@@ -43015,18 +43015,31 @@ async def get_system_version_info():
         pass
 
     return {
-        "version": "v3.8.4",
+        "version": "v3.8.5",
         "commit_hash": live_commit,
         "release_date": "22 Kasım 2026",
         "status": "Güncel / Canlı Sürüm",
         "environment": "Production (On-Premise)",
         "changelog": [
             {
-                "version": "v3.8.4",
+                "version": "v3.8.5",
                 "commit_hash": live_commit,
                 "release_date": "22 Kasım 2026",
                 "badge": "Canlı Sürüm (Güncel)",
                 "badge_type": "current",
+                "title": "Oto Provizyon Arayüzü Hotfix (FileCode İkon İçe Aktarma Düzeltmesi)",
+                "summary": "Oto Provizyon panelindeki Son Provizyon İstekleri başlığında eksik kalan FileCode ikon importu giderildi.",
+                "features": [],
+                "fixes": [
+                    "AutoprovisionPanel.js dosyasında lucide-react içinden eksik olan FileCode importu eklenerek ReferenceError: FileCode is not defined hatası giderildi."
+                ]
+            },
+            {
+                "version": "v3.8.4",
+                "commit_hash": "3ff4b3c",
+                "release_date": "22 Kasım 2026",
+                "badge": "Kararlı",
+                "badge_type": "stable",
                 "title": "Yealink .boot Protokol Düzeltmesi, HTTPS Sertifika Uyumluluğu & Canlı Provizyon İstek Günlüğü",
                 "summary": "Yealink v81+ (T42S/T46U/T54W) cihazların <mac>.boot isteğinde konfigürasyonu durdurmasına yol açan .boot yanıtı düzeltildi, tüm 3 haneli Yealink model ortak dosyaları desteklendi ve canlı provizyon istek izleme paneli eklendi.",
                 "features": [
