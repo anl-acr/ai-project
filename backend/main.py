@@ -14174,6 +14174,8 @@ def _build_enriched_autoprovision_list(target_tenant: str) -> list:
                 existing = merged_by_mac.get(mac_hex)
                 if existing:
                     existing["sip_username"] = su or existing.get("sip_username") or ""
+                    existing["sip_device_id"] = str(dev.get("id") or existing.get("sip_device_id") or "")
+                    existing["sip_device_name"] = str(dev.get("name") or existing.get("sip_device_name") or "")
                     if not existing.get("ip") and dev.get("ip"):
                         existing["ip"] = dev.get("ip")
                     if dev.get("last_provisioned_at"):
@@ -14193,16 +14195,21 @@ def _build_enriched_autoprovision_list(target_tenant: str) -> list:
                         "connection_mode": str(dev.get("connection_mode") or "lan").strip().lower(),
                         "template_id": "",
                         "sip_username": su,
+                        "sip_device_id": str(dev.get("id") or ""),
+                        "sip_device_name": str(dev.get("name") or ""),
                         "last_provisioned_at": str(dev.get("last_provisioned_at") or ""),
                         "config_version": int(dev.get("config_version") or 1),
                         "tenant_id": u.get("tenant_id") or "tenant-default",
                     }
             else:
-                # If an ap record points to this user without MAC synced into sip_devices yet, attach sip_username
+                # If an ap record points to this user without MAC synced into sip_devices yet, attach matching sip_device
                 for entry in merged_by_mac.values():
                     if not entry.get("sip_username") and entry.get("assigned_extension") == ext_s:
-                        entry["sip_username"] = su
-                        break
+                        if not entry.get("sip_device_id") or str(entry.get("sip_device_id")) == str(dev.get("id")):
+                            entry["sip_username"] = su
+                            entry["sip_device_id"] = str(dev.get("id") or "")
+                            entry["sip_device_name"] = str(dev.get("name") or "")
+                            break
 
     # 3. Enrich with live Asterisk status + brand-correct provision filename
     result_list = []
@@ -14233,24 +14240,73 @@ def _build_enriched_autoprovision_list(target_tenant: str) -> list:
     return result_list
 
 
+def _build_tenant_user_sip_devices_map(target_tenant: str) -> dict:
+    """Returns {user_id_or_ext: [physical_sip_device_summary...]} (excluding web_phone & passwords) for Oto Provizyon modal."""
+    from backend.services.autoprovision_service import normalize_user_sip_devices
+
+    ap_all = settings_db.get("autoprovision", []) or []
+    dp_all = settings_db.get("user_deskphone_configs", {}) or {}
+    users_all = settings_db.get("users", []) or []
+
+    def _t_ok(tid_val):
+        if is_global_tenant(target_tenant):
+            return True
+        if is_default_tenant(target_tenant):
+            return (not tid_val) or tid_val in ("tenant-default", "default")
+        return tid_val == target_tenant
+
+    out = {}
+    for u in users_all:
+        if not isinstance(u, dict) or not _t_ok(u.get("tenant_id")):
+            continue
+        ext_s = str(u.get("extension") or "").strip()
+        uid_s = str(u.get("id") or "").strip()
+        if not ext_s and not uid_s:
+            continue
+        norm_devs = normalize_user_sip_devices(u, ap_all, dp_all, fallback_password_fn=resolve_secure_sip_password)
+        phys_list = []
+        for d in norm_devs:
+            if str(d.get("device_type") or "").lower() not in ("desk_phone", "dect", "softphone"):
+                continue
+            phys_list.append({
+                "id": str(d.get("id") or ""),
+                "name": str(d.get("name") or "Masa Telefonu"),
+                "device_type": str(d.get("device_type") or "desk_phone"),
+                "sip_username": str(d.get("sip_username") or ""),
+                "mac": str(d.get("mac") or ""),
+                "brand": str(d.get("brand") or ""),
+                "model": str(d.get("model") or ""),
+                "connection_mode": str(d.get("connection_mode") or "lan"),
+            })
+        if uid_s:
+            out[uid_s] = phys_list
+        if ext_s:
+            out[ext_s] = phys_list
+    return out
+
+
 @app.get("/api/settings/autoprovision")
 async def get_autoprovision(user_info: dict = Depends(get_user_info)):
     from backend.services.autoprovision_service import PHONE_MODEL_CATALOG
     target_tenant = user_info.get("tenant_id") or "tenant-default"
     devices = _build_enriched_autoprovision_list(target_tenant)
+    user_sip_devices = _build_tenant_user_sip_devices_map(target_tenant)
     return {
         "status": "success",
         "devices": devices,
         "model_catalog": PHONE_MODEL_CATALOG,
+        "user_sip_devices": user_sip_devices,
     }
 
 
 @app.post("/api/settings/autoprovision")
 async def save_autoprovision(payload: dict, user_info: dict = Depends(get_user_info)):
+    import secrets as _sec_mod
     from backend.services.autoprovision_service import (
         normalize_mac_address,
         normalize_user_sip_devices,
         detect_brand_from_mac,
+        generate_random_sip_device_username,
     )
     target_tenant = user_info.get("tenant_id") or "tenant-default"
     if "autoprovision" not in settings_db or not isinstance(settings_db.get("autoprovision"), list):
@@ -14264,6 +14320,9 @@ async def save_autoprovision(payload: dict, user_info: dict = Depends(get_user_i
     if not assigned_raw:
         raise HTTPException(status_code=400, detail="Atanacak kullanıcı / dahili seçimi zorunludur.")
 
+    req_sip_dev_id = str(payload.get("sip_device_id") or "").strip()
+    req_sip_username = str(payload.get("sip_username") or "").strip()
+    new_dev_name = str(payload.get("new_device_name") or "").strip()
     brand_val = str(payload.get("brand") or "").strip() or detect_brand_from_mac(mac_norm, "Yealink")
     model_val = str(payload.get("model") or "T46U").strip() or "T46U"
     ip_val = str(payload.get("ip") or "").strip()
@@ -14281,33 +14340,7 @@ async def save_autoprovision(payload: dict, user_info: dict = Depends(get_user_i
             matched_user = u
             break
 
-    record = {
-        "mac": mac_norm,
-        "ip": ip_val,
-        "brand": brand_val,
-        "model": model_val,
-        "assigned_user": str(matched_user.get("id")) if (matched_user and matched_user.get("id") is not None) else assigned_raw,
-        "extension": str(matched_user.get("extension") or "") if matched_user else (assigned_raw if assigned_raw.isdigit() else ""),
-        "template_id": tpl_id,
-        "connection_mode": conn_mode,
-        "tenant_id": target_tenant,
-        "provision_date": payload.get("provision_date") or datetime.datetime.utcnow().isoformat(),
-    }
-
-    # 1. Upsert in settings_db["autoprovision"] by normalized MAC hex
-    updated = False
-    for i, dev in enumerate(settings_db["autoprovision"]):
-        if not isinstance(dev, dict):
-            continue
-        _, existing_hex = normalize_mac_address(dev.get("mac") or "")
-        if existing_hex == mac_hex:
-            settings_db["autoprovision"][i] = {**dev, **record}
-            updated = True
-            break
-    if not updated:
-        settings_db["autoprovision"].append(record)
-
-    # 2. Remove this MAC from any OTHER user's sip_devices if it was reassigned
+    # 1. Remove this MAC from any OTHER user's sip_devices if it was reassigned
     for u in settings_db.get("users", []) or []:
         if not isinstance(u, dict) or u is matched_user:
             continue
@@ -14318,39 +14351,111 @@ async def save_autoprovision(payload: dict, user_info: dict = Depends(get_user_i
                     if sd_hex == mac_hex:
                         sd["mac"] = ""
 
-    # 3. Sync MAC + Brand + Model + Connection Mode directly into matched_user["sip_devices"] so /api/prov/{token}/... works immediately!
+    # 2. Bind or Create exact target physical SIP device under matched_user["sip_devices"]
+    resolved_sip_dev_id = req_sip_dev_id if req_sip_dev_id != "__CREATE_NEW__" else ""
+    resolved_sip_username = req_sip_username
+    resolved_sip_dev_name = ""
+
     if matched_user is not None:
         ext_s = str(matched_user.get("extension") or "").strip()
         ap_all = settings_db.get("autoprovision", [])
         dp_all = settings_db.get("user_deskphone_configs", {})
         norm_devs = normalize_user_sip_devices(matched_user, ap_all, dp_all, fallback_password_fn=resolve_secure_sip_password)
         target_sd = None
-        for sd in norm_devs:
-            if str(sd.get("device_type") or "").lower() != "web_phone":
-                _, sd_hex = normalize_mac_address(sd.get("mac") or "")
-                if sd_hex == mac_hex:
-                    target_sd = sd
-                    break
-        if target_sd is None:
+
+        if req_sip_dev_id == "__CREATE_NEW__":
+            # Create a brand-new physical desk_phone SIP account right from Oto Provizyon!
+            existing_sus = {str(d.get("sip_username") or "").lower() for d in norm_devs}
+            phys_count = sum(1 for d in norm_devs if str(d.get("device_type") or "").lower() != "web_phone")
+            new_su = generate_random_sip_device_username(ext_s or "1000", phys_count + 2)
+            salt = 3
+            while new_su.lower() in existing_sus or new_su.isdigit():
+                new_su = generate_random_sip_device_username(ext_s or "1000", phys_count + salt)
+                salt += 1
+            new_pwd = f"Nrn#{_sec_mod.token_hex(6)}"
+            new_id = f"dev-{ext_s or 'u'}-{phys_count + 1}-{_sec_mod.token_hex(2)}"
+            target_sd = {
+                "id": new_id,
+                "name": new_dev_name or f"{brand_val} {model_val} (#{phys_count + 1})",
+                "device_type": "desk_phone",
+                "sip_username": new_su,
+                "sip_password": new_pwd,
+                "max_activations": 1,
+                "sip_driver": "pjsip",
+                "remote_access": (conn_mode == "wan"),
+                "connection_mode": conn_mode,
+                "transport": "TCP" if conn_mode == "wan" else "UDP",
+                "is_active": True,
+                "is_deletable": True,
+                "mac": mac_norm,
+                "ip": ip_val,
+                "brand": brand_val,
+                "model": model_val,
+                "codecs": ["g722", "alaw", "ulaw", "g729"],
+                "dtmf_mode": "rfc4733",
+                "language": "Turkish",
+                "timezone": "+3",
+                "ntp_server": "pool.ntp.org",
+                "auto_answer": False,
+                "direct_ip_call_block": True,
+                "dss_keys": [],
+                "soft_keys": [],
+                "expansion_modules": [],
+                "config_version": 1,
+            }
+            # Clear this MAC from any previous slot on this same user
             for sd in norm_devs:
-                if str(sd.get("device_type") or "").lower() in ("desk_phone", "dect", "softphone"):
-                    if not str(sd.get("mac") or "").strip():
+                if isinstance(sd, dict) and normalize_mac_address(sd.get("mac") or "")[1] == mac_hex:
+                    sd["mac"] = ""
+            norm_devs.append(target_sd)
+        else:
+            # 2a. Explicit sip_device_id / sip_username chosen in UI
+            if req_sip_dev_id or req_sip_username:
+                for sd in norm_devs:
+                    if str(sd.get("device_type") or "").lower() == "web_phone":
+                        continue
+                    if (req_sip_dev_id and str(sd.get("id") or "") == req_sip_dev_id) or (
+                        req_sip_username and str(sd.get("sip_username") or "") == req_sip_username
+                    ):
                         target_sd = sd
                         break
-        if target_sd is None:
-            for sd in norm_devs:
-                if str(sd.get("device_type") or "").lower() in ("desk_phone", "dect", "softphone"):
-                    target_sd = sd
-                    break
+            # 2b. Fallback: same MAC -> first empty MAC -> first physical device
+            if target_sd is None:
+                for sd in norm_devs:
+                    if str(sd.get("device_type") or "").lower() != "web_phone":
+                        if normalize_mac_address(sd.get("mac") or "")[1] == mac_hex:
+                            target_sd = sd
+                            break
+            if target_sd is None:
+                for sd in norm_devs:
+                    if str(sd.get("device_type") or "").lower() in ("desk_phone", "dect", "softphone"):
+                        if not str(sd.get("mac") or "").strip():
+                            target_sd = sd
+                            break
+            if target_sd is None:
+                for sd in norm_devs:
+                    if str(sd.get("device_type") or "").lower() in ("desk_phone", "dect", "softphone"):
+                        target_sd = sd
+                        break
+
+            if target_sd is not None:
+                # If this MAC was previously on a DIFFERENT slot of the same user, clear old slot
+                for sd in norm_devs:
+                    if sd is not target_sd and normalize_mac_address(sd.get("mac") or "")[1] == mac_hex:
+                        sd["mac"] = ""
+                target_sd["mac"] = mac_norm
+                target_sd["brand"] = brand_val
+                target_sd["model"] = model_val
+                if ip_val:
+                    target_sd["ip"] = ip_val
+                target_sd["connection_mode"] = conn_mode
+                target_sd["remote_access"] = (conn_mode == "wan")
 
         if target_sd is not None:
-            target_sd["mac"] = mac_norm
-            target_sd["brand"] = brand_val
-            target_sd["model"] = model_val
-            if ip_val:
-                target_sd["ip"] = ip_val
-            target_sd["connection_mode"] = conn_mode
-            target_sd["remote_access"] = (conn_mode == "wan")
+            resolved_sip_dev_id = str(target_sd.get("id") or "")
+            resolved_sip_username = str(target_sd.get("sip_username") or "")
+            resolved_sip_dev_name = str(target_sd.get("name") or "")
+
         matched_user["sip_devices"] = norm_devs
 
         # Sync user_deskphone_configs entry too
@@ -14358,7 +14463,10 @@ async def save_autoprovision(payload: dict, user_info: dict = Depends(get_user_i
             settings_db["user_deskphone_configs"] = {}
         if ext_s and target_sd is not None:
             su_k = str(target_sd.get("sip_username") or "").strip()
-            for dp_key in (f"{ext_s}::{su_k}", ext_s):
+            dp_keys_to_update = [f"{ext_s}::{su_k}"]
+            if sum(1 for d in norm_devs if str(d.get("device_type") or "").lower() != "web_phone") <= 1:
+                dp_keys_to_update.append(ext_s)
+            for dp_key in dp_keys_to_update:
                 if dp_key:
                     prev_dp = settings_db["user_deskphone_configs"].get(dp_key) if isinstance(settings_db["user_deskphone_configs"].get(dp_key), dict) else {}
                     settings_db["user_deskphone_configs"][dp_key] = {
@@ -14383,19 +14491,52 @@ async def save_autoprovision(payload: dict, user_info: dict = Depends(get_user_i
         except Exception:
             pass
 
+    # 3. Upsert in settings_db["autoprovision"] by normalized MAC hex (with exact sip_device_id + sip_username)
+    record = {
+        "mac": mac_norm,
+        "ip": ip_val,
+        "brand": brand_val,
+        "model": model_val,
+        "assigned_user": str(matched_user.get("id")) if (matched_user and matched_user.get("id") is not None) else assigned_raw,
+        "extension": str(matched_user.get("extension") or "") if matched_user else (assigned_raw if assigned_raw.isdigit() else ""),
+        "sip_device_id": resolved_sip_dev_id,
+        "sip_username": resolved_sip_username,
+        "sip_device_name": resolved_sip_dev_name,
+        "template_id": tpl_id,
+        "connection_mode": conn_mode,
+        "tenant_id": target_tenant,
+        "provision_date": payload.get("provision_date") or datetime.datetime.utcnow().isoformat(),
+    }
+    updated = False
+    for i, dev in enumerate(settings_db["autoprovision"]):
+        if not isinstance(dev, dict):
+            continue
+        _, existing_hex = normalize_mac_address(dev.get("mac") or "")
+        if existing_hex == mac_hex:
+            settings_db["autoprovision"][i] = {**dev, **record}
+            updated = True
+            break
+    if not updated:
+        settings_db["autoprovision"].append(record)
+
     save_settings(settings_db)
 
-    # Trigger Asterisk PJSIP sync in background (non-blocking) so endpoint is ready for the phone
     try:
         sync_asterisk_configs(settings_db)
     except Exception:
         pass
 
     devices = _build_enriched_autoprovision_list(target_tenant)
+    user_sip_devices = _build_tenant_user_sip_devices_map(target_tenant)
     return {
         "status": "success",
-        "message": f"{brand_val} {model_val} ({mac_norm.upper()}) cihazı kaydedildi ve dahili ile eşleştirildi.",
+        "message": (
+            f"{brand_val} {model_val} ({mac_norm.upper()}) cihazı '{resolved_sip_dev_name or resolved_sip_username}' SIP hesabına eşleştirildi."
+            if resolved_sip_username
+            else f"{brand_val} {model_val} ({mac_norm.upper()}) cihazı kaydedildi ve dahili ile eşleştirildi."
+        ),
         "devices": devices,
+        "user_sip_devices": user_sip_devices,
     }
 
 
@@ -14438,7 +14579,13 @@ async def delete_autoprovision(mac: str, user_info: dict = Depends(get_user_info
 
     save_settings(settings_db)
     devices = _build_enriched_autoprovision_list(target_tenant)
-    return {"status": "success", "message": "Cihaz ataması kaldırıldı.", "devices": devices}
+    user_sip_devices = _build_tenant_user_sip_devices_map(target_tenant)
+    return {
+        "status": "success",
+        "message": "Cihaz ataması kaldırıldı.",
+        "devices": devices,
+        "user_sip_devices": user_sip_devices,
+    }
 
 
 @app.post("/api/settings/autoprovision/{mac:path}/notify")
@@ -15748,6 +15895,8 @@ async def _render_autoprovision_file_for_phone(
 
     ap_target_rec = ap_by_mac.get(mac_hex) if mac_hex else None
     ap_target_assigned = str((ap_target_rec or {}).get("assigned_user") or (ap_target_rec or {}).get("extension") or "").strip()
+    ap_target_su = str((ap_target_rec or {}).get("sip_username") or "").strip()
+    ap_target_dev_id = str((ap_target_rec or {}).get("sip_device_id") or "").strip()
 
     for u in settings_db.get("users", []) or []:
         u_tid = u.get("tenant_id") or "tenant-default"
@@ -15759,8 +15908,15 @@ async def _render_autoprovision_file_for_phone(
         for dev in normalize_user_sip_devices(u, ap_all, dp_all, fallback_password_fn=resolve_secure_sip_password):
             _, dev_mac_hex = normalize_mac_address(dev.get("mac") or "")
             dev_su = str(dev.get("sip_username") or "").strip()
+            dev_id = str(dev.get("id") or "").strip()
             dev_is_phys = str(dev.get("device_type") or "").lower() in ("desk_phone", "dect", "softphone")
-            if (mac_hex and dev_mac_hex == mac_hex) or (dev_su and dev_su.lower() == stem.lower()) or (u_matches_ap and dev_is_phys):
+            ap_slot_match = False
+            if u_matches_ap and dev_is_phys:
+                if ap_target_su or ap_target_dev_id:
+                    ap_slot_match = (ap_target_su and dev_su == ap_target_su) or (ap_target_dev_id and dev_id == ap_target_dev_id)
+                else:
+                    ap_slot_match = True
+            if (mac_hex and dev_mac_hex == mac_hex) or (dev_su and dev_su.lower() == stem.lower()) or ap_slot_match:
                 ap_rec = ap_by_mac.get(dev_mac_hex or mac_hex) or {}
                 dev_mode = query_mode if query_mode in ("lan", "wan", "auto") else str(
                     ap_rec.get("connection_mode") or dev.get("connection_mode") or "auto"
@@ -42674,18 +42830,33 @@ async def get_system_version_info():
         pass
 
     return {
-        "version": "v3.8.1",
+        "version": "v3.8.2",
         "commit_hash": live_commit,
         "release_date": "22 Kasım 2026",
         "status": "Güncel / Canlı Sürüm",
         "environment": "Production (On-Premise)",
         "changelog": [
             {
-                "version": "v3.8.1",
+                "version": "v3.8.2",
                 "commit_hash": live_commit,
                 "release_date": "22 Kasım 2026",
                 "badge": "Canlı Sürüm (Güncel)",
                 "badge_type": "current",
+                "title": "Oto Provizyon Çoklu Masa Telefonu Desteği — Kullanıcı Altında SIP Cihazı Seçimi & Tek Tıkla Yeni SIP Hesabı",
+                "summary": "Birden fazla fiziksel masa telefonu (Ofis + Ev / DECT) olan aboneler için Oto Provizyon eşleştirme penceresinde doğrudan ilgili SIP cihazını seçme veya tek tıkla yeni SIP hesabı açma desteği eklendi.",
+                "features": [
+                    "Dahili Seçimi Altında Dinamik SIP Cihazı Seçicisi: Seçilen abonenin tüm fiziksel SIP cihazları (ad, SIP kullanıcı adı ve mevcut MAC durumuyla) listelenir; hangi telefonun hangi SIP hesabına bağlanacağı kesin olarak seçilir.",
+                    "Tek Tıkla '+ Yeni Masa Telefonu (SIP Hesabı) Oluştur': Kullanıcının mevcut SIP cihazı başka bir MAC ile doluysa, Kullanıcılar ekranına gitmeden doğrudan Oto Provizyon penceresinden yeni güvenli SIP hesabı açılıp MAC eşleştirilir.",
+                    "1-to-1 Provizyon İzolasyonu: /api/prov/{token}/lan|wan/{mac}.cfg/xml isteği kesin olarak o MAC'in bağlı olduğu SIP hesabının kimlik ve tuş ayarlarını döner."
+                ],
+                "fixes": []
+            },
+            {
+                "version": "v3.8.1",
+                "commit_hash": "4c6680a",
+                "release_date": "22 Kasım 2026",
+                "badge": "Kararlı",
+                "badge_type": "stable",
                 "title": "56 Modellik Yerleşik Otoprovizyon Şablon Kütüphanesi, Tek Tıkla Kopyala & Model-Bazlı Şablon Seçimi",
                 "summary": "Sistem Ayarları > Otoprovizyon Şablonları ekranı tüm 56 model (Yealink, Grandstream, Fanvil, Cisco) için hazır sistem şablonlarıyla dolduruldu; tek tıkla kopyalayıp özelleştirme ve Oto Provizyon modalında seçili modele özel şablon filtrelemesi eklendi.",
                 "features": [

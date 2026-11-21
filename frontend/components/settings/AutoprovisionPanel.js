@@ -59,6 +59,7 @@ export default function AutoprovisionPanel({ backendHost = "localhost:8000" }) {
 
   const [devices, setDevices] = useState([]);
   const [modelCatalog, setModelCatalog] = useState([]);
+  const [userSipDevicesMap, setUserSipDevicesMap] = useState({});
   const [users, setUsers] = useState([]);
   const [templates, setTemplates] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -83,6 +84,8 @@ export default function AutoprovisionPanel({ backendHost = "localhost:8000" }) {
   const [model, setModel] = useState("T42S");
   const [modelFilter, setModelFilter] = useState("");
   const [assignedUserId, setAssignedUserId] = useState("");
+  const [selectedSipDeviceId, setSelectedSipDeviceId] = useState("");
+  const [newSipDeviceName, setNewSipDeviceName] = useState("");
   const [templateId, setTemplateId] = useState("");
   const [connectionMode, setConnectionMode] = useState("lan");
 
@@ -138,6 +141,9 @@ export default function AutoprovisionPanel({ backendHost = "localhost:8000" }) {
         }
         if (Array.isArray(dataDev.model_catalog)) {
           setModelCatalog(dataDev.model_catalog);
+        }
+        if (dataDev.user_sip_devices && typeof dataDev.user_sip_devices === "object") {
+          setUserSipDevicesMap(dataDev.user_sip_devices);
         }
       }
 
@@ -280,6 +286,8 @@ export default function AutoprovisionPanel({ backendHost = "localhost:8000" }) {
         brand: (brand || "Yealink").trim(),
         model: (model || "T42S").trim(),
         assigned_user: assignedUserId,
+        sip_device_id: selectedSipDeviceId || "",
+        new_device_name: selectedSipDeviceId === "__CREATE_NEW__" ? newSipDeviceName.trim() : "",
         template_id: templateId,
         connection_mode: connectionMode || "lan",
         provision_date: new Date().toISOString(),
@@ -306,6 +314,9 @@ export default function AutoprovisionPanel({ backendHost = "localhost:8000" }) {
       } else {
         await fetchData();
       }
+      if (data.user_sip_devices && typeof data.user_sip_devices === "object") {
+        setUserSipDevicesMap(data.user_sip_devices);
+      }
       setShowModal(false);
       flashBanner(true, data.message || "Cihaz kaydedildi ve dahili ile eşleştirildi.");
     } catch (err) {
@@ -327,6 +338,9 @@ export default function AutoprovisionPanel({ backendHost = "localhost:8000" }) {
         setDevices(data.devices);
       } else {
         await fetchData();
+      }
+      if (data.user_sip_devices && typeof data.user_sip_devices === "object") {
+        setUserSipDevicesMap(data.user_sip_devices);
       }
       flashBanner(true, data.message || "Cihaz ataması kaldırıldı.");
     } catch (err) {
@@ -443,6 +457,47 @@ export default function AutoprovisionPanel({ backendHost = "localhost:8000" }) {
     reader.readAsBinaryString(file);
   };
 
+  const getPhysicalDevicesForUser = (uid) => {
+    if (!uid) return [];
+    const direct = userSipDevicesMap[String(uid)];
+    if (Array.isArray(direct)) return direct;
+    const uObj = users.find((u) => String(u.id) === String(uid) || String(u.extension) === String(uid));
+    if (uObj) {
+      const byExt = userSipDevicesMap[String(uObj.extension || "")];
+      if (Array.isArray(byExt)) return byExt;
+    }
+    return [];
+  };
+
+  const handleAssignedUserChange = (newUid, preferMac = "", preferDevId = "") => {
+    setAssignedUserId(newUid);
+    setNewSipDeviceName("");
+    const phys = getPhysicalDevicesForUser(newUid);
+    if (!phys.length) {
+      setSelectedSipDeviceId("__CREATE_NEW__");
+      return;
+    }
+    const cleanPreferMac = String(preferMac || "").replace(/[^a-fA-F0-9]/g, "").toLowerCase();
+    if (preferDevId && phys.some((d) => String(d.id) === String(preferDevId))) {
+      setSelectedSipDeviceId(String(preferDevId));
+      return;
+    }
+    if (cleanPreferMac) {
+      const byMac = phys.find((d) => String(d.mac || "").replace(/[^a-fA-F0-9]/g, "").toLowerCase() === cleanPreferMac);
+      if (byMac) {
+        setSelectedSipDeviceId(String(byMac.id));
+        return;
+      }
+    }
+    const firstEmpty = phys.find((d) => !String(d.mac || "").trim());
+    if (firstEmpty) {
+      setSelectedSipDeviceId(String(firstEmpty.id));
+      return;
+    }
+    // All existing SIP slots already have a MAC -> default to creating a fresh 2nd SIP account!
+    setSelectedSipDeviceId("__CREATE_NEW__");
+  };
+
   const openAddModal = () => {
     setEditingOriginalMac("");
     setMacAddress("");
@@ -451,6 +506,8 @@ export default function AutoprovisionPanel({ backendHost = "localhost:8000" }) {
     setModel("T42S");
     setModelFilter("");
     setAssignedUserId("");
+    setSelectedSipDeviceId("");
+    setNewSipDeviceName("");
     setTemplateId("");
     setConnectionMode(netDefaultMode || "lan");
     setShowModal(true);
@@ -463,7 +520,8 @@ export default function AutoprovisionPanel({ backendHost = "localhost:8000" }) {
     setBrand(dev.brand || "Yealink");
     setModel(dev.model || "T42S");
     setModelFilter("");
-    setAssignedUserId(String(dev.assigned_user || dev.assigned_extension || ""));
+    const uidVal = String(dev.assigned_user || dev.assigned_extension || "");
+    handleAssignedUserChange(uidVal, dev.mac || "", dev.sip_device_id || "");
     setTemplateId(dev.template_id || "");
     setConnectionMode(dev.connection_mode || "lan");
     setShowModal(true);
@@ -477,6 +535,8 @@ export default function AutoprovisionPanel({ backendHost = "localhost:8000" }) {
     setModel(dev.model || "T42S");
     setModelFilter("");
     setAssignedUserId("");
+    setSelectedSipDeviceId("");
+    setNewSipDeviceName("");
     setTemplateId("");
     setConnectionMode("lan");
     setShowModal(true);
@@ -810,7 +870,7 @@ export default function AutoprovisionPanel({ backendHost = "localhost:8000" }) {
                             </div>
                             {dev.sip_username && (
                               <span className="text-[10px] font-mono text-slate-400 pl-5">
-                                SIP: {dev.sip_username}
+                                {dev.sip_device_name ? `${dev.sip_device_name} • ` : ""}SIP: {dev.sip_username}
                               </span>
                             )}
                           </div>
@@ -1115,7 +1175,7 @@ export default function AutoprovisionPanel({ backendHost = "localhost:8000" }) {
                   <User size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
                   <select
                     value={assignedUserId}
-                    onChange={(e) => setAssignedUserId(e.target.value)}
+                    onChange={(e) => handleAssignedUserChange(e.target.value, macAddress, "")}
                     className="w-full pl-9 pr-4 py-2.5 text-xs font-bold rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white"
                     required
                   >
@@ -1130,6 +1190,63 @@ export default function AutoprovisionPanel({ backendHost = "localhost:8000" }) {
                   </select>
                 </div>
               </div>
+
+              {/* Target SIP Device under Selected User (Multi-Phone Support!) */}
+              {assignedUserId && (() => {
+                const userPhysDevices = getPhysicalDevicesForUser(assignedUserId);
+                const chosenSlot = userPhysDevices.find((d) => String(d.id) === String(selectedSipDeviceId));
+                const cleanInputMac = String(macAddress || "").replace(/[^a-fA-F0-9]/g, "").toLowerCase();
+                const chosenExistingMac = String(chosenSlot?.mac || "").replace(/[^a-fA-F0-9]/g, "").toLowerCase();
+                const willOverwriteDifferentMac = Boolean(
+                  chosenSlot && chosenExistingMac && cleanInputMac && chosenExistingMac !== cleanInputMac
+                );
+                return (
+                  <div className="space-y-2 p-3 rounded-2xl border border-slate-200 dark:border-slate-700/80 bg-slate-50/70 dark:bg-slate-800/40">
+                    <label className="block text-[11px] font-extrabold text-slate-700 dark:text-slate-200">
+                      Bağlanacak SIP Cihazı (Hesap)
+                    </label>
+                    <div className="relative">
+                      <Smartphone size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                      <select
+                        value={selectedSipDeviceId}
+                        onChange={(e) => setSelectedSipDeviceId(e.target.value)}
+                        className="w-full pl-8 pr-4 py-2 text-xs font-bold rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white"
+                      >
+                        {userPhysDevices.map((sd) => {
+                          const hasMac = Boolean(String(sd.mac || "").trim());
+                          return (
+                            <option key={sd.id} value={String(sd.id)}>
+                              {sd.name} • SIP: {sd.sip_username} ({hasMac ? `MAC: ${sd.mac.toUpperCase()}` : "MAC Boş — Müsait"})
+                            </option>
+                          );
+                        })}
+                        <option value="__CREATE_NEW__">
+                          + Bu Kullanıcıya Yeni Masa Telefonu (SIP Hesabı) Oluştur
+                        </option>
+                      </select>
+                    </div>
+
+                    {selectedSipDeviceId === "__CREATE_NEW__" && (
+                      <input
+                        type="text"
+                        value={newSipDeviceName}
+                        onChange={(e) => setNewSipDeviceName(e.target.value)}
+                        placeholder={`Yeni cihaz adı (örn: Ofis ${brand} ${model} veya Ev Telefonu)`}
+                        className="w-full px-3 py-1.5 text-xs font-semibold rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-800 dark:text-white"
+                      />
+                    )}
+
+                    {willOverwriteDifferentMac && (
+                      <p className="text-[10px] font-semibold text-amber-700 dark:text-amber-300 flex items-center gap-1.5">
+                        <AlertTriangle size={12} className="shrink-0" />
+                        <span>
+                          Bu SIP hesabında mevcut <strong>{chosenSlot.mac.toUpperCase()}</strong> yerine yeni MAC atanacaktır. 2. bir telefon eklemek istiyorsanız yukarıdan <strong>&quot;+ Yeni Masa Telefonu Oluştur&quot;</strong> seçeneğini seçin.
+                        </span>
+                      </p>
+                    )}
+                  </div>
+                );
+              })()}
 
               {/* Template (Filtered & Grouped by Selected Brand + Model) */}
               <div>
