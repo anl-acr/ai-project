@@ -14684,10 +14684,10 @@ async def save_agent_deskphone_config(
 ):
     from backend.services.autoprovision_service import (
         enforce_primary_line_key,
+        ensure_pjsip_notify_conf,
         normalize_expansion_modules,
         normalize_phone_prefs,
         trigger_phone_sip_notify,
-        write_pjsip_notify_conf,
     )
     ext_clean = str(extension).strip()
     uid_clean = str(payload.get("user_id") or "").strip() or None
@@ -14832,7 +14832,7 @@ async def save_agent_deskphone_config(
     notify_out = ""
     if apply_mode in ("reboot", "check_sync"):
         try:
-            write_pjsip_notify_conf(os.path.join(os.path.dirname(__file__), "asterisk_config"))
+            ensure_pjsip_notify_conf(os.path.join(os.path.dirname(__file__), "asterisk_config"))
         except Exception:
             pass
         notify_ok, notify_out = trigger_phone_sip_notify(
@@ -42277,18 +42277,34 @@ async def get_system_version_info():
         pass
 
     return {
-        "version": "v3.7.7",
+        "version": "v3.7.8",
         "commit_hash": live_commit,
         "release_date": "22 Kasım 2026",
         "status": "Güncel / Canlı Sürüm",
         "environment": "Production (On-Premise)",
         "changelog": [
             {
-                "version": "v3.7.7",
+                "version": "v3.7.8",
                 "commit_hash": live_commit,
                 "release_date": "22 Kasım 2026",
                 "badge": "Canlı Sürüm (Güncel)",
                 "badge_type": "current",
+                "title": "Masa Telefonum Kayıt/Check-Sync 500 Hatası Düzeltmesi & İlk Kurulum 'Kaydet + LAN/WAN URL Kopyala' Şeridi",
+                "summary": "Masa Telefonum ekranında Kaydet / Hızlı Uygula / Reboot sırasında oluşan import hatası (HTTP 500) giderildi; telefonu ilk kez bağlayacak kullanıcılar için doğrudan 'Kaydet' butonu ve tek tıkla LAN/WAN Provizyon URL kopyalama şeridi eklendi.",
+                "features": [
+                    "Üst araç çubuğuna doğrudan 'Kaydet' (reboot/check-sync göndermeden sadece provizyonu kaydeden) butonu eklendi.",
+                    "Cihaz henüz çevrimdışıyken (ilk kurulumda) üst panelin altında tek tıkla 'LAN URL Kopyala' ve 'WAN URL Kopyala' rehber şeridi otomatik görünür."
+                ],
+                "fixes": [
+                    "POST /api/agent/deskphone/{extension} içinde yanlış fonksiyon adından (write_pjsip_notify_conf -> ensure_pjsip_notify_conf) kaynaklanan HTTP 500 'Internal Server Error' hatası düzeltildi."
+                ]
+            },
+            {
+                "version": "v3.7.7",
+                "commit_hash": "445cce8",
+                "release_date": "22 Kasım 2026",
+                "badge": "Kararlı",
+                "badge_type": "stable",
                 "title": "Masa Telefonum T1 (Ana Hat / Line 1) Kilit Koruması",
                 "summary": "Kullanıcıların yanlışlıkla T1 (Line 1) tuşunu silerek telefonun arama ve çağrı bekletme işlevlerini bozmasını önlemek için hem arayüzde hem backend provizyon motorunda T1 Ana Hat kilidi eklendi.",
                 "features": [

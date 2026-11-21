@@ -676,7 +676,17 @@ export default function AgentDeskphoneTab({ backendHost, currentUser }) {
           force_reboot_on_call: forceOnCall,
         }),
       });
-      const data = await res.json();
+      const rawText = await res.text();
+      let data = {};
+      try {
+        data = rawText ? JSON.parse(rawText) : {};
+      } catch (parseErr) {
+        throw new Error(
+          res.ok
+            ? "Sunucudan geçersiz yanıt alındı."
+            : `Sunucu hatası (HTTP ${res.status}): ${rawText.slice(0, 180) || "Bilinmeyen hata"}`
+        );
+      }
       if (!res.ok) throw new Error(data.detail || "Masa telefonu ayarları kaydedilemedi.");
 
       if (data.status === "active_call_warning") {
@@ -865,6 +875,17 @@ export default function AgentDeskphoneTab({ backendHost, currentUser }) {
             <button
               type="button"
               disabled={Boolean(savingMode)}
+              onClick={() => handleSaveAndApply("save_only", false)}
+              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-extrabold border border-emerald-300 dark:border-emerald-700 bg-emerald-50 dark:bg-emerald-950/40 hover:bg-emerald-100 dark:hover:bg-emerald-900/50 text-emerald-800 dark:text-emerald-200 transition cursor-pointer disabled:opacity-50"
+              title="Ayarları kaydet ve oto-provizyon dosyasını güncelle (ilk kurulum veya çevrimdışı cihaz için ideal)"
+            >
+              <Save size={13} />
+              <span>{savingMode === "save_only" ? "Kaydediliyor..." : "Kaydet"}</span>
+            </button>
+
+            <button
+              type="button"
+              disabled={Boolean(savingMode)}
               onClick={() => handleSaveAndApply("check_sync", false)}
               className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-extrabold border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-100 transition cursor-pointer disabled:opacity-50"
               title="Telefonu kapatıp açmadan hızlı senkronizasyon (SIP Check-Sync) gönder"
@@ -956,6 +977,41 @@ export default function AgentDeskphoneTab({ backendHost, currentUser }) {
             )}
           </div>
         </div>
+
+        {/* First-Time / Offline Quick Provisioning URL Copy Bar */}
+        {!liveStatus.online && (provUrls.lan || provUrls.active) && (
+          <div className="pt-3 border-t border-slate-100 dark:border-slate-800 flex flex-col lg:flex-row lg:items-center justify-between gap-2.5 bg-slate-50/80 dark:bg-slate-950/40 -mx-4 -mb-4 px-4 py-3 rounded-b-2xl">
+            <div className="text-[11px] text-slate-600 dark:text-slate-300 leading-relaxed">
+              <strong className="text-slate-800 dark:text-white">İlk Kurulum Rehberi:</strong> Önce yukarıdan{" "}
+              <strong className="text-emerald-600 dark:text-emerald-400">Kaydet</strong> butonuna basın, ardından telefonun web arayüzündeki{" "}
+              <span className="font-mono font-bold">Auto Provision → Server URL</span> alanına aşağıdaki adresi yapıştırıp <strong>Auto Provision Now</strong> deyin:
+            </div>
+            <div className="flex items-center gap-1.5 shrink-0 flex-wrap">
+              {provUrls.lan && (
+                <button
+                  type="button"
+                  onClick={() => handleCopyText("bar_lan", provUrls.lan)}
+                  className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-emerald-300 dark:border-emerald-700 bg-white dark:bg-slate-900 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 text-[11px] font-mono font-bold text-slate-800 dark:text-slate-100 cursor-pointer"
+                  title={provUrls.lan}
+                >
+                  {copiedUrlKey === "bar_lan" ? <Check size={12} className="text-emerald-500" /> : <Copy size={12} className="text-emerald-600" />}
+                  <span>LAN URL Kopyala</span>
+                </button>
+              )}
+              {provUrls.wan && (
+                <button
+                  type="button"
+                  onClick={() => handleCopyText("bar_wan", provUrls.wan)}
+                  className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 hover:bg-slate-100 dark:hover:bg-slate-800 text-[11px] font-mono font-bold text-slate-700 dark:text-slate-200 cursor-pointer"
+                  title={provUrls.wan}
+                >
+                  {copiedUrlKey === "bar_wan" ? <Check size={12} className="text-emerald-500" /> : <Copy size={12} />}
+                  <span>WAN URL Kopyala</span>
+                </button>
+              )}
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Feedback Banner */}
