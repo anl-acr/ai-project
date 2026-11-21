@@ -3165,7 +3165,7 @@ async def import_releases_from_repo(
     parsed_entries = []
     idx = source_code.find("async def get_system_version_info")
     if idx != -1:
-        snippet = source_code[idx : idx + 35000]
+        snippet = source_code[idx:]
         cl_idx = snippet.find('"changelog": [')
         if cl_idx != -1:
             bracket_start = snippet.find("[", cl_idx)
