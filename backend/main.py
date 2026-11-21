@@ -19,7 +19,7 @@ import socket
 import base64
 import httpx
 from fastapi import FastAPI, UploadFile, File, Form, Depends, HTTPException, WebSocket, WebSocketDisconnect, BackgroundTasks, Request, Body, Query
-from fastapi.responses import FileResponse, Response, PlainTextResponse
+from fastapi.responses import FileResponse, Response, PlainTextResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -48,7 +48,7 @@ def add_system_log(source: str, level: str, message: str):
 add_system_log("SYSTEM", "INFO", "FastAPI Sunucusu başlatıldı.")
 add_system_log("DATABASE", "INFO", "Veritabanı bağlantısı kuruldu.")
 from backend.database.config import get_db, Base, engine, AsyncSessionLocal
-from backend.database.models import Rule, Call, Transcript, Appointment, ChatSession, ChatMessage, Contact, CannedResponse, BlacklistItem, BlockWord, SystemUser, SystemRole, PBXQueue, Trunk, AIAgent, BreakType, AgentBreakLog, SystemSetting, EventLog, QueueSurveyResponse, VoipQualityLog, VoicemailMessage, UserConsentLog
+from backend.database.models import Rule, Call, Transcript, Appointment, ChatSession, ChatMessage, Contact, CannedResponse, BlacklistItem, BlockWord, SystemUser, SystemRole, PBXQueue, Trunk, AIAgent, BreakType, AgentBreakLog, SystemSetting, EventLog, QueueSurveyResponse, VoipQualityLog, VoicemailMessage, UserConsentLog, BreakApprovalRequest
 from backend.services.agent_presence import get_agent_state
 from backend.services.rag_service import index_pdf_file, index_website_url, query_vector_search, index_manual_text, delete_indexed_source, get_genai_client
 from backend.services.license_service import verify_license_key, generate_license_key, generate_tenant_serial_number
@@ -11430,9 +11430,16 @@ async def update_agent_status_endpoint(request: Request, payload: AgentStateSche
                         used_sec += max(0, int((now_utc - ql.start_time.replace(tzinfo=None)).total_seconds()))
                 if used_sec >= brk_quota_min * 60:
                     used_min = round(used_sec / 60, 1)
-                    raise HTTPException(
+                    return JSONResponse(
                         status_code=400,
-                        detail=f"'{brk_name}' için günlük mola kotanız ({brk_quota_min} dk) dolmuştur (Bugün kullanılan: {used_min} dk)."
+                        content={
+                            "detail": f"'{brk_name}' için günlük mola kotanız ({brk_quota_min} dk) dolmuştur (Bugün kullanılan: {used_min} dk).",
+                            "can_request_approval": True,
+                            "reason_type": "daily_quota_exceeded",
+                            "queue_name": "",
+                            "used_minutes": used_min,
+                            "quota_minutes": brk_quota_min,
+                        },
                     )
 
             # 2. Check Queue Max Concurrent Breaks
@@ -11490,9 +11497,15 @@ async def update_agent_status_endpoint(request: Request, payload: AgentStateSche
 
                 if len(other_on_break) >= max_conc:
                     q_title = q.get("name") or q.get("extension") or "Kuyruk"
-                    raise HTTPException(
+                    return JSONResponse(
                         status_code=400,
-                        detail=f"'{q_title}' kuyruğunda aynı anda en fazla {max_conc} temsilci molaya çıkabilir. Şu an mola kontenjanı dolu."
+                        content={
+                            "detail": f"'{q_title}' kuyruğunda aynı anda en fazla {max_conc} temsilci molaya çıkabilir. Şu an mola kontenjanı dolu.",
+                            "can_request_approval": True,
+                            "reason_type": "queue_concurrent_limit",
+                            "queue_name": q_title,
+                            "max_concurrent": max_conc,
+                        },
                     )
 
         brk_payload = {
@@ -41577,18 +41590,34 @@ async def get_system_version_info():
         pass
 
     return {
-        "version": "v3.6.7",
+        "version": "v3.6.8",
         "commit_hash": live_commit,
         "release_date": "21 Kasım 2026",
         "status": "Güncel / Canlı Sürüm",
         "environment": "Production (On-Premise)",
         "changelog": [
             {
-                "version": "v3.6.7",
+                "version": "v3.6.8",
                 "commit_hash": live_commit,
                 "release_date": "21 Kasım 2026",
                 "badge": "Canlı Sürüm (Güncel)",
                 "badge_type": "current",
+                "title": "Mola Kotası & Eşzamanlı Limit Aşımında Kuyruk Yöneticisi Anlık Onay Akışı",
+                "summary": "Tüm mevcut ve yeni mola türlerinde günlük mola kotası veya kuyruk eşzamanlı mola kontenjanı dolduğunda temsilciler kuyruk yöneticisinden anlık ek mola onayı isteyebilir; yönetici onayladığı anda temsilci otomatik olarak molaya geçirilir.",
+                "features": [
+                    "Hem Günlük Mola Kotası aşımında hem Kuyruk Eşzamanlı Mola Limiti dolduğunda tüm mola türlerinde otomatik 'Kuyruk Yöneticisinden Onay İste' akışı (isteğe bağlı açıklama notuyla).",
+                    "Kuyruk yöneticilerine (ve atama yoksa Admin'e) anlık sesli/ekran üstü onay kartı ve masaüstü bildirimi; 10 dk / 15 dk / 30 dk / Sınırsız hızlı ek süre seçimiyle tek tıkla Onayla veya Reddet.",
+                    "Yönetici onayladığı anda temsilci otomatik olarak seçtiği molaya alınır (Asterisk QueuePause + AgentBreakLog + canlı durum senkronizasyonu) ve temsilci ekranına onay bildirimi düşer.",
+                    "Tüm mola onay talepleri, onaylayan/reddeden yönetici, ek süre ve açıklamalar PostgreSQL break_approval_requests tablosu ve Olay Günlükleri (EventLog) altında kaydedilir."
+                ],
+                "fixes": []
+            },
+            {
+                "version": "v3.6.7",
+                "commit_hash": "5d95141",
+                "release_date": "21 Kasım 2026",
+                "badge": "Kararlı",
+                "badge_type": "stable",
                 "title": "KVKK & Gizlilik Politikası İlk Giriş Onay Popup'ı, Değiştirilemez Hukuki Loglama & İspat Belgesi",
                 "summary": "6698 sayılı KVKK ve Kurumsal Gizlilik Politikası kapsamında tüm kullanıcıların (Admin dahil) sisteme ilk girişinde onaylaması gereken zorunlu aydınlatma ve gizlilik popup'ı, değiştirilemez PostgreSQL/HMAC denetim kaydı ve yönetici takip/ispat belgesi paneli eklendi.",
                 "features": [
@@ -50198,6 +50227,501 @@ async def get_kvkk_consent_audit_report(request: Request, db: AsyncSession = Dep
         },
         "users": users_matrix,
         "logs": logs_payload,
+    }
+
+
+# ==============================================================================
+# MOLA KOTASI & EŞZAMANLI LİMİT AŞIMINDA KUYRUK YÖNETİCİSİ ONAY AKIŞI
+# ==============================================================================
+
+_break_approval_table_ensured = False
+
+
+async def _ensure_break_approval_table(db: AsyncSession) -> None:
+    global _break_approval_table_ensured
+    if _break_approval_table_ensured:
+        return
+    try:
+        from backend.services.break_approval_service import ensure_break_approval_table_async
+        await ensure_break_approval_table_async(db)
+        _break_approval_table_ensured = True
+    except Exception as e:
+        print(f"[BreakApproval Table Ensure Warning]: {e}")
+
+
+def _break_req_tenant_filter(tenant_id: str):
+    if is_default_tenant(tenant_id):
+        return or_(
+            BreakApprovalRequest.tenant_id == "tenant-default",
+            BreakApprovalRequest.tenant_id == "default",
+            BreakApprovalRequest.tenant_id.is_(None),
+        )
+    return BreakApprovalRequest.tenant_id == tenant_id
+
+
+async def _load_tenant_queues_and_users_for_approval(tenant_id: str, db: AsyncSession):
+    queues_list = []
+    users_list = []
+    try:
+        q_res = await db.execute(select(PBXQueue))
+        for q in q_res.scalars().all():
+            q_tid = getattr(q, "tenant_id", None) or "tenant-default"
+            if (is_default_tenant(tenant_id) and is_default_tenant(q_tid)) or q_tid == tenant_id:
+                queues_list.append({c.name: getattr(q, c.name) for c in q.__table__.columns})
+    except Exception:
+        pass
+    if not queues_list:
+        for q in settings_db.get("queues") or []:
+            if isinstance(q, dict):
+                q_tid = q.get("tenant_id") or "tenant-default"
+                if (is_default_tenant(tenant_id) and is_default_tenant(q_tid)) or q_tid == tenant_id:
+                    queues_list.append(q)
+
+    try:
+        u_res = await db.execute(select(SystemUser))
+        for u in u_res.scalars().all():
+            u_tid = getattr(u, "tenant_id", None) or "tenant-default"
+            if (is_default_tenant(tenant_id) and is_default_tenant(u_tid)) or u_tid == tenant_id:
+                users_list.append({
+                    "id": str(u.id),
+                    "extension": str(u.extension or ""),
+                    "email": str(u.email or ""),
+                    "full_name": str(u.full_name or ""),
+                    "role": str(u.role or "agent"),
+                    "managed_users": u.managed_users or [],
+                    "managed_queues": u.managed_queues or [],
+                })
+    except Exception:
+        pass
+    if not users_list:
+        for u in settings_db.get("users") or []:
+            if isinstance(u, dict):
+                u_tid = u.get("tenant_id") or "tenant-default"
+                if (is_default_tenant(tenant_id) and is_default_tenant(u_tid)) or u_tid == tenant_id:
+                    users_list.append(u)
+
+    return queues_list, users_list
+
+
+@app.post("/api/agent/break-requests")
+async def create_agent_break_approval_request(
+    request: Request,
+    payload: Dict[str, Any] = Body(...),
+    db: AsyncSession = Depends(get_db),
+):
+    """Temsilci günlük mola kotası veya kuyruk eşzamanlı mola limiti dolduğunda kuyruk yöneticisinden onay ister."""
+    from backend.services.break_approval_service import (
+        resolve_target_supervisors_for_agent,
+        expire_stale_pending_requests,
+        serialize_break_approval_request,
+    )
+
+    user_info = get_user_info(request)
+    tenant_id = "tenant-default" if is_default_tenant(user_info["tenant_id"]) else user_info["tenant_id"]
+    raw_uid = str(payload.get("user_id") or user_info["raw_user_id"] or "").strip()
+
+    await _ensure_break_approval_table(db)
+    await expire_stale_pending_requests(db)
+
+    actor = await _resolve_kvkk_actor(raw_uid, tenant_id, db)
+    agent_uid = actor["user_id"]
+    agent_ext = str(payload.get("extension") or actor["extension"] or "").strip()
+    agent_name = str(payload.get("agent_name") or actor["full_name"] or agent_ext or agent_uid).strip()
+
+    break_item = payload.get("break_item") if isinstance(payload.get("break_item"), dict) else {}
+    break_name = str(payload.get("break_name") or break_item.get("name") or "").strip()
+    if not break_name:
+        raise HTTPException(status_code=400, detail="Mola türü belirtilmedi.")
+
+    break_id = str(payload.get("break_id") or break_item.get("id") or "").strip() or None
+    break_color = str(payload.get("break_color") or break_item.get("color") or "#f59e0b").strip()
+    reason_type = str(payload.get("reason_type") or "daily_quota_exceeded").strip()
+    if reason_type not in ("daily_quota_exceeded", "queue_concurrent_limit"):
+        reason_type = "daily_quota_exceeded"
+    limit_detail = str(payload.get("limit_detail") or "").strip()[:500]
+    agent_note = str(payload.get("agent_note") or "").strip()[:300]
+    queue_name = str(payload.get("queue_name") or "").strip()[:120]
+
+    # Deduplicate if an active pending request already exists for this agent + break
+    existing_res = await db.execute(
+        select(BreakApprovalRequest)
+        .where(_break_req_tenant_filter(tenant_id))
+        .where(BreakApprovalRequest.agent_user_id == agent_uid)
+        .where(BreakApprovalRequest.break_name == break_name)
+        .where(BreakApprovalRequest.status == "pending")
+        .order_by(BreakApprovalRequest.created_at.desc())
+        .limit(1)
+    )
+    existing = existing_res.scalars().first()
+    if existing:
+        if agent_note and agent_note != (existing.agent_note or ""):
+            existing.agent_note = agent_note
+            await db.commit()
+            await db.refresh(existing)
+        return {
+            "status": "success",
+            "already_pending": True,
+            "request": serialize_break_approval_request(existing),
+        }
+
+    queues_list, users_list = await _load_tenant_queues_and_users_for_approval(tenant_id, db)
+    sup_info = resolve_target_supervisors_for_agent(
+        agent_user_id=agent_uid,
+        agent_extension=agent_ext,
+        queues_list=queues_list,
+        users_list=users_list,
+        preferred_queue_name=queue_name or None,
+    )
+    resolved_queue_label = queue_name or (", ".join(sup_info["matched_queues"][:2]) if sup_info["matched_queues"] else "")
+
+    now_utc = datetime.datetime.utcnow().replace(microsecond=0)
+    expires_utc = now_utc + datetime.timedelta(minutes=10)
+
+    new_req = BreakApprovalRequest(
+        tenant_id=tenant_id,
+        agent_user_id=agent_uid,
+        agent_extension=agent_ext,
+        agent_name=agent_name,
+        break_id=break_id,
+        break_name=break_name,
+        break_color=break_color,
+        reason_type=reason_type,
+        limit_detail=limit_detail,
+        agent_note=agent_note,
+        queue_name=resolved_queue_label,
+        target_supervisors=sup_info["supervisor_keys"],
+        status="pending",
+        approved_extra_minutes=0,
+        created_at=now_utc,
+        expires_at=expires_utc,
+    )
+    db.add(new_req)
+    await db.commit()
+    await db.refresh(new_req)
+
+    serialized = serialize_break_approval_request(new_req)
+
+    await log_event(
+        user_id=agent_name,
+        action="BREAK_APPROVAL_REQUESTED",
+        module="CallPanel",
+        details={
+            "request_id": new_req.id,
+            "agent_extension": agent_ext,
+            "break_name": break_name,
+            "reason_type": reason_type,
+            "queue_name": resolved_queue_label,
+            "agent_note": agent_note,
+            "limit_detail": limit_detail,
+        },
+        ip_address=user_info["ip_address"],
+    )
+
+    try:
+        await ws_manager.broadcast_omnichannel_event({
+            "type": "break_approval_request",
+            "request": serialized,
+        })
+    except Exception:
+        pass
+
+    return {"status": "success", "already_pending": False, "request": serialized}
+
+
+@app.get("/api/agent/break-requests/my")
+async def get_my_break_approval_requests(request: Request, db: AsyncSession = Depends(get_db)):
+    """Temsilcinin aktif bekleyen ve son 90 saniyede sonuçlanmış mola onay taleplerini döner."""
+    from backend.services.break_approval_service import (
+        expire_stale_pending_requests,
+        serialize_break_approval_request,
+    )
+
+    user_info = get_user_info(request)
+    tenant_id = "tenant-default" if is_default_tenant(user_info["tenant_id"]) else user_info["tenant_id"]
+    raw_uid = user_info["raw_user_id"]
+
+    await _ensure_break_approval_table(db)
+    await expire_stale_pending_requests(db)
+
+    actor = await _resolve_kvkk_actor(raw_uid, tenant_id, db)
+    conds = [BreakApprovalRequest.agent_user_id == actor["user_id"]]
+    if actor["extension"]:
+        conds.append(BreakApprovalRequest.agent_extension == actor["extension"])
+
+    res = await db.execute(
+        select(BreakApprovalRequest)
+        .where(_break_req_tenant_filter(tenant_id))
+        .where(or_(*conds))
+        .order_by(BreakApprovalRequest.created_at.desc())
+        .limit(10)
+    )
+    rows = res.scalars().all()
+    now_utc = datetime.datetime.utcnow()
+
+    pending_req = None
+    recent_resolved = None
+    for row in rows:
+        if row.status == "pending" and pending_req is None:
+            pending_req = serialize_break_approval_request(row)
+        elif row.status in ("approved", "rejected", "expired") and recent_resolved is None:
+            ref_ts = row.resolved_at or row.created_at
+            if ref_ts and (now_utc - ref_ts).total_seconds() <= 120:
+                recent_resolved = serialize_break_approval_request(row)
+
+    return {
+        "status": "success",
+        "pending": pending_req,
+        "recent_resolved": recent_resolved,
+    }
+
+
+@app.post("/api/agent/break-requests/{req_id}/cancel")
+async def cancel_my_break_approval_request(
+    req_id: int,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+):
+    """Temsilci bekleyen mola onay talebini iptal eder."""
+    user_info = get_user_info(request)
+    tenant_id = "tenant-default" if is_default_tenant(user_info["tenant_id"]) else user_info["tenant_id"]
+    actor = await _resolve_kvkk_actor(user_info["raw_user_id"], tenant_id, db)
+
+    await _ensure_break_approval_table(db)
+    res = await db.execute(select(BreakApprovalRequest).where(BreakApprovalRequest.id == req_id))
+    row = res.scalar_one_or_none()
+    if not row:
+        raise HTTPException(status_code=404, detail="Mola talebi bulunamadı.")
+
+    is_owner = (
+        str(row.agent_user_id) == str(actor["user_id"])
+        or (actor["extension"] and str(row.agent_extension or "") == str(actor["extension"]))
+        or actor["role"] in ("admin", "superadmin")
+    )
+    if not is_owner:
+        raise HTTPException(status_code=403, detail="Bu talebi iptal etme yetkiniz yok.")
+    if row.status != "pending":
+        return {"status": "success", "message": "Talep zaten sonuçlanmış."}
+
+    row.status = "cancelled"
+    row.resolved_at = datetime.datetime.utcnow().replace(microsecond=0)
+    await db.commit()
+    return {"status": "success", "cancelled_id": req_id}
+
+
+@app.get("/api/supervisor/break-requests")
+async def list_supervisor_break_approval_requests(request: Request, db: AsyncSession = Depends(get_db)):
+    """Kuyruk yöneticisi / Admin için bekleyen mola onay taleplerini listeler."""
+    from backend.services.break_approval_service import (
+        expire_stale_pending_requests,
+        is_user_authorized_reviewer,
+        serialize_break_approval_request,
+    )
+
+    user_info = get_user_info(request)
+    tenant_id = "tenant-default" if is_default_tenant(user_info["tenant_id"]) else user_info["tenant_id"]
+    actor = await _resolve_kvkk_actor(user_info["raw_user_id"], tenant_id, db)
+
+    await _ensure_break_approval_table(db)
+    await expire_stale_pending_requests(db)
+
+    res = await db.execute(
+        select(BreakApprovalRequest)
+        .where(_break_req_tenant_filter(tenant_id))
+        .where(BreakApprovalRequest.status == "pending")
+        .order_by(BreakApprovalRequest.created_at.asc())
+        .limit(50)
+    )
+    pending_rows = res.scalars().all()
+    roles_list = settings_db.get("roles") or []
+
+    authorized_pending = []
+    for row in pending_rows:
+        if is_user_authorized_reviewer(
+            reviewer_user_id=actor["user_id"],
+            reviewer_extension=actor["extension"],
+            reviewer_role=actor["role"],
+            request_row=row,
+            roles_list=roles_list,
+        ):
+            authorized_pending.append(serialize_break_approval_request(row))
+
+    return {
+        "status": "success",
+        "pending": authorized_pending,
+        "count": len(authorized_pending),
+    }
+
+
+@app.post("/api/supervisor/break-requests/{req_id}/decide")
+async def decide_break_approval_request(
+    req_id: int,
+    request: Request,
+    payload: Dict[str, Any] = Body(...),
+    db: AsyncSession = Depends(get_db),
+):
+    """Kuyruk yöneticisi / Admin mola onay talebini onaylar (temsilci otomatik molaya geçer) veya reddeder."""
+    from backend.services.break_approval_service import (
+        is_user_authorized_reviewer,
+        serialize_break_approval_request,
+    )
+    from backend.services.agent_presence import update_agent_state, sync_asterisk_queue_pause
+
+    decision = str(payload.get("decision") or "").strip().lower()
+    if decision not in ("approve", "reject"):
+        raise HTTPException(status_code=400, detail="Geçersiz karar. 'approve' veya 'reject' olmalıdır.")
+
+    extra_minutes = max(0, int(payload.get("extra_minutes") or 0))
+    reviewer_note = str(payload.get("reviewer_note") or "").strip()[:300]
+
+    user_info = get_user_info(request)
+    tenant_id = "tenant-default" if is_default_tenant(user_info["tenant_id"]) else user_info["tenant_id"]
+    reviewer = await _resolve_kvkk_actor(user_info["raw_user_id"], tenant_id, db)
+
+    await _ensure_break_approval_table(db)
+    res = await db.execute(select(BreakApprovalRequest).where(BreakApprovalRequest.id == req_id))
+    row = res.scalar_one_or_none()
+    if not row:
+        raise HTTPException(status_code=404, detail="Mola onay talebi bulunamadı.")
+
+    roles_list = settings_db.get("roles") or []
+    if not is_user_authorized_reviewer(
+        reviewer_user_id=reviewer["user_id"],
+        reviewer_extension=reviewer["extension"],
+        reviewer_role=reviewer["role"],
+        request_row=row,
+        roles_list=roles_list,
+    ):
+        raise HTTPException(status_code=403, detail="Bu mola talebini onaylama veya reddetme yetkiniz yok.")
+
+    if row.status != "pending":
+        raise HTTPException(
+            status_code=409,
+            detail=f"Bu mola talebi zaten sonuçlandırılmış ({row.reviewer_name or row.status}).",
+        )
+
+    now_utc = datetime.datetime.utcnow().replace(microsecond=0)
+    row.status = "approved" if decision == "approve" else "rejected"
+    row.approved_extra_minutes = extra_minutes if decision == "approve" else 0
+    row.reviewer_user_id = reviewer["user_id"]
+    row.reviewer_name = reviewer["full_name"] or reviewer["username"]
+    row.reviewer_note = reviewer_note
+    row.resolved_at = now_utc
+
+    agent_new_state = None
+
+    if decision == "approve":
+        # Find original break config for metadata (max_duration / daily_quota / color)
+        orig_max_min = 0
+        orig_quota_min = 0
+        orig_color = row.break_color or "#f59e0b"
+        for b_cfg in settings_db.get("breaks") or []:
+            if not isinstance(b_cfg, dict):
+                continue
+            if (
+                str(b_cfg.get("name", "")).strip().lower() == row.break_name.strip().lower()
+                or (row.break_id and str(b_cfg.get("id")) == str(row.break_id))
+            ):
+                orig_max_min = int(b_cfg.get("max_duration_minutes") or 0)
+                orig_quota_min = int(b_cfg.get("daily_quota_minutes") or 0)
+                if b_cfg.get("color"):
+                    orig_color = b_cfg.get("color")
+                break
+
+        effective_max_min = extra_minutes if extra_minutes > 0 else orig_max_min
+        brk_payload = {
+            "id": int(row.break_id) if (row.break_id and str(row.break_id).isdigit()) else row.break_id,
+            "name": row.break_name,
+            "color": orig_color,
+            "max_duration_minutes": effective_max_min,
+            "daily_quota_minutes": orig_quota_min,
+            "start_time_utc": now_utc.isoformat() + "Z",
+            "elapsed_seconds": 0,
+            "supervisor_approved": True,
+            "approved_by": row.reviewer_name,
+            "approved_extra_minutes": extra_minutes,
+            "approval_request_id": row.id,
+        }
+
+        # 1. Close any existing open break logs for this agent
+        conds = []
+        if row.agent_user_id:
+            conds.append(AgentBreakLog.user_id == str(row.agent_user_id))
+        if row.agent_extension:
+            conds.append(AgentBreakLog.extension == str(row.agent_extension))
+        if conds:
+            open_res = await db.execute(
+                select(AgentBreakLog).where(AgentBreakLog.end_time.is_(None), or_(*conds))
+            )
+            for open_log in open_res.scalars().all():
+                open_log.end_time = now_utc
+                open_log.duration_seconds = max(0, int((now_utc - open_log.start_time).total_seconds()))
+
+        # 2. Insert new AgentBreakLog row (agent automatically enters break!)
+        db.add(
+            AgentBreakLog(
+                tenant_id=row.tenant_id or tenant_id,
+                user_id=str(row.agent_user_id),
+                extension=str(row.agent_extension or ""),
+                agent_name=row.agent_name or "",
+                break_name=row.break_name,
+                start_time=now_utc,
+                end_time=None,
+                duration_seconds=0,
+            )
+        )
+
+        # 3. Update live presence state & pause Asterisk queue member
+        agent_new_state = update_agent_state(
+            is_logged_in=True,
+            status="break",
+            current_break=brk_payload,
+            user_id=str(row.agent_user_id),
+            extension=str(row.agent_extension or ""),
+        )
+        if row.agent_extension:
+            asyncio.create_task(
+                sync_asterisk_queue_pause(
+                    str(row.agent_extension),
+                    True,
+                    reason=f"{row.break_name} (Yönetici Onaylı)",
+                )
+            )
+
+    await db.commit()
+    await db.refresh(row)
+    serialized = serialize_break_approval_request(row)
+
+    await log_event(
+        user_id=row.reviewer_name or user_info["user_id"],
+        action="BREAK_APPROVAL_APPROVED" if decision == "approve" else "BREAK_APPROVAL_REJECTED",
+        module="CallPanel",
+        details={
+            "request_id": row.id,
+            "agent_name": row.agent_name,
+            "agent_extension": row.agent_extension,
+            "break_name": row.break_name,
+            "reason_type": row.reason_type,
+            "approved_extra_minutes": row.approved_extra_minutes,
+            "reviewer_note": reviewer_note,
+            "agent_note": row.agent_note,
+        },
+        ip_address=user_info["ip_address"],
+    )
+
+    try:
+        await ws_manager.broadcast_omnichannel_event({
+            "type": "break_approval_resolved",
+            "request": serialized,
+            "agent_state": agent_new_state,
+        })
+    except Exception:
+        pass
+
+    return {
+        "status": "success",
+        "decision": decision,
+        "request": serialized,
+        "agent_state": agent_new_state,
     }
 
 

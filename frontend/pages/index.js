@@ -185,6 +185,7 @@ const Customer360Drawer = dynamic(() => import("../components/common/Customer360
 const WebPhoneDiagnosticsModal = dynamic(() => import("../components/common/WebPhoneDiagnosticsModal"), { ssr: false });
 const NorniaSystemAssistantModal = dynamic(() => import("../components/common/NorniaSystemAssistantModal"), { ssr: false });
 const KvkkConsentModal = dynamic(() => import("../components/modals/KvkkConsentModal"), { ssr: false });
+const SupervisorBreakApprovalToast = dynamic(() => import("../components/common/SupervisorBreakApprovalToast"), { ssr: false });
 import AgentPanel, {
   ALL_TABS as CALL_PANEL_ALL_TABS,
   loadCallPanelPrefs,
@@ -274,7 +275,7 @@ export default function Home() {
   const sidebarActiveItemCls = `${lightBg} ${text} border-primary/25 dark:border-primary/35 shadow-sm`;
   const sidebarInactiveItemCls = "text-slate-500 dark:text-slate-400 border-transparent hover:text-slate-900 dark:hover:text-white hover:bg-slate-50 dark:hover:bg-slate-800/40";
   const backendHost = getBackendHost();
-  const [systemVersion, setSystemVersion] = useState("v3.6.7");
+  const [systemVersion, setSystemVersion] = useState("v3.6.8");
   const [availableUpdateVer, setAvailableUpdateVer] = useState("");
   const [activeTab, setActiveTabRaw] = useState("dashboard"); // dashboard, call-center, pbx-settings, channel-settings, rag-kb, rule-editor
 
@@ -11988,6 +11989,15 @@ export default function Home() {
             currentUser={currentUser}
             activeTenantId={activeTenantId}
             onLogout={handleLogout}
+          />
+        )}
+
+        {/* Real-time Queue Supervisor / Admin Break Approval Floating Stack */}
+        {isLoggedIn && currentUser && (
+          <SupervisorBreakApprovalToast
+            backendHost={backendHost}
+            currentUser={currentUser}
+            activeTenantId={activeTenantId}
           />
         )}
       </main>

@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
-import { LogIn, LogOut, Coffee, ShieldAlert, UserCheck, Play, ChevronDown, ChevronUp, User, Clock, CheckCircle2, Tag, AlertTriangle, X } from "lucide-react";
+import { LogIn, LogOut, Coffee, ShieldAlert, UserCheck, Play, ChevronDown, ChevronUp, User, Clock, CheckCircle2, Tag, AlertTriangle, X, Send, Loader2, BellRing } from "lucide-react";
 import { webphoneManager } from "../../utils/webphoneManager";
 import { useTheme } from "../../utils/theme";
 
@@ -30,6 +30,12 @@ export default function AgentSessionCard({ backendHost = "localhost:8000", curre
   const [loading, setLoading] = useState(false);
   const [liveBreakSeconds, setLiveBreakSeconds] = useState(0);
   const [breakError, setBreakError] = useState("");
+  const [breakBlockInfo, setBreakBlockInfo] = useState(null); // { breakItem, reason_type, queue_name, detail }
+  const [approvalNote, setApprovalNote] = useState("");
+  const [approvalSubmitting, setApprovalSubmitting] = useState(false);
+  const [pendingBreakReq, setPendingBreakReq] = useState(null);
+  const [approvalFeedback, setApprovalFeedback] = useState(null); // { type: 'approved'|'rejected'|'info', text }
+  const lastResolvedReqIdRef = useRef(null);
 
   // ACW & Disposition states
   const [acwRemaining, setAcwRemaining] = useState(0);
@@ -375,6 +381,7 @@ export default function AgentSessionCard({ backendHost = "localhost:8000", curre
     if (!isSilent) {
       setLoading(true);
       setBreakError("");
+      setBreakBlockInfo(null);
     }
     try {
       const payload = {
@@ -397,7 +404,19 @@ export default function AgentSessionCard({ backendHost = "localhost:8000", curre
           window.dispatchEvent(new CustomEvent("AGENT_STATUS_UPDATED", { detail: updated }));
         }
       } else if (!res.ok && !isSilent) {
-        setBreakError(data?.detail || "Durum değiştirilemedi (kota/limit dolu olabilir).");
+        const errText = data?.detail || "Durum değiştirilemedi (kota/limit dolu olabilir).";
+        setBreakError(errText);
+        if (data?.can_request_approval && newState?.status === "break" && newState?.current_break) {
+          setBreakBlockInfo({
+            breakItem: newState.current_break,
+            reason_type: data.reason_type || "daily_quota_exceeded",
+            queue_name: data.queue_name || "",
+            detail: errText
+          });
+          setApprovalNote("");
+        } else {
+          setBreakBlockInfo(null);
+        }
       }
     } catch (err) {
       if (!isSilent) {
@@ -408,6 +427,118 @@ export default function AgentSessionCard({ backendHost = "localhost:8000", curre
         setLoading(false);
       }
     }
+  };
+
+  const fetchMyBreakApprovalStatus = async () => {
+    if (!effectiveUserId || typeof window === "undefined") return;
+    try {
+      const res = await fetch(`${API_BASE}/api/agent/break-requests/my?t=${Date.now()}`);
+      if (!res.ok) return;
+      const data = await res.json();
+      setPendingBreakReq(data.pending || null);
+
+      const resolved = data.recent_resolved;
+      if (resolved && resolved.id && lastResolvedReqIdRef.current !== resolved.id) {
+        // Only announce resolutions that occurred during/after this session or when we were waiting
+        const wasWaiting = Boolean(pendingBreakReq && pendingBreakReq.id === resolved.id);
+        const resolvedAgeSec = resolved.resolved_at
+          ? (Date.now() - new Date(resolved.resolved_at).getTime()) / 1000
+          : 999;
+        if (wasWaiting || resolvedAgeSec <= 25) {
+          lastResolvedReqIdRef.current = resolved.id;
+          if (resolved.status === "approved") {
+            fetchAgentStatus();
+            if (typeof window !== "undefined") {
+              window.dispatchEvent(new CustomEvent("AGENT_STATUS_UPDATED", { detail: { status: "break" } }));
+            }
+            const durText =
+              resolved.approved_extra_minutes > 0
+                ? ` (${resolved.approved_extra_minutes} dk ek süre)`
+                : "";
+            setApprovalFeedback({
+              type: "approved",
+              text: `'${resolved.break_name}' talebiniz ${resolved.reviewer_name || "Yönetici"} tarafından onaylandı${durText}. Otomatik olarak molaya geçildi.`
+            });
+            setTimeout(() => setApprovalFeedback(null), 6500);
+          } else if (resolved.status === "rejected") {
+            const noteSuffix = resolved.reviewer_note ? ` Not: "${resolved.reviewer_note}"` : "";
+            setApprovalFeedback({
+              type: "rejected",
+              text: `'${resolved.break_name}' talebiniz ${resolved.reviewer_name || "Yönetici"} tarafından reddedildi.${noteSuffix}`
+            });
+            setTimeout(() => setApprovalFeedback(null), 6500);
+          } else if (resolved.status === "expired" && wasWaiting) {
+            setApprovalFeedback({
+              type: "info",
+              text: `'${resolved.break_name}' onay talebiniz yanıtlanmadığı için zaman aşımına uğradı.`
+            });
+            setTimeout(() => setApprovalFeedback(null), 5000);
+          }
+        }
+      }
+    } catch (e) {}
+  };
+
+  useEffect(() => {
+    if (!effectiveUserId) return;
+    fetchMyBreakApprovalStatus();
+  }, [effectiveUserId]);
+
+  useEffect(() => {
+    if (!pendingBreakReq || !effectiveUserId) return;
+    const t = setInterval(() => {
+      fetchMyBreakApprovalStatus();
+    }, 3000);
+    return () => clearInterval(t);
+  }, [pendingBreakReq?.id, effectiveUserId]);
+
+  const handleSubmitBreakApprovalRequest = async () => {
+    if (!breakBlockInfo?.breakItem || approvalSubmitting) return;
+    setApprovalSubmitting(true);
+    try {
+      const res = await fetch(`${API_BASE}/api/agent/break-requests`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          user_id: effectiveUserId,
+          extension: currentUser?.extension || "",
+          agent_name: currentUser?.full_name || "",
+          break_item: breakBlockInfo.breakItem,
+          reason_type: breakBlockInfo.reason_type,
+          limit_detail: breakBlockInfo.detail,
+          queue_name: breakBlockInfo.queue_name,
+          agent_note: approvalNote.trim()
+        })
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok && data.request) {
+        setPendingBreakReq(data.request);
+        setBreakError("");
+        setBreakBlockInfo(null);
+        setApprovalNote("");
+        setApprovalFeedback({
+          type: "info",
+          text: `'${data.request.break_name}' için kuyruk yöneticisine onay talebi iletildi. Onaylandığında otomatik olarak molaya geçeceksiniz.`
+        });
+        setTimeout(() => setApprovalFeedback(null), 5500);
+      } else {
+        setBreakError(data?.detail || "Onay talebi gönderilemedi.");
+      }
+    } catch (err) {
+      setBreakError("Onay talebi gönderilirken sunucu hatası oluştu.");
+    } finally {
+      setApprovalSubmitting(false);
+    }
+  };
+
+  const handleCancelPendingBreakRequest = async () => {
+    if (!pendingBreakReq?.id) return;
+    try {
+      await fetch(`${API_BASE}/api/agent/break-requests/${pendingBreakReq.id}/cancel`, {
+        method: "POST"
+      });
+      setPendingBreakReq(null);
+    } catch (e) {}
   };
 
   const handleSaveDisposition = async (code) => {
@@ -620,6 +751,152 @@ export default function AgentSessionCard({ backendHost = "localhost:8000", curre
 
   const statusDisplay = getStatusDisplay();
 
+  const closeBreakErrorModal = () => {
+    setBreakError("");
+    setBreakBlockInfo(null);
+    setApprovalNote("");
+  };
+
+  const renderBreakWarningPortal = () => {
+    if (!breakError || typeof document === "undefined") return null;
+    const canAskSupervisor = Boolean(breakBlockInfo?.breakItem);
+    return createPortal(
+      <div
+        className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-sm animate-in fade-in duration-200"
+        onClick={closeBreakErrorModal}
+      >
+        <div
+          className="relative w-full max-w-md p-6 bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-3xl shadow-2xl space-y-5 animate-in zoom-in-95 duration-200 text-center flex flex-col items-center"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <button
+            type="button"
+            onClick={closeBreakErrorModal}
+            className="absolute top-4 right-4 p-1.5 rounded-xl text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+            title="Kapat"
+          >
+            <X size={16} />
+          </button>
+          <div className="p-4 rounded-2xl bg-rose-50 dark:bg-rose-950/40 text-rose-600 dark:text-rose-400 border border-rose-100 dark:border-rose-900/50 shadow-inner shrink-0">
+            <ShieldAlert size={34} className="animate-pulse" />
+          </div>
+          <div className="space-y-2 w-full">
+            <h4 className="font-extrabold text-base text-slate-900 dark:text-white tracking-tight">
+              {breakError.includes("kuyruğuna üye olmadığınız")
+                ? "Kuyruk Üyeliği Bulunamadı"
+                : canAskSupervisor
+                ? "Mola Limiti Doldu — Yönetici Onayı Gerekli"
+                : "Oturum & Mola Uyarısı"}
+            </h4>
+            <p className="text-xs text-slate-500 dark:text-slate-400 font-semibold leading-relaxed">
+              {breakError}
+            </p>
+            {currentUser?.extension && (
+              <div className="pt-1">
+                <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[10px] font-bold bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200/60 dark:border-slate-700">
+                  Dahili: {currentUser.extension}
+                </span>
+              </div>
+            )}
+          </div>
+
+          {canAskSupervisor ? (
+            <div className="w-full space-y-3 text-left">
+              <div className="p-3 rounded-2xl bg-slate-50 dark:bg-slate-950/70 border border-slate-200/80 dark:border-slate-800 space-y-2">
+                <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300">
+                  Kuyruk Yöneticisine Açıklama (Opsiyonel)
+                </label>
+                <input
+                  type="text"
+                  maxLength={200}
+                  value={approvalNote}
+                  onChange={(e) => setApprovalNote(e.target.value)}
+                  placeholder="Örn: Acil ihtiyaç / İlaç / Kısa ara..."
+                  className="w-full px-3 py-2 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-xs text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-primary/30"
+                />
+                <p className="text-[10px] text-slate-500 dark:text-slate-400 leading-relaxed">
+                  Kuyruk yöneticinize anlık bildirim gönderilir. Yönetici onayladığında otomatik olarak{" "}
+                  <strong>{breakBlockInfo.breakItem.name}</strong> molasına geçersiniz.
+                </p>
+              </div>
+              <div className="flex items-center gap-2.5">
+                <button
+                  type="button"
+                  onClick={closeBreakErrorModal}
+                  disabled={approvalSubmitting}
+                  className="flex-1 py-2.5 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-xs font-bold transition-colors cursor-pointer"
+                >
+                  Vazgeç
+                </button>
+                <button
+                  type="button"
+                  onClick={handleSubmitBreakApprovalRequest}
+                  disabled={approvalSubmitting}
+                  className={`flex-[1.7] inline-flex items-center justify-center gap-1.5 py-2.5 px-3 rounded-xl text-xs font-extrabold text-white transition-all shadow-md cursor-pointer disabled:opacity-60 ${bg} ${hover}`}
+                >
+                  {approvalSubmitting ? (
+                    <>
+                      <Loader2 size={14} className="animate-spin" />
+                      <span>Gönderiliyor...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Send size={13} />
+                      <span>Yöneticiden Onay İste</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            </div>
+          ) : (
+            <button
+              type="button"
+              onClick={closeBreakErrorModal}
+              className={`w-full py-2.5 rounded-xl text-xs font-extrabold text-white uppercase tracking-wider transition-all shadow-md cursor-pointer ${bg} ${hover}`}
+            >
+              Anladım
+            </button>
+          )}
+        </div>
+      </div>,
+      document.body
+    );
+  };
+
+  const renderApprovalFeedbackPortal = () => {
+    if (!approvalFeedback || typeof document === "undefined") return null;
+    return createPortal(
+      <div className="fixed bottom-5 left-1/2 -translate-x-1/2 z-[9995] max-w-md w-[calc(100vw-2rem)] animate-in fade-in slide-in-from-bottom-3 duration-200">
+        <div
+          className={`px-4 py-3 rounded-2xl border shadow-2xl flex items-start gap-2.5 text-xs font-bold ${
+            approvalFeedback.type === "approved"
+              ? "bg-emerald-600 border-emerald-500 text-white"
+              : approvalFeedback.type === "rejected"
+              ? "bg-rose-600 border-rose-500 text-white"
+              : "bg-slate-900 dark:bg-slate-800 border-slate-700 text-white"
+          }`}
+        >
+          {approvalFeedback.type === "approved" ? (
+            <CheckCircle2 size={16} className="shrink-0 mt-0.5" />
+          ) : approvalFeedback.type === "rejected" ? (
+            <ShieldAlert size={16} className="shrink-0 mt-0.5" />
+          ) : (
+            <BellRing size={16} className="shrink-0 mt-0.5" />
+          )}
+          <span className="flex-1 leading-relaxed">{approvalFeedback.text}</span>
+          <button
+            type="button"
+            onClick={() => setApprovalFeedback(null)}
+            className="p-0.5 rounded-lg hover:bg-white/15 transition-colors cursor-pointer shrink-0"
+          >
+            <X size={14} />
+          </button>
+        </div>
+      </div>,
+      document.body
+    );
+  };
+
   if (headerBar) {
     return (
       <div className="flex items-center gap-2 shrink-0">
@@ -679,66 +956,39 @@ export default function AgentSessionCard({ backendHost = "localhost:8000", curre
             </button>
           </div>
         ) : (
-          <button
-            type="button"
-            onClick={() => setShowDropdown(true)}
-            className={`px-3 py-1.5 rounded-xl ${bg} ${hover} text-white text-xs font-extrabold flex items-center gap-1.5 shadow-sm transition-all cursor-pointer whitespace-nowrap`}
-          >
-            <Coffee size={14} />
-            <span>Mola & Oturum</span>
-            <ChevronDown size={13} />
-          </button>
+          <div className="flex items-center gap-1.5">
+            {pendingBreakReq && (
+              <div
+                title={`'${pendingBreakReq.break_name}' için kuyruk yöneticisi onayı bekleniyor`}
+                className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-amber-50 dark:bg-amber-950/50 border border-amber-200 dark:border-amber-800 text-amber-700 dark:text-amber-300 text-[11px] font-bold whitespace-nowrap"
+              >
+                <Loader2 size={12} className="animate-spin shrink-0" />
+                <span className="max-w-[130px] truncate">Onay Bekleniyor: {pendingBreakReq.break_name}</span>
+                <button
+                  type="button"
+                  onClick={handleCancelPendingBreakRequest}
+                  title="Mola Onay Talebini İptal Et"
+                  className="ml-0.5 p-0.5 rounded-md hover:bg-amber-200/60 dark:hover:bg-amber-800/60 transition-colors cursor-pointer"
+                >
+                  <X size={11} />
+                </button>
+              </div>
+            )}
+            <button
+              type="button"
+              onClick={() => setShowDropdown(true)}
+              className={`px-3 py-1.5 rounded-xl ${bg} ${hover} text-white text-xs font-extrabold flex items-center gap-1.5 shadow-sm transition-all cursor-pointer whitespace-nowrap`}
+            >
+              <Coffee size={14} />
+              <span>Mola & Oturum</span>
+              <ChevronDown size={13} />
+            </button>
+          </div>
         )}
 
-        {/* Queue Membership / Break Quota Warning Popup Modal (Portal) */}
-        {breakError && typeof document !== "undefined" && createPortal(
-          <div
-            className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-sm animate-in fade-in duration-200"
-            onClick={() => setBreakError("")}
-          >
-            <div
-              className="relative w-full max-w-sm p-6 bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-3xl shadow-2xl space-y-5 animate-in zoom-in-95 duration-200 text-center flex flex-col items-center"
-              onClick={(e) => e.stopPropagation()}
-            >
-              <button
-                type="button"
-                onClick={() => setBreakError("")}
-                className="absolute top-4 right-4 p-1.5 rounded-xl text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
-                title="Kapat"
-              >
-                <X size={16} />
-              </button>
-              <div className="p-4 rounded-2xl bg-rose-50 dark:bg-rose-950/40 text-rose-600 dark:text-rose-400 border border-rose-100 dark:border-rose-900/50 shadow-inner shrink-0">
-                <ShieldAlert size={34} className="animate-pulse" />
-              </div>
-              <div className="space-y-2">
-                <h4 className="font-extrabold text-base text-slate-900 dark:text-white tracking-tight">
-                  {breakError.includes("kuyruğuna üye olmadığınız")
-                    ? "Kuyruk Üyeliği Bulunamadı"
-                    : "Oturum & Mola Uyarısı"}
-                </h4>
-                <p className="text-xs text-slate-500 dark:text-slate-400 font-semibold leading-relaxed">
-                  {breakError}
-                </p>
-                {currentUser?.extension && (
-                  <div className="pt-1">
-                    <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[10px] font-bold bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200/60 dark:border-slate-700">
-                      Dahili: {currentUser.extension}
-                    </span>
-                  </div>
-                )}
-              </div>
-              <button
-                type="button"
-                onClick={() => setBreakError("")}
-                className={`w-full py-2.5 rounded-xl text-xs font-extrabold text-white uppercase tracking-wider transition-all shadow-md cursor-pointer ${bg} ${hover}`}
-              >
-                Anladım
-              </button>
-            </div>
-          </div>,
-          document.body
-        )}
+        {/* Queue Membership / Break Quota Warning & Approval Modal + Feedback Toast */}
+        {renderBreakWarningPortal()}
+        {renderApprovalFeedbackPortal()}
 
         {/* Break Status & Session Popup Modal (Portal) */}
         {showDropdown && typeof document !== "undefined" && createPortal(
@@ -953,58 +1203,33 @@ export default function AgentSessionCard({ backendHost = "localhost:8000", curre
         </div>
       )}
 
-      {/* Queue Membership / Break Quota Warning Popup Modal (Portal) */}
-      {breakError && typeof document !== "undefined" && createPortal(
-        <div
-          className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-sm animate-in fade-in duration-200"
-          onClick={() => setBreakError("")}
-        >
-          <div
-            className="relative w-full max-w-sm p-6 bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-3xl shadow-2xl space-y-5 animate-in zoom-in-95 duration-200 text-center flex flex-col items-center"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <button
-              type="button"
-              onClick={() => setBreakError("")}
-              className="absolute top-4 right-4 p-1.5 rounded-xl text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
-              title="Kapat"
-            >
-              <X size={16} />
-            </button>
-
-            <div className="p-4 rounded-2xl bg-rose-50 dark:bg-rose-950/40 text-rose-600 dark:text-rose-400 border border-rose-100 dark:border-rose-900/50 shadow-inner shrink-0">
-              <ShieldAlert size={34} className="animate-pulse" />
+      {/* Pending Break Supervisor Approval Banner (Card Mode) */}
+      {pendingBreakReq && agentState?.status !== "break" && (
+        <div className="mb-3 p-3 rounded-xl bg-amber-50 dark:bg-amber-950/30 text-amber-800 dark:text-amber-200 border border-amber-200 dark:border-amber-800/60 flex items-center justify-between gap-2 text-[11px] font-semibold shadow-sm">
+          <div className="flex items-center gap-2 min-w-0">
+            <Loader2 size={14} className="animate-spin text-amber-600 dark:text-amber-400 shrink-0" />
+            <div className="min-w-0">
+              <div className="font-extrabold truncate">
+                Yönetici Onayı Bekleniyor ({pendingBreakReq.break_name})
+              </div>
+              <div className="text-[10px] opacity-80">
+                Onaylandığında otomatik olarak molaya geçeceksiniz.
+              </div>
             </div>
-
-            <div className="space-y-2">
-              <h4 className="font-extrabold text-base text-slate-900 dark:text-white tracking-tight">
-                {breakError.includes("kuyruğuna üye olmadığınız")
-                  ? "Kuyruk Üyeliği Bulunamadı"
-                  : "Oturum & Mola Uyarısı"}
-              </h4>
-              <p className="text-xs text-slate-500 dark:text-slate-400 font-semibold leading-relaxed">
-                {breakError}
-              </p>
-              {currentUser?.extension && (
-                <div className="pt-1">
-                  <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[10px] font-bold bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200/60 dark:border-slate-700">
-                    Dahili: {currentUser.extension}
-                  </span>
-                </div>
-              )}
-            </div>
-
-            <button
-              type="button"
-              onClick={() => setBreakError("")}
-              className={`w-full py-2.5 rounded-xl text-xs font-extrabold text-white uppercase tracking-wider transition-all shadow-md cursor-pointer ${bg} ${hover}`}
-            >
-              Anladım
-            </button>
           </div>
-        </div>,
-        document.body
+          <button
+            type="button"
+            onClick={handleCancelPendingBreakRequest}
+            className="px-2.5 py-1 rounded-lg bg-white dark:bg-slate-900 border border-amber-300 dark:border-amber-700 text-[10px] font-bold hover:bg-amber-100 dark:hover:bg-amber-900/40 transition-colors cursor-pointer shrink-0"
+          >
+            İptal
+          </button>
+        </div>
       )}
+
+      {/* Queue Membership / Break Quota Warning & Approval Modal + Feedback Toast */}
+      {renderBreakWarningPortal()}
+      {renderApprovalFeedbackPortal()}
 
       {/* Break Overtime Warning Banner */}
       {isBreakOvertime && (

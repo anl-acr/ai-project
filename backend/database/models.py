@@ -513,4 +513,30 @@ class UserConsentLog(Base):
     accepted_at = Column(DateTime, default=datetime.datetime.utcnow, nullable=False, index=True)
 
 
+class BreakApprovalRequest(Base):
+    __tablename__ = "break_approval_requests"
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    tenant_id = Column(String, default="tenant-default", index=True)
+    agent_user_id = Column(String, nullable=False, index=True)
+    agent_extension = Column(String, nullable=True, index=True)
+    agent_name = Column(String, nullable=True)
+    break_id = Column(String, nullable=True)
+    break_name = Column(String, nullable=False)
+    break_color = Column(String, default="#f59e0b")
+    reason_type = Column(String, nullable=False, default="daily_quota_exceeded")  # daily_quota_exceeded | queue_concurrent_limit
+    limit_detail = Column(Text, nullable=True)
+    agent_note = Column(Text, nullable=True)
+    queue_name = Column(String, nullable=True)
+    target_supervisors = Column(JSON, default=list)
+    status = Column(String, nullable=False, default="pending", index=True)  # pending | approved | rejected | cancelled | expired
+    approved_extra_minutes = Column(Integer, default=0)
+    reviewer_user_id = Column(String, nullable=True)
+    reviewer_name = Column(String, nullable=True)
+    reviewer_note = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow, nullable=False, index=True)
+    resolved_at = Column(DateTime, nullable=True)
+    expires_at = Column(DateTime, nullable=True, index=True)
+
+
+
 
