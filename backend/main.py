@@ -43041,18 +43041,31 @@ async def get_system_version_info():
         pass
 
     return {
-        "version": "v3.9.0",
+        "version": "v3.9.1",
         "commit_hash": live_commit,
         "release_date": "22 Kasım 2026",
         "status": "Güncel / Canlı Sürüm",
         "environment": "Production (On-Premise)",
         "changelog": [
             {
-                "version": "v3.9.0",
+                "version": "v3.9.1",
                 "commit_hash": live_commit,
                 "release_date": "22 Kasım 2026",
                 "badge": "Canlı Sürüm (Güncel)",
                 "badge_type": "current",
+                "title": "Oto Provizyon Başlık Sadeleştirmesi",
+                "summary": "Oto Provizyon paneli başlığındaki '(AUTOPROVISIONING)' ibaresi kaldırılarak sade 'OTOPROVİZYON' başlığına geçildi.",
+                "features": [],
+                "fixes": [
+                    "AutoprovisionPanel başlığından '(AUTOPROVISIONING)' metni kaldırıldı."
+                ]
+            },
+            {
+                "version": "v3.9.0",
+                "commit_hash": "1deef15",
+                "release_date": "22 Kasım 2026",
+                "badge": "Kararlı",
+                "badge_type": "stable",
                 "title": "Zero-Touch DHCP Option 66 (HTTP WAN) & Tam Genişlik Oto Provizyon + Ağ Tarama / İstek Günlüğü Modalları",
                 "summary": "WAN oto-provizyon adresi fabrika çıkışı telefonlarda ek sertifika ayarı gerektirmeyen Zero-Touch HTTP (http://app.nornia.com.tr/api/prov/<token>/wan) formatına geçirildi; ağ tarama ve son provizyon istekleri üst araç çubuğundan açılan modern popuplara taşındı.",
                 "features": [

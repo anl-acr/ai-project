@@ -649,7 +649,7 @@ export default function AutoprovisionPanel({ backendHost = "localhost:8000" }) {
           </div>
           <div>
             <h3 className="font-bold text-sm text-slate-800 dark:text-white uppercase tracking-wider">
-              OTOPROVİZYON (AUTOPROVISIONING)
+              OTOPROVİZYON
             </h3>
             <p className="text-[10px] text-slate-500 dark:text-slate-400 mt-0.5 font-medium">
               Fiziksel IP telefonların MAC adresini dahili abonelere eşleştirin; Kullanıcı SIP ayarları ve Masa Telefonum ekranıyla otomatik senkronize olur.
