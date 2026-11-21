@@ -27,6 +27,7 @@ import {
   WifiOff,
   Play,
   Lock,
+  ChevronDown,
 } from "lucide-react";
 import { useTheme } from "../../../utils/theme";
 import ConfirmDeleteModal from "../../dashboard/ConfirmDeleteModal";
@@ -205,6 +206,14 @@ export default function AgentDeskphoneTab({ backendHost, currentUser }) {
   const [activeExpPage, setActiveExpPage] = useState(1);
   const [dirSearch, setDirSearch] = useState("");
   const [copiedUrlKey, setCopiedUrlKey] = useState("");
+  const [brandMenuOpen, setBrandMenuOpen] = useState(false);
+  const [brandSearch, setBrandSearch] = useState("");
+  const [modelMenuOpen, setModelMenuOpen] = useState(false);
+  const [modelSearch, setModelSearch] = useState("");
+  const brandDropdownRef = useRef(null);
+  const modelDropdownRef = useRef(null);
+  const brandSearchInputRef = useRef(null);
+  const modelSearchInputRef = useRef(null);
 
   // Modals & Live Reboot Progress Tracker
   const [activeCallWarning, setActiveCallWarning] = useState(null); // { applyMode, message }
@@ -337,6 +346,49 @@ export default function AgentDeskphoneTab({ backendHost, currentUser }) {
       if (pollRef.current) clearInterval(pollRef.current);
     };
   }, [fetchDeskphoneConfig]);
+
+  // Close searchable Brand / Model dropdowns on outside click or Escape
+  useEffect(() => {
+    const handleOutside = (e) => {
+      if (brandDropdownRef.current && !brandDropdownRef.current.contains(e.target)) {
+        setBrandMenuOpen(false);
+      }
+      if (modelDropdownRef.current && !modelDropdownRef.current.contains(e.target)) {
+        setModelMenuOpen(false);
+      }
+    };
+    const handleEsc = (e) => {
+      if (e.key === "Escape") {
+        setBrandMenuOpen(false);
+        setModelMenuOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handleOutside);
+    document.addEventListener("keydown", handleEsc);
+    return () => {
+      document.removeEventListener("mousedown", handleOutside);
+      document.removeEventListener("keydown", handleEsc);
+    };
+  }, []);
+
+  const filteredBrandOptions = useMemo(() => {
+    const q = brandSearch.trim().toLowerCase();
+    return Object.entries(brandsGrouped)
+      .filter(([, items]) => items.length > 0)
+      .filter(([bName]) => !q || bName.toLowerCase().includes(q));
+  }, [brandsGrouped, brandSearch]);
+
+  const filteredModelOptions = useMemo(() => {
+    const list = brandsGrouped[brand] || [];
+    const q = modelSearch.trim().toLowerCase();
+    if (!q) return list;
+    return list.filter(
+      (item) =>
+        item.model.toLowerCase().includes(q) ||
+        item.label.toLowerCase().includes(q) ||
+        String(item.expansion_model || "").toLowerCase().includes(q)
+    );
+  }, [brandsGrouped, brand, modelSearch]);
 
   // Live Reboot/Check-Sync Polling Tracker
   const startRebootTracking = useCallback(
@@ -934,28 +986,179 @@ export default function AgentDeskphoneTab({ backendHost, currentUser }) {
               </div>
             )}
 
-            <div className="flex items-center gap-1.5">
-              <span className="text-[11px] font-bold text-slate-500 dark:text-slate-400">Telefon Modeli:</span>
-              <select
-                value={`${brand}::${model}`}
-                onChange={(e) => {
-                  const [nb, nm] = e.target.value.split("::");
-                  handleModelChange(nb, nm);
-                }}
-                className="px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs font-bold text-slate-800 dark:text-white max-w-[320px]"
-              >
-                {Object.entries(brandsGrouped).map(([bName, items]) =>
-                  items.length > 0 ? (
-                    <optgroup key={bName} label={`── ${bName} (${items.length} Model) ──`}>
-                      {items.map((item) => (
-                        <option key={`${item.brand}::${item.model}`} value={`${item.brand}::${item.model}`}>
-                          {item.label}
-                        </option>
-                      ))}
-                    </optgroup>
-                  ) : null
+            {/* 1. MARKA SEÇİMİ (ARANABİLİR) */}
+            <div className="flex items-center gap-1.5 relative" ref={brandDropdownRef}>
+              <span className="text-[11px] font-bold text-slate-500 dark:text-slate-400">Marka:</span>
+              <div className="relative">
+                <button
+                  type="button"
+                  onClick={() => {
+                    const next = !brandMenuOpen;
+                    setBrandMenuOpen(next);
+                    setModelMenuOpen(false);
+                    setBrandSearch("");
+                    if (next) setTimeout(() => brandSearchInputRef.current?.focus(), 20);
+                  }}
+                  className="inline-flex items-center justify-between gap-2 min-w-[148px] px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700/80 text-xs font-extrabold text-slate-800 dark:text-white transition cursor-pointer"
+                >
+                  <span className="truncate">{brand}</span>
+                  <span className="inline-flex items-center gap-1 text-[10px] font-bold text-slate-400 shrink-0">
+                    ({(brandsGrouped[brand] || []).length})
+                    <ChevronDown size={13} className={`transition-transform ${brandMenuOpen ? "rotate-180" : ""}`} />
+                  </span>
+                </button>
+
+                {brandMenuOpen && (
+                  <div className="absolute left-0 mt-1.5 w-56 rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 shadow-2xl z-40 overflow-hidden">
+                    <div className="p-2 border-b border-slate-100 dark:border-slate-800">
+                      <div className="relative">
+                        <Search size={13} className="absolute left-2.5 top-2 text-slate-400" />
+                        <input
+                          ref={brandSearchInputRef}
+                          type="text"
+                          value={brandSearch}
+                          onChange={(e) => setBrandSearch(e.target.value)}
+                          placeholder="Marka ara..."
+                          className="w-full pl-8 pr-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs font-semibold text-slate-800 dark:text-white focus:outline-none"
+                        />
+                      </div>
+                    </div>
+                    <div className="max-h-56 overflow-y-auto p-1.5 space-y-0.5">
+                      {filteredBrandOptions.length === 0 ? (
+                        <div className="px-3 py-3 text-center text-[11px] text-slate-400">Eşleşen marka yok</div>
+                      ) : (
+                        filteredBrandOptions.map(([bName, items]) => {
+                          const isAct = bName === brand;
+                          return (
+                            <button
+                              key={bName}
+                              type="button"
+                              onClick={() => {
+                                const firstModel = items[0]?.model || model;
+                                handleModelChange(bName, firstModel);
+                                setBrandMenuOpen(false);
+                                setBrandSearch("");
+                                setModelSearch("");
+                              }}
+                              className={`w-full flex items-center justify-between gap-2 px-3 py-2 rounded-xl text-xs font-bold transition cursor-pointer ${
+                                isAct
+                                  ? `${lightBg} ${text}`
+                                  : "text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800"
+                              }`}
+                            >
+                              <span>{bName}</span>
+                              <span className="text-[10px] font-mono opacity-70">{items.length} model</span>
+                            </button>
+                          );
+                        })
+                      )}
+                    </div>
+                  </div>
                 )}
-              </select>
+              </div>
+            </div>
+
+            {/* 2. MODEL SEÇİMİ (ARANABİLİR) */}
+            <div className="flex items-center gap-1.5 relative" ref={modelDropdownRef}>
+              <span className="text-[11px] font-bold text-slate-500 dark:text-slate-400">Model:</span>
+              <div className="relative">
+                <button
+                  type="button"
+                  onClick={() => {
+                    const next = !modelMenuOpen;
+                    setModelMenuOpen(next);
+                    setBrandMenuOpen(false);
+                    setModelSearch("");
+                    if (next) setTimeout(() => modelSearchInputRef.current?.focus(), 20);
+                  }}
+                  className="inline-flex items-center justify-between gap-2 min-w-[230px] max-w-[300px] px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700/80 text-xs font-extrabold text-slate-800 dark:text-white transition cursor-pointer"
+                >
+                  <span className="truncate flex items-center gap-1.5">
+                    <span>{model}</span>
+                    <span className="text-[10px] font-semibold text-slate-400">
+                      • {activeModelSpec?.max_dss || 12} DSS
+                      {activeModelSpec?.max_expansions > 0 ? ` • ${activeModelSpec.expansion_model}` : ""}
+                    </span>
+                  </span>
+                  <ChevronDown size={13} className={`shrink-0 text-slate-400 transition-transform ${modelMenuOpen ? "rotate-180" : ""}`} />
+                </button>
+
+                {modelMenuOpen && (
+                  <div className="absolute left-0 mt-1.5 w-80 sm:w-96 rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 shadow-2xl z-40 overflow-hidden">
+                    <div className="p-2 border-b border-slate-100 dark:border-slate-800">
+                      <div className="relative">
+                        <Search size={13} className="absolute left-2.5 top-2 text-slate-400" />
+                        <input
+                          ref={modelSearchInputRef}
+                          type="text"
+                          value={modelSearch}
+                          onChange={(e) => setModelSearch(e.target.value)}
+                          placeholder={`${brand} modeli ara... (örn: T42S, T46U, EXP43)`}
+                          className="w-full pl-8 pr-7 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs font-semibold text-slate-800 dark:text-white focus:outline-none"
+                        />
+                        {modelSearch && (
+                          <button
+                            type="button"
+                            onClick={() => setModelSearch("")}
+                            className="absolute right-2 top-2 text-slate-400 hover:text-slate-600 cursor-pointer"
+                          >
+                            <X size={13} />
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                    <div className="max-h-72 overflow-y-auto p-1.5 space-y-0.5">
+                      {filteredModelOptions.length === 0 ? (
+                        <div className="px-3 py-4 text-center text-xs text-slate-400">
+                          &quot;{modelSearch}&quot; ile eşleşen {brand} modeli bulunamadı.
+                        </div>
+                      ) : (
+                        filteredModelOptions.map((item) => {
+                          const isAct = item.model === model;
+                          return (
+                            <button
+                              key={item.model}
+                              type="button"
+                              onClick={() => {
+                                handleModelChange(item.brand, item.model);
+                                setModelMenuOpen(false);
+                                setModelSearch("");
+                              }}
+                              className={`w-full flex items-center justify-between gap-2 px-3 py-2 rounded-xl text-left transition cursor-pointer ${
+                                isAct
+                                  ? `${lightBg} ${text}`
+                                  : "text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800"
+                              }`}
+                            >
+                              <div className="min-w-0">
+                                <div className="text-xs font-extrabold truncate flex items-center gap-1.5">
+                                  <span>{item.model}</span>
+                                  {item.max_expansions > 0 && (
+                                    <span className="px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-600 dark:text-amber-400 text-[9px] font-bold">
+                                      +{item.expansion_model} ×{item.max_expansions}
+                                    </span>
+                                  )}
+                                </div>
+                                <div className="text-[10px] text-slate-400 truncate mt-0.5">
+                                  {item.dss_per_page} Tuş × {item.dss_pages} Sayfa ({item.max_dss} DSS) •{" "}
+                                  {item.screen === "mono"
+                                    ? "Monokrom"
+                                    : item.screen === "touch"
+                                    ? "Dokunmatik"
+                                    : item.screen === "dual_screen"
+                                    ? "Çift Ekran"
+                                    : "Renkli LCD"}
+                                </div>
+                              </div>
+                              {isAct && <Check size={14} className="shrink-0" />}
+                            </button>
+                          );
+                        })
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
             </div>
           </div>
 

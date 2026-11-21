@@ -42277,18 +42277,32 @@ async def get_system_version_info():
         pass
 
     return {
-        "version": "v3.7.8",
+        "version": "v3.7.9",
         "commit_hash": live_commit,
         "release_date": "22 Kasım 2026",
         "status": "Güncel / Canlı Sürüm",
         "environment": "Production (On-Premise)",
         "changelog": [
             {
-                "version": "v3.7.8",
+                "version": "v3.7.9",
                 "commit_hash": live_commit,
                 "release_date": "22 Kasım 2026",
                 "badge": "Canlı Sürüm (Güncel)",
                 "badge_type": "current",
+                "title": "Masa Telefonum Ayrı & Aranabilir Marka + Model Seçicisi",
+                "summary": "Tek açılır liste yerine önce Marka, ardından aranabilir Model seçicisi (canlı filtreleme, tuş/ekran/modül özetli) eklendi.",
+                "features": [
+                    "Marka (Yealink / Grandstream / Fanvil / Cisco) ve Model alanları iki ayrı aranabilir açılır menüye bölündü.",
+                    "Model seçicisinde canlı arama kutusu (örn. 'T42S', 'EXP43', 'GRP2614'), DSS sayısı, ekran tipi ve uyumlu meşguliyet modülü rozetleri gösterilir."
+                ],
+                "fixes": []
+            },
+            {
+                "version": "v3.7.8",
+                "commit_hash": "07fc6dc",
+                "release_date": "22 Kasım 2026",
+                "badge": "Kararlı",
+                "badge_type": "stable",
                 "title": "Masa Telefonum Kayıt/Check-Sync 500 Hatası Düzeltmesi & İlk Kurulum 'Kaydet + LAN/WAN URL Kopyala' Şeridi",
                 "summary": "Masa Telefonum ekranında Kaydet / Hızlı Uygula / Reboot sırasında oluşan import hatası (HTTP 500) giderildi; telefonu ilk kez bağlayacak kullanıcılar için doğrudan 'Kaydet' butonu ve tek tıkla LAN/WAN Provizyon URL kopyalama şeridi eklendi.",
                 "features": [
