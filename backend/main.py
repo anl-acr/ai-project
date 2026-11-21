@@ -15037,7 +15037,13 @@ def _inspect_deskphone_live_status(dev: dict) -> dict:
     online = bool(insp.get("online") or ami_online)
     ip_val = str(parsed.get("ip_address") or ami_ip or dev.get("ip") or "").strip()
     dev_state = str(parsed.get("device_state") or "").strip()
-    on_active_call = any(tok in dev_state.lower() for tok in ("in use", "ringing", "busy"))
+    ds_low = dev_state.lower()
+    on_active_call = (
+        bool(ds_low)
+        and "not in use" not in ds_low
+        and ds_low not in ("unavailable", "invalid", "offline", "online")
+        and any(tok in ds_low for tok in ("in use", "inuse", "ringing", "busy", "on hold"))
+    )
     return {
         "online": online,
         "ip": ip_val,
@@ -43035,18 +43041,31 @@ async def get_system_version_info():
         pass
 
     return {
-        "version": "v3.8.8",
+        "version": "v3.8.9",
         "commit_hash": live_commit,
         "release_date": "22 Kasım 2026",
         "status": "Güncel / Canlı Sürüm",
         "environment": "Production (On-Premise)",
         "changelog": [
             {
-                "version": "v3.8.8",
+                "version": "v3.8.9",
                 "commit_hash": live_commit,
                 "release_date": "22 Kasım 2026",
                 "badge": "Canlı Sürüm (Güncel)",
                 "badge_type": "current",
+                "title": "Masa Telefonum Yanlış 'Aktif Görüşme Tespit Edildi' Uyarısı Düzeltmesi",
+                "summary": "Asterisk PJSIP boşta durumu olan 'Not in use' metninin içinde 'in use' alt dizesi geçtiği için boşta olan telefonlarda yanlışlıkla aktif görüşme uyarısı çıkmasına yol açan hata giderildi.",
+                "features": [],
+                "fixes": [
+                    "_inspect_deskphone_live_status() içindeki on_active_call kontrolü artık 'Not in use' durumunu açıkça hariç tutarak yalnızca gerçek aktif çağrı durumlarında ('In use', 'Ringing', 'Busy', 'On hold') uyarı verir."
+                ]
+            },
+            {
+                "version": "v3.8.8",
+                "commit_hash": "4382254",
+                "release_date": "22 Kasım 2026",
+                "badge": "Kararlı",
+                "badge_type": "stable",
                 "title": "T1 Hat Etiketi Varsayılanı Kompakt Dahili Numarası (1000) Olarak Güncellendi",
                 "summary": "Dar LCD ekranlı masa telefonlarında (örn. Yealink T42S) 'Hat 1000' etiketinin kırpılmasını önlemek için T1 ana hat etiketi ve account.1.label varsayılan olarak sadece dahili numarası (1000) şeklinde ayarlandı.",
                 "features": [
