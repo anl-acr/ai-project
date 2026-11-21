@@ -553,6 +553,68 @@ class AgentSessionLog(Base):
     ip_address = Column(String, nullable=True)
 
 
+class FederationSite(Base):
+    __tablename__ = "federation_sites"
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    tenant_id = Column(String, default="tenant-default", index=True)
+    site_code = Column(String, nullable=False, unique=True, index=True)
+    site_name = Column(String, nullable=False)
+    role = Column(String, default="edge")  # hub | edge
+    edge_mode = Column(String, default="active_local")  # active_local | srst_failover
+    extension_range_start = Column(String, default="2000")
+    extension_range_end = Column(String, default="2999")
+    local_lan_ip = Column(String, nullable=True)
+    wireguard_ip = Column(String, nullable=True)
+    sip_trunk_port = Column(Integer, default=5060)
+    pairing_token = Column(String, nullable=False)
+    outbound_primary_trunk = Column(String, nullable=True)
+    outbound_failover_trunk = Column(String, nullable=True)
+    media_sync_policy = Column(JSON, default=dict)
+    status = Column(String, default="pairing")  # online | offline | pairing
+    last_seen_at = Column(DateTime, nullable=True)
+    last_config_version_applied = Column(Integer, default=0)
+    target_config_version = Column(Integer, default=1)
+    pending_cdr_count = Column(Integer, default=0)
+    pending_media_count = Column(Integer, default=0)
+    pending_media_mb = Column(Float, default=0.0)
+    registered_phones_count = Column(Integer, default=0)
+    active_calls_count = Column(Integer, default=0)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+
+
+class FederationConfigOutbox(Base):
+    __tablename__ = "federation_config_outbox"
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    tenant_id = Column(String, default="tenant-default", index=True)
+    site_code = Column(String, nullable=False, index=True)
+    config_version = Column(Integer, nullable=False, default=1)
+    change_summary = Column(String, nullable=True)
+    config_snapshot = Column(JSON, default=dict)
+    status = Column(String, default="pending", index=True)  # pending | applied | failed
+    created_by = Column(String, nullable=True)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow, index=True)
+    applied_at = Column(DateTime, nullable=True)
+
+
+class FederationSyncQueue(Base):
+    __tablename__ = "federation_sync_queue"
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    tenant_id = Column(String, default="tenant-default", index=True)
+    record_type = Column(String, nullable=False, index=True)  # call | break | session | survey | recording
+    origin_record_id = Column(String, nullable=False, index=True)
+    payload = Column(JSON, default=dict)
+    file_path = Column(String, nullable=True)
+    file_sha256 = Column(String, nullable=True)
+    uploaded_bytes = Column(Integer, default=0)
+    total_bytes = Column(Integer, default=0)
+    sync_status = Column(String, default="pending", index=True)  # pending | uploading | synced | failed
+    retry_count = Column(Integer, default=0)
+    last_error = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow, index=True)
+    synced_at = Column(DateTime, nullable=True)
+
+
+
 
 
 

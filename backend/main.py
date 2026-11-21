@@ -130,8 +130,10 @@ async def audit_client_ip_middleware(request: Request, call_next):
         current_request_ip_ctx.reset(token)
 
 from backend.routers import sip_debugger, workspace_enhancements
+from backend.services.federation_service import federation_router, start_federation_sync_worker
 app.include_router(sip_debugger.router)
 app.include_router(workspace_enhancements.router)
+app.include_router(federation_router)
 
 @app.on_event("startup")
 async def on_startup_telemetry():
@@ -154,6 +156,10 @@ async def on_startup_telemetry():
         asyncio.create_task(start_telemetry_heartbeat_loop())
     except Exception as e:
         print(f"[Telemetry Startup Error]: {e}")
+    try:
+        start_federation_sync_worker()
+    except Exception as e_fed:
+        print(f"[Federation Worker Startup Info]: {e_fed}")
 
 # Enable CORS for frontend development
 app.add_middleware(
@@ -1658,6 +1664,7 @@ DEFAULT_SETTINGS = {
                 "callback_tasks:read", "callback_tasks:write", "callback_tasks:delete",
                 "crisis_alerts:access",
                 "kvkk_consent:read", "kvkk_consent:write",
+                "federation_multisite:read", "federation_multisite:write", "federation_multisite:delete",
                 "system_version:access", "system_version:read", "system_version:write"
             ],
             "allowed_breaks": [1, 2, 3, 4]
@@ -2900,7 +2907,7 @@ def load_settings(force_reload: bool = False, persist: bool = False):
                 if r.get("role_code") == "admin" and "restore_points:delete" not in new_perms:
                     new_perms.append("restore_points:delete")
                 if r.get("role_code") == "admin":
-                    for net_p in ("server_network:read", "server_network:write", "server_network:delete", "ras_settings:read", "ras_settings:write", "system_version:read", "system_version:write", "kvkk_consent:read", "kvkk_consent:write"):
+                    for net_p in ("server_network:read", "server_network:write", "server_network:delete", "ras_settings:read", "ras_settings:write", "system_version:read", "system_version:write", "kvkk_consent:read", "kvkk_consent:write", "federation_multisite:read", "federation_multisite:write", "federation_multisite:delete"):
                         if net_p not in new_perms:
                             new_perms.append(net_p)
                 for sup_perm in (
@@ -41875,18 +41882,36 @@ async def get_system_version_info():
         pass
 
     return {
-        "version": "v3.7.3",
+        "version": "v3.7.4",
         "commit_hash": live_commit,
         "release_date": "21 Kasım 2026",
         "status": "Güncel / Canlı Sürüm",
         "environment": "Production (On-Premise)",
         "changelog": [
             {
-                "version": "v3.7.3",
+                "version": "v3.7.4",
                 "commit_hash": live_commit,
                 "release_date": "21 Kasım 2026",
                 "badge": "Canlı Sürüm (Güncel)",
                 "badge_type": "current",
+                "title": "Çok-Şubeli Dağıtık Santral Federasyonu (Multi-Site Hub & Edge), Çevrimdışı Hayatta Kalma & Store-and-Forward Senkronizasyon",
+                "summary": "İnternet erişimi zayıf veya kesintili taşra şubeleri için tek arayüzden yönetilen Merkez (Hub) + Şube (Edge) dağıtık santral mimarisi, Dual-Server SRST failover, şube yerel dış hat yedeklemesi (GSM/FXO) ve arayüzden yönetilebilir ses kaydı sıkıştırma/bant genişliği politikaları eklendi.",
+                "features": [
+                    "Tek Arayüzden Çok-Şubeli Yönetim (Sistem Ayarları > Çok-Şubeli Santral): Merkez (Hub) panelinden 2 ila 10+ şube santrali tek ekrandan izleme, eşleştirme (Pairing Token), anlık çevrimiçi/çevrimdışı sağlık durumu, bekleyen CDR/ses kuyruğu ve konfigürasyon dağıtımı (Config Outbox).",
+                    "Çift Çalışma Modu (Şube Bazlı Seçim): 'Aktif Yerel (Active-Local)' modu ile zayıf internetli taşra telefonları daima yerel LAN Edge santraline kayıtlı kalır (sıfır ses kopması); 'Yedekli SRST (Auto-Failover)' modu ile oto-provizyon şablonuna Primary (Merkez) + Failover (Yerel Edge LAN IP) çift SIP sunucu basılır.",
+                    "İnternet Kesintisinde Yerel Hayatta Kalma & İkinci Dış Hat (GSM/FXO) Failover: Şubeler internet koptuğunda dahili arası, IVR, kuyruk ve yerel ses kaydına kesintisiz devam eder; birincil dış hat ulaşılamazsa otomatik ikincil yerel dış hattan (GSM Gateway/PSTN) çıkış yapar veya ikinci hat yoksa yerel modda sorunsuz çalışır.",
+                    "Store-and-Forward CDR & Parçalı (Chunked) Ses Kaydı Senkronizasyonu: Çevrimdışı sürede oluşan tüm çağrı kayıtları (CDR), mola, oturum ve anket verileri ile ses kayıtları bağlantı gelince idempotent biçimde ve SHA-256 doğrulamalı parçalı yüklemeyle merkeze aktarılır.",
+                    "Arayüzden Yönetilebilir Ses Sıkıştırma & Bant Genişliği Politikası: Şube bazında ve yerel düğümde OPUS (~%85 tasarruf) / MP3 / WAV seçimi, 128–1024 Kbps bant genişliği limiti ve mesai dışı (örn. 19:00–08:00) / 7/24 / manuel senkronizasyon zamanlaması.",
+                    "Granüler Yetki Kaydı: 'federation_multisite:read/write/delete' izin kodları Rol Yönetimi ve Sistem Ayarları menüsüne eklendi."
+                ],
+                "fixes": []
+            },
+            {
+                "version": "v3.7.3",
+                "commit_hash": "adba675",
+                "release_date": "21 Kasım 2026",
+                "badge": "Kararlı",
+                "badge_type": "stable",
                 "title": "KVKK & Gizlilik Onay Kutusu (Checkbox) Görünürlük Düzeltmesi",
                 "summary": "Cam/Açık arayüz şablonlarında bg-white kenarlık kuralı nedeniyle işaretlenmemişken görünmez kalan KVKK onay kutuları yüksek kontrastlı yerel checkbox bileşenine dönüştürüldü.",
                 "features": [],

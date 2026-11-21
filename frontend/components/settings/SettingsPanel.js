@@ -49,6 +49,7 @@ const lazySub = (loader) => dynamic(loader, { ssr: false, loading: SubPanelLoadi
 const PBXSettings = lazySub(() => import("./PBXSettings"));
 const ServerNetworkSettingsPanel = lazySub(() => import("./ServerNetworkSettingsPanel"));
 const RemoteAccessSettingsPanel = lazySub(() => import("./RemoteAccessSettingsPanel"));
+const FederationMultisitePanel = lazySub(() => import("./FederationMultisitePanel"));
 const ServerSshTerminalPanel = lazySub(() => import("./ServerSshTerminalPanel"));
 const NATSettings = lazySub(() => import("./NATSettings"));
 const NumberingPlanPanel = lazySub(() => import("./NumberingPlanPanel"));
@@ -155,6 +156,7 @@ export default function SettingsPanel({ backendHost = "localhost:8000" }) {
   const [hasWorkHoursPermission, setHasWorkHoursPermission] = useState(true);
   const [hasServerSshPermission, setHasServerSshPermission] = useState(true);
   const [hasKvkkConsentPermission, setHasKvkkConsentPermission] = useState(true);
+  const [hasFederationPermission, setHasFederationPermission] = useState(true);
   const [resolvedUserPerms, setResolvedUserPerms] = useState(["*"]);
   const [licensedFeatures, setLicensedFeatures] = useState(["*"]);
   const [hideProviderInfra, setHideProviderInfra] = useState(false);
@@ -272,6 +274,11 @@ export default function SettingsPanel({ backendHost = "localhost:8000" }) {
             currentRole.permissions.includes("kvkk_consent:read") ||
             currentRole.permissions.includes("kvkk_consent:write")
         );
+        setHasFederationPermission(
+          currentRole.permissions.includes("*") ||
+            currentRole.permissions.includes("federation_multisite:read") ||
+            currentRole.permissions.includes("federation_multisite:write")
+        );
         setResolvedUserPerms(currentRole.permissions || []);
       } catch (err) {
         console.error("Settings permission check error:", err);
@@ -320,6 +327,13 @@ export default function SettingsPanel({ backendHost = "localhost:8000" }) {
             subtitle: "Port açmadan Web, Mobil/Desktop & Ses (TURN) Bulut Tüneli",
             icon: Network,
             visible: true
+          },
+          {
+            id: "federation-multisite",
+            label: "Çok-Şubeli Santral (Multi-Site)",
+            subtitle: "Taşra şube federasyonu, çevrimdışı hayatta kalma, SRST & CDR/ses senkronizasyonu",
+            icon: Network,
+            visible: hasFederationPermission
           },
           {
             id: "server-ssh",
@@ -572,6 +586,7 @@ export default function SettingsPanel({ backendHost = "localhost:8000" }) {
       pbx: "pbx",
       "server-network": "server_network",
       "ras-settings": "ras_settings",
+      "federation-multisite": "federation_multisite",
       "server-ssh": "server_ssh",
       nat: "nat",
       "numbering-plan": "numbering_plan",
@@ -608,7 +623,7 @@ export default function SettingsPanel({ backendHost = "localhost:8000" }) {
     const isSubTabLicensed = (subId) => {
       if (isNorniaRoot) return true;
       if (hideProviderInfra && providerInfraSubTabs.includes(subId)) return false;
-      if (["roles", "kvkk-consent", "license", "version"].includes(subId)) return true;
+      if (["roles", "kvkk-consent", "federation-multisite", "license", "version"].includes(subId)) return true;
       if (!Array.isArray(licensedFeatures) || licensedFeatures.includes("*")) return true;
       const mappedFeat = subTabToFeatureMap[subId] || subId;
       return licensedFeatures.includes(mappedFeat);
@@ -634,6 +649,7 @@ export default function SettingsPanel({ backendHost = "localhost:8000" }) {
     hasRecordingRetentionPermission,
     hasServerSshPermission,
     hasKvkkConsentPermission,
+    hasFederationPermission,
     licensedFeatures,
     hideProviderInfra
   ]);
@@ -858,6 +874,9 @@ export default function SettingsPanel({ backendHost = "localhost:8000" }) {
             )}
             {activeSubTab === "ras-settings" && (
               <RemoteAccessSettingsPanel backendHost={backendHost} userPermissions={resolvedUserPerms} />
+            )}
+            {activeSubTab === "federation-multisite" && (
+              <FederationMultisitePanel backendHost={backendHost} userPermissions={resolvedUserPerms} />
             )}
             {activeSubTab === "server-ssh" && (
               <ServerSshTerminalPanel backendHost={backendHost} userPermissions={resolvedUserPerms} />

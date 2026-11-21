@@ -988,6 +988,7 @@ def generate_provisioning_config(
     phonebook_base_url: str = "",
     connection_mode: str = "lan",
     provision_server_url: str = "",
+    failover_pbx_host: str = "",
 ) -> Tuple[str, str, str]:
     """
     Generates multi-vendor provisioning content using `sip_username` (Kullanıcı > SIP > Kullanıcı Adı)
@@ -1243,6 +1244,19 @@ def generate_provisioning_config(
         f"account.1.sip_server.1.port = {sip_port}",
         f"account.1.sip_server.1.transport_type = {yl_tr}",
         "account.1.sip_server.1.expires = 3600",
+        *(
+            [
+                "# --- SRST Yedek (Failover) Yerel Santral ---",
+                f"account.1.sip_server.2.address = {failover_pbx_host}",
+                f"account.1.sip_server.2.port = {sip_port}",
+                f"account.1.sip_server.2.transport_type = {yl_tr}",
+                "account.1.sip_server.2.expires = 300",
+                "account.1.fallback.redundancy_type = 1",
+                "account.1.fallback.timeout = 30",
+            ]
+            if failover_pbx_host and failover_pbx_host != pbx_host
+            else []
+        ),
         f"account.1.nat.udp_update_enable = {3 if str(connection_mode or 'lan').lower() == 'wan' else 1}",
         "account.1.nat.udp_update_time = 30",
         "account.1.nat.rport = 1",

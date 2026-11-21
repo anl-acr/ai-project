@@ -789,6 +789,16 @@ export default function GlobalSearchBar({
         run: () => navigateTo("settings", { settingsSubTab: "pbx" })
       },
       {
+        id: "menu-settings-federation-multisite",
+        category: "menu",
+        groupLabel: "Sistem Ayarları",
+        title: "Sistem Ayarları > Çok-Şubeli Santral (Multi-Site Edge & Failover)",
+        subtitle: "Merkez (Hub) + Şube (Edge) federasyonu, çevrimdışı hayatta kalma, SRST ve CDR/ses senkronizasyonu",
+        keywords: "çok şubeli santral multisite federation şube edge hub srst failover çevrimdışı taşra senkronizasyon opus",
+        icon: Network,
+        run: () => navigateTo("settings", { settingsSubTab: "federation-multisite" })
+      },
+      {
         id: "menu-settings-nat",
         category: "menu",
         groupLabel: "Sistem Ayarları",
