@@ -569,7 +569,7 @@ def enforce_primary_line_key(
     Preserves custom display label if the user customized T1's label.
     """
     ext_s = str(ext or "").strip()
-    fallback_lbl = str(default_label or (f"Hat {ext_s}" if ext_s else "Hat 1")).strip()
+    fallback_lbl = str(default_label or (ext_s if ext_s else "Hat 1")).strip()
     items = [dict(k) for k in (dss_keys or []) if isinstance(k, dict)]
     t1_idx = None
     for i, k in enumerate(items):
@@ -579,12 +579,14 @@ def enforce_primary_line_key(
     if t1_idx is not None:
         existing_lbl = str(items[t1_idx].get("label") or "").strip()
         existing_type = str(items[t1_idx].get("type") or "").strip().lower()
+        # Migrate legacy verbose default "Hat <ext>" to compact "<ext>" so it fits narrow LCD labels (e.g. T42S)
+        is_legacy_hat = bool(ext_s and existing_lbl.lower() == f"hat {ext_s}".lower())
         items[t1_idx] = {
             **items[t1_idx],
             "key_index": 1,
             "type": "line",
             "value": ext_s,
-            "label": existing_lbl if (existing_type == "line" and existing_lbl) else fallback_lbl,
+            "label": existing_lbl if (existing_type == "line" and existing_lbl and not is_legacy_hat) else fallback_lbl,
             "label_mode": "custom",
             "locked": True,
         }
@@ -1625,7 +1627,7 @@ def generate_provisioning_config(
     disp_name = str(full_name or f"Dahili {ext_s}").strip()
     prefs = normalize_phone_prefs(phone_prefs, fallback_lang=language, fallback_auto_answer=auto_answer)
     custom_screen_label = str(prefs.get("screen_label") or "").strip()
-    line_label = custom_screen_label or (f"{ext_s} - {disp_name}" if ext_s else disp_name)
+    line_label = custom_screen_label or (ext_s if ext_s else disp_name)
     mac_norm, mac_hex = normalize_mac_address(mac_colon)
     tr_up = str(transport or "UDP").strip().upper()
     sip_port = 5061 if tr_up == "TLS" else 5060
@@ -1634,7 +1636,7 @@ def generate_provisioning_config(
 
     model_spec = resolve_phone_model_spec(brand, model)
     max_dss_for_model = max(2, int(model_spec.get("max_dss") or 6))
-    t1_default_lbl = f"Hat {ext_s}" if ext_s else "Hat 1"
+    t1_default_lbl = ext_s if ext_s else "Hat 1"
     dss_list = enforce_primary_line_key(
         resolve_dynamic_key_labels(dss_keys if isinstance(dss_keys, list) else [], ext_name_map),
         ext=ext_s,

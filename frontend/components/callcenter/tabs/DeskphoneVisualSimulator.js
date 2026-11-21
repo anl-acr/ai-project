@@ -521,7 +521,9 @@ export default function DeskphoneVisualSimulator({
                                 }`}
                               >
                                 {disp.label}
-                                {k.value ? <span className="opacity-65 ml-1">({k.value})</span> : null}
+                                {k.value && String(disp.label || "").trim() !== String(k.value || "").trim() ? (
+                                  <span className="opacity-65 ml-1">({k.value})</span>
+                                ) : null}
                               </div>
                             );
                           })}
@@ -547,7 +549,9 @@ export default function DeskphoneVisualSimulator({
                                       : "bg-white/5 border-white/10 text-slate-100 hover:bg-white/10"
                                   }`}
                                 >
-                                  {k.value ? <span className="opacity-65 mr-1">({k.value})</span> : null}
+                                  {k.value && String(disp.label || "").trim() !== String(k.value || "").trim() ? (
+                                    <span className="opacity-65 mr-1">({k.value})</span>
+                                  ) : null}
                                   {disp.label}
                                 </div>
                               );

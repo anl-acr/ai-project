@@ -103,7 +103,9 @@ function buildDssArray(ext, maxKeys, existing = []) {
     const keyIndex = i + 1;
     const found = byIdx.get(keyIndex);
     if (keyIndex === 1) {
-      const customLbl = found && found.type === "line" && found.label ? found.label : `Hat ${ext}`;
+      const rawLbl = found && found.type === "line" && found.label ? String(found.label).trim() : "";
+      const isLegacyHat = rawLbl.toLowerCase() === `hat ${ext}`.toLowerCase();
+      const customLbl = rawLbl && !isLegacyHat ? rawLbl : String(ext);
       return { key_index: 1, type: "line", label: customLbl, label_mode: "custom", value: String(ext), pickup_code: "*8", locked: true };
     }
     if (found) {
@@ -489,7 +491,7 @@ export default function AgentDeskphoneTab({ backendHost, currentUser }) {
     const updated = { ...k, [field]: val };
     if (field === "type") {
       if (val === "line") {
-        updated.label = `Hat ${ext}`;
+        updated.label = String(ext);
         updated.label_mode = "custom";
         updated.value = String(ext);
       } else if (val === "dnd") {

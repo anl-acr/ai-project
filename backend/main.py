@@ -14485,7 +14485,7 @@ async def save_autoprovision(payload: dict, user_info: dict = Depends(get_user_i
                 "auto_answer": False,
                 "direct_ip_call_block": True,
                 "dss_keys": [
-                    {"key_index": 1, "type": "line", "label": f"Hat {ext_s}" if ext_s else "Hat 1", "label_mode": "custom", "value": ext_s, "pickup_code": "*8", "locked": True},
+                    {"key_index": 1, "type": "line", "label": ext_s if ext_s else "Hat 1", "label_mode": "custom", "value": ext_s, "pickup_code": "*8", "locked": True},
                 ],
                 "soft_keys": [
                     {"key_index": 1, "type": "history", "label": "Geçmiş", "value": ""},
@@ -15355,7 +15355,7 @@ async def save_agent_deskphone_config(
     new_brand = str(payload.get("brand") or target_dev.get("brand") or "Yealink").strip()
     new_model = str(payload.get("model") or target_dev.get("model") or "T46U").strip()
     raw_dss = payload.get("dss_keys") if isinstance(payload.get("dss_keys"), list) else (target_dev.get("dss_keys") or [])
-    new_dss = enforce_primary_line_key(raw_dss, ext=ext_clean, default_label=f"Hat {ext_clean}")
+    new_dss = enforce_primary_line_key(raw_dss, ext=ext_clean, default_label=ext_clean or "Hat 1")
     new_soft = payload.get("soft_keys") if isinstance(payload.get("soft_keys"), list) else (target_dev.get("soft_keys") or [])
     new_exp = normalize_expansion_modules(payload.get("expansion_modules"))
     new_prefs = normalize_phone_prefs(
@@ -43035,18 +43035,32 @@ async def get_system_version_info():
         pass
 
     return {
-        "version": "v3.8.7",
+        "version": "v3.8.8",
         "commit_hash": live_commit,
         "release_date": "22 Kasım 2026",
         "status": "Güncel / Canlı Sürüm",
         "environment": "Production (On-Premise)",
         "changelog": [
             {
-                "version": "v3.8.7",
+                "version": "v3.8.8",
                 "commit_hash": live_commit,
                 "release_date": "22 Kasım 2026",
                 "badge": "Canlı Sürüm (Güncel)",
                 "badge_type": "current",
+                "title": "T1 Hat Etiketi Varsayılanı Kompakt Dahili Numarası (1000) Olarak Güncellendi",
+                "summary": "Dar LCD ekranlı masa telefonlarında (örn. Yealink T42S) 'Hat 1000' etiketinin kırpılmasını önlemek için T1 ana hat etiketi ve account.1.label varsayılan olarak sadece dahili numarası (1000) şeklinde ayarlandı.",
+                "features": [
+                    "Kompakt T1 Hat Etiketi: Hem ilk kurulumda hem de eski 'Hat <dahili>' varsayılanına sahip cihazlarda T1 etiketi ve account.1.label otomatik olarak yalın dahili numarası ('1000') görünür; kullanıcı isterse yine özel etiket yazabilir.",
+                    "Simülatör LCD Temizliği: Tuş etiketi ve dahili numarası aynı olduğunda ekranda mükerrer '1000 (1000)' yerine yalnızca '1000' gösterilir."
+                ],
+                "fixes": []
+            },
+            {
+                "version": "v3.8.7",
+                "commit_hash": "53f2ee2",
+                "release_date": "22 Kasım 2026",
+                "badge": "Kararlı",
+                "badge_type": "stable",
                 "title": "Temiz Varsayılan Masa Telefonu Profili (T1 Hat + Boş DSS + F1-F4 Softkey) & Yealink T42S Tek Sayfa",
                 "summary": "Yeni aktif olan tüm masa telefonları artık yalnızca T1 ana hat tuşu dolu, diğer tüm DSS tuşları boş ve ekran altı softkey tuşları Geçmiş / Rehber / Yönlendir / Menü olarak başlar; Yealink T42S modelinden sayfalama kaldırıldı.",
                 "features": [
