@@ -979,7 +979,7 @@ async def report_queue_sla_buckets(
 ):
     tenant_id = _extract_tenant_id(request)
     start_utc, end_utc = _parse_tr_date_range(start_date, end_date, start_time, end_time)
-    sla_thr = max(5, int(sla_seconds or 20))
+    sla_thr = min(600, max(5, int(sla_seconds or 20)))
     short_thr = max(1, int(short_abandon_seconds or 5))
 
     async with AsyncSessionLocal() as db:
@@ -995,14 +995,24 @@ async def report_queue_sla_buckets(
 
     q_name_map = {str(q.extension or "").strip(): (q.name or f"Kuyruk {q.extension}") for q in queues if q.extension}
 
-    buckets_def = [
-        ("0-10 sn", 0, 10),
-        ("10-20 sn", 10, 20),
-        ("20-30 sn", 20, 30),
-        ("30-60 sn", 30, 60),
-        ("60+ sn", 60, 999999),
-    ]
+    if sla_thr > 60:
+        buckets_def = [
+            ("0-20 sn", 0, 20),
+            ("20-60 sn", 20, 60),
+            ("60-180 sn", 60, 180),
+            ("180-300 sn", 180, 300),
+            ("300+ sn", 300, 999999),
+        ]
+    else:
+        buckets_def = [
+            ("0-10 sn", 0, 10),
+            ("10-20 sn", 10, 20),
+            ("20-30 sn", 20, 30),
+            ("30-60 sn", 30, 60),
+            ("60+ sn", 60, 999999),
+        ]
     buckets = {b[0]: {"bucket": b[0], "answered": 0, "abandoned": 0, "total": 0} for b in buckets_def}
+    fallback_bucket_label = buckets_def[-1][0]
     per_queue: Dict[str, Dict[str, Any]] = {}
     for qext, qnm in q_name_map.items():
         per_queue[qext] = {
@@ -1057,7 +1067,7 @@ async def report_queue_sla_buckets(
         total_offered += 1
         q_row["offered"] += 1
 
-        matched_b = "60+ sn"
+        matched_b = fallback_bucket_label
         for blabel, bmin, bmax in buckets_def:
             if bmin <= wait_s < bmax or (bmin == 0 and wait_s == 0):
                 matched_b = blabel

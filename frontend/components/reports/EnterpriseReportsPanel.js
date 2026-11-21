@@ -865,25 +865,71 @@ export default function EnterpriseReportsPanel({ backendHost, reportType = "brea
               )}
 
               {reportType === "queue-sla" && (
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">
-                      Hedef SLA Süresi
-                    </label>
-                    <select
-                      value={slaSeconds}
-                      onChange={(e) => setSlaSeconds(Number(e.target.value))}
-                      className="w-full px-2.5 py-2 rounded-xl text-xs bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-slate-800 dark:text-slate-100 font-bold"
-                    >
-                      <option value={15}>15 Saniye</option>
-                      <option value={20}>20 Saniye (80/20)</option>
-                      <option value={30}>30 Saniye</option>
-                      <option value={60}>60 Saniye</option>
-                    </select>
+                <div className="space-y-3">
+                  <div className="p-3.5 rounded-2xl bg-slate-50/80 dark:bg-slate-950/60 border border-slate-200/80 dark:border-slate-800 space-y-2.5">
+                    <div className="flex items-center justify-between gap-2">
+                      <label className="text-[10px] font-extrabold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
+                        Hizmet Seviyesi (SL) Hedefi (SL 5 – SL 600)
+                      </label>
+                      <span className={`px-2 py-0.5 rounded-lg text-[11px] font-extrabold ${lightBg} ${text} border ${borderLight}`}>
+                        SL {slaSeconds} ({slaSeconds} sn)
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <div className="relative flex items-center w-36 shrink-0">
+                        <span className="absolute left-3 text-xs font-extrabold text-slate-400 select-none">SL</span>
+                        <input
+                          type="number"
+                          min={5}
+                          max={600}
+                          step={5}
+                          value={slaSeconds}
+                          onChange={(e) => {
+                            const raw = parseInt(e.target.value, 10);
+                            if (Number.isNaN(raw)) return;
+                            setSlaSeconds(Math.min(600, Math.max(5, raw)));
+                          }}
+                          onBlur={(e) => {
+                            const raw = parseInt(e.target.value, 10);
+                            setSlaSeconds(Number.isNaN(raw) ? 20 : Math.min(600, Math.max(5, raw)));
+                          }}
+                          className={`w-full pl-9 pr-8 py-2 rounded-xl text-xs bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-800 dark:text-slate-100 font-extrabold focus:outline-none focus:ring-2 ${ring}`}
+                        />
+                        <span className="absolute right-2.5 text-[10px] font-bold text-slate-400 select-none">sn</span>
+                      </div>
+                      <input
+                        type="range"
+                        min={5}
+                        max={600}
+                        step={5}
+                        value={slaSeconds}
+                        onChange={(e) => setSlaSeconds(Math.min(600, Math.max(5, Number(e.target.value) || 20)))}
+                        className="flex-1 accent-primary cursor-pointer"
+                      />
+                    </div>
+                    <div className="flex flex-wrap gap-1.5">
+                      {[5, 10, 15, 20, 30, 60, 120, 300, 600].map((sec) => {
+                        const active = Number(slaSeconds) === sec;
+                        return (
+                          <button
+                            key={sec}
+                            type="button"
+                            onClick={() => setSlaSeconds(sec)}
+                            className={`px-2 py-1 rounded-lg text-[10px] font-extrabold transition-all cursor-pointer border ${
+                              active
+                                ? `${bg} text-white border-transparent shadow-sm`
+                                : "bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800"
+                            }`}
+                          >
+                            SL {sec}
+                          </button>
+                        );
+                      })}
+                    </div>
                   </div>
                   <div>
                     <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">
-                      Kısa Terk (Hariç)
+                      Kısa Terk (Hariç Tutulan Eşik)
                     </label>
                     <select
                       value={shortAbandonSeconds}
@@ -1310,7 +1356,7 @@ export default function EnterpriseReportsPanel({ backendHost, reportType = "brea
           {reportType === "queue-sla" && (
             <div className="space-y-5">
               <div className="grid grid-cols-2 lg:grid-cols-5 gap-3.5">
-                <KpiCard label={`Hizmet Seviyesi (SLA ≤${summary.sla_threshold_seconds || slaSeconds}sn)`} value={`%${summary.sla_pct ?? 100}`} sub={`${summary.answered_in_sla || 0} çağrı hedef sürede`} icon={Target} theme={{ lightBg, lightText }} />
+                <KpiCard label={`Hizmet Seviyesi (SL${summary.sla_threshold_seconds || slaSeconds} • ≤${summary.sla_threshold_seconds || slaSeconds}sn)`} value={`%${summary.sla_pct ?? 100}`} sub={`${summary.answered_in_sla || 0} çağrı hedef sürede`} icon={Target} theme={{ lightBg, lightText }} />
                 <KpiCard label="Gelen Kuyruk Çağrısı" value={summary.total_offered || 0} sub={`Cevaplanan: ${summary.total_answered || 0}`} icon={PhoneIncoming} theme={{ lightBg, lightText }} />
                 <KpiCard label="Ort. Cevaplama Hızı (ASA)" value={`${summary.asa_seconds || 0} sn`} sub="Average Speed of Answer" icon={Clock} theme={{ lightBg, lightText }} />
                 <KpiCard label="Terk (Abandon) Oranı" value={`%${summary.abandon_pct || 0}`} sub={`${summary.total_abandoned || 0} terk (${summary.short_abandoned || 0} kısa terk)`} icon={PhoneMissed} alert={(summary.abandon_pct || 0) > 15} theme={{ lightBg, lightText }} />
@@ -1343,7 +1389,7 @@ export default function EnterpriseReportsPanel({ backendHost, reportType = "brea
 
               <DataTable
                 ariaLabel="Kuyruk Bazlı SLA Tablosu"
-                headers={["Kuyruk", "Gelen", "Cevaplanan", `SLA İçi (≤${slaSeconds}s)`, "Terk", `Kısa Terk (<${shortAbandonSeconds}s)`, "SLA %", "ASA (sn)", "Ort. Terk (sn)", "Ort. Konuşma"]}
+                headers={["Kuyruk", "Gelen", "Cevaplanan", `SL${slaSeconds} İçi (≤${slaSeconds}s)`, "Terk", `Kısa Terk (<${shortAbandonSeconds}s)`, `SL${slaSeconds} %`, "ASA (sn)", "Ort. Terk (sn)", "Ort. Konuşma"]}
                 rows={(data?.queues || []).filter((r) => matchSearch(r, ["queue_extension", "queue_name"]))}
                 renderRow={(r) => (
                   <tr key={r.queue_extension} className="hover:bg-slate-50/80 dark:hover:bg-slate-800/40">

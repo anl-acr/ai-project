@@ -485,6 +485,7 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
     return items;
   }, [queues]);
   const [filterQueuesSelected, setFilterQueuesSelected] = useState([]);
+  const [filterQueueSlaSeconds, setFilterQueueSlaSeconds] = useState(20); // Default SL20 (range: SL 5 - SL 600)
   const [filterAgentsSelected, setFilterAgentsSelected] = useState([]);
   const [filterSentimentsSelected, setFilterSentimentsSelected] = useState([]);
   const [filterWordcloudKeyword, setFilterWordcloudKeyword] = useState("");
@@ -1559,7 +1560,7 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
       totalCalls: "Toplam Çağrı",
       queuedCalls: "Kuyruğa Giren",
       abandoned: "Kuyrukta Kaçan",
-      sla: "SLA Uyumu (≤20s)",
+      sla: `SL${filterQueueSlaSeconds} Uyumu (≤${filterQueueSlaSeconds}s)`,
       totalWait: "Top. Bekleme",
       avgWait: "Ort. Bekleme",
       maxWait: "Max. Bekleme",
@@ -2062,7 +2063,7 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
         "Toplam Çağrı",
         "Kuyruğa Giren",
         "Kuyrukta Kaçan",
-        "SLA Uyumu (%)",
+        `SL${filterQueueSlaSeconds} Uyumu (%)`,
         "Top. Bekleme",
         "Ort. Bekleme",
         "Max. Bekleme"
@@ -2110,7 +2111,7 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
           dStats.totalQueueSecs += queueSecs;
           if (queueSecs > dStats.maxQueueSecs) dStats.maxQueueSecs = queueSecs;
         }
-        if (queueSecs <= 20) dStats.slaCompliant++;
+        if (queueSecs <= filterQueueSlaSeconds) dStats.slaCompliant++;
         const statusLabel = getCallStatus(call);
         if (statusLabel !== "Başarılı" && (!call.duration_talk || call.duration_talk === 0) && queueSecs > 0) {
           dStats.abandonedInQueue++;
@@ -3151,6 +3152,7 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
     setFilterCallId("");
     setFilterAgentsSelected([]);
     setFilterQueuesSelected([]);
+    setFilterQueueSlaSeconds(20);
     setFilterSentimentsSelected([]);
     setFilterWordcloudKeyword("");
     setFilterFcrStatusesSelected([]);
@@ -7689,20 +7691,92 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                 </div>
 
                 {viewMode === "queue" ? (
-                  <DualListBox 
-                    title="Kuyruklar"
-                    availableItems={filterQueuesAvailable}
-                    selectedIds={filterQueuesSelected}
-                    onChangeSelectedIds={setFilterQueuesSelected}
-                    columns={["Kuyruk ID", "Kuyruk İsmi"]}
-                    bg={bg} hover={hover} text={text} border={border} lightBg={lightBg} ring={ring} borderLight={borderLight}
-                    renderRow={(item) => (
-                      <>
-                        <td className="p-2 text-slate-600 dark:text-slate-400 font-mono text-xs">{item.extension || item.id}</td>
-                        <td className="p-2 text-slate-800 dark:text-slate-200 font-medium">{item.name}</td>
-                      </>
-                    )}
-                  />
+                  <>
+                    <div className={`p-4 rounded-2xl bg-slate-50/80 dark:bg-slate-950/60 border ${borderLight} space-y-3`}>
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <div>
+                          <div className="text-xs font-extrabold text-slate-800 dark:text-slate-100">
+                            Hizmet Seviyesi (SL) Filtresi
+                          </div>
+                          <div className="text-[11px] text-slate-500 dark:text-slate-400">
+                            Varsayılan SL 20 (≤20 sn). SL 5 ile SL 600 saniye arasında istediğiniz eşiği seçebilirsiniz.
+                          </div>
+                        </div>
+                        <span className={`px-2.5 py-1 rounded-xl text-xs font-extrabold ${lightBg} ${text} border ${borderLight}`}>
+                          SL {filterQueueSlaSeconds} (≤{filterQueueSlaSeconds} sn)
+                        </span>
+                      </div>
+
+                      <div className="flex flex-col sm:flex-row sm:items-center gap-3">
+                        <div className="relative flex items-center w-40 shrink-0">
+                          <span className="absolute left-3 text-xs font-extrabold text-slate-400 select-none">SL</span>
+                          <input
+                            type="number"
+                            min={5}
+                            max={600}
+                            step={5}
+                            value={filterQueueSlaSeconds}
+                            onChange={(e) => {
+                              const raw = parseInt(e.target.value, 10);
+                              if (Number.isNaN(raw)) return;
+                              setFilterQueueSlaSeconds(Math.min(600, Math.max(5, raw)));
+                            }}
+                            onBlur={(e) => {
+                              const raw = parseInt(e.target.value, 10);
+                              setFilterQueueSlaSeconds(Number.isNaN(raw) ? 20 : Math.min(600, Math.max(5, raw)));
+                            }}
+                            className={`w-full pl-9 pr-9 py-2 rounded-xl text-xs bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-800 dark:text-slate-100 font-extrabold focus:outline-none focus:ring-2 ${ring}`}
+                          />
+                          <span className="absolute right-3 text-[11px] font-bold text-slate-400 select-none">sn</span>
+                        </div>
+
+                        <input
+                          type="range"
+                          min={5}
+                          max={600}
+                          step={5}
+                          value={filterQueueSlaSeconds}
+                          onChange={(e) => setFilterQueueSlaSeconds(Math.min(600, Math.max(5, Number(e.target.value) || 20)))}
+                          className="flex-1 accent-primary cursor-pointer"
+                        />
+                      </div>
+
+                      <div className="flex flex-wrap gap-1.5">
+                        {[5, 10, 15, 20, 30, 60, 120, 300, 600].map((sec) => {
+                          const active = Number(filterQueueSlaSeconds) === sec;
+                          return (
+                            <button
+                              key={sec}
+                              type="button"
+                              onClick={() => setFilterQueueSlaSeconds(sec)}
+                              className={`px-2.5 py-1 rounded-lg text-[11px] font-extrabold transition-all cursor-pointer border ${
+                                active
+                                  ? `${bg} text-white border-transparent shadow-sm`
+                                  : "bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800"
+                              }`}
+                            >
+                              SL {sec}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    <DualListBox 
+                      title="Kuyruklar"
+                      availableItems={filterQueuesAvailable}
+                      selectedIds={filterQueuesSelected}
+                      onChangeSelectedIds={setFilterQueuesSelected}
+                      columns={["Kuyruk ID", "Kuyruk İsmi"]}
+                      bg={bg} hover={hover} text={text} border={border} lightBg={lightBg} ring={ring} borderLight={borderLight}
+                      renderRow={(item) => (
+                        <>
+                          <td className="p-2 text-slate-600 dark:text-slate-400 font-mono text-xs">{item.extension || item.id}</td>
+                          <td className="p-2 text-slate-800 dark:text-slate-200 font-medium">{item.name}</td>
+                        </>
+                      )}
+                    />
+                  </>
                 ) : viewMode === "perf" || viewMode === "timeline" ? (
                   <DualListBox 
                     title="Kullanıcılar"
@@ -9393,7 +9467,7 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                     if (queueSecs > dStats.maxQueueSecs) dStats.maxQueueSecs = queueSecs;
                   }
                   
-                  if (queueSecs <= 20) dStats.slaCompliant++;
+                  if (queueSecs <= filterQueueSlaSeconds) dStats.slaCompliant++;
                   
                   const statusLabel = getCallStatus(call);
                   if (statusLabel !== "Başarılı" && (!call.duration_talk || call.duration_talk === 0) && queueSecs > 0) {
@@ -9429,7 +9503,7 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                               {visibleColumns.totalCalls && <th className={"p-4 text-xs font-bold uppercase tracking-wider text-center " + text}>Toplam Çağrı</th>}
                               {visibleColumns.queuedCalls && <th className={"p-4 text-xs font-bold uppercase tracking-wider text-center " + text}>Kuyruğa Giren</th>}
                               {visibleColumns.abandoned && <th className={"p-4 text-xs font-bold uppercase tracking-wider text-center " + text}>Kuyrukta Kaçan</th>}
-                              {visibleColumns.sla && <th className={"p-4 text-xs font-bold uppercase tracking-wider text-center " + text}>SLA Uyumu (≤20s)</th>}
+                              {visibleColumns.sla && <th className={"p-4 text-xs font-bold uppercase tracking-wider text-center " + text}>SL{filterQueueSlaSeconds} Uyumu (≤{filterQueueSlaSeconds}s)</th>}
                               {visibleColumns.totalWait && <th className={"p-4 text-xs font-bold uppercase tracking-wider text-center " + text}>Top. Bekleme</th>}
                               {visibleColumns.avgWait && <th className={"p-4 text-xs font-bold uppercase tracking-wider text-center " + text}>Ort. Bekleme</th>}
                               {visibleColumns.maxWait && <th className={"p-4 text-xs font-bold uppercase tracking-wider text-center " + text}>Max. Bekleme</th>}

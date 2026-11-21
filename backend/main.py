@@ -41590,18 +41590,32 @@ async def get_system_version_info():
         pass
 
     return {
-        "version": "v3.6.8",
+        "version": "v3.6.9",
         "commit_hash": live_commit,
         "release_date": "21 Kasım 2026",
         "status": "Güncel / Canlı Sürüm",
         "environment": "Production (On-Premise)",
         "changelog": [
             {
-                "version": "v3.6.8",
+                "version": "v3.6.9",
                 "commit_hash": live_commit,
                 "release_date": "21 Kasım 2026",
                 "badge": "Canlı Sürüm (Güncel)",
                 "badge_type": "current",
+                "title": "Kuyruk Raporlarında Dinamik Hizmet Seviyesi (SL 5 – SL 600) Filtresi",
+                "summary": "Kuyruk & Bekleme Analitiği ve Kuyruk SLA & Hız Dilimleri raporlarının filtre ekranlarına varsayılan SL 20 olmak üzere SL 5 ile SL 600 saniye arasında özelleştirilebilir SL eşik seçicisi eklendi.",
+                "features": [
+                    "Kuyruk & Bekleme Analitiği ve Kuyruk SLA & Hız Dilimleri filtre pencerelerinde SL 5 – SL 600 aralığında serbest sayısal giriş, kaydırıcı (slider) ve hızlı seçim butonları (SL 5 / 10 / 15 / 20 / 30 / 60 / 120 / 300 / 600).",
+                    "Seçilen SL seviyesine göre dinamik güncellenen tablo başlıkları (örn. SL20 / SL45 / SL120 Uyumu), KPI kartları, Excel/CSV dışa aktarma sütunları ve 60 sn üzeri SL eşiklerine uyumlu bekleme dilimi kovaları."
+                ],
+                "fixes": []
+            },
+            {
+                "version": "v3.6.8",
+                "commit_hash": "d039c14",
+                "release_date": "21 Kasım 2026",
+                "badge": "Kararlı",
+                "badge_type": "stable",
                 "title": "Mola Kotası & Eşzamanlı Limit Aşımında Kuyruk Yöneticisi Anlık Onay Akışı",
                 "summary": "Tüm mevcut ve yeni mola türlerinde günlük mola kotası veya kuyruk eşzamanlı mola kontenjanı dolduğunda temsilciler kuyruk yöneticisinden anlık ek mola onayı isteyebilir; yönetici onayladığı anda temsilci otomatik olarak molaya geçirilir.",
                 "features": [
