@@ -2677,7 +2677,7 @@ def load_settings(force_reload: bool = False, persist: bool = False):
                     ]:
                         new_perms.append(def_tab)
                 # One-time migration: enable Call Flip (*11 / Cihaz Degistir) on existing call_panel roles
-                if not settings_db.get("_migrated_call_flip_perm") and "call_panel:call_flip" not in new_perms:
+                if not db.get("_migrated_call_flip_perm") and "call_panel:call_flip" not in new_perms:
                     new_perms.append("call_panel:call_flip")
 
             if "sip_debugger:access" in new_perms and "troubleshooting:access" not in new_perms:
@@ -2960,7 +2960,7 @@ def load_settings(force_reload: bool = False, persist: bool = False):
                         new_perms.append(p)
                 
             r["permissions"] = list(set(new_perms))
-        settings_db["_migrated_call_flip_perm"] = True
+        db["_migrated_call_flip_perm"] = True
 
         # Persist migrated role permissions back to PostgreSQL SystemRole table
         try:
