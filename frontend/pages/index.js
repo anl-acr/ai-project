@@ -275,7 +275,7 @@ export default function Home() {
   const sidebarActiveItemCls = `${lightBg} ${text} border-primary/25 dark:border-primary/35 shadow-sm`;
   const sidebarInactiveItemCls = "text-slate-500 dark:text-slate-400 border-transparent hover:text-slate-900 dark:hover:text-white hover:bg-slate-50 dark:hover:bg-slate-800/40";
   const backendHost = getBackendHost();
-  const [systemVersion, setSystemVersion] = useState("v3.8.9");
+  const [systemVersion, setSystemVersion] = useState("v3.9.0");
   const [availableUpdateVer, setAvailableUpdateVer] = useState("");
   const [activeTab, setActiveTabRaw] = useState("dashboard"); // dashboard, call-center, pbx-settings, channel-settings, rag-kb, rule-editor
 

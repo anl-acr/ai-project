@@ -1242,14 +1242,17 @@ def get_provisioning_network_settings(
     configured_wan_prov = str(ap_net.get("wan_prov_base") or "").strip().rstrip("/")
     if configured_wan_prov:
         wan_prov_base = configured_wan_prov
-    elif ras_public_url:
-        wan_prov_base = ras_public_url
-    elif req_host_clean and req_host_only not in ("127.0.0.1", "localhost", "0.0.0.0"):
-        wan_prov_base = f"{request_scheme or 'https'}://{req_host_clean}"
     elif ras_sip_domain:
-        wan_prov_base = f"https://{ras_sip_domain}"
+        # Zero-Touch DHCP Option 66: Hub Nginx proxies http://<sub.nornia.com.tr>/api/ directly on port 80
+        # without 301-to-HTTPS redirect, so factory-default Yealink/Grandstream/Fanvil/Cisco phones
+        # pull configs out-of-the-box with ZERO manual certificate edits on the phone UI!
+        wan_prov_base = f"http://{ras_sip_domain}"
+    elif ras_public_url:
+        wan_prov_base = ras_public_url.replace("https://", "http://", 1)
+    elif req_host_clean and req_host_only not in ("127.0.0.1", "localhost", "0.0.0.0"):
+        wan_prov_base = f"http://{req_host_clean}"
     else:
-        wan_prov_base = f"https://{wan_sip_host}"
+        wan_prov_base = f"http://{wan_sip_host}"
 
     default_mode = str(ap_net.get("default_mode") or "lan").strip().lower()
     if default_mode not in ("lan", "wan", "auto"):

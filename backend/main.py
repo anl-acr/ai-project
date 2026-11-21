@@ -43041,18 +43041,33 @@ async def get_system_version_info():
         pass
 
     return {
-        "version": "v3.8.9",
+        "version": "v3.9.0",
         "commit_hash": live_commit,
         "release_date": "22 Kasım 2026",
         "status": "Güncel / Canlı Sürüm",
         "environment": "Production (On-Premise)",
         "changelog": [
             {
-                "version": "v3.8.9",
+                "version": "v3.9.0",
                 "commit_hash": live_commit,
                 "release_date": "22 Kasım 2026",
                 "badge": "Canlı Sürüm (Güncel)",
                 "badge_type": "current",
+                "title": "Zero-Touch DHCP Option 66 (HTTP WAN) & Tam Genişlik Oto Provizyon + Ağ Tarama / İstek Günlüğü Modalları",
+                "summary": "WAN oto-provizyon adresi fabrika çıkışı telefonlarda ek sertifika ayarı gerektirmeyen Zero-Touch HTTP (http://app.nornia.com.tr/api/prov/<token>/wan) formatına geçirildi; ağ tarama ve son provizyon istekleri üst araç çubuğundan açılan modern popuplara taşındı.",
+                "features": [
+                    "Zero-Touch DHCP Option 66 (Sıfır Müdahale): WAN provizyon URL'si artık doğrudan Hub Nginx Port 80 üzerinden yönlendirmesiz çalışan http://<altalan>.nornia.com.tr/api/prov/<token>/wan olarak sunulur; fabrika ayarlı Yealink/Grandstream/Fanvil/Cisco telefonlar hiçbir sertifika ayarı yapılmadan kutudan çıkıp otomatik kurulur.",
+                    "Ağ Tarama Popup Modalı: Üst çubuktaki yenileme butonu yerine Ağdaki Yeni Cihazları Tara (Wi-Fi) butonu eklendi; tıklandığında popup açılıp ağı tarar ve bulunan telefonlar tek tıkla Listeye Ekle ile eşleştirilebilir.",
+                    "Son Provizyon İstekleri Modalı & Tam Genişlik Tablo: Sağ yan panel kaldırılarak kayıtlı telefonlar tablosu tam genişliğe alındı; canlı provizyon istek günlüğü üst çubuktaki ayrı butonla açılan modal içine taşındı."
+                ],
+                "fixes": []
+            },
+            {
+                "version": "v3.8.9",
+                "commit_hash": "d733f31",
+                "release_date": "22 Kasım 2026",
+                "badge": "Kararlı",
+                "badge_type": "stable",
                 "title": "Masa Telefonum Yanlış 'Aktif Görüşme Tespit Edildi' Uyarısı Düzeltmesi",
                 "summary": "Asterisk PJSIP boşta durumu olan 'Not in use' metninin içinde 'in use' alt dizesi geçtiği için boşta olan telefonlarda yanlışlıkla aktif görüşme uyarısı çıkmasına yol açan hata giderildi.",
                 "features": [],

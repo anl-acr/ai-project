@@ -76,6 +76,8 @@ export default function AutoprovisionPanel({ backendHost = "localhost:8000" }) {
 
   // Modal states
   const [showModal, setShowModal] = useState(false);
+  const [showScanModal, setShowScanModal] = useState(false);
+  const [showLogsModal, setShowLogsModal] = useState(false);
   const [editingOriginalMac, setEditingOriginalMac] = useState("");
   const [scanResults, setScanResults] = useState([]);
   const [deleteTargetMac, setDeleteTargetMac] = useState(null);
@@ -609,7 +611,18 @@ export default function AutoprovisionPanel({ backendHost = "localhost:8000" }) {
     setTemplateMenuOpen(false);
     setTemplateSearch("");
     setConnectionMode("lan");
+    setShowScanModal(false);
     setShowModal(true);
+  };
+
+  const openScanModal = () => {
+    setShowScanModal(true);
+    scanNetwork();
+  };
+
+  const openLogsModal = () => {
+    setShowLogsModal(true);
+    fetchData();
   };
 
   const filteredDevices = devices.filter((d) => {
@@ -657,11 +670,23 @@ export default function AutoprovisionPanel({ backendHost = "localhost:8000" }) {
 
           <button
             type="button"
-            onClick={fetchData}
+            onClick={openScanModal}
             className="p-2 text-slate-500 hover:text-slate-800 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl transition-all h-8 w-8 flex items-center justify-center shrink-0 cursor-pointer"
-            title="Canlı Durumu Yenile"
+            title="Ağdaki Yeni Cihazları Tara"
           >
-            <RefreshCw size={15} className={loading ? "animate-spin" : ""} />
+            <Wifi size={15} className={scanning ? "animate-pulse" : ""} />
+          </button>
+
+          <button
+            type="button"
+            onClick={openLogsModal}
+            className="relative p-2 text-slate-500 hover:text-slate-800 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl transition-all h-8 w-8 flex items-center justify-center shrink-0 cursor-pointer"
+            title="Son Provizyon İstekleri (Canlı İzleme)"
+          >
+            <FileCode size={15} />
+            {recentLogs.length > 0 && (
+              <span className={`absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full ${bg}`} />
+            )}
           </button>
 
           <input type="file" accept=".xlsx, .xls" ref={fileInputRef} className="hidden" onChange={handleImportExcel} />
@@ -757,7 +782,7 @@ export default function AutoprovisionPanel({ backendHost = "localhost:8000" }) {
               <div className="flex items-center justify-between gap-2">
                 <span className="inline-flex items-center gap-1.5 text-[11px] font-extrabold text-slate-700 dark:text-slate-200">
                   <Globe size={13} />
-                  Farklı Lokasyon / Uzak Şube (WAN)
+                  Farklı Lokasyon / Uzak Şube (WAN — Zero-Touch / DHCP Option 66)
                 </span>
                 <span className="px-2 py-0.5 rounded-md bg-slate-200/80 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-mono text-[10px] font-bold">
                   SIP: {netConfig.network?.wan_sip_host}:5060{netConfig.network?.sip_edge_active ? " • TCP (SIP Edge)" : ""}
@@ -780,14 +805,6 @@ export default function AutoprovisionPanel({ backendHost = "localhost:8000" }) {
                 </button>
               </div>
             </div>
-          </div>
-
-          <div className="flex items-start gap-2 px-3 py-2 rounded-xl bg-amber-50/80 dark:bg-amber-950/20 border border-amber-200/70 dark:border-amber-800/40 text-[11px] text-amber-800 dark:text-amber-300">
-            <AlertTriangle size={14} className="shrink-0 mt-0.5 text-amber-500" />
-            <span>
-              <strong>Yealink HTTPS İpucu:</strong> WAN (<code className="font-mono">https://</code>) URL ile ilk kez provizyon yaparken telefon web arayüzünden{" "}
-              <strong>Security → Trusted Certificates → Only Accept Trusted Certificates = Disabled</strong> yapıp kaydedin (veya santralle aynı ağdaysanız <strong>LAN HTTP</strong> adresini kullanın).
-            </span>
           </div>
 
           {showNetEditor && (
@@ -880,10 +897,8 @@ export default function AutoprovisionPanel({ backendHost = "localhost:8000" }) {
         </div>
       )}
 
-      {/* Main Content Grid */}
-      <div className="grid grid-cols-1 xl:grid-cols-12 gap-6 items-start">
-        {/* Left Side: Paired Devices List */}
-        <div className="xl:col-span-8 flex flex-col p-5 bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800/85 rounded-2xl shadow-sm">
+      {/* Main Content: Full-Width Paired Devices List */}
+      <div className="flex flex-col p-5 bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800/85 rounded-2xl shadow-sm">
           {loading ? (
             <div className="flex items-center justify-center py-16">
               <RefreshCw size={24} className={`animate-spin ${text}`} />
@@ -1076,130 +1091,207 @@ export default function AutoprovisionPanel({ backendHost = "localhost:8000" }) {
               </table>
             </div>
           )}
-        </div>
+      </div>
 
-        {/* Right Side: Real LAN Network Scanner + Live Provisioning Hit Log */}
-        <div className="xl:col-span-4 flex flex-col gap-5">
-          <div className="flex flex-col p-5 bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800/85 rounded-2xl shadow-sm min-h-[260px]">
-            <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800/60 pb-3 mb-4">
-              <h4 className="font-bold text-xs uppercase tracking-wider text-slate-700 dark:text-slate-300 flex items-center gap-2">
-                <Wifi size={14} className={text} />
-                Ağdaki Yeni Cihazlar
-              </h4>
+      {/* Network Scanner Popup Modal */}
+      {showScanModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-sm">
+          <div className="bg-white dark:bg-slate-900 rounded-3xl shadow-2xl w-full max-w-xl max-h-[88vh] flex flex-col overflow-hidden border border-slate-200/70 dark:border-slate-700/70">
+            <div className={`px-6 py-4 border-b border-slate-200 dark:border-slate-800 flex justify-between items-center ${bg} text-white shrink-0`}>
+              <h3 className="font-bold text-sm flex items-center gap-2">
+                <Wifi size={17} />
+                Ağdaki Yeni Cihazları Tara
+              </h3>
               <button
                 type="button"
-                onClick={scanNetwork}
-                disabled={scanning}
-                className={`px-3 py-1.5 ${bg} ${hover} text-white rounded-lg text-[10px] font-bold transition-all shadow-sm flex items-center gap-1.5 disabled:opacity-50 cursor-pointer`}
+                onClick={() => setShowScanModal(false)}
+                className="text-white/80 hover:text-white transition-colors cursor-pointer"
               >
-                <RefreshCw size={11} className={scanning ? "animate-spin" : ""} />
-                <span>{scanning ? "Taranıyor..." : "Ağı Tara"}</span>
+                <X size={20} />
               </button>
             </div>
 
-            <div className="flex-1 overflow-y-auto pr-1">
+            <div className="p-5 overflow-y-auto flex-1 space-y-4">
+              <div className="flex items-center justify-between gap-3">
+                <p className="text-xs text-slate-500 dark:text-slate-400">
+                  Yerel ağdaki eşleştirilmemiş IP telefonlar (Yealink, Grandstream, Fanvil, Cisco) taranır.
+                </p>
+                <button
+                  type="button"
+                  onClick={scanNetwork}
+                  disabled={scanning}
+                  className={`px-3.5 py-1.5 ${bg} ${hover} text-white rounded-xl text-xs font-bold transition-all shadow-sm flex items-center gap-1.5 disabled:opacity-50 shrink-0 cursor-pointer`}
+                >
+                  <RefreshCw size={12} className={scanning ? "animate-spin" : ""} />
+                  <span>{scanning ? "Taranıyor..." : "Tekrar Tara"}</span>
+                </button>
+              </div>
+
               {scanning ? (
-                <div className="flex flex-col items-center justify-center py-10 gap-3 text-slate-400">
-                  <RefreshCw size={24} className={`animate-spin ${text}`} />
+                <div className="flex flex-col items-center justify-center py-12 gap-3 text-slate-400">
+                  <RefreshCw size={26} className={`animate-spin ${text}`} />
                   <span className="text-xs font-semibold">Yerel ağdaki IP telefonlar taranıyor...</span>
                 </div>
               ) : scanResults.length > 0 ? (
                 <div className="space-y-2.5">
                   {scanMessage && (
-                    <p className="text-[11px] font-semibold text-emerald-600 dark:text-emerald-400 mb-2">{scanMessage}</p>
+                    <p className="text-xs font-semibold text-emerald-600 dark:text-emerald-400">{scanMessage}</p>
                   )}
                   {scanResults.map((dev, i) => (
                     <div
-                      key={i}
-                      className={`flex flex-col p-3 rounded-xl border border-slate-200/70 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-800/30 hover:${border} transition-all cursor-pointer group`}
-                      onClick={() => handleSelectDiscovered(dev)}
+                      key={`${dev.mac || dev.ip}-${i}`}
+                      className={`flex items-center justify-between gap-3 p-3.5 rounded-2xl border border-slate-200/80 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-800/40 hover:${border} transition-all`}
                     >
-                      <div className="flex items-center justify-between mb-1">
-                        <p className="text-xs font-bold text-slate-800 dark:text-white flex items-center gap-1.5">
-                          <Smartphone size={12} className="text-slate-400" />
-                          {dev.brand} {dev.model}
+                      <div className="min-w-0 space-y-1">
+                        <p className="text-xs font-extrabold text-slate-800 dark:text-white flex items-center gap-1.5">
+                          <Smartphone size={13} className={text} />
+                          <span>{dev.brand} {dev.model}</span>
                         </p>
-                        <div className={`p-1 ${bg} text-white rounded-md`}>
-                          <Plus size={12} />
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="text-[11px] font-mono font-bold text-slate-700 dark:text-slate-200 bg-white dark:bg-slate-900 px-2 py-0.5 rounded-md border border-slate-200 dark:border-slate-700">
+                            {String(dev.mac || "").toUpperCase()}
+                          </span>
+                          <span className="text-[11px] font-mono text-slate-500 dark:text-slate-400">
+                            {dev.ip || "-"}
+                          </span>
                         </div>
                       </div>
-                      <div className="flex items-center gap-3">
-                        <p className="text-[10px] font-mono text-slate-600 dark:text-slate-300 bg-white dark:bg-slate-900 px-1.5 py-0.5 rounded border border-slate-200 dark:border-slate-700">
-                          {String(dev.mac || "").toUpperCase()}
-                        </p>
-                        <p className="text-[10px] font-mono text-slate-400">{dev.ip}</p>
-                      </div>
+                      <button
+                        type="button"
+                        onClick={() => handleSelectDiscovered(dev)}
+                        className={`inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl ${bg} ${hover} text-white text-xs font-extrabold shadow-sm shrink-0 cursor-pointer`}
+                      >
+                        <Plus size={13} />
+                        <span>Listeye Ekle</span>
+                      </button>
                     </div>
                   ))}
                 </div>
               ) : (
-                <div className="flex flex-col items-center justify-center py-8 text-center text-slate-400 px-3">
-                  <AlertTriangle size={22} className="text-amber-500 mb-2 opacity-80" />
-                  <p className="text-xs font-semibold text-slate-600 dark:text-slate-300">
-                    {scanMessage || "Henüz yeni cihaz bulunamadı."}
+                <div className="flex flex-col items-center justify-center py-10 text-center text-slate-400 px-4 bg-slate-50/70 dark:bg-slate-800/30 rounded-2xl border border-dashed border-slate-200 dark:border-slate-800">
+                  <AlertTriangle size={24} className="text-amber-500 mb-2 opacity-80" />
+                  <p className="text-xs font-bold text-slate-700 dark:text-slate-200">
+                    {scanMessage || "Yerel ağda yeni eşleştirilmemiş IP telefon bulunamadı."}
                   </p>
-                  <p className="text-[10px] mt-1.5 leading-relaxed">
-                    Telefon santralle aynı VLAN&apos;daysa <strong>Ağı Tara</strong> ile bulunur; farklı VLAN/şubedeyse üstteki <strong>+</strong> butonuyla MAC adresini yazıp eşleştirebilirsiniz.
+                  <p className="text-[11px] mt-1.5 leading-relaxed max-w-sm">
+                    Telefon farklı bir VLAN veya uzak şubedeyse sağ üstteki <strong>+</strong> butonundan MAC adresini girerek doğrudan eşleştirebilirsiniz.
                   </p>
                 </div>
               )}
             </div>
-          </div>
 
-          {/* Live Provisioning Request Log */}
-          <div className="flex flex-col p-4 bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800/85 rounded-2xl shadow-sm">
-            <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800/60 pb-2.5 mb-3">
-              <h4 className="font-bold text-[11px] uppercase tracking-wider text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
-                <FileCode size={13} className={text} />
-                Son Provizyon İstekleri
-              </h4>
+            <div className="px-6 py-3.5 border-t border-slate-100 dark:border-slate-800 flex justify-end shrink-0">
               <button
                 type="button"
-                onClick={fetchData}
-                className="inline-flex items-center gap-1 px-2 py-1 rounded-lg border border-slate-200 dark:border-slate-700 text-[10px] font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
-                title="İstek Günlüğünü Yenile"
+                onClick={() => setShowScanModal(false)}
+                className="px-4 py-2 text-xs font-bold text-slate-600 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-xl transition-colors cursor-pointer"
               >
-                <RefreshCw size={10} />
-                <span>Yenile</span>
+                Kapat
               </button>
             </div>
-            {recentLogs.length === 0 ? (
-              <p className="text-[11px] text-slate-400 text-center py-4">
-                Henüz telefonlardan gelen provizyon isteği kaydedilmedi. Telefondan <strong>Auto Provision Now</strong> dediğinizde istekler burada anlık görünür.
-              </p>
-            ) : (
-              <div className="space-y-1.5 max-h-56 overflow-y-auto pr-1">
-                {recentLogs.map((lg, idx) => (
-                  <div
-                    key={`${lg.timestamp}-${lg.filename}-${idx}`}
-                    className="p-2 rounded-xl bg-slate-50/80 dark:bg-slate-800/40 border border-slate-200/60 dark:border-slate-800 text-[10px] space-y-0.5"
-                  >
-                    <div className="flex items-center justify-between gap-1.5">
-                      <span className="font-mono font-bold text-slate-800 dark:text-slate-100 truncate">
-                        {lg.filename}
-                      </span>
-                      <span
-                        className={`px-1.5 py-0.5 rounded font-mono font-extrabold shrink-0 ${
-                          lg.status_code === 200
-                            ? "bg-emerald-100 dark:bg-emerald-950/50 text-emerald-700 dark:text-emerald-300"
-                            : "bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300"
-                        }`}
-                      >
-                        {lg.status_code}
-                      </span>
-                    </div>
-                    <div className="text-slate-500 dark:text-slate-400 truncate">{lg.detail}</div>
-                    <div className="flex items-center justify-between text-[9px] text-slate-400 font-mono">
-                      <span>{lg.client_ip || "-"}</span>
-                      <span>{lg.timestamp}</span>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
           </div>
         </div>
-      </div>
+      )}
+
+      {/* Live Provisioning Request Logs Popup Modal */}
+      {showLogsModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-sm">
+          <div className="bg-white dark:bg-slate-900 rounded-3xl shadow-2xl w-full max-w-3xl max-h-[88vh] flex flex-col overflow-hidden border border-slate-200/70 dark:border-slate-700/70">
+            <div className={`px-6 py-4 border-b border-slate-200 dark:border-slate-800 flex justify-between items-center ${bg} text-white shrink-0`}>
+              <h3 className="font-bold text-sm flex items-center gap-2">
+                <FileCode size={17} />
+                Son Provizyon İstekleri (Canlı İzleme)
+              </h3>
+              <button
+                type="button"
+                onClick={() => setShowLogsModal(false)}
+                className="text-white/80 hover:text-white transition-colors cursor-pointer"
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            <div className="p-5 overflow-y-auto flex-1 space-y-3">
+              <div className="flex items-center justify-between gap-2">
+                <p className="text-xs text-slate-500 dark:text-slate-400">
+                  Masa telefonlarından provizyon sunucusuna ulaşan son HTTP/HTTPS dosya istekleri anlık listelenir.
+                </p>
+                <button
+                  type="button"
+                  onClick={fetchData}
+                  disabled={loading}
+                  className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl ${bg} ${hover} text-white text-xs font-bold shadow-sm shrink-0 cursor-pointer disabled:opacity-50`}
+                >
+                  <RefreshCw size={12} className={loading ? "animate-spin" : ""} />
+                  <span>Yenile</span>
+                </button>
+              </div>
+
+              {recentLogs.length === 0 ? (
+                <div className="py-12 text-center text-xs text-slate-400 bg-slate-50/70 dark:bg-slate-800/30 rounded-2xl border border-dashed border-slate-200 dark:border-slate-800">
+                  Henüz telefonlardan gelen provizyon isteği kaydedilmedi. Telefondan <strong>Auto Provision</strong> veya DHCP Option 66 tetiklendiğinde istekler burada anlık görünür.
+                </div>
+              ) : (
+                <div className="overflow-x-auto rounded-2xl border border-slate-200/80 dark:border-slate-800">
+                  <table className="w-full text-left text-xs border-collapse">
+                    <thead>
+                      <tr className="bg-slate-50 dark:bg-slate-800/60 border-b border-slate-200 dark:border-slate-800 text-[10px] font-bold uppercase tracking-wider text-slate-500">
+                        <th className="py-2.5 px-3">Zaman</th>
+                        <th className="py-2.5 px-3">Dosya</th>
+                        <th className="py-2.5 px-3">Durum</th>
+                        <th className="py-2.5 px-3">IP Adresi</th>
+                        <th className="py-2.5 px-3">Açıklama</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {recentLogs.map((lg, idx) => (
+                        <tr
+                          key={`${lg.timestamp}-${lg.filename}-${idx}`}
+                          className="border-b last:border-b-0 border-slate-100 dark:border-slate-800/60 hover:bg-slate-50/70 dark:hover:bg-slate-800/30"
+                        >
+                          <td className="py-2.5 px-3 font-mono text-[10px] text-slate-500 whitespace-nowrap">
+                            {lg.timestamp}
+                          </td>
+                          <td className="py-2.5 px-3 font-mono text-[11px] font-bold text-slate-800 dark:text-slate-100 whitespace-nowrap">
+                            {lg.filename}
+                          </td>
+                          <td className="py-2.5 px-3 whitespace-nowrap">
+                            <span
+                              className={`px-2 py-0.5 rounded-md font-mono text-[10px] font-extrabold ${
+                                lg.status_code === 200
+                                  ? "bg-emerald-100 dark:bg-emerald-950/50 text-emerald-700 dark:text-emerald-300"
+                                  : "bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300"
+                              }`}
+                            >
+                              {lg.status_code}
+                            </span>
+                          </td>
+                          <td className="py-2.5 px-3 font-mono text-[11px] text-slate-600 dark:text-slate-300 whitespace-nowrap">
+                            {lg.client_ip || "-"}
+                          </td>
+                          <td className="py-2.5 px-3 text-[11px] text-slate-600 dark:text-slate-300">
+                            {lg.detail}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+
+            <div className="px-6 py-3.5 border-t border-slate-100 dark:border-slate-800 flex justify-end shrink-0">
+              <button
+                type="button"
+                onClick={() => setShowLogsModal(false)}
+                className="px-4 py-2 text-xs font-bold text-slate-600 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-xl transition-colors cursor-pointer"
+              >
+                Kapat
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Add / Edit Device Assignment Modal */}
       {showModal && (
