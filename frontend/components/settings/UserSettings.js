@@ -408,6 +408,53 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
     });
   };
 
+  // Welcome & Setup Onboarding Email States (Edit Modal + Post-Create Prompt)
+  const [welcomeEmailSending, setWelcomeEmailSending] = useState(false);
+  const [welcomeEmailFeedback, setWelcomeEmailFeedback] = useState(null); // { ok: boolean, text: string }
+  const [newlyCreatedUser, setNewlyCreatedUser] = useState(null); // { id, full_name, extension, email, sent?: boolean }
+
+  const handleSendWelcomeEmail = async (targetUserKey, targetEmailOverride = "") => {
+    if (welcomeEmailSending) return;
+    const uKey = String(targetUserKey || "").trim();
+    if (!uKey) return;
+    setWelcomeEmailSending(true);
+    setWelcomeEmailFeedback(null);
+    try {
+      const originStr = typeof window !== "undefined" ? window.location.origin : "";
+      const res = await safeFetch(`/api/settings/users/${encodeURIComponent(uKey)}/send-welcome-email`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-User-ID": localStorage.getItem("current_user_id") || "admin"
+        },
+        body: JSON.stringify({
+          to_email: String(targetEmailOverride || "").trim() || undefined,
+          origin: originStr,
+          ttl_seconds: 259200
+        })
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res && res.ok) {
+        setWelcomeEmailFeedback({
+          ok: true,
+          text: data?.message || "Hoş Geldiniz ve kurulum rehberi gönderildi."
+        });
+        setNewlyCreatedUser((prev) =>
+          prev && String(prev.id) === uKey ? { ...prev, sent: true } : prev
+        );
+      } else {
+        setWelcomeEmailFeedback({
+          ok: false,
+          text: data?.detail || data?.message || "Hoş Geldiniz maili gönderilemedi."
+        });
+      }
+    } catch (e) {
+      setWelcomeEmailFeedback({ ok: false, text: "Sunucuya bağlanılamadı." });
+    } finally {
+      setWelcomeEmailSending(false);
+    }
+  };
+
   // Follow Me (Beni Takip Et) Fields
   const [followMeEnabled, setFollowMeEnabled] = useState(false);
   const [followMeTimeout, setFollowMeTimeout] = useState(15);
@@ -2926,6 +2973,16 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
           }
         } catch (e) {}
       }
+      if (!editingUser) {
+        setWelcomeEmailFeedback(null);
+        setNewlyCreatedUser({
+          id: savedTargetId,
+          full_name: fullName.trim() || username.trim() || `Dahili ${extInput}`,
+          extension: extInput,
+          email: email.trim(),
+          sent: false
+        });
+      }
       if (editingUser && typeof window !== "undefined") {
         if (avatar) {
           window.dispatchEvent(
@@ -3386,6 +3443,69 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
       </div>
 
 
+      {/* Post-Create Welcome & Onboarding Email Prompt */}
+      {newlyCreatedUser && (
+        <div
+          className={`p-3.5 rounded-2xl border ${borderLight} ${lightBg} flex flex-wrap items-center justify-between gap-3 animate-in fade-in duration-200`}
+        >
+          <div className="flex items-center gap-2.5 min-w-0">
+            <div className={`h-8 w-8 rounded-xl ${bg} text-white flex items-center justify-center shrink-0`}>
+              <Mail size={15} />
+            </div>
+            <div className="min-w-0">
+              <div className="text-xs font-extrabold text-slate-800 dark:text-white flex items-center gap-1.5 flex-wrap">
+                <span>
+                  Yeni kullanıcı oluşturuldu: {newlyCreatedUser.full_name} ({newlyCreatedUser.extension || "-"})
+                </span>
+                {newlyCreatedUser.sent && (
+                  <span className="px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300">
+                    Mail Gönderildi
+                  </span>
+                )}
+              </div>
+              <p className="text-[11px] text-slate-600 dark:text-slate-300 truncate">
+                {newlyCreatedUser.email
+                  ? `${newlyCreatedUser.email} adresine şifre oluşturma ve adım adım kurulum rehberi gönderebilirsiniz.`
+                  : "Kullanıcıda e-posta adresi tanımlı değil; düzenleyip e-posta ekledikten sonra kurulum maili gönderebilirsiniz."}
+              </p>
+              {welcomeEmailFeedback && !showModal && (
+                <p
+                  className={`text-[11px] font-bold mt-1 ${
+                    welcomeEmailFeedback.ok ? "text-emerald-600 dark:text-emerald-400" : "text-rose-600 dark:text-rose-400"
+                  }`}
+                >
+                  {welcomeEmailFeedback.text}
+                </p>
+              )}
+            </div>
+          </div>
+          <div className="flex items-center gap-2 shrink-0">
+            {newlyCreatedUser.email && !newlyCreatedUser.sent && (
+              <button
+                type="button"
+                disabled={welcomeEmailSending}
+                onClick={() => handleSendWelcomeEmail(newlyCreatedUser.id, newlyCreatedUser.email)}
+                className={`px-3.5 py-2 rounded-xl ${bg} ${hover} text-white text-xs font-extrabold flex items-center gap-1.5 shadow-sm transition cursor-pointer disabled:opacity-50`}
+              >
+                <Mail size={13} />
+                <span>{welcomeEmailSending ? "Gönderiliyor..." : "Hoş Geldiniz Maili Gönder"}</span>
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={() => {
+                setNewlyCreatedUser(null);
+                setWelcomeEmailFeedback(null);
+              }}
+              className="p-1.5 rounded-lg text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 cursor-pointer"
+              title="Kapat"
+            >
+              <X size={14} />
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Status Bar */}
       {success && (
         <div className="p-3 bg-emerald-50 dark:bg-emerald-950/15 border border-emerald-200/50 dark:border-emerald-900/30 rounded-xl text-primary dark:text-emerald-400 text-xs font-bold flex items-center gap-2 animate-pulse">
@@ -3809,16 +3929,50 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
         <div className="fixed inset-0 bg-slate-950/70 flex items-center justify-center z-[150] p-4">
           <div className="w-full max-w-6xl h-[88vh] max-h-[880px] bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800/80 rounded-2xl shadow-2xl overflow-hidden flex flex-col">
             {/* Modal Header */}
-            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 dark:border-slate-800/60 bg-slate-50/50 dark:bg-slate-950/20 shrink-0">
-              <h3 className="text-xs font-bold text-slate-700 dark:text-white uppercase tracking-wider">
-                {editingUser ? "Kullanıcı Düzenle" : "Yeni Kullanıcı Ekle"}
-              </h3>
-              <button
-                onClick={() => setShowModal(false)}
-                className="p-1.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 rounded-lg transition-colors"
-              >
-                <X size={16} />
-              </button>
+            <div className="flex flex-wrap items-center justify-between gap-2 px-6 py-4 border-b border-slate-100 dark:border-slate-800/60 bg-slate-50/50 dark:bg-slate-950/20 shrink-0">
+              <div className="flex items-center gap-3 flex-wrap">
+                <h3 className="text-xs font-bold text-slate-700 dark:text-white uppercase tracking-wider">
+                  {editingUser ? "Kullanıcı Düzenle" : "Yeni Kullanıcı Ekle"}
+                </h3>
+                {editingUser && welcomeEmailFeedback && (
+                  <span
+                    className={`text-[11px] font-bold px-2.5 py-0.5 rounded-full border ${
+                      welcomeEmailFeedback.ok
+                        ? "bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800"
+                        : "bg-rose-50 dark:bg-rose-950/40 text-rose-600 dark:text-rose-300 border-rose-200 dark:border-rose-800"
+                    }`}
+                  >
+                    {welcomeEmailFeedback.text}
+                  </span>
+                )}
+              </div>
+              <div className="flex items-center gap-2">
+                {editingUser && (
+                  <button
+                    type="button"
+                    disabled={welcomeEmailSending || !(email || editingUser.email)}
+                    onClick={() => handleSendWelcomeEmail(editingUser.id ?? editingUser.extension, email || editingUser.email)}
+                    title={
+                      email || editingUser.email
+                        ? `${email || editingUser.email} adresine şifre oluşturma ve kurulum rehberi maili gönder`
+                        : "Önce geçerli bir e-posta adresi giriniz"
+                    }
+                    className={`px-3 py-1.5 rounded-xl border ${borderLight} ${lightBg} ${text} hover:opacity-90 text-[11px] font-extrabold flex items-center gap-1.5 transition cursor-pointer disabled:opacity-45`}
+                  >
+                    <Mail size={13} />
+                    <span>{welcomeEmailSending ? "Gönderiliyor..." : "Hoş Geldiniz Maili Gönder"}</span>
+                  </button>
+                )}
+                <button
+                  onClick={() => {
+                    setWelcomeEmailFeedback(null);
+                    setShowModal(false);
+                  }}
+                  className="p-1.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 rounded-lg transition-colors"
+                >
+                  <X size={16} />
+                </button>
+              </div>
             </div>
 
             <div className="flex flex-1 min-h-0 overflow-hidden">

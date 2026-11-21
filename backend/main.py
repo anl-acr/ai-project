@@ -36306,6 +36306,190 @@ async def send_user_app_invite_email_endpoint(user_id: str, payload: AppInviteEm
     return resp
 
 
+class UserWelcomeEmailSchema(BaseModel):
+    to_email: Optional[str] = None
+    origin: Optional[str] = None
+    ttl_seconds: Optional[int] = 259200  # 72 saat (3 gün)
+
+
+class BulkWelcomeEmailSchema(BaseModel):
+    user_ids: List[Any] = []
+    origin: Optional[str] = None
+    ttl_seconds: Optional[int] = 259200
+
+
+async def _dispatch_single_user_welcome_email(
+    user: dict,
+    resolved_id: Any,
+    request: Request,
+    to_email_override: Optional[str] = None,
+    origin_override: Optional[str] = None,
+    ttl_seconds: int = 259200,
+) -> dict:
+    import urllib.parse
+    from backend.services.totp_service import (
+        create_password_reset_token,
+        send_user_welcome_onboarding_email,
+        mask_email_address,
+    )
+    from backend.services.autoprovision_service import normalize_user_sip_devices
+
+    target_email = str(to_email_override or user.get("email") or "").strip()
+    if not target_email or "@" not in target_email or "." not in target_email.split("@", 1)[-1]:
+        return {"ok": False, "reason": "missing_email", "message": "Geçerli bir e-posta adresi tanımlı değil."}
+
+    server_origin = _resolve_server_origin_from_request(request, origin_override)
+    ttl = max(1800, min(int(ttl_seconds or 259200), 86400 * 14))
+
+    uid_str = str(resolved_id if resolved_id is not None else (user.get("id") or user.get("extension") or "admin"))
+    ext_str = str(user.get("extension") or "").strip()
+    tenant_id = str(user.get("tenant_id") or request.headers.get("X-Tenant-ID") or "tenant-default").strip()
+    curr_pw = user.get("password") or ""
+    full_name = str(user.get("full_name") or user.get("name") or user.get("username") or "Kullanıcı").strip()
+    username_str = str(user.get("username") or target_email).strip()
+    role_val = str(user.get("role") or "agent").strip()
+    theme_color = str(user.get("theme_color") or "indigo").strip()
+
+    # Determine which client platforms are enabled for this user so the email shows ONLY relevant apps
+    norm_devs = normalize_user_sip_devices(
+        user,
+        settings_db.get("autoprovision", []),
+        settings_db.get("user_deskphone_configs", {}),
+    )
+    web_dev = next((d for d in norm_devs if str(d.get("device_type") or "").lower() == "web_phone"), None)
+    if web_dev and isinstance(web_dev.get("client_access"), dict):
+        client_access = web_dev["client_access"]
+    else:
+        base_web = (web_dev.get("is_active") is not False) if web_dev else True
+        client_access = {"web_phone": base_web, "pc_app": base_web, "mobile_app": base_web}
+
+    has_deskphone = any(
+        str(d.get("device_type") or "").lower() in ("desk_phone", "dect") and d.get("is_active") is not False
+        for d in norm_devs
+    )
+
+    reset_token = create_password_reset_token(
+        user_id=uid_str,
+        email_str=target_email,
+        current_password=curr_pw,
+        ttl_seconds=ttl,
+    )
+    password_setup_url = f"{server_origin.rstrip('/')}/reset-password?token={urllib.parse.quote(reset_token, safe='')}"
+
+    send_res = await send_user_welcome_onboarding_email(
+        settings_db=settings_db,
+        tenant_id=tenant_id,
+        to_email=target_email,
+        full_name=full_name,
+        username=username_str,
+        extension=ext_str,
+        role=role_val,
+        theme_color=theme_color,
+        server_origin=server_origin,
+        password_setup_url=password_setup_url,
+        client_access=client_access,
+        has_deskphone=has_deskphone,
+        ttl_seconds=ttl,
+    )
+    if send_res.get("status") != "success":
+        return {
+            "ok": False,
+            "reason": "smtp_error",
+            "message": send_res.get("message") or "E-posta gönderilemedi. SMTP ayarlarını kontrol ediniz.",
+        }
+
+    try:
+        await log_event(
+            user_id=str(request.headers.get("X-User-ID") or "admin"),
+            action="USER_WELCOME_EMAIL_SENT",
+            module="Kullanıcılar",
+            details={"summary": f"{full_name} ({ext_str or '-'}) için Hoş Geldiniz & Kurulum e-postası gönderildi ({mask_email_address(target_email)})."},
+        )
+    except Exception:
+        pass
+
+    return {
+        "ok": True,
+        "email": target_email,
+        "masked_email": mask_email_address(target_email),
+        "full_name": full_name,
+        "extension": ext_str,
+        "message": f"Hoş Geldiniz ve kurulum rehberi {target_email} adresine gönderildi.",
+    }
+
+
+@app.post("/api/settings/users/bulk-send-welcome-email")
+@app.post("/settings/users/bulk-send-welcome-email")
+async def bulk_send_user_welcome_email_endpoint(payload: BulkWelcomeEmailSchema, request: Request):
+    raw_ids = payload.user_ids or []
+    if not raw_ids:
+        raise HTTPException(status_code=400, detail="Gönderim için en az bir kullanıcı seçiniz.")
+
+    sent_list = []
+    skipped_list = []
+    failed_list = []
+    seen_keys = set()
+
+    for raw_uid in raw_ids:
+        u_key = str(raw_uid or "").strip()
+        if not u_key or u_key in seen_keys:
+            continue
+        seen_keys.add(u_key)
+        user, resolved_id = _resolve_user_for_app_access(user_key=u_key)
+        if not user:
+            skipped_list.append({"user_id": u_key, "name": u_key, "reason": "Kullanıcı bulunamadı"})
+            continue
+        res = await _dispatch_single_user_welcome_email(
+            user=user,
+            resolved_id=resolved_id,
+            request=request,
+            origin_override=payload.origin,
+            ttl_seconds=int(payload.ttl_seconds or 259200),
+        )
+        u_name = str(user.get("full_name") or user.get("name") or user.get("username") or u_key)
+        u_ext = str(user.get("extension") or "")
+        if res.get("ok"):
+            sent_list.append({"user_id": u_key, "name": u_name, "extension": u_ext, "email": res.get("email")})
+        elif res.get("reason") == "missing_email":
+            skipped_list.append({"user_id": u_key, "name": u_name, "extension": u_ext, "reason": "E-posta tanımlı değil"})
+        else:
+            failed_list.append({"user_id": u_key, "name": u_name, "extension": u_ext, "reason": res.get("message") or "SMTP hatası"})
+
+    return {
+        "success": len(sent_list) > 0,
+        "sent_count": len(sent_list),
+        "skipped_count": len(skipped_list),
+        "failed_count": len(failed_list),
+        "sent": sent_list,
+        "skipped": skipped_list,
+        "failed": failed_list,
+        "message": (
+            f"{len(sent_list)} kullanıcıya Hoş Geldiniz & Kurulum e-postası gönderildi"
+            + (f", {len(skipped_list)} kullanıcı atlandı (e-posta yok)" if skipped_list else "")
+            + (f", {len(failed_list)} gönderim başarısız oldu." if failed_list else ".")
+        ),
+    }
+
+
+@app.post("/api/settings/users/{user_id}/send-welcome-email")
+@app.post("/settings/users/{user_id}/send-welcome-email")
+async def send_user_welcome_email_endpoint(user_id: str, payload: UserWelcomeEmailSchema, request: Request):
+    user, resolved_id = _resolve_user_for_app_access(user_key=user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="Kullanıcı bulunamadı.")
+    res = await _dispatch_single_user_welcome_email(
+        user=user,
+        resolved_id=resolved_id,
+        request=request,
+        to_email_override=payload.to_email,
+        origin_override=payload.origin,
+        ttl_seconds=int(payload.ttl_seconds or 259200),
+    )
+    if not res.get("ok"):
+        raise HTTPException(status_code=400, detail=res.get("message") or "E-posta gönderilemedi.")
+    return res
+
+
 @app.post("/api/auth/app-magic-login")
 @app.post("/auth/app-magic-login")
 @app.get("/api/auth/app-magic-login")
@@ -41391,18 +41575,33 @@ async def get_system_version_info():
         pass
 
     return {
-        "version": "v3.6.5",
+        "version": "v3.6.6",
         "commit_hash": live_commit,
         "release_date": "21 Kasım 2026",
         "status": "Güncel / Canlı Sürüm",
         "environment": "Production (On-Premise)",
         "changelog": [
             {
-                "version": "v3.6.5",
+                "version": "v3.6.6",
                 "commit_hash": live_commit,
                 "release_date": "21 Kasım 2026",
                 "badge": "Canlı Sürüm (Güncel)",
                 "badge_type": "current",
+                "title": "Kullanıcı Hoş Geldiniz & Kurulum Rehberi E-Postası (Tekil, Yeni Kullanıcı Sonrası & Toplu Gönderim)",
+                "summary": "Yeni kullanıcıların sıfır teknik bilgiyle güvenle sisteme giriş yapabilmesi için şifre oluşturma rehberli (şifresiz oto-giriş olmadan) Hoş Geldiniz e-postası eklendi. Kullanıcı düzenleme ekranından, yeni kullanıcı oluşturduktan hemen sonra ve Toplu Konfigürasyon merkezinden tüm kullanıcılara tek seferde gönderilebilir.",
+                "features": [
+                    "Sade 2 adımlı kurulum e-postası: 1. Adımda tek kullanımlık güvenli 'Şifremi Oluştur' bağlantısı (72 saat geçerli) ve güçlü şifre kuralları; 2. Adımda yalnızca kullanıcının izinli olduğu cihazların (Web / Masaüstü / Mobil / Masa Telefonu) adım adım kurulum ve giriş tarifi.",
+                    "Kullanıcı Düzenle başlığında tek tık 'Hoş Geldiniz Maili Gönder' butonu ve yeni kullanıcı oluşturulduktan hemen sonra görünen hızlı gönderim bandı.",
+                    "Toplu Konfigürasyon Merkezi (Kullanıcılar & Aboneler) içinde seçili veya tüm kullanıcılara tek tıkla toplu kurulum e-postası gönderimi (e-postası eksik kullanıcıları otomatik atlar)."
+                ],
+                "fixes": []
+            },
+            {
+                "version": "v3.6.5",
+                "commit_hash": "b15b988",
+                "release_date": "21 Kasım 2026",
+                "badge": "Kararlı",
+                "badge_type": "stable",
                 "title": "OTA Güncelleme Motoru PM2 Process-Tree İzolasyonu (systemd-run / Double-Fork)",
                 "summary": "nornia_updater.py artık aida-backend'in PM2 süreç ağacı dışında (izole systemd-run servisi / PID 1 double-fork) başlatılır ve önce aida-app, ardından aida-backend yeniden başlatılarak sağlık kontrolü ve %100 tamamlama bildirimi kesintisiz tamamlanır.",
                 "features": [],

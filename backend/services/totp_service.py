@@ -1297,3 +1297,273 @@ async def send_app_onboarding_email(
 
 
 
+
+
+async def send_user_welcome_onboarding_email(
+    settings_db: dict,
+    tenant_id: str,
+    to_email: str,
+    full_name: str,
+    username: str,
+    extension: str,
+    role: str,
+    theme_color: str,
+    server_origin: str,
+    password_setup_url: str,
+    client_access: Optional[Dict[str, bool]] = None,
+    has_deskphone: bool = False,
+    ttl_seconds: int = 259200,
+) -> Dict[str, Any]:
+    """
+    Sends a friendly, zero-jargon Turkish Welcome & Setup Onboarding Email for new PBX users.
+    - NO passwordless auto-login: requires setting a personal password via the secure single-use link.
+    - Dynamically includes ONLY the platforms enabled for this user (Web / Desktop / Mobile / Deskphone).
+    """
+    import html
+    from backend.services.notification_service import get_tenant_notification_settings, _send_notification_email
+
+    clean_to = str(to_email or "").strip()
+    if not clean_to or "@" not in clean_to:
+        return {"status": "error", "message": "Kullanıcıya tanımlı geçerli bir e-posta adresi bulunamadı."}
+
+    theme_key = str(theme_color or "indigo").strip().lower()
+    primary_hex, secondary_hex, soft_bg_hex = _THEME_HEX_MAP.get(theme_key, ("#4f46e5", "#7c3aed", "#eef2ff"))
+
+    ca = client_access if isinstance(client_access, dict) else {"web_phone": True, "pc_app": True, "mobile_app": True}
+    allow_web = bool(ca.get("web_phone", True))
+    allow_pc = bool(ca.get("pc_app", True))
+    allow_mob = bool(ca.get("mobile_app", True))
+
+    brand_name = "Nornia"
+    try:
+        tenants = settings_db.get("tenants") or []
+        matched_t = next((t for t in tenants if isinstance(t, dict) and str(t.get("id")) == str(tenant_id)), None)
+        if matched_t and matched_t.get("name") and str(matched_t.get("name")).strip().lower() not in ("ana müşteri", "default"):
+            brand_name = str(matched_t.get("name")).strip()
+    except Exception:
+        pass
+
+    safe_brand = html.escape(brand_name)
+    safe_name = html.escape(str(full_name or "Kullanıcı").strip())
+    safe_email = html.escape(clean_to)
+    safe_username = html.escape(str(username or clean_to).strip())
+    safe_ext = html.escape(str(extension or "-").strip())
+    role_tr_map = {
+        "admin": "Sistem Yöneticisi",
+        "supervisor": "Süpervizör",
+        "agent": "Müşteri Temsilcisi",
+        "operator": "Santral Operatörü",
+    }
+    safe_role = html.escape(role_tr_map.get(str(role or "").lower(), str(role or "Kullanıcı")))
+    clean_origin = str(server_origin or "").rstrip("/")
+    safe_origin = html.escape(clean_origin)
+    safe_login_url = html.escape(f"{clean_origin}/login")
+    safe_pw_url = html.escape(str(password_setup_url))
+
+    win_download_url = html.escape(f"{clean_origin}/api/downloads/desktop/win")
+    mac_arm_download_url = html.escape(f"{clean_origin}/api/downloads/desktop/mac-arm64")
+    mac_intel_download_url = html.escape(f"{clean_origin}/api/downloads/desktop/mac-x64")
+    ttl_label = format_ttl_human(ttl_seconds)
+
+    cfg = get_tenant_notification_settings(settings_db, tenant_id or "tenant-default")
+    if not (str(cfg.get("smtp_host") or "").strip() and str(cfg.get("smtp_user") or "").strip()):
+        default_cfg = get_tenant_notification_settings(settings_db, "tenant-default")
+        if str(default_cfg.get("smtp_host") or "").strip() and str(default_cfg.get("smtp_user") or "").strip():
+            cfg = default_cfg
+        else:
+            for _t_cfg in (settings_db.get("tenant_notifications") or {}).values():
+                if isinstance(_t_cfg, dict) and str(_t_cfg.get("smtp_host") or "").strip() and str(_t_cfg.get("smtp_user") or "").strip():
+                    cfg = dict(cfg)
+                    cfg.update(_t_cfg)
+                    break
+    if str(cfg.get("smtp_host") or "").strip() and str(cfg.get("smtp_user") or "").strip():
+        cfg = dict(cfg)
+        cfg["use_custom_smtp"] = True
+    channels_cfg = settings_db.get("channels", {})
+
+    subject = f"Hoş Geldiniz! {brand_name} Santral Hesabınız ve Kurulum Rehberiniz"
+
+    plain_parts = [
+        f"Merhaba {full_name or 'Kullanıcı'},",
+        "",
+        f"{brand_name} telefon ve iletişim sistemine hoş geldiniz! Hesabınız kullanıma hazırlandı.",
+        "",
+        "HESAP BİLGİLERİNİZ:",
+        f"- Ad Soyad: {full_name or 'Kullanıcı'}",
+        f"- Dahili Numaranız: {extension or '-'}",
+        f"- Giriş Adresi: {clean_origin}",
+        f"- E-Posta / Kullanıcı Adı: {clean_to}" + (f" (veya {username})" if username and username != clean_to else ""),
+        "",
+        f"1. ADIM — ŞİFRENİZİ OLUŞTURUN (Geçerlilik: {ttl_label}):",
+        "Güvenliğiniz için hesabınıza giriş yapmadan önce kendi şifrenizi oluşturmanız gerekir.",
+        "En az 8 karakter, büyük harf, küçük harf ve rakam içeren bir şifre belirleyin:",
+        password_setup_url,
+        "",
+        "2. ADIM — SİSTEME GİRİŞ VE UYGULAMALAR:",
+    ]
+    if allow_web:
+        plain_parts.append(f"- Tarayıcıdan (Web Telefon): {clean_origin}/login adresini Chrome/Edge ile açıp e-posta ve yeni şifrenizle giriş yapın.")
+    if allow_pc:
+        plain_parts.extend([
+            "- Masaüstü Uygulaması (Bilgisayar):",
+            f"  Windows (.exe): {clean_origin}/api/downloads/desktop/win",
+            f"  Mac (M1/M2/M3/M4): {clean_origin}/api/downloads/desktop/mac-arm64",
+            f"  Mac (Intel): {clean_origin}/api/downloads/desktop/mac-x64",
+            f"  Kurulum sonrası Sunucu Adresi alanına {clean_origin} yazıp e-posta ve şifrenizle giriş yapın.",
+        ])
+    if allow_mob:
+        plain_parts.append(f"- Mobil Uygulama (Telefon): Uygulamayı açıp Sunucu Adresi olarak {clean_origin} yazın, ardından e-posta ve şifrenizle giriş yapın.")
+    if has_deskphone:
+        plain_parts.append(f"- Masa Telefonu: Masanızdaki telefon dahili {extension or '-'} olarak hazırdır.")
+    plain_body = "\n".join(plain_parts)
+
+    device_blocks_html = ""
+    if allow_web:
+        device_blocks_html += f"""
+        <div style="border: 1px solid #e2e8f0; border-radius: 14px; padding: 16px 18px; background: #ffffff; margin-bottom: 12px;">
+          <div style="font-size: 13px; font-weight: 800; color: #0f172a; margin-bottom: 6px;">
+            &#127760; Bilgisayardan (İnternet Tarayıcısı ile Hemen Kullanım)
+          </div>
+          <ol style="margin: 0 0 12px 0; padding-left: 18px; font-size: 12.5px; color: #475569; line-height: 1.65;">
+            <li><strong>Google Chrome</strong> veya <strong>Microsoft Edge</strong> tarayıcısından aşağıdaki <strong>Giriş Sayfasını Aç</strong> butonuna tıklayın.</li>
+            <li>E-posta adresinizi (<strong>{safe_email}</strong>) ve 1. adımda oluşturduğunuz şifrenizi yazıp giriş yapın.</li>
+            <li>Tarayıcı üst kısımda <em>"Mikrofon izni"</em> sorduğunda <strong>İzin Ver</strong> butonuna basın &mdash; konuşmaya hazırsınız!</li>
+          </ol>
+          <a href="{safe_login_url}" target="_blank" style="display: inline-block; background: {soft_bg_hex}; color: {primary_hex}; border: 1px solid {primary_hex}; text-decoration: none; font-weight: 800; font-size: 12px; padding: 9px 16px; border-radius: 10px;">
+            Giriş Sayfasını Aç ({safe_origin}) &rarr;
+          </a>
+        </div>"""
+
+    if allow_pc:
+        device_blocks_html += f"""
+        <div style="border: 1px solid #e2e8f0; border-radius: 14px; padding: 16px 18px; background: #ffffff; margin-bottom: 12px;">
+          <div style="font-size: 13px; font-weight: 800; color: #0f172a; margin-bottom: 6px;">
+            &#128187; Masaüstü Uygulaması (Windows &amp; Mac)
+          </div>
+          <p style="margin: 0 0 10px 0; font-size: 12.5px; color: #475569; line-height: 1.6;">
+            Tarayıcı kapalıyken bile gelen çağrıları almak için bilgisayarınıza uygun kurulum dosyasını indirin:
+          </p>
+          <div style="margin-bottom: 12px;">
+            <a href="{win_download_url}" target="_blank" style="display: inline-block; background: #0f172a; color: #ffffff; text-decoration: none; font-weight: 700; font-size: 11.5px; padding: 8px 13px; border-radius: 9px; margin: 0 6px 6px 0;">
+              &#11015; Windows İndir (.exe)
+            </a>
+            <a href="{mac_arm_download_url}" target="_blank" style="display: inline-block; background: #334155; color: #ffffff; text-decoration: none; font-weight: 700; font-size: 11.5px; padding: 8px 13px; border-radius: 9px; margin: 0 6px 6px 0;">
+              &#11015; Mac (M1/M2/M3/M4)
+            </a>
+            <a href="{mac_intel_download_url}" target="_blank" style="display: inline-block; background: #475569; color: #ffffff; text-decoration: none; font-weight: 700; font-size: 11.5px; padding: 8px 13px; border-radius: 9px; margin: 0 6px 6px 0;">
+              &#11015; Mac (Intel)
+            </a>
+          </div>
+          <ol style="margin: 0; padding-left: 18px; font-size: 12.5px; color: #475569; line-height: 1.65;">
+            <li>İndirdiğiniz dosyaya çift tıklayıp kurulumu tamamlayın ve uygulamayı açın.</li>
+            <li><strong>Sunucu Adresi</strong> alanına <code style="background:#f1f5f9;padding:2px 6px;border-radius:6px;color:#0f172a;font-weight:700;">{safe_origin}</code> yazın.</li>
+            <li>E-posta adresiniz ve 1. adımda oluşturduğunuz şifrenizle giriş yapın.</li>
+          </ol>
+        </div>"""
+
+    if allow_mob:
+        device_blocks_html += f"""
+        <div style="border: 1px solid #e2e8f0; border-radius: 14px; padding: 16px 18px; background: #ffffff; margin-bottom: 12px;">
+          <div style="font-size: 13px; font-weight: 800; color: #0f172a; margin-bottom: 6px;">
+            &#128241; Cep Telefonu Uygulaması (iOS &amp; Android)
+          </div>
+          <ol style="margin: 0; padding-left: 18px; font-size: 12.5px; color: #475569; line-height: 1.65;">
+            <li>Şirketinizin paylaştığı <strong>Nornia Mobil</strong> uygulamasını telefonunuza yükleyip açın.</li>
+            <li><strong>Sunucu Adresi</strong> kutusuna <code style="background:#f1f5f9;padding:2px 6px;border-radius:6px;color:#0f172a;font-weight:700;">{safe_origin}</code> yazın.</li>
+            <li>E-posta adresiniz (<strong>{safe_email}</strong>) ve 1. adımda belirlediğiniz şifrenizle giriş yapın.</li>
+            <li>Uygulama bildirim ve mikrofon izni istediğinde <strong>İzin Ver</strong> seçeneğini onaylayın.</li>
+          </ol>
+        </div>"""
+
+    if has_deskphone:
+        device_blocks_html += f"""
+        <div style="border: 1px solid #e2e8f0; border-radius: 14px; padding: 14px 18px; background: #f8fafc; margin-bottom: 12px;">
+          <div style="font-size: 12.5px; font-weight: 800; color: #0f172a; margin-bottom: 4px;">
+            &#9742;&#65039; Masa Telefonunuz Hazır
+          </div>
+          <p style="margin: 0; font-size: 12px; color: #475569; line-height: 1.6;">
+            Masanızdaki IP telefonunuz dahili <strong>{safe_ext}</strong> numarasıyla tanımlanmıştır; ekstra bir kurulum yapmanıza gerek yoktur.
+          </p>
+        </div>"""
+
+    html_body = f"""<!DOCTYPE html>
+<html lang="tr">
+  <body style="margin: 0; padding: 26px 14px; background-color: #f1f5f9; font-family: -apple-system, BlinkMacSystemFont, 'Plus Jakarta Sans', 'Segoe UI', Roboto, Arial, sans-serif; color: #0f172a;">
+    <div style="max-width: 620px; margin: 0 auto; background: #ffffff; border: 1px solid #e2e8f0; border-radius: 24px; overflow: hidden; box-shadow: 0 20px 45px -15px rgba(15, 23, 42, 0.10);">
+
+      <!-- Header -->
+      <div style="background: linear-gradient(135deg, {primary_hex} 0%, {secondary_hex} 100%); padding: 28px 32px; text-align: center; color: #ffffff;">
+        <div style="display: inline-block; background: rgba(255, 255, 255, 0.16); border: 1px solid rgba(255, 255, 255, 0.28); border-radius: 14px; padding: 7px 16px; font-size: 17px; font-weight: 900; letter-spacing: 0.4px; margin-bottom: 10px;">
+          {safe_brand}
+        </div>
+        <div style="font-size: 20px; font-weight: 800; letter-spacing: -0.2px;">Hoş Geldiniz, {safe_name}!</div>
+        <div style="font-size: 12px; opacity: 0.9; margin-top: 5px;">Adım Adım Hesap Aktivasyonu ve Kurulum Rehberiniz</div>
+      </div>
+
+      <div style="padding: 26px 28px;">
+        <p style="margin: 0 0 18px 0; font-size: 13.5px; color: #334155; line-height: 1.65;">
+          Merhaba <strong>{safe_name}</strong>, telefon ve iletişim sistemindeki hesabınız hazırlandı. Aşağıdaki <strong>2 kolay adımı</strong> izleyerek birkaç dakika içinde kullanmaya başlayabilirsiniz.
+        </p>
+
+        <!-- Account Summary Box -->
+        <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 16px; padding: 16px 18px; margin-bottom: 20px;">
+          <div style="font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.8px; color: #64748b; margin-bottom: 10px;">
+            Hesap Özetiniz
+          </div>
+          <table style="width: 100%; border-collapse: collapse; font-size: 12.5px;">
+            <tr>
+              <td style="padding: 4px 0; color: #64748b; width: 42%;">Giriş Adresi:</td>
+              <td style="padding: 4px 0; font-weight: 800; color: #0f172a; font-family: monospace;">{safe_origin}</td>
+            </tr>
+            <tr>
+              <td style="padding: 4px 0; color: #64748b;">E-Posta / Kullanıcı Adı:</td>
+              <td style="padding: 4px 0; font-weight: 800; color: #0f172a;">{safe_email}{f' ({safe_username})' if safe_username and safe_username.lower() != safe_email.lower() else ''}</td>
+            </tr>
+            <tr>
+              <td style="padding: 4px 0; color: #64748b;">Dahili Numaranız:</td>
+              <td style="padding: 4px 0; font-weight: 900; color: {primary_hex}; font-size: 14px;">{safe_ext}</td>
+            </tr>
+            <tr>
+              <td style="padding: 4px 0; color: #64748b;">Görev / Rol:</td>
+              <td style="padding: 4px 0; font-weight: 700; color: #334155;">{safe_role}</td>
+            </tr>
+          </table>
+        </div>
+
+        <!-- Step 1: Create Password (Mandatory — No Passwordless Auto-Login) -->
+        <div style="border: 2px solid {primary_hex}; border-radius: 18px; padding: 20px; background: {soft_bg_hex}; margin-bottom: 22px; text-align: center;">
+          <div style="font-size: 12px; font-weight: 900; text-transform: uppercase; letter-spacing: 0.9px; color: {primary_hex}; margin-bottom: 8px;">
+            1. Adım &mdash; Kendi Şifrenizi Oluşturun
+          </div>
+          <p style="margin: 0 0 14px 0; font-size: 13px; color: #334155; line-height: 1.6;">
+            Güvenliğiniz için hesabınız şifresiz açılmaz. Aşağıdaki butona tıklayarak yalnızca sizin bileceğiniz kişisel şifrenizi oluşturun:
+          </p>
+          <a href="{safe_pw_url}" target="_blank" style="display: inline-block; background: linear-gradient(135deg, {primary_hex} 0%, {secondary_hex} 100%); color: #ffffff; text-decoration: none; font-weight: 800; font-size: 14px; padding: 13px 28px; border-radius: 12px; box-shadow: 0 10px 22px -8px rgba(15, 23, 42, 0.35);">
+            Şifremi Oluştur &rarr;
+          </a>
+          <div style="margin-top: 14px; padding: 10px 14px; background: #ffffff; border: 1px solid #e2e8f0; border-radius: 10px; text-align: left; font-size: 11.5px; color: #475569; line-height: 1.6;">
+            <strong>Güçlü Şifre Nasıl Oluşturulur?</strong><br />
+            &bull; En az <strong>8 karakter</strong> uzunluğunda olmalı<br />
+            &bull; En az 1 <strong>büyük harf</strong> (A-Z), 1 <strong>küçük harf</strong> (a-z) ve 1 <strong>rakam</strong> (0-9) içermeli<br />
+            &bull; Bu bağlantı tek kullanımlıktır ve <strong>{ttl_label}</strong> boyunca geçerlidir.
+          </div>
+        </div>
+
+        <!-- Step 2: How to Download & Sign In -->
+        <div style="margin-bottom: 6px;">
+          <div style="font-size: 12px; font-weight: 900; text-transform: uppercase; letter-spacing: 0.9px; color: #475569; margin-bottom: 12px;">
+            2. Adım &mdash; Sisteme Giriş ve Uygulama Kurulumu
+          </div>
+          {device_blocks_html}
+        </div>
+      </div>
+
+      <!-- Footer -->
+      <div style="background: #f8fafc; border-top: 1px solid #e2e8f0; padding: 14px 24px; text-align: center; font-size: 11px; color: #94a3b8;">
+        &copy; 2026 {safe_brand} &mdash; Destek gerektiğinde sistem yöneticinizle iletişime geçebilirsiniz.
+      </div>
+    </div>
+  </body>
+</html>"""
+
+    return await _send_notification_email(cfg, channels_cfg, [clean_to], subject, html_body, plain_body)

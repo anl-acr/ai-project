@@ -20,7 +20,8 @@ import {
   ChevronRight,
   Lock,
   Smartphone,
-  MessageSquare
+  MessageSquare,
+  Mail
 } from "lucide-react";
 import { useTheme } from "../../utils/theme";
 import { getApiBaseUrl } from "../../utils/apiHost";
@@ -196,6 +197,10 @@ export default function BulkConfigPanel({
   const [confirmUndoOp, setConfirmUndoOp] = useState(null);
   const [confirmApplyOpen, setConfirmApplyOpen] = useState(false);
   const [showHistoryDrawer, setShowHistoryDrawer] = useState(false);
+  // Bulk Welcome & Setup Onboarding Email
+  const [bulkWelcomeConfirmOpen, setBulkWelcomeConfirmOpen] = useState(false);
+  const [bulkWelcomeSending, setBulkWelcomeSending] = useState(false);
+  const [bulkWelcomeResult, setBulkWelcomeResult] = useState(null);
 
   const [userChanges, setUserChanges] = useState(INITIAL_USER_CHANGES);
   const [subGroupChanges, setSubGroupChanges] = useState(INITIAL_SUBGROUP_CHANGES);
@@ -217,6 +222,48 @@ export default function BulkConfigPanel({
           localStorage.getItem("selected_tenant_id"))) ||
       "tenant-default"
   });
+
+  const handleExecuteBulkWelcomeEmail = async () => {
+    if (bulkWelcomeSending) return;
+    const validTargets = (matchedTargets || []).filter(
+      (u) => u && typeof u.email === "string" && u.email.includes("@")
+    );
+    if (validTargets.length === 0) return;
+    setBulkWelcomeSending(true);
+    setBulkWelcomeConfirmOpen(false);
+    setBulkWelcomeResult(null);
+    try {
+      const apiBase = getApiBaseUrl();
+      const res = await fetch(`${apiBase}/api/settings/users/bulk-send-welcome-email`, {
+        method: "POST",
+        headers: getHeaders(),
+        body: JSON.stringify({
+          user_ids: validTargets.map((u) => u.id ?? u.extension),
+          origin: typeof window !== "undefined" ? window.location.origin : "",
+          ttl_seconds: 259200
+        })
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok) {
+        setBulkWelcomeResult({
+          ok: true,
+          message: data?.message || `${data?.sent_count || 0} kullanıcıya kurulum maili gönderildi.`,
+          sent_count: data?.sent_count || 0,
+          skipped_count: data?.skipped_count || 0,
+          failed_count: data?.failed_count || 0
+        });
+      } else {
+        setBulkWelcomeResult({
+          ok: false,
+          message: data?.detail || data?.message || "Toplu kurulum maili gönderilemedi."
+        });
+      }
+    } catch (e) {
+      setBulkWelcomeResult({ ok: false, message: "Sunucuya bağlanılamadı." });
+    } finally {
+      setBulkWelcomeSending(false);
+    }
+  };
 
   const fetchMetadata = async () => {
     setLoading(true);
@@ -2077,8 +2124,99 @@ export default function BulkConfigPanel({
       </div>
 
       {/* Step 2: Module-Specific Bulk Property Editors */}
-      {activeModule === "users" && (
+      {activeModule === "users" && (() => {
+        const emailableCount = (matchedTargets || []).filter(
+          (u) => u && typeof u.email === "string" && u.email.includes("@")
+        ).length;
+        const missingEmailCount = Math.max(0, (matchedTargets || []).length - emailableCount);
+        return (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          {/* Card 0: Toplu Hoş Geldiniz & Kurulum E-Postası Gönder */}
+          <div className={`lg:col-span-2 rounded-2xl p-5 border ${borderLight} ${lightBg} shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-4`}>
+            <div className="flex items-start gap-3 min-w-0">
+              <div className={`h-10 w-10 rounded-xl ${bg} text-white flex items-center justify-center shrink-0 shadow-sm`}>
+                <Mail size={18} />
+              </div>
+              <div className="min-w-0 space-y-1">
+                <div className="flex flex-wrap items-center gap-2">
+                  <h4 className="text-xs font-extrabold uppercase tracking-wider text-slate-900 dark:text-white">
+                    Toplu Hoş Geldiniz &amp; Kurulum E-Postası Gönder
+                  </h4>
+                  <span className="px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-white/80 dark:bg-slate-900/70 text-slate-700 dark:text-slate-200 border border-slate-200/70 dark:border-slate-700">
+                    {emailableCount} / {(matchedTargets || []).length} kullanıcıda e-posta tanımlı
+                  </span>
+                </div>
+                <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed">
+                  Hedeflenen tüm kullanıcılara tek seferde <strong>kişisel şifre oluşturma bağlantısı</strong>, giriş bilgileri ve yalnızca izinli oldukları uygulamaların (Web / Masaüstü / Mobil) adım adım kurulum rehberini gönderir.
+                </p>
+                {missingEmailCount > 0 && (
+                  <p className="text-[11px] font-bold text-amber-700 dark:text-amber-300">
+                    Not: E-posta adresi eksik olan {missingEmailCount} kullanıcı otomatik olarak atlanacaktır.
+                  </p>
+                )}
+                {bulkWelcomeResult && (
+                  <p
+                    className={`text-xs font-extrabold pt-1 ${
+                      bulkWelcomeResult.ok ? "text-emerald-700 dark:text-emerald-300" : "text-rose-600 dark:text-rose-400"
+                    }`}
+                  >
+                    {bulkWelcomeResult.message}
+                  </p>
+                )}
+              </div>
+            </div>
+
+            <button
+              type="button"
+              disabled={bulkWelcomeSending || emailableCount === 0}
+              onClick={() => setBulkWelcomeConfirmOpen(true)}
+              className={`px-4 py-2.5 rounded-xl ${bg} ${hover} text-white text-xs font-extrabold flex items-center gap-2 shrink-0 shadow-sm transition cursor-pointer disabled:opacity-45`}
+            >
+              <Mail size={14} />
+              <span>
+                {bulkWelcomeSending
+                  ? "Gönderiliyor..."
+                  : `Kurulum Maili Gönder (${emailableCount})`}
+              </span>
+            </button>
+          </div>
+
+          {bulkWelcomeConfirmOpen && (
+            <div className="fixed inset-0 z-[200] bg-slate-950/60 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200">
+              <div className="w-full max-w-md bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-6 shadow-2xl space-y-4">
+                <div className="flex items-start gap-3">
+                  <div className={`h-11 w-11 rounded-2xl ${lightBg} ${text} flex items-center justify-center shrink-0`}>
+                    <Mail size={20} />
+                  </div>
+                  <div className="space-y-1">
+                    <h4 className="text-sm font-extrabold text-slate-900 dark:text-white">
+                      {emailableCount} Kullanıcıya Kurulum Maili Gönder
+                    </h4>
+                    <p className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed">
+                      E-posta adresi tanımlı <strong>{emailableCount} kullanıcıya</strong> 72 saat geçerli şifre oluşturma bağlantısı ve adım adım giriş/kurulum rehberi gönderilecektir. Devam edilsin mi?
+                    </p>
+                  </div>
+                </div>
+                <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100 dark:border-slate-800">
+                  <button
+                    type="button"
+                    onClick={() => setBulkWelcomeConfirmOpen(false)}
+                    className="px-4 py-2 rounded-xl border border-slate-200 dark:border-slate-700 text-xs font-bold text-slate-600 dark:text-slate-300 cursor-pointer"
+                  >
+                    Vazgeç
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleExecuteBulkWelcomeEmail}
+                    className={`px-4 py-2 rounded-xl ${bg} ${hover} text-white text-xs font-extrabold shadow-sm cursor-pointer`}
+                  >
+                    Onayla ve Gönder
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* Card 1: Ses Kayıt, Sesli Posta & Hesap Durumu */}
           <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 shadow-sm space-y-4">
             <h4 className="text-xs font-extrabold uppercase tracking-wider text-slate-800 dark:text-white flex items-center gap-2 pb-2 border-b border-slate-100 dark:border-slate-800">
@@ -2743,7 +2881,8 @@ export default function BulkConfigPanel({
             </div>
           </div>
         </div>
-      )}
+        );
+      })()}
 
       {/* Module 2: Subscriber Groups & Group Calling Rules */}
       {activeModule === "subscriber_groups" && (
