@@ -14250,287 +14250,648 @@ PROVISIONING_DIR = os.path.join(BASE_DIR, "uploads", "provisioning")
 os.makedirs(PROVISIONING_DIR, exist_ok=True)
 
 
-def _generate_deskphone_cfg_content(ext: str, user_obj: dict, cfg: dict) -> str:
-    """Generates multi-vendor compatible IP Phone provisioning config (Yealink / Fanvil / Grandstream)."""
-    from backend.services.autoprovision_service import resolve_user_sip_username
-    brand = str(cfg.get("brand") or "Yealink").strip()
-    model = str(cfg.get("model") or "T46U").strip()
-    full_name = str(user_obj.get("full_name") or user_obj.get("username") or f"Dahili {ext}")
-    sip_u = resolve_user_sip_username(ext, user_obj.get("sip_username") or "")
-    sip_secret = resolve_secure_sip_password(ext, str(user_obj.get("sip_password") or ""))
-    pbx_host = str(settings_db.get("nat", {}).get("extern_ip") or "127.0.0.1")
-
-    lines = [
-        "#!version:1.0.0.1",
-        f"# AIDA Self-Service Desk Phone Provisioning ({brand} {model})",
-        f"# Extension: {ext} ({full_name}) | SIP Endpoint: {sip_u}",
-        "",
-        "account.1.enable = 1",
-        f"account.1.label = {ext} - {full_name}",
-        f"account.1.display_name = {full_name}",
-        f"account.1.auth_name = {sip_u}",
-        f"account.1.user_name = {sip_u}",
-        f"account.1.password = {sip_secret}",
-        f"account.1.sip_server.1.address = {pbx_host}",
-        "account.1.sip_server.1.port = 5060",
-        "account.1.cid_source = 4",
-        "account.1.cp_source = 0",
-        "",
-        "# --- Programmable DSS / Line Keys (1-12) ---",
-    ]
-
-    yealink_type_map = {
-        "none": 0,
-        "conference": 1,
-        "transfer": 2,
-        "hold": 4,
-        "dnd": 5,
-        "speed_dial": 13,
-        "line": 15,
-        "blf": 16,
-        "voicemail": 13,
-    }
-
-    for k in cfg.get("dss_keys") or []:
-        idx = int(k.get("key_index") or 1)
-        ktype = str(k.get("type") or "none")
-        label = str(k.get("label") or "")
-        val = str(k.get("value") or "")
-        pickup = str(k.get("pickup_code") or "*8")
-        yl_code = yealink_type_map.get(ktype, 0)
-
-        lines.append(f"linekey.{idx}.type = {yl_code}")
-        lines.append(f"linekey.{idx}.line = 1")
-        lines.append(f"linekey.{idx}.value = {val}")
-        lines.append(f"linekey.{idx}.label = {label}")
-        if ktype == "blf":
-            lines.append(f"linekey.{idx}.extension = {pickup}")
-
-    lines.append("")
-    lines.append("# --- Bottom LCD Softkeys (F1-F4) ---")
-    soft_type_map = {
-        "history": 28,
-        "directory": 22,
-        "dnd": 5,
-        "transfer": 2,
-        "speed_dial": 13,
-        "redial": 27,
-        "voicemail": 13,
-    }
-    for sk in cfg.get("soft_keys") or []:
-        sidx = int(sk.get("key_index") or 1)
-        stype = str(sk.get("type") or "history")
-        slabel = str(sk.get("label") or "")
-        sval = str(sk.get("value") or ("*97" if stype == "voicemail" else ""))
-        lines.append(f"programablekey.{sidx}.type = {soft_type_map.get(stype, 0)}")
-        lines.append(f"programablekey.{sidx}.line = 1")
-        lines.append(f"programablekey.{sidx}.value = {sval}")
-        lines.append(f"programablekey.{sidx}.label = {slabel}")
-
-    return "\n".join(lines) + "\n"
-
-
-@app.get("/api/agent/deskphone/{extension}")
-async def get_agent_deskphone_config(extension: str, user_id: Optional[str] = None, user_info: dict = Depends(get_user_info)):
-    ext_clean = str(extension).strip()
-    uid_clean = str(user_id).strip() if user_id and str(user_id).strip() not in ("undefined", "null", "") else None
-
-    all_users = settings_db.get("users", [])
-    directory_users = []
-    matched_user = None
-    for u in all_users:
+def _build_tenant_ext_name_map(tenant_id: str = "tenant-default") -> dict:
+    """Builds a live {extension: full_name} map across settings_db users + PostgreSQL SystemUser for dynamic BLF auto-labeling."""
+    t_clean = str(tenant_id or "tenant-default").strip()
+    ext_map = {}
+    for u in settings_db.get("users", []) or []:
+        if not isinstance(u, dict):
+            continue
+        u_tid = str(u.get("tenant_id") or "tenant-default").strip()
+        if t_clean not in ("all", "global") and u_tid != t_clean:
+            continue
         u_ext = str(u.get("extension") or "").strip()
-        u_id = str(u.get("id") or "").strip()
-        if u_ext == ext_clean or (uid_clean and u_id == uid_clean):
-            matched_user = u
-        if u_ext:
-            directory_users.append({
-                "extension": u_ext,
-                "name": u.get("full_name") or u.get("username") or f"Dahili {u_ext}",
-                "department": u.get("department") or "",
-            })
-
-    # Also check PostgreSQL SystemUser if directory_users is empty or matched_user not found
+        u_name = str(u.get("full_name") or u.get("username") or "").strip()
+        if u_ext and u_name:
+            ext_map[u_ext] = u_name
     try:
-        async with AsyncSessionLocal() as session:
-            res_u = await session.execute(select(SystemUser))
-            db_users = res_u.scalars().all()
-            seen_exts = {d["extension"] for d in directory_users}
-            for dbu in db_users:
-                u_ext = str(dbu.extension or "").strip()
-                u_id = str(dbu.id or "").strip()
-                if u_ext and u_ext not in seen_exts:
-                    directory_users.append({
-                        "extension": u_ext,
-                        "name": dbu.full_name or dbu.email or f"Dahili {u_ext}",
-                        "department": dbu.department or "",
-                    })
-                    seen_exts.add(u_ext)
-                if (u_ext == ext_clean or (uid_clean and u_id == uid_clean)) and not matched_user:
-                    matched_user = {
-                        "id": dbu.id,
-                        "extension": u_ext,
-                        "full_name": dbu.full_name,
-                        "sip_password": dbu.sip_password,
-                    }
+        from backend.database.config import SyncSessionLocal
+        with SyncSessionLocal() as sess:
+            rows = sess.query(SystemUser).all()
+            for r in rows:
+                r_tid = str(getattr(r, "tenant_id", None) or "tenant-default").strip()
+                if t_clean not in ("all", "global") and r_tid != t_clean:
+                    continue
+                r_ext = str(getattr(r, "extension", None) or "").strip()
+                r_name = str(getattr(r, "full_name", None) or getattr(r, "email", None) or "").strip()
+                if r_ext and r_name and r_ext not in ext_map:
+                    ext_map[r_ext] = r_name
     except Exception:
         pass
+    return ext_map
 
-    directory_users.sort(key=lambda x: x["extension"])
 
-    # Find matching autoprovision device if bound
-    ap_devices = settings_db.get("autoprovision", [])
-    bound_dev = None
+def _resolve_agent_physical_deskphones(ext_clean: str, uid_clean: Optional[str] = None):
+    """Returns (matched_user_dict, physical_deskphones_list) uniting user.sip_devices + legacy autoprovision records."""
+    from backend.services.autoprovision_service import normalize_user_sip_devices, normalize_mac_address
+    all_users = settings_db.get("users", []) or []
+    ap_devices = settings_db.get("autoprovision", []) or []
+    dp_cfgs = settings_db.get("user_deskphone_configs", {}) or {}
+
+    matched_user = None
+    for u in all_users:
+        if not isinstance(u, dict):
+            continue
+        u_ext = str(u.get("extension") or "").strip()
+        u_id = str(u.get("id") or "").strip()
+        if (ext_clean and u_ext == ext_clean) or (uid_clean and u_id == uid_clean):
+            matched_user = u
+            break
+
+    if not matched_user:
+        try:
+            from backend.database.config import SyncSessionLocal
+            with SyncSessionLocal() as sess:
+                q = None
+                if ext_clean:
+                    q = sess.query(SystemUser).filter(SystemUser.extension == ext_clean).first()
+                if not q and uid_clean and uid_clean.isdigit():
+                    q = sess.query(SystemUser).filter(SystemUser.id == int(uid_clean)).first()
+                if q:
+                    matched_user = {
+                        "id": q.id,
+                        "extension": str(q.extension or ext_clean),
+                        "full_name": q.full_name,
+                        "sip_username": getattr(q, "sip_username", None),
+                        "sip_password": q.sip_password,
+                        "tenant_id": getattr(q, "tenant_id", None) or "tenant-default",
+                        "sip_devices": getattr(q, "sip_devices", None),
+                    }
+        except Exception:
+            pass
+
+    if not matched_user:
+        return None, []
+
+    norm_devs = normalize_user_sip_devices(
+        matched_user,
+        autoprovision_list=ap_devices,
+        deskphone_configs=dp_cfgs,
+        fallback_password_fn=resolve_secure_sip_password,
+    )
+    physical_devs = [
+        d for d in norm_devs
+        if str(d.get("device_type") or "").strip().lower() in ("desk_phone", "dect", "softphone")
+    ]
+
+    # Check if there is a legacy autoprovision record bound to this user whose MAC isn't yet reflected
     match_targets = {ext_clean}
     if uid_clean:
         match_targets.add(uid_clean)
-    if matched_user and matched_user.get("id") is not None:
+    if matched_user.get("id") is not None:
         match_targets.add(str(matched_user.get("id")).strip())
 
+    bound_ap = None
     for d in ap_devices:
+        if not isinstance(d, dict):
+            continue
         assigned = str(d.get("assigned_user") or d.get("extension") or "").strip()
         if assigned and assigned in match_targets:
-            bound_dev = d
+            bound_ap = d
             break
 
-    saved_deskphones = settings_db.get("user_deskphone_configs", {})
-    user_cfg = saved_deskphones.get(ext_clean, {})
-    if bound_dev:
-        user_cfg = {
-            **user_cfg,
-            "brand": bound_dev.get("brand") or user_cfg.get("brand") or "Yealink",
-            "model": bound_dev.get("model") or user_cfg.get("model") or "T46U",
-            "mac": bound_dev.get("mac") or user_cfg.get("mac") or "",
-            "ip": bound_dev.get("ip") or user_cfg.get("ip") or "",
+    if bound_ap and physical_devs:
+        first = physical_devs[0]
+        if not first.get("mac") and bound_ap.get("mac"):
+            first["mac"], _ = normalize_mac_address(bound_ap.get("mac"))
+        if not first.get("ip") and bound_ap.get("ip"):
+            first["ip"] = str(bound_ap.get("ip") or "")
+        if bound_ap.get("brand"):
+            first["brand"] = str(bound_ap.get("brand"))
+        if bound_ap.get("model"):
+            first["model"] = str(bound_ap.get("model"))
+        if bound_ap.get("connection_mode"):
+            first["connection_mode"] = str(bound_ap.get("connection_mode"))
+
+    # Overlay saved user_deskphone_configs per device key (`{ext}::{sip_username}` or legacy `{ext}`)
+    for dev in physical_devs:
+        su = str(dev.get("sip_username") or "").strip()
+        saved_entry = dp_cfgs.get(f"{ext_clean}::{su}") or (dp_cfgs.get(ext_clean) if dev is physical_devs[0] else None)
+        if isinstance(saved_entry, dict):
+            if saved_entry.get("brand"):
+                dev["brand"] = str(saved_entry["brand"])
+            if saved_entry.get("model"):
+                dev["model"] = str(saved_entry["model"])
+            if isinstance(saved_entry.get("dss_keys"), list) and saved_entry.get("dss_keys"):
+                dev["dss_keys"] = saved_entry["dss_keys"]
+            if isinstance(saved_entry.get("soft_keys"), list) and saved_entry.get("soft_keys"):
+                dev["soft_keys"] = saved_entry["soft_keys"]
+            if isinstance(saved_entry.get("expansion_modules"), list):
+                dev["expansion_modules"] = saved_entry["expansion_modules"]
+            if isinstance(saved_entry.get("phone_prefs"), dict):
+                dev["phone_prefs"] = saved_entry["phone_prefs"]
+            if saved_entry.get("config_version"):
+                dev["config_version"] = int(saved_entry["config_version"])
+            if saved_entry.get("last_provisioned_at"):
+                dev["last_provisioned_at"] = str(saved_entry["last_provisioned_at"])
+            if saved_entry.get("last_provisioned_ip"):
+                dev["last_provisioned_ip"] = str(saved_entry["last_provisioned_ip"])
+
+    return matched_user, physical_devs
+
+
+def _inspect_deskphone_live_status(dev: dict) -> dict:
+    from backend.services.autoprovision_service import inspect_asterisk_pjsip_endpoint
+    from backend.services.ami_manager import registered_endpoints
+
+    su = str(dev.get("sip_username") or "").strip()
+    insp = inspect_asterisk_pjsip_endpoint(su) if su else {"online": False, "parsed": {}}
+    parsed = insp.get("parsed") or {}
+    ami_ip = registered_endpoints.get_ip(su) if su else ""
+    ami_online = bool(su and su in registered_endpoints)
+    online = bool(insp.get("online") or ami_online)
+    ip_val = str(parsed.get("ip_address") or ami_ip or dev.get("ip") or "").strip()
+    dev_state = str(parsed.get("device_state") or "").strip()
+    on_active_call = any(tok in dev_state.lower() for tok in ("in use", "ringing", "busy"))
+    return {
+        "online": online,
+        "ip": ip_val,
+        "rtt_ms": str(parsed.get("rtt_ms") or ""),
+        "user_agent": str(parsed.get("user_agent") or ""),
+        "device_state": dev_state or ("Online" if online else "Offline"),
+        "on_active_call": on_active_call,
+    }
+
+
+def _generate_deskphone_cfg_content(
+    ext: str,
+    user_obj: dict,
+    cfg: dict,
+    request: Optional[Request] = None,
+) -> tuple:
+    """Unified multi-vendor IP Phone provisioning generator (Yealink / Grandstream / Fanvil / Cisco)."""
+    from backend.services.autoprovision_service import (
+        generate_provisioning_config,
+        get_or_create_provisioning_token,
+        resolve_provisioning_endpoints,
+        resolve_user_sip_username,
+    )
+    ext_s = str(ext or "").strip()
+    u_tid = str(user_obj.get("tenant_id") or "tenant-default").strip()
+    pbx_cfg = settings_db.get("pbx", {}) if isinstance(settings_db.get("pbx"), dict) else {}
+    pickup_cfg = ((pbx_cfg.get("numbering_plan") or {}).get("call_pickup") or {})
+    pickup_group = str(pickup_cfg.get("group") or "*8").strip() or "*8"
+    pickup_directed = str(pickup_cfg.get("directed") or "**").strip() or "**"
+
+    prov_token = get_or_create_provisioning_token(settings_db, u_tid)
+    eff_mode = str(cfg.get("connection_mode") or ("wan" if cfg.get("remote_access") else "lan")).strip().lower()
+    if eff_mode not in ("lan", "wan", "auto"):
+        eff_mode = "lan"
+    prov_ep = resolve_provisioning_endpoints(
+        settings_db=settings_db,
+        token=prov_token,
+        mode=eff_mode,
+        request_host=(request.headers.get("host") if request else "") or "",
+        request_scheme=((request.headers.get("x-forwarded-proto") or request.url.scheme) if request else "http") or "http",
+        client_ip="",
+    )
+    all_pbs = [
+        pb for pb in (settings_db.get("phonebooks") or [])
+        if isinstance(pb, dict) and (pb.get("tenant_id") == u_tid or (not pb.get("tenant_id") and u_tid == "tenant-default"))
+    ]
+    sip_u = str(cfg.get("sip_username") or "").strip() or resolve_user_sip_username(ext_s, user_obj.get("sip_username") or "")
+    sip_secret = str(cfg.get("sip_password") or "").strip() or resolve_secure_sip_password(ext_s, str(user_obj.get("sip_password") or ""))
+    ext_name_map = _build_tenant_ext_name_map(u_tid)
+
+    return generate_provisioning_config(
+        ext=ext_s,
+        sip_username=sip_u,
+        sip_password=sip_secret,
+        full_name=str(user_obj.get("full_name") or user_obj.get("username") or f"Dahili {ext_s}"),
+        pbx_host=prov_ep["pbx_host"],
+        brand=str(cfg.get("brand") or "Yealink"),
+        model=str(cfg.get("model") or "T46U"),
+        mac_colon=str(cfg.get("mac") or ""),
+        transport=str(cfg.get("transport") or "UDP"),
+        dss_keys=cfg.get("dss_keys") or [],
+        soft_keys=cfg.get("soft_keys") or [],
+        pickup_group=pickup_group,
+        pickup_directed=pickup_directed,
+        codecs=cfg.get("codecs") or ["g722", "alaw", "ulaw", "g729"],
+        dtmf_mode=str(cfg.get("dtmf_mode") or "rfc4733"),
+        language=str((cfg.get("phone_prefs") or {}).get("language") or cfg.get("language") or "Turkish"),
+        timezone=str(cfg.get("timezone") or "+3"),
+        ntp_server=str(cfg.get("ntp_server") or "pool.ntp.org"),
+        auto_answer=bool((cfg.get("phone_prefs") or {}).get("auto_answer", cfg.get("auto_answer", False))),
+        direct_ip_call_block=cfg.get("direct_ip_call_block") is not False,
+        phonebooks=all_pbs,
+        phonebook_base_url=prov_ep["phonebook_base_url"],
+        connection_mode=prov_ep["effective_mode"],
+        provision_server_url=prov_ep["active_prov_url"],
+        expansion_modules=cfg.get("expansion_modules") or [],
+        phone_prefs=cfg.get("phone_prefs") or {},
+        ext_name_map=ext_name_map,
+    )
+
+
+@app.get("/api/agent/deskphone/{extension}")
+async def get_agent_deskphone_config(
+    extension: str,
+    request: Request,
+    user_id: Optional[str] = None,
+    device_id: Optional[str] = None,
+    user_info: dict = Depends(get_user_info),
+):
+    from backend.services.autoprovision_service import (
+        PHONE_MODEL_CATALOG,
+        EXPANSION_MODULE_CATALOG,
+        DEFAULT_PHONE_PREFS,
+        normalize_phone_prefs,
+        normalize_expansion_modules,
+        resolve_dynamic_key_labels,
+        get_or_create_provisioning_token,
+        resolve_provisioning_endpoints,
+    )
+    ext_clean = str(extension).strip()
+    uid_clean = str(user_id).strip() if user_id and str(user_id).strip() not in ("undefined", "null", "") else None
+
+    matched_user, physical_devs = _resolve_agent_physical_deskphones(ext_clean, uid_clean)
+    u_tid = str((matched_user or {}).get("tenant_id") or user_info.get("tenant_id") or "tenant-default").strip()
+    ext_name_map = _build_tenant_ext_name_map(u_tid)
+
+    # Directory users (tenant-scoped) for 1-click BLF / Speed Dial & Auto-Fill
+    directory_users = []
+    seen_exts = set()
+    for u in settings_db.get("users", []) or []:
+        if not isinstance(u, dict):
+            continue
+        ut = str(u.get("tenant_id") or "tenant-default").strip()
+        if u_tid not in ("all", "global") and ut != u_tid:
+            continue
+        u_ext = str(u.get("extension") or "").strip()
+        if u_ext and u_ext not in seen_exts:
+            directory_users.append({
+                "extension": u_ext,
+                "name": str(u.get("full_name") or u.get("username") or f"Dahili {u_ext}"),
+                "department": str(u.get("department") or ""),
+            })
+            seen_exts.add(u_ext)
+    for k_ext, k_name in ext_name_map.items():
+        if k_ext not in seen_exts:
+            directory_users.append({"extension": k_ext, "name": k_name, "department": ""})
+            seen_exts.add(k_ext)
+    directory_users.sort(key=lambda x: x["extension"])
+
+    # Enrich each physical device with live status & provisioning URLs
+    prov_token = get_or_create_provisioning_token(settings_db, u_tid)
+    enriched_devices = []
+    for dev in physical_devs:
+        live = _inspect_deskphone_live_status(dev)
+        eff_mode = str(dev.get("connection_mode") or "lan").strip().lower()
+        prov_ep = resolve_provisioning_endpoints(
+            settings_db=settings_db,
+            token=prov_token,
+            mode=eff_mode,
+            request_host=request.headers.get("host") or "",
+            request_scheme=request.headers.get("x-forwarded-proto") or request.url.scheme or "http",
+            client_ip="",
+        )
+        d_copy = dict(dev)
+        d_copy.pop("sip_password", None)  # never leak SIP password into agent self-service JSON
+        d_copy["dss_keys"] = resolve_dynamic_key_labels(d_copy.get("dss_keys") or [], ext_name_map)
+        exp_resolved = []
+        for mod in normalize_expansion_modules(d_copy.get("expansion_modules")):
+            m_c = dict(mod)
+            m_c["keys"] = resolve_dynamic_key_labels(m_c.get("keys") or [], ext_name_map)
+            exp_resolved.append(m_c)
+        d_copy["expansion_modules"] = exp_resolved
+        d_copy["phone_prefs"] = normalize_phone_prefs(
+            d_copy.get("phone_prefs"),
+            fallback_lang=str(d_copy.get("language") or "Turkish"),
+            fallback_auto_answer=bool(d_copy.get("auto_answer", False)),
+        )
+        d_copy["live_status"] = live
+        d_copy["prov_urls"] = {
+            "active": prov_ep["active_prov_url"],
+            "lan": prov_ep["lan_prov_url"],
+            "wan": prov_ep["wan_prov_url"],
+            "effective_mode": prov_ep["effective_mode"],
+            "pbx_host": prov_ep["pbx_host"],
         }
+        enriched_devices.append(d_copy)
+
+    selected_dev = None
+    if enriched_devices:
+        if device_id:
+            selected_dev = next(
+                (d for d in enriched_devices if str(d.get("id")) == str(device_id) or str(d.get("sip_username")) == str(device_id)),
+                enriched_devices[0],
+            )
+        else:
+            selected_dev = enriched_devices[0]
 
     speed_dials = settings_db.get("speed_dials", [])
     return {
         "status": "success",
         "extension": ext_clean,
-        "has_provisioned_device": bool(bound_dev),
-        "provisioned_device": bound_dev,
-        "config": user_cfg,
+        "has_provisioned_device": bool(selected_dev),
+        "devices": enriched_devices,
+        "provisioned_device": selected_dev,
+        "config": selected_dev or {"brand": "Yealink", "model": "T46U", "dss_keys": [], "soft_keys": [], "expansion_modules": [], "phone_prefs": DEFAULT_PHONE_PREFS},
         "directory_users": directory_users,
+        "ext_name_map": ext_name_map,
         "speed_dials": speed_dials,
+        "model_catalog": PHONE_MODEL_CATALOG,
+        "expansion_catalog": EXPANSION_MODULE_CATALOG,
+    }
+
+
+@app.get("/api/agent/deskphone/{extension}/status")
+async def get_agent_deskphone_live_status(
+    extension: str,
+    user_id: Optional[str] = None,
+    device_id: Optional[str] = None,
+    user_info: dict = Depends(get_user_info),
+):
+    ext_clean = str(extension).strip()
+    uid_clean = str(user_id).strip() if user_id and str(user_id).strip() not in ("undefined", "null", "") else None
+    _, physical_devs = _resolve_agent_physical_deskphones(ext_clean, uid_clean)
+    if not physical_devs:
+        return {"status": "not_found", "online": False}
+    target = next(
+        (d for d in physical_devs if device_id and (str(d.get("id")) == str(device_id) or str(d.get("sip_username")) == str(device_id))),
+        physical_devs[0],
+    )
+    live = _inspect_deskphone_live_status(target)
+    return {
+        "status": "success",
+        "device_id": target.get("id"),
+        "sip_username": target.get("sip_username"),
+        "brand": target.get("brand"),
+        "model": target.get("model"),
+        "config_version": int(target.get("config_version") or 1),
+        "last_provisioned_at": str(target.get("last_provisioned_at") or ""),
+        "last_provisioned_ip": str(target.get("last_provisioned_ip") or ""),
+        **live,
+    }
+
+
+@app.post("/api/agent/deskphone/{extension}/notify")
+async def trigger_agent_deskphone_notify(
+    extension: str,
+    payload: dict = Body(default={}),
+    user_info: dict = Depends(get_user_info),
+):
+    from backend.services.autoprovision_service import trigger_phone_sip_notify
+    ext_clean = str(extension).strip()
+    uid_clean = str(payload.get("user_id") or "").strip() or None
+    device_id = str(payload.get("device_id") or payload.get("sip_username") or "").strip() or None
+    reboot = bool(payload.get("reboot", True))
+    force_on_call = bool(payload.get("force_reboot_on_call", False))
+
+    _, physical_devs = _resolve_agent_physical_deskphones(ext_clean, uid_clean)
+    if not physical_devs:
+        raise HTTPException(status_code=404, detail="Tanımlı masa telefonu bulunamadı.")
+
+    target = next(
+        (d for d in physical_devs if device_id and (str(d.get("id")) == device_id or str(d.get("sip_username")) == device_id)),
+        physical_devs[0],
+    )
+    live = _inspect_deskphone_live_status(target)
+    if reboot and live.get("on_active_call") and not force_on_call:
+        return {
+            "status": "active_call_warning",
+            "on_active_call": True,
+            "message": "Masa telefonunuzda şu an aktif bir görüşme görünüyor. Yeniden başlatma komutu görüşmeyi kesebilir.",
+        }
+
+    ok, out = trigger_phone_sip_notify(
+        str(target.get("sip_username") or ext_clean),
+        brand=str(target.get("brand") or "Yealink"),
+        reboot=reboot,
+    )
+    return {
+        "status": "success" if ok else "warning",
+        "notified": ok,
+        "reboot": reboot,
+        "sip_username": target.get("sip_username"),
+        "output": out,
+        "message": (
+            f"Masa telefonuna ({target.get('brand')} {target.get('model')} • {target.get('sip_username')}) "
+            f"{'yeniden başlatma (Reboot)' if reboot else 'hızlı senkronizasyon (Check-Sync)'} komutu gönderildi."
+            if ok
+            else f"Bildirim iletilemedi: {out}"
+        ),
     }
 
 
 @app.post("/api/agent/deskphone/{extension}")
-async def save_agent_deskphone_config(extension: str, payload: dict = Body(...), user_info: dict = Depends(get_user_info)):
+async def save_agent_deskphone_config(
+    extension: str,
+    request: Request,
+    payload: dict = Body(...),
+    user_info: dict = Depends(get_user_info),
+):
+    from backend.services.autoprovision_service import (
+        normalize_expansion_modules,
+        normalize_phone_prefs,
+        trigger_phone_sip_notify,
+        write_pjsip_notify_conf,
+    )
     ext_clean = str(extension).strip()
-    uid_clean = str(payload.get("user_id") or "").strip()
+    uid_clean = str(payload.get("user_id") or "").strip() or None
+    device_id = str(payload.get("device_id") or payload.get("sip_username") or "").strip() or None
+    apply_mode = str(payload.get("apply_mode") or "reboot").strip().lower()
+    if apply_mode not in ("reboot", "check_sync", "save_only"):
+        apply_mode = "reboot"
+    force_on_call = bool(payload.get("force_reboot_on_call", False))
 
-    ap_devices = settings_db.get("autoprovision", [])
-    match_targets = {ext_clean}
-    if uid_clean:
-        match_targets.add(uid_clean)
-    for u in settings_db.get("users", []):
-        if str(u.get("extension") or "").strip() == ext_clean and u.get("id") is not None:
-            match_targets.add(str(u.get("id")).strip())
-
-    bound_dev = None
-    for d in ap_devices:
-        assigned = str(d.get("assigned_user") or d.get("extension") or "").strip()
-        if assigned and assigned in match_targets:
-            bound_dev = d
-            break
-
-    if not bound_dev:
+    matched_user, physical_devs = _resolve_agent_physical_deskphones(ext_clean, uid_clean)
+    if not matched_user or not physical_devs:
         raise HTTPException(
             status_code=400,
-            detail="Tanımlı bir masa telefonunuz (Oto-Provizyon bağlantısı) bulunmadığı için işlem yapılamaz."
+            detail="Tanımlı bir masa telefonunuz (Oto-Provizyon / SIP Cihazı) bulunmadığı için işlem yapılamaz.",
         )
+
+    target_dev = next(
+        (d for d in physical_devs if device_id and (str(d.get("id")) == device_id or str(d.get("sip_username")) == device_id)),
+        physical_devs[0],
+    )
+    live = _inspect_deskphone_live_status(target_dev)
+    if apply_mode == "reboot" and live.get("on_active_call") and not force_on_call:
+        return {
+            "status": "active_call_warning",
+            "on_active_call": True,
+            "message": "Masa telefonunuzda şu an aktif bir görüşme var. Yeniden başlatma komutu mevcut çağrıyı sonlandırabilir. Yine de yeniden başlatmak istiyor musunuz?",
+        }
+
+    target_su = str(target_dev.get("sip_username") or "").strip()
+    new_brand = str(payload.get("brand") or target_dev.get("brand") or "Yealink").strip()
+    new_model = str(payload.get("model") or target_dev.get("model") or "T46U").strip()
+    new_dss = payload.get("dss_keys") if isinstance(payload.get("dss_keys"), list) else (target_dev.get("dss_keys") or [])
+    new_soft = payload.get("soft_keys") if isinstance(payload.get("soft_keys"), list) else (target_dev.get("soft_keys") or [])
+    new_exp = normalize_expansion_modules(payload.get("expansion_modules"))
+    new_prefs = normalize_phone_prefs(
+        payload.get("phone_prefs"),
+        fallback_lang=str(target_dev.get("language") or "Turkish"),
+        fallback_auto_answer=bool(target_dev.get("auto_answer", False)),
+    )
+    next_version = int(target_dev.get("config_version") or 1) + 1
+    now_tr = (datetime.datetime.utcnow() + datetime.timedelta(hours=3)).strftime("%Y-%m-%d %H:%M:%S")
 
     if "user_deskphone_configs" not in settings_db or not isinstance(settings_db.get("user_deskphone_configs"), dict):
         settings_db["user_deskphone_configs"] = {}
 
     cfg_to_save = {
+        **target_dev,
         "extension": ext_clean,
-        "brand": str(payload.get("brand") or bound_dev.get("brand") or "Yealink"),
-        "model": str(payload.get("model") or bound_dev.get("model") or "T46U"),
-        "mac": str(bound_dev.get("mac") or payload.get("mac") or "").strip().lower(),
-        "ip": str(bound_dev.get("ip") or payload.get("ip") or "").strip(),
-        "dss_keys": payload.get("dss_keys") or [],
-        "soft_keys": payload.get("soft_keys") or [],
-        "updated_at": (datetime.datetime.utcnow() + datetime.timedelta(hours=3)).strftime("%Y-%m-%d %H:%M:%S"),
+        "sip_username": target_su,
+        "brand": new_brand,
+        "model": new_model,
+        "dss_keys": new_dss,
+        "soft_keys": new_soft,
+        "expansion_modules": new_exp,
+        "phone_prefs": new_prefs,
+        "language": new_prefs["language"],
+        "auto_answer": new_prefs["auto_answer"],
+        "config_version": next_version,
+        "updated_at": now_tr,
     }
-    settings_db["user_deskphone_configs"][ext_clean] = cfg_to_save
 
-    # Also update in autoprovision table
-    bound_dev["dss_keys"] = cfg_to_save["dss_keys"]
-    bound_dev["soft_keys"] = cfg_to_save["soft_keys"]
-    mac_val = cfg_to_save["mac"]
-    if False:
-        if "autoprovision" not in settings_db:
-            settings_db["autoprovision"] = []
-        updated_ap = False
-        for d in settings_db["autoprovision"]:
-            if str(d.get("mac") or "").lower() == mac_val:
-                d["brand"] = cfg_to_save["brand"]
-                d["model"] = cfg_to_save["model"]
-                d["ip"] = cfg_to_save["ip"] or d.get("ip", "")
-                d["dss_keys"] = cfg_to_save["dss_keys"]
-                d["soft_keys"] = cfg_to_save["soft_keys"]
-                updated_ap = True
-                break
-        if not updated_ap:
-            settings_db["autoprovision"].append({
-                "mac": mac_val,
-                "ip": cfg_to_save["ip"],
-                "brand": cfg_to_save["brand"],
-                "model": cfg_to_save["model"],
-                "assigned_user": str(payload.get("user_id") or ext_clean),
-                "dss_keys": cfg_to_save["dss_keys"],
-                "soft_keys": cfg_to_save["soft_keys"],
-                "provision_date": datetime.datetime.utcnow().isoformat(),
-            })
+    # 1. Persist into user_deskphone_configs (both device-keyed & legacy extension-keyed for primary)
+    settings_db["user_deskphone_configs"][f"{ext_clean}::{target_su}"] = cfg_to_save
+    if target_dev is physical_devs[0]:
+        settings_db["user_deskphone_configs"][ext_clean] = cfg_to_save
+
+    # 2. Sync into settings_db["users"][i]["sip_devices"] so /api/prov/{token}/... serves updated config immediately
+    updated_user_sip_devices = None
+    for u in settings_db.get("users", []) or []:
+        if not isinstance(u, dict):
+            continue
+        if str(u.get("extension") or "").strip() == ext_clean or (uid_clean and str(u.get("id") or "").strip() == uid_clean):
+            cur_devs = u.get("sip_devices") if isinstance(u.get("sip_devices"), list) else []
+            found_in_user = False
+            for idx_d, ud in enumerate(cur_devs):
+                if isinstance(ud, dict) and (
+                    str(ud.get("sip_username") or "").strip() == target_su
+                    or str(ud.get("id") or "").strip() == str(target_dev.get("id") or "").strip()
+                ):
+                    cur_devs[idx_d] = {
+                        **ud,
+                        "brand": new_brand,
+                        "model": new_model,
+                        "dss_keys": new_dss,
+                        "soft_keys": new_soft,
+                        "expansion_modules": new_exp,
+                        "phone_prefs": new_prefs,
+                        "language": new_prefs["language"],
+                        "auto_answer": new_prefs["auto_answer"],
+                        "config_version": next_version,
+                    }
+                    found_in_user = True
+                    break
+            if not found_in_user and cur_devs is not None:
+                cur_devs.append(cfg_to_save)
+            u["sip_devices"] = cur_devs
+            updated_user_sip_devices = cur_devs
+            break
+
+    # 3. Also sync into PostgreSQL SystemUser.sip_devices if column exists
+    if updated_user_sip_devices is not None:
+        try:
+            async with AsyncSessionLocal() as sess:
+                res_dbu = await sess.execute(select(SystemUser).where(SystemUser.extension == ext_clean))
+                dbu = res_dbu.scalars().first()
+                if dbu and hasattr(dbu, "sip_devices"):
+                    dbu.sip_devices = updated_user_sip_devices
+                    await sess.commit()
+        except Exception:
+            pass
+
+    # 4. Also sync into legacy autoprovision list if MAC or user matches
+    mac_val = str(target_dev.get("mac") or "").strip().lower()
+    for d in settings_db.get("autoprovision", []) or []:
+        if not isinstance(d, dict):
+            continue
+        d_mac = str(d.get("mac") or "").strip().lower()
+        d_ass = str(d.get("assigned_user") or d.get("extension") or "").strip()
+        if (mac_val and d_mac == mac_val) or (d_ass and d_ass in {ext_clean, str(matched_user.get("id") or "")}):
+            d["brand"] = new_brand
+            d["model"] = new_model
+            d["dss_keys"] = new_dss
+            d["soft_keys"] = new_soft
+            d["expansion_modules"] = new_exp
+            d["phone_prefs"] = new_prefs
+            break
 
     save_settings(settings_db)
 
-    # Write provisioning .cfg file to disk
-    matched_user = next(
-        (u for u in settings_db.get("users", []) if str(u.get("extension") or "").strip() == ext_clean),
-        {"extension": ext_clean, "full_name": f"Dahili {ext_clean}"},
-    )
-    cfg_text = _generate_deskphone_cfg_content(ext_clean, matched_user, cfg_to_save)
-    cfg_filename = f"{mac_val.replace(':', '')}.cfg" if mac_val else f"ext_{ext_clean}.cfg"
-    cfg_filepath = os.path.join(PROVISIONING_DIR, cfg_filename)
-    with open(cfg_filepath, "w", encoding="utf-8") as f_cfg:
-        f_cfg.write(cfg_text)
-
-    # Also trigger SIP check-sync via Asterisk CLI if desk phone is registered
+    # 5. Write unified provisioning file to PROVISIONING_DIR (backup/static copy)
+    cfg_text, _, cfg_filename = _generate_deskphone_cfg_content(ext_clean, matched_user, cfg_to_save, request=request)
     try:
-        subprocess.run(
-            ["asterisk", "-rx", f"pjsip send notify default-yealink endpoint {ext_clean}"],
-            timeout=2.0,
-            check=False,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-        )
+        cfg_filepath = os.path.join(PROVISIONING_DIR, cfg_filename)
+        with open(cfg_filepath, "w", encoding="utf-8") as f_cfg:
+            f_cfg.write(cfg_text)
     except Exception:
         pass
 
+    # 6. Ensure pjsip_notify.conf is up-to-date and dispatch SIP NOTIFY (Reboot or Check-Sync) to REAL sip_username!
+    notify_ok = False
+    notify_out = ""
+    if apply_mode in ("reboot", "check_sync"):
+        try:
+            write_pjsip_notify_conf(os.path.join(os.path.dirname(__file__), "asterisk_config"))
+        except Exception:
+            pass
+        notify_ok, notify_out = trigger_phone_sip_notify(
+            target_su or ext_clean,
+            brand=new_brand,
+            reboot=(apply_mode == "reboot"),
+        )
+
+    if apply_mode == "save_only":
+        msg = f"Ayarlar kaydedildi ve oto-provizyon dosyası ({cfg_filename}, v{next_version}) güncellendi."
+    elif apply_mode == "reboot":
+        msg = (
+            f"Ayarlar kaydedildi (v{next_version}) ve {new_brand} {new_model} cihazına ({target_su}) "
+            f"Yeniden Başlatma (Reboot) komutu gönderildi! Telefon açılırken yeni ayarları otomatik çekecektir."
+            if notify_ok
+            else f"Ayarlar kaydedildi ve provizyon güncellendi (v{next_version}); ancak cihaza uzaktan Reboot bildirimi gönderilemedi ({notify_out}). Telefonu yeniden başlattığınızda yeni ayarlar aktif olacaktır."
+        )
+    else:
+        msg = (
+            f"Ayarlar kaydedildi (v{next_version}) ve {new_brand} {new_model} cihazına ({target_su}) "
+            f"hızlı senkronizasyon (Check-Sync) gönderildi."
+            if notify_ok
+            else f"Ayarlar kaydedildi (v{next_version}); cihaza Check-Sync iletilemedi ({notify_out})."
+        )
+
+    safe_cfg = dict(cfg_to_save)
+    safe_cfg.pop("sip_password", None)
     return {
         "status": "success",
-        "message": f"Dahili {ext_clean} masa telefonu tuş ayarları (BLF, Hızlı Arama ve Softkey) kaydedildi ve otoprovizyon dosyası ({cfg_filename}) üretildi.",
-        "config": cfg_to_save,
+        "apply_mode": apply_mode,
+        "notified": notify_ok,
+        "notify_output": notify_out,
+        "config_version": next_version,
+        "filename": cfg_filename,
+        "message": msg,
+        "config": safe_cfg,
     }
 
 
 @app.get("/api/agent/deskphone/{extension}/config-file")
-async def download_agent_deskphone_cfg(extension: str):
+async def download_agent_deskphone_cfg(
+    extension: str,
+    request: Request,
+    device_id: Optional[str] = None,
+    preview: bool = False,
+):
     ext_clean = str(extension).strip()
-    saved_deskphones = settings_db.get("user_deskphone_configs", {})
-    cfg = saved_deskphones.get(ext_clean, {"brand": "Yealink", "model": "T46U", "dss_keys": [], "soft_keys": []})
-    matched_user = next(
-        (u for u in settings_db.get("users", []) if str(u.get("extension") or "").strip() == ext_clean),
-        {"extension": ext_clean, "full_name": f"Dahili {ext_clean}"},
+    matched_user, physical_devs = _resolve_agent_physical_deskphones(ext_clean)
+    if not matched_user:
+        matched_user = {"extension": ext_clean, "full_name": f"Dahili {ext_clean}"}
+    target_dev = next(
+        (d for d in physical_devs if device_id and (str(d.get("id")) == str(device_id) or str(d.get("sip_username")) == str(device_id))),
+        physical_devs[0] if physical_devs else {"brand": "Yealink", "model": "T46U", "dss_keys": [], "soft_keys": []},
     )
-    cfg_text = _generate_deskphone_cfg_content(ext_clean, matched_user, cfg)
-    return PlainTextResponse(
+    cfg_text, media_type, fname = _generate_deskphone_cfg_content(ext_clean, matched_user, target_dev, request=request)
+    if preview:
+        return {"status": "success", "filename": fname, "media_type": media_type, "content": cfg_text}
+    return Response(
         content=cfg_text,
-        headers={"Content-Disposition": f'attachment; filename="deskphone_{ext_clean}.cfg"'},
+        media_type=media_type,
+        headers={"Content-Disposition": f'attachment; filename="{fname}"'},
     )
 
 
@@ -14911,6 +15272,7 @@ async def download_user_sip_device_cfg(
         if isinstance(pb, dict) and (pb.get("tenant_id") == u_tid or (not pb.get("tenant_id") and u_tid == "tenant-default"))
     ]
 
+    ext_name_map = _build_tenant_ext_name_map(u_tid)
     content_text, media_type, fname = generate_provisioning_config(
         ext=ext_s,
         sip_username=su_s,
@@ -14936,6 +15298,9 @@ async def download_user_sip_device_cfg(
         phonebook_base_url=prov_ep["phonebook_base_url"],
         connection_mode=prov_ep["effective_mode"],
         provision_server_url=prov_ep["active_prov_url"],
+        expansion_modules=matched_dev.get("expansion_modules") or [],
+        phone_prefs=matched_dev.get("phone_prefs") or {},
+        ext_name_map=ext_name_map,
     )
     return Response(
         content=content_text,
@@ -15023,34 +15388,62 @@ async def _render_autoprovision_file_for_phone(
                     pb for pb in (settings_db.get("phonebooks") or [])
                     if isinstance(pb, dict) and (pb.get("tenant_id") == u_tid or (not pb.get("tenant_id") and u_tid == "tenant-default"))
                 ]
+                ext_name_map = _build_tenant_ext_name_map(u_tid)
+                # Overlay any latest self-service deskphone config saved for this device
+                saved_dp = dp_all.get(f"{ext_s}::{dev_su}") or dp_all.get(ext_s) or {}
+                eff_dss = saved_dp.get("dss_keys") if isinstance(saved_dp.get("dss_keys"), list) and saved_dp.get("dss_keys") else (dev.get("dss_keys") or [])
+                eff_soft = saved_dp.get("soft_keys") if isinstance(saved_dp.get("soft_keys"), list) and saved_dp.get("soft_keys") else (dev.get("soft_keys") or [])
+                eff_exp = saved_dp.get("expansion_modules") if isinstance(saved_dp.get("expansion_modules"), list) else (dev.get("expansion_modules") or [])
+                eff_prefs = saved_dp.get("phone_prefs") if isinstance(saved_dp.get("phone_prefs"), dict) else (dev.get("phone_prefs") or {})
+
                 content_text, media_type, _ = generate_provisioning_config(
                     ext=ext_s,
                     sip_username=dev_su,
                     sip_password=str(dev.get("sip_password") or ""),
                     full_name=str(u.get("full_name") or f"Dahili {ext_s}"),
                     pbx_host=prov_ep["pbx_host"],
-                    brand=str(ap_rec.get("brand") or dev.get("brand") or "Yealink"),
-                    model=str(ap_rec.get("model") or dev.get("model") or "T46U"),
+                    brand=str(saved_dp.get("brand") or ap_rec.get("brand") or dev.get("brand") or "Yealink"),
+                    model=str(saved_dp.get("model") or ap_rec.get("model") or dev.get("model") or "T46U"),
                     mac_colon=str(dev.get("mac") or ""),
                     transport=str(dev.get("transport") or "UDP"),
-                    dss_keys=dev.get("dss_keys") or [],
-                    soft_keys=dev.get("soft_keys") or [],
+                    dss_keys=eff_dss,
+                    soft_keys=eff_soft,
                     pickup_group=pickup_group,
                     pickup_directed=pickup_directed,
                     template_obj=tpl_obj,
                     requested_filename=fn_clean,
                     codecs=dev.get("codecs") or ["g722", "alaw", "ulaw", "g729"],
                     dtmf_mode=str(dev.get("dtmf_mode") or "rfc4733"),
-                    language=str(dev.get("language") or "Turkish"),
+                    language=str(eff_prefs.get("language") or dev.get("language") or "Turkish"),
                     timezone=str(dev.get("timezone") or "+3"),
                     ntp_server=str(dev.get("ntp_server") or "pool.ntp.org"),
-                    auto_answer=bool(dev.get("auto_answer", False)),
+                    auto_answer=bool(eff_prefs.get("auto_answer", dev.get("auto_answer", False))),
                     direct_ip_call_block=dev.get("direct_ip_call_block") is not False,
                     phonebooks=all_pbs,
                     phonebook_base_url=prov_ep["phonebook_base_url"],
                     connection_mode=prov_ep["effective_mode"],
                     provision_server_url=prov_ep["active_prov_url"],
+                    expansion_modules=eff_exp,
+                    phone_prefs=eff_prefs,
+                    ext_name_map=ext_name_map,
                 )
+                # Stamp live provisioning fetch timestamp so Desk Phone Studio progress bar detects boot pull!
+                try:
+                    now_prov_tr = (datetime.datetime.utcnow() + datetime.timedelta(hours=3)).strftime("%Y-%m-%d %H:%M:%S")
+                    if "user_deskphone_configs" not in settings_db or not isinstance(settings_db.get("user_deskphone_configs"), dict):
+                        settings_db["user_deskphone_configs"] = {}
+                    for k_stamp in (f"{ext_s}::{dev_su}", ext_s):
+                        if isinstance(settings_db["user_deskphone_configs"].get(k_stamp), dict):
+                            settings_db["user_deskphone_configs"][k_stamp]["last_provisioned_at"] = now_prov_tr
+                            settings_db["user_deskphone_configs"][k_stamp]["last_provisioned_ip"] = client_ip or ""
+                    if isinstance(u.get("sip_devices"), list):
+                        for sd_item in u["sip_devices"]:
+                            if isinstance(sd_item, dict) and str(sd_item.get("sip_username") or "").strip() == dev_su:
+                                sd_item["last_provisioned_at"] = now_prov_tr
+                                sd_item["last_provisioned_ip"] = client_ip or ""
+                                break
+                except Exception:
+                    pass
                 return Response(content=content_text, media_type=media_type)
 
     raise HTTPException(status_code=404, detail="Eşleşen SIP cihazı bulunamadı.")
@@ -41882,18 +42275,37 @@ async def get_system_version_info():
         pass
 
     return {
-        "version": "v3.7.4",
+        "version": "v3.7.5",
         "commit_hash": live_commit,
-        "release_date": "21 Kasım 2026",
+        "release_date": "22 Kasım 2026",
         "status": "Güncel / Canlı Sürüm",
         "environment": "Production (On-Premise)",
         "changelog": [
             {
-                "version": "v3.7.4",
+                "version": "v3.7.5",
                 "commit_hash": live_commit,
-                "release_date": "21 Kasım 2026",
+                "release_date": "22 Kasım 2026",
                 "badge": "Canlı Sürüm (Güncel)",
                 "badge_type": "current",
+                "title": "Masa Telefonum — Model-Bazlı Canlı Görsel Tasarımcı, Dinamik Santral İsimli BLF, Zincirleme Meşguliyet Modülleri (1–4) & Tek Tıkla Reboot",
+                "summary": "Kullanıcıların kendi masa telefonlarını (Yealink, Grandstream, Fanvil, Cisco — 49 model) gerçek gövde simülasyonu üzerinde görsel olarak yapılandırabilmesi, 1–4 adet zincirleme meşguliyet modülü (EXP43/EXP50/GBX20/CP-8800 KEM) yönetebilmesi ve tek tıkla oto-provizyon + Reboot gönderebilmesi sağlandı.",
+                "features": [
+                    "Model-Bazlı Canlı Görsel Telefon Simülatörü (49 Model): Yealink (T30P–T58W), Grandstream (GXP1625–GRP2636), Fanvil (X3S–X210, V62–V65) ve Cisco (7821–8861) için gerçek monokrom/renkli/dokunmatik/çift ekran gövde düzeni, çoklu sayfa geçişi, canlı parlaklık, saat/tarih ve LED önizlemesi.",
+                    "Dinamik Santral İsim Çözümlemeli BLF & Hızlı Arama: Bir tuşa dahili atandığında santraldeki güncel isim otomatik çekilir (Otomatik vs Manuel mod). Santralde o dahilinin ismi değiştiğinde, ilgili dahiliyi BLF eklemiş tüm telefonlar bir sonraki reboot/check-sync sırasında yeni ismi otomatik alır.",
+                    "Zincirleme Meşguliyet Modülleri (1–4 Adet Sidecar): Yealink EXP43/EXP50/EXP40, Grandstream GBX20/GXP2200EXT, Cisco CP-8800 KEM ve Fanvil E20 için 1'den 4'e kadar modül ekleme, sayfa yönetimi ve tek tıkla 'Departman / Tüm Dahilileri Otomatik Doldur' sihirbazı.",
+                    "Kapsamlı Kişisel Telefon Tercihleri: 13 farklı DSS tuş tipi (BLF, Hızlı Arama, Aktar, Intercom, Park, Grup Çekme, Yönlendir, DND, Beklet, Sesli Posta, Konferans, DTMF), Softkey F1–F4, zil sesi melodisi (canlı dinlemeli), ses seviyeleri, kulaklık modu, ekran parlaklığı/süresi, saat/tarih formatı ve MWI/Cevapsız Çağrı LED ayarları.",
+                    "Tek Tıkla Telefona Gönder & Yeniden Başlat (Reboot) + 4 Adımlı Canlı Takip: Gerçek PJSIP endpoint'e marka bazlı SIP NOTIFY (Reboot veya Check-Sync), aktif görüşme güvenlik uyarısı, sip.notify_reboot_enable=1 & power_on=1 garantisi ve telefonun yeni .cfg/.xml dosyasını çekip hatta dönüşünü canlı izleyen takip çubuğu."
+                ],
+                "fixes": [
+                    "Masa Telefonum kayıt işleminde eski sabit 'default-yealink endpoint <ext>' hatası giderildi; cihazın gerçek PJSIP endpoint'ine (sip_username) markasına uygun Reboot/Check-Sync gönderilmesi ve /api/prov/{token}/lan|wan motoruyla tam senkronizasyon sağlandı."
+                ]
+            },
+            {
+                "version": "v3.7.4",
+                "commit_hash": "20576bb",
+                "release_date": "21 Kasım 2026",
+                "badge": "Kararlı",
+                "badge_type": "stable",
                 "title": "Çok-Şubeli Dağıtık Santral Federasyonu (Multi-Site Hub & Edge), Çevrimdışı Hayatta Kalma & Store-and-Forward Senkronizasyon",
                 "summary": "İnternet erişimi zayıf veya kesintili taşra şubeleri için tek arayüzden yönetilen Merkez (Hub) + Şube (Edge) dağıtık santral mimarisi, Dual-Server SRST failover, şube yerel dış hat yedeklemesi (GSM/FXO) ve arayüzden yönetilebilir ses kaydı sıkıştırma/bant genişliği politikaları eklendi.",
                 "features": [

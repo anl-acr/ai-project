@@ -29,11 +29,308 @@ VENDOR_OUI_MAP: Dict[str, str] = {
 }
 
 SUPPORTED_PHONE_MODELS: Dict[str, List[str]] = {
-    "Yealink": ["T31P", "T31G", "T33G", "T43U", "T46U", "T48U", "T54W", "T58W"],
-    "Fanvil": ["X3U", "X4U", "X5U", "X6U", "V62", "V64", "V65"],
-    "Grandstream": ["GRP2602", "GRP2612", "GRP2614", "GXP1625", "GXP2140", "GXP2170"],
-    "Snom": ["D315", "D385", "D717", "D735", "D785"],
+    "Yealink": [
+        "T30P", "T31P", "T31G", "T33P", "T33G",
+        "T40G", "T41S", "T42U", "T43U", "T46S", "T46U", "T48S", "T48U",
+        "T53", "T53W", "T54W", "T57W", "T58W",
+    ],
+    "Grandstream": [
+        "GXP1625", "GXP1628", "GXP2135", "GXP2140", "GXP2170",
+        "GRP2602", "GRP2612", "GRP2613", "GRP2614", "GRP2615", "GRP2616",
+        "GRP2624", "GRP2634", "GRP2636",
+    ],
+    "Fanvil": [
+        "X3S", "X3U", "X4U", "X5U", "X6U", "X7", "X7C", "X210",
+        "V62", "V64", "V65",
+    ],
+    "Cisco": [
+        "7821", "7841", "8811", "8841", "8851", "8861",
+    ],
 }
+
+EXPANSION_MODULE_CATALOG: Dict[str, Dict[str, Any]] = {
+    "EXP43": {
+        "id": "EXP43",
+        "brand": "Yealink",
+        "name": "Yealink EXP43 (Renkli Ekran • 20×3 = 60 Tuş)",
+        "keys_per_page": 20,
+        "pages": 3,
+        "total_keys": 60,
+        "max_chain": 3,
+        "screen": "color",
+    },
+    "EXP50": {
+        "id": "EXP50",
+        "brand": "Yealink",
+        "name": "Yealink EXP50 (Renkli Ekran • 20×3 = 60 Tuş)",
+        "keys_per_page": 20,
+        "pages": 3,
+        "total_keys": 60,
+        "max_chain": 3,
+        "screen": "color",
+    },
+    "EXP40": {
+        "id": "EXP40",
+        "brand": "Yealink",
+        "name": "Yealink EXP40 (Monokrom LCD • 20×2 = 40 Tuş)",
+        "keys_per_page": 20,
+        "pages": 2,
+        "total_keys": 40,
+        "max_chain": 4,
+        "screen": "mono",
+    },
+    "GBX20": {
+        "id": "GBX20",
+        "brand": "Grandstream",
+        "name": "Grandstream GBX20 (Renkli Ekran • 20×2 = 40 Tuş)",
+        "keys_per_page": 20,
+        "pages": 2,
+        "total_keys": 40,
+        "max_chain": 4,
+        "screen": "color",
+    },
+    "GXP2200EXT": {
+        "id": "GXP2200EXT",
+        "brand": "Grandstream",
+        "name": "Grandstream GXP2200EXT (LCD • 20×2 = 40 Tuş)",
+        "keys_per_page": 20,
+        "pages": 2,
+        "total_keys": 40,
+        "max_chain": 4,
+        "screen": "mono",
+    },
+    "CP-8800-KEM": {
+        "id": "CP-8800-KEM",
+        "brand": "Cisco",
+        "name": "Cisco CP-8800 Key Expansion Module (18×2 = 36 Tuş)",
+        "keys_per_page": 18,
+        "pages": 2,
+        "total_keys": 36,
+        "max_chain": 3,
+        "screen": "color",
+    },
+    "Fanvil-E20": {
+        "id": "Fanvil-E20",
+        "brand": "Fanvil",
+        "name": "Fanvil Harici DSS Genişletme Modülü (20×2 = 40 Tuş)",
+        "keys_per_page": 20,
+        "pages": 2,
+        "total_keys": 40,
+        "max_chain": 4,
+        "screen": "color",
+    },
+}
+
+PHONE_MODEL_CATALOG: List[Dict[str, Any]] = [
+    # --- YEALINK ---
+    {"brand": "Yealink", "model": "T30P", "label": "Yealink SIP-T30 / T30P (Giriş • Monokrom)", "screen": "mono", "layout": "compact", "dss_per_page": 2, "dss_pages": 1, "max_dss": 2, "soft_keys": 4, "expansion_model": None, "max_expansions": 0},
+    {"brand": "Yealink", "model": "T31P", "label": "Yealink SIP-T31P (2 Hat • Monokrom LCD)", "screen": "mono", "layout": "left_only", "dss_per_page": 2, "dss_pages": 1, "max_dss": 2, "soft_keys": 4, "expansion_model": None, "max_expansions": 0},
+    {"brand": "Yealink", "model": "T31G", "label": "Yealink SIP-T31G (2 Hat • Gigabit Monokrom)", "screen": "mono", "layout": "left_only", "dss_per_page": 2, "dss_pages": 1, "max_dss": 2, "soft_keys": 4, "expansion_model": None, "max_expansions": 0},
+    {"brand": "Yealink", "model": "T33P", "label": "Yealink SIP-T33P (4 Tuş × 3 Sayfa • Renkli)", "screen": "color", "layout": "split", "dss_per_page": 4, "dss_pages": 3, "max_dss": 12, "soft_keys": 4, "expansion_model": None, "max_expansions": 0},
+    {"brand": "Yealink", "model": "T33G", "label": "Yealink SIP-T33G (4 Tuş × 3 Sayfa • Renkli Gigabit)", "screen": "color", "layout": "split", "dss_per_page": 4, "dss_pages": 3, "max_dss": 12, "soft_keys": 4, "expansion_model": None, "max_expansions": 0},
+    {"brand": "Yealink", "model": "T40G", "label": "Yealink SIP-T40G (3+3 Tuş • Monokrom)", "screen": "mono", "layout": "split", "dss_per_page": 6, "dss_pages": 3, "max_dss": 15, "soft_keys": 4, "expansion_model": None, "max_expansions": 0},
+    {"brand": "Yealink", "model": "T41S", "label": "Yealink SIP-T41S (6 Tuş × 3 Sayfa • Monokrom)", "screen": "mono", "layout": "split", "dss_per_page": 6, "dss_pages": 3, "max_dss": 15, "soft_keys": 4, "expansion_model": None, "max_expansions": 0},
+    {"brand": "Yealink", "model": "T42U", "label": "Yealink SIP-T42U (6 Tuş × 3 Sayfa • Monokrom)", "screen": "mono", "layout": "split", "dss_per_page": 6, "dss_pages": 3, "max_dss": 15, "soft_keys": 4, "expansion_model": None, "max_expansions": 0},
+    {"brand": "Yealink", "model": "T43U", "label": "Yealink SIP-T43U (8 Tuş × 3 Sayfa • EXP43 Destekli)", "screen": "mono", "layout": "split", "dss_per_page": 8, "dss_pages": 3, "max_dss": 21, "soft_keys": 4, "expansion_model": "EXP43", "max_expansions": 3},
+    {"brand": "Yealink", "model": "T46S", "label": "Yealink SIP-T46S (10 Tuş × 3 Sayfa • Renkli • EXP40)", "screen": "color", "layout": "split", "dss_per_page": 10, "dss_pages": 3, "max_dss": 27, "soft_keys": 4, "expansion_model": "EXP40", "max_expansions": 4},
+    {"brand": "Yealink", "model": "T46U", "label": "Yealink SIP-T46U (10 Tuş × 3 Sayfa • Renkli • EXP43)", "screen": "color", "layout": "split", "dss_per_page": 10, "dss_pages": 3, "max_dss": 27, "soft_keys": 4, "expansion_model": "EXP43", "max_expansions": 3},
+    {"brand": "Yealink", "model": "T48S", "label": "Yealink SIP-T48S (7\" Dokunmatik • 29 Tuş • EXP40)", "screen": "touch", "layout": "touch_grid", "dss_per_page": 10, "dss_pages": 3, "max_dss": 29, "soft_keys": 4, "expansion_model": "EXP40", "max_expansions": 4},
+    {"brand": "Yealink", "model": "T48U", "label": "Yealink SIP-T48U (7\" Dokunmatik • 29 Tuş • EXP43)", "screen": "touch", "layout": "touch_grid", "dss_per_page": 10, "dss_pages": 3, "max_dss": 29, "soft_keys": 4, "expansion_model": "EXP43", "max_expansions": 3},
+    {"brand": "Yealink", "model": "T53", "label": "Yealink SIP-T53 (8 Tuş × 3 Sayfa • EXP50 Destekli)", "screen": "mono", "layout": "split", "dss_per_page": 8, "dss_pages": 3, "max_dss": 21, "soft_keys": 4, "expansion_model": "EXP50", "max_expansions": 3},
+    {"brand": "Yealink", "model": "T53W", "label": "Yealink SIP-T53W (8 Tuş × 3 Sayfa • Wi-Fi • EXP50)", "screen": "mono", "layout": "split", "dss_per_page": 8, "dss_pages": 3, "max_dss": 21, "soft_keys": 4, "expansion_model": "EXP50", "max_expansions": 3},
+    {"brand": "Yealink", "model": "T54W", "label": "Yealink SIP-T54W (10 Tuş × 3 Sayfa • Renkli • EXP50)", "screen": "color", "layout": "split", "dss_per_page": 10, "dss_pages": 3, "max_dss": 27, "soft_keys": 4, "expansion_model": "EXP50", "max_expansions": 3},
+    {"brand": "Yealink", "model": "T57W", "label": "Yealink SIP-T57W (7\" Dokunmatik • 29 Tuş • EXP50)", "screen": "touch", "layout": "touch_grid", "dss_per_page": 10, "dss_pages": 3, "max_dss": 29, "soft_keys": 4, "expansion_model": "EXP50", "max_expansions": 3},
+    {"brand": "Yealink", "model": "T58W", "label": "Yealink SIP-T58W (Android Dokunmatik • 27 Tuş • EXP50)", "screen": "touch", "layout": "touch_grid", "dss_per_page": 10, "dss_pages": 3, "max_dss": 27, "soft_keys": 4, "expansion_model": "EXP50", "max_expansions": 3},
+    # --- GRANDSTREAM ---
+    {"brand": "Grandstream", "model": "GXP1625", "label": "Grandstream GXP1625 (2 Hat • Monokrom)", "screen": "mono", "layout": "left_only", "dss_per_page": 2, "dss_pages": 1, "max_dss": 2, "soft_keys": 3, "expansion_model": None, "max_expansions": 0},
+    {"brand": "Grandstream", "model": "GXP1628", "label": "Grandstream GXP1628 (2 Hat + 8 Fiziksel BLF)", "screen": "mono", "layout": "side_mpk", "dss_per_page": 10, "dss_pages": 1, "max_dss": 10, "soft_keys": 3, "expansion_model": None, "max_expansions": 0},
+    {"brand": "Grandstream", "model": "GXP2135", "label": "Grandstream GXP2135 (8 Tuş × 4 Sayfa = 32 VPK)", "screen": "color", "layout": "split", "dss_per_page": 8, "dss_pages": 4, "max_dss": 32, "soft_keys": 4, "expansion_model": None, "max_expansions": 0},
+    {"brand": "Grandstream", "model": "GXP2140", "label": "Grandstream GXP2140 (4 Hat • GXP2200EXT × 4 Destekli)", "screen": "color", "layout": "split", "dss_per_page": 4, "dss_pages": 1, "max_dss": 4, "soft_keys": 4, "expansion_model": "GXP2200EXT", "max_expansions": 4},
+    {"brand": "Grandstream", "model": "GXP2170", "label": "Grandstream GXP2170 (12 Tuş × 4 Sayfa • GXP2200EXT × 4)", "screen": "color", "layout": "split", "dss_per_page": 12, "dss_pages": 4, "max_dss": 48, "soft_keys": 4, "expansion_model": "GXP2200EXT", "max_expansions": 4},
+    {"brand": "Grandstream", "model": "GRP2602", "label": "Grandstream GRP2602 (2 Hat • Monokrom)", "screen": "mono", "layout": "left_only", "dss_per_page": 2, "dss_pages": 1, "max_dss": 2, "soft_keys": 4, "expansion_model": None, "max_expansions": 0},
+    {"brand": "Grandstream", "model": "GRP2612", "label": "Grandstream GRP2612 (4 Tuş × 4 Sayfa = 16 VPK)", "screen": "color", "layout": "split", "dss_per_page": 4, "dss_pages": 4, "max_dss": 16, "soft_keys": 4, "expansion_model": None, "max_expansions": 0},
+    {"brand": "Grandstream", "model": "GRP2613", "label": "Grandstream GRP2613 (6 Tuş × 4 Sayfa = 24 VPK)", "screen": "color", "layout": "split", "dss_per_page": 6, "dss_pages": 4, "max_dss": 24, "soft_keys": 4, "expansion_model": None, "max_expansions": 0},
+    {"brand": "Grandstream", "model": "GRP2614", "label": "Grandstream GRP2614 (Çift Ekran • 4 Hat + 24 MPK)", "screen": "dual_screen", "layout": "side_mpk", "dss_per_page": 12, "dss_pages": 3, "max_dss": 28, "soft_keys": 4, "expansion_model": None, "max_expansions": 0},
+    {"brand": "Grandstream", "model": "GRP2615", "label": "Grandstream GRP2615 (10 Tuş × 4 Sayfa • GBX20 × 4)", "screen": "color", "layout": "split", "dss_per_page": 10, "dss_pages": 4, "max_dss": 40, "soft_keys": 4, "expansion_model": "GBX20", "max_expansions": 4},
+    {"brand": "Grandstream", "model": "GRP2616", "label": "Grandstream GRP2616 (Çift Ekran • 6 Hat + 24 MPK)", "screen": "dual_screen", "layout": "side_mpk", "dss_per_page": 12, "dss_pages": 3, "max_dss": 30, "soft_keys": 4, "expansion_model": None, "max_expansions": 0},
+    {"brand": "Grandstream", "model": "GRP2624", "label": "Grandstream GRP2624 (8 Tuş × 4 Sayfa • GBX20 × 4)", "screen": "color", "layout": "split", "dss_per_page": 8, "dss_pages": 4, "max_dss": 32, "soft_keys": 4, "expansion_model": "GBX20", "max_expansions": 4},
+    {"brand": "Grandstream", "model": "GRP2634", "label": "Grandstream GRP2634 (8 Hat + 10 MPK • GBX20 × 4)", "screen": "color", "layout": "side_mpk", "dss_per_page": 10, "dss_pages": 3, "max_dss": 30, "soft_keys": 4, "expansion_model": "GBX20", "max_expansions": 4},
+    {"brand": "Grandstream", "model": "GRP2636", "label": "Grandstream GRP2636 (12 Hat + 24 MPK • GBX20 × 4)", "screen": "dual_screen", "layout": "side_mpk", "dss_per_page": 12, "dss_pages": 3, "max_dss": 36, "soft_keys": 4, "expansion_model": "GBX20", "max_expansions": 4},
+    # --- FANVIL ---
+    {"brand": "Fanvil", "model": "X3S", "label": "Fanvil X3S (2 Hat • Renkli LCD)", "screen": "color", "layout": "left_only", "dss_per_page": 2, "dss_pages": 1, "max_dss": 2, "soft_keys": 4, "expansion_model": None, "max_expansions": 0},
+    {"brand": "Fanvil", "model": "X3U", "label": "Fanvil X3U (3 Hat • Renkli LCD Gigabit)", "screen": "color", "layout": "left_only", "dss_per_page": 3, "dss_pages": 1, "max_dss": 3, "soft_keys": 4, "expansion_model": None, "max_expansions": 0},
+    {"brand": "Fanvil", "model": "X4U", "label": "Fanvil X4U (Çift Renkli Ekran • 6 Yan DSS × 5 Sayfa = 30)", "screen": "dual_screen", "layout": "side_mpk", "dss_per_page": 6, "dss_pages": 5, "max_dss": 30, "soft_keys": 4, "expansion_model": "Fanvil-E20", "max_expansions": 4},
+    {"brand": "Fanvil", "model": "X5U", "label": "Fanvil X5U (Çift Renkli Ekran • 6 Yan DSS × 5 Sayfa = 30)", "screen": "dual_screen", "layout": "side_mpk", "dss_per_page": 6, "dss_pages": 5, "max_dss": 30, "soft_keys": 4, "expansion_model": "Fanvil-E20", "max_expansions": 4},
+    {"brand": "Fanvil", "model": "X6U", "label": "Fanvil X6U (Üçlü Ekran • 12 Yan DSS × 5 Sayfa = 60)", "screen": "dual_screen", "layout": "split", "dss_per_page": 12, "dss_pages": 5, "max_dss": 60, "soft_keys": 4, "expansion_model": "Fanvil-E20", "max_expansions": 4},
+    {"brand": "Fanvil", "model": "X7", "label": "Fanvil X7 (7\" Dokunmatik • 20 DSS × 3 Sayfa = 60)", "screen": "touch", "layout": "touch_grid", "dss_per_page": 12, "dss_pages": 5, "max_dss": 60, "soft_keys": 4, "expansion_model": "Fanvil-E20", "max_expansions": 4},
+    {"brand": "Fanvil", "model": "X7C", "label": "Fanvil X7C (5\" Renkli • 12 DSS × 5 Sayfa = 60)", "screen": "color", "layout": "split", "dss_per_page": 12, "dss_pages": 5, "max_dss": 60, "soft_keys": 4, "expansion_model": "Fanvil-E20", "max_expansions": 4},
+    {"brand": "Fanvil", "model": "X210", "label": "Fanvil X210 (Santral Operatör • Çift Yan Ekran = 96 DSS)", "screen": "dual_screen", "layout": "split", "dss_per_page": 12, "dss_pages": 8, "max_dss": 96, "soft_keys": 4, "expansion_model": "Fanvil-E20", "max_expansions": 4},
+    {"brand": "Fanvil", "model": "V62", "label": "Fanvil V62 (6 Tuş × 3 Sayfa = 18 DSS • V-Serisi)", "screen": "color", "layout": "split", "dss_per_page": 6, "dss_pages": 3, "max_dss": 18, "soft_keys": 4, "expansion_model": None, "max_expansions": 0},
+    {"brand": "Fanvil", "model": "V64", "label": "Fanvil V64 (8 Tuş × 3 Sayfa = 21 DSS • V-Serisi)", "screen": "color", "layout": "split", "dss_per_page": 8, "dss_pages": 3, "max_dss": 21, "soft_keys": 4, "expansion_model": "Fanvil-E20", "max_expansions": 4},
+    {"brand": "Fanvil", "model": "V65", "label": "Fanvil V65 (10 Tuş × 4 Sayfa = 40 DSS • V-Serisi)", "screen": "color", "layout": "split", "dss_per_page": 10, "dss_pages": 4, "max_dss": 40, "soft_keys": 4, "expansion_model": "Fanvil-E20", "max_expansions": 4},
+    # --- CISCO ---
+    {"brand": "Cisco", "model": "7821", "label": "Cisco IP Phone 7821 (2 Hat • Monokrom)", "screen": "mono", "layout": "left_only", "dss_per_page": 2, "dss_pages": 1, "max_dss": 2, "soft_keys": 4, "expansion_model": None, "max_expansions": 0},
+    {"brand": "Cisco", "model": "7841", "label": "Cisco IP Phone 7841 (4 Hat • Monokrom Gigabit)", "screen": "mono", "layout": "left_only", "dss_per_page": 4, "dss_pages": 1, "max_dss": 4, "soft_keys": 4, "expansion_model": None, "max_expansions": 0},
+    {"brand": "Cisco", "model": "8811", "label": "Cisco IP Phone 8811 (10 Tuş • Monokrom)", "screen": "mono", "layout": "split", "dss_per_page": 10, "dss_pages": 1, "max_dss": 10, "soft_keys": 4, "expansion_model": None, "max_expansions": 0},
+    {"brand": "Cisco", "model": "8841", "label": "Cisco IP Phone 8841 (10 Tuş • Renkli 5\" LCD)", "screen": "color", "layout": "split", "dss_per_page": 10, "dss_pages": 1, "max_dss": 10, "soft_keys": 4, "expansion_model": None, "max_expansions": 0},
+    {"brand": "Cisco", "model": "8851", "label": "Cisco IP Phone 8851 (10 Tuş • Renkli • KEM × 3 Destekli)", "screen": "color", "layout": "split", "dss_per_page": 10, "dss_pages": 1, "max_dss": 10, "soft_keys": 4, "expansion_model": "CP-8800-KEM", "max_expansions": 3},
+    {"brand": "Cisco", "model": "8861", "label": "Cisco IP Phone 8861 (10 Tuş • Renkli Wi-Fi • KEM × 3)", "screen": "color", "layout": "split", "dss_per_page": 10, "dss_pages": 1, "max_dss": 10, "soft_keys": 4, "expansion_model": "CP-8800-KEM", "max_expansions": 3},
+]
+
+DEFAULT_PHONE_PREFS: Dict[str, Any] = {
+    "ringtone": "Ring1.wav",
+    "ring_volume": 6,
+    "handset_volume": 7,
+    "speaker_volume": 6,
+    "headset_volume": 7,
+    "call_waiting": True,
+    "call_waiting_tone": True,
+    "auto_answer": False,
+    "intercom_mute": False,
+    "headset_mode": "rj9",  # rj9 | ehs | usb | bluetooth
+    "language": "Turkish",
+    "time_format": "24",  # 24 | 12
+    "date_format": "DD.MM.YYYY",
+    "backlight_active": 8,  # 1..10
+    "backlight_inactive": 2,  # 0..10
+    "backlight_timeout": 60,  # seconds (0 = always on)
+    "screensaver_wait": 300,  # seconds (0 = disabled)
+    "screen_label": "",
+    "missed_call_led": True,
+    "mwi_led": True,
+    "dnd_default": False,
+}
+
+
+def resolve_phone_model_spec(brand: str = "Yealink", model: str = "T46U") -> Dict[str, Any]:
+    b_low = str(brand or "Yealink").strip().lower()
+    m_low = str(model or "T46U").strip().lower().replace("sip-", "")
+    for item in PHONE_MODEL_CATALOG:
+        if item["brand"].lower() == b_low and item["model"].lower() == m_low:
+            return dict(item)
+    for item in PHONE_MODEL_CATALOG:
+        if m_low and (m_low in item["model"].lower() or item["model"].lower() in m_low):
+            return dict(item)
+    for item in PHONE_MODEL_CATALOG:
+        if item["brand"].lower() == b_low:
+            return dict(item)
+    return dict(PHONE_MODEL_CATALOG[10])  # Yealink T46U fallback
+
+
+def normalize_phone_prefs(raw: Any, fallback_lang: str = "Turkish", fallback_auto_answer: bool = False) -> Dict[str, Any]:
+    p = dict(DEFAULT_PHONE_PREFS)
+    if fallback_lang:
+        p["language"] = str(fallback_lang).strip() or "Turkish"
+    p["auto_answer"] = bool(fallback_auto_answer)
+    if not isinstance(raw, dict):
+        return p
+    if raw.get("ringtone"):
+        p["ringtone"] = str(raw["ringtone"]).strip()[:64]
+    for int_k, lo, hi in (
+        ("ring_volume", 0, 10),
+        ("handset_volume", 1, 10),
+        ("speaker_volume", 1, 10),
+        ("headset_volume", 1, 10),
+        ("backlight_active", 1, 10),
+        ("backlight_inactive", 0, 10),
+        ("backlight_timeout", 0, 3600),
+        ("screensaver_wait", 0, 7200),
+    ):
+        if raw.get(int_k) is not None:
+            try:
+                p[int_k] = max(lo, min(hi, int(raw[int_k])))
+            except Exception:
+                pass
+    for bool_k in ("call_waiting", "call_waiting_tone", "auto_answer", "intercom_mute", "missed_call_led", "mwi_led", "dnd_default"):
+        if raw.get(bool_k) is not None:
+            p[bool_k] = bool(raw[bool_k])
+    if raw.get("headset_mode") in ("rj9", "ehs", "usb", "bluetooth"):
+        p["headset_mode"] = raw["headset_mode"]
+    if raw.get("language"):
+        p["language"] = str(raw["language"]).strip()
+    if str(raw.get("time_format") or "") in ("12", "24"):
+        p["time_format"] = str(raw["time_format"])
+    if raw.get("date_format"):
+        p["date_format"] = str(raw["date_format"]).strip()[:20]
+    if raw.get("screen_label") is not None:
+        p["screen_label"] = str(raw["screen_label"]).strip()[:48]
+    return p
+
+
+def normalize_expansion_modules(raw: Any) -> List[Dict[str, Any]]:
+    """Normalizes daisy-chained expansion modules (1..4 sidecars) and their keys."""
+    if not isinstance(raw, list):
+        return []
+    out: List[Dict[str, Any]] = []
+    for m_idx, mod in enumerate(raw[:4]):
+        if not isinstance(mod, dict):
+            continue
+        mod_idx = max(1, min(4, int(mod.get("module_index") or (m_idx + 1))))
+        mod_model = str(mod.get("model") or "EXP43").strip()
+        if mod_model not in EXPANSION_MODULE_CATALOG:
+            mod_model = "EXP43"
+        keys_out: List[Dict[str, Any]] = []
+        raw_keys = mod.get("keys") if isinstance(mod.get("keys"), list) else []
+        for k_i, k_item in enumerate(raw_keys[:60]):
+            if not isinstance(k_item, dict):
+                continue
+            lmode = str(k_item.get("label_mode") or "auto").strip().lower()
+            if lmode not in ("auto", "custom"):
+                lmode = "auto"
+            keys_out.append({
+                "key_index": max(1, min(60, int(k_item.get("key_index") or (k_i + 1)))),
+                "type": str(k_item.get("type") or "none").strip(),
+                "label": str(k_item.get("label") or "").strip(),
+                "label_mode": lmode,
+                "value": str(k_item.get("value") or "").strip(),
+                "pickup_code": str(k_item.get("pickup_code") or "*8").strip() or "*8",
+            })
+        out.append({
+            "module_index": mod_idx,
+            "model": mod_model,
+            "keys": keys_out,
+        })
+    return out
+
+
+def resolve_dynamic_key_labels(
+    keys: Optional[List[Dict[str, Any]]],
+    ext_name_map: Optional[Dict[str, str]] = None,
+) -> List[Dict[str, Any]]:
+    """
+    Dynamically resolves live PBX subscriber names for keys whose `label_mode == 'auto'`
+    (or whose label is blank while targeting a known extension).
+    If an extension's name changes in the PBX, every phone referencing it in auto mode
+    automatically receives the new display label on next provisioning fetch / reboot!
+    """
+    if not isinstance(keys, list):
+        return []
+    name_map = ext_name_map if isinstance(ext_name_map, dict) else {}
+    resolved: List[Dict[str, Any]] = []
+    for k in keys:
+        if not isinstance(k, dict):
+            continue
+        item = dict(k)
+        kval = str(item.get("value") or "").strip()
+        klbl = str(item.get("label") or "").strip()
+        lmode = str(item.get("label_mode") or "").strip().lower()
+        ktype = str(item.get("type") or "none").strip().lower()
+
+        if lmode not in ("auto", "custom"):
+            # Backward compatibility: if label already matches known ext name or is blank, treat as auto
+            live_match = name_map.get(kval)
+            if kval and live_match and (not klbl or klbl == live_match or klbl == f"Dahili {kval}"):
+                lmode = "auto"
+            else:
+                lmode = "custom" if klbl else "auto"
+
+        if lmode == "auto" and kval and kval in name_map and ktype in ("blf", "speed_dial", "transfer", "intercom", "forward", "line"):
+            item["label"] = name_map[kval]
+        elif not klbl and kval and kval in name_map:
+            item["label"] = name_map[kval]
+        item["label_mode"] = lmode
+        resolved.append(item)
+    return resolved
 
 
 def resolve_user_sip_username(ext_val: Any, raw_sip_user: Any = "") -> str:
@@ -343,10 +640,14 @@ def normalize_user_sip_devices(
             for k_idx, k_item in enumerate(dev.get("dss_keys")):
                 if not isinstance(k_item, dict):
                     continue
+                lm = str(k_item.get("label_mode") or "").strip().lower()
+                if lm not in ("auto", "custom"):
+                    lm = "auto" if not str(k_item.get("label") or "").strip() else "custom"
                 dss_list.append({
                     "key_index": int(k_item.get("key_index") or (k_idx + 1)),
                     "type": str(k_item.get("type") or "blf").strip(),
                     "label": str(k_item.get("label") or "").strip(),
+                    "label_mode": lm,
                     "value": str(k_item.get("value") or "").strip(),
                     "pickup_code": str(k_item.get("pickup_code") or "**").strip() or "**",
                 })
@@ -362,6 +663,13 @@ def normalize_user_sip_devices(
                     "label": str(s_item.get("label") or "").strip(),
                     "value": str(s_item.get("value") or "").strip(),
                 })
+
+        exp_mods_norm = normalize_expansion_modules(dev.get("expansion_modules"))
+        phone_prefs_norm = normalize_phone_prefs(
+            dev.get("phone_prefs"),
+            fallback_lang=str(dev.get("language") or "Turkish"),
+            fallback_auto_answer=bool(dev.get("auto_answer", False)),
+        )
 
         base_is_active = dev.get("is_active") is not False
         raw_ca = dev.get("client_access") if isinstance(dev.get("client_access"), dict) else None
@@ -418,6 +726,11 @@ def normalize_user_sip_devices(
             "direct_ip_call_block": dev.get("direct_ip_call_block") is not False,
             "dss_keys": dss_list,
             "soft_keys": soft_list,
+            "expansion_modules": exp_mods_norm,
+            "phone_prefs": phone_prefs_norm,
+            "config_version": int(dev.get("config_version") or 1),
+            "last_provisioned_at": str(dev.get("last_provisioned_at") or ""),
+            "last_provisioned_ip": str(dev.get("last_provisioned_ip") or ""),
         }
         if client_access_norm is not None:
             dev_out["client_access"] = client_access_norm
@@ -765,8 +1078,11 @@ Event=>check-sync;reboot=false
 [fanvil-reboot]
 Event=>check-sync;reboot=true
 
-[snom-check-sync]
+[cisco-check-sync]
 Event=>check-sync;reboot=false
+
+[cisco-reboot]
+Event=>check-sync;reboot=true
 """
     try:
         os.makedirs(asterisk_config_dir, exist_ok=True)
@@ -792,11 +1108,11 @@ def trigger_phone_sip_notify(sip_username: str, brand: str = "Yealink", reboot: 
 
     b_low = str(brand or "Yealink").lower()
     if "grandstream" in b_low:
-        notify_type = "grandstream-check-sync"
+        notify_type = "grandstream-reboot" if reboot else "grandstream-check-sync"
     elif "fanvil" in b_low:
         notify_type = "fanvil-reboot" if reboot else "fanvil-check-sync"
-    elif "snom" in b_low:
-        notify_type = "snom-check-sync"
+    elif "cisco" in b_low:
+        notify_type = "cisco-reboot" if reboot else "cisco-check-sync"
     else:
         notify_type = "yealink-reboot" if reboot else "default-yealink"
 
@@ -954,7 +1270,8 @@ def generate_yealink_common_boot_cfg() -> str:
             "local_time.time_zone_name = Turkey(Ankara)",
             "local_time.ntp_server1 = pool.ntp.org",
             "local_time.summer_time = 0",
-            "sip.notify_reboot_enable = 0",
+            "sip.notify_reboot_enable = 1",
+            "static.auto_provision.power_on = 1",
             "features.direct_ip_call_enable = 0",
             "",
         ]
@@ -989,24 +1306,41 @@ def generate_provisioning_config(
     connection_mode: str = "lan",
     provision_server_url: str = "",
     failover_pbx_host: str = "",
+    expansion_modules: Optional[List[Dict[str, Any]]] = None,
+    phone_prefs: Optional[Dict[str, Any]] = None,
+    ext_name_map: Optional[Dict[str, str]] = None,
 ) -> Tuple[str, str, str]:
     """
     Generates multi-vendor provisioning content using `sip_username` (Kullanıcı > SIP > Kullanıcı Adı)
     as the SIP Register & Auth Username so it authenticates directly against `[<sip_username>]` in Asterisk PJSIP.
+    Supports dynamic PBX subscriber name resolution (`label_mode == 'auto'`), daisy-chained expansion modules (1..4),
+    and rich user-facing phone preferences (ringtone, screen brightness, time format, call waiting, headset, LEDs).
     Returns (content_text, media_type, suggested_filename).
     """
     ext_s = str(ext or "").strip()
     sip_u = str(sip_username or "").strip() or resolve_user_sip_username(ext_s, "")
     disp_name = str(full_name or f"Dahili {ext_s}").strip()
-    line_label = f"{ext_s} - {disp_name}" if ext_s else disp_name
+    prefs = normalize_phone_prefs(phone_prefs, fallback_lang=language, fallback_auto_answer=auto_answer)
+    custom_screen_label = str(prefs.get("screen_label") or "").strip()
+    line_label = custom_screen_label or (f"{ext_s} - {disp_name}" if ext_s else disp_name)
     mac_norm, mac_hex = normalize_mac_address(mac_colon)
     tr_up = str(transport or "UDP").strip().upper()
     sip_port = 5061 if tr_up == "TLS" else 5060
     pb_base = str(phonebook_base_url or f"http://{pbx_host}:8000/api/phonebook").rstrip("/")
     pb_list = [p for p in (phonebooks or []) if isinstance(p, dict) and p.get("id") and p.get("name")]
 
-    dss_list = dss_keys if isinstance(dss_keys, list) else []
+    dss_list = resolve_dynamic_key_labels(dss_keys if isinstance(dss_keys, list) else [], ext_name_map)
     soft_list = soft_keys if isinstance(soft_keys, list) else []
+    exp_list_raw = normalize_expansion_modules(expansion_modules)
+    exp_list: List[Dict[str, Any]] = []
+    for mod in exp_list_raw:
+        mod_copy = dict(mod)
+        mod_copy["keys"] = resolve_dynamic_key_labels(mod.get("keys") or [], ext_name_map)
+        exp_list.append(mod_copy)
+
+    # Effective language & auto-answer from phone_prefs
+    eff_language = str(prefs.get("language") or language or "Turkish").strip() or "Turkish"
+    eff_auto_answer = bool(prefs.get("auto_answer", auto_answer))
 
     # 1. If a custom XML/CFG template is explicitly assigned, interpolate variables
     if isinstance(template_obj, dict) and str(template_obj.get("xml_content") or "").strip():
@@ -1044,39 +1378,97 @@ def generate_provisioning_config(
     fn_low = str(requested_filename or "").strip().lower()
     if fn_low.startswith("cfg") and fn_low.endswith(".xml"):
         b_low = "grandstream"
-    elif fn_low.startswith("snom"):
-        b_low = "snom"
+    elif fn_low.startswith("spa") and fn_low.endswith(".xml"):
+        b_low = "cisco"
 
-    # --- GRANDSTREAM XML (GRP26xx / GXP16xx / GXP21xx) ---
+    # --- GRANDSTREAM XML (GRP26xx / GXP16xx / GXP21xx + GBX20 / GXP2200EXT 1..4) ---
     if "grandstream" in b_low:
         gs_tr = "2" if tr_up == "TLS" else ("1" if tr_up == "TCP" else "0")
         gs_mpk_lines: List[str] = []
-        # Grandstream VPK / MPK basic mapping (Account 1 = 0, Mode: 0=Line, 1=SpeedDial, 2=BLF)
-        gs_mode_map = {"line": "0", "speed_dial": "1", "blf": "2", "transfer": "9", "voicemail": "1"}
-        for idx_zero, k in enumerate(dss_list[:8]):
+        # Grandstream Mode: 0=Line, 1=SpeedDial, 2=BLF, 7=Park, 9=Transfer, 10=CallPark, 13=Intercom, 20=DND
+        gs_mode_map = {
+            "line": "0",
+            "speed_dial": "1",
+            "blf": "2",
+            "transfer": "9",
+            "park": "10",
+            "intercom": "13",
+            "pickup": "1",
+            "forward": "1",
+            "dnd": "20",
+            "voicemail": "1",
+            "hold": "1",
+            "conference": "1",
+            "dtmf": "1",
+        }
+        for idx_zero, k in enumerate(dss_list[:48]):
             ktype = str(k.get("type") or "none")
             if ktype == "none":
                 continue
             mode_code = gs_mode_map.get(ktype, "1")
             klbl = html.escape(str(k.get("label") or ""))
-            kval = html.escape(str(k.get("value") or ""))
-            # VPK P-codes for VPK 1..8 (P1363/1364 etc. vary, standard MPK 1..8 start at P323..P350)
-            p_mode = 323 + idx_zero
-            p_acct = 301 + (idx_zero * 3)
-            p_desc = 302 + (idx_zero * 3)
-            p_val = 303 + (idx_zero * 3)
-            gs_mpk_lines.append(f"    <P{p_mode}>{mode_code}</P{p_mode}>")
-            gs_mpk_lines.append(f"    <P{p_acct}>0</P{p_acct}>")
-            gs_mpk_lines.append(f"    <P{p_desc}>{klbl}</P{p_desc}>")
-            gs_mpk_lines.append(f"    <P{p_val}>{kval}</P{p_val}>")
+            kval = html.escape(str(k.get("value") or ("*97" if ktype == "voicemail" else (pickup_group if ktype == "pickup" else ""))))
+            if idx_zero < 12:
+                # Standard VPK / MPK 1..12
+                p_mode = 1363 + (idx_zero * 2)
+                p_acct = 1364 + (idx_zero * 2)
+                p_desc = 1465 + (idx_zero * 2)
+                p_val = 1466 + (idx_zero * 2)
+                gs_mpk_lines.append(f"    <P{p_mode}>{mode_code}</P{p_mode}>")
+                gs_mpk_lines.append(f"    <P{p_acct}>0</P{p_acct}>")
+                gs_mpk_lines.append(f"    <P{p_desc}>{klbl}</P{p_desc}>")
+                gs_mpk_lines.append(f"    <P{p_val}>{kval}</P{p_val}>")
+            else:
+                # Extended VPK 13..48 (P23000+ series)
+                off = idx_zero - 12
+                base_p = 23000 + (off * 4)
+                gs_mpk_lines.append(f"    <P{base_p}>{mode_code}</P{base_p}>")
+                gs_mpk_lines.append(f"    <P{base_p + 1}>0</P{base_p + 1}>")
+                gs_mpk_lines.append(f"    <P{base_p + 2}>{klbl}</P{base_p + 2}>")
+                gs_mpk_lines.append(f"    <P{base_p + 3}>{kval}</P{base_p + 3}>")
 
-        mpk_block = "\n".join(gs_mpk_lines)
+        # Daisy-chained Grandstream GBX20 / GXP2200EXT Expansion Modules (1..4, 40 keys each)
+        # Module 1: P23000 block -> standard Grandstream EXT bases: Board 1=23000, Board 2=23400, Board 3=23800, Board 4=24200
+        gs_ext_lines: List[str] = []
+        for mod in exp_list[:4]:
+            m_idx = int(mod.get("module_index") or 1)
+            m_model = html.escape(str(mod.get("model") or "GBX20"))
+            gs_ext_lines.append(f"    <!-- Expansion Module #{m_idx} ({m_model}) -->")
+            mod_base = 23000 + ((m_idx - 1) * 400)
+            for ek in (mod.get("keys") or [])[:40]:
+                ek_type = str(ek.get("type") or "none")
+                if ek_type == "none":
+                    continue
+                k_i = max(1, int(ek.get("key_index") or 1)) - 1
+                p_b = mod_base + (k_i * 4)
+                ek_mode = gs_mode_map.get(ek_type, "2")
+                ek_lbl = html.escape(str(ek.get("label") or ""))
+                ek_val = html.escape(str(ek.get("value") or ""))
+                gs_ext_lines.append(f"    <P{p_b}>{ek_mode}</P{p_b}>")
+                gs_ext_lines.append(f"    <P{p_b + 1}>0</P{p_b + 1}>")
+                gs_ext_lines.append(f"    <P{p_b + 2}>{ek_lbl}</P{p_b + 2}>")
+                gs_ext_lines.append(f"    <P{p_b + 3}>{ek_val}</P{p_b + 3}>")
+
+        mpk_block = "\n".join(gs_mpk_lines + gs_ext_lines)
+        gs_prov_url = html.escape(provision_server_url.replace("http://", "").replace("https://", "")) if provision_server_url else ""
+        gs_prov_proto = "2" if provision_server_url.startswith("https://") else "1"
+        gs_time_fmt = "1" if prefs["time_format"] == "24" else "0"
+        gs_cw = "0" if prefs["call_waiting"] else "1"  # Grandstream P91: 0=Enable CW, 1=Disable CW
+        gs_aa = "1" if eff_auto_answer else "0"
+        gs_bl_active = str(max(10, min(100, prefs["backlight_active"] * 10)))
+        gs_bl_idle = str(max(0, min(100, prefs["backlight_inactive"] * 10)))
+        gs_lang_code = "tr" if eff_language.lower().startswith("turk") else ("de" if eff_language.lower().startswith("ger") or eff_language.lower().startswith("deut") else "en")
+        gs_prov_lines = (
+            f"    <P212>{gs_prov_proto}</P212>\n    <P237>{gs_prov_url}</P237>\n    <P194>1</P194>\n    <P240>1</P240>\n"
+            if gs_prov_url
+            else "    <P194>1</P194>\n"
+        )
         xml_out = f"""<?xml version="1.0" encoding="UTF-8" ?>
 <!-- AIDA PBX Grandstream Auto-Provisioning ({html.escape(model)}) | Ext: {html.escape(ext_s)} | SIP Endpoint: {html.escape(sip_u)} -->
 <gs_provision version="1">
   <mac>{html.escape(mac_hex)}</mac>
   <config version="1">
-    <P271>1</P271>
+{gs_prov_lines}    <P271>1</P271>
     <P270>{html.escape(line_label)}</P270>
     <P47>{html.escape(pbx_host)}:{sip_port}</P47>
     <P35>{html.escape(sip_u)}</P35>
@@ -1088,7 +1480,14 @@ def generate_provisioning_config(
     <P33>*97</P33>
     <P1347>{html.escape(pickup_directed)}</P1347>
     <P64>TZT-3</P64>
-    <P30>pool.ntp.org</P30>
+    <P30>{html.escape(ntp_server or 'pool.ntp.org')}</P30>
+    <P122>{gs_time_fmt}</P122>
+    <P91>{gs_cw}</P91>
+    <P90>{gs_aa}</P90>
+    <P1362>{gs_lang_code}</P1362>
+    <P334>{gs_bl_active}</P334>
+    <P335>{gs_bl_idle}</P335>
+    <P1348>{1 if prefs['missed_call_led'] else 0}</P1348>
     <P330>1</P330>
     <P331>{html.escape(pb_base.replace('http://', '').replace('https://', ''))}/{html.escape(ext_s or 'all')}</P331>
     <P332>60</P332>
@@ -1099,12 +1498,17 @@ def generate_provisioning_config(
         fname = f"cfg{mac_hex}.xml" if mac_hex else f"cfg_ext_{ext_s}.xml"
         return xml_out, "application/xml; charset=utf-8", fname
 
-    # --- FANVIL CFG (X3U / X4U / X5U / V62 / V64 / V65) ---
+    # --- FANVIL CFG (X3U / X4U / X5U / X6U / X7 / X210 / V62 / V64 / V65 + External Modules 1..4) ---
     if "fanvil" in b_low:
         fv_tr = "3" if tr_up == "TLS" else ("1" if tr_up == "TCP" else "0")
         fv_lines = [
             "<<VOIP CONFIG FILE>>Version:2.0000",
             f"# AIDA PBX Fanvil Auto-Provisioning ({model}) | Ext: {ext_s} | SIP Endpoint: {sip_u}",
+            "",
+            "<AUTOUPDATE CONFIG MODULE>",
+            f"Auto Server URL      :{provision_server_url}" if provision_server_url else "Auto Server URL      :",
+            "Update Mode          :1",
+            "SIP Notify Update    :1",
             "",
             "<SIP CONFIG MODULE>",
             "--SIP Line List--  :",
@@ -1121,10 +1525,30 @@ def generate_provisioning_config(
             "SIP1 Rport           :1",
             "SIP1 Subscribe Expire:1800",
             "SIP1 MWI Num         :*97",
+            f"SIP1 Auto Answer     :{1 if eff_auto_answer else 0}",
+            f"SIP1 Ring Type       :{prefs['ringtone']}",
+            "",
+            "<PHONE CONFIG MODULE>",
+            f"Call Waiting         :{1 if prefs['call_waiting'] else 0}",
+            f"Call Waiting Tone    :{1 if prefs['call_waiting_tone'] else 0}",
+            f"Intercom Mute        :{1 if prefs['intercom_mute'] else 0}",
+            f"Default DND          :{1 if prefs['dnd_default'] else 0}",
+            f"Time Display 24H     :{1 if prefs['time_format'] == '24' else 0}",
+            f"Backlight Level      :{prefs['backlight_active']}",
+            f"Backlight Idle       :{prefs['backlight_inactive']}",
+            f"Backlight Timeout    :{prefs['backlight_timeout']}",
+            f"Screensaver Timeout  :{prefs['screensaver_wait']}",
+            f"Ring Volume          :{prefs['ring_volume']}",
+            f"Handset Volume       :{prefs['handset_volume']}",
+            f"Speaker Volume       :{prefs['speaker_volume']}",
+            f"Headset Volume       :{prefs['headset_volume']}",
+            f"Missed Call LED      :{1 if prefs['missed_call_led'] else 0}",
+            f"MWI LED              :{1 if prefs['mwi_led'] else 0}",
+            f"Language             :{eff_language}",
             "",
             "<DSSKEY CONFIG MODULE>",
         ]
-        # Fanvil DSS Type: 1=MemoryKey(BLF/SpeedDial), 2=Line
+        # Fanvil DSS Type: 1=MemoryKey(BLF/SpeedDial/Intercom/Park), 2=Line, 3=KeyEvent(DND/Hold/Transfer/Conf/Pickup)
         for k in dss_list:
             idx = int(k.get("key_index") or 1)
             ktype = str(k.get("type") or "none")
@@ -1140,11 +1564,42 @@ def generate_provisioning_config(
                 fv_lines.append(f"Dsskey{idx} Line         :1")
                 fv_lines.append(f"Dsskey{idx} Value        :{kval}@1/ba{pickup}{kval}")
                 fv_lines.append(f"Dsskey{idx} Title        :{klbl}")
-            elif ktype == "speed_dial" and kval:
+            elif ktype in ("speed_dial", "voicemail", "park", "forward", "dtmf") and (kval or ktype == "voicemail"):
+                eff_v = kval or "*97"
                 fv_lines.append(f"Dsskey{idx} Type         :1")
                 fv_lines.append(f"Dsskey{idx} Line         :1")
-                fv_lines.append(f"Dsskey{idx} Value        :{kval}@1/f")
+                fv_lines.append(f"Dsskey{idx} Value        :{eff_v}@1/f")
                 fv_lines.append(f"Dsskey{idx} Title        :{klbl}")
+            elif ktype == "intercom" and kval:
+                fv_lines.append(f"Dsskey{idx} Type         :1")
+                fv_lines.append(f"Dsskey{idx} Line         :1")
+                fv_lines.append(f"Dsskey{idx} Value        :{kval}@1/i")
+                fv_lines.append(f"Dsskey{idx} Title        :{klbl}")
+            elif ktype in ("dnd", "hold", "transfer", "conference", "pickup"):
+                fv_ev_map = {"dnd": "F_DND", "hold": "F_HOLD", "transfer": "F_TRANSFER", "conference": "F_CONF", "pickup": "F_PICKUP"}
+                fv_lines.append(f"Dsskey{idx} Type         :3")
+                fv_lines.append(f"Dsskey{idx} Value        :{fv_ev_map.get(ktype, 'F_DND')}")
+                fv_lines.append(f"Dsskey{idx} Title        :{klbl}")
+
+        # Daisy-chained Fanvil Expansion Modules (Ext1..Ext4)
+        for mod in exp_list[:4]:
+            m_idx = int(mod.get("module_index") or 1)
+            fv_lines.append(f"# --- Fanvil Genisletme Modulu #{m_idx} ({mod.get('model')}) ---")
+            for ek in (mod.get("keys") or [])[:40]:
+                ek_idx = int(ek.get("key_index") or 1)
+                ek_type = str(ek.get("type") or "none")
+                ek_lbl = str(ek.get("label") or "")
+                ek_val = str(ek.get("value") or "")
+                ek_pu = str(ek.get("pickup_code") or pickup_directed)
+                if ek_type == "blf" and ek_val:
+                    fv_lines.append(f"Ext{m_idx}Key{ek_idx} Type       :1")
+                    fv_lines.append(f"Ext{m_idx}Key{ek_idx} Value      :{ek_val}@1/ba{ek_pu}{ek_val}")
+                    fv_lines.append(f"Ext{m_idx}Key{ek_idx} Title      :{ek_lbl}")
+                elif ek_type in ("speed_dial", "park", "intercom", "forward") and ek_val:
+                    fv_lines.append(f"Ext{m_idx}Key{ek_idx} Type       :1")
+                    fv_lines.append(f"Ext{m_idx}Key{ek_idx} Value      :{ek_val}@1/f")
+                    fv_lines.append(f"Ext{m_idx}Key{ek_idx} Title      :{ek_lbl}")
+
         fv_lines.append("")
         fv_lines.append("<TELEPHONE BOOK MODULE>")
         if pb_list:
@@ -1161,42 +1616,74 @@ def generate_provisioning_config(
         fname = f"{mac_hex}.cfg" if mac_hex else f"fanvil_{ext_s}.cfg"
         return "\n".join(fv_lines) + "\n", "text/plain; charset=utf-8", fname
 
-    # --- SNOM XML (D3xx / D7xx) ---
-    if "snom" in b_low:
-        sn_tr = ";transport=tls" if tr_up == "TLS" else (";transport=tcp" if tr_up == "TCP" else "")
-        fkey_lines: List[str] = []
-        for k in dss_list:
-            idx = max(0, int(k.get("key_index") or 1) - 1)
+    # --- CISCO MULTIPLATFORM (MPP) XML (7821 / 7841 / 8811 / 8841 / 8851 / 8861 + CP-8800-KEM 1..3) ---
+    if "cisco" in b_low:
+        cs_lines: List[str] = []
+        for k in dss_list[:10]:
+            idx = max(1, int(k.get("key_index") or 1))
             ktype = str(k.get("type") or "none")
             klbl = html.escape(str(k.get("label") or ""))
             kval = html.escape(str(k.get("value") or ""))
+            if idx == 1 and ktype == "line":
+                continue
             if ktype == "blf" and kval:
-                fkey_lines.append(f'    <fkey idx="{idx}" context="1" label="{klbl}" perm="">blf sip:{kval}@{html.escape(pbx_host)}|{html.escape(pickup_directed)}{kval}</fkey>')
-            elif ktype == "speed_dial" and kval:
-                fkey_lines.append(f'    <fkey idx="{idx}" context="1" label="{klbl}" perm="">speed {kval}</fkey>')
-        fkeys_xml = "\n".join(fkey_lines)
-        snom_xml = f"""<?xml version="1.0" encoding="utf-8"?>
-<settings>
-  <phone-settings>
-    <user_active idx="1" perm="">on</user_active>
-    <user_realname idx="1" perm="">{html.escape(disp_name)}</user_realname>
-    <user_idle_text idx="1" perm="">{html.escape(line_label)}</user_idle_text>
-    <user_name idx="1" perm="">{html.escape(sip_u)}</user_name>
-    <user_pname idx="1" perm="">{html.escape(sip_u)}</user_pname>
-    <user_pass idx="1" perm="">{html.escape(sip_password)}</user_pass>
-    <user_host idx="1" perm="">{html.escape(pbx_host)}:{sip_port}{sn_tr}</user_host>
-    <user_mailbox idx="1" perm="">*97</user_mailbox>
-    <timezone perm="">TUR+3</timezone>
-    <ntp_server perm="">pool.ntp.org</ntp_server>
-    <xml_directory_url perm="">{html.escape(pb_base)}/{html.escape(ext_s or 'all')}/snom.xml</xml_directory_url>
-{fkeys_xml}
-  </phone-settings>
-</settings>
-"""
-        fname = f"snom-{mac_hex}.xml" if mac_hex else f"snom_{ext_s}.xml"
-        return snom_xml, "application/xml; charset=utf-8", fname
+                cs_lines.append(f'  <Extension_{idx}_ ua="na">Disabled</Extension_{idx}_>')
+                cs_lines.append(f'  <Short_Name_{idx}_ ua="na">{klbl}</Short_Name_{idx}_>')
+                cs_lines.append(f'  <Extended_Function_{idx}_ ua="na">fnc=blf+sd+cp;sub={kval}@$PROXY;ext={kval}@$PROXY;nme={klbl}</Extended_Function_{idx}_>')
+            elif ktype in ("speed_dial", "park", "intercom", "voicemail", "forward") and (kval or ktype == "voicemail"):
+                eff_v = kval or "*97"
+                cs_lines.append(f'  <Extension_{idx}_ ua="na">Disabled</Extension_{idx}_>')
+                cs_lines.append(f'  <Short_Name_{idx}_ ua="na">{klbl}</Short_Name_{idx}_>')
+                cs_lines.append(f'  <Extended_Function_{idx}_ ua="na">fnc=sd;ext={eff_v}@$PROXY;nme={klbl}</Extended_Function_{idx}_>')
 
-    # --- DEFAULT: YEALINK CFG (T3x / T4x / T5x) ---
+        # Daisy-chained Cisco CP-8800 KEM Modules (Unit 1..3, 36 keys each)
+        for mod in exp_list[:3]:
+            m_idx = int(mod.get("module_index") or 1)
+            cs_lines.append(f'  <!-- Cisco CP-8800 KEM Unit {m_idx} -->')
+            for ek in (mod.get("keys") or [])[:36]:
+                ek_idx = max(1, int(ek.get("key_index") or 1))
+                ek_type = str(ek.get("type") or "none")
+                ek_lbl = html.escape(str(ek.get("label") or ""))
+                ek_val = html.escape(str(ek.get("value") or ""))
+                if ek_type == "blf" and ek_val:
+                    cs_lines.append(f'  <Unit_{m_idx}_Key_{ek_idx} ua="na">fnc=blf+sd+cp;sub={ek_val}@$PROXY;ext={ek_val}@$PROXY;nme={ek_lbl}</Unit_{m_idx}_Key_{ek_idx}>')
+                elif ek_type in ("speed_dial", "park", "intercom", "forward") and ek_val:
+                    cs_lines.append(f'  <Unit_{m_idx}_Key_{ek_idx} ua="na">fnc=sd;ext={ek_val}@$PROXY;nme={ek_lbl}</Unit_{m_idx}_Key_{ek_idx}>')
+
+        cs_block = "\n".join(cs_lines)
+        cs_prof = html.escape(provision_server_url) if provision_server_url else ""
+        cs_xml = f"""<?xml version="1.0" encoding="UTF-8"?>
+<!-- AIDA PBX Cisco MPP Auto-Provisioning ({html.escape(model)}) | Ext: {html.escape(ext_s)} | SIP Endpoint: {html.escape(sip_u)} -->
+<flat-profile>
+  <Resync_On_Reset ua="na">Yes</Resync_On_Reset>
+  <Resync_Periodic ua="na">3600</Resync_Periodic>
+  <Profile_Rule ua="na">{cs_prof}</Profile_Rule>
+  <SIP_Transport_1_ ua="na">{tr_up}</SIP_Transport_1_>
+  <Proxy_1_ ua="na">{html.escape(pbx_host)}:{sip_port}</Proxy_1_>
+  <Display_Name_1_ ua="na">{html.escape(disp_name)}</Display_Name_1_>
+  <Short_Name_1_ ua="na">{html.escape(line_label)}</Short_Name_1_>
+  <User_ID_1_ ua="na">{html.escape(sip_u)}</User_ID_1_>
+  <Auth_ID_1_ ua="na">{html.escape(sip_u)}</Auth_ID_1_>
+  <Password_1_ ua="na">{html.escape(sip_password)}</Password_1_>
+  <Voice_Mail_Number ua="na">*97</Voice_Mail_Number>
+  <Call_Pickup_Code ua="na">{html.escape(pickup_directed)}</Call_Pickup_Code>
+  <Group_Call_Pickup_Code ua="na">{html.escape(pickup_group)}</Group_Call_Pickup_Code>
+  <Call_Waiting_Serv ua="na">{'Yes' if prefs['call_waiting'] else 'No'}</Call_Waiting_Serv>
+  <Auto_Answer_Page ua="na">{'Yes' if eff_auto_answer else 'No'}</Auto_Answer_Page>
+  <DND_Setting ua="na">{'Yes' if prefs['dnd_default'] else 'No'}</DND_Setting>
+  <Time_Format ua="na">{'24hr' if prefs['time_format'] == '24' else '12hr'}</Time_Format>
+  <Back_Light_Timer ua="na">{prefs['backlight_timeout'] or 'Always On'}</Back_Light_Timer>
+  <LCD_Contrast ua="na">{prefs['backlight_active']}</LCD_Contrast>
+  <Default_Ring_1_ ua="na">{html.escape(prefs['ringtone'])}</Default_Ring_1_>
+  <Primary_NTP_Server ua="na">{html.escape(ntp_server or 'pool.ntp.org')}</Primary_NTP_Server>
+  <Time_Zone ua="na">GMT+03:00</Time_Zone>
+{cs_block}
+</flat-profile>
+"""
+        fname = f"spa{mac_hex}.xml" if mac_hex else f"cisco_{ext_s}.xml"
+        return cs_xml, "application/xml; charset=utf-8", fname
+
+    # --- DEFAULT: YEALINK CFG (T3x / T4x / T5x + EXP40 / EXP43 / EXP50 1..4) ---
     yl_tr = 2 if tr_up == "TLS" else (1 if tr_up == "TCP" else 0)
     dtmf_low = str(dtmf_mode or "rfc4733").strip().lower()
     yl_dtmf = 0 if dtmf_low == "inband" else (3 if dtmf_low == "info" else 2)
@@ -1214,9 +1701,12 @@ def generate_provisioning_config(
         if ck_all not in [str(x).lower() for x in codec_list]:
             codec_cfg_lines.append(f"account.1.codec.{yl_ck}.enable = 0")
 
-    lang_val = str(language or "Turkish").strip() or "Turkish"
+    lang_val = eff_language
     tz_val = str(timezone or "+3").strip() or "+3"
     ntp_val = str(ntp_server or "pool.ntp.org").strip() or "pool.ntp.org"
+    yl_time_fmt = 1 if prefs["time_format"] == "24" else 0
+    yl_date_map = {"DD.MM.YYYY": 5, "DD/MM/YYYY": 2, "YYYY-MM-DD": 0, "MM/DD/YYYY": 4}
+    yl_date_fmt = yl_date_map.get(prefs["date_format"], 5)
 
     lines = [
         "#!version:1.0.0.1",
@@ -1225,13 +1715,18 @@ def generate_provisioning_config(
         "",
         *(
             [
-                "# --- Oto-Provizyon Sunucu Adresi ---",
+                "# --- Oto-Provizyon Sunucu Adresi & Acilista Guncelleme ---",
                 f"static.auto_provision.server.url = {provision_server_url}",
                 "static.auto_provision.power_on = 1",
+                "static.auto_provision.repeat.enable = 1",
+                "static.auto_provision.repeat.minutes = 60",
                 "",
             ]
             if provision_server_url
-            else []
+            else [
+                "static.auto_provision.power_on = 1",
+                "",
+            ]
         ),
         "# --- SIP Hesap 1 (Kullanici SIP Aktivasyon Kimligi ile Kayit) ---",
         "account.1.enable = 1",
@@ -1264,7 +1759,8 @@ def generate_provisioning_config(
         "account.1.dtmf.info_type = 0",
         "account.1.cid_source = 4",
         "account.1.cp_source = 0",
-        f"account.1.auto_answer = {1 if auto_answer else 0}",
+        f"account.1.auto_answer = {1 if eff_auto_answer else 0}",
+        f"account.1.ringtone.ring_type = {prefs['ringtone']}",
         "voice_mail.number.1 = *97",
         "account.1.direct_pickup_code = " + pickup_directed,
         "account.1.group_pickup_code = " + pickup_group,
@@ -1273,14 +1769,35 @@ def generate_provisioning_config(
         "# --- Ses Kodek Onceligi ---",
         *codec_cfg_lines,
         "",
-        "# --- Dil, Saat Dilimi ve Uzaktan Senkronizasyon (check-sync) ---",
+        "# --- Kisisel Ses, Zil Sesi, Ekran ve LED Tercihleri ---",
+        f"phone_setting.ring_type = {prefs['ringtone']}",
+        f"voice.ring_vol = {prefs['ring_volume']}",
+        f"voice.handset.tone_vol = {prefs['handset_volume']}",
+        f"voice.handfree.tone_vol = {prefs['speaker_volume']}",
+        f"voice.headset.tone_vol = {prefs['headset_volume']}",
+        f"call_waiting.enable = {1 if prefs['call_waiting'] else 0}",
+        f"call_waiting.tone = {1 if prefs['call_waiting_tone'] else 0}",
+        f"features.intercom.allow = 1",
+        f"features.intercom.mute = {1 if prefs['intercom_mute'] else 0}",
+        f"features.headset_prior = {1 if prefs['headset_mode'] in ('ehs', 'usb', 'bluetooth') else 0}",
+        f"features.dnd.enable = {1 if prefs['dnd_default'] else 0}",
+        f"phone_setting.missed_call_power_led_flash.enable = {1 if prefs['missed_call_led'] else 0}",
+        f"phone_setting.mail_power_led_flash_enable = {1 if prefs['mwi_led'] else 0}",
+        f"phone_setting.active_backlight_level = {prefs['backlight_active']}",
+        f"phone_setting.inactive_backlight_level = {prefs['backlight_inactive']}",
+        f"phone_setting.backlight_time = {prefs['backlight_timeout']}",
+        f"screensaver.wait_time = {prefs['screensaver_wait'] if prefs['screensaver_wait'] > 0 else 0}",
+        f"local_time.time_format = {yl_time_fmt}",
+        f"local_time.date_format = {yl_date_fmt}",
+        "",
+        "# --- Dil, Saat Dilimi ve Uzaktan Reboot / Senkronizasyon (check-sync) ---",
         f"lang.gui = {lang_val}",
         f"lang.wui = {lang_val}",
         f"local_time.time_zone = {tz_val}",
         "local_time.time_zone_name = Turkey(Ankara)" if tz_val in ("+3", "3", "UTC+3") else f"local_time.time_zone_name = GMT{tz_val}",
         f"local_time.ntp_server1 = {ntp_val}",
         "local_time.summer_time = 0",
-        "sip.notify_reboot_enable = 0",
+        "sip.notify_reboot_enable = 1",
         f"features.direct_ip_call_enable = {0 if direct_ip_call_block else 1}",
         "",
         "# --- Programlanabilir Yan Tuslar / BLF / Hizli Arama (DSS Keys) ---",
@@ -1289,10 +1806,15 @@ def generate_provisioning_config(
     yealink_type_map = {
         "none": 0,
         "conference": 1,
-        "transfer": 2,
+        "forward": 2,
+        "transfer": 3,
         "hold": 4,
         "dnd": 5,
+        "pickup": 23,
+        "park": 10,
+        "dtmf": 11,
         "speed_dial": 13,
+        "intercom": 14,
         "line": 15,
         "blf": 16,
         "voicemail": 13,
@@ -1300,13 +1822,13 @@ def generate_provisioning_config(
     if not dss_list:
         lines.append("linekey.1.type = 15")
         lines.append("linekey.1.line = 1")
-        lines.append(f"linekey.1.label = {ext_s or sip_u}")
+        lines.append(f"linekey.1.label = {line_label}")
     else:
         for k in dss_list:
             idx = int(k.get("key_index") or 1)
             ktype = str(k.get("type") or "none")
             label = str(k.get("label") or "")
-            val = str(k.get("value") or ("*97" if ktype == "voicemail" else ""))
+            val = str(k.get("value") or ("*97" if ktype == "voicemail" else (pickup_group if ktype == "pickup" else "")))
             pickup = str(k.get("pickup_code") or pickup_directed)
             yl_code = yealink_type_map.get(ktype, 0)
 
@@ -1317,22 +1839,47 @@ def generate_provisioning_config(
             if ktype == "blf":
                 lines.append(f"linekey.{idx}.extension = {pickup}")
 
+    # Daisy-chained Yealink Expansion Modules (EXP40 / EXP43 / EXP50 — Modules 1..4, up to 60 keys each)
+    if exp_list:
+        lines.append("")
+        lines.append("# --- Zincirleme Mesguliyet Modulleri (Expansion Modules 1-4) ---")
+        for mod in exp_list[:4]:
+            m_idx = int(mod.get("module_index") or 1)
+            m_model = str(mod.get("model") or "EXP43")
+            lines.append(f"# Modul #{m_idx} ({m_model})")
+            for ek in (mod.get("keys") or [])[:60]:
+                ek_idx = int(ek.get("key_index") or 1)
+                ek_type = str(ek.get("type") or "none")
+                ek_lbl = str(ek.get("label") or "")
+                ek_val = str(ek.get("value") or ("*97" if ek_type == "voicemail" else (pickup_group if ek_type == "pickup" else "")))
+                ek_pu = str(ek.get("pickup_code") or pickup_directed)
+                yl_code = yealink_type_map.get(ek_type, 0)
+                lines.append(f"expansion_module.{m_idx}.key.{ek_idx}.type = {yl_code}")
+                lines.append(f"expansion_module.{m_idx}.key.{ek_idx}.line = 1")
+                lines.append(f"expansion_module.{m_idx}.key.{ek_idx}.value = {ek_val}")
+                lines.append(f"expansion_module.{m_idx}.key.{ek_idx}.label = {ek_lbl}")
+                if ek_type == "blf":
+                    lines.append(f"expansion_module.{m_idx}.key.{ek_idx}.extension = {ek_pu}")
+
     lines.append("")
     lines.append("# --- Ekran Alti Softkey Tuslari (F1-F4) ---")
     soft_type_map = {
         "history": 28,
         "directory": 22,
         "dnd": 5,
-        "transfer": 2,
+        "transfer": 3,
+        "forward": 2,
         "speed_dial": 13,
         "redial": 27,
         "voicemail": 13,
+        "pickup": 23,
+        "menu": 30,
     }
     for sk in soft_list:
         sidx = int(sk.get("key_index") or 1)
         stype = str(sk.get("type") or "history")
         slabel = str(sk.get("label") or "")
-        sval = str(sk.get("value") or ("*97" if stype == "voicemail" else ""))
+        sval = str(sk.get("value") or ("*97" if stype == "voicemail" else (pickup_group if stype == "pickup" else "")))
         lines.append(f"programablekey.{sidx}.type = {soft_type_map.get(stype, 0)}")
         lines.append(f"programablekey.{sidx}.line = 1")
         lines.append(f"programablekey.{sidx}.value = {sval}")
