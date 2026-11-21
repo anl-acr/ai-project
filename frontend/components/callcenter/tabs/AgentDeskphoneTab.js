@@ -26,6 +26,7 @@ import {
   Wifi,
   WifiOff,
   Play,
+  Lock,
 } from "lucide-react";
 import { useTheme } from "../../../utils/theme";
 import ConfirmDeleteModal from "../../dashboard/ConfirmDeleteModal";
@@ -100,6 +101,10 @@ function buildDssArray(ext, maxKeys, existing = []) {
   return Array.from({ length: count }, (_, i) => {
     const keyIndex = i + 1;
     const found = byIdx.get(keyIndex);
+    if (keyIndex === 1) {
+      const customLbl = found && found.type === "line" && found.label ? found.label : `Hat ${ext}`;
+      return { key_index: 1, type: "line", label: customLbl, label_mode: "custom", value: String(ext), pickup_code: "*8", locked: true };
+    }
     if (found) {
       return {
         key_index: keyIndex,
@@ -109,9 +114,6 @@ function buildDssArray(ext, maxKeys, existing = []) {
         value: found.value || "",
         pickup_code: found.pickup_code || "*8",
       };
-    }
-    if (keyIndex === 1) {
-      return { key_index: 1, type: "line", label: `Hat ${ext}`, label_mode: "custom", value: String(ext), pickup_code: "*8" };
     }
     if (keyIndex === 2 && count >= 4) {
       return { key_index: 2, type: "line", label: `Hat ${ext} (2)`, label_mode: "custom", value: String(ext), pickup_code: "*8" };
@@ -197,7 +199,7 @@ export default function AgentDeskphoneTab({ backendHost, currentUser }) {
 
   // Navigation & selection
   const [inspectorTab, setInspectorTab] = useState("keys"); // keys | audio | display | info
-  const [selectedKey, setSelectedKey] = useState({ category: "dss", index: 1 }); // category: dss | soft | exp
+  const [selectedKey, setSelectedKey] = useState({ category: "dss", index: 2 }); // category: dss | soft | exp
   const [activeDssPage, setActiveDssPage] = useState(1);
   const [activeExpModuleIndex, setActiveExpModuleIndex] = useState(1);
   const [activeExpPage, setActiveExpPage] = useState(1);
@@ -291,7 +293,7 @@ export default function AgentDeskphoneTab({ backendHost, currentUser }) {
       setActiveExpModuleIndex(mods[0]?.module_index || 1);
       setActiveDssPage(1);
       setActiveExpPage(1);
-      setSelectedKey({ category: "dss", index: 1 });
+      setSelectedKey({ category: "dss", index: 2 });
     },
     [ext]
   );
@@ -501,7 +503,13 @@ export default function AgentDeskphoneTab({ backendHost, currentUser }) {
     return updated;
   };
 
+  const isPrimaryLineLocked =
+    selectedKey.category === "dss" && Number(selectedKey.index) === 1;
+
   const updateCurrentKeyField = (field, val) => {
+    if (isPrimaryLineLocked && field !== "label") {
+      return;
+    }
     if (selectedKey.category === "soft") {
       setSoftKeys((prev) =>
         prev.map((s) => {
@@ -536,7 +544,7 @@ export default function AgentDeskphoneTab({ backendHost, currentUser }) {
   };
 
   const assignDirectoryUserToCurrentKey = (dirUser) => {
-    if (!dirUser) return;
+    if (!dirUser || isPrimaryLineLocked) return;
     const isBlfOrTarget = ["blf", "speed_dial", "transfer", "intercom", "forward"].includes(currentEditingItem?.type);
     const nextType = isBlfOrTarget ? currentEditingItem.type : "blf";
 
@@ -1113,7 +1121,7 @@ export default function AgentDeskphoneTab({ backendHost, currentUser }) {
                     </h3>
                   </div>
 
-                  {selectedKey.category !== "soft" && currentEditingItem.type !== "none" && (
+                  {selectedKey.category !== "soft" && currentEditingItem.type !== "none" && !isPrimaryLineLocked && (
                     <button
                       type="button"
                       onClick={() => updateCurrentKeyField("type", "none")}
@@ -1122,7 +1130,23 @@ export default function AgentDeskphoneTab({ backendHost, currentUser }) {
                       Temizle
                     </button>
                   )}
+
+                  {isPrimaryLineLocked && (
+                    <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[10px] font-extrabold bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800/60 shrink-0">
+                      <Lock size={11} />
+                      Kilitli Ana Hat
+                    </span>
+                  )}
                 </div>
+
+                {isPrimaryLineLocked && (
+                  <div className="p-3 rounded-xl border border-amber-200 dark:border-amber-800/60 bg-amber-50/70 dark:bg-amber-950/25 text-[11px] text-amber-800 dark:text-amber-200 leading-relaxed flex items-start gap-2">
+                    <Lock size={14} className="shrink-0 mt-0.5 text-amber-600 dark:text-amber-400" />
+                    <span>
+                      <strong>T1 (Ana Hat / Line 1)</strong> telefonunuzun aktif dahili hattıdır (<span className="font-mono font-bold">{ext}</span>). Arama ve çağrı bekletme işlevlerinin bozulmaması için silinemez veya başka bir işleve dönüştürülemez; yalnızca aşağıdan ekranda görünecek hat etiketini özelleştirebilirsiniz.
+                    </span>
+                  </div>
+                )}
 
                 {/* Key Function Type */}
                 <div className="space-y-1.5">
@@ -1144,9 +1168,10 @@ export default function AgentDeskphoneTab({ backendHost, currentUser }) {
                   ) : (
                     <>
                       <select
+                        disabled={isPrimaryLineLocked}
                         value={currentEditingItem.type}
                         onChange={(e) => updateCurrentKeyField("type", e.target.value)}
-                        className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs font-bold text-slate-800 dark:text-white"
+                        className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs font-bold text-slate-800 dark:text-white disabled:opacity-60 disabled:cursor-not-allowed"
                       >
                         {DSS_KEY_TYPES.map((dt) => (
                           <option key={dt.id} value={dt.id}>
@@ -1173,10 +1198,11 @@ export default function AgentDeskphoneTab({ backendHost, currentUser }) {
                     </label>
                     <input
                       type="text"
+                      disabled={isPrimaryLineLocked}
                       value={currentEditingItem.value || ""}
                       onChange={(e) => updateCurrentKeyField("value", e.target.value)}
                       placeholder="Örn: 1000 veya 0532..."
-                      className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs font-mono font-bold text-slate-800 dark:text-white"
+                      className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs font-mono font-bold text-slate-800 dark:text-white disabled:opacity-60 disabled:cursor-not-allowed"
                     />
                   </div>
                 )}
@@ -1278,7 +1304,7 @@ export default function AgentDeskphoneTab({ backendHost, currentUser }) {
                 )}
 
                 {/* 1-Click Directory Picker (Auto-fills Extension + Dynamic Auto-Name!) */}
-                {selectedKey.category !== "soft" && (
+                {selectedKey.category !== "soft" && !isPrimaryLineLocked && (
                   <div className="space-y-2 pt-2 border-t border-slate-100 dark:border-slate-800">
                     <div className="flex items-center justify-between gap-2">
                       <span className="text-[11px] font-extrabold text-slate-700 dark:text-slate-200 flex items-center gap-1.5">

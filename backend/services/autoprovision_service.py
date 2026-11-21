@@ -341,6 +341,51 @@ def resolve_dynamic_key_labels(
     return resolved
 
 
+def enforce_primary_line_key(
+    dss_keys: Optional[List[Dict[str, Any]]],
+    ext: str,
+    default_label: str = "",
+) -> List[Dict[str, Any]]:
+    """
+    Guarantees that Key 1 (T1) is ALWAYS locked as Primary Line (`type='line'`) on Account 1
+    across all IP phone vendors (Yealink, Grandstream, Fanvil, Cisco) so a user can never
+    accidentally wipe out their own extension line and break calling / call-waiting.
+    Preserves custom display label if the user customized T1's label.
+    """
+    ext_s = str(ext or "").strip()
+    fallback_lbl = str(default_label or (f"Hat {ext_s}" if ext_s else "Hat 1")).strip()
+    items = [dict(k) for k in (dss_keys or []) if isinstance(k, dict)]
+    t1_idx = None
+    for i, k in enumerate(items):
+        if int(k.get("key_index") or 0) == 1:
+            t1_idx = i
+            break
+    if t1_idx is not None:
+        existing_lbl = str(items[t1_idx].get("label") or "").strip()
+        existing_type = str(items[t1_idx].get("type") or "").strip().lower()
+        items[t1_idx] = {
+            **items[t1_idx],
+            "key_index": 1,
+            "type": "line",
+            "value": ext_s,
+            "label": existing_lbl if (existing_type == "line" and existing_lbl) else fallback_lbl,
+            "label_mode": "custom",
+            "locked": True,
+        }
+    else:
+        items.insert(0, {
+            "key_index": 1,
+            "type": "line",
+            "value": ext_s,
+            "label": fallback_lbl,
+            "label_mode": "custom",
+            "pickup_code": "*8",
+            "locked": True,
+        })
+    items.sort(key=lambda x: int(x.get("key_index") or 999))
+    return items
+
+
 def resolve_user_sip_username(ext_val: Any, raw_sip_user: Any = "") -> str:
     """
     Returns a clean, deterministic PJSIP endpoint identifier for physical IP phones / SIP clients.
@@ -1337,7 +1382,11 @@ def generate_provisioning_config(
     pb_base = str(phonebook_base_url or f"http://{pbx_host}:8000/api/phonebook").rstrip("/")
     pb_list = [p for p in (phonebooks or []) if isinstance(p, dict) and p.get("id") and p.get("name")]
 
-    dss_list = resolve_dynamic_key_labels(dss_keys if isinstance(dss_keys, list) else [], ext_name_map)
+    dss_list = enforce_primary_line_key(
+        resolve_dynamic_key_labels(dss_keys if isinstance(dss_keys, list) else [], ext_name_map),
+        ext=ext_s,
+        default_label=line_label,
+    )
     soft_list = soft_keys if isinstance(soft_keys, list) else []
     exp_list_raw = normalize_expansion_modules(expansion_modules)
     exp_list: List[Dict[str, Any]] = []

@@ -15,6 +15,7 @@ import {
   ChevronRight,
   Users,
   Wand2,
+  Lock,
 } from "lucide-react";
 
 export const DSS_KEY_TYPES = [
@@ -313,6 +314,9 @@ export default function DeskphoneVisualSimulator({
             <span>T{k.key_index}</span>
             <span>•</span>
             <span className="truncate">{meta.short}</span>
+            {Number(k.key_index) === 1 && (
+              <Lock size={8} className="text-amber-400 shrink-0" title="Kilitli Ana Hat (Line 1)" />
+            )}
             {disp.isAuto && <Sparkles size={8} className="text-emerald-400 shrink-0" title="İsim santralden otomatik çekiliyor" />}
           </div>
           <div className="text-[10px] font-bold text-slate-100 truncate mt-0.5">{disp.label}</div>

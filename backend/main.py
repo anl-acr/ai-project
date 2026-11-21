@@ -14683,6 +14683,7 @@ async def save_agent_deskphone_config(
     user_info: dict = Depends(get_user_info),
 ):
     from backend.services.autoprovision_service import (
+        enforce_primary_line_key,
         normalize_expansion_modules,
         normalize_phone_prefs,
         trigger_phone_sip_notify,
@@ -14718,7 +14719,8 @@ async def save_agent_deskphone_config(
     target_su = str(target_dev.get("sip_username") or "").strip()
     new_brand = str(payload.get("brand") or target_dev.get("brand") or "Yealink").strip()
     new_model = str(payload.get("model") or target_dev.get("model") or "T46U").strip()
-    new_dss = payload.get("dss_keys") if isinstance(payload.get("dss_keys"), list) else (target_dev.get("dss_keys") or [])
+    raw_dss = payload.get("dss_keys") if isinstance(payload.get("dss_keys"), list) else (target_dev.get("dss_keys") or [])
+    new_dss = enforce_primary_line_key(raw_dss, ext=ext_clean, default_label=f"Hat {ext_clean}")
     new_soft = payload.get("soft_keys") if isinstance(payload.get("soft_keys"), list) else (target_dev.get("soft_keys") or [])
     new_exp = normalize_expansion_modules(payload.get("expansion_modules"))
     new_prefs = normalize_phone_prefs(
@@ -42275,18 +42277,32 @@ async def get_system_version_info():
         pass
 
     return {
-        "version": "v3.7.6",
+        "version": "v3.7.7",
         "commit_hash": live_commit,
         "release_date": "22 Kasım 2026",
         "status": "Güncel / Canlı Sürüm",
         "environment": "Production (On-Premise)",
         "changelog": [
             {
-                "version": "v3.7.6",
+                "version": "v3.7.7",
                 "commit_hash": live_commit,
                 "release_date": "22 Kasım 2026",
                 "badge": "Canlı Sürüm (Güncel)",
                 "badge_type": "current",
+                "title": "Masa Telefonum T1 (Ana Hat / Line 1) Kilit Koruması",
+                "summary": "Kullanıcıların yanlışlıkla T1 (Line 1) tuşunu silerek telefonun arama ve çağrı bekletme işlevlerini bozmasını önlemek için hem arayüzde hem backend provizyon motorunda T1 Ana Hat kilidi eklendi.",
+                "features": [
+                    "Arayüzde T1 üzerinde Kilitli Ana Hat rozeti: İşlev değiştirme, temizleme ve rehberden üzerine yazma engellendi; kullanıcı yalnızca T1 ekran etiketini özelleştirebilir.",
+                    "Backend Provizyon Koruması: generate_provisioning_config() ve kayıt uç noktası T1 tuşunu her zaman tüm markalarda (Yealink, Grandstream, Fanvil, Cisco) Ana Hat (Line 1) olarak garanti altına alır."
+                ],
+                "fixes": []
+            },
+            {
+                "version": "v3.7.6",
+                "commit_hash": "4f322fa",
+                "release_date": "22 Kasım 2026",
+                "badge": "Kararlı",
+                "badge_type": "stable",
                 "title": "Yealink T42S & Klasik T2x/T4x Saha Modelleri (56 Model Kataloğu)",
                 "summary": "Yealink T42S başta olmak üzere sahada yaygın kullanılan T21P E2, T23G, T27G, T29G, T41P ve T42G modelleri hem Masa Telefonum görsel tasarımcısına hem Kullanıcı SIP cihaz listesine eklendi.",
                 "features": [
