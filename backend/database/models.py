@@ -538,5 +538,21 @@ class BreakApprovalRequest(Base):
     expires_at = Column(DateTime, nullable=True, index=True)
 
 
+class AgentSessionLog(Base):
+    __tablename__ = "agent_session_logs"
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    tenant_id = Column(String, default="tenant-default", index=True)
+    user_id = Column(String, nullable=True, index=True)
+    extension = Column(String, nullable=True, index=True)
+    agent_name = Column(String, nullable=True)
+    login_time = Column(DateTime, default=datetime.datetime.utcnow, nullable=False, index=True)
+    logout_time = Column(DateTime, nullable=True)
+    duration_seconds = Column(Integer, default=0)
+    logout_reason = Column(String, default="active")  # active | manual_logout | auto_logout | disconnect | session_replaced
+    disconnect_count = Column(Integer, default=0)
+    ip_address = Column(String, nullable=True)
+
+
+
 
 

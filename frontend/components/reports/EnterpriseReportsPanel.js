@@ -43,6 +43,7 @@ import {
 import * as XLSX from "xlsx";
 import { useTheme } from "../../utils/theme";
 import { getApiBaseUrl, tenantFetch } from "../../utils/apiHost";
+import WfmShiftPlannerCard from "./WfmShiftPlannerCard";
 import {
   AnimatedMetricText,
   PanelShimmerSkeleton,
@@ -578,18 +579,30 @@ export default function EnterpriseReportsPanel({ backendHost, reportType = "brea
         Dahili: a.extension,
         Temsilci: a.agent_name,
         "Aktif Gün": a.active_days,
+        "Planlanan Vardiya": a.planned_shift || "-",
         "İlk Aktivite / Giriş": a.first_login,
         "Son Aktivite / Çıkış": a.last_logout,
+        "Oturum Süresi (dk)": Math.round((a.session_seconds || 0) / 60),
+        "Geç Giriş (dk)": a.late_login_minutes || 0,
+        "Erken Çıkış (dk)": a.early_logout_minutes || 0,
+        "Kesinti Sayısı": a.disconnect_count || 0,
+        "Vardiya Uyumu (Adherence %)": a.adherence_pct ?? 100,
         "Cevaplanan Çağrı": a.answered_calls,
         "Konuşma Süresi (sn)": a.talk_seconds,
+        "Hold Süresi (sn)": a.hold_seconds || 0,
+        "ACW Süresi (sn)": a.acw_seconds || 0,
+        "Hazır Süre (dk)": Math.round((a.ready_seconds || 0) / 60),
         "Mola Adedi": a.break_count,
         "Otomatik Mola": a.auto_pause_count,
         "Limit Aşımı": a.overlimit_count,
         "Toplam Mola (dk)": Math.round((a.total_break_seconds || 0) / 60),
-        "Occupancy (%)": a.occupancy_pct,
+        "Doluluk (Occupancy %)": a.occupancy_pct,
         "Mola Dağılımı": a.break_summary
       }));
-      XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(agentSheet), "Temsilci Puantaj");
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(agentSheet), "Temsilci Puantaj WFM");
+      if ((data.sessions || []).length > 0) {
+        XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(data.sessions), "Oturum Hareketleri");
+      }
       if ((data.items || []).length > 0) {
         XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(data.items), "Mola Kayitlari");
       }
@@ -606,6 +619,12 @@ export default function EnterpriseReportsPanel({ backendHost, reportType = "brea
     } else if (reportType === "queue-sla") {
       XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(data.queues || []), "Kuyruk SLA");
       XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(data.buckets || []), "Hiz Dilimleri");
+      if ((data.daily_volume || []).length > 0) {
+        XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(data.daily_volume), "Gunluk Hacim");
+      }
+      if ((data.weekly_volume || []).length > 0) {
+        XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(data.weekly_volume), "Haftalik Hacim");
+      }
     } else if (reportType === "repeat-callers") {
       XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(data.items || []), "Tekrar Arayanlar");
     } else if (reportType === "dept-pickup") {
@@ -1055,12 +1074,13 @@ export default function EnterpriseReportsPanel({ backendHost, reportType = "brea
           {/* ============================================================== */}
           {reportType === "breaks-attendance" && (
             <div className="space-y-5">
-              <div className="grid grid-cols-2 lg:grid-cols-5 gap-3.5">
-                <KpiCard label="Aktif Temsilci" value={`${summary.active_agents || 0} / ${summary.total_agents || 0}`} sub="Vardiyada işlem yapan" icon={Users} theme={{ lightBg, lightText }} />
-                <KpiCard label="Toplam Mola Adedi" value={summary.total_breaks_count || 0} sub={`Oto-Mola: ${summary.auto_pause_count || 0}`} icon={Coffee} theme={{ lightBg, lightText }} />
-                <KpiCard label="Toplam Mola Süresi" value={formatDuration(summary.total_break_seconds || 0)} sub="Tüm mola tipleri" icon={Clock} theme={{ lightBg, lightText }} />
-                <KpiCard label="Mola Limit Aşımı" value={summary.overlimit_count || 0} sub={`>${maxBreakMinutes} dk aşan mola`} icon={AlertTriangle} alert={summary.overlimit_count > 0} theme={{ lightBg, lightText }} />
-                <KpiCard label="Ortalama Occupancy" value={`%${summary.avg_occupancy_pct || 0}`} sub={`Konuşma: ${formatDuration(summary.total_talk_seconds || 0)}`} icon={Activity} theme={{ lightBg, lightText }} />
+              <div className="grid grid-cols-2 lg:grid-cols-6 gap-3.5">
+                <KpiCard label="Aktif Temsilci" value={`${summary.active_agents || 0} / ${summary.total_agents || 0}`} sub={`Oturum: ${formatDuration(summary.total_session_seconds || 0)}`} icon={Users} theme={{ lightBg, lightText }} />
+                <KpiCard label="Vardiya Uyumu (Adherence)" value={`%${summary.avg_adherence_pct ?? 0}`} sub="Planlı vardiya uyumu" icon={CheckCircle2} alert={(summary.avg_adherence_pct ?? 100) < 85 && (summary.active_agents || 0) > 0} theme={{ lightBg, lightText }} />
+                <KpiCard label="Ortalama Doluluk (Occupancy)" value={`%${summary.avg_occupancy_pct || 0}`} sub={`Hazır: ${formatDuration(summary.total_ready_seconds || 0)}`} icon={Activity} theme={{ lightBg, lightText }} />
+                <KpiCard label="Geç Giriş / Erken Çıkış" value={`${summary.total_late_minutes || 0} / ${summary.total_early_minutes || 0} dk`} sub="Vardiya sapma toplamı" icon={Clock} alert={(summary.total_late_minutes || 0) + (summary.total_early_minutes || 0) > 0} theme={{ lightBg, lightText }} />
+                <KpiCard label="Toplam Mola & Aşım" value={formatDuration(summary.total_break_seconds || 0)} sub={`${summary.total_breaks_count || 0} mola • ${summary.overlimit_count || 0} aşım`} icon={Coffee} alert={summary.overlimit_count > 0} theme={{ lightBg, lightText }} />
+                <KpiCard label="Oturum Kesintisi & ACW" value={`${summary.total_disconnects || 0} Kesinti`} sub={`Toplam ACW: ${formatDuration(summary.total_acw_seconds || 0)}`} icon={AlertTriangle} alert={(summary.total_disconnects || 0) > 0} theme={{ lightBg, lightText }} />
               </div>
 
               {(data?.by_break_type || []).length > 0 && (
@@ -1082,56 +1102,143 @@ export default function EnterpriseReportsPanel({ backendHost, reportType = "brea
                 </div>
               )}
 
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2">
                 <SubTabButton active={activeSubView === "primary"} onClick={() => setActiveSubView("primary")} bg={bg}>
-                  Temsilci Puantaj Özeti ({(data?.agents || []).length})
+                  Puantaj & Vardiya Uyumu ({(data?.agents || []).length})
+                </SubTabButton>
+                <SubTabButton active={activeSubView === "sessions"} onClick={() => setActiveSubView("sessions")} bg={bg}>
+                  Giriş-Çıkış & Kesinti Hareketleri ({(data?.sessions || []).length})
                 </SubTabButton>
                 <SubTabButton active={activeSubView === "logs"} onClick={() => setActiveSubView("logs")} bg={bg}>
                   Detaylı Mola Hareketleri ({(data?.items || []).length})
+                </SubTabButton>
+                <SubTabButton active={activeSubView === "shifts"} onClick={() => setActiveSubView("shifts")} bg={bg}>
+                  Vardiya Planı (WFM) Ayarları
                 </SubTabButton>
               </div>
 
               {activeSubView === "primary" ? (
                 <DataTable
-                  ariaLabel="Temsilci Puantaj Tablosu"
-                  headers={["Temsilci", "Aktif Gün", "İlk Giriş / Aktivite", "Son Çıkış / Aktivite", "Cevaplanan", "Konuşma", "Mola Adedi", "Toplam Mola", "Limit Aşımı", "Occupancy", "Mola Dağılımı"]}
-                  rows={(data?.agents || []).filter((r) => matchSearch(r, ["extension", "agent_name", "break_summary"]))}
+                  ariaLabel="Temsilci Puantaj ve Vardiya Uyumu Tablosu"
+                  headers={["Temsilci", "Planlı Vardiya", "İlk Giriş", "Son Çıkış", "Oturum Süresi", "Geç / Erken", "Kesinti", "Hazır Süre", "Mola (Top.)", "ACW", "Occupancy", "Adherence %", "Mola Dağılımı"]}
+                  rows={(data?.agents || []).filter((r) => matchSearch(r, ["extension", "agent_name", "break_summary", "planned_shift"]))}
                   renderRow={(r) => (
                     <tr key={r.extension} className="hover:bg-slate-50/80 dark:hover:bg-slate-800/40 transition">
                       <td className="px-4 py-3 font-semibold text-slate-800 dark:text-white whitespace-nowrap">
                         {r.agent_name} <span className="text-[11px] text-slate-400 font-normal">({r.extension})</span>
+                        <div className="text-[10px] text-slate-400 font-normal">{r.active_days} aktif gün • {r.answered_calls} cevap</div>
                       </td>
-                      <td className="px-4 py-3 text-center font-bold">{r.active_days}</td>
-                      <td className="px-4 py-3 text-slate-600 dark:text-slate-300 whitespace-nowrap">{r.first_login}</td>
-                      <td className="px-4 py-3 text-slate-600 dark:text-slate-300 whitespace-nowrap">{r.last_logout}</td>
-                      <td className="px-4 py-3 text-center font-semibold">{r.answered_calls}</td>
-                      <td className="px-4 py-3 whitespace-nowrap">{formatDuration(r.talk_seconds)}</td>
-                      <td className="px-4 py-3 text-center">
-                        {r.break_count}
-                        {r.auto_pause_count > 0 && (
-                          <span className="ml-1 px-1.5 py-0.5 text-[10px] rounded bg-amber-100 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300">
-                            {r.auto_pause_count} oto
-                          </span>
+                      <td className="px-4 py-3 whitespace-nowrap">
+                        <span className="px-2 py-0.5 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 font-mono text-[11px] font-bold">
+                          {r.planned_shift || "09:00 - 18:00"}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 text-slate-600 dark:text-slate-300 whitespace-nowrap text-xs">{r.first_login}</td>
+                      <td className="px-4 py-3 text-slate-600 dark:text-slate-300 whitespace-nowrap text-xs">{r.last_logout}</td>
+                      <td className="px-4 py-3 font-bold text-slate-700 dark:text-slate-200 whitespace-nowrap">{formatDuration(r.session_seconds || 0)}</td>
+                      <td className="px-4 py-3 whitespace-nowrap">
+                        {(r.late_login_minutes > 0 || r.early_logout_minutes > 0) ? (
+                          <div className="flex flex-col gap-0.5 text-[11px] font-bold">
+                            {r.late_login_minutes > 0 && (
+                              <span className="text-rose-600 dark:text-rose-400">+{r.late_login_minutes} dk geç</span>
+                            )}
+                            {r.early_logout_minutes > 0 && (
+                              <span className="text-amber-600 dark:text-amber-400">-{r.early_logout_minutes} dk erken</span>
+                            )}
+                          </div>
+                        ) : (
+                          <span className="text-emerald-600 dark:text-emerald-400 text-[11px] font-bold">Zamanında</span>
                         )}
                       </td>
-                      <td className="px-4 py-3 font-semibold whitespace-nowrap">{formatDuration(r.total_break_seconds)}</td>
                       <td className="px-4 py-3 text-center">
-                        {r.overlimit_count > 0 ? (
-                          <span className="px-2 py-0.5 rounded-full text-[11px] font-bold bg-rose-100 dark:bg-rose-950/50 text-rose-600 dark:text-rose-400">
-                            {r.overlimit_count} Aşım
+                        {(r.disconnect_count || 0) > 0 ? (
+                          <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-rose-100 dark:bg-rose-950/60 text-rose-600 dark:text-rose-300">
+                            {r.disconnect_count}
                           </span>
                         ) : (
                           <span className="text-slate-400">0</span>
                         )}
                       </td>
+                      <td className="px-4 py-3 text-emerald-700 dark:text-emerald-400 font-semibold whitespace-nowrap">{formatDuration(r.ready_seconds || 0)}</td>
+                      <td className="px-4 py-3 font-semibold whitespace-nowrap">
+                        {formatDuration(r.total_break_seconds)}
+                        <div className="text-[10px] text-slate-400 font-normal">
+                          {r.break_count} kez{r.overlimit_count > 0 ? ` • ${r.overlimit_count} aşım` : ""}
+                        </div>
+                      </td>
+                      <td className="px-4 py-3 text-slate-600 dark:text-slate-300 whitespace-nowrap">{formatDuration(r.acw_seconds || 0)}</td>
                       <td className="px-4 py-3">
                         <span className={`font-bold ${text}`}>%{r.occupancy_pct}</span>
+                      </td>
+                      <td className="px-4 py-3">
+                        <span
+                          className={`inline-flex px-2 py-0.5 rounded-lg text-xs font-extrabold ${
+                            (r.adherence_pct ?? 100) >= 90
+                              ? "bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300"
+                              : (r.adherence_pct ?? 100) >= 75
+                              ? "bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300"
+                              : "bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300"
+                          }`}
+                        >
+                          %{r.adherence_pct ?? 100}
+                        </span>
                       </td>
                       <td className="px-4 py-3 text-[11px] text-slate-500 dark:text-slate-400 max-w-xs truncate" title={r.break_summary}>
                         {r.break_summary}
                       </td>
                     </tr>
                   )}
+                />
+              ) : activeSubView === "sessions" ? (
+                <DataTable
+                  ariaLabel="Temsilci Giriş-Çıkış ve Oturum Kesinti Kayıtları"
+                  headers={["Temsilci", "Giriş Saati", "Çıkış Saati", "Oturum Süresi", "Çıkış Nedeni", "Kesinti", "IP Adresi"]}
+                  rows={(data?.sessions || []).filter((r) => matchSearch(r, ["extension", "agent_name", "logout_reason", "ip_address"]))}
+                  renderRow={(r) => (
+                    <tr key={r.id} className="hover:bg-slate-50/80 dark:hover:bg-slate-800/40">
+                      <td className="px-4 py-3 font-semibold text-slate-800 dark:text-white whitespace-nowrap">
+                        {r.agent_name} <span className="text-[11px] text-slate-400 font-normal">({r.extension})</span>
+                      </td>
+                      <td className="px-4 py-3 whitespace-nowrap">{r.login_time}</td>
+                      <td className="px-4 py-3 whitespace-nowrap">
+                        {r.logout_time === "Aktif Oturum" ? (
+                          <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300">
+                            Aktif Oturum
+                          </span>
+                        ) : (
+                          r.logout_time
+                        )}
+                      </td>
+                      <td className="px-4 py-3 font-bold whitespace-nowrap">{formatDuration(r.duration_seconds)}</td>
+                      <td className="px-4 py-3 text-xs">
+                        {r.logout_reason === "active"
+                          ? "Çevrimiçi"
+                          : r.logout_reason === "auto_logout"
+                          ? "Otomatik / Yönetici Çıkışı"
+                          : r.logout_reason === "day_rollover"
+                          ? "Gün Sonu Kapanışı"
+                          : r.logout_reason === "disconnect"
+                          ? "Bağlantı Kesintisi"
+                          : "Manuel Çıkış"}
+                      </td>
+                      <td className="px-4 py-3 text-center">
+                        {(r.disconnect_count || 0) > 0 ? (
+                          <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-rose-100 text-rose-700 dark:bg-rose-950/60 dark:text-rose-300">
+                            {r.disconnect_count} kesinti
+                          </span>
+                        ) : (
+                          <span className="text-slate-400">0</span>
+                        )}
+                      </td>
+                      <td className="px-4 py-3 font-mono text-[11px] text-slate-500">{r.ip_address || "-"}</td>
+                    </tr>
+                  )}
+                />
+              ) : activeSubView === "shifts" ? (
+                <WfmShiftPlannerCard
+                  apiBase={API_BASE}
+                  tenantFetch={tenantFetch}
+                  onSaved={() => fetchReport()}
                 />
               ) : (
                 <DataTable
@@ -1355,12 +1462,13 @@ export default function EnterpriseReportsPanel({ backendHost, reportType = "brea
           {/* ============================================================== */}
           {reportType === "queue-sla" && (
             <div className="space-y-5">
-              <div className="grid grid-cols-2 lg:grid-cols-5 gap-3.5">
+              <div className="grid grid-cols-2 lg:grid-cols-6 gap-3.5">
                 <KpiCard label={`Hizmet Seviyesi (SL${summary.sla_threshold_seconds || slaSeconds} • ≤${summary.sla_threshold_seconds || slaSeconds}sn)`} value={`%${summary.sla_pct ?? 100}`} sub={`${summary.answered_in_sla || 0} çağrı hedef sürede`} icon={Target} theme={{ lightBg, lightText }} />
                 <KpiCard label="Gelen Kuyruk Çağrısı" value={summary.total_offered || 0} sub={`Cevaplanan: ${summary.total_answered || 0}`} icon={PhoneIncoming} theme={{ lightBg, lightText }} />
                 <KpiCard label="Ort. Cevaplama Hızı (ASA)" value={`${summary.asa_seconds || 0} sn`} sub="Average Speed of Answer" icon={Clock} theme={{ lightBg, lightText }} />
+                <KpiCard label="Gerçek AHT (Talk+Hold+ACW)" value={formatDuration(summary.aht_seconds || 0)} sub={`Hold: ${formatDuration(summary.avg_hold_seconds || 0)} • ACW: ${formatDuration(summary.avg_acw_seconds || 0)}`} icon={Activity} theme={{ lightBg, lightText }} />
                 <KpiCard label="Terk (Abandon) Oranı" value={`%${summary.abandon_pct || 0}`} sub={`${summary.total_abandoned || 0} terk (${summary.short_abandoned || 0} kısa terk)`} icon={PhoneMissed} alert={(summary.abandon_pct || 0) > 15} theme={{ lightBg, lightText }} />
-                <KpiCard label="Ort. Terk Sabrı (AWT)" value={`${summary.awt_seconds || 0} sn`} sub="Kapatmadan önce bekleme" icon={Activity} theme={{ lightBg, lightText }} />
+                <KpiCard label="Ort. Terk Sabrı (AWT)" value={`${summary.awt_seconds || 0} sn`} sub="Kapatmadan önce bekleme" icon={Clock} theme={{ lightBg, lightText }} />
               </div>
 
               {/* Speed Buckets Visual Distribution */}
@@ -1387,29 +1495,79 @@ export default function EnterpriseReportsPanel({ backendHost, reportType = "brea
                 </div>
               </div>
 
-              <DataTable
-                ariaLabel="Kuyruk Bazlı SLA Tablosu"
-                headers={["Kuyruk", "Gelen", "Cevaplanan", `SL${slaSeconds} İçi (≤${slaSeconds}s)`, "Terk", `Kısa Terk (<${shortAbandonSeconds}s)`, `SL${slaSeconds} %`, "ASA (sn)", "Ort. Terk (sn)", "Ort. Konuşma"]}
-                rows={(data?.queues || []).filter((r) => matchSearch(r, ["queue_extension", "queue_name"]))}
-                renderRow={(r) => (
-                  <tr key={r.queue_extension} className="hover:bg-slate-50/80 dark:hover:bg-slate-800/40">
-                    <td className="px-4 py-3 font-semibold text-slate-800 dark:text-white">
-                      {r.queue_name} <span className="text-[11px] text-slate-400">({r.queue_extension})</span>
-                    </td>
-                    <td className="px-4 py-3 font-bold">{r.offered}</td>
-                    <td className="px-4 py-3 text-emerald-600 dark:text-emerald-400 font-semibold">{r.answered}</td>
-                    <td className="px-4 py-3 font-semibold">{r.answered_in_sla}</td>
-                    <td className="px-4 py-3 text-rose-500 font-semibold">{r.abandoned}</td>
-                    <td className="px-4 py-3 text-slate-500">{r.short_abandoned}</td>
-                    <td className="px-4 py-3">
-                      <span className={`font-extrabold ${text}`}>%{r.sla_pct}</span>
-                    </td>
-                    <td className="px-4 py-3">{r.asa_seconds} sn</td>
-                    <td className="px-4 py-3">{r.awt_seconds} sn</td>
-                    <td className="px-4 py-3">{formatDuration(r.aht_seconds)}</td>
-                  </tr>
-                )}
-              />
+              <div className="flex flex-wrap items-center gap-2">
+                <SubTabButton active={activeSubView === "primary"} onClick={() => setActiveSubView("primary")} bg={bg}>
+                  Kuyruk Bazlı SLA & AHT ({(data?.queues || []).length})
+                </SubTabButton>
+                <SubTabButton active={activeSubView === "daily"} onClick={() => setActiveSubView("daily")} bg={bg}>
+                  Günlük Çağrı Hacmi ({(data?.daily_volume || []).length})
+                </SubTabButton>
+                <SubTabButton active={activeSubView === "weekly"} onClick={() => setActiveSubView("weekly")} bg={bg}>
+                  Haftalık Çağrı Hacmi ({(data?.weekly_volume || []).length})
+                </SubTabButton>
+              </div>
+
+              {activeSubView === "primary" ? (
+                <DataTable
+                  ariaLabel="Kuyruk Bazlı SLA Tablosu"
+                  headers={["Kuyruk", "Gelen", "Cevaplanan", `SL${slaSeconds} İçi (≤${slaSeconds}s)`, "Terk", `SL${slaSeconds} %`, "ASA (sn)", "Ort. Konuşma", "Ort. Hold", "Ort. ACW", "AHT (İşlem)"]}
+                  rows={(data?.queues || []).filter((r) => matchSearch(r, ["queue_extension", "queue_name"]))}
+                  renderRow={(r) => (
+                    <tr key={r.queue_extension} className="hover:bg-slate-50/80 dark:hover:bg-slate-800/40">
+                      <td className="px-4 py-3 font-semibold text-slate-800 dark:text-white whitespace-nowrap">
+                        {r.queue_name} <span className="text-[11px] text-slate-400">({r.queue_extension})</span>
+                      </td>
+                      <td className="px-4 py-3 font-bold">{r.offered}</td>
+                      <td className="px-4 py-3 text-emerald-600 dark:text-emerald-400 font-semibold">{r.answered}</td>
+                      <td className="px-4 py-3 font-semibold">{r.answered_in_sla}</td>
+                      <td className="px-4 py-3 text-rose-500 font-semibold">
+                        {r.abandoned}
+                        {r.short_abandoned > 0 && <span className="text-[10px] text-slate-400 ml-1">({r.short_abandoned} kısa)</span>}
+                      </td>
+                      <td className="px-4 py-3">
+                        <span className={`font-extrabold ${text}`}>%{r.sla_pct}</span>
+                      </td>
+                      <td className="px-4 py-3">{r.asa_seconds} sn</td>
+                      <td className="px-4 py-3">{formatDuration(r.avg_talk_seconds ?? r.aht_seconds)}</td>
+                      <td className="px-4 py-3 text-slate-600 dark:text-slate-300">{formatDuration(r.avg_hold_seconds || 0)}</td>
+                      <td className="px-4 py-3 text-slate-600 dark:text-slate-300">{formatDuration(r.avg_acw_seconds || 0)}</td>
+                      <td className="px-4 py-3 font-extrabold text-slate-800 dark:text-white">{formatDuration(r.aht_seconds)}</td>
+                    </tr>
+                  )}
+                />
+              ) : activeSubView === "daily" ? (
+                <DataTable
+                  ariaLabel="Günlük Kuyruk Çağrı Hacmi"
+                  headers={["Tarih", "Gelen Çağrı", "Cevaplanan", "Terk Edilen", "Cevaplama Oranı", `SL${slaSeconds} Oranı`]}
+                  rows={data?.daily_volume || []}
+                  renderRow={(r) => (
+                    <tr key={r.date} className="hover:bg-slate-50/80 dark:hover:bg-slate-800/40">
+                      <td className="px-4 py-3 font-bold text-slate-800 dark:text-white">{r.date}</td>
+                      <td className="px-4 py-3 font-bold">{r.offered}</td>
+                      <td className="px-4 py-3 text-emerald-600 dark:text-emerald-400 font-semibold">{r.answered}</td>
+                      <td className="px-4 py-3 text-rose-500 font-semibold">{r.abandoned}</td>
+                      <td className="px-4 py-3 font-bold">%{r.answer_rate_pct}</td>
+                      <td className="px-4 py-3"><span className={`font-extrabold ${text}`}>%{r.sla_pct}</span></td>
+                    </tr>
+                  )}
+                />
+              ) : (
+                <DataTable
+                  ariaLabel="Haftalık Kuyruk Çağrı Hacmi"
+                  headers={["ISO Hafta", "Gelen Çağrı", "Cevaplanan", "Terk Edilen", "Cevaplama Oranı", `SL${slaSeconds} Oranı`]}
+                  rows={data?.weekly_volume || []}
+                  renderRow={(r) => (
+                    <tr key={r.week} className="hover:bg-slate-50/80 dark:hover:bg-slate-800/40">
+                      <td className="px-4 py-3 font-bold text-slate-800 dark:text-white">{r.week}</td>
+                      <td className="px-4 py-3 font-bold">{r.offered}</td>
+                      <td className="px-4 py-3 text-emerald-600 dark:text-emerald-400 font-semibold">{r.answered}</td>
+                      <td className="px-4 py-3 text-rose-500 font-semibold">{r.abandoned}</td>
+                      <td className="px-4 py-3 font-bold">%{r.answer_rate_pct}</td>
+                      <td className="px-4 py-3"><span className={`font-extrabold ${text}`}>%{r.sla_pct}</span></td>
+                    </tr>
+                  )}
+                />
+              )}
             </div>
           )}
 

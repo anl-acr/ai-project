@@ -18,6 +18,7 @@ from sqlalchemy import or_, select
 from backend.database.config import AsyncSessionLocal
 from backend.database.models import (
     AgentBreakLog,
+    AgentSessionLog,
     Appointment,
     BlacklistItem,
     BlockWord,
@@ -169,6 +170,70 @@ def _call_wait_sec(c: Call) -> int:
     return wall
 
 
+def _call_hold_info(c: Call, event_hold_map: Optional[Dict[str, Tuple[int, int]]] = None) -> Tuple[int, int]:
+    """Returns (hold_seconds, hold_count) for a call using metadata or EventLog hold telemetry."""
+    hold_sec = 0
+    hold_cnt = 0
+    td = c.transfer_details if isinstance(c.transfer_details, dict) else {}
+    if td:
+        hold_sec = max(0, int(td.get("hold_duration") or td.get("duration_hold") or 0))
+        hold_cnt = max(0, int(td.get("hold_count") or (1 if hold_sec > 0 else 0)))
+    if hold_sec == 0 and event_hold_map:
+        ev_sec, ev_cnt = event_hold_map.get(str(c.id), (0, 0))
+        if ev_sec > 0 or ev_cnt > 0:
+            hold_sec = ev_sec
+            hold_cnt = ev_cnt
+    return hold_sec, hold_cnt
+
+
+async def _load_hold_event_map(db, start_utc: datetime.datetime, end_utc: datetime.datetime) -> Dict[str, Tuple[int, int]]:
+    """Aggregates CALL_HOLD / CALL_UNHOLD durations per call_id from EventLog."""
+    result: Dict[str, Tuple[int, int]] = {}
+    try:
+        res = await db.execute(
+            select(EventLog)
+            .where(
+                EventLog.timestamp >= start_utc - datetime.timedelta(minutes=5),
+                EventLog.timestamp <= end_utc + datetime.timedelta(hours=1),
+                EventLog.action.in_(["CALL_HOLD", "CALL_UNHOLD", "HOLD_START", "HOLD_END"]),
+            )
+            .order_by(EventLog.timestamp.asc())
+        )
+        rows = res.scalars().all()
+        active_starts: Dict[str, datetime.datetime] = {}
+        totals: Dict[str, List[int]] = {}  # call_id -> [sec, count]
+        for ev in rows:
+            det = {}
+            if ev.details:
+                try:
+                    det = json.loads(ev.details) if isinstance(ev.details, str) else (ev.details if isinstance(ev.details, dict) else {})
+                except Exception:
+                    det = {}
+            cid = str(det.get("call_id") or "").strip()
+            if not cid:
+                continue
+            acc = totals.setdefault(cid, [0, 0])
+            act = str(ev.action or "").upper()
+            dur_direct = int(det.get("duration_seconds") or det.get("hold_seconds") or 0)
+            if act in ("CALL_HOLD", "HOLD_START"):
+                acc[1] += 1
+                if dur_direct > 0:
+                    acc[0] += dur_direct
+                elif ev.timestamp:
+                    active_starts[cid] = ev.timestamp
+            elif act in ("CALL_UNHOLD", "HOLD_END"):
+                if dur_direct > 0:
+                    acc[0] += dur_direct
+                elif cid in active_starts and ev.timestamp:
+                    acc[0] += max(1, int((ev.timestamp - active_starts[cid]).total_seconds()))
+                active_starts.pop(cid, None)
+        for cid, (sec, cnt) in totals.items():
+            result[cid] = (sec, max(cnt, 1 if sec > 0 else 0))
+    except Exception:
+        pass
+    return result
+
+
 def _compute_mos_from_metrics(rtt_ms: float, jitter_ms: float, packet_loss_pct: float) -> Tuple[float, str]:
     eff_lat = (max(0.0, rtt_ms) / 2.0) + (max(0.0, jitter_ms) * 2.0) + 10.0
     if eff_lat < 160.0:
@@ -205,11 +270,32 @@ async def report_breaks_attendance(
     end_time: Optional[str] = "23:59",
     max_break_minutes: int = 60,
 ):
+    from backend.services.wfm_shift_service import (
+        ensure_agent_session_table_async,
+        get_tenant_agent_shifts,
+        resolve_agent_shift,
+        evaluate_daily_shift_adherence,
+        compute_shift_span_seconds,
+    )
+
     tenant_id = _extract_tenant_id(request)
     start_utc, end_utc = _parse_tr_date_range(start_date, end_date, start_time, end_time)
     now_utc = datetime.datetime.utcnow()
+    now_tr = now_utc + datetime.timedelta(hours=3)
+
+    # Load tenant WFM shift configuration
+    try:
+        import backend.main as _bm
+        tenant_shifts = get_tenant_agent_shifts(_bm.settings_db, tenant_id)
+    except Exception:
+        tenant_shifts = get_tenant_agent_shifts({}, tenant_id)
 
     async with AsyncSessionLocal() as db:
+        try:
+            await ensure_agent_session_table_async(db)
+        except Exception:
+            pass
+
         stmt_users = _apply_tenant_clause(select(SystemUser), SystemUser, tenant_id)
         users = (await db.execute(stmt_users)).scalars().all()
 
@@ -223,12 +309,27 @@ async def report_breaks_attendance(
         )
         raw_logs = (await db.execute(stmt_breaks)).scalars().all()
 
+        session_rows_db = []
+        try:
+            stmt_sess = _apply_tenant_clause(
+                select(AgentSessionLog).where(
+                    AgentSessionLog.login_time >= start_utc - datetime.timedelta(hours=12),
+                    AgentSessionLog.login_time <= end_utc,
+                ).order_by(AgentSessionLog.login_time.desc()),
+                AgentSessionLog,
+                tenant_id,
+            )
+            session_rows_db = (await db.execute(stmt_sess)).scalars().all()
+        except Exception:
+            session_rows_db = []
+
         stmt_calls = _apply_tenant_clause(
             select(Call).where(Call.start_time >= start_utc, Call.start_time <= end_utc),
             Call,
             tenant_id,
         )
         calls = (await db.execute(stmt_calls)).scalars().all()
+        hold_event_map = await _load_hold_event_map(db, start_utc, end_utc)
 
     user_by_ext: Dict[str, Dict[str, Any]] = {}
     user_by_id: Dict[str, str] = {}
@@ -257,11 +358,19 @@ async def report_breaks_attendance(
                 "first_activity": None,
                 "last_activity": None,
                 "active_days_set": set(),
+                "daily_bounds": {},  # tr_day -> {first_tr, last_tr, break_sec, explicit_logout}
                 "login_count": 0,
                 "logout_count": 0,
+                "session_seconds": 0,
+                "disconnect_count": 0,
                 "answered_calls": 0,
                 "outbound_calls": 0,
                 "talk_seconds": 0,
+                "hold_seconds": 0,
+                "hold_count": 0,
+                "acw_seconds": 0,
+                "acw_count": 0,
+                "asa_sum": 0,
                 "break_count": 0,
                 "auto_pause_count": 0,
                 "overlimit_count": 0,
@@ -270,9 +379,66 @@ async def report_breaks_attendance(
             }
         return agent_stats[ext_key]
 
+    def _touch_day(ag: Dict[str, Any], dt_utc: Optional[datetime.datetime], is_end: bool = False, explicit_logout: bool = False):
+        if not dt_utc:
+            return
+        dt_tr = dt_utc + datetime.timedelta(hours=3)
+        tr_day = dt_tr.strftime("%Y-%m-%d")
+        ag["active_days_set"].add(tr_day)
+        dbnd = ag["daily_bounds"].setdefault(
+            tr_day, {"first_tr": None, "last_tr": None, "break_sec": 0, "explicit_logout": False}
+        )
+        if dbnd["first_tr"] is None or dt_tr < dbnd["first_tr"]:
+            dbnd["first_tr"] = dt_tr
+        if dbnd["last_tr"] is None or dt_tr > dbnd["last_tr"]:
+            dbnd["last_tr"] = dt_tr
+        if explicit_logout:
+            dbnd["explicit_logout"] = True
+        if not is_end and (ag["first_activity"] is None or dt_utc < ag["first_activity"]):
+            ag["first_activity"] = dt_utc
+        if ag["last_activity"] is None or dt_utc > ag["last_activity"]:
+            ag["last_activity"] = dt_utc
+
     for ext_k in user_by_ext:
         _ensure_agent(ext_k)
 
+    # 1. Process real AgentSessionLog rows
+    sessions_payload: List[Dict[str, Any]] = []
+    for srow in session_rows_db:
+        if srow.login_time and srow.login_time < start_utc and (srow.logout_time and srow.logout_time < start_utc):
+            continue
+        ext_val = str(srow.extension or "").strip()
+        if not ext_val and srow.user_id:
+            ext_val = user_by_id.get(str(srow.user_id), str(srow.user_id))
+        if not ext_val:
+            continue
+        ag = _ensure_agent(ext_val, srow.agent_name or "")
+        l_start = max(srow.login_time, start_utc) if srow.login_time else start_utc
+        l_end = min(srow.logout_time or now_utc, end_utc)
+        dur_s = max(0, int((l_end - l_start).total_seconds())) if l_end > l_start else int(srow.duration_seconds or 0)
+
+        ag["login_count"] += 1
+        if srow.logout_time:
+            ag["logout_count"] += 1
+        ag["session_seconds"] += dur_s
+        ag["disconnect_count"] += int(srow.disconnect_count or 0)
+        _touch_day(ag, srow.login_time, is_end=False)
+        _touch_day(ag, srow.logout_time or l_end, is_end=True, explicit_logout=bool(srow.logout_time))
+
+        if len(sessions_payload) < 400:
+            sessions_payload.append({
+                "id": srow.id,
+                "extension": ext_val,
+                "agent_name": ag["agent_name"],
+                "login_time": _to_tr_iso(srow.login_time),
+                "logout_time": _to_tr_iso(srow.logout_time) if srow.logout_time else "Aktif Oturum",
+                "duration_seconds": dur_s,
+                "logout_reason": srow.logout_reason or ("active" if not srow.logout_time else "manual_logout"),
+                "disconnect_count": int(srow.disconnect_count or 0),
+                "ip_address": srow.ip_address or "",
+            })
+
+    # 2. Process AgentBreakLog (separating __ACW__, __LOGIN__, __LOGOUT__ from real breaks)
     break_type_totals: Dict[str, Dict[str, Any]] = {}
     detailed_break_rows: List[Dict[str, Any]] = []
     limit_sec = max(5, int(max_break_minutes or 60)) * 60
@@ -287,34 +453,59 @@ async def report_breaks_attendance(
         ag = _ensure_agent(ext_val, lg.agent_name or "")
         st_dt = lg.start_time
         en_dt = lg.end_time or now_utc
-        if st_dt:
-            tr_day = (st_dt + datetime.timedelta(hours=3)).strftime("%Y-%m-%d")
-            ag["active_days_set"].add(tr_day)
-            if ag["first_activity"] is None or st_dt < ag["first_activity"]:
-                ag["first_activity"] = st_dt
-        if en_dt:
-            if ag["last_activity"] is None or en_dt > ag["last_activity"]:
-                ag["last_activity"] = en_dt
-
         bname = str(lg.break_name or "").strip()
+
+        if bname == "__LOGIN__":
+            _touch_day(ag, st_dt, is_end=False)
+            if ag["login_count"] == 0:
+                ag["login_count"] += 1
+            continue
+        if bname == "__LOGOUT__":
+            _touch_day(ag, st_dt, is_end=True, explicit_logout=True)
+            ag["logout_count"] += 1
+            continue
+        if bname == "__ACW__":
+            dur_acw = int(lg.duration_seconds or 0)
+            if dur_acw <= 0 and st_dt:
+                dur_acw = max(0, int((en_dt - st_dt).total_seconds()))
+            ag["acw_seconds"] += dur_acw
+            ag["acw_count"] += 1
+            _touch_day(ag, st_dt, is_end=False)
+            _touch_day(ag, en_dt, is_end=True)
+            continue
         if bname.startswith("__ACTION__:"):
             act_low = bname.lower()
             if "login" in act_low or "available" in act_low or "müsait" in act_low:
                 ag["login_count"] += 1
+                _touch_day(ag, st_dt, is_end=False)
             elif "logout" in act_low or "offline" in act_low or "çıkış" in act_low:
                 ag["logout_count"] += 1
+                _touch_day(ag, st_dt, is_end=True, explicit_logout=True)
             continue
+        if bname.startswith("__"):
+            continue
+
+        _touch_day(ag, st_dt, is_end=False)
+        _touch_day(ag, en_dt, is_end=True)
 
         dur_s = int(lg.duration_seconds or 0)
         if dur_s <= 0 and st_dt:
             dur_s = max(0, int((en_dt - st_dt).total_seconds()))
 
+        if st_dt:
+            tr_day = (st_dt + datetime.timedelta(hours=3)).strftime("%Y-%m-%d")
+            if tr_day in ag["daily_bounds"]:
+                ag["daily_bounds"][tr_day]["break_sec"] += dur_s
+
         is_auto = any(k in bname.lower() for k in ("auto", "otomatik", "kaçır", "kopma"))
+        is_disconnect = "kopma" in bname.lower() or "disconnect" in bname.lower()
         is_over = dur_s > limit_sec
 
         ag["break_count"] += 1
         if is_auto:
             ag["auto_pause_count"] += 1
+        if is_disconnect:
+            ag["disconnect_count"] += 1
         if is_over:
             ag["overlimit_count"] += 1
         ag["total_break_seconds"] += dur_s
@@ -344,6 +535,7 @@ async def report_breaks_attendance(
                 }
             )
 
+    # 3. Process Calls (Talk, Hold, ASA)
     for c in calls:
         caller_s = str(c.caller_number or "").strip()
         callee_s = str(c.callee_number or "").strip()
@@ -356,58 +548,117 @@ async def report_breaks_attendance(
         elif callee_s in user_by_ext:
             ans_ext = callee_s
 
+        h_sec, h_cnt = _call_hold_info(c, hold_event_map)
+
         if caller_s in user_by_ext:
             ag_out = _ensure_agent(caller_s)
             ag_out["outbound_calls"] += 1
-            if c.start_time:
-                ag_out["active_days_set"].add((c.start_time + datetime.timedelta(hours=3)).strftime("%Y-%m-%d"))
-                if ag_out["first_activity"] is None or c.start_time < ag_out["first_activity"]:
-                    ag_out["first_activity"] = c.start_time
-                end_c = c.end_time or c.start_time
-                if ag_out["last_activity"] is None or end_c > ag_out["last_activity"]:
-                    ag_out["last_activity"] = end_c
+            _touch_day(ag_out, c.start_time, is_end=False)
+            _touch_day(ag_out, c.end_time or c.start_time, is_end=True)
             if _is_answered_call(c):
                 ag_out["answered_calls"] += 1
                 ag_out["talk_seconds"] += _call_talk_sec(c)
+                ag_out["hold_seconds"] += h_sec
+                ag_out["hold_count"] += h_cnt
 
         if ans_ext and ans_ext != caller_s and ans_ext in user_by_ext:
             ag_in = _ensure_agent(ans_ext)
-            if c.start_time:
-                ag_in["active_days_set"].add((c.start_time + datetime.timedelta(hours=3)).strftime("%Y-%m-%d"))
-                if ag_in["first_activity"] is None or c.start_time < ag_in["first_activity"]:
-                    ag_in["first_activity"] = c.start_time
-                end_c = c.end_time or c.start_time
-                if ag_in["last_activity"] is None or end_c > ag_in["last_activity"]:
-                    ag_in["last_activity"] = end_c
+            _touch_day(ag_in, c.start_time, is_end=False)
+            _touch_day(ag_in, c.end_time or c.start_time, is_end=True)
             if _is_answered_call(c):
                 ag_in["answered_calls"] += 1
                 ag_in["talk_seconds"] += _call_talk_sec(c)
+                ag_in["hold_seconds"] += h_sec
+                ag_in["hold_count"] += h_cnt
+                ag_in["asa_sum"] += _call_wait_sec(c)
 
     agent_rows: List[Dict[str, Any]] = []
     total_break_sec_all = 0
     total_talk_sec_all = 0
+    total_hold_sec_all = 0
+    total_acw_sec_all = 0
+    total_ready_sec_all = 0
+    total_session_sec_all = 0
     total_breaks_count_all = 0
     total_overlimit_all = 0
     total_autopause_all = 0
+    total_late_min_all = 0
+    total_early_min_all = 0
+    total_disconnects_all = 0
 
     for ext_k, ag in agent_stats.items():
         active_days = len(ag["active_days_set"])
-        if active_days == 0 and ag["break_count"] == 0 and ag["answered_calls"] == 0 and ag["outbound_calls"] == 0:
+        if active_days == 0 and ag["break_count"] == 0 and ag["answered_calls"] == 0 and ag["outbound_calls"] == 0 and ag["login_count"] == 0:
             if ag["role"] == "admin":
                 continue
-        span_sec = 0
-        if ag["first_activity"] and ag["last_activity"] and ag["last_activity"] > ag["first_activity"]:
-            span_sec = int((ag["last_activity"] - ag["first_activity"]).total_seconds())
-        shift_baseline = max(span_sec, ag["talk_seconds"] + ag["total_break_seconds"], active_days * 8 * 3600 if active_days > 0 else 0)
-        net_available_sec = max(0, shift_baseline - ag["total_break_seconds"])
-        occupancy_pct = round((ag["talk_seconds"] / max(1, net_available_sec)) * 100.0, 1) if net_available_sec > 0 else 0.0
+
+        shift_cfg = resolve_agent_shift(tenant_shifts, ext_k)
+        planned_shift_label = f"{shift_cfg['start_time']} - {shift_cfg['end_time']}" if shift_cfg.get("enabled", True) else "Serbest"
+
+        # Compute daily shift adherence, late login & early logout
+        late_min_total = 0
+        early_min_total = 0
+        late_days_cnt = 0
+        early_days_cnt = 0
+        adherence_scores: List[float] = []
+        daily_span_sum = 0
+
+        for day_k, dbnd in ag["daily_bounds"].items():
+            f_tr = dbnd["first_tr"]
+            l_tr = dbnd["last_tr"]
+            if f_tr and l_tr and l_tr > f_tr:
+                daily_span_sum += int((l_tr - f_tr).total_seconds())
+            adh = evaluate_daily_shift_adherence(
+                tr_day_str=day_k,
+                shift_cfg=shift_cfg,
+                first_login_tr=f_tr,
+                last_logout_tr=l_tr,
+                actual_break_seconds=dbnd["break_sec"],
+                now_tr=now_tr,
+                has_explicit_logout=dbnd["explicit_logout"],
+            )
+            if adh["is_scheduled_day"]:
+                late_min_total += adh["late_login_minutes"]
+                early_min_total += adh["early_logout_minutes"]
+                if adh["late_login_minutes"] > 0:
+                    late_days_cnt += 1
+                if adh["early_logout_minutes"] > 0:
+                    early_days_cnt += 1
+                adherence_scores.append(adh["adherence_pct"])
+
+        adherence_pct = (
+            round(sum(adherence_scores) / len(adherence_scores), 1)
+            if adherence_scores
+            else (100.0 if active_days > 0 else 0.0)
+        )
+
+        # True session duration (real AgentSessionLog sum, fallback to daily activity span)
+        effective_session_sec = ag["session_seconds"] if ag["session_seconds"] > 0 else daily_span_sum
+        min_active_floor = ag["talk_seconds"] + ag["hold_seconds"] + ag["acw_seconds"] + ag["total_break_seconds"]
+        if effective_session_sec < min_active_floor:
+            effective_session_sec = min_active_floor
+
+        busy_sec = ag["talk_seconds"] + ag["hold_seconds"]
+        handling_sec = busy_sec + ag["acw_seconds"]
+        ready_sec = max(0, effective_session_sec - ag["total_break_seconds"] - handling_sec)
+        net_available_sec = handling_sec + ready_sec
+
+        # True industry-standard Occupancy = (Talk + Hold + ACW) / (Talk + Hold + ACW + Ready)
+        occupancy_pct = round((handling_sec / max(1, net_available_sec)) * 100.0, 1) if net_available_sec > 0 else 0.0
         occupancy_pct = min(100.0, occupancy_pct)
 
         total_break_sec_all += ag["total_break_seconds"]
         total_talk_sec_all += ag["talk_seconds"]
+        total_hold_sec_all += ag["hold_seconds"]
+        total_acw_sec_all += ag["acw_seconds"]
+        total_ready_sec_all += ready_sec
+        total_session_sec_all += effective_session_sec
         total_breaks_count_all += ag["break_count"]
         total_overlimit_all += ag["overlimit_count"]
         total_autopause_all += ag["auto_pause_count"]
+        total_late_min_all += late_min_total
+        total_early_min_all += early_min_total
+        total_disconnects_all += ag["disconnect_count"]
 
         top_breaks_str = ", ".join(
             f"{bk}: {round(bv / 60)}dk"
@@ -419,42 +670,127 @@ async def report_breaks_attendance(
                 "extension": ext_k,
                 "agent_name": ag["agent_name"],
                 "active_days": active_days,
+                "planned_shift": planned_shift_label,
+                "planned_shift_name": shift_cfg.get("shift_name") or planned_shift_label,
                 "first_login": _to_tr_iso(ag["first_activity"]) or "-",
                 "last_logout": _to_tr_iso(ag["last_activity"]) or "-",
+                "login_count": ag["login_count"],
+                "logout_count": ag["logout_count"],
+                "disconnect_count": ag["disconnect_count"],
+                "session_seconds": effective_session_sec,
+                "late_login_minutes": late_min_total,
+                "late_days_count": late_days_cnt,
+                "early_logout_minutes": early_min_total,
+                "early_days_count": early_days_cnt,
+                "adherence_pct": adherence_pct,
                 "answered_calls": ag["answered_calls"],
                 "talk_seconds": ag["talk_seconds"],
+                "hold_seconds": ag["hold_seconds"],
+                "hold_count": ag["hold_count"],
+                "acw_seconds": ag["acw_seconds"],
+                "acw_count": ag["acw_count"],
+                "busy_seconds": busy_sec,
+                "ready_seconds": ready_sec,
                 "break_count": ag["break_count"],
                 "auto_pause_count": ag["auto_pause_count"],
                 "overlimit_count": ag["overlimit_count"],
                 "total_break_seconds": ag["total_break_seconds"],
                 "net_work_seconds": net_available_sec,
                 "occupancy_pct": occupancy_pct,
+                "aht_seconds": round(handling_sec / max(1, ag["answered_calls"]), 1) if ag["answered_calls"] > 0 else 0.0,
+                "asa_seconds": round(ag["asa_sum"] / max(1, ag["answered_calls"]), 1) if ag["answered_calls"] > 0 else 0.0,
                 "break_summary": top_breaks_str or "-",
                 "break_breakdown": ag["break_breakdown"],
             }
         )
 
-    agent_rows.sort(key=lambda r: (r["total_break_seconds"] + r["talk_seconds"]), reverse=True)
+    agent_rows.sort(key=lambda r: (r["session_seconds"] + r["total_break_seconds"] + r["talk_seconds"]), reverse=True)
     by_break_type = sorted(break_type_totals.values(), key=lambda x: x["total_seconds"], reverse=True)
+    active_rows = [r for r in agent_rows if r["active_days"] > 0]
 
     return {
         "summary": {
             "total_agents": len(agent_rows),
-            "active_agents": sum(1 for r in agent_rows if r["active_days"] > 0),
+            "active_agents": len(active_rows),
             "total_breaks_count": total_breaks_count_all,
             "total_break_seconds": total_break_sec_all,
             "total_talk_seconds": total_talk_sec_all,
+            "total_hold_seconds": total_hold_sec_all,
+            "total_acw_seconds": total_acw_sec_all,
+            "total_ready_seconds": total_ready_sec_all,
+            "total_session_seconds": total_session_sec_all,
             "overlimit_count": total_overlimit_all,
             "auto_pause_count": total_autopause_all,
+            "total_late_minutes": total_late_min_all,
+            "total_early_minutes": total_early_min_all,
+            "total_disconnects": total_disconnects_all,
             "avg_occupancy_pct": round(
-                sum(r["occupancy_pct"] for r in agent_rows if r["active_days"] > 0)
-                / max(1, sum(1 for r in agent_rows if r["active_days"] > 0)),
-                1,
+                sum(r["occupancy_pct"] for r in active_rows) / max(1, len(active_rows)), 1
             ),
+            "avg_adherence_pct": round(
+                sum(r["adherence_pct"] for r in active_rows) / max(1, len(active_rows)), 1
+            ) if active_rows else 0.0,
         },
         "agents": agent_rows,
         "by_break_type": by_break_type,
+        "sessions": sessions_payload,
         "items": detailed_break_rows,
+    }
+
+
+@advanced_reports_router.get("/api/reports/enterprise/agent-kpi-metrics")
+async def report_agent_kpi_metrics(
+    request: Request,
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+    start_time: Optional[str] = "00:00",
+    end_time: Optional[str] = "23:59",
+):
+    """Temsilci Performans & KPI ekranı için gerçek AHT (Talk+Hold+ACW), ACW, ASA, Hold, Hazır/Meşgul/Mola, Occupancy ve Adherence metriklerini döner."""
+    data = await report_breaks_attendance(
+        request=request,
+        start_date=start_date,
+        end_date=end_date,
+        start_time=start_time,
+        end_time=end_time,
+        max_break_minutes=60,
+    )
+    by_ext: Dict[str, Any] = {}
+    by_name: Dict[str, Any] = {}
+    for row in data.get("agents") or []:
+        ans = max(1, int(row.get("answered_calls") or 0))
+        has_ans = int(row.get("answered_calls") or 0) > 0
+        payload_item = {
+            "extension": row["extension"],
+            "agent_name": row["agent_name"],
+            "aht_seconds": row.get("aht_seconds", 0.0),
+            "asa_seconds": row.get("asa_seconds", 0.0),
+            "avg_talk_seconds": round(row["talk_seconds"] / ans, 1) if has_ans else 0.0,
+            "total_talk_seconds": row["talk_seconds"],
+            "avg_hold_seconds": round(row["hold_seconds"] / ans, 1) if has_ans else 0.0,
+            "total_hold_seconds": row["hold_seconds"],
+            "hold_count": row.get("hold_count", 0),
+            "avg_acw_seconds": round(row["acw_seconds"] / max(1, row.get("acw_count") or ans), 1) if (row["acw_seconds"] > 0) else 0.0,
+            "total_acw_seconds": row["acw_seconds"],
+            "acw_count": row.get("acw_count", 0),
+            "ready_seconds": row.get("ready_seconds", 0),
+            "busy_seconds": row.get("busy_seconds", 0),
+            "break_seconds": row.get("total_break_seconds", 0),
+            "session_seconds": row.get("session_seconds", 0),
+            "occupancy_pct": row.get("occupancy_pct", 0.0),
+            "adherence_pct": row.get("adherence_pct", 0.0),
+            "planned_shift": row.get("planned_shift", ""),
+            "late_login_minutes": row.get("late_login_minutes", 0),
+            "early_logout_minutes": row.get("early_logout_minutes", 0),
+        }
+        by_ext[str(row["extension"])] = payload_item
+        by_name[str(row["agent_name"]).strip().lower()] = payload_item
+
+    return {
+        "status": "success",
+        "summary": data.get("summary", {}),
+        "by_extension": by_ext,
+        "by_name": by_name,
     }
 
 
@@ -992,8 +1328,47 @@ async def report_queue_sla_buckets(
             tenant_id,
         )
         calls = (await db.execute(stmt_calls)).scalars().all()
+        hold_event_map = await _load_hold_event_map(db, start_utc, end_utc)
+
+        # Load __ACW__ durations within the date window for true AHT = Talk + Hold + ACW
+        stmt_acw = _apply_tenant_clause(
+            select(AgentBreakLog).where(
+                AgentBreakLog.break_name == "__ACW__",
+                AgentBreakLog.start_time >= start_utc,
+                AgentBreakLog.start_time <= end_utc,
+            ),
+            AgentBreakLog,
+            tenant_id,
+        )
+        acw_logs = (await db.execute(stmt_acw)).scalars().all()
+
+    now_utc = datetime.datetime.utcnow()
+    acw_by_ext: Dict[str, int] = {}
+    total_acw_all = 0
+    for al in acw_logs:
+        d_s = int(al.duration_seconds or 0)
+        if d_s <= 0 and al.start_time:
+            d_s = max(0, int(((al.end_time or now_utc) - al.start_time).total_seconds()))
+        total_acw_all += d_s
+        ex_k = str(al.extension or "").strip()
+        if ex_k:
+            acw_by_ext[ex_k] = acw_by_ext.get(ex_k, 0) + d_s
 
     q_name_map = {str(q.extension or "").strip(): (q.name or f"Kuyruk {q.extension}") for q in queues if q.extension}
+    q_members_map: Dict[str, set] = {}
+    for q in queues:
+        qext = str(q.extension or "").strip()
+        if not qext:
+            continue
+        mset = set()
+        for m in (getattr(q, "queueMembers", None) or []):
+            if isinstance(m, dict):
+                mv = str(m.get("extension") or m.get("id") or "").strip()
+            else:
+                mv = str(m or "").strip()
+            if mv:
+                mset.add(mv)
+        q_members_map[qext] = mset
 
     if sla_thr > 60:
         buckets_def = [
@@ -1026,7 +1401,11 @@ async def report_queue_sla_buckets(
             "asa_sum": 0,
             "awt_sum": 0,
             "talk_sum": 0,
+            "hold_sum": 0,
         }
+
+    daily_map: Dict[str, Dict[str, Any]] = {}
+    weekly_map: Dict[str, Dict[str, Any]] = {}
 
     total_offered = 0
     total_answered = 0
@@ -1035,6 +1414,8 @@ async def report_queue_sla_buckets(
     total_short_abandoned = 0
     asa_sum_all = 0
     awt_sum_all = 0
+    talk_sum_all = 0
+    hold_sum_all = 0
 
     for c in calls:
         hsrc = str(c.hangup_source or "").strip()
@@ -1058,14 +1439,31 @@ async def report_queue_sla_buckets(
                 "asa_sum": 0,
                 "awt_sum": 0,
                 "talk_sum": 0,
+                "hold_sum": 0,
             },
         )
 
         wait_s = _call_wait_sec(c)
         ans = _is_answered_call(c)
+        t_sec = _call_talk_sec(c) if ans else 0
+        h_sec, _ = _call_hold_info(c, hold_event_map) if ans else (0, 0)
 
         total_offered += 1
         q_row["offered"] += 1
+
+        # Daily & Weekly volume tracking (TR local date)
+        if c.start_time:
+            tr_dt = c.start_time + datetime.timedelta(hours=3)
+            d_key = tr_dt.strftime("%Y-%m-%d")
+            iso_yr, iso_wk, _ = tr_dt.isocalendar()
+            w_key = f"{iso_yr}-H{iso_wk:02d}"
+            d_ent = daily_map.setdefault(d_key, {"date": d_key, "offered": 0, "answered": 0, "abandoned": 0, "in_sla": 0, "short_abandoned": 0})
+            w_ent = weekly_map.setdefault(w_key, {"week": w_key, "offered": 0, "answered": 0, "abandoned": 0, "in_sla": 0, "short_abandoned": 0})
+            d_ent["offered"] += 1
+            w_ent["offered"] += 1
+        else:
+            d_ent = None
+            w_ent = None
 
         matched_b = fallback_bucket_label
         for blabel, bmin, bmax in buckets_def:
@@ -1078,21 +1476,36 @@ async def report_queue_sla_buckets(
             total_answered += 1
             q_row["answered"] += 1
             q_row["asa_sum"] += wait_s
-            q_row["talk_sum"] += _call_talk_sec(c)
+            q_row["talk_sum"] += t_sec
+            q_row["hold_sum"] += h_sec
             asa_sum_all += wait_s
+            talk_sum_all += t_sec
+            hold_sum_all += h_sec
             buckets[matched_b]["answered"] += 1
+            if d_ent:
+                d_ent["answered"] += 1
+                w_ent["answered"] += 1
             if wait_s <= sla_thr:
                 total_in_sla += 1
                 q_row["answered_in_sla"] += 1
+                if d_ent:
+                    d_ent["in_sla"] += 1
+                    w_ent["in_sla"] += 1
         else:
             total_abandoned += 1
             q_row["abandoned"] += 1
             q_row["awt_sum"] += wait_s
             awt_sum_all += wait_s
             buckets[matched_b]["abandoned"] += 1
+            if d_ent:
+                d_ent["abandoned"] += 1
+                w_ent["abandoned"] += 1
             if wait_s < short_thr:
                 total_short_abandoned += 1
                 q_row["short_abandoned"] += 1
+                if d_ent:
+                    d_ent["short_abandoned"] += 1
+                    w_ent["short_abandoned"] += 1
 
     net_denom_all = max(1, total_offered - total_short_abandoned)
     sla_pct_all = round((total_in_sla / net_denom_all) * 100.0, 1) if (total_offered - total_short_abandoned) > 0 else 100.0
@@ -1101,6 +1514,14 @@ async def report_queue_sla_buckets(
     for qk, qv in sorted(per_queue.items(), key=lambda x: x[1]["offered"], reverse=True):
         net_q = qv["offered"] - qv["short_abandoned"]
         q_sla = round((qv["answered_in_sla"] / max(1, net_q)) * 100.0, 1) if net_q > 0 else 100.0
+        q_mems = q_members_map.get(qk, set())
+        q_acw_sum = sum(acw_by_ext.get(m, 0) for m in q_mems) if q_mems else 0
+        q_ans = max(1, qv["answered"])
+        has_q_ans = qv["answered"] > 0
+        avg_talk_q = round(qv["talk_sum"] / q_ans, 1) if has_q_ans else 0.0
+        avg_hold_q = round(qv["hold_sum"] / q_ans, 1) if has_q_ans else 0.0
+        avg_acw_q = round(q_acw_sum / q_ans, 1) if has_q_ans else 0.0
+        aht_q = round((qv["talk_sum"] + qv["hold_sum"] + q_acw_sum) / q_ans, 1) if has_q_ans else 0.0
         queue_rows.append(
             {
                 "queue_extension": qk,
@@ -1112,9 +1533,12 @@ async def report_queue_sla_buckets(
                 "short_abandoned": qv["short_abandoned"],
                 "sla_pct": q_sla,
                 "abandon_pct": round((qv["abandoned"] / max(1, qv["offered"])) * 100.0, 1) if qv["offered"] > 0 else 0.0,
-                "asa_seconds": round(qv["asa_sum"] / max(1, qv["answered"]), 1) if qv["answered"] > 0 else 0.0,
+                "asa_seconds": round(qv["asa_sum"] / q_ans, 1) if has_q_ans else 0.0,
                 "awt_seconds": round(qv["awt_sum"] / max(1, qv["abandoned"]), 1) if qv["abandoned"] > 0 else 0.0,
-                "aht_seconds": round(qv["talk_sum"] / max(1, qv["answered"]), 1) if qv["answered"] > 0 else 0.0,
+                "avg_talk_seconds": avg_talk_q,
+                "avg_hold_seconds": avg_hold_q,
+                "avg_acw_seconds": avg_acw_q,
+                "aht_seconds": aht_q,
             }
         )
 
@@ -1131,6 +1555,33 @@ async def report_queue_sla_buckets(
             }
         )
 
+    daily_volume = []
+    for dk in sorted(daily_map.keys(), reverse=True):
+        dv = daily_map[dk]
+        net_d = dv["offered"] - dv["short_abandoned"]
+        daily_volume.append({
+            "date": dk,
+            "offered": dv["offered"],
+            "answered": dv["answered"],
+            "abandoned": dv["abandoned"],
+            "answer_rate_pct": round((dv["answered"] / max(1, dv["offered"])) * 100.0, 1),
+            "sla_pct": round((dv["in_sla"] / max(1, net_d)) * 100.0, 1) if net_d > 0 else 100.0,
+        })
+
+    weekly_volume = []
+    for wk in sorted(weekly_map.keys(), reverse=True):
+        wv = weekly_map[wk]
+        net_w = wv["offered"] - wv["short_abandoned"]
+        weekly_volume.append({
+            "week": wk,
+            "offered": wv["offered"],
+            "answered": wv["answered"],
+            "abandoned": wv["abandoned"],
+            "answer_rate_pct": round((wv["answered"] / max(1, wv["offered"])) * 100.0, 1),
+            "sla_pct": round((wv["in_sla"] / max(1, net_w)) * 100.0, 1) if net_w > 0 else 100.0,
+        })
+
+    ans_all = max(1, total_answered)
     return {
         "summary": {
             "sla_threshold_seconds": sla_thr,
@@ -1142,11 +1593,19 @@ async def report_queue_sla_buckets(
             "short_abandoned": total_short_abandoned,
             "sla_pct": sla_pct_all,
             "abandon_pct": round((total_abandoned / max(1, total_offered)) * 100.0, 1) if total_offered > 0 else 0.0,
-            "asa_seconds": round(asa_sum_all / max(1, total_answered), 1) if total_answered > 0 else 0.0,
+            "asa_seconds": round(asa_sum_all / ans_all, 1) if total_answered > 0 else 0.0,
             "awt_seconds": round(awt_sum_all / max(1, total_abandoned), 1) if total_abandoned > 0 else 0.0,
+            "avg_talk_seconds": round(talk_sum_all / ans_all, 1) if total_answered > 0 else 0.0,
+            "avg_hold_seconds": round(hold_sum_all / ans_all, 1) if total_answered > 0 else 0.0,
+            "total_hold_seconds": hold_sum_all,
+            "avg_acw_seconds": round(total_acw_all / ans_all, 1) if total_answered > 0 else 0.0,
+            "total_acw_seconds": total_acw_all,
+            "aht_seconds": round((talk_sum_all + hold_sum_all + total_acw_all) / ans_all, 1) if total_answered > 0 else 0.0,
         },
         "buckets": bucket_list,
         "queues": queue_rows,
+        "daily_volume": daily_volume,
+        "weekly_volume": weekly_volume,
     }
 
 

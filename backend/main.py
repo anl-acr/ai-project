@@ -48,7 +48,7 @@ def add_system_log(source: str, level: str, message: str):
 add_system_log("SYSTEM", "INFO", "FastAPI Sunucusu başlatıldı.")
 add_system_log("DATABASE", "INFO", "Veritabanı bağlantısı kuruldu.")
 from backend.database.config import get_db, Base, engine, AsyncSessionLocal
-from backend.database.models import Rule, Call, Transcript, Appointment, ChatSession, ChatMessage, Contact, CannedResponse, BlacklistItem, BlockWord, SystemUser, SystemRole, PBXQueue, Trunk, AIAgent, BreakType, AgentBreakLog, SystemSetting, EventLog, QueueSurveyResponse, VoipQualityLog, VoicemailMessage, UserConsentLog, BreakApprovalRequest
+from backend.database.models import Rule, Call, Transcript, Appointment, ChatSession, ChatMessage, Contact, CannedResponse, BlacklistItem, BlockWord, SystemUser, SystemRole, PBXQueue, Trunk, AIAgent, BreakType, AgentBreakLog, SystemSetting, EventLog, QueueSurveyResponse, VoipQualityLog, VoicemailMessage, UserConsentLog, BreakApprovalRequest, AgentSessionLog
 from backend.services.agent_presence import get_agent_state
 from backend.services.rag_service import index_pdf_file, index_website_url, query_vector_search, index_manual_text, delete_indexed_source, get_genai_client
 from backend.services.license_service import verify_license_key, generate_license_key, generate_tenant_serial_number
@@ -11555,6 +11555,7 @@ async def update_agent_status_endpoint(request: Request, payload: AgentStateSche
             conditions.append(AgentBreakLog.extension == ext_str)
 
         ended_any_break = False
+        ended_only_acw = False
         if conditions:
             stmt_active = select(AgentBreakLog).where(
                 AgentBreakLog.end_time.is_(None),
@@ -11565,14 +11566,28 @@ async def update_agent_status_endpoint(request: Request, payload: AgentStateSche
             for active_log in active_logs:
                 active_log.end_time = now_utc
                 active_log.duration_seconds = max(0, int((now_utc - active_log.start_time).total_seconds()))
-                ended_any_break = True
+                if str(active_log.break_name or "") == "__ACW__":
+                    ended_only_acw = True
+                else:
+                    ended_any_break = True
 
         audit_user_lbl = resolve_audit_user_label(user_id_str or ext_str)
-        if payload.status == "break" and payload.current_break:
+        if payload.status == "acw" and (user_id_str or ext_str):
+            db.add(AgentBreakLog(
+                user_id=user_id_str,
+                extension=ext_str,
+                agent_name=audit_user_lbl,
+                break_name="__ACW__",
+                start_time=now_utc,
+                end_time=None,
+                duration_seconds=0
+            ))
+        elif payload.status == "break" and payload.current_break:
             break_name = payload.current_break.get("name", "Mola")
             new_log = AgentBreakLog(
                 user_id=user_id_str,
                 extension=ext_str,
+                agent_name=audit_user_lbl,
                 break_name=break_name,
                 start_time=now_utc,
                 end_time=None,
@@ -11589,6 +11604,7 @@ async def update_agent_status_endpoint(request: Request, payload: AgentStateSche
             db.add(AgentBreakLog(
                 user_id=user_id_str,
                 extension=ext_str,
+                agent_name=audit_user_lbl,
                 break_name="__LOGOUT__",
                 start_time=now_utc,
                 end_time=now_utc,
@@ -11608,7 +11624,7 @@ async def update_agent_status_endpoint(request: Request, payload: AgentStateSche
                     module="CallPanel",
                     details={"summary": "Molasını sonlandırarak Müsait (Çağrı Alabilir) durumuna geçti."}
                 ))
-            else:
+            elif not ended_only_acw:
                 stmt_latest = select(AgentBreakLog).where(
                     or_(*conditions)
                 ).order_by(AgentBreakLog.start_time.desc(), AgentBreakLog.id.desc()).limit(1)
@@ -11618,6 +11634,7 @@ async def update_agent_status_endpoint(request: Request, payload: AgentStateSche
                     db.add(AgentBreakLog(
                         user_id=user_id_str,
                         extension=ext_str,
+                        agent_name=audit_user_lbl,
                         break_name="__LOGIN__",
                         start_time=now_utc,
                         end_time=now_utc,
@@ -11629,6 +11646,73 @@ async def update_agent_status_endpoint(request: Request, payload: AgentStateSche
                         module="CallPanel",
                         details={"summary": "Temsilci çağrı kuyruğunda oturum açtı (Müsait durumuna geçti)."}
                     ))
+
+        # Maintain exact AgentSessionLog records for WFM Attendance & Adherence
+        try:
+            from backend.services.wfm_shift_service import ensure_agent_session_table_async
+            await ensure_agent_session_table_async(db)
+            sess_conds = []
+            if user_id_str:
+                sess_conds.append(AgentSessionLog.user_id == user_id_str)
+            if ext_str:
+                sess_conds.append(AgentSessionLog.extension == ext_str)
+
+            if sess_conds:
+                open_sess_res = await db.execute(
+                    select(AgentSessionLog)
+                    .where(AgentSessionLog.logout_time.is_(None), or_(*sess_conds))
+                    .order_by(AgentSessionLog.login_time.desc())
+                )
+                open_sessions = open_sess_res.scalars().all()
+                req_tenant = "tenant-default"
+                try:
+                    req_tenant = (request.headers.get("X-Tenant-ID") or "tenant-default").strip() or "tenant-default"
+                except Exception:
+                    pass
+                req_ip = ""
+                try:
+                    req_ip = extract_client_ip(request)
+                except Exception:
+                    pass
+
+                if payload.status == "offline" or not payload.is_logged_in:
+                    reason_str = "auto_logout" if getattr(payload, "by_supervisor", False) else "manual_logout"
+                    for s_row in open_sessions:
+                        s_row.logout_time = now_utc
+                        s_row.duration_seconds = max(0, int((now_utc - s_row.login_time).total_seconds()))
+                        s_row.logout_reason = reason_str
+                elif payload.is_logged_in:
+                    # Close any open session from an earlier TR calendar day
+                    active_today_sess = None
+                    for s_row in open_sessions:
+                        s_day_tr = (s_row.login_time + datetime.timedelta(hours=3)).strftime("%Y-%m-%d")
+                        now_day_tr = (now_utc + datetime.timedelta(hours=3)).strftime("%Y-%m-%d")
+                        if s_day_tr != now_day_tr:
+                            s_row.logout_time = now_utc
+                            s_row.duration_seconds = max(0, int((now_utc - s_row.login_time).total_seconds()))
+                            s_row.logout_reason = "day_rollover"
+                        elif active_today_sess is None:
+                            active_today_sess = s_row
+                    if active_today_sess is None:
+                        active_today_sess = AgentSessionLog(
+                            tenant_id=req_tenant,
+                            user_id=user_id_str,
+                            extension=ext_str,
+                            agent_name=audit_user_lbl,
+                            login_time=now_utc,
+                            logout_time=None,
+                            duration_seconds=0,
+                            logout_reason="active",
+                            disconnect_count=0,
+                            ip_address=req_ip,
+                        )
+                        db.add(active_today_sess)
+                    if payload.status == "break" and isinstance(payload.current_break, dict):
+                        b_low = str(payload.current_break.get("name") or "").lower()
+                        if "kopma" in b_low or "disconnect" in b_low:
+                            active_today_sess.disconnect_count = int(active_today_sess.disconnect_count or 0) + 1
+        except Exception as e_sess:
+            print(f"[AgentSessionLog Warning]: {e_sess}")
 
         await db.commit()
     except Exception as e_brk:
@@ -41590,18 +41674,35 @@ async def get_system_version_info():
         pass
 
     return {
-        "version": "v3.6.9",
+        "version": "v3.7.0",
         "commit_hash": live_commit,
         "release_date": "21 Kasım 2026",
         "status": "Güncel / Canlı Sürüm",
         "environment": "Production (On-Premise)",
         "changelog": [
             {
-                "version": "v3.6.9",
+                "version": "v3.7.0",
                 "commit_hash": live_commit,
                 "release_date": "21 Kasım 2026",
                 "badge": "Canlı Sürüm (Güncel)",
                 "badge_type": "current",
+                "title": "Kurumsal WFM Vardiya Planı (Adherence), Gerçek AHT/ACW/Hold/ASA & Temsilci KPI Paketi",
+                "summary": "Yeastar'da bulunmayan tam kapsamlı kurumsal çağrı merkezi raporlama paketi eklendi: gerçek ACW ve oturum (Login/Logout/Kesinti) loglama, endüstri standardı AHT (Talk+Hold+ACW), temsilci bazlı AHT/ACW/ASA/Hold/Hazır-Meşgul-Mola metrikleri, WFM Vardiya Planı yönetimi, Geç Giriş / Erken Çıkış / Adherence (%) ve Günlük-Haftalık Kuyruk Hacimleri.",
+                "features": [
+                    "Gerçek ACW (Çağrı Sonrası İşlem) & Oturum (AgentSessionLog) Takibi: Her ACW süresi (__ACW__), gerçek Login/Logout oturumu ve bağlantı kesintisi PostgreSQL'e kaydedilir.",
+                    "Gerçek Endüstri Standardı AHT & Occupancy: Kuyruk SLA ve Temsilci KPI raporlarında AHT = Konuşma + Hold + ACW, Occupancy = (Konuşma+Hold+ACW) / (Konuşma+Hold+ACW+Hazır) formülüyle hesaplanır.",
+                    "Zenginleştirilmiş Temsilci Performans & KPI Tablosu: AHT, ACW (Ort/Top), ASA, Hold (Ort/Top), Hazır / Meşgul / Mola süreleri ve Doluluk (%) sütunları eklendi.",
+                    "WFM Vardiya Planı & Adherence (Vardiya Uyum Oranı): Mola & Puantaj raporu içine temsilci/kurum bazlı vardiya planlayıcı (hazır şablonlar + toplu atama), Geç Giriş (dk), Erken Çıkış (dk), Oturum Kesintisi, Giriş-Çıkış Hareketleri sekmesi ve Adherence (%) hesaplaması eklendi.",
+                    "Kuyruk SLA raporuna Günlük ve Haftalık Çağrı Hacmi kırılım sekmeleri ve Excel dışa aktarma sayfaları eklendi."
+                ],
+                "fixes": []
+            },
+            {
+                "version": "v3.6.9",
+                "commit_hash": "6e5a341",
+                "release_date": "21 Kasım 2026",
+                "badge": "Kararlı",
+                "badge_type": "stable",
                 "title": "Kuyruk Raporlarında Dinamik Hizmet Seviyesi (SL 5 – SL 600) Filtresi",
                 "summary": "Kuyruk & Bekleme Analitiği ve Kuyruk SLA & Hız Dilimleri raporlarının filtre ekranlarına varsayılan SL 20 olmak üzere SL 5 ile SL 600 saniye arasında özelleştirilebilir SL eşik seçicisi eklendi.",
                 "features": [
@@ -50736,6 +50837,119 @@ async def decide_break_approval_request(
         "decision": decision,
         "request": serialized,
         "agent_state": agent_new_state,
+    }
+
+
+# ==============================================================================
+# WFM VARDİYA PLANI (AGENT SHIFTS) AYARLARI
+# ==============================================================================
+
+@app.get("/api/settings/agent-shifts")
+async def get_agent_shifts_settings(request: Request, db: AsyncSession = Depends(get_db)):
+    """Tenant bazlı temsilci vardiya planlarını (WFM Shift Schedule) döner."""
+    from backend.services.wfm_shift_service import get_tenant_agent_shifts, resolve_agent_shift
+
+    user_info = get_user_info(request)
+    tenant_id = "tenant-default" if is_default_tenant(user_info["tenant_id"]) else user_info["tenant_id"]
+    cfg = get_tenant_agent_shifts(settings_db, tenant_id)
+
+    # Return resolved per-user shift list for convenient WFM table editing
+    agents_rows = []
+    try:
+        if is_default_tenant(tenant_id):
+            u_res = await db.execute(
+                select(SystemUser).where(
+                    or_(
+                        SystemUser.tenant_id == "tenant-default",
+                        SystemUser.tenant_id == "default",
+                        SystemUser.tenant_id.is_(None),
+                    )
+                )
+            )
+        else:
+            u_res = await db.execute(select(SystemUser).where(SystemUser.tenant_id == tenant_id))
+        for u in u_res.scalars().all():
+            ext_s = str(u.extension or "").strip()
+            if not ext_s:
+                continue
+            agents_rows.append({
+                "user_id": str(u.id),
+                "extension": ext_s,
+                "full_name": u.full_name or f"Dahili {ext_s}",
+                "role": u.role or "agent",
+                "has_custom_shift": ext_s in cfg["by_extension"],
+                "shift": resolve_agent_shift(cfg, ext_s),
+            })
+    except Exception:
+        pass
+
+    return {
+        "status": "success",
+        "default_shift": cfg["default_shift"],
+        "by_extension": cfg["by_extension"],
+        "presets": cfg["presets"],
+        "agents": agents_rows,
+    }
+
+
+@app.post("/api/settings/agent-shifts")
+async def save_agent_shifts_settings(
+    request: Request,
+    payload: Dict[str, Any] = Body(...),
+):
+    """Tenant varsayılan vardiyasını ve/veya temsilci bazlı vardiya planlarını kaydeder."""
+    from backend.services.wfm_shift_service import get_tenant_agent_shifts, normalize_shift_config
+
+    user_info = get_user_info(request)
+    tenant_id = "tenant-default" if is_default_tenant(user_info["tenant_id"]) else user_info["tenant_id"]
+    current = get_tenant_agent_shifts(settings_db, tenant_id)
+
+    new_default = (
+        normalize_shift_config(payload["default_shift"])
+        if isinstance(payload.get("default_shift"), dict)
+        else current["default_shift"]
+    )
+    new_by_ext = dict(current["by_extension"])
+
+    if isinstance(payload.get("by_extension"), dict):
+        for ext_k, s_val in payload["by_extension"].items():
+            ek = str(ext_k or "").strip()
+            if not ek:
+                continue
+            if s_val is None:
+                new_by_ext.pop(ek, None)
+            elif isinstance(s_val, dict):
+                new_by_ext[ek] = normalize_shift_config(s_val)
+
+    # Optional bulk apply to all extensions
+    if payload.get("apply_default_to_all") is True:
+        new_by_ext = {}
+
+    all_shifts = settings_db.get("agent_shifts")
+    if not isinstance(all_shifts, dict):
+        all_shifts = {}
+    all_shifts[tenant_id] = {
+        "default_shift": new_default,
+        "by_extension": new_by_ext,
+    }
+    settings_db["agent_shifts"] = all_shifts
+    save_settings(settings_db)
+
+    await log_event(
+        user_id=user_info["user_id"],
+        action="WFM_SHIFTS_UPDATED",
+        module="WorkHours",
+        details={
+            "default_shift": f"{new_default['start_time']}-{new_default['end_time']}",
+            "custom_agents_count": len(new_by_ext),
+        },
+        ip_address=user_info["ip_address"],
+    )
+
+    return {
+        "status": "success",
+        "default_shift": new_default,
+        "by_extension": new_by_ext,
     }
 
 

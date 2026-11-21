@@ -486,6 +486,7 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
   }, [queues]);
   const [filterQueuesSelected, setFilterQueuesSelected] = useState([]);
   const [filterQueueSlaSeconds, setFilterQueueSlaSeconds] = useState(20); // Default SL20 (range: SL 5 - SL 600)
+  const [agentKpiMetrics, setAgentKpiMetrics] = useState({ by_extension: {}, by_name: {} });
   const [filterAgentsSelected, setFilterAgentsSelected] = useState([]);
   const [filterSentimentsSelected, setFilterSentimentsSelected] = useState([]);
   const [filterWordcloudKeyword, setFilterWordcloudKeyword] = useState("");
@@ -1190,6 +1191,31 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
     }
   }, [viewMode, filterStartDate, filterEndDate, filterStartTime, filterEndTime, backendHost]);
 
+  useEffect(() => {
+    if (viewMode !== "perf") return;
+    let cancelled = false;
+    const proto = typeof window !== "undefined" && window.location.protocol === "https:" ? "https:" : "http:";
+    const params = new URLSearchParams();
+    if (filterStartDate) params.set("start_date", filterStartDate);
+    if (filterEndDate) params.set("end_date", filterEndDate);
+    if (filterStartTime) params.set("start_time", filterStartTime);
+    if (filterEndTime) params.set("end_time", filterEndTime);
+    fetch(`${proto}//${backendHost}/api/reports/enterprise/agent-kpi-metrics?${params.toString()}`)
+      .then((res) => (res.ok ? res.json() : null))
+      .then((d) => {
+        if (!cancelled && d && (d.by_extension || d.by_name)) {
+          setAgentKpiMetrics({
+            by_extension: d.by_extension || {},
+            by_name: d.by_name || {}
+          });
+        }
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [viewMode, filterStartDate, filterEndDate, filterStartTime, filterEndTime, backendHost]);
+
   const DEFAULT_INTENT_RULES = [
     {
       id: "intent-sales-positive",
@@ -1549,6 +1575,12 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
       answerRate: "Cevaplama %",
       totalTalk: "Top. Konuşma",
       avgTalk: "Ort. Konuşma",
+      aht: "AHT (İşlem)",
+      acw: "ACW (Ort / Top)",
+      asa: "ASA (Cevap Hızı)",
+      hold: "Hold (Ort / Top)",
+      stateDurations: "Hazır / Meşgul / Mola",
+      occupancy: "Doluluk %",
       avgQa: "Ort. Kalite",
       sentiment: "Duygu (Poz/Nöt/Neg)",
       detail: "Detay"
@@ -9237,6 +9269,8 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                       agent: agentName,
                       totalCalls: 0,
                       totalTalkDuration: 0,
+                      totalHoldDuration: 0,
+                      totalWaitDuration: 0,
                       answeredCalls: 0,
                       missedCalls: 0,
                       qaScoreSum: 0,
@@ -9257,6 +9291,8 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                       agent: agent,
                       totalCalls: 0,
                       totalTalkDuration: 0,
+                      totalHoldDuration: 0,
+                      totalWaitDuration: 0,
                       answeredCalls: 0,
                       missedCalls: 0,
                       qaScoreSum: 0,
@@ -9272,6 +9308,16 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                   
                   stats[agent].totalCalls++;
                   stats[agent].totalTalkDuration += (call.duration_talk || 0);
+                  stats[agent].totalHoldDuration += Math.max(0, Number(call.hold_duration || call.duration_hold || 0));
+                  const pDurPerf = getCallDurations(call);
+                  let waitSecPerf = 0;
+                  if (pDurPerf?.queue && pDurPerf.queue.includes(":")) {
+                    const qp = pDurPerf.queue.split(":");
+                    waitSecPerf = (parseInt(qp[0], 10) || 0) * 60 + (parseInt(qp[1], 10) || 0);
+                  }
+                  if (call.status === "ANSWERED" || call.duration_talk > 0) {
+                    stats[agent].totalWaitDuration += waitSecPerf;
+                  }
                   
                   const callInfo = { id: call.id, number: getCustomerNumber(call), time: call.start_time, status: call.status, dir: getCallDirection(call) };
                   stats[agent].callsTotalList.push(callInfo);
@@ -9318,6 +9364,12 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                               {visibleColumns.answerRate && <th className={"p-4 text-xs font-bold uppercase tracking-wider text-center " + text}>Cevaplama %</th>}
                               {visibleColumns.totalTalk && <th className={"p-4 text-xs font-bold uppercase tracking-wider text-center " + text}>Top. Konuşma</th>}
                               {visibleColumns.avgTalk && <th className={"p-4 text-xs font-bold uppercase tracking-wider text-center " + text}>Ort. Konuşma</th>}
+                              {visibleColumns.aht && <th className={"p-4 text-xs font-bold uppercase tracking-wider text-center " + text} title="Average Handle Time = Konuşma + Hold + ACW">AHT (İşlem)</th>}
+                              {visibleColumns.acw && <th className={"p-4 text-xs font-bold uppercase tracking-wider text-center " + text} title="Çağrı Sonrası İşlem Süresi (After Call Work)">ACW (Ort / Top)</th>}
+                              {visibleColumns.asa && <th className={"p-4 text-xs font-bold uppercase tracking-wider text-center " + text} title="Average Speed of Answer (Ortalama Cevaplama Süresi)">ASA</th>}
+                              {visibleColumns.hold && <th className={"p-4 text-xs font-bold uppercase tracking-wider text-center " + text} title="Ortalama / Toplam Bekletme Süresi">Hold (Ort / Top)</th>}
+                              {visibleColumns.stateDurations && <th className={"p-4 text-xs font-bold uppercase tracking-wider text-center " + text}>Hazır / Meşgul / Mola</th>}
+                              {visibleColumns.occupancy && <th className={"p-4 text-xs font-bold uppercase tracking-wider text-center " + text} title="Doluluk = (Konuşma+Hold+ACW) / (Konuşma+Hold+ACW+Hazır)">Doluluk %</th>}
                               {visibleColumns.avgQa && <th className={"p-4 text-xs font-bold uppercase tracking-wider text-center " + text}>Ort. Kalite</th>}
                               {visibleColumns.sentiment && <th className={"p-4 text-xs font-bold uppercase tracking-wider text-center " + text}>Duygu (Poz/Nöt/Neg)</th>}
                               {visibleColumns.detail && <th className={"p-4 text-xs font-bold uppercase tracking-wider text-center " + text}></th>}
@@ -9331,8 +9383,44 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                             ) : (
                               pagedAgents.map((agentData, idx) => {
                                 const answerRate = agentData.totalCalls > 0 ? Math.round((agentData.answeredCalls / agentData.totalCalls) * 100) : 0;
-                                const avgTalk = agentData.totalCalls > 0 ? Math.round(agentData.totalTalkDuration / agentData.totalCalls) : 0;
+                                const avgTalk = agentData.answeredCalls > 0 ? Math.round(agentData.totalTalkDuration / agentData.answeredCalls) : 0;
                                 const avgQa = agentData.qaScoreCount > 0 ? Math.round(agentData.qaScoreSum / agentData.qaScoreCount) : 0;
+
+                                // Resolve backend WFM/KPI metrics by name or extension token
+                                const agKeyLower = String(agentData.agent || "").trim().toLowerCase();
+                                const extMatch = String(agentData.agent || "").match(/\b(\d{3,5})\b/);
+                                const kpiRow =
+                                  agentKpiMetrics?.by_name?.[agKeyLower] ||
+                                  (extMatch ? agentKpiMetrics?.by_extension?.[extMatch[1]] : null) ||
+                                  null;
+
+                                const totalHold = Math.max(agentData.totalHoldDuration || 0, kpiRow?.total_hold_seconds || 0);
+                                const avgHold = agentData.answeredCalls > 0
+                                  ? Math.round(totalHold / agentData.answeredCalls)
+                                  : Math.round(kpiRow?.avg_hold_seconds || 0);
+                                const totalAcw = kpiRow?.total_acw_seconds || 0;
+                                const avgAcw = kpiRow?.avg_acw_seconds
+                                  ? Math.round(kpiRow.avg_acw_seconds)
+                                  : (agentData.answeredCalls > 0 ? Math.round(totalAcw / agentData.answeredCalls) : 0);
+                                const ahtSec = kpiRow && kpiRow.aht_seconds > 0
+                                  ? Math.round(kpiRow.aht_seconds)
+                                  : Math.round(avgTalk + avgHold + avgAcw);
+                                const asaSec = kpiRow && kpiRow.asa_seconds > 0
+                                  ? Math.round(kpiRow.asa_seconds)
+                                  : (agentData.answeredCalls > 0 ? Math.round((agentData.totalWaitDuration || 0) / agentData.answeredCalls) : 0);
+                                const readySec = kpiRow?.ready_seconds || 0;
+                                const busySec = kpiRow?.busy_seconds || (agentData.totalTalkDuration + totalHold);
+                                const breakSec = kpiRow?.break_seconds || 0;
+                                const occPct = kpiRow?.occupancy_pct ?? (busySec + readySec > 0 ? Math.round((busySec / (busySec + readySec)) * 100) : 0);
+                                const fmtHM = (s) => {
+                                  const v = Math.max(0, Math.round(Number(s) || 0));
+                                  const h = Math.floor(v / 3600);
+                                  const m = Math.floor((v % 3600) / 60);
+                                  const rem = v % 60;
+                                  if (h > 0) return `${h}sa ${m}dk`;
+                                  if (m > 0) return `${m}dk ${rem}sn`;
+                                  return `${rem}sn`;
+                                };
                                 
                                 return (
                                   <tr key={idx} className={"border-b " + borderLight + " transition-colors duration-150 " + hover}>
@@ -9360,6 +9448,50 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                                     )}
                                     {visibleColumns.totalTalk && <td className="p-4 text-center font-medium text-slate-600 dark:text-slate-400">{formatSec(agentData.totalTalkDuration)}</td>}
                                     {visibleColumns.avgTalk && <td className="p-4 text-center font-medium text-slate-600 dark:text-slate-400">{formatSec(avgTalk)}</td>}
+                                    {visibleColumns.aht && (
+                                      <td className="p-4 text-center font-extrabold text-slate-800 dark:text-slate-100 whitespace-nowrap" title={`Talk: ${formatSec(avgTalk)} + Hold: ${formatSec(avgHold)} + ACW: ${formatSec(avgAcw)}`}>
+                                        {formatSec(ahtSec)}
+                                      </td>
+                                    )}
+                                    {visibleColumns.acw && (
+                                      <td className="p-4 text-center text-xs text-slate-600 dark:text-slate-300 whitespace-nowrap">
+                                        <span className="font-bold">{formatSec(avgAcw)}</span>
+                                        <span className="text-slate-400 mx-1">/</span>
+                                        <span className="text-[11px] text-slate-500">{formatSec(totalAcw)}</span>
+                                      </td>
+                                    )}
+                                    {visibleColumns.asa && (
+                                      <td className="p-4 text-center font-bold text-slate-700 dark:text-slate-200 whitespace-nowrap">
+                                        {asaSec} sn
+                                      </td>
+                                    )}
+                                    {visibleColumns.hold && (
+                                      <td className="p-4 text-center text-xs text-slate-600 dark:text-slate-300 whitespace-nowrap">
+                                        <span className="font-bold">{formatSec(avgHold)}</span>
+                                        <span className="text-slate-400 mx-1">/</span>
+                                        <span className="text-[11px] text-slate-500">{formatSec(totalHold)}</span>
+                                      </td>
+                                    )}
+                                    {visibleColumns.stateDurations && (
+                                      <td className="p-4 text-center whitespace-nowrap">
+                                        <div className="inline-flex items-center gap-1 text-[10px] font-bold">
+                                          <span className="px-1.5 py-0.5 rounded bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border border-emerald-200/70 dark:border-emerald-800/60" title="Hazır (Müsait) Süre">
+                                            H:{fmtHM(readySec)}
+                                          </span>
+                                          <span className="px-1.5 py-0.5 rounded bg-sky-50 dark:bg-sky-950/40 text-sky-700 dark:text-sky-300 border border-sky-200/70 dark:border-sky-800/60" title="Meşgul (Konuşma + Hold)">
+                                            M:{fmtHM(busySec)}
+                                          </span>
+                                          <span className="px-1.5 py-0.5 rounded bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 border border-amber-200/70 dark:border-amber-800/60" title="Çağrıya Kapalı / Mola Süresi">
+                                            K:{fmtHM(breakSec)}
+                                          </span>
+                                        </div>
+                                      </td>
+                                    )}
+                                    {visibleColumns.occupancy && (
+                                      <td className="p-4 text-center">
+                                        <span className={`font-extrabold text-xs ${text}`}>%{occPct}</span>
+                                      </td>
+                                    )}
                                     {visibleColumns.avgQa && (
                                       <td className="p-4 text-center">
                                         {agentData.qaScoreCount > 0 ? (
