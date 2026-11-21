@@ -361,7 +361,28 @@ def normalize_user_sip_devices(
                     "value": str(s_item.get("value") or "").strip(),
                 })
 
-        normalized.append({
+        base_is_active = dev.get("is_active") is not False
+        raw_ca = dev.get("client_access") if isinstance(dev.get("client_access"), dict) else None
+        if dev_type == "web_phone":
+            if raw_ca is not None:
+                client_access_norm = {
+                    "web_phone": bool(raw_ca.get("web_phone", True)),
+                    "pc_app": bool(raw_ca.get("pc_app", True)),
+                    "mobile_app": bool(raw_ca.get("mobile_app", True)),
+                }
+                eff_is_active = any(client_access_norm.values())
+            else:
+                client_access_norm = {
+                    "web_phone": base_is_active,
+                    "pc_app": base_is_active,
+                    "mobile_app": base_is_active,
+                }
+                eff_is_active = base_is_active
+        else:
+            client_access_norm = None
+            eff_is_active = base_is_active
+
+        dev_out = {
             "id": dev_id,
             "name": dev_name,
             "device_type": dev_type,
@@ -371,7 +392,7 @@ def normalize_user_sip_devices(
             "sip_driver": dev_driver,
             "remote_access": dev_remote,
             "transport": dev_tr,
-            "is_active": dev.get("is_active") is not False,
+            "is_active": eff_is_active,
             "is_deletable": dev_type != "web_phone",
             "trunk": dev_trunk,
             "prefix": dev_prefix,
@@ -390,7 +411,10 @@ def normalize_user_sip_devices(
             "direct_ip_call_block": dev.get("direct_ip_call_block") is not False,
             "dss_keys": dss_list,
             "soft_keys": soft_list,
-        })
+        }
+        if client_access_norm is not None:
+            dev_out["client_access"] = client_access_norm
+        normalized.append(dev_out)
 
     return normalized
 

@@ -1106,9 +1106,18 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
   const createSipDeviceItem = (index = 1, overrides = {}) => {
     const isVirtualSub = overrides.device_type === "virtual_subscriber";
     const isWebPhone = overrides.device_type === "web_phone";
+    const baseActive = overrides.is_active !== false;
+    const rawCa = overrides.client_access && typeof overrides.client_access === "object" ? overrides.client_access : null;
+    const clientAccessObj = isWebPhone
+      ? {
+          web_phone: rawCa ? rawCa.web_phone !== false : baseActive,
+          pc_app: rawCa ? rawCa.pc_app !== false : baseActive,
+          mobile_app: rawCa ? rawCa.mobile_app !== false : baseActive
+        }
+      : undefined;
     return {
       id: overrides.id || (isWebPhone ? `dev-web-${Date.now()}` : `dev-${Date.now()}-${index}`),
-      name: overrides.name || (isWebPhone ? "Web Telefonu" : isVirtualSub ? `Sanal Abone ${index}` : `Masa Telefonu ${index}`),
+      name: overrides.name || (isWebPhone ? "Yazılım İstemcileri (Web / Masaüstü / Mobil)" : isVirtualSub ? `Sanal Abone ${index}` : `Masa Telefonu ${index}`),
       device_type: overrides.device_type || "desk_phone",
       sip_username: isVirtualSub ? "" : (overrides.sip_username || generateSipUsernameStr()),
       sip_password: isVirtualSub ? "" : (overrides.sip_password || generateSipPasswordStr()),
@@ -1118,7 +1127,8 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
       sip_driver: isWebPhone || isVirtualSub ? "pjsip" : (overrides.sip_driver === "chan_sip" ? "chan_sip" : "pjsip"),
       transport: isWebPhone ? "WSS" : (overrides.remote_access ? "TCP" : (overrides.sip_driver === "chan_sip" ? (overrides.transport || "TCP") : (overrides.transport || "UDP"))),
       remote_access: isWebPhone || isVirtualSub ? false : Boolean(overrides.remote_access),
-      is_active: overrides.is_active !== false,
+      is_active: isWebPhone ? Object.values(clientAccessObj).some(Boolean) : baseActive,
+      ...(isWebPhone ? { client_access: clientAccessObj, client_statuses: overrides.client_statuses || null } : {}),
       is_deletable: !isWebPhone,
       trunk: overrides.trunk || "",
       prefix: overrides.prefix !== undefined && overrides.prefix !== null ? String(overrides.prefix) : "",
@@ -1253,6 +1263,27 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
       try { dlg.close(); } catch (e) {}
     }
   }, [isSipDeviceInspectOpen]);
+
+  const handleToggleSoftwareClientAccess = async (webDev, clientKey) => {
+    if (!webDev) return;
+    const baseActive = webDev.is_active !== false;
+    const curCa =
+      webDev.client_access && typeof webDev.client_access === "object"
+        ? {
+            web_phone: webDev.client_access.web_phone !== false,
+            pc_app: webDev.client_access.pc_app !== false,
+            mobile_app: webDev.client_access.mobile_app !== false
+          }
+        : { web_phone: baseActive, pc_app: baseActive, mobile_app: baseActive };
+    const nextCa = { ...curCa, [clientKey]: !curCa[clientKey] };
+    const nextActive = Object.values(nextCa).some(Boolean);
+    const nextList = sipDevices.map((d) =>
+      d.id === webDev.id || d.device_type === "web_phone"
+        ? { ...d, client_access: nextCa, is_active: nextActive }
+        : d
+    );
+    await applyUpdatedSipDevices(nextList, true);
+  };
 
   const applyUpdatedSipDevices = async (nextDevices, persistImmediately = true) => {
     const orderedDevices = ensureWebPhoneFirst(nextDevices, editingUser, extension);
@@ -4341,6 +4372,172 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
                                                     : dev.device_type === "softphone"
                                                     ? "SIP İstemci"
                                                     : "Masa Telefonu";
+                                                if (isWebPhone) {
+                                                    const baseAct = dev.is_active !== false;
+                                                    const caObj =
+                                                        dev.client_access && typeof dev.client_access === "object"
+                                                            ? {
+                                                                  web_phone: dev.client_access.web_phone !== false,
+                                                                  pc_app: dev.client_access.pc_app !== false,
+                                                                  mobile_app: dev.client_access.mobile_app !== false
+                                                              }
+                                                            : { web_phone: baseAct, pc_app: baseAct, mobile_app: baseAct };
+                                                    const csObj = dev.client_statuses || {};
+                                                    const swRows = [
+                                                        {
+                                                            key: "web_phone",
+                                                            label: "Web Telefonu (Tarayıcı)",
+                                                            sub: "Tarayıcı içi WebRTC telefonu",
+                                                            icon: Wifi
+                                                        },
+                                                        {
+                                                            key: "pc_app",
+                                                            label: "Masaüstü Uygulaması (PC / Mac)",
+                                                            sub: "Windows & macOS masaüstü uygulaması",
+                                                            icon: Monitor
+                                                        },
+                                                        {
+                                                            key: "mobile_app",
+                                                            label: "Mobil Uygulama (iOS / Android)",
+                                                            sub: "iOS & Android mobil yazılım telefonu",
+                                                            icon: Smartphone
+                                                        }
+                                                    ];
+                                                    return (
+                                                        <div
+                                                            key={dev.id || `web-suite-${devIdx}`}
+                                                            className="p-3.5 rounded-xl border bg-white dark:bg-slate-950/80 border-slate-200/90 dark:border-slate-800 shadow-sm space-y-3"
+                                                        >
+                                                            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-2.5 border-b border-slate-100 dark:border-slate-800/80">
+                                                                <div className="flex items-center gap-2.5 min-w-0">
+                                                                    <div className={`w-8 h-8 rounded-xl flex items-center justify-center shrink-0 ${lightBg} ${text} border ${borderLight}`}>
+                                                                        <Wifi size={16} />
+                                                                    </div>
+                                                                    <div className="min-w-0">
+                                                                        <div className="flex flex-wrap items-center gap-1.5">
+                                                                            <span className="text-xs font-extrabold text-slate-800 dark:text-white">
+                                                                                Yazılım İstemcileri (Web / Masaüstü / Mobil)
+                                                                            </span>
+                                                                            <span className={`px-1.5 py-0.5 rounded text-[9px] font-extrabold ${lightBg} ${text}`}>
+                                                                                ORTAK WEBRTC
+                                                                            </span>
+                                                                        </div>
+                                                                        <div className="text-[10px] text-slate-500 dark:text-slate-400 font-mono mt-0.5 flex flex-wrap items-center gap-1.5">
+                                                                            <span>SIP: {dev.sip_username || "-"}</span>
+                                                                            <span>•</span>
+                                                                            <span>WSS (DTLS-SRTP)</span>
+                                                                            <span>•</span>
+                                                                            <span>Her istemci ayrı açılıp kapatılabilir</span>
+                                                                        </div>
+                                                                    </div>
+                                                                </div>
+                                                                <div className="flex items-center justify-end gap-1.5 shrink-0">
+                                                                    <button
+                                                                        type="button"
+                                                                        onClick={() => openSipDeviceInspectModal(dev)}
+                                                                        className={`p-2 rounded-xl border ${borderLight} ${lightBg} ${text} hover:opacity-90 transition-all`}
+                                                                        title="WebRTC PJSIP & Bağlantı İncele"
+                                                                    >
+                                                                        <Search size={14} />
+                                                                    </button>
+                                                                    <button
+                                                                        type="button"
+                                                                        onClick={() => openSipDeviceEditModal(dev)}
+                                                                        className="p-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 hover:bg-slate-100 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 transition-all"
+                                                                        title="Ortak WebRTC Kimlik & Codec Ayarlarını Düzenle"
+                                                                    >
+                                                                        <Edit2 size={14} />
+                                                                    </button>
+                                                                </div>
+                                                            </div>
+
+                                                            <div className="grid grid-cols-1 gap-2">
+                                                                {swRows.map((row) => {
+                                                                    const RowIcon = row.icon;
+                                                                    const enabled = Boolean(caObj[row.key]);
+                                                                    const stObj = csObj[row.key] || {};
+                                                                    const rowOnline = enabled && Boolean(stObj.is_online);
+                                                                    const rowIp = stObj.live_ip || "";
+                                                                    const rowEnv = stObj.env || "";
+                                                                    return (
+                                                                        <div
+                                                                            key={row.key}
+                                                                            className={`px-3 py-2.5 rounded-xl border flex flex-wrap items-center justify-between gap-2 transition-all ${
+                                                                                enabled
+                                                                                    ? "bg-slate-50/70 dark:bg-slate-900/60 border-slate-200/80 dark:border-slate-800"
+                                                                                    : "bg-slate-100/60 dark:bg-slate-950/40 border-slate-200/50 dark:border-slate-800/50 opacity-65"
+                                                                            }`}
+                                                                        >
+                                                                            <div className="flex items-center gap-2.5 min-w-0">
+                                                                                <div className={`relative w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${enabled ? `${lightBg} ${text} border ${borderLight}` : "bg-slate-200/70 dark:bg-slate-800 text-slate-400"}`}>
+                                                                                    <RowIcon size={15} />
+                                                                                    <span
+                                                                                        className={`absolute -top-1 -right-1 w-2.5 h-2.5 rounded-full ring-2 ring-white dark:ring-slate-950 ${
+                                                                                            rowOnline ? "bg-emerald-500" : "bg-slate-400"
+                                                                                        }`}
+                                                                                    />
+                                                                                </div>
+                                                                                <div className="min-w-0">
+                                                                                    <div className="flex flex-wrap items-center gap-1.5">
+                                                                                        <span className="text-xs font-extrabold text-slate-800 dark:text-white">
+                                                                                            {row.label}
+                                                                                        </span>
+                                                                                        {!enabled ? (
+                                                                                            <span className="px-1.5 py-0.5 rounded text-[9px] font-extrabold bg-slate-200 dark:bg-slate-800 text-slate-600 dark:text-slate-400">
+                                                                                                KAPALI
+                                                                                            </span>
+                                                                                        ) : rowOnline ? (
+                                                                                            <span className="px-1.5 py-0.5 rounded text-[9px] font-extrabold bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300">
+                                                                                                BAĞLI
+                                                                                            </span>
+                                                                                        ) : (
+                                                                                            <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-slate-100 dark:bg-slate-900 text-slate-500 dark:text-slate-400">
+                                                                                                ÇEVRİMDIŞI
+                                                                                            </span>
+                                                                                        )}
+                                                                                    </div>
+                                                                                    <div className="text-[10px] text-slate-500 dark:text-slate-400 flex flex-wrap items-center gap-1.5">
+                                                                                        <span>{row.sub}</span>
+                                                                                        {rowOnline && rowIp && (
+                                                                                            <>
+                                                                                                <span>•</span>
+                                                                                                <span className="font-mono font-bold text-emerald-600 dark:text-emerald-400">
+                                                                                                    IP: {rowIp}
+                                                                                                </span>
+                                                                                            </>
+                                                                                        )}
+                                                                                        {rowOnline && rowEnv && (
+                                                                                            <>
+                                                                                                <span>•</span>
+                                                                                                <span>{rowEnv}</span>
+                                                                                            </>
+                                                                                        )}
+                                                                                    </div>
+                                                                                </div>
+                                                                            </div>
+
+                                                                            <button
+                                                                                type="button"
+                                                                                onClick={() => handleToggleSoftwareClientAccess(dev, row.key)}
+                                                                                className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors cursor-pointer shrink-0 ${
+                                                                                    enabled ? bg : "bg-slate-300 dark:bg-slate-700"
+                                                                                }`}
+                                                                                title={enabled ? `${row.label} Erişimini Kapat` : `${row.label} Erişimini Aç`}
+                                                                                aria-pressed={enabled}
+                                                                            >
+                                                                                <span
+                                                                                    className={`inline-block h-4 w-4 transform rounded-full bg-white shadow-sm transition-transform ${
+                                                                                        enabled ? "translate-x-6" : "translate-x-1"
+                                                                                    }`}
+                                                                                />
+                                                                            </button>
+                                                                        </div>
+                                                                    );
+                                                                })}
+                                                            </div>
+                                                        </div>
+                                                    );
+                                                }
                                                 return (
                                                     <div
                                                         key={dev.id || `${dev.sip_username}-${devIdx}`}

@@ -943,8 +943,10 @@ class WebphoneManager {
     try {
       const apiBase = this.getApiBase();
       const currentDeviceKey = getDeviceKeySync();
+      const currentClientType = this.getCurrentClientDevice();
       const queryParams = new URLSearchParams();
       queryParams.set("user_id", targetUserId.toString());
+      queryParams.set("client_type", currentClientType);
       if (targetExt) {
         queryParams.set("extension", targetExt.toString());
       }
@@ -956,6 +958,7 @@ class WebphoneManager {
         headers: {
           "Content-Type": "application/json",
           "X-User-ID": targetUserId.toString(),
+          "X-Client-Type": currentClientType,
           ...(currentDeviceKey ? { "X-Device-Key": currentDeviceKey } : {})
         }
       });
@@ -1326,6 +1329,7 @@ class WebphoneManager {
         extension: ext,
         sip_username: this.state.webrtcConfig?.sipUsername || "",
         user_id: this.state.currentUser?.id,
+        client_type: this.getCurrentClientDevice(),
         call_state: callState,
         client_browser: envInfo.browser,
         client_os: envInfo.os,
@@ -1335,6 +1339,28 @@ class WebphoneManager {
       .then((r) => (r.ok ? r.json() : null))
       .then((d) => {
         this._lastPresenceSyncAt = Date.now();
+        if (d?.client_disabled) {
+          if (this.registerer) {
+            try {
+              this.registerer.unregister().catch(() => {});
+            } catch (_) {}
+          }
+          if (this.userAgent) {
+            try {
+              this.userAgent.stop();
+            } catch (_) {}
+          }
+          this.setState({
+            registered: false,
+            webrtcConfig: {
+              ...(this.state.webrtcConfig || {}),
+              webPhoneEnabled: false,
+              clientDisabledReason: d.detail || "Bu yazılım istemcisi yönetici tarafından kapatılmıştır."
+            },
+            error: d.detail || "Bu yazılım istemcisi yönetici tarafından kapatılmıştır."
+          });
+          return;
+        }
         if (d?.device_blocked) {
           if (this.registerer) {
             try {

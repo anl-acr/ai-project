@@ -10753,6 +10753,57 @@ def _record_request_client_env(request: Optional[Request], keys=None, client_bro
         pass
 
 
+# Per-platform live WebRTC client presence keyed by (extension, client_type)
+# client_type in ("web_phone", "pc_app", "mobile_app")
+webrtc_client_presence: Dict[tuple, Dict[str, Any]] = {}
+_WEBRTC_CLIENT_LABELS = {
+    "web_phone": "Web Telefonu (Tarayıcı)",
+    "pc_app": "Masaüstü Uygulaması",
+    "mobile_app": "Mobil Uygulama",
+}
+
+
+def _detect_webrtc_client_type(raw_type: Any = "", ua_header: str = "") -> str:
+    rt = str(raw_type or "").strip().lower()
+    if rt in ("web_phone", "pc_app", "mobile_app"):
+        return rt
+    ua_l = str(ua_header or "").lower()
+    if "electron" in ua_l:
+        return "pc_app"
+    if any(tok in ua_l for tok in ("iphone", "ipad", "ipod", "android", "runamobile", "aidamobile")):
+        return "mobile_app"
+    return "web_phone"
+
+
+def _get_webrtc_client_live_status(ext: str, client_type: str, ttl_sec: float = 35.0) -> dict:
+    ext_s = str(ext or "").strip()
+    ct_s = str(client_type or "web_phone").strip().lower()
+    entry = webrtc_client_presence.get((ext_s, ct_s))
+    if not entry:
+        return {"is_online": False, "live_ip": "", "env": ""}
+    age = time.time() - float(entry.get("ts") or 0)
+    if age > ttl_sec:
+        webrtc_client_presence.pop((ext_s, ct_s), None)
+        return {"is_online": False, "live_ip": "", "env": ""}
+    env_str = " / ".join([x for x in [entry.get("browser"), entry.get("os")] if x])
+    return {
+        "is_online": True,
+        "live_ip": str(entry.get("ip") or ""),
+        "env": env_str,
+    }
+
+
+def _has_any_other_webrtc_client_online(ext: str, exclude_client_type: str = "") -> bool:
+    ext_s = str(ext or "").strip()
+    excl = str(exclude_client_type or "").strip().lower()
+    for ct in ("web_phone", "pc_app", "mobile_app"):
+        if ct == excl:
+            continue
+        if _get_webrtc_client_live_status(ext_s, ct).get("is_online"):
+            return True
+    return False
+
+
 @app.post("/api/webrtc/register_notify")
 async def webrtc_register_notify(request: Request, payload: dict, db: AsyncSession = Depends(get_db)):
     from backend.services.ami_manager import registered_endpoints, parse_browser_and_os_from_ua
@@ -10761,6 +10812,8 @@ async def webrtc_register_notify(request: Request, payload: dict, db: AsyncSessi
     ext = str(payload.get("extension") or payload.get("user_id") or "").strip()
     user_id_val = payload.get("user_id")
     sip_su_payload = str(payload.get("sip_username") or "").strip()
+    ua_header = request.headers.get("user-agent") or str(payload.get("user_agent") or "")
+    client_type_val = _detect_webrtc_client_type(payload.get("client_type"), ua_header)
     device_key_payload = _normalize_device_key(
         payload.get("device_key")
         or request.headers.get("X-Device-Key")
@@ -10770,17 +10823,41 @@ async def webrtc_register_notify(request: Request, payload: dict, db: AsyncSessi
 
     # Extract real client IP from headers, AMI, or fallback
     client_ip = str(payload.get("client_ip") or "").strip() or extract_client_ip(request)
-    ua_header = request.headers.get("user-agent") or str(payload.get("user_agent") or "")
     browser_name, os_name = parse_browser_and_os_from_ua(
         ua_header,
         client_browser=str(payload.get("client_browser") or ""),
         client_os=str(payload.get("client_os") or ""),
     )
 
-    # Enforce Trusted Device Binding (PC / WebPhone Lock) if enabled for this user
+    # Enforce Trusted Device Binding + Per-Client (Web/Desktop/Mobile) Access Switch
     if ext:
         for u_chk in (settings_db.get("users") or []):
             if isinstance(u_chk, dict) and str(u_chk.get("extension") or "").strip() == ext:
+                # Check per-platform software client access switch
+                web_dev_chk = next(
+                    (
+                        sd for sd in (u_chk.get("sip_devices") or [])
+                        if isinstance(sd, dict) and str(sd.get("device_type") or "").strip().lower() == "web_phone"
+                    ),
+                    None,
+                )
+                if web_dev_chk is not None:
+                    ca_chk = web_dev_chk.get("client_access") if isinstance(web_dev_chk.get("client_access"), dict) else None
+                    base_w_en = web_dev_chk.get("is_active") is not False
+                    ct_allowed = bool(ca_chk.get(client_type_val, base_w_en)) if ca_chk is not None else base_w_en
+                    if not ct_allowed:
+                        webrtc_client_presence.pop((ext, client_type_val), None)
+                        if not _has_any_other_webrtc_client_online(ext, exclude_client_type=client_type_val):
+                            registered_endpoints.discard(ext)
+                            if sip_su_payload:
+                                registered_endpoints.discard(sip_su_payload)
+                        return {
+                            "status": "client_disabled",
+                            "client_disabled": True,
+                            "client_type": client_type_val,
+                            "detail": f"{_WEBRTC_CLIENT_LABELS.get(client_type_val, 'Yazılım Telefonu')} erişimi yönetici tarafından kapatılmıştır.",
+                        }
+
                 allowed_dev, lock_on, norm_dk, _ = _verify_user_device_access(u_chk, device_key_payload)
                 if lock_on and not allowed_dev:
                     _log_device_key_blocked_event(
@@ -10801,6 +10878,14 @@ async def webrtc_register_notify(request: Request, payload: dict, db: AsyncSessi
                         "detail": f"Bu bilgisayar ({norm_dk or 'Tanımsız'}) bu kullanıcı için yetkilendirilmemiş.",
                     }
                 break
+
+    if ext:
+        webrtc_client_presence[(ext, client_type_val)] = {
+            "ip": client_ip,
+            "browser": browser_name,
+            "os": os_name,
+            "ts": time.time(),
+        }
 
     _record_request_client_env(
         request,
@@ -10892,11 +10977,21 @@ async def webrtc_unregister_notify(payload: dict, db: AsyncSession = Depends(get
     ext = str(payload.get("extension") or payload.get("user_id") or "").strip()
     user_id_val = payload.get("user_id")
     sip_su_payload = str(payload.get("sip_username") or "").strip()
-
-    if sip_su_payload:
-        registered_endpoints.discard(sip_su_payload)
+    unreg_ct = str(payload.get("client_type") or "").strip().lower()
 
     if ext:
+        if unreg_ct in ("web_phone", "pc_app", "mobile_app"):
+            webrtc_client_presence.pop((ext, unreg_ct), None)
+        else:
+            for ct_k in ("web_phone", "pc_app", "mobile_app"):
+                webrtc_client_presence.pop((ext, ct_k), None)
+
+    other_clients_still_online = bool(ext and unreg_ct and _has_any_other_webrtc_client_online(ext, exclude_client_type=unreg_ct))
+
+    if sip_su_payload and not other_clients_still_online:
+        registered_endpoints.discard(sip_su_payload)
+
+    if ext and not other_clients_still_online:
         registered_endpoints.discard(ext)
         registered_endpoints.discard(resolve_user_webphone_sip_username(ext, ""))
         if user_id_val:
@@ -37420,16 +37515,66 @@ async def new_get_users_endpoint(request: Request, user_info: dict = Depends(get
                     })
             elif d_type_g == "web_phone":
                 d_su = str(d_item.get("sip_username") or "").strip()
-                d_on = bool(d_act and ((d_su and d_su in registered_endpoints) or (ext and ext in registered_endpoints)))
+                ca_map = d_item.get("client_access") if isinstance(d_item.get("client_access"), dict) else {
+                    "web_phone": d_act,
+                    "pc_app": d_act,
+                    "mobile_app": d_act,
+                }
+                d_item["client_access"] = {
+                    "web_phone": bool(ca_map.get("web_phone", d_act)),
+                    "pc_app": bool(ca_map.get("pc_app", d_act)),
+                    "mobile_app": bool(ca_map.get("mobile_app", d_act)),
+                }
+                client_statuses = {}
+                any_platform_online = False
+                for ct_key, ct_lbl in (
+                    ("web_phone", "Web Telefonu"),
+                    ("pc_app", "Masaüstü Uygulaması"),
+                    ("mobile_app", "Mobil Uygulama"),
+                ):
+                    ct_en = bool(d_item["client_access"].get(ct_key, True))
+                    ct_live = _get_webrtc_client_live_status(ext, ct_key) if (ext and ct_en) else {"is_online": False, "live_ip": "", "env": ""}
+                    client_statuses[ct_key] = {
+                        "enabled": ct_en,
+                        "is_online": bool(ct_live.get("is_online")),
+                        "live_ip": ct_live.get("live_ip") or "",
+                        "env": ct_live.get("env") or "",
+                    }
+                    if ct_live.get("is_online"):
+                        any_platform_online = True
+                        any_dev_reg = True
+                        if not online_dev_ip and ct_live.get("live_ip"):
+                            online_dev_ip = ct_live["live_ip"]
+                        online_devices.append({
+                            "name": ct_lbl,
+                            "device_type": ct_key,
+                            "type_label": ct_lbl,
+                            "sip_username": d_su,
+                            "ip": ct_live.get("live_ip") or "",
+                            "env": ct_live.get("env") or "",
+                        })
+
+                d_item["client_statuses"] = client_statuses
+                d_on = bool(
+                    d_act
+                    and (
+                        any_platform_online
+                        or (d_su and d_su in registered_endpoints)
+                        or (ext and ext in registered_endpoints)
+                    )
+                )
                 d_live_ip = (
                     (registered_endpoints.get_ip(d_su) if d_su else "")
                     or (registered_endpoints.get_ip(ext) if ext else "")
+                    or client_statuses["web_phone"]["live_ip"]
+                    or client_statuses["pc_app"]["live_ip"]
+                    or client_statuses["mobile_app"]["live_ip"]
                     or d_item.get("ip")
                     or ""
                 )
                 d_item["is_online"] = d_on
                 d_item["live_ip"] = d_live_ip
-                if d_on:
+                if d_on and not any_platform_online:
                     any_dev_reg = True
                     if not online_dev_ip and d_live_ip:
                         online_dev_ip = d_live_ip
@@ -41246,18 +41391,33 @@ async def get_system_version_info():
         pass
 
     return {
-        "version": "v3.6.3",
+        "version": "v3.6.4",
         "commit_hash": live_commit,
         "release_date": "21 Kasım 2026",
         "status": "Güncel / Canlı Sürüm",
         "environment": "Production (On-Premise)",
         "changelog": [
             {
-                "version": "v3.6.3",
+                "version": "v3.6.4",
                 "commit_hash": live_commit,
                 "release_date": "21 Kasım 2026",
                 "badge": "Canlı Sürüm (Güncel)",
                 "badge_type": "current",
+                "title": "Kullanıcı SIP Sekmesinde Web, Masaüstü ve Mobil İstemci Bağımsız Yönetimi & Canlı Durum",
+                "summary": "Kullanıcı ayarları SIP sekmesindeki Web Telefonu bölümü 'Yazılım İstemcileri (Web / Masaüstü / Mobil)' yapısına yükseltildi. Ortak WebRTC PJSIP kimliği korunarak her 3 platform için ayrı Açık/Kapalı erişim anahtarı, canlı çevrimiçi durumu ve IP/ortam görünürlüğü eklendi.",
+                "features": [
+                    "Kullanıcı SIP sekmesinde Web Telefonu (Tarayıcı), Masaüstü Uygulaması (PC/Mac) ve Mobil Uygulama (iOS/Android) için 3 ayrı canlı durum satırı ve tek tık Açık/Kapalı anahtarı.",
+                    "Sunucu tarafı kesin yaptırım: Kapatılan bir yazılım istemcisinin (/api/webrtc/config ve /api/webrtc/register_notify) Asterisk'e kaydı anında engellenir ve mevcut aktif oturumu 5 sn içinde düşürülür.",
+                    "Her yazılım istemcisi için ayrı canlı IP ve tarayıcı/işletim sistemi takibi (webrtc_client_presence); tarayıcıdan çıkış yapmak Masaüstü veya Mobil çevrimiçi durumunu etkilemez."
+                ],
+                "fixes": []
+            },
+            {
+                "version": "v3.6.3",
+                "commit_hash": "808eea9",
+                "release_date": "21 Kasım 2026",
+                "badge": "Kararlı",
+                "badge_type": "stable",
                 "title": "Merkezi Kontrollü Santral Güncelleme Merkezi & Çoklu Makine Filo Sürüm Yönetimi",
                 "summary": "Tüm santraller için Merkez Panel otoritesine bağlı güvenli güncelleme motoru (nornia_updater.py), santral arayüzünden güncelleme sorgulama/sürüm notu önizleme/aktif çağrı korumalı güncelleme, otomatik geri alma (rollback) ve Merkez Panel'de makine bazlı kanal (Kararlı/Beta/Sabit) ile Self-Update izin kontrolü eklendi.",
                 "features": [
@@ -43801,6 +43961,11 @@ async def get_webrtc_config(request: Request, db: AsyncSession = Depends(get_db)
 
         web_sip_user = resolve_user_webphone_sip_username(agent_ext, "")
         web_enabled = True
+        client_disabled_reason = ""
+        req_client_type = _detect_webrtc_client_type(
+            request.query_params.get("client_type") or request.headers.get("X-Client-Type") or "",
+            request.headers.get("user-agent") or "",
+        )
         if current_user:
             norm_w_devs = normalize_user_sip_devices(
                 current_user,
@@ -43814,10 +43979,18 @@ async def get_webrtc_config(request: Request, db: AsyncSession = Depends(get_db)
             )
             if web_dev:
                 web_sip_user = str(web_dev.get("sip_username") or web_sip_user).strip()
-                web_enabled = web_dev.get("is_active") is not False
-                if web_dev.get("sip_password"):
+                base_web_en = web_dev.get("is_active") is not False
+                ca_cfg = web_dev.get("client_access") if isinstance(web_dev.get("client_access"), dict) else None
+                if ca_cfg is not None:
+                    web_enabled = bool(ca_cfg.get(req_client_type, base_web_en))
+                else:
+                    web_enabled = base_web_en
+                if not web_enabled:
+                    client_disabled_reason = f"{_WEBRTC_CLIENT_LABELS.get(req_client_type, 'Yazılım Telefonu')} erişimi yönetici tarafından kapatılmıştır."
+                    raw_sip_pwd = ""
+                elif web_dev.get("sip_password"):
                     raw_sip_pwd = web_dev.get("sip_password")
-        sip_password = resolve_secure_sip_password(agent_ext, raw_sip_pwd)
+        sip_password = resolve_secure_sip_password(agent_ext, raw_sip_pwd) if web_enabled else ""
         
         # Dynamically compute WebSocket URL and resolved viaHost IPv4
         req_host = request.headers.get("host", "").split(":")[0] or request.url.hostname or "127.0.0.1"
@@ -43916,6 +44089,8 @@ async def get_webrtc_config(request: Request, db: AsyncSession = Depends(get_db)
             "agentExtension": agent_ext,
             "sipUsername": web_sip_user,
             "webPhoneEnabled": web_enabled,
+            "clientType": req_client_type,
+            "clientDisabledReason": client_disabled_reason,
             "deviceBlocked": device_blocked,
             "deviceKey": client_device_key,
             "agentName": agent_name,
