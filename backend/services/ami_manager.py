@@ -457,7 +457,7 @@ def get_extension_call_state(ext: str):
 
 
 def get_extension_ringing_info(ext: str):
-    """Returns {'ringing_ext': ext, 'caller_number': caller, 'channel': ch} if ext is currently ringing in AMI channel_states."""
+    """Returns {'ringing_ext': ext, 'caller_number': caller, 'connected_number': conn, 'linkedid': lid, 'channel': ch} if ext is currently ringing in AMI channel_states."""
     ext_s = str(ext or "").strip()
     if not ext_s:
         return None
@@ -467,15 +467,26 @@ def get_extension_ringing_info(ext: str):
         ch = str(info.get("channel") or "")
         ch_lower = ch.lower()
         caller_s = str(info.get("caller") or "").strip()
+        conn_s = str(info.get("connected_num") or "").strip()
         exten_s = str(info.get("exten") or "").strip()
+        lid_s = str(info.get("linkedid") or uniqueid_to_linkedid.get(str(uid)) or "").strip()
         st = info.get("state") or "ringing"
         if ch_lower.startswith(prefixes) or exten_s == ext_s:
             if st == "busy":
                 return None
-            if caller_s != ext_s:
+            caller_mapped = _resolve_sip_peer_to_ext(caller_s) or caller_s
+            conn_mapped = _resolve_sip_peer_to_ext(conn_s) or conn_s
+            effective_caller = caller_s
+            if not effective_caller or caller_mapped == ext_s:
+                effective_caller = conn_mapped if (conn_mapped and conn_mapped != ext_s) else ""
+            elif caller_mapped and caller_mapped != ext_s and caller_mapped.isdigit():
+                effective_caller = caller_mapped
+            if caller_mapped != ext_s or (conn_mapped and conn_mapped != ext_s):
                 ringing_match = {
                     "ringing_ext": ext_s,
-                    "caller_number": caller_s,
+                    "caller_number": effective_caller,
+                    "connected_number": conn_mapped,
+                    "linkedid": lid_s,
                     "channel": ch
                 }
     return ringing_match
@@ -724,6 +735,7 @@ def register_event_handlers(manager: Manager):
             channel_states[uniqueid] = {
                 "channel": channel or existing.get("channel") or active_channels.get(uniqueid, ""),
                 "caller": caller_num or existing.get("caller") or "",
+                "connected_num": connected_num or existing.get("connected_num") or "",
                 "exten": exten or connected_num or existing.get("exten") or "",
                 "state": mapped,
                 "linkedid": str(linkedid or existing.get("linkedid") or uniqueid_to_linkedid.get(str(uniqueid)) or ""),

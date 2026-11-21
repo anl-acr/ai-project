@@ -22784,7 +22784,13 @@ async def get_agent_group_ringing(
     if not ext_s and not uid_s:
         return {"ringing_calls": []}
 
-    from backend.services.ami_manager import get_extension_ringing_info, channel_states
+    from backend.services.ami_manager import (
+        get_extension_ringing_info,
+        channel_states,
+        _get_ext_channel_prefixes,
+        _resolve_sip_peer_to_ext,
+        uniqueid_to_linkedid,
+    )
 
     now_utc = datetime.datetime.utcnow()
     # Fast-path: check in memory if ANY extension is ringing before querying DB or building peer maps!
@@ -22828,13 +22834,39 @@ async def get_agent_group_ringing(
 
     ringing_calls = []
 
+    # Collect ALL active Linkedids and dialed targets of the requesting agent (ext_s)
+    # so we NEVER show a pickup alert for a call that THIS agent initiated or is already participating in!
+    my_prefixes = tuple(_get_ext_channel_prefixes(ext_s)) if ext_s else ()
+    my_active_linkedids = set()
+    my_dialing_targets = set()
+    for uid_k, st_d in list(channel_states.items()):
+        if not isinstance(st_d, dict):
+            continue
+        ch_l = str(st_d.get("channel") or "").strip().lower()
+        c_res = _resolve_sip_peer_to_ext(st_d.get("caller") or "") or str(st_d.get("caller") or "").strip()
+        if (my_prefixes and ch_l.startswith(my_prefixes)) or (ext_s and c_res == ext_s):
+            lid_v = str(st_d.get("linkedid") or uniqueid_to_linkedid.get(str(uid_k)) or uid_k or "").strip()
+            if lid_v:
+                my_active_linkedids.add(lid_v)
+            ex_v = str(st_d.get("exten") or "").strip()
+            if ex_v:
+                my_dialing_targets.add(ex_v)
+            cn_v = str(st_d.get("connected_num") or "").strip()
+            if cn_v:
+                my_dialing_targets.add(cn_v)
+
     for peer_ext, group_name in peer_map.items():
         if peer_ext == ext_s:
+            continue
+        # If the requesting agent is currently dialing this exact peer_ext, skip immediately!
+        if peer_ext in my_dialing_targets:
             continue
 
         is_ringing = False
         caller_num = ""
         call_id_val = ""
+        peer_linkedid = ""
+        peer_connected_num = ""
 
         info = live_extension_call_state.get(peer_ext)
         if info and info.get("state") == "ringing":
@@ -22844,39 +22876,56 @@ async def get_agent_group_ringing(
                 caller_num = str(info.get("caller_number") or "").strip()
                 call_id_val = str(info.get("call_id") or "").strip()
 
-        if not is_ringing:
-            ami_ring = get_extension_ringing_info(peer_ext)
-            if ami_ring:
-                is_ringing = True
+        ami_ring = get_extension_ringing_info(peer_ext)
+        if ami_ring:
+            is_ringing = True
+            peer_linkedid = str(ami_ring.get("linkedid") or "").strip()
+            peer_connected_num = str(ami_ring.get("connected_number") or "").strip()
+            if not caller_num or (_resolve_sip_peer_to_ext(caller_num) == peer_ext):
                 caller_num = str(ami_ring.get("caller_number") or "").strip()
 
         if not is_ringing:
             continue
 
-        # Look up active Call in DB if caller_num or call_id is missing
-        if not caller_num or not call_id_val:
-            try:
-                stmt_c = (
-                    select(Call)
-                    .where(
-                        Call.callee_number == peer_ext,
-                        Call.status == "in_progress",
-                        Call.start_time >= now_utc - datetime.timedelta(seconds=90)
-                    )
-                    .order_by(Call.start_time.desc())
+        # Linkedid match: same Asterisk call as one of ext_s's own channels -> caller/participant is ext_s!
+        if peer_linkedid and peer_linkedid in my_active_linkedids:
+            continue
+
+        # Normalize caller_num if it is a SIP username (e.g. Wp6Vy9D3 or cZ8c5cVJ -> 1000)
+        if caller_num:
+            mapped_caller = _resolve_sip_peer_to_ext(caller_num)
+            if mapped_caller:
+                caller_num = mapped_caller
+
+        # Look up active Call in DB if caller_num or call_id is missing (or to double-check caller ownership)
+        try:
+            stmt_c = (
+                select(Call)
+                .where(
+                    Call.callee_number == peer_ext,
+                    Call.status == "in_progress",
+                    Call.start_time >= now_utc - datetime.timedelta(seconds=90)
                 )
-                res_c = await db.execute(stmt_c)
-                act_c = res_c.scalars().first()
-                if act_c:
-                    if not caller_num:
-                        caller_num = str(act_c.caller_number or "").strip()
-                    if not call_id_val:
-                        call_id_val = str(act_c.id or "").strip()
-            except Exception:
-                pass
+                .order_by(Call.start_time.desc())
+            )
+            res_c = await db.execute(stmt_c)
+            act_c = res_c.scalars().first()
+            if act_c:
+                db_caller = str(act_c.caller_number or "").strip()
+                db_caller_mapped = _resolve_sip_peer_to_ext(db_caller) or db_caller
+                if db_caller_mapped and db_caller_mapped == ext_s:
+                    continue
+                if not caller_num and db_caller_mapped:
+                    caller_num = db_caller_mapped
+                if not call_id_val:
+                    call_id_val = str(act_c.id or "").strip()
+        except Exception:
+            pass
 
         # Do not alert the agent if the agent themselves is the caller who dialed peer_ext
         if caller_num and caller_num == ext_s:
+            continue
+        if peer_connected_num and peer_connected_num == ext_s:
             continue
 
         ringing_name = resolve_user_name_by_ext_or_id(peer_ext) or f"Dahili {peer_ext}"
@@ -22885,7 +22934,7 @@ async def get_agent_group_ringing(
             caller_name = resolve_user_name_by_ext_or_id(caller_num) or ""
             if not caller_name:
                 try:
-                    caller_name = await resolve_contact_name_by_phone(caller_num, db) or ""
+                    caller_name = resolve_contact_name_by_phone(settings_db.get("contacts", []) or [], caller_num) or ""
                 except Exception:
                     pass
 
@@ -40858,18 +40907,33 @@ async def get_system_version_info():
         pass
 
     return {
-        "version": "v3.6.1",
+        "version": "v3.6.2",
         "commit_hash": live_commit,
         "release_date": "21 Kasım 2026",
         "status": "Güncel / Canlı Sürüm",
         "environment": "Production (On-Premise)",
         "changelog": [
             {
-                "version": "v3.6.1",
+                "version": "v3.6.2",
                 "commit_hash": live_commit,
                 "release_date": "21 Kasım 2026",
                 "badge": "Canlı Sürüm (Güncel)",
                 "badge_type": "current",
+                "title": "Çağrı Toplama (Pickup) Kendi Aramasını Hariç Tutma & Dinamik Sol Menü Sürüm Göstergesi",
+                "summary": "Aynı toplama grubundaki başka bir dahiliyi kendiniz aradığınızda ekranınızda çıkan hatalı 'Çağrıyı Çek' uyarısı AMI Linkedid, ConnectedLineNum, SIP kullanıcı adı çözümlemesi ve istemci aktif arama filtresi ile tamamen giderildi; sol alt menüdeki versiyon göstergesi dinamik hale getirildi.",
+                "features": [],
+                "fixes": [
+                    "get_agent_group_ringing() içinde AMI linkedid eşleşmesi, aranan hedef kontrolü, SIP kullanıcı adı→dahili dönüşümü (Wp.../cZ... → dahili) ve veritabanı arayan kontrolü ile aramayı başlatan kişiye pickup bildirimi gönderilmesi engellendi.",
+                    "webphoneManager.js startGroupRingingLoop() içinde aktif giden/çalan hedef dahili için istemci tarafı ek koruma eklendi.",
+                    "Sol menü alt bilgisi artık sabit v3.0.2 yerine /api/settings/version üzerinden canlı sürüm numarasını gösterir."
+                ]
+            },
+            {
+                "version": "v3.6.1",
+                "commit_hash": "32489e7",
+                "release_date": "21 Kasım 2026",
+                "badge": "Kararlı",
+                "badge_type": "stable",
                 "title": "Çoklu Cihazlar Arası Kesintisiz Cihaz Değiştirme (Yeastar Tarzı Call Flip — *11)",
                 "summary": "Aynı kullanıcıya bağlı Masa Telefonları (1 veya daha fazla), Web Telefon, Masaüstü ve Mobil Uygulama arasında aktif görüşmeyi düşürmeden taşıma (Call Flip) eklendi. Görüşme sırasında masa telefonundan *11 veya uygulamalardan 'Cihaz Değiştir' butonuna basıldığında mevcut cihaz hariç tüm diğer cihazlar çalar; hangisinden açılırsa görüşme oraya geçer ve diğerleri susar.",
                 "features": [

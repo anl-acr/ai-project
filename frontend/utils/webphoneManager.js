@@ -1410,7 +1410,28 @@ class WebphoneManager {
         );
         if (!res.ok) return;
         const data = await res.json();
-        const ringingList = Array.isArray(data?.ringing_calls) ? data.ringing_calls : [];
+        const rawRingingList = Array.isArray(data?.ringing_calls) ? data.ringing_calls : [];
+        const myExtStr = String(ext || "").trim();
+        // Never show pickup notification for a call where THIS agent is the caller or currently dialing that target
+        const activeOutboundTargets = new Set();
+        if (this.state.callStatus === "Calling" || this.state.callStatus === "InCall") {
+          const curRem = String(this.state.remoteNumber || "").trim();
+          if (curRem) activeOutboundTargets.add(curRem);
+        }
+        for (const l of this.linesMap.values()) {
+          if (l && (l.direction === "outbound" || l.callStatus === "Calling")) {
+            const lRem = String(l.remoteNumber || "").trim();
+            if (lRem) activeOutboundTargets.add(lRem);
+          }
+        }
+        const ringingList = rawRingingList.filter((rc) => {
+          const rExt = String(rc?.ringing_extension || "").trim();
+          const cNum = String(rc?.caller_number || "").trim();
+          if (!rExt || rExt === myExtStr) return false;
+          if (cNum && cNum === myExtStr) return false;
+          if (activeOutboundTargets.has(rExt)) return false;
+          return true;
+        });
 
         // Keep track of active keys to fire visual popup event only when a new group call starts ringing
         const activeKeys = new Set();
