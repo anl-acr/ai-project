@@ -273,7 +273,24 @@ export default function Home() {
   const sidebarActiveItemCls = `${lightBg} ${text} border-primary/25 dark:border-primary/35 shadow-sm`;
   const sidebarInactiveItemCls = "text-slate-500 dark:text-slate-400 border-transparent hover:text-slate-900 dark:hover:text-white hover:bg-slate-50 dark:hover:bg-slate-800/40";
   const backendHost = getBackendHost();
+  const [systemVersion, setSystemVersion] = useState("v3.6.1");
   const [activeTab, setActiveTabRaw] = useState("dashboard"); // dashboard, call-center, pbx-settings, channel-settings, rag-kb, rule-editor
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    let active = true;
+    fetch(`${window.location.protocol}//${backendHost}/api/settings/version`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (active && d?.version) {
+          setSystemVersion(String(d.version).trim());
+        }
+      })
+      .catch(() => {});
+    return () => {
+      active = false;
+    };
+  }, [backendHost]);
   const mainStageRef = React.useRef(null);
   const uiMotionModeRef = React.useRef("fluid");
 
@@ -5403,10 +5420,10 @@ export default function Home() {
           </p>
           <button
             onClick={() => setActiveTab("changelog")}
-            title="Sistem Versiyonu ve Değişiklik Günlüğü (v3.0.2 On-Premise)"
+            title={`Sistem Versiyonu ve Değişiklik Günlüğü (${systemVersion} On-Premise)`}
             className="flex items-center gap-1 text-[10px] font-bold text-slate-500 dark:text-slate-400 hover:text-primary dark:hover:text-primary hover:underline transition cursor-pointer bg-transparent border-0 p-0 outline-none focus-visible:ring-2 focus-visible:ring-primary/50 rounded"
           >
-            <span>{isSidebarCollapsed ? "v3.0.2" : "v3.0.2 (On-Premise)"}</span>
+            <span>{isSidebarCollapsed ? systemVersion : `${systemVersion} (On-Premise)`}</span>
           </button>
         </div>
       </aside>
