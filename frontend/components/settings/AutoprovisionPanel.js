@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from "react";
-import { Smartphone, Search, Plus, Trash2, Edit2, X, RefreshCw, CheckCircle, AlertTriangle, Monitor, Tag, User, FileText, Download, Upload } from "lucide-react";
+import { Smartphone, Search, Plus, Trash2, Edit2, X, RefreshCw, CheckCircle, AlertTriangle, Monitor, Tag, User, FileText, Download, Upload, Copy, Check, Globe, Network, Server, Settings, Save } from "lucide-react";
 import * as XLSX from "xlsx";
 import ConfirmDeleteModal from "../dashboard/ConfirmDeleteModal";
 import { useTheme } from "../../utils/theme";
@@ -29,6 +29,26 @@ export default function AutoprovisionPanel({ backendHost = "localhost:8000" }) {
   const [model, setModel] = useState("");
   const [assignedUserId, setAssignedUserId] = useState("");
   const [templateId, setTemplateId] = useState("");
+  const [connectionMode, setConnectionMode] = useState("lan");
+
+  // LAN / WAN Provisioning Network Config states
+  const [netConfig, setNetConfig] = useState(null);
+  const [showNetEditor, setShowNetEditor] = useState(false);
+  const [netLocalIp, setNetLocalIp] = useState("");
+  const [netLocalPort, setNetLocalPort] = useState("8000");
+  const [netLocalScheme, setNetLocalScheme] = useState("http");
+  const [netWanSipHost, setNetWanSipHost] = useState("");
+  const [netWanProvBase, setNetWanProvBase] = useState("");
+  const [netDefaultMode, setNetDefaultMode] = useState("lan");
+  const [netSaving, setNetSaving] = useState(false);
+  const [copiedKey, setCopiedKey] = useState("");
+
+  const copyWithFeedback = (val, key) => {
+    if (!val || typeof navigator === "undefined") return;
+    navigator.clipboard?.writeText(val).catch(() => {});
+    setCopiedKey(key);
+    setTimeout(() => setCopiedKey(""), 2000);
+  };
 
   const API_BASE = `${window.location.protocol}//${backendHost}`;
 
@@ -58,10 +78,55 @@ export default function AutoprovisionPanel({ backendHost = "localhost:8000" }) {
       } else if (dataTemplates.templates) {
         setTemplates(dataTemplates.templates);
       }
+
+      try {
+        const resNet = await fetch(`${API_BASE}/api/settings/autoprovision/network`);
+        if (resNet.ok) {
+          const dataNet = await resNet.json();
+          setNetConfig(dataNet);
+          const n = dataNet.network || {};
+          setNetLocalIp(n.configured_local_ip || n.local_ip || "");
+          setNetLocalPort(String(n.local_port || 8000));
+          setNetLocalScheme(n.local_scheme || "http");
+          setNetWanSipHost(n.configured_wan_sip_host || n.wan_sip_host || "");
+          setNetWanProvBase(n.configured_wan_prov_base || n.wan_prov_base || "");
+          setNetDefaultMode(n.default_mode || "lan");
+        }
+      } catch (eNet) {}
     } catch (err) {
       console.error("Veriler yüklenemedi:", err);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleSaveNetworkConfig = async () => {
+    setNetSaving(true);
+    try {
+      const res = await fetch(`${API_BASE}/api/settings/autoprovision/network`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          local_ip: netLocalIp.trim(),
+          local_port: parseInt(netLocalPort, 10) || 8000,
+          local_scheme: netLocalScheme,
+          wan_sip_host: netWanSipHost.trim(),
+          wan_prov_base: netWanProvBase.trim(),
+          default_mode: netDefaultMode
+        })
+      });
+      if (res.ok) {
+        const d = await res.json();
+        setNetConfig(d);
+        setShowNetEditor(false);
+        setSuccess(true);
+        setTimeout(() => setSuccess(false), 3000);
+      }
+    } catch (err) {
+      setError("Ağ ayarları kaydedilemedi.");
+      setTimeout(() => setError(null), 3500);
+    } finally {
+      setNetSaving(false);
     }
   };
 
@@ -93,6 +158,7 @@ export default function AutoprovisionPanel({ backendHost = "localhost:8000" }) {
         model: model.trim(),
         assigned_user: assignedUserId,
         template_id: templateId,
+        connection_mode: connectionMode || "lan",
         provision_date: new Date().toISOString()
       };
 
@@ -233,6 +299,7 @@ export default function AutoprovisionPanel({ backendHost = "localhost:8000" }) {
     setModel("");
     setAssignedUserId("");
     setTemplateId("");
+    setConnectionMode(netDefaultMode || "lan");
     setShowModal(true);
   };
 
@@ -243,6 +310,7 @@ export default function AutoprovisionPanel({ backendHost = "localhost:8000" }) {
     setModel(dev.model || "");
     setAssignedUserId(dev.assigned_user || "");
     setTemplateId(dev.template_id || "");
+    setConnectionMode(dev.connection_mode || "lan");
     setShowModal(true);
   };
 
@@ -253,6 +321,7 @@ export default function AutoprovisionPanel({ backendHost = "localhost:8000" }) {
     setModel(dev.model || "");
     setAssignedUserId("");
     setTemplateId("");
+    setConnectionMode("lan");
     setShowModal(true);
   };
 
@@ -316,12 +385,170 @@ export default function AutoprovisionPanel({ backendHost = "localhost:8000" }) {
           <button
             onClick={openAddModal}
             title="Yeni Cihaz Ekle"
-            className={`p-2 ${bg} ${hover} text-white rounded-xl text-xs font-bold transition-all shadow-sm flex items-center justify-center h-8 w-8 shrink-0`}
+            className="bg-rose-600 hover:bg-rose-500 text-white rounded-xl h-8 w-8 flex items-center justify-center shrink-0 transition-all shadow-sm"
           >
             <Plus size={16} />
           </button>
         </div>
       </div>
+
+      {/* LAN / WAN Provisioning Server URL & Local IP Card */}
+      {netConfig && (
+        <div className={`p-5 bg-white dark:bg-slate-900 border ${borderLight} rounded-2xl shadow-sm space-y-4`}>
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div className="flex items-center gap-2.5">
+              <div className={`w-9 h-9 rounded-xl ${lightBg} ${text} border ${borderLight} flex items-center justify-center shrink-0`}>
+                <Network size={18} />
+              </div>
+              <div>
+                <h4 className="text-xs font-extrabold text-slate-900 dark:text-white uppercase tracking-wider">
+                  Provizyon Sunucu Adresleri (LAN / WAN &amp; DHCP Option 66)
+                </h4>
+                <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                  Santral ile aynı lokasyondaki masa telefonları tünelsiz doğrudan Yerel IP ({netConfig.network?.local_ip}) üzerinden provizyon ve SIP kaydı alır.
+                </p>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => setShowNetEditor((v) => !v)}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-xs font-bold transition-colors cursor-pointer shrink-0"
+            >
+              <Settings size={13} />
+              <span>{showNetEditor ? "Ayarları Gizle" : "Yerel IP / Ağ Ayarları"}</span>
+            </button>
+          </div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-3.5">
+            {/* LAN Box */}
+            <div className="p-3.5 rounded-xl bg-emerald-50/60 dark:bg-emerald-950/20 border border-emerald-200/80 dark:border-emerald-900/50 space-y-2">
+              <div className="flex items-center justify-between gap-2">
+                <span className="inline-flex items-center gap-1.5 text-[11px] font-extrabold text-emerald-800 dark:text-emerald-300">
+                  <Server size={13} />
+                  Aynı Lokasyon (LAN — Tünelsiz / DHCP Option 66)
+                </span>
+                <span className="px-2 py-0.5 rounded-md bg-emerald-100 dark:bg-emerald-900/50 text-emerald-700 dark:text-emerald-300 font-mono text-[10px] font-bold">
+                  SIP: {netConfig.network?.local_ip}:5060
+                </span>
+              </div>
+              <div className="flex items-center gap-2">
+                <input
+                  type="text"
+                  readOnly
+                  value={netConfig.lan_prov_url || ""}
+                  className="flex-1 text-[11px] font-mono px-3 py-1.5 rounded-lg bg-white dark:bg-slate-900 border border-emerald-200 dark:border-emerald-800/70 text-slate-800 dark:text-slate-100"
+                />
+                <button
+                  type="button"
+                  onClick={() => copyWithFeedback(netConfig.lan_prov_url, "lan-url")}
+                  className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-[11px] font-bold transition-colors cursor-pointer shrink-0"
+                >
+                  {copiedKey === "lan-url" ? <Check size={13} /> : <Copy size={13} />}
+                  <span>{copiedKey === "lan-url" ? "Kopyalandı" : "Kopyala"}</span>
+                </button>
+              </div>
+            </div>
+
+            {/* WAN Box */}
+            <div className="p-3.5 rounded-xl bg-slate-50/80 dark:bg-slate-950/60 border border-slate-200/80 dark:border-slate-800 space-y-2">
+              <div className="flex items-center justify-between gap-2">
+                <span className="inline-flex items-center gap-1.5 text-[11px] font-extrabold text-slate-700 dark:text-slate-200">
+                  <Globe size={13} />
+                  Farklı Lokasyon / Uzak Şube (WAN)
+                </span>
+                <span className="px-2 py-0.5 rounded-md bg-slate-200/80 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-mono text-[10px] font-bold">
+                  SIP: {netConfig.network?.wan_sip_host}:5060
+                </span>
+              </div>
+              <div className="flex items-center gap-2">
+                <input
+                  type="text"
+                  readOnly
+                  value={netConfig.wan_prov_url || ""}
+                  className="flex-1 text-[11px] font-mono px-3 py-1.5 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-800 dark:text-slate-100"
+                />
+                <button
+                  type="button"
+                  onClick={() => copyWithFeedback(netConfig.wan_prov_url, "wan-url")}
+                  className={`inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg ${bg} ${hover} text-white text-[11px] font-bold transition-colors cursor-pointer shrink-0`}
+                >
+                  {copiedKey === "wan-url" ? <Check size={13} /> : <Copy size={13} />}
+                  <span>{copiedKey === "wan-url" ? "Kopyalandı" : "Kopyala"}</span>
+                </button>
+              </div>
+            </div>
+          </div>
+
+          {showNetEditor && (
+            <div className="pt-3 border-t border-slate-100 dark:border-slate-800 grid grid-cols-1 md:grid-cols-5 gap-3 items-end">
+              <div>
+                <label className="block text-[10px] font-bold uppercase text-slate-500 mb-1">
+                  Santral Yerel IP (Oto: {netConfig.network?.detected_local_ip})
+                </label>
+                <input
+                  type="text"
+                  value={netLocalIp}
+                  onChange={(e) => setNetLocalIp(e.target.value)}
+                  placeholder={netConfig.network?.detected_local_ip || "172.20.5.252"}
+                  className="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-700 text-xs font-mono font-bold text-slate-800 dark:text-slate-100"
+                />
+              </div>
+              <div>
+                <label className="block text-[10px] font-bold uppercase text-slate-500 mb-1">Yerel Port &amp; Protokol</label>
+                <div className="flex gap-1.5">
+                  <select
+                    value={netLocalScheme}
+                    onChange={(e) => setNetLocalScheme(e.target.value)}
+                    className="w-20 px-2 py-2 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-700 text-xs font-bold"
+                  >
+                    <option value="http">HTTP</option>
+                    <option value="https">HTTPS</option>
+                  </select>
+                  <input
+                    type="number"
+                    value={netLocalPort}
+                    onChange={(e) => setNetLocalPort(e.target.value)}
+                    className="flex-1 min-w-0 px-2.5 py-2 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-700 text-xs font-mono font-bold"
+                  />
+                </div>
+              </div>
+              <div>
+                <label className="block text-[10px] font-bold uppercase text-slate-500 mb-1">Dış (WAN) SIP Sunucusu</label>
+                <input
+                  type="text"
+                  value={netWanSipHost}
+                  onChange={(e) => setNetWanSipHost(e.target.value)}
+                  placeholder={netConfig.network?.nat_extern_ip || "Dış IP / Domain"}
+                  className="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-700 text-xs font-mono font-bold text-slate-800 dark:text-slate-100"
+                />
+              </div>
+              <div>
+                <label className="block text-[10px] font-bold uppercase text-slate-500 mb-1">Varsayılan Cihaz Modu</label>
+                <select
+                  value={netDefaultMode}
+                  onChange={(e) => setNetDefaultMode(e.target.value)}
+                  className="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-700 text-xs font-bold text-slate-800 dark:text-slate-100"
+                >
+                  <option value="lan">Aynı Lokasyon (LAN)</option>
+                  <option value="auto">Otomatik Algıla (Auto)</option>
+                  <option value="wan">Uzak Şube (WAN)</option>
+                </select>
+              </div>
+              <div>
+                <button
+                  type="button"
+                  disabled={netSaving}
+                  onClick={handleSaveNetworkConfig}
+                  className={`w-full inline-flex items-center justify-center gap-1.5 px-4 py-2 rounded-xl ${bg} ${hover} text-white text-xs font-extrabold shadow-sm cursor-pointer disabled:opacity-50`}
+                >
+                  <Save size={13} />
+                  <span>{netSaving ? "Kaydediliyor..." : "Ağ Ayarını Kaydet"}</span>
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
 
       {success && (
         <div className="p-3 bg-emerald-50 dark:bg-emerald-950/15 border border-emerald-200/50 dark:border-emerald-900/30 rounded-xl text-emerald-600 dark:text-emerald-400 text-xs font-bold flex items-center gap-2">
@@ -357,6 +584,7 @@ export default function AutoprovisionPanel({ backendHost = "localhost:8000" }) {
                   <th className="py-2.5 px-4 text-xs font-semibold">MAC ADRESİ</th>
                   <th className="py-2.5 px-4 text-xs font-semibold">IP ADRESİ</th>
                   <th className="py-2.5 px-4 text-xs font-semibold">MARKA / MODEL</th>
+                  <th className="py-2.5 px-4 text-xs font-semibold">AĞ MODU</th>
                   <th className="py-2.5 px-4 text-xs font-semibold">ATANAN KULLANICI</th>
                   <th className="py-2.5 px-4 text-xs font-semibold text-right">İŞLEMLER</th>
                 </tr>
@@ -387,6 +615,30 @@ export default function AutoprovisionPanel({ backendHost = "localhost:8000" }) {
                           </div>
                         </td>
                         <td className="py-3 px-4">
+                          {(() => {
+                            const cm = String(dev.connection_mode || "lan").toLowerCase();
+                            if (cm === "wan") {
+                              return (
+                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-indigo-50 dark:bg-indigo-950/40 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 text-[10px] font-extrabold">
+                                  <Globe size={11} /> WAN
+                                </span>
+                              );
+                            }
+                            if (cm === "auto") {
+                              return (
+                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800 text-[10px] font-extrabold">
+                                  <Network size={11} /> OTO
+                                </span>
+                              );
+                            }
+                            return (
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 text-[10px] font-extrabold">
+                                <Server size={11} /> LAN
+                              </span>
+                            );
+                          })()}
+                        </td>
+                        <td className="py-3 px-4">
                           {assignedUser ? (
                             <div className="flex items-center gap-2">
                               <div className="h-6 w-6 rounded-full bg-slate-200 dark:bg-slate-700 overflow-hidden shrink-0">
@@ -408,7 +660,18 @@ export default function AutoprovisionPanel({ backendHost = "localhost:8000" }) {
                           )}
                         </td>
                       <td className="py-3 px-4 text-right">
-                        <div className="flex items-center justify-end gap-2">
+                        <div className="flex items-center justify-end gap-1.5">
+                          {netConfig?.token && dev.mac && (
+                            <a
+                              href={`${API_BASE}/api/prov/${netConfig.token}/${String(dev.connection_mode || "lan").toLowerCase() === "wan" ? "wan" : "lan"}/${String(dev.mac).replace(/[^a-fA-F0-9]/g, "").toLowerCase()}.cfg`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="p-1.5 text-slate-400 hover:text-emerald-600 dark:hover:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-950/30 rounded-lg transition-colors"
+                              title="Provizyon Config Dosyasını Önizle / İndir"
+                            >
+                              <Download size={14} />
+                            </a>
+                          )}
                           <button
                             onClick={() => openEditModal(dev)}
                             className="p-1.5 text-slate-400 hover:text-slate-800 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg transition-colors"
@@ -583,6 +846,33 @@ export default function AutoprovisionPanel({ backendHost = "localhost:8000" }) {
                   <div className="absolute inset-y-0 right-3 flex items-center pointer-events-none">
                     <svg className="w-4 h-4 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7"></path></svg>
                   </div>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-600 dark:text-slate-400 mb-1.5 ml-1">
+                  Bağlantı Lokasyonu (Ağ Modu)
+                </label>
+                <div className="grid grid-cols-3 gap-2">
+                  {[
+                    { id: "lan", label: "Aynı Ofis (LAN)", desc: "Local IP • Tünelsiz" },
+                    { id: "wan", label: "Uzak Şube (WAN)", desc: "Dış IP • NAT" },
+                    { id: "auto", label: "Otomatik", desc: "IP'ye göre seç" }
+                  ].map((opt) => (
+                    <button
+                      key={opt.id}
+                      type="button"
+                      onClick={() => setConnectionMode(opt.id)}
+                      className={`p-2 rounded-xl border text-left transition-all cursor-pointer ${
+                        connectionMode === opt.id
+                          ? `${lightBg} ${border} ${text}`
+                          : "bg-slate-50 dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300"
+                      }`}
+                    >
+                      <div className="text-[11px] font-extrabold">{opt.label}</div>
+                      <div className="text-[9px] opacity-75 mt-0.5">{opt.desc}</div>
+                    </button>
+                  ))}
                 </div>
               </div>
 

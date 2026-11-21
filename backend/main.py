@@ -14633,11 +14633,23 @@ async def inspect_user_sip_device_endpoint(
     tenant_id = (matched_u.get("tenant_id") if matched_u else None) or user_info.get("tenant_id") or "tenant-default"
     prov_token = get_or_create_provisioning_token(settings_db, tenant_id)
     req_host = request.headers.get("host") or ""
-    pbx_host = resolve_pbx_sip_server_host(settings_db, req_host)
     scheme = request.headers.get("x-forwarded-proto") or request.url.scheme or "http"
+    dev_conn_mode = str((matched_dev or {}).get("connection_mode") or ("wan" if (matched_dev or {}).get("remote_access") else "lan")).strip().lower()
+    if dev_conn_mode not in ("lan", "wan", "auto"):
+        dev_conn_mode = "lan"
+    from backend.services.autoprovision_service import resolve_provisioning_endpoints
+    prov_ep = resolve_provisioning_endpoints(
+        settings_db=settings_db,
+        token=prov_token,
+        mode=dev_conn_mode,
+        request_host=req_host,
+        request_scheme=scheme,
+        client_ip="",
+    )
+    pbx_host = prov_ep["pbx_host"]
     mac_colon, mac_hex = normalize_mac_address((matched_dev or {}).get("mac") or "")
     cfg_fname = f"{mac_hex}.cfg" if mac_hex else f"{su_s}.cfg"
-    prov_base_url = f"{scheme}://{req_host or (pbx_host + ':8000')}/api/prov/{prov_token}"
+    prov_base_url = prov_ep["active_prov_url"]
     prov_file_url = f"{prov_base_url}/{cfg_fname}"
 
     dev_codecs = "ulaw,alaw,g722,g729,opus" if is_web_dev else ",".join((matched_dev or {}).get("codecs") or ["g722", "alaw", "ulaw", "g729"])
@@ -14714,6 +14726,15 @@ async def inspect_user_sip_device_endpoint(
             "server_url": prov_base_url,
             "file_url": prov_file_url,
             "pbx_host": pbx_host,
+            "connection_mode": dev_conn_mode,
+            "effective_mode": prov_ep["effective_mode"],
+            "lan_url": prov_ep["lan_prov_url"],
+            "lan_file_url": f"{prov_ep['lan_prov_url']}/{cfg_fname}",
+            "wan_url": prov_ep["wan_prov_url"],
+            "wan_file_url": f"{prov_ep['wan_prov_url']}/{cfg_fname}",
+            "auto_url": prov_ep["auto_prov_url"],
+            "local_ip": prov_ep["local_ip"],
+            "wan_sip_host": prov_ep["wan_sip_host"],
         },
         "supported_models": SUPPORTED_PHONE_MODELS,
         "raw": raw_output,
@@ -14741,13 +14762,119 @@ async def notify_user_sip_device_endpoint(
     }
 
 
+@app.get("/api/settings/autoprovision/network")
+async def get_autoprovision_network_config(request: Request, user_info: dict = Depends(get_user_info)):
+    """Santralin LAN/WAN oto-provizyon ağ ayarlarını ve kopyalanabilir LAN/WAN URL'lerini döner."""
+    from backend.services.autoprovision_service import (
+        get_or_create_provisioning_token,
+        resolve_provisioning_endpoints,
+    )
+    tenant_id = user_info.get("tenant_id") or "tenant-default"
+    token = get_or_create_provisioning_token(settings_db, tenant_id)
+    req_host = request.headers.get("host") or ""
+    scheme = request.headers.get("x-forwarded-proto") or request.url.scheme or "https"
+    ep = resolve_provisioning_endpoints(
+        settings_db=settings_db,
+        token=token,
+        mode="lan",
+        request_host=req_host,
+        request_scheme=scheme,
+    )
+    return {
+        "status": "success",
+        "token": token,
+        "network": ep["network"],
+        "lan_prov_url": ep["lan_prov_url"],
+        "wan_prov_url": ep["wan_prov_url"],
+        "auto_prov_url": ep["auto_prov_url"],
+        "dhcp_option_66_lan": ep["lan_prov_url"],
+    }
+
+
+@app.post("/api/settings/autoprovision/network")
+async def save_autoprovision_network_config(
+    request: Request,
+    payload: Dict[str, Any] = Body(...),
+    user_info: dict = Depends(get_user_info),
+):
+    """Santral yerel LAN IP, port, dış SIP host ve varsayılan oto-provizyon bağlantı modunu kaydeder."""
+    from backend.services.autoprovision_service import (
+        get_or_create_provisioning_token,
+        resolve_provisioning_endpoints,
+    )
+    cur = settings_db.get("autoprovision_network") if isinstance(settings_db.get("autoprovision_network"), dict) else {}
+    local_ip = str(payload.get("local_ip") if "local_ip" in payload else cur.get("local_ip") or "").strip()
+    local_scheme = str(payload.get("local_scheme") or cur.get("local_scheme") or "http").strip().lower()
+    if local_scheme not in ("http", "https"):
+        local_scheme = "http"
+    try:
+        local_port = int(payload.get("local_port") or cur.get("local_port") or 8000)
+        if local_port < 1 or local_port > 65535:
+            local_port = 8000
+    except Exception:
+        local_port = 8000
+    wan_sip_host = str(payload.get("wan_sip_host") if "wan_sip_host" in payload else cur.get("wan_sip_host") or "").strip()
+    wan_prov_base = str(payload.get("wan_prov_base") if "wan_prov_base" in payload else cur.get("wan_prov_base") or "").strip().rstrip("/")
+    default_mode = str(payload.get("default_mode") or cur.get("default_mode") or "lan").strip().lower()
+    if default_mode not in ("lan", "wan", "auto"):
+        default_mode = "lan"
+
+    settings_db["autoprovision_network"] = {
+        "local_ip": local_ip,
+        "local_scheme": local_scheme,
+        "local_port": local_port,
+        "wan_sip_host": wan_sip_host,
+        "wan_prov_base": wan_prov_base,
+        "default_mode": default_mode,
+    }
+    save_settings(settings_db)
+
+    tenant_id = user_info.get("tenant_id") or "tenant-default"
+    token = get_or_create_provisioning_token(settings_db, tenant_id)
+    req_host = request.headers.get("host") or ""
+    scheme = request.headers.get("x-forwarded-proto") or request.url.scheme or "https"
+    ep = resolve_provisioning_endpoints(
+        settings_db=settings_db,
+        token=token,
+        mode="lan",
+        request_host=req_host,
+        request_scheme=scheme,
+    )
+    await log_event(
+        user_id=user_info["user_id"],
+        action="AUTOPROVISION_NETWORK_UPDATED",
+        module="Autoprovision",
+        details={
+            "local_ip": ep["network"]["local_ip"],
+            "local_port": local_port,
+            "wan_sip_host": ep["network"]["wan_sip_host"],
+            "default_mode": default_mode,
+        },
+        ip_address=user_info["ip_address"],
+    )
+    return {
+        "status": "success",
+        "token": token,
+        "network": ep["network"],
+        "lan_prov_url": ep["lan_prov_url"],
+        "wan_prov_url": ep["wan_prov_url"],
+        "auto_prov_url": ep["auto_prov_url"],
+        "dhcp_option_66_lan": ep["lan_prov_url"],
+    }
+
+
 @app.get("/api/settings/users/{extension}/sip-devices/{sip_username}/config-file")
 async def download_user_sip_device_cfg(
     extension: str,
     sip_username: str,
     request: Request,
+    mode: Optional[str] = None,
 ):
-    from backend.services.autoprovision_service import generate_provisioning_config, resolve_pbx_sip_server_host
+    from backend.services.autoprovision_service import (
+        generate_provisioning_config,
+        get_or_create_provisioning_token,
+        resolve_provisioning_endpoints,
+    )
     ext_s = str(extension or "").strip()
     su_s = re.sub(r"[^a-zA-Z0-9_.-]", "", str(sip_username or "").strip())
     matched_u, matched_dev = _find_user_and_sip_device(ext_s, su_s)
@@ -14758,8 +14885,20 @@ async def download_user_sip_device_cfg(
     pickup_cfg = ((pbx_cfg.get("numbering_plan") or {}).get("call_pickup") or {})
     pickup_group = str(pickup_cfg.get("group") or "*8").strip() or "*8"
     pickup_directed = str(pickup_cfg.get("directed") or "**").strip() or "**"
-    pbx_host = resolve_pbx_sip_server_host(settings_db, request.headers.get("host") or "")
     u_tid = matched_u.get("tenant_id") or "tenant-default"
+    prov_token = get_or_create_provisioning_token(settings_db, u_tid)
+    eff_req_mode = str(mode or matched_dev.get("connection_mode") or ("wan" if matched_dev.get("remote_access") else "lan")).strip().lower()
+    if eff_req_mode not in ("lan", "wan", "auto"):
+        eff_req_mode = "lan"
+    prov_ep = resolve_provisioning_endpoints(
+        settings_db=settings_db,
+        token=prov_token,
+        mode=eff_req_mode,
+        request_host=request.headers.get("host") or "",
+        request_scheme=request.headers.get("x-forwarded-proto") or request.url.scheme or "https",
+        client_ip="",
+    )
+    pbx_host = prov_ep["pbx_host"]
     all_pbs = [
         pb for pb in (settings_db.get("phonebooks") or [])
         if isinstance(pb, dict) and (pb.get("tenant_id") == u_tid or (not pb.get("tenant_id") and u_tid == "tenant-default"))
@@ -14787,6 +14926,9 @@ async def download_user_sip_device_cfg(
         auto_answer=bool(matched_dev.get("auto_answer", False)),
         direct_ip_call_block=matched_dev.get("direct_ip_call_block") is not False,
         phonebooks=all_pbs,
+        phonebook_base_url=prov_ep["phonebook_base_url"],
+        connection_mode=prov_ep["effective_mode"],
+        provision_server_url=prov_ep["active_prov_url"],
     )
     return Response(
         content=content_text,
@@ -14795,8 +14937,12 @@ async def download_user_sip_device_cfg(
     )
 
 
-@app.get("/api/prov/{token}/{filename}")
-async def serve_sip_device_autoprovision_file(token: str, filename: str, request: Request):
+async def _render_autoprovision_file_for_phone(
+    token: str,
+    filename: str,
+    request: Request,
+    explicit_mode: Optional[str] = None,
+):
     from backend.services.autoprovision_service import (
         resolve_tenant_by_provisioning_token,
         extract_mac_from_provision_filename,
@@ -14804,7 +14950,7 @@ async def serve_sip_device_autoprovision_file(token: str, filename: str, request
         normalize_user_sip_devices,
         generate_yealink_common_boot_cfg,
         generate_provisioning_config,
-        resolve_pbx_sip_server_host,
+        resolve_provisioning_endpoints,
     )
     tenant_id = resolve_tenant_by_provisioning_token(settings_db, token)
     if not tenant_id:
@@ -14818,11 +14964,24 @@ async def serve_sip_device_autoprovision_file(token: str, filename: str, request
     stem = os.path.splitext(fn_clean)[0]
     ap_all = settings_db.get("autoprovision", [])
     dp_all = settings_db.get("user_deskphone_configs", {})
-    pbx_host = resolve_pbx_sip_server_host(settings_db, request.headers.get("host") or "")
+    tpl_all = settings_db.get("autoprovision_templates", [])
     pbx_cfg = settings_db.get("pbx", {}) if isinstance(settings_db.get("pbx"), dict) else {}
     pickup_cfg = ((pbx_cfg.get("numbering_plan") or {}).get("call_pickup") or {})
     pickup_group = str(pickup_cfg.get("group") or "*8").strip() or "*8"
     pickup_directed = str(pickup_cfg.get("directed") or "**").strip() or "**"
+
+    client_ip = extract_client_ip(request)
+    req_host = request.headers.get("host") or ""
+    req_scheme = request.headers.get("x-forwarded-proto") or request.url.scheme or "http"
+    query_mode = str(explicit_mode or request.query_params.get("mode") or "").strip().lower()
+
+    # Map autoprovision entries by normalized mac hex to pick up custom template & connection_mode
+    ap_by_mac = {}
+    for ap_item in (ap_all or []):
+        if isinstance(ap_item, dict):
+            _, ap_mhex = normalize_mac_address(ap_item.get("mac") or "")
+            if ap_mhex:
+                ap_by_mac[ap_mhex] = ap_item
 
     for u in settings_db.get("users", []) or []:
         u_tid = u.get("tenant_id") or "tenant-default"
@@ -14833,6 +14992,26 @@ async def serve_sip_device_autoprovision_file(token: str, filename: str, request
             _, dev_mac_hex = normalize_mac_address(dev.get("mac") or "")
             dev_su = str(dev.get("sip_username") or "").strip()
             if (mac_hex and dev_mac_hex == mac_hex) or (dev_su and dev_su.lower() == stem.lower()):
+                ap_rec = ap_by_mac.get(dev_mac_hex) or {}
+                dev_mode = query_mode if query_mode in ("lan", "wan", "auto") else str(
+                    ap_rec.get("connection_mode") or dev.get("connection_mode") or "auto"
+                ).strip().lower()
+                prov_ep = resolve_provisioning_endpoints(
+                    settings_db=settings_db,
+                    token=token,
+                    mode=dev_mode,
+                    request_host=req_host,
+                    request_scheme=req_scheme,
+                    client_ip=client_ip,
+                )
+                tpl_obj = None
+                tpl_id = str(ap_rec.get("template_id") or "").strip()
+                if tpl_id:
+                    for t_item in (tpl_all or []):
+                        if isinstance(t_item, dict) and str(t_item.get("id") or "") == tpl_id:
+                            tpl_obj = t_item
+                            break
+
                 all_pbs = [
                     pb for pb in (settings_db.get("phonebooks") or [])
                     if isinstance(pb, dict) and (pb.get("tenant_id") == u_tid or (not pb.get("tenant_id") and u_tid == "tenant-default"))
@@ -14842,15 +15021,16 @@ async def serve_sip_device_autoprovision_file(token: str, filename: str, request
                     sip_username=dev_su,
                     sip_password=str(dev.get("sip_password") or ""),
                     full_name=str(u.get("full_name") or f"Dahili {ext_s}"),
-                    pbx_host=pbx_host,
-                    brand=str(dev.get("brand") or "Yealink"),
-                    model=str(dev.get("model") or "T46U"),
+                    pbx_host=prov_ep["pbx_host"],
+                    brand=str(ap_rec.get("brand") or dev.get("brand") or "Yealink"),
+                    model=str(ap_rec.get("model") or dev.get("model") or "T46U"),
                     mac_colon=str(dev.get("mac") or ""),
                     transport=str(dev.get("transport") or "UDP"),
                     dss_keys=dev.get("dss_keys") or [],
                     soft_keys=dev.get("soft_keys") or [],
                     pickup_group=pickup_group,
                     pickup_directed=pickup_directed,
+                    template_obj=tpl_obj,
                     requested_filename=fn_clean,
                     codecs=dev.get("codecs") or ["g722", "alaw", "ulaw", "g729"],
                     dtmf_mode=str(dev.get("dtmf_mode") or "rfc4733"),
@@ -14860,10 +15040,31 @@ async def serve_sip_device_autoprovision_file(token: str, filename: str, request
                     auto_answer=bool(dev.get("auto_answer", False)),
                     direct_ip_call_block=dev.get("direct_ip_call_block") is not False,
                     phonebooks=all_pbs,
+                    phonebook_base_url=prov_ep["phonebook_base_url"],
+                    connection_mode=prov_ep["effective_mode"],
+                    provision_server_url=prov_ep["active_prov_url"],
                 )
                 return Response(content=content_text, media_type=media_type)
 
     raise HTTPException(status_code=404, detail="Eşleşen SIP cihazı bulunamadı.")
+
+
+@app.get("/api/prov/{token}/lan/{filename}")
+async def serve_sip_device_autoprovision_file_lan(token: str, filename: str, request: Request):
+    """Aynı lokasyondaki (LAN) masa telefonları için Local IP'li oto-provizyon dosyası döner."""
+    return await _render_autoprovision_file_for_phone(token, filename, request, explicit_mode="lan")
+
+
+@app.get("/api/prov/{token}/wan/{filename}")
+async def serve_sip_device_autoprovision_file_wan(token: str, filename: str, request: Request):
+    """Farklı lokasyondaki (WAN / Uzak Şube) masa telefonları için Dış IP'li oto-provizyon dosyası döner."""
+    return await _render_autoprovision_file_for_phone(token, filename, request, explicit_mode="wan")
+
+
+@app.get("/api/prov/{token}/{filename}")
+async def serve_sip_device_autoprovision_file(token: str, filename: str, request: Request):
+    """Akıllı (Auto / Cihaz Modu) oto-provizyon dosyası sunucusu."""
+    return await _render_autoprovision_file_for_phone(token, filename, request, explicit_mode=None)
 
 
 # ----------------------------------------------------
@@ -41674,18 +41875,47 @@ async def get_system_version_info():
         pass
 
     return {
-        "version": "v3.7.0",
+        "version": "v3.7.2",
         "commit_hash": live_commit,
         "release_date": "21 Kasım 2026",
         "status": "Güncel / Canlı Sürüm",
         "environment": "Production (On-Premise)",
         "changelog": [
             {
-                "version": "v3.7.0",
+                "version": "v3.7.2",
                 "commit_hash": live_commit,
                 "release_date": "21 Kasım 2026",
                 "badge": "Canlı Sürüm (Güncel)",
                 "badge_type": "current",
+                "title": "Masa Telefonları İçin LAN/WAN Akıllı Oto-Provizyon, Otomatik Local IP & DHCP Option 66 Desteği",
+                "summary": "Santral ile aynı lokasyondaki (LAN) masa telefonlarının Nornia Connect tünelinden geçmeden doğrudan santralin yerel IP adresi üzerinden provizyon, SIP kaydı ve uzak rehber alabilmesi için LAN/WAN akıllı oto-provizyon motoru eklendi.",
+                "features": [
+                    "Otomatik Santral Yerel IP Tespiti: WireGuard (wg0 / 10.200.x.x), Docker ve loopback arayüzlerini hariç tutarak santralin gerçek LAN IP'sini otomatik tespit eder; istenirse elle sabitlenebilir.",
+                    "Ayrı LAN ve WAN Provizyon Uç Noktaları: Aynı ofisteki telefonlar için tünelsiz HTTP LAN URL (/api/prov/{token}/lan — DHCP Option 66 uyumlu) + Local IP SIP/Rehber; uzak şubeler için WAN URL (/api/prov/{token}/wan) + Dış IP SIP/NAT Keep-Alive.",
+                    "Akıllı Otomatik Algılama (Auto) & Cihaz Bazlı Mod: Telefonun isteği yerel ağdan geliyorsa otomatik Local IP, dış ağdan geliyorsa Dış IP basar; ayrıca her cihazda LAN / WAN / Otomatik modu seçilebilir.",
+                    "Oto Provizyon & Kullanıcı SIP İnceleme ekranlarında tek tıkla kopyalanabilir LAN/WAN Provizyon URL kartları, Yerel IP/Port ayar paneli ve cihaz bazlı .cfg önizleme/indirme."
+                ],
+                "fixes": []
+            },
+            {
+                "version": "v3.7.1",
+                "commit_hash": live_commit,
+                "release_date": "21 Kasım 2026",
+                "badge": "Kararlı",
+                "badge_type": "stable",
+                "title": "KVKK & Gizlilik Onay Ekranı Checkbox Görünürlük ve Tıklama Düzeltmesi",
+                "summary": "KVKK Aydınlatma & Gizlilik Onayı popup'ında tema CSS'i nedeniyle görünmez kalan ve tıklanmayan onay kutuları düzeltildi; kartın herhangi bir yerine tıklandığında onay kutuları net biçimde işaretlenebilir hale getirildi.",
+                "features": [],
+                "fixes": [
+                    "KVKK Aydınlatma & Gizlilik Onayı popup'ındaki iki onay kutusu ve Ayarlar ekranındaki yeniden onay kutusu, buton CSS çakışmasından etkilenmeyen yüksek kontrastlı tıklanabilir onay kartlarına çevrildi."
+                ]
+            },
+            {
+                "version": "v3.7.0",
+                "commit_hash": "452dbc6",
+                "release_date": "21 Kasım 2026",
+                "badge": "Kararlı",
+                "badge_type": "stable",
                 "title": "Kurumsal WFM Vardiya Planı (Adherence), Gerçek AHT/ACW/Hold/ASA & Temsilci KPI Paketi",
                 "summary": "Yeastar'da bulunmayan tam kapsamlı kurumsal çağrı merkezi raporlama paketi eklendi: gerçek ACW ve oturum (Login/Logout/Kesinti) loglama, endüstri standardı AHT (Talk+Hold+ACW), temsilci bazlı AHT/ACW/ASA/Hold/Hazır-Meşgul-Mola metrikleri, WFM Vardiya Planı yönetimi, Geç Giriş / Erken Çıkış / Adherence (%) ve Günlük-Haftalık Kuyruk Hacimleri.",
                 "features": [

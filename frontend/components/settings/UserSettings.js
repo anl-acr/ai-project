@@ -1683,8 +1683,9 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
         const nextList = sipDevices.map((d) => (d.id === inspectDraft.id ? { ...d, ...inspectDraft } : d));
         await applyUpdatedSipDevices(nextList, true);
       }
+      const dlMode = encodeURIComponent(inspectDraft.connection_mode || (inspectDraft.remote_access ? "wan" : "lan"));
       const res = await safeFetch(
-        `/api/settings/users/${encodeURIComponent(extension.trim())}/sip-devices/${encodeURIComponent(inspectDraft.sip_username)}/config-file`
+        `/api/settings/users/${encodeURIComponent(extension.trim())}/sip-devices/${encodeURIComponent(inspectDraft.sip_username)}/config-file?mode=${dlMode}`
       );
       if (!res.ok) {
         setInspectActionMsg({ type: "error", text: "Konfigürasyon dosyası oluşturulamadı (Önce kullanıcıyı kaydedin)." });
@@ -10255,6 +10256,22 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
                                 className="w-full text-xs font-mono px-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 text-slate-800 dark:text-slate-100 focus:outline-none"
                               />
                             </div>
+
+                            <div className="sm:col-span-2">
+                              <label htmlFor="inspect-conn-mode-select" className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1.5">
+                                Bağlantı Lokasyonu (Provizyon &amp; SIP Sunucu Modu)
+                              </label>
+                              <select
+                                id="inspect-conn-mode-select"
+                                value={inspectDraft.connection_mode || (inspectDraft.remote_access ? "wan" : "lan")}
+                                onChange={(e) => setInspectDraft((prev) => ({ ...prev, connection_mode: e.target.value }))}
+                                className="w-full text-xs font-semibold px-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 text-slate-800 dark:text-slate-100 focus:outline-none"
+                              >
+                                <option value="lan">Aynı Lokasyon (LAN — Santral Local IP, Tünelsiz)</option>
+                                <option value="wan">Farklı Lokasyon / Uzak Şube (WAN — Dış IP, NAT Keep-Alive)</option>
+                                <option value="auto">Otomatik Algıla (Telefonun IP Adresine Göre LAN/WAN)</option>
+                              </select>
+                            </div>
                           </div>
                         </div>
 
@@ -10299,23 +10316,67 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
                             </div>
                           </div>
 
-                          {provUrl && (
-                            <div className="flex items-center gap-2">
-                              <input
-                                type="text"
-                                readOnly
-                                aria-label="Otomatik Kurulum Provisioning URL"
-                                value={provUrl}
-                                className="flex-1 text-xs font-mono px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 text-slate-700 dark:text-slate-200 focus:outline-none"
-                              />
-                              <button
-                                type="button"
-                                onClick={() => copyTextWithFeedback(provUrl, "prov-url")}
-                                className="px-3 py-2 rounded-xl text-xs font-bold bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 inline-flex items-center gap-1.5"
-                              >
-                                {copiedDeviceKey === "prov-url" ? <Check size={14} className="text-emerald-500" /> : <Copy size={14} />}
-                                <span>Kopyala</span>
-                              </button>
+                          {(inspectLiveInfo?.provisioning?.lan_url || provUrl) && (
+                            <div className="space-y-2.5">
+                              {inspectLiveInfo?.provisioning?.lan_url && (
+                                <div className={`p-3 rounded-xl border space-y-1.5 ${(inspectDraft.connection_mode || "lan") !== "wan" ? "bg-emerald-50/70 dark:bg-emerald-950/25 border-emerald-200 dark:border-emerald-800/70" : "bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800"}`}>
+                                  <div className="flex items-center justify-between text-[10px] font-extrabold">
+                                    <span className="text-emerald-700 dark:text-emerald-300">
+                                      Aynı Lokasyon (LAN — Tünelsiz / Local IP)
+                                    </span>
+                                    <span className="font-mono text-slate-500 dark:text-slate-400">
+                                      SIP: {inspectLiveInfo.provisioning.local_ip}:5060
+                                    </span>
+                                  </div>
+                                  <div className="flex items-center gap-2">
+                                    <input
+                                      type="text"
+                                      readOnly
+                                      aria-label="Yerel Ağ Provisioning URL"
+                                      value={inspectLiveInfo.provisioning.lan_url}
+                                      className="flex-1 text-xs font-mono px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 text-slate-700 dark:text-slate-200 focus:outline-none"
+                                    />
+                                    <button
+                                      type="button"
+                                      onClick={() => copyTextWithFeedback(inspectLiveInfo.provisioning.lan_url, "prov-lan-url")}
+                                      className="px-3 py-1.5 rounded-lg text-xs font-bold bg-emerald-600 hover:bg-emerald-500 text-white inline-flex items-center gap-1.5"
+                                    >
+                                      {copiedDeviceKey === "prov-lan-url" ? <Check size={13} /> : <Copy size={13} />}
+                                      <span>Kopyala</span>
+                                    </button>
+                                  </div>
+                                </div>
+                              )}
+
+                              {inspectLiveInfo?.provisioning?.wan_url && (
+                                <div className={`p-3 rounded-xl border space-y-1.5 ${(inspectDraft.connection_mode || "lan") === "wan" ? `${lightBg} ${borderLight}` : "bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800"}`}>
+                                  <div className="flex items-center justify-between text-[10px] font-extrabold">
+                                    <span className="text-slate-700 dark:text-slate-200">
+                                      Farklı Lokasyon / Uzak Şube (WAN)
+                                    </span>
+                                    <span className="font-mono text-slate-500 dark:text-slate-400">
+                                      SIP: {inspectLiveInfo.provisioning.wan_sip_host}:5060
+                                    </span>
+                                  </div>
+                                  <div className="flex items-center gap-2">
+                                    <input
+                                      type="text"
+                                      readOnly
+                                      aria-label="Dış Ağ Provisioning URL"
+                                      value={inspectLiveInfo.provisioning.wan_url}
+                                      className="flex-1 text-xs font-mono px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 text-slate-700 dark:text-slate-200 focus:outline-none"
+                                    />
+                                    <button
+                                      type="button"
+                                      onClick={() => copyTextWithFeedback(inspectLiveInfo.provisioning.wan_url, "prov-wan-url")}
+                                      className="px-3 py-1.5 rounded-lg text-xs font-bold bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 inline-flex items-center gap-1.5"
+                                    >
+                                      {copiedDeviceKey === "prov-wan-url" ? <Check size={13} className="text-emerald-500" /> : <Copy size={13} />}
+                                      <span>Kopyala</span>
+                                    </button>
+                                  </div>
+                                </div>
+                              )}
                             </div>
                           )}
                         </div>

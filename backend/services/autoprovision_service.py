@@ -1,8 +1,10 @@
 import hashlib
 import html
+import ipaddress
 import os
 import re
 import secrets
+import socket
 import subprocess
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -382,6 +384,10 @@ def normalize_user_sip_devices(
             client_access_norm = None
             eff_is_active = base_is_active
 
+        raw_cm = str(dev.get("connection_mode") or "").strip().lower()
+        if raw_cm not in ("lan", "wan", "auto"):
+            raw_cm = "wan" if dev_remote else "lan"
+
         dev_out = {
             "id": dev_id,
             "name": dev_name,
@@ -391,6 +397,7 @@ def normalize_user_sip_devices(
             "max_activations": dev_max_act,
             "sip_driver": dev_driver,
             "remote_access": dev_remote,
+            "connection_mode": raw_cm,
             "transport": dev_tr,
             "is_active": eff_is_active,
             "is_deletable": dev_type != "web_phone",
@@ -494,15 +501,244 @@ def resolve_tenant_by_provisioning_token(settings_db: dict, token: str) -> Optio
     return None
 
 
-def resolve_pbx_sip_server_host(settings_db: dict, request_host: str = "") -> str:
+def is_private_lan_ip(ip_str: str) -> bool:
+    """
+    Returns True if `ip_str` is an RFC1918 local LAN IPv4 address (10.x, 172.16-31.x, 192.168.x),
+    excluding loopback (127.x), Docker bridges (172.17.x), and Nornia Connect WireGuard tunnel (10.200.x).
+    """
+    raw = str(ip_str or "").strip().split("%")[0]
+    if not raw:
+        return False
+    try:
+        addr = ipaddress.ip_address(raw)
+        if addr.version != 4:
+            return False
+        if addr.is_loopback or addr.is_link_local or addr.is_multicast:
+            return False
+        if not addr.is_private:
+            return False
+        # Exclude WireGuard tunnel subnet (10.200.0.0/16) and default Docker bridge (172.17.0.0/16)
+        if addr in ipaddress.ip_network("10.200.0.0/16") or addr in ipaddress.ip_network("172.17.0.0/16"):
+            return False
+        return True
+    except Exception:
+        return False
+
+
+def detect_server_local_ip() -> str:
+    """
+    Detects the PBX server's primary LAN IPv4 address (e.g. 172.20.5.252 / 192.168.1.50),
+    skipping loopback, Docker bridges, and WireGuard tunnel interfaces (wg0 / 10.200.x.x).
+    """
+    # 1. Linux `ip -4 -o addr show` (most accurate on production Ubuntu PBX servers)
+    try:
+        res = subprocess.run(
+            ["ip", "-4", "-o", "addr", "show", "scope", "global"],
+            capture_output=True,
+            text=True,
+            timeout=1.5,
+        )
+        if res.returncode == 0 and res.stdout:
+            preferred: List[str] = []
+            secondary: List[str] = []
+            for line in res.stdout.splitlines():
+                parts = line.split()
+                if len(parts) < 4:
+                    continue
+                iface = parts[1].strip()
+                if iface.startswith(("lo", "wg", "docker", "br-", "veth", "tun", "virbr")):
+                    continue
+                ip_val = parts[3].split("/")[0].strip()
+                if is_private_lan_ip(ip_val):
+                    if iface.startswith(("ens", "enp", "eno", "eth")):
+                        preferred.append(ip_val)
+                    else:
+                        secondary.append(ip_val)
+            if preferred:
+                return preferred[0]
+            if secondary:
+                return secondary[0]
+    except Exception:
+        pass
+
+    # 2. Cross-platform UDP route lookup (works on macOS + Linux without sending packets)
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.settimeout(0.5)
+        try:
+            s.connect(("8.8.8.8", 80))
+            cand = s.getsockname()[0]
+            if is_private_lan_ip(cand):
+                return cand
+        finally:
+            s.close()
+    except Exception:
+        pass
+
+    # 3. Hostname lookup fallback
+    try:
+        cand = socket.gethostbyname(socket.gethostname())
+        if is_private_lan_ip(cand):
+            return cand
+    except Exception:
+        pass
+
+    return "127.0.0.1"
+
+
+def get_provisioning_network_settings(
+    settings_db: dict,
+    request_host: str = "",
+    request_scheme: str = "https",
+) -> Dict[str, Any]:
+    """
+    Resolves LAN & WAN provisioning network settings combining:
+    - Saved user overrides in `settings_db["autoprovision_network"]`
+    - Auto-detected PBX Local LAN IP (`detect_server_local_ip()`)
+    - NAT external IP (`settings_db["nat"]["extern_ip"]`)
+    - Current public HTTP request host (for WAN/tunnel provisioning URL)
+    """
+    ap_net = settings_db.get("autoprovision_network") if isinstance(settings_db.get("autoprovision_network"), dict) else {}
     nat_cfg = settings_db.get("nat") if isinstance(settings_db.get("nat"), dict) else {}
-    ext_ip = str(nat_cfg.get("extern_ip") or "").strip()
+
+    detected_local = detect_server_local_ip()
+    configured_local = str(ap_net.get("local_ip") or "").strip()
+    local_ip = configured_local or detected_local
+
+    local_scheme = str(ap_net.get("local_scheme") or "http").strip().lower()
+    if local_scheme not in ("http", "https"):
+        local_scheme = "http"
+
+    try:
+        local_port = int(ap_net.get("local_port") or 8000)
+        if local_port < 1 or local_port > 65535:
+            local_port = 8000
+    except Exception:
+        local_port = 8000
+
+    nat_extern_ip = str(nat_cfg.get("extern_ip") or "").strip()
+    req_host_clean = str(request_host or "").strip()
+    req_host_only = req_host_clean.split(":")[0].strip()
+
+    configured_wan_sip = str(ap_net.get("wan_sip_host") or "").strip()
+    wan_sip_host = (
+        configured_wan_sip
+        or (nat_extern_ip if nat_extern_ip not in ("", "127.0.0.1", "localhost", "0.0.0.0") else "")
+        or (req_host_only if req_host_only and not is_private_lan_ip(req_host_only) and req_host_only not in ("127.0.0.1", "localhost") else "")
+        or local_ip
+    )
+
+    configured_wan_prov = str(ap_net.get("wan_prov_base") or "").strip().rstrip("/")
+    if configured_wan_prov:
+        wan_prov_base = configured_wan_prov
+    elif req_host_clean and req_host_only not in ("127.0.0.1", "localhost", "0.0.0.0"):
+        wan_prov_base = f"{request_scheme or 'https'}://{req_host_clean}"
+    else:
+        wan_prov_base = f"https://{wan_sip_host}"
+
+    default_mode = str(ap_net.get("default_mode") or "lan").strip().lower()
+    if default_mode not in ("lan", "wan", "auto"):
+        default_mode = "lan"
+
+    if (local_scheme == "http" and local_port == 80) or (local_scheme == "https" and local_port == 443):
+        lan_base = f"{local_scheme}://{local_ip}"
+    else:
+        lan_base = f"{local_scheme}://{local_ip}:{local_port}"
+
+    return {
+        "local_ip": local_ip,
+        "configured_local_ip": configured_local,
+        "detected_local_ip": detected_local,
+        "local_scheme": local_scheme,
+        "local_port": local_port,
+        "lan_base": lan_base,
+        "wan_sip_host": wan_sip_host,
+        "configured_wan_sip_host": configured_wan_sip,
+        "nat_extern_ip": nat_extern_ip,
+        "wan_prov_base": wan_prov_base,
+        "configured_wan_prov_base": configured_wan_prov,
+        "default_mode": default_mode,
+    }
+
+
+def resolve_provisioning_endpoints(
+    settings_db: dict,
+    token: str,
+    mode: str = "lan",
+    request_host: str = "",
+    request_scheme: str = "https",
+    client_ip: str = "",
+) -> Dict[str, Any]:
+    """
+    Computes LAN, WAN, Auto provisioning URLs AND picks the active SIP server + Phonebook base URL
+    based on requested/configured mode (`lan` | `wan` | `auto`) and client IP.
+    """
+    net = get_provisioning_network_settings(settings_db, request_host=request_host, request_scheme=request_scheme)
+    req_mode = str(mode or net["default_mode"] or "lan").strip().lower()
+    if req_mode not in ("lan", "wan", "auto"):
+        req_mode = "lan"
+
+    req_host_only = str(request_host or "").split(":")[0].strip()
+    if req_mode == "auto":
+        if is_private_lan_ip(client_ip) or is_private_lan_ip(req_host_only):
+            eff_mode = "lan"
+        else:
+            eff_mode = "wan"
+    else:
+        eff_mode = req_mode
+
+    lan_prov_url = f"{net['lan_base']}/api/prov/{token}/lan"
+    wan_prov_url = f"{net['wan_prov_base']}/api/prov/{token}/wan"
+    auto_prov_url = f"{net['lan_base']}/api/prov/{token}"
+
+    if eff_mode == "lan":
+        sip_server = net["local_ip"]
+        phonebook_base = f"{net['lan_base']}/api/phonebook"
+        active_prov_url = lan_prov_url
+    else:
+        sip_server = net["wan_sip_host"]
+        phonebook_base = f"{net['wan_prov_base']}/api/phonebook"
+        active_prov_url = wan_prov_url
+
+    return {
+        "requested_mode": req_mode,
+        "effective_mode": eff_mode,
+        "pbx_host": sip_server,
+        "phonebook_base_url": phonebook_base,
+        "active_prov_url": active_prov_url,
+        "lan_prov_url": lan_prov_url,
+        "wan_prov_url": wan_prov_url,
+        "auto_prov_url": auto_prov_url,
+        "local_ip": net["local_ip"],
+        "wan_sip_host": net["wan_sip_host"],
+        "network": net,
+    }
+
+
+def resolve_pbx_sip_server_host(
+    settings_db: dict,
+    request_host: str = "",
+    mode: str = "auto",
+    client_ip: str = "",
+) -> str:
+    """
+    Resolves the SIP server IP/host written into phone configs.
+    - mode='lan': returns the PBX's local LAN IP (never tunnel domain!)
+    - mode='wan': returns the public NAT external IP / WAN SIP host
+    - mode='auto': returns local LAN IP when client_ip or request_host is on LAN, else WAN host.
+    """
+    net = get_provisioning_network_settings(settings_db, request_host=request_host)
+    m = str(mode or "auto").strip().lower()
+    if m == "lan":
+        return net["local_ip"]
+    if m == "wan":
+        return net["wan_sip_host"]
     req_h = str(request_host or "").split(":")[0].strip()
-    if req_h and req_h not in ("127.0.0.1", "localhost", "0.0.0.0"):
-        return req_h
-    if ext_ip and ext_ip not in ("127.0.0.1", "localhost", "0.0.0.0"):
-        return ext_ip
-    return req_h or ext_ip or "127.0.0.1"
+    if is_private_lan_ip(client_ip) or is_private_lan_ip(req_h):
+        return net["local_ip"]
+    if net["default_mode"] == "lan" and not client_ip:
+        return net["local_ip"]
+    return net["wan_sip_host"] or net["local_ip"]
 
 
 def ensure_pjsip_notify_conf(asterisk_config_dir: str) -> None:
@@ -750,6 +986,8 @@ def generate_provisioning_config(
     direct_ip_call_block: bool = True,
     phonebooks: Optional[List[Dict[str, Any]]] = None,
     phonebook_base_url: str = "",
+    connection_mode: str = "lan",
+    provision_server_url: str = "",
 ) -> Tuple[str, str, str]:
     """
     Generates multi-vendor provisioning content using `sip_username` (Kullanıcı > SIP > Kullanıcı Adı)
@@ -982,8 +1220,18 @@ def generate_provisioning_config(
     lines = [
         "#!version:1.0.0.1",
         f"# AIDA PBX Auto-Provisioning ({brand or 'Yealink'} {model or 'T46U'})",
-        f"# Dahili: {ext_s} ({disp_name}) | PJSIP Endpoint / SIP Kullanici Adi: {sip_u}",
+        f"# Dahili: {ext_s} ({disp_name}) | PJSIP Endpoint / SIP Kullanici Adi: {sip_u} | Ag Modu: {str(connection_mode or 'lan').upper()}",
         "",
+        *(
+            [
+                "# --- Oto-Provizyon Sunucu Adresi ---",
+                f"static.auto_provision.server.url = {provision_server_url}",
+                "static.auto_provision.power_on = 1",
+                "",
+            ]
+            if provision_server_url
+            else []
+        ),
         "# --- SIP Hesap 1 (Kullanici SIP Aktivasyon Kimligi ile Kayit) ---",
         "account.1.enable = 1",
         f"account.1.label = {line_label}",
@@ -995,7 +1243,7 @@ def generate_provisioning_config(
         f"account.1.sip_server.1.port = {sip_port}",
         f"account.1.sip_server.1.transport_type = {yl_tr}",
         "account.1.sip_server.1.expires = 3600",
-        "account.1.nat.udp_update_enable = 1",
+        f"account.1.nat.udp_update_enable = {3 if str(connection_mode or 'lan').lower() == 'wan' else 1}",
         "account.1.nat.udp_update_time = 30",
         "account.1.nat.rport = 1",
         f"account.1.dtmf.type = {yl_dtmf}",
