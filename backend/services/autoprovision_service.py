@@ -210,6 +210,211 @@ DEFAULT_PHONE_PREFS: Dict[str, Any] = {
 }
 
 
+def build_system_default_templates() -> List[Dict[str, Any]]:
+    """
+    Generates 56 built-in, vendor-accurate provisioning templates — one for every model in PHONE_MODEL_CATALOG
+    (Yealink, Grandstream, Fanvil, Cisco). Admins can inspect or clone any built-in template into a custom template.
+    """
+    templates: List[Dict[str, Any]] = []
+    for item in PHONE_MODEL_CATALOG:
+        b = item["brand"]
+        m = item["model"]
+        b_low = b.lower()
+        slug = re.sub(r"[^a-z0-9]+", "_", f"{b}_{m}".lower()).strip("_")
+        screen_lbl = {
+            "mono": "Monokrom",
+            "color": "Renkli LCD",
+            "touch": "Dokunmatik",
+            "dual_screen": "Çift Ekran",
+        }.get(item.get("screen"), "LCD")
+        exp_note = f" • {item['expansion_model']} ×{item['max_expansions']}" if item.get("max_expansions", 0) > 0 else ""
+
+        if b_low == "grandstream":
+            fmt = "xml"
+            content = f"""<?xml version="1.0" encoding="UTF-8" ?>
+<!-- Nornia Sistem Şablonu: Grandstream {m} ({item['dss_per_page']}×{item['dss_pages']} = {item['max_dss']} DSS{exp_note}) -->
+<gs_provision version="1">
+  <mac>{{MAC}}</mac>
+  <config version="1">
+    <P212>1</P212>
+    <P237>{{PROVISION_URL_NO_SCHEME}}</P237>
+    <P194>1</P194>
+    <P240>1</P240>
+    <P271>1</P271>
+    <P270>{{LABEL}}</P270>
+    <P47>{{SIP_SERVER}}:{{SIP_PORT}}</P47>
+    <P35>{{SIP_USERNAME}}</P35>
+    <P36>{{SIP_USERNAME}}</P36>
+    <P34>{{SIP_PASSWORD}}</P34>
+    <P3>{{DISPLAY_NAME}}</P3>
+    <P130>0</P130>
+    <P52>2</P52>
+    <P33>{{VOICEMAIL_CODE}}</P33>
+    <P1347>{{PICKUP_DIRECTED}}</P1347>
+    <P64>TZT-3</P64>
+    <P30>pool.ntp.org</P30>
+    <P122>{{TIME_FORMAT_24_BIT}}</P122>
+    <P334>{{BACKLIGHT_ACTIVE_PCT}}</P334>
+    <P330>1</P330>
+    <P331>{{PHONEBOOK_URL_NO_SCHEME}}</P331>
+    <P332>60</P332>
+{{DSS_KEYS_BLOCK}}
+{{EXPANSION_MODULES_BLOCK}}
+  </config>
+</gs_provision>
+"""
+        elif b_low == "fanvil":
+            fmt = "cfg"
+            content = f"""<<VOIP CONFIG FILE>>Version:2.0000
+# Nornia Sistem Şablonu: Fanvil {m} ({item['dss_per_page']}×{item['dss_pages']} = {item['max_dss']} DSS{exp_note})
+
+<AUTOUPDATE CONFIG MODULE>
+Auto Server URL      :{{PROVISION_URL}}
+Update Mode          :1
+SIP Notify Update    :1
+
+<SIP CONFIG MODULE>
+--SIP Line List--  :
+SIP1 Enable          :1
+SIP1 Phone Number    :{{SIP_USERNAME}}
+SIP1 Display Name    :{{LABEL}}
+SIP1 Sip Name        :{{DISPLAY_NAME}}
+SIP1 Register Addr   :{{SIP_SERVER}}
+SIP1 Register Port   :{{SIP_PORT}}
+SIP1 Register User   :{{SIP_USERNAME}}
+SIP1 Register Pswd   :{{SIP_PASSWORD}}
+SIP1 Register TTL    :3600
+SIP1 Transport       :0
+SIP1 Rport           :1
+SIP1 Subscribe Expire:1800
+SIP1 MWI Num         :{{VOICEMAIL_CODE}}
+SIP1 Ring Type       :{{RINGTONE}}
+
+<PHONE CONFIG MODULE>
+Time Display 24H     :{{TIME_FORMAT_24_BIT}}
+Backlight Level      :{{BACKLIGHT_ACTIVE}}
+Language             :{{LANGUAGE}}
+
+<DSSKEY CONFIG MODULE>
+{{DSS_KEYS_BLOCK}}
+{{EXPANSION_MODULES_BLOCK}}
+
+<TELEPHONE BOOK MODULE>
+Phonebook Cloud1 Name :Nornia Telefon Rehberi
+Phonebook Cloud1 URL  :{{PHONEBOOK_URL}}
+
+<<END OF FILE>>
+"""
+        elif b_low == "cisco":
+            fmt = "xml"
+            content = f"""<?xml version="1.0" encoding="UTF-8"?>
+<!-- Nornia Sistem Şablonu: Cisco {m} ({item['dss_per_page']}×{item['dss_pages']} = {item['max_dss']} DSS{exp_note}) -->
+<flat-profile>
+  <Resync_On_Reset ua="na">Yes</Resync_On_Reset>
+  <Resync_Periodic ua="na">3600</Resync_Periodic>
+  <Profile_Rule ua="na">{{PROVISION_URL}}</Profile_Rule>
+  <SIP_Transport_1_ ua="na">{{TRANSPORT}}</SIP_Transport_1_>
+  <Proxy_1_ ua="na">{{SIP_SERVER}}:{{SIP_PORT}}</Proxy_1_>
+  <Display_Name_1_ ua="na">{{DISPLAY_NAME}}</Display_Name_1_>
+  <Short_Name_1_ ua="na">{{LABEL}}</Short_Name_1_>
+  <User_ID_1_ ua="na">{{SIP_USERNAME}}</User_ID_1_>
+  <Auth_ID_1_ ua="na">{{SIP_USERNAME}}</Auth_ID_1_>
+  <Password_1_ ua="na">{{SIP_PASSWORD}}</Password_1_>
+  <Voice_Mail_Number ua="na">{{VOICEMAIL_CODE}}</Voice_Mail_Number>
+  <Call_Pickup_Code ua="na">{{PICKUP_DIRECTED}}</Call_Pickup_Code>
+  <Group_Call_Pickup_Code ua="na">{{PICKUP_GROUP}}</Group_Call_Pickup_Code>
+  <Default_Ring_1_ ua="na">{{RINGTONE}}</Default_Ring_1_>
+  <Primary_NTP_Server ua="na">pool.ntp.org</Primary_NTP_Server>
+  <Time_Zone ua="na">GMT+03:00</Time_Zone>
+{{DSS_KEYS_BLOCK}}
+{{EXPANSION_MODULES_BLOCK}}
+</flat-profile>
+"""
+        else:
+            fmt = "cfg"
+            content = f"""#!version:1.0.0.1
+# Nornia Sistem Şablonu: Yealink {m} ({item['dss_per_page']}×{item['dss_pages']} = {item['max_dss']} DSS • {screen_lbl}{exp_note})
+
+# --- Oto-Provizyon & Uzaktan Reboot ---
+static.auto_provision.server.url = {{PROVISION_URL}}
+static.auto_provision.power_on = 1
+static.auto_provision.repeat.enable = 1
+static.auto_provision.repeat.minutes = 60
+sip.notify_reboot_enable = 1
+
+# --- SIP Hesap 1 ---
+account.1.enable = 1
+account.1.label = {{LABEL}}
+account.1.display_name = {{DISPLAY_NAME}}
+account.1.auth_name = {{SIP_USERNAME}}
+account.1.user_name = {{SIP_USERNAME}}
+account.1.password = {{SIP_PASSWORD}}
+account.1.sip_server.1.address = {{SIP_SERVER}}
+account.1.sip_server.1.port = {{SIP_PORT}}
+account.1.sip_server.1.transport_type = 0
+account.1.sip_server.1.expires = 3600
+account.1.nat.udp_update_enable = 1
+account.1.nat.udp_update_time = 30
+account.1.nat.rport = 1
+account.1.dtmf.type = 2
+account.1.cid_source = 4
+voice_mail.number.1 = {{VOICEMAIL_CODE}}
+account.1.direct_pickup_code = {{PICKUP_DIRECTED}}
+account.1.group_pickup_code = {{PICKUP_GROUP}}
+account.1.dialoginfo_callpickup = 1
+
+# --- Kodek Onceligi ---
+account.1.codec.g722.enable = 1
+account.1.codec.g722.priority = 1
+account.1.codec.pcma.enable = 1
+account.1.codec.pcma.priority = 2
+account.1.codec.pcmu.enable = 1
+account.1.codec.pcmu.priority = 3
+account.1.codec.g729.enable = 1
+account.1.codec.g729.priority = 4
+
+# --- Dil, Saat, Zil ve Ekran Tercihleri ---
+lang.gui = {{LANGUAGE}}
+lang.wui = {{LANGUAGE}}
+local_time.time_zone = +3
+local_time.time_zone_name = Turkey(Ankara)
+local_time.ntp_server1 = pool.ntp.org
+local_time.summer_time = 0
+local_time.time_format = {{TIME_FORMAT_24_BIT}}
+phone_setting.ring_type = {{RINGTONE}}
+phone_setting.active_backlight_level = {{BACKLIGHT_ACTIVE}}
+features.direct_ip_call_enable = 0
+
+# --- DSS / BLF Tuslari (Masa Telefonum ile Dinamik Dolar) ---
+{{DSS_KEYS_BLOCK}}
+
+# --- Mesguliyet Modulleri (Expansion Modules 1-4) ---
+{{EXPANSION_MODULES_BLOCK}}
+
+# --- Ekran Alti Softkeys (F1-F4) ---
+{{SOFTKEYS_BLOCK}}
+
+# --- Uzak XML Rehber ---
+features.remote_phonebook.enable = 1
+features.remote_phonebook.flash_time = 3600
+remote_phonebook.data.1.url = {{PHONEBOOK_URL}}
+remote_phonebook.data.1.name = Telefon Rehberi
+"""
+
+        templates.append({
+            "id": f"sys_tpl_{slug}",
+            "name": f"{b} {m} — Sistem Şablonu",
+            "brand": b,
+            "model": m,
+            "format": fmt,
+            "screen": screen_lbl,
+            "dss_summary": f"{item['dss_per_page']}×{item['dss_pages']} ({item['max_dss']} DSS){exp_note}",
+            "is_system": True,
+            "xml_content": content,
+        })
+    return templates
+
+
 def resolve_phone_model_spec(brand: str = "Yealink", model: str = "T46U") -> Dict[str, Any]:
     b_low = str(brand or "Yealink").strip().lower()
     m_low = str(model or "T46U").strip().lower().replace("sip-", "")
@@ -1399,9 +1604,128 @@ def generate_provisioning_config(
     eff_language = str(prefs.get("language") or language or "Turkish").strip() or "Turkish"
     eff_auto_answer = bool(prefs.get("auto_answer", auto_answer))
 
-    # 1. If a custom XML/CFG template is explicitly assigned, interpolate variables
+    # 1. If a custom/system XML/CFG template is explicitly assigned, interpolate ALL variables + live DSS/Expansion/Softkey blocks
     if isinstance(template_obj, dict) and str(template_obj.get("xml_content") or "").strip():
         raw_tpl = str(template_obj.get("xml_content") or "")
+        tpl_b_low = str(template_obj.get("brand") or brand or "Yealink").strip().lower()
+
+        # Build vendor-specific dynamic key blocks for template placeholders
+        dss_block_lines: List[str] = []
+        exp_block_lines: List[str] = []
+        soft_block_lines: List[str] = []
+        if "grandstream" in tpl_b_low:
+            gs_m = {"line": "0", "speed_dial": "1", "blf": "2", "transfer": "9", "park": "10", "intercom": "13", "dnd": "20", "voicemail": "1"}
+            for i0, k in enumerate(dss_list[:48]):
+                kt = str(k.get("type") or "none")
+                if kt == "none":
+                    continue
+                mc = gs_m.get(kt, "1")
+                kl = html.escape(str(k.get("label") or ""))
+                kv = html.escape(str(k.get("value") or ("*97" if kt == "voicemail" else "")))
+                if i0 < 12:
+                    dss_block_lines.extend([
+                        f"    <P{1363 + i0 * 2}>{mc}</P{1363 + i0 * 2}>",
+                        f"    <P{1364 + i0 * 2}>0</P{1364 + i0 * 2}>",
+                        f"    <P{1465 + i0 * 2}>{kl}</P{1465 + i0 * 2}>",
+                        f"    <P{1466 + i0 * 2}>{kv}</P{1466 + i0 * 2}>",
+                    ])
+            for mod in exp_list[:4]:
+                mi = int(mod.get("module_index") or 1)
+                mb = 23000 + ((mi - 1) * 400)
+                for ek in (mod.get("keys") or [])[:40]:
+                    et = str(ek.get("type") or "none")
+                    if et == "none":
+                        continue
+                    pb = mb + ((max(1, int(ek.get("key_index") or 1)) - 1) * 4)
+                    exp_block_lines.extend([
+                        f"    <P{pb}>{gs_m.get(et, '2')}</P{pb}>",
+                        f"    <P{pb + 1}>0</P{pb + 1}>",
+                        f"    <P{pb + 2}>{html.escape(str(ek.get('label') or ''))}</P{pb + 2}>",
+                        f"    <P{pb + 3}>{html.escape(str(ek.get('value') or ''))}</P{pb + 3}>",
+                    ])
+        elif "fanvil" in tpl_b_low:
+            for k in dss_list:
+                idx = int(k.get("key_index") or 1)
+                kt = str(k.get("type") or "none")
+                kl = str(k.get("label") or "")
+                kv = str(k.get("value") or "")
+                pu = str(k.get("pickup_code") or pickup_directed)
+                if kt == "line":
+                    dss_block_lines.extend([f"Dsskey{idx} Type         :2", f"Dsskey{idx} Line         :1", f"Dsskey{idx} Title        :{kl or line_label}"])
+                elif kt == "blf" and kv:
+                    dss_block_lines.extend([f"Dsskey{idx} Type         :1", f"Dsskey{idx} Line         :1", f"Dsskey{idx} Value        :{kv}@1/ba{pu}{kv}", f"Dsskey{idx} Title        :{kl}"])
+                elif kt in ("speed_dial", "voicemail", "park", "forward") and (kv or kt == "voicemail"):
+                    dss_block_lines.extend([f"Dsskey{idx} Type         :1", f"Dsskey{idx} Line         :1", f"Dsskey{idx} Value        :{kv or '*97'}@1/f", f"Dsskey{idx} Title        :{kl}"])
+            for mod in exp_list[:4]:
+                mi = int(mod.get("module_index") or 1)
+                for ek in (mod.get("keys") or [])[:40]:
+                    ei = int(ek.get("key_index") or 1)
+                    et = str(ek.get("type") or "none")
+                    ev = str(ek.get("value") or "")
+                    el = str(ek.get("label") or "")
+                    ep = str(ek.get("pickup_code") or pickup_directed)
+                    if et == "blf" and ev:
+                        exp_block_lines.extend([f"Ext{mi}Key{ei} Type       :1", f"Ext{mi}Key{ei} Value      :{ev}@1/ba{ep}{ev}", f"Ext{mi}Key{ei} Title      :{el}"])
+        elif "cisco" in tpl_b_low:
+            for k in dss_list[:10]:
+                idx = max(1, int(k.get("key_index") or 1))
+                kt = str(k.get("type") or "none")
+                kl = html.escape(str(k.get("label") or ""))
+                kv = html.escape(str(k.get("value") or ""))
+                if idx == 1 and kt == "line":
+                    continue
+                if kt == "blf" and kv:
+                    dss_block_lines.append(f'  <Extended_Function_{idx}_ ua="na">fnc=blf+sd+cp;sub={kv}@$PROXY;ext={kv}@$PROXY;nme={kl}</Extended_Function_{idx}_>')
+                elif kt in ("speed_dial", "park", "voicemail") and (kv or kt == "voicemail"):
+                    dss_block_lines.append(f'  <Extended_Function_{idx}_ ua="na">fnc=sd;ext={kv or "*97"}@$PROXY;nme={kl}</Extended_Function_{idx}_>')
+            for mod in exp_list[:3]:
+                mi = int(mod.get("module_index") or 1)
+                for ek in (mod.get("keys") or [])[:36]:
+                    ei = max(1, int(ek.get("key_index") or 1))
+                    et = str(ek.get("type") or "none")
+                    ev = html.escape(str(ek.get("value") or ""))
+                    el = html.escape(str(ek.get("label") or ""))
+                    if et == "blf" and ev:
+                        exp_block_lines.append(f'  <Unit_{mi}_Key_{ei} ua="na">fnc=blf+sd+cp;sub={ev}@$PROXY;ext={ev}@$PROXY;nme={el}</Unit_{mi}_Key_{ei}>')
+        else:
+            yl_tm = {"none": 0, "conference": 1, "forward": 2, "transfer": 3, "hold": 4, "dnd": 5, "pickup": 23, "park": 10, "dtmf": 11, "speed_dial": 13, "intercom": 14, "line": 15, "blf": 16, "voicemail": 13}
+            for k in dss_list:
+                idx = int(k.get("key_index") or 1)
+                kt = str(k.get("type") or "none")
+                kl = str(k.get("label") or "")
+                kv = str(k.get("value") or ("*97" if kt == "voicemail" else (pickup_group if kt == "pickup" else "")))
+                pu = str(k.get("pickup_code") or pickup_directed)
+                dss_block_lines.extend([f"linekey.{idx}.type = {yl_tm.get(kt, 0)}", f"linekey.{idx}.line = 1", f"linekey.{idx}.value = {kv}", f"linekey.{idx}.label = {kl}"])
+                if kt == "blf":
+                    dss_block_lines.append(f"linekey.{idx}.extension = {pu}")
+            for mod in exp_list[:4]:
+                mi = int(mod.get("module_index") or 1)
+                for ek in (mod.get("keys") or [])[:60]:
+                    ei = int(ek.get("key_index") or 1)
+                    et = str(ek.get("type") or "none")
+                    el = str(ek.get("label") or "")
+                    ev = str(ek.get("value") or "")
+                    ep = str(ek.get("pickup_code") or pickup_directed)
+                    exp_block_lines.extend([
+                        f"expansion_module.{mi}.key.{ei}.type = {yl_tm.get(et, 0)}",
+                        f"expansion_module.{mi}.key.{ei}.line = 1",
+                        f"expansion_module.{mi}.key.{ei}.value = {ev}",
+                        f"expansion_module.{mi}.key.{ei}.label = {el}",
+                    ])
+                    if et == "blf":
+                        exp_block_lines.append(f"expansion_module.{mi}.key.{ei}.extension = {ep}")
+            yl_sm = {"history": 28, "directory": 22, "dnd": 5, "transfer": 3, "forward": 2, "speed_dial": 13, "redial": 27, "voicemail": 13, "pickup": 23, "menu": 30}
+            for sk in soft_list:
+                si = int(sk.get("key_index") or 1)
+                st = str(sk.get("type") or "history")
+                soft_block_lines.extend([
+                    f"programablekey.{si}.type = {yl_sm.get(st, 0)}",
+                    f"programablekey.{si}.line = 1",
+                    f"programablekey.{si}.value = {str(sk.get('value') or '')}",
+                    f"programablekey.{si}.label = {str(sk.get('label') or '')}",
+                ])
+
+        pb_full_url = f"{pb_base}/{ext_s or 'all'}/{'fanvil.xml' if 'fanvil' in tpl_b_low else 'yealink.xml'}"
         replacements = {
             "{MAC}": mac_hex,
             "{MAC_UPPER}": mac_hex.upper(),
@@ -1422,6 +1746,18 @@ def generate_provisioning_config(
             "{VOICEMAIL_CODE}": "*97",
             "{PICKUP_GROUP}": pickup_group,
             "{PICKUP_DIRECTED}": pickup_directed,
+            "{PROVISION_URL}": provision_server_url,
+            "{PROVISION_URL_NO_SCHEME}": provision_server_url.replace("http://", "").replace("https://", ""),
+            "{PHONEBOOK_URL}": pb_full_url,
+            "{PHONEBOOK_URL_NO_SCHEME}": pb_full_url.replace("http://", "").replace("https://", ""),
+            "{RINGTONE}": prefs["ringtone"],
+            "{BACKLIGHT_ACTIVE}": str(prefs["backlight_active"]),
+            "{BACKLIGHT_ACTIVE_PCT}": str(max(10, min(100, prefs["backlight_active"] * 10))),
+            "{LANGUAGE}": eff_language,
+            "{TIME_FORMAT_24_BIT}": "1" if prefs["time_format"] == "24" else "0",
+            "{DSS_KEYS_BLOCK}": "\n".join(dss_block_lines),
+            "{EXPANSION_MODULES_BLOCK}": "\n".join(exp_block_lines),
+            "{SOFTKEYS_BLOCK}": "\n".join(soft_block_lines),
         }
         rendered = raw_tpl
         for k, v in replacements.items():

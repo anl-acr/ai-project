@@ -187,6 +187,26 @@ export default function AutoprovisionPanel({ backendHost = "localhost:8000" }) {
     return list.filter((m) => m.model.toLowerCase().includes(q) || m.label.toLowerCase().includes(q));
   }, [modelCatalog, brand, modelFilter]);
 
+  const groupedTemplatesForSelectedModel = useMemo(() => {
+    const bLow = String(brand || "").trim().toLowerCase();
+    const mLow = String(model || "").trim().toLowerCase();
+    const exactMatch = [];
+    const sameBrand = [];
+    const otherCustom = [];
+    templates.forEach((t) => {
+      const tb = String(t.brand || "").trim().toLowerCase();
+      const tm = String(t.model || "").trim().toLowerCase();
+      if (tb === bLow && tm && tm === mLow) {
+        exactMatch.push(t);
+      } else if (tb === bLow) {
+        sameBrand.push(t);
+      } else if (!t.is_system) {
+        otherCustom.push(t);
+      }
+    });
+    return { exactMatch, sameBrand, otherCustom };
+  }, [templates, brand, model]);
+
   const handleSaveNetworkConfig = async () => {
     setNetSaving(true);
     try {
@@ -1111,10 +1131,10 @@ export default function AutoprovisionPanel({ backendHost = "localhost:8000" }) {
                 </div>
               </div>
 
-              {/* Template */}
+              {/* Template (Filtered & Grouped by Selected Brand + Model) */}
               <div>
                 <label className="block text-[11px] font-bold text-slate-600 dark:text-slate-300 mb-1">
-                  Konfigürasyon Şablonu
+                  Konfigürasyon Şablonu ({brand} {model})
                 </label>
                 <div className="relative">
                   <FileText size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
@@ -1123,12 +1143,34 @@ export default function AutoprovisionPanel({ backendHost = "localhost:8000" }) {
                     onChange={(e) => setTemplateId(e.target.value)}
                     className="w-full pl-9 pr-4 py-2 text-xs font-bold rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white"
                   >
-                    <option value="">Otomatik (Nornia Akıllı Provizyon)</option>
-                    {templates.map((t) => (
-                      <option key={t.id} value={t.id}>
-                        {t.name}
-                      </option>
-                    ))}
+                    <option value="">Otomatik (Nornia Akıllı Provizyon — {brand} {model})</option>
+                    {groupedTemplatesForSelectedModel.exactMatch.length > 0 && (
+                      <optgroup label={`★ ${brand} ${model} İçin Şablonlar`}>
+                        {groupedTemplatesForSelectedModel.exactMatch.map((t) => (
+                          <option key={t.id} value={t.id}>
+                            {t.is_system ? `[Sistem] ${t.name}` : `[Özel] ${t.name}`}
+                          </option>
+                        ))}
+                      </optgroup>
+                    )}
+                    {groupedTemplatesForSelectedModel.sameBrand.length > 0 && (
+                      <optgroup label={`Diğer ${brand} Şablonları`}>
+                        {groupedTemplatesForSelectedModel.sameBrand.map((t) => (
+                          <option key={t.id} value={t.id}>
+                            {t.is_system ? `[Sistem] ${t.name}` : `[Özel] ${t.name}`}
+                          </option>
+                        ))}
+                      </optgroup>
+                    )}
+                    {groupedTemplatesForSelectedModel.otherCustom.length > 0 && (
+                      <optgroup label="Diğer Özel Şablonlar">
+                        {groupedTemplatesForSelectedModel.otherCustom.map((t) => (
+                          <option key={t.id} value={t.id}>
+                            [Özel] {t.name} ({t.brand} {t.model})
+                          </option>
+                        ))}
+                      </optgroup>
+                    )}
                   </select>
                 </div>
               </div>

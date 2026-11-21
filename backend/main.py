@@ -14538,46 +14538,98 @@ async def scan_autoprovision(user_info: dict = Depends(get_user_info)):
 # ----------------------------------------------------
 # API Routes: Autoprovision Templates
 # ----------------------------------------------------
+def _get_merged_autoprovision_templates(target_tenant: str) -> list:
+    """Returns custom tenant templates first, followed by all 56 built-in system model templates."""
+    from backend.services.autoprovision_service import build_system_default_templates
+
+    all_custom = settings_db.get("autoprovision_templates", []) or []
+    custom_filtered = []
+    for t in all_custom:
+        if not isinstance(t, dict):
+            continue
+        t_tid = t.get("tenant_id")
+        if target_tenant in ("all", "global") or t_tid == target_tenant or (not t_tid and target_tenant in ("tenant-default", "default")):
+            t_copy = dict(t)
+            t_copy["is_system"] = False
+            custom_filtered.append(t_copy)
+
+    system_tpls = build_system_default_templates()
+    return custom_filtered + system_tpls
+
+
 @app.get("/api/settings/autoprovision_templates")
 async def get_autoprovision_templates(user_info: dict = Depends(get_user_info)):
+    from backend.services.autoprovision_service import PHONE_MODEL_CATALOG
     target_tenant = user_info.get("tenant_id") or "tenant-default"
-    all_templates = settings_db.get("autoprovision_templates", [])
-    if target_tenant in ["all", "global"]:
-        return all_templates
-    return [t for t in all_templates if t.get("tenant_id") == target_tenant or (not t.get("tenant_id") and target_tenant == "tenant-default")]
+    merged = _get_merged_autoprovision_templates(target_tenant)
+    return {
+        "status": "success",
+        "templates": merged,
+        "model_catalog": PHONE_MODEL_CATALOG,
+    }
+
 
 @app.post("/api/settings/autoprovision_templates")
 async def save_autoprovision_template(payload: dict, user_info: dict = Depends(get_user_info)):
     target_tenant = user_info.get("tenant_id") or "tenant-default"
-    payload["tenant_id"] = target_tenant
-    if "autoprovision_templates" not in settings_db:
+    if "autoprovision_templates" not in settings_db or not isinstance(settings_db.get("autoprovision_templates"), list):
         settings_db["autoprovision_templates"] = []
-    
-    template_id = payload.get("id")
-    
+
+    raw_id = str(payload.get("id") or "").strip()
+    # Never overwrite built-in system templates — always save as a new custom template
+    is_new_or_clone = (not raw_id) or raw_id.startswith("sys_tpl_")
+    tpl_id = str(uuid.uuid4()) if is_new_or_clone else raw_id
+
+    tpl_record = {
+        "id": tpl_id,
+        "name": str(payload.get("name") or f"{payload.get('brand', 'Özel')} {payload.get('model', '')} Şablonu").strip(),
+        "brand": str(payload.get("brand") or "Yealink").strip(),
+        "model": str(payload.get("model") or "").strip(),
+        "xml_content": str(payload.get("xml_content") or ""),
+        "format": "xml" if str(payload.get("xml_content") or "").lstrip().startswith("<") else "cfg",
+        "is_system": False,
+        "tenant_id": target_tenant,
+        "updated_at": (datetime.datetime.utcnow() + datetime.timedelta(hours=3)).strftime("%Y-%m-%d %H:%M:%S"),
+    }
+
     updated = False
-    for i, t in enumerate(settings_db["autoprovision_templates"]):
-        if t.get("id") == template_id:
-            settings_db["autoprovision_templates"][i] = payload
-            updated = True
-            break
-            
+    if not is_new_or_clone:
+        for i, t in enumerate(settings_db["autoprovision_templates"]):
+            if isinstance(t, dict) and str(t.get("id") or "") == tpl_id:
+                settings_db["autoprovision_templates"][i] = tpl_record
+                updated = True
+                break
     if not updated:
-        if not template_id:
-            payload["id"] = str(uuid.uuid4())
-        settings_db["autoprovision_templates"].append(payload)
-        
+        settings_db["autoprovision_templates"].append(tpl_record)
+
     save_settings(settings_db)
-    return {"status": "success", "templates": settings_db["autoprovision_templates"]}
+    return {
+        "status": "success",
+        "template": tpl_record,
+        "templates": _get_merged_autoprovision_templates(target_tenant),
+    }
+
 
 @app.delete("/api/settings/autoprovision_templates/{template_id}")
-async def delete_autoprovision_template(template_id: str):
+async def delete_autoprovision_template(template_id: str, user_info: dict = Depends(get_user_info)):
+    target_tenant = user_info.get("tenant_id") or "tenant-default"
+    if str(template_id or "").startswith("sys_tpl_"):
+        raise HTTPException(
+            status_code=400,
+            detail="Yerleşik sistem şablonları silinemez. Özelleştirmek için 'Kopyala' butonunu kullanarak kendi şablonunuzu oluşturabilirsiniz.",
+        )
     if "autoprovision_templates" not in settings_db:
-        return {"status": "error", "message": "Kayıt bulunamadı."}
-        
-    settings_db["autoprovision_templates"] = [t for t in settings_db["autoprovision_templates"] if t.get("id") != template_id]
+        settings_db["autoprovision_templates"] = []
+
+    settings_db["autoprovision_templates"] = [
+        t for t in settings_db["autoprovision_templates"]
+        if str(t.get("id") or "") != str(template_id)
+    ]
     save_settings(settings_db)
-    return {"status": "success", "templates": settings_db["autoprovision_templates"]}
+    return {
+        "status": "success",
+        "templates": _get_merged_autoprovision_templates(target_tenant),
+    }
 
 
 # ----------------------------------------------------
@@ -15724,7 +15776,9 @@ async def _render_autoprovision_file_for_phone(
                 tpl_obj = None
                 tpl_id = str(ap_rec.get("template_id") or "").strip()
                 if tpl_id:
-                    for t_item in (tpl_all or []):
+                    from backend.services.autoprovision_service import build_system_default_templates as _build_sys_tpls
+                    search_pool = list(tpl_all or []) + _build_sys_tpls()
+                    for t_item in search_pool:
                         if isinstance(t_item, dict) and str(t_item.get("id") or "") == tpl_id:
                             tpl_obj = t_item
                             break
@@ -42620,18 +42674,36 @@ async def get_system_version_info():
         pass
 
     return {
-        "version": "v3.8.0",
+        "version": "v3.8.1",
         "commit_hash": live_commit,
         "release_date": "22 Kasım 2026",
         "status": "Güncel / Canlı Sürüm",
         "environment": "Production (On-Premise)",
         "changelog": [
             {
-                "version": "v3.8.0",
+                "version": "v3.8.1",
                 "commit_hash": live_commit,
                 "release_date": "22 Kasım 2026",
                 "badge": "Canlı Sürüm (Güncel)",
                 "badge_type": "current",
+                "title": "56 Modellik Yerleşik Otoprovizyon Şablon Kütüphanesi, Tek Tıkla Kopyala & Model-Bazlı Şablon Seçimi",
+                "summary": "Sistem Ayarları > Otoprovizyon Şablonları ekranı tüm 56 model (Yealink, Grandstream, Fanvil, Cisco) için hazır sistem şablonlarıyla dolduruldu; tek tıkla kopyalayıp özelleştirme ve Oto Provizyon modalında seçili modele özel şablon filtrelemesi eklendi.",
+                "features": [
+                    "56 Hazır Sistem Şablonu: Her model (Yealink T21P E2–T58W / T42S dahil, Grandstream GXP1625–GRP2636, Fanvil X3S–V65, Cisco 7821–8861) için gerçek .CFG/.XML şablonu otomatik listelenir.",
+                    "Tek Tıkla Kopyala & Özelleştir (Clone): Herhangi bir sistem veya özel şablon tek tıkla kopyalanarak kendi özel şablonunuz olarak düzenlenip kaydedilebilir; yerleşik sistem şablonları yanlışlıkla silinmeye karşı korumalıdır.",
+                    "Dinamik Değişkenler ({DSS_KEYS_BLOCK}, {EXPANSION_MODULES_BLOCK}, {SOFTKEYS_BLOCK}, {PROVISION_URL}, {RINGTONE} vb.): Özel kopyalanan şablonlar bile Masa Telefonum ekranındaki BLF, meşguliyet modülü ve kişisel tercihlerle tam uyumlu çalışır.",
+                    "Model-Odaklı Şablon Seçici: Santral > Oto Provizyon modalında seçilen Marka & Modele ait şablonlar ('★ Yealink T42S İçin Şablonlar') otomatik en üstte gruplanır."
+                ],
+                "fixes": [
+                    "Otoprovizyon Şablonları ekranındaki silme modalının açılmaması (eksik isOpen ve yanlış onCancel prop) düzeltildi."
+                ]
+            },
+            {
+                "version": "v3.8.0",
+                "commit_hash": "25f530b",
+                "release_date": "22 Kasım 2026",
+                "badge": "Kararlı",
+                "badge_type": "stable",
                 "title": "Santral > Oto Provizyon Tam Onarım, Çift Yönlü SIP Eşleştirme, Canlı Durum, Gerçek Ağ Tarama & Tek Tıkla Reboot",
                 "summary": "Santral > Oto Provizyon ekranındaki MAC-Dahili eşleştirme kopukluğu, çalışmayan silme modalı, sahte ağ tarama kayıtları ve çevrimdışı durum göstergesi tamamen onarıldı; Kullanıcı SIP cihazları ve Masa Telefonum ekranıyla çift yönlü senkronize edildi.",
                 "features": [
