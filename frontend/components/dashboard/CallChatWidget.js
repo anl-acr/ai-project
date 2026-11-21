@@ -26,7 +26,8 @@ import {
   Users,
   Delete,
   PhoneIncoming,
-  Sparkles
+  Sparkles,
+  ArrowLeftRight
 } from "lucide-react";
 import { findContactByPhone, maskPhoneLast4 } from "../../utils/contactUtils";
 import { webphoneManager } from "../../utils/webphoneManager";
@@ -167,6 +168,14 @@ export default function CallChatWidget({
       : !hasWebphoneSubPerms
       ? true
       : rolePermissions.includes("call_panel:webphone_conference");
+  const canCallFlip =
+    String(currentUser?.role || "").toLowerCase() === "admin" ||
+    !Array.isArray(rolePermissions) ||
+    rolePermissions.length === 0 ||
+    rolePermissions.includes("call_panel:call_flip");
+  const [callFlipBusy, setCallFlipBusy] = useState(false);
+  const [callFlipMsg, setCallFlipMsg] = useState(null);
+  const callFlipTimerRef = useRef(null);
   const maskPhoneNumbers = Array.isArray(rolePermissions) && rolePermissions.includes("call_panel:webphone_mask_number");
   const isRoleAdmin = String(currentUser?.role || "").toLowerCase() === "admin";
   const canLiveTranslate =
@@ -514,6 +523,31 @@ export default function CallChatWidget({
   };
   const toggleMute = () => webphoneManager.toggleMute();
   const toggleHold = () => webphoneManager.toggleHold();
+
+  useEffect(() => {
+    if (callStatus !== "InCall") {
+      setCallFlipBusy(false);
+      setCallFlipMsg(null);
+      if (callFlipTimerRef.current) {
+        clearTimeout(callFlipTimerRef.current);
+        callFlipTimerRef.current = null;
+      }
+    }
+  }, [callStatus]);
+
+  const handleTriggerCallFlip = async () => {
+    if (!canCallFlip || callStatus !== "InCall" || callFlipBusy) return;
+    setCallFlipBusy(true);
+    setCallFlipMsg(null);
+    const res = await webphoneManager.triggerCallFlip(activeCallId || "");
+    setCallFlipBusy(false);
+    setCallFlipMsg({
+      ok: Boolean(res?.ok),
+      text: res?.message || (res?.ok ? "Diğer cihazlarınız çalıyor..." : "Başlatılamadı.")
+    });
+    if (callFlipTimerRef.current) clearTimeout(callFlipTimerRef.current);
+    callFlipTimerRef.current = setTimeout(() => setCallFlipMsg(null), res?.ok ? 25000 : 5000);
+  };
   const cycleNoiseMode = () => webphoneManager.cycleNoiseSuppressionMode();
 
   const handleOpenFullScreenWebphone = () => {
@@ -736,6 +770,21 @@ export default function CallChatWidget({
                         >
                           {isOnHold ? <Play size={14} /> : <Pause size={14} />}
                         </button>
+                        {canCallFlip && (
+                          <button
+                            type="button"
+                            onClick={handleTriggerCallFlip}
+                            disabled={callFlipBusy}
+                            className={`p-1.5 rounded-xl transition-colors disabled:opacity-50 ${
+                              callFlipMsg?.ok
+                                ? `${bg} text-white animate-pulse`
+                                : "bg-white/10 hover:bg-white/20 text-white"
+                            }`}
+                            title="Cihaz Değiştir (*11): Diğer cihazlarınızı çaldırır"
+                          >
+                            <ArrowLeftRight size={14} />
+                          </button>
+                        )}
                         <button
                           type="button"
                           onClick={cycleNoiseMode}
@@ -1204,6 +1253,23 @@ export default function CallChatWidget({
                         </button>
                       )}
 
+                      {canCallFlip && (
+                        <button
+                          type="button"
+                          onClick={handleTriggerCallFlip}
+                          disabled={callFlipBusy}
+                          title="Cihaz Değiştir (*11): Diğer tüm cihazlarınızı çaldırır; hangisinden açarsanız görüşme oraya geçer"
+                          className={`py-2 px-2 rounded-xl border text-[11px] font-bold flex flex-col items-center justify-center gap-1 transition-all disabled:opacity-50 ${
+                            callFlipMsg?.ok
+                              ? `${bg} text-white border-transparent shadow-sm animate-pulse`
+                              : `${lightBg} ${text} ${borderLight} hover:opacity-90`
+                          }`}
+                        >
+                          <ArrowLeftRight size={15} />
+                          <span>Cihaz Değiştir</span>
+                        </button>
+                      )}
+
                       <button
                         type="button"
                         onClick={hangupCall}
@@ -1212,6 +1278,19 @@ export default function CallChatWidget({
                         <PhoneOff size={15} />
                         <span>Kapat</span>
                       </button>
+                    </div>
+                  )}
+
+                  {callStatus === "InCall" && callFlipMsg && (
+                    <div
+                      className={`mt-2 px-3 py-1.5 rounded-xl border text-[11px] font-bold flex items-center gap-1.5 ${
+                        callFlipMsg.ok
+                          ? `${lightBg} ${text} ${borderLight}`
+                          : "bg-rose-50 text-rose-600 border-rose-200 dark:bg-rose-950/50 dark:text-rose-300 dark:border-rose-800"
+                      }`}
+                    >
+                      <ArrowLeftRight size={13} className="shrink-0" />
+                      <span>{callFlipMsg.text}</span>
                     </div>
                   )}
 

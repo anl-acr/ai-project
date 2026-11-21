@@ -1087,9 +1087,11 @@ class WebphoneManager {
     const hostOnly = asteriskWssUrl.split("/")[2].split(":")[0];
     const uri = SIP.UserAgent.makeURI(`sip:${sipAuthUser}@${hostOnly}`);
     const resolvedViaHost = config.viaHost || hostOnly;
-    // Give Web Browser and Desktop PC App distinct SIP Contact usernames so Asterisk PJSIP AOR
-    // keeps BOTH contact bindings active simultaneously instead of overwriting one with the other.
-    const clientContactSuffix = isDesktopApp() ? "pc" : "web";
+    // Give Web Browser, Desktop PC App, and Mobile App distinct SIP Contact usernames so Asterisk PJSIP AOR
+    // keeps ALL contact bindings active simultaneously and Call Flip can exclude ONLY the initiating device.
+    const clientDevType = this.getCurrentClientDevice();
+    const clientContactSuffix =
+      clientDevType === "mobile_app" ? "mob" : clientDevType === "pc_app" ? "pc" : "web";
     const sipContactName = `${sipAuthUser}_${clientContactSuffix}`;
     const contactUriObj = SIP.UserAgent.makeURI(`sip:${sipContactName}@${resolvedViaHost}`);
     const displayLabel = agentName || this.state.currentUser?.full_name || `Temsilci ${agentExtension}`;
@@ -2410,16 +2412,35 @@ class WebphoneManager {
         }
       } catch (e) {}
     }
+    // Yeastar-style Call Flip self-ring guard:
+    // If this incoming INVITE is a Call Flip ring and THIS device initiated it (or is already InCall),
+    // reject silently with 486 Busy so only the user's OTHER devices ring.
+    let isCallFlipRing = false;
+    try {
+      const flipHdr = String(invite?.request?.getHeader?.("X-Call-Flip") || "").trim();
+      const flipExcl = String(invite?.request?.getHeader?.("X-Call-Flip-Exclude") || "").trim().toLowerCase();
+      const rawDispCheck = String(invite?.remoteIdentity?.displayName || "").replace(/^"|"$/g, "").trim();
+      isCallFlipRing = flipHdr === "1" || rawDispCheck.toLowerCase().startsWith("cihaz degistir:");
+      if (isCallFlipRing) {
+        const myClientDev = this.getCurrentClientDevice();
+        const alreadyInCallHere =
+          this.state.callStatus === "InCall" ||
+          Array.from(this.linesMap.values()).some((l) => l.callStatus === "InCall");
+        if (alreadyInCallHere || (flipExcl && flipExcl === myClientDev)) {
+          try {
+            invite.reject({ statusCode: 486 });
+          } catch (e) {}
+          return;
+        }
+      }
+    } catch (e) {}
+
     if (curU && Array.isArray(curU.profiles) && curU.profiles.length > 0) {
       const actProfId = curU.active_profile || "available";
       const actProf = curU.profiles.find((p) => p.id === actProfId);
-      const isMobileClient =
-        typeof window !== "undefined" &&
-        (Boolean(window.__AIDA_NATIVE_MOBILE__) ||
-          Boolean(window.webkit?.messageHandlers?.aidaNativeObserver) ||
-          /iPhone|iPad|iPod|Android/i.test(navigator?.userAgent || ""));
-      const currentClientDevice = isMobileClient ? "mobile_app" : isDesktopApp() ? "pc_app" : "web_phone";
-      if (actProf && Array.isArray(actProf.devices) && !actProf.devices.includes(currentClientDevice)) {
+      const currentClientDevice = this.getCurrentClientDevice();
+      // Always allow Call Flip rings through even if profile filters normal rings
+      if (!isCallFlipRing && actProf && Array.isArray(actProf.devices) && !actProf.devices.includes(currentClientDevice)) {
         if (actProf.devices.length === 0) {
           try {
             invite.reject();
@@ -2467,6 +2488,7 @@ class WebphoneManager {
       session: invite,
       siblingInvites: [],
       createdAt: Date.now(),
+      isCallFlipRing,
       remoteNumber: callerNum,
       remoteDisplayName: cleanedDisplayName && cleanedDisplayName !== callerNum ? cleanedDisplayName : "",
       queueName: parsedQueueName,
@@ -4028,6 +4050,62 @@ class WebphoneManager {
       }
       return false;
     }
+  }
+
+  getCurrentClientDevice() {
+    const isMobileClient =
+      typeof window !== "undefined" &&
+      (Boolean(window.__AIDA_NATIVE_MOBILE__) ||
+        Boolean(window.webkit?.messageHandlers?.aidaNativeObserver) ||
+        /iPhone|iPad|iPod|Android/i.test(navigator?.userAgent || ""));
+    if (isMobileClient) return "mobile_app";
+    if (isDesktopApp()) return "pc_app";
+    return "web_phone";
+  }
+
+  async triggerCallFlip(activeCallId = "") {
+    const backendHost = this.state.backendHost || "localhost:8000";
+    const proto = typeof window !== "undefined" ? window.location.protocol : "http:";
+    const userId =
+      this.state.currentUser?.id ||
+      this.state.webrtcConfig?.agentExtension ||
+      this.state.currentUser?.extension ||
+      "1000";
+    const clientDevice = this.getCurrentClientDevice();
+    try {
+      const res = await fetch(`${proto}//${backendHost}/api/calls/call-flip/trigger`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-User-ID": String(userId)
+        },
+        body: JSON.stringify({
+          client_device: clientDevice,
+          call_id: String(activeCallId || "")
+        })
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        return {
+          ok: false,
+          message: data?.detail || data?.message || "Diğer cihazlar çaldırılamadı."
+        };
+      }
+      return {
+        ok: true,
+        message:
+          data?.message ||
+          "Diğer cihazlarınız çalıyor. Hangisinden açarsanız görüşme oraya geçecektir.",
+        target_count: Number(data?.target_count || 0)
+      };
+    } catch (e) {
+      return { ok: false, message: "Sunucuya bağlanılamadı." };
+    }
+  }
+
+  async pullCallFlip() {
+    const flipCode = String(this.state.webrtcConfig?.callFlipCode || "*11").trim() || "*11";
+    await this.makeCall(flipCode);
   }
 
   sendDtmf(digit) {

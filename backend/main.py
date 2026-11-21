@@ -572,6 +572,7 @@ class PBXFeatureCodesSchema(BaseModel):
     boss_secretary_toggle: str = "*74"
     hotdesk_login: str = "*75"
     hotdesk_logout: str = "*76"
+    call_flip: str = "*11"
 
 class NumberingPlanSchema(BaseModel):
     extension_range: NumberingPlanRangeSchema
@@ -1311,7 +1312,8 @@ DEFAULT_SETTINGS = {
                 "profile_switch": "*70",
                 "boss_secretary_toggle": "*74",
                 "hotdesk_login": "*75",
-                "hotdesk_logout": "*76"
+                "hotdesk_logout": "*76",
+                "call_flip": "*11"
             }
         }
     },
@@ -1571,7 +1573,7 @@ DEFAULT_SETTINGS = {
                 "call_monitor:listen", "call_monitor:whisper", "call_monitor:barge",
                 "call_panel:tab_dashboard", "call_panel:tab_webphone", "call_panel:tab_deskphone", "call_panel:tab_agents", "call_panel:tab_speeddial",
                 "call_panel:tab_missed", "call_panel:tab_directory", "call_panel:tab_history", "call_panel:tab_voicemail", "call_panel:tab_chat",
-                "call_panel:webphone_save_contact", "call_panel:webphone_transfer", "call_panel:webphone_conference", "call_panel:webphone_reject", "call_panel:pause_recording",
+                "call_panel:webphone_save_contact", "call_panel:webphone_transfer", "call_panel:webphone_conference", "call_panel:webphone_reject", "call_panel:pause_recording", "call_panel:call_flip",
                 "call_panel:cti_screen_pop", "call_panel:ai_note_assistant", "cti_integration:read", "cti_integration:write",
                 "call_panel:agents_status", "call_panel:agents_duration", "call_panel:agents_call_counts", "call_panel:agents_login_logout",
                 # Yapay Zeka & Bilgi
@@ -1671,7 +1673,7 @@ DEFAULT_SETTINGS = {
                 "call_monitor:listen", "call_monitor:whisper", "call_monitor:barge",
                 "call_panel:tab_dashboard", "call_panel:tab_webphone", "call_panel:tab_deskphone", "call_panel:tab_agents", "call_panel:tab_speeddial",
                 "call_panel:tab_missed", "call_panel:tab_directory", "call_panel:tab_history", "call_panel:tab_voicemail", "call_panel:tab_chat",
-                "call_panel:webphone_save_contact", "call_panel:webphone_transfer", "call_panel:webphone_conference", "call_panel:webphone_reject", "call_panel:pause_recording",
+                "call_panel:webphone_save_contact", "call_panel:webphone_transfer", "call_panel:webphone_conference", "call_panel:webphone_reject", "call_panel:pause_recording", "call_panel:call_flip",
                 "call_panel:cti_screen_pop", "call_panel:ai_note_assistant", "cti_integration:read", "cti_integration:write",
                 "call_panel:agents_status", "call_panel:agents_duration", "call_panel:agents_call_counts", "call_panel:agents_login_logout",
                 "ai_agents:read", "ai_agents:write", "ai_agent_scenarios:read", "ai_agent_scenarios:write",
@@ -1742,7 +1744,7 @@ DEFAULT_SETTINGS = {
                 "dashboard:access", "call_panel:access", "omnichannel:access",
                 "call_panel:tab_dashboard", "call_panel:tab_webphone", "call_panel:tab_agents", "call_panel:tab_speeddial",
                 "call_panel:tab_missed", "call_panel:tab_directory", "call_panel:tab_history", "call_panel:tab_voicemail", "call_panel:tab_chat",
-                "call_panel:listen_records", "call_panel:view_transcripts", "call_panel:webphone_save_contact", "call_panel:webphone_transfer", "call_panel:webphone_conference", "call_panel:webphone_reject",
+                "call_panel:listen_records", "call_panel:view_transcripts", "call_panel:webphone_save_contact", "call_panel:webphone_transfer", "call_panel:webphone_conference", "call_panel:webphone_reject", "call_panel:call_flip",
                 "call_panel:ai_note_assistant",
                 "call_panel:agents_status", "call_panel:agents_duration", "call_panel:agents_call_counts", "call_panel:agents_login_logout",
                 "contacts:read", "contacts:write",
@@ -2674,6 +2676,9 @@ def load_settings(force_reload: bool = False, persist: bool = False):
                         "call_panel:tab_deskphone"
                     ]:
                         new_perms.append(def_tab)
+                # One-time migration: enable Call Flip (*11 / Cihaz Degistir) on existing call_panel roles
+                if not settings_db.get("_migrated_call_flip_perm") and "call_panel:call_flip" not in new_perms:
+                    new_perms.append("call_panel:call_flip")
 
             if "sip_debugger:access" in new_perms and "troubleshooting:access" not in new_perms:
                 new_perms.append("troubleshooting:access")
@@ -2926,7 +2931,7 @@ def load_settings(force_reload: bool = False, persist: bool = False):
                     "call_panel:tab_dashboard", "call_panel:tab_webphone", "call_panel:tab_agents", "call_panel:tab_speeddial",
                     "call_panel:tab_missed", "call_panel:tab_directory", "call_panel:tab_history", "call_panel:tab_voicemail", "call_panel:tab_chat",
                     "call_panel:listen_records", "call_panel:view_transcripts", "call_panel:webphone_save_contact", "call_panel:webphone_transfer",
-                    "call_panel:webphone_conference", "call_panel:webphone_reject", "call_panel:ai_note_assistant",
+                    "call_panel:webphone_conference", "call_panel:webphone_reject", "call_panel:call_flip", "call_panel:ai_note_assistant",
                     "call_panel:agents_status", "call_panel:agents_duration", "call_panel:agents_call_counts", "call_panel:agents_login_logout",
                 ]
                 for cp_p in default_cp_subs:
@@ -2955,6 +2960,7 @@ def load_settings(force_reload: bool = False, persist: bool = False):
                         new_perms.append(p)
                 
             r["permissions"] = list(set(new_perms))
+        settings_db["_migrated_call_flip_perm"] = True
 
         # Persist migrated role permissions back to PostgreSQL SystemRole table
         try:
@@ -5426,6 +5432,7 @@ def regenerate_extensions_custom_conf(background_tasks: Optional[BackgroundTasks
     from backend.services.pbx_enterprise_features import normalize_pbx_features_config
     pbx_feat_cfg = normalize_pbx_features_config(num_plan.get("pbx_features"))
     rec_pause_code = str(pbx_feat_cfg.get("recording_pause") or "*9").strip() or "*9"
+    call_flip_code = str(pbx_feat_cfg.get("call_flip") or "*11").strip() or "*11"
 
     def _build_chanspy_exten(pat_str: str, mode_str: str, comment_str: str) -> str:
         return f"""; {comment_str} ({pat_str})
@@ -5490,7 +5497,7 @@ same => n(play_canc),Playback(/var/spool/asterisk/monitor/tr_yonlendirme_iptal)
 same => n,Hangup()
 """
 
-    reserved_pats = {pickup_group, f"_{pickup_directed}X."}
+    reserved_pats = {pickup_group, f"_{pickup_directed}X.", call_flip_code}
     feat_blocks = []
     seen_pats = set(reserved_pats)
 
@@ -5640,7 +5647,7 @@ same => n(pin_ok),Return(ALLOW)
 
 [queue_router_sub]
 exten => s,1,NoOp(Kuyruk Yonlendirme Motoru Basladi: Kuyruk=${{ARG1}}, CallID=${{CALL_UUID}}, QChain=${{Q_CHAIN}}, QDepth=${{Q_FB_DEPTH}})
-same => n,Set(__DYNAMIC_FEATURES=rec_pause_toggle)
+same => n,Set(__DYNAMIC_FEATURES=rec_pause_toggle#call_flip_trigger)
 same => n,Set(TIMEOUT(absolute)=7200)
 same => n,Set(CURLOPT(conntimeout)=1)
 same => n,Set(CURLOPT(httptimeout)=2)
@@ -5733,7 +5740,7 @@ same => n(done_qsub_h),NoOp(Kuyruk Hangup tamamlandi)
 [default]
 ; Operatörden gelen aramaları yakalamak için (Standart numara eşleşmesi)
 exten => _X.,1,NoOp(Gelen arama DID ile yakalandi: ${{EXTEN}} - Arayan: ${{CALLERID(num)}})
-same => n,Set(__DYNAMIC_FEATURES=rec_pause_toggle)
+same => n,Set(__DYNAMIC_FEATURES=rec_pause_toggle#call_flip_trigger)
 same => n,Set(TIMEOUT(absolute)=7200)
 same => n,Set(CURLOPT(conntimeout)=1)
 same => n,Set(CURLOPT(httptimeout)=2)
@@ -5756,7 +5763,7 @@ same => n,Hangup(21)
 
 ; Uluslararası / + ile gelen DID numaraları için (+90...)
 exten => _+X.,1,NoOp(Gelen arama +DID ile yakalandi: ${{EXTEN}} - Arayan: ${{CALLERID(num)}})
-same => n,Set(__DYNAMIC_FEATURES=rec_pause_toggle)
+same => n,Set(__DYNAMIC_FEATURES=rec_pause_toggle#call_flip_trigger)
 same => n,Set(TIMEOUT(absolute)=7200)
 same => n,Set(CURLOPT(conntimeout)=1)
 same => n,Set(CURLOPT(httptimeout)=2)
@@ -5779,7 +5786,7 @@ same => n,Hangup(21)
 
 ; Fallback (s uzantısı)
 exten => s,1,NoOp(Gelen arama s uzantisi ile yakalandi: ${{CALLERID(num)}})
-same => n,Set(__DYNAMIC_FEATURES=rec_pause_toggle)
+same => n,Set(__DYNAMIC_FEATURES=rec_pause_toggle#call_flip_trigger)
 same => n,Set(TIMEOUT(absolute)=7200)
 same => n,Set(CURLOPT(conntimeout)=1)
 same => n,Set(CURLOPT(httptimeout)=2)
@@ -5875,6 +5882,34 @@ same => n,Hangup()
 
 ; Çağrı Yönlendirme (Her Zaman, Meşgulde, Zaman Aşımında, İptal Kodu) Prefix'leri
 {dynamic_feature_dialplan}
+
+; Cihaz Değiştir / Çağrı Devralma (Boştaki Cihazdan Doğrudan Çekme — {call_flip_code})
+exten => {call_flip_code},1,NoOp(Cihaz Degistir Dogrudan Cekme [{call_flip_code}]: Kanal=${{CHANNEL(name)}}, Arayan=${{CALLERID(num)}})
+same => n,Gosub(hotdesk_cid_sub,s,1)
+same => n,Set(CURLOPT(conntimeout)=1)
+same => n,Set(CURLOPT(httptimeout)=3)
+same => n,Set(CF_PULL=${{CURL(http://{backend_host}/api/calls/call-flip/resolve-pull?caller=${{URIENCODE(${{CALLERID(num)}})}}&channel=${{URIENCODE(${{CHANNEL(name)}})}})}})
+same => n,Set(CF_P_ST=${{CUT(CF_PULL,|,1)}})
+same => n,GotoIf($["${{CF_P_ST}}" != "ALLOW"]?cf_pull_deny)
+same => n,Set(CF_P_PEER=${{CUT(CF_PULL,|,2)}})
+same => n,Set(__CALL_UUID=${{CUT(CF_PULL,|,3)}})
+same => n,Set(CF_P_NUM=${{CUT(CF_PULL,|,4)}})
+same => n,Set(CF_P_NAME=${{CUT(CF_PULL,|,5)}})
+same => n,Set(CF_P_OUT=${{CUT(CF_PULL,|,6)}})
+same => n,Set(__DYNAMIC_FEATURES=rec_pause_toggle#call_flip_trigger)
+same => n,Set(CONNECTEDLINE(num,i)=${{CF_P_NUM}})
+same => n,Set(CONNECTEDLINE(name,i)=${{CF_P_NAME}})
+same => n,Answer()
+same => n,Wait(0.15)
+same => n,Playback(beep)
+same => n,GotoIf($["${{CF_P_OUT}}" = "1" & "${{CALL_UUID}}" != ""]?cf_pull_rec:cf_pull_br)
+same => n(cf_pull_rec),MixMonitor(/var/spool/asterisk/monitor/${{CALL_UUID}}.wav,abr(/var/spool/asterisk/monitor/${{CALL_UUID}}_rx.wav)t(/var/spool/asterisk/monitor/${{CALL_UUID}}_tx.wav))
+same => n(cf_pull_br),Bridge(${{CF_P_PEER}},kKtT)
+same => n,Hangup()
+same => n(cf_pull_deny),Answer()
+same => n,Wait(0.2)
+same => n,Playback(beeperr)
+same => n,Hangup()
 
 ; Ses ve Yankı Testi (Echo Test — *43)
 exten => *43,1,NoOp(Ses ve Yanki Testi [*43]: Kanal=${{CHANNEL(name)}}, Arayan=${{CALLERID(num)}})
@@ -6230,7 +6265,7 @@ same => n(mp_ret),Return()
 [queue_agent_ring]
 ; Kuyruk aramalarında temsilcinin hem WebPhone hem de tüm aktif SIP Cihazlarını Kuyruk CallerID bilgisiyle eşzamanlı çaldırır
 exten => _[1-9]X.,1,NoOp(Kuyruk Temsilci Cihaz Dagitim: Dahili=${{EXTEN}}, CallerID=${{CALLERID(all)}})
-same => n,Set(__DYNAMIC_FEATURES=rec_pause_toggle)
+same => n,Set(__DYNAMIC_FEATURES=rec_pause_toggle#call_flip_trigger)
 same => n,Set(CURLOPT(conntimeout)=1)
 same => n,Set(CURLOPT(httptimeout)=2)
 same => n,Set(AG_EP_LIST=${{CURL(http://{backend_host}/api/subscriber/resolve_agent_ring_targets?extension=${{EXTEN}}&format=list&for_queue=1)}})
@@ -6251,7 +6286,7 @@ same => n,Bridge(${{CUSTOMER_CHANNEL}})
 same => n,Hangup()
 
 [hotdesk_cid_sub]
-exten => s,1,Set(__DYNAMIC_FEATURES=rec_pause_toggle)
+exten => s,1,Set(__DYNAMIC_FEATURES=rec_pause_toggle#call_flip_trigger)
 same => n,Set(TIMEOUT(absolute)=7200)
 same => n,Set(CURLOPT(conntimeout)=1)
 same => n,Set(CURLOPT(httptimeout)=2)
@@ -6474,6 +6509,93 @@ same => n(rp_resumed),Playback(beep)
 same => n,Playback(beep)
 same => n,Return()
 
+[call_flip_trigger_sub]
+; Görüşme içi DTMF (*11) ile Yeastar tarzı Cihaz Değiştir: Mevcut cihaz HARİÇ tüm diğer cihazları çaldırır
+exten => s,1,NoOp(Gorusme Ici Cihaz Degistir Tetiklendi: Kanal=${{CHANNEL(name)}}, Peer=${{BRIDGEPEER}}, CallID=${{CALL_UUID}})
+same => n,Set(CURLOPT(conntimeout)=1)
+same => n,Set(CURLOPT(httptimeout)=3)
+same => n,Set(CF_TRG=${{CURL(http://{backend_host}/api/calls/call-flip/trigger-dialplan?caller=${{URIENCODE(${{CALLERID(num)}})}}&channel=${{URIENCODE(${{CHANNEL(name)}})}}&peer_channel=${{URIENCODE(${{BRIDGEPEER}})}}&call_id=${{URIENCODE(${{CALL_UUID}})}})}})
+same => n,GotoIf($["${{CF_TRG}}" = "RINGING"]?cf_trg_ok)
+same => n,Playback(beeperr)
+same => n,Return()
+same => n(cf_trg_ok),Playback(beep)
+same => n,Return()
+
+[call_flip_pre_dial]
+; Diğer Web/PC/Mobil istemcilerine Call Flip SIP başlıklarını ekler (başlatan cihaz kendi kendini çaldırmaz)
+exten => s,1,GotoIf($["${{CHANNEL(channeltype)}}" != "PJSIP"]?cf_pd_ret)
+same => n,Set(PJSIP_HEADER(add,X-Call-Flip)=1)
+same => n,GotoIf($["${{ARG1}}" = ""]?cf_pd_ret)
+same => n,Set(PJSIP_HEADER(add,X-Call-Flip-Exclude)=${{ARG1}})
+same => n(cf_pd_ret),Return()
+
+[call_flip_ring_out]
+; Kullanıcının diğer TÜM cihazlarını eşzamanlı çaldırır; ilk açan çağrıyı alır, diğerleri otomatik susar
+exten => _[0-9a-zA-Z_-].,1,NoOp(Cihaz Degistir Eszamanli Caldirma Basladi: Token=${{EXTEN}})
+same => n,Set(CURLOPT(conntimeout)=1)
+same => n,Set(CURLOPT(httptimeout)=3)
+same => n,Set(CF_RING_RES=${{CURL(http://{backend_host}/api/calls/call-flip/session-ring?token=${{URIENCODE(${{EXTEN}})}})}})
+same => n,Set(CF_EP_LIST=${{CUT(CF_RING_RES,|,1)}})
+same => n,Set(CF_EXCL_CLIENT=${{CUT(CF_RING_RES,|,2)}})
+same => n,GotoIf($["${{CF_EP_LIST}}" = "" | "${{CF_EP_LIST}}" = "NONE"]?cf_ring_none)
+same => n,Gosub(build_multi_pjsip_dial_sub,s,1(${{CF_EP_LIST}}))
+same => n,GotoIf($["${{MULTI_DIAL_STR}}" = "" | "${{MULTI_DIAL_STR}}" = "PJSIP/"]?cf_ring_none)
+same => n,Set(CF_FINAL_DIAL=${{MULTI_DIAL_STR}})
+same => n,GotoIf($["${{CF_EXCL_CLIENT}}" = ""]?cf_do_dial)
+same => n,Set(CF_FILTERED=${{CURL(http://{backend_host}/api/calls/call-flip/filter-dial?token=${{URIENCODE(${{EXTEN}})}}&raw=${{URIENCODE(${{MULTI_DIAL_STR}})}})}})
+same => n,GotoIf($["${{CF_FILTERED}}" = "" | "${{CF_FILTERED}}" = "NONE"]?cf_ring_none)
+same => n,Set(CF_FINAL_DIAL=${{CF_FILTERED}})
+same => n(cf_do_dial),NoOp(Cihaz Degistir Caldiriliyor: ${{CF_FINAL_DIAL}} | Exclude=${{CF_EXCL_CLIENT}})
+same => n,Dial(${{CF_FINAL_DIAL}},25,tTb(call_flip_pre_dial^s^1(${{CF_EXCL_CLIENT}}))U(call_flip_answered_sub^${{EXTEN}}))
+same => n,Hangup()
+same => n(cf_ring_none),NoOp(Cihaz Degistir: Caldirilacak baska cevrimici cihaz bulunamadi)
+same => n,Hangup(20)
+
+[call_flip_answered_sub]
+; İlk cevaplayan cihaz kanalı üzerinde çalışır: CDR kilidi, ConnectedLine ve MixMonitor devamlılığını sağlar
+exten => s,1,Set(CURLOPT(conntimeout)=1)
+same => n,Set(CURLOPT(httptimeout)=3)
+same => n,Set(CF_ANS=${{CURL(http://{backend_host}/api/calls/call-flip/mark-answered?token=${{URIENCODE(${{ARG1}})}}&answered_channel=${{URIENCODE(${{CHANNEL(name)}})}})}})
+same => n,Set(CF_A_UUID=${{CUT(CF_ANS,|,1)}})
+same => n,Set(CF_A_NUM=${{CUT(CF_ANS,|,2)}})
+same => n,Set(CF_A_NAME=${{CUT(CF_ANS,|,3)}})
+same => n,Set(CF_A_OUT=${{CUT(CF_ANS,|,4)}})
+same => n,Set(__DYNAMIC_FEATURES=rec_pause_toggle#call_flip_trigger)
+same => n,GotoIf($["${{CF_A_UUID}}" = ""]?cf_a_cid)
+same => n,Set(__CALL_UUID=${{CF_A_UUID}})
+same => n(cf_a_cid),GotoIf($["${{CF_A_NUM}}" = ""]?cf_a_rec)
+same => n,Set(CONNECTEDLINE(num,i)=${{CF_A_NUM}})
+same => n,Set(CONNECTEDLINE(name,i)=${{CF_A_NAME}})
+same => n(cf_a_rec),GotoIf($["${{CF_A_OUT}}" != "1" | "${{CF_A_UUID}}" = ""]?cf_a_ret)
+same => n,MixMonitor(/var/spool/asterisk/monitor/${{CF_A_UUID}}.wav,abr(/var/spool/asterisk/monitor/${{CF_A_UUID}}_rx.wav)t(/var/spool/asterisk/monitor/${{CF_A_UUID}}_tx.wav))
+same => n(cf_a_ret),Return()
+
+[call_flip_bridge_dest]
+; Cevaplanan yeni cihazı mevcut aktif karşı taraf (peer) kanalıyla kesintisiz köprüler
+exten => _[0-9a-zA-Z_-].,1,NoOp(Cihaz Degistir Kopruleme Basliyor: Token=${{EXTEN}})
+same => n,Set(CURLOPT(conntimeout)=1)
+same => n,Set(CURLOPT(httptimeout)=3)
+same => n,Set(CF_BR=${{CURL(http://{backend_host}/api/calls/call-flip/session-bridge?token=${{URIENCODE(${{EXTEN}})}})}})
+same => n,Set(CF_B_ST=${{CUT(CF_BR,|,1)}})
+same => n,GotoIf($["${{CF_B_ST}}" != "ALLOW"]?cf_b_fail)
+same => n,Set(CF_B_PEER=${{CUT(CF_BR,|,2)}})
+same => n,Set(__CALL_UUID=${{CUT(CF_BR,|,3)}})
+same => n,Set(CF_B_ANS_CH=${{CUT(CF_BR,|,4)}})
+same => n,Set(__DYNAMIC_FEATURES=rec_pause_toggle#call_flip_trigger)
+same => n,Playback(beep)
+same => n,Bridge(${{CF_B_PEER}},kKtT)
+same => n,Hangup()
+same => n(cf_b_fail),Playback(beeperr)
+same => n,Hangup()
+
+exten => h,1,NoOp(Cihaz Degistir Koprusu Sonlandi: CallID=${{CALL_UUID}}, AnsweredChan=${{CF_B_ANS_CH}})
+same => n,StopMixMonitor()
+same => n,GotoIf($["${{CALL_UUID}}" = ""]?cf_h_done)
+same => n,Set(CURLOPT(conntimeout)=1)
+same => n,Set(CURLOPT(httptimeout)=2)
+same => n,Set(CURL_CF_H=${{CURL(http://{backend_host}/api/calls/end?call_id=${{CALL_UUID}}&dialstatus=ANSWER&hangupcause=${{HANGUPCAUSE}}&hangupsource=${{URIENCODE(${{CHANNEL(hangupsource)}})}}&answeredtime=${{ANSWEREDTIME}}&dialedtime=${{DIALEDTIME}}&channel=${{URIENCODE(${{CF_B_ANS_CH}})}}&peer_channel=${{URIENCODE(${{CF_B_PEER}})}})}})
+same => n(cf_h_done),NoOp(Cihaz Degistir Hangup Tamamlandi)
+
 [conference_bridge_sub]
 ; ARG1 = room_number, ARG2 = rec_enabled (0/1), ARG3 = pin
 exten => s,1,Set(CONF_ROOM=${{ARG1}})
@@ -6612,7 +6734,7 @@ sound_has_left=beeperr
 ; Asterisk Call Features & KVKK Recording Masking
 ; ==========================================
 [general]
-featuredigittimeout = 1000
+featuredigittimeout = 1500
 transferdigittimeout = 3
 
 [featuremap]
@@ -6621,6 +6743,7 @@ atxfer => *2
 
 [applicationmap]
 rec_pause_toggle => {rec_pause_code},self/both,Gosub(rec_pause_sub,s,1)
+call_flip_trigger => {call_flip_code},self/both,Gosub(call_flip_trigger_sub,s,1)
 """
 
     config_dir = ASTERISK_CONFIG_DIR
@@ -21279,6 +21402,586 @@ async def handle_ami_queue_call_event(
         print(f"[AMI Queue Call Event Warning]: {e_ami_q}")
 
 
+def _get_configured_call_flip_code() -> str:
+    try:
+        from backend.services.pbx_enterprise_features import normalize_pbx_features_config
+        np_cfg = settings_db.get("pbx", {}).get("numbering_plan", {}) or {}
+        pbx_f = normalize_pbx_features_config(np_cfg.get("pbx_features"))
+        return str(pbx_f.get("call_flip") or "*11").strip() or "*11"
+    except Exception:
+        return "*11"
+
+
+def _user_has_call_flip_permission(user_dict: Optional[dict]) -> bool:
+    if not isinstance(user_dict, dict):
+        return True
+    role_val = str(user_dict.get("role") or user_dict.get("role_code") or "").strip().lower()
+    if role_val in ("admin", "superadmin"):
+        return True
+    roles_list = settings_db.get("roles", []) or []
+    matched_role = next(
+        (
+            r for r in roles_list
+            if isinstance(r, dict)
+            and (
+                str(r.get("role_code") or "").strip().lower() == role_val
+                or str(r.get("name") or "").strip().lower() == role_val
+            )
+        ),
+        None,
+    )
+    if not matched_role:
+        return True
+    perms = matched_role.get("permissions") or []
+    return "call_panel:call_flip" in perms
+
+
+def _find_user_by_extension_sync(ext_str: str) -> Optional[dict]:
+    ext_c = str(ext_str or "").strip()
+    if not ext_c:
+        return None
+    for u in (settings_db.get("users", []) or []):
+        if isinstance(u, dict) and str(u.get("extension") or "").strip() == ext_c:
+            return u
+    return None
+
+
+def _resolve_flip_device_friendly_label(channel_name: str, ext_str: str = "", client_device_hint: str = "") -> str:
+    hint_l = str(client_device_hint or "").strip().lower()
+    if hint_l == "mobile_app":
+        return "Mobil Uygulama"
+    if hint_l == "pc_app":
+        return "Masaüstü Uygulaması"
+    if hint_l == "web_phone":
+        return "Web Telefon"
+    ch_s = str(channel_name or "").strip()
+    if ch_s:
+        try:
+            dev_info = _resolve_call_device_info_from_channel(ch_s, ext_hint=ext_str)
+            if isinstance(dev_info, dict) and dev_info.get("label"):
+                return str(dev_info.get("label"))
+        except Exception:
+            pass
+    return "Cihaz"
+
+
+def _collect_call_flip_target_endpoints(
+    user_dict: dict,
+    ext_str: str,
+    source_channel: str = "",
+    exclude_client_device: str = "",
+) -> tuple[list[str], str]:
+    """
+    Collects ALL OTHER endpoints of `ext_str` for Yeastar-style Call Flip.
+    Returns (target_ep_list, web_ep_name).
+    - If source_channel is a physical deskphone (e.g. cZ8c5cVJ), excludes ONLY that deskphone
+      and rings Web/PC/Mobile + all other deskphones.
+    - If source_channel is the WebRTC endpoint (Wp...) or exclude_client_device is specified,
+      keeps Wp... in the list (so other Web/PC/Mobile clients on Wp... ring while filter-dial
+      strips the initiating client contact) + rings all physical deskphones.
+    """
+    from backend.services.autoprovision_service import normalize_user_sip_devices
+    src_ep = ""
+    if source_channel:
+        m_ep = re.match(r"^(?:PJSIP|SIP|IAX2)/([^-\;@/]+)", str(source_channel).strip(), re.IGNORECASE)
+        if m_ep:
+            src_ep = m_ep.group(1).strip()
+    src_ep_low = src_ep.lower()
+
+    norm_devs = normalize_user_sip_devices(
+        user_dict,
+        settings_db.get("autoprovision", []),
+        settings_db.get("user_deskphone_configs", {}),
+    )
+    hd_sessions = settings_db.get("hotdesk_sessions") if isinstance(settings_db.get("hotdesk_sessions"), dict) else {}
+    hijacked_by_other = {
+        str(k).strip().lower()
+        for k, v in hd_sessions.items()
+        if isinstance(v, dict) and v.get("extension") and str(v.get("extension")).strip() != ext_str
+    }
+
+    web_ep = ""
+    other_eps: list[str] = []
+    for sdev in norm_devs:
+        if sdev.get("is_active") is False:
+            continue
+        d_type = str(sdev.get("device_type") or "desk_phone").strip().lower()
+        d_su = str(sdev.get("sip_username") or "").strip()
+        if d_type == "web_phone":
+            if d_su and d_su != ext_str and not d_su.isdigit():
+                web_ep = d_su
+            continue
+        if d_type == "virtual_subscriber":
+            continue
+        if not d_su or d_su == ext_str or d_su.lower() in hijacked_by_other:
+            continue
+        if src_ep_low and d_su.lower() == src_ep_low:
+            # Exclude the exact physical phone that initiated Call Flip
+            continue
+        d_drv = str(sdev.get("sip_driver") or "pjsip").strip().lower()
+        ep_entry = f"SIP/{d_su}" if d_drv in ("chan_sip", "sip", "cisco_sip") else d_su
+        if ep_entry not in other_eps:
+            other_eps.append(ep_entry)
+
+    # Include any Hot-Desk phones currently logged in as ext_str (excluding source_channel itself)
+    for hd_dev, hd_obj in hd_sessions.items():
+        if isinstance(hd_obj, dict) and str(hd_obj.get("extension") or "").strip() == ext_str:
+            hd_clean = str(hd_dev or "").strip()
+            if hd_clean and hd_clean.lower() != src_ep_low and hd_clean != web_ep and hd_clean not in other_eps:
+                other_eps.append(hd_clean)
+
+    # Decide whether to include web_ep:
+    # - Always include if source was a deskphone (not web_ep)
+    # - Also include if source was web_ep and we know exclude_client_device (so other web/pc/mob clients ring!)
+    all_targets: list[str] = []
+    if web_ep:
+        if not src_ep_low or src_ep_low != web_ep.lower() or bool(exclude_client_device):
+            all_targets.append(web_ep)
+    for ep_x in other_eps:
+        if ep_x not in all_targets:
+            all_targets.append(ep_x)
+    return all_targets, web_ep
+
+
+async def _record_call_flip_timeline_event(
+    call_id: str,
+    ext_str: str,
+    from_label: str,
+    to_label: str,
+    to_channel: str = "",
+    mode: str = "flip",
+):
+    cid = str(call_id or "").strip()
+    if not cid:
+        return
+    try:
+        async with AsyncSessionLocal() as session:
+            db_call = await session.get(Call, cid)
+            if not db_call:
+                return
+            td = dict(db_call.transfer_details) if isinstance(db_call.transfer_details, dict) else {}
+            flips = list(td.get("device_flips") or [])
+            flips.append({
+                "timestamp": datetime.datetime.utcnow().isoformat() + "Z",
+                "extension": ext_str,
+                "from_device": from_label,
+                "to_device": to_label,
+                "to_channel": to_channel,
+                "mode": mode,
+            })
+            td["device_flips"] = flips
+            if to_channel:
+                new_dev = _resolve_call_device_info_from_channel(to_channel, ext_hint=ext_str)
+                if new_dev:
+                    td["device_info"] = new_dev
+            db_call.transfer_details = td
+            try:
+                from sqlalchemy.orm.attributes import flag_modified
+                flag_modified(db_call, "transfer_details")
+            except Exception:
+                pass
+            await session.commit()
+    except Exception as e_fl:
+        print(f"[CallFlip Timeline Record Warning]: {e_fl}")
+
+
+async def _start_yeastar_call_flip_core(
+    ext_str: str,
+    source_channel: str = "",
+    known_peer_channel: str = "",
+    call_id_hint: str = "",
+    exclude_client_device: str = "",
+) -> dict:
+    from backend.services.ami_manager import (
+        resolve_call_flip_context,
+        initiate_yeastar_call_flip,
+        call_flip_sessions,
+    )
+    user_dict = _find_user_by_extension_sync(ext_str)
+    if not user_dict:
+        return {"ok": False, "reason": "user_not_found", "message": "Kullanıcı bulunamadı."}
+    if not _user_has_call_flip_permission(user_dict):
+        return {"ok": False, "reason": "forbidden", "message": "Cihaz Değiştir yetkiniz kapalı."}
+
+    ctx = await resolve_call_flip_context(
+        ext=ext_str,
+        source_channel=source_channel,
+        known_peer_channel=known_peer_channel,
+    )
+    if not ctx or not ctx.get("peer_channel"):
+        return {"ok": False, "reason": "no_active_call", "message": "Aktif bir görüşme bulunamadı."}
+
+    src_ch = ctx.get("source_channel") or source_channel
+    target_eps, web_ep = _collect_call_flip_target_endpoints(
+        user_dict=user_dict,
+        ext_str=ext_str,
+        source_channel=src_ch,
+        exclude_client_device=exclude_client_device,
+    )
+    if not target_eps:
+        return {"ok": False, "reason": "no_other_devices", "message": "Çaldırılacak başka kayıtlı cihazınız bulunamadı."}
+
+    # Prune expired call_flip_sessions (> 120s)
+    now_ts = time.time()
+    for k in list(call_flip_sessions.keys()):
+        if now_ts - float(call_flip_sessions[k].get("ts") or 0) > 120:
+            call_flip_sessions.pop(k, None)
+
+    flip_token = uuid.uuid4().hex[:14]
+    orig_call_id = str(ctx.get("call_id") or call_id_hint or "").strip()
+    peer_num = str(ctx.get("peer_num") or "").strip()
+    peer_name = str(ctx.get("peer_name") or peer_num).strip()
+    # Try resolving friendly contact name for peer_num
+    try:
+        resolved_cn = resolve_contact_name_by_phone(settings_db.get("contacts", []) or [], peer_num)
+        if resolved_cn:
+            peer_name = resolved_cn
+    except Exception:
+        pass
+
+    from_label = _resolve_flip_device_friendly_label(src_ch, ext_str, exclude_client_device)
+    call_flip_sessions[flip_token] = {
+        "token": flip_token,
+        "extension": ext_str,
+        "source_channel": src_ch,
+        "old_channels": list(ctx.get("old_channels") or [src_ch]),
+        "peer_channel": ctx["peer_channel"],
+        "call_id": orig_call_id,
+        "peer_num": peer_num,
+        "peer_name": peer_name,
+        "is_outbound": bool(ctx.get("is_outbound")),
+        "target_eps": target_eps,
+        "web_ep": web_ep,
+        "exclude_client_device": str(exclude_client_device or "").strip().lower(),
+        "from_label": from_label,
+        "answered_channel": "",
+        "ts": now_ts,
+    }
+
+    ok = await initiate_yeastar_call_flip(flip_token, peer_num, peer_name)
+    if not ok:
+        call_flip_sessions.pop(flip_token, None)
+        return {"ok": False, "reason": "originate_failed", "message": "Diğer cihazlar çaldırılamadı."}
+
+    print(
+        f"🔄 [CallFlip] Başlatıldı: Dahili={ext_str} | Kaynak={src_ch} ({from_label}) "
+        f"| Peer={ctx['peer_channel']} | Hedefler={target_eps} | Exclude={exclude_client_device or '-'}"
+    )
+    return {
+        "ok": True,
+        "status": "ringing",
+        "token": flip_token,
+        "target_count": len(target_eps),
+        "peer_number": peer_num,
+        "peer_name": peer_name,
+        "message": "Diğer cihazlarınız çalıyor. Hangisinden açarsanız görüşme oraya geçecektir.",
+    }
+
+
+class CallFlipTriggerSchema(BaseModel):
+    client_device: Optional[str] = ""
+    call_id: Optional[str] = ""
+
+
+@app.post("/api/calls/call-flip/trigger")
+async def trigger_call_flip_api(
+    payload: CallFlipTriggerSchema,
+    user_info: dict = Depends(get_user_info),
+):
+    """
+    Triggered by the in-call 'Cihaz Değiştir' button on Web Phone / Desktop App / Mobile App.
+    Rings ALL OTHER devices of the same user simultaneously (Yeastar Call Flip style).
+    """
+    ext_s = str(user_info.get("extension") or "").strip()
+    if not ext_s:
+        uid = user_info.get("user_id")
+        for u in (settings_db.get("users", []) or []):
+            if isinstance(u, dict) and str(u.get("id")) == str(uid):
+                ext_s = str(u.get("extension") or "").strip()
+                break
+    if not ext_s:
+        raise HTTPException(status_code=400, detail="Dahili numaranız belirlenemedi.")
+
+    res = await _start_yeastar_call_flip_core(
+        ext_str=ext_s,
+        call_id_hint=str(payload.call_id or "").strip(),
+        exclude_client_device=str(payload.client_device or "").strip().lower(),
+    )
+    if not res.get("ok"):
+        status_code = 403 if res.get("reason") == "forbidden" else 400
+        raise HTTPException(status_code=status_code, detail=res.get("message") or "Cihaz değiştirme başlatılamadı.")
+    return res
+
+
+@app.get("/api/calls/call-flip/trigger-dialplan")
+async def trigger_call_flip_dialplan(
+    caller: Optional[str] = "",
+    channel: Optional[str] = "",
+    peer_channel: Optional[str] = "",
+    call_id: Optional[str] = "",
+):
+    """
+    Called from Asterisk [call_flip_trigger_sub] when user presses *11 during an active call
+    on a physical deskphone (or softphone). Rings ALL OTHER devices of that user.
+    """
+    from backend.services.ami_manager import _extract_ext_from_channel
+    ch_s = str(channel or "").strip()
+    ext_s = _extract_ext_from_channel(ch_s)
+    if not ext_s:
+        c_clean = str(caller or "").strip()
+        if c_clean.isdigit() and len(c_clean) <= 6:
+            ext_s = c_clean
+    if not ext_s:
+        return Response(content="DENY", media_type="text/plain")
+
+    res = await _start_yeastar_call_flip_core(
+        ext_str=ext_s,
+        source_channel=ch_s,
+        known_peer_channel=str(peer_channel or "").strip(),
+        call_id_hint=str(call_id or "").strip(),
+        exclude_client_device="",
+    )
+    return Response(content="RINGING" if res.get("ok") else "DENY", media_type="text/plain")
+
+
+@app.get("/api/calls/call-flip/session-ring")
+async def call_flip_session_ring(token: str):
+    from backend.services.ami_manager import call_flip_sessions
+    sess = call_flip_sessions.get(str(token or "").strip())
+    if not sess:
+        return Response(content="NONE|", media_type="text/plain")
+    ep_str = "&".join(sess.get("target_eps") or [])
+    excl_c = str(sess.get("exclude_client_device") or "").strip()
+    return Response(content=f"{ep_str}|{excl_c}", media_type="text/plain")
+
+
+@app.get("/api/calls/call-flip/filter-dial")
+async def call_flip_filter_dial(token: str, raw: str = ""):
+    """
+    Filters out the initiating Web/PC/Mobile SIP contact from MULTI_DIAL_STR so the
+    device that clicked 'Cihaz Değiştir' never rings itself, while all OTHER clients
+    (other Web/PC/Mobile tabs + all physical deskphones) ring simultaneously.
+    """
+    from backend.services.ami_manager import call_flip_sessions
+    sess = call_flip_sessions.get(str(token or "").strip())
+    raw_s = str(raw or "").strip()
+    if not raw_s:
+        return Response(content="NONE", media_type="text/plain")
+    if not sess:
+        return Response(content=raw_s, media_type="text/plain")
+
+    excl_c = str(sess.get("exclude_client_device") or "").strip().lower()
+    web_ep = str(sess.get("web_ep") or "").strip().lower()
+    suffix_map = {
+        "mobile_app": "_mob@",
+        "pc_app": "_pc@",
+        "web_phone": "_web@",
+    }
+    excl_tok = suffix_map.get(excl_c, "")
+    parts = [p.strip() for p in raw_s.split("&") if p.strip()]
+    kept = []
+    for p in parts:
+        p_low = p.lower()
+        # Drop exact contact matching initiating client suffix (e.g. Wp6Vy9D3_mob@)
+        if excl_tok and excl_tok in p_low:
+            continue
+        # If Wp... only had 1 registered contact (build_multi_pjsip_dial_sub returned bare PJSIP/Wp...),
+        # that single contact IS the initiating client itself — drop it so only deskphones ring!
+        if web_ep and excl_c and p_low == f"pjsip/{web_ep}":
+            continue
+        kept.append(p)
+    if not kept:
+        return Response(content="NONE", media_type="text/plain")
+    return Response(content="&".join(kept), media_type="text/plain")
+
+
+@app.get("/api/calls/call-flip/mark-answered")
+async def call_flip_mark_answered(token: str, answered_channel: str = ""):
+    """
+    Called from Asterisk Dial U(call_flip_answered_sub) on the EXACT device that answered first.
+    Locks CDR protection for OLD_CHAN so hanging up the old device doesn't close the Call record.
+    Returns: orig_call_uuid|peer_num|peer_name|is_outbound
+    """
+    from backend.services.ami_manager import call_flip_sessions, register_call_flip_protection
+    sess = call_flip_sessions.get(str(token or "").strip())
+    if not sess:
+        return Response(content="|||0", media_type="text/plain")
+
+    ans_ch = str(answered_channel or "").strip()
+    sess["answered_channel"] = ans_ch
+    orig_uuid = str(sess.get("call_id") or "").strip()
+    peer_ch = str(sess.get("peer_channel") or "").strip()
+    if orig_uuid:
+        for old_c in (sess.get("old_channels") or [sess.get("source_channel") or ""]):
+            if old_c:
+                register_call_flip_protection(
+                    call_id=orig_uuid,
+                    old_channel=old_c,
+                    new_channel=ans_ch,
+                    peer_channel=peer_ch,
+                )
+
+    to_label = _resolve_flip_device_friendly_label(ans_ch, sess.get("extension") or "")
+    asyncio.create_task(
+        _record_call_flip_timeline_event(
+            call_id=orig_uuid,
+            ext_str=str(sess.get("extension") or ""),
+            from_label=str(sess.get("from_label") or "Önceki Cihaz"),
+            to_label=to_label,
+            to_channel=ans_ch,
+            mode="flip_ring",
+        )
+    )
+    safe_num = str(sess.get("peer_num") or "").replace("|", "").strip()
+    safe_name = str(sess.get("peer_name") or safe_num).replace("|", "").strip()
+    is_out = "1" if sess.get("is_outbound") else "0"
+    print(f"✅ [CallFlip] Cevaplandı: Dahili={sess.get('extension')} | Yeni Kanal={ans_ch} ({to_label}) | CallID={orig_uuid}")
+    return Response(content=f"{orig_uuid}|{safe_num}|{safe_name}|{is_out}", media_type="text/plain")
+
+
+@app.get("/api/calls/call-flip/session-bridge")
+async def call_flip_session_bridge(token: str):
+    """
+    Called from [call_flip_bridge_dest] immediately after a target device answers.
+    Returns: ALLOW|peer_channel|orig_call_uuid|answered_channel
+    """
+    from backend.services.ami_manager import call_flip_sessions
+    sess = call_flip_sessions.get(str(token or "").strip())
+    if not sess or not sess.get("peer_channel"):
+        return Response(content="DENY|||", media_type="text/plain")
+    peer_ch = str(sess.get("peer_channel") or "").replace("|", "").strip()
+    orig_uuid = str(sess.get("call_id") or "").replace("|", "").strip()
+    ans_ch = str(sess.get("answered_channel") or "").replace("|", "").strip()
+    return Response(content=f"ALLOW|{peer_ch}|{orig_uuid}|{ans_ch}", media_type="text/plain")
+
+
+@app.get("/api/calls/call-flip/resolve-pull")
+async def call_flip_resolve_pull(caller: str = "", channel: str = ""):
+    """
+    Called when user picks up an IDLE deskphone and dials *11 (or clicks 'Bu Cihaza Al'
+    from an idle Web/PC/Mobile client). Directly pulls the user's own active call onto this device.
+    Returns: ALLOW|peer_channel|orig_call_uuid|peer_num|peer_name|is_outbound
+    """
+    from backend.services.ami_manager import (
+        _extract_ext_from_channel,
+        resolve_call_flip_context,
+        register_call_flip_protection,
+    )
+    ch_s = str(channel or "").strip()
+    ext_s = _extract_ext_from_channel(ch_s)
+    if not ext_s:
+        c_clean = str(caller or "").strip()
+        if c_clean.isdigit() and len(c_clean) <= 6:
+            ext_s = c_clean
+    if not ext_s:
+        return Response(content="DENY|||||0", media_type="text/plain")
+
+    user_dict = _find_user_by_extension_sync(ext_s)
+    if user_dict and not _user_has_call_flip_permission(user_dict):
+        return Response(content="DENY|||||0", media_type="text/plain")
+
+    ctx = await resolve_call_flip_context(ext=ext_s, exclude_channel=ch_s)
+    if not ctx or not ctx.get("peer_channel"):
+        return Response(content="DENY|||||0", media_type="text/plain")
+
+    orig_uuid = str(ctx.get("call_id") or "").strip()
+    peer_ch = str(ctx.get("peer_channel") or "").strip()
+    if orig_uuid:
+        for old_c in (ctx.get("old_channels") or [ctx.get("source_channel") or ""]):
+            if old_c:
+                register_call_flip_protection(
+                    call_id=orig_uuid,
+                    old_channel=old_c,
+                    new_channel=ch_s,
+                    peer_channel=peer_ch,
+                )
+
+    from_label = _resolve_flip_device_friendly_label(ctx.get("source_channel") or "", ext_s)
+    to_label = _resolve_flip_device_friendly_label(ch_s, ext_s)
+    asyncio.create_task(
+        _record_call_flip_timeline_event(
+            call_id=orig_uuid,
+            ext_str=ext_s,
+            from_label=from_label,
+            to_label=to_label,
+            to_channel=ch_s,
+            mode="pull",
+        )
+    )
+    peer_num = str(ctx.get("peer_num") or "").replace("|", "").strip()
+    peer_name = str(ctx.get("peer_name") or peer_num).replace("|", "").strip()
+    try:
+        resolved_cn = resolve_contact_name_by_phone(settings_db.get("contacts", []) or [], peer_num)
+        if resolved_cn:
+            peer_name = resolved_cn.replace("|", "").strip()
+    except Exception:
+        pass
+    is_out = "1" if ctx.get("is_outbound") else "0"
+    print(f"📲 [CallPull] Doğrudan Çekildi: Dahili={ext_s} | {from_label} → {to_label} | Peer={peer_ch}")
+    return Response(
+        content=f"ALLOW|{peer_ch}|{orig_uuid}|{peer_num}|{peer_name}|{is_out}",
+        media_type="text/plain",
+    )
+
+
+@app.get("/api/calls/my-active-flip-status")
+async def get_my_active_flip_status(user_info: dict = Depends(get_user_info)):
+    """
+    Lightweight status check used by idle Web / Desktop / Mobile clients to show a
+    1-click 'Bu Cihaza Al' banner when the user already has an active call on another device.
+    """
+    from backend.services.ami_manager import active_channels, channel_states, _get_ext_channel_prefixes
+    ext_s = str(user_info.get("extension") or "").strip()
+    if not ext_s:
+        uid = user_info.get("user_id")
+        for u in (settings_db.get("users", []) or []):
+            if isinstance(u, dict) and str(u.get("id")) == str(uid):
+                ext_s = str(u.get("extension") or "").strip()
+                break
+    flip_code = _get_configured_call_flip_code()
+    if not ext_s:
+        return {"has_active_call": False, "call_flip_code": flip_code}
+    user_dict = _find_user_by_extension_sync(ext_s)
+    if user_dict and not _user_has_call_flip_permission(user_dict):
+        return {"has_active_call": False, "call_flip_code": flip_code, "allowed": False}
+
+    prefixes = _get_ext_channel_prefixes(ext_s)
+    found_ch = ""
+    found_peer = ""
+    for uid_k, st in list(channel_states.items()):
+        if not isinstance(st, dict):
+            continue
+        ch_v = str(st.get("channel") or active_channels.get(uid_k) or "").strip()
+        if not ch_v or ch_v.lower().startswith("local/"):
+            continue
+        if st.get("state") == "busy" and any(ch_v.lower().startswith(p) for p in prefixes):
+            found_ch = ch_v
+            c_n = str(st.get("caller") or "").strip()
+            e_n = str(st.get("exten") or "").strip()
+            found_peer = e_n if (e_n and e_n != ext_s and not e_n.startswith("*")) else (c_n if c_n != ext_s else "")
+            break
+
+    if not found_ch:
+        return {"has_active_call": False, "call_flip_code": flip_code, "allowed": True}
+
+    dev_label = _resolve_flip_device_friendly_label(found_ch, ext_s)
+    peer_name = ""
+    if found_peer:
+        try:
+            peer_name = resolve_contact_name_by_phone(settings_db.get("contacts", []) or [], found_peer) or ""
+        except Exception:
+            peer_name = ""
+    return {
+        "has_active_call": True,
+        "call_flip_code": flip_code,
+        "allowed": True,
+        "active_channel": found_ch,
+        "device_label": dev_label,
+        "peer_number": found_peer,
+        "peer_name": peer_name,
+    }
+
+
 @app.get("/api/calls/end")
 async def end_call_endpoint(
     call_id: str,
@@ -21294,6 +21997,14 @@ async def end_call_endpoint(
     channel: Optional[str] = None,
     peer_channel: Optional[str] = None,
 ):
+    # Call Flip CDR Protection: if OLD_CHAN hung up because the call moved to another device, DO NOT finalize CDR!
+    try:
+        from backend.services.ami_manager import is_call_flip_protected_hangup
+        if is_call_flip_protected_hangup(call_id, channel or ""):
+            print(f"🛡️ [CallFlip CDR Guard] Eski kanal kapanışı atlandı (çağrı diğer cihazda devam ediyor): CallID={call_id}, Chan={channel}")
+            return {"status": "skipped_call_flip"}
+    except Exception:
+        pass
     try:
         from backend.services.ami_manager import recording_paused_state
         recording_paused_state.pop(str(call_id), None)
@@ -40147,18 +40858,34 @@ async def get_system_version_info():
         pass
 
     return {
-        "version": "v3.6.0",
+        "version": "v3.6.1",
         "commit_hash": live_commit,
         "release_date": "21 Kasım 2026",
         "status": "Güncel / Canlı Sürüm",
         "environment": "Production (On-Premise)",
         "changelog": [
             {
-                "version": "v3.6.0",
+                "version": "v3.6.1",
                 "commit_hash": live_commit,
                 "release_date": "21 Kasım 2026",
                 "badge": "Canlı Sürüm (Güncel)",
                 "badge_type": "current",
+                "title": "Çoklu Cihazlar Arası Kesintisiz Cihaz Değiştirme (Yeastar Tarzı Call Flip — *11)",
+                "summary": "Aynı kullanıcıya bağlı Masa Telefonları (1 veya daha fazla), Web Telefon, Masaüstü ve Mobil Uygulama arasında aktif görüşmeyi düşürmeden taşıma (Call Flip) eklendi. Görüşme sırasında masa telefonundan *11 veya uygulamalardan 'Cihaz Değiştir' butonuna basıldığında mevcut cihaz hariç tüm diğer cihazlar çalar; hangisinden açılırsa görüşme oraya geçer ve diğerleri susar.",
+                "features": [
+                    "Yeastar tarzı Cihaz Değiştir (Call Flip): Aktif görüşme sırasında masa telefonundan *11 DTMF tuşlaması veya Web / Masaüstü / Mobil uygulamadaki 'Cihaz Değiştir' butonu ile kullanıcının diğer tüm çevrimiçi cihazları eşzamanlı çaldırılır; ilk cevaplayan çağrıyı kesintisiz devralır ve diğer cihazlar otomatik susar.",
+                    "Boştaki cihazdan doğrudan çekme (Call Pull): Kullanıcının başka cihazında aktif görüşmesi varken boştaki masa telefonundan *11 çevrilerek veya Web/PC/Mobil üst şeridindeki 'Bu Cihaza Al' butonuna tıklanarak çağrı doğrudan devralınabilir.",
+                    "Kesintisiz CDR, çift kanallı RX/TX MixMonitor ses kaydı devamlılığı, ConnectedLine müşteri numarası/adı aktarımı ve Detaylı Arama Akışı penceresinde cihaz geçiş geçmişi (device_flips).",
+                    "Numara Planı ayarlarından özelleştirilebilir Call Flip kodu (varsayılan *11) ve Rol Yönetimi altında granüler 'call_panel:call_flip' yetki kontrolü (mevcut rollerde varsayılan açık)."
+                ],
+                "fixes": []
+            },
+            {
+                "version": "v3.6.0",
+                "commit_hash": "3cae62b",
+                "release_date": "21 Kasım 2026",
+                "badge": "Kararlı",
+                "badge_type": "stable",
                 "title": "WebPhone Mikrofon Seçim Kalıcılığı, Muted-Track Koruması & Canlı RTP Tanılama",
                 "summary": "Ses Donanımı penceresinde seçilen mikrofon artık anında kaydedilir ve aktif çağrıya uygulanır; sessiz/muted mikrofon track'leri otomatik sistem varsayılan mikrofonuna düşer, DSP hatasında ham mikrofon korunur ve canlı RTP gönderici teşhis logu eklendi.",
                 "features": [],
@@ -42777,6 +43504,7 @@ async def get_webrtc_config(request: Request, db: AsyncSession = Depends(get_db)
             "viaHost": via_ip,
             "viaRasTunnel": is_ras_tunneled,
             "iceServers": ice_servers_list,
+            "callFlipCode": _get_configured_call_flip_code(),
         }
     except Exception as e:
         print(f"WebRTC Config error: {e}")

@@ -22,6 +22,7 @@ DEFAULT_PBX_FEATURE_CODES = {
     "boss_secretary_toggle": "*74",
     "hotdesk_login": "*75",
     "hotdesk_logout": "*76",
+    "call_flip": "*11",
 }
 
 

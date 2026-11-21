@@ -720,6 +720,7 @@ export default function AgentPanel({ backendHost, currentUser, activeCallId, isV
       canTransfer: checkWebphoneFeature("call_panel:webphone_transfer"),
       canConference: checkWebphoneFeature("call_panel:webphone_conference"),
       canRejectCall: checkWebphoneFeature("call_panel:webphone_reject"),
+      canCallFlip: isRoleAdmin || !perms || perms.includes("call_panel:call_flip"),
       canCtiScreenPop,
       canAiNoteAssistant,
       canLiveTranslate,

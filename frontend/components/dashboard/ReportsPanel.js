@@ -6667,6 +6667,21 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                       <span className="text-slate-400 dark:text-slate-500 font-semibold">—</span>
                     )}
                   </p>
+                  {Array.isArray(selectedTimelineCall?.transfer_details?.device_flips) &&
+                    selectedTimelineCall.transfer_details.device_flips.length > 0 && (
+                      <div className="mt-1.5 space-y-1">
+                        {selectedTimelineCall.transfer_details.device_flips.map((fl, fIdx) => (
+                          <div
+                            key={fIdx}
+                            className={`text-[10px] font-bold px-2 py-0.5 rounded-lg border inline-flex items-center gap-1 mr-1 ${lightBg} ${text} ${borderLight}`}
+                          >
+                            <span>{fl.from_device || "Önceki Cihaz"}</span>
+                            <span>→</span>
+                            <span>{fl.to_device || "Yeni Cihaz"}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
                 </div>
                 <div className="pt-2 border-t border-slate-100 dark:border-slate-800/70">
                   <p className="text-[8px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">Benzersiz Çağrı ID</p>

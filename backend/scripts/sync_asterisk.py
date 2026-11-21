@@ -1384,6 +1384,7 @@ localnet=10.200.0.0/16
     mon_barge_pfx = str(mon_cfg.get("barge") or "*553*").strip() or "*553*"
     pbx_feat_sync = num_plan.get("pbx_features", {}) if isinstance(num_plan.get("pbx_features"), dict) else {}
     rec_pause_code = str(pbx_feat_sync.get("recording_pause") or "*9").strip() or "*9"
+    call_flip_code = str(pbx_feat_sync.get("call_flip") or "*11").strip() or "*11"
 
     def _build_chanspy_exten(pat_str: str, mode_str: str, comment_str: str) -> str:
         return f"""; {comment_str} ({pat_str})
@@ -1448,7 +1449,7 @@ same => n(play_canc),Playback(/var/spool/asterisk/monitor/tr_yonlendirme_iptal)
 same => n,Hangup()
 """
 
-    reserved_pats = {pickup_group, f"_{pickup_directed}X."}
+    reserved_pats = {pickup_group, f"_{pickup_directed}X.", call_flip_code}
     feat_blocks = []
     seen_pats = set(reserved_pats)
 
@@ -1736,7 +1737,7 @@ same => n(pin_ok),Return(ALLOW)
 
 [queue_router_sub]
 exten => s,1,NoOp(Kuyruk Yonlendirme Motoru Basladi: Kuyruk=${ARG1}, CallID=${CALL_UUID}, QChain=${Q_CHAIN}, QDepth=${Q_FB_DEPTH})
-same => n,Set(__DYNAMIC_FEATURES=rec_pause_toggle)
+same => n,Set(__DYNAMIC_FEATURES=rec_pause_toggle#call_flip_trigger)
 same => n,Set(TIMEOUT(absolute)=7200)
 same => n,Set(CURLOPT(conntimeout)=1)
 same => n,Set(CURLOPT(httptimeout)=2)
@@ -1829,7 +1830,7 @@ same => n(done_qsub_h),NoOp(Kuyruk Hangup tamamlandi)
 [default]
 ; Operatörden gelen aramaları yakalamak için (Standart numara eşleşmesi)
 exten => _X.,1,NoOp(Gelen arama DID ile yakalandi: ${EXTEN} - Arayan: ${CALLERID(num)})
-same => n,Set(__DYNAMIC_FEATURES=rec_pause_toggle)
+same => n,Set(__DYNAMIC_FEATURES=rec_pause_toggle#call_flip_trigger)
 same => n,Set(TIMEOUT(absolute)=7200)
 same => n,Set(CURLOPT(conntimeout)=1)
 same => n,Set(CURLOPT(httptimeout)=2)
@@ -1852,7 +1853,7 @@ same => n,Hangup(21)
 
 ; Uluslararası / + ile gelen DID numaraları için (+90...)
 exten => _+X.,1,NoOp(Gelen arama +DID ile yakalandi: ${EXTEN} - Arayan: ${CALLERID(num)})
-same => n,Set(__DYNAMIC_FEATURES=rec_pause_toggle)
+same => n,Set(__DYNAMIC_FEATURES=rec_pause_toggle#call_flip_trigger)
 same => n,Set(TIMEOUT(absolute)=7200)
 same => n,Set(CURLOPT(conntimeout)=1)
 same => n,Set(CURLOPT(httptimeout)=2)
@@ -1875,7 +1876,7 @@ same => n,Hangup(21)
 
 ; Fallback (s uzantısı)
 exten => s,1,NoOp(Gelen arama s uzantisi ile yakalandi: ${CALLERID(num)})
-same => n,Set(__DYNAMIC_FEATURES=rec_pause_toggle)
+same => n,Set(__DYNAMIC_FEATURES=rec_pause_toggle#call_flip_trigger)
 same => n,Set(TIMEOUT(absolute)=7200)
 same => n,Set(CURLOPT(conntimeout)=1)
 same => n,Set(CURLOPT(httptimeout)=2)
@@ -1949,6 +1950,34 @@ same => n(hangup_transfer),Hangup()
 
 __WEBRTC_FEATURES_BLOCK__
 
+; Cihaz Değiştir / Çağrı Devralma (Boştaki Cihazdan Doğrudan Çekme — __CALL_FLIP_CODE__)
+exten => __CALL_FLIP_CODE__,1,NoOp(Cihaz Degistir Dogrudan Cekme [__CALL_FLIP_CODE__]: Kanal=${CHANNEL(name)}, Arayan=${CALLERID(num)})
+same => n,Gosub(hotdesk_cid_sub,s,1)
+same => n,Set(CURLOPT(conntimeout)=1)
+same => n,Set(CURLOPT(httptimeout)=3)
+same => n,Set(CF_PULL=${CURL(http://127.0.0.1:8000/api/calls/call-flip/resolve-pull?caller=${URIENCODE(${CALLERID(num)})}&channel=${URIENCODE(${CHANNEL(name)})})})
+same => n,Set(CF_P_ST=${CUT(CF_PULL,|,1)})
+same => n,GotoIf($["${CF_P_ST}" != "ALLOW"]?cf_pull_deny)
+same => n,Set(CF_P_PEER=${CUT(CF_PULL,|,2)})
+same => n,Set(__CALL_UUID=${CUT(CF_PULL,|,3)})
+same => n,Set(CF_P_NUM=${CUT(CF_PULL,|,4)})
+same => n,Set(CF_P_NAME=${CUT(CF_PULL,|,5)})
+same => n,Set(CF_P_OUT=${CUT(CF_PULL,|,6)})
+same => n,Set(__DYNAMIC_FEATURES=rec_pause_toggle#call_flip_trigger)
+same => n,Set(CONNECTEDLINE(num,i)=${CF_P_NUM})
+same => n,Set(CONNECTEDLINE(name,i)=${CF_P_NAME})
+same => n,Answer()
+same => n,Wait(0.15)
+same => n,Playback(beep)
+same => n,GotoIf($["${CF_P_OUT}" = "1" & "${CALL_UUID}" != ""]?cf_pull_rec:cf_pull_br)
+same => n(cf_pull_rec),MixMonitor(/var/spool/asterisk/monitor/${CALL_UUID}.wav,abr(/var/spool/asterisk/monitor/${CALL_UUID}_rx.wav)t(/var/spool/asterisk/monitor/${CALL_UUID}_tx.wav))
+same => n(cf_pull_br),Bridge(${CF_P_PEER},kKtT)
+same => n,Hangup()
+same => n(cf_pull_deny),Answer()
+same => n,Wait(0.2)
+same => n,Playback(beeperr)
+same => n,Hangup()
+
 ; Ses ve Yankı Testi (Echo Test — *43)
 exten => *43,1,NoOp(Ses ve Yanki Testi [*43]: Kanal=${CHANNEL(name)}, Arayan=${CALLERID(num)})
 same => n,Answer()
@@ -1963,7 +1992,7 @@ exten => _+X.,1,Goto(webrtc_agents,${EXTEN:1},1)
 ; Dış hat aramaları için (0 ile başlayan numaralar - Güvenlik & Toll-Fraud ACL Korumalı + Multi-Trunk Failover)
 exten => _0.,1,Gosub(hotdesk_cid_sub,s,1)
 same => n,NoOp(Dis arama guvenlik kontrolu: Arayan=${CALLERID(num)}, Aranan=${EXTEN})"""
-    ext_content = ext_content.replace("__TRUNK_INBOUND_BLOCK__", trunk_inbound_str).replace("__WEBRTC_FEATURES_BLOCK__", webrtc_header_and_features) + """
+    ext_content = ext_content.replace("__TRUNK_INBOUND_BLOCK__", trunk_inbound_str).replace("__WEBRTC_FEATURES_BLOCK__", webrtc_header_and_features).replace("__CALL_FLIP_CODE__", call_flip_code) + """
 same => n(outbound_start),Set(CURLOPT(conntimeout)=1)
 same => n,Set(CURLOPT(httptimeout)=2)
 same => n,Set(GROUP(sub_out)=${CALLERID(num)})
@@ -2304,7 +2333,7 @@ same => n(mp_ret),Return()
 [queue_agent_ring]
 ; Kuyruk aramalarında temsilcinin WebPhone ve tüm aktif SIP Cihazlarını Kuyruk CallerID bilgisiyle eşzamanlı çaldırır
 exten => _[1-9]X.,1,NoOp(Kuyruk Temsilci Cihaz Dagitim: Dahili=${EXTEN}, CallerID=${CALLERID(all)})
-same => n,Set(__DYNAMIC_FEATURES=rec_pause_toggle)
+same => n,Set(__DYNAMIC_FEATURES=rec_pause_toggle#call_flip_trigger)
 same => n,Set(CURLOPT(conntimeout)=1)
 same => n,Set(CURLOPT(httptimeout)=2)
 same => n,Set(AG_EP_LIST=${CURL(http://127.0.0.1:8000/api/subscriber/resolve_agent_ring_targets?extension=${EXTEN}&format=list&for_queue=1)})
@@ -2325,7 +2354,7 @@ same => n,Bridge(${CUSTOMER_CHANNEL})
 same => n,Hangup()
 
 [hotdesk_cid_sub]
-exten => s,1,Set(__DYNAMIC_FEATURES=rec_pause_toggle)
+exten => s,1,Set(__DYNAMIC_FEATURES=rec_pause_toggle#call_flip_trigger)
 same => n,Set(TIMEOUT(absolute)=7200)
 same => n,Set(CURLOPT(conntimeout)=1)
 same => n,Set(CURLOPT(httptimeout)=2)
@@ -2547,6 +2576,93 @@ same => n(rp_resumed),Playback(beep)
 same => n,Playback(beep)
 same => n,Return()
 
+[call_flip_trigger_sub]
+; Görüşme içi DTMF (*11) ile Yeastar tarzı Cihaz Değiştir: Mevcut cihaz HARİÇ tüm diğer cihazları çaldırır
+exten => s,1,NoOp(Gorusme Ici Cihaz Degistir Tetiklendi: Kanal=${CHANNEL(name)}, Peer=${BRIDGEPEER}, CallID=${CALL_UUID})
+same => n,Set(CURLOPT(conntimeout)=1)
+same => n,Set(CURLOPT(httptimeout)=3)
+same => n,Set(CF_TRG=${CURL(http://127.0.0.1:8000/api/calls/call-flip/trigger-dialplan?caller=${URIENCODE(${CALLERID(num)})}&channel=${URIENCODE(${CHANNEL(name)})}&peer_channel=${URIENCODE(${BRIDGEPEER})}&call_id=${URIENCODE(${CALL_UUID})})})
+same => n,GotoIf($["${CF_TRG}" = "RINGING"]?cf_trg_ok)
+same => n,Playback(beeperr)
+same => n,Return()
+same => n(cf_trg_ok),Playback(beep)
+same => n,Return()
+
+[call_flip_pre_dial]
+; Diğer Web/PC/Mobil istemcilerine Call Flip SIP başlıklarını ekler (başlatan cihaz kendi kendini çaldırmaz)
+exten => s,1,GotoIf($["${CHANNEL(channeltype)}" != "PJSIP"]?cf_pd_ret)
+same => n,Set(PJSIP_HEADER(add,X-Call-Flip)=1)
+same => n,GotoIf($["${ARG1}" = ""]?cf_pd_ret)
+same => n,Set(PJSIP_HEADER(add,X-Call-Flip-Exclude)=${ARG1})
+same => n(cf_pd_ret),Return()
+
+[call_flip_ring_out]
+; Kullanıcının diğer TÜM cihazlarını eşzamanlı çaldırır; ilk açan çağrıyı alır, diğerleri otomatik susar
+exten => _[0-9a-zA-Z_-].,1,NoOp(Cihaz Degistir Eszamanli Caldirma Basladi: Token=${EXTEN})
+same => n,Set(CURLOPT(conntimeout)=1)
+same => n,Set(CURLOPT(httptimeout)=3)
+same => n,Set(CF_RING_RES=${CURL(http://127.0.0.1:8000/api/calls/call-flip/session-ring?token=${URIENCODE(${EXTEN})})})
+same => n,Set(CF_EP_LIST=${CUT(CF_RING_RES,|,1)})
+same => n,Set(CF_EXCL_CLIENT=${CUT(CF_RING_RES,|,2)})
+same => n,GotoIf($["${CF_EP_LIST}" = "" | "${CF_EP_LIST}" = "NONE"]?cf_ring_none)
+same => n,Gosub(build_multi_pjsip_dial_sub,s,1(${CF_EP_LIST}))
+same => n,GotoIf($["${MULTI_DIAL_STR}" = "" | "${MULTI_DIAL_STR}" = "PJSIP/"]?cf_ring_none)
+same => n,Set(CF_FINAL_DIAL=${MULTI_DIAL_STR})
+same => n,GotoIf($["${CF_EXCL_CLIENT}" = ""]?cf_do_dial)
+same => n,Set(CF_FILTERED=${CURL(http://127.0.0.1:8000/api/calls/call-flip/filter-dial?token=${URIENCODE(${EXTEN})}&raw=${URIENCODE(${MULTI_DIAL_STR})})})
+same => n,GotoIf($["${CF_FILTERED}" = "" | "${CF_FILTERED}" = "NONE"]?cf_ring_none)
+same => n,Set(CF_FINAL_DIAL=${CF_FILTERED})
+same => n(cf_do_dial),NoOp(Cihaz Degistir Caldiriliyor: ${CF_FINAL_DIAL} | Exclude=${CF_EXCL_CLIENT})
+same => n,Dial(${CF_FINAL_DIAL},25,tTb(call_flip_pre_dial^s^1(${CF_EXCL_CLIENT}))U(call_flip_answered_sub^${EXTEN}))
+same => n,Hangup()
+same => n(cf_ring_none),NoOp(Cihaz Degistir: Caldirilacak baska cevrimici cihaz bulunamadi)
+same => n,Hangup(20)
+
+[call_flip_answered_sub]
+; İlk cevaplayan cihaz kanalı üzerinde çalışır: CDR kilidi, ConnectedLine ve MixMonitor devamlılığını sağlar
+exten => s,1,Set(CURLOPT(conntimeout)=1)
+same => n,Set(CURLOPT(httptimeout)=3)
+same => n,Set(CF_ANS=${CURL(http://127.0.0.1:8000/api/calls/call-flip/mark-answered?token=${URIENCODE(${ARG1})}&answered_channel=${URIENCODE(${CHANNEL(name)})})})
+same => n,Set(CF_A_UUID=${CUT(CF_ANS,|,1)})
+same => n,Set(CF_A_NUM=${CUT(CF_ANS,|,2)})
+same => n,Set(CF_A_NAME=${CUT(CF_ANS,|,3)})
+same => n,Set(CF_A_OUT=${CUT(CF_ANS,|,4)})
+same => n,Set(__DYNAMIC_FEATURES=rec_pause_toggle#call_flip_trigger)
+same => n,GotoIf($["${CF_A_UUID}" = ""]?cf_a_cid)
+same => n,Set(__CALL_UUID=${CF_A_UUID})
+same => n(cf_a_cid),GotoIf($["${CF_A_NUM}" = ""]?cf_a_rec)
+same => n,Set(CONNECTEDLINE(num,i)=${CF_A_NUM})
+same => n,Set(CONNECTEDLINE(name,i)=${CF_A_NAME})
+same => n(cf_a_rec),GotoIf($["${CF_A_OUT}" != "1" | "${CF_A_UUID}" = ""]?cf_a_ret)
+same => n,MixMonitor(/var/spool/asterisk/monitor/${CF_A_UUID}.wav,abr(/var/spool/asterisk/monitor/${CF_A_UUID}_rx.wav)t(/var/spool/asterisk/monitor/${CF_A_UUID}_tx.wav))
+same => n(cf_a_ret),Return()
+
+[call_flip_bridge_dest]
+; Cevaplanan yeni cihazı mevcut aktif karşı taraf (peer) kanalıyla kesintisiz köprüler
+exten => _[0-9a-zA-Z_-].,1,NoOp(Cihaz Degistir Kopruleme Basliyor: Token=${EXTEN})
+same => n,Set(CURLOPT(conntimeout)=1)
+same => n,Set(CURLOPT(httptimeout)=3)
+same => n,Set(CF_BR=${CURL(http://127.0.0.1:8000/api/calls/call-flip/session-bridge?token=${URIENCODE(${EXTEN})})})
+same => n,Set(CF_B_ST=${CUT(CF_BR,|,1)})
+same => n,GotoIf($["${CF_B_ST}" != "ALLOW"]?cf_b_fail)
+same => n,Set(CF_B_PEER=${CUT(CF_BR,|,2)})
+same => n,Set(__CALL_UUID=${CUT(CF_BR,|,3)})
+same => n,Set(CF_B_ANS_CH=${CUT(CF_BR,|,4)})
+same => n,Set(__DYNAMIC_FEATURES=rec_pause_toggle#call_flip_trigger)
+same => n,Playback(beep)
+same => n,Bridge(${CF_B_PEER},kKtT)
+same => n,Hangup()
+same => n(cf_b_fail),Playback(beeperr)
+same => n,Hangup()
+
+exten => h,1,NoOp(Cihaz Degistir Koprusu Sonlandi: CallID=${CALL_UUID}, AnsweredChan=${CF_B_ANS_CH})
+same => n,StopMixMonitor()
+same => n,GotoIf($["${CALL_UUID}" = ""]?cf_h_done)
+same => n,Set(CURLOPT(conntimeout)=1)
+same => n,Set(CURLOPT(httptimeout)=2)
+same => n,Set(CURL_CF_H=${CURL(http://127.0.0.1:8000/api/calls/end?call_id=${CALL_UUID}&dialstatus=ANSWER&hangupcause=${HANGUPCAUSE}&hangupsource=${URIENCODE(${CHANNEL(hangupsource)})}&answeredtime=${ANSWEREDTIME}&dialedtime=${DIALEDTIME}&channel=${URIENCODE(${CF_B_ANS_CH})}&peer_channel=${URIENCODE(${CF_B_PEER})})})
+same => n(cf_h_done),NoOp(Cihaz Degistir Hangup Tamamlandi)
+
 [conference_bridge_sub]
 ; ARG1 = room_number, ARG2 = rec_enabled (0/1), ARG3 = pin
 exten => s,1,Set(CONF_ROOM=${ARG1})
@@ -2685,7 +2801,7 @@ sound_has_left=beeperr
 ; Asterisk Call Features & KVKK Recording Masking
 ; ==========================================
 [general]
-featuredigittimeout = 1000
+featuredigittimeout = 1500
 transferdigittimeout = 3
 
 [featuremap]
@@ -2694,6 +2810,7 @@ atxfer => *2
 
 [applicationmap]
 rec_pause_toggle => {rec_pause_code},self/both,Gosub(rec_pause_sub,s,1)
+call_flip_trigger => {call_flip_code},self/both,Gosub(call_flip_trigger_sub,s,1)
 """
 
     # Copy Turkish announcement WAV files to /var/spool/asterisk/monitor/ and sync Asterisk MOH

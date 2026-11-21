@@ -34,7 +34,8 @@ const DEFAULT_FEATURE_CODES = {
   profile_switch: "*70",
   boss_secretary_toggle: "*74",
   hotdesk_login: "*75",
-  hotdesk_logout: "*76"
+  hotdesk_logout: "*76",
+  call_flip: "*11"
 };
 
 export default function NumberingPlanPanel({ backendHost = "localhost:8000" }) {
@@ -133,7 +134,11 @@ export default function NumberingPlanPanel({ backendHost = "localhost:8000" }) {
               hotdesk_logout:
                 data.pbx_features?.hotdesk_logout ||
                 data.feature_codes?.hotdesk_logout ||
-                DEFAULT_FEATURE_CODES.hotdesk_logout
+                DEFAULT_FEATURE_CODES.hotdesk_logout,
+              call_flip:
+                data.pbx_features?.call_flip ||
+                data.feature_codes?.call_flip ||
+                DEFAULT_FEATURE_CODES.call_flip
             }
           }));
         }
@@ -268,7 +273,8 @@ export default function NumberingPlanPanel({ backendHost = "localhost:8000" }) {
       !fc.profile_switch?.trim() ||
       !fc.boss_secretary_toggle?.trim() ||
       !fc.hotdesk_login?.trim() ||
-      !fc.hotdesk_logout?.trim()
+      !fc.hotdesk_logout?.trim() ||
+      !fc.call_flip?.trim()
     ) {
       return "Kurumsal santral özellik (tuşlama) kodları boş bırakılamaz!";
     }
@@ -408,6 +414,13 @@ export default function NumberingPlanPanel({ backendHost = "localhost:8000" }) {
       placeholder: "*76",
       desc: "Oturum açılmış masa telefonundan bu kod tuşlandığında Hot-Desk eşleşmesi sonlandırılır ve telefon varsayılan haline döner.",
       example: plan.pbx_features?.hotdesk_logout || "*76"
+    },
+    {
+      field: "call_flip",
+      label: "Cihaz Değiştir / Çağrı Devralma (Call Flip)",
+      placeholder: "*11",
+      desc: "Aktif görüşme sırasında masa telefonundan tuşlandığında kullanıcının diğer tüm cihazlarını çaldırır; hangisi açılırsa görüşme kesintisiz o cihaza geçer ve diğerleri susar. Boştaki masa telefonundan tuşlanırsa aktif görüşmeyi doğrudan o cihaza çeker.",
+      example: plan.pbx_features?.call_flip || "*11"
     }
   ];
 

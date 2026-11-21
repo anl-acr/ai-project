@@ -71,6 +71,7 @@ export default function AgentWebphoneTab({
   const canLiveTranslate = Boolean(callPanelPerms.canLiveTranslate || callPanelPerms.canViewTranscripts !== false);
   const canVoiceInterpret = Boolean(callPanelPerms.canVoiceInterpret);
   const canPauseRecording = Boolean(callPanelPerms.canPauseRecording);
+  const canCallFlip = callPanelPerms.canCallFlip !== false;
   const canAiNoteAssistant = callPanelPerms.canAiNoteAssistant !== false;
   const hasAnyTranslatorPerm = canLiveTranslate || canVoiceInterpret;
   const maskPhoneNumbers = Boolean(callPanelPerms.maskPhoneNumbers);
@@ -86,6 +87,11 @@ export default function AgentWebphoneTab({
   const [isNewCallOpen, setIsNewCallOpen] = useState(false);
   const [isRecordingPaused, setIsRecordingPaused] = useState(false);
   const [recordingPauseBusy, setRecordingPauseBusy] = useState(false);
+  // Yeastar-style Call Flip states (in-call ring all other devices + idle direct pull banner)
+  const [callFlipBusy, setCallFlipBusy] = useState(false);
+  const [callFlipNotice, setCallFlipNotice] = useState(null); // { ok: boolean, text: string } | null
+  const [otherDeviceCall, setOtherDeviceCall] = useState(null);
+  const callFlipTimerRef = useRef(null);
 
   // Contacts, Directory & Recent Calls State
   const [contacts, setContacts] = useState([]);
@@ -711,6 +717,72 @@ export default function AgentWebphoneTab({
     webphoneManager.toggleHold();
   };
 
+  // Clear call flip status banner whenever call ends or transitions back to Idle
+  useEffect(() => {
+    if (callStatus !== "InCall") {
+      setCallFlipBusy(false);
+      setCallFlipNotice(null);
+      if (callFlipTimerRef.current) {
+        clearTimeout(callFlipTimerRef.current);
+        callFlipTimerRef.current = null;
+      }
+    }
+  }, [callStatus]);
+
+  // Poll lightweight active-call status on OTHER devices while THIS client is Idle
+  useEffect(() => {
+    if (!canCallFlip || callStatus !== "Idle" || !isWebphoneScreenActive) {
+      setOtherDeviceCall(null);
+      return;
+    }
+    let cancelled = false;
+    const pollOtherDevice = async () => {
+      try {
+        const proto = window.location.protocol;
+        const userId = currentUser?.id || myExt;
+        const res = await fetch(`${proto}//${backendHost}/api/calls/my-active-flip-status`, {
+          headers: { "X-User-ID": String(userId) }
+        });
+        if (!res.ok || cancelled) return;
+        const data = await res.json();
+        if (!cancelled) {
+          if (data && data.has_active_call && data.allowed !== false) {
+            setOtherDeviceCall(data);
+          } else {
+            setOtherDeviceCall(null);
+          }
+        }
+      } catch (e) {}
+    };
+    pollOtherDevice();
+    const timer = setInterval(pollOtherDevice, 4000);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  }, [canCallFlip, callStatus, isWebphoneScreenActive, backendHost, currentUser?.id, myExt]);
+
+  const handleTriggerCallFlip = async () => {
+    if (!canCallFlip || callStatus !== "InCall" || callFlipBusy) return;
+    setCallFlipBusy(true);
+    setCallFlipNotice(null);
+    const res = await webphoneManager.triggerCallFlip(activeCallId || "");
+    setCallFlipBusy(false);
+    setCallFlipNotice({
+      ok: Boolean(res?.ok),
+      text: res?.message || (res?.ok ? "Diğer cihazlarınız çalıyor..." : "Cihaz değiştirme başlatılamadı.")
+    });
+    if (callFlipTimerRef.current) clearTimeout(callFlipTimerRef.current);
+    callFlipTimerRef.current = setTimeout(() => {
+      setCallFlipNotice(null);
+    }, res?.ok ? 25000 : 5000);
+  };
+
+  const handlePullCallToThisDevice = async () => {
+    if (!canCallFlip || callStatus !== "Idle") return;
+    await webphoneManager.pullCallFlip();
+  };
+
   const handleFinishAcwWrapUp = () => {
     stopNoteDictation();
     setAcwWrapUp((prev) => ({ ...prev, active: false, remaining: 0 }));
@@ -1066,6 +1138,45 @@ export default function AgentWebphoneTab({
 
         {/* Right Column: Active Call Workspace OR Idle Quick-Access Workspace */}
         <div className="lg:col-span-8 xl:col-span-8 h-full flex flex-col gap-4 overflow-hidden">
+          {/* Active Call On Another Device Banner — 1-Click Direct Pull */}
+          {canCallFlip && callStatus === "Idle" && otherDeviceCall?.has_active_call && (
+            <div
+              className={`shrink-0 p-3.5 rounded-2xl border ${borderLight} ${lightBg} shadow-sm flex flex-wrap items-center justify-between gap-3`}
+            >
+              <div className="flex items-center gap-3 min-w-0">
+                <div className={`h-9 w-9 rounded-xl ${bg} text-white flex items-center justify-center shrink-0`}>
+                  <ArrowLeftRight size={17} className="animate-pulse" />
+                </div>
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className={`text-[10px] font-black uppercase tracking-wide ${text}`}>
+                      Başka Cihazınızda Aktif Görüşme Var
+                    </span>
+                    {otherDeviceCall.device_label && (
+                      <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-white/80 dark:bg-slate-900/70 text-slate-700 dark:text-slate-200 border border-slate-200/70 dark:border-slate-700">
+                        {otherDeviceCall.device_label}
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-xs font-bold text-slate-700 dark:text-slate-200 truncate mt-0.5">
+                    {otherDeviceCall.peer_name
+                      ? `${otherDeviceCall.peer_name} (${maskPhoneLast4(otherDeviceCall.peer_number || "", maskPhoneNumbers)})`
+                      : maskPhoneLast4(otherDeviceCall.peer_number || "Aktif Çağrı", maskPhoneNumbers)}
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={handlePullCallToThisDevice}
+                className={`px-3.5 py-2 rounded-xl ${bg} ${hover} text-white font-extrabold text-xs flex items-center gap-1.5 shrink-0 shadow-sm transition-all active:scale-95`}
+                title={`Görüşmeyi kesintisiz bu cihaza al (${otherDeviceCall.call_flip_code || "*11"})`}
+              >
+                <ArrowLeftRight size={14} />
+                Bu Cihaza Al
+              </button>
+            </div>
+          )}
+
           {/* Group Ringing Visual Alert Banner */}
           {Array.isArray(wpState.groupRingingCalls) && wpState.groupRingingCalls.length > 0 && (
             <div className="shrink-0 space-y-2">
@@ -1770,6 +1881,28 @@ export default function AgentWebphoneTab({
                             Kuyruk: {queueName}
                           </span>
                         )}
+                        {callStatus === "Ringing" &&
+                          (activeLine?.isCallFlipRing ||
+                            String(remoteDisplayName || "").toLowerCase().startsWith("cihaz degistir:")) && (
+                            <span
+                              className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-extrabold border ${lightBg} ${text} ${borderLight} animate-pulse`}
+                            >
+                              <ArrowLeftRight size={11} />
+                              Cihaz Değiştir
+                            </span>
+                          )}
+                        {callStatus === "InCall" && callFlipNotice && (
+                          <span
+                            className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-extrabold border ${
+                              callFlipNotice.ok
+                                ? `${lightBg} ${text} ${borderLight} animate-pulse`
+                                : "bg-rose-50 text-rose-600 border-rose-200 dark:bg-rose-950/50 dark:text-rose-300 dark:border-rose-800"
+                            }`}
+                          >
+                            <ArrowLeftRight size={11} />
+                            {callFlipNotice.text}
+                          </span>
+                        )}
                         {callStatus === "InCall" && isRecordingPaused && (
                           <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-extrabold bg-amber-100 text-amber-700 border border-amber-300 dark:bg-amber-500/20 dark:text-amber-300 dark:border-amber-500/40 animate-pulse">
                             <ShieldAlert size={12} />
@@ -1924,6 +2057,24 @@ export default function AgentWebphoneTab({
                             }`}
                           >
                             {isRecordingPaused ? <ShieldAlert size={18} /> : <ShieldCheck size={18} />}
+                          </button>
+                        )}
+
+                        {/* Yeastar-style Call Flip Button: Rings ALL OTHER registered devices of this user */}
+                        {callStatus === "InCall" && canCallFlip && (
+                          <button
+                            type="button"
+                            onClick={handleTriggerCallFlip}
+                            disabled={callFlipBusy}
+                            title={`Cihaz Değiştir (${wpState.webrtcConfig?.callFlipCode || "*11"}): Diğer tüm cihazlarınızı çaldırır; hangisinden açarsanız görüşme oraya geçer`}
+                            className={`h-11 px-3 rounded-2xl border flex items-center justify-center gap-1.5 text-xs font-extrabold transition-all disabled:opacity-50 ${
+                              callFlipNotice?.ok
+                                ? `${bg} text-white border-transparent shadow-sm animate-pulse`
+                                : `${lightBg} ${text} ${borderLight} hover:opacity-90`
+                            }`}
+                          >
+                            {callFlipBusy ? <Loader2 size={16} className="animate-spin" /> : <ArrowLeftRight size={16} />}
+                            <span className="hidden sm:inline">Cihaz Değiştir</span>
                           </button>
                         )}
 

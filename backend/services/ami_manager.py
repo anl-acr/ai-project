@@ -21,6 +21,14 @@ first_hangup_by_id = {}
 answered_at_by_id = {}
 # Registry of active asyncio.Queue waiters for live CallFlow Menu DTMF digits keyed by call_id
 dtmf_waiters = {}
+# Live Asterisk Bridge tracking for Call Flip (bridge_uniqueid -> set(channel_name))
+bridge_channels = {}
+channel_to_bridge = {}
+# Active Yeastar-style Call Flip sessions keyed by flip_token
+call_flip_sessions = {}
+# CDR protection lock so hanging up OLD_CHAN during Call Flip does NOT prematurely finalize Call in DB
+# Maps call_id -> {"old_channels": set[str], "new_channel": str, "peer_channel": str, "ts": float}
+call_flip_protected_calls = {}
 
 
 def register_dtmf_waiter(call_id: str) -> asyncio.Queue:
@@ -660,7 +668,16 @@ def register_event_handlers(manager: Manager):
     @manager.register_event('BridgeEnter')
     def handle_bridge_enter(m, event):
         ch_s = str(event.get('Channel') or "").strip()
+        b_id = str(event.get('BridgeUniqueid') or "").strip()
         b_type = str(event.get('BridgeType') or "").strip().lower()
+        if ch_s and b_id:
+            prev_bid = channel_to_bridge.get(ch_s)
+            if prev_bid and prev_bid != b_id and prev_bid in bridge_channels:
+                bridge_channels[prev_bid].discard(ch_s)
+                if not bridge_channels[prev_bid]:
+                    bridge_channels.pop(prev_bid, None)
+            bridge_channels.setdefault(b_id, set()).add(ch_s)
+            channel_to_bridge[ch_s] = b_id
         try:
             num_ch = int(event.get('BridgeNumChannels') or 0)
         except Exception:
@@ -670,6 +687,19 @@ def register_event_handlers(manager: Manager):
                 uniqueid=event.get('Uniqueid'),
                 linkedid=event.get('Linkedid')
             )
+
+    @manager.register_event('BridgeLeave')
+    def handle_bridge_leave(m, event):
+        ch_s = str(event.get('Channel') or "").strip()
+        b_id = str(event.get('BridgeUniqueid') or "").strip()
+        if ch_s:
+            mapped_bid = b_id or channel_to_bridge.get(ch_s) or ""
+            if mapped_bid and mapped_bid in bridge_channels:
+                bridge_channels[mapped_bid].discard(ch_s)
+                if not bridge_channels[mapped_bid]:
+                    bridge_channels.pop(mapped_bid, None)
+            if channel_to_bridge.get(ch_s) == mapped_bid:
+                channel_to_bridge.pop(ch_s, None)
 
     @manager.register_event('Newstate')
     def handle_new_state(m, event):
@@ -725,6 +755,12 @@ def register_event_handlers(manager: Manager):
         linkedid = event.get('Linkedid')
         old_info = channel_states.pop(uniqueid, None) or {}
         old_ch = active_channels.pop(uniqueid, None) or old_info.get("channel") or event.get('Channel') or ""
+        if old_ch:
+            old_bid = channel_to_bridge.pop(old_ch, None)
+            if old_bid and old_bid in bridge_channels:
+                bridge_channels[old_bid].discard(old_ch)
+                if not bridge_channels[old_bid]:
+                    bridge_channels.pop(old_bid, None)
         _record_first_hangup(
             uniqueid=uniqueid,
             linkedid=linkedid,
@@ -2335,6 +2371,367 @@ async def _run_asterisk_watchdog_sweep(manager) -> None:
             pass
     except Exception as e:
         print(f"[AMI Watchdog Sweep Warning]: {e}")
+
+
+def register_call_flip_protection(call_id: str, old_channel: str = "", new_channel: str = "", peer_channel: str = ""):
+    import time as _t
+    cid = str(call_id or "").strip()
+    if not cid:
+        return
+    now = _t.time()
+    # Prune old entries (> 6 hours)
+    for k in list(call_flip_protected_calls.keys()):
+        if now - float(call_flip_protected_calls[k].get("ts") or 0) > 21600:
+            call_flip_protected_calls.pop(k, None)
+    entry = call_flip_protected_calls.get(cid) or {
+        "old_channels": set(),
+        "new_channel": "",
+        "peer_channel": "",
+        "ts": now,
+    }
+    if old_channel:
+        entry["old_channels"].add(str(old_channel).strip().lower())
+    prev_new = str(entry.get("new_channel") or "").strip()
+    if prev_new and new_channel and prev_new.lower() != str(new_channel).strip().lower():
+        entry["old_channels"].add(prev_new.lower())
+    if new_channel:
+        entry["new_channel"] = str(new_channel).strip()
+    if peer_channel:
+        entry["peer_channel"] = str(peer_channel).strip()
+    entry["ts"] = now
+    call_flip_protected_calls[cid] = entry
+
+
+def is_call_flip_protected_hangup(call_id: str, channel: str = "") -> bool:
+    """
+    Returns True when /api/calls/end is triggered by the OLD channel hanging up
+    during a Yeastar-style Call Flip or direct Call Pull so we do NOT close CDR prematurely.
+    """
+    import time as _t
+    cid = str(call_id or "").strip()
+    if not cid or cid not in call_flip_protected_calls:
+        return False
+    entry = call_flip_protected_calls.get(cid) or {}
+    ch_low = str(channel or "").strip().lower()
+    old_set = entry.get("old_channels") or set()
+    new_ch = str(entry.get("new_channel") or "").strip().lower()
+    age = _t.time() - float(entry.get("ts") or 0)
+
+    # Exact match on an old channel that was flipped away from
+    if ch_low and ch_low in old_set and ch_low != new_ch:
+        # Only protect if flip happened recently or new_channel/peer_channel is still live
+        live_lower = {str(v or "").strip().lower() for v in active_channels.values()}
+        peer_ch = str(entry.get("peer_channel") or "").strip().lower()
+        if age <= 20.0 or (new_ch and new_ch in live_lower) or (peer_ch and peer_ch in live_lower):
+            return True
+    # Protect Local/ helper leg from previous flip or queue leg
+    if ch_low.startswith("local/") and ch_low != new_ch and age <= 20.0:
+        return True
+    # If channel was omitted in /api/calls/end right during the flip window (< 6s) and peer is still up
+    if not ch_low and age <= 6.0:
+        live_lower = {str(v or "").strip().lower() for v in active_channels.values()}
+        peer_ch = str(entry.get("peer_channel") or "").strip().lower()
+        if peer_ch and peer_ch in live_lower:
+            return True
+    return False
+
+
+async def ami_get_channel_var(channel: str, var_name: str, mgr=None) -> str:
+    ch = str(channel or "").strip()
+    vn = str(var_name or "").strip()
+    if not ch or not vn:
+        return ""
+    manager = mgr or await get_ami_manager()
+    if not manager:
+        return ""
+    try:
+        res = await asyncio.wait_for(
+            manager.send_action({"Action": "Getvar", "Channel": ch, "Variable": vn}, as_list=False),
+            timeout=1.5,
+        )
+        items = res if isinstance(res, list) else ([res] if res else [])
+        for it in items:
+            if not it:
+                continue
+            val = it.get("Value") if hasattr(it, "get") else getattr(it, "Value", None)
+            if val is not None:
+                val_s = str(val).strip()
+                if val_s and val_s.lower() != "(null)":
+                    return val_s
+    except Exception:
+        pass
+    return ""
+
+
+async def _fetch_live_core_channels(mgr=None) -> list:
+    manager = mgr or await get_ami_manager()
+    if not manager:
+        return []
+    try:
+        res = await asyncio.wait_for(manager.send_action({"Action": "CoreShowChannels"}), timeout=3.0)
+        items = res if isinstance(res, list) else ([res] if res else [])
+        out = []
+        for it in items:
+            if not it or not hasattr(it, "get"):
+                continue
+            ch = str(it.get("Channel") or "").strip()
+            if not ch:
+                continue
+            out.append({
+                "channel": ch,
+                "uniqueid": str(it.get("Uniqueid") or "").strip(),
+                "linkedid": str(it.get("Linkedid") or "").strip(),
+                "bridge_id": str(it.get("BridgeId") or "").strip(),
+                "state": str(it.get("ChannelState") or "").strip(),
+                "state_desc": str(it.get("ChannelStateDesc") or "").strip(),
+                "caller_num": str(it.get("CallerIDNum") or "").strip(),
+                "caller_name": str(it.get("CallerIDName") or "").strip(),
+                "connected_num": str(it.get("ConnectedLineNum") or "").strip(),
+                "connected_name": str(it.get("ConnectedLineName") or "").strip(),
+                "context": str(it.get("Context") or "").strip(),
+                "exten": str(it.get("Exten") or "").strip(),
+                "application": str(it.get("Application") or "").strip(),
+                "duration": str(it.get("Duration") or "").strip(),
+            })
+        return out
+    except Exception as e:
+        print(f"[CallFlip CoreShowChannels Error]: {e}")
+        return []
+
+
+async def resolve_call_flip_context(
+    ext: str,
+    source_channel: str = "",
+    known_peer_channel: str = "",
+    exclude_channel: str = "",
+) -> dict:
+    """
+    Resolves the exact active call context for a subscriber extension (ext) for Yeastar-style
+    Call Flip (ringing all other devices) or direct Call Pull (*11 from idle device).
+    Unwraps Local/ proxy legs (e.g. Queue or previous Call Flip legs) to reach the real peer channel.
+    """
+    ext_s = str(ext or "").strip()
+    src_in = str(source_channel or "").strip()
+    excl_low = str(exclude_channel or "").strip().lower()
+    mgr = await get_ami_manager()
+    live_rows = await _fetch_live_core_channels(mgr)
+    by_chan = {r["channel"]: r for r in live_rows}
+    by_chan_low = {r["channel"].lower(): r for r in live_rows}
+    by_bridge = {}
+    for r in live_rows:
+        bid = r.get("bridge_id") or channel_to_bridge.get(r["channel"]) or ""
+        if bid:
+            by_bridge.setdefault(bid, []).append(r["channel"])
+
+    # 1. Determine the user's currently active source_channel
+    src_row = None
+    if src_in:
+        src_row = by_chan.get(src_in) or by_chan_low.get(src_in.lower())
+    if not src_row and ext_s:
+        prefixes = _get_ext_channel_prefixes(ext_s)
+        candidates = []
+        for r in live_rows:
+            ch_l = r["channel"].lower()
+            if excl_low and ch_l == excl_low:
+                continue
+            if ch_l.startswith("local/"):
+                continue
+            if any(ch_l.startswith(pfx) for pfx in prefixes):
+                is_up = (r["state"] == "6" or r["state_desc"].lower() == "up")
+                has_bridge = bool(r.get("bridge_id") or channel_to_bridge.get(r["channel"]))
+                if is_up or has_bridge:
+                    candidates.append((1 if has_bridge else 0, 1 if is_up else 0, r))
+        if candidates:
+            candidates.sort(key=lambda x: (x[0], x[1]), reverse=True)
+            src_row = candidates[0][2]
+
+    if not src_row:
+        return {}
+
+    src_ch = src_row["channel"]
+    visited = {src_ch.lower()}
+    all_old_legs = [src_ch]
+
+    # 2. Resolve direct bridge peer
+    peer_ch = str(known_peer_channel or "").strip()
+    if peer_ch and peer_ch.lower() not in by_chan_low:
+        peer_ch = ""
+    if not peer_ch:
+        peer_ch = await ami_get_channel_var(src_ch, "BRIDGEPEER", mgr=mgr)
+    if not peer_ch:
+        bid = src_row.get("bridge_id") or channel_to_bridge.get(src_ch) or ""
+        if bid:
+            for member_ch in (by_bridge.get(bid) or list(bridge_channels.get(bid) or [])):
+                if member_ch.lower() != src_ch.lower():
+                    peer_ch = member_ch
+                    break
+
+    if not peer_ch:
+        return {}
+
+    # 3. Unwrap Local/ proxy hops (Queue [queue_agent_ring] or chained [call_flip_ring_out] legs)
+    hop = 0
+    while peer_ch and peer_ch.lower().startswith("local/") and hop < 4:
+        hop += 1
+        visited.add(peer_ch.lower())
+        all_old_legs.append(peer_ch)
+        if peer_ch.endswith(";2"):
+            sibling = peer_ch[:-2] + ";1"
+        elif peer_ch.endswith(";1"):
+            sibling = peer_ch[:-2] + ";2"
+        else:
+            break
+        visited.add(sibling.lower())
+        all_old_legs.append(sibling)
+        next_peer = await ami_get_channel_var(sibling, "BRIDGEPEER", mgr=mgr)
+        if not next_peer:
+            sib_row = by_chan.get(sibling) or by_chan_low.get(sibling.lower())
+            sib_bid = (sib_row.get("bridge_id") if sib_row else "") or channel_to_bridge.get(sibling) or ""
+            if sib_bid:
+                for m_ch in (by_bridge.get(sib_bid) or list(bridge_channels.get(sib_bid) or [])):
+                    if m_ch.lower() not in visited:
+                        next_peer = m_ch
+                        break
+        if next_peer and next_peer.lower() not in visited:
+            peer_ch = next_peer
+        else:
+            break
+
+    if not peer_ch or peer_ch.lower() == src_ch.lower():
+        return {}
+
+    peer_row = by_chan.get(peer_ch) or by_chan_low.get(peer_ch.lower()) or {}
+
+    # 4. Resolve original CALL_UUID across peer_ch, old Local legs, and src_ch
+    peer_uuid = await ami_get_channel_var(peer_ch, "CALL_UUID", mgr=mgr)
+    src_uuid = await ami_get_channel_var(src_ch, "CALL_UUID", mgr=mgr)
+    orig_call_uuid = peer_uuid or src_uuid
+    if not orig_call_uuid:
+        for leg in all_old_legs:
+            leg_u = await ami_get_channel_var(leg, "CALL_UUID", mgr=mgr)
+            if leg_u:
+                orig_call_uuid = leg_u
+                break
+    if not orig_call_uuid:
+        # Reverse lookup in call_id_to_asterisk_id via uniqueid / linkedid
+        target_ids = {
+            str(src_row.get("uniqueid") or ""),
+            str(src_row.get("linkedid") or ""),
+            str(peer_row.get("uniqueid") or ""),
+            str(peer_row.get("linkedid") or ""),
+        }
+        target_ids.discard("")
+        for cid_k, aid_v in list(call_id_to_asterisk_id.items()):
+            if str(aid_v or "") in target_ids:
+                orig_call_uuid = str(cid_k)
+                break
+
+    # 5. Determine whether this was an outbound call (MixMonitor attached to src_ch rather than peer_ch)
+    is_outbound = False
+    if src_uuid and not peer_uuid:
+        is_outbound = True
+    elif str(src_row.get("context") or "").lower() == "webrtc_agents" and str(peer_row.get("context") or "").lower() not in ("default", "queue_router_sub", "from-trunk"):
+        is_outbound = True
+
+    # 6. Resolve remote party display number & name (avoid returning the user's own extension)
+    peer_num = ""
+    peer_name = ""
+    for cand_num, cand_name in [
+        (src_row.get("connected_num"), src_row.get("connected_name")),
+        (peer_row.get("caller_num"), peer_row.get("caller_name")),
+        (peer_row.get("connected_num"), peer_row.get("connected_name")),
+        (src_row.get("exten"), ""),
+    ]:
+        cn = str(cand_num or "").strip()
+        if cn and cn != ext_s and not cn.startswith("*") and cn.lower() not in ("s", "ring"):
+            peer_num = cn
+            peer_name = str(cand_name or "").strip()
+            break
+    if not peer_num:
+        peer_num = str(peer_row.get("caller_num") or src_row.get("connected_num") or "Bilinmeyen").strip()
+    if not peer_name or peer_name == peer_num:
+        peer_name = peer_num
+
+    return {
+        "extension": ext_s,
+        "source_channel": src_ch,
+        "old_channels": all_old_legs,
+        "peer_channel": peer_ch,
+        "call_id": orig_call_uuid,
+        "peer_num": peer_num,
+        "peer_name": peer_name,
+        "is_outbound": is_outbound,
+        "duration": str(src_row.get("duration") or peer_row.get("duration") or ""),
+    }
+
+
+async def initiate_yeastar_call_flip(flip_token: str, peer_num: str, peer_name: str) -> bool:
+    """
+    Originates a simultaneous ring to all OTHER devices of the subscriber via
+    Local/{flip_token}@call_flip_ring_out/n -> call_flip_bridge_dest,{flip_token},1.
+    Whichever device answers first cancels all others and seamlessly bridges to the active peer channel.
+    """
+    import time as _t
+    import re as _re
+    tok = _re.sub(r"[^0-9a-zA-Z_-]", "", str(flip_token or "").strip())
+    if not tok:
+        return False
+    safe_num = _re.sub(r"[^0-9a-zA-Z+*#_-]", "", str(peer_num or "").strip()) or "0"
+    safe_name = _re.sub(r'["<>\\r\\n]', "", str(peer_name or safe_num).strip())[:40] or safe_num
+    caller_id_str = f'"Cihaz Degistir: {safe_name}" <{safe_num}>'
+
+    mgr = await get_ami_manager()
+    originated = False
+    if mgr:
+        try:
+            res = await asyncio.wait_for(
+                mgr.send_action(
+                    {
+                        "Action": "Originate",
+                        "ActionID": f"cflip-{tok}-{int(_t.time() * 1000)}",
+                        "Channel": f"Local/{tok}@call_flip_ring_out/n",
+                        "Context": "call_flip_bridge_dest",
+                        "Exten": tok,
+                        "Priority": "1",
+                        "CallerID": caller_id_str,
+                        "Timeout": "25000",
+                        "Async": "true",
+                    },
+                    as_list=False,
+                ),
+                timeout=2.5,
+            )
+            items = res if isinstance(res, list) else ([res] if res else [])
+            for it in items:
+                if not it:
+                    continue
+                r_st = str(getattr(it, "response", "") or (it.get("Response") if hasattr(it, "get") else "") or "").strip().lower()
+                r_msg = str((it.get("Message") if hasattr(it, "get") else "") or "").strip().lower()
+                if r_st == "success" or "successfully queued" in r_msg:
+                    originated = True
+                    break
+            if not originated:
+                print(f"[CallFlip AMI Originate Non-Success]: {res}")
+        except Exception as e:
+            print(f"[CallFlip AMI Originate Error]: {e}")
+
+    if not originated and os.path.exists("/etc/asterisk"):
+        try:
+            import subprocess
+            await asyncio.to_thread(
+                subprocess.run,
+                [
+                    "asterisk",
+                    "-rx",
+                    f"channel originate Local/{tok}@call_flip_ring_out/n extension {tok}@call_flip_bridge_dest",
+                ],
+                check=False,
+                timeout=2.5,
+            )
+            originated = True
+        except Exception as e_cli:
+            print(f"[CallFlip CLI Originate Fallback Error]: {e_cli}")
+    return originated
 
 
 # background task to keep AMI connected & run 60-second Fortress Watchdog
