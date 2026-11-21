@@ -41875,18 +41875,32 @@ async def get_system_version_info():
         pass
 
     return {
-        "version": "v3.7.2",
+        "version": "v3.7.3",
         "commit_hash": live_commit,
         "release_date": "21 Kasım 2026",
         "status": "Güncel / Canlı Sürüm",
         "environment": "Production (On-Premise)",
         "changelog": [
             {
-                "version": "v3.7.2",
+                "version": "v3.7.3",
                 "commit_hash": live_commit,
                 "release_date": "21 Kasım 2026",
                 "badge": "Canlı Sürüm (Güncel)",
                 "badge_type": "current",
+                "title": "KVKK & Gizlilik Onay Kutusu (Checkbox) Görünürlük Düzeltmesi",
+                "summary": "Cam/Açık arayüz şablonlarında bg-white kenarlık kuralı nedeniyle işaretlenmemişken görünmez kalan KVKK onay kutuları yüksek kontrastlı yerel checkbox bileşenine dönüştürüldü.",
+                "features": [],
+                "fixes": [
+                    "KVKK Aydınlatma & Gizlilik Onayı popup'ındaki iki onay kutusu ile Ayarlar ekranındaki 'Tekrar Onay İste' kutusunun işaretsiz durumu tüm tema ve arayüz şablonlarında (Cam / Açık / Koyu) net görülecek şekilde düzeltildi.",
+                    "Onay kartının herhangi bir yerine tıklandığında ilgili onay kutusu doğrudan işaretlenir/kaldırılır; altı çizili metin linkleri yalnızca ilgili doküman sekmesini açar."
+                ]
+            },
+            {
+                "version": "v3.7.2",
+                "commit_hash": "beaa17f",
+                "release_date": "21 Kasım 2026",
+                "badge": "Kararlı",
+                "badge_type": "stable",
                 "title": "Masa Telefonları İçin LAN/WAN Akıllı Oto-Provizyon, Otomatik Local IP & DHCP Option 66 Desteği",
                 "summary": "Santral ile aynı lokasyondaki (LAN) masa telefonlarının Nornia Connect tünelinden geçmeden doğrudan santralin yerel IP adresi üzerinden provizyon, SIP kaydı ve uzak rehber alabilmesi için LAN/WAN akıllı oto-provizyon motoru eklendi.",
                 "features": [

@@ -271,25 +271,38 @@ export default function KvkkConsentModal({
           )}
 
           <div className="space-y-2.5">
-            <label className="flex items-start gap-3 p-3 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700 transition-colors cursor-pointer select-none">
-              <button
-                type="button"
-                role="checkbox"
-                aria-checked={acceptedKvkk}
-                onClick={() => setAcceptedKvkk((v) => !v)}
-                className={`mt-0.5 w-5 h-5 rounded-md border flex items-center justify-center shrink-0 transition-all cursor-pointer ${
+            <label
+              className={`flex items-start gap-3 p-3.5 rounded-2xl border transition-all cursor-pointer select-none ${
+                acceptedKvkk
+                  ? `${lightBg} ${borderLight}`
+                  : "bg-slate-50/90 dark:bg-slate-900 border-slate-200 dark:border-slate-700 hover:border-slate-400 dark:hover:border-slate-500"
+              }`}
+            >
+              <input
+                type="checkbox"
+                checked={acceptedKvkk}
+                onChange={(e) => setAcceptedKvkk(e.target.checked)}
+                className="sr-only"
+              />
+              <span
+                aria-hidden="true"
+                style={
                   acceptedKvkk
-                    ? `${bg} ${border} text-white`
-                    : "bg-white dark:bg-slate-800 border-slate-300 dark:border-slate-600"
+                    ? { border: "2px solid transparent" }
+                    : { border: "2px solid #64748b", backgroundColor: "rgba(148, 163, 184, 0.12)" }
+                }
+                className={`mt-0.5 w-5 h-5 rounded-md flex items-center justify-center shrink-0 transition-all ${
+                  acceptedKvkk ? `${bg} text-white shadow-sm` : ""
                 }`}
               >
-                {acceptedKvkk && <Check size={13} strokeWidth={3} />}
-              </button>
+                {acceptedKvkk && <Check size={13} strokeWidth={3.2} />}
+              </span>
               <span className="text-xs text-slate-700 dark:text-slate-200 leading-relaxed">
                 <button
                   type="button"
                   onClick={(e) => {
                     e.preventDefault();
+                    e.stopPropagation();
                     setActiveDocTab("kvkk");
                   }}
                   className={`font-extrabold underline underline-offset-2 ${text} cursor-pointer`}
@@ -300,25 +313,38 @@ export default function KvkkConsentModal({
               </span>
             </label>
 
-            <label className="flex items-start gap-3 p-3 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700 transition-colors cursor-pointer select-none">
-              <button
-                type="button"
-                role="checkbox"
-                aria-checked={acceptedPrivacy}
-                onClick={() => setAcceptedPrivacy((v) => !v)}
-                className={`mt-0.5 w-5 h-5 rounded-md border flex items-center justify-center shrink-0 transition-all cursor-pointer ${
+            <label
+              className={`flex items-start gap-3 p-3.5 rounded-2xl border transition-all cursor-pointer select-none ${
+                acceptedPrivacy
+                  ? `${lightBg} ${borderLight}`
+                  : "bg-slate-50/90 dark:bg-slate-900 border-slate-200 dark:border-slate-700 hover:border-slate-400 dark:hover:border-slate-500"
+              }`}
+            >
+              <input
+                type="checkbox"
+                checked={acceptedPrivacy}
+                onChange={(e) => setAcceptedPrivacy(e.target.checked)}
+                className="sr-only"
+              />
+              <span
+                aria-hidden="true"
+                style={
                   acceptedPrivacy
-                    ? `${bg} ${border} text-white`
-                    : "bg-white dark:bg-slate-800 border-slate-300 dark:border-slate-600"
+                    ? { border: "2px solid transparent" }
+                    : { border: "2px solid #64748b", backgroundColor: "rgba(148, 163, 184, 0.12)" }
+                }
+                className={`mt-0.5 w-5 h-5 rounded-md flex items-center justify-center shrink-0 transition-all ${
+                  acceptedPrivacy ? `${bg} text-white shadow-sm` : ""
                 }`}
               >
-                {acceptedPrivacy && <Check size={13} strokeWidth={3} />}
-              </button>
+                {acceptedPrivacy && <Check size={13} strokeWidth={3.2} />}
+              </span>
               <span className="text-xs text-slate-700 dark:text-slate-200 leading-relaxed">
                 <button
                   type="button"
                   onClick={(e) => {
                     e.preventDefault();
+                    e.stopPropagation();
                     setActiveDocTab("privacy");
                   }}
                   className={`font-extrabold underline underline-offset-2 ${text} cursor-pointer`}

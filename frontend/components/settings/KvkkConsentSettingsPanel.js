@@ -913,19 +913,25 @@ export default function KvkkConsentSettingsPanel({
           {/* Force Re-Consent Option */}
           {canWrite && (
             <label className="flex items-start gap-3 p-3.5 rounded-2xl bg-amber-50/70 dark:bg-amber-950/20 border border-amber-200/80 dark:border-amber-900/50 cursor-pointer select-none">
-              <button
-                type="button"
-                role="checkbox"
-                aria-checked={forceReconsent}
-                onClick={() => setForceReconsent((v) => !v)}
-                className={`mt-0.5 w-5 h-5 rounded-md border flex items-center justify-center shrink-0 transition-all cursor-pointer ${
+              <input
+                type="checkbox"
+                checked={forceReconsent}
+                onChange={(e) => setForceReconsent(e.target.checked)}
+                className="sr-only"
+              />
+              <span
+                aria-hidden="true"
+                style={
                   forceReconsent
-                    ? `${bg} ${border} text-white`
-                    : "bg-white dark:bg-slate-900 border-amber-400 dark:border-amber-700"
+                    ? { border: "2px solid transparent" }
+                    : { border: "2px solid #d97706", backgroundColor: "rgba(217, 119, 6, 0.1)" }
+                }
+                className={`mt-0.5 w-5 h-5 rounded-md flex items-center justify-center shrink-0 transition-all ${
+                  forceReconsent ? `${bg} text-white shadow-sm` : ""
                 }`}
               >
-                {forceReconsent && <Check size={13} strokeWidth={3} />}
-              </button>
+                {forceReconsent && <Check size={13} strokeWidth={3.2} />}
+              </span>
               <div className="text-xs text-amber-900 dark:text-amber-200 leading-relaxed">
                 <strong className="font-extrabold">
                   Tüm kullanıcılardan yeni sürüm için tekrar onay iste
