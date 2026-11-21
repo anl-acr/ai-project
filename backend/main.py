@@ -48,7 +48,7 @@ def add_system_log(source: str, level: str, message: str):
 add_system_log("SYSTEM", "INFO", "FastAPI Sunucusu başlatıldı.")
 add_system_log("DATABASE", "INFO", "Veritabanı bağlantısı kuruldu.")
 from backend.database.config import get_db, Base, engine, AsyncSessionLocal
-from backend.database.models import Rule, Call, Transcript, Appointment, ChatSession, ChatMessage, Contact, CannedResponse, BlacklistItem, BlockWord, SystemUser, SystemRole, PBXQueue, Trunk, AIAgent, BreakType, AgentBreakLog, SystemSetting, EventLog, QueueSurveyResponse, VoipQualityLog, VoicemailMessage
+from backend.database.models import Rule, Call, Transcript, Appointment, ChatSession, ChatMessage, Contact, CannedResponse, BlacklistItem, BlockWord, SystemUser, SystemRole, PBXQueue, Trunk, AIAgent, BreakType, AgentBreakLog, SystemSetting, EventLog, QueueSurveyResponse, VoipQualityLog, VoicemailMessage, UserConsentLog
 from backend.services.agent_presence import get_agent_state
 from backend.services.rag_service import index_pdf_file, index_website_url, query_vector_search, index_manual_text, delete_indexed_source, get_genai_client
 from backend.services.license_service import verify_license_key, generate_license_key, generate_tenant_serial_number
@@ -1657,6 +1657,7 @@ DEFAULT_SETTINGS = {
                 "customer_360:read", "customer_360:write",
                 "callback_tasks:read", "callback_tasks:write", "callback_tasks:delete",
                 "crisis_alerts:access",
+                "kvkk_consent:read", "kvkk_consent:write",
                 "system_version:access", "system_version:read", "system_version:write"
             ],
             "allowed_breaks": [1, 2, 3, 4]
@@ -2899,7 +2900,7 @@ def load_settings(force_reload: bool = False, persist: bool = False):
                 if r.get("role_code") == "admin" and "restore_points:delete" not in new_perms:
                     new_perms.append("restore_points:delete")
                 if r.get("role_code") == "admin":
-                    for net_p in ("server_network:read", "server_network:write", "server_network:delete", "ras_settings:read", "ras_settings:write", "system_version:read", "system_version:write"):
+                    for net_p in ("server_network:read", "server_network:write", "server_network:delete", "ras_settings:read", "ras_settings:write", "system_version:read", "system_version:write", "kvkk_consent:read", "kvkk_consent:write"):
                         if net_p not in new_perms:
                             new_perms.append(net_p)
                 for sup_perm in (
@@ -2913,6 +2914,7 @@ def load_settings(force_reload: bool = False, persist: bool = False):
                     "system_version:read",
                     "server_network:read",
                     "ras_settings:read",
+                    "kvkk_consent:read",
                 ):
                     if sup_perm not in new_perms:
                         new_perms.append(sup_perm)
@@ -41575,18 +41577,35 @@ async def get_system_version_info():
         pass
 
     return {
-        "version": "v3.6.6",
+        "version": "v3.6.7",
         "commit_hash": live_commit,
         "release_date": "21 Kasım 2026",
         "status": "Güncel / Canlı Sürüm",
         "environment": "Production (On-Premise)",
         "changelog": [
             {
-                "version": "v3.6.6",
+                "version": "v3.6.7",
                 "commit_hash": live_commit,
                 "release_date": "21 Kasım 2026",
                 "badge": "Canlı Sürüm (Güncel)",
                 "badge_type": "current",
+                "title": "KVKK & Gizlilik Politikası İlk Giriş Onay Popup'ı, Değiştirilemez Hukuki Loglama & İspat Belgesi",
+                "summary": "6698 sayılı KVKK ve Kurumsal Gizlilik Politikası kapsamında tüm kullanıcıların (Admin dahil) sisteme ilk girişinde onaylaması gereken zorunlu aydınlatma ve gizlilik popup'ı, değiştirilemez PostgreSQL/HMAC denetim kaydı ve yönetici takip/ispat belgesi paneli eklendi.",
+                "features": [
+                    "Tüm kullanıcılar için ilk girişte zorunlu KVKK & Gizlilik Popup'ı (Web, Masaüstü ve Mobil uygulamalarda ortak çalışır; onaylandıktan sonra tekrar çıkmaz).",
+                    "Kanuna uygun 2 ayrı varsayılan işaretsiz onay kutusu (KVKK Aydınlatma Metni + Gizlilik, Bilgi Güvenliği ve Ses Kaydı Politikası), yazdırılabilir metin ve reddetme durumunda güvenli çıkış.",
+                    "PostgreSQL user_consent_logs tablosunda değiştirilemez hukuki kayıt: kullanıcı kimliği, UTC tarih/saat, IP adresi, tarayıcı/platform bilgisi, metinlerin tam anlık görüntüsü (snapshot), SHA-256 özeti ve HMAC-SHA256 bütünlük mührü.",
+                    "Sistem Ayarları > Organizasyon & Lisans > KVKK & Gizlilik Politikası paneli: özelleştirilebilir Türkçe kurumsal metinler, sürüm takibi, isteğe bağlı yeniden onay tetikleme, kullanıcı bazlı Onayladı/Bekliyor tablosu, CSV dışa aktarma ve tek tık yazdırılabilir 'KVKK Onay İspat Belgesi'.",
+                    "RoleSettings içine granüler 'KVKK & Gizlilik Politikası Onay Yönetimi' (kvkk_consent:read / kvkk_consent:write) yetkileri eklendi."
+                ],
+                "fixes": []
+            },
+            {
+                "version": "v3.6.6",
+                "commit_hash": "726bd05",
+                "release_date": "21 Kasım 2026",
+                "badge": "Kararlı",
+                "badge_type": "stable",
                 "title": "Kullanıcı Hoş Geldiniz & Kurulum Rehberi E-Postası (Tekil, Yeni Kullanıcı Sonrası & Toplu Gönderim)",
                 "summary": "Yeni kullanıcıların sıfır teknik bilgiyle güvenle sisteme giriş yapabilmesi için şifre oluşturma rehberli (şifresiz oto-giriş olmadan) Hoş Geldiniz e-postası eklendi. Kullanıcı düzenleme ekranından, yeni kullanıcı oluşturduktan hemen sonra ve Toplu Konfigürasyon merkezinden tüm kullanıcılara tek seferde gönderilebilir.",
                 "features": [
@@ -49590,6 +49609,596 @@ async def ext_api_v1_subscribe_webhook(
     return {"status": "success", "action": "POST (Webhook Olay Aboneliği Oluşturuldu)", "subscription": new_sub}
 
 
+
+
+# ==============================================================================
+# KVKK (6698 Sayılı Kanun) & GİZLİLİK POLİTİKASI ONAY VE HUKUKİ LOGLAMA SİSTEMİ
+# ==============================================================================
+
+_kvkk_table_ensured = False
+
+
+async def _ensure_kvkk_consent_table(db: AsyncSession) -> None:
+    global _kvkk_table_ensured
+    if _kvkk_table_ensured:
+        return
+    try:
+        from backend.services.kvkk_consent_service import ensure_user_consent_table_async
+        await ensure_user_consent_table_async(db)
+        _kvkk_table_ensured = True
+    except Exception as e:
+        print(f"[KVKK Table Ensure Warning]: {e}")
+
+
+async def _resolve_kvkk_actor(raw_user_id: str, tenant_id: str, db: AsyncSession) -> Dict[str, Any]:
+    uid_clean = str(raw_user_id or "").strip()
+    if not uid_clean or uid_clean.lower() == "admin":
+        return {
+            "user_id": "admin",
+            "username": "admin",
+            "full_name": "Sistem Yöneticisi (Admin)",
+            "email": "",
+            "extension": "",
+            "role": "admin",
+        }
+
+    # Try PostgreSQL SystemUser first
+    try:
+        if uid_clean.isdigit():
+            res = await db.execute(select(SystemUser).where(SystemUser.id == int(uid_clean)))
+            u = res.scalar_one_or_none()
+        else:
+            res = await db.execute(
+                select(SystemUser).where(
+                    or_(
+                        SystemUser.extension == uid_clean,
+                        SystemUser.email == uid_clean,
+                        SystemUser.sip_username == uid_clean,
+                    )
+                )
+            )
+            u = res.scalars().first()
+        if u:
+            return {
+                "user_id": str(u.id),
+                "username": str(u.email or u.extension or u.id),
+                "full_name": str(u.full_name or u.extension or f"Kullanıcı #{u.id}"),
+                "email": str(u.email or ""),
+                "extension": str(u.extension or ""),
+                "role": str(u.role or "agent"),
+            }
+    except Exception:
+        pass
+
+    # Fallback to settings_db["users"]
+    for u in settings_db.get("users") or []:
+        if not isinstance(u, dict):
+            continue
+        if (
+            str(u.get("id", "")) == uid_clean
+            or str(u.get("extension", "")) == uid_clean
+            or str(u.get("email", "")).lower() == uid_clean.lower()
+        ):
+            return {
+                "user_id": str(u.get("id") or uid_clean),
+                "username": str(u.get("email") or u.get("extension") or uid_clean),
+                "full_name": str(u.get("full_name") or u.get("extension") or uid_clean),
+                "email": str(u.get("email") or ""),
+                "extension": str(u.get("extension") or ""),
+                "role": str(u.get("role") or "agent"),
+            }
+
+    return {
+        "user_id": uid_clean,
+        "username": uid_clean,
+        "full_name": uid_clean,
+        "email": "",
+        "extension": "",
+        "role": "agent",
+    }
+
+
+async def _check_kvkk_permission(raw_user_id: str, tenant_id: str, perm_code: str, db: AsyncSession) -> bool:
+    actor = await _resolve_kvkk_actor(raw_user_id, tenant_id, db)
+    if actor["user_id"] == "admin" or actor["role"] in ("admin", "superadmin"):
+        return True
+    role_code = actor["role"]
+    for r in settings_db.get("roles") or []:
+        if isinstance(r, dict) and r.get("role_code") == role_code:
+            perms = r.get("permissions") or []
+            if "*" in perms or perm_code in perms:
+                return True
+            if perm_code == "kvkk_consent:read" and "kvkk_consent:write" in perms:
+                return True
+            return False
+    return False
+
+
+def _kvkk_tenant_match_filter(tenant_id: str):
+    if is_default_tenant(tenant_id):
+        return or_(
+            UserConsentLog.tenant_id == "tenant-default",
+            UserConsentLog.tenant_id == "default",
+            UserConsentLog.tenant_id.is_(None),
+        )
+    return UserConsentLog.tenant_id == tenant_id
+
+
+@app.get("/api/kvkk/my-status")
+async def get_my_kvkk_consent_status(request: Request, db: AsyncSession = Depends(get_db)):
+    """Oturum açmış kullanıcının KVKK & Gizlilik Politikası onay durumunu döner (Admin dahil tüm kullanıcılar)."""
+    from backend.services.kvkk_consent_service import (
+        get_tenant_kvkk_policy,
+        is_consent_sufficient,
+    )
+
+    user_info = get_user_info(request)
+    tenant_id = user_info["tenant_id"]
+    raw_uid = user_info["raw_user_id"]
+
+    await _ensure_kvkk_consent_table(db)
+    policy = get_tenant_kvkk_policy(settings_db, tenant_id)
+    actor = await _resolve_kvkk_actor(raw_uid, tenant_id, db)
+
+    if not policy.get("enabled", True):
+        return {
+            "required": False,
+            "enabled": False,
+            "policy_version": policy["version"],
+            "require_reconsent_version": policy["require_reconsent_version"],
+            "accepted": True,
+            "accepted_version": None,
+            "accepted_at": None,
+            "actor": actor,
+        }
+
+    # Check latest immutable consent log in PostgreSQL for this user
+    candidate_ids = list({x for x in [actor["user_id"], str(raw_uid or "").strip()] if x})
+    latest_row = None
+    try:
+        q = (
+            select(UserConsentLog)
+            .where(_kvkk_tenant_match_filter(tenant_id))
+            .where(UserConsentLog.user_id.in_(candidate_ids))
+            .where(UserConsentLog.accepted_kvkk == True)
+            .where(UserConsentLog.accepted_privacy == True)
+            .order_by(UserConsentLog.accepted_at.desc(), UserConsentLog.id.desc())
+            .limit(1)
+        )
+        res = await db.execute(q)
+        latest_row = res.scalars().first()
+    except Exception as e:
+        print(f"[KVKK Status Query Warning]: {e}")
+
+    accepted_version = latest_row.policy_version if latest_row else None
+    accepted_at_iso = (
+        latest_row.accepted_at.strftime("%Y-%m-%dT%H:%M:%SZ")
+        if latest_row and latest_row.accepted_at
+        else None
+    )
+    sufficient = is_consent_sufficient(accepted_version, policy["require_reconsent_version"])
+
+    return {
+        "required": not sufficient,
+        "enabled": True,
+        "policy_version": policy["version"],
+        "require_reconsent_version": policy["require_reconsent_version"],
+        "kvkk_title": policy["kvkk_title"],
+        "kvkk_text": policy["kvkk_text"],
+        "kvkk_sha256": policy["kvkk_sha256"],
+        "privacy_title": policy["privacy_title"],
+        "privacy_text": policy["privacy_text"],
+        "privacy_sha256": policy["privacy_sha256"],
+        "accepted": sufficient,
+        "accepted_version": accepted_version,
+        "accepted_at": accepted_at_iso,
+        "is_reconsent": bool(latest_row is not None and not sufficient),
+        "actor": actor,
+    }
+
+
+@app.post("/api/kvkk/accept")
+async def accept_kvkk_consent(
+    request: Request,
+    payload: Dict[str, Any] = Body(...),
+    db: AsyncSession = Depends(get_db),
+):
+    """Kullanıcının KVKK Aydınlatma Metni ve Gizlilik Politikası onayını değiştirilemez hukuki log olarak kaydeder."""
+    from backend.services.kvkk_consent_service import (
+        get_tenant_kvkk_policy,
+        compute_policy_hash,
+        compute_consent_hmac,
+    )
+
+    accepted_kvkk = bool(payload.get("accepted_kvkk"))
+    accepted_privacy = bool(payload.get("accepted_privacy"))
+    if not accepted_kvkk or not accepted_privacy:
+        raise HTTPException(
+            status_code=400,
+            detail="Devam edebilmek için hem KVKK Aydınlatma Metnini hem de Gizlilik Politikasını ayrı ayrı onaylamanız gerekmektedir.",
+        )
+
+    user_info = get_user_info(request)
+    tenant_id = "tenant-default" if is_default_tenant(user_info["tenant_id"]) else user_info["tenant_id"]
+    raw_uid = user_info["raw_user_id"]
+    client_ip = user_info["ip_address"]
+    user_agent = str(request.headers.get("User-Agent") or "")[:500]
+
+    raw_platform = str(payload.get("client_platform") or "").strip().lower()
+    if raw_platform not in ("web_phone", "pc_app", "mobile_app"):
+        ua_l = user_agent.lower()
+        if "electron" in ua_l or "norniadesktop" in ua_l:
+            raw_platform = "pc_app"
+        elif "android" in ua_l or "iphone" in ua_l or "ipad" in ua_l or "capacitor" in ua_l:
+            raw_platform = "mobile_app"
+        else:
+            raw_platform = "web_phone"
+
+    await _ensure_kvkk_consent_table(db)
+    policy = get_tenant_kvkk_policy(settings_db, tenant_id)
+    actor = await _resolve_kvkk_actor(raw_uid, tenant_id, db)
+
+    accepted_at_dt = datetime.datetime.utcnow().replace(microsecond=0)
+    accepted_at_iso = accepted_at_dt.strftime("%Y-%m-%dT%H:%M:%SZ")
+    kvkk_hash = compute_policy_hash(policy["kvkk_text"])
+    privacy_hash = compute_policy_hash(policy["privacy_text"])
+    seal_hmac = compute_consent_hmac(
+        tenant_id=tenant_id,
+        user_id=actor["user_id"],
+        policy_version=policy["version"],
+        kvkk_sha256=kvkk_hash,
+        privacy_sha256=privacy_hash,
+        accepted_at_iso=accepted_at_iso,
+        ip_address=client_ip,
+    )
+
+    new_log = UserConsentLog(
+        tenant_id=tenant_id,
+        user_id=actor["user_id"],
+        username=actor["username"],
+        full_name=actor["full_name"],
+        email=actor["email"],
+        extension=actor["extension"],
+        policy_version=policy["version"],
+        kvkk_sha256=kvkk_hash,
+        privacy_sha256=privacy_hash,
+        kvkk_snapshot_text=policy["kvkk_text"],
+        privacy_snapshot_text=policy["privacy_text"],
+        accepted_kvkk=True,
+        accepted_privacy=True,
+        ip_address=client_ip,
+        user_agent=user_agent,
+        client_platform=raw_platform,
+        record_hmac=seal_hmac,
+        accepted_at=accepted_at_dt,
+    )
+    db.add(new_log)
+    await db.commit()
+    await db.refresh(new_log)
+
+    await log_event(
+        user_id=actor["full_name"] or user_info["user_id"],
+        action="KVKK_CONSENT_ACCEPTED",
+        module="KVKKCompliance",
+        details={
+            "consent_log_id": new_log.id,
+            "user_id": actor["user_id"],
+            "extension": actor["extension"],
+            "policy_version": policy["version"],
+            "kvkk_sha256": kvkk_hash[:16],
+            "privacy_sha256": privacy_hash[:16],
+            "client_platform": raw_platform,
+            "record_hmac": seal_hmac[:16],
+        },
+        ip_address=client_ip,
+    )
+
+    return {
+        "status": "success",
+        "ok": True,
+        "id": new_log.id,
+        "policy_version": policy["version"],
+        "accepted_at": accepted_at_iso,
+        "kvkk_sha256": kvkk_hash,
+        "privacy_sha256": privacy_hash,
+        "record_hmac": seal_hmac,
+        "ip_address": client_ip,
+        "client_platform": raw_platform,
+    }
+
+
+@app.get("/api/settings/kvkk-policy")
+async def get_kvkk_policy_settings(request: Request, db: AsyncSession = Depends(get_db)):
+    """Tenant bazlı KVKK & Gizlilik Politikası ayarlarını döner."""
+    from backend.services.kvkk_consent_service import get_tenant_kvkk_policy
+
+    user_info = get_user_info(request)
+    tenant_id = "tenant-default" if is_default_tenant(user_info["tenant_id"]) else user_info["tenant_id"]
+    allowed = await _check_kvkk_permission(user_info["raw_user_id"], tenant_id, "kvkk_consent:read", db)
+    if not allowed:
+        raise HTTPException(status_code=403, detail="KVKK & Gizlilik Politikası ayarlarını görüntüleme yetkiniz yok.")
+
+    policy = get_tenant_kvkk_policy(settings_db, tenant_id)
+    return {"status": "success", "policy": policy}
+
+
+@app.post("/api/settings/kvkk-policy")
+async def save_kvkk_policy_settings(
+    request: Request,
+    payload: Dict[str, Any] = Body(...),
+    db: AsyncSession = Depends(get_db),
+):
+    """KVKK & Gizlilik Politikası ayarlarını günceller; metin değiştiğinde sürümü otomatik artırır."""
+    from backend.services.kvkk_consent_service import (
+        get_tenant_kvkk_policy,
+        get_default_kvkk_policy,
+        compute_policy_hash,
+        bump_policy_version,
+    )
+
+    user_info = get_user_info(request)
+    tenant_id = "tenant-default" if is_default_tenant(user_info["tenant_id"]) else user_info["tenant_id"]
+    allowed = await _check_kvkk_permission(user_info["raw_user_id"], tenant_id, "kvkk_consent:write", db)
+    if not allowed:
+        raise HTTPException(status_code=403, detail="KVKK & Gizlilik Politikası ayarlarını düzenleme yetkiniz yok.")
+
+    current = get_tenant_kvkk_policy(settings_db, tenant_id)
+    reset_defaults = bool(payload.get("reset_defaults"))
+    force_reconsent = bool(payload.get("force_reconsent"))
+
+    if reset_defaults:
+        tenant_name = ""
+        for t in settings_db.get("tenants") or []:
+            if isinstance(t, dict) and str(t.get("id") or "") == tenant_id:
+                tenant_name = str(t.get("name") or "")
+                break
+        defaults = get_default_kvkk_policy(tenant_name=tenant_name)
+        new_kvkk_title = defaults["kvkk_title"]
+        new_kvkk_text = defaults["kvkk_text"]
+        new_privacy_title = defaults["privacy_title"]
+        new_privacy_text = defaults["privacy_text"]
+        new_enabled = bool(payload.get("enabled", current["enabled"]))
+    else:
+        new_enabled = bool(payload.get("enabled", current["enabled"]))
+        new_kvkk_title = str(payload.get("kvkk_title") or current["kvkk_title"]).strip()
+        new_kvkk_text = str(payload.get("kvkk_text") or "").strip()
+        new_privacy_title = str(payload.get("privacy_title") or current["privacy_title"]).strip()
+        new_privacy_text = str(payload.get("privacy_text") or "").strip()
+        if not new_kvkk_text or not new_privacy_text:
+            raise HTTPException(status_code=400, detail="KVKK Aydınlatma Metni ve Gizlilik Politikası boş bırakılamaz.")
+
+    old_kvkk_hash = compute_policy_hash(current["kvkk_text"])
+    old_privacy_hash = compute_policy_hash(current["privacy_text"])
+    new_kvkk_hash = compute_policy_hash(new_kvkk_text)
+    new_privacy_hash = compute_policy_hash(new_privacy_text)
+    text_changed = (old_kvkk_hash != new_kvkk_hash) or (old_privacy_hash != new_privacy_hash)
+
+    new_version = current["version"]
+    if text_changed or force_reconsent:
+        new_version = bump_policy_version(current["version"])
+
+    new_require_reconsent = (
+        new_version if force_reconsent else current["require_reconsent_version"]
+    )
+
+    policies = settings_db.get("kvkk_consent_policies")
+    if not isinstance(policies, dict):
+        policies = {}
+
+    updated_policy = {
+        "enabled": new_enabled,
+        "version": new_version,
+        "require_reconsent_version": new_require_reconsent,
+        "kvkk_title": new_kvkk_title,
+        "kvkk_text": new_kvkk_text,
+        "privacy_title": new_privacy_title,
+        "privacy_text": new_privacy_text,
+        "kvkk_sha256": new_kvkk_hash,
+        "privacy_sha256": new_privacy_hash,
+        "updated_at": datetime.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "updated_by": user_info["user_id"],
+    }
+    policies[tenant_id] = updated_policy
+    settings_db["kvkk_consent_policies"] = policies
+    save_settings(settings_db)
+
+    await log_event(
+        user_id=user_info["user_id"],
+        action="KVKK_POLICY_UPDATED",
+        module="KVKKCompliance",
+        details={
+            "enabled": new_enabled,
+            "version": new_version,
+            "require_reconsent_version": new_require_reconsent,
+            "force_reconsent": force_reconsent,
+            "text_changed": text_changed,
+            "kvkk_sha256": new_kvkk_hash[:16],
+            "privacy_sha256": new_privacy_hash[:16],
+        },
+        ip_address=user_info["ip_address"],
+    )
+
+    return {"status": "success", "policy": updated_policy, "version_bumped": new_version != current["version"]}
+
+
+@app.get("/api/settings/kvkk-consents")
+async def get_kvkk_consent_audit_report(request: Request, db: AsyncSession = Depends(get_db)):
+    """Tüm kullanıcıların KVKK onay durumlarını ve değiştirilemez hukuki onay kayıtlarını döner."""
+    from backend.services.kvkk_consent_service import (
+        get_tenant_kvkk_policy,
+        is_consent_sufficient,
+        verify_consent_hmac,
+    )
+
+    user_info = get_user_info(request)
+    tenant_id = "tenant-default" if is_default_tenant(user_info["tenant_id"]) else user_info["tenant_id"]
+    allowed = await _check_kvkk_permission(user_info["raw_user_id"], tenant_id, "kvkk_consent:read", db)
+    if not allowed:
+        raise HTTPException(status_code=403, detail="KVKK onay kayıtlarını görüntüleme yetkiniz yok.")
+
+    await _ensure_kvkk_consent_table(db)
+    policy = get_tenant_kvkk_policy(settings_db, tenant_id)
+
+    # 1. Fetch all immutable consent logs for this tenant (newest first)
+    logs_rows = []
+    try:
+        res_logs = await db.execute(
+            select(UserConsentLog)
+            .where(_kvkk_tenant_match_filter(tenant_id))
+            .order_by(UserConsentLog.accepted_at.desc(), UserConsentLog.id.desc())
+            .limit(2000)
+        )
+        logs_rows = res_logs.scalars().all()
+    except Exception as e:
+        print(f"[KVKK Logs Fetch Warning]: {e}")
+
+    logs_payload = []
+    latest_by_user: Dict[str, Dict[str, Any]] = {}
+    for row in logs_rows:
+        iso_ts = row.accepted_at.strftime("%Y-%m-%dT%H:%M:%SZ") if row.accepted_at else None
+        hmac_ok = verify_consent_hmac(row)
+        item = {
+            "id": row.id,
+            "tenant_id": row.tenant_id,
+            "user_id": row.user_id,
+            "username": row.username or "",
+            "full_name": row.full_name or row.username or row.user_id,
+            "email": row.email or "",
+            "extension": row.extension or "",
+            "policy_version": row.policy_version,
+            "kvkk_sha256": row.kvkk_sha256,
+            "privacy_sha256": row.privacy_sha256,
+            "kvkk_snapshot_text": row.kvkk_snapshot_text,
+            "privacy_snapshot_text": row.privacy_snapshot_text,
+            "accepted_kvkk": bool(row.accepted_kvkk),
+            "accepted_privacy": bool(row.accepted_privacy),
+            "ip_address": row.ip_address or "",
+            "user_agent": row.user_agent or "",
+            "client_platform": row.client_platform or "web_phone",
+            "record_hmac": row.record_hmac,
+            "hmac_valid": hmac_ok,
+            "accepted_at": iso_ts,
+        }
+        logs_payload.append(item)
+        uid_key = str(row.user_id)
+        if uid_key not in latest_by_user:
+            latest_by_user[uid_key] = item
+
+    # 2. Build compliance matrix for Admin + all tenant users
+    tenant_users_list: List[Dict[str, Any]] = [
+        {
+            "user_id": "admin",
+            "full_name": "Sistem Yöneticisi (Admin)",
+            "email": "",
+            "extension": "Admin",
+            "role": "admin",
+            "is_active": True,
+        }
+    ]
+    seen_uids = {"admin"}
+
+    try:
+        if is_default_tenant(tenant_id):
+            u_res = await db.execute(
+                select(SystemUser).where(
+                    or_(
+                        SystemUser.tenant_id == "tenant-default",
+                        SystemUser.tenant_id == "default",
+                        SystemUser.tenant_id.is_(None),
+                    )
+                )
+            )
+        else:
+            u_res = await db.execute(select(SystemUser).where(SystemUser.tenant_id == tenant_id))
+        db_users = u_res.scalars().all()
+        for u in db_users:
+            uid_s = str(u.id)
+            if uid_s in seen_uids:
+                continue
+            seen_uids.add(uid_s)
+            tenant_users_list.append({
+                "user_id": uid_s,
+                "full_name": u.full_name or u.extension or f"Kullanıcı #{u.id}",
+                "email": u.email or "",
+                "extension": u.extension or "",
+                "role": u.role or "agent",
+                "is_active": bool(u.is_active if u.is_active is not None else True),
+            })
+    except Exception as e:
+        print(f"[KVKK Users Matrix Fallback]: {e}")
+        for u in settings_db.get("users") or []:
+            if not isinstance(u, dict):
+                continue
+            u_tid = u.get("tenant_id") or "tenant-default"
+            if (is_default_tenant(tenant_id) and not is_default_tenant(u_tid)) or (
+                not is_default_tenant(tenant_id) and u_tid != tenant_id
+            ):
+                continue
+            uid_s = str(u.get("id") or "")
+            if not uid_s or uid_s in seen_uids:
+                continue
+            seen_uids.add(uid_s)
+            tenant_users_list.append({
+                "user_id": uid_s,
+                "full_name": u.get("full_name") or u.get("extension") or uid_s,
+                "email": u.get("email") or "",
+                "extension": u.get("extension") or "",
+                "role": u.get("role") or "agent",
+                "is_active": bool(u.get("is_active", True)),
+            })
+
+    users_matrix = []
+    accepted_count = 0
+    outdated_count = 0
+    pending_count = 0
+
+    for u in tenant_users_list:
+        latest = latest_by_user.get(u["user_id"]) or (
+            latest_by_user.get(u["extension"]) if u.get("extension") else None
+        )
+        if latest:
+            if is_consent_sufficient(latest["policy_version"], policy["require_reconsent_version"]):
+                status = "accepted"
+                accepted_count += 1
+            else:
+                status = "outdated"
+                outdated_count += 1
+        else:
+            status = "pending"
+            pending_count += 1
+
+        users_matrix.append({
+            "user_id": u["user_id"],
+            "full_name": u["full_name"],
+            "email": u["email"],
+            "extension": u["extension"],
+            "role": u["role"],
+            "is_active": u["is_active"],
+            "status": status,
+            "accepted_version": latest["policy_version"] if latest else None,
+            "accepted_at": latest["accepted_at"] if latest else None,
+            "ip_address": latest["ip_address"] if latest else None,
+            "client_platform": latest["client_platform"] if latest else None,
+            "kvkk_sha256": latest["kvkk_sha256"] if latest else None,
+            "privacy_sha256": latest["privacy_sha256"] if latest else None,
+            "record_hmac": latest["record_hmac"] if latest else None,
+            "hmac_valid": latest["hmac_valid"] if latest else None,
+            "latest_log_id": latest["id"] if latest else None,
+        })
+
+    return {
+        "status": "success",
+        "policy": policy,
+        "summary": {
+            "total_users": len(users_matrix),
+            "accepted_count": accepted_count,
+            "outdated_count": outdated_count,
+            "pending_count": pending_count,
+            "total_logs": len(logs_payload),
+        },
+        "users": users_matrix,
+        "logs": logs_payload,
+    }
 
 
 if __name__ == "__main__":

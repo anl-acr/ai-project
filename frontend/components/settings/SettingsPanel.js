@@ -79,6 +79,7 @@ const WorkHoursSettingsPanel = lazySub(() => import("./WorkHoursSettingsPanel"))
 const ApiManagementPanel = lazySub(() => import("./ApiManagementPanel"));
 const ActiveDirectorySettingsPanel = lazySub(() => import("./ActiveDirectorySettingsPanel"));
 const CrmIntegrationsPanel = lazySub(() => import("./CrmIntegrationsPanel"));
+const KvkkConsentSettingsPanel = lazySub(() => import("./KvkkConsentSettingsPanel"));
 import InfoTooltip from "../common/InfoTooltip";
 
 const normalizeSubTab = (subTab) => {
@@ -153,6 +154,7 @@ export default function SettingsPanel({ backendHost = "localhost:8000" }) {
   const [hasAiTaskRoutingPermission, setHasAiTaskRoutingPermission] = useState(true);
   const [hasWorkHoursPermission, setHasWorkHoursPermission] = useState(true);
   const [hasServerSshPermission, setHasServerSshPermission] = useState(true);
+  const [hasKvkkConsentPermission, setHasKvkkConsentPermission] = useState(true);
   const [resolvedUserPerms, setResolvedUserPerms] = useState(["*"]);
   const [licensedFeatures, setLicensedFeatures] = useState(["*"]);
   const [hideProviderInfra, setHideProviderInfra] = useState(false);
@@ -265,6 +267,11 @@ export default function SettingsPanel({ backendHost = "localhost:8000" }) {
             currentRole.permissions.includes("server_ssh:access") ||
             currentRole.permissions.includes("server_ssh")
         );
+        setHasKvkkConsentPermission(
+          currentRole.permissions.includes("*") ||
+            currentRole.permissions.includes("kvkk_consent:read") ||
+            currentRole.permissions.includes("kvkk_consent:write")
+        );
         setResolvedUserPerms(currentRole.permissions || []);
       } catch (err) {
         console.error("Settings permission check error:", err);
@@ -363,6 +370,13 @@ export default function SettingsPanel({ backendHost = "localhost:8000" }) {
             subtitle: "Yetki profilleri ve erişim matrisi",
             icon: Shield,
             visible: true
+          },
+          {
+            id: "kvkk-consent",
+            label: "KVKK & Gizlilik Politikası",
+            subtitle: "İlk giriş onay popup'ı, metinler ve hukuki onay logları",
+            icon: Lock,
+            visible: hasKvkkConsentPermission
           },
           {
             id: "active-directory",
@@ -564,6 +578,7 @@ export default function SettingsPanel({ backendHost = "localhost:8000" }) {
       "autoprovision-templates": "autoprovision_templates",
       ssl: "ssl",
       roles: "roles",
+      "kvkk-consent": "kvkk_consent",
       "active-directory": "active_directory",
       locations: "locations",
       breaks: "breaks",
@@ -593,7 +608,7 @@ export default function SettingsPanel({ backendHost = "localhost:8000" }) {
     const isSubTabLicensed = (subId) => {
       if (isNorniaRoot) return true;
       if (hideProviderInfra && providerInfraSubTabs.includes(subId)) return false;
-      if (["roles", "license", "version"].includes(subId)) return true;
+      if (["roles", "kvkk-consent", "license", "version"].includes(subId)) return true;
       if (!Array.isArray(licensedFeatures) || licensedFeatures.includes("*")) return true;
       const mappedFeat = subTabToFeatureMap[subId] || subId;
       return licensedFeatures.includes(mappedFeat);
@@ -618,6 +633,7 @@ export default function SettingsPanel({ backendHost = "localhost:8000" }) {
     hasBackupPermission,
     hasRecordingRetentionPermission,
     hasServerSshPermission,
+    hasKvkkConsentPermission,
     licensedFeatures,
     hideProviderInfra
   ]);
@@ -862,6 +878,9 @@ export default function SettingsPanel({ backendHost = "localhost:8000" }) {
             {activeSubTab === "channels" && <ChannelSettings backendHost={backendHost} />}
             {activeSubTab === "breaks" && <BreakDefinitions backendHost={backendHost} />}
             {activeSubTab === "roles" && <RoleSettings backendHost={backendHost} />}
+            {activeSubTab === "kvkk-consent" && (
+              <KvkkConsentSettingsPanel backendHost={backendHost} userPermissions={resolvedUserPerms} />
+            )}
             {activeSubTab === "canned-responses" && (
               <CannedResponsesSettings backendHost={backendHost} />
             )}

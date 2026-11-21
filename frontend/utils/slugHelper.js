@@ -86,6 +86,7 @@ export const SUBTAB_TURKISH_SLUGS = {
   "api-management": "dis-api-ve-anahtar-yonetimi",
   "users": "kullanici-yonetimi",
   "roles": "rol-ve-yetkiler",
+  "kvkk-consent": "kvkk-gizlilik-onayi",
   "tenants": "musteri-lisanslari",
   "ai_providers": "yapay-zeka-saglayicilari",
   "ai-providers": "yapay-zeka-saglayicilari",

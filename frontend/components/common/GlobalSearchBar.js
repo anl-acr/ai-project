@@ -809,6 +809,16 @@ export default function GlobalSearchBar({
         run: () => navigateTo("settings", { settingsSubTab: "roles" })
       },
       {
+        id: "menu-settings-kvkk-consent",
+        category: "menu",
+        groupLabel: "Sistem Ayarları",
+        title: "Sistem Ayarları > KVKK & Gizlilik Politikası",
+        subtitle: "İlk giriş onay popup'ı, aydınlatma metinleri ve hukuki onay logları",
+        keywords: "kvkk gizlilik aydınlatma metni onay log ispat belgesi 6698",
+        icon: ShieldCheck,
+        run: () => navigateTo("settings", { settingsSubTab: "kvkk-consent" })
+      },
+      {
         id: "menu-settings-breaks",
         category: "menu",
         groupLabel: "Sistem Ayarları",

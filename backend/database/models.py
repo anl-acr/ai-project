@@ -490,3 +490,27 @@ class VoicemailMessage(Base):
     created_at = Column(DateTime, default=datetime.datetime.utcnow, index=True)
 
 
+class UserConsentLog(Base):
+    __tablename__ = "user_consent_logs"
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    tenant_id = Column(String, default="tenant-default", index=True)
+    user_id = Column(String, nullable=False, index=True)
+    username = Column(String, nullable=True, index=True)
+    full_name = Column(String, nullable=True)
+    email = Column(String, nullable=True)
+    extension = Column(String, nullable=True, index=True)
+    policy_version = Column(String, nullable=False, default="v1.0", index=True)
+    kvkk_sha256 = Column(String, nullable=False)
+    privacy_sha256 = Column(String, nullable=False)
+    kvkk_snapshot_text = Column(Text, nullable=False)
+    privacy_snapshot_text = Column(Text, nullable=False)
+    accepted_kvkk = Column(Boolean, default=True, nullable=False)
+    accepted_privacy = Column(Boolean, default=True, nullable=False)
+    ip_address = Column(String, nullable=True)
+    user_agent = Column(Text, nullable=True)
+    client_platform = Column(String, default="web_phone")  # web_phone | pc_app | mobile_app
+    record_hmac = Column(String, nullable=False)
+    accepted_at = Column(DateTime, default=datetime.datetime.utcnow, nullable=False, index=True)
+
+
+

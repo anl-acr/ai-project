@@ -244,6 +244,7 @@ const SYSTEM_FEATURES = [
   { id: "channels", name: "Kanal Entegrasyonları", icon: Smartphone, type: "crud_partial", color: "pink" },
   { id: "breaks", name: "Mola Tanımları", icon: Coffee, type: "crud", color: "amber" },
   { id: "roles", name: "Roller", icon: Shield, type: "crud", color: "purple" },
+  { id: "kvkk_consent", name: "KVKK & Gizlilik Politikası Onay Yönetimi", icon: Shield, type: "crud_partial", color: "emerald" },
   { id: "canned_responses", name: "Hızlı Cevaplar", icon: FileText, type: "crud", color: "pink" },
   { id: "crm_integrations", name: "Hazır CRM Entegrasyon Marketi (Zoho, HubSpot, Salesforce, Bitrix24)", icon: Cable, type: "crud", color: "indigo" },
   { id: "active_directory", name: "Active Directory (LDAP & Entra ID) Entegrasyonu", icon: Users, type: "crud", color: "blue" },
