@@ -14241,12 +14241,12 @@ def _build_enriched_autoprovision_list(target_tenant: str) -> list:
 
 
 def _build_tenant_user_sip_devices_map(target_tenant: str) -> dict:
-    """Returns {user_id_or_ext: [physical_sip_device_summary...]} (excluding web_phone & passwords) for Oto Provizyon modal."""
+    """Returns {user_id_or_ext: [physical_sip_device_summary...]} across PostgreSQL SystemUser + settings_db users."""
     from backend.services.autoprovision_service import normalize_user_sip_devices
 
     ap_all = settings_db.get("autoprovision", []) or []
     dp_all = settings_db.get("user_deskphone_configs", {}) or {}
-    users_all = settings_db.get("users", []) or []
+    users_all = list(settings_db.get("users", []) or [])
 
     def _t_ok(tid_val):
         if is_global_tenant(target_tenant):
@@ -14255,10 +14255,48 @@ def _build_tenant_user_sip_devices_map(target_tenant: str) -> dict:
             return (not tid_val) or tid_val in ("tenant-default", "default")
         return tid_val == target_tenant
 
-    out = {}
-    for u in users_all:
+    # Also merge live PostgreSQL SystemUser rows (production source of truth for users & sip_devices!)
+    pg_by_ext = {}
+    try:
+        from backend.database.config import SyncSessionLocal
+        with SyncSessionLocal() as sess:
+            for r in sess.query(SystemUser).all():
+                r_tid = getattr(r, "tenant_id", None) or "tenant-default"
+                if not _t_ok(r_tid):
+                    continue
+                r_ext = str(getattr(r, "extension", None) or "").strip()
+                r_dict = {
+                    "id": str(r.id),
+                    "extension": r_ext,
+                    "full_name": getattr(r, "full_name", None) or getattr(r, "email", None) or "",
+                    "role": getattr(r, "role", None) or "agent",
+                    "tenant_id": r_tid,
+                    "sip_username": getattr(r, "sip_username", None),
+                    "sip_password": getattr(r, "sip_password", None),
+                    "sip_devices": getattr(r, "sip_devices", None),
+                }
+                if r_ext:
+                    pg_by_ext[r_ext] = r_dict
+                users_all.append(r_dict)
+    except Exception:
+        pass
+
+    # Prefer PostgreSQL row when both exist for the same extension
+    dedup_users = []
+    seen_keys = set()
+    for u in list(pg_by_ext.values()) + users_all:
         if not isinstance(u, dict) or not _t_ok(u.get("tenant_id")):
             continue
+        ext_s = str(u.get("extension") or "").strip()
+        uid_s = str(u.get("id") or "").strip()
+        k_dedup = ext_s or uid_s
+        if not k_dedup or k_dedup in seen_keys:
+            continue
+        seen_keys.add(k_dedup)
+        dedup_users.append(u)
+
+    out = {}
+    for u in dedup_users:
         ext_s = str(u.get("extension") or "").strip()
         uid_s = str(u.get("id") or "").strip()
         if not ext_s and not uid_s:
@@ -42830,18 +42868,33 @@ async def get_system_version_info():
         pass
 
     return {
-        "version": "v3.8.2",
+        "version": "v3.8.3",
         "commit_hash": live_commit,
         "release_date": "22 Kasım 2026",
         "status": "Güncel / Canlı Sürüm",
         "environment": "Production (On-Premise)",
         "changelog": [
             {
-                "version": "v3.8.2",
+                "version": "v3.8.3",
                 "commit_hash": live_commit,
                 "release_date": "22 Kasım 2026",
                 "badge": "Canlı Sürüm (Güncel)",
                 "badge_type": "current",
+                "title": "Oto Provizyon: Modele Göre Otomatik Şablon Seçimi, Aranabilir Şablon Listesi & PostgreSQL SIP Cihaz Seçicisi",
+                "summary": "Marka/Model seçildiğinde o modele ait şablon otomatik seçilir ve şablon listesinde canlı arama yapılabilir; kullanıcı altındaki SIP cihazı seçicisi PostgreSQL SystemUser ile tam senkronize edilip her zaman görünür hale getirildi.",
+                "features": [
+                    "Otomatik Şablon Eşleştirme: Marka/Model seçildiğinde önce o modele ait Özel şablonunuz, yoksa yerleşik Sistem Şablonu (örn. Yealink T42S — Sistem Şablonu) otomatik seçilir.",
+                    "Aranabilir Konfigürasyon Şablonu Kutusu: Kalabalık açılır liste yerine anlık arama kutulu, modele göre gruplu (★ Eşleşen Şablonlar en üstte) modern combobox eklendi.",
+                    "Daima Görünür & PostgreSQL Uyumlu SIP Cihaz Seçicisi: Kullanıcı seçildiğinde PostgreSQL SystemUser + sip_devices üzerinden o abonenin tüm fiziksel masa telefonları anında listelenir ve modal kaydırılabilir (scrollable) hale getirildi."
+                ],
+                "fixes": []
+            },
+            {
+                "version": "v3.8.2",
+                "commit_hash": "ffd92b7",
+                "release_date": "22 Kasım 2026",
+                "badge": "Kararlı",
+                "badge_type": "stable",
                 "title": "Oto Provizyon Çoklu Masa Telefonu Desteği — Kullanıcı Altında SIP Cihazı Seçimi & Tek Tıkla Yeni SIP Hesabı",
                 "summary": "Birden fazla fiziksel masa telefonu (Ofis + Ev / DECT) olan aboneler için Oto Provizyon eşleştirme penceresinde doğrudan ilgili SIP cihazını seçme veya tek tıkla yeni SIP hesabı açma desteği eklendi.",
                 "features": [

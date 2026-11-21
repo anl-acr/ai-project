@@ -25,6 +25,7 @@ import {
   Zap,
   Power,
   Wifi,
+  ChevronDown,
 } from "lucide-react";
 import * as XLSX from "xlsx";
 import ConfirmDeleteModal from "../dashboard/ConfirmDeleteModal";
@@ -87,6 +88,10 @@ export default function AutoprovisionPanel({ backendHost = "localhost:8000" }) {
   const [selectedSipDeviceId, setSelectedSipDeviceId] = useState("");
   const [newSipDeviceName, setNewSipDeviceName] = useState("");
   const [templateId, setTemplateId] = useState("");
+  const [templateMenuOpen, setTemplateMenuOpen] = useState(false);
+  const [templateSearch, setTemplateSearch] = useState("");
+  const templateDropdownRef = useRef(null);
+  const templateSearchInputRef = useRef(null);
   const [connectionMode, setConnectionMode] = useState("lan");
 
   // LAN / WAN Provisioning Network Config states
@@ -120,6 +125,23 @@ export default function AutoprovisionPanel({ backendHost = "localhost:8000" }) {
 
   useEffect(() => {
     fetchData();
+  }, []);
+
+  useEffect(() => {
+    const onOutside = (e) => {
+      if (templateDropdownRef.current && !templateDropdownRef.current.contains(e.target)) {
+        setTemplateMenuOpen(false);
+      }
+    };
+    const onEsc = (e) => {
+      if (e.key === "Escape") setTemplateMenuOpen(false);
+    };
+    document.addEventListener("mousedown", onOutside);
+    document.addEventListener("keydown", onEsc);
+    return () => {
+      document.removeEventListener("mousedown", onOutside);
+      document.removeEventListener("keydown", onEsc);
+    };
   }, []);
 
   const fetchData = async () => {
@@ -261,13 +283,32 @@ export default function AutoprovisionPanel({ backendHost = "localhost:8000" }) {
     }
   };
 
+  const findBestTemplateIdForModel = (bVal, mVal, tplList = templates) => {
+    const bLow = String(bVal || "").trim().toLowerCase();
+    const mLow = String(mVal || "").trim().toLowerCase();
+    if (!bLow || !mLow || !Array.isArray(tplList)) return "";
+    // 1. Prefer user's custom template for this exact brand+model
+    const exactCustom = tplList.find(
+      (t) => !t.is_system && String(t.brand || "").trim().toLowerCase() === bLow && String(t.model || "").trim().toLowerCase() === mLow
+    );
+    if (exactCustom) return String(exactCustom.id);
+    // 2. Otherwise auto-select official built-in system template for this exact brand+model
+    const exactSystem = tplList.find(
+      (t) => t.is_system && String(t.brand || "").trim().toLowerCase() === bLow && String(t.model || "").trim().toLowerCase() === mLow
+    );
+    if (exactSystem) return String(exactSystem.id);
+    return "";
+  };
+
   const handleMacInputChange = (val) => {
     setMacAddress(val);
     const detected = detectBrandFromMacInput(val);
     if (detected && detected !== brand) {
       setBrand(detected);
       const firstM = modelCatalog.find((m) => m.brand === detected);
-      if (firstM) setModel(firstM.model);
+      const nextModel = firstM ? firstM.model : model;
+      if (firstM) setModel(nextModel);
+      setTemplateId(findBestTemplateIdForModel(detected, nextModel));
     }
   };
 
@@ -459,12 +500,26 @@ export default function AutoprovisionPanel({ backendHost = "localhost:8000" }) {
 
   const getPhysicalDevicesForUser = (uid) => {
     if (!uid) return [];
-    const direct = userSipDevicesMap[String(uid)];
-    if (Array.isArray(direct)) return direct;
     const uObj = users.find((u) => String(u.id) === String(uid) || String(u.extension) === String(uid));
+    const direct = userSipDevicesMap[String(uid)];
+    if (Array.isArray(direct) && direct.length > 0) return direct;
     if (uObj) {
       const byExt = userSipDevicesMap[String(uObj.extension || "")];
-      if (Array.isArray(byExt)) return byExt;
+      if (Array.isArray(byExt) && byExt.length > 0) return byExt;
+      // Direct fallback to user's own sip_devices from GET /api/settings/users (PostgreSQL)
+      if (Array.isArray(uObj.sip_devices) && uObj.sip_devices.length > 0) {
+        return uObj.sip_devices
+          .filter((d) => d && ["desk_phone", "dect", "softphone"].includes(String(d.device_type || "").toLowerCase()))
+          .map((d) => ({
+            id: String(d.id || d.sip_username || ""),
+            name: String(d.name || "Masa Telefonu"),
+            device_type: String(d.device_type || "desk_phone"),
+            sip_username: String(d.sip_username || ""),
+            mac: String(d.mac || ""),
+            brand: String(d.brand || ""),
+            model: String(d.model || ""),
+          }));
+      }
     }
     return [];
   };
@@ -508,7 +563,9 @@ export default function AutoprovisionPanel({ backendHost = "localhost:8000" }) {
     setAssignedUserId("");
     setSelectedSipDeviceId("");
     setNewSipDeviceName("");
-    setTemplateId("");
+    setTemplateId(findBestTemplateIdForModel("Yealink", "T42S"));
+    setTemplateMenuOpen(false);
+    setTemplateSearch("");
     setConnectionMode(netDefaultMode || "lan");
     setShowModal(true);
   };
@@ -517,12 +574,16 @@ export default function AutoprovisionPanel({ backendHost = "localhost:8000" }) {
     setEditingOriginalMac(dev.mac || "");
     setMacAddress(dev.mac || "");
     setIpAddress(dev.live_ip || dev.ip || "");
-    setBrand(dev.brand || "Yealink");
-    setModel(dev.model || "T42S");
+    const bVal = dev.brand || "Yealink";
+    const mVal = dev.model || "T42S";
+    setBrand(bVal);
+    setModel(mVal);
     setModelFilter("");
     const uidVal = String(dev.assigned_user || dev.assigned_extension || "");
     handleAssignedUserChange(uidVal, dev.mac || "", dev.sip_device_id || "");
-    setTemplateId(dev.template_id || "");
+    setTemplateId(dev.template_id || findBestTemplateIdForModel(bVal, mVal));
+    setTemplateMenuOpen(false);
+    setTemplateSearch("");
     setConnectionMode(dev.connection_mode || "lan");
     setShowModal(true);
   };
@@ -531,13 +592,17 @@ export default function AutoprovisionPanel({ backendHost = "localhost:8000" }) {
     setEditingOriginalMac("");
     setMacAddress(dev.mac || "");
     setIpAddress(dev.ip || "");
-    setBrand(dev.brand || "Yealink");
-    setModel(dev.model || "T42S");
+    const bVal = dev.brand || "Yealink";
+    const mVal = dev.model || "T42S";
+    setBrand(bVal);
+    setModel(mVal);
     setModelFilter("");
     setAssignedUserId("");
     setSelectedSipDeviceId("");
     setNewSipDeviceName("");
-    setTemplateId("");
+    setTemplateId(findBestTemplateIdForModel(bVal, mVal));
+    setTemplateMenuOpen(false);
+    setTemplateSearch("");
     setConnectionMode("lan");
     setShowModal(true);
   };
@@ -1071,8 +1136,8 @@ export default function AutoprovisionPanel({ backendHost = "localhost:8000" }) {
       {/* Add / Edit Device Assignment Modal */}
       {showModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-sm">
-          <div className="bg-white dark:bg-slate-900 rounded-3xl shadow-2xl w-full max-w-lg overflow-hidden border border-slate-200/70 dark:border-slate-700/70">
-            <div className={`px-6 py-4 border-b border-slate-200 dark:border-slate-800 flex justify-between items-center ${bg} text-white`}>
+          <div className="bg-white dark:bg-slate-900 rounded-3xl shadow-2xl w-full max-w-lg max-h-[92vh] flex flex-col overflow-hidden border border-slate-200/70 dark:border-slate-700/70">
+            <div className={`px-6 py-4 border-b border-slate-200 dark:border-slate-800 flex justify-between items-center ${bg} text-white shrink-0`}>
               <h3 className="font-bold text-sm flex items-center gap-2">
                 <Smartphone size={18} />
                 {editingOriginalMac ? "Masa Telefonu Atamasını Düzenle" : "Yeni Masa Telefonu Eşleştir"}
@@ -1082,7 +1147,7 @@ export default function AutoprovisionPanel({ backendHost = "localhost:8000" }) {
               </button>
             </div>
 
-            <form onSubmit={handleSave} className="p-6 space-y-4">
+            <form onSubmit={handleSave} className="p-6 space-y-4 overflow-y-auto flex-1">
               {/* MAC + Optional IP */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
                 <div>
@@ -1115,7 +1180,7 @@ export default function AutoprovisionPanel({ backendHost = "localhost:8000" }) {
                 </div>
               </div>
 
-              {/* Brand + Searchable Model */}
+              {/* Brand + Searchable Model (Auto-selects matching template!) */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
                 <div>
                   <label className="block text-[11px] font-bold text-slate-600 dark:text-slate-300 mb-1">Marka</label>
@@ -1126,7 +1191,9 @@ export default function AutoprovisionPanel({ backendHost = "localhost:8000" }) {
                       setBrand(nb);
                       setModelFilter("");
                       const firstM = modelCatalog.find((m) => m.brand === nb);
-                      if (firstM) setModel(firstM.model);
+                      const nextModel = firstM ? firstM.model : model;
+                      if (firstM) setModel(nextModel);
+                      setTemplateId(findBestTemplateIdForModel(nb, nextModel));
                     }}
                     className="w-full px-3 py-2 text-xs font-bold rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white"
                   >
@@ -1143,13 +1210,30 @@ export default function AutoprovisionPanel({ backendHost = "localhost:8000" }) {
                     <input
                       type="text"
                       value={modelFilter}
-                      onChange={(e) => setModelFilter(e.target.value)}
-                      placeholder="Model filtrele (örn: T42S)..."
+                      onChange={(e) => {
+                        const v = e.target.value;
+                        setModelFilter(v);
+                        const matchList = modelCatalog.filter(
+                          (m) =>
+                            m.brand.toLowerCase() === String(brand || "Yealink").toLowerCase() &&
+                            (m.model.toLowerCase().includes(v.trim().toLowerCase()) ||
+                              m.label.toLowerCase().includes(v.trim().toLowerCase()))
+                        );
+                        if (matchList.length === 1) {
+                          setModel(matchList[0].model);
+                          setTemplateId(findBestTemplateIdForModel(brand, matchList[0].model));
+                        }
+                      }}
+                      placeholder="Model ara (örn: T42S)..."
                       className="w-full px-2.5 py-1 text-[11px] rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-200"
                     />
                     <select
                       value={model}
-                      onChange={(e) => setModel(e.target.value)}
+                      onChange={(e) => {
+                        const nm = e.target.value;
+                        setModel(nm);
+                        setTemplateId(findBestTemplateIdForModel(brand, nm));
+                      }}
                       className="w-full px-3 py-2 text-xs font-bold rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white"
                     >
                       {modelsForSelectedBrand.length > 0 ? (
@@ -1191,9 +1275,9 @@ export default function AutoprovisionPanel({ backendHost = "localhost:8000" }) {
                 </div>
               </div>
 
-              {/* Target SIP Device under Selected User (Multi-Phone Support!) */}
-              {assignedUserId && (() => {
-                const userPhysDevices = getPhysicalDevicesForUser(assignedUserId);
+              {/* Target SIP Device under Selected User (Always Visible — Multi-Phone Support!) */}
+              {(() => {
+                const userPhysDevices = assignedUserId ? getPhysicalDevicesForUser(assignedUserId) : [];
                 const chosenSlot = userPhysDevices.find((d) => String(d.id) === String(selectedSipDeviceId));
                 const cleanInputMac = String(macAddress || "").replace(/[^a-fA-F0-9]/g, "").toLowerCase();
                 const chosenExistingMac = String(chosenSlot?.mac || "").replace(/[^a-fA-F0-9]/g, "").toLowerCase();
@@ -1202,31 +1286,45 @@ export default function AutoprovisionPanel({ backendHost = "localhost:8000" }) {
                 );
                 return (
                   <div className="space-y-2 p-3 rounded-2xl border border-slate-200 dark:border-slate-700/80 bg-slate-50/70 dark:bg-slate-800/40">
-                    <label className="block text-[11px] font-extrabold text-slate-700 dark:text-slate-200">
-                      Bağlanacak SIP Cihazı (Hesap)
-                    </label>
+                    <div className="flex items-center justify-between gap-2">
+                      <label className="block text-[11px] font-extrabold text-slate-700 dark:text-slate-200">
+                        Bağlanacak Masa Telefonu (SIP Cihazı)
+                      </label>
+                      {assignedUserId && (
+                        <span className="text-[10px] font-bold text-slate-400">
+                          {userPhysDevices.length} kayıtlı SIP cihazı
+                        </span>
+                      )}
+                    </div>
                     <div className="relative">
                       <Smartphone size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
                       <select
-                        value={selectedSipDeviceId}
+                        disabled={!assignedUserId}
+                        value={assignedUserId ? selectedSipDeviceId : ""}
                         onChange={(e) => setSelectedSipDeviceId(e.target.value)}
-                        className="w-full pl-8 pr-4 py-2 text-xs font-bold rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white"
+                        className="w-full pl-8 pr-4 py-2 text-xs font-bold rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white disabled:opacity-60"
                       >
-                        {userPhysDevices.map((sd) => {
-                          const hasMac = Boolean(String(sd.mac || "").trim());
-                          return (
-                            <option key={sd.id} value={String(sd.id)}>
-                              {sd.name} • SIP: {sd.sip_username} ({hasMac ? `MAC: ${sd.mac.toUpperCase()}` : "MAC Boş — Müsait"})
+                        {!assignedUserId ? (
+                          <option value="">Önce yukarıdan kullanıcı / dahili seçiniz...</option>
+                        ) : (
+                          <>
+                            {userPhysDevices.map((sd) => {
+                              const hasMac = Boolean(String(sd.mac || "").trim());
+                              return (
+                                <option key={sd.id} value={String(sd.id)}>
+                                  {sd.name} • SIP: {sd.sip_username} ({hasMac ? `MAC: ${sd.mac.toUpperCase()}` : "MAC Boş — Müsait"})
+                                </option>
+                              );
+                            })}
+                            <option value="__CREATE_NEW__">
+                              + Bu Kullanıcıya Yeni Masa Telefonu (SIP Hesabı) Oluştur
                             </option>
-                          );
-                        })}
-                        <option value="__CREATE_NEW__">
-                          + Bu Kullanıcıya Yeni Masa Telefonu (SIP Hesabı) Oluştur
-                        </option>
+                          </>
+                        )}
                       </select>
                     </div>
 
-                    {selectedSipDeviceId === "__CREATE_NEW__" && (
+                    {assignedUserId && selectedSipDeviceId === "__CREATE_NEW__" && (
                       <input
                         type="text"
                         value={newSipDeviceName}
@@ -1240,7 +1338,7 @@ export default function AutoprovisionPanel({ backendHost = "localhost:8000" }) {
                       <p className="text-[10px] font-semibold text-amber-700 dark:text-amber-300 flex items-center gap-1.5">
                         <AlertTriangle size={12} className="shrink-0" />
                         <span>
-                          Bu SIP hesabında mevcut <strong>{chosenSlot.mac.toUpperCase()}</strong> yerine yeni MAC atanacaktır. 2. bir telefon eklemek istiyorsanız yukarıdan <strong>&quot;+ Yeni Masa Telefonu Oluştur&quot;</strong> seçeneğini seçin.
+                          Bu SIP hesabında mevcut <strong>{chosenSlot.mac.toUpperCase()}</strong> yerine yeni MAC atanacaktır. 2. telefon ekliyorsanız <strong>&quot;+ Yeni Masa Telefonu Oluştur&quot;</strong> seçin.
                         </span>
                       </p>
                     )}
@@ -1248,48 +1346,196 @@ export default function AutoprovisionPanel({ backendHost = "localhost:8000" }) {
                 );
               })()}
 
-              {/* Template (Filtered & Grouped by Selected Brand + Model) */}
-              <div>
-                <label className="block text-[11px] font-bold text-slate-600 dark:text-slate-300 mb-1">
-                  Konfigürasyon Şablonu ({brand} {model})
-                </label>
-                <div className="relative">
-                  <FileText size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-                  <select
-                    value={templateId}
-                    onChange={(e) => setTemplateId(e.target.value)}
-                    className="w-full pl-9 pr-4 py-2 text-xs font-bold rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white"
-                  >
-                    <option value="">Otomatik (Nornia Akıllı Provizyon — {brand} {model})</option>
-                    {groupedTemplatesForSelectedModel.exactMatch.length > 0 && (
-                      <optgroup label={`★ ${brand} ${model} İçin Şablonlar`}>
-                        {groupedTemplatesForSelectedModel.exactMatch.map((t) => (
-                          <option key={t.id} value={t.id}>
-                            {t.is_system ? `[Sistem] ${t.name}` : `[Özel] ${t.name}`}
-                          </option>
-                        ))}
-                      </optgroup>
-                    )}
-                    {groupedTemplatesForSelectedModel.sameBrand.length > 0 && (
-                      <optgroup label={`Diğer ${brand} Şablonları`}>
-                        {groupedTemplatesForSelectedModel.sameBrand.map((t) => (
-                          <option key={t.id} value={t.id}>
-                            {t.is_system ? `[Sistem] ${t.name}` : `[Özel] ${t.name}`}
-                          </option>
-                        ))}
-                      </optgroup>
-                    )}
-                    {groupedTemplatesForSelectedModel.otherCustom.length > 0 && (
-                      <optgroup label="Diğer Özel Şablonlar">
-                        {groupedTemplatesForSelectedModel.otherCustom.map((t) => (
-                          <option key={t.id} value={t.id}>
-                            [Özel] {t.name} ({t.brand} {t.model})
-                          </option>
-                        ))}
-                      </optgroup>
-                    )}
-                  </select>
+              {/* Searchable & Auto-Matched Template Combobox */}
+              <div className="relative" ref={templateDropdownRef}>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="block text-[11px] font-bold text-slate-600 dark:text-slate-300">
+                    Konfigürasyon Şablonu ({brand} {model})
+                  </label>
+                  {templateId && (
+                    <span className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400">
+                      Modelle Eşleşti
+                    </span>
+                  )}
                 </div>
+                {(() => {
+                  const selectedTplObj = templates.find((t) => String(t.id) === String(templateId));
+                  const q = templateSearch.trim().toLowerCase();
+                  const filterMatch = (t) =>
+                    !q ||
+                    String(t.name || "").toLowerCase().includes(q) ||
+                    String(t.brand || "").toLowerCase().includes(q) ||
+                    String(t.model || "").toLowerCase().includes(q);
+                  const exactFiltered = groupedTemplatesForSelectedModel.exactMatch.filter(filterMatch);
+                  const sameBrandFiltered = groupedTemplatesForSelectedModel.sameBrand.filter(filterMatch);
+                  const otherFiltered = groupedTemplatesForSelectedModel.otherCustom.filter(filterMatch);
+
+                  return (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const next = !templateMenuOpen;
+                          setTemplateMenuOpen(next);
+                          setTemplateSearch("");
+                          if (next) setTimeout(() => templateSearchInputRef.current?.focus(), 20);
+                        }}
+                        className="w-full flex items-center justify-between gap-2 pl-3 pr-3 py-2 text-xs font-bold rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700/70 text-slate-900 dark:text-white transition cursor-pointer"
+                      >
+                        <span className="flex items-center gap-2 min-w-0">
+                          <FileText size={14} className="text-slate-400 shrink-0" />
+                          <span className="truncate">
+                            {selectedTplObj
+                              ? `${selectedTplObj.is_system ? "[Sistem]" : "[Özel]"} ${selectedTplObj.name}`
+                              : `Otomatik (Nornia Akıllı Provizyon — ${brand} ${model})`}
+                          </span>
+                        </span>
+                        <ChevronDown size={14} className={`shrink-0 text-slate-400 transition-transform ${templateMenuOpen ? "rotate-180" : ""}`} />
+                      </button>
+
+                      {templateMenuOpen && (
+                        <div className="absolute left-0 right-0 mt-1.5 rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 shadow-2xl z-50 overflow-hidden">
+                          <div className="p-2 border-b border-slate-100 dark:border-slate-800">
+                            <div className="relative">
+                              <Search size={13} className="absolute left-2.5 top-2 text-slate-400" />
+                              <input
+                                ref={templateSearchInputRef}
+                                type="text"
+                                value={templateSearch}
+                                onChange={(e) => setTemplateSearch(e.target.value)}
+                                placeholder="Şablon ara... (örn: T42S, Özel, Yealink)"
+                                className="w-full pl-8 pr-7 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs font-semibold text-slate-800 dark:text-white focus:outline-none"
+                              />
+                              {templateSearch && (
+                                <button
+                                  type="button"
+                                  onClick={() => setTemplateSearch("")}
+                                  className="absolute right-2 top-2 text-slate-400 hover:text-slate-600 cursor-pointer"
+                                >
+                                  <X size={13} />
+                                </button>
+                              )}
+                            </div>
+                          </div>
+
+                          <div className="max-h-60 overflow-y-auto p-1.5 space-y-1">
+                            {/* Exact Match Section */}
+                            {exactFiltered.length > 0 && (
+                              <div>
+                                <div className="px-2.5 py-1 text-[10px] font-black uppercase text-emerald-600 dark:text-emerald-400">
+                                  ★ {brand} {model} İçin Eşleşen Şablonlar
+                                </div>
+                                {exactFiltered.map((t) => (
+                                  <button
+                                    key={t.id}
+                                    type="button"
+                                    onClick={() => {
+                                      setTemplateId(String(t.id));
+                                      setTemplateMenuOpen(false);
+                                    }}
+                                    className={`w-full flex items-center justify-between gap-2 px-2.5 py-2 rounded-xl text-left text-xs font-bold transition cursor-pointer ${
+                                      String(templateId) === String(t.id)
+                                        ? `${lightBg} ${text}`
+                                        : "text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800"
+                                    }`}
+                                  >
+                                    <span className="truncate">
+                                      {t.is_system ? "[Sistem]" : "[Özel]"} {t.name}
+                                    </span>
+                                    {String(templateId) === String(t.id) && <Check size={13} className="shrink-0" />}
+                                  </button>
+                                ))}
+                              </div>
+                            )}
+
+                            {/* Automatic Smart Provisioning */}
+                            {(!q || "otomatik nornia akilli provizyon".includes(q)) && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setTemplateId("");
+                                  setTemplateMenuOpen(false);
+                                }}
+                                className={`w-full flex items-center justify-between gap-2 px-2.5 py-2 rounded-xl text-left text-xs font-bold transition cursor-pointer ${
+                                  !templateId
+                                    ? `${lightBg} ${text}`
+                                    : "text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800"
+                                }`}
+                              >
+                                <span className="truncate">Otomatik (Nornia Akıllı Provizyon — {brand} {model})</span>
+                                {!templateId && <Check size={13} className="shrink-0" />}
+                              </button>
+                            )}
+
+                            {/* Same Brand Templates */}
+                            {sameBrandFiltered.length > 0 && (
+                              <div>
+                                <div className="px-2.5 py-1 text-[10px] font-black uppercase text-slate-400">
+                                  Diğer {brand} Şablonları ({sameBrandFiltered.length})
+                                </div>
+                                {sameBrandFiltered.map((t) => (
+                                  <button
+                                    key={t.id}
+                                    type="button"
+                                    onClick={() => {
+                                      setTemplateId(String(t.id));
+                                      setTemplateMenuOpen(false);
+                                    }}
+                                    className={`w-full flex items-center justify-between gap-2 px-2.5 py-1.5 rounded-xl text-left text-xs font-semibold transition cursor-pointer ${
+                                      String(templateId) === String(t.id)
+                                        ? `${lightBg} ${text}`
+                                        : "text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800"
+                                    }`}
+                                  >
+                                    <span className="truncate">
+                                      {t.is_system ? "[Sistem]" : "[Özel]"} {t.name}
+                                    </span>
+                                    {String(templateId) === String(t.id) && <Check size={13} className="shrink-0" />}
+                                  </button>
+                                ))}
+                              </div>
+                            )}
+
+                            {/* Other Custom Templates */}
+                            {otherFiltered.length > 0 && (
+                              <div>
+                                <div className="px-2.5 py-1 text-[10px] font-black uppercase text-slate-400">
+                                  Diğer Özel Şablonlar
+                                </div>
+                                {otherFiltered.map((t) => (
+                                  <button
+                                    key={t.id}
+                                    type="button"
+                                    onClick={() => {
+                                      setTemplateId(String(t.id));
+                                      setTemplateMenuOpen(false);
+                                    }}
+                                    className={`w-full flex items-center justify-between gap-2 px-2.5 py-1.5 rounded-xl text-left text-xs font-semibold transition cursor-pointer ${
+                                      String(templateId) === String(t.id)
+                                        ? `${lightBg} ${text}`
+                                        : "text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800"
+                                    }`}
+                                  >
+                                    <span className="truncate">
+                                      [Özel] {t.name} ({t.brand} {t.model})
+                                    </span>
+                                    {String(templateId) === String(t.id) && <Check size={13} className="shrink-0" />}
+                                  </button>
+                                ))}
+                              </div>
+                            )}
+
+                            {exactFiltered.length === 0 && sameBrandFiltered.length === 0 && otherFiltered.length === 0 && q && (
+                              <div className="px-3 py-4 text-center text-xs text-slate-400">
+                                &quot;{templateSearch}&quot; ile eşleşen şablon bulunamadı.
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      )}
+                    </>
+                  );
+                })()}
               </div>
 
               {/* Connection Mode */}
