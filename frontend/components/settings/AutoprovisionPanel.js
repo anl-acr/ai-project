@@ -760,7 +760,7 @@ export default function AutoprovisionPanel({ backendHost = "localhost:8000" }) {
                   Farklı Lokasyon / Uzak Şube (WAN)
                 </span>
                 <span className="px-2 py-0.5 rounded-md bg-slate-200/80 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-mono text-[10px] font-bold">
-                  SIP: {netConfig.network?.wan_sip_host}:5060
+                  SIP: {netConfig.network?.wan_sip_host}:5060{netConfig.network?.sip_edge_active ? " • TCP (SIP Edge)" : ""}
                 </span>
               </div>
               <div className="flex items-center gap-2">

@@ -247,7 +247,7 @@ def build_system_default_templates() -> List[Dict[str, Any]]:
     <P36>{{SIP_USERNAME}}</P36>
     <P34>{{SIP_PASSWORD}}</P34>
     <P3>{{DISPLAY_NAME}}</P3>
-    <P130>0</P130>
+    <P130>{{TRANSPORT_CODE}}</P130>
     <P52>2</P52>
     <P33>{{VOICEMAIL_CODE}}</P33>
     <P1347>{{PICKUP_DIRECTED}}</P1347>
@@ -284,7 +284,7 @@ SIP1 Register Port   :{{SIP_PORT}}
 SIP1 Register User   :{{SIP_USERNAME}}
 SIP1 Register Pswd   :{{SIP_PASSWORD}}
 SIP1 Register TTL    :3600
-SIP1 Transport       :0
+SIP1 Transport       :{{TRANSPORT_CODE}}
 SIP1 Rport           :1
 SIP1 Subscribe Expire:1800
 SIP1 MWI Num         :{{VOICEMAIL_CODE}}
@@ -352,8 +352,8 @@ account.1.user_name = {{SIP_USERNAME}}
 account.1.password = {{SIP_PASSWORD}}
 account.1.sip_server.1.address = {{SIP_SERVER}}
 account.1.sip_server.1.port = {{SIP_PORT}}
-account.1.sip_server.1.transport_type = 0
-account.1.sip_server.1.expires = 3600
+account.1.sip_server.1.transport_type = {{TRANSPORT_CODE}}
+account.1.sip_server.1.expires = 300
 account.1.nat.udp_update_enable = 1
 account.1.nat.udp_update_time = 30
 account.1.nat.rport = 1
@@ -1192,9 +1192,36 @@ def get_provisioning_network_settings(
     req_host_clean = str(request_host or "").strip()
     req_host_only = req_host_clean.split(":")[0].strip()
 
+    # Detect active Nornia Remote Access / SIP Edge domain (e.g. app.nornia.com.tr)
+    # When SIP Edge (Kamailio + WireGuard) is active, remote WAN desk phones MUST register to
+    # the SIP Edge domain (5060 TCP) rather than the office's behind-NAT ISP IP (nat_extern_ip)!
+    ras_sip_domain = ""
+    ras_public_url = ""
+    try:
+        from backend.services.ras_client_service import RAS_RUNTIME_STATE, get_ras_config
+        ras_cfg = get_ras_config() or {}
+        se = RAS_RUNTIME_STATE.get("sip_edge") if isinstance(RAS_RUNTIME_STATE.get("sip_edge"), dict) else {}
+        ras_public_url = str(RAS_RUNTIME_STATE.get("public_ras_url") or "").strip().rstrip("/")
+        se_dom = str(se.get("sip_domain") or "").strip()
+        if se_dom:
+            ras_sip_domain = se_dom
+        elif ras_cfg.get("enabled") or os.path.isfile("/etc/wireguard/wg-nornia.conf"):
+            if ras_public_url:
+                ras_sip_domain = ras_public_url.replace("https://", "").replace("http://", "").split("/")[0].split(":")[0].strip()
+            if not ras_sip_domain:
+                sub = str(ras_cfg.get("locked_subdomain") or ras_cfg.get("subdomain") or "").strip()
+                if sub:
+                    ras_sip_domain = f"{sub}.nornia.com.tr"
+    except Exception:
+        pass
+    # Fallback: if accessed over a *.nornia.com.tr tunnel host and wg-nornia exists, treat that host as SIP Edge domain
+    if not ras_sip_domain and req_host_only and req_host_only.lower().endswith(".nornia.com.tr"):
+        ras_sip_domain = req_host_only
+
     configured_wan_sip = str(ap_net.get("wan_sip_host") or "").strip()
     wan_sip_host = (
         configured_wan_sip
+        or ras_sip_domain
         or (nat_extern_ip if nat_extern_ip not in ("", "127.0.0.1", "localhost", "0.0.0.0") else "")
         or (req_host_only if req_host_only and not is_private_lan_ip(req_host_only) and req_host_only not in ("127.0.0.1", "localhost") else "")
         or local_ip
@@ -1203,8 +1230,12 @@ def get_provisioning_network_settings(
     configured_wan_prov = str(ap_net.get("wan_prov_base") or "").strip().rstrip("/")
     if configured_wan_prov:
         wan_prov_base = configured_wan_prov
+    elif ras_public_url:
+        wan_prov_base = ras_public_url
     elif req_host_clean and req_host_only not in ("127.0.0.1", "localhost", "0.0.0.0"):
         wan_prov_base = f"{request_scheme or 'https'}://{req_host_clean}"
+    elif ras_sip_domain:
+        wan_prov_base = f"https://{ras_sip_domain}"
     else:
         wan_prov_base = f"https://{wan_sip_host}"
 
@@ -1226,6 +1257,8 @@ def get_provisioning_network_settings(
         "lan_base": lan_base,
         "wan_sip_host": wan_sip_host,
         "configured_wan_sip_host": configured_wan_sip,
+        "sip_edge_active": bool(ras_sip_domain),
+        "ras_sip_domain": ras_sip_domain,
         "nat_extern_ip": nat_extern_ip,
         "wan_prov_base": wan_prov_base,
         "configured_wan_prov_base": configured_wan_prov,
@@ -1728,6 +1761,7 @@ def generate_provisioning_config(
                 ])
 
         pb_full_url = f"{pb_base}/{ext_s or 'all'}/{'fanvil.xml' if 'fanvil' in tpl_b_low else 'yealink.xml'}"
+        tr_code = "2" if tr_up == "TLS" else ("1" if tr_up == "TCP" else "0")
         replacements = {
             "{MAC}": mac_hex,
             "{MAC_UPPER}": mac_hex.upper(),
@@ -1745,6 +1779,7 @@ def generate_provisioning_config(
             "{PBX_HOST}": pbx_host,
             "{SIP_PORT}": str(sip_port),
             "{TRANSPORT}": tr_up,
+            "{TRANSPORT_CODE}": tr_code,
             "{VOICEMAIL_CODE}": "*97",
             "{PICKUP_GROUP}": pickup_group,
             "{PICKUP_DIRECTED}": pickup_directed,

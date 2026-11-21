@@ -14536,6 +14536,10 @@ async def save_autoprovision(payload: dict, user_info: dict = Depends(get_user_i
                     target_sd["ip"] = ip_val
                 target_sd["connection_mode"] = conn_mode
                 target_sd["remote_access"] = (conn_mode == "wan")
+                if conn_mode == "wan" and str(target_sd.get("transport") or "").upper() != "TLS":
+                    target_sd["transport"] = "TCP"
+                elif conn_mode == "lan" and not target_sd.get("transport"):
+                    target_sd["transport"] = "UDP"
 
         if target_sd is not None:
             resolved_sip_dev_id = str(target_sd.get("id") or "")
@@ -14568,11 +14572,13 @@ async def save_autoprovision(payload: dict, user_info: dict = Depends(get_user_i
 
         # Persist to PostgreSQL SystemUser.sip_devices if available
         try:
+            from sqlalchemy.orm.attributes import flag_modified as _ap_flag_modified
             async with AsyncSessionLocal() as sess:
                 res_dbu = await sess.execute(select(SystemUser).where(SystemUser.extension == ext_s))
                 dbu = res_dbu.scalars().first()
                 if dbu and hasattr(dbu, "sip_devices"):
                     dbu.sip_devices = norm_devs
+                    _ap_flag_modified(dbu, "sip_devices")
                     await sess.commit()
         except Exception:
             pass
@@ -15763,8 +15769,8 @@ async def get_autoprovision_network_config(request: Request, user_info: dict = D
     )
     tenant_id = user_info.get("tenant_id") or "tenant-default"
     token = get_or_create_provisioning_token(settings_db, tenant_id)
-    req_host = request.headers.get("host") or ""
-    scheme = request.headers.get("x-forwarded-proto") or request.url.scheme or "https"
+    req_host = (request.headers.get("x-forwarded-host") or request.headers.get("host") or "").split(",")[0].strip()
+    scheme = (request.headers.get("x-forwarded-proto") or request.url.scheme or "https").split(",")[0].strip()
     ep = resolve_provisioning_endpoints(
         settings_db=settings_db,
         token=token,
@@ -15823,8 +15829,8 @@ async def save_autoprovision_network_config(
 
     tenant_id = user_info.get("tenant_id") or "tenant-default"
     token = get_or_create_provisioning_token(settings_db, tenant_id)
-    req_host = request.headers.get("host") or ""
-    scheme = request.headers.get("x-forwarded-proto") or request.url.scheme or "https"
+    req_host = (request.headers.get("x-forwarded-host") or request.headers.get("host") or "").split(",")[0].strip()
+    scheme = (request.headers.get("x-forwarded-proto") or request.url.scheme or "https").split(",")[0].strip()
     ep = resolve_provisioning_endpoints(
         settings_db=settings_db,
         token=token,
@@ -15952,8 +15958,8 @@ async def _render_autoprovision_file_for_phone(
     user_agent = request.headers.get("user-agent") or ""
     fn_clean = str(filename or "").strip()
     fn_low = fn_clean.lower()
-    req_host = request.headers.get("host") or ""
-    req_scheme = request.headers.get("x-forwarded-proto") or request.url.scheme or "http"
+    req_host = (request.headers.get("x-forwarded-host") or request.headers.get("host") or "").split(",")[0].strip()
+    req_scheme = (request.headers.get("x-forwarded-proto") or request.url.scheme or "http").split(",")[0].strip()
     query_mode = str(explicit_mode or request.query_params.get("mode") or "").strip().lower()
 
     tenant_id = resolve_tenant_by_provisioning_token(settings_db, token)
@@ -16097,16 +16103,23 @@ async def _render_autoprovision_file_for_phone(
                 eff_exp = saved_dp.get("expansion_modules") if isinstance(saved_dp.get("expansion_modules"), list) else (dev.get("expansion_modules") or [])
                 eff_prefs = saved_dp.get("phone_prefs") if isinstance(saved_dp.get("phone_prefs"), dict) else (dev.get("phone_prefs") or {})
 
+                eff_transport = str(dev.get("transport") or "UDP").strip().upper()
+                if prov_ep["effective_mode"] == "wan" and (
+                    (prov_ep.get("network") or {}).get("sip_edge_active") or bool(dev.get("remote_access"))
+                ):
+                    if eff_transport != "TLS":
+                        eff_transport = "TCP"
+
                 content_text, media_type, _ = generate_provisioning_config(
                     ext=ext_s,
                     sip_username=dev_su,
                     sip_password=str(dev.get("sip_password") or ""),
                     full_name=str(u.get("full_name") or f"Dahili {ext_s}"),
                     pbx_host=prov_ep["pbx_host"],
-                    brand=str(saved_dp.get("brand") or ap_rec.get("brand") or dev.get("brand") or "Yealink"),
-                    model=str(saved_dp.get("model") or ap_rec.get("model") or dev.get("model") or "T46U"),
+                    brand=str(ap_rec.get("brand") or dev.get("brand") or saved_dp.get("brand") or "Yealink"),
+                    model=str(ap_rec.get("model") or dev.get("model") or saved_dp.get("model") or "T46U"),
                     mac_colon=str(dev.get("mac") or ""),
-                    transport=str(dev.get("transport") or "UDP"),
+                    transport=eff_transport,
                     dss_keys=eff_dss,
                     soft_keys=eff_soft,
                     pickup_group=pickup_group,
@@ -16152,7 +16165,7 @@ async def _render_autoprovision_file_for_phone(
                     pass
                 _log_autoprovision_hit(
                     tenant_id, fn_clean, client_ip, user_agent, 200,
-                    f"Konfigürasyon gönderildi ({prov_ep['effective_mode'].upper()} • SIP: {prov_ep['pbx_host']})",
+                    f"Konfigürasyon gönderildi ({prov_ep['effective_mode'].upper()} • SIP: {prov_ep['pbx_host']}:5060 {eff_transport})",
                     mode=prov_ep["effective_mode"],
                     mac_hex=dev_mac_hex or mac_hex,
                     ext=ext_s,
@@ -43015,18 +43028,33 @@ async def get_system_version_info():
         pass
 
     return {
-        "version": "v3.8.5",
+        "version": "v3.8.6",
         "commit_hash": live_commit,
         "release_date": "22 Kasım 2026",
         "status": "Güncel / Canlı Sürüm",
         "environment": "Production (On-Premise)",
         "changelog": [
             {
-                "version": "v3.8.5",
+                "version": "v3.8.6",
                 "commit_hash": live_commit,
                 "release_date": "22 Kasım 2026",
                 "badge": "Canlı Sürüm (Güncel)",
                 "badge_type": "current",
+                "title": "WAN SIP Edge (TCP) Otomatik Kayıt Düzeltmesi & Temsilci Masa Telefonum Salt-Okunur Model Rozeti",
+                "summary": "Uzak Şube (WAN) oto-provizyon dosyaları artık NAT dış IP'si yerine aktif SIP Edge (Kamailio) domainini (app.nornia.com.tr:5060 TCP) yazar; temsilci Masa Telefonum sekmesinden gereksiz marka/model seçicileri kaldırıldı.",
+                "features": [
+                    "Otomatik SIP Edge Domain & TCP Transport ({TRANSPORT_CODE}): SIP Edge aktif santrallerde WAN provizyon dosyaları artık account.1.sip_server.1.address olarak doğrudan SIP Edge domainini (app.nornia.com.tr) ve transport_type = 1 (TCP) yazar.",
+                    "Temsilci Paneli Sadeleştirme: Masa Telefonum sekmesindeki marka/model seçicileri kaldırılarak yöneticinin Oto Provizyon'dan atadığı cihazı gösteren salt-okunur kilitli model rozeti (Yealink T42S • 15 DSS) eklendi.",
+                    "PostgreSQL JSON Senkron Düzeltmesi: Oto Provizyon kayıtlarında flag_modified(dbu, 'sip_devices') ile WAN/TCP bayrağının PostgreSQL'e kesin yazılması sağlandı."
+                ],
+                "fixes": []
+            },
+            {
+                "version": "v3.8.5",
+                "commit_hash": "a5af3b5",
+                "release_date": "22 Kasım 2026",
+                "badge": "Kararlı",
+                "badge_type": "stable",
                 "title": "Oto Provizyon Arayüzü Hotfix (FileCode İkon İçe Aktarma Düzeltmesi)",
                 "summary": "Oto Provizyon panelindeki Son Provizyon İstekleri başlığında eksik kalan FileCode ikon importu giderildi.",
                 "features": [],
