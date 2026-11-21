@@ -1034,8 +1034,11 @@ def spawn_nornia_updater(
         except Exception:
             hw_id = ""
 
-    cmd = [
-        "nohup",
+    import shlex as _shlex
+    import shutil as _shutil
+    import time as _time
+
+    py_cmd = [
         _sys.executable,
         script_path,
         "--mode",
@@ -1050,17 +1053,42 @@ def spawn_nornia_updater(
         hw_id,
     ]
     if target_version:
-        cmd.extend(["--target-version", str(target_version).strip()])
+        py_cmd.extend(["--target-version", str(target_version).strip()])
     if target_commit:
-        cmd.extend(["--target-commit", str(target_commit).strip()])
+        py_cmd.extend(["--target-commit", str(target_commit).strip()])
 
     try:
-        subprocess.Popen(
-            cmd,
+        # CRITICAL: Launch completely OUTSIDE aida-backend's PM2 process tree (PPID=1 / own systemd unit)
+        # so `pm2 restart aida-backend` (PM2 treekill) NEVER kills nornia_updater.py mid-step!
+        if _shutil.which("systemd-run") and os.path.exists("/run/systemd/system"):
+            unit_name = f"nornia-updater-{int(_time.time())}"
+            cur_path = os.environ.get("PATH") or "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+            cur_home = os.environ.get("HOME") or "/root"
+            cur_pm2_home = os.environ.get("PM2_HOME") or os.path.join(cur_home, ".pm2")
+            sd_cmd = [
+                "systemd-run",
+                "--unit",
+                unit_name,
+                "--collect",
+                "--no-block",
+                "--working-directory",
+                project_dir,
+                f"--setenv=PATH={cur_path}",
+                f"--setenv=HOME={cur_home}",
+                f"--setenv=PM2_HOME={cur_pm2_home}",
+            ] + py_cmd
+            res_sd = subprocess.run(sd_cmd, capture_output=True, text=True, timeout=5)
+            if res_sd.returncode == 0:
+                return True
+
+        # Fallback: double-fork via immediate-exit shell so kernel reparents updater to PID 1 (PPID=1)
+        quoted_cmd = " ".join(_shlex.quote(arg) for arg in py_cmd)
+        subprocess.run(
+            ["sh", "-c", f"nohup {quoted_cmd} >/dev/null 2>&1 </dev/null &"],
             cwd=project_dir,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
-            start_new_session=True,
+            timeout=5,
         )
         return True
     except Exception as exc:

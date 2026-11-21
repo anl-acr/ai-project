@@ -287,8 +287,8 @@ def perform_rollback(prev_commit_full: str, prev_version: str, state: dict, hub_
         if os.path.isdir(fe_dir):
             run_cmd(["npm", "run", "build"], cwd=fe_dir, timeout=420)
         if shutil.which("pm2"):
-            run_cmd(["pm2", "restart", "aida-backend"], timeout=45)
             run_cmd(["pm2", "restart", "aida-app"], timeout=45)
+            run_cmd(["pm2", "restart", "aida-backend"], timeout=45)
         ok, live_v = wait_for_health_check(timeout_sec=25)
         state.update({
             "status": "rolled_back",
@@ -553,8 +553,8 @@ def main():
         write_status(state, args.hub_url, args.hardware_id)
 
         if shutil.which("pm2"):
-            run_cmd(["pm2", "restart", "aida-backend"], timeout=45)
             run_cmd(["pm2", "restart", "aida-app"], timeout=45)
+            run_cmd(["pm2", "restart", "aida-backend"], timeout=45)
             time.sleep(3.0)
             ok_health, live_ver_or_err = wait_for_health_check(expected_version=new_version, timeout_sec=30)
             if not ok_health:

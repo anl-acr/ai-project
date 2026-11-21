@@ -41391,18 +41391,32 @@ async def get_system_version_info():
         pass
 
     return {
-        "version": "v3.6.4",
+        "version": "v3.6.5",
         "commit_hash": live_commit,
         "release_date": "21 Kasım 2026",
         "status": "Güncel / Canlı Sürüm",
         "environment": "Production (On-Premise)",
         "changelog": [
             {
-                "version": "v3.6.4",
+                "version": "v3.6.5",
                 "commit_hash": live_commit,
                 "release_date": "21 Kasım 2026",
                 "badge": "Canlı Sürüm (Güncel)",
                 "badge_type": "current",
+                "title": "OTA Güncelleme Motoru PM2 Process-Tree İzolasyonu (systemd-run / Double-Fork)",
+                "summary": "nornia_updater.py artık aida-backend'in PM2 süreç ağacı dışında (izole systemd-run servisi / PID 1 double-fork) başlatılır ve önce aida-app, ardından aida-backend yeniden başlatılarak sağlık kontrolü ve %100 tamamlama bildirimi kesintisiz tamamlanır.",
+                "features": [],
+                "fixes": [
+                    "spawn_nornia_updater() artık systemd-run --no-block (--setenv=PATH/HOME/PM2_HOME) ve double-fork yedeği ile PPID=1 altında çalıştığından pm2 restart aida-backend sırasında PM2 treekill tarafından kesilmez.",
+                    "nornia_updater.py içinde önce aida-app, ardından aida-backend yeniden başlatılarak derlenmiş yeni Next.js arayüzünün anında devreye girmesi garanti altına alındı."
+                ]
+            },
+            {
+                "version": "v3.6.4",
+                "commit_hash": "a52f166",
+                "release_date": "21 Kasım 2026",
+                "badge": "Kararlı",
+                "badge_type": "stable",
                 "title": "Kullanıcı SIP Sekmesinde Web, Masaüstü ve Mobil İstemci Bağımsız Yönetimi & Canlı Durum",
                 "summary": "Kullanıcı ayarları SIP sekmesindeki Web Telefonu bölümü 'Yazılım İstemcileri (Web / Masaüstü / Mobil)' yapısına yükseltildi. Ortak WebRTC PJSIP kimliği korunarak her 3 platform için ayrı Açık/Kapalı erişim anahtarı, canlı çevrimiçi durumu ve IP/ortam görünürlüğü eklendi.",
                 "features": [
