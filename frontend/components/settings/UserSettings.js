@@ -123,6 +123,7 @@ const DSS_KEY_TYPES = [
 const SOFTKEY_ACTIONS = [
   { id: "history", label: "Çağrı Geçmişi" },
   { id: "directory", label: "Rehber" },
+  { id: "forward", label: "Yönlendir" },
   { id: "dnd", label: "Rahatsız Etme (DND)" },
   { id: "menu", label: "Menü" },
   { id: "redial", label: "Tekrar Ara" },
@@ -1208,7 +1209,7 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
         : [
             { key: 1, type: "history", label: "Geçmiş" },
             { key: 2, type: "directory", label: "Rehber" },
-            { key: 3, type: "dnd", label: "DND" },
+            { key: 3, type: "forward", label: "Yönlendir" },
             { key: 4, type: "menu", label: "Menü" }
           ]
     };

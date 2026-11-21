@@ -137,7 +137,7 @@ PHONE_MODEL_CATALOG: List[Dict[str, Any]] = [
     {"brand": "Yealink", "model": "T41P", "label": "Yealink SIP-T41P (6 Tuş × 3 Sayfa • Monokrom)", "screen": "mono", "layout": "split", "dss_per_page": 6, "dss_pages": 3, "max_dss": 15, "soft_keys": 4, "expansion_model": None, "max_expansions": 0},
     {"brand": "Yealink", "model": "T41S", "label": "Yealink SIP-T41S (6 Tuş × 3 Sayfa • Monokrom)", "screen": "mono", "layout": "split", "dss_per_page": 6, "dss_pages": 3, "max_dss": 15, "soft_keys": 4, "expansion_model": None, "max_expansions": 0},
     {"brand": "Yealink", "model": "T42G", "label": "Yealink SIP-T42G (6 Tuş × 3 Sayfa • Monokrom Gigabit)", "screen": "mono", "layout": "split", "dss_per_page": 6, "dss_pages": 3, "max_dss": 15, "soft_keys": 4, "expansion_model": None, "max_expansions": 0},
-    {"brand": "Yealink", "model": "T42S", "label": "Yealink SIP-T42S (6 Tuş × 3 Sayfa = 15 DSS • Monokrom Gigabit)", "screen": "mono", "layout": "split", "dss_per_page": 6, "dss_pages": 3, "max_dss": 15, "soft_keys": 4, "expansion_model": None, "max_expansions": 0},
+    {"brand": "Yealink", "model": "T42S", "label": "Yealink SIP-T42S (6 Tuş • Tek Sayfa • Monokrom Gigabit)", "screen": "mono", "layout": "split", "dss_per_page": 6, "dss_pages": 1, "max_dss": 6, "soft_keys": 4, "expansion_model": None, "max_expansions": 0},
     {"brand": "Yealink", "model": "T42U", "label": "Yealink SIP-T42U (6 Tuş × 3 Sayfa • Monokrom)", "screen": "mono", "layout": "split", "dss_per_page": 6, "dss_pages": 3, "max_dss": 15, "soft_keys": 4, "expansion_model": None, "max_expansions": 0},
     {"brand": "Yealink", "model": "T43U", "label": "Yealink SIP-T43U (8 Tuş × 3 Sayfa • EXP43 Destekli)", "screen": "mono", "layout": "split", "dss_per_page": 8, "dss_pages": 3, "max_dss": 21, "soft_keys": 4, "expansion_model": "EXP43", "max_expansions": 3},
     {"brand": "Yealink", "model": "T46S", "label": "Yealink SIP-T46S (10 Tuş × 3 Sayfa • Renkli • EXP40)", "screen": "color", "layout": "split", "dss_per_page": 10, "dss_pages": 3, "max_dss": 27, "soft_keys": 4, "expansion_model": "EXP40", "max_expansions": 4},
@@ -545,6 +545,16 @@ def resolve_dynamic_key_labels(
         item["label_mode"] = lmode
         resolved.append(item)
     return resolved
+
+
+def build_default_soft_keys() -> List[Dict[str, Any]]:
+    """Standard Nornia first-boot F1-F4 softkeys: Geçmiş, Rehber, Yönlendir, Menü."""
+    return [
+        {"key_index": 1, "type": "history", "label": "Geçmiş", "value": ""},
+        {"key_index": 2, "type": "directory", "label": "Rehber", "value": ""},
+        {"key_index": 3, "type": "forward", "label": "Yönlendir", "value": ""},
+        {"key_index": 4, "type": "menu", "label": "Menü", "value": ""},
+    ]
 
 
 def enforce_primary_line_key(
@@ -1622,12 +1632,32 @@ def generate_provisioning_config(
     pb_base = str(phonebook_base_url or f"http://{pbx_host}:8000/api/phonebook").rstrip("/")
     pb_list = [p for p in (phonebooks or []) if isinstance(p, dict) and p.get("id") and p.get("name")]
 
+    model_spec = resolve_phone_model_spec(brand, model)
+    max_dss_for_model = max(2, int(model_spec.get("max_dss") or 6))
+    t1_default_lbl = f"Hat {ext_s}" if ext_s else "Hat 1"
     dss_list = enforce_primary_line_key(
         resolve_dynamic_key_labels(dss_keys if isinstance(dss_keys, list) else [], ext_name_map),
         ext=ext_s,
-        default_label=line_label,
+        default_label=t1_default_lbl,
     )
-    soft_list = soft_keys if isinstance(soft_keys, list) else []
+    # Trim any overflow beyond this model's physical/paged capacity & pad T2..max_dss cleanly as empty (Boş)
+    dss_by_idx = {int(k.get("key_index") or 0): k for k in dss_list if isinstance(k, dict) and 1 <= int(k.get("key_index") or 0) <= max_dss_for_model}
+    dss_list = [
+        dss_by_idx[i] if i in dss_by_idx else {"key_index": i, "type": "none", "label": "", "label_mode": "auto", "value": "", "pickup_code": "*8"}
+        for i in range(1, max_dss_for_model + 1)
+    ]
+
+    raw_soft = soft_keys if isinstance(soft_keys, list) and len(soft_keys) > 0 else build_default_soft_keys()
+    soft_list = [
+        {
+            "key_index": int(sk.get("key_index") or sk.get("key") or (idx + 1)),
+            "type": str(sk.get("type") or "history"),
+            "label": str(sk.get("label") or ""),
+            "value": str(sk.get("value") or ""),
+        }
+        for idx, sk in enumerate(raw_soft)
+        if isinstance(sk, dict)
+    ]
     exp_list_raw = normalize_expansion_modules(expansion_modules)
     exp_list: List[Dict[str, Any]] = []
     for mod in exp_list_raw:

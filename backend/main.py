@@ -14484,8 +14484,15 @@ async def save_autoprovision(payload: dict, user_info: dict = Depends(get_user_i
                 "ntp_server": "pool.ntp.org",
                 "auto_answer": False,
                 "direct_ip_call_block": True,
-                "dss_keys": [],
-                "soft_keys": [],
+                "dss_keys": [
+                    {"key_index": 1, "type": "line", "label": f"Hat {ext_s}" if ext_s else "Hat 1", "label_mode": "custom", "value": ext_s, "pickup_code": "*8", "locked": True},
+                ],
+                "soft_keys": [
+                    {"key_index": 1, "type": "history", "label": "Geçmiş", "value": ""},
+                    {"key_index": 2, "type": "directory", "label": "Rehber", "value": ""},
+                    {"key_index": 3, "type": "forward", "label": "Yönlendir", "value": ""},
+                    {"key_index": 4, "type": "menu", "label": "Menü", "value": ""},
+                ],
                 "expansion_modules": [],
                 "config_version": 1,
             }
@@ -43028,18 +43035,32 @@ async def get_system_version_info():
         pass
 
     return {
-        "version": "v3.8.6",
+        "version": "v3.8.7",
         "commit_hash": live_commit,
         "release_date": "22 Kasım 2026",
         "status": "Güncel / Canlı Sürüm",
         "environment": "Production (On-Premise)",
         "changelog": [
             {
-                "version": "v3.8.6",
+                "version": "v3.8.7",
                 "commit_hash": live_commit,
                 "release_date": "22 Kasım 2026",
                 "badge": "Canlı Sürüm (Güncel)",
                 "badge_type": "current",
+                "title": "Temiz Varsayılan Masa Telefonu Profili (T1 Hat + Boş DSS + F1-F4 Softkey) & Yealink T42S Tek Sayfa",
+                "summary": "Yeni aktif olan tüm masa telefonları artık yalnızca T1 ana hat tuşu dolu, diğer tüm DSS tuşları boş ve ekran altı softkey tuşları Geçmiş / Rehber / Yönlendir / Menü olarak başlar; Yealink T42S modelinden sayfalama kaldırıldı.",
+                "features": [
+                    "Standart İlk Kurulum Profili: T1 yalnızca Hat <dahili> (kilitli), T2..N tüm yan tuşlar Boş; ekran altı softkey tuşları F1: Geçmiş, F2: Rehber, F3: Yönlendir, F4: Menü olarak hem arayüzde hem oto-provizyon .cfg dosyalarında varsayılan atanır.",
+                    "Yealink T42S Tek Sayfa (6 DSS): T42S modelinde sayfa değiştirme (Sayfa 1/3) kaldırılarak gerçek 6 fiziksel tuşlu tek sayfa görünümüne ve 6 DSS sınırına geçildi."
+                ],
+                "fixes": []
+            },
+            {
+                "version": "v3.8.6",
+                "commit_hash": "27f5140",
+                "release_date": "22 Kasım 2026",
+                "badge": "Kararlı",
+                "badge_type": "stable",
                 "title": "WAN SIP Edge (TCP) Otomatik Kayıt Düzeltmesi & Temsilci Masa Telefonum Salt-Okunur Model Rozeti",
                 "summary": "Uzak Şube (WAN) oto-provizyon dosyaları artık NAT dış IP'si yerine aktif SIP Edge (Kamailio) domainini (app.nornia.com.tr:5060 TCP) yazar; temsilci Masa Telefonum sekmesinden gereksiz marka/model seçicileri kaldırıldı.",
                 "features": [

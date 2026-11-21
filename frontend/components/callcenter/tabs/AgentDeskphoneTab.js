@@ -116,15 +116,6 @@ function buildDssArray(ext, maxKeys, existing = []) {
         pickup_code: found.pickup_code || "*8",
       };
     }
-    if (keyIndex === 2 && count >= 4) {
-      return { key_index: 2, type: "line", label: `Hat ${ext} (2)`, label_mode: "custom", value: String(ext), pickup_code: "*8" };
-    }
-    if (keyIndex === 3 && count >= 4) {
-      return { key_index: 3, type: "dnd", label: "Rahatsız Etme", label_mode: "custom", value: "", pickup_code: "*8" };
-    }
-    if (keyIndex === 4 && count >= 4) {
-      return { key_index: 4, type: "voicemail", label: "Sesli Posta", label_mode: "custom", value: "*97", pickup_code: "*8" };
-    }
     return { key_index: keyIndex, type: "none", label: "", label_mode: "auto", value: "", pickup_code: "*8" };
   });
 }
@@ -133,12 +124,12 @@ function buildSoftKeys(existing = []) {
   const defaults = [
     { key_index: 1, type: "history", label: "Geçmiş", value: "" },
     { key_index: 2, type: "directory", label: "Rehber", value: "" },
-    { key_index: 3, type: "dnd", label: "DND", value: "" },
-    { key_index: 4, type: "transfer", label: "Aktar", value: "" },
+    { key_index: 3, type: "forward", label: "Yönlendir", value: "" },
+    { key_index: 4, type: "menu", label: "Menü", value: "" },
   ];
   return defaults.map((def) => {
-    const found = (existing || []).find((s) => Number(s.key_index) === def.key_index);
-    return found ? { ...def, ...found } : def;
+    const found = (existing || []).find((s) => Number(s.key_index || s.key) === def.key_index);
+    return found ? { ...def, ...found, key_index: def.key_index } : def;
   });
 }
 
