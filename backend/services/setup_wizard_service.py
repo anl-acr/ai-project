@@ -304,21 +304,18 @@ def apply_setup_wizard_payload(
 
     steps_log: List[Dict[str, Any]] = []
     now_tr = (datetime.datetime.utcnow() + datetime.timedelta(hours=3)).strftime("%Y-%m-%d %H:%M:%S")
-    was_completed = is_setup_completed(settings_db)
 
-    # Validate admin password upfront on fresh installations so we never write partial config without an admin user
+    # Permanent one-time lock: NEVER allow setup wizard to execute again once completed
+    if is_setup_completed(settings_db):
+        raise PermissionError("İlk kurulum zaten tamamlandı. Kurulum sihirbazı güvenlik nedeniyle kalıcı olarak kilitlenmiştir ve tekrar çalıştırılamaz.")
+
+    # Validate admin password upfront so we never write partial config without an admin user
     admin_in = payload.get("admin") if isinstance(payload.get("admin"), dict) else {}
     new_admin_pwd = str(admin_in.get("password") or "").strip()
     new_admin_email = str(admin_in.get("email") or "").strip()
     new_admin_name = str(admin_in.get("full_name") or "Sistem Yöneticisi").strip() or "Sistem Yöneticisi"
-    has_existing_admin = any(
-        isinstance(u, dict) and (str(u.get("username") or "").lower() == "admin" or str(u.get("role") or "").lower() == "admin")
-        for u in (settings_db.get("users") or [])
-    )
-    if (not was_completed or not has_existing_admin) and not new_admin_pwd:
+    if not new_admin_pwd or len(new_admin_pwd) < 6:
         raise ValueError("İlk kurulumda 'admin' yönetici hesabı için en az 6 karakterlik bir şifre belirlemelisiniz.")
-    if new_admin_pwd and len(new_admin_pwd) < 6:
-        raise ValueError("Yönetici parolası en az 6 karakter olmalıdır.")
 
     # ------------------------------------------------------------
     # STEP 1: Network & NAT

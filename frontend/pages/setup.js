@@ -157,6 +157,7 @@ export default function SetupWizardPage() {
 
   useEffect(() => {
     let active = true;
+    let redirected = false;
     const loadPrefill = async () => {
       setLoading(true);
       setErrorMsg("");
@@ -165,13 +166,21 @@ export default function SetupWizardPage() {
           headers: buildAuthHeaders(),
         });
         if (res.status === 403) {
-          // Setup already completed and user is not logged in as admin
-          router.replace("/login");
+          // Setup is permanently locked once completed — redirect immediately
+          redirected = true;
+          const hasSession = Boolean(readActiveUserSession()?.uid);
+          router.replace(hasSession ? "/" : "/login");
           return;
         }
         if (!res.ok) throw new Error("Kurulum bilgileri sunucudan alınamadı.");
         const data = await res.json();
         if (!active) return;
+        if (data?.setup_completed) {
+          redirected = true;
+          const hasSession = Boolean(readActiveUserSession()?.uid);
+          router.replace(hasSession ? "/" : "/login");
+          return;
+        }
         setPrefill(data);
 
         // Populate Step 1
@@ -239,9 +248,9 @@ export default function SetupWizardPage() {
         setTimeFormat(dtCfg.time_format || "24");
         setDefaultLanguage(dtCfg.default_language || "Turkish");
       } catch (err) {
-        if (active) setErrorMsg(err.message || "Kurulum sihirbazı başlatılamadı.");
+        if (active && !redirected) setErrorMsg(err.message || "Kurulum sihirbazı başlatılamadı.");
       } finally {
-        if (active) setLoading(false);
+        if (active && !redirected) setLoading(false);
       }
     };
     loadPrefill();
@@ -351,8 +360,6 @@ export default function SetupWizardPage() {
       ? customDomain || "Belirlenmedi"
       : `${localIp || "Yerel IP"} (Sadece LAN)`;
 
-  const isFreshInstall = !prefill?.setup_completed;
-
   const passwordStrength = useMemo(() => {
     const p = adminPassword || "";
     if (!p) return { level: 0, label: "", bar: "w-0 bg-slate-300" };
@@ -369,15 +376,15 @@ export default function SetupWizardPage() {
 
   const handleCompleteSetup = async () => {
     setErrorMsg("");
-    if (isFreshInstall && !adminPassword.trim()) {
+    if (!adminPassword.trim()) {
       setErrorMsg("İlk kurulumda 'admin' yönetici hesabı için şifre belirlemeniz zorunludur.");
       return;
     }
-    if (adminPassword && adminPassword.length < 6) {
+    if (adminPassword.length < 6) {
       setErrorMsg("Yönetici parolası en az 6 karakter olmalıdır.");
       return;
     }
-    if (adminPassword && adminPassword !== adminPasswordConfirm) {
+    if (adminPassword !== adminPasswordConfirm) {
       setErrorMsg("Yönetici parolası tekrarı eşleşmiyor.");
       return;
     }
@@ -477,22 +484,12 @@ export default function SetupWizardPage() {
                 </div>
               </div>
             </div>
-
-            {prefill?.setup_completed && !completedResult && (
-              <button
-                type="button"
-                onClick={() => router.push("/")}
-                className="px-3.5 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 text-xs font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
-              >
-                Panele Dön
-              </button>
-            )}
           </div>
         </header>
 
         <main className="flex-1 max-w-5xl w-full mx-auto px-4 sm:px-6 py-7 space-y-6">
           {/* 6-Step Progress Stepper */}
-          {!completedResult && (
+          {!loading && prefill && !completedResult && (
             <div className="bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-2xl p-3 sm:p-4 shadow-sm overflow-x-auto">
               <div className="grid grid-cols-6 gap-2 min-w-[600px]">
                 {WIZARD_STEPS.map((s) => {
@@ -541,10 +538,25 @@ export default function SetupWizardPage() {
             </div>
           )}
 
-          {loading ? (
+          {loading || (!prefill && !errorMsg) ? (
             <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200/80 dark:border-slate-800 p-16 flex flex-col items-center justify-center gap-3">
               <RefreshCw size={28} className={`animate-spin ${text}`} />
               <p className="text-xs font-bold text-slate-500">Sunucu donanım, ağ ve sistem bilgileri okunuyor...</p>
+            </div>
+          ) : !prefill ? (
+            <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200/80 dark:border-slate-800 p-12 flex flex-col items-center justify-center gap-3 text-center">
+              <Lock size={28} className="text-rose-500" />
+              <p className="text-sm font-black text-slate-800 dark:text-white">Kurulum Sihirbazı Kullanılamıyor</p>
+              <p className="text-xs text-slate-500 max-w-md">
+                İlk kurulum zaten tamamlanmış olabilir veya sunucuya erişilemiyor.
+              </p>
+              <button
+                type="button"
+                onClick={() => router.replace("/login")}
+                className={`mt-2 px-5 py-2.5 rounded-xl ${bg} ${hover} text-white text-xs font-extrabold cursor-pointer`}
+              >
+                Giriş Ekranına Git
+              </button>
             </div>
           ) : completedResult ? (
             /* ============================================================
@@ -1568,27 +1580,19 @@ export default function SetupWizardPage() {
                       </div>
                     </div>
 
-                    {/* Admin Account & Password Setup (Required on Fresh Install) */}
-                    <div className={`p-5 rounded-2xl border-2 ${isFreshInstall ? border : borderLight} ${lightBg} space-y-4`}>
+                    {/* Admin Account & Password Setup (Always Required on First-Time Setup) */}
+                    <div className={`p-5 rounded-2xl border-2 ${border} ${lightBg} space-y-4`}>
                       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                         <div>
                           <div className="text-xs font-black text-slate-900 dark:text-white flex items-center gap-1.5">
                             <Lock size={15} className={text} />
                             Sistem Yöneticisi (admin) Hesabı &amp; İlk Giriş Şifresi
-                            {isFreshInstall ? (
-                              <span className="px-2 py-0.5 rounded-md bg-rose-500/15 text-rose-600 dark:text-rose-400 text-[10px] font-extrabold">
-                                Zorunlu
-                              </span>
-                            ) : (
-                              <span className="px-2 py-0.5 rounded-md bg-slate-200/80 dark:bg-slate-800 text-slate-500 text-[10px] font-bold">
-                                Opsiyonel
-                              </span>
-                            )}
+                            <span className="px-2 py-0.5 rounded-md bg-rose-500/15 text-rose-600 dark:text-rose-400 text-[10px] font-extrabold">
+                              Zorunlu
+                            </span>
                           </div>
                           <p className="text-[11px] text-slate-600 dark:text-slate-300 mt-0.5">
-                            {isFreshInstall
-                              ? "Kurulum tamamlandığında sisteme ilk kez 'admin' kullanıcı adı ve aşağıda belirleyeceğiniz şifre ile giriş yapacaksınız."
-                              : "Mevcut admin şifresini değiştirmek istemiyorsanız şifre alanlarını boş bırakabilirsiniz."}
+                            Kurulum tamamlandığında sisteme ilk kez <strong>admin</strong> kullanıcı adı ve aşağıda belirleyeceğiniz şifre ile giriş yapacaksınız. Bu kurulum sihirbazı tamamlandıktan sonra güvenlik nedeniyle kalıcı olarak kilitlenir.
                           </p>
                         </div>
                         <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-xs font-mono font-black text-slate-800 dark:text-white shrink-0">
@@ -1623,14 +1627,14 @@ export default function SetupWizardPage() {
                         </div>
                         <div>
                           <label className="block text-[11px] font-bold text-slate-600 dark:text-slate-300 mb-1">
-                            Yönetici Şifresi {isFreshInstall && <span className="text-rose-500">*</span>}
+                            Yönetici Şifresi <span className="text-rose-500">*</span>
                           </label>
                           <div className="relative">
                             <input
                               type={showAdminPwd ? "text" : "password"}
                               value={adminPassword}
                               onChange={(e) => setAdminPassword(e.target.value)}
-                              placeholder={isFreshInstall ? "En az 6 karakter güçlü şifre belirleyin" : "Değiştirmek için yeni şifre girin"}
+                              placeholder="En az 6 karakter güçlü şifre belirleyin"
                               className="w-full pl-3 pr-9 py-2 text-xs font-mono font-bold rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900"
                             />
                             <button
@@ -1655,7 +1659,7 @@ export default function SetupWizardPage() {
                         </div>
                         <div>
                           <label className="block text-[11px] font-bold text-slate-600 dark:text-slate-300 mb-1">
-                            Yönetici Şifresi (Tekrar) {isFreshInstall && <span className="text-rose-500">*</span>}
+                            Yönetici Şifresi (Tekrar) <span className="text-rose-500">*</span>
                           </label>
                           <input
                             type={showAdminPwd ? "text" : "password"}

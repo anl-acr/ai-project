@@ -16270,39 +16270,13 @@ async def sync_datetime_ntp_endpoint(user_info: dict = Depends(get_user_info)):
 # ----------------------------------------------------
 # API Routes: Out-of-Box First-Time Setup Wizard (/setup)
 # ----------------------------------------------------
-def _is_authenticated_admin_for_setup(request: Request) -> bool:
-    """Checks if request belongs to a logged-in admin user (allows direct /setup preview/test via URL)."""
-    uid = str(request.headers.get("X-User-ID") or request.headers.get("User-ID") or "").strip()
-    role = str(request.headers.get("X-User-Role") or "").strip().lower()
-    if role in ("admin", "superadmin") or uid.lower() in ("admin", "1", "9999"):
-        return True
-    if uid:
-        for u in settings_db.get("users", []) or []:
-            if isinstance(u, dict) and (str(u.get("id") or "") == uid or str(u.get("username") or "").lower() == uid.lower()):
-                if str(u.get("role") or "").lower() in ("admin", "superadmin"):
-                    return True
-        try:
-            from backend.database.config import SyncSessionLocal
-            from backend.database.models import SystemUser
-            with SyncSessionLocal() as sess:
-                q_row = None
-                if uid.isdigit():
-                    q_row = sess.query(SystemUser).filter(SystemUser.id == int(uid)).first()
-                if not q_row:
-                    q_row = sess.query(SystemUser).filter(SystemUser.username == uid).first()
-                if q_row and str(getattr(q_row, "role", "") or "").lower() in ("admin", "superadmin"):
-                    return True
-        except Exception:
-            pass
-    return False
-
-
-def _enforce_setup_wizard_access(request: Request) -> None:
+def _enforce_setup_wizard_access() -> None:
+    """Permanently locks all setup wizard endpoints once initial setup has completed."""
     from backend.services.setup_wizard_service import is_setup_completed
-    if is_setup_completed(settings_db) and not _is_authenticated_admin_for_setup(request):
+    if is_setup_completed(settings_db):
         raise HTTPException(
             status_code=403,
-            detail="İlk kurulum zaten tamamlanmıştır. Kurulum sihirbazını tekrar çalıştırmak için yönetici oturumu gereklidir.",
+            detail="İlk kurulum zaten tamamlandı. Kurulum sihirbazı güvenlik nedeniyle kalıcı olarak kilitlenmiştir ve tekrar çalıştırılamaz.",
         )
 
 
@@ -16332,7 +16306,7 @@ async def get_setup_wizard_status_endpoint():
 
 @app.get("/api/setup/prefill")
 async def get_setup_wizard_prefill_endpoint(request: Request):
-    _enforce_setup_wizard_access(request)
+    _enforce_setup_wizard_access()
     from backend.services.setup_wizard_service import get_setup_prefill_context
     req_host = (request.headers.get("x-forwarded-host") or request.headers.get("host") or "").split(",")[0].strip()
     req_scheme = (request.headers.get("x-forwarded-proto") or request.url.scheme or "http").split(",")[0].strip()
@@ -16340,8 +16314,8 @@ async def get_setup_wizard_prefill_endpoint(request: Request):
 
 
 @app.post("/api/setup/validate-license")
-async def validate_setup_wizard_license_endpoint(request: Request, payload: Dict[str, Any] = Body(...)):
-    _enforce_setup_wizard_access(request)
+async def validate_setup_wizard_license_endpoint(payload: Dict[str, Any] = Body(...)):
+    _enforce_setup_wizard_access()
     from backend.services.setup_wizard_service import validate_setup_license_key
     return validate_setup_license_key(
         license_key=str(payload.get("license_key") or ""),
@@ -16351,7 +16325,7 @@ async def validate_setup_wizard_license_endpoint(request: Request, payload: Dict
 
 @app.get("/api/setup/check-subdomain")
 async def check_setup_wizard_subdomain_endpoint(request: Request, subdomain: str = "", hub_url: str = "https://connect.nornia.com.tr"):
-    _enforce_setup_wizard_access(request)
+    _enforce_setup_wizard_access()
     sub_clean = re.sub(r"[^a-z0-9-]", "", str(subdomain or "").strip().lower()).strip("-")
     if len(sub_clean) < 2:
         return {"available": False, "subdomain": sub_clean, "message": "Alt alan adı en az 2 karakter olmalıdır."}
@@ -16369,7 +16343,7 @@ async def check_setup_wizard_subdomain_endpoint(request: Request, subdomain: str
 
 @app.post("/api/setup/complete")
 async def complete_setup_wizard_endpoint(request: Request, payload: Dict[str, Any] = Body(...)):
-    _enforce_setup_wizard_access(request)
+    _enforce_setup_wizard_access()
     from backend.services.setup_wizard_service import apply_setup_wizard_payload
     req_host = (request.headers.get("x-forwarded-host") or request.headers.get("host") or "").split(",")[0].strip()
     req_scheme = (request.headers.get("x-forwarded-proto") or request.url.scheme or "http").split(",")[0].strip()
@@ -16383,6 +16357,8 @@ async def complete_setup_wizard_endpoint(request: Request, payload: Dict[str, An
             request_host=req_host,
             request_scheme=req_scheme,
         )
+    except PermissionError as pe:
+        raise HTTPException(status_code=403, detail=str(pe))
     except ValueError as ve:
         raise HTTPException(status_code=400, detail=str(ve))
     except Exception as e:
@@ -43197,18 +43173,32 @@ async def get_system_version_info():
         pass
 
     return {
-        "version": "v3.10.7",
+        "version": "v3.10.8",
         "commit_hash": live_commit,
         "release_date": "22 Kasım 2026",
         "status": "Güncel / Canlı Sürüm",
         "environment": "Production (On-Premise)",
         "changelog": [
             {
-                "version": "v3.10.7",
+                "version": "v3.10.8",
                 "commit_hash": live_commit,
                 "release_date": "22 Kasım 2026",
                 "badge": "Canlı Sürüm (Güncel)",
                 "badge_type": "current",
+                "title": "İlk Kurulum Sihirbazı Kalıcı Tek Seferlik Kilidi",
+                "summary": "Sistem bir kez kurulduktan sonra /setup ekranının ve tüm /api/setup/* uç noktalarının admin dahil hiç kimse tarafından bir daha açılıp çalıştırılamaması için kalıcı güvenlik kilidi uygulandı.",
+                "features": [
+                    "Kalıcı Tek Seferlik Kurulum Kilidi: İlk kurulum tamamlandığında veya mevcut kurulu sistem algılandığında /api/setup/prefill, /validate-license, /check-subdomain ve /complete uç noktaları tüm kullanıcılara (admin dahil) kalıcı olarak HTTP 403 ile kapatılır.",
+                    "Anında Yönlendirme: Kurulu sistemde /setup adresine girildiğinde kurulum arayüzü hiç açılmadan oturum durumuna göre doğrudan / veya /login sayfasına yönlendirilir."
+                ],
+                "fixes": []
+            },
+            {
+                "version": "v3.10.7",
+                "commit_hash": "40d3c31",
+                "release_date": "22 Kasım 2026",
+                "badge": "Önceki Sürüm",
+                "badge_type": "previous",
                 "title": "İlk Kurulum Sihirbazı Başlık Sadeleştirmesi",
                 "summary": "İlk kurulum sihirbazı (/setup) sayfa başlığındaki ve üst bardaki 'Nornia PBX' ifadesinden 'PBX' ibaresi kaldırılarak 'Nornia — İlk Kurulum Sihirbazı' şeklinde güncellendi.",
                 "features": [],
