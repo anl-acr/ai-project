@@ -105,7 +105,19 @@ export default function LoginPage() {
         Boolean(sessionStorage.getItem("current_user_id"));
       if (hasPersistentAuth || hasSessionAuth) {
         router.replace("/");
+        return;
       }
+
+      // Fresh installation check: redirect to /setup if out-of-box setup is not yet completed
+      const proto = window.location.protocol || "http:";
+      fetch(`${proto}//${backendHost}/api/setup/status`)
+        .then((r) => (r.ok ? r.json() : null))
+        .then((d) => {
+          if (d && d.setup_completed === false) {
+            router.replace("/setup");
+          }
+        })
+        .catch(() => {});
     }
   }, [router, backendHost]);
 

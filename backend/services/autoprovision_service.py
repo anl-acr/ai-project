@@ -377,9 +377,9 @@ account.1.codec.g729.priority = 4
 # --- Dil, Saat, Zil ve Ekran Tercihleri ---
 lang.gui = {{LANGUAGE}}
 lang.wui = {{LANGUAGE}}
-local_time.time_zone = +3
-local_time.time_zone_name = Turkey(Ankara)
-local_time.ntp_server1 = pool.ntp.org
+local_time.time_zone = {{TIMEZONE}}
+local_time.time_zone_name = {{TIMEZONE_NAME}}
+local_time.ntp_server1 = {{NTP_SERVER}}
 local_time.summer_time = 0
 local_time.time_format = {{TIME_FORMAT_24_BIT}}
 phone_setting.ring_type = {{RINGTONE}}
@@ -1565,17 +1565,30 @@ def inspect_asterisk_pjsip_endpoint(sip_username: str) -> Dict[str, Any]:
         return {"exists": False, "endpoint": ep, "online": False, "contacts": [], "parsed": parsed, "cli_available": False, "contact_raw": "", "raw": str(e)}
 
 
-def generate_yealink_common_boot_cfg() -> str:
+def generate_yealink_common_boot_cfg(settings_db: Optional[dict] = None) -> str:
     """Common Yealink boot/model config (y0000000000xx.cfg) requested prior to <mac>.cfg."""
+    lang_v = "Turkish"
+    tz_off = "+3"
+    tz_name = "Turkey(Ankara)"
+    ntp_v = "pool.ntp.org"
+    try:
+        from backend.services.datetime_service import get_system_datetime_config
+        dt_cfg = get_system_datetime_config(settings_db)
+        lang_v = dt_cfg["default_language"]
+        tz_off = dt_cfg["utc_offset"]
+        tz_name = dt_cfg["yealink_tz_name"]
+        ntp_v = dt_cfg["ntp_server_primary"]
+    except Exception:
+        pass
     return "\n".join(
         [
             "#!version:1.0.0.1",
-            "# AIDA PBX Yealink Common Provisioning Profile",
-            "lang.gui = Turkish",
-            "lang.wui = Turkish",
-            "local_time.time_zone = +3",
-            "local_time.time_zone_name = Turkey(Ankara)",
-            "local_time.ntp_server1 = pool.ntp.org",
+            "# Nornia PBX Yealink Common Provisioning Profile",
+            f"lang.gui = {lang_v}",
+            f"lang.wui = {lang_v}",
+            f"local_time.time_zone = {tz_off}",
+            f"local_time.time_zone_name = {tz_name}",
+            f"local_time.ntp_server1 = {ntp_v}",
             "local_time.summer_time = 0",
             "sip.notify_reboot_enable = 1",
             "static.auto_provision.power_on = 1",
@@ -1826,6 +1839,9 @@ def generate_provisioning_config(
             "{BACKLIGHT_ACTIVE}": str(prefs["backlight_active"]),
             "{BACKLIGHT_ACTIVE_PCT}": str(max(10, min(100, prefs["backlight_active"] * 10))),
             "{LANGUAGE}": eff_language,
+            "{TIMEZONE}": str(timezone or "+3").strip() or "+3",
+            "{TIMEZONE_NAME}": "Turkey(Ankara)" if str(timezone or "+3").strip() in ("+3", "Europe/Istanbul") else str(timezone or "+3"),
+            "{NTP_SERVER}": str(ntp_server or "pool.ntp.org").strip() or "pool.ntp.org",
             "{TIME_FORMAT_24_BIT}": "1" if prefs["time_format"] == "24" else "0",
             "{DSS_KEYS_BLOCK}": "\n".join(dss_block_lines),
             "{EXPANSION_MODULES_BLOCK}": "\n".join(exp_block_lines),

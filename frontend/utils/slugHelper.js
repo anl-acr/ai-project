@@ -98,6 +98,8 @@ export const SUBTAB_TURKISH_SLUGS = {
   "restore-points": "geri-yukleme-noktasi",
   "active-directory": "active-directory-ldap",
   "crm-integrations": "hazir-crm-entegrasyonlari",
+  "datetime-settings": "tarih-saat",
+  "setup-wizard": "ilk-kurulum",
   "version": "sistem-versiyonu"
 };
 

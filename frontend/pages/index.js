@@ -275,7 +275,7 @@ export default function Home() {
   const sidebarActiveItemCls = `${lightBg} ${text} border-primary/25 dark:border-primary/35 shadow-sm`;
   const sidebarInactiveItemCls = "text-slate-500 dark:text-slate-400 border-transparent hover:text-slate-900 dark:hover:text-white hover:bg-slate-50 dark:hover:bg-slate-800/40";
   const backendHost = getBackendHost();
-  const [systemVersion, setSystemVersion] = useState("v3.9.1");
+  const [systemVersion, setSystemVersion] = useState("v3.10.0");
   const [availableUpdateVer, setAvailableUpdateVer] = useState("");
   const [activeTab, setActiveTabRaw] = useState("dashboard"); // dashboard, call-center, pbx-settings, channel-settings, rag-kb, rule-editor
 
@@ -386,17 +386,26 @@ export default function Home() {
     }
   }, [activeTab, isLoggedIn]);
 
-  // Ensure /login URL when user is on login screen
+  // Ensure /login URL when user is on login screen (or /setup on fresh unconfigured server)
   useEffect(() => {
     if (typeof window !== "undefined" && !isAuthChecking && !isLoggedIn) {
       const currentPath = window.location.pathname;
-      if (currentPath.startsWith("/reset-password")) return;
+      if (currentPath.startsWith("/reset-password") || currentPath.startsWith("/setup")) return;
+      const proto = window.location.protocol || "http:";
+      fetch(`${proto}//${backendHost}/api/setup/status`)
+        .then((r) => (r.ok ? r.json() : null))
+        .then((d) => {
+          if (d && d.setup_completed === false) {
+            window.location.replace("/setup");
+          }
+        })
+        .catch(() => {});
       const currentSearch = window.location.search;
       if ((currentPath !== "/login" && currentPath !== "/Login") || currentSearch) {
         window.history.replaceState(null, "", "/login");
       }
     }
-  }, [isAuthChecking, isLoggedIn]);
+  }, [isAuthChecking, isLoggedIn, backendHost]);
 
   // Support browser Back/Forward popstate navigation
   useEffect(() => {

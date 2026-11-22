@@ -262,6 +262,8 @@ const SYSTEM_FEATURES = [
   { id: "tenant_license", name: "Lisans & Key Yönetimi", icon: Lock, type: "crud", color: "rose" },
   { id: "email_notifications", name: "E-Mail Bildirimleri", icon: Mail, type: "crud", color: "blue" },
   { id: "restore_points", name: "Geri Yükleme Noktası", icon: RotateCcw, type: "crud", color: "emerald" },
+  { id: "datetime_settings", name: "Tarih, Saat Dilimi & Bölge Ayarları", icon: Clock, type: "crud_partial", color: "blue" },
+  { id: "setup_wizard", name: "İlk Kurulum Sihirbazı", icon: Shield, type: "access", color: "indigo" },
   { id: "system_version", name: "Sistem Versiyonu, Güncelleme Merkezi & Günlük", icon: GitBranch, type: "crud_partial", color: "indigo" }
 ];
 
@@ -654,6 +656,8 @@ export default function RoleSettings({ backendHost = "localhost:8000" }) {
         "tenant_license",
         "email_notifications",
         "restore_points",
+        "datetime_settings",
+        "setup_wizard",
         "system_version"
       ]
     },

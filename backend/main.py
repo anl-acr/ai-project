@@ -1665,6 +1665,8 @@ DEFAULT_SETTINGS = {
                 "crisis_alerts:access",
                 "kvkk_consent:read", "kvkk_consent:write",
                 "federation_multisite:read", "federation_multisite:write", "federation_multisite:delete",
+                "datetime_settings:read", "datetime_settings:write",
+                "setup_wizard:access",
                 "system_version:access", "system_version:read", "system_version:write"
             ],
             "allowed_breaks": [1, 2, 3, 4]
@@ -2907,7 +2909,7 @@ def load_settings(force_reload: bool = False, persist: bool = False):
                 if r.get("role_code") == "admin" and "restore_points:delete" not in new_perms:
                     new_perms.append("restore_points:delete")
                 if r.get("role_code") == "admin":
-                    for net_p in ("server_network:read", "server_network:write", "server_network:delete", "ras_settings:read", "ras_settings:write", "system_version:read", "system_version:write", "kvkk_consent:read", "kvkk_consent:write", "federation_multisite:read", "federation_multisite:write", "federation_multisite:delete"):
+                    for net_p in ("server_network:read", "server_network:write", "server_network:delete", "ras_settings:read", "ras_settings:write", "system_version:read", "system_version:write", "kvkk_consent:read", "kvkk_consent:write", "federation_multisite:read", "federation_multisite:write", "federation_multisite:delete", "datetime_settings:read", "datetime_settings:write", "setup_wizard:access"):
                         if net_p not in new_perms:
                             new_perms.append(net_p)
                 for sup_perm in (
@@ -16005,7 +16007,7 @@ async def _render_autoprovision_file_for_phone(
             "Yealink ortak model yapılandırması gönderildi",
             mode=query_mode,
         )
-        return PlainTextResponse(generate_yealink_common_boot_cfg())
+        return PlainTextResponse(generate_yealink_common_boot_cfg(settings_db))
 
     mac_hex = extract_mac_from_provision_filename(fn_clean)
     stem = os.path.splitext(fn_clean)[0]
@@ -16123,6 +16125,12 @@ async def _render_autoprovision_file_for_phone(
                     if eff_transport != "TLS":
                         eff_transport = "TCP"
 
+                from backend.services.datetime_service import get_system_datetime_config as _get_sys_dt_cfg
+                _sys_dt = _get_sys_dt_cfg(settings_db)
+                eff_prefs_merged = dict(eff_prefs or {})
+                eff_prefs_merged.setdefault("date_format", _sys_dt["date_format"])
+                eff_prefs_merged.setdefault("time_format", _sys_dt["time_format"])
+
                 content_text, media_type, _ = generate_provisioning_config(
                     ext=ext_s,
                     sip_username=dev_su,
@@ -16141,17 +16149,17 @@ async def _render_autoprovision_file_for_phone(
                     requested_filename=fn_clean,
                     codecs=dev.get("codecs") or ["g722", "alaw", "ulaw", "g729"],
                     dtmf_mode=str(dev.get("dtmf_mode") or "rfc4733"),
-                    language=str(eff_prefs.get("language") or dev.get("language") or "Turkish"),
-                    timezone=str(dev.get("timezone") or "+3"),
-                    ntp_server=str(dev.get("ntp_server") or "pool.ntp.org"),
-                    auto_answer=bool(eff_prefs.get("auto_answer", dev.get("auto_answer", False))),
+                    language=str(eff_prefs_merged.get("language") or dev.get("language") or _sys_dt["default_language"]),
+                    timezone=str(dev.get("timezone") or _sys_dt["utc_offset"]),
+                    ntp_server=str(dev.get("ntp_server") or _sys_dt["ntp_server_primary"]),
+                    auto_answer=bool(eff_prefs_merged.get("auto_answer", dev.get("auto_answer", False))),
                     direct_ip_call_block=dev.get("direct_ip_call_block") is not False,
                     phonebooks=all_pbs,
                     phonebook_base_url=prov_ep["phonebook_base_url"],
                     connection_mode=prov_ep["effective_mode"],
                     provision_server_url=prov_ep["active_prov_url"],
                     expansion_modules=eff_exp,
-                    phone_prefs=eff_prefs,
+                    phone_prefs=eff_prefs_merged,
                     ext_name_map=ext_name_map,
                 )
                 # Stamp live provisioning fetch timestamp so Desk Phone Studio progress bar & Autoprovision panel detect pull!
@@ -16231,6 +16239,140 @@ async def serve_sip_device_autoprovision_file_wan(token: str, filename: str, req
 async def serve_sip_device_autoprovision_file(token: str, filename: str, request: Request):
     """Akıllı (Auto / Cihaz Modu) oto-provizyon dosyası sunucusu."""
     return await _render_autoprovision_file_for_phone(token, filename, request, explicit_mode=None)
+
+
+# ----------------------------------------------------
+# API Routes: System Date, Timezone, NTP & Region Settings
+# ----------------------------------------------------
+@app.get("/api/settings/datetime")
+async def get_datetime_settings_endpoint(user_info: dict = Depends(get_user_info)):
+    from backend.services.datetime_service import get_system_datetime_status
+    return get_system_datetime_status(settings_db)
+
+
+@app.post("/api/settings/datetime")
+async def save_datetime_settings_endpoint(
+    payload: Dict[str, Any] = Body(...),
+    user_info: dict = Depends(get_user_info),
+):
+    from backend.services.datetime_service import apply_system_datetime_settings
+    res = apply_system_datetime_settings(payload, settings_db)
+    save_settings(settings_db)
+    return res
+
+
+@app.post("/api/settings/datetime/sync-ntp")
+async def sync_datetime_ntp_endpoint(user_info: dict = Depends(get_user_info)):
+    from backend.services.datetime_service import sync_ntp_now
+    return sync_ntp_now(settings_db)
+
+
+# ----------------------------------------------------
+# API Routes: Out-of-Box First-Time Setup Wizard (/setup)
+# ----------------------------------------------------
+def _is_authenticated_admin_for_setup(request: Request) -> bool:
+    """Checks if request belongs to a logged-in admin user (allows re-running wizard from Settings)."""
+    uid = str(request.headers.get("X-User-ID") or request.headers.get("User-ID") or "").strip()
+    role = str(request.headers.get("X-User-Role") or "").strip().lower()
+    if role == "admin" or uid.lower() in ("admin", "1", "9999"):
+        return True
+    if uid:
+        for u in settings_db.get("users", []) or []:
+            if isinstance(u, dict) and (str(u.get("id") or "") == uid or str(u.get("username") or "").lower() == uid.lower()):
+                if str(u.get("role") or "").lower() == "admin":
+                    return True
+    return False
+
+
+def _enforce_setup_wizard_access(request: Request) -> None:
+    from backend.services.setup_wizard_service import is_setup_completed
+    if is_setup_completed(settings_db) and not _is_authenticated_admin_for_setup(request):
+        raise HTTPException(
+            status_code=403,
+            detail="İlk kurulum zaten tamamlanmıştır. Kurulum sihirbazını tekrar çalıştırmak için yönetici oturumu gereklidir.",
+        )
+
+
+@app.get("/api/setup/status")
+async def get_setup_wizard_status_endpoint():
+    from backend.services.setup_wizard_service import is_setup_completed
+    from backend.services.hardware_info import get_system_hardware_fingerprint
+    from backend.services.datetime_service import get_system_datetime_config
+    completed = is_setup_completed(settings_db)
+    hw_id = ""
+    try:
+        hw_id = get_system_hardware_fingerprint()
+    except Exception:
+        pass
+    dt_cfg = get_system_datetime_config(settings_db)
+    return {
+        "status": "success",
+        "setup_completed": completed,
+        "hardware_id": hw_id,
+        "company_name": str(settings_db.get("company_name") or ""),
+        "default_language": dt_cfg["default_language"],
+        "timezone": dt_cfg["timezone"],
+        "date_format": dt_cfg["date_format"],
+    }
+
+
+@app.get("/api/setup/prefill")
+async def get_setup_wizard_prefill_endpoint(request: Request):
+    _enforce_setup_wizard_access(request)
+    from backend.services.setup_wizard_service import get_setup_prefill_context
+    req_host = (request.headers.get("x-forwarded-host") or request.headers.get("host") or "").split(",")[0].strip()
+    req_scheme = (request.headers.get("x-forwarded-proto") or request.url.scheme or "http").split(",")[0].strip()
+    return get_setup_prefill_context(settings_db, request_host=req_host, request_scheme=req_scheme)
+
+
+@app.post("/api/setup/validate-license")
+async def validate_setup_wizard_license_endpoint(request: Request, payload: Dict[str, Any] = Body(...)):
+    _enforce_setup_wizard_access(request)
+    from backend.services.setup_wizard_service import validate_setup_license_key
+    return validate_setup_license_key(
+        license_key=str(payload.get("license_key") or ""),
+        tenant_code=str(payload.get("tenant_code") or ""),
+    )
+
+
+@app.get("/api/setup/check-subdomain")
+async def check_setup_wizard_subdomain_endpoint(request: Request, subdomain: str = "", hub_url: str = "https://connect.nornia.com.tr"):
+    _enforce_setup_wizard_access(request)
+    sub_clean = re.sub(r"[^a-z0-9-]", "", str(subdomain or "").strip().lower()).strip("-")
+    if len(sub_clean) < 2:
+        return {"available": False, "subdomain": sub_clean, "message": "Alt alan adı en az 2 karakter olmalıdır."}
+    try:
+        from backend.services.ras_client_service import check_ras_subdomain_availability
+        return await check_ras_subdomain_availability(request, subdomain=sub_clean, hub_url=hub_url)
+    except Exception:
+        return {
+            "available": True,
+            "subdomain": sub_clean,
+            "fqdn": f"{sub_clean}.nornia.com.tr",
+            "message": f"{sub_clean}.nornia.com.tr biçimi geçerli (Hub doğrulaması bağlantı kurulunca teyit edilir).",
+        }
+
+
+@app.post("/api/setup/complete")
+async def complete_setup_wizard_endpoint(request: Request, payload: Dict[str, Any] = Body(...)):
+    _enforce_setup_wizard_access(request)
+    from backend.services.setup_wizard_service import apply_setup_wizard_payload
+    req_host = (request.headers.get("x-forwarded-host") or request.headers.get("host") or "").split(",")[0].strip()
+    req_scheme = (request.headers.get("x-forwarded-proto") or request.url.scheme or "http").split(",")[0].strip()
+    try:
+        return apply_setup_wizard_payload(
+            payload=payload,
+            settings_db=settings_db,
+            save_settings_fn=save_settings,
+            regenerate_pjsip_fn=regenerate_pjsip_custom_conf,
+            regenerate_extensions_fn=regenerate_extensions_custom_conf,
+            request_host=req_host,
+            request_scheme=req_scheme,
+        )
+    except ValueError as ve:
+        raise HTTPException(status_code=400, detail=str(ve))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Kurulum uygulanırken hata oluştu: {e}")
 
 
 # ----------------------------------------------------
@@ -43041,18 +43183,33 @@ async def get_system_version_info():
         pass
 
     return {
-        "version": "v3.9.1",
+        "version": "v3.10.0",
         "commit_hash": live_commit,
         "release_date": "22 Kasım 2026",
         "status": "Güncel / Canlı Sürüm",
         "environment": "Production (On-Premise)",
         "changelog": [
             {
-                "version": "v3.9.1",
+                "version": "v3.10.0",
                 "commit_hash": live_commit,
                 "release_date": "22 Kasım 2026",
                 "badge": "Canlı Sürüm (Güncel)",
                 "badge_type": "current",
+                "title": "6 Adımlı İlk Kurulum Sihirbazı (/setup) & Sistem Tarih, Saat Dilimi, NTP ve Bölge Yönetimi",
+                "summary": "Yeni kurulan santrallerde ilk açılışta karşılayan 6 adımlı rehberli İlk Kurulum Sihirbazı (Ağ → Lisans → FQDN → Dahili/Numara Planı → Saat/Tarih/Dil → Özet) ve Sistem Ayarları altında kalıcı Tarih, Saat & Bölge Ayarları paneli eklendi.",
+                "features": [
+                    "6 Adımlı İlk Kurulum Sihirbazı (/setup): 1. Ağ & NAT Ayarları, 2. Lisans & Donanım Kimliği doğrulaması, 3. FQDN & Nornia Bulut Uzak Erişim / SIP Edge, 4. Dahili Yapısı & Numara Planı (+ hızlı seri dahili üretici), 5. Sistem Saat Dilimi / Tarih Formatı / Varsayılan Dil, 6. Tüm Ayarların Özeti, canlı uygulama ve kopyalanabilir Zero-Touch DHCP Option 66 URL'leri.",
+                    "Mevcut Santralleri Koruyan Akıllı Algılama: Kurulu üretim sunucuları otomatik tespit edilerek mevcut kurulumlar kesintisiz devam eder; yönetici dilerse Sistem Ayarları > Bakım & Sistem > İlk Kurulum Sihirbazı alanından tekrar açabilir.",
+                    "Kalıcı Tarih, Saat Dilimi & Bölge Ayarları (Sistem Ayarları > Tarih, Saat & Bölge): Canlı akan santral saati, aramalı IANA saat dilimi, Otomatik NTP / Manuel saat modu, tek tıkla NTP eşitleme, tarih/saat formatı ve sistem varsayılan dili — tüm oto-provizyon IP telefonlarına otomatik yansır."
+                ],
+                "fixes": []
+            },
+            {
+                "version": "v3.9.1",
+                "commit_hash": "a901e25",
+                "release_date": "22 Kasım 2026",
+                "badge": "Kararlı",
+                "badge_type": "stable",
                 "title": "Oto Provizyon Başlık Sadeleştirmesi",
                 "summary": "Oto Provizyon paneli başlığındaki '(AUTOPROVISIONING)' ibaresi kaldırılarak sade 'OTOPROVİZYON' başlığına geçildi.",
                 "features": [],
