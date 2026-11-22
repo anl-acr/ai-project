@@ -91,7 +91,7 @@ def is_setup_completed(settings_db: dict) -> bool:
             from backend.database.config import SyncSessionLocal
             from backend.database.models import SystemUser
             with SyncSessionLocal() as sess:
-                cnt = sess.query(SystemUser).filter(SystemUser.username != "admin").count()
+                cnt = sess.query(SystemUser).filter(SystemUser.role != "admin").count()
                 if cnt > 0:
                     has_existing_data = True
         except Exception:
@@ -556,26 +556,28 @@ def apply_setup_wizard_payload(
         existing_exts.add(ext_val)
         created_exts.append({"extension": ext_val, "full_name": full_nm, "sip_username": desk_su})
 
-        # Persist to PostgreSQL SystemUser if DB is live
+        # Persist to PostgreSQL SystemUser if DB is live (using only actual ORM columns)
         try:
             from backend.database.config import SyncSessionLocal
             from backend.database.models import SystemUser
             with SyncSessionLocal() as sess:
                 exists_db = sess.query(SystemUser).filter(SystemUser.extension == ext_val).first()
                 if not exists_db:
-                    row = SystemUser(
-                        username=ext_val,
-                        full_name=full_nm,
-                        email=email_v,
-                        password=user_pwd,
-                        role="agent",
-                        extension=ext_val,
-                        sip_username=desk_su,
-                        sip_password=sip_pwd,
-                        sip_devices=new_sip_devs,
-                        is_active=True,
-                        tenant_id="tenant-default",
-                    )
+                    valid_cols = {c.name for c in SystemUser.__table__.columns}
+                    row_kwargs = {
+                        "full_name": full_nm,
+                        "email": email_v or f"{ext_val}@localhost",
+                        "password": user_pwd,
+                        "role": "agent",
+                        "extension": ext_val,
+                        "sip_username": desk_su,
+                        "sip_password": sip_pwd,
+                        "is_active": True,
+                        "tenant_id": "tenant-default",
+                    }
+                    if "sip_devices" in valid_cols:
+                        row_kwargs["sip_devices"] = new_sip_devs
+                    row = SystemUser(**{k: v for k, v in row_kwargs.items() if k in valid_cols})
                     sess.add(row)
                     sess.commit()
         except Exception:
@@ -633,10 +635,13 @@ def apply_setup_wizard_payload(
             admin_record["email"] = new_admin_email
 
     try:
+        from sqlalchemy import or_
         from backend.database.config import SyncSessionLocal
         from backend.database.models import SystemUser
         with SyncSessionLocal() as sess:
-            adm = sess.query(SystemUser).filter(SystemUser.username == "admin").first()
+            adm = sess.query(SystemUser).filter(
+                or_(SystemUser.extension == "admin", SystemUser.role == "admin")
+            ).first()
             if adm:
                 if new_admin_pwd:
                     adm.password = new_admin_pwd
@@ -648,16 +653,17 @@ def apply_setup_wizard_payload(
                 adm.is_active = True
                 sess.commit()
             else:
-                new_adm_row = SystemUser(
-                    username="admin",
-                    full_name=admin_record.get("full_name") or "Sistem Yöneticisi",
-                    email=admin_record.get("email") or "admin@localhost",
-                    password=admin_record.get("password") or new_admin_pwd,
-                    role="admin",
-                    extension="",
-                    is_active=True,
-                    tenant_id="tenant-default",
-                )
+                valid_cols = {c.name for c in SystemUser.__table__.columns}
+                adm_kwargs = {
+                    "full_name": admin_record.get("full_name") or "Sistem Yöneticisi",
+                    "email": admin_record.get("email") or "admin@localhost",
+                    "password": admin_record.get("password") or new_admin_pwd,
+                    "role": "admin",
+                    "extension": "admin",
+                    "is_active": True,
+                    "tenant_id": "tenant-default",
+                }
+                new_adm_row = SystemUser(**{k: v for k, v in adm_kwargs.items() if k in valid_cols})
                 sess.add(new_adm_row)
                 sess.commit()
     except Exception:

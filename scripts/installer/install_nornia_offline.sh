@@ -193,11 +193,14 @@ AMI_SECRET=backend_secure_key_99
 EOF
 chmod 0600 "${PROJECT_DIR}/backend/.env"
 
-# Sıfır kurulum settings.json (ilk açılışta /setup otomatik tetiklenir)
+# Sıfır kurulum settings.json (ilk açılışta /setup kesin olarak tetiklenir)
 if [[ ! -f "${PROJECT_DIR}/backend/settings.json" ]]; then
   cat <<'EOF' > "${PROJECT_DIR}/backend/settings.json"
 {
   "company_name": "",
+  "setup_wizard": {
+    "completed": false
+  },
   "users": [],
   "trunks": [],
   "autoprovision": [],

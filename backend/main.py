@@ -43173,18 +43173,33 @@ async def get_system_version_info():
         pass
 
     return {
-        "version": "v3.10.9",
+        "version": "v3.10.10",
         "commit_hash": live_commit,
-        "release_date": "22 Kasım 2026",
+        "release_date": "23 Kasım 2026",
         "status": "Güncel / Canlı Sürüm",
         "environment": "Production (On-Premise)",
         "changelog": [
             {
-                "version": "v3.10.9",
+                "version": "v3.10.10",
                 "commit_hash": live_commit,
-                "release_date": "22 Kasım 2026",
+                "release_date": "23 Kasım 2026",
                 "badge": "Canlı Sürüm (Güncel)",
                 "badge_type": "current",
+                "title": "Sıfır ISO İlk Açılış /setup Garantisi & PostgreSQL SystemUser Admin Kayıt Düzeltmesi",
+                "summary": "Tam çevrimdışı ISO kurulumu sonrası ilk web girişinde /setup sihirbazının kesin açılması için setup_wizard.completed=false eklendi; PostgreSQL SystemUser tablosunda olmayan username sütunu hatası düzeltilerek admin ve ilk dahililerin veritabanına yazılması garantiye alındı.",
+                "features": [],
+                "fixes": [
+                    "İlk Açılış /setup Garantisi: Sıfır ISO kurulumu ve Sysprep settings.json şablonuna explicit setup_wizard.completed=false eklendi; böylece varsayılan ayarlar /setup ekranını erken kilitlemez.",
+                    "PostgreSQL SystemUser Düzeltmesi: setup_wizard_service.py içindeki SystemUser.username sorgu/kayıtları gerçek ORM sütunlarına (extension, role, full_name, email, password) uyarlandı.",
+                    "PM2 Kalıcı Servis Başlatma: Kurulum sonrası PM2 kendi pm2-root.service cgroup'unda başlatılarak ilk açılışta 502 Bad Gateway engellendi."
+                ]
+            },
+            {
+                "version": "v3.10.9",
+                "commit_hash": "5d3b9f6",
+                "release_date": "22 Kasım 2026",
+                "badge": "Önceki Sürüm",
+                "badge_type": "previous",
                 "title": "Tam Çevrimdışı (Air-Gapped) Otomatik ISO Üretici, Konsol Panosu & Kısıtlı 'destek' Hesabı",
                 "summary": "İnternetsiz ortamda katılımsız kurulum yapan Ubuntu 24.04 Autoinstall ISO üreticisi, önceden derlenmiş Asterisk .deb paketi, TTY1 konsol durum panosu, SSH açık yapılandırma ve yalnızca ağ analizi/IP tanımı yapabilen kısıtlı 'destek' kabuğu eklendi.",
                 "features": [

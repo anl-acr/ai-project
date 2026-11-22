@@ -30,6 +30,9 @@ systemctl stop asterisk nginx nornia-console-banner 2>/dev/null || true
 cat <<'EOF' > /opt/ai-project/backend/settings.json
 {
   "company_name": "",
+  "setup_wizard": {
+    "completed": false
+  },
   "users": [],
   "trunks": [],
   "autoprovision": [],

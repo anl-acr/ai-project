@@ -284,8 +284,8 @@ def _is_setup_done() -> bool:
             with open(SETTINGS_FILE, "r", encoding="utf-8") as f:
                 data = json.load(f)
             sw = data.get("setup_wizard")
-            if isinstance(sw, dict) and sw.get("completed"):
-                return True
+            if isinstance(sw, dict) and "completed" in sw:
+                return bool(sw.get("completed"))
             if len(data.get("users") or []) > 0 or len(data.get("trunks") or []) > 0:
                 return True
     except Exception:
