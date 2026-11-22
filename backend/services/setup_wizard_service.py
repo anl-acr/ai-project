@@ -304,6 +304,21 @@ def apply_setup_wizard_payload(
 
     steps_log: List[Dict[str, Any]] = []
     now_tr = (datetime.datetime.utcnow() + datetime.timedelta(hours=3)).strftime("%Y-%m-%d %H:%M:%S")
+    was_completed = is_setup_completed(settings_db)
+
+    # Validate admin password upfront on fresh installations so we never write partial config without an admin user
+    admin_in = payload.get("admin") if isinstance(payload.get("admin"), dict) else {}
+    new_admin_pwd = str(admin_in.get("password") or "").strip()
+    new_admin_email = str(admin_in.get("email") or "").strip()
+    new_admin_name = str(admin_in.get("full_name") or "Sistem Yöneticisi").strip() or "Sistem Yöneticisi"
+    has_existing_admin = any(
+        isinstance(u, dict) and (str(u.get("username") or "").lower() == "admin" or str(u.get("role") or "").lower() == "admin")
+        for u in (settings_db.get("users") or [])
+    )
+    if (not was_completed or not has_existing_admin) and not new_admin_pwd:
+        raise ValueError("İlk kurulumda 'admin' yönetici hesabı için en az 6 karakterlik bir şifre belirlemelisiniz.")
+    if new_admin_pwd and len(new_admin_pwd) < 6:
+        raise ValueError("Yönetici parolası en az 6 karakter olmalıdır.")
 
     # ------------------------------------------------------------
     # STEP 1: Network & NAT
@@ -583,34 +598,73 @@ def apply_setup_wizard_payload(
     })
 
     # ------------------------------------------------------------
-    # STEP 6: Optional Admin Password Update + Seal Setup
+    # STEP 6: Admin Account Upsert (settings_db + PostgreSQL) & Seal Setup
     # ------------------------------------------------------------
-    admin_in = payload.get("admin") if isinstance(payload.get("admin"), dict) else {}
-    new_admin_pwd = str(admin_in.get("password") or "").strip()
-    new_admin_email = str(admin_in.get("email") or "").strip()
-    if new_admin_pwd and len(new_admin_pwd) < 6:
-        raise ValueError("Yönetici parolası en az 6 karakter olmalıdır.")
-    if new_admin_pwd or new_admin_email:
-        for u in settings_db.get("users", []) or []:
-            if isinstance(u, dict) and (str(u.get("username") or "").lower() == "admin" or str(u.get("role") or "").lower() == "admin"):
+    if "users" not in settings_db or not isinstance(settings_db.get("users"), list):
+        settings_db["users"] = []
+
+    admin_record = None
+    for u in settings_db["users"]:
+        if isinstance(u, dict) and (str(u.get("username") or "").lower() == "admin" or str(u.get("role") or "").lower() == "admin"):
+            admin_record = u
+            break
+
+    if admin_record is None:
+        admin_record = {
+            "id": 1,
+            "username": "admin",
+            "full_name": new_admin_name,
+            "email": new_admin_email or "admin@localhost",
+            "password": new_admin_pwd or "admin",
+            "role": "admin",
+            "extension": "",
+            "is_active": True,
+            "tenant_id": "tenant-default",
+        }
+        settings_db["users"].insert(0, admin_record)
+    else:
+        admin_record["username"] = str(admin_record.get("username") or "admin")
+        admin_record["role"] = "admin"
+        admin_record["is_active"] = True
+        if new_admin_name and new_admin_name != "Sistem Yöneticisi":
+            admin_record["full_name"] = new_admin_name
+        elif not admin_record.get("full_name"):
+            admin_record["full_name"] = new_admin_name
+        if new_admin_pwd:
+            admin_record["password"] = new_admin_pwd
+        if new_admin_email:
+            admin_record["email"] = new_admin_email
+
+    try:
+        from backend.database.config import SyncSessionLocal
+        from backend.database.models import SystemUser
+        with SyncSessionLocal() as sess:
+            adm = sess.query(SystemUser).filter(SystemUser.username == "admin").first()
+            if adm:
                 if new_admin_pwd:
-                    u["password"] = new_admin_pwd
+                    adm.password = new_admin_pwd
                 if new_admin_email:
-                    u["email"] = new_admin_email
-                break
-        try:
-            from backend.database.config import SyncSessionLocal
-            from backend.database.models import SystemUser
-            with SyncSessionLocal() as sess:
-                adm = sess.query(SystemUser).filter(SystemUser.username == "admin").first()
-                if adm:
-                    if new_admin_pwd:
-                        adm.password = new_admin_pwd
-                    if new_admin_email:
-                        adm.email = new_admin_email
-                    sess.commit()
-        except Exception:
-            pass
+                    adm.email = new_admin_email
+                if new_admin_name and (not adm.full_name or new_admin_name != "Sistem Yöneticisi"):
+                    adm.full_name = new_admin_name
+                adm.role = "admin"
+                adm.is_active = True
+                sess.commit()
+            else:
+                new_adm_row = SystemUser(
+                    username="admin",
+                    full_name=admin_record.get("full_name") or "Sistem Yöneticisi",
+                    email=admin_record.get("email") or "admin@localhost",
+                    password=admin_record.get("password") or new_admin_pwd,
+                    role="admin",
+                    extension="",
+                    is_active=True,
+                    tenant_id="tenant-default",
+                )
+                sess.add(new_adm_row)
+                sess.commit()
+    except Exception:
+        pass
 
     settings_db["setup_wizard"] = {
         "completed": True,
@@ -645,15 +699,26 @@ def apply_setup_wizard_payload(
 
     steps_log.append({
         "step": 6,
-        "title": "Asterisk & Sistem Senkronizasyonu",
+        "title": "Yönetici Hesabı (admin) & Sistem Senkronizasyonu",
         "ok": True,
-        "detail": "Kurulum tamamlandı ve sistem kullanıma hazır.",
+        "detail": f"Yönetici hesabı 'admin' aktif ({'şifre tanımlandı' if new_admin_pwd else 'mevcut şifre korundu'}) ve Asterisk senkronize edildi.",
     })
+
+    safe_admin_obj = {
+        "id": admin_record.get("id", 1),
+        "username": "admin",
+        "full_name": admin_record.get("full_name") or "Sistem Yöneticisi",
+        "email": admin_record.get("email") or "",
+        "role": "admin",
+        "tenant_id": "tenant-default",
+    }
 
     return {
         "status": "success",
         "setup_completed": True,
         "completed_at": now_tr,
+        "admin_account": safe_admin_obj,
+        "password_set": bool(new_admin_pwd),
         "steps": steps_log,
         "created_extensions": created_exts,
         "datetime": dt_res,
@@ -663,5 +728,5 @@ def apply_setup_wizard_payload(
             "sip_local_host": final_ep["local_ip"],
             "sip_wan_host": final_ep["wan_sip_host"],
         },
-        "message": "İlk kurulum başarıyla tamamlandı! Santraliniz kullanıma hazır.",
+        "message": "İlk kurulum başarıyla tamamlandı! 'admin' hesabınızla giriş yapabilirsiniz.",
     }

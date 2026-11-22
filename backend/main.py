@@ -43197,18 +43197,33 @@ async def get_system_version_info():
         pass
 
     return {
-        "version": "v3.10.5",
+        "version": "v3.10.6",
         "commit_hash": live_commit,
         "release_date": "22 Kasım 2026",
         "status": "Güncel / Canlı Sürüm",
         "environment": "Production (On-Premise)",
         "changelog": [
             {
-                "version": "v3.10.5",
+                "version": "v3.10.6",
                 "commit_hash": live_commit,
                 "release_date": "22 Kasım 2026",
                 "badge": "Canlı Sürüm (Güncel)",
                 "badge_type": "current",
+                "title": "İlk Kurulumda Zorunlu 'admin' Hesabı Oluşturma, Şifre Güvenliği & Tek Tıkla İlk Giriş",
+                "summary": "Sıfır kurulumda veritabanı tamamen boş olsa bile /setup ekranından zorunlu olarak 'admin' yönetici hesabı ve şifresi oluşturulur, PostgreSQL ve settings.json'a yazılır; kurulum sonrası eski sabit 'admin' arka kapı şifresi kapatıldı.",
+                "features": [
+                    "Sıfır Kurulum 'admin' Hesabı Upsert: Boş veritabanında kurulum yapılırken Adım 6'da 'admin' yöneticisi için şifre (canlı güç göstergesi ve tekrar doğrulamalı) zorunlu tutulur ve hem PostgreSQL SystemUser hem settings.json içinde oluşturulur.",
+                    "Tek Tıkla İlk Giriş: Kurulum tamamlandığında oluşturulan 'admin' hesabıyla doğrudan yönetim paneline geçiş veya /login ekranına yönlendirme sunulur.",
+                    "Giriş Güvenliği Sertleştirmesi: login.js ve index.js üzerinde özel admin şifresi tanımlıysa sabit 'admin' şifresiyle giriş kapatıldı."
+                ],
+                "fixes": []
+            },
+            {
+                "version": "v3.10.5",
+                "commit_hash": "8e55393",
+                "release_date": "22 Kasım 2026",
+                "badge": "Kararlı",
+                "badge_type": "stable",
                 "title": "İlk Kurulum Sihirbazı Adım 2 (Lisans) Donanım ID Format Düzeltmesi",
                 "summary": "get_system_hardware_fingerprint() sözlüğünden doğrudan hardware_id dizesi okunarak Adım 2'de oluşan React #31 nesne render hatası giderildi.",
                 "features": [],

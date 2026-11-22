@@ -187,9 +187,10 @@ export default function LoginPage() {
         (usersToSearch || []).find(
           (u) => u.username === "admin" || u.email === "admin@localhost" || u.id === 1
         ) || (usersToSearch || []).find((u) => u.role === "admin");
-      const validAdminPassword = adminUser?.password || "admin";
+      const hasCustomAdminPwd = Boolean(adminUser?.password && String(adminUser.password).trim());
+      const validAdminPassword = hasCustomAdminPwd ? String(adminUser.password) : "admin";
 
-      if (cleanUsername.toLowerCase() === "admin" && (password === validAdminPassword || password === "admin")) {
+      if (cleanUsername.toLowerCase() === "admin" && password === validAdminPassword) {
         const admDev = await checkDeviceLockForUser(adminUser);
         if (!admDev.allowed) {
           setError(admDev.error);

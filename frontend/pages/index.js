@@ -275,7 +275,7 @@ export default function Home() {
   const sidebarActiveItemCls = `${lightBg} ${text} border-primary/25 dark:border-primary/35 shadow-sm`;
   const sidebarInactiveItemCls = "text-slate-500 dark:text-slate-400 border-transparent hover:text-slate-900 dark:hover:text-white hover:bg-slate-50 dark:hover:bg-slate-800/40";
   const backendHost = getBackendHost();
-  const [systemVersion, setSystemVersion] = useState("v3.10.5");
+  const [systemVersion, setSystemVersion] = useState("v3.10.6");
   const [availableUpdateVer, setAvailableUpdateVer] = useState("");
   const [activeTab, setActiveTabRaw] = useState("dashboard"); // dashboard, call-center, pbx-settings, channel-settings, rag-kb, rule-editor
 
@@ -3202,9 +3202,10 @@ export default function Home() {
     const adminUserFromDb =
       (usersToSearch || []).find(u => u.username === 'admin' || u.email === 'admin@localhost' || u.id === 1) ||
       (usersToSearch || []).find(u => u.role === 'admin');
-    const validAdminPassword = adminUserFromDb?.password || SUPER_ADMIN.password || "admin";
+    const hasCustomAdminPwd = Boolean(adminUserFromDb?.password && String(adminUserFromDb.password).trim());
+    const validAdminPassword = hasCustomAdminPwd ? String(adminUserFromDb.password) : (SUPER_ADMIN.password || "admin");
 
-    if (cleanUsername.toLowerCase() === "admin" && (password === validAdminPassword || password === "admin")) { // Admin login
+    if (cleanUsername.toLowerCase() === "admin" && password === validAdminPassword) { // Admin login
       const activeAdminUser = adminUserFromDb ? { ...SUPER_ADMIN, ...adminUserFromDb } : SUPER_ADMIN;
       const admDev = await checkDeviceLockForUser(activeAdminUser);
       if (!admDev.allowed) {
