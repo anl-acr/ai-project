@@ -43173,18 +43173,32 @@ async def get_system_version_info():
         pass
 
     return {
-        "version": "v3.10.10",
+        "version": "v3.10.11",
         "commit_hash": live_commit,
         "release_date": "23 Kasım 2026",
         "status": "Güncel / Canlı Sürüm",
         "environment": "Production (On-Premise)",
         "changelog": [
             {
-                "version": "v3.10.10",
+                "version": "v3.10.11",
                 "commit_hash": live_commit,
                 "release_date": "23 Kasım 2026",
                 "badge": "Canlı Sürüm (Güncel)",
                 "badge_type": "current",
+                "title": "İlk Kurulumda Zorunlu Lisans Doğrulama Kilidi",
+                "summary": "İlk kurulum sihirbazının (/setup) 2. adımında geçerli ve donanıma bağlı bir lisans anahtarı (AIDA-...) girilip doğrulanmadan 3-6. adımlara geçilmesi ve kurulumun tamamlanması hem arayüzde hem API tarafında engellendi.",
+                "features": [
+                    "Zorunlu Lisans Kapısı: Lisans anahtarı boşsa 'İleri' butonu ve 3–6. adım sekmeleri kilitlenir; 'İleri' tıklandığında girilen anahtar otomatik doğrulanır ve geçersizse geçişe izin verilmez.",
+                    "Backend Zorunluluğu: /api/setup/complete uç noktası geçerli ve donanım imzalı bir lisans anahtarı olmadan kurulumu HTTP 400 ile reddeder."
+                ],
+                "fixes": []
+            },
+            {
+                "version": "v3.10.10",
+                "commit_hash": "50c8354",
+                "release_date": "23 Kasım 2026",
+                "badge": "Önceki Sürüm",
+                "badge_type": "previous",
                 "title": "Sıfır ISO İlk Açılış /setup Garantisi & PostgreSQL SystemUser Admin Kayıt Düzeltmesi",
                 "summary": "Tam çevrimdışı ISO kurulumu sonrası ilk web girişinde /setup sihirbazının kesin açılması için setup_wizard.completed=false eklendi; PostgreSQL SystemUser tablosunda olmayan username sütunu hatası düzeltilerek admin ve ilk dahililerin veritabanına yazılması garantiye alındı.",
                 "features": [],

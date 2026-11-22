@@ -270,26 +270,59 @@ export default function SetupWizardPage() {
     );
   }, [timezones, tzSearch]);
 
+  const isLicenseValidated = Boolean(
+    licenseKey.trim() &&
+      licenseCheck?.valid === true &&
+      licenseCheck?.checked_key === licenseKey.trim().toUpperCase()
+  );
+
   const handleValidateLicense = async () => {
-    if (!licenseKey.trim()) return;
+    const cleanKey = licenseKey.trim().toUpperCase();
+    if (!cleanKey) {
+      const fail = { valid: false, message: "Devam etmek için geçerli bir lisans anahtarı girmeniz zorunludur." };
+      setLicenseCheck(fail);
+      return fail;
+    }
     setCheckingLicense(true);
     setLicenseCheck(null);
     try {
       const res = await fetch(`${apiBase}/api/setup/validate-license`, {
         method: "POST",
         headers: buildAuthHeaders(),
-        body: JSON.stringify({ license_key: licenseKey.trim(), tenant_code: tenantCode.trim() }),
+        body: JSON.stringify({ license_key: cleanKey, tenant_code: tenantCode.trim() }),
       });
       const data = await res.json();
-      setLicenseCheck(data);
+      const enriched = { ...data, checked_key: cleanKey };
+      setLicenseCheck(enriched);
       if (data.tenant_code && !tenantCode.trim()) {
         setTenantCode(data.tenant_code);
       }
+      return enriched;
     } catch (err) {
-      setLicenseCheck({ valid: false, message: "Lisans doğrulama isteği başarısız oldu." });
+      const fail = { valid: false, message: "Lisans doğrulama isteği başarısız oldu." };
+      setLicenseCheck(fail);
+      return fail;
     } finally {
       setCheckingLicense(false);
     }
+  };
+
+  const handleNextStep = async () => {
+    setErrorMsg("");
+    if (step === 2) {
+      if (!licenseKey.trim()) {
+        setErrorMsg("Devam etmek için geçerli bir lisans anahtarı girip doğrulamanız zorunludur.");
+        return;
+      }
+      if (!isLicenseValidated) {
+        const res = await handleValidateLicense();
+        if (!res?.valid) {
+          setErrorMsg(res?.message || "Geçerli bir lisans anahtarı doğrulanmadan sonraki adıma geçilemez.");
+          return;
+        }
+      }
+    }
+    setStep((s) => Math.min(6, s + 1));
   };
 
   const handleCheckSubdomain = async () => {
@@ -376,6 +409,11 @@ export default function SetupWizardPage() {
 
   const handleCompleteSetup = async () => {
     setErrorMsg("");
+    if (!isLicenseValidated) {
+      setStep(2);
+      setErrorMsg("Kurulumu tamamlamak için 2. adımda geçerli bir lisans anahtarı doğrulamanız zorunludur.");
+      return;
+    }
     if (!adminPassword.trim()) {
       setErrorMsg("İlk kurulumda 'admin' yönetici hesabı için şifre belirlemeniz zorunludur.");
       return;
@@ -496,17 +534,29 @@ export default function SetupWizardPage() {
                   const Icon = s.icon;
                   const isActive = step === s.id;
                   const isDone = step > s.id;
+                  const isLockedByLicense = s.id > 2 && !isLicenseValidated;
                   return (
                     <button
                       key={s.id}
                       type="button"
-                      onClick={() => setStep(s.id)}
-                      className={`flex items-center gap-2 p-2.5 rounded-xl border text-left transition-all cursor-pointer ${
-                        isActive
-                          ? `${lightBg} ${border} ${text} ring-1 ${ring} shadow-xs`
+                      disabled={isLockedByLicense}
+                      onClick={() => {
+                        if (isLockedByLicense) {
+                          setErrorMsg("Devam etmek için 2. adımda geçerli bir lisans anahtarı girip doğrulamanız zorunludur.");
+                          return;
+                        }
+                        setErrorMsg("");
+                        setStep(s.id);
+                      }}
+                      title={isLockedByLicense ? "Önce 2. adımda geçerli bir lisans anahtarı doğrulayın" : s.title}
+                      className={`flex items-center gap-2 p-2.5 rounded-xl border text-left transition-all ${
+                        isLockedByLicense
+                          ? "bg-slate-50/40 dark:bg-slate-900/40 border-slate-200/50 dark:border-slate-800/60 text-slate-400 opacity-50 cursor-not-allowed"
+                          : isActive
+                          ? `${lightBg} ${border} ${text} ring-1 ${ring} shadow-xs cursor-pointer`
                           : isDone
-                          ? "bg-emerald-50/70 dark:bg-emerald-950/20 border-emerald-200 dark:border-emerald-900/50 text-emerald-700 dark:text-emerald-300"
-                          : "bg-slate-50/60 dark:bg-slate-800/40 border-slate-200/70 dark:border-slate-800 text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800"
+                          ? "bg-emerald-50/70 dark:bg-emerald-950/20 border-emerald-200 dark:border-emerald-900/50 text-emerald-700 dark:text-emerald-300 cursor-pointer"
+                          : "bg-slate-50/60 dark:bg-slate-800/40 border-slate-200/70 dark:border-slate-800 text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
                       }`}
                     >
                       <div
@@ -846,7 +896,7 @@ export default function SetupWizardPage() {
                         2. Lisans Aktivasyonu &amp; Donanım Kimliği
                       </h2>
                       <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-                        Aşağıdaki Donanım Kimliği için üretilmiş Nornia lisans anahtarınızı girip doğrulayın (isterseniz daha sonra Sistem Ayarları → Lisans alanından da aktive edebilirsiniz).
+                        Aşağıdaki Donanım Kimliği için üretilmiş geçerli Nornia lisans anahtarınızı girip doğrulayın. <strong>Geçerli bir lisans doğrulanmadan kuruluma devam edilemez.</strong>
                       </p>
                     </div>
 
@@ -898,8 +948,11 @@ export default function SetupWizardPage() {
                     </div>
 
                     <div>
-                      <label className="block text-xs font-bold text-slate-600 dark:text-slate-300 mb-1.5">
-                        Lisans Anahtarı (AIDA-...)
+                      <label className="block text-xs font-bold text-slate-600 dark:text-slate-300 mb-1.5 flex items-center gap-2">
+                        <span>Lisans Anahtarı (AIDA-...) <span className="text-rose-500">*</span></span>
+                        <span className="px-1.5 py-0.5 rounded-md bg-rose-500/15 text-rose-600 dark:text-rose-400 text-[10px] font-extrabold">
+                          Zorunlu
+                        </span>
                       </label>
                       <div className="flex flex-col sm:flex-row gap-2.5">
                         <input
@@ -1694,10 +1747,12 @@ export default function SetupWizardPage() {
                   {step < 6 ? (
                     <button
                       type="button"
-                      onClick={() => setStep((s) => Math.min(6, s + 1))}
-                      className={`inline-flex items-center gap-1.5 px-5 py-2.5 rounded-xl ${bg} ${hover} text-white text-xs font-extrabold shadow-sm cursor-pointer`}
+                      disabled={checkingLicense || (step === 2 && !licenseKey.trim())}
+                      onClick={handleNextStep}
+                      title={step === 2 && !licenseKey.trim() ? "Devam etmek için lisans anahtarı girmeniz zorunludur" : ""}
+                      className={`inline-flex items-center gap-1.5 px-5 py-2.5 rounded-xl ${bg} ${hover} text-white text-xs font-extrabold shadow-sm cursor-pointer disabled:opacity-45 disabled:cursor-not-allowed`}
                     >
-                      <span>İleri</span>
+                      <span>{step === 2 && checkingLicense ? "Lisans Doğrulanıyor..." : "İleri"}</span>
                       <ChevronRight size={15} />
                     </button>
                   ) : (

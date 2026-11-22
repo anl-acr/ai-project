@@ -309,7 +309,17 @@ def apply_setup_wizard_payload(
     if is_setup_completed(settings_db):
         raise PermissionError("İlk kurulum zaten tamamlandı. Kurulum sihirbazı güvenlik nedeniyle kalıcı olarak kilitlenmiştir ve tekrar çalıştırılamaz.")
 
-    # Validate admin password upfront so we never write partial config without an admin user
+    # Validate mandatory license key & admin password upfront so we never write partial config
+    lic_in = payload.get("license") if isinstance(payload.get("license"), dict) else {}
+    company_name = str(lic_in.get("company_name") or payload.get("company_name") or "").strip()
+    lic_key = str(lic_in.get("license_key") or "").strip().upper()
+    lic_tcode = str(lic_in.get("tenant_code") or "").strip().upper()
+    if not lic_key:
+        raise ValueError("Kurulumu tamamlamak için geçerli bir lisans anahtarı (AIDA-...) girilmesi zorunludur.")
+    v_res = validate_setup_license_key(lic_key, lic_tcode)
+    if not v_res.get("valid"):
+        raise ValueError(f"Lisans anahtarı doğrulanamadı: {v_res.get('message')}")
+
     admin_in = payload.get("admin") if isinstance(payload.get("admin"), dict) else {}
     new_admin_pwd = str(admin_in.get("password") or "").strip()
     new_admin_email = str(admin_in.get("email") or "").strip()
@@ -357,36 +367,24 @@ def apply_setup_wizard_payload(
     steps_log.append({"step": 1, "title": "Ağ & NAT Ayarları", "ok": True, "detail": f"LAN IP: {local_ip_in or 'Otomatik'}, NAT: {'Aktif' if nat_enabled_in else 'Kapalı'}"})
 
     # ------------------------------------------------------------
-    # STEP 2: License Activation
+    # STEP 2: License Activation (Mandatory)
     # ------------------------------------------------------------
-    lic_in = payload.get("license") if isinstance(payload.get("license"), dict) else {}
-    company_name = str(lic_in.get("company_name") or payload.get("company_name") or "").strip()
-    lic_key = str(lic_in.get("license_key") or "").strip().upper()
-    lic_tcode = str(lic_in.get("tenant_code") or "").strip().upper()
     if company_name:
         settings_db["company_name"] = company_name
 
-    if lic_key:
-        v_res = validate_setup_license_key(lic_key, lic_tcode)
-        if not v_res.get("valid"):
-            raise ValueError(f"Lisans anahtarı doğrulanamadı: {v_res.get('message')}")
-        tenants_list = settings_db.get("tenants")
-        if not isinstance(tenants_list, list) or not tenants_list:
-            tenants_list = [{"id": "tenant-default", "name": company_name or "Ana Müşteri", "code": v_res["tenant_code"], "status": "active"}]
-            settings_db["tenants"] = tenants_list
-        t0 = next((t for t in tenants_list if isinstance(t, dict) and str(t.get("id") or "") in ("tenant-default", "default")), tenants_list[0])
-        if company_name:
-            t0["name"] = company_name
-        t0["code"] = v_res["tenant_code"]
-        t0["license_key"] = lic_key
-        if v_res.get("expiry_date"):
-            t0["license_expires_at"] = v_res["expiry_date"]
-        t0["status"] = "active"
-        steps_log.append({"step": 2, "title": "Lisans Aktivasyonu", "ok": True, "detail": f"Aktif ({v_res['tenant_code']} • Bitiş: {v_res.get('expiry_date') or '-'})"})
-    else:
-        if company_name and isinstance(settings_db.get("tenants"), list) and settings_db["tenants"]:
-            settings_db["tenants"][0]["name"] = company_name
-        steps_log.append({"step": 2, "title": "Lisans Aktivasyonu", "ok": True, "detail": "Kurulum sonrası aktifleştirilmek üzere atlandı"})
+    tenants_list = settings_db.get("tenants")
+    if not isinstance(tenants_list, list) or not tenants_list:
+        tenants_list = [{"id": "tenant-default", "name": company_name or "Ana Müşteri", "code": v_res["tenant_code"], "status": "active"}]
+        settings_db["tenants"] = tenants_list
+    t0 = next((t for t in tenants_list if isinstance(t, dict) and str(t.get("id") or "") in ("tenant-default", "default")), tenants_list[0])
+    if company_name:
+        t0["name"] = company_name
+    t0["code"] = v_res["tenant_code"]
+    t0["license_key"] = lic_key
+    if v_res.get("expiry_date"):
+        t0["license_expires_at"] = v_res["expiry_date"]
+    t0["status"] = "active"
+    steps_log.append({"step": 2, "title": "Lisans Aktivasyonu", "ok": True, "detail": f"Aktif ({v_res['tenant_code']} • Bitiş: {v_res.get('expiry_date') or '-'})"})
 
     # ------------------------------------------------------------
     # STEP 3: FQDN & Remote Access (Nornia Cloud / Custom FQDN / LAN)
