@@ -266,6 +266,8 @@ export default function AgentWebphoneTab({
     noiseSuppressionMode = "ai"
   } = wpState;
 
+  const activeLine = lines.find((l) => l.id === activeLineId) || lines[0] || null;
+
   const cycleNoiseMode = () => {
     webphoneManager.cycleNoiseSuppressionMode();
   };

@@ -43196,18 +43196,31 @@ async def get_system_version_info():
         pass
 
     return {
-        "version": "v3.10.2",
+        "version": "v3.10.3",
         "commit_hash": live_commit,
         "release_date": "22 Kasım 2026",
         "status": "Güncel / Canlı Sürüm",
         "environment": "Production (On-Premise)",
         "changelog": [
             {
-                "version": "v3.10.2",
+                "version": "v3.10.3",
                 "commit_hash": live_commit,
                 "release_date": "22 Kasım 2026",
                 "badge": "Canlı Sürüm (Güncel)",
                 "badge_type": "current",
+                "title": "Web Telefonu Gelen Çağrı Hotfix (activeLine ReferenceError Düzeltmesi)",
+                "summary": "Temsilci Web Telefonu sekmesinde gelen çağrı (Ringing) sırasında oluşan ReferenceError: activeLine is not defined hatası giderildi.",
+                "features": [],
+                "fixes": [
+                    "AgentWebphoneTab.js içinde activeLine değişkeni (lines.find(l => l.id === activeLineId)) tanımlanarak gelen çağrı ve Cihaz Değiştir (Call Flip) rozeti hatası giderildi."
+                ]
+            },
+            {
+                "version": "v3.10.2",
+                "commit_hash": "aede0c5",
+                "release_date": "22 Kasım 2026",
+                "badge": "Kararlı",
+                "badge_type": "stable",
                 "title": "İlk Kurulum Sihirbazı Yalnızca Doğrudan /setup URL'si (Menülerden Kaldırıldı)",
                 "summary": "İlk Kurulum Sihirbazı Sistem Ayarları ve Rol yetkileri menülerinden kaldırıldı; yalnızca sıfır kurulumda otomatik veya oturum açmış yönetici tarafından doğrudan /setup adresi üzerinden erişilebilir.",
                 "features": [],
