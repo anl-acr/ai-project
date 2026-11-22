@@ -33,6 +33,11 @@ recordings/
 !asterisk_config/sounds_tr/tr_hatali_parola.wav
 *.mp3
 
+# Build / ISO Outputs
+dist/
+*.iso
+*.iso.sha256
+
 # OS Files
 .DS_Store
 Thumbs.db

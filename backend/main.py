@@ -43173,18 +43173,34 @@ async def get_system_version_info():
         pass
 
     return {
-        "version": "v3.10.8",
+        "version": "v3.10.9",
         "commit_hash": live_commit,
         "release_date": "22 Kasım 2026",
         "status": "Güncel / Canlı Sürüm",
         "environment": "Production (On-Premise)",
         "changelog": [
             {
-                "version": "v3.10.8",
+                "version": "v3.10.9",
                 "commit_hash": live_commit,
                 "release_date": "22 Kasım 2026",
                 "badge": "Canlı Sürüm (Güncel)",
                 "badge_type": "current",
+                "title": "Tam Çevrimdışı (Air-Gapped) Otomatik ISO Üretici, Konsol Panosu & Kısıtlı 'destek' Hesabı",
+                "summary": "İnternetsiz ortamda katılımsız kurulum yapan Ubuntu 24.04 Autoinstall ISO üreticisi, önceden derlenmiş Asterisk .deb paketi, TTY1 konsol durum panosu, SSH açık yapılandırma ve yalnızca ağ analizi/IP tanımı yapabilen kısıtlı 'destek' kabuğu eklendi.",
+                "features": [
+                    "Tam Çevrimdışı ISO Üretici (scripts/iso_builder/build_nornia_iso.sh): Yerel APT deposu, derlenmiş Asterisk 18 .deb, Python offline wheel'leri, PM2 ve önceden build edilmiş Nornia uygulamasını tek önyüklenebilir ISO'ya paketler.",
+                    "Katılımsız Autoinstall & SSH Güvenliği: 'nornia' tam yetkili SSH yönetim hesabı açık, root SSH kapalı; çoklu diskli sunucular için 2. GRUB seçeneği mevcut.",
+                    "Kısıtlı 'destek' Ağ/IP Kabuğu (nornia-destek-shell): SSH ForceCommand ile ham bash'e düşmeden yalnızca IP/Gateway/DNS tanımı, Rollback, Ping/MTR/Traceroute/DNS, port testi, salt-okunur SIP özeti ve servis sağlık kontrolü sağlar.",
+                    "Konsol Durum Panosu & VM Sysprep: TTY1 ekranında canlı LAN IP, /setup URL, Donanım ID ve servis durumları; OVA/QCOW2 şablon ihracı için nornia_sysprep.sh."
+                ],
+                "fixes": []
+            },
+            {
+                "version": "v3.10.8",
+                "commit_hash": "9be5828",
+                "release_date": "22 Kasım 2026",
+                "badge": "Önceki Sürüm",
+                "badge_type": "previous",
                 "title": "İlk Kurulum Sihirbazı Kalıcı Tek Seferlik Kilidi",
                 "summary": "Sistem bir kez kurulduktan sonra /setup ekranının ve tüm /api/setup/* uç noktalarının admin dahil hiç kimse tarafından bir daha açılıp çalıştırılamaması için kalıcı güvenlik kilidi uygulandı.",
                 "features": [

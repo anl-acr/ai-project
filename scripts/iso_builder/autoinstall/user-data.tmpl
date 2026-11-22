@@ -1,0 +1,74 @@
+#cloud-config
+autoinstall:
+  version: 1
+  refresh-installer:
+    update: false
+  locale: tr_TR.UTF-8
+  keyboard:
+    layout: tr
+    variant: ""
+  timezone: Europe/Istanbul
+  network:
+    version: 2
+    ethernets:
+      id0:
+        match:
+          name: "en*"
+        dhcp4: true
+        optional: true
+      id1:
+        match:
+          name: "eth*"
+        dhcp4: true
+        optional: true
+  apt:
+    fallback: offline-install
+    geoip: false
+    disable_components: []
+  identity:
+    hostname: nornia
+    username: __SYSADMIN_USER__
+    password: "__SYSADMIN_PASS_HASH__"
+  ssh:
+    install-server: true
+    allow-pw: true
+  storage:
+    layout:
+      name: lvm
+      sizing-policy: all
+  packages:
+    - openssh-server
+  late-commands:
+    - mkdir -p /target/opt/nornia-installer
+    - cp -a /cdrom/nornia/. /target/opt/nornia-installer/
+    - chmod +x /target/opt/nornia-installer/install_nornia_offline.sh
+    - |
+      cat <<'ENVEOF' > /target/opt/nornia-installer/installer.env
+      NORNIA_SYSADMIN_USER="__SYSADMIN_USER__"
+      NORNIA_SYSADMIN_PASS="__SYSADMIN_PASS_PLAIN__"
+      NORNIA_DESTEK_PASS="__DESTEK_PASS_PLAIN__"
+      ENVEOF
+    - chmod 0600 /target/opt/nornia-installer/installer.env
+    - |
+      cat <<'SVCEOF' > /target/etc/systemd/system/nornia-offline-bootstrap.service
+      [Unit]
+      Description=Nornia First-Boot Offline Appliance Installer
+      After=local-fs.target systemd-udevd.service
+      Before=getty@tty1.service
+      ConditionPathExists=/opt/nornia-installer/install_nornia_offline.sh
+
+      [Service]
+      Type=oneshot
+      EnvironmentFile=/opt/nornia-installer/installer.env
+      StandardOutput=journal+console
+      StandardError=journal+console
+      TTYPath=/dev/tty1
+      ExecStart=/bin/bash -c '/opt/nornia-installer/install_nornia_offline.sh --bundle-dir /opt/nornia-installer && rm -rf /opt/nornia-installer && systemctl disable nornia-offline-bootstrap.service'
+      RemainAfterExit=no
+
+      [Install]
+      WantedBy=multi-user.target
+      SVCEOF
+    - curtin in-target --target=/target -- systemctl enable nornia-offline-bootstrap.service
+    - curtin in-target --target=/target -- systemctl enable ssh
+  shutdown: reboot
