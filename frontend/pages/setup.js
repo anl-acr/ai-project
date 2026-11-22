@@ -420,6 +420,13 @@ export default function SetupWizardPage() {
   };
 
   const selectedTzObj = timezones.find((z) => z.id === timezone);
+  const resolvedHardwareId = useMemo(() => {
+    const raw = prefill?.hardware_id ?? prefill?.license?.hardware_id;
+    if (!raw) return "HW-YÜKLENİYOR";
+    if (typeof raw === "string") return raw;
+    if (typeof raw === "object") return String(raw.hardware_id || raw.clean_hw_id || "HW-UNKNOWN");
+    return String(raw);
+  }, [prefill]);
 
   return (
     <>
@@ -782,12 +789,12 @@ export default function SetupWizardPage() {
                           Bu Sunucunun Donanım Kimliği (Machine ID)
                         </span>
                         <div className={`text-lg font-black font-mono mt-0.5 ${text}`}>
-                          {prefill?.hardware_id || "HW-YÜKLENİYOR"}
+                          {resolvedHardwareId}
                         </div>
                       </div>
                       <button
                         type="button"
-                        onClick={() => copyText(prefill?.hardware_id, "hw-id")}
+                        onClick={() => copyText(resolvedHardwareId, "hw-id")}
                         className={`inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl ${bg} ${hover} text-white text-xs font-extrabold shadow-sm cursor-pointer shrink-0`}
                       >
                         {copiedKey === "hw-id" ? <Check size={14} /> : <Copy size={14} />}
@@ -1437,7 +1444,7 @@ export default function SetupWizardPage() {
                         </div>
                         <div className="text-[11px] text-slate-600 dark:text-slate-300 space-y-1">
                           <div>Firma: <strong>{companyName || "Belirtilmedi"}</strong></div>
-                          <div className="font-mono">Donanım ID: <strong>{prefill?.hardware_id || "-"}</strong></div>
+                          <div className="font-mono">Donanım ID: <strong>{resolvedHardwareId}</strong></div>
                           <div className="font-mono truncate">
                             Anahtar: <strong>{licenseKey ? licenseKey : "Sonra girilecek"}</strong>
                           </div>

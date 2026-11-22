@@ -16314,7 +16314,8 @@ async def get_setup_wizard_status_endpoint():
     completed = is_setup_completed(settings_db)
     hw_id = ""
     try:
-        hw_id = get_system_hardware_fingerprint()
+        fp = get_system_hardware_fingerprint()
+        hw_id = str(fp.get("hardware_id") or fp.get("clean_hw_id") or "") if isinstance(fp, dict) else str(fp or "")
     except Exception:
         pass
     dt_cfg = get_system_datetime_config(settings_db)
@@ -43196,18 +43197,31 @@ async def get_system_version_info():
         pass
 
     return {
-        "version": "v3.10.4",
+        "version": "v3.10.5",
         "commit_hash": live_commit,
         "release_date": "22 Kasım 2026",
         "status": "Güncel / Canlı Sürüm",
         "environment": "Production (On-Premise)",
         "changelog": [
             {
-                "version": "v3.10.4",
+                "version": "v3.10.5",
                 "commit_hash": live_commit,
                 "release_date": "22 Kasım 2026",
                 "badge": "Canlı Sürüm (Güncel)",
                 "badge_type": "current",
+                "title": "İlk Kurulum Sihirbazı Adım 2 (Lisans) Donanım ID Format Düzeltmesi",
+                "summary": "get_system_hardware_fingerprint() sözlüğünden doğrudan hardware_id dizesi okunarak Adım 2'de oluşan React #31 nesne render hatası giderildi.",
+                "features": [],
+                "fixes": [
+                    "setup_wizard_service.py, main.py ve setup.js içinde donanım parmak izi nesnesinden hardware_id metin alanı güvenle ayrıştırıldı."
+                ]
+            },
+            {
+                "version": "v3.10.4",
+                "commit_hash": "1dd5406",
+                "release_date": "22 Kasım 2026",
+                "badge": "Kararlı",
+                "badge_type": "stable",
                 "title": "Web Telefonu Cihaz Değiştir Butonu İkon-Sade Görünüm",
                 "summary": "Web Telefonu çağrı kontrol çubuğundaki Cihaz Değiştir butonundan metin etiketi kaldırılarak diğer kontrol butonlarıyla uyumlu sade ikon (h-11 w-11) görünümüne geçirildi.",
                 "features": [],

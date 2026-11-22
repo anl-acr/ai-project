@@ -122,7 +122,8 @@ def get_setup_prefill_context(
 
     hw_id = "HW-UNKNOWN"
     try:
-        hw_id = get_system_hardware_fingerprint()
+        fp = get_system_hardware_fingerprint()
+        hw_id = str(fp.get("hardware_id") or fp.get("clean_hw_id") or "HW-UNKNOWN") if isinstance(fp, dict) else str(fp or "HW-UNKNOWN")
     except Exception:
         pass
 
@@ -258,7 +259,8 @@ def validate_setup_license_key(license_key: str, tenant_code: str = "") -> Dict[
     res = verify_license_key(t_code, key_clean)
     hw_id = ""
     try:
-        hw_id = get_system_hardware_fingerprint()
+        fp = get_system_hardware_fingerprint()
+        hw_id = str(fp.get("hardware_id") or fp.get("clean_hw_id") or "") if isinstance(fp, dict) else str(fp or "")
     except Exception:
         pass
 
