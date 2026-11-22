@@ -150,10 +150,28 @@ if apt-cache show postgresql-16-pgvector >/dev/null 2>&1; then
 fi
 
 pushd "${BUNDLE_ROOT}/apt-repo" >/dev/null
-# Tüm doğrudan ve dolaylı bağımlılıkları indir
-ALL_DEPS="$(apt-rdepends "${TARGET_PKGS[@]}" 2>/dev/null | grep -v '^ ' | grep -v '^debconf-2\.0$' | sort -u || true)"
-for pkg in $ALL_DEPS; do
-  apt-get download "$pkg" >/dev/null 2>&1 || true
+# Tüm doğrudan ve dolaylı gerçek paket bağımlılıklarını hızlıca çöz (sanal <...> paketleri ele)
+mapfile -t ALL_DEPS < <(
+  apt-cache depends --recurse --no-recommends --no-suggests --no-conflicts --no-breaks --no-replaces --no-enhances "${TARGET_PKGS[@]}" 2>/dev/null \
+    | grep -E '^\w|Depends:' \
+    | sed -E 's/^.*Depends:\s*//; s/:any$//' \
+    | grep -v '^<' \
+    | sort -u
+)
+TOTAL_DEPS="${#ALL_DEPS[@]}"
+echo "  → ${TOTAL_DEPS} paket çözümlendi, toplu (40'lı paketler halinde) indiriliyor..."
+BATCH_SIZE=40
+IDX=0
+while [[ "$IDX" -lt "$TOTAL_DEPS" ]]; do
+  BATCH=("${ALL_DEPS[@]:IDX:BATCH_SIZE}")
+  if ! apt-get download "${BATCH[@]}" >/dev/null 2>&1; then
+    for pkg in "${BATCH[@]}"; do
+      apt-get download "$pkg" >/dev/null 2>&1 || true
+    done
+  fi
+  IDX=$((IDX + BATCH_SIZE))
+  DONE_COUNT="$(ls -1 *.deb 2>/dev/null | wc -l)"
+  echo "  → İlerleme: ${IDX}/${TOTAL_DEPS} işlendi (${DONE_COUNT} .deb indirildi)..."
 done
 # Doğrudan istenen paketleri de ayrıca garantiye al
 apt-get download "${TARGET_PKGS[@]}" >/dev/null 2>&1 || true
