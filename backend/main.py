@@ -43197,18 +43197,31 @@ async def get_system_version_info():
         pass
 
     return {
-        "version": "v3.10.6",
+        "version": "v3.10.7",
         "commit_hash": live_commit,
         "release_date": "22 Kasım 2026",
         "status": "Güncel / Canlı Sürüm",
         "environment": "Production (On-Premise)",
         "changelog": [
             {
-                "version": "v3.10.6",
+                "version": "v3.10.7",
                 "commit_hash": live_commit,
                 "release_date": "22 Kasım 2026",
                 "badge": "Canlı Sürüm (Güncel)",
                 "badge_type": "current",
+                "title": "İlk Kurulum Sihirbazı Başlık Sadeleştirmesi",
+                "summary": "İlk kurulum sihirbazı (/setup) sayfa başlığındaki ve üst bardaki 'Nornia PBX' ifadesinden 'PBX' ibaresi kaldırılarak 'Nornia — İlk Kurulum Sihirbazı' şeklinde güncellendi.",
+                "features": [],
+                "fixes": [
+                    "İlk Kurulum Sihirbazı Başlığı: /setup üst başlığından ve tarayıcı sekme başlığından 'PBX' ibaresi kaldırıldı."
+                ]
+            },
+            {
+                "version": "v3.10.6",
+                "commit_hash": "96b96a0",
+                "release_date": "22 Kasım 2026",
+                "badge": "Önceki Sürüm",
+                "badge_type": "previous",
                 "title": "İlk Kurulumda Zorunlu 'admin' Hesabı Oluşturma, Şifre Güvenliği & Tek Tıkla İlk Giriş",
                 "summary": "Sıfır kurulumda veritabanı tamamen boş olsa bile /setup ekranından zorunlu olarak 'admin' yönetici hesabı ve şifresi oluşturulur, PostgreSQL ve settings.json'a yazılır; kurulum sonrası eski sabit 'admin' arka kapı şifresi kapatıldı.",
                 "features": [

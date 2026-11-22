@@ -457,7 +457,7 @@ export default function SetupWizardPage() {
   return (
     <>
       <Head>
-        <title>Nornia PBX — İlk Kurulum Sihirbazı</title>
+        <title>Nornia — İlk Kurulum Sihirbazı</title>
       </Head>
 
       <div className="min-h-screen bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100 flex flex-col">
@@ -470,7 +470,7 @@ export default function SetupWizardPage() {
               </div>
               <div>
                 <div className="text-sm font-black tracking-tight text-slate-900 dark:text-white">
-                  Nornia PBX — İlk Kurulum Sihirbazı
+                  Nornia — İlk Kurulum Sihirbazı
                 </div>
                 <div className="text-[11px] text-slate-500 dark:text-slate-400">
                   {completedResult ? "Kurulum Tamamlandı" : `Adım ${step} / ${WIZARD_STEPS.length} • ${WIZARD_STEPS[step - 1]?.title}`}
