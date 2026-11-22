@@ -25,9 +25,9 @@ git pull origin main
 # Varsayılan şifrelerle ISO üretimi:
 sudo bash scripts/iso_builder/build_nornia_iso.sh
 
-# Özel yönetici / destek şifreleriyle ISO üretimi:
-sudo NORNIA_SYSADMIN_PASS="GucluYoneticiSifresi!" \
-     NORNIA_DESTEK_PASS="destekgiris2027!*" \
+# Özel yönetici / destek şifreleriyle ISO üretimi (Bash !* genişlemesi olmaması için TEK TIRNAK kullanın):
+sudo NORNIA_SYSADMIN_PASS='GucluYoneticiSifresi!*' \
+     NORNIA_DESTEK_PASS='destekgiris2027!*' \
      bash scripts/iso_builder/build_nornia_iso.sh
 ```
 

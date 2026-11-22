@@ -40,11 +40,25 @@ FINAL_ISO="${OUT_DIR}/${ISO_FILENAME}"
 UBUNTU_ISO_URL="${UBUNTU_ISO_URL:-}"
 UBUNTU_ISO_FILE="${UBUNTU_ISO_PATH:-${CACHE_DIR}/ubuntu-24.04-live-server-amd64.iso}"
 
+# Önce varsa yarım kalmış geçici derleme dizinlerini temizle ki disk ölçümü doğru olsun
+rm -rf "$WORK_DIR" /tmp/nornia_asterisk_deb_build
+
+# Şifre güvenlik kontrolü (bash çift tırnak içinde !* genişlemesi kazasını yakala)
+if [[ "$SYSADMIN_PASS" == *"&&"* || "$DESTEK_PASS" == *"&&"* || "$SYSADMIN_PASS" == *" "* || "$DESTEK_PASS" == *" "* ]]; then
+  echo "[HATA] Şifrelerde boşluk veya '&&' tespit edildi! Bash içinde '!' veya '*' karakterli şifreleri TEK TIRNAK ('...') ile yazmalısınız." >&2
+  echo "       Örnek: NORNIA_SYSADMIN_PASS='Sifreniz!*' NORNIA_DESTEK_PASS='destekgiris2027!*'" >&2
+  exit 1
+fi
+
 # Boş disk alanı kontrolü (canlı santralde diskin %100 dolmasını önler)
 FREE_GB="$(df -BG --output=avail / 2>/dev/null | tail -n 1 | tr -dc '0-9' || echo 20)"
 LOW_DISK_MODE="${LOW_DISK_MODE:-0}"
-if [[ "${FREE_GB:-20}" -lt 11 ]]; then
-  echo "[HATA] Kök diskte yalnızca ${FREE_GB} GB boş alan var. Güvenli ISO üretimi için en az 11 GB boş alan gereklidir." >&2
+MIN_FREE_GB=11
+if [[ -f "$UBUNTU_ISO_FILE" ]]; then
+  MIN_FREE_GB=9
+fi
+if [[ "${FREE_GB:-20}" -lt "$MIN_FREE_GB" ]]; then
+  echo "[HATA] Kök diskte yalnızca ${FREE_GB} GB boş alan var. Güvenli ISO üretimi için en az ${MIN_FREE_GB} GB boş alan gereklidir." >&2
   exit 1
 fi
 if [[ "${FREE_GB:-20}" -lt 18 && -z "${UBUNTU_ISO_PATH:-}" ]]; then
@@ -52,7 +66,6 @@ if [[ "${FREE_GB:-20}" -lt 18 && -z "${UBUNTU_ISO_PATH:-}" ]]; then
 fi
 
 mkdir -p "$CACHE_DIR" "${CACHE_DIR}/debs" "$OUT_DIR"
-rm -rf "$WORK_DIR"
 mkdir -p "$WORK_DIR"
 
 echo "======================================================================"

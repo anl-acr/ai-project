@@ -62,22 +62,30 @@ if wget -q "http://setup.saphira.com.tr/cisco/cisco-usecallmanager-${AST_VER}.pa
   patch --strip=1 < "cisco-usecallmanager-${AST_VER}.patch" || echo "[BİLGİ] Cisco yaması atlandı / zaten uygulanmış."
 fi
 
-# MP3 headers
-mkdir -p addons/mp3
-curl -fsSL https://raw.githubusercontent.com/asterisk/thirdparty-mp3/master/mpg123.h > addons/mp3/mpg123.h || true
-curl -fsSL https://raw.githubusercontent.com/asterisk/thirdparty-mp3/master/huffman.h > addons/mp3/huffman.h || true
-sed -i '/#include "asterisk\/module.h"/a \void InitMP3Constants(void);' addons/format_mp3.c 2>/dev/null || true
+# MP3 kaynak kodunu sadece eksiksiz indirilebilirse etkinleştir
+rm -rf addons/mp3
 ./contrib/scripts/get_mp3_source.sh || true
+HAS_MP3_SRC="0"
+if [[ -f addons/mp3/interface.c ]]; then
+  HAS_MP3_SRC="1"
+else
+  rm -rf addons/mp3
+  echo "[BİLGİ] MP3 eklenti kaynağı indirilemedi; format_mp3 devre dışı bırakılıyor (WAV/ULAW/ALAW/OPUS tam aktif)."
+fi
 
 echo "[2/5] Configure (Bundled PJProject + WebRTC SRTP AES-256/GCM + AudioSocket)..."
 CFLAGS="-DENABLE_SRTP_AES_GCM -DENABLE_SRTP_AES_256" ./configure --with-pjproject-bundled
 
 make menuselect.makeopts
+MP3_FLAG="--disable format_mp3"
+if [[ "$HAS_MP3_SRC" == "1" ]]; then
+  MP3_FLAG="--enable format_mp3"
+fi
 menuselect/menuselect \
   --enable app_audiosocket \
   --enable chan_audiosocket \
   --enable res_audiosocket \
-  --enable format_mp3 \
+  $MP3_FLAG \
   --enable codec_opus \
   --enable CORE-SOUNDS-EN-WAV \
   --enable CORE-SOUNDS-EN-ULAW \
