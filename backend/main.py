@@ -43183,18 +43183,31 @@ async def get_system_version_info():
         pass
 
     return {
-        "version": "v3.10.0",
+        "version": "v3.10.1",
         "commit_hash": live_commit,
         "release_date": "22 Kasım 2026",
         "status": "Güncel / Canlı Sürüm",
         "environment": "Production (On-Premise)",
         "changelog": [
             {
-                "version": "v3.10.0",
+                "version": "v3.10.1",
                 "commit_hash": live_commit,
                 "release_date": "22 Kasım 2026",
                 "badge": "Canlı Sürüm (Güncel)",
                 "badge_type": "current",
+                "title": "Sistem Ayarları > İlk Kurulum Sihirbazı Kartı Hotfix (useTheme hover Düzeltmesi)",
+                "summary": "SettingsPanel.js içinde useTheme() kancasından eksik kalan hover değişkeni eklendi.",
+                "features": [],
+                "fixes": [
+                    "Sistem Ayarları > Bakım & Sistem > İlk Kurulum Sihirbazı sekmesi açılırken oluşan ReferenceError: hover is not defined hatası giderildi."
+                ]
+            },
+            {
+                "version": "v3.10.0",
+                "commit_hash": "3121570",
+                "release_date": "22 Kasım 2026",
+                "badge": "Kararlı",
+                "badge_type": "stable",
                 "title": "6 Adımlı İlk Kurulum Sihirbazı (/setup) & Sistem Tarih, Saat Dilimi, NTP ve Bölge Yönetimi",
                 "summary": "Yeni kurulan santrallerde ilk açılışta karşılayan 6 adımlı rehberli İlk Kurulum Sihirbazı (Ağ → Lisans → FQDN → Dahili/Numara Planı → Saat/Tarih/Dil → Özet) ve Sistem Ayarları altında kalıcı Tarih, Saat & Bölge Ayarları paneli eklendi.",
                 "features": [

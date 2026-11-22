@@ -91,7 +91,7 @@ const normalizeSubTab = (subTab) => {
 };
 
 export default function SettingsPanel({ backendHost = "localhost:8000" }) {
-  const { bg, text, lightBg, borderLight } = useTheme();
+  const { bg, hover, text, lightBg, borderLight } = useTheme();
   const [activeSubTab, setActiveSubTab] = useState("pbx");
   const [activeCategory, setActiveCategory] = useState("pbx_network");
   const categoryTabRefs = useRef({});
