@@ -160,34 +160,22 @@ if apt-cache show postgresql-16-pgvector >/dev/null 2>&1; then
 fi
 
 pushd "${BUNDLE_ROOT}/apt-repo" >/dev/null
-# Tüm doğrudan ve dolaylı gerçek paket bağımlılıklarını hızlıca çöz (sanal <...> paketleri ele)
-mapfile -t ALL_DEPS < <(
-  apt-cache depends --recurse --no-recommends --no-suggests --no-conflicts --no-breaks --no-replaces --no-enhances "${TARGET_PKGS[@]}" 2>/dev/null \
-    | grep -E '^\w|Depends:' \
-    | sed -E 's/^.*Depends:\s*//; s/:any$//' \
-    | grep -v '^<' \
-    | sort -u
-)
-TOTAL_DEPS="${#ALL_DEPS[@]}"
-echo "  → ${TOTAL_DEPS} paket çözümlendi, toplu (40'lı paketler halinde) indiriliyor..."
-BATCH_SIZE=40
-IDX=0
-while [[ "$IDX" -lt "$TOTAL_DEPS" ]]; do
-  BATCH=("${ALL_DEPS[@]:IDX:BATCH_SIZE}")
-  if ! apt-get download "${BATCH[@]}" >/dev/null 2>&1; then
-    for pkg in "${BATCH[@]}"; do
-      apt-get download "$pkg" >/dev/null 2>&1 || true
-    done
-  fi
-  IDX=$((IDX + BATCH_SIZE))
-  DONE_COUNT="$(ls -1 *.deb 2>/dev/null | wc -l)"
-  echo "  → İlerleme: ${IDX}/${TOTAL_DEPS} işlendi (${DONE_COUNT} .deb indirildi)..."
-done
-# Doğrudan istenen paketleri de ayrıca garantiye al
-apt-get download "${TARGET_PKGS[@]}" >/dev/null 2>&1 || true
+# Gerçek APT çözümleyicisini boş status dosyasıyla çalıştırarak TÜM gerçek & t64/sanal bağımlılıkları eksiksiz indir
+EMPTY_STATUS="${WORK_DIR}/apt_empty_status"
+: > "$EMPTY_STATUS"
+mkdir -p "${BUNDLE_ROOT}/apt-repo/partial"
+
+echo "  → APT çözümleyici ile tüm gerçek bağımlılıklar (t64 dahil) indiriliyor..."
+apt-get install -y --download-only --no-install-recommends \
+  -o "Dir::State::status=${EMPTY_STATUS}" \
+  -o "Dir::Cache::archives=${BUNDLE_ROOT}/apt-repo" \
+  -o Debug::NoLocking=1 \
+  "${TARGET_PKGS[@]}"
+
+rm -rf "${BUNDLE_ROOT}/apt-repo/partial" "${BUNDLE_ROOT}/apt-repo/lock" "$EMPTY_STATUS"
 dpkg-scanpackages -m . /dev/null > Packages
 gzip -9c Packages > Packages.gz
-echo "  [OK] $(ls -1 *.deb | wc -l) adet .deb paketi çevrimdışı depoya eklendi."
+echo "  [OK] $(ls -1 *.deb | wc -l) adet .deb paketi çevrimdışı depoya eksiksiz eklendi."
 popd >/dev/null
 
 echo "[5/8] Python çevrimdışı wheel paketleri ve PM2 hazırlanıyor..."
