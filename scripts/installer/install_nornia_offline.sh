@@ -541,13 +541,18 @@ ufw allow 8089/tcp comment 'WebRTC WSS' >/dev/null 2>&1 || true
 ufw allow 10000:20000/udp comment 'RTP Media' >/dev/null 2>&1 || true
 ufw --force enable >/dev/null 2>&1 || true
 
-# PM2 uygulamalarını başlat & systemd kalıcılığı
+# PM2 uygulamalarını başlat & kendi systemd servisi (pm2-root.service) altında kalıcı çalıştır
 if command -v pm2 >/dev/null 2>&1; then
   cd "$PROJECT_DIR"
   pm2 startOrReload "${PROJECT_DIR}/ecosystem.config.js" || pm2 start "${PROJECT_DIR}/ecosystem.config.js"
-  pm2 save
+  pm2 save --force
   pm2 startup systemd -u root --hp /root >/dev/null 2>&1 || true
-  pm2 save
+  pm2 save --force
+  # Oneshot bootstrap cgroup kapandığında PM2'nin SIGINT yememesi için kendi systemd unit'inden başlat
+  pm2 kill >/dev/null 2>&1 || true
+  systemctl daemon-reload
+  systemctl enable pm2-root.service 2>/dev/null || true
+  systemctl restart pm2-root.service 2>/dev/null || true
 fi
 
 # TTY1 Canlı Konsol Panosu Servisi

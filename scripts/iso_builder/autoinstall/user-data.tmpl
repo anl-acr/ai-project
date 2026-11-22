@@ -60,6 +60,7 @@ autoinstall:
 
       [Service]
       Type=oneshot
+      KillMode=process
       EnvironmentFile=/opt/nornia-installer/installer.env
       StandardOutput=journal+console
       StandardError=journal+console
