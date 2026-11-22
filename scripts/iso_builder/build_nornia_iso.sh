@@ -37,8 +37,19 @@ NORNIA_VER="$(grep -m1 '"version": "v' "${REPO_ROOT}/backend/main.py" | sed -E '
 ISO_FILENAME="nornia-${NORNIA_VER}-ubuntu24.04-amd64.iso"
 FINAL_ISO="${OUT_DIR}/${ISO_FILENAME}"
 
-UBUNTU_ISO_URL="${UBUNTU_ISO_URL:-https://releases.ubuntu.com/24.04.2/ubuntu-24.04.2-live-server-amd64.iso}"
+UBUNTU_ISO_URL="${UBUNTU_ISO_URL:-}"
 UBUNTU_ISO_FILE="${UBUNTU_ISO_PATH:-${CACHE_DIR}/ubuntu-24.04-live-server-amd64.iso}"
+
+# Boş disk alanı kontrolü (canlı santralde diskin %100 dolmasını önler)
+FREE_GB="$(df -BG --output=avail / 2>/dev/null | tail -n 1 | tr -dc '0-9' || echo 20)"
+LOW_DISK_MODE="${LOW_DISK_MODE:-0}"
+if [[ "${FREE_GB:-20}" -lt 11 ]]; then
+  echo "[HATA] Kök diskte yalnızca ${FREE_GB} GB boş alan var. Güvenli ISO üretimi için en az 11 GB boş alan gereklidir." >&2
+  exit 1
+fi
+if [[ "${FREE_GB:-20}" -lt 18 && -z "${UBUNTU_ISO_PATH:-}" ]]; then
+  LOW_DISK_MODE="1"
+fi
 
 mkdir -p "$CACHE_DIR" "${CACHE_DIR}/debs" "$OUT_DIR"
 rm -rf "$WORK_DIR"
@@ -46,10 +57,11 @@ mkdir -p "$WORK_DIR"
 
 echo "======================================================================"
 echo "  NORNIA TAM ÇEVRİMDIŞI ISO ÜRETİCİ"
-echo "  Sürüm        : ${NORNIA_VER}"
-echo "  Yönetici SSH : ${SYSADMIN_USER}"
-echo "  Destek Hesap : destek (kısıtlı ağ/IP kabuğu)"
-echo "  Çıktı ISO    : ${FINAL_ISO}"
+echo "  Sürüm         : ${NORNIA_VER}"
+echo "  Yönetici SSH  : ${SYSADMIN_USER}"
+echo "  Destek Hesap  : destek (kısıtlı ağ/IP kabuğu)"
+echo "  Boş Disk      : ${FREE_GB} GB (Düşük Disk Koruma Modu: ${LOW_DISK_MODE})"
+echo "  Çıktı ISO     : ${FINAL_ISO}"
 echo "======================================================================"
 
 # ------------------------------------------------------------------------------
@@ -68,17 +80,25 @@ if ! command -v node >/dev/null 2>&1 || [[ "$(node -v | sed 's/v//' | cut -d. -f
   curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
   apt-get install -y nodejs
 fi
+apt-get clean
 
 # ------------------------------------------------------------------------------
 # 2. Ubuntu 24.04 Live Server Taban ISO İndir / Önbellekten Kullan
 # ------------------------------------------------------------------------------
 echo "[2/8] Ubuntu 24.04 Server taban ISO kontrol ediliyor..."
 if [[ ! -f "$UBUNTU_ISO_FILE" ]]; then
-  echo "  İndiriliyor: ${UBUNTU_ISO_URL}"
-  if ! wget --show-progress -O "${UBUNTU_ISO_FILE}.part" "$UBUNTU_ISO_URL"; then
-    echo "[UYARI] 24.04.2 bulunamadı, 24.04.3 deneniyor..."
-    wget --show-progress -O "${UBUNTU_ISO_FILE}.part" "https://releases.ubuntu.com/24.04.3/ubuntu-24.04.3-live-server-amd64.iso"
+  if [[ -z "$UBUNTU_ISO_URL" ]]; then
+    # Ubuntu 24.04 dizininden en güncel nokta sürümünü (24.04.x) otomatik keşfet
+    LATEST_ISO_NAME="$(curl -fsSL https://releases.ubuntu.com/24.04/ 2>/dev/null \
+      | grep -oE 'ubuntu-24\.04(\.[0-9]+)?-live-server-amd64\.iso' | sort -V | tail -n 1 || true)"
+    if [[ -n "$LATEST_ISO_NAME" ]]; then
+      UBUNTU_ISO_URL="https://releases.ubuntu.com/24.04/${LATEST_ISO_NAME}"
+    else
+      UBUNTU_ISO_URL="https://releases.ubuntu.com/24.04/ubuntu-24.04.5-live-server-amd64.iso"
+    fi
   fi
+  echo "  İndiriliyor: ${UBUNTU_ISO_URL}"
+  wget --show-progress -O "${UBUNTU_ISO_FILE}.part" "$UBUNTU_ISO_URL"
   mv "${UBUNTU_ISO_FILE}.part" "$UBUNTU_ISO_FILE"
 else
   echo "  [OK] Önbellekteki taban ISO kullanılıyor: ${UBUNTU_ISO_FILE}"
@@ -257,6 +277,12 @@ EFI_START="$(fdisk -l "$UBUNTU_ISO_FILE" 2>/dev/null | awk '/EFI/ {print $2; exi
 EFI_SECTORS="$(fdisk -l "$UBUNTU_ISO_FILE" 2>/dev/null | awk '/EFI/ {print $4; exit}' || true)"
 if [[ -n "$EFI_START" && -n "$EFI_SECTORS" ]]; then
   dd if="$UBUNTU_ISO_FILE" bs=512 skip="$EFI_START" count="$EFI_SECTORS" of="${BOOT_IMG_DIR}/efi.img" status=none
+fi
+
+# Düşük disk koruma modu (<18 GB): xorriso final ISO'yu yazmadan önce taban ISO'yu silerek ~2.6 GB alan aç
+if [[ "$LOW_DISK_MODE" == "1" && -f "$UBUNTU_ISO_FILE" && -z "${UBUNTU_ISO_PATH:-}" ]]; then
+  echo "  [Düşük Disk Modu] Final ISO yazılmadan önce geçici taban ISO temizleniyor (~2.6 GB kazanıldı)..."
+  rm -f "$UBUNTU_ISO_FILE"
 fi
 
 XORRISO_ARGS=(
