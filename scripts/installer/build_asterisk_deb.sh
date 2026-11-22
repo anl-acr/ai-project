@@ -59,7 +59,7 @@ if [[ -f "$DEB_FILE" && "${FORCE_REBUILD:-0}" != "1" ]]; then
     rm -rf "$PATCH_TMP"
     dpkg-deb -R "$DEB_FILE" "$PATCH_TMP"
     discover_runtime_deps_from_dir "$PATCH_TMP" > "$DEPS_LIST_FILE"
-    AUTO_DEPS="$(paste -sd ', ' "$DEPS_LIST_FILE" | sed 's/,/, /g')"
+    AUTO_DEPS="$(paste -sd ',' "$DEPS_LIST_FILE" | sed 's/,/, /g')"
     if [[ -n "$AUTO_DEPS" ]]; then
       sed -i -E "s|^Depends:.*|Depends: ${AUTO_DEPS}|" "${PATCH_TMP}/DEBIAN/control"
       dpkg-deb --build --root-owner-group "$PATCH_TMP" "$DEB_FILE"
@@ -172,7 +172,7 @@ WantedBy=multi-user.target
 EOF
 
 discover_runtime_deps_from_dir "$STAGE_DIR" > "$DEPS_LIST_FILE"
-AUTO_DEPS="$(paste -sd ', ' "$DEPS_LIST_FILE" | sed 's/,/, /g')"
+AUTO_DEPS="$(paste -sd ',' "$DEPS_LIST_FILE" | sed 's/,/, /g')"
 if [[ -z "$AUTO_DEPS" ]]; then
   AUTO_DEPS="libssl3t64 | libssl3, libjansson4, libsrtp2-1, libsqlite3-0, libxml2, libedit2, libuuid1, libcurl4t64 | libcurl4, libopus0, libspandsp2t64 | libspandsp2, liburiparser1"
 fi
