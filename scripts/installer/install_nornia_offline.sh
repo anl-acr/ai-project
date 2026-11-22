@@ -382,7 +382,7 @@ chown -R asterisk:asterisk /etc/asterisk /var/lib/asterisk /var/spool/asterisk /
 chmod -R 775 /etc/asterisk /var/run/asterisk
 chmod 644 /etc/asterisk/keys/asterisk.pem
 
-python3 "${PROJECT_DIR}/backend/scripts/sync_asterisk.py" || true
+"${PROJECT_DIR}/venv/bin/python" "${PROJECT_DIR}/backend/scripts/sync_asterisk.py" || true
 systemctl enable asterisk 2>/dev/null || true
 systemctl restart asterisk 2>/dev/null || true
 
@@ -518,9 +518,11 @@ Match User destek
     PermitTunnel no
     PermitTTY yes
 EOF
+mkdir -p /run/sshd
+chmod 0755 /run/sshd
 sshd -t
 systemctl enable ssh 2>/dev/null || systemctl enable sshd 2>/dev/null || true
-systemctl restart ssh 2>/dev/null || systemctl restart sshd 2>/dev/null || true
+systemctl restart ssh 2>/dev/null || systemctl restart ssh.socket 2>/dev/null || systemctl restart sshd 2>/dev/null || true
 
 # ------------------------------------------------------------------------------
 # 10. UFW Güvenlik Duvarı, PM2 Başlatma & Konsol Banner Servisi
@@ -542,7 +544,7 @@ ufw --force enable >/dev/null 2>&1 || true
 # PM2 uygulamalarını başlat & systemd kalıcılığı
 if command -v pm2 >/dev/null 2>&1; then
   cd "$PROJECT_DIR"
-  pm2 start "${PROJECT_DIR}/ecosystem.config.js"
+  pm2 startOrReload "${PROJECT_DIR}/ecosystem.config.js" || pm2 start "${PROJECT_DIR}/ecosystem.config.js"
   pm2 save
   pm2 startup systemd -u root --hp /root >/dev/null 2>&1 || true
   pm2 save

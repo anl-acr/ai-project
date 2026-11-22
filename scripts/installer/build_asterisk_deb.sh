@@ -25,16 +25,47 @@ fi
 
 mkdir -p "$OUT_DIR"
 
+DEPS_LIST_FILE="${OUT_DIR}/nornia-asterisk-runtime-deps.txt"
+
+discover_runtime_deps_from_dir() {
+  local root_dir="$1"
+  local pkgs=()
+  local so_paths
+  so_paths="$(find "${root_dir}/usr/sbin" "${root_dir}/usr/lib" -type f \( -name "asterisk" -o -name "*.so*" \) 2>/dev/null | xargs -r ldd 2>/dev/null \
+    | awk '/=> \// {print $3}' | sort -u)"
+  for so in $so_paths; do
+    # Kendi derlediğimiz libasterisk* hariç tüm sistem .so dosyalarının Ubuntu paket adını bul
+    case "$so" in
+      *libasterisk*) continue ;;
+    esac
+    local pkg=""
+    pkg="$(dpkg -S "$so" 2>/dev/null | head -n 1 | cut -d: -f1 || true)"
+    if [[ -z "$pkg" ]]; then
+      local real_so
+      real_so="$(readlink -f "$so" 2>/dev/null || true)"
+      [[ -n "$real_so" ]] && pkg="$(dpkg -S "$real_so" 2>/dev/null | head -n 1 | cut -d: -f1 || true)"
+    fi
+    if [[ -n "$pkg" && "$pkg" != "libc6" ]]; then
+      pkgs+=("$pkg")
+    fi
+  done
+  printf '%s\n' "${pkgs[@]}" | sort -u
+}
+
 if [[ -f "$DEB_FILE" && "${FORCE_REBUILD:-0}" != "1" ]]; then
-  # Önbellekteki eski .deb içinde Ubuntu 24.04 libspandsp2t64 alternatifi eksikse 2 saniyede control dosyasını güncelle
-  if ! dpkg-deb -f "$DEB_FILE" Depends 2>/dev/null | grep -q "libspandsp2t64"; then
-    echo "[BİLGİ] Önbellekteki Asterisk .deb bağımlılığı Ubuntu 24.04 (libspandsp2t64) için güncelleniyor..."
+  if [[ ! -f "$DEPS_LIST_FILE" ]] || ! dpkg-deb -f "$DEB_FILE" Depends 2>/dev/null | grep -q "liburiparser"; then
+    echo "[BİLGİ] Önbellekteki Asterisk .deb içindeki tüm gerçek .so bağımlılıkları (ldd) taranıp güncelleniyor..."
     PATCH_TMP="/tmp/nornia_ast_deb_patch"
     rm -rf "$PATCH_TMP"
     dpkg-deb -R "$DEB_FILE" "$PATCH_TMP"
-    sed -i 's/\blibspandsp2\b/libspandsp2t64 | libspandsp2/g' "${PATCH_TMP}/DEBIAN/control"
-    dpkg-deb --build --root-owner-group "$PATCH_TMP" "$DEB_FILE"
+    discover_runtime_deps_from_dir "$PATCH_TMP" > "$DEPS_LIST_FILE"
+    AUTO_DEPS="$(paste -sd ', ' "$DEPS_LIST_FILE" | sed 's/,/, /g')"
+    if [[ -n "$AUTO_DEPS" ]]; then
+      sed -i -E "s|^Depends:.*|Depends: ${AUTO_DEPS}|" "${PATCH_TMP}/DEBIAN/control"
+      dpkg-deb --build --root-owner-group "$PATCH_TMP" "$DEB_FILE"
+    fi
     rm -rf "$PATCH_TMP"
+    echo "[OK] $(wc -l < "$DEPS_LIST_FILE") adet gerçek Asterisk runtime paketi tespit edildi ve .deb güncellendi."
   fi
   echo "[OK] Önceden derlenmiş paket zaten mevcut: $DEB_FILE"
   echo "     Yeniden derlemek için FORCE_REBUILD=1 ile çalıştırın."
@@ -140,6 +171,12 @@ LimitNOFILE=65536
 WantedBy=multi-user.target
 EOF
 
+discover_runtime_deps_from_dir "$STAGE_DIR" > "$DEPS_LIST_FILE"
+AUTO_DEPS="$(paste -sd ', ' "$DEPS_LIST_FILE" | sed 's/,/, /g')"
+if [[ -z "$AUTO_DEPS" ]]; then
+  AUTO_DEPS="libssl3t64 | libssl3, libjansson4, libsrtp2-1, libsqlite3-0, libxml2, libedit2, libuuid1, libcurl4t64 | libcurl4, libopus0, libspandsp2t64 | libspandsp2, liburiparser1"
+fi
+
 cat <<EOF > "${STAGE_DIR}/DEBIAN/control"
 Package: ${PKG_NAME}
 Version: ${AST_VER}
@@ -147,7 +184,7 @@ Section: comm
 Priority: optional
 Architecture: ${ARCH}
 Maintainer: Nornia Engineering <ops@nornia.com.tr>
-Depends: libssl3t64 | libssl3, libjansson4, libsrtp2-1, libsqlite3-0, libxml2, libedit2, libuuid1, libcurl4t64 | libcurl4, libopus0, libspandsp2t64 | libspandsp2
+Depends: ${AUTO_DEPS}
 Conflicts: asterisk
 Replaces: asterisk
 Description: Nornia Pre-built Asterisk ${AST_VER} (Cisco Patch, WebRTC SRTP AES-256/GCM, AudioSocket)

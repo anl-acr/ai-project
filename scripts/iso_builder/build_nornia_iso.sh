@@ -158,6 +158,17 @@ fi
 if apt-cache show postgresql-16-pgvector >/dev/null 2>&1; then
   TARGET_PKGS+=(postgresql-16-pgvector)
 fi
+# Asterisk'in gerçekte linklediği TÜM runtime .so paketlerini (ldd -> dpkg -S) otomatik ekle
+AST_DEPS_FILE="${CACHE_DIR}/debs/nornia-asterisk-runtime-deps.txt"
+if [[ -f "$AST_DEPS_FILE" ]]; then
+  while IFS= read -r dep_pkg; do
+    dep_pkg="$(echo "$dep_pkg" | tr -d '[:space:]')"
+    if [[ -n "$dep_pkg" ]] && apt-cache show "$dep_pkg" >/dev/null 2>&1; then
+      TARGET_PKGS+=("$dep_pkg")
+    fi
+  done < "$AST_DEPS_FILE"
+  echo "  → Asterisk ldd taramasından $(wc -l < "$AST_DEPS_FILE") runtime kütüphane paketi eklendi."
+fi
 
 pushd "${BUNDLE_ROOT}/apt-repo" >/dev/null
 # Gerçek APT çözümleyicisini boş status dosyasıyla çalıştırarak TÜM gerçek & t64/sanal bağımlılıkları eksiksiz indir
@@ -190,6 +201,8 @@ REQ_COMBINED="${BUNDLE_ROOT}/wheels/requirements-locked.txt"
   echo "PyYAML>=6.0.0"
   echo "psutil>=6.0.0"
   echo "pyotp>=2.9.0"
+  echo "psycopg[binary]>=3.1.0"
+  echo "psycopg2-binary>=2.9.0"
   echo "uvicorn[standard]>=0.28.0"
 } | grep -Ev '^\s*(#|$)' | sort -u > "$REQ_COMBINED"
 
