@@ -2069,14 +2069,13 @@ export default function AgentWebphoneTab({
                             onClick={handleTriggerCallFlip}
                             disabled={callFlipBusy}
                             title={`Cihaz Değiştir (${wpState.webrtcConfig?.callFlipCode || "*11"}): Diğer tüm cihazlarınızı çaldırır; hangisinden açarsanız görüşme oraya geçer`}
-                            className={`h-11 px-3 rounded-2xl border flex items-center justify-center gap-1.5 text-xs font-extrabold transition-all disabled:opacity-50 ${
+                            className={`h-11 w-11 rounded-2xl border flex items-center justify-center transition-all disabled:opacity-50 ${
                               callFlipNotice?.ok
                                 ? `${bg} text-white border-transparent shadow-sm animate-pulse`
                                 : `${lightBg} ${text} ${borderLight} hover:opacity-90`
                             }`}
                           >
-                            {callFlipBusy ? <Loader2 size={16} className="animate-spin" /> : <ArrowLeftRight size={16} />}
-                            <span className="hidden sm:inline">Cihaz Değiştir</span>
+                            {callFlipBusy ? <Loader2 size={18} className="animate-spin" /> : <ArrowLeftRight size={18} />}
                           </button>
                         )}
 

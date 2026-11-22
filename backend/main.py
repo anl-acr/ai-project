@@ -43196,18 +43196,31 @@ async def get_system_version_info():
         pass
 
     return {
-        "version": "v3.10.3",
+        "version": "v3.10.4",
         "commit_hash": live_commit,
         "release_date": "22 Kasım 2026",
         "status": "Güncel / Canlı Sürüm",
         "environment": "Production (On-Premise)",
         "changelog": [
             {
-                "version": "v3.10.3",
+                "version": "v3.10.4",
                 "commit_hash": live_commit,
                 "release_date": "22 Kasım 2026",
                 "badge": "Canlı Sürüm (Güncel)",
                 "badge_type": "current",
+                "title": "Web Telefonu Cihaz Değiştir Butonu İkon-Sade Görünüm",
+                "summary": "Web Telefonu çağrı kontrol çubuğundaki Cihaz Değiştir butonundan metin etiketi kaldırılarak diğer kontrol butonlarıyla uyumlu sade ikon (h-11 w-11) görünümüne geçirildi.",
+                "features": [],
+                "fixes": [
+                    "AgentWebphoneTab.js içindeki Cihaz Değiştir butonundan metin etiketi kaldırılıp yalnızca ikon bırakıldı (hover açıklaması korundu)."
+                ]
+            },
+            {
+                "version": "v3.10.3",
+                "commit_hash": "b3d44c6",
+                "release_date": "22 Kasım 2026",
+                "badge": "Kararlı",
+                "badge_type": "stable",
                 "title": "Web Telefonu Gelen Çağrı Hotfix (activeLine ReferenceError Düzeltmesi)",
                 "summary": "Temsilci Web Telefonu sekmesinde gelen çağrı (Ringing) sırasında oluşan ReferenceError: activeLine is not defined hatası giderildi.",
                 "features": [],
