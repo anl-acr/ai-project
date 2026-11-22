@@ -69,6 +69,18 @@ echo "[1/11] Çevrimdışı APT deposu ve sistem paketleri kuruluyor..."
 APT_BACKUP_DIR="/tmp/nornia_apt_sources_backup"
 mkdir -p "$APT_BACKUP_DIR"
 
+restore_apt_sources() {
+  rm -f /etc/apt/sources.list.d/nornia-offline.list
+  if [[ -f "${APT_BACKUP_DIR}/sources.list" ]]; then
+    mv "${APT_BACKUP_DIR}/sources.list" /etc/apt/sources.list 2>/dev/null || true
+  fi
+  if [[ -d "${APT_BACKUP_DIR}/sources.list.d" ]]; then
+    find "${APT_BACKUP_DIR}/sources.list.d" -maxdepth 1 -type f -exec mv {} /etc/apt/sources.list.d/ \; 2>/dev/null || true
+  fi
+  rm -rf "$APT_BACKUP_DIR"
+}
+trap restore_apt_sources EXIT
+
 if [[ -d "${BUNDLE_DIR}/apt-repo" ]]; then
   # Geçici olarak dış internet kaynaklarını devre dışı bırak, sadece yerel depoyu kullan
   if [[ -f /etc/apt/sources.list ]]; then
@@ -87,26 +99,34 @@ else
   apt-get update -y || true
 fi
 
-apt-get install -y --no-install-recommends \
-  openssh-server sudo curl wget ca-certificates gnupg openssl \
-  postgresql-16 postgresql-client-16 \
-  nginx wireguard wireguard-tools ufw fail2ban chrony \
-  python3 python3-venv python3-pip \
-  nodejs npm \
-  ffmpeg sox \
-  sngrep tcpdump mtr-tiny dnsutils traceroute iputils-ping iproute2 net-tools netcat-openbsd \
-  libssl3t64 libjansson4 libsrtp2-1 libsqlite3-0 libxml2 libedit2 libuuid1 libcurl4t64 libopus0 libspandsp2 \
-  || apt-get install -y --no-install-recommends \
-  openssh-server sudo curl wget ca-certificates gnupg openssl \
-  postgresql postgresql-client \
-  nginx wireguard wireguard-tools ufw fail2ban chrony \
-  python3 python3-venv python3-pip \
-  nodejs npm \
-  ffmpeg sox \
-  sngrep tcpdump mtr-tiny dnsutils traceroute iputils-ping iproute2 net-tools netcat-openbsd
+install_available_group() {
+  local group_name="$1"
+  shift
+  local avail=()
+  for p in "$@"; do
+    if apt-cache show "$p" >/dev/null 2>&1; then
+      avail+=("$p")
+    else
+      echo "  [BİLGİ] Paket yerel depoda yok, atlandı: $p"
+    fi
+  done
+  if [[ "${#avail[@]}" -gt 0 ]]; then
+    echo "  → Kuruluyor (${group_name}): ${avail[*]}"
+    apt-get install -y --no-install-recommends "${avail[@]}"
+  fi
+}
 
-# pgvector eklentisi (varsa kur)
-apt-get install -y --no-install-recommends postgresql-16-pgvector 2>/dev/null || true
+install_available_group "Temel & SSH" openssh-server sudo curl wget ca-certificates gnupg openssl
+install_available_group "PostgreSQL 16" postgresql-16 postgresql-client-16 postgresql-16-pgvector
+install_available_group "Web & Ağ Servisleri" nginx wireguard wireguard-tools ufw fail2ban chrony
+install_available_group "Python 3" python3 python3-venv python3-pip
+install_available_group "Node.js" nodejs
+if ! command -v npm >/dev/null 2>&1; then
+  install_available_group "npm" npm || true
+fi
+install_available_group "Ses & Medya" ffmpeg sox
+install_available_group "Destek Ağ Araçları" sngrep tcpdump mtr-tiny dnsutils traceroute iputils-ping iproute2 net-tools netcat-openbsd
+install_available_group "Asterisk Runtime Kütüphaneleri" libssl3t64 libssl3 libjansson4 libsrtp2-1 libsqlite3-0 libxml2 libedit2 libuuid1 libcurl4t64 libcurl4 libopus0 libspandsp2t64 libspandsp2
 
 # ------------------------------------------------------------------------------
 # 2. Pre-built Asterisk .deb Kurulumu
@@ -114,21 +134,17 @@ apt-get install -y --no-install-recommends postgresql-16-pgvector 2>/dev/null ||
 echo "[2/11] Nornia Asterisk 18 (.deb) kuruluyor..."
 AST_DEB="$(find "${BUNDLE_DIR}/debs" -maxdepth 1 -name "nornia-asterisk_*.deb" 2>/dev/null | head -n 1 || true)"
 if [[ -n "$AST_DEB" && -f "$AST_DEB" ]]; then
-  dpkg -i "$AST_DEB" || apt-get install -f -y
+  if ! dpkg -i "$AST_DEB"; then
+    apt-get install -f -y --no-install-recommends || dpkg --force-depends -i "$AST_DEB"
+  fi
 else
   echo "[UYARI] nornia-asterisk_*.deb bulunamadı; sistem Asterisk paketi kontrol ediliyor..."
   apt-get install -y asterisk 2>/dev/null || true
 fi
 
 # Yerel APT kaynaklarını temizle, standart Ubuntu kaynaklarını geri yükle
-rm -f /etc/apt/sources.list.d/nornia-offline.list
-if [[ -f "${APT_BACKUP_DIR}/sources.list" ]]; then
-  mv "${APT_BACKUP_DIR}/sources.list" /etc/apt/sources.list || true
-fi
-if [[ -d "${APT_BACKUP_DIR}/sources.list.d" ]]; then
-  find "${APT_BACKUP_DIR}/sources.list.d" -maxdepth 1 -type f -exec mv {} /etc/apt/sources.list.d/ \; 2>/dev/null || true
-fi
-rm -rf "$APT_BACKUP_DIR"
+restore_apt_sources
+trap - EXIT
 
 # ------------------------------------------------------------------------------
 # 3. PostgreSQL 16 (Port 5444) & Benzersiz Veritabanı Şifresi
@@ -228,7 +244,8 @@ print('[OK] PostgreSQL tabloları hazırlandı.')
 # ------------------------------------------------------------------------------
 echo "[6/11] PM2 (çevrimdışı) ve Nornia servisleri yapılandırılıyor..."
 if [[ -d "${BUNDLE_DIR}/npm/pm2-global" ]]; then
-  cp -a "${BUNDLE_DIR}/npm/pm2-global/." /usr/local/
+  cp -r "${BUNDLE_DIR}/npm/pm2-global/." /usr/local/
+  chmod 0755 /usr/local /usr/local/bin /usr/local/lib 2>/dev/null || true
   chmod +x /usr/local/bin/pm2 2>/dev/null || true
 elif [[ -f "${BUNDLE_DIR}/npm/pm2-offline.tgz" ]]; then
   npm install -g --offline "${BUNDLE_DIR}/npm/pm2-offline.tgz" || true

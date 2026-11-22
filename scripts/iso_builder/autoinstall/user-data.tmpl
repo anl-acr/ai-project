@@ -41,6 +41,7 @@ autoinstall:
   late-commands:
     - mkdir -p /target/opt/nornia-installer
     - cp -a /cdrom/nornia/. /target/opt/nornia-installer/
+    - chmod -R u+w /target/opt/nornia-installer
     - chmod +x /target/opt/nornia-installer/install_nornia_offline.sh
     - |
       cat <<'ENVEOF' > /target/opt/nornia-installer/installer.env

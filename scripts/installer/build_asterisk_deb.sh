@@ -26,6 +26,16 @@ fi
 mkdir -p "$OUT_DIR"
 
 if [[ -f "$DEB_FILE" && "${FORCE_REBUILD:-0}" != "1" ]]; then
+  # Önbellekteki eski .deb içinde Ubuntu 24.04 libspandsp2t64 alternatifi eksikse 2 saniyede control dosyasını güncelle
+  if ! dpkg-deb -f "$DEB_FILE" Depends 2>/dev/null | grep -q "libspandsp2t64"; then
+    echo "[BİLGİ] Önbellekteki Asterisk .deb bağımlılığı Ubuntu 24.04 (libspandsp2t64) için güncelleniyor..."
+    PATCH_TMP="/tmp/nornia_ast_deb_patch"
+    rm -rf "$PATCH_TMP"
+    dpkg-deb -R "$DEB_FILE" "$PATCH_TMP"
+    sed -i 's/\blibspandsp2\b/libspandsp2t64 | libspandsp2/g' "${PATCH_TMP}/DEBIAN/control"
+    dpkg-deb --build --root-owner-group "$PATCH_TMP" "$DEB_FILE"
+    rm -rf "$PATCH_TMP"
+  fi
   echo "[OK] Önceden derlenmiş paket zaten mevcut: $DEB_FILE"
   echo "     Yeniden derlemek için FORCE_REBUILD=1 ile çalıştırın."
   exit 0
@@ -137,7 +147,7 @@ Section: comm
 Priority: optional
 Architecture: ${ARCH}
 Maintainer: Nornia Engineering <ops@nornia.com.tr>
-Depends: libssl3t64 | libssl3, libjansson4, libsrtp2-1, libsqlite3-0, libxml2, libedit2, libuuid1, libcurl4t64 | libcurl4, libopus0, libspandsp2
+Depends: libssl3t64 | libssl3, libjansson4, libsrtp2-1, libsqlite3-0, libxml2, libedit2, libuuid1, libcurl4t64 | libcurl4, libopus0, libspandsp2t64 | libspandsp2
 Conflicts: asterisk
 Replaces: asterisk
 Description: Nornia Pre-built Asterisk ${AST_VER} (Cisco Patch, WebRTC SRTP AES-256/GCM, AudioSocket)

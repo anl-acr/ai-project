@@ -139,11 +139,21 @@ TARGET_PKGS=(
   postgresql-16 postgresql-client-16
   nginx wireguard wireguard-tools ufw fail2ban chrony
   python3 python3-venv python3-pip
-  nodejs npm
+  nodejs
   ffmpeg sox
   sngrep tcpdump mtr-tiny dnsutils traceroute iputils-ping iproute2 net-tools netcat-openbsd
-  libssl3t64 libjansson4 libsrtp2-1 libsqlite3-0 libxml2 libedit2 libuuid1 libcurl4t64 libopus0 libspandsp2
+  libssl3t64 libjansson4 libsrtp2-1 libsqlite3-0 libxml2 libedit2 libuuid1 libcurl4t64 libopus0
 )
+# Ubuntu 24.04 t64 paket adını otomatik ekle (libspandsp2t64 veya libspandsp2)
+if apt-cache show libspandsp2t64 >/dev/null 2>&1; then
+  TARGET_PKGS+=(libspandsp2t64)
+elif apt-cache show libspandsp2 >/dev/null 2>&1; then
+  TARGET_PKGS+=(libspandsp2)
+fi
+# NodeSource nodejs zaten npm içerir ve Ubuntu npm ile çakışır; yalnızca nodejs npm sağlamıyorsa npm ekle
+if ! apt-cache show nodejs 2>/dev/null | grep -qiE '^Provides:.*\bnpm\b'; then
+  TARGET_PKGS+=(npm)
+fi
 # pgvector varsa ekle
 if apt-cache show postgresql-16-pgvector >/dev/null 2>&1; then
   TARGET_PKGS+=(postgresql-16-pgvector)
