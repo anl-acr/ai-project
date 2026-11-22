@@ -159,7 +159,6 @@ export default function SettingsPanel({ backendHost = "localhost:8000" }) {
   const [hasKvkkConsentPermission, setHasKvkkConsentPermission] = useState(true);
   const [hasFederationPermission, setHasFederationPermission] = useState(true);
   const [hasDateTimePermission, setHasDateTimePermission] = useState(true);
-  const [hasSetupWizardPermission, setHasSetupWizardPermission] = useState(true);
   const [resolvedUserPerms, setResolvedUserPerms] = useState(["*"]);
   const [licensedFeatures, setLicensedFeatures] = useState(["*"]);
   const [hideProviderInfra, setHideProviderInfra] = useState(false);
@@ -286,10 +285,6 @@ export default function SettingsPanel({ backendHost = "localhost:8000" }) {
           currentRole.permissions.includes("*") ||
             currentRole.permissions.includes("datetime_settings:read") ||
             currentRole.permissions.includes("datetime_settings:write")
-        );
-        setHasSetupWizardPermission(
-          currentRole.permissions.includes("*") ||
-            currentRole.permissions.includes("setup_wizard:access")
         );
         setResolvedUserPerms(currentRole.permissions || []);
       } catch (err) {
@@ -558,7 +553,7 @@ export default function SettingsPanel({ backendHost = "localhost:8000" }) {
       {
         id: "maintenance",
         label: "Bakım & Sistem",
-        description: "Tarih/saat/bölge, ilk kurulum sihirbazı, sistem yedekleme, geri yükleme noktaları ve versiyon geçmişi.",
+        description: "Tarih/saat/bölge, sistem yedekleme, anlık geri yükleme noktaları, ses kaydı saklama politikaları ve versiyon geçmişi.",
         icon: HardDrive,
         items: [
           {
@@ -567,13 +562,6 @@ export default function SettingsPanel({ backendHost = "localhost:8000" }) {
             subtitle: "Saat dilimi, NTP zaman eşitleme, tarih formatı ve varsayılan dil",
             icon: Clock,
             visible: hasDateTimePermission
-          },
-          {
-            id: "setup-wizard",
-            label: "İlk Kurulum Sihirbazı",
-            subtitle: "6 adımlı rehberli sistem kurulum ekranını aç",
-            icon: Sparkles,
-            visible: hasSetupWizardPermission
           },
           {
             id: "backup",
@@ -643,7 +631,6 @@ export default function SettingsPanel({ backendHost = "localhost:8000" }) {
       "restore-points": "restore_points",
       "recording-retention": "recording_retention",
       "datetime-settings": "datetime_settings",
-      "setup-wizard": "setup_wizard",
       version: "system_version"
     };
     const providerInfraSubTabs = ["server-network", "ras-settings", "server-ssh", "nat", "tenants"];
@@ -651,7 +638,7 @@ export default function SettingsPanel({ backendHost = "localhost:8000" }) {
     const isSubTabLicensed = (subId) => {
       if (isNorniaRoot) return true;
       if (hideProviderInfra && providerInfraSubTabs.includes(subId)) return false;
-      if (["roles", "kvkk-consent", "federation-multisite", "datetime-settings", "setup-wizard", "license", "version"].includes(subId)) return true;
+      if (["roles", "kvkk-consent", "federation-multisite", "datetime-settings", "license", "version"].includes(subId)) return true;
       if (!Array.isArray(licensedFeatures) || licensedFeatures.includes("*")) return true;
       const mappedFeat = subTabToFeatureMap[subId] || subId;
       return licensedFeatures.includes(mappedFeat);
@@ -679,7 +666,6 @@ export default function SettingsPanel({ backendHost = "localhost:8000" }) {
     hasKvkkConsentPermission,
     hasFederationPermission,
     hasDateTimePermission,
-    hasSetupWizardPermission,
     licensedFeatures,
     hideProviderInfra
   ]);
@@ -984,46 +970,6 @@ export default function SettingsPanel({ backendHost = "localhost:8000" }) {
                 backendHost={backendHost}
                 canWrite={resolvedUserPerms.includes("*") || resolvedUserPerms.includes("datetime_settings:write")}
               />
-            )}
-            {activeSubTab === "setup-wizard" && (
-              <div className="p-6 sm:p-8 bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-2xl shadow-sm space-y-5">
-                <div className="flex items-start gap-4">
-                  <div className={`w-12 h-12 rounded-2xl ${lightBg} ${text} border ${borderLight} flex items-center justify-center shrink-0`}>
-                    <Sparkles size={24} />
-                  </div>
-                  <div>
-                    <h3 className="text-base font-black text-slate-900 dark:text-white">
-                      6 Adımlı İlk Kurulum Sihirbazı
-                    </h3>
-                    <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 leading-relaxed">
-                      Ağ ayarları, lisans aktivasyonu, FQDN / Uzak Erişim yapısı, dahili numara planı ve saat dilimi/tarih/dil ayarlarını tek bir rehberli akışta gözden geçirip uygulayın.
-                    </p>
-                  </div>
-                </div>
-                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5 text-xs">
-                  {[
-                    "1. Ağ & NAT Ayarları",
-                    "2. Lisans & Donanım ID",
-                    "3. FQDN & Uzak Erişim",
-                    "4. Dahili & Numara Planı",
-                    "5. Saat Dilimi, Tarih & Dil",
-                    "6. Özet & Canlı Uygula",
-                  ].map((lbl) => (
-                    <div key={lbl} className="px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200/70 dark:border-slate-700/60 font-bold text-slate-700 dark:text-slate-200">
-                      {lbl}
-                    </div>
-                  ))}
-                </div>
-                <div className="pt-2">
-                  <a
-                    href="/setup"
-                    className={`inline-flex items-center gap-2 px-5 py-2.5 rounded-xl ${bg} ${hover} text-white text-xs font-extrabold shadow-sm transition`}
-                  >
-                    <Sparkles size={15} />
-                    <span>Kurulum Sihirbazını Aç (/setup)</span>
-                  </a>
-                </div>
-              </div>
             )}
             {activeSubTab === "version" && <ChangelogPanel backendHost={backendHost} />}
           </div>

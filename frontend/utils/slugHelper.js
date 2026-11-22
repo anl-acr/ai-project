@@ -99,7 +99,6 @@ export const SUBTAB_TURKISH_SLUGS = {
   "active-directory": "active-directory-ldap",
   "crm-integrations": "hazir-crm-entegrasyonlari",
   "datetime-settings": "tarih-saat",
-  "setup-wizard": "ilk-kurulum",
   "version": "sistem-versiyonu"
 };
 

@@ -16271,16 +16271,29 @@ async def sync_datetime_ntp_endpoint(user_info: dict = Depends(get_user_info)):
 # API Routes: Out-of-Box First-Time Setup Wizard (/setup)
 # ----------------------------------------------------
 def _is_authenticated_admin_for_setup(request: Request) -> bool:
-    """Checks if request belongs to a logged-in admin user (allows re-running wizard from Settings)."""
+    """Checks if request belongs to a logged-in admin user (allows direct /setup preview/test via URL)."""
     uid = str(request.headers.get("X-User-ID") or request.headers.get("User-ID") or "").strip()
     role = str(request.headers.get("X-User-Role") or "").strip().lower()
-    if role == "admin" or uid.lower() in ("admin", "1", "9999"):
+    if role in ("admin", "superadmin") or uid.lower() in ("admin", "1", "9999"):
         return True
     if uid:
         for u in settings_db.get("users", []) or []:
             if isinstance(u, dict) and (str(u.get("id") or "") == uid or str(u.get("username") or "").lower() == uid.lower()):
-                if str(u.get("role") or "").lower() == "admin":
+                if str(u.get("role") or "").lower() in ("admin", "superadmin"):
                     return True
+        try:
+            from backend.database.config import SyncSessionLocal
+            from backend.database.models import SystemUser
+            with SyncSessionLocal() as sess:
+                q_row = None
+                if uid.isdigit():
+                    q_row = sess.query(SystemUser).filter(SystemUser.id == int(uid)).first()
+                if not q_row:
+                    q_row = sess.query(SystemUser).filter(SystemUser.username == uid).first()
+                if q_row and str(getattr(q_row, "role", "") or "").lower() in ("admin", "superadmin"):
+                    return True
+        except Exception:
+            pass
     return False
 
 
@@ -43183,18 +43196,32 @@ async def get_system_version_info():
         pass
 
     return {
-        "version": "v3.10.1",
+        "version": "v3.10.2",
         "commit_hash": live_commit,
         "release_date": "22 Kasım 2026",
         "status": "Güncel / Canlı Sürüm",
         "environment": "Production (On-Premise)",
         "changelog": [
             {
-                "version": "v3.10.1",
+                "version": "v3.10.2",
                 "commit_hash": live_commit,
                 "release_date": "22 Kasım 2026",
                 "badge": "Canlı Sürüm (Güncel)",
                 "badge_type": "current",
+                "title": "İlk Kurulum Sihirbazı Yalnızca Doğrudan /setup URL'si (Menülerden Kaldırıldı)",
+                "summary": "İlk Kurulum Sihirbazı Sistem Ayarları ve Rol yetkileri menülerinden kaldırıldı; yalnızca sıfır kurulumda otomatik veya oturum açmış yönetici tarafından doğrudan /setup adresi üzerinden erişilebilir.",
+                "features": [],
+                "fixes": [
+                    "Sistem Ayarları > Bakım & Sistem menüsünden İlk Kurulum Sihirbazı sekmesi kaldırıldı (Tarih, Saat & Bölge Ayarları kalıcı olarak bırakıldı).",
+                    "Doğrudan /setup adresi için PostgreSQL SystemUser tablosundan yönetici doğrulaması eklendi."
+                ]
+            },
+            {
+                "version": "v3.10.1",
+                "commit_hash": "19bfb93",
+                "release_date": "22 Kasım 2026",
+                "badge": "Kararlı",
+                "badge_type": "stable",
                 "title": "Sistem Ayarları > İlk Kurulum Sihirbazı Kartı Hotfix (useTheme hover Düzeltmesi)",
                 "summary": "SettingsPanel.js içinde useTheme() kancasından eksik kalan hover değişkeni eklendi.",
                 "features": [],
