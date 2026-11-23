@@ -2288,7 +2288,7 @@ async def get_dashboard_stats(expiring_days: int = 15, db: AsyncSession = Depend
             try:
                 exp_d = datetime.datetime.strptime(exp_str, "%Y-%m-%d")
                 days_left = (exp_d - now).days
-                if 0 <= days_left <= threshold_days and c.status == "active":
+                if 0 <= days_left <= threshold_days and c.status in ("active", "demo"):
                     expiring_soon_count += 1
             except Exception:
                 pass
@@ -3820,8 +3820,29 @@ async def receive_heartbeat(payload: HeartbeatSchema, request: Request, db: Asyn
 
         extracted_hb_exp = _extract_expiry_from_license_key(t_item.license_key)
         if not client:
+            demo_exp_str = extracted_hb_exp or (datetime.datetime.utcnow() + datetime.timedelta(days=30)).strftime("%Y-%m-%d")
+            auto_demo_quotas = {
+                "plan_tier": "enterprise",
+                "status": "demo",
+                "is_demo": True,
+                "is_unlimited": False,
+                "max_concurrent_calls": 25,
+                "tolerance_concurrent_calls": 0,
+                "max_users": 100,
+                "max_agents": 10,
+                "max_rag_docs": 200,
+                "max_scenarios": 30,
+                "allowed_features": ["*"],
+                "allowed_sub_features": ["*"],
+                "allowed_stt_providers": ["google", "deepgram", "openai", "elevenlabs"],
+                "allowed_tts_providers": ["google", "elevenlabs", "openai"],
+                "allowed_llm_providers": ["google", "elevenlabs", "openai", "anthropic", "groq"],
+                "unlicensed_module_mode": "hidden",
+                "license_expires_at": demo_exp_str,
+                "tenant_serial_number": incoming_t_sn,
+            }
             client = ClientServer(
-                company_name=(t_item.company_name or "").strip() or f"Otomatik Kayıt ({t_code})",
+                company_name=(t_item.company_name or "").strip() or f"Demo Kayıt ({t_code})",
                 tenant_code=t_code,
                 tenant_serial_number=incoming_t_sn,
                 system_serial_number=sys_sn,
@@ -3829,9 +3850,11 @@ async def receive_heartbeat(payload: HeartbeatSchema, request: Request, db: Asyn
                 connect_subdomain=bound_sub_for_hw,
                 domain_name=f"{bound_sub_for_hw}.nornia.com.tr" if bound_sub_for_hw else None,
                 ip_address=client_ip,
-                status="active",
+                status="demo",
+                plan_tier="enterprise",
+                custom_quotas=json.dumps(auto_demo_quotas, ensure_ascii=False),
                 current_license_key=t_item.license_key,
-                license_expires_at=extracted_hb_exp,
+                license_expires_at=demo_exp_str,
                 software_version=payload.software_version
             )
             db.add(client)

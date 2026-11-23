@@ -236,7 +236,7 @@ export default function MasterDashboard() {
       return [
         c.company_name || "",
         c.tenant_code || "",
-        c.status === "suspended" ? "Askıda" : c.status === "expired" ? "Süresi Doldu" : "Aktif",
+        c.status === "suspended" ? "Askıda" : c.status === "expired" ? "Süresi Doldu" : c.status === "demo" ? "Demo" : "Aktif",
         c.is_online ? "Canlı" : "Çevrimdışı",
         c.tunnel_connected ? "Bağlı" : "Kapalı",
         c.connect_subdomain ? `${c.connect_subdomain}.nornia.com.tr` : c.domain_name || "",
@@ -1208,6 +1208,7 @@ export default function MasterDashboard() {
       ...genCustomQuotas,
       plan_tier: genPlanTier,
       status: genStatus,
+      is_demo: genStatus === "demo",
       is_unlimited: genIsUnlimited,
       license_expires_at: finalExpiry,
       license_grace_until: finalGrace
@@ -2093,13 +2094,18 @@ export default function MasterDashboard() {
                                   </span>
                                 )}
                               </div>
-                              <div className="flex items-center gap-1.5 mt-1">
+                              <div className="flex items-center gap-1.5 mt-1 flex-wrap">
                                 <span className="font-mono text-[11px] text-indigo-600 dark:text-indigo-400 font-bold">
                                   {client.tenant_code}
                                 </span>
                                 <span className="text-[10px] uppercase font-extrabold px-1.5 py-0.5 rounded-md bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border border-slate-200/70 dark:border-slate-700">
-                                  {client.plan_tier || "professional"}
+                                  {client.plan_tier || "enterprise"}
                                 </span>
+                                {(client.status === "demo" || client.custom_quotas?.is_demo) && (
+                                  <span className="text-[9px] uppercase font-black px-1.5 py-0.5 rounded-md bg-amber-500/15 text-amber-700 dark:text-amber-300 border border-amber-500/35 tracking-wider">
+                                    DEMO
+                                  </span>
+                                )}
                               </div>
                               {hasAlert && (
                                 <div className="flex flex-wrap gap-1 mt-1.5 max-w-[280px]">
@@ -3267,10 +3273,12 @@ export default function MasterDashboard() {
                         className={`px-2 py-0.5 rounded-full text-[9px] font-extrabold uppercase ${
                           genStatus === "active"
                             ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300"
+                            : genStatus === "demo"
+                            ? "bg-amber-500/15 text-amber-700 dark:text-amber-300"
                             : "bg-rose-500/15 text-rose-700 dark:text-rose-300"
                         }`}
                       >
-                        {genStatus === "active" ? "Aktif" : "Pasif"}
+                        {genStatus === "active" ? "Aktif" : genStatus === "demo" ? "Demo" : "Pasif"}
                       </span>
                     </div>
                     <div className="space-y-1 font-mono text-[11px]">
@@ -3346,6 +3354,7 @@ export default function MasterDashboard() {
                             className="w-full px-3.5 py-2.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl focus:outline-none focus:border-indigo-500 font-bold text-slate-900 dark:text-white cursor-pointer text-xs"
                           >
                             <option value="active">🟢 Aktif (Erişim &amp; AI Açık)</option>
+                            <option value="demo">🟡 Demo (Deneme — Erişim &amp; AI Açık)</option>
                             <option value="passive">🔴 Pasif (Erişim &amp; AI Kapalı)</option>
                           </select>
                         </div>
