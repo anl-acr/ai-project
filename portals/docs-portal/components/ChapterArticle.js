@@ -19,7 +19,11 @@ import {
   Info,
   Code2,
   ArrowRight,
-  ListChecks
+  ListChecks,
+  Sliders,
+  ChevronDown,
+  ChevronRight,
+  Lightbulb
 } from "lucide-react";
 import { MANUAL_META, getChapterById } from "../data/manualChapters";
 
@@ -70,6 +74,21 @@ export default function ChapterArticle({ chapter, printMode = false }) {
   const [copiedKey, setCopiedKey] = useState("");
   const [zoomShot, setZoomShot] = useState(null);
   const [downloadingPdf, setDownloadingPdf] = useState(false);
+  const [openEditTabs, setOpenEditTabs] = useState(() => {
+    const init = {};
+    (chapter.editFormSections || []).forEach((_, idx) => {
+      init[idx] = true;
+    });
+    return init;
+  });
+
+  const toggleAllEditTabs = (expand) => {
+    const next = {};
+    (chapter.editFormSections || []).forEach((_, idx) => {
+      next[idx] = expand;
+    });
+    setOpenEditTabs(next);
+  };
 
   const copyCode = (txt, key) => {
     if (typeof navigator !== "undefined" && navigator.clipboard) {
@@ -280,6 +299,149 @@ export default function ChapterArticle({ chapter, printMode = false }) {
                 ))}
               </tbody>
             </table>
+          </div>
+        </section>
+      )}
+
+      {/* Deep Edit / Sub-Screen Tabs Reference (En İnce Ayrıntısına Kadar) */}
+      {chapter.editFormSections && chapter.editFormSections.length > 0 && (
+        <section
+          id="duzenle-ve-alt-ayarlar"
+          className="space-y-4"
+        >
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <h2 className="text-lg font-black text-slate-900 dark:text-white flex items-center gap-2">
+                <Sliders size={18} className="text-indigo-500" />
+                <span>Ekle / Düzenle &amp; Alt Sekme Ayarları (Detaylı Referans)</span>
+              </h2>
+              <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                Bu modülün içindeki her sekme, form alanı, anahtar (toggle) ve gizli davranışın tam teknik dökümü ({chapter.editFormSections.length} alt bölüm).
+              </p>
+            </div>
+            {!printMode && (
+              <div className="no-print flex items-center gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => toggleAllEditTabs(true)}
+                  className="px-2.5 py-1 rounded-lg bg-slate-100 dark:bg-slate-800 hover:bg-indigo-50 dark:hover:bg-indigo-950/50 text-[11px] font-bold text-slate-600 dark:text-slate-300 cursor-pointer"
+                >
+                  Tümünü Aç
+                </button>
+                <button
+                  type="button"
+                  onClick={() => toggleAllEditTabs(false)}
+                  className="px-2.5 py-1 rounded-lg bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-[11px] font-bold text-slate-600 dark:text-slate-300 cursor-pointer"
+                >
+                  Tümünü Daralt
+                </button>
+              </div>
+            )}
+          </div>
+
+          <div className="space-y-3.5">
+            {chapter.editFormSections.map((sub, sIdx) => {
+              const isOpen = printMode || openEditTabs[sIdx] !== false;
+              return (
+                <div
+                  key={sIdx}
+                  id={`edit-tab-${sIdx + 1}`}
+                  className="print-avoid-break rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xs overflow-hidden"
+                >
+                  <button
+                    type="button"
+                    onClick={() =>
+                      !printMode && setOpenEditTabs((prev) => ({ ...prev, [sIdx]: !isOpen }))
+                    }
+                    className="w-full px-5 py-4 bg-slate-50/80 dark:bg-slate-950/50 border-b border-slate-200/70 dark:border-slate-800 flex items-center justify-between gap-3 text-left cursor-pointer"
+                  >
+                    <div className="flex items-center gap-2.5 min-w-0 flex-wrap">
+                      <span className="px-2 py-0.5 rounded-lg bg-indigo-600 text-white font-mono text-[10px] font-black shrink-0">
+                        {sIdx + 1}
+                      </span>
+                      <span className="text-sm font-black text-slate-900 dark:text-white">
+                        {sub.tabTitle}
+                      </span>
+                      {sub.badge && (
+                        <span className="px-2 py-0.5 rounded-md bg-indigo-500/10 text-indigo-700 dark:text-indigo-300 text-[10px] font-bold">
+                          {sub.badge}
+                        </span>
+                      )}
+                      <span className="text-[10px] font-semibold text-slate-400">
+                        ({(sub.fields || []).length} ayar)
+                      </span>
+                    </div>
+                    {!printMode && (
+                      <span className="text-slate-400 shrink-0">
+                        {isOpen ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
+                      </span>
+                    )}
+                  </button>
+
+                  {isOpen && (
+                    <div className="p-5 space-y-4">
+                      {sub.description && (
+                        <p className="text-xs sm:text-sm text-slate-600 dark:text-slate-300 leading-relaxed">
+                          {sub.description}
+                        </p>
+                      )}
+
+                      {sub.fields && sub.fields.length > 0 && (
+                        <div className="overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-800">
+                          <table className="w-full text-left text-xs border-collapse">
+                            <thead className="bg-slate-50 dark:bg-slate-950 border-b border-slate-200 dark:border-slate-800 text-[10px] uppercase tracking-wider text-slate-500">
+                              <tr>
+                                <th className="px-3 py-2.5 font-extrabold">Ayar / Alan</th>
+                                <th className="px-3 py-2.5 font-extrabold">Seçenekler / Tip</th>
+                                <th className="px-3 py-2.5 font-extrabold">Varsayılan</th>
+                                <th className="px-3 py-2.5 font-extrabold">Ne İşe Yarar &amp; Teknik Davranışı</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                              {sub.fields.map((f, fIdx) => (
+                                <tr key={fIdx} className="align-top hover:bg-slate-50/70 dark:hover:bg-slate-800/30">
+                                  <td className="px-3 py-2.5 font-extrabold text-slate-900 dark:text-white min-w-[165px]">
+                                    <div>{f.name}</div>
+                                    {f.required && (
+                                      <span className="inline-block mt-0.5 px-1.5 py-0.5 rounded bg-rose-500/10 text-rose-600 dark:text-rose-400 text-[9px] font-black uppercase">
+                                        Zorunlu
+                                      </span>
+                                    )}
+                                  </td>
+                                  <td className="px-3 py-2.5 font-mono text-[11px] text-indigo-700 dark:text-indigo-300 min-w-[130px]">
+                                    {f.type}
+                                  </td>
+                                  <td className="px-3 py-2.5 font-mono text-[11px] text-slate-500 dark:text-slate-400 min-w-[100px]">
+                                    {f.defaultVal || "—"}
+                                  </td>
+                                  <td className="px-3 py-2.5 text-slate-700 dark:text-slate-300 leading-relaxed min-w-[250px]">
+                                    {f.effect}
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      )}
+
+                      {sub.tips && sub.tips.length > 0 && (
+                        <div className="p-3.5 rounded-xl bg-emerald-50/70 dark:bg-emerald-950/20 border border-emerald-200/70 dark:border-emerald-900/40 space-y-1.5">
+                          <div className="text-[10px] font-extrabold uppercase tracking-wider text-emerald-700 dark:text-emerald-300 flex items-center gap-1.5">
+                            <Lightbulb size={12} />
+                            <span>Pratik İpuçları &amp; Dikkat Edilecekler</span>
+                          </div>
+                          <ul className="space-y-1 text-xs text-slate-700 dark:text-slate-200 list-disc pl-4">
+                            {sub.tips.map((tip, tIdx) => (
+                              <li key={tIdx}>{tip}</li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
           </div>
         </section>
       )}

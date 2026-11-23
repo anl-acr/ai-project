@@ -94,6 +94,9 @@ export default function DocsShell({ activeChapter = null, children }) {
     const hits = [];
     MANUAL_CHAPTERS.forEach((c) => {
       const fieldsHay = (c.fieldTable || []).map((f) => `${f.field} ${f.description}`).join(" ");
+      const editHay = (c.editFormSections || [])
+        .map((s) => `${s.tabTitle} ${s.description || ""} ${(s.fields || []).map((f) => `${f.name} ${f.type} ${f.effect}`).join(" ")}`)
+        .join(" ");
       const hay = [
         c.title,
         c.shortTitle,
@@ -102,12 +105,16 @@ export default function DocsShell({ activeChapter = null, children }) {
         c.menuPath,
         c.badge,
         fieldsHay,
+        editHay,
         ...(c.sections || []).map((s) => `${s.heading} ${s.body}`),
         ...(c.troubleshooting || []).map((t) => `${t.problem} ${t.solution}`)
       ]
         .join(" ")
         .toLowerCase();
       if (hay.includes(q)) {
+        const matchedEdit = (c.editFormSections || []).find((s) =>
+          `${s.tabTitle} ${(s.fields || []).map((f) => `${f.name} ${f.effect}`).join(" ")}`.toLowerCase().includes(q)
+        );
         const matchedField = (c.fieldTable || []).find((f) =>
           `${f.field} ${f.description}`.toLowerCase().includes(q)
         );
@@ -116,7 +123,9 @@ export default function DocsShell({ activeChapter = null, children }) {
         );
         hits.push({
           chapter: c,
-          match: matchedField
+          match: matchedEdit
+            ? `Düzenle / Alt Sekme: ${matchedEdit.tabTitle}`
+            : matchedField
             ? `Parametre: ${matchedField.field}`
             : matchedSec
             ? matchedSec.heading
@@ -379,8 +388,29 @@ export default function DocsShell({ activeChapter = null, children }) {
                   href="#alan-referansi"
                   className="block py-1 text-slate-600 dark:text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 font-semibold"
                 >
-                  Alan &amp; Parametre Tablosu ({activeChapter.fieldTable.length})
+                  Genel Alan Tablosu ({activeChapter.fieldTable.length})
                 </a>
+              )}
+              {activeChapter.editFormSections?.length > 0 && (
+                <div className="space-y-1 pt-1">
+                  <a
+                    href="#duzenle-ve-alt-ayarlar"
+                    className="block py-1 text-indigo-600 dark:text-indigo-400 font-extrabold"
+                  >
+                    Düzenle &amp; Alt Ayarlar ({activeChapter.editFormSections.length})
+                  </a>
+                  <div className="pl-2.5 border-l border-slate-200 dark:border-slate-800 space-y-1">
+                    {activeChapter.editFormSections.map((sub, idx) => (
+                      <a
+                        key={idx}
+                        href={`#edit-tab-${idx + 1}`}
+                        className="block py-0.5 text-[11px] text-slate-500 dark:text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 leading-snug"
+                      >
+                        {idx + 1}. {sub.tabTitle}
+                      </a>
+                    ))}
+                  </div>
+                </div>
               )}
               {(activeChapter.sections || []).map((sec, idx) => (
                 <a
