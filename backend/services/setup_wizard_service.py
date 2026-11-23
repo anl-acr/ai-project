@@ -10,14 +10,14 @@ NUMBERING_PLAN_PRESETS: List[Dict[str, Any]] = [
     {
         "id": "4_digit",
         "name": "4 Haneli Kurumsal Plan (Önerilen)",
-        "desc": "Dahililer 1000–5999 • Kuyruklar 6000–6999 • Konferans 8000–8999",
+        "desc": "Dahililer 1000–1099 • Kuyruklar 6000–6099 • Konferans 8000–8099",
         "digits": 4,
-        "extension_range": {"start": 1000, "end": 5999},
-        "queue_range": {"start": 6000, "end": 6999},
-        "conference_range": {"start": 8000, "end": 8999},
+        "extension_range": {"start": 1000, "end": 1099},
+        "queue_range": {"start": 6000, "end": 6099},
+        "conference_range": {"start": 8000, "end": 8099},
         "speed_dial_range": {"start": 4000, "end": 4999},
         "call_flow_range": {"start": 5000, "end": 5999},
-        "call_pickup": {"group": "*8", "directed": "**"},
+        "call_pickup": {"group": "*8", "directed": "**8"},
         "voicemail_listen": "*97",
     },
     {
@@ -30,7 +30,7 @@ NUMBERING_PLAN_PRESETS: List[Dict[str, Any]] = [
         "conference_range": {"start": 800, "end": 899},
         "speed_dial_range": {"start": 400, "end": 499},
         "call_flow_range": {"start": 500, "end": 599},
-        "call_pickup": {"group": "*8", "directed": "**"},
+        "call_pickup": {"group": "*8", "directed": "**8"},
         "voicemail_listen": "*97",
     },
 ]
@@ -450,15 +450,15 @@ def apply_setup_wizard_payload(
             return {"start": def_s, "end": def_e}
 
     updated_np = dict(cur_np)
-    updated_np["extension_range"] = _rng("extension_range", 1000, 5999)
-    updated_np["queue_range"] = _rng("queue_range", 6000, 6999)
-    updated_np["conference_range"] = _rng("conference_range", 8000, 8999)
+    updated_np["extension_range"] = _rng("extension_range", 1000, 1099)
+    updated_np["queue_range"] = _rng("queue_range", 6000, 6099)
+    updated_np["conference_range"] = _rng("conference_range", 8000, 8099)
     updated_np["speed_dial_range"] = _rng("speed_dial_range", 4000, 4999)
     updated_np["call_flow_range"] = _rng("call_flow_range", 5000, 5999)
     cp_in = np_in.get("call_pickup") if isinstance(np_in.get("call_pickup"), dict) else {}
     updated_np["call_pickup"] = {
         "group": str(cp_in.get("group") or (cur_np.get("call_pickup") or {}).get("group") or "*8").strip() or "*8",
-        "directed": str(cp_in.get("directed") or (cur_np.get("call_pickup") or {}).get("directed") or "**").strip() or "**",
+        "directed": str(cp_in.get("directed") or (cur_np.get("call_pickup") or {}).get("directed") or "**8").strip() or "**8",
     }
     pf_cur = cur_np.get("pbx_features") if isinstance(cur_np.get("pbx_features"), dict) else {}
     vm_code = str(np_in.get("voicemail_listen") or pf_cur.get("voicemail_listen") or "*97").strip() or "*97"

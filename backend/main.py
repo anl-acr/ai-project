@@ -1291,12 +1291,12 @@ DEFAULT_SETTINGS = {
         "auto_emotion_management": False,
         "auto_whisper_enabled": True,
         "numbering_plan": {
-            "extension_range": {"start": 1000, "end": 1999},
-            "queue_range": {"start": 2000, "end": 2999},
-            "conference_range": {"start": 3000, "end": 3999},
+            "extension_range": {"start": 1000, "end": 1099},
+            "queue_range": {"start": 6000, "end": 6099},
+            "conference_range": {"start": 8000, "end": 8099},
             "speed_dial_range": {"start": 4000, "end": 4999},
             "call_flow_range": {"start": 5000, "end": 5999},
-            "call_pickup": {"group": "*8", "directed": "**"},
+            "call_pickup": {"group": "*8", "directed": "**8"},
             "call_forwarding": {
                 "always": "*21*",
                 "busy": "*67*",

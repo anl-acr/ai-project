@@ -107,13 +107,13 @@ export default function SetupWizardPage() {
   // Step 4: Numbering Plan & Optional Initial Extensions
   const [planPreset, setPlanPreset] = useState("4_digit");
   const [extStart, setExtStart] = useState(1000);
-  const [extEnd, setExtEnd] = useState(5999);
+  const [extEnd, setExtEnd] = useState(1099);
   const [queueStart, setQueueStart] = useState(6000);
-  const [queueEnd, setQueueEnd] = useState(6999);
+  const [queueEnd, setQueueEnd] = useState(6099);
   const [confStart, setConfStart] = useState(8000);
-  const [confEnd, setConfEnd] = useState(8999);
+  const [confEnd, setConfEnd] = useState(8099);
   const [pickupGroup, setPickupGroup] = useState("*8");
-  const [pickupDirected, setPickupDirected] = useState("**");
+  const [pickupDirected, setPickupDirected] = useState("**8");
   const [voicemailCode, setVoicemailCode] = useState("*97");
   const [initialExtensions, setInitialExtensions] = useState([]);
   const [batchStartExt, setBatchStartExt] = useState("1000");
@@ -213,7 +213,7 @@ export default function SetupWizardPage() {
         const curNp = data.numbering_plan?.current || {};
         if (curNp.extension_range) {
           setExtStart(Number(curNp.extension_range.start || 1000));
-          setExtEnd(Number(curNp.extension_range.end || 5999));
+          setExtEnd(Number(curNp.extension_range.end || 1099));
           setBatchStartExt(String(curNp.extension_range.start || 1000));
           if (Number(curNp.extension_range.start || 1000) < 1000) {
             setPlanPreset("3_digit");
@@ -221,15 +221,15 @@ export default function SetupWizardPage() {
         }
         if (curNp.queue_range) {
           setQueueStart(Number(curNp.queue_range.start || 6000));
-          setQueueEnd(Number(curNp.queue_range.end || 6999));
+          setQueueEnd(Number(curNp.queue_range.end || 6099));
         }
         if (curNp.conference_range) {
           setConfStart(Number(curNp.conference_range.start || 8000));
-          setConfEnd(Number(curNp.conference_range.end || 8999));
+          setConfEnd(Number(curNp.conference_range.end || 8099));
         }
         if (curNp.call_pickup) {
           setPickupGroup(curNp.call_pickup.group || "*8");
-          setPickupDirected(curNp.call_pickup.directed || "**");
+          setPickupDirected(curNp.call_pickup.directed || "**8");
         }
         if (curNp.pbx_features?.voicemail_listen) {
           setVoicemailCode(curNp.pbx_features.voicemail_listen);
@@ -360,11 +360,14 @@ export default function SetupWizardPage() {
       setBatchStartExt("100");
     } else if (presetId === "4_digit") {
       setExtStart(1000);
-      setExtEnd(5999);
+      setExtEnd(1099);
       setQueueStart(6000);
-      setQueueEnd(6999);
+      setQueueEnd(6099);
       setConfStart(8000);
-      setConfEnd(8999);
+      setConfEnd(8099);
+      setPickupGroup("*8");
+      setPickupDirected("**8");
+      setVoicemailCode("*97");
       setBatchStartExt("1000");
     }
   };
@@ -459,7 +462,7 @@ export default function SetupWizardPage() {
             extension_range: { start: Number(extStart), end: Number(extEnd) },
             queue_range: { start: Number(queueStart), end: Number(queueEnd) },
             conference_range: { start: Number(confStart), end: Number(confEnd) },
-            call_pickup: { group: pickupGroup.trim() || "*8", directed: pickupDirected.trim() || "**" },
+            call_pickup: { group: pickupGroup.trim() || "*8", directed: pickupDirected.trim() || "**8" },
             voicemail_listen: voicemailCode.trim() || "*97",
           },
           initial_extensions: initialExtensions,
@@ -1170,7 +1173,7 @@ export default function SetupWizardPage() {
                         {
                           id: "4_digit",
                           title: "4 Haneli Kurumsal Plan (Önerilen)",
-                          desc: "Dahililer: 1000–5999 • Kuyruk: 6000–6999 • Konferans: 8000–8999",
+                          desc: "Dahililer: 1000–1099 • Kuyruk: 6000–6099 • Konferans: 8000–8099",
                         },
                         {
                           id: "3_digit",
