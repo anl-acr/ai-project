@@ -1,9 +1,9 @@
 {
   "openapi": "3.1.0",
   "info": {
-    "title": "Nornia Enterprise AI PBX — Kurumsal Dış API (v1)",
+    "title": "Nornia Enterprise AI PBX — Tam API Referansı (External v1 + Platform)",
     "version": "v3.10.11",
-    "description": "Nornia Santral, Çağrı Merkezi, CRM/CTI, Omnichannel ve Yapay Zeka Asistanı entegrasyonları için resmi REST API spesifikasyonu."
+    "description": "Nornia Santral, Çağrı Merkezi, CRM/CTI, Dialer, Omnichannel, RAG/Yapay Zeka, Kurumsal Raporlama, Multi-Site Federation ve SIP Hata Ayıklama için tam REST API spesifikasyonu."
   },
   "servers": [
     {
@@ -35,6 +35,11 @@
       "BearerAuth": {
         "type": "http",
         "scheme": "bearer"
+      },
+      "SessionUserAuth": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "X-User-ID"
       }
     }
   },
@@ -56,6 +61,7 @@
           }
         ],
         "x-nornia-scope": "calls:write",
+        "x-nornia-auth-type": "api_key",
         "responses": {
           "200": {
             "description": "Başarılı yanıt",
@@ -72,7 +78,7 @@
             }
           },
           "401": {
-            "description": "Geçersiz veya eksik API anahtarı"
+            "description": "Geçersiz veya eksik kimlik bilgisi"
           },
           "403": {
             "description": "Yetersiz yetki (Gerekli scope: calls:write)"
@@ -110,6 +116,7 @@
           }
         ],
         "x-nornia-scope": "calls:read",
+        "x-nornia-auth-type": "api_key",
         "responses": {
           "200": {
             "description": "Başarılı yanıt",
@@ -135,7 +142,7 @@
             }
           },
           "401": {
-            "description": "Geçersiz veya eksik API anahtarı"
+            "description": "Geçersiz veya eksik kimlik bilgisi"
           },
           "403": {
             "description": "Yetersiz yetki (Gerekli scope: calls:read)"
@@ -160,6 +167,7 @@
           }
         ],
         "x-nornia-scope": "calls:write",
+        "x-nornia-auth-type": "api_key",
         "responses": {
           "200": {
             "description": "Başarılı yanıt",
@@ -175,7 +183,7 @@
             }
           },
           "401": {
-            "description": "Geçersiz veya eksik API anahtarı"
+            "description": "Geçersiz veya eksik kimlik bilgisi"
           },
           "403": {
             "description": "Yetersiz yetki (Gerekli scope: calls:write)"
@@ -222,6 +230,7 @@
           }
         ],
         "x-nornia-scope": "calls:write",
+        "x-nornia-auth-type": "api_key",
         "responses": {
           "200": {
             "description": "Başarılı yanıt",
@@ -236,7 +245,7 @@
             }
           },
           "401": {
-            "description": "Geçersiz veya eksik API anahtarı"
+            "description": "Geçersiz veya eksik kimlik bilgisi"
           },
           "403": {
             "description": "Yetersiz yetki (Gerekli scope: calls:write)"
@@ -280,6 +289,7 @@
           }
         ],
         "x-nornia-scope": "calls:write",
+        "x-nornia-auth-type": "api_key",
         "responses": {
           "200": {
             "description": "Başarılı yanıt",
@@ -295,7 +305,7 @@
             }
           },
           "401": {
-            "description": "Geçersiz veya eksik API anahtarı"
+            "description": "Geçersiz veya eksik kimlik bilgisi"
           },
           "403": {
             "description": "Yetersiz yetki (Gerekli scope: calls:write)"
@@ -342,6 +352,7 @@
           }
         ],
         "x-nornia-scope": "calls:write",
+        "x-nornia-auth-type": "api_key",
         "responses": {
           "200": {
             "description": "Başarılı yanıt",
@@ -357,7 +368,7 @@
             }
           },
           "401": {
-            "description": "Geçersiz veya eksik API anahtarı"
+            "description": "Geçersiz veya eksik kimlik bilgisi"
           },
           "403": {
             "description": "Yetersiz yetki (Gerekli scope: calls:write)"
@@ -404,6 +415,7 @@
           }
         ],
         "x-nornia-scope": "calls:write",
+        "x-nornia-auth-type": "api_key",
         "responses": {
           "200": {
             "description": "Başarılı yanıt",
@@ -420,7 +432,7 @@
             }
           },
           "401": {
-            "description": "Geçersiz veya eksik API anahtarı"
+            "description": "Geçersiz veya eksik kimlik bilgisi"
           },
           "403": {
             "description": "Yetersiz yetki (Gerekli scope: calls:write)"
@@ -457,6 +469,7 @@
           }
         ],
         "x-nornia-scope": "cdr:read",
+        "x-nornia-auth-type": "api_key",
         "responses": {
           "200": {
             "description": "Başarılı yanıt",
@@ -497,7 +510,7 @@
             }
           },
           "401": {
-            "description": "Geçersiz veya eksik API anahtarı"
+            "description": "Geçersiz veya eksik kimlik bilgisi"
           },
           "403": {
             "description": "Yetersiz yetki (Gerekli scope: cdr:read)"
@@ -542,6 +555,7 @@
           }
         ],
         "x-nornia-scope": "cdr:read",
+        "x-nornia-auth-type": "api_key",
         "responses": {
           "200": {
             "description": "Başarılı yanıt",
@@ -572,7 +586,7 @@
             }
           },
           "401": {
-            "description": "Geçersiz veya eksik API anahtarı"
+            "description": "Geçersiz veya eksik kimlik bilgisi"
           },
           "403": {
             "description": "Yetersiz yetki (Gerekli scope: cdr:read)"
@@ -608,6 +622,7 @@
           }
         ],
         "x-nornia-scope": "cdr:read",
+        "x-nornia-auth-type": "api_key",
         "responses": {
           "200": {
             "description": "Başarılı yanıt",
@@ -624,7 +639,7 @@
             }
           },
           "401": {
-            "description": "Geçersiz veya eksik API anahtarı"
+            "description": "Geçersiz veya eksik kimlik bilgisi"
           },
           "403": {
             "description": "Yetersiz yetki (Gerekli scope: cdr:read)"
@@ -660,6 +675,7 @@
           }
         ],
         "x-nornia-scope": "extensions:read",
+        "x-nornia-auth-type": "api_key",
         "responses": {
           "200": {
             "description": "Başarılı yanıt",
@@ -686,7 +702,7 @@
             }
           },
           "401": {
-            "description": "Geçersiz veya eksik API anahtarı"
+            "description": "Geçersiz veya eksik kimlik bilgisi"
           },
           "403": {
             "description": "Yetersiz yetki (Gerekli scope: extensions:read)"
@@ -709,6 +725,7 @@
           }
         ],
         "x-nornia-scope": "extensions:write",
+        "x-nornia-auth-type": "api_key",
         "responses": {
           "200": {
             "description": "Başarılı yanıt",
@@ -735,7 +752,7 @@
             }
           },
           "401": {
-            "description": "Geçersiz veya eksik API anahtarı"
+            "description": "Geçersiz veya eksik kimlik bilgisi"
           },
           "403": {
             "description": "Yetersiz yetki (Gerekli scope: extensions:write)"
@@ -775,6 +792,7 @@
           }
         ],
         "x-nornia-scope": "extensions:write",
+        "x-nornia-auth-type": "api_key",
         "responses": {
           "200": {
             "description": "Başarılı yanıt",
@@ -788,7 +806,7 @@
             }
           },
           "401": {
-            "description": "Geçersiz veya eksik API anahtarı"
+            "description": "Geçersiz veya eksik kimlik bilgisi"
           },
           "403": {
             "description": "Yetersiz yetki (Gerekli scope: extensions:write)"
@@ -799,7 +817,7 @@
             "name": "extension",
             "in": "path",
             "required": true,
-            "description": "Hedef dahili numarası (örn. 1000)",
+            "description": "Hedef dahili numarası veya kullanıcı ID (örn. 1000)",
             "schema": {
               "type": "string"
             }
@@ -839,6 +857,7 @@
           }
         ],
         "x-nornia-scope": "extensions:delete",
+        "x-nornia-auth-type": "api_key",
         "responses": {
           "200": {
             "description": "Başarılı yanıt",
@@ -852,7 +871,7 @@
             }
           },
           "401": {
-            "description": "Geçersiz veya eksik API anahtarı"
+            "description": "Geçersiz veya eksik kimlik bilgisi"
           },
           "403": {
             "description": "Yetersiz yetki (Gerekli scope: extensions:delete)"
@@ -863,7 +882,7 @@
             "name": "extension",
             "in": "path",
             "required": true,
-            "description": "Hedef dahili numarası (örn. 1000)",
+            "description": "Hedef dahili numarası veya kullanıcı ID (örn. 1000)",
             "schema": {
               "type": "string"
             }
@@ -888,6 +907,7 @@
           }
         ],
         "x-nornia-scope": "extensions:write",
+        "x-nornia-auth-type": "api_key",
         "responses": {
           "200": {
             "description": "Başarılı yanıt",
@@ -901,7 +921,7 @@
             }
           },
           "401": {
-            "description": "Geçersiz veya eksik API anahtarı"
+            "description": "Geçersiz veya eksik kimlik bilgisi"
           },
           "403": {
             "description": "Yetersiz yetki (Gerekli scope: extensions:write)"
@@ -912,7 +932,7 @@
             "name": "extension",
             "in": "path",
             "required": true,
-            "description": "Hedef dahili numarası (örn. 1000)",
+            "description": "Hedef dahili numarası veya kullanıcı ID (örn. 1000)",
             "schema": {
               "type": "string"
             }
@@ -948,6 +968,7 @@
           }
         ],
         "x-nornia-scope": "queues:read",
+        "x-nornia-auth-type": "api_key",
         "responses": {
           "200": {
             "description": "Başarılı yanıt",
@@ -975,7 +996,7 @@
             }
           },
           "401": {
-            "description": "Geçersiz veya eksik API anahtarı"
+            "description": "Geçersiz veya eksik kimlik bilgisi"
           },
           "403": {
             "description": "Yetersiz yetki (Gerekli scope: queues:read)"
@@ -998,6 +1019,7 @@
           }
         ],
         "x-nornia-scope": "queues:write",
+        "x-nornia-auth-type": "api_key",
         "responses": {
           "200": {
             "description": "Başarılı yanıt",
@@ -1025,7 +1047,7 @@
             }
           },
           "401": {
-            "description": "Geçersiz veya eksik API anahtarı"
+            "description": "Geçersiz veya eksik kimlik bilgisi"
           },
           "403": {
             "description": "Yetersiz yetki (Gerekli scope: queues:write)"
@@ -1068,6 +1090,7 @@
           }
         ],
         "x-nornia-scope": "queues:write",
+        "x-nornia-auth-type": "api_key",
         "responses": {
           "200": {
             "description": "Başarılı yanıt",
@@ -1081,7 +1104,7 @@
             }
           },
           "401": {
-            "description": "Geçersiz veya eksik API anahtarı"
+            "description": "Geçersiz veya eksik kimlik bilgisi"
           },
           "403": {
             "description": "Yetersiz yetki (Gerekli scope: queues:write)"
@@ -1092,7 +1115,7 @@
             "name": "queue_id",
             "in": "path",
             "required": true,
-            "description": "ACD kuyruk kimliği veya numarası (örn. 6000)",
+            "description": "ACD kuyruk kimliği veya kuyruk numarası (örn. 6000)",
             "schema": {
               "type": "string"
             }
@@ -1113,6 +1136,54 @@
             }
           }
         }
+      },
+      "delete": {
+        "tags": [
+          "4. ACD Arama Kuyrukları & Abone Grupları"
+        ],
+        "summary": "ACD Çağrı Kuyruğunu Silme",
+        "description": "Belirtilen ACD kuyruğunu santralden ve Asterisk queues_custom.conf yapılandırmasından kaldırır.",
+        "operationId": "delete_api_v1_queues_queue_id",
+        "security": [
+          {
+            "ApiKeyAuth": []
+          },
+          {
+            "BearerAuth": []
+          }
+        ],
+        "x-nornia-scope": "queues:delete",
+        "x-nornia-auth-type": "api_key",
+        "responses": {
+          "200": {
+            "description": "Başarılı yanıt",
+            "content": {
+              "application/json": {
+                "example": {
+                  "status": "ok",
+                  "message": "İşlem başarıyla tamamlandı."
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Geçersiz veya eksik kimlik bilgisi"
+          },
+          "403": {
+            "description": "Yetersiz yetki (Gerekli scope: queues:delete)"
+          }
+        },
+        "parameters": [
+          {
+            "name": "queue_id",
+            "in": "path",
+            "required": true,
+            "description": "ACD kuyruk kimliği veya kuyruk numarası (örn. 6000)",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
       }
     },
     "/api/v1/subscriber-groups": {
@@ -1132,6 +1203,7 @@
           }
         ],
         "x-nornia-scope": "queues:read",
+        "x-nornia-auth-type": "api_key",
         "responses": {
           "200": {
             "description": "Başarılı yanıt",
@@ -1145,7 +1217,7 @@
             }
           },
           "401": {
-            "description": "Geçersiz veya eksik API anahtarı"
+            "description": "Geçersiz veya eksik kimlik bilgisi"
           },
           "403": {
             "description": "Yetersiz yetki (Gerekli scope: queues:read)"
@@ -1170,6 +1242,7 @@
           }
         ],
         "x-nornia-scope": "routing:read",
+        "x-nornia-auth-type": "api_key",
         "responses": {
           "200": {
             "description": "Başarılı yanıt",
@@ -1183,7 +1256,7 @@
             }
           },
           "401": {
-            "description": "Geçersiz veya eksik API anahtarı"
+            "description": "Geçersiz veya eksik kimlik bilgisi"
           },
           "403": {
             "description": "Yetersiz yetki (Gerekli scope: routing:read)"
@@ -1206,6 +1279,7 @@
           }
         ],
         "x-nornia-scope": "routing:write",
+        "x-nornia-auth-type": "api_key",
         "responses": {
           "200": {
             "description": "Başarılı yanıt",
@@ -1219,7 +1293,7 @@
             }
           },
           "401": {
-            "description": "Geçersiz veya eksik API anahtarı"
+            "description": "Geçersiz veya eksik kimlik bilgisi"
           },
           "403": {
             "description": "Yetersiz yetki (Gerekli scope: routing:write)"
@@ -1257,6 +1331,7 @@
           }
         ],
         "x-nornia-scope": "routing:read",
+        "x-nornia-auth-type": "api_key",
         "responses": {
           "200": {
             "description": "Başarılı yanıt",
@@ -1270,7 +1345,7 @@
             }
           },
           "401": {
-            "description": "Geçersiz veya eksik API anahtarı"
+            "description": "Geçersiz veya eksik kimlik bilgisi"
           },
           "403": {
             "description": "Yetersiz yetki (Gerekli scope: routing:read)"
@@ -1293,6 +1368,7 @@
           }
         ],
         "x-nornia-scope": "routing:write",
+        "x-nornia-auth-type": "api_key",
         "responses": {
           "200": {
             "description": "Başarılı yanıt",
@@ -1306,7 +1382,7 @@
             }
           },
           "401": {
-            "description": "Geçersiz veya eksik API anahtarı"
+            "description": "Geçersiz veya eksik kimlik bilgisi"
           },
           "403": {
             "description": "Yetersiz yetki (Gerekli scope: routing:write)"
@@ -1344,6 +1420,7 @@
           }
         ],
         "x-nornia-scope": "routing:read",
+        "x-nornia-auth-type": "api_key",
         "responses": {
           "200": {
             "description": "Başarılı yanıt",
@@ -1367,7 +1444,7 @@
             }
           },
           "401": {
-            "description": "Geçersiz veya eksik API anahtarı"
+            "description": "Geçersiz veya eksik kimlik bilgisi"
           },
           "403": {
             "description": "Yetersiz yetki (Gerekli scope: routing:read)"
@@ -1392,6 +1469,7 @@
           }
         ],
         "x-nornia-scope": "routing:write",
+        "x-nornia-auth-type": "api_key",
         "responses": {
           "200": {
             "description": "Başarılı yanıt",
@@ -1405,7 +1483,7 @@
             }
           },
           "401": {
-            "description": "Geçersiz veya eksik API anahtarı"
+            "description": "Geçersiz veya eksik kimlik bilgisi"
           },
           "403": {
             "description": "Yetersiz yetki (Gerekli scope: routing:write)"
@@ -1427,6 +1505,106 @@
         }
       }
     },
+    "/api/v1/inbound-rules/{rule_id}": {
+      "delete": {
+        "tags": [
+          "5. Gelen / Giden Arama Kuralları, SIP Trunk & Toplu Konfigürasyon"
+        ],
+        "summary": "Gelen Arama (DID) Kuralını Silme",
+        "description": "Belirtilen kimliğe (rule_id) sahip gelen arama yönlendirme kuralını siler ve dialplanı günceller.",
+        "operationId": "delete_api_v1_inbound_rules_rule_id",
+        "security": [
+          {
+            "ApiKeyAuth": []
+          },
+          {
+            "BearerAuth": []
+          }
+        ],
+        "x-nornia-scope": "routing:delete",
+        "x-nornia-auth-type": "api_key",
+        "responses": {
+          "200": {
+            "description": "Başarılı yanıt",
+            "content": {
+              "application/json": {
+                "example": {
+                  "status": "ok",
+                  "message": "İşlem başarıyla tamamlandı."
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Geçersiz veya eksik kimlik bilgisi"
+          },
+          "403": {
+            "description": "Yetersiz yetki (Gerekli scope: routing:delete)"
+          }
+        },
+        "parameters": [
+          {
+            "name": "rule_id",
+            "in": "path",
+            "required": true,
+            "description": "Arama kuralı kimliği (ID)",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/v1/outbound-rules/{rule_id}": {
+      "delete": {
+        "tags": [
+          "5. Gelen / Giden Arama Kuralları, SIP Trunk & Toplu Konfigürasyon"
+        ],
+        "summary": "Giden Arama Kuralını Silme",
+        "description": "Belirtilen kimliğe (rule_id) sahip giden arama kuralını siler ve dialplanı yeniden senkronize eder.",
+        "operationId": "delete_api_v1_outbound_rules_rule_id",
+        "security": [
+          {
+            "ApiKeyAuth": []
+          },
+          {
+            "BearerAuth": []
+          }
+        ],
+        "x-nornia-scope": "routing:delete",
+        "x-nornia-auth-type": "api_key",
+        "responses": {
+          "200": {
+            "description": "Başarılı yanıt",
+            "content": {
+              "application/json": {
+                "example": {
+                  "status": "ok",
+                  "message": "İşlem başarıyla tamamlandı."
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Geçersiz veya eksik kimlik bilgisi"
+          },
+          "403": {
+            "description": "Yetersiz yetki (Gerekli scope: routing:delete)"
+          }
+        },
+        "parameters": [
+          {
+            "name": "rule_id",
+            "in": "path",
+            "required": true,
+            "description": "Arama kuralı kimliği (ID)",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
     "/api/v1/contacts": {
       "get": {
         "tags": [
@@ -1444,6 +1622,7 @@
           }
         ],
         "x-nornia-scope": "crm:read",
+        "x-nornia-auth-type": "api_key",
         "responses": {
           "200": {
             "description": "Başarılı yanıt",
@@ -1467,7 +1646,7 @@
             }
           },
           "401": {
-            "description": "Geçersiz veya eksik API anahtarı"
+            "description": "Geçersiz veya eksik kimlik bilgisi"
           },
           "403": {
             "description": "Yetersiz yetki (Gerekli scope: crm:read)"
@@ -1490,6 +1669,7 @@
           }
         ],
         "x-nornia-scope": "crm:write",
+        "x-nornia-auth-type": "api_key",
         "responses": {
           "200": {
             "description": "Başarılı yanıt",
@@ -1513,7 +1693,7 @@
             }
           },
           "401": {
-            "description": "Geçersiz veya eksik API anahtarı"
+            "description": "Geçersiz veya eksik kimlik bilgisi"
           },
           "403": {
             "description": "Yetersiz yetki (Gerekli scope: crm:write)"
@@ -1535,6 +1715,56 @@
         }
       }
     },
+    "/api/v1/contacts/{contact_id}": {
+      "delete": {
+        "tags": [
+          "6. CRM Rehber (Kişiler), Kara Liste & Randevu Takvimi"
+        ],
+        "summary": "Rehberden Müşteri / Kişi Kaydını Silme",
+        "description": "Belirtilen contact_id değerine sahip müşteri kartını santral rehberinden kalıcı olarak siler.",
+        "operationId": "delete_api_v1_contacts_contact_id",
+        "security": [
+          {
+            "ApiKeyAuth": []
+          },
+          {
+            "BearerAuth": []
+          }
+        ],
+        "x-nornia-scope": "crm:delete",
+        "x-nornia-auth-type": "api_key",
+        "responses": {
+          "200": {
+            "description": "Başarılı yanıt",
+            "content": {
+              "application/json": {
+                "example": {
+                  "status": "ok",
+                  "message": "İşlem başarıyla tamamlandı."
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Geçersiz veya eksik kimlik bilgisi"
+          },
+          "403": {
+            "description": "Yetersiz yetki (Gerekli scope: crm:delete)"
+          }
+        },
+        "parameters": [
+          {
+            "name": "contact_id",
+            "in": "path",
+            "required": true,
+            "description": "Rehber kişi kayıt kimliği (ID)",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
     "/api/v1/blacklist": {
       "get": {
         "tags": [
@@ -1552,6 +1782,7 @@
           }
         ],
         "x-nornia-scope": "crm:read",
+        "x-nornia-auth-type": "api_key",
         "responses": {
           "200": {
             "description": "Başarılı yanıt",
@@ -1565,7 +1796,7 @@
             }
           },
           "401": {
-            "description": "Geçersiz veya eksik API anahtarı"
+            "description": "Geçersiz veya eksik kimlik bilgisi"
           },
           "403": {
             "description": "Yetersiz yetki (Gerekli scope: crm:read)"
@@ -1588,6 +1819,7 @@
           }
         ],
         "x-nornia-scope": "crm:write",
+        "x-nornia-auth-type": "api_key",
         "responses": {
           "200": {
             "description": "Başarılı yanıt",
@@ -1601,7 +1833,7 @@
             }
           },
           "401": {
-            "description": "Geçersiz veya eksik API anahtarı"
+            "description": "Geçersiz veya eksik kimlik bilgisi"
           },
           "403": {
             "description": "Yetersiz yetki (Gerekli scope: crm:write)"
@@ -1637,6 +1869,7 @@
           }
         ],
         "x-nornia-scope": "crm:read",
+        "x-nornia-auth-type": "api_key",
         "responses": {
           "200": {
             "description": "Başarılı yanıt",
@@ -1650,7 +1883,7 @@
             }
           },
           "401": {
-            "description": "Geçersiz veya eksik API anahtarı"
+            "description": "Geçersiz veya eksik kimlik bilgisi"
           },
           "403": {
             "description": "Yetersiz yetki (Gerekli scope: crm:read)"
@@ -1673,6 +1906,7 @@
           }
         ],
         "x-nornia-scope": "crm:write",
+        "x-nornia-auth-type": "api_key",
         "responses": {
           "200": {
             "description": "Başarılı yanıt",
@@ -1686,7 +1920,7 @@
             }
           },
           "401": {
-            "description": "Geçersiz veya eksik API anahtarı"
+            "description": "Geçersiz veya eksik kimlik bilgisi"
           },
           "403": {
             "description": "Yetersiz yetki (Gerekli scope: crm:write)"
@@ -1724,6 +1958,7 @@
           }
         ],
         "x-nornia-scope": "ai_omnichannel:write",
+        "x-nornia-auth-type": "api_key",
         "responses": {
           "200": {
             "description": "Başarılı yanıt",
@@ -1740,7 +1975,7 @@
             }
           },
           "401": {
-            "description": "Geçersiz veya eksik API anahtarı"
+            "description": "Geçersiz veya eksik kimlik bilgisi"
           },
           "403": {
             "description": "Yetersiz yetki (Gerekli scope: ai_omnichannel:write)"
@@ -1776,6 +2011,7 @@
           }
         ],
         "x-nornia-scope": "ai_omnichannel:write",
+        "x-nornia-auth-type": "api_key",
         "responses": {
           "200": {
             "description": "Başarılı yanıt",
@@ -1792,7 +2028,7 @@
             }
           },
           "401": {
-            "description": "Geçersiz veya eksik API anahtarı"
+            "description": "Geçersiz veya eksik kimlik bilgisi"
           },
           "403": {
             "description": "Yetersiz yetki (Gerekli scope: ai_omnichannel:write)"
@@ -1829,6 +2065,7 @@
           }
         ],
         "x-nornia-scope": "ai_omnichannel:read",
+        "x-nornia-auth-type": "api_key",
         "responses": {
           "200": {
             "description": "Başarılı yanıt",
@@ -1842,10 +2079,56 @@
             }
           },
           "401": {
-            "description": "Geçersiz veya eksik API anahtarı"
+            "description": "Geçersiz veya eksik kimlik bilgisi"
           },
           "403": {
             "description": "Yetersiz yetki (Gerekli scope: ai_omnichannel:read)"
+          }
+        }
+      }
+    },
+    "/api/v1/status": {
+      "get": {
+        "tags": [
+          "8. Konferans Odaları, Hızlı Arama, Sesli Posta (Voicemail), Webhook & Sistem Kapasitesi"
+        ],
+        "summary": "API Sağlık Kontrolü & Anahtar Doğrulama Testi (Ping)",
+        "description": "Gönderilen X-API-Key / Bearer anahtarının geçerliliğini, bağlı müşteri (tenant) kodunu, tanımlı yetki kapsamlarını (scopes) ve santral saatini anlık doğrular.",
+        "operationId": "get_api_v1_status",
+        "security": [
+          {
+            "ApiKeyAuth": []
+          },
+          {
+            "BearerAuth": []
+          }
+        ],
+        "x-nornia-scope": "calls:read",
+        "x-nornia-auth-type": "api_key",
+        "responses": {
+          "200": {
+            "description": "Başarılı yanıt",
+            "content": {
+              "application/json": {
+                "example": {
+                  "status": "ok",
+                  "tenant_id": "tenant-default",
+                  "key_name": "ERP Prod Anahtarı",
+                  "scopes": [
+                    "calls:read",
+                    "calls:write",
+                    "cdr:read"
+                  ],
+                  "server_time": "2026-11-23T14:20:00+03:00"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Geçersiz veya eksik kimlik bilgisi"
+          },
+          "403": {
+            "description": "Yetersiz yetki (Gerekli scope: calls:read)"
           }
         }
       }
@@ -1867,6 +2150,7 @@
           }
         ],
         "x-nornia-scope": "pbx_features:read",
+        "x-nornia-auth-type": "api_key",
         "responses": {
           "200": {
             "description": "Başarılı yanıt",
@@ -1888,7 +2172,7 @@
             }
           },
           "401": {
-            "description": "Geçersiz veya eksik API anahtarı"
+            "description": "Geçersiz veya eksik kimlik bilgisi"
           },
           "403": {
             "description": "Yetersiz yetki (Gerekli scope: pbx_features:read)"
@@ -1913,6 +2197,7 @@
           }
         ],
         "x-nornia-scope": "pbx_features:read",
+        "x-nornia-auth-type": "api_key",
         "responses": {
           "200": {
             "description": "Başarılı yanıt",
@@ -1926,7 +2211,7 @@
             }
           },
           "401": {
-            "description": "Geçersiz veya eksik API anahtarı"
+            "description": "Geçersiz veya eksik kimlik bilgisi"
           },
           "403": {
             "description": "Yetersiz yetki (Gerekli scope: pbx_features:read)"
@@ -1949,6 +2234,7 @@
           }
         ],
         "x-nornia-scope": "pbx_features:write",
+        "x-nornia-auth-type": "api_key",
         "responses": {
           "200": {
             "description": "Başarılı yanıt",
@@ -1962,7 +2248,7 @@
             }
           },
           "401": {
-            "description": "Geçersiz veya eksik API anahtarı"
+            "description": "Geçersiz veya eksik kimlik bilgisi"
           },
           "403": {
             "description": "Yetersiz yetki (Gerekli scope: pbx_features:write)"
@@ -1999,6 +2285,7 @@
           }
         ],
         "x-nornia-scope": "pbx_features:read",
+        "x-nornia-auth-type": "api_key",
         "responses": {
           "200": {
             "description": "Başarılı yanıt",
@@ -2012,7 +2299,7 @@
             }
           },
           "401": {
-            "description": "Geçersiz veya eksik API anahtarı"
+            "description": "Geçersiz veya eksik kimlik bilgisi"
           },
           "403": {
             "description": "Yetersiz yetki (Gerekli scope: pbx_features:read)"
@@ -2037,6 +2324,7 @@
           }
         ],
         "x-nornia-scope": "pbx_features:read",
+        "x-nornia-auth-type": "api_key",
         "responses": {
           "200": {
             "description": "Başarılı yanıt",
@@ -2050,7 +2338,7 @@
             }
           },
           "401": {
-            "description": "Geçersiz veya eksik API anahtarı"
+            "description": "Geçersiz veya eksik kimlik bilgisi"
           },
           "403": {
             "description": "Yetersiz yetki (Gerekli scope: pbx_features:read)"
@@ -2075,6 +2363,7 @@
           }
         ],
         "x-nornia-scope": "pbx_features:read",
+        "x-nornia-auth-type": "api_key",
         "responses": {
           "200": {
             "description": "Başarılı yanıt",
@@ -2088,7 +2377,7 @@
             }
           },
           "401": {
-            "description": "Geçersiz veya eksik API anahtarı"
+            "description": "Geçersiz veya eksik kimlik bilgisi"
           },
           "403": {
             "description": "Yetersiz yetki (Gerekli scope: pbx_features:read)"
@@ -2113,6 +2402,7 @@
           }
         ],
         "x-nornia-scope": "pbx_features:write",
+        "x-nornia-auth-type": "api_key",
         "responses": {
           "200": {
             "description": "Başarılı yanıt",
@@ -2134,7 +2424,7 @@
             }
           },
           "401": {
-            "description": "Geçersiz veya eksik API anahtarı"
+            "description": "Geçersiz veya eksik kimlik bilgisi"
           },
           "403": {
             "description": "Yetersiz yetki (Gerekli scope: pbx_features:write)"
@@ -2155,6 +2445,3306 @@
                 ]
               }
             }
+          }
+        }
+      }
+    },
+    "/api/cti/lookup": {
+      "post": {
+        "tags": [
+          "9. CTI & CRM Screen Pop (Arayan Tanıma & Otomatik Kart Açma)"
+        ],
+        "summary": "Gelen Numarayı CRM'de Sorgula & Screen Pop URL Üret",
+        "description": "Gelen çağrıdaki arayan numarayı (caller_number) santral rehberi ve tanımlı dış CRM sistemlerinde (Zoho, HubSpot, Salesforce, Bitrix24 veya Özel HTTP) sorgular; müşteri özetini ve otomatik açılacak CRM kart URL'sini döndürür.",
+        "operationId": "post_api_cti_lookup",
+        "security": [
+          {
+            "SessionUserAuth": []
+          }
+        ],
+        "x-nornia-scope": "cti_integration:read",
+        "x-nornia-auth-type": "session",
+        "responses": {
+          "200": {
+            "description": "Başarılı yanıt",
+            "content": {
+              "application/json": {
+                "example": {
+                  "status": "ok",
+                  "matched": true,
+                  "contact": {
+                    "name": "Mehmet Demir",
+                    "company": "Demir Lojistik A.Ş.",
+                    "vip": true
+                  },
+                  "screen_pop_url": "https://crm.sirketiniz.com/customers/512?phone=05329876543"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Geçersiz veya eksik kimlik bilgisi"
+          },
+          "403": {
+            "description": "Yetersiz yetki (Gerekli scope: cti_integration:read)"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "example": {
+                "phone": "05321234567",
+                "did": "908503607390",
+                "extension": "1000"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/cti/test": {
+      "post": {
+        "tags": [
+          "9. CTI & CRM Screen Pop (Arayan Tanıma & Otomatik Kart Açma)"
+        ],
+        "summary": "CTI / CRM Bağlantı & Webhook Testi",
+        "description": "Yapılandırılan harici CRM/CTI URL şablonunu veya HTTP sorgu ucunu örnek bir telefon numarasıyla test eder, HTTP yanıt kodu ve gecikme süresini (ms) raporlar.",
+        "operationId": "post_api_cti_test",
+        "security": [
+          {
+            "SessionUserAuth": []
+          }
+        ],
+        "x-nornia-scope": "cti_integration:write",
+        "x-nornia-auth-type": "session",
+        "responses": {
+          "200": {
+            "description": "Başarılı yanıt",
+            "content": {
+              "application/json": {
+                "example": {
+                  "status": "ok",
+                  "message": "İşlem başarıyla tamamlandı."
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Geçersiz veya eksik kimlik bilgisi"
+          },
+          "403": {
+            "description": "Yetersiz yetki (Gerekli scope: cti_integration:write)"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "example": {
+                "test_phone": "05321234567",
+                "crm_url": "https://crm.sirket.com/api/lookup?phone={phone}"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/settings/crm-integrations": {
+      "get": {
+        "tags": [
+          "9. CTI & CRM Screen Pop (Arayan Tanıma & Otomatik Kart Açma)"
+        ],
+        "summary": "Tanımlı Hazır CRM Entegrasyonlarını Listele",
+        "description": "Santralde aktif olan Zoho, HubSpot, Salesforce, Bitrix24 ve özel CRM bağlayıcılarını döndürür.",
+        "operationId": "get_api_settings_crm_integrations",
+        "security": [
+          {
+            "SessionUserAuth": []
+          }
+        ],
+        "x-nornia-scope": "crm_integrations:read",
+        "x-nornia-auth-type": "session",
+        "responses": {
+          "200": {
+            "description": "Başarılı yanıt",
+            "content": {
+              "application/json": {
+                "example": {
+                  "status": "ok",
+                  "message": "İşlem başarıyla tamamlandı."
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Geçersiz veya eksik kimlik bilgisi"
+          },
+          "403": {
+            "description": "Yetersiz yetki (Gerekli scope: crm_integrations:read)"
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "9. CTI & CRM Screen Pop (Arayan Tanıma & Otomatik Kart Açma)"
+        ],
+        "summary": "CRM Entegrasyonu Ekle / Güncelle",
+        "description": "Yeni bir CRM bağlayıcısı kaydeder veya mevcut bağlayıcının kimlik doğrulama ve alan eşleştirme kurallarını günceller.",
+        "operationId": "post_api_settings_crm_integrations",
+        "security": [
+          {
+            "SessionUserAuth": []
+          }
+        ],
+        "x-nornia-scope": "crm_integrations:write",
+        "x-nornia-auth-type": "session",
+        "responses": {
+          "200": {
+            "description": "Başarılı yanıt",
+            "content": {
+              "application/json": {
+                "example": {
+                  "status": "ok",
+                  "message": "İşlem başarıyla tamamlandı."
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Geçersiz veya eksik kimlik bilgisi"
+          },
+          "403": {
+            "description": "Yetersiz yetki (Gerekli scope: crm_integrations:write)"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "example": {
+                "provider": "hubspot",
+                "enabled": true,
+                "api_token": "pat-eu1-xxxx",
+                "auto_log_calls": true
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/settings/crm-integrations/{crm_id}/test": {
+      "post": {
+        "tags": [
+          "9. CTI & CRM Screen Pop (Arayan Tanıma & Otomatik Kart Açma)"
+        ],
+        "summary": "Seçili CRM Bağlayıcısını Canlı Test Et",
+        "description": "Belirtilen CRM entegrasyonunun API token geçerliliğini ve erişilebilirliğini canlı test eder.",
+        "operationId": "post_api_settings_crm_integrations_crm_id_test",
+        "security": [
+          {
+            "SessionUserAuth": []
+          }
+        ],
+        "x-nornia-scope": "crm_integrations:write",
+        "x-nornia-auth-type": "session",
+        "responses": {
+          "200": {
+            "description": "Başarılı yanıt",
+            "content": {
+              "application/json": {
+                "example": {
+                  "status": "ok",
+                  "message": "İşlem başarıyla tamamlandı."
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Geçersiz veya eksik kimlik bilgisi"
+          },
+          "403": {
+            "description": "Yetersiz yetki (Gerekli scope: crm_integrations:write)"
+          }
+        },
+        "parameters": [
+          {
+            "name": "crm_id",
+            "in": "path",
+            "required": true,
+            "description": "CRM entegrasyon kimliği",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "example": {}
+            }
+          }
+        }
+      }
+    },
+    "/api/settings/dialer/campaigns": {
+      "get": {
+        "tags": [
+          "10. Otomatik Dış Arama (Dialer) & Kampanya Yönetimi API"
+        ],
+        "summary": "Dış Arama (Dialer) Kampanyalarını Listele",
+        "description": "Tüm aktif, duraklatılmış ve tamamlanmış otomatik dış arama kampanyalarını, ilerleme yüzdelerini ve eşzamanlı kanal limitlerini döndürür.",
+        "operationId": "get_api_settings_dialer_campaigns",
+        "security": [
+          {
+            "SessionUserAuth": []
+          }
+        ],
+        "x-nornia-scope": "dialer:read",
+        "x-nornia-auth-type": "session",
+        "responses": {
+          "200": {
+            "description": "Başarılı yanıt",
+            "content": {
+              "application/json": {
+                "example": {
+                  "status": "ok",
+                  "message": "İşlem başarıyla tamamlandı."
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Geçersiz veya eksik kimlik bilgisi"
+          },
+          "403": {
+            "description": "Yetersiz yetki (Gerekli scope: dialer:read)"
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "10. Otomatik Dış Arama (Dialer) & Kampanya Yönetimi API"
+        ],
+        "summary": "Yeni Dış Arama Kampanyası Oluştur",
+        "description": "AI Asistan, ACD Kuyruk veya IVR/Anons hedefli yeni bir otomatik dış arama kampanyası oluşturur.",
+        "operationId": "post_api_settings_dialer_campaigns",
+        "security": [
+          {
+            "SessionUserAuth": []
+          }
+        ],
+        "x-nornia-scope": "dialer:write",
+        "x-nornia-auth-type": "session",
+        "responses": {
+          "200": {
+            "description": "Başarılı yanıt",
+            "content": {
+              "application/json": {
+                "example": {
+                  "status": "ok",
+                  "message": "İşlem başarıyla tamamlandı."
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Geçersiz veya eksik kimlik bilgisi"
+          },
+          "403": {
+            "description": "Yetersiz yetki (Gerekli scope: dialer:write)"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "example": {
+                "name": "Kasım Yenileme Kampanyası",
+                "mode": "ai_agent",
+                "target_id": "Sales_AI",
+                "max_concurrent": 5,
+                "caller_id": "908503607390",
+                "retry_limit": 2,
+                "retry_delay_minutes": 30
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/settings/dialer/campaigns/{campaign_id}/upload-list": {
+      "post": {
+        "tags": [
+          "10. Otomatik Dış Arama (Dialer) & Kampanya Yönetimi API"
+        ],
+        "summary": "Kampanyaya Aranacak Numara Listesi Yükle (JSON / CSV)",
+        "description": "Belirtilen kampanyaya müşteri adı, telefon numarası ve özel değişkenlerle (örn. fatura tutarı, son ödeme tarihi) toplu arama listesi yükler.",
+        "operationId": "post_api_settings_dialer_campaigns_campaign_id_upload_list",
+        "security": [
+          {
+            "SessionUserAuth": []
+          }
+        ],
+        "x-nornia-scope": "dialer:write",
+        "x-nornia-auth-type": "session",
+        "responses": {
+          "200": {
+            "description": "Başarılı yanıt",
+            "content": {
+              "application/json": {
+                "example": {
+                  "status": "ok",
+                  "message": "İşlem başarıyla tamamlandı."
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Geçersiz veya eksik kimlik bilgisi"
+          },
+          "403": {
+            "description": "Yetersiz yetki (Gerekli scope: dialer:write)"
+          }
+        },
+        "parameters": [
+          {
+            "name": "campaign_id",
+            "in": "path",
+            "required": true,
+            "description": "Dış arama kampanya kimliği (ID)",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "example": {
+                "records": [
+                  {
+                    "name": "Ali Kaya",
+                    "phone": "05321112233",
+                    "custom_data": {
+                      "borc": "1.250 TL"
+                    }
+                  },
+                  {
+                    "name": "Zeynep Demir",
+                    "phone": "05423334455",
+                    "custom_data": {
+                      "borc": "890 TL"
+                    }
+                  }
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/settings/dialer/campaigns/{campaign_id}/control": {
+      "post": {
+        "tags": [
+          "10. Otomatik Dış Arama (Dialer) & Kampanya Yönetimi API"
+        ],
+        "summary": "Kampanyayı Başlat / Duraklat / Durdur",
+        "description": "Belirtilen kampanyanın çalışma durumunu `start`, `pause`, `resume` veya `stop` aksiyonlarıyla anlık yönetir.",
+        "operationId": "post_api_settings_dialer_campaigns_campaign_id_control",
+        "security": [
+          {
+            "SessionUserAuth": []
+          }
+        ],
+        "x-nornia-scope": "dialer:write",
+        "x-nornia-auth-type": "session",
+        "responses": {
+          "200": {
+            "description": "Başarılı yanıt",
+            "content": {
+              "application/json": {
+                "example": {
+                  "status": "ok",
+                  "message": "İşlem başarıyla tamamlandı."
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Geçersiz veya eksik kimlik bilgisi"
+          },
+          "403": {
+            "description": "Yetersiz yetki (Gerekli scope: dialer:write)"
+          }
+        },
+        "parameters": [
+          {
+            "name": "campaign_id",
+            "in": "path",
+            "required": true,
+            "description": "Dış arama kampanya kimliği (ID)",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "example": {
+                "action": "start"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/settings/dialer/campaigns/{campaign_id}": {
+      "delete": {
+        "tags": [
+          "10. Otomatik Dış Arama (Dialer) & Kampanya Yönetimi API"
+        ],
+        "summary": "Dış Arama Kampanyasını Sil",
+        "description": "Kampanyayı ve bekleyen arama kuyruğunu kalıcı olarak siler.",
+        "operationId": "delete_api_settings_dialer_campaigns_campaign_id",
+        "security": [
+          {
+            "SessionUserAuth": []
+          }
+        ],
+        "x-nornia-scope": "dialer:delete",
+        "x-nornia-auth-type": "session",
+        "responses": {
+          "200": {
+            "description": "Başarılı yanıt",
+            "content": {
+              "application/json": {
+                "example": {
+                  "status": "ok",
+                  "message": "İşlem başarıyla tamamlandı."
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Geçersiz veya eksik kimlik bilgisi"
+          },
+          "403": {
+            "description": "Yetersiz yetki (Gerekli scope: dialer:delete)"
+          }
+        },
+        "parameters": [
+          {
+            "name": "campaign_id",
+            "in": "path",
+            "required": true,
+            "description": "Dış arama kampanya kimliği (ID)",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/dialer/records": {
+      "get": {
+        "tags": [
+          "10. Otomatik Dış Arama (Dialer) & Kampanya Yönetimi API"
+        ],
+        "summary": "Kampanya Arama Kayıtlarını ve Sonuçlarını Çek",
+        "description": "Kampanyadaki her numaranın arama sonucunu (ANSWERED, NOANSWER, BUSY, FAILED), deneme sayısını ve AI özetini listeler.",
+        "operationId": "get_api_dialer_records",
+        "security": [
+          {
+            "SessionUserAuth": []
+          }
+        ],
+        "x-nornia-scope": "dialer:read",
+        "x-nornia-auth-type": "session",
+        "responses": {
+          "200": {
+            "description": "Başarılı yanıt",
+            "content": {
+              "application/json": {
+                "example": {
+                  "status": "ok",
+                  "message": "İşlem başarıyla tamamlandı."
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Geçersiz veya eksik kimlik bilgisi"
+          },
+          "403": {
+            "description": "Yetersiz yetki (Gerekli scope: dialer:read)"
+          }
+        },
+        "parameters": [
+          {
+            "name": "campaign_id",
+            "in": "query",
+            "required": false,
+            "description": "İsteğe bağlı filtre parametresi (örn. 1)",
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "description": "İsteğe bağlı filtre parametresi (örn. completed)",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/omnichannel/chats": {
+      "get": {
+        "tags": [
+          "11. Omnichannel (WhatsApp, Telegram, Meta, E-Posta) & Ortak Gelen Kutusu API"
+        ],
+        "summary": "Omnichannel Sohbet Oturumlarını Listele",
+        "description": "WhatsApp, Telegram, Instagram, Facebook Messenger, E-Posta ve Webchat kanallarındaki tüm aktif ve kapalı sohbet oturumlarını listeler.",
+        "operationId": "get_api_omnichannel_chats",
+        "security": [
+          {
+            "SessionUserAuth": []
+          }
+        ],
+        "x-nornia-scope": "omnichannel:access",
+        "x-nornia-auth-type": "session",
+        "responses": {
+          "200": {
+            "description": "Başarılı yanıt",
+            "content": {
+              "application/json": {
+                "example": {
+                  "status": "ok",
+                  "message": "İşlem başarıyla tamamlandı."
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Geçersiz veya eksik kimlik bilgisi"
+          },
+          "403": {
+            "description": "Yetersiz yetki (Gerekli scope: omnichannel:access)"
+          }
+        },
+        "parameters": [
+          {
+            "name": "channel",
+            "in": "query",
+            "required": false,
+            "description": "İsteğe bağlı filtre parametresi (örn. whatsapp)",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "description": "İsteğe bağlı filtre parametresi (örn. open)",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/omnichannel/chats/{session_id}/messages": {
+      "get": {
+        "tags": [
+          "11. Omnichannel (WhatsApp, Telegram, Meta, E-Posta) & Ortak Gelen Kutusu API"
+        ],
+        "summary": "Sohbet Oturumunun Mesaj Geçmişini Getir",
+        "description": "Belirtilen sohbet oturumundaki tüm müşteri, AI asistan ve temsilci mesajlarını medya ekleriyle kronolojik döndürür.",
+        "operationId": "get_api_omnichannel_chats_session_id_messages",
+        "security": [
+          {
+            "SessionUserAuth": []
+          }
+        ],
+        "x-nornia-scope": "omnichannel:access",
+        "x-nornia-auth-type": "session",
+        "responses": {
+          "200": {
+            "description": "Başarılı yanıt",
+            "content": {
+              "application/json": {
+                "example": {
+                  "status": "ok",
+                  "message": "İşlem başarıyla tamamlandı."
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Geçersiz veya eksik kimlik bilgisi"
+          },
+          "403": {
+            "description": "Yetersiz yetki (Gerekli scope: omnichannel:access)"
+          }
+        },
+        "parameters": [
+          {
+            "name": "session_id",
+            "in": "path",
+            "required": true,
+            "description": "Omnichannel sohbet oturum kimliği",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/omnichannel/chats/{session_id}/send": {
+      "post": {
+        "tags": [
+          "11. Omnichannel (WhatsApp, Telegram, Meta, E-Posta) & Ortak Gelen Kutusu API"
+        ],
+        "summary": "Aktif Sohbet Oturumuna Yanıt Gönder",
+        "description": "Oturumun bağlı olduğu kanal (WhatsApp / Telegram / Instagram / E-Posta) üzerinden müşteriye metin veya medya yanıtı gönderir.",
+        "operationId": "post_api_omnichannel_chats_session_id_send",
+        "security": [
+          {
+            "SessionUserAuth": []
+          }
+        ],
+        "x-nornia-scope": "omnichannel:access",
+        "x-nornia-auth-type": "session",
+        "responses": {
+          "200": {
+            "description": "Başarılı yanıt",
+            "content": {
+              "application/json": {
+                "example": {
+                  "status": "ok",
+                  "message": "İşlem başarıyla tamamlandı."
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Geçersiz veya eksik kimlik bilgisi"
+          },
+          "403": {
+            "description": "Yetersiz yetki (Gerekli scope: omnichannel:access)"
+          }
+        },
+        "parameters": [
+          {
+            "name": "session_id",
+            "in": "path",
+            "required": true,
+            "description": "Omnichannel sohbet oturum kimliği",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "example": {
+                "content": "Merhaba, talebiniz işleme alındı. Kargo kodunuz: TR9918273.",
+                "sender": "agent"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/omnichannel/chats/{session_id}/takeover": {
+      "post": {
+        "tags": [
+          "11. Omnichannel (WhatsApp, Telegram, Meta, E-Posta) & Ortak Gelen Kutusu API"
+        ],
+        "summary": "Sohbeti Yapay Zekadan İnsan Temsilciye Devral",
+        "description": "AI Asistan tarafından yönetilen bir sohbeti insan temsilciye devreder; AI otomatik yanıtlamayı durdurur.",
+        "operationId": "post_api_omnichannel_chats_session_id_takeover",
+        "security": [
+          {
+            "SessionUserAuth": []
+          }
+        ],
+        "x-nornia-scope": "omnichannel:access",
+        "x-nornia-auth-type": "session",
+        "responses": {
+          "200": {
+            "description": "Başarılı yanıt",
+            "content": {
+              "application/json": {
+                "example": {
+                  "status": "ok",
+                  "message": "İşlem başarıyla tamamlandı."
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Geçersiz veya eksik kimlik bilgisi"
+          },
+          "403": {
+            "description": "Yetersiz yetki (Gerekli scope: omnichannel:access)"
+          }
+        },
+        "parameters": [
+          {
+            "name": "session_id",
+            "in": "path",
+            "required": true,
+            "description": "Omnichannel sohbet oturum kimliği",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "example": {
+                "agent_id": "1000"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/omnichannel/chats/{session_id}/transfer_to_ai": {
+      "post": {
+        "tags": [
+          "11. Omnichannel (WhatsApp, Telegram, Meta, E-Posta) & Ortak Gelen Kutusu API"
+        ],
+        "summary": "Sohbeti Yeniden Yapay Zeka Asistanına Devret",
+        "description": "İnsan temsilci müdahalesi tamamlandığında sohbeti tekrar otomatik AI yanıt moduna geçirir.",
+        "operationId": "post_api_omnichannel_chats_session_id_transfer_to_ai",
+        "security": [
+          {
+            "SessionUserAuth": []
+          }
+        ],
+        "x-nornia-scope": "omnichannel:access",
+        "x-nornia-auth-type": "session",
+        "responses": {
+          "200": {
+            "description": "Başarılı yanıt",
+            "content": {
+              "application/json": {
+                "example": {
+                  "status": "ok",
+                  "message": "İşlem başarıyla tamamlandı."
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Geçersiz veya eksik kimlik bilgisi"
+          },
+          "403": {
+            "description": "Yetersiz yetki (Gerekli scope: omnichannel:access)"
+          }
+        },
+        "parameters": [
+          {
+            "name": "session_id",
+            "in": "path",
+            "required": true,
+            "description": "Omnichannel sohbet oturum kimliği",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "example": {}
+            }
+          }
+        }
+      }
+    },
+    "/api/omnichannel/whatsapp/broadcast": {
+      "post": {
+        "tags": [
+          "11. Omnichannel (WhatsApp, Telegram, Meta, E-Posta) & Ortak Gelen Kutusu API"
+        ],
+        "summary": "WhatsApp Toplu Kampanya / Bilgilendirme Gönderimi",
+        "description": "Birden fazla telefon numarasına resmi Meta WhatsApp Business Cloud API üzerinden kontrollü hızda toplu duyuru veya şablon gönderir.",
+        "operationId": "post_api_omnichannel_whatsapp_broadcast",
+        "security": [
+          {
+            "SessionUserAuth": []
+          }
+        ],
+        "x-nornia-scope": "omnichannel:access",
+        "x-nornia-auth-type": "session",
+        "responses": {
+          "200": {
+            "description": "Başarılı yanıt",
+            "content": {
+              "application/json": {
+                "example": {
+                  "status": "ok",
+                  "message": "İşlem başarıyla tamamlandı."
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Geçersiz veya eksik kimlik bilgisi"
+          },
+          "403": {
+            "description": "Yetersiz yetki (Gerekli scope: omnichannel:access)"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "example": {
+                "phones": [
+                  "905321234567",
+                  "905429876543"
+                ],
+                "message": "Yeni kampanyamız başladı! Detaylar için yanıtlayın.",
+                "account_id": "default"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/omnichannel/whatsapp/buttons": {
+      "post": {
+        "tags": [
+          "11. Omnichannel (WhatsApp, Telegram, Meta, E-Posta) & Ortak Gelen Kutusu API"
+        ],
+        "summary": "WhatsApp Etkileşimli Hızlı Yanıt Butonları Gönder",
+        "description": "Müşteriye en fazla 3 adet tıklanabilir Meta Quick-Reply butonu içeren interaktif mesaj gönderir.",
+        "operationId": "post_api_omnichannel_whatsapp_buttons",
+        "security": [
+          {
+            "SessionUserAuth": []
+          }
+        ],
+        "x-nornia-scope": "omnichannel:access",
+        "x-nornia-auth-type": "session",
+        "responses": {
+          "200": {
+            "description": "Başarılı yanıt",
+            "content": {
+              "application/json": {
+                "example": {
+                  "status": "ok",
+                  "message": "İşlem başarıyla tamamlandı."
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Geçersiz veya eksik kimlik bilgisi"
+          },
+          "403": {
+            "description": "Yetersiz yetki (Gerekli scope: omnichannel:access)"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "example": {
+                "phone": "905321234567",
+                "body_text": "Size nasıl yardımcı olabiliriz?",
+                "buttons": [
+                  "Fiyat ve Bilgi",
+                  "Randevu Al",
+                  "Canlı Temsilci"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/omnichannel/whatsapp/templates": {
+      "get": {
+        "tags": [
+          "11. Omnichannel (WhatsApp, Telegram, Meta, E-Posta) & Ortak Gelen Kutusu API"
+        ],
+        "summary": "Meta Onaylı WhatsApp Mesaj Şablonlarını Çek",
+        "description": "Meta Business hesabınızda onaylanmış HSM şablonlarını (24 saat penceresi dışı gönderim için) listeler.",
+        "operationId": "get_api_omnichannel_whatsapp_templates",
+        "security": [
+          {
+            "SessionUserAuth": []
+          }
+        ],
+        "x-nornia-scope": "omnichannel:access",
+        "x-nornia-auth-type": "session",
+        "responses": {
+          "200": {
+            "description": "Başarılı yanıt",
+            "content": {
+              "application/json": {
+                "example": {
+                  "status": "ok",
+                  "message": "İşlem başarıyla tamamlandı."
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Geçersiz veya eksik kimlik bilgisi"
+          },
+          "403": {
+            "description": "Yetersiz yetki (Gerekli scope: omnichannel:access)"
+          }
+        }
+      }
+    },
+    "/api/omnichannel/whatsapp/send-template": {
+      "post": {
+        "tags": [
+          "11. Omnichannel (WhatsApp, Telegram, Meta, E-Posta) & Ortak Gelen Kutusu API"
+        ],
+        "summary": "Onaylı WhatsApp Şablon Mesajı Gönder (24 Saat Dışı)",
+        "description": "Meta onaylı bir şablonu dinamik parametrelerle müşteriye iletir.",
+        "operationId": "post_api_omnichannel_whatsapp_send_template",
+        "security": [
+          {
+            "SessionUserAuth": []
+          }
+        ],
+        "x-nornia-scope": "omnichannel:access",
+        "x-nornia-auth-type": "session",
+        "responses": {
+          "200": {
+            "description": "Başarılı yanıt",
+            "content": {
+              "application/json": {
+                "example": {
+                  "status": "ok",
+                  "message": "İşlem başarıyla tamamlandı."
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Geçersiz veya eksik kimlik bilgisi"
+          },
+          "403": {
+            "description": "Yetersiz yetki (Gerekli scope: omnichannel:access)"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "example": {
+                "phone": "905321234567",
+                "template_name": "randevu_hatirlatma",
+                "language": "tr",
+                "parameters": [
+                  "Ahmet Bey",
+                  "24 Kasım 14:30"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/omnichannel/chats/compose": {
+      "post": {
+        "tags": [
+          "11. Omnichannel (WhatsApp, Telegram, Meta, E-Posta) & Ortak Gelen Kutusu API"
+        ],
+        "summary": "Müşteriye Yeni Dış Sohbet / E-Posta Başlat",
+        "description": "Mevcut oturum olmadan WhatsApp, Telegram veya E-Posta üzerinden doğrudan yeni bir iletişim oturumu açar.",
+        "operationId": "post_api_omnichannel_chats_compose",
+        "security": [
+          {
+            "SessionUserAuth": []
+          }
+        ],
+        "x-nornia-scope": "omnichannel:access",
+        "x-nornia-auth-type": "session",
+        "responses": {
+          "200": {
+            "description": "Başarılı yanıt",
+            "content": {
+              "application/json": {
+                "example": {
+                  "status": "ok",
+                  "message": "İşlem başarıyla tamamlandı."
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Geçersiz veya eksik kimlik bilgisi"
+          },
+          "403": {
+            "description": "Yetersiz yetki (Gerekli scope: omnichannel:access)"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "example": {
+                "channel": "email",
+                "to": "musteri@firma.com",
+                "subject": "Teklif Dosyanız",
+                "content": "Merhaba, talep ettiğiniz teklif ektedir."
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/rag/sources": {
+      "get": {
+        "tags": [
+          "12. Bilgi Bankası (RAG), Canlı Çeviri & Kalite Kontrol (QA) API"
+        ],
+        "summary": "Bilgi Bankası (RAG) Kaynaklarını Listele",
+        "description": "AI sesli ve yazılı asistanların kullandığı tüm indekslenmiş PDF, Word, Web sitesi ve manuel SSS kaynaklarını listeler.",
+        "operationId": "get_api_rag_sources",
+        "security": [
+          {
+            "SessionUserAuth": []
+          }
+        ],
+        "x-nornia-scope": "rag_kb:read",
+        "x-nornia-auth-type": "session",
+        "responses": {
+          "200": {
+            "description": "Başarılı yanıt",
+            "content": {
+              "application/json": {
+                "example": {
+                  "status": "ok",
+                  "message": "İşlem başarıyla tamamlandı."
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Geçersiz veya eksik kimlik bilgisi"
+          },
+          "403": {
+            "description": "Yetersiz yetki (Gerekli scope: rag_kb:read)"
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "12. Bilgi Bankası (RAG), Canlı Çeviri & Kalite Kontrol (QA) API"
+        ],
+        "summary": "Bilgi Bankası Kaynağını Sil",
+        "description": "Belirtilen kaynağa ait tüm vektör/metin parçalarını bilgi bankasından temizler.",
+        "operationId": "delete_api_rag_sources",
+        "security": [
+          {
+            "SessionUserAuth": []
+          }
+        ],
+        "x-nornia-scope": "rag_kb:delete",
+        "x-nornia-auth-type": "session",
+        "responses": {
+          "200": {
+            "description": "Başarılı yanıt",
+            "content": {
+              "application/json": {
+                "example": {
+                  "status": "ok",
+                  "message": "İşlem başarıyla tamamlandı."
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Geçersiz veya eksik kimlik bilgisi"
+          },
+          "403": {
+            "description": "Yetersiz yetki (Gerekli scope: rag_kb:delete)"
+          }
+        },
+        "parameters": [
+          {
+            "name": "source_name",
+            "in": "query",
+            "required": false,
+            "description": "İsteğe bağlı filtre parametresi (örn. fiyat_listesi.pdf)",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/rag/crawl": {
+      "post": {
+        "tags": [
+          "12. Bilgi Bankası (RAG), Canlı Çeviri & Kalite Kontrol (QA) API"
+        ],
+        "summary": "Web Sitesini Tara ve Bilgi Bankasına İndeksle",
+        "description": "Verilen web sitesi URL'sini otomatik tarar, HTML içeriğini temizleyip anlamsal parçalara (chunks) bölerek RAG bilgi bankasına ekler.",
+        "operationId": "post_api_rag_crawl",
+        "security": [
+          {
+            "SessionUserAuth": []
+          }
+        ],
+        "x-nornia-scope": "rag_kb:write",
+        "x-nornia-auth-type": "session",
+        "responses": {
+          "200": {
+            "description": "Başarılı yanıt",
+            "content": {
+              "application/json": {
+                "example": {
+                  "status": "ok",
+                  "message": "İşlem başarıyla tamamlandı."
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Geçersiz veya eksik kimlik bilgisi"
+          },
+          "403": {
+            "description": "Yetersiz yetki (Gerekli scope: rag_kb:write)"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "example": {
+                "url": "https://sirketiniz.com/sss",
+                "max_pages": 10
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/rag/manual": {
+      "post": {
+        "tags": [
+          "12. Bilgi Bankası (RAG), Canlı Çeviri & Kalite Kontrol (QA) API"
+        ],
+        "summary": "Bilgi Bankasına Manuel Doküman / SSS Ekle",
+        "description": "Fiyat listesi, iade politikası veya ürün teknik verilerini doğrudan metin olarak AI bilgi bankasına ekler.",
+        "operationId": "post_api_rag_manual",
+        "security": [
+          {
+            "SessionUserAuth": []
+          }
+        ],
+        "x-nornia-scope": "rag_kb:write",
+        "x-nornia-auth-type": "session",
+        "responses": {
+          "200": {
+            "description": "Başarılı yanıt",
+            "content": {
+              "application/json": {
+                "example": {
+                  "status": "ok",
+                  "message": "İşlem başarıyla tamamlandı."
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Geçersiz veya eksik kimlik bilgisi"
+          },
+          "403": {
+            "description": "Yetersiz yetki (Gerekli scope: rag_kb:write)"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "example": {
+                "title": "2026 Fiyat Listesi",
+                "content": "Kurumsal paket aylık 4.900 TL + KDV olup 50 dahili ve sınırsız IVR içerir."
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/rag/search": {
+      "get": {
+        "tags": [
+          "12. Bilgi Bankası (RAG), Canlı Çeviri & Kalite Kontrol (QA) API"
+        ],
+        "summary": "Bilgi Bankasında Anlamsal (Semantic) Sorgu Testi",
+        "description": "Verilen müşteri sorusuna karşılık RAG motorunun hangi bilgi parçalarını ve benzerlik skorlarını döndürdüğünü test eder.",
+        "operationId": "get_api_rag_search",
+        "security": [
+          {
+            "SessionUserAuth": []
+          }
+        ],
+        "x-nornia-scope": "rag_kb:read",
+        "x-nornia-auth-type": "session",
+        "responses": {
+          "200": {
+            "description": "Başarılı yanıt",
+            "content": {
+              "application/json": {
+                "example": {
+                  "status": "ok",
+                  "message": "İşlem başarıyla tamamlandı."
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Geçersiz veya eksik kimlik bilgisi"
+          },
+          "403": {
+            "description": "Yetersiz yetki (Gerekli scope: rag_kb:read)"
+          }
+        },
+        "parameters": [
+          {
+            "name": "q",
+            "in": "query",
+            "required": false,
+            "description": "İsteğe bağlı filtre parametresi (örn. iade+suresi)",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/live-translator/translate-text": {
+      "post": {
+        "tags": [
+          "12. Bilgi Bankası (RAG), Canlı Çeviri & Kalite Kontrol (QA) API"
+        ],
+        "summary": "Gerçek Zamanlı Metin Çevirisi (Çok Dilli Destek)",
+        "description": "Müşteri veya temsilci cümlelerini düşük gecikmeyle hedef dile (TR ↔ EN / DE / AR / RU / FR) çevirir.",
+        "operationId": "post_api_live_translator_translate_text",
+        "security": [
+          {
+            "SessionUserAuth": []
+          }
+        ],
+        "x-nornia-scope": "live_translator:access",
+        "x-nornia-auth-type": "session",
+        "responses": {
+          "200": {
+            "description": "Başarılı yanıt",
+            "content": {
+              "application/json": {
+                "example": {
+                  "status": "ok",
+                  "message": "İşlem başarıyla tamamlandı."
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Geçersiz veya eksik kimlik bilgisi"
+          },
+          "403": {
+            "description": "Yetersiz yetki (Gerekli scope: live_translator:access)"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "example": {
+                "text": "Siparişinizin teslimat adresini teyit edebilir misiniz?",
+                "source_lang": "tr",
+                "target_lang": "en"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/live-translator/tts": {
+      "post": {
+        "tags": [
+          "12. Bilgi Bankası (RAG), Canlı Çeviri & Kalite Kontrol (QA) API"
+        ],
+        "summary": "Çevrilmiş Metni Doğal Sese Dönüştür (TTS)",
+        "description": "Hedef dildeki metni canlı çağrıya aktarılabilir doğal insan sesine (audio/mp3) dönüştürür.",
+        "operationId": "post_api_live_translator_tts",
+        "security": [
+          {
+            "SessionUserAuth": []
+          }
+        ],
+        "x-nornia-scope": "live_translator:access",
+        "x-nornia-auth-type": "session",
+        "responses": {
+          "200": {
+            "description": "Başarılı yanıt",
+            "content": {
+              "application/json": {
+                "example": {
+                  "status": "ok",
+                  "message": "İşlem başarıyla tamamlandı."
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Geçersiz veya eksik kimlik bilgisi"
+          },
+          "403": {
+            "description": "Yetersiz yetki (Gerekli scope: live_translator:access)"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "example": {
+                "text": "Could you please confirm your delivery address?",
+                "language": "en",
+                "voice": "nova"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/qa/questions": {
+      "get": {
+        "tags": [
+          "12. Bilgi Bankası (RAG), Canlı Çeviri & Kalite Kontrol (QA) API"
+        ],
+        "summary": "Otomatik Çağrı Kalite Kontrol (QA) Kriterlerini Listele",
+        "description": "AI Kalite Değerlendirme motorunun her çağrıyı puanlarken kullandığı soru setini ve ağırlıklarını döndürür.",
+        "operationId": "get_api_qa_questions",
+        "security": [
+          {
+            "SessionUserAuth": []
+          }
+        ],
+        "x-nornia-scope": "qa:read",
+        "x-nornia-auth-type": "session",
+        "responses": {
+          "200": {
+            "description": "Başarılı yanıt",
+            "content": {
+              "application/json": {
+                "example": {
+                  "status": "ok",
+                  "message": "İşlem başarıyla tamamlandı."
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Geçersiz veya eksik kimlik bilgisi"
+          },
+          "403": {
+            "description": "Yetersiz yetki (Gerekli scope: qa:read)"
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "12. Bilgi Bankası (RAG), Canlı Çeviri & Kalite Kontrol (QA) API"
+        ],
+        "summary": "Yeni Kalite Değerlendirme (QA) Kriteri Ekle",
+        "description": "Yeni bir denetim sorusu ve puan ağırlığı tanımlar (örn. KVKK aydınlatma metni okundu mu?).",
+        "operationId": "post_api_qa_questions",
+        "security": [
+          {
+            "SessionUserAuth": []
+          }
+        ],
+        "x-nornia-scope": "qa:write",
+        "x-nornia-auth-type": "session",
+        "responses": {
+          "200": {
+            "description": "Başarılı yanıt",
+            "content": {
+              "application/json": {
+                "example": {
+                  "status": "ok",
+                  "message": "İşlem başarıyla tamamlandı."
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Geçersiz veya eksik kimlik bilgisi"
+          },
+          "403": {
+            "description": "Yetersiz yetki (Gerekli scope: qa:write)"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "example": {
+                "question": "Temsilci görüşme başında şirket adını belirterek selamlama yaptı mı?",
+                "weight": 15,
+                "category": "Açılış"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/workspace/customer-360": {
+      "get": {
+        "tags": [
+          "13. Müşteri 360°, Geri Arama (Callback) & Kriz Alarmı API"
+        ],
+        "summary": "Müşteri 360° Birleşik Zaman Tüneli Sorgula",
+        "description": "Bir telefon numarasına ait tüm sesli çağrıları, WhatsApp/E-Posta sohbetlerini, randevuları, AI duygu geçmişini ve VIP etiketlerini tek zaman tünelinde döndürür.",
+        "operationId": "get_api_workspace_customer_360",
+        "security": [
+          {
+            "SessionUserAuth": []
+          }
+        ],
+        "x-nornia-scope": "customer_360:read",
+        "x-nornia-auth-type": "session",
+        "responses": {
+          "200": {
+            "description": "Başarılı yanıt",
+            "content": {
+              "application/json": {
+                "example": {
+                  "status": "ok",
+                  "phone": "05321234567",
+                  "profile": {
+                    "name": "Mehmet Demir",
+                    "tags": [
+                      "VIP",
+                      "Kurumsal"
+                    ],
+                    "total_calls": 14,
+                    "total_chats": 6
+                  },
+                  "timeline": [
+                    {
+                      "type": "call",
+                      "timestamp": "2026-11-23T11:20:00+03:00",
+                      "summary": "Fatura sorgulama",
+                      "sentiment": "positive"
+                    },
+                    {
+                      "type": "whatsapp",
+                      "timestamp": "2026-11-22T16:40:00+03:00",
+                      "summary": "Kargo linki iletildi"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Geçersiz veya eksik kimlik bilgisi"
+          },
+          "403": {
+            "description": "Yetersiz yetki (Gerekli scope: customer_360:read)"
+          }
+        },
+        "parameters": [
+          {
+            "name": "phone",
+            "in": "query",
+            "required": false,
+            "description": "İsteğe bağlı filtre parametresi (örn. 05321234567)",
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ]
+      }
+    },
+    "/api/workspace/customer-360/meta": {
+      "post": {
+        "tags": [
+          "13. Müşteri 360°, Geri Arama (Callback) & Kriz Alarmı API"
+        ],
+        "summary": "Müşteri 360° Etiket, VIP Durumu ve Özel Not Güncelle",
+        "description": "Müşteri kartına VIP rozeti, risk uyarısı veya temsilciler arası paylaşılan sabit notlar ekler.",
+        "operationId": "post_api_workspace_customer_360_meta",
+        "security": [
+          {
+            "SessionUserAuth": []
+          }
+        ],
+        "x-nornia-scope": "customer_360:write",
+        "x-nornia-auth-type": "session",
+        "responses": {
+          "200": {
+            "description": "Başarılı yanıt",
+            "content": {
+              "application/json": {
+                "example": {
+                  "status": "ok",
+                  "message": "İşlem başarıyla tamamlandı."
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Geçersiz veya eksik kimlik bilgisi"
+          },
+          "403": {
+            "description": "Yetersiz yetki (Gerekli scope: customer_360:write)"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "example": {
+                "phone": "05321234567",
+                "tags": [
+                  "VIP",
+                  "Kurumsal"
+                ],
+                "pinned_note": "Öncelikli teknik destek sözleşmesi var."
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/workspace/callbacks": {
+      "get": {
+        "tags": [
+          "13. Müşteri 360°, Geri Arama (Callback) & Kriz Alarmı API"
+        ],
+        "summary": "Planlı Geri Arama (Callback) Görevlerini Listele",
+        "description": "Bekleyen, zamanı yaklaşan veya tamamlanmış müşteri geri arama görevlerini listeler.",
+        "operationId": "get_api_workspace_callbacks",
+        "security": [
+          {
+            "SessionUserAuth": []
+          }
+        ],
+        "x-nornia-scope": "callback_tasks:read",
+        "x-nornia-auth-type": "session",
+        "responses": {
+          "200": {
+            "description": "Başarılı yanıt",
+            "content": {
+              "application/json": {
+                "example": {
+                  "status": "ok",
+                  "message": "İşlem başarıyla tamamlandı."
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Geçersiz veya eksik kimlik bilgisi"
+          },
+          "403": {
+            "description": "Yetersiz yetki (Gerekli scope: callback_tasks:read)"
+          }
+        },
+        "parameters": [
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "description": "İsteğe bağlı filtre parametresi (örn. pending)",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "13. Müşteri 360°, Geri Arama (Callback) & Kriz Alarmı API"
+        ],
+        "summary": "Yeni Geri Arama (Callback) Görevi Planla",
+        "description": "Belirli bir tarih/saatte belirtilen temsilciye hatırlatma çıkacak şekilde müşteri geri arama görevi oluşturur.",
+        "operationId": "post_api_workspace_callbacks",
+        "security": [
+          {
+            "SessionUserAuth": []
+          }
+        ],
+        "x-nornia-scope": "callback_tasks:write",
+        "x-nornia-auth-type": "session",
+        "responses": {
+          "200": {
+            "description": "Başarılı yanıt",
+            "content": {
+              "application/json": {
+                "example": {
+                  "status": "ok",
+                  "message": "İşlem başarıyla tamamlandı."
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Geçersiz veya eksik kimlik bilgisi"
+          },
+          "403": {
+            "description": "Yetersiz yetki (Gerekli scope: callback_tasks:write)"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "example": {
+                "customer_name": "Mehmet Demir",
+                "phone": "05321234567",
+                "assigned_extension": "1000",
+                "scheduled_at": "2026-11-24T10:30:00",
+                "note": "Teklif onayı sorulacak"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/workspace/callbacks/{task_id}": {
+      "patch": {
+        "tags": [
+          "13. Müşteri 360°, Geri Arama (Callback) & Kriz Alarmı API"
+        ],
+        "summary": "Geri Arama Görevi Durumunu Güncelle",
+        "description": "Geri arama görevini `completed`, `rescheduled` veya `cancelled` olarak işaretler.",
+        "operationId": "patch_api_workspace_callbacks_task_id",
+        "security": [
+          {
+            "SessionUserAuth": []
+          }
+        ],
+        "x-nornia-scope": "callback_tasks:write",
+        "x-nornia-auth-type": "session",
+        "responses": {
+          "200": {
+            "description": "Başarılı yanıt",
+            "content": {
+              "application/json": {
+                "example": {
+                  "status": "ok",
+                  "message": "İşlem başarıyla tamamlandı."
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Geçersiz veya eksik kimlik bilgisi"
+          },
+          "403": {
+            "description": "Yetersiz yetki (Gerekli scope: callback_tasks:write)"
+          }
+        },
+        "parameters": [
+          {
+            "name": "task_id",
+            "in": "path",
+            "required": true,
+            "description": "Geri arama (Callback) görev kimliği",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "example": {
+                "status": "completed",
+                "result_note": "Müşteri arandı, sipariş onaylandı."
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "13. Müşteri 360°, Geri Arama (Callback) & Kriz Alarmı API"
+        ],
+        "summary": "Geri Arama Görevini Sil",
+        "description": "Belirtilen geri arama görevini siler.",
+        "operationId": "delete_api_workspace_callbacks_task_id",
+        "security": [
+          {
+            "SessionUserAuth": []
+          }
+        ],
+        "x-nornia-scope": "callback_tasks:delete",
+        "x-nornia-auth-type": "session",
+        "responses": {
+          "200": {
+            "description": "Başarılı yanıt",
+            "content": {
+              "application/json": {
+                "example": {
+                  "status": "ok",
+                  "message": "İşlem başarıyla tamamlandı."
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Geçersiz veya eksik kimlik bilgisi"
+          },
+          "403": {
+            "description": "Yetersiz yetki (Gerekli scope: callback_tasks:delete)"
+          }
+        },
+        "parameters": [
+          {
+            "name": "task_id",
+            "in": "path",
+            "required": true,
+            "description": "Geri arama (Callback) görev kimliği",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/workspace/missed-claims": {
+      "get": {
+        "tags": [
+          "13. Müşteri 360°, Geri Arama (Callback) & Kriz Alarmı API"
+        ],
+        "summary": "Cevapsız Çağrı Sahiplenme (Missed Claim) Listesi",
+        "description": "Hangi cevapsız çağrının hangi temsilci tarafından sahiplenilip geri arandığını listeler (çift aramayı önler).",
+        "operationId": "get_api_workspace_missed_claims",
+        "security": [
+          {
+            "SessionUserAuth": []
+          }
+        ],
+        "x-nornia-scope": "callback_tasks:read",
+        "x-nornia-auth-type": "session",
+        "responses": {
+          "200": {
+            "description": "Başarılı yanıt",
+            "content": {
+              "application/json": {
+                "example": {
+                  "status": "ok",
+                  "message": "İşlem başarıyla tamamlandı."
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Geçersiz veya eksik kimlik bilgisi"
+          },
+          "403": {
+            "description": "Yetersiz yetki (Gerekli scope: callback_tasks:read)"
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "13. Müşteri 360°, Geri Arama (Callback) & Kriz Alarmı API"
+        ],
+        "summary": "Cevapsız Çağrıyı Üzerine Al (Claim)",
+        "description": "Bir cevapsız çağrıyı temsilci adına kilitler; diğer temsilciler bu çağrının zaten ilgilenildiğini görür.",
+        "operationId": "post_api_workspace_missed_claims",
+        "security": [
+          {
+            "SessionUserAuth": []
+          }
+        ],
+        "x-nornia-scope": "callback_tasks:write",
+        "x-nornia-auth-type": "session",
+        "responses": {
+          "200": {
+            "description": "Başarılı yanıt",
+            "content": {
+              "application/json": {
+                "example": {
+                  "status": "ok",
+                  "message": "İşlem başarıyla tamamlandı."
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Geçersiz veya eksik kimlik bilgisi"
+          },
+          "403": {
+            "description": "Yetersiz yetki (Gerekli scope: callback_tasks:write)"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "example": {
+                "call_id": "aida-1763890123-4918",
+                "extension": "1000"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/workspace/crisis-alerts": {
+      "get": {
+        "tags": [
+          "13. Müşteri 360°, Geri Arama (Callback) & Kriz Alarmı API"
+        ],
+        "summary": "Canlı Kriz & Negatif Duygu Alarmlarını Çek",
+        "description": "Aktif çağrılarda AI duygu analizi tarafından yüksek öfke/kriz skoru tespit edilen görüşmeleri süpervizör müdahalesi için listeler.",
+        "operationId": "get_api_workspace_crisis_alerts",
+        "security": [
+          {
+            "SessionUserAuth": []
+          }
+        ],
+        "x-nornia-scope": "crisis_alerts:access",
+        "x-nornia-auth-type": "session",
+        "responses": {
+          "200": {
+            "description": "Başarılı yanıt",
+            "content": {
+              "application/json": {
+                "example": {
+                  "status": "ok",
+                  "message": "İşlem başarıyla tamamlandı."
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Geçersiz veya eksik kimlik bilgisi"
+          },
+          "403": {
+            "description": "Yetersiz yetki (Gerekli scope: crisis_alerts:access)"
+          }
+        }
+      }
+    },
+    "/api/reports/wallboard": {
+      "get": {
+        "tags": [
+          "14. Kurumsal Raporlar, Wallboard, Süpervizör & Hot-Desking API"
+        ],
+        "summary": "Canlı Wallboard KPI ve Kuyruk Metrikleri",
+        "description": "Aktif çağrı, kuyrukta bekleyenler, müsait/moladaki temsilci sayıları, günlük SLA % ve ortalama bekleme sürelerini döndürür.",
+        "operationId": "get_api_reports_wallboard",
+        "security": [
+          {
+            "SessionUserAuth": []
+          }
+        ],
+        "x-nornia-scope": "wallboard:access",
+        "x-nornia-auth-type": "session",
+        "responses": {
+          "200": {
+            "description": "Başarılı yanıt",
+            "content": {
+              "application/json": {
+                "example": {
+                  "status": "ok",
+                  "active_calls": 4,
+                  "waiting_in_queue": 1,
+                  "agents_available": 8,
+                  "agents_on_break": 2,
+                  "sla_percent": 94.6,
+                  "today_answered": 182,
+                  "today_missed": 7
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Geçersiz veya eksik kimlik bilgisi"
+          },
+          "403": {
+            "description": "Yetersiz yetki (Gerekli scope: wallboard:access)"
+          }
+        }
+      }
+    },
+    "/api/reports/enterprise/queue-sla": {
+      "get": {
+        "tags": [
+          "14. Kurumsal Raporlar, Wallboard, Süpervizör & Hot-Desking API"
+        ],
+        "summary": "Kuyruk SLA & Cevaplama Hız Dilimleri Raporu",
+        "description": "0-10 sn, 10-20 sn, 20-30 sn ve 30+ sn dilimlerinde kuyruk cevaplama oranlarını ve terk istatistiklerini döndürür.",
+        "operationId": "get_api_reports_enterprise_queue_sla",
+        "security": [
+          {
+            "SessionUserAuth": []
+          }
+        ],
+        "x-nornia-scope": "reports_queue_sla:access",
+        "x-nornia-auth-type": "session",
+        "responses": {
+          "200": {
+            "description": "Başarılı yanıt",
+            "content": {
+              "application/json": {
+                "example": {
+                  "status": "ok",
+                  "message": "İşlem başarıyla tamamlandı."
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Geçersiz veya eksik kimlik bilgisi"
+          },
+          "403": {
+            "description": "Yetersiz yetki (Gerekli scope: reports_queue_sla:access)"
+          }
+        },
+        "parameters": [
+          {
+            "name": "start_date",
+            "in": "query",
+            "required": false,
+            "description": "İsteğe bağlı filtre parametresi (örn. 2026-11-01)",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "end_date",
+            "in": "query",
+            "required": false,
+            "description": "İsteğe bağlı filtre parametresi (örn. 2026-11-23)",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/reports/enterprise/breaks-attendance": {
+      "get": {
+        "tags": [
+          "14. Kurumsal Raporlar, Wallboard, Süpervizör & Hot-Desking API"
+        ],
+        "summary": "Temsilci Mola & Puantaj Raporu",
+        "description": "Her temsilcinin günlük oturum açma/kapama saatlerini, net çalışma süresini ve mola türü bazlı (Yemek, İhtiyaç, Eğitim) toplam dakikalarını döndürür.",
+        "operationId": "get_api_reports_enterprise_breaks_attendance",
+        "security": [
+          {
+            "SessionUserAuth": []
+          }
+        ],
+        "x-nornia-scope": "reports_breaks_attendance:access",
+        "x-nornia-auth-type": "session",
+        "responses": {
+          "200": {
+            "description": "Başarılı yanıt",
+            "content": {
+              "application/json": {
+                "example": {
+                  "status": "ok",
+                  "message": "İşlem başarıyla tamamlandı."
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Geçersiz veya eksik kimlik bilgisi"
+          },
+          "403": {
+            "description": "Yetersiz yetki (Gerekli scope: reports_breaks_attendance:access)"
+          }
+        },
+        "parameters": [
+          {
+            "name": "start_date",
+            "in": "query",
+            "required": false,
+            "description": "İsteğe bağlı filtre parametresi (örn. 2026-11-01)",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "end_date",
+            "in": "query",
+            "required": false,
+            "description": "İsteğe bağlı filtre parametresi (örn. 2026-11-23)",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/reports/enterprise/agent-kpi-metrics": {
+      "get": {
+        "tags": [
+          "14. Kurumsal Raporlar, Wallboard, Süpervizör & Hot-Desking API"
+        ],
+        "summary": "Temsilci Performans & AHT / ACW KPI Raporu",
+        "description": "Temsilci bazında toplam gelen/giden çağrı, ortalama konuşma süresi (AHT), wrap-up süresi ve FCR oranlarını döndürür.",
+        "operationId": "get_api_reports_enterprise_agent_kpi_metrics",
+        "security": [
+          {
+            "SessionUserAuth": []
+          }
+        ],
+        "x-nornia-scope": "reports_perf:access",
+        "x-nornia-auth-type": "session",
+        "responses": {
+          "200": {
+            "description": "Başarılı yanıt",
+            "content": {
+              "application/json": {
+                "example": {
+                  "status": "ok",
+                  "message": "İşlem başarıyla tamamlandı."
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Geçersiz veya eksik kimlik bilgisi"
+          },
+          "403": {
+            "description": "Yetersiz yetki (Gerekli scope: reports_perf:access)"
+          }
+        }
+      }
+    },
+    "/api/reports/enterprise/omnichannel": {
+      "get": {
+        "tags": [
+          "14. Kurumsal Raporlar, Wallboard, Süpervizör & Hot-Desking API"
+        ],
+        "summary": "Omnichannel Kanal & İlk Yanıt SLA Raporu",
+        "description": "WhatsApp, Telegram, Instagram, Facebook ve E-Posta kanalları için ortalama ilk yanıt süresi ve çözüm oranlarını döndürür.",
+        "operationId": "get_api_reports_enterprise_omnichannel",
+        "security": [
+          {
+            "SessionUserAuth": []
+          }
+        ],
+        "x-nornia-scope": "reports_omnichannel:access",
+        "x-nornia-auth-type": "session",
+        "responses": {
+          "200": {
+            "description": "Başarılı yanıt",
+            "content": {
+              "application/json": {
+                "example": {
+                  "status": "ok",
+                  "message": "İşlem başarıyla tamamlandı."
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Geçersiz veya eksik kimlik bilgisi"
+          },
+          "403": {
+            "description": "Yetersiz yetki (Gerekli scope: reports_omnichannel:access)"
+          }
+        }
+      }
+    },
+    "/api/reports/enterprise/voip-quality": {
+      "get": {
+        "tags": [
+          "14. Kurumsal Raporlar, Wallboard, Süpervizör & Hot-Desking API"
+        ],
+        "summary": "VoIP & Ses Kalitesi (MOS / Jitter / Paket Kaybı) Raporu",
+        "description": "Çağrı bazlı RTCP/WebRTC MOS skoru, gecikme (RTT), jitter ve paket kaybı metriklerini döndürür.",
+        "operationId": "get_api_reports_enterprise_voip_quality",
+        "security": [
+          {
+            "SessionUserAuth": []
+          }
+        ],
+        "x-nornia-scope": "reports_voip_quality:access",
+        "x-nornia-auth-type": "session",
+        "responses": {
+          "200": {
+            "description": "Başarılı yanıt",
+            "content": {
+              "application/json": {
+                "example": {
+                  "status": "ok",
+                  "message": "İşlem başarıyla tamamlandı."
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Geçersiz veya eksik kimlik bilgisi"
+          },
+          "403": {
+            "description": "Yetersiz yetki (Gerekli scope: reports_voip_quality:access)"
+          }
+        }
+      }
+    },
+    "/api/reports/queue-surveys": {
+      "get": {
+        "tags": [
+          "14. Kurumsal Raporlar, Wallboard, Süpervizör & Hot-Desking API"
+        ],
+        "summary": "Çağrı Sonrası Müşteri Memnuniyet Anketi (CSAT) Raporu",
+        "description": "DTMF tuşlama ile toplanan 1-5 arası memnuniyet anket sonuçlarını kuyruk ve temsilci kırılımında döndürür.",
+        "operationId": "get_api_reports_queue_surveys",
+        "security": [
+          {
+            "SessionUserAuth": []
+          }
+        ],
+        "x-nornia-scope": "reports_survey:access",
+        "x-nornia-auth-type": "session",
+        "responses": {
+          "200": {
+            "description": "Başarılı yanıt",
+            "content": {
+              "application/json": {
+                "example": {
+                  "status": "ok",
+                  "message": "İşlem başarıyla tamamlandı."
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Geçersiz veya eksik kimlik bilgisi"
+          },
+          "403": {
+            "description": "Yetersiz yetki (Gerekli scope: reports_survey:access)"
+          }
+        }
+      }
+    },
+    "/api/reports/trunk-package-usage": {
+      "get": {
+        "tags": [
+          "14. Kurumsal Raporlar, Wallboard, Süpervizör & Hot-Desking API"
+        ],
+        "summary": "Operatör Dakika Paketi & Maliyet Tüketim Raporu",
+        "description": "Her SIP Trunk için tanımlı aylık dakika paketinin ne kadarının tüketildiğini ve kalan dakikayı döndürür.",
+        "operationId": "get_api_reports_trunk_package_usage",
+        "security": [
+          {
+            "SessionUserAuth": []
+          }
+        ],
+        "x-nornia-scope": "reports_trunk_minutes:access",
+        "x-nornia-auth-type": "session",
+        "responses": {
+          "200": {
+            "description": "Başarılı yanıt",
+            "content": {
+              "application/json": {
+                "example": {
+                  "status": "ok",
+                  "message": "İşlem başarıyla tamamlandı."
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Geçersiz veya eksik kimlik bilgisi"
+          },
+          "403": {
+            "description": "Yetersiz yetki (Gerekli scope: reports_trunk_minutes:access)"
+          }
+        }
+      }
+    },
+    "/api/reports/custom/execute": {
+      "post": {
+        "tags": [
+          "14. Kurumsal Raporlar, Wallboard, Süpervizör & Hot-Desking API"
+        ],
+        "summary": "Özel Rapor Tasarımcısı Dinamik Sorgu Çalıştır",
+        "description": "Seçilen veri kaynağı, sütunlar, gruplama ve filtrelerle dinamik kurumsal rapor üretir.",
+        "operationId": "post_api_reports_custom_execute",
+        "security": [
+          {
+            "SessionUserAuth": []
+          }
+        ],
+        "x-nornia-scope": "reports_custom_builder:access",
+        "x-nornia-auth-type": "session",
+        "responses": {
+          "200": {
+            "description": "Başarılı yanıt",
+            "content": {
+              "application/json": {
+                "example": {
+                  "status": "ok",
+                  "message": "İşlem başarıyla tamamlandı."
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Geçersiz veya eksik kimlik bilgisi"
+          },
+          "403": {
+            "description": "Yetersiz yetki (Gerekli scope: reports_custom_builder:access)"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "example": {
+                "dataset": "calls",
+                "metrics": [
+                  "count",
+                  "avg_duration"
+                ],
+                "group_by": "agent_extension",
+                "date_range": "last_7_days"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/reports/custom/ai-generate": {
+      "post": {
+        "tags": [
+          "14. Kurumsal Raporlar, Wallboard, Süpervizör & Hot-Desking API"
+        ],
+        "summary": "Doğal Dille Yapay Zeka Özel Rapor Oluştur",
+        "description": "Türkçe doğal dil isteğini (örn. 'Bu ay 30 saniyeden fazla bekleyip kaçan çağrıları kuyruk bazında listele') otomatik rapor tanımına çevirir.",
+        "operationId": "post_api_reports_custom_ai_generate",
+        "security": [
+          {
+            "SessionUserAuth": []
+          }
+        ],
+        "x-nornia-scope": "reports_custom_builder:access",
+        "x-nornia-auth-type": "session",
+        "responses": {
+          "200": {
+            "description": "Başarılı yanıt",
+            "content": {
+              "application/json": {
+                "example": {
+                  "status": "ok",
+                  "message": "İşlem başarıyla tamamlandı."
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Geçersiz veya eksik kimlik bilgisi"
+          },
+          "403": {
+            "description": "Yetersiz yetki (Gerekli scope: reports_custom_builder:access)"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "example": {
+                "prompt": "Son 30 günde en çok çağrı yanıtlayan 5 temsilciyi ortalama konuşma süreleriyle göster"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/supervisor/break-requests": {
+      "get": {
+        "tags": [
+          "14. Kurumsal Raporlar, Wallboard, Süpervizör & Hot-Desking API"
+        ],
+        "summary": "Bekleyen Temsilci Mola Onay Taleplerini Listele",
+        "description": "Kuyruk eşzamanlı mola kotasına takılan ve süpervizör onayı bekleyen mola taleplerini listeler.",
+        "operationId": "get_api_supervisor_break_requests",
+        "security": [
+          {
+            "SessionUserAuth": []
+          }
+        ],
+        "x-nornia-scope": "supervisor:agent_status",
+        "x-nornia-auth-type": "session",
+        "responses": {
+          "200": {
+            "description": "Başarılı yanıt",
+            "content": {
+              "application/json": {
+                "example": {
+                  "status": "ok",
+                  "message": "İşlem başarıyla tamamlandı."
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Geçersiz veya eksik kimlik bilgisi"
+          },
+          "403": {
+            "description": "Yetersiz yetki (Gerekli scope: supervisor:agent_status)"
+          }
+        }
+      }
+    },
+    "/api/supervisor/break-requests/{req_id}/decide": {
+      "post": {
+        "tags": [
+          "14. Kurumsal Raporlar, Wallboard, Süpervizör & Hot-Desking API"
+        ],
+        "summary": "Temsilci Mola Talebini Onayla veya Reddet",
+        "description": "Bekleyen bir mola talebini `approve` veya `reject` kararıyla sonuçlandırır.",
+        "operationId": "post_api_supervisor_break_requests_req_id_decide",
+        "security": [
+          {
+            "SessionUserAuth": []
+          }
+        ],
+        "x-nornia-scope": "supervisor:agent_status",
+        "x-nornia-auth-type": "session",
+        "responses": {
+          "200": {
+            "description": "Başarılı yanıt",
+            "content": {
+              "application/json": {
+                "example": {
+                  "status": "ok",
+                  "message": "İşlem başarıyla tamamlandı."
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Geçersiz veya eksik kimlik bilgisi"
+          },
+          "403": {
+            "description": "Yetersiz yetki (Gerekli scope: supervisor:agent_status)"
+          }
+        },
+        "parameters": [
+          {
+            "name": "req_id",
+            "in": "path",
+            "required": true,
+            "description": "Mola onay talep kimliği",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "example": {
+                "decision": "approve",
+                "note": "Onaylandı"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/hotdesk/sessions": {
+      "get": {
+        "tags": [
+          "14. Kurumsal Raporlar, Wallboard, Süpervizör & Hot-Desking API"
+        ],
+        "summary": "Aktif Hot-Desking (Ortak Masa Telefonu) Oturumlarını Listele",
+        "description": "*75 kodu ile fiziksel masa telefonuna oturum açmış tüm kullanıcı-cihaz eşleşmelerini listeler.",
+        "operationId": "get_api_hotdesk_sessions",
+        "security": [
+          {
+            "SessionUserAuth": []
+          }
+        ],
+        "x-nornia-scope": "users:read",
+        "x-nornia-auth-type": "session",
+        "responses": {
+          "200": {
+            "description": "Başarılı yanıt",
+            "content": {
+              "application/json": {
+                "example": {
+                  "status": "ok",
+                  "message": "İşlem başarıyla tamamlandı."
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Geçersiz veya eksik kimlik bilgisi"
+          },
+          "403": {
+            "description": "Yetersiz yetki (Gerekli scope: users:read)"
+          }
+        }
+      }
+    },
+    "/api/hotdesk/sessions/{session_key}": {
+      "delete": {
+        "tags": [
+          "14. Kurumsal Raporlar, Wallboard, Süpervizör & Hot-Desking API"
+        ],
+        "summary": "Hot-Desking Oturumunu Uzaktan Sonlandır",
+        "description": "Bir temsilcinin fiziksel masa telefonundaki Hot-Desk oturumunu yönetici panelinden/API'den kapatır.",
+        "operationId": "delete_api_hotdesk_sessions_session_key",
+        "security": [
+          {
+            "SessionUserAuth": []
+          }
+        ],
+        "x-nornia-scope": "users:write",
+        "x-nornia-auth-type": "session",
+        "responses": {
+          "200": {
+            "description": "Başarılı yanıt",
+            "content": {
+              "application/json": {
+                "example": {
+                  "status": "ok",
+                  "message": "İşlem başarıyla tamamlandı."
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Geçersiz veya eksik kimlik bilgisi"
+          },
+          "403": {
+            "description": "Yetersiz yetki (Gerekli scope: users:write)"
+          }
+        },
+        "parameters": [
+          {
+            "name": "session_key",
+            "in": "path",
+            "required": true,
+            "description": "Hot-Desking oturum anahtarı",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/federation/node-config": {
+      "get": {
+        "tags": [
+          "15. Çok-Şubeli Santral (Federation), Nornia Connect, Ağ & AI Konfigürasyon API"
+        ],
+        "summary": "Santralin Multi-Site Rolünü (Standalone / Hub / Edge) Oku",
+        "description": "Sunucunun dağıtık santral mimarisindeki rolünü, şube kodunu, medya politikasını ve SRST Failover durumunu döndürür.",
+        "operationId": "get_api_federation_node_config",
+        "security": [
+          {
+            "SessionUserAuth": []
+          }
+        ],
+        "x-nornia-scope": "federation_multisite:read",
+        "x-nornia-auth-type": "session",
+        "responses": {
+          "200": {
+            "description": "Başarılı yanıt",
+            "content": {
+              "application/json": {
+                "example": {
+                  "status": "ok",
+                  "message": "İşlem başarıyla tamamlandı."
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Geçersiz veya eksik kimlik bilgisi"
+          },
+          "403": {
+            "description": "Yetersiz yetki (Gerekli scope: federation_multisite:read)"
+          }
+        }
+      }
+    },
+    "/api/federation/sites": {
+      "get": {
+        "tags": [
+          "15. Çok-Şubeli Santral (Federation), Nornia Connect, Ağ & AI Konfigürasyon API"
+        ],
+        "summary": "Bağlı Şube (Edge) Santrallerini Listele",
+        "description": "Merkez Hub'a bağlı tüm şube santrallerinin çevrimiçi sağlık, son heartbeat ve yapılandırma senkronizasyon durumlarını listeler.",
+        "operationId": "get_api_federation_sites",
+        "security": [
+          {
+            "SessionUserAuth": []
+          }
+        ],
+        "x-nornia-scope": "federation_multisite:read",
+        "x-nornia-auth-type": "session",
+        "responses": {
+          "200": {
+            "description": "Başarılı yanıt",
+            "content": {
+              "application/json": {
+                "example": {
+                  "status": "ok",
+                  "message": "İşlem başarıyla tamamlandı."
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Geçersiz veya eksik kimlik bilgisi"
+          },
+          "403": {
+            "description": "Yetersiz yetki (Gerekli scope: federation_multisite:read)"
+          }
+        }
+      }
+    },
+    "/api/federation/sites/{site_code}/push-config": {
+      "post": {
+        "tags": [
+          "15. Çok-Şubeli Santral (Federation), Nornia Connect, Ağ & AI Konfigürasyon API"
+        ],
+        "summary": "Şube Santraline Anlık Konfigürasyon Gönder (Push)",
+        "description": "Merkezde yapılan dahili, dialplan veya kural değişikliklerini belirtilen şube santraline anında senkronize eder.",
+        "operationId": "post_api_federation_sites_site_code_push_config",
+        "security": [
+          {
+            "SessionUserAuth": []
+          }
+        ],
+        "x-nornia-scope": "federation_multisite:write",
+        "x-nornia-auth-type": "session",
+        "responses": {
+          "200": {
+            "description": "Başarılı yanıt",
+            "content": {
+              "application/json": {
+                "example": {
+                  "status": "ok",
+                  "message": "İşlem başarıyla tamamlandı."
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Geçersiz veya eksik kimlik bilgisi"
+          },
+          "403": {
+            "description": "Yetersiz yetki (Gerekli scope: federation_multisite:write)"
+          }
+        },
+        "parameters": [
+          {
+            "name": "site_code",
+            "in": "path",
+            "required": true,
+            "description": "Şube santrali benzersiz kodu (örn. ANKARA-01)",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "example": {
+                "force": true
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/settings/ras/status": {
+      "get": {
+        "tags": [
+          "15. Çok-Şubeli Santral (Federation), Nornia Connect, Ağ & AI Konfigürasyon API"
+        ],
+        "summary": "Nornia Connect (Sıfır-Port Bulut Köprüsü) Tünel Durumu",
+        "description": "HTTPS bulut tüneli, WireGuard SIP Edge bağlantısı, kilitli alt alan adı (FQDN) ve bağlantı gecikmesini döndürür.",
+        "operationId": "get_api_settings_ras_status",
+        "security": [
+          {
+            "SessionUserAuth": []
+          }
+        ],
+        "x-nornia-scope": "ras_settings:read",
+        "x-nornia-auth-type": "session",
+        "responses": {
+          "200": {
+            "description": "Başarılı yanıt",
+            "content": {
+              "application/json": {
+                "example": {
+                  "status": "ok",
+                  "message": "İşlem başarıyla tamamlandı."
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Geçersiz veya eksik kimlik bilgisi"
+          },
+          "403": {
+            "description": "Yetersiz yetki (Gerekli scope: ras_settings:read)"
+          }
+        }
+      }
+    },
+    "/api/settings/ras/reconnect": {
+      "post": {
+        "tags": [
+          "15. Çok-Şubeli Santral (Federation), Nornia Connect, Ağ & AI Konfigürasyon API"
+        ],
+        "summary": "Nornia Connect Bulut Tünelini Yeniden Başlat",
+        "description": "Hub ile olan sıfır-port bulut tünelini ve SIP Edge köprüsünü kesintisiz yeniler.",
+        "operationId": "post_api_settings_ras_reconnect",
+        "security": [
+          {
+            "SessionUserAuth": []
+          }
+        ],
+        "x-nornia-scope": "ras_settings:write",
+        "x-nornia-auth-type": "session",
+        "responses": {
+          "200": {
+            "description": "Başarılı yanıt",
+            "content": {
+              "application/json": {
+                "example": {
+                  "status": "ok",
+                  "message": "İşlem başarıyla tamamlandı."
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Geçersiz veya eksik kimlik bilgisi"
+          },
+          "403": {
+            "description": "Yetersiz yetki (Gerekli scope: ras_settings:write)"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "example": {}
+            }
+          }
+        }
+      }
+    },
+    "/api/settings/network/status": {
+      "get": {
+        "tags": [
+          "15. Çok-Şubeli Santral (Federation), Nornia Connect, Ağ & AI Konfigürasyon API"
+        ],
+        "summary": "Sunucu Ağ Arayüzleri (NIC), IP ve Statik Rotaları Oku",
+        "description": "Linux ağ kartlarını (enp0s3/eth0), IPv4/CIDR adreslerini, gateway, DNS ve özel SIP/MPLS statik rotalarını döndürür.",
+        "operationId": "get_api_settings_network_status",
+        "security": [
+          {
+            "SessionUserAuth": []
+          }
+        ],
+        "x-nornia-scope": "server_network:read",
+        "x-nornia-auth-type": "session",
+        "responses": {
+          "200": {
+            "description": "Başarılı yanıt",
+            "content": {
+              "application/json": {
+                "example": {
+                  "status": "ok",
+                  "message": "İşlem başarıyla tamamlandı."
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Geçersiz veya eksik kimlik bilgisi"
+          },
+          "403": {
+            "description": "Yetersiz yetki (Gerekli scope: server_network:read)"
+          }
+        }
+      }
+    },
+    "/api/ai-config-assistant/plan": {
+      "post": {
+        "tags": [
+          "15. Çok-Şubeli Santral (Federation), Nornia Connect, Ağ & AI Konfigürasyon API"
+        ],
+        "summary": "AI Konfigürasyon Asistanı — Doğal Dilden Değişiklik Planı Üret",
+        "description": "Türkçe yönetici komutunu (örn. '1020-1025 arası satış dahili aç ve 6000 kuyruğuna ekle') önizlenebilir ve geri alınabilir güvenli bir aksiyon planına çevirir.",
+        "operationId": "post_api_ai_config_assistant_plan",
+        "security": [
+          {
+            "SessionUserAuth": []
+          }
+        ],
+        "x-nornia-scope": "ai_config_assistant:write",
+        "x-nornia-auth-type": "session",
+        "responses": {
+          "200": {
+            "description": "Başarılı yanıt",
+            "content": {
+              "application/json": {
+                "example": {
+                  "status": "ok",
+                  "message": "İşlem başarıyla tamamlandı."
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Geçersiz veya eksik kimlik bilgisi"
+          },
+          "403": {
+            "description": "Yetersiz yetki (Gerekli scope: ai_config_assistant:write)"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "example": {
+                "prompt": "Mesai dışı saatlerde 0850 hattına gelen çağrıları AI karşılama asistanına yönlendir"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/ai-config-assistant/apply": {
+      "post": {
+        "tags": [
+          "15. Çok-Şubeli Santral (Federation), Nornia Connect, Ağ & AI Konfigürasyon API"
+        ],
+        "summary": "AI Konfigürasyon Planını Snapshot Alarak Uygula",
+        "description": "Üretilen konfigürasyon planını otomatik geri yükleme noktası (snapshot) alarak santrale uygular.",
+        "operationId": "post_api_ai_config_assistant_apply",
+        "security": [
+          {
+            "SessionUserAuth": []
+          }
+        ],
+        "x-nornia-scope": "ai_config_assistant:write",
+        "x-nornia-auth-type": "session",
+        "responses": {
+          "200": {
+            "description": "Başarılı yanıt",
+            "content": {
+              "application/json": {
+                "example": {
+                  "status": "ok",
+                  "message": "İşlem başarıyla tamamlandı."
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Geçersiz veya eksik kimlik bilgisi"
+          },
+          "403": {
+            "description": "Yetersiz yetki (Gerekli scope: ai_config_assistant:write)"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "example": {
+                "plan_id": "plan_9f82a1"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/ai-config-assistant/undo/{snapshot_id}": {
+      "post": {
+        "tags": [
+          "15. Çok-Şubeli Santral (Federation), Nornia Connect, Ağ & AI Konfigürasyon API"
+        ],
+        "summary": "AI Konfigürasyon Değişikliğini Tek Tıkla Geri Al",
+        "description": "Belirtilen snapshot kimliğine dönerek tüm santral değişikliklerini saniyeler içinde geri alır.",
+        "operationId": "post_api_ai_config_assistant_undo_snapshot_id",
+        "security": [
+          {
+            "SessionUserAuth": []
+          }
+        ],
+        "x-nornia-scope": "ai_config_assistant:write",
+        "x-nornia-auth-type": "session",
+        "responses": {
+          "200": {
+            "description": "Başarılı yanıt",
+            "content": {
+              "application/json": {
+                "example": {
+                  "status": "ok",
+                  "message": "İşlem başarıyla tamamlandı."
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Geçersiz veya eksik kimlik bilgisi"
+          },
+          "403": {
+            "description": "Yetersiz yetki (Gerekli scope: ai_config_assistant:write)"
+          }
+        },
+        "parameters": [
+          {
+            "name": "snapshot_id",
+            "in": "path",
+            "required": true,
+            "description": "AI Konfigürasyon geri alma snapshot kimliği",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "example": {}
+            }
+          }
+        }
+      }
+    },
+    "/api/webhooks/whatsapp": {
+      "get": {
+        "tags": [
+          "16. Gelen Kanal Webhook'ları, SIP Hata Ayıklama (PCAP) & Sistem Sağlığı API"
+        ],
+        "summary": "WhatsApp Meta Cloud API Webhook Doğrulama (Challenge)",
+        "description": "Meta Developer Console kurulumunda `hub.verify_token` doğrulaması yaparak `hub.challenge` değerini döndürür.",
+        "operationId": "get_api_webhooks_whatsapp",
+        "security": [],
+        "x-nornia-scope": "webhook:meta",
+        "x-nornia-auth-type": "webhook",
+        "responses": {
+          "200": {
+            "description": "Başarılı yanıt",
+            "content": {
+              "application/json": {
+                "example": {
+                  "status": "ok",
+                  "message": "İşlem başarıyla tamamlandı."
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Geçersiz veya eksik kimlik bilgisi"
+          },
+          "403": {
+            "description": "Yetersiz yetki (Gerekli scope: webhook:meta)"
+          }
+        },
+        "parameters": [
+          {
+            "name": "hub.mode",
+            "in": "query",
+            "required": false,
+            "description": "İsteğe bağlı filtre parametresi (örn. subscribe)",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "hub.verify_token",
+            "in": "query",
+            "required": false,
+            "description": "İsteğe bağlı filtre parametresi (örn. TOKEN)",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "hub.challenge",
+            "in": "query",
+            "required": false,
+            "description": "İsteğe bağlı filtre parametresi (örn. 12345)",
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "16. Gelen Kanal Webhook'ları, SIP Hata Ayıklama (PCAP) & Sistem Sağlığı API"
+        ],
+        "summary": "WhatsApp Gelen Mesaj ve Durum Bildirimi Alıcısı",
+        "description": "Meta WhatsApp Business Cloud API'den gelen müşteri mesajlarını, buton tıklamalarını ve teslimat raporlarını (sent/delivered/read) işler.",
+        "operationId": "post_api_webhooks_whatsapp",
+        "security": [],
+        "x-nornia-scope": "webhook:meta",
+        "x-nornia-auth-type": "webhook",
+        "responses": {
+          "200": {
+            "description": "Başarılı yanıt",
+            "content": {
+              "application/json": {
+                "example": {
+                  "status": "ok",
+                  "message": "İşlem başarıyla tamamlandı."
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Geçersiz veya eksik kimlik bilgisi"
+          },
+          "403": {
+            "description": "Yetersiz yetki (Gerekli scope: webhook:meta)"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "example": {
+                "object": "whatsapp_business_account",
+                "entry": [
+                  {
+                    "id": "WABA_ID",
+                    "changes": [
+                      {
+                        "field": "messages",
+                        "value": {
+                          "metadata": {
+                            "phone_number_id": "1391907340666153"
+                          }
+                        }
+                      }
+                    ]
+                  }
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/webhooks/telegram": {
+      "post": {
+        "tags": [
+          "16. Gelen Kanal Webhook'ları, SIP Hata Ayıklama (PCAP) & Sistem Sağlığı API"
+        ],
+        "summary": "Telegram Bot API Webhook Alıcısı",
+        "description": "Telegram Bot'a gelen müşteri mesajlarını otomatik olarak Ortak Gelen Kutusu'na ve AI yanıt motoruna yönlendirir.",
+        "operationId": "post_api_webhooks_telegram",
+        "security": [],
+        "x-nornia-scope": "webhook:telegram",
+        "x-nornia-auth-type": "webhook",
+        "responses": {
+          "200": {
+            "description": "Başarılı yanıt",
+            "content": {
+              "application/json": {
+                "example": {
+                  "status": "ok",
+                  "message": "İşlem başarıyla tamamlandı."
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Geçersiz veya eksik kimlik bilgisi"
+          },
+          "403": {
+            "description": "Yetersiz yetki (Gerekli scope: webhook:telegram)"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "example": {
+                "update_id": 891234,
+                "message": {
+                  "chat": {
+                    "id": 123456789
+                  },
+                  "text": "Merhaba, destek alabilir miyim?"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/sip-debugger/calls": {
+      "get": {
+        "tags": [
+          "16. Gelen Kanal Webhook'ları, SIP Hata Ayıklama (PCAP) & Sistem Sağlığı API"
+        ],
+        "summary": "Canlı SIP Paket & Çağrı Akışlarını Listele (Web sngrep)",
+        "description": "UDP/TCP 5060/5061 ve WSS 8089 üzerinden yakalanan SIP oturumlarını Call-ID bazında gruplanmış olarak döndürür.",
+        "operationId": "get_api_sip_debugger_calls",
+        "security": [],
+        "x-nornia-scope": "troubleshooting:access",
+        "x-nornia-auth-type": "webhook",
+        "responses": {
+          "200": {
+            "description": "Başarılı yanıt",
+            "content": {
+              "application/json": {
+                "example": {
+                  "status": "ok",
+                  "message": "İşlem başarıyla tamamlandı."
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Geçersiz veya eksik kimlik bilgisi"
+          },
+          "403": {
+            "description": "Yetersiz yetki (Gerekli scope: troubleshooting:access)"
+          }
+        }
+      }
+    },
+    "/api/sip-debugger/calls/{call_id}/pcap": {
+      "get": {
+        "tags": [
+          "16. Gelen Kanal Webhook'ları, SIP Hata Ayıklama (PCAP) & Sistem Sağlığı API"
+        ],
+        "summary": "Seçili Çağrının Wireshark / sngrep Uyumlu PCAP Dosyasını İndir",
+        "description": "Belirtilen SIP çağrısının tüm paketlerini Ethernet/IP/UDP başlıklarıyla standart `.pcap` ikili dosyası olarak indirir.",
+        "operationId": "get_api_sip_debugger_calls_call_id_pcap",
+        "security": [],
+        "x-nornia-scope": "troubleshooting:access",
+        "x-nornia-auth-type": "webhook",
+        "responses": {
+          "200": {
+            "description": "Başarılı yanıt",
+            "content": {
+              "application/json": {
+                "example": {
+                  "status": "ok",
+                  "message": "İşlem başarıyla tamamlandı."
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Geçersiz veya eksik kimlik bilgisi"
+          },
+          "403": {
+            "description": "Yetersiz yetki (Gerekli scope: troubleshooting:access)"
+          }
+        },
+        "parameters": [
+          {
+            "name": "call_id",
+            "in": "path",
+            "required": true,
+            "description": "Çağrının benzersiz kimliği (örn. aida-1763890123-4918)",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/sip-debugger/diagnostics/ping": {
+      "post": {
+        "tags": [
+          "16. Gelen Kanal Webhook'ları, SIP Hata Ayıklama (PCAP) & Sistem Sağlığı API"
+        ],
+        "summary": "SIP Trunk / Hedef Sunucu Ping & Gecikme Testi",
+        "description": "Operatör SIP sunucusuna veya belirtilen IP/domain adresine ICMP ping atarak RTT gecikme ve paket kaybını ölçer.",
+        "operationId": "post_api_sip_debugger_diagnostics_ping",
+        "security": [],
+        "x-nornia-scope": "troubleshooting:access",
+        "x-nornia-auth-type": "webhook",
+        "responses": {
+          "200": {
+            "description": "Başarılı yanıt",
+            "content": {
+              "application/json": {
+                "example": {
+                  "status": "ok",
+                  "message": "İşlem başarıyla tamamlandı."
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Geçersiz veya eksik kimlik bilgisi"
+          },
+          "403": {
+            "description": "Yetersiz yetki (Gerekli scope: troubleshooting:access)"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "example": {
+                "target": "sip.operatortelekom.com.tr",
+                "count": 4
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/sip-debugger/diagnostics/traceroute": {
+      "post": {
+        "tags": [
+          "16. Gelen Kanal Webhook'ları, SIP Hata Ayıklama (PCAP) & Sistem Sağlığı API"
+        ],
+        "summary": "Ağ Güzergahı (Traceroute) Analizi",
+        "description": "Santralden operatör SBC veya uzak şubeye kadar tüm ağ atlama noktalarını (hop) ve gecikmelerini raporlar.",
+        "operationId": "post_api_sip_debugger_diagnostics_traceroute",
+        "security": [],
+        "x-nornia-scope": "troubleshooting:access",
+        "x-nornia-auth-type": "webhook",
+        "responses": {
+          "200": {
+            "description": "Başarılı yanıt",
+            "content": {
+              "application/json": {
+                "example": {
+                  "status": "ok",
+                  "message": "İşlem başarıyla tamamlandı."
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Geçersiz veya eksik kimlik bilgisi"
+          },
+          "403": {
+            "description": "Yetersiz yetki (Gerekli scope: troubleshooting:access)"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "example": {
+                "target": "sip.operatortelekom.com.tr"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/system/overview": {
+      "get": {
+        "tags": [
+          "16. Gelen Kanal Webhook'ları, SIP Hata Ayıklama (PCAP) & Sistem Sağlığı API"
+        ],
+        "summary": "Santral Donanım, Ağ, FQDN & Lisans Özet Bilgisi",
+        "description": "CPU/RAM/Disk, Asterisk durumu, LAN/WAN/NAT IP bilgileri, aktif FQDN ve donanım kilidi lisans özetini döndürür.",
+        "operationId": "get_api_system_overview",
+        "security": [],
+        "x-nornia-scope": "system_status:access",
+        "x-nornia-auth-type": "webhook",
+        "responses": {
+          "200": {
+            "description": "Başarılı yanıt",
+            "content": {
+              "application/json": {
+                "example": {
+                  "status": "ok",
+                  "hostname": "nornia-pbx",
+                  "version": "v3.10.11",
+                  "fqdn": "musteri.nornia.com.tr",
+                  "lan_ip": "192.168.1.25",
+                  "wan_ip": "85.105.42.18",
+                  "uptime_sec": 438290,
+                  "license_status": "active"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Geçersiz veya eksik kimlik bilgisi"
+          },
+          "403": {
+            "description": "Yetersiz yetki (Gerekli scope: system_status:access)"
+          }
+        }
+      }
+    },
+    "/api/version": {
+      "get": {
+        "tags": [
+          "16. Gelen Kanal Webhook'ları, SIP Hata Ayıklama (PCAP) & Sistem Sağlığı API"
+        ],
+        "summary": "Santral Sürüm Kodu ve Değişiklik Günlüğü (Changelog)",
+        "description": "Santralde yüklü güncel yazılım sürümünü (`v3.x.x`), yayın tarihini ve sürüm notlarını döndürür.",
+        "operationId": "get_api_version",
+        "security": [],
+        "x-nornia-scope": "public",
+        "x-nornia-auth-type": "webhook",
+        "responses": {
+          "200": {
+            "description": "Başarılı yanıt",
+            "content": {
+              "application/json": {
+                "example": {
+                  "status": "ok",
+                  "message": "İşlem başarıyla tamamlandı."
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Geçersiz veya eksik kimlik bilgisi"
+          },
+          "403": {
+            "description": "Yetersiz yetki (Gerekli scope: public)"
           }
         }
       }

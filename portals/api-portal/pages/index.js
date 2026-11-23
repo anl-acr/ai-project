@@ -63,6 +63,7 @@ export default function ApiPortalPage() {
   const [codeLang, setCodeLang] = useState("curl");
   const [webhookLang, setWebhookLang] = useState("python");
   const [copiedId, setCopiedId] = useState("");
+  const [apiFilter, setApiFilter] = useState("all"); // "all" | "api_key" | "platform"
 
   // Try-It Live Playground state
   const [tryPath, setTryPath] = useState("");
@@ -209,9 +210,12 @@ export default function ApiPortalPage() {
         <title>Nornia API — Geliştirici &amp; Kurumsal REST API Dokümantasyonu ({catalog.version})</title>
         <meta
           name="description"
-          content="Nornia Enterprise AI PBX Kurumsal Dış REST API v1, Click-to-Call, CDR, Webhook, CTI Screen Pop, Omnichannel ve Yapay Zeka entegrasyon dokümantasyonu."
+          content="Nornia Enterprise AI PBX Kurumsal Dış REST API v1 ve Platform Entegrasyon API'leri: Click-to-Call, CDR, Webhook, CTI Screen Pop, Dialer, Omnichannel, RAG/AI ve SIP Hata Ayıklama."
         />
         <meta name="viewport" content="width=device-width, initial-scale=1" />
+        <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+        <link rel="alternate icon" href="/favicon.ico" sizes="32x32" />
+        <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
       </Head>
 
       {/* TOP HEADER */}
@@ -228,22 +232,31 @@ export default function ApiPortalPage() {
           <button
             type="button"
             onClick={() => selectView("intro", "quickstart")}
-            className="flex items-center gap-2.5 text-left cursor-pointer"
+            className="flex items-center gap-2.5 text-left cursor-pointer group"
           >
-            <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-indigo-600 via-purple-600 to-rose-500 text-white font-black text-lg flex items-center justify-center shadow-md shadow-indigo-500/20">
-              N
+            <div className="h-9 w-9 shrink-0 rounded-xl flex items-center justify-center overflow-hidden shadow-md group-hover:scale-105 transition-transform">
+              <img src="/favicon.svg" alt="Nornia Logo" className="h-9 w-9 object-contain" />
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <span className="font-black text-sm tracking-tight text-slate-900 dark:text-white">
-                  Nornia API
+                <span
+                  className="font-extrabold text-base tracking-tight leading-tight bg-clip-text text-transparent"
+                  style={{
+                    backgroundImage:
+                      "linear-gradient(90deg, #16A34A 0%, #0284C7 28%, #7C3AED 58%, #DB2777 80%, #EA580C 100%)",
+                    WebkitBackgroundClip: "text",
+                    WebkitTextFillColor: "transparent"
+                  }}
+                >
+                  Nornia
                 </span>
+                <span className="text-xs font-black text-slate-700 dark:text-slate-200">API</span>
                 <span className="px-1.5 py-0.5 rounded-md bg-indigo-500/15 text-indigo-700 dark:text-indigo-300 text-[10px] font-extrabold font-mono">
-                  v1 • {catalog.version}
+                  {catalog.total_endpoints} Uç • {catalog.version}
                 </span>
               </div>
               <p className="text-[10px] text-slate-500 dark:text-slate-400 font-semibold hidden sm:block">
-                Kurumsal Santral, Çağrı Merkezi &amp; AI Geliştirici Portalı
+                Akıllı İletişim Platformu — Geliştirici &amp; Entegrasyon Portalı
               </p>
             </div>
           </button>
@@ -348,7 +361,35 @@ export default function ApiPortalPage() {
               <span className="font-mono text-indigo-500">{catalog.total_endpoints}</span>
             </div>
 
-            {(catalog.categories || []).map((cat) => {
+            {/* Auth Filter Pills */}
+            <div className="grid grid-cols-3 gap-1 px-1">
+              {[
+                { id: "all", label: `Tümü (${catalog.total_endpoints})` },
+                { id: "api_key", label: `v1 (${catalog.v1_endpoints_count || 46})` },
+                { id: "platform", label: `Platform (${catalog.platform_endpoints_count || 71})` }
+              ].map((f) => (
+                <button
+                  key={f.id}
+                  type="button"
+                  onClick={() => setApiFilter(f.id)}
+                  className={`px-1.5 py-1 rounded-lg text-[10px] font-extrabold transition cursor-pointer ${
+                    apiFilter === f.id
+                      ? "bg-indigo-600 text-white shadow-xs"
+                      : "bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700"
+                  }`}
+                >
+                  {f.label}
+                </button>
+              ))}
+            </div>
+
+            {(catalog.categories || [])
+              .filter((cat) => {
+                if (apiFilter === "all") return true;
+                if (apiFilter === "api_key") return cat.auth_type === "api_key";
+                return cat.auth_type !== "api_key";
+              })
+              .map((cat) => {
               const open = expandedCats[cat.id] !== false;
               const shortTitle = cat.title.replace(/^\d+\.\s*/, "");
               return (
@@ -725,8 +766,25 @@ Authorization: Bearer aida_live_default_9f8e7d6c5b4a3210...`}
           {activeView.type === "endpoint" && selectedEndpoint && (
             <div className="space-y-6">
               <div className="space-y-2">
-                <div className="text-[11px] font-bold text-indigo-600 dark:text-indigo-400">
-                  {selectedEndpoint.categoryTitle}
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="text-[11px] font-bold text-indigo-600 dark:text-indigo-400">
+                    {selectedEndpoint.categoryTitle}
+                  </span>
+                  <span
+                    className={`px-2 py-0.5 rounded-md text-[10px] font-extrabold ${
+                      selectedEndpoint.auth_type === "api_key"
+                        ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300"
+                        : selectedEndpoint.auth_type === "webhook"
+                        ? "bg-amber-500/15 text-amber-700 dark:text-amber-300"
+                        : "bg-sky-500/15 text-sky-700 dark:text-sky-300"
+                    }`}
+                  >
+                    {selectedEndpoint.auth_type === "api_key"
+                      ? "Kurumsal Dış API v1 • X-API-Key"
+                      : selectedEndpoint.auth_type === "webhook"
+                      ? "Gelen Kanal Webhook"
+                      : "Platform & Yönetim API • Oturum / X-User-ID"}
+                  </span>
                 </div>
                 <h1 className="text-xl sm:text-2xl font-black text-slate-900 dark:text-white">
                   {selectedEndpoint.title}

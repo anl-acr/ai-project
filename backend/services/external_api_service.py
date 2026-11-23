@@ -668,6 +668,15 @@ API_ENDPOINTS_CATALOG = [
                 },
             },
             {
+                "method": "DELETE",
+                "method_tr": "Silme (DELETE)",
+                "path": "/api/v1/queues/{queue_id}",
+                "scope": "queues:delete",
+                "title": "ACD Çağrı Kuyruğunu Silme",
+                "description": "Belirtilen ACD kuyruğunu santralden ve Asterisk queues_custom.conf yapılandırmasından kaldırır.",
+                "sample_body": None,
+            },
+            {
                 "method": "GET",
                 "method_tr": "Okuma / Görüntüleme (GET)",
                 "path": "/api/v1/subscriber-groups",
@@ -737,6 +746,15 @@ API_ENDPOINTS_CATALOG = [
                 },
             },
             {
+                "method": "DELETE",
+                "method_tr": "Silme (DELETE)",
+                "path": "/api/v1/inbound-rules/{rule_id}",
+                "scope": "routing:delete",
+                "title": "Gelen Arama (DID) Kuralını Silme",
+                "description": "Belirtilen kimliğe (rule_id) sahip gelen arama yönlendirme kuralını siler ve dialplanı günceller.",
+                "sample_body": None,
+            },
+            {
                 "method": "POST",
                 "method_tr": "Yeni Kayıt Ekleme (POST)",
                 "path": "/api/v1/outbound-rules",
@@ -749,6 +767,15 @@ API_ENDPOINTS_CATALOG = [
                     "trunk_id": 1,
                     "caller_id": "908503607390"
                 },
+            },
+            {
+                "method": "DELETE",
+                "method_tr": "Silme (DELETE)",
+                "path": "/api/v1/outbound-rules/{rule_id}",
+                "scope": "routing:delete",
+                "title": "Giden Arama Kuralını Silme",
+                "description": "Belirtilen kimliğe (rule_id) sahip giden arama kuralını siler ve dialplanı yeniden senkronize eder.",
+                "sample_body": None,
             },
         ],
     },
@@ -779,6 +806,15 @@ API_ENDPOINTS_CATALOG = [
                     "email": "mehmet@demirlojistik.com",
                     "notes": "Kurumsal VIP Müşteri"
                 },
+            },
+            {
+                "method": "DELETE",
+                "method_tr": "Silme (DELETE)",
+                "path": "/api/v1/contacts/{contact_id}",
+                "scope": "crm:delete",
+                "title": "Rehberden Müşteri / Kişi Kaydını Silme",
+                "description": "Belirtilen contact_id değerine sahip müşteri kartını santral rehberinden kalıcı olarak siler.",
+                "sample_body": None,
             },
             {
                 "method": "GET",
@@ -870,6 +906,15 @@ API_ENDPOINTS_CATALOG = [
         "category": "8. Konferans Odaları, Hızlı Arama, Sesli Posta (Voicemail), Webhook & Sistem Kapasitesi",
         "scope_module": "pbx_features",
         "items": [
+            {
+                "method": "GET",
+                "method_tr": "Okuma / Sağlık Testi (GET)",
+                "path": "/api/v1/status",
+                "scope": "calls:read",
+                "title": "API Sağlık Kontrolü & Anahtar Doğrulama Testi (Ping)",
+                "description": "Gönderilen X-API-Key / Bearer anahtarının geçerliliğini, bağlı müşteri (tenant) kodunu, tanımlı yetki kapsamlarını (scopes) ve santral saatini anlık doğrular.",
+                "sample_body": None,
+            },
             {
                 "method": "GET",
                 "method_tr": "Okuma / Görüntüleme (GET)",

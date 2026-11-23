@@ -2,7 +2,9 @@
   "version": "v3.10.11",
   "api_version": "v1",
   "base_url_example": "https://musteri.nornia.com.tr",
-  "total_endpoints": 41,
+  "total_endpoints": 117,
+  "v1_endpoints_count": 46,
+  "platform_endpoints_count": 71,
   "permission_modules": [
     {
       "id": "calls",
@@ -234,6 +236,7 @@
       "index": 1,
       "title": "1. Canlı Çağrı & Santral Kontrolü (Click-to-Call / Transfer / Hangup)",
       "scope_module": "calls",
+      "auth_type": "api_key",
       "endpoints": [
         {
           "id": "post-api-v1-calls-originate",
@@ -242,6 +245,7 @@
           "path": "/api/v1/calls/originate",
           "base_path": "/api/v1/calls/originate",
           "scope": "calls:write",
+          "auth_type": "api_key",
           "title": "Tıkla-Ara (Click-to-Call) Çağrı Başlatma",
           "description": "Önce temsilcinin dahili telefonunu (WebPhone / Masa Telefonu / Mobil) çaldırır; temsilci açtığında otomatik olarak hedef müşteri numarasını arar ve iki tarafı bağlar.",
           "path_params": [],
@@ -267,6 +271,7 @@
           "path": "/api/v1/calls/active",
           "base_path": "/api/v1/calls/active",
           "scope": "calls:read",
+          "auth_type": "api_key",
           "title": "Aktif (Canlı) Çağrıları Listeleme",
           "description": "Santral üzerinde o an konuşulan veya çalmakta olan tüm canlı çağrıları ve kanal bilgilerini döndürür.",
           "path_params": [],
@@ -296,6 +301,7 @@
           "path": "/api/v1/calls/{call_id}/transfer",
           "base_path": "/api/v1/calls/{call_id}/transfer",
           "scope": "calls:write",
+          "auth_type": "api_key",
           "title": "Canlı Çağrıyı Başka Dahiliye veya Kuyruğa Aktarma (Transfer)",
           "description": "Devam eden bir görüşmeyi belirtilen dahili numaraya (örn. 1002), kuyruğa (örn. 2000) veya dış numaraya aktarır.",
           "path_params": [
@@ -326,6 +332,7 @@
           "path": "/api/v1/calls/{call_id}/hangup",
           "base_path": "/api/v1/calls/{call_id}/hangup",
           "scope": "calls:write",
+          "auth_type": "api_key",
           "title": "Aktif Çağrıyı Sonlandırma (Hangup)",
           "description": "Belirtilen çağrı kimliğine (call_id) veya kanala ait aktif görüşmeyi sonlandırır.",
           "path_params": [
@@ -352,6 +359,7 @@
           "path": "/api/v1/calls/{call_id}/recording-pause",
           "base_path": "/api/v1/calls/{call_id}/recording-pause",
           "scope": "calls:write",
+          "auth_type": "api_key",
           "title": "Canlı Çağrıda Ses Kaydını Duraklatma / Devam Ettirme (KVKK & Kredi Kartı Maskeleme)",
           "description": "Görüşme esnasında müşteri kredi kartı veya KVKK hassas bilgisi söylerken ses kaydını (MixMonitor) duraklatır (`paused: true`) ve işlem bitince tekrar başlatır (`paused: false`).",
           "path_params": [
@@ -382,6 +390,7 @@
           "path": "/api/v1/calls/{call_id}/hold",
           "base_path": "/api/v1/calls/{call_id}/hold",
           "scope": "calls:write",
+          "auth_type": "api_key",
           "title": "Canlı Çağrıyı Beklemeye Alma / Beklemeden Çıkarma (Hold / Unhold)",
           "description": "Aktif görüşmedeki müşteriyi bekleme müziğine (MoH) alır (`hold: true`) veya beklemeden çıkarıp görüşmeye geri döndürür (`hold: false`).",
           "path_params": [
@@ -412,6 +421,7 @@
           "path": "/api/v1/calls/monitor",
           "base_path": "/api/v1/calls/monitor",
           "scope": "calls:write",
+          "auth_type": "api_key",
           "title": "Süpervizör Canlı Çağrı Dinleme, Fısıldama (Whisper) ve Araya Girme (Barge-In)",
           "description": "Yöneticinin (`supervisor_extension`) seçilen temsilcinin (`target_extension`) aktif görüşmesini sessiz dinlemesini (`listen`), sadece temsilciye sufle vermesini (`whisper`) veya konferans olarak araya girmesini (`barge`) başlatır.",
           "path_params": [],
@@ -436,6 +446,7 @@
       "index": 2,
       "title": "2. Çağrı Raporları (CDR), Ses Kayıtları & Transkript",
       "scope_module": "cdr",
+      "auth_type": "api_key",
       "endpoints": [
         {
           "id": "get-api-v1-cdr",
@@ -444,6 +455,7 @@
           "path": "/api/v1/cdr?limit=50&direction=inbound",
           "base_path": "/api/v1/cdr",
           "scope": "cdr:read",
+          "auth_type": "api_key",
           "title": "Detaylı Çağrı Geçmişi (CDR) ve Transfer/Pickup Zinciri Sorgulama",
           "description": "Tarih aralığı, yön (inbound/outbound), arayan numara, dahili abone ve durum filtreleriyle tüm çağrı kayıtlarını, ses kaydı URL'lerini ve transfer bacaklarını (call_legs) döndürür.",
           "path_params": [],
@@ -505,6 +517,7 @@
           "path": "/api/v1/cdr/{call_id}",
           "base_path": "/api/v1/cdr/{call_id}",
           "scope": "cdr:read",
+          "auth_type": "api_key",
           "title": "Tekil Çağrı Detayı, Ses Kaydı Bağlantıları & Konuşma Dökümü (Transcript)",
           "description": "Belirtilen çağrının tüm bacaklarını, duygu analizini, AI özetini, konuşma metnini (transkript) ve ses kaydı indirme bağlantılarını getirir.",
           "path_params": [
@@ -547,6 +560,7 @@
           "path": "/api/v1/cdr/{call_id}/recording",
           "base_path": "/api/v1/cdr/{call_id}/recording",
           "scope": "cdr:read",
+          "auth_type": "api_key",
           "title": "Çağrı Ses Kaydı Dosyasını (WAV / MP3) İndirme veya Dinleme",
           "description": "Çağrının tam ses kaydını veya `leg_index` parametresiyle sadece belirli bir transfer görüşmesinin ses kaydını stream olarak indirir.",
           "path_params": [
@@ -575,6 +589,7 @@
       "index": 3,
       "title": "3. Dahili Aboneler (Kullanıcılar) & Temsilci Mola Yönetimi",
       "scope_module": "extensions",
+      "auth_type": "api_key",
       "endpoints": [
         {
           "id": "get-api-v1-extensions",
@@ -583,6 +598,7 @@
           "path": "/api/v1/extensions",
           "base_path": "/api/v1/extensions",
           "scope": "extensions:read",
+          "auth_type": "api_key",
           "title": "Tüm Dahili Aboneleri ve Anlık Durumlarını Listeleme",
           "description": "Sistemdeki tüm kullanıcıları, dahili numaralarını, çevrimiçi IP durumlarını, ses kaydı ve çağrı yönlendirme ayarlarını listeler.",
           "path_params": [],
@@ -613,6 +629,7 @@
           "path": "/api/v1/extensions",
           "base_path": "/api/v1/extensions",
           "scope": "extensions:write",
+          "auth_type": "api_key",
           "title": "Yeni Dahili Abone (Kullanıcı) Oluşturma",
           "description": "Santrale yeni bir dahili numara ve kullanıcı ekler, Asterisk PJSIP yapılandırmasını otomatik senkronize eder.",
           "path_params": [],
@@ -650,6 +667,7 @@
           "path": "/api/v1/extensions/{extension}",
           "base_path": "/api/v1/extensions/{extension}",
           "scope": "extensions:write",
+          "auth_type": "api_key",
           "title": "Dahili Abone Ayarlarını Güncelleme (Ses Kaydı, Yönlendirme, Dış Arama)",
           "description": "Mevcut bir abonenin ses kayıt durumunu, çağrı yönlendirmelerini (Her Zaman / Meşgul / Cevapsız), CallerID veya aktiflik durumunu günceller.",
           "path_params": [
@@ -658,7 +676,7 @@
               "in": "path",
               "required": true,
               "type": "string",
-              "description": "Hedef dahili numarası (örn. 1000)"
+              "description": "Hedef dahili numarası veya kullanıcı ID (örn. 1000)"
             }
           ],
           "query_params": [],
@@ -684,6 +702,7 @@
           "path": "/api/v1/extensions/{extension}/status",
           "base_path": "/api/v1/extensions/{extension}/status",
           "scope": "extensions:write",
+          "auth_type": "api_key",
           "title": "Temsilci Durumunu Değiştirme (Müsait / Molaya Çıkar)",
           "description": "Temsilciyi dış sistemden (CRM/WFM) Müsait (available) duruma geçirir veya belirtilen mola türüyle molaya (break) çıkarır.",
           "path_params": [
@@ -692,7 +711,7 @@
               "in": "path",
               "required": true,
               "type": "string",
-              "description": "Hedef dahili numarası (örn. 1000)"
+              "description": "Hedef dahili numarası veya kullanıcı ID (örn. 1000)"
             }
           ],
           "query_params": [],
@@ -712,6 +731,7 @@
           "path": "/api/v1/extensions/{extension}",
           "base_path": "/api/v1/extensions/{extension}",
           "scope": "extensions:delete",
+          "auth_type": "api_key",
           "title": "Dahili Aboneyi Silme",
           "description": "Belirtilen dahili aboneyi santralden ve PJSIP yapılandırmasından kaldırır.",
           "path_params": [
@@ -720,7 +740,7 @@
               "in": "path",
               "required": true,
               "type": "string",
-              "description": "Hedef dahili numarası (örn. 1000)"
+              "description": "Hedef dahili numarası veya kullanıcı ID (örn. 1000)"
             }
           ],
           "query_params": [],
@@ -737,6 +757,7 @@
       "index": 4,
       "title": "4. ACD Arama Kuyrukları & Abone Grupları",
       "scope_module": "queues",
+      "auth_type": "api_key",
       "endpoints": [
         {
           "id": "get-api-v1-queues",
@@ -745,6 +766,7 @@
           "path": "/api/v1/queues",
           "base_path": "/api/v1/queues",
           "scope": "queues:read",
+          "auth_type": "api_key",
           "title": "ACD Çağrı Kuyruklarını ve Üyelerini Listeleme",
           "description": "Tüm çağrı kuyruklarını, çalma stratejilerini, RONA/anket ayarlarını ve kuyruktaki dahili temsilcileri listeler.",
           "path_params": [],
@@ -776,6 +798,7 @@
           "path": "/api/v1/queues",
           "base_path": "/api/v1/queues",
           "scope": "queues:write",
+          "auth_type": "api_key",
           "title": "Yeni ACD Çağrı Kuyruğu Oluşturma",
           "description": "Yeni bir çağrı kuyruğu oluşturur ve Asterisk queues.conf dosyasını otomatik günceller.",
           "path_params": [],
@@ -817,6 +840,7 @@
           "path": "/api/v1/queues/{queue_id}",
           "base_path": "/api/v1/queues/{queue_id}",
           "scope": "queues:write",
+          "auth_type": "api_key",
           "title": "Kuyruk Ayarlarını veya Temsilcilerini Güncelleme",
           "description": "Kuyruğun çalma stratejisini, bekleme sürelerini, anonslarını günceller veya kuyruğa temsilci ekler/çıkarır.",
           "path_params": [
@@ -825,7 +849,7 @@
               "in": "path",
               "required": true,
               "type": "string",
-              "description": "ACD kuyruk kimliği veya numarası (örn. 6000)"
+              "description": "ACD kuyruk kimliği veya kuyruk numarası (örn. 6000)"
             }
           ],
           "query_params": [],
@@ -843,12 +867,39 @@
           }
         },
         {
+          "id": "delete-api-v1-queues-queue-id",
+          "method": "DELETE",
+          "method_tr": "Silme (DELETE)",
+          "path": "/api/v1/queues/{queue_id}",
+          "base_path": "/api/v1/queues/{queue_id}",
+          "scope": "queues:delete",
+          "auth_type": "api_key",
+          "title": "ACD Çağrı Kuyruğunu Silme",
+          "description": "Belirtilen ACD kuyruğunu santralden ve Asterisk queues_custom.conf yapılandırmasından kaldırır.",
+          "path_params": [
+            {
+              "name": "queue_id",
+              "in": "path",
+              "required": true,
+              "type": "string",
+              "description": "ACD kuyruk kimliği veya kuyruk numarası (örn. 6000)"
+            }
+          ],
+          "query_params": [],
+          "sample_body": null,
+          "sample_response": {
+            "status": "ok",
+            "message": "İşlem başarıyla tamamlandı."
+          }
+        },
+        {
           "id": "get-api-v1-subscriber-groups",
           "method": "GET",
           "method_tr": "Okuma / Görüntüleme (GET)",
           "path": "/api/v1/subscriber-groups",
           "base_path": "/api/v1/subscriber-groups",
           "scope": "queues:read",
+          "auth_type": "api_key",
           "title": "Abone Gruplarını Listeleme",
           "description": "Santraldeki tüm abone gruplarını, grup üyelerini ve atanmış giden arama kurallarını döndürür.",
           "path_params": [],
@@ -866,6 +917,7 @@
       "index": 5,
       "title": "5. Gelen / Giden Arama Kuralları, SIP Trunk & Toplu Konfigürasyon",
       "scope_module": "routing",
+      "auth_type": "api_key",
       "endpoints": [
         {
           "id": "get-api-v1-inbound-rules",
@@ -874,6 +926,7 @@
           "path": "/api/v1/inbound-rules",
           "base_path": "/api/v1/inbound-rules",
           "scope": "routing:read",
+          "auth_type": "api_key",
           "title": "Gelen Arama (DID) Yönlendirme Kurallarını Listeleme",
           "description": "Dış hat numaralarına (DID) gelen çağrıların hangi kuyruk, dahili veya AI asistana yönlendirildiğini listeler.",
           "path_params": [],
@@ -891,6 +944,7 @@
           "path": "/api/v1/outbound-rules",
           "base_path": "/api/v1/outbound-rules",
           "scope": "routing:read",
+          "auth_type": "api_key",
           "title": "Giden Arama Kurallarını Listeleme",
           "description": "Giden arama kurallarını, önekleri (prefix), kullanılan SIP Trunk ve PIN politikalarını listeler.",
           "path_params": [],
@@ -908,6 +962,7 @@
           "path": "/api/v1/trunks",
           "base_path": "/api/v1/trunks",
           "scope": "routing:read",
+          "auth_type": "api_key",
           "title": "Dış Hatları (SIP Trunks) ve Kayıt Durumlarını Listeleme",
           "description": "Operatör SIP Trunk tanımlarını, DID numaralarını ve anlık SIP kayıt durumlarını döndürür.",
           "path_params": [],
@@ -935,6 +990,7 @@
           "path": "/api/v1/bulk-config/apply",
           "base_path": "/api/v1/bulk-config/apply",
           "scope": "routing:write",
+          "auth_type": "api_key",
           "title": "Toplu Konfigürasyon (Bulk Config) Uygulama",
           "description": "Kullanıcılar, abone grupları, kuyruklar veya arama kuralları üzerinde tek istekle toplu özellik değişikliği uygular.",
           "path_params": [],
@@ -958,6 +1014,7 @@
           "path": "/api/v1/inbound-rules",
           "base_path": "/api/v1/inbound-rules",
           "scope": "routing:write",
+          "auth_type": "api_key",
           "title": "Yeni Gelen Arama (DID) Yönlendirme Kuralı Ekleme",
           "description": "Belirtilen DID numarasına gelen çağrıları seçilen kuyruk, dahili veya AI asistana yönlendiren yeni kural oluşturur.",
           "path_params": [],
@@ -974,12 +1031,39 @@
           }
         },
         {
+          "id": "delete-api-v1-inbound-rules-rule-id",
+          "method": "DELETE",
+          "method_tr": "Silme (DELETE)",
+          "path": "/api/v1/inbound-rules/{rule_id}",
+          "base_path": "/api/v1/inbound-rules/{rule_id}",
+          "scope": "routing:delete",
+          "auth_type": "api_key",
+          "title": "Gelen Arama (DID) Kuralını Silme",
+          "description": "Belirtilen kimliğe (rule_id) sahip gelen arama yönlendirme kuralını siler ve dialplanı günceller.",
+          "path_params": [
+            {
+              "name": "rule_id",
+              "in": "path",
+              "required": true,
+              "type": "string",
+              "description": "Arama kuralı kimliği (ID)"
+            }
+          ],
+          "query_params": [],
+          "sample_body": null,
+          "sample_response": {
+            "status": "ok",
+            "message": "İşlem başarıyla tamamlandı."
+          }
+        },
+        {
           "id": "post-api-v1-outbound-rules",
           "method": "POST",
           "method_tr": "Yeni Kayıt Ekleme (POST)",
           "path": "/api/v1/outbound-rules",
           "base_path": "/api/v1/outbound-rules",
           "scope": "routing:write",
+          "auth_type": "api_key",
           "title": "Yeni Giden Arama Kuralı Ekleme",
           "description": "Belirtilen önek (prefix) ve SIP Trunk üzerinden dış arama kuralı oluşturur.",
           "path_params": [],
@@ -994,6 +1078,32 @@
             "status": "ok",
             "message": "İşlem başarıyla tamamlandı."
           }
+        },
+        {
+          "id": "delete-api-v1-outbound-rules-rule-id",
+          "method": "DELETE",
+          "method_tr": "Silme (DELETE)",
+          "path": "/api/v1/outbound-rules/{rule_id}",
+          "base_path": "/api/v1/outbound-rules/{rule_id}",
+          "scope": "routing:delete",
+          "auth_type": "api_key",
+          "title": "Giden Arama Kuralını Silme",
+          "description": "Belirtilen kimliğe (rule_id) sahip giden arama kuralını siler ve dialplanı yeniden senkronize eder.",
+          "path_params": [
+            {
+              "name": "rule_id",
+              "in": "path",
+              "required": true,
+              "type": "string",
+              "description": "Arama kuralı kimliği (ID)"
+            }
+          ],
+          "query_params": [],
+          "sample_body": null,
+          "sample_response": {
+            "status": "ok",
+            "message": "İşlem başarıyla tamamlandı."
+          }
         }
       ]
     },
@@ -1002,6 +1112,7 @@
       "index": 6,
       "title": "6. CRM Rehber (Kişiler), Kara Liste & Randevu Takvimi",
       "scope_module": "crm",
+      "auth_type": "api_key",
       "endpoints": [
         {
           "id": "get-api-v1-contacts",
@@ -1010,6 +1121,7 @@
           "path": "/api/v1/contacts",
           "base_path": "/api/v1/contacts",
           "scope": "crm:read",
+          "auth_type": "api_key",
           "title": "Santral Rehberindeki Kişileri Listeleme / Arama",
           "description": "Rehberde kayıtlı müşterileri telefon numarası veya isme göre filtreleyerek döndürür.",
           "path_params": [],
@@ -1037,6 +1149,7 @@
           "path": "/api/v1/contacts",
           "base_path": "/api/v1/contacts",
           "scope": "crm:write",
+          "auth_type": "api_key",
           "title": "Rehbere Yeni Müşteri / Kişi Ekleme",
           "description": "Dış CRM veya ERP sisteminden santral rehberine yeni müşteri kartı ekler (Arayan kimliği eşleşmesi için).",
           "path_params": [],
@@ -1064,12 +1177,39 @@
           }
         },
         {
+          "id": "delete-api-v1-contacts-contact-id",
+          "method": "DELETE",
+          "method_tr": "Silme (DELETE)",
+          "path": "/api/v1/contacts/{contact_id}",
+          "base_path": "/api/v1/contacts/{contact_id}",
+          "scope": "crm:delete",
+          "auth_type": "api_key",
+          "title": "Rehberden Müşteri / Kişi Kaydını Silme",
+          "description": "Belirtilen contact_id değerine sahip müşteri kartını santral rehberinden kalıcı olarak siler.",
+          "path_params": [
+            {
+              "name": "contact_id",
+              "in": "path",
+              "required": true,
+              "type": "string",
+              "description": "Rehber kişi kayıt kimliği (ID)"
+            }
+          ],
+          "query_params": [],
+          "sample_body": null,
+          "sample_response": {
+            "status": "ok",
+            "message": "İşlem başarıyla tamamlandı."
+          }
+        },
+        {
           "id": "get-api-v1-blacklist",
           "method": "GET",
           "method_tr": "Okuma / Görüntüleme (GET)",
           "path": "/api/v1/blacklist",
           "base_path": "/api/v1/blacklist",
           "scope": "crm:read",
+          "auth_type": "api_key",
           "title": "Engellenen Numaraları (Kara Liste) Listeleme",
           "description": "Kara listedeki tüm telefon numaralarını ve engellenme nedenlerini döndürür.",
           "path_params": [],
@@ -1087,6 +1227,7 @@
           "path": "/api/v1/blacklist",
           "base_path": "/api/v1/blacklist",
           "scope": "crm:write",
+          "auth_type": "api_key",
           "title": "Numarayı Kara Listeye Ekleme (Engelleme)",
           "description": "Belirtilen telefon numarasını santral kara listesine ekler.",
           "path_params": [],
@@ -1107,6 +1248,7 @@
           "path": "/api/v1/appointments",
           "base_path": "/api/v1/appointments",
           "scope": "crm:read",
+          "auth_type": "api_key",
           "title": "Randevu Kayıtlarını Listeleme",
           "description": "AI Asistan veya temsilciler tarafından oluşturulan tüm randevuları listeler.",
           "path_params": [],
@@ -1124,6 +1266,7 @@
           "path": "/api/v1/appointments",
           "base_path": "/api/v1/appointments",
           "scope": "crm:write",
+          "auth_type": "api_key",
           "title": "Yeni Randevu Oluşturma",
           "description": "Takvime yeni bir müşteri randevusu ekler.",
           "path_params": [],
@@ -1146,6 +1289,7 @@
       "index": 7,
       "title": "7. Yapay Zeka Asistanları & Omnichannel (WhatsApp / E-Posta Gönderimi)",
       "scope_module": "ai_omnichannel",
+      "auth_type": "api_key",
       "endpoints": [
         {
           "id": "post-api-v1-omnichannel-whatsapp-send",
@@ -1154,6 +1298,7 @@
           "path": "/api/v1/omnichannel/whatsapp/send",
           "base_path": "/api/v1/omnichannel/whatsapp/send",
           "scope": "ai_omnichannel:write",
+          "auth_type": "api_key",
           "title": "Dış Sistemden Müşteriye WhatsApp Mesajı Gönderme",
           "description": "Santrale bağlı resmi WhatsApp Business hattı üzerinden müşteriye anlık bildirim veya mesaj gönderir.",
           "path_params": [],
@@ -1177,6 +1322,7 @@
           "path": "/api/v1/ai-calls/originate",
           "base_path": "/api/v1/ai-calls/originate",
           "scope": "ai_omnichannel:write",
+          "auth_type": "api_key",
           "title": "Yapay Zeka Asistanı ile Otomatik Dış Arama Başlatma",
           "description": "Belirtilen müşteri numarasını doğrudan seçilen AI Sesli Asistan ile arar ve senaryoyu konuşturur.",
           "path_params": [],
@@ -1201,6 +1347,7 @@
           "path": "/api/v1/ai-agents",
           "base_path": "/api/v1/ai-agents",
           "scope": "ai_omnichannel:read",
+          "auth_type": "api_key",
           "title": "Yapay Zeka Sesli Asistanlarını Listeleme",
           "description": "Sistemdeki tüm AI sesli temsilcilerini, kullandıkları dil modellerini ve senaryo talimatlarını döndürür.",
           "path_params": [],
@@ -1218,7 +1365,33 @@
       "index": 8,
       "title": "8. Konferans Odaları, Hızlı Arama, Sesli Posta (Voicemail), Webhook & Sistem Kapasitesi",
       "scope_module": "pbx_features",
+      "auth_type": "api_key",
       "endpoints": [
+        {
+          "id": "get-api-v1-status",
+          "method": "GET",
+          "method_tr": "Okuma / Sağlık Testi (GET)",
+          "path": "/api/v1/status",
+          "base_path": "/api/v1/status",
+          "scope": "calls:read",
+          "auth_type": "api_key",
+          "title": "API Sağlık Kontrolü & Anahtar Doğrulama Testi (Ping)",
+          "description": "Gönderilen X-API-Key / Bearer anahtarının geçerliliğini, bağlı müşteri (tenant) kodunu, tanımlı yetki kapsamlarını (scopes) ve santral saatini anlık doğrular.",
+          "path_params": [],
+          "query_params": [],
+          "sample_body": null,
+          "sample_response": {
+            "status": "ok",
+            "tenant_id": "tenant-default",
+            "key_name": "ERP Prod Anahtarı",
+            "scopes": [
+              "calls:read",
+              "calls:write",
+              "cdr:read"
+            ],
+            "server_time": "2026-11-23T14:20:00+03:00"
+          }
+        },
         {
           "id": "get-api-v1-system-capacity",
           "method": "GET",
@@ -1226,6 +1399,7 @@
           "path": "/api/v1/system/capacity",
           "base_path": "/api/v1/system/capacity",
           "scope": "pbx_features:read",
+          "auth_type": "api_key",
           "title": "Santral Kapasite, Lisans ve Anlık Kanal Sağlığı Sorgulama",
           "description": "Toplam dahili abone sayısını, çevrimiçi SIP cihazlarını, aktif çağrı kanallarını, kuyrukları, SIP Trunk durumunu ve lisans kapasitesini döndürür.",
           "path_params": [],
@@ -1251,6 +1425,7 @@
           "path": "/api/v1/conferences",
           "base_path": "/api/v1/conferences",
           "scope": "pbx_features:read",
+          "auth_type": "api_key",
           "title": "Konferans Odalarını Listeleme",
           "description": "Santraldeki tüm konferans odalarını, oda numaralarını ve PIN ayarlarını döndürür.",
           "path_params": [],
@@ -1268,6 +1443,7 @@
           "path": "/api/v1/conferences",
           "base_path": "/api/v1/conferences",
           "scope": "pbx_features:write",
+          "auth_type": "api_key",
           "title": "Yeni Konferans Odası Oluşturma",
           "description": "Yeni bir sesli konferans odası oluşturur.",
           "path_params": [],
@@ -1289,6 +1465,7 @@
           "path": "/api/v1/speed-dials",
           "base_path": "/api/v1/speed-dials",
           "scope": "pbx_features:read",
+          "auth_type": "api_key",
           "title": "Hızlı Arama (Speed Dial) Kodlarını Listeleme",
           "description": "Tanımlı hızlı arama kodlarını ve hedef numaralarını listeler.",
           "path_params": [],
@@ -1306,6 +1483,7 @@
           "path": "/api/v1/voicemails",
           "base_path": "/api/v1/voicemails",
           "scope": "pbx_features:read",
+          "auth_type": "api_key",
           "title": "Sesli Posta (Voicemail) Kayıtlarını Listeleme",
           "description": "Bırakılan sesli posta mesajlarını, arayan numarayı, süreyi ve ses dosyası bağlantılarını listeler.",
           "path_params": [],
@@ -1323,6 +1501,7 @@
           "path": "/api/v1/announcements",
           "base_path": "/api/v1/announcements",
           "scope": "pbx_features:read",
+          "auth_type": "api_key",
           "title": "Santral Sesli Anonslarını (Prompts) Listeleme",
           "description": "Karşılama, mesai dışı ve IVR anons dosyalarını listeler.",
           "path_params": [],
@@ -1340,6 +1519,7 @@
           "path": "/api/v1/webhooks/subscribe",
           "base_path": "/api/v1/webhooks/subscribe",
           "scope": "pbx_features:write",
+          "auth_type": "api_key",
           "title": "Gerçek Zamanlı Çağrı Olay Bildirimi (Webhook / Event Push) Tanımlama",
           "description": "Santralde çağrı başladığında (`call.ringing`), cevaplandığında (`call.answered`), aktarıldığında (`call.transferred`) veya kapandığında (`call.ended`) dış CRM/ERP adresinize (`webhook_url`) anlık HTTP POST bildirimi gönderilmesini sağlar.",
           "path_params": [],
@@ -1365,6 +1545,1803 @@
               "call.ended"
             ],
             "signature_header": "X-AIDA-Signature"
+          }
+        }
+      ]
+    },
+    {
+      "id": "9-cti-crm-screen-pop-arayan-tanima-otomatik-kart-acma",
+      "index": 9,
+      "title": "9. CTI & CRM Screen Pop (Arayan Tanıma & Otomatik Kart Açma)",
+      "scope_module": "cti",
+      "auth_type": "session",
+      "endpoints": [
+        {
+          "id": "post-api-cti-lookup",
+          "method": "POST",
+          "method_tr": "Sorgulama / Eşleştirme (POST)",
+          "path": "/api/cti/lookup",
+          "base_path": "/api/cti/lookup",
+          "scope": "cti_integration:read",
+          "auth_type": "session",
+          "title": "Gelen Numarayı CRM'de Sorgula & Screen Pop URL Üret",
+          "description": "Gelen çağrıdaki arayan numarayı (caller_number) santral rehberi ve tanımlı dış CRM sistemlerinde (Zoho, HubSpot, Salesforce, Bitrix24 veya Özel HTTP) sorgular; müşteri özetini ve otomatik açılacak CRM kart URL'sini döndürür.",
+          "path_params": [],
+          "query_params": [],
+          "sample_body": {
+            "phone": "05321234567",
+            "did": "908503607390",
+            "extension": "1000"
+          },
+          "sample_response": {
+            "status": "ok",
+            "matched": true,
+            "contact": {
+              "name": "Mehmet Demir",
+              "company": "Demir Lojistik A.Ş.",
+              "vip": true
+            },
+            "screen_pop_url": "https://crm.sirketiniz.com/customers/512?phone=05329876543"
+          }
+        },
+        {
+          "id": "post-api-cti-test",
+          "method": "POST",
+          "method_tr": "Bağlantı Testi (POST)",
+          "path": "/api/cti/test",
+          "base_path": "/api/cti/test",
+          "scope": "cti_integration:write",
+          "auth_type": "session",
+          "title": "CTI / CRM Bağlantı & Webhook Testi",
+          "description": "Yapılandırılan harici CRM/CTI URL şablonunu veya HTTP sorgu ucunu örnek bir telefon numarasıyla test eder, HTTP yanıt kodu ve gecikme süresini (ms) raporlar.",
+          "path_params": [],
+          "query_params": [],
+          "sample_body": {
+            "test_phone": "05321234567",
+            "crm_url": "https://crm.sirket.com/api/lookup?phone={phone}"
+          },
+          "sample_response": {
+            "status": "ok",
+            "message": "İşlem başarıyla tamamlandı."
+          }
+        },
+        {
+          "id": "get-api-settings-crm-integrations",
+          "method": "GET",
+          "method_tr": "Okuma / Listeleme (GET)",
+          "path": "/api/settings/crm-integrations",
+          "base_path": "/api/settings/crm-integrations",
+          "scope": "crm_integrations:read",
+          "auth_type": "session",
+          "title": "Tanımlı Hazır CRM Entegrasyonlarını Listele",
+          "description": "Santralde aktif olan Zoho, HubSpot, Salesforce, Bitrix24 ve özel CRM bağlayıcılarını döndürür.",
+          "path_params": [],
+          "query_params": [],
+          "sample_body": null,
+          "sample_response": {
+            "status": "ok",
+            "message": "İşlem başarıyla tamamlandı."
+          }
+        },
+        {
+          "id": "post-api-settings-crm-integrations",
+          "method": "POST",
+          "method_tr": "Kaydetme / Güncelleme (POST)",
+          "path": "/api/settings/crm-integrations",
+          "base_path": "/api/settings/crm-integrations",
+          "scope": "crm_integrations:write",
+          "auth_type": "session",
+          "title": "CRM Entegrasyonu Ekle / Güncelle",
+          "description": "Yeni bir CRM bağlayıcısı kaydeder veya mevcut bağlayıcının kimlik doğrulama ve alan eşleştirme kurallarını günceller.",
+          "path_params": [],
+          "query_params": [],
+          "sample_body": {
+            "provider": "hubspot",
+            "enabled": true,
+            "api_token": "pat-eu1-xxxx",
+            "auto_log_calls": true
+          },
+          "sample_response": {
+            "status": "ok",
+            "message": "İşlem başarıyla tamamlandı."
+          }
+        },
+        {
+          "id": "post-api-settings-crm-integrations-crm-id-test",
+          "method": "POST",
+          "method_tr": "Bağlantı Testi (POST)",
+          "path": "/api/settings/crm-integrations/{crm_id}/test",
+          "base_path": "/api/settings/crm-integrations/{crm_id}/test",
+          "scope": "crm_integrations:write",
+          "auth_type": "session",
+          "title": "Seçili CRM Bağlayıcısını Canlı Test Et",
+          "description": "Belirtilen CRM entegrasyonunun API token geçerliliğini ve erişilebilirliğini canlı test eder.",
+          "path_params": [
+            {
+              "name": "crm_id",
+              "in": "path",
+              "required": true,
+              "type": "string",
+              "description": "CRM entegrasyon kimliği"
+            }
+          ],
+          "query_params": [],
+          "sample_body": {},
+          "sample_response": {
+            "status": "ok",
+            "message": "İşlem başarıyla tamamlandı."
+          }
+        }
+      ]
+    },
+    {
+      "id": "10-otomatik-dis-arama-dialer-kampanya-yonetimi-api",
+      "index": 10,
+      "title": "10. Otomatik Dış Arama (Dialer) & Kampanya Yönetimi API",
+      "scope_module": "dialer",
+      "auth_type": "session",
+      "endpoints": [
+        {
+          "id": "get-api-settings-dialer-campaigns",
+          "method": "GET",
+          "method_tr": "Okuma / Listeleme (GET)",
+          "path": "/api/settings/dialer/campaigns",
+          "base_path": "/api/settings/dialer/campaigns",
+          "scope": "dialer:read",
+          "auth_type": "session",
+          "title": "Dış Arama (Dialer) Kampanyalarını Listele",
+          "description": "Tüm aktif, duraklatılmış ve tamamlanmış otomatik dış arama kampanyalarını, ilerleme yüzdelerini ve eşzamanlı kanal limitlerini döndürür.",
+          "path_params": [],
+          "query_params": [],
+          "sample_body": null,
+          "sample_response": {
+            "status": "ok",
+            "message": "İşlem başarıyla tamamlandı."
+          }
+        },
+        {
+          "id": "post-api-settings-dialer-campaigns",
+          "method": "POST",
+          "method_tr": "Oluşturma / Güncelleme (POST)",
+          "path": "/api/settings/dialer/campaigns",
+          "base_path": "/api/settings/dialer/campaigns",
+          "scope": "dialer:write",
+          "auth_type": "session",
+          "title": "Yeni Dış Arama Kampanyası Oluştur",
+          "description": "AI Asistan, ACD Kuyruk veya IVR/Anons hedefli yeni bir otomatik dış arama kampanyası oluşturur.",
+          "path_params": [],
+          "query_params": [],
+          "sample_body": {
+            "name": "Kasım Yenileme Kampanyası",
+            "mode": "ai_agent",
+            "target_id": "Sales_AI",
+            "max_concurrent": 5,
+            "caller_id": "908503607390",
+            "retry_limit": 2,
+            "retry_delay_minutes": 30
+          },
+          "sample_response": {
+            "status": "ok",
+            "message": "İşlem başarıyla tamamlandı."
+          }
+        },
+        {
+          "id": "post-api-settings-dialer-campaigns-campaign-id-upload-list",
+          "method": "POST",
+          "method_tr": "Liste Yükleme (POST)",
+          "path": "/api/settings/dialer/campaigns/{campaign_id}/upload-list",
+          "base_path": "/api/settings/dialer/campaigns/{campaign_id}/upload-list",
+          "scope": "dialer:write",
+          "auth_type": "session",
+          "title": "Kampanyaya Aranacak Numara Listesi Yükle (JSON / CSV)",
+          "description": "Belirtilen kampanyaya müşteri adı, telefon numarası ve özel değişkenlerle (örn. fatura tutarı, son ödeme tarihi) toplu arama listesi yükler.",
+          "path_params": [
+            {
+              "name": "campaign_id",
+              "in": "path",
+              "required": true,
+              "type": "string",
+              "description": "Dış arama kampanya kimliği (ID)"
+            }
+          ],
+          "query_params": [],
+          "sample_body": {
+            "records": [
+              {
+                "name": "Ali Kaya",
+                "phone": "05321112233",
+                "custom_data": {
+                  "borc": "1.250 TL"
+                }
+              },
+              {
+                "name": "Zeynep Demir",
+                "phone": "05423334455",
+                "custom_data": {
+                  "borc": "890 TL"
+                }
+              }
+            ]
+          },
+          "sample_response": {
+            "status": "ok",
+            "message": "İşlem başarıyla tamamlandı."
+          }
+        },
+        {
+          "id": "post-api-settings-dialer-campaigns-campaign-id-control",
+          "method": "POST",
+          "method_tr": "Durum Kontrolü (POST)",
+          "path": "/api/settings/dialer/campaigns/{campaign_id}/control",
+          "base_path": "/api/settings/dialer/campaigns/{campaign_id}/control",
+          "scope": "dialer:write",
+          "auth_type": "session",
+          "title": "Kampanyayı Başlat / Duraklat / Durdur",
+          "description": "Belirtilen kampanyanın çalışma durumunu `start`, `pause`, `resume` veya `stop` aksiyonlarıyla anlık yönetir.",
+          "path_params": [
+            {
+              "name": "campaign_id",
+              "in": "path",
+              "required": true,
+              "type": "string",
+              "description": "Dış arama kampanya kimliği (ID)"
+            }
+          ],
+          "query_params": [],
+          "sample_body": {
+            "action": "start"
+          },
+          "sample_response": {
+            "status": "ok",
+            "message": "İşlem başarıyla tamamlandı."
+          }
+        },
+        {
+          "id": "delete-api-settings-dialer-campaigns-campaign-id",
+          "method": "DELETE",
+          "method_tr": "Silme (DELETE)",
+          "path": "/api/settings/dialer/campaigns/{campaign_id}",
+          "base_path": "/api/settings/dialer/campaigns/{campaign_id}",
+          "scope": "dialer:delete",
+          "auth_type": "session",
+          "title": "Dış Arama Kampanyasını Sil",
+          "description": "Kampanyayı ve bekleyen arama kuyruğunu kalıcı olarak siler.",
+          "path_params": [
+            {
+              "name": "campaign_id",
+              "in": "path",
+              "required": true,
+              "type": "string",
+              "description": "Dış arama kampanya kimliği (ID)"
+            }
+          ],
+          "query_params": [],
+          "sample_body": null,
+          "sample_response": {
+            "status": "ok",
+            "message": "İşlem başarıyla tamamlandı."
+          }
+        },
+        {
+          "id": "get-api-dialer-records",
+          "method": "GET",
+          "method_tr": "Okuma / Listeleme (GET)",
+          "path": "/api/dialer/records?campaign_id=1&status=completed",
+          "base_path": "/api/dialer/records",
+          "scope": "dialer:read",
+          "auth_type": "session",
+          "title": "Kampanya Arama Kayıtlarını ve Sonuçlarını Çek",
+          "description": "Kampanyadaki her numaranın arama sonucunu (ANSWERED, NOANSWER, BUSY, FAILED), deneme sayısını ve AI özetini listeler.",
+          "path_params": [],
+          "query_params": [
+            {
+              "name": "campaign_id",
+              "in": "query",
+              "required": false,
+              "type": "integer",
+              "example": "1",
+              "description": "İsteğe bağlı filtre parametresi (örn. 1)"
+            },
+            {
+              "name": "status",
+              "in": "query",
+              "required": false,
+              "type": "string",
+              "example": "completed",
+              "description": "İsteğe bağlı filtre parametresi (örn. completed)"
+            }
+          ],
+          "sample_body": null,
+          "sample_response": {
+            "status": "ok",
+            "message": "İşlem başarıyla tamamlandı."
+          }
+        }
+      ]
+    },
+    {
+      "id": "11-omnichannel-whatsapp-telegram-meta-e-posta-ortak-gelen-kutusu-api",
+      "index": 11,
+      "title": "11. Omnichannel (WhatsApp, Telegram, Meta, E-Posta) & Ortak Gelen Kutusu API",
+      "scope_module": "omnichannel",
+      "auth_type": "session",
+      "endpoints": [
+        {
+          "id": "get-api-omnichannel-chats",
+          "method": "GET",
+          "method_tr": "Okuma / Listeleme (GET)",
+          "path": "/api/omnichannel/chats?channel=whatsapp&status=open",
+          "base_path": "/api/omnichannel/chats",
+          "scope": "omnichannel:access",
+          "auth_type": "session",
+          "title": "Omnichannel Sohbet Oturumlarını Listele",
+          "description": "WhatsApp, Telegram, Instagram, Facebook Messenger, E-Posta ve Webchat kanallarındaki tüm aktif ve kapalı sohbet oturumlarını listeler.",
+          "path_params": [],
+          "query_params": [
+            {
+              "name": "channel",
+              "in": "query",
+              "required": false,
+              "type": "string",
+              "example": "whatsapp",
+              "description": "İsteğe bağlı filtre parametresi (örn. whatsapp)"
+            },
+            {
+              "name": "status",
+              "in": "query",
+              "required": false,
+              "type": "string",
+              "example": "open",
+              "description": "İsteğe bağlı filtre parametresi (örn. open)"
+            }
+          ],
+          "sample_body": null,
+          "sample_response": {
+            "status": "ok",
+            "message": "İşlem başarıyla tamamlandı."
+          }
+        },
+        {
+          "id": "get-api-omnichannel-chats-session-id-messages",
+          "method": "GET",
+          "method_tr": "Okuma / Listeleme (GET)",
+          "path": "/api/omnichannel/chats/{session_id}/messages",
+          "base_path": "/api/omnichannel/chats/{session_id}/messages",
+          "scope": "omnichannel:access",
+          "auth_type": "session",
+          "title": "Sohbet Oturumunun Mesaj Geçmişini Getir",
+          "description": "Belirtilen sohbet oturumundaki tüm müşteri, AI asistan ve temsilci mesajlarını medya ekleriyle kronolojik döndürür.",
+          "path_params": [
+            {
+              "name": "session_id",
+              "in": "path",
+              "required": true,
+              "type": "string",
+              "description": "Omnichannel sohbet oturum kimliği"
+            }
+          ],
+          "query_params": [],
+          "sample_body": null,
+          "sample_response": {
+            "status": "ok",
+            "message": "İşlem başarıyla tamamlandı."
+          }
+        },
+        {
+          "id": "post-api-omnichannel-chats-session-id-send",
+          "method": "POST",
+          "method_tr": "Mesaj Gönderme (POST)",
+          "path": "/api/omnichannel/chats/{session_id}/send",
+          "base_path": "/api/omnichannel/chats/{session_id}/send",
+          "scope": "omnichannel:access",
+          "auth_type": "session",
+          "title": "Aktif Sohbet Oturumuna Yanıt Gönder",
+          "description": "Oturumun bağlı olduğu kanal (WhatsApp / Telegram / Instagram / E-Posta) üzerinden müşteriye metin veya medya yanıtı gönderir.",
+          "path_params": [
+            {
+              "name": "session_id",
+              "in": "path",
+              "required": true,
+              "type": "string",
+              "description": "Omnichannel sohbet oturum kimliği"
+            }
+          ],
+          "query_params": [],
+          "sample_body": {
+            "content": "Merhaba, talebiniz işleme alındı. Kargo kodunuz: TR9918273.",
+            "sender": "agent"
+          },
+          "sample_response": {
+            "status": "ok",
+            "message": "İşlem başarıyla tamamlandı."
+          }
+        },
+        {
+          "id": "post-api-omnichannel-chats-session-id-takeover",
+          "method": "POST",
+          "method_tr": "Devralma (POST)",
+          "path": "/api/omnichannel/chats/{session_id}/takeover",
+          "base_path": "/api/omnichannel/chats/{session_id}/takeover",
+          "scope": "omnichannel:access",
+          "auth_type": "session",
+          "title": "Sohbeti Yapay Zekadan İnsan Temsilciye Devral",
+          "description": "AI Asistan tarafından yönetilen bir sohbeti insan temsilciye devreder; AI otomatik yanıtlamayı durdurur.",
+          "path_params": [
+            {
+              "name": "session_id",
+              "in": "path",
+              "required": true,
+              "type": "string",
+              "description": "Omnichannel sohbet oturum kimliği"
+            }
+          ],
+          "query_params": [],
+          "sample_body": {
+            "agent_id": "1000"
+          },
+          "sample_response": {
+            "status": "ok",
+            "message": "İşlem başarıyla tamamlandı."
+          }
+        },
+        {
+          "id": "post-api-omnichannel-chats-session-id-transfer-to-ai",
+          "method": "POST",
+          "method_tr": "AI'a Aktarma (POST)",
+          "path": "/api/omnichannel/chats/{session_id}/transfer_to_ai",
+          "base_path": "/api/omnichannel/chats/{session_id}/transfer_to_ai",
+          "scope": "omnichannel:access",
+          "auth_type": "session",
+          "title": "Sohbeti Yeniden Yapay Zeka Asistanına Devret",
+          "description": "İnsan temsilci müdahalesi tamamlandığında sohbeti tekrar otomatik AI yanıt moduna geçirir.",
+          "path_params": [
+            {
+              "name": "session_id",
+              "in": "path",
+              "required": true,
+              "type": "string",
+              "description": "Omnichannel sohbet oturum kimliği"
+            }
+          ],
+          "query_params": [],
+          "sample_body": {},
+          "sample_response": {
+            "status": "ok",
+            "message": "İşlem başarıyla tamamlandı."
+          }
+        },
+        {
+          "id": "post-api-omnichannel-whatsapp-broadcast",
+          "method": "POST",
+          "method_tr": "Toplu Yayın (POST)",
+          "path": "/api/omnichannel/whatsapp/broadcast",
+          "base_path": "/api/omnichannel/whatsapp/broadcast",
+          "scope": "omnichannel:access",
+          "auth_type": "session",
+          "title": "WhatsApp Toplu Kampanya / Bilgilendirme Gönderimi",
+          "description": "Birden fazla telefon numarasına resmi Meta WhatsApp Business Cloud API üzerinden kontrollü hızda toplu duyuru veya şablon gönderir.",
+          "path_params": [],
+          "query_params": [],
+          "sample_body": {
+            "phones": [
+              "905321234567",
+              "905429876543"
+            ],
+            "message": "Yeni kampanyamız başladı! Detaylar için yanıtlayın.",
+            "account_id": "default"
+          },
+          "sample_response": {
+            "status": "ok",
+            "message": "İşlem başarıyla tamamlandı."
+          }
+        },
+        {
+          "id": "post-api-omnichannel-whatsapp-buttons",
+          "method": "POST",
+          "method_tr": "Etkileşimli Buton (POST)",
+          "path": "/api/omnichannel/whatsapp/buttons",
+          "base_path": "/api/omnichannel/whatsapp/buttons",
+          "scope": "omnichannel:access",
+          "auth_type": "session",
+          "title": "WhatsApp Etkileşimli Hızlı Yanıt Butonları Gönder",
+          "description": "Müşteriye en fazla 3 adet tıklanabilir Meta Quick-Reply butonu içeren interaktif mesaj gönderir.",
+          "path_params": [],
+          "query_params": [],
+          "sample_body": {
+            "phone": "905321234567",
+            "body_text": "Size nasıl yardımcı olabiliriz?",
+            "buttons": [
+              "Fiyat ve Bilgi",
+              "Randevu Al",
+              "Canlı Temsilci"
+            ]
+          },
+          "sample_response": {
+            "status": "ok",
+            "message": "İşlem başarıyla tamamlandı."
+          }
+        },
+        {
+          "id": "get-api-omnichannel-whatsapp-templates",
+          "method": "GET",
+          "method_tr": "Okuma / Listeleme (GET)",
+          "path": "/api/omnichannel/whatsapp/templates",
+          "base_path": "/api/omnichannel/whatsapp/templates",
+          "scope": "omnichannel:access",
+          "auth_type": "session",
+          "title": "Meta Onaylı WhatsApp Mesaj Şablonlarını Çek",
+          "description": "Meta Business hesabınızda onaylanmış HSM şablonlarını (24 saat penceresi dışı gönderim için) listeler.",
+          "path_params": [],
+          "query_params": [],
+          "sample_body": null,
+          "sample_response": {
+            "status": "ok",
+            "message": "İşlem başarıyla tamamlandı."
+          }
+        },
+        {
+          "id": "post-api-omnichannel-whatsapp-send-template",
+          "method": "POST",
+          "method_tr": "Şablon Gönderme (POST)",
+          "path": "/api/omnichannel/whatsapp/send-template",
+          "base_path": "/api/omnichannel/whatsapp/send-template",
+          "scope": "omnichannel:access",
+          "auth_type": "session",
+          "title": "Onaylı WhatsApp Şablon Mesajı Gönder (24 Saat Dışı)",
+          "description": "Meta onaylı bir şablonu dinamik parametrelerle müşteriye iletir.",
+          "path_params": [],
+          "query_params": [],
+          "sample_body": {
+            "phone": "905321234567",
+            "template_name": "randevu_hatirlatma",
+            "language": "tr",
+            "parameters": [
+              "Ahmet Bey",
+              "24 Kasım 14:30"
+            ]
+          },
+          "sample_response": {
+            "status": "ok",
+            "message": "İşlem başarıyla tamamlandı."
+          }
+        },
+        {
+          "id": "post-api-omnichannel-chats-compose",
+          "method": "POST",
+          "method_tr": "Yeni Sohbet Başlat (POST)",
+          "path": "/api/omnichannel/chats/compose",
+          "base_path": "/api/omnichannel/chats/compose",
+          "scope": "omnichannel:access",
+          "auth_type": "session",
+          "title": "Müşteriye Yeni Dış Sohbet / E-Posta Başlat",
+          "description": "Mevcut oturum olmadan WhatsApp, Telegram veya E-Posta üzerinden doğrudan yeni bir iletişim oturumu açar.",
+          "path_params": [],
+          "query_params": [],
+          "sample_body": {
+            "channel": "email",
+            "to": "musteri@firma.com",
+            "subject": "Teklif Dosyanız",
+            "content": "Merhaba, talep ettiğiniz teklif ektedir."
+          },
+          "sample_response": {
+            "status": "ok",
+            "message": "İşlem başarıyla tamamlandı."
+          }
+        }
+      ]
+    },
+    {
+      "id": "12-bilgi-bankasi-rag-canli-ceviri-kalite-kontrol-qa-api",
+      "index": 12,
+      "title": "12. Bilgi Bankası (RAG), Canlı Çeviri & Kalite Kontrol (QA) API",
+      "scope_module": "rag_ai",
+      "auth_type": "session",
+      "endpoints": [
+        {
+          "id": "get-api-rag-sources",
+          "method": "GET",
+          "method_tr": "Okuma / Listeleme (GET)",
+          "path": "/api/rag/sources",
+          "base_path": "/api/rag/sources",
+          "scope": "rag_kb:read",
+          "auth_type": "session",
+          "title": "Bilgi Bankası (RAG) Kaynaklarını Listele",
+          "description": "AI sesli ve yazılı asistanların kullandığı tüm indekslenmiş PDF, Word, Web sitesi ve manuel SSS kaynaklarını listeler.",
+          "path_params": [],
+          "query_params": [],
+          "sample_body": null,
+          "sample_response": {
+            "status": "ok",
+            "message": "İşlem başarıyla tamamlandı."
+          }
+        },
+        {
+          "id": "post-api-rag-crawl",
+          "method": "POST",
+          "method_tr": "Web Tarama (POST)",
+          "path": "/api/rag/crawl",
+          "base_path": "/api/rag/crawl",
+          "scope": "rag_kb:write",
+          "auth_type": "session",
+          "title": "Web Sitesini Tara ve Bilgi Bankasına İndeksle",
+          "description": "Verilen web sitesi URL'sini otomatik tarar, HTML içeriğini temizleyip anlamsal parçalara (chunks) bölerek RAG bilgi bankasına ekler.",
+          "path_params": [],
+          "query_params": [],
+          "sample_body": {
+            "url": "https://sirketiniz.com/sss",
+            "max_pages": 10
+          },
+          "sample_response": {
+            "status": "ok",
+            "message": "İşlem başarıyla tamamlandı."
+          }
+        },
+        {
+          "id": "post-api-rag-manual",
+          "method": "POST",
+          "method_tr": "Manuel Bilgi Ekle (POST)",
+          "path": "/api/rag/manual",
+          "base_path": "/api/rag/manual",
+          "scope": "rag_kb:write",
+          "auth_type": "session",
+          "title": "Bilgi Bankasına Manuel Doküman / SSS Ekle",
+          "description": "Fiyat listesi, iade politikası veya ürün teknik verilerini doğrudan metin olarak AI bilgi bankasına ekler.",
+          "path_params": [],
+          "query_params": [],
+          "sample_body": {
+            "title": "2026 Fiyat Listesi",
+            "content": "Kurumsal paket aylık 4.900 TL + KDV olup 50 dahili ve sınırsız IVR içerir."
+          },
+          "sample_response": {
+            "status": "ok",
+            "message": "İşlem başarıyla tamamlandı."
+          }
+        },
+        {
+          "id": "get-api-rag-search",
+          "method": "GET",
+          "method_tr": "Anlamsal Arama (GET)",
+          "path": "/api/rag/search?q=iade+suresi",
+          "base_path": "/api/rag/search",
+          "scope": "rag_kb:read",
+          "auth_type": "session",
+          "title": "Bilgi Bankasında Anlamsal (Semantic) Sorgu Testi",
+          "description": "Verilen müşteri sorusuna karşılık RAG motorunun hangi bilgi parçalarını ve benzerlik skorlarını döndürdüğünü test eder.",
+          "path_params": [],
+          "query_params": [
+            {
+              "name": "q",
+              "in": "query",
+              "required": false,
+              "type": "string",
+              "example": "iade+suresi",
+              "description": "İsteğe bağlı filtre parametresi (örn. iade+suresi)"
+            }
+          ],
+          "sample_body": null,
+          "sample_response": {
+            "status": "ok",
+            "message": "İşlem başarıyla tamamlandı."
+          }
+        },
+        {
+          "id": "delete-api-rag-sources",
+          "method": "DELETE",
+          "method_tr": "Silme (DELETE)",
+          "path": "/api/rag/sources?source_name=fiyat_listesi.pdf",
+          "base_path": "/api/rag/sources",
+          "scope": "rag_kb:delete",
+          "auth_type": "session",
+          "title": "Bilgi Bankası Kaynağını Sil",
+          "description": "Belirtilen kaynağa ait tüm vektör/metin parçalarını bilgi bankasından temizler.",
+          "path_params": [],
+          "query_params": [
+            {
+              "name": "source_name",
+              "in": "query",
+              "required": false,
+              "type": "string",
+              "example": "fiyat_listesi.pdf",
+              "description": "İsteğe bağlı filtre parametresi (örn. fiyat_listesi.pdf)"
+            }
+          ],
+          "sample_body": null,
+          "sample_response": {
+            "status": "ok",
+            "message": "İşlem başarıyla tamamlandı."
+          }
+        },
+        {
+          "id": "post-api-live-translator-translate-text",
+          "method": "POST",
+          "method_tr": "Canlı Metin Çeviri (POST)",
+          "path": "/api/live-translator/translate-text",
+          "base_path": "/api/live-translator/translate-text",
+          "scope": "live_translator:access",
+          "auth_type": "session",
+          "title": "Gerçek Zamanlı Metin Çevirisi (Çok Dilli Destek)",
+          "description": "Müşteri veya temsilci cümlelerini düşük gecikmeyle hedef dile (TR ↔ EN / DE / AR / RU / FR) çevirir.",
+          "path_params": [],
+          "query_params": [],
+          "sample_body": {
+            "text": "Siparişinizin teslimat adresini teyit edebilir misiniz?",
+            "source_lang": "tr",
+            "target_lang": "en"
+          },
+          "sample_response": {
+            "status": "ok",
+            "message": "İşlem başarıyla tamamlandı."
+          }
+        },
+        {
+          "id": "post-api-live-translator-tts",
+          "method": "POST",
+          "method_tr": "Ses Sentezleme TTS (POST)",
+          "path": "/api/live-translator/tts",
+          "base_path": "/api/live-translator/tts",
+          "scope": "live_translator:access",
+          "auth_type": "session",
+          "title": "Çevrilmiş Metni Doğal Sese Dönüştür (TTS)",
+          "description": "Hedef dildeki metni canlı çağrıya aktarılabilir doğal insan sesine (audio/mp3) dönüştürür.",
+          "path_params": [],
+          "query_params": [],
+          "sample_body": {
+            "text": "Could you please confirm your delivery address?",
+            "language": "en",
+            "voice": "nova"
+          },
+          "sample_response": {
+            "status": "ok",
+            "message": "İşlem başarıyla tamamlandı."
+          }
+        },
+        {
+          "id": "get-api-qa-questions",
+          "method": "GET",
+          "method_tr": "Okuma / Listeleme (GET)",
+          "path": "/api/qa/questions",
+          "base_path": "/api/qa/questions",
+          "scope": "qa:read",
+          "auth_type": "session",
+          "title": "Otomatik Çağrı Kalite Kontrol (QA) Kriterlerini Listele",
+          "description": "AI Kalite Değerlendirme motorunun her çağrıyı puanlarken kullandığı soru setini ve ağırlıklarını döndürür.",
+          "path_params": [],
+          "query_params": [],
+          "sample_body": null,
+          "sample_response": {
+            "status": "ok",
+            "message": "İşlem başarıyla tamamlandı."
+          }
+        },
+        {
+          "id": "post-api-qa-questions",
+          "method": "POST",
+          "method_tr": "Kriter Ekleme (POST)",
+          "path": "/api/qa/questions",
+          "base_path": "/api/qa/questions",
+          "scope": "qa:write",
+          "auth_type": "session",
+          "title": "Yeni Kalite Değerlendirme (QA) Kriteri Ekle",
+          "description": "Yeni bir denetim sorusu ve puan ağırlığı tanımlar (örn. KVKK aydınlatma metni okundu mu?).",
+          "path_params": [],
+          "query_params": [],
+          "sample_body": {
+            "question": "Temsilci görüşme başında şirket adını belirterek selamlama yaptı mı?",
+            "weight": 15,
+            "category": "Açılış"
+          },
+          "sample_response": {
+            "status": "ok",
+            "message": "İşlem başarıyla tamamlandı."
+          }
+        }
+      ]
+    },
+    {
+      "id": "13-musteri-360-geri-arama-callback-kriz-alarmi-api",
+      "index": 13,
+      "title": "13. Müşteri 360°, Geri Arama (Callback) & Kriz Alarmı API",
+      "scope_module": "workspace",
+      "auth_type": "session",
+      "endpoints": [
+        {
+          "id": "get-api-workspace-customer-360",
+          "method": "GET",
+          "method_tr": "Okuma / 360 Profil (GET)",
+          "path": "/api/workspace/customer-360?phone=05321234567",
+          "base_path": "/api/workspace/customer-360",
+          "scope": "customer_360:read",
+          "auth_type": "session",
+          "title": "Müşteri 360° Birleşik Zaman Tüneli Sorgula",
+          "description": "Bir telefon numarasına ait tüm sesli çağrıları, WhatsApp/E-Posta sohbetlerini, randevuları, AI duygu geçmişini ve VIP etiketlerini tek zaman tünelinde döndürür.",
+          "path_params": [],
+          "query_params": [
+            {
+              "name": "phone",
+              "in": "query",
+              "required": false,
+              "type": "integer",
+              "example": "05321234567",
+              "description": "İsteğe bağlı filtre parametresi (örn. 05321234567)"
+            }
+          ],
+          "sample_body": null,
+          "sample_response": {
+            "status": "ok",
+            "phone": "05321234567",
+            "profile": {
+              "name": "Mehmet Demir",
+              "tags": [
+                "VIP",
+                "Kurumsal"
+              ],
+              "total_calls": 14,
+              "total_chats": 6
+            },
+            "timeline": [
+              {
+                "type": "call",
+                "timestamp": "2026-11-23T11:20:00+03:00",
+                "summary": "Fatura sorgulama",
+                "sentiment": "positive"
+              },
+              {
+                "type": "whatsapp",
+                "timestamp": "2026-11-22T16:40:00+03:00",
+                "summary": "Kargo linki iletildi"
+              }
+            ]
+          }
+        },
+        {
+          "id": "post-api-workspace-customer-360-meta",
+          "method": "POST",
+          "method_tr": "Meta Güncelleme (POST)",
+          "path": "/api/workspace/customer-360/meta",
+          "base_path": "/api/workspace/customer-360/meta",
+          "scope": "customer_360:write",
+          "auth_type": "session",
+          "title": "Müşteri 360° Etiket, VIP Durumu ve Özel Not Güncelle",
+          "description": "Müşteri kartına VIP rozeti, risk uyarısı veya temsilciler arası paylaşılan sabit notlar ekler.",
+          "path_params": [],
+          "query_params": [],
+          "sample_body": {
+            "phone": "05321234567",
+            "tags": [
+              "VIP",
+              "Kurumsal"
+            ],
+            "pinned_note": "Öncelikli teknik destek sözleşmesi var."
+          },
+          "sample_response": {
+            "status": "ok",
+            "message": "İşlem başarıyla tamamlandı."
+          }
+        },
+        {
+          "id": "get-api-workspace-callbacks",
+          "method": "GET",
+          "method_tr": "Okuma / Listeleme (GET)",
+          "path": "/api/workspace/callbacks?status=pending",
+          "base_path": "/api/workspace/callbacks",
+          "scope": "callback_tasks:read",
+          "auth_type": "session",
+          "title": "Planlı Geri Arama (Callback) Görevlerini Listele",
+          "description": "Bekleyen, zamanı yaklaşan veya tamamlanmış müşteri geri arama görevlerini listeler.",
+          "path_params": [],
+          "query_params": [
+            {
+              "name": "status",
+              "in": "query",
+              "required": false,
+              "type": "string",
+              "example": "pending",
+              "description": "İsteğe bağlı filtre parametresi (örn. pending)"
+            }
+          ],
+          "sample_body": null,
+          "sample_response": {
+            "status": "ok",
+            "message": "İşlem başarıyla tamamlandı."
+          }
+        },
+        {
+          "id": "post-api-workspace-callbacks",
+          "method": "POST",
+          "method_tr": "Görev Oluştur (POST)",
+          "path": "/api/workspace/callbacks",
+          "base_path": "/api/workspace/callbacks",
+          "scope": "callback_tasks:write",
+          "auth_type": "session",
+          "title": "Yeni Geri Arama (Callback) Görevi Planla",
+          "description": "Belirli bir tarih/saatte belirtilen temsilciye hatırlatma çıkacak şekilde müşteri geri arama görevi oluşturur.",
+          "path_params": [],
+          "query_params": [],
+          "sample_body": {
+            "customer_name": "Mehmet Demir",
+            "phone": "05321234567",
+            "assigned_extension": "1000",
+            "scheduled_at": "2026-11-24T10:30:00",
+            "note": "Teklif onayı sorulacak"
+          },
+          "sample_response": {
+            "status": "ok",
+            "message": "İşlem başarıyla tamamlandı."
+          }
+        },
+        {
+          "id": "patch-api-workspace-callbacks-task-id",
+          "method": "PATCH",
+          "method_tr": "Durum Güncelle (PATCH)",
+          "path": "/api/workspace/callbacks/{task_id}",
+          "base_path": "/api/workspace/callbacks/{task_id}",
+          "scope": "callback_tasks:write",
+          "auth_type": "session",
+          "title": "Geri Arama Görevi Durumunu Güncelle",
+          "description": "Geri arama görevini `completed`, `rescheduled` veya `cancelled` olarak işaretler.",
+          "path_params": [
+            {
+              "name": "task_id",
+              "in": "path",
+              "required": true,
+              "type": "string",
+              "description": "Geri arama (Callback) görev kimliği"
+            }
+          ],
+          "query_params": [],
+          "sample_body": {
+            "status": "completed",
+            "result_note": "Müşteri arandı, sipariş onaylandı."
+          },
+          "sample_response": {
+            "status": "ok",
+            "message": "İşlem başarıyla tamamlandı."
+          }
+        },
+        {
+          "id": "delete-api-workspace-callbacks-task-id",
+          "method": "DELETE",
+          "method_tr": "Silme (DELETE)",
+          "path": "/api/workspace/callbacks/{task_id}",
+          "base_path": "/api/workspace/callbacks/{task_id}",
+          "scope": "callback_tasks:delete",
+          "auth_type": "session",
+          "title": "Geri Arama Görevini Sil",
+          "description": "Belirtilen geri arama görevini siler.",
+          "path_params": [
+            {
+              "name": "task_id",
+              "in": "path",
+              "required": true,
+              "type": "string",
+              "description": "Geri arama (Callback) görev kimliği"
+            }
+          ],
+          "query_params": [],
+          "sample_body": null,
+          "sample_response": {
+            "status": "ok",
+            "message": "İşlem başarıyla tamamlandı."
+          }
+        },
+        {
+          "id": "get-api-workspace-missed-claims",
+          "method": "GET",
+          "method_tr": "Okuma / Listeleme (GET)",
+          "path": "/api/workspace/missed-claims",
+          "base_path": "/api/workspace/missed-claims",
+          "scope": "callback_tasks:read",
+          "auth_type": "session",
+          "title": "Cevapsız Çağrı Sahiplenme (Missed Claim) Listesi",
+          "description": "Hangi cevapsız çağrının hangi temsilci tarafından sahiplenilip geri arandığını listeler (çift aramayı önler).",
+          "path_params": [],
+          "query_params": [],
+          "sample_body": null,
+          "sample_response": {
+            "status": "ok",
+            "message": "İşlem başarıyla tamamlandı."
+          }
+        },
+        {
+          "id": "post-api-workspace-missed-claims",
+          "method": "POST",
+          "method_tr": "Sahiplenme (POST)",
+          "path": "/api/workspace/missed-claims",
+          "base_path": "/api/workspace/missed-claims",
+          "scope": "callback_tasks:write",
+          "auth_type": "session",
+          "title": "Cevapsız Çağrıyı Üzerine Al (Claim)",
+          "description": "Bir cevapsız çağrıyı temsilci adına kilitler; diğer temsilciler bu çağrının zaten ilgilenildiğini görür.",
+          "path_params": [],
+          "query_params": [],
+          "sample_body": {
+            "call_id": "aida-1763890123-4918",
+            "extension": "1000"
+          },
+          "sample_response": {
+            "status": "ok",
+            "message": "İşlem başarıyla tamamlandı."
+          }
+        },
+        {
+          "id": "get-api-workspace-crisis-alerts",
+          "method": "GET",
+          "method_tr": "Canlı Alarm (GET)",
+          "path": "/api/workspace/crisis-alerts",
+          "base_path": "/api/workspace/crisis-alerts",
+          "scope": "crisis_alerts:access",
+          "auth_type": "session",
+          "title": "Canlı Kriz & Negatif Duygu Alarmlarını Çek",
+          "description": "Aktif çağrılarda AI duygu analizi tarafından yüksek öfke/kriz skoru tespit edilen görüşmeleri süpervizör müdahalesi için listeler.",
+          "path_params": [],
+          "query_params": [],
+          "sample_body": null,
+          "sample_response": {
+            "status": "ok",
+            "message": "İşlem başarıyla tamamlandı."
+          }
+        }
+      ]
+    },
+    {
+      "id": "14-kurumsal-raporlar-wallboard-supervizor-hot-desking-api",
+      "index": 14,
+      "title": "14. Kurumsal Raporlar, Wallboard, Süpervizör & Hot-Desking API",
+      "scope_module": "reports",
+      "auth_type": "session",
+      "endpoints": [
+        {
+          "id": "get-api-reports-wallboard",
+          "method": "GET",
+          "method_tr": "Canlı Pano (GET)",
+          "path": "/api/reports/wallboard",
+          "base_path": "/api/reports/wallboard",
+          "scope": "wallboard:access",
+          "auth_type": "session",
+          "title": "Canlı Wallboard KPI ve Kuyruk Metrikleri",
+          "description": "Aktif çağrı, kuyrukta bekleyenler, müsait/moladaki temsilci sayıları, günlük SLA % ve ortalama bekleme sürelerini döndürür.",
+          "path_params": [],
+          "query_params": [],
+          "sample_body": null,
+          "sample_response": {
+            "status": "ok",
+            "active_calls": 4,
+            "waiting_in_queue": 1,
+            "agents_available": 8,
+            "agents_on_break": 2,
+            "sla_percent": 94.6,
+            "today_answered": 182,
+            "today_missed": 7
+          }
+        },
+        {
+          "id": "get-api-reports-enterprise-queue-sla",
+          "method": "GET",
+          "method_tr": "Rapor (GET)",
+          "path": "/api/reports/enterprise/queue-sla?start_date=2026-11-01&end_date=2026-11-23",
+          "base_path": "/api/reports/enterprise/queue-sla",
+          "scope": "reports_queue_sla:access",
+          "auth_type": "session",
+          "title": "Kuyruk SLA & Cevaplama Hız Dilimleri Raporu",
+          "description": "0-10 sn, 10-20 sn, 20-30 sn ve 30+ sn dilimlerinde kuyruk cevaplama oranlarını ve terk istatistiklerini döndürür.",
+          "path_params": [],
+          "query_params": [
+            {
+              "name": "start_date",
+              "in": "query",
+              "required": false,
+              "type": "string",
+              "example": "2026-11-01",
+              "description": "İsteğe bağlı filtre parametresi (örn. 2026-11-01)"
+            },
+            {
+              "name": "end_date",
+              "in": "query",
+              "required": false,
+              "type": "string",
+              "example": "2026-11-23",
+              "description": "İsteğe bağlı filtre parametresi (örn. 2026-11-23)"
+            }
+          ],
+          "sample_body": null,
+          "sample_response": {
+            "status": "ok",
+            "message": "İşlem başarıyla tamamlandı."
+          }
+        },
+        {
+          "id": "get-api-reports-enterprise-breaks-attendance",
+          "method": "GET",
+          "method_tr": "Rapor (GET)",
+          "path": "/api/reports/enterprise/breaks-attendance?start_date=2026-11-01&end_date=2026-11-23",
+          "base_path": "/api/reports/enterprise/breaks-attendance",
+          "scope": "reports_breaks_attendance:access",
+          "auth_type": "session",
+          "title": "Temsilci Mola & Puantaj Raporu",
+          "description": "Her temsilcinin günlük oturum açma/kapama saatlerini, net çalışma süresini ve mola türü bazlı (Yemek, İhtiyaç, Eğitim) toplam dakikalarını döndürür.",
+          "path_params": [],
+          "query_params": [
+            {
+              "name": "start_date",
+              "in": "query",
+              "required": false,
+              "type": "string",
+              "example": "2026-11-01",
+              "description": "İsteğe bağlı filtre parametresi (örn. 2026-11-01)"
+            },
+            {
+              "name": "end_date",
+              "in": "query",
+              "required": false,
+              "type": "string",
+              "example": "2026-11-23",
+              "description": "İsteğe bağlı filtre parametresi (örn. 2026-11-23)"
+            }
+          ],
+          "sample_body": null,
+          "sample_response": {
+            "status": "ok",
+            "message": "İşlem başarıyla tamamlandı."
+          }
+        },
+        {
+          "id": "get-api-reports-enterprise-agent-kpi-metrics",
+          "method": "GET",
+          "method_tr": "Rapor (GET)",
+          "path": "/api/reports/enterprise/agent-kpi-metrics",
+          "base_path": "/api/reports/enterprise/agent-kpi-metrics",
+          "scope": "reports_perf:access",
+          "auth_type": "session",
+          "title": "Temsilci Performans & AHT / ACW KPI Raporu",
+          "description": "Temsilci bazında toplam gelen/giden çağrı, ortalama konuşma süresi (AHT), wrap-up süresi ve FCR oranlarını döndürür.",
+          "path_params": [],
+          "query_params": [],
+          "sample_body": null,
+          "sample_response": {
+            "status": "ok",
+            "message": "İşlem başarıyla tamamlandı."
+          }
+        },
+        {
+          "id": "get-api-reports-enterprise-omnichannel",
+          "method": "GET",
+          "method_tr": "Rapor (GET)",
+          "path": "/api/reports/enterprise/omnichannel",
+          "base_path": "/api/reports/enterprise/omnichannel",
+          "scope": "reports_omnichannel:access",
+          "auth_type": "session",
+          "title": "Omnichannel Kanal & İlk Yanıt SLA Raporu",
+          "description": "WhatsApp, Telegram, Instagram, Facebook ve E-Posta kanalları için ortalama ilk yanıt süresi ve çözüm oranlarını döndürür.",
+          "path_params": [],
+          "query_params": [],
+          "sample_body": null,
+          "sample_response": {
+            "status": "ok",
+            "message": "İşlem başarıyla tamamlandı."
+          }
+        },
+        {
+          "id": "get-api-reports-enterprise-voip-quality",
+          "method": "GET",
+          "method_tr": "Rapor (GET)",
+          "path": "/api/reports/enterprise/voip-quality",
+          "base_path": "/api/reports/enterprise/voip-quality",
+          "scope": "reports_voip_quality:access",
+          "auth_type": "session",
+          "title": "VoIP & Ses Kalitesi (MOS / Jitter / Paket Kaybı) Raporu",
+          "description": "Çağrı bazlı RTCP/WebRTC MOS skoru, gecikme (RTT), jitter ve paket kaybı metriklerini döndürür.",
+          "path_params": [],
+          "query_params": [],
+          "sample_body": null,
+          "sample_response": {
+            "status": "ok",
+            "message": "İşlem başarıyla tamamlandı."
+          }
+        },
+        {
+          "id": "get-api-reports-queue-surveys",
+          "method": "GET",
+          "method_tr": "Rapor (GET)",
+          "path": "/api/reports/queue-surveys",
+          "base_path": "/api/reports/queue-surveys",
+          "scope": "reports_survey:access",
+          "auth_type": "session",
+          "title": "Çağrı Sonrası Müşteri Memnuniyet Anketi (CSAT) Raporu",
+          "description": "DTMF tuşlama ile toplanan 1-5 arası memnuniyet anket sonuçlarını kuyruk ve temsilci kırılımında döndürür.",
+          "path_params": [],
+          "query_params": [],
+          "sample_body": null,
+          "sample_response": {
+            "status": "ok",
+            "message": "İşlem başarıyla tamamlandı."
+          }
+        },
+        {
+          "id": "get-api-reports-trunk-package-usage",
+          "method": "GET",
+          "method_tr": "Rapor (GET)",
+          "path": "/api/reports/trunk-package-usage",
+          "base_path": "/api/reports/trunk-package-usage",
+          "scope": "reports_trunk_minutes:access",
+          "auth_type": "session",
+          "title": "Operatör Dakika Paketi & Maliyet Tüketim Raporu",
+          "description": "Her SIP Trunk için tanımlı aylık dakika paketinin ne kadarının tüketildiğini ve kalan dakikayı döndürür.",
+          "path_params": [],
+          "query_params": [],
+          "sample_body": null,
+          "sample_response": {
+            "status": "ok",
+            "message": "İşlem başarıyla tamamlandı."
+          }
+        },
+        {
+          "id": "post-api-reports-custom-execute",
+          "method": "POST",
+          "method_tr": "Özel Rapor Çalıştır (POST)",
+          "path": "/api/reports/custom/execute",
+          "base_path": "/api/reports/custom/execute",
+          "scope": "reports_custom_builder:access",
+          "auth_type": "session",
+          "title": "Özel Rapor Tasarımcısı Dinamik Sorgu Çalıştır",
+          "description": "Seçilen veri kaynağı, sütunlar, gruplama ve filtrelerle dinamik kurumsal rapor üretir.",
+          "path_params": [],
+          "query_params": [],
+          "sample_body": {
+            "dataset": "calls",
+            "metrics": [
+              "count",
+              "avg_duration"
+            ],
+            "group_by": "agent_extension",
+            "date_range": "last_7_days"
+          },
+          "sample_response": {
+            "status": "ok",
+            "message": "İşlem başarıyla tamamlandı."
+          }
+        },
+        {
+          "id": "post-api-reports-custom-ai-generate",
+          "method": "POST",
+          "method_tr": "AI Rapor Üret (POST)",
+          "path": "/api/reports/custom/ai-generate",
+          "base_path": "/api/reports/custom/ai-generate",
+          "scope": "reports_custom_builder:access",
+          "auth_type": "session",
+          "title": "Doğal Dille Yapay Zeka Özel Rapor Oluştur",
+          "description": "Türkçe doğal dil isteğini (örn. 'Bu ay 30 saniyeden fazla bekleyip kaçan çağrıları kuyruk bazında listele') otomatik rapor tanımına çevirir.",
+          "path_params": [],
+          "query_params": [],
+          "sample_body": {
+            "prompt": "Son 30 günde en çok çağrı yanıtlayan 5 temsilciyi ortalama konuşma süreleriyle göster"
+          },
+          "sample_response": {
+            "status": "ok",
+            "message": "İşlem başarıyla tamamlandı."
+          }
+        },
+        {
+          "id": "get-api-supervisor-break-requests",
+          "method": "GET",
+          "method_tr": "Mola Talepleri (GET)",
+          "path": "/api/supervisor/break-requests",
+          "base_path": "/api/supervisor/break-requests",
+          "scope": "supervisor:agent_status",
+          "auth_type": "session",
+          "title": "Bekleyen Temsilci Mola Onay Taleplerini Listele",
+          "description": "Kuyruk eşzamanlı mola kotasına takılan ve süpervizör onayı bekleyen mola taleplerini listeler.",
+          "path_params": [],
+          "query_params": [],
+          "sample_body": null,
+          "sample_response": {
+            "status": "ok",
+            "message": "İşlem başarıyla tamamlandı."
+          }
+        },
+        {
+          "id": "post-api-supervisor-break-requests-req-id-decide",
+          "method": "POST",
+          "method_tr": "Mola Kararı (POST)",
+          "path": "/api/supervisor/break-requests/{req_id}/decide",
+          "base_path": "/api/supervisor/break-requests/{req_id}/decide",
+          "scope": "supervisor:agent_status",
+          "auth_type": "session",
+          "title": "Temsilci Mola Talebini Onayla veya Reddet",
+          "description": "Bekleyen bir mola talebini `approve` veya `reject` kararıyla sonuçlandırır.",
+          "path_params": [
+            {
+              "name": "req_id",
+              "in": "path",
+              "required": true,
+              "type": "string",
+              "description": "Mola onay talep kimliği"
+            }
+          ],
+          "query_params": [],
+          "sample_body": {
+            "decision": "approve",
+            "note": "Onaylandı"
+          },
+          "sample_response": {
+            "status": "ok",
+            "message": "İşlem başarıyla tamamlandı."
+          }
+        },
+        {
+          "id": "get-api-hotdesk-sessions",
+          "method": "GET",
+          "method_tr": "Hot-Desk Oturumları (GET)",
+          "path": "/api/hotdesk/sessions",
+          "base_path": "/api/hotdesk/sessions",
+          "scope": "users:read",
+          "auth_type": "session",
+          "title": "Aktif Hot-Desking (Ortak Masa Telefonu) Oturumlarını Listele",
+          "description": "*75 kodu ile fiziksel masa telefonuna oturum açmış tüm kullanıcı-cihaz eşleşmelerini listeler.",
+          "path_params": [],
+          "query_params": [],
+          "sample_body": null,
+          "sample_response": {
+            "status": "ok",
+            "message": "İşlem başarıyla tamamlandı."
+          }
+        },
+        {
+          "id": "delete-api-hotdesk-sessions-session-key",
+          "method": "DELETE",
+          "method_tr": "Hot-Desk Çıkış (DELETE)",
+          "path": "/api/hotdesk/sessions/{session_key}",
+          "base_path": "/api/hotdesk/sessions/{session_key}",
+          "scope": "users:write",
+          "auth_type": "session",
+          "title": "Hot-Desking Oturumunu Uzaktan Sonlandır",
+          "description": "Bir temsilcinin fiziksel masa telefonundaki Hot-Desk oturumunu yönetici panelinden/API'den kapatır.",
+          "path_params": [
+            {
+              "name": "session_key",
+              "in": "path",
+              "required": true,
+              "type": "string",
+              "description": "Hot-Desking oturum anahtarı"
+            }
+          ],
+          "query_params": [],
+          "sample_body": null,
+          "sample_response": {
+            "status": "ok",
+            "message": "İşlem başarıyla tamamlandı."
+          }
+        }
+      ]
+    },
+    {
+      "id": "15-cok-subeli-santral-federation-nornia-connect-ag-ai-konfigurasyon-api",
+      "index": 15,
+      "title": "15. Çok-Şubeli Santral (Federation), Nornia Connect, Ağ & AI Konfigürasyon API",
+      "scope_module": "infrastructure",
+      "auth_type": "session",
+      "endpoints": [
+        {
+          "id": "get-api-federation-node-config",
+          "method": "GET",
+          "method_tr": "Okuma (GET)",
+          "path": "/api/federation/node-config",
+          "base_path": "/api/federation/node-config",
+          "scope": "federation_multisite:read",
+          "auth_type": "session",
+          "title": "Santralin Multi-Site Rolünü (Standalone / Hub / Edge) Oku",
+          "description": "Sunucunun dağıtık santral mimarisindeki rolünü, şube kodunu, medya politikasını ve SRST Failover durumunu döndürür.",
+          "path_params": [],
+          "query_params": [],
+          "sample_body": null,
+          "sample_response": {
+            "status": "ok",
+            "message": "İşlem başarıyla tamamlandı."
+          }
+        },
+        {
+          "id": "get-api-federation-sites",
+          "method": "GET",
+          "method_tr": "Şube Listesi (GET)",
+          "path": "/api/federation/sites",
+          "base_path": "/api/federation/sites",
+          "scope": "federation_multisite:read",
+          "auth_type": "session",
+          "title": "Bağlı Şube (Edge) Santrallerini Listele",
+          "description": "Merkez Hub'a bağlı tüm şube santrallerinin çevrimiçi sağlık, son heartbeat ve yapılandırma senkronizasyon durumlarını listeler.",
+          "path_params": [],
+          "query_params": [],
+          "sample_body": null,
+          "sample_response": {
+            "status": "ok",
+            "message": "İşlem başarıyla tamamlandı."
+          }
+        },
+        {
+          "id": "post-api-federation-sites-site-code-push-config",
+          "method": "POST",
+          "method_tr": "Konfigürasyon İtme (POST)",
+          "path": "/api/federation/sites/{site_code}/push-config",
+          "base_path": "/api/federation/sites/{site_code}/push-config",
+          "scope": "federation_multisite:write",
+          "auth_type": "session",
+          "title": "Şube Santraline Anlık Konfigürasyon Gönder (Push)",
+          "description": "Merkezde yapılan dahili, dialplan veya kural değişikliklerini belirtilen şube santraline anında senkronize eder.",
+          "path_params": [
+            {
+              "name": "site_code",
+              "in": "path",
+              "required": true,
+              "type": "string",
+              "description": "Şube santrali benzersiz kodu (örn. ANKARA-01)"
+            }
+          ],
+          "query_params": [],
+          "sample_body": {
+            "force": true
+          },
+          "sample_response": {
+            "status": "ok",
+            "message": "İşlem başarıyla tamamlandı."
+          }
+        },
+        {
+          "id": "get-api-settings-ras-status",
+          "method": "GET",
+          "method_tr": "Durum (GET)",
+          "path": "/api/settings/ras/status",
+          "base_path": "/api/settings/ras/status",
+          "scope": "ras_settings:read",
+          "auth_type": "session",
+          "title": "Nornia Connect (Sıfır-Port Bulut Köprüsü) Tünel Durumu",
+          "description": "HTTPS bulut tüneli, WireGuard SIP Edge bağlantısı, kilitli alt alan adı (FQDN) ve bağlantı gecikmesini döndürür.",
+          "path_params": [],
+          "query_params": [],
+          "sample_body": null,
+          "sample_response": {
+            "status": "ok",
+            "message": "İşlem başarıyla tamamlandı."
+          }
+        },
+        {
+          "id": "post-api-settings-ras-reconnect",
+          "method": "POST",
+          "method_tr": "Yeniden Bağlan (POST)",
+          "path": "/api/settings/ras/reconnect",
+          "base_path": "/api/settings/ras/reconnect",
+          "scope": "ras_settings:write",
+          "auth_type": "session",
+          "title": "Nornia Connect Bulut Tünelini Yeniden Başlat",
+          "description": "Hub ile olan sıfır-port bulut tünelini ve SIP Edge köprüsünü kesintisiz yeniler.",
+          "path_params": [],
+          "query_params": [],
+          "sample_body": {},
+          "sample_response": {
+            "status": "ok",
+            "message": "İşlem başarıyla tamamlandı."
+          }
+        },
+        {
+          "id": "get-api-settings-network-status",
+          "method": "GET",
+          "method_tr": "Ağ Durumu (GET)",
+          "path": "/api/settings/network/status",
+          "base_path": "/api/settings/network/status",
+          "scope": "server_network:read",
+          "auth_type": "session",
+          "title": "Sunucu Ağ Arayüzleri (NIC), IP ve Statik Rotaları Oku",
+          "description": "Linux ağ kartlarını (enp0s3/eth0), IPv4/CIDR adreslerini, gateway, DNS ve özel SIP/MPLS statik rotalarını döndürür.",
+          "path_params": [],
+          "query_params": [],
+          "sample_body": null,
+          "sample_response": {
+            "status": "ok",
+            "message": "İşlem başarıyla tamamlandı."
+          }
+        },
+        {
+          "id": "post-api-ai-config-assistant-plan",
+          "method": "POST",
+          "method_tr": "AI Plan Üret (POST)",
+          "path": "/api/ai-config-assistant/plan",
+          "base_path": "/api/ai-config-assistant/plan",
+          "scope": "ai_config_assistant:write",
+          "auth_type": "session",
+          "title": "AI Konfigürasyon Asistanı — Doğal Dilden Değişiklik Planı Üret",
+          "description": "Türkçe yönetici komutunu (örn. '1020-1025 arası satış dahili aç ve 6000 kuyruğuna ekle') önizlenebilir ve geri alınabilir güvenli bir aksiyon planına çevirir.",
+          "path_params": [],
+          "query_params": [],
+          "sample_body": {
+            "prompt": "Mesai dışı saatlerde 0850 hattına gelen çağrıları AI karşılama asistanına yönlendir"
+          },
+          "sample_response": {
+            "status": "ok",
+            "message": "İşlem başarıyla tamamlandı."
+          }
+        },
+        {
+          "id": "post-api-ai-config-assistant-apply",
+          "method": "POST",
+          "method_tr": "AI Plan Uygula (POST)",
+          "path": "/api/ai-config-assistant/apply",
+          "base_path": "/api/ai-config-assistant/apply",
+          "scope": "ai_config_assistant:write",
+          "auth_type": "session",
+          "title": "AI Konfigürasyon Planını Snapshot Alarak Uygula",
+          "description": "Üretilen konfigürasyon planını otomatik geri yükleme noktası (snapshot) alarak santrale uygular.",
+          "path_params": [],
+          "query_params": [],
+          "sample_body": {
+            "plan_id": "plan_9f82a1"
+          },
+          "sample_response": {
+            "status": "ok",
+            "message": "İşlem başarıyla tamamlandı."
+          }
+        },
+        {
+          "id": "post-api-ai-config-assistant-undo-snapshot-id",
+          "method": "POST",
+          "method_tr": "Geri Al (POST)",
+          "path": "/api/ai-config-assistant/undo/{snapshot_id}",
+          "base_path": "/api/ai-config-assistant/undo/{snapshot_id}",
+          "scope": "ai_config_assistant:write",
+          "auth_type": "session",
+          "title": "AI Konfigürasyon Değişikliğini Tek Tıkla Geri Al",
+          "description": "Belirtilen snapshot kimliğine dönerek tüm santral değişikliklerini saniyeler içinde geri alır.",
+          "path_params": [
+            {
+              "name": "snapshot_id",
+              "in": "path",
+              "required": true,
+              "type": "string",
+              "description": "AI Konfigürasyon geri alma snapshot kimliği"
+            }
+          ],
+          "query_params": [],
+          "sample_body": {},
+          "sample_response": {
+            "status": "ok",
+            "message": "İşlem başarıyla tamamlandı."
+          }
+        }
+      ]
+    },
+    {
+      "id": "16-gelen-kanal-webhook-lari-sip-hata-ayiklama-pcap-sistem-sagligi-api",
+      "index": 16,
+      "title": "16. Gelen Kanal Webhook'ları, SIP Hata Ayıklama (PCAP) & Sistem Sağlığı API",
+      "scope_module": "webhooks_diag",
+      "auth_type": "webhook",
+      "endpoints": [
+        {
+          "id": "get-api-webhooks-whatsapp",
+          "method": "GET",
+          "method_tr": "Webhook Doğrulama (GET)",
+          "path": "/api/webhooks/whatsapp?hub.mode=subscribe&hub.verify_token=TOKEN&hub.challenge=12345",
+          "base_path": "/api/webhooks/whatsapp",
+          "scope": "webhook:meta",
+          "auth_type": "webhook",
+          "title": "WhatsApp Meta Cloud API Webhook Doğrulama (Challenge)",
+          "description": "Meta Developer Console kurulumunda `hub.verify_token` doğrulaması yaparak `hub.challenge` değerini döndürür.",
+          "path_params": [],
+          "query_params": [
+            {
+              "name": "hub.mode",
+              "in": "query",
+              "required": false,
+              "type": "string",
+              "example": "subscribe",
+              "description": "İsteğe bağlı filtre parametresi (örn. subscribe)"
+            },
+            {
+              "name": "hub.verify_token",
+              "in": "query",
+              "required": false,
+              "type": "string",
+              "example": "TOKEN",
+              "description": "İsteğe bağlı filtre parametresi (örn. TOKEN)"
+            },
+            {
+              "name": "hub.challenge",
+              "in": "query",
+              "required": false,
+              "type": "integer",
+              "example": "12345",
+              "description": "İsteğe bağlı filtre parametresi (örn. 12345)"
+            }
+          ],
+          "sample_body": null,
+          "sample_response": {
+            "status": "ok",
+            "message": "İşlem başarıyla tamamlandı."
+          }
+        },
+        {
+          "id": "post-api-webhooks-whatsapp",
+          "method": "POST",
+          "method_tr": "Gelen Mesaj (POST)",
+          "path": "/api/webhooks/whatsapp",
+          "base_path": "/api/webhooks/whatsapp",
+          "scope": "webhook:meta",
+          "auth_type": "webhook",
+          "title": "WhatsApp Gelen Mesaj ve Durum Bildirimi Alıcısı",
+          "description": "Meta WhatsApp Business Cloud API'den gelen müşteri mesajlarını, buton tıklamalarını ve teslimat raporlarını (sent/delivered/read) işler.",
+          "path_params": [],
+          "query_params": [],
+          "sample_body": {
+            "object": "whatsapp_business_account",
+            "entry": [
+              {
+                "id": "WABA_ID",
+                "changes": [
+                  {
+                    "field": "messages",
+                    "value": {
+                      "metadata": {
+                        "phone_number_id": "1391907340666153"
+                      }
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          "sample_response": {
+            "status": "ok",
+            "message": "İşlem başarıyla tamamlandı."
+          }
+        },
+        {
+          "id": "post-api-webhooks-telegram",
+          "method": "POST",
+          "method_tr": "Gelen Mesaj (POST)",
+          "path": "/api/webhooks/telegram",
+          "base_path": "/api/webhooks/telegram",
+          "scope": "webhook:telegram",
+          "auth_type": "webhook",
+          "title": "Telegram Bot API Webhook Alıcısı",
+          "description": "Telegram Bot'a gelen müşteri mesajlarını otomatik olarak Ortak Gelen Kutusu'na ve AI yanıt motoruna yönlendirir.",
+          "path_params": [],
+          "query_params": [],
+          "sample_body": {
+            "update_id": 891234,
+            "message": {
+              "chat": {
+                "id": 123456789
+              },
+              "text": "Merhaba, destek alabilir miyim?"
+            }
+          },
+          "sample_response": {
+            "status": "ok",
+            "message": "İşlem başarıyla tamamlandı."
+          }
+        },
+        {
+          "id": "get-api-sip-debugger-calls",
+          "method": "GET",
+          "method_tr": "SIP Çağrı İzleme (GET)",
+          "path": "/api/sip-debugger/calls",
+          "base_path": "/api/sip-debugger/calls",
+          "scope": "troubleshooting:access",
+          "auth_type": "webhook",
+          "title": "Canlı SIP Paket & Çağrı Akışlarını Listele (Web sngrep)",
+          "description": "UDP/TCP 5060/5061 ve WSS 8089 üzerinden yakalanan SIP oturumlarını Call-ID bazında gruplanmış olarak döndürür.",
+          "path_params": [],
+          "query_params": [],
+          "sample_body": null,
+          "sample_response": {
+            "status": "ok",
+            "message": "İşlem başarıyla tamamlandı."
+          }
+        },
+        {
+          "id": "get-api-sip-debugger-calls-call-id-pcap",
+          "method": "GET",
+          "method_tr": "PCAP İndirme (GET)",
+          "path": "/api/sip-debugger/calls/{call_id}/pcap",
+          "base_path": "/api/sip-debugger/calls/{call_id}/pcap",
+          "scope": "troubleshooting:access",
+          "auth_type": "webhook",
+          "title": "Seçili Çağrının Wireshark / sngrep Uyumlu PCAP Dosyasını İndir",
+          "description": "Belirtilen SIP çağrısının tüm paketlerini Ethernet/IP/UDP başlıklarıyla standart `.pcap` ikili dosyası olarak indirir.",
+          "path_params": [
+            {
+              "name": "call_id",
+              "in": "path",
+              "required": true,
+              "type": "string",
+              "description": "Çağrının benzersiz kimliği (örn. aida-1763890123-4918)"
+            }
+          ],
+          "query_params": [],
+          "sample_body": null,
+          "sample_response": {
+            "status": "ok",
+            "message": "İşlem başarıyla tamamlandı."
+          }
+        },
+        {
+          "id": "post-api-sip-debugger-diagnostics-ping",
+          "method": "POST",
+          "method_tr": "Ağ Tanılama (POST)",
+          "path": "/api/sip-debugger/diagnostics/ping",
+          "base_path": "/api/sip-debugger/diagnostics/ping",
+          "scope": "troubleshooting:access",
+          "auth_type": "webhook",
+          "title": "SIP Trunk / Hedef Sunucu Ping & Gecikme Testi",
+          "description": "Operatör SIP sunucusuna veya belirtilen IP/domain adresine ICMP ping atarak RTT gecikme ve paket kaybını ölçer.",
+          "path_params": [],
+          "query_params": [],
+          "sample_body": {
+            "target": "sip.operatortelekom.com.tr",
+            "count": 4
+          },
+          "sample_response": {
+            "status": "ok",
+            "message": "İşlem başarıyla tamamlandı."
+          }
+        },
+        {
+          "id": "post-api-sip-debugger-diagnostics-traceroute",
+          "method": "POST",
+          "method_tr": "Rota İzleme (POST)",
+          "path": "/api/sip-debugger/diagnostics/traceroute",
+          "base_path": "/api/sip-debugger/diagnostics/traceroute",
+          "scope": "troubleshooting:access",
+          "auth_type": "webhook",
+          "title": "Ağ Güzergahı (Traceroute) Analizi",
+          "description": "Santralden operatör SBC veya uzak şubeye kadar tüm ağ atlama noktalarını (hop) ve gecikmelerini raporlar.",
+          "path_params": [],
+          "query_params": [],
+          "sample_body": {
+            "target": "sip.operatortelekom.com.tr"
+          },
+          "sample_response": {
+            "status": "ok",
+            "message": "İşlem başarıyla tamamlandı."
+          }
+        },
+        {
+          "id": "get-api-system-overview",
+          "method": "GET",
+          "method_tr": "Sistem Özeti (GET)",
+          "path": "/api/system/overview",
+          "base_path": "/api/system/overview",
+          "scope": "system_status:access",
+          "auth_type": "webhook",
+          "title": "Santral Donanım, Ağ, FQDN & Lisans Özet Bilgisi",
+          "description": "CPU/RAM/Disk, Asterisk durumu, LAN/WAN/NAT IP bilgileri, aktif FQDN ve donanım kilidi lisans özetini döndürür.",
+          "path_params": [],
+          "query_params": [],
+          "sample_body": null,
+          "sample_response": {
+            "status": "ok",
+            "hostname": "nornia-pbx",
+            "version": "v3.10.11",
+            "fqdn": "musteri.nornia.com.tr",
+            "lan_ip": "192.168.1.25",
+            "wan_ip": "85.105.42.18",
+            "uptime_sec": 438290,
+            "license_status": "active"
+          }
+        },
+        {
+          "id": "get-api-version",
+          "method": "GET",
+          "method_tr": "Sürüm Bilgisi (GET)",
+          "path": "/api/version",
+          "base_path": "/api/version",
+          "scope": "public",
+          "auth_type": "webhook",
+          "title": "Santral Sürüm Kodu ve Değişiklik Günlüğü (Changelog)",
+          "description": "Santralde yüklü güncel yazılım sürümünü (`v3.x.x`), yayın tarihini ve sürüm notlarını döndürür.",
+          "path_params": [],
+          "query_params": [],
+          "sample_body": null,
+          "sample_response": {
+            "status": "ok",
+            "message": "İşlem başarıyla tamamlandı."
           }
         }
       ]

@@ -1,416 +1,178 @@
-import React, { useState, useEffect, useMemo } from "react";
+import React from "react";
 import Head from "next/head";
-import {
-  Search,
-  BookOpen,
-  FileDown,
-  Code2,
-  Sun,
-  Moon,
-  ChevronLeft,
-  ChevronRight,
-  ExternalLink,
-  Menu,
-  X,
-  List,
-  Sparkles
-} from "lucide-react";
-import { MANUAL_CHAPTERS, MANUAL_META } from "../data/manualChapters";
-import ChapterArticle from "../components/ChapterArticle";
+import Link from "next/link";
+import { ArrowRight, FileDown, Code2, Sparkles, BookOpen, Shield, Cpu } from "lucide-react";
+import DocsShell from "../components/DocsShell";
+import { MANUAL_CHAPTERS, MANUAL_GROUPS, MANUAL_META } from "../data/manualChapters";
 
-export default function DocsPortalPage() {
-  const [dark, setDark] = useState(false);
-  const [mobileNavOpen, setMobileNavOpen] = useState(false);
-  const [activeId, setActiveId] = useState(MANUAL_CHAPTERS[0].id);
-  const [searchOpen, setSearchOpen] = useState(false);
-  const [searchQuery, setSearchQuery] = useState("");
-
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    const savedTheme = localStorage.getItem("nornia_portal_theme");
-    if (savedTheme === "dark") {
-      setDark(true);
-      document.documentElement.classList.add("dark");
-    }
-    const hash = window.location.hash.replace(/^#/, "");
-    if (hash && MANUAL_CHAPTERS.some((c) => c.id === hash)) {
-      setActiveId(hash);
-    }
-    const onKeyDown = (e) => {
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
-        e.preventDefault();
-        setSearchOpen((v) => !v);
-      } else if (e.key === "Escape") {
-        setSearchOpen(false);
-      }
-    };
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, []);
-
-  const toggleDark = () => {
-    const next = !dark;
-    setDark(next);
-    if (typeof window !== "undefined") {
-      document.documentElement.classList.toggle("dark", next);
-      localStorage.setItem("nornia_portal_theme", next ? "dark" : "light");
-    }
-  };
-
-  const activeIndex = useMemo(
-    () => Math.max(0, MANUAL_CHAPTERS.findIndex((c) => c.id === activeId)),
-    [activeId]
-  );
-  const activeChapter = MANUAL_CHAPTERS[activeIndex] || MANUAL_CHAPTERS[0];
-  const prevChapter = activeIndex > 0 ? MANUAL_CHAPTERS[activeIndex - 1] : null;
-  const nextChapter = activeIndex < MANUAL_CHAPTERS.length - 1 ? MANUAL_CHAPTERS[activeIndex + 1] : null;
-
-  const selectChapter = (id) => {
-    setActiveId(id);
-    setMobileNavOpen(false);
-    if (typeof window !== "undefined") {
-      window.history.replaceState(null, "", `#${id}`);
-      window.scrollTo({ top: 0, behavior: "smooth" });
-    }
-  };
-
-  const handleDownloadFullPdf = async () => {
-    try {
-      const headRes = await fetch(MANUAL_META.fullPdfPath, { method: "HEAD" });
-      if (headRes.ok && (headRes.headers.get("content-type") || "").includes("pdf")) {
-        const a = document.createElement("a");
-        a.href = MANUAL_META.fullPdfPath;
-        a.download = `nornia-kullanim-kilavuzu-${MANUAL_META.version}.pdf`;
-        document.body.appendChild(a);
-        a.click();
-        a.remove();
-        return;
-      }
-    } catch (_) {}
-    if (typeof window !== "undefined") {
-      window.open("/print/all/?autoprint=1", "_blank", "noopener,noreferrer");
-    }
-  };
-
-  const searchHits = useMemo(() => {
-    const q = searchQuery.trim().toLowerCase();
-    if (!q) return MANUAL_CHAPTERS.map((c) => ({ chapter: c, match: c.summary }));
-    const hits = [];
-    MANUAL_CHAPTERS.forEach((c) => {
-      const hay = [
-        c.title,
-        c.summary,
-        c.category,
-        c.badge,
-        ...(c.sections || []).map((s) => `${s.heading} ${s.body}`),
-        ...(c.troubleshooting || []).map((t) => `${t.problem} ${t.solution}`)
-      ]
-        .join(" ")
-        .toLowerCase();
-      if (hay.includes(q)) {
-        const matchedSec = (c.sections || []).find((s) => `${s.heading} ${s.body}`.toLowerCase().includes(q));
-        hits.push({ chapter: c, match: matchedSec ? matchedSec.heading : c.summary });
-      }
-    });
-    return hits;
-  }, [searchQuery]);
-
+export default function DocsIndexPage() {
   return (
-    <div className="min-h-screen flex flex-col bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100">
+    <DocsShell activeChapter={null}>
       <Head>
-        <title>{activeChapter.title} — Nornia Kullanım Kılavuzu ({MANUAL_META.version})</title>
+        <title>Nornia Doküman — Detaylı Kurulum &amp; Kullanım Kılavuzu ({MANUAL_META.version})</title>
         <meta
           name="description"
-          content="Nornia Enterprise AI PBX resmi modül bazlı Türkçe kullanım kılavuzu, ekran görüntüleri, konfigürasyon örnekleri ve PDF dokümanları."
+          content="Nornia Enterprise AI PBX 50 sayfalık menü bazlı kapsamlı kullanım kılavuzu: canlı ekran görüntüleri, tüm parametre tabloları, yapılandırma örnekleri ve modül bazlı PDF indirme."
         />
         <meta name="viewport" content="width=device-width, initial-scale=1" />
+        <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+        <link rel="alternate icon" href="/favicon.ico" sizes="32x32" />
+        <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
       </Head>
 
-      {/* TOP BAR */}
-      <header className="no-print sticky top-0 z-40 h-16 bg-white/90 dark:bg-slate-900/90 backdrop-blur-md border-b border-slate-200/80 dark:border-slate-800 px-4 lg:px-6 flex items-center justify-between gap-3">
-        <div className="flex items-center gap-3 min-w-0">
-          <button
-            type="button"
-            onClick={() => setMobileNavOpen(!mobileNavOpen)}
-            className="lg:hidden p-2 rounded-xl border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300"
-            aria-label="Menü"
-          >
-            {mobileNavOpen ? <X size={18} /> : <Menu size={18} />}
-          </button>
-          <button
-            type="button"
-            onClick={() => selectChapter(MANUAL_CHAPTERS[0].id)}
-            className="flex items-center gap-2.5 text-left cursor-pointer"
-          >
-            <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-rose-500 via-indigo-600 to-cyan-500 text-white font-black text-lg flex items-center justify-center shadow-md shadow-indigo-500/20">
-              N
+      <div className="space-y-10">
+        {/* Hero Banner */}
+        <section className="p-6 sm:p-9 rounded-3xl bg-gradient-to-br from-slate-900 via-indigo-950 to-slate-900 text-white shadow-xl space-y-5 relative overflow-hidden">
+          <div className="flex items-center gap-3">
+            <div className="h-12 w-12 rounded-2xl bg-white/10 p-1.5 backdrop-blur-sm border border-white/15 flex items-center justify-center shrink-0">
+              <img src="/favicon.svg" alt="Nornia Logo" className="h-9 w-9 object-contain" />
             </div>
-            <div>
-              <div className="flex items-center gap-2">
-                <span className="font-black text-sm tracking-tight text-slate-900 dark:text-white">
-                  Nornia Doküman
-                </span>
-                <span className="px-1.5 py-0.5 rounded-md bg-rose-500/15 text-rose-700 dark:text-rose-300 text-[10px] font-extrabold font-mono">
-                  {MANUAL_META.version}
-                </span>
-              </div>
-              <p className="text-[10px] text-slate-500 dark:text-slate-400 font-semibold hidden sm:block">
-                Resmi Santral &amp; Yapay Zeka Kullanım Kılavuzu
-              </p>
+            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-white/10 border border-white/15 text-[11px] font-bold">
+              <Sparkles size={13} className="text-amber-300" />
+              <span>
+                {MANUAL_META.product} • {MANUAL_META.version} • {MANUAL_CHAPTERS.length} Ayrı Menü Sayfası
+              </span>
             </div>
-          </button>
-        </div>
-
-        {/* Search */}
-        <button
-          type="button"
-          onClick={() => setSearchOpen(true)}
-          className="hidden md:flex items-center gap-2.5 w-72 lg:w-80 px-3.5 py-2 rounded-xl bg-slate-100 dark:bg-slate-800/80 hover:bg-slate-200/70 dark:hover:bg-slate-800 border border-slate-200/80 dark:border-slate-700 text-xs text-slate-500 dark:text-slate-400 transition cursor-pointer"
-        >
-          <Search size={14} />
-          <span className="flex-1 text-left">Modül, ayar veya sorun ara...</span>
-          <kbd className="px-1.5 py-0.5 rounded bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-[10px] font-mono font-bold">
-            ⌘K
-          </kbd>
-        </button>
-
-        {/* Actions */}
-        <div className="flex items-center gap-2">
-          <a
-            href={MANUAL_META.apiPortalUrl}
-            className="hidden sm:inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-indigo-50 dark:hover:bg-indigo-950/50 text-slate-700 dark:text-slate-200 text-xs font-bold transition"
-          >
-            <Code2 size={14} className="text-indigo-500" />
-            <span>API Portalı</span>
-            <ExternalLink size={11} className="opacity-60" />
-          </a>
-          <button
-            type="button"
-            onClick={handleDownloadFullPdf}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-extrabold shadow-sm cursor-pointer"
-            title="Tüm 10 Bölümü Tek PDF Olarak İndir"
-          >
-            <FileDown size={14} />
-            <span className="hidden sm:inline">Tam Kılavuz PDF</span>
-          </button>
-          <button
-            type="button"
-            onClick={toggleDark}
-            className="p-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
-            title="Tema Değiştir"
-          >
-            {dark ? <Sun size={15} /> : <Moon size={15} />}
-          </button>
-        </div>
-      </header>
-
-      {/* BODY */}
-      <div className="flex-1 flex max-w-[1600px] w-full mx-auto">
-        {/* LEFT MODULE SIDEBAR */}
-        <aside
-          className={`no-print ${
-            mobileNavOpen ? "fixed inset-y-16 left-0 z-30 block w-72 shadow-2xl" : "hidden lg:block w-72 shrink-0"
-          } bg-white dark:bg-slate-900 border-r border-slate-200/80 dark:border-slate-800 overflow-y-auto h-[calc(100vh-4rem)] sticky top-16 p-4 space-y-4`}
-        >
-          <div className="px-2 flex items-center justify-between">
-            <span className="text-[10px] font-extrabold uppercase tracking-wider text-slate-400">
-              Kullanım Kılavuzu Modülleri
-            </span>
-            <span className="text-[10px] font-mono font-bold text-indigo-500">{MANUAL_CHAPTERS.length} Bölüm</span>
           </div>
 
-          <nav className="space-y-1">
-            {MANUAL_CHAPTERS.map((ch) => {
-              const active = ch.id === activeChapter.id;
-              return (
-                <div
-                  key={ch.id}
-                  className={`flex items-center gap-1 rounded-xl transition ${
-                    active ? "bg-indigo-600 text-white shadow-sm" : "hover:bg-slate-100 dark:hover:bg-slate-800/70"
-                  }`}
-                >
-                  <button
-                    type="button"
-                    onClick={() => selectChapter(ch.id)}
-                    className="flex-1 flex items-center gap-2.5 px-2.5 py-2.5 text-left min-w-0 cursor-pointer"
-                  >
-                    <span
-                      className={`px-1.5 py-0.5 rounded-md font-mono text-[10px] font-black shrink-0 ${
-                        active ? "bg-white/20 text-white" : "bg-slate-100 dark:bg-slate-800 text-slate-500"
-                      }`}
-                    >
-                      {ch.number}
-                    </span>
-                    <div className="min-w-0">
-                      <div className={`text-xs font-bold truncate ${active ? "text-white" : "text-slate-800 dark:text-slate-200"}`}>
-                        {ch.shortTitle}
-                      </div>
-                      <div className={`text-[10px] truncate ${active ? "text-indigo-100" : "text-slate-400"}`}>
-                        {ch.badge}
-                      </div>
-                    </div>
-                  </button>
-                  <a
-                    href={`/print/${ch.id}/?autoprint=1`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    title={`${ch.shortTitle} PDF İndir / Yazdır`}
-                    className={`p-2 mr-1 rounded-lg transition shrink-0 ${
-                      active ? "text-white/80 hover:bg-white/15 hover:text-white" : "text-slate-400 hover:text-rose-500"
-                    }`}
-                  >
-                    <FileDown size={13} />
-                  </a>
-                </div>
-              );
-            })}
-          </nav>
+          <h1 className="text-2xl sm:text-4xl font-black tracking-tight leading-tight max-w-3xl">
+            Santralinizin Her Menüsü İçin En İnce Ayrıntısına Kadar Kullanım Kılavuzu
+          </h1>
 
-          <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 space-y-2">
-            <div className="text-[11px] font-extrabold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
-              <Sparkles size={13} className="text-indigo-500" />
-              <span>Geliştirici misiniz?</span>
-            </div>
-            <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed">
-              REST API, Click-to-Call, Webhook ve Postman koleksiyonları için API Portalını ziyaret edin.
-            </p>
-            <a
-              href={MANUAL_META.apiPortalUrl}
-              className="inline-flex items-center gap-1 text-[11px] font-extrabold text-indigo-600 dark:text-indigo-400 hover:underline"
+          <p className="text-xs sm:text-sm text-indigo-100/90 leading-relaxed max-w-3xl">
+            Nornia santral arayüzündeki 7 ana menü grubu ve {MANUAL_CHAPTERS.length} ayrı modülün tamamı için gerçek canlı ekran görüntüleri, her form alanının teknik açıklaması, rol yetki kodları (RBAC), adım adım uygulama örnekleri, sorun giderme matrisleri ve tek tıkla indirilebilir kurumsal A4 PDF kılavuzları.
+          </p>
+
+          <div className="flex flex-wrap gap-3 pt-1">
+            <Link
+              href="/ilk-kurulum-sihirbazi/"
+              className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-white text-indigo-700 hover:bg-indigo-50 text-xs font-extrabold shadow-md transition"
             >
-              <span>api.nornia.com.tr</span>
-              <ExternalLink size={11} />
+              <BookOpen size={14} />
+              <span>İlk Kurulumdan Başla</span>
+              <ArrowRight size={14} />
+            </Link>
+            <a
+              href={MANUAL_META.fullPdfPath}
+              download={`nornia-kullanim-kilavuzu-${MANUAL_META.version}.pdf`}
+              className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-indigo-500/30 hover:bg-indigo-500/45 border border-white/20 text-white text-xs font-extrabold transition"
+            >
+              <FileDown size={14} />
+              <span>Tüm 50 Sayfayı Tek PDF İndir</span>
+            </a>
+            <a
+              href="https://api.nornia.com.tr"
+              className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-white/10 hover:bg-white/20 border border-white/15 text-white text-xs font-bold transition"
+            >
+              <Code2 size={14} />
+              <span>Geliştirici API Portalı</span>
             </a>
           </div>
-        </aside>
+        </section>
 
-        {/* CENTER CONTENT */}
-        <main className="flex-1 min-w-0 px-5 sm:px-8 py-8 max-w-4xl">
-          <ChapterArticle chapter={activeChapter} />
-
-          {/* Prev / Next Navigation */}
-          <div className="no-print mt-10 pt-6 border-t border-slate-200 dark:border-slate-800 flex flex-wrap items-center justify-between gap-3">
-            {prevChapter ? (
-              <button
-                type="button"
-                onClick={() => selectChapter(prevChapter.id)}
-                className="flex items-center gap-2.5 px-4 py-3 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 hover:border-indigo-400 text-left cursor-pointer transition"
-              >
-                <ChevronLeft size={16} className="text-slate-400" />
-                <div>
-                  <div className="text-[10px] font-bold uppercase text-slate-400">Önceki Modül</div>
-                  <div className="text-xs font-extrabold">{prevChapter.number}. {prevChapter.shortTitle}</div>
-                </div>
-              </button>
-            ) : (
-              <div />
-            )}
-
-            {nextChapter && (
-              <button
-                type="button"
-                onClick={() => selectChapter(nextChapter.id)}
-                className="flex items-center gap-2.5 px-4 py-3 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 hover:border-indigo-400 text-right cursor-pointer transition"
-              >
-                <div>
-                  <div className="text-[10px] font-bold uppercase text-slate-400">Sonraki Modül</div>
-                  <div className="text-xs font-extrabold">{nextChapter.number}. {nextChapter.shortTitle}</div>
-                </div>
-                <ChevronRight size={16} className="text-indigo-500" />
-              </button>
-            )}
-          </div>
-        </main>
-
-        {/* RIGHT TABLE OF CONTENTS */}
-        <aside className="no-print hidden xl:block w-64 shrink-0 sticky top-16 h-[calc(100vh-4rem)] overflow-y-auto p-6">
-          <div className="space-y-3">
-            <div className="text-[10px] font-extrabold uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
-              <List size={12} />
-              <span>Bu Sayfada</span>
+        {/* Quick Highlights */}
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          <div className="p-4 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 flex items-start gap-3">
+            <div className="p-2.5 rounded-xl bg-indigo-500/10 text-indigo-600 dark:text-indigo-400">
+              <BookOpen size={18} />
             </div>
-            <ul className="space-y-2 text-xs font-semibold text-slate-500 dark:text-slate-400 border-l-2 border-slate-200 dark:border-slate-800 pl-3">
-              {activeChapter.screenshots?.length > 0 && (
-                <li>
-                  <a href="#ekran-goruntuleri" className="hover:text-indigo-600 dark:hover:text-indigo-400 transition">
-                    Ekran Görünümleri
-                  </a>
-                </li>
-              )}
-              {(activeChapter.sections || []).map((sec, idx) => (
-                <li key={idx}>
-                  <a
-                    href={`#sec-${activeChapter.number}-${idx + 1}`}
-                    className="hover:text-indigo-600 dark:hover:text-indigo-400 transition block leading-snug"
-                  >
-                    {sec.heading}
-                  </a>
-                </li>
-              ))}
-              {activeChapter.troubleshooting?.length > 0 && (
-                <li>
-                  <a href="#sorun-giderme" className="hover:text-indigo-600 dark:hover:text-indigo-400 transition">
-                    Sorun Giderme &amp; SSS
-                  </a>
-                </li>
-              )}
-            </ul>
-          </div>
-        </aside>
-      </div>
-
-      {/* CMD+K SEARCH MODAL */}
-      {searchOpen && (
-        <div
-          className="no-print fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-sm flex items-start justify-center pt-20 p-4"
-          onClick={() => setSearchOpen(false)}
-        >
-          <div
-            className="w-full max-w-xl bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-2xl overflow-hidden"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="flex items-center gap-2.5 px-4 py-3 border-b border-slate-200 dark:border-slate-800">
-              <Search size={16} className="text-slate-400" />
-              <input
-                type="text"
-                autoFocus
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Modül, ayar, kod veya sorun ara (örn. trunk, whatsapp, *8, sngrep)..."
-                className="flex-1 bg-transparent outline-none text-sm font-semibold"
-              />
-              <button type="button" onClick={() => setSearchOpen(false)} className="text-xs text-slate-400 cursor-pointer">
-                ESC
-              </button>
+            <div>
+              <div className="text-xs font-black">{MANUAL_CHAPTERS.length} Özel Menü Sayfası</div>
+              <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
+                Santral sol menüsüyle birebir aynı 7 grup altında her ekrana özel URL ve alan referans tablosu.
+              </p>
             </div>
-            <div className="max-h-80 overflow-y-auto divide-y divide-slate-100 dark:divide-slate-800">
-              {searchHits.length === 0 ? (
-                <div className="p-8 text-center text-xs text-slate-400">Eşleşen kılavuz bölümü bulunamadı.</div>
-              ) : (
-                searchHits.map(({ chapter, match }) => (
-                  <button
-                    key={chapter.id}
-                    type="button"
-                    onClick={() => {
-                      selectChapter(chapter.id);
-                      setSearchOpen(false);
-                    }}
-                    className="w-full px-4 py-3 flex items-start gap-3 hover:bg-indigo-50/70 dark:hover:bg-indigo-950/40 text-left cursor-pointer"
-                  >
-                    <span className="px-2 py-0.5 rounded-md bg-indigo-500/15 text-indigo-600 dark:text-indigo-300 font-mono text-[10px] font-black mt-0.5">
-                      {chapter.number}
-                    </span>
-                    <div className="min-w-0">
-                      <div className="text-xs font-extrabold text-slate-900 dark:text-white">{chapter.title}</div>
-                      <div className="text-[11px] text-slate-500 dark:text-slate-400 line-clamp-1 mt-0.5">{match}</div>
-                    </div>
-                  </button>
-                ))
-              )}
+          </div>
+          <div className="p-4 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 flex items-start gap-3">
+            <div className="p-2.5 rounded-xl bg-emerald-500/10 text-emerald-600 dark:text-emerald-400">
+              <FileDown size={18} />
+            </div>
+            <div>
+              <div className="text-xs font-black">51 Hazır Kurumsal PDF</div>
+              <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
+                İster sadece tek bir menünün PDF&apos;ini, ister tüm santralin tam kullanım kitabını anında indirin.
+              </p>
+            </div>
+          </div>
+          <div className="p-4 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 flex items-start gap-3">
+            <div className="p-2.5 rounded-xl bg-purple-500/10 text-purple-600 dark:text-purple-400">
+              <Shield size={18} />
+            </div>
+            <div>
+              <div className="text-xs font-black">RBAC &amp; Canlı Görseller</div>
+              <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
+                Her sayfada gerekli rol yetki kodları, canlı santral ekran görüntüsü ve sorun giderme çözümleri.
+              </p>
             </div>
           </div>
         </div>
-      )}
-    </div>
+
+        {/* All 7 Menu Groups Directory */}
+        <div className="space-y-8">
+          {MANUAL_GROUPS.map((grp, gIdx) => {
+            const items = MANUAL_CHAPTERS.filter((c) => c.groupId === grp.id);
+            return (
+              <section key={grp.id} className="space-y-4">
+                <div className="flex flex-wrap items-end justify-between gap-2 pb-2 border-b border-slate-200 dark:border-slate-800">
+                  <div>
+                    <div className="text-[10px] font-black uppercase tracking-wider text-indigo-600 dark:text-indigo-400">
+                      GRUP {gIdx + 1} • {items.length} MENÜ SAYFASI
+                    </div>
+                    <h2 className="text-lg sm:text-xl font-black text-slate-900 dark:text-white">
+                      {grp.title}
+                    </h2>
+                    <p className="text-xs text-slate-500 dark:text-slate-400">{grp.subtitle}</p>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
+                  {items.map((ch) => (
+                    <div
+                      key={ch.id}
+                      className="group p-4 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 hover:border-indigo-400 dark:hover:border-indigo-500 transition shadow-xs flex flex-col justify-between gap-3"
+                    >
+                      <Link href={`/${ch.id}/`} className="block space-y-2">
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="flex items-center gap-2 min-w-0">
+                            <span className="px-2 py-0.5 rounded-lg bg-indigo-500/10 text-indigo-700 dark:text-indigo-300 font-mono text-[10px] font-black shrink-0">
+                              {ch.number}
+                            </span>
+                            <h3 className="text-sm font-extrabold text-slate-900 dark:text-white group-hover:text-indigo-600 dark:group-hover:text-indigo-400 truncate">
+                              {ch.shortTitle || ch.title}
+                            </h3>
+                          </div>
+                          <ArrowRight
+                            size={14}
+                            className="text-slate-400 group-hover:text-indigo-500 group-hover:translate-x-0.5 transition shrink-0"
+                          />
+                        </div>
+                        <p className="text-[11px] text-slate-500 dark:text-slate-400 line-clamp-2 leading-relaxed">
+                          {ch.summary}
+                        </p>
+                      </Link>
+
+                      <div className="flex items-center justify-between gap-2 pt-2 border-t border-slate-100 dark:border-slate-800/80">
+                        <span className="text-[10px] font-bold text-slate-400 truncate">
+                          {ch.fieldTable?.length || 0} parametre • {ch.badge}
+                        </span>
+                        <a
+                          href={`/pdfs/${ch.id}.pdf`}
+                          download={`nornia-${ch.number}-${ch.id}.pdf`}
+                          className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-slate-100 dark:bg-slate-800 hover:bg-indigo-50 dark:hover:bg-indigo-950/50 text-[10px] font-extrabold text-slate-600 dark:text-slate-300 hover:text-indigo-600 dark:hover:text-indigo-300 transition shrink-0"
+                          title={`${ch.shortTitle || ch.title} PDF indir`}
+                        >
+                          <FileDown size={11} />
+                          <span>PDF</span>
+                        </a>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </section>
+            );
+          })}
+        </div>
+      </div>
+    </DocsShell>
   );
 }

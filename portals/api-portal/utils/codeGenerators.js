@@ -2,24 +2,54 @@ export function resolveSamplePath(path) {
   return String(path || "")
     .replace(/\{call_id\}/g, "aida-1763890123-4918")
     .replace(/\{extension\}/g, "1000")
-    .replace(/\{queue_id\}/g, "6000");
+    .replace(/\{extension_or_id\}/g, "1000")
+    .replace(/\{queue_id\}/g, "6000")
+    .replace(/\{rule_id\}/g, "1")
+    .replace(/\{contact_id\}/g, "512")
+    .replace(/\{campaign_id\}/g, "1")
+    .replace(/\{session_id\}/g, "sess_101")
+    .replace(/\{task_id\}/g, "42")
+    .replace(/\{req_id\}/g, "12")
+    .replace(/\{session_key\}/g, "1000@192.168.1.50")
+    .replace(/\{site_code\}/g, "ANKARA-01")
+    .replace(/\{snapshot_id\}/g, "snap_20261123")
+    .replace(/\{crm_id\}/g, "hubspot");
+}
+
+function getAuthHeaders(endpoint, apiKey) {
+  const authType = endpoint?.auth_type || "api_key";
+  const key = apiKey || "aida_live_default_ORNEK_ANAHTAR";
+  if (authType === "session") {
+    return [
+      ["X-User-ID", "admin"],
+      ["X-Tenant-ID", "tenant-default"],
+      ["Authorization", `Bearer ${key}`]
+    ];
+  }
+  if (authType === "webhook") {
+    return [["X-Tenant-ID", "tenant-default"]];
+  }
+  return [["X-API-Key", key]];
 }
 
 export function generateCodeSnippet(lang, endpoint, baseUrl, apiKey) {
   const cleanBase = (baseUrl || "https://musteri.nornia.com.tr").replace(/\/+$/, "");
-  const key = apiKey || "aida_live_default_ORNEK_ANAHTAR";
   const method = (endpoint?.method || "GET").toUpperCase();
   const fullUrl = `${cleanBase}${resolveSamplePath(endpoint?.path || "/api/v1/system/capacity")}`;
-  const hasBody = endpoint?.sample_body !== null && endpoint?.sample_body !== undefined && ["POST", "PUT", "PATCH"].includes(method);
+  const hasBody =
+    endpoint?.sample_body !== null &&
+    endpoint?.sample_body !== undefined &&
+    ["POST", "PUT", "PATCH"].includes(method);
   const jsonPretty = hasBody ? JSON.stringify(endpoint.sample_body, null, 2) : "";
   const jsonCompact = hasBody ? JSON.stringify(endpoint.sample_body) : "";
+  const authHeaders = getAuthHeaders(endpoint, apiKey);
 
   if (lang === "curl") {
-    const lines = [
-      `curl -X ${method} "${fullUrl}" \\`,
-      `  -H "X-API-Key: ${key}" \\`,
-      `  -H "Accept: application/json"`
-    ];
+    const lines = [`curl -X ${method} "${fullUrl}" \\`];
+    authHeaders.forEach(([k, v]) => {
+      lines.push(`  -H "${k}: ${v}" \\`);
+    });
+    lines.push(`  -H "Accept: application/json"`);
     if (hasBody) {
       lines[lines.length - 1] += " \\";
       lines.push(`  -H "Content-Type: application/json" \\`);
@@ -29,21 +59,22 @@ export function generateCodeSnippet(lang, endpoint, baseUrl, apiKey) {
   }
 
   if (lang === "python") {
-    const lines = [
-      "import requests",
-      "",
-      `url = "${fullUrl}"`,
-      "headers = {",
-      `    "X-API-Key": "${key}",`,
-      `    "Content-Type": "application/json"`,
-      "}"
-    ];
+    const lines = ["import requests", "", `url = "${fullUrl}"`, "headers = {"];
+    authHeaders.forEach(([k, v]) => {
+      lines.push(`    "${k}": "${v}",`);
+    });
+    lines.push(`    "Content-Type": "application/json"`, "}");
     if (hasBody) {
       const pyBody = jsonPretty
         .replace(/: true/g, ": True")
         .replace(/: false/g, ": False")
         .replace(/: null/g, ": None");
-      lines.push("", `payload = ${pyBody}`, "", `response = requests.${method.toLowerCase()}(url, headers=headers, json=payload, timeout=15)`);
+      lines.push(
+        "",
+        `payload = ${pyBody}`,
+        "",
+        `response = requests.${method.toLowerCase()}(url, headers=headers, json=payload, timeout=15)`
+      );
     } else {
       lines.push("", `response = requests.${method.toLowerCase()}(url, headers=headers, timeout=15)`);
     }
@@ -52,14 +83,11 @@ export function generateCodeSnippet(lang, endpoint, baseUrl, apiKey) {
   }
 
   if (lang === "node") {
-    const lines = [
-      `const response = await fetch("${fullUrl}", {`,
-      `  method: "${method}",`,
-      "  headers: {",
-      `    "X-API-Key": "${key}",`,
-      `    "Content-Type": "application/json"`,
-      "  },"
-    ];
+    const lines = [`const response = await fetch("${fullUrl}", {`, `  method: "${method}",`, "  headers: {"];
+    authHeaders.forEach(([k, v]) => {
+      lines.push(`    "${k}": "${v}",`);
+    });
+    lines.push(`    "Content-Type": "application/json"`, "  },");
     if (hasBody) {
       lines.push(`  body: JSON.stringify(${jsonPretty.replace(/\n/g, "\n  ")})`);
     }
@@ -74,11 +102,12 @@ export function generateCodeSnippet(lang, endpoint, baseUrl, apiKey) {
       "curl_setopt_array($ch, [",
       "    CURLOPT_RETURNTRANSFER => true,",
       `    CURLOPT_CUSTOMREQUEST => "${method}",`,
-      "    CURLOPT_HTTPHEADER => [",
-      `        "X-API-Key: ${key}",`,
-      '        "Content-Type: application/json"',
-      "    ],"
+      "    CURLOPT_HTTPHEADER => ["
     ];
+    authHeaders.forEach(([k, v]) => {
+      lines.push(`        "${k}: ${v}",`);
+    });
+    lines.push('        "Content-Type: application/json"', "    ],");
     if (hasBody) {
       lines.push(`    CURLOPT_POSTFIELDS => '${jsonCompact}',`);
     }
@@ -87,14 +116,11 @@ export function generateCodeSnippet(lang, endpoint, baseUrl, apiKey) {
   }
 
   // csharp
-  const lines = [
-    "using System.Net.Http;",
-    "using System.Text;",
-    "",
-    "var client = new HttpClient();",
-    `client.DefaultRequestHeaders.Add("X-API-Key", "${key}");`,
-    ""
-  ];
+  const lines = ["using System.Net.Http;", "using System.Text;", "", "var client = new HttpClient();"];
+  authHeaders.forEach(([k, v]) => {
+    lines.push(`client.DefaultRequestHeaders.Add("${k}", "${v}");`);
+  });
+  lines.push("");
   if (hasBody) {
     const escaped = jsonCompact.replace(/"/g, '\\"');
     lines.push(`var content = new StringContent("${escaped}", Encoding.UTF8, "application/json");`);

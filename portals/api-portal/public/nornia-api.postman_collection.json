@@ -1,7 +1,7 @@
 {
   "info": {
-    "name": "Nornia Enterprise PBX API (v3.10.11)",
-    "description": "Nornia Enterprise AI PBX Kurumsal Dış API v1 Postman Koleksiyonu.",
+    "name": "Nornia Enterprise PBX Tam API Koleksiyonu (v3.10.11)",
+    "description": "Nornia Enterprise AI PBX Kurumsal Dış API v1 + Tüm Platform & Entegrasyon API'leri Postman Koleksiyonu.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "variable": [
@@ -12,6 +12,14 @@
     {
       "key": "api_key",
       "value": "aida_live_default_BURAYA_ANAHTARINIZI_YAZIN"
+    },
+    {
+      "key": "user_id",
+      "value": "admin"
+    },
+    {
+      "key": "tenant_id",
+      "value": "tenant-default"
     }
   ],
   "item": [
@@ -46,7 +54,7 @@
                 "originate"
               ]
             },
-            "description": "Önce temsilcinin dahili telefonunu (WebPhone / Masa Telefonu / Mobil) çaldırır; temsilci açtığında otomatik olarak hedef müşteri numarasını arar ve iki tarafı bağlar.\n\nGerekli Yetki (Scope): `calls:write`",
+            "description": "Önce temsilcinin dahili telefonunu (WebPhone / Masa Telefonu / Mobil) çaldırır; temsilci açtığında otomatik olarak hedef müşteri numarasını arar ve iki tarafı bağlar.\n\nAuth Tipi: `api_key` | Gerekli Yetki (Scope): `calls:write`",
             "body": {
               "mode": "raw",
               "raw": "{\n  \"extension\": \"1000\",\n  \"destination\": \"05321234567\",\n  \"caller_id\": \"908503607390\",\n  \"timeout\": 30\n}"
@@ -81,7 +89,7 @@
                 "active"
               ]
             },
-            "description": "Santral üzerinde o an konuşulan veya çalmakta olan tüm canlı çağrıları ve kanal bilgilerini döndürür.\n\nGerekli Yetki (Scope): `calls:read`"
+            "description": "Santral üzerinde o an konuşulan veya çalmakta olan tüm canlı çağrıları ve kanal bilgilerini döndürür.\n\nAuth Tipi: `api_key` | Gerekli Yetki (Scope): `calls:read`"
           }
         },
         {
@@ -113,7 +121,7 @@
                 "transfer"
               ]
             },
-            "description": "Devam eden bir görüşmeyi belirtilen dahili numaraya (örn. 1002), kuyruğa (örn. 2000) veya dış numaraya aktarır.\n\nGerekli Yetki (Scope): `calls:write`",
+            "description": "Devam eden bir görüşmeyi belirtilen dahili numaraya (örn. 1002), kuyruğa (örn. 2000) veya dış numaraya aktarır.\n\nAuth Tipi: `api_key` | Gerekli Yetki (Scope): `calls:write`",
             "body": {
               "mode": "raw",
               "raw": "{\n  \"target_extension\": \"1002\",\n  \"context\": \"webrtc_agents\"\n}"
@@ -149,7 +157,7 @@
                 "hangup"
               ]
             },
-            "description": "Belirtilen çağrı kimliğine (call_id) veya kanala ait aktif görüşmeyi sonlandırır.\n\nGerekli Yetki (Scope): `calls:write`",
+            "description": "Belirtilen çağrı kimliğine (call_id) veya kanala ait aktif görüşmeyi sonlandırır.\n\nAuth Tipi: `api_key` | Gerekli Yetki (Scope): `calls:write`",
             "body": {
               "mode": "raw",
               "raw": "{}"
@@ -185,7 +193,7 @@
                 "recording-pause"
               ]
             },
-            "description": "Görüşme esnasında müşteri kredi kartı veya KVKK hassas bilgisi söylerken ses kaydını (MixMonitor) duraklatır (`paused: true`) ve işlem bitince tekrar başlatır (`paused: false`).\n\nGerekli Yetki (Scope): `calls:write`",
+            "description": "Görüşme esnasında müşteri kredi kartı veya KVKK hassas bilgisi söylerken ses kaydını (MixMonitor) duraklatır (`paused: true`) ve işlem bitince tekrar başlatır (`paused: false`).\n\nAuth Tipi: `api_key` | Gerekli Yetki (Scope): `calls:write`",
             "body": {
               "mode": "raw",
               "raw": "{\n  \"extension\": \"1000\",\n  \"paused\": true\n}"
@@ -221,7 +229,7 @@
                 "hold"
               ]
             },
-            "description": "Aktif görüşmedeki müşteriyi bekleme müziğine (MoH) alır (`hold: true`) veya beklemeden çıkarıp görüşmeye geri döndürür (`hold: false`).\n\nGerekli Yetki (Scope): `calls:write`",
+            "description": "Aktif görüşmedeki müşteriyi bekleme müziğine (MoH) alır (`hold: true`) veya beklemeden çıkarıp görüşmeye geri döndürür (`hold: false`).\n\nAuth Tipi: `api_key` | Gerekli Yetki (Scope): `calls:write`",
             "body": {
               "mode": "raw",
               "raw": "{\n  \"extension\": \"1000\",\n  \"hold\": true\n}"
@@ -256,7 +264,7 @@
                 "monitor"
               ]
             },
-            "description": "Yöneticinin (`supervisor_extension`) seçilen temsilcinin (`target_extension`) aktif görüşmesini sessiz dinlemesini (`listen`), sadece temsilciye sufle vermesini (`whisper`) veya konferans olarak araya girmesini (`barge`) başlatır.\n\nGerekli Yetki (Scope): `calls:write`",
+            "description": "Yöneticinin (`supervisor_extension`) seçilen temsilcinin (`target_extension`) aktif görüşmesini sessiz dinlemesini (`listen`), sadece temsilciye sufle vermesini (`whisper`) veya konferans olarak araya girmesini (`barge`) başlatır.\n\nAuth Tipi: `api_key` | Gerekli Yetki (Scope): `calls:write`",
             "body": {
               "mode": "raw",
               "raw": "{\n  \"supervisor_extension\": \"1000\",\n  \"target_extension\": \"1001\",\n  \"mode\": \"whisper\"\n}"
@@ -295,7 +303,7 @@
                 "cdr"
               ]
             },
-            "description": "Tarih aralığı, yön (inbound/outbound), arayan numara, dahili abone ve durum filtreleriyle tüm çağrı kayıtlarını, ses kaydı URL'lerini ve transfer bacaklarını (call_legs) döndürür.\n\nGerekli Yetki (Scope): `cdr:read`"
+            "description": "Tarih aralığı, yön (inbound/outbound), arayan numara, dahili abone ve durum filtreleriyle tüm çağrı kayıtlarını, ses kaydı URL'lerini ve transfer bacaklarını (call_legs) döndürür.\n\nAuth Tipi: `api_key` | Gerekli Yetki (Scope): `cdr:read`"
           }
         },
         {
@@ -326,7 +334,7 @@
                 "{call_id}"
               ]
             },
-            "description": "Belirtilen çağrının tüm bacaklarını, duygu analizini, AI özetini, konuşma metnini (transkript) ve ses kaydı indirme bağlantılarını getirir.\n\nGerekli Yetki (Scope): `cdr:read`"
+            "description": "Belirtilen çağrının tüm bacaklarını, duygu analizini, AI özetini, konuşma metnini (transkript) ve ses kaydı indirme bağlantılarını getirir.\n\nAuth Tipi: `api_key` | Gerekli Yetki (Scope): `cdr:read`"
           }
         },
         {
@@ -358,7 +366,7 @@
                 "recording"
               ]
             },
-            "description": "Çağrının tam ses kaydını veya `leg_index` parametresiyle sadece belirli bir transfer görüşmesinin ses kaydını stream olarak indirir.\n\nGerekli Yetki (Scope): `cdr:read`"
+            "description": "Çağrının tam ses kaydını veya `leg_index` parametresiyle sadece belirli bir transfer görüşmesinin ses kaydını stream olarak indirir.\n\nAuth Tipi: `api_key` | Gerekli Yetki (Scope): `cdr:read`"
           }
         }
       ]
@@ -393,7 +401,7 @@
                 "extensions"
               ]
             },
-            "description": "Sistemdeki tüm kullanıcıları, dahili numaralarını, çevrimiçi IP durumlarını, ses kaydı ve çağrı yönlendirme ayarlarını listeler.\n\nGerekli Yetki (Scope): `extensions:read`"
+            "description": "Sistemdeki tüm kullanıcıları, dahili numaralarını, çevrimiçi IP durumlarını, ses kaydı ve çağrı yönlendirme ayarlarını listeler.\n\nAuth Tipi: `api_key` | Gerekli Yetki (Scope): `extensions:read`"
           }
         },
         {
@@ -423,7 +431,7 @@
                 "extensions"
               ]
             },
-            "description": "Santrale yeni bir dahili numara ve kullanıcı ekler, Asterisk PJSIP yapılandırmasını otomatik senkronize eder.\n\nGerekli Yetki (Scope): `extensions:write`",
+            "description": "Santrale yeni bir dahili numara ve kullanıcı ekler, Asterisk PJSIP yapılandırmasını otomatik senkronize eder.\n\nAuth Tipi: `api_key` | Gerekli Yetki (Scope): `extensions:write`",
             "body": {
               "mode": "raw",
               "raw": "{\n  \"username\": \"ahmet.yilmaz\",\n  \"full_name\": \"Ahmet Yılmaz\",\n  \"extension\": \"1025\",\n  \"email\": \"ahmet@sirket.com\",\n  \"role\": \"agent\",\n  \"recording_active\": true\n}"
@@ -458,7 +466,7 @@
                 "{extension}"
               ]
             },
-            "description": "Mevcut bir abonenin ses kayıt durumunu, çağrı yönlendirmelerini (Her Zaman / Meşgul / Cevapsız), CallerID veya aktiflik durumunu günceller.\n\nGerekli Yetki (Scope): `extensions:write`",
+            "description": "Mevcut bir abonenin ses kayıt durumunu, çağrı yönlendirmelerini (Her Zaman / Meşgul / Cevapsız), CallerID veya aktiflik durumunu günceller.\n\nAuth Tipi: `api_key` | Gerekli Yetki (Scope): `extensions:write`",
             "body": {
               "mode": "raw",
               "raw": "{\n  \"recording_active\": false,\n  \"outbound_caller_id\": \"908503607390\",\n  \"forwarding_no_answer\": {\n    \"active\": true,\n    \"type\": \"external\",\n    \"target\": \"05321234567\",\n    \"timeout\": 25\n  }\n}"
@@ -494,7 +502,7 @@
                 "status"
               ]
             },
-            "description": "Temsilciyi dış sistemden (CRM/WFM) Müsait (available) duruma geçirir veya belirtilen mola türüyle molaya (break) çıkarır.\n\nGerekli Yetki (Scope): `extensions:write`",
+            "description": "Temsilciyi dış sistemden (CRM/WFM) Müsait (available) duruma geçirir veya belirtilen mola türüyle molaya (break) çıkarır.\n\nAuth Tipi: `api_key` | Gerekli Yetki (Scope): `extensions:write`",
             "body": {
               "mode": "raw",
               "raw": "{\n  \"status\": \"break\",\n  \"break_reason\": \"Yemek Molası\"\n}"
@@ -529,7 +537,7 @@
                 "{extension}"
               ]
             },
-            "description": "Belirtilen dahili aboneyi santralden ve PJSIP yapılandırmasından kaldırır.\n\nGerekli Yetki (Scope): `extensions:delete`"
+            "description": "Belirtilen dahili aboneyi santralden ve PJSIP yapılandırmasından kaldırır.\n\nAuth Tipi: `api_key` | Gerekli Yetki (Scope): `extensions:delete`"
           }
         }
       ]
@@ -564,7 +572,7 @@
                 "queues"
               ]
             },
-            "description": "Tüm çağrı kuyruklarını, çalma stratejilerini, RONA/anket ayarlarını ve kuyruktaki dahili temsilcileri listeler.\n\nGerekli Yetki (Scope): `queues:read`"
+            "description": "Tüm çağrı kuyruklarını, çalma stratejilerini, RONA/anket ayarlarını ve kuyruktaki dahili temsilcileri listeler.\n\nAuth Tipi: `api_key` | Gerekli Yetki (Scope): `queues:read`"
           }
         },
         {
@@ -594,7 +602,7 @@
                 "queues"
               ]
             },
-            "description": "Yeni bir çağrı kuyruğu oluşturur ve Asterisk queues.conf dosyasını otomatik günceller.\n\nGerekli Yetki (Scope): `queues:write`",
+            "description": "Yeni bir çağrı kuyruğu oluşturur ve Asterisk queues.conf dosyasını otomatik günceller.\n\nAuth Tipi: `api_key` | Gerekli Yetki (Scope): `queues:write`",
             "body": {
               "mode": "raw",
               "raw": "{\n  \"name\": \"VIP Destek Kuyruğu\",\n  \"extension\": \"2050\",\n  \"strategy\": \"rrmemory\",\n  \"timeout\": 20,\n  \"wrapup_time\": 10,\n  \"members\": [\n    \"1000\",\n    \"1001\"\n  ]\n}"
@@ -629,11 +637,42 @@
                 "{queue_id}"
               ]
             },
-            "description": "Kuyruğun çalma stratejisini, bekleme sürelerini, anonslarını günceller veya kuyruğa temsilci ekler/çıkarır.\n\nGerekli Yetki (Scope): `queues:write`",
+            "description": "Kuyruğun çalma stratejisini, bekleme sürelerini, anonslarını günceller veya kuyruğa temsilci ekler/çıkarır.\n\nAuth Tipi: `api_key` | Gerekli Yetki (Scope): `queues:write`",
             "body": {
               "mode": "raw",
               "raw": "{\n  \"strategy\": \"leastrecent\",\n  \"timeout\": 25,\n  \"member_action\": \"add\",\n  \"member_extensions\": [\n    \"1005\"\n  ]\n}"
             }
+          }
+        },
+        {
+          "name": "ACD Çağrı Kuyruğunu Silme",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "X-API-Key",
+                "value": "{{api_key}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/queues/6000",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "queues",
+                "{queue_id}"
+              ]
+            },
+            "description": "Belirtilen ACD kuyruğunu santralden ve Asterisk queues_custom.conf yapılandırmasından kaldırır.\n\nAuth Tipi: `api_key` | Gerekli Yetki (Scope): `queues:delete`"
           }
         },
         {
@@ -663,7 +702,7 @@
                 "subscriber-groups"
               ]
             },
-            "description": "Santraldeki tüm abone gruplarını, grup üyelerini ve atanmış giden arama kurallarını döndürür.\n\nGerekli Yetki (Scope): `queues:read`"
+            "description": "Santraldeki tüm abone gruplarını, grup üyelerini ve atanmış giden arama kurallarını döndürür.\n\nAuth Tipi: `api_key` | Gerekli Yetki (Scope): `queues:read`"
           }
         }
       ]
@@ -698,7 +737,7 @@
                 "inbound-rules"
               ]
             },
-            "description": "Dış hat numaralarına (DID) gelen çağrıların hangi kuyruk, dahili veya AI asistana yönlendirildiğini listeler.\n\nGerekli Yetki (Scope): `routing:read`"
+            "description": "Dış hat numaralarına (DID) gelen çağrıların hangi kuyruk, dahili veya AI asistana yönlendirildiğini listeler.\n\nAuth Tipi: `api_key` | Gerekli Yetki (Scope): `routing:read`"
           }
         },
         {
@@ -728,7 +767,7 @@
                 "outbound-rules"
               ]
             },
-            "description": "Giden arama kurallarını, önekleri (prefix), kullanılan SIP Trunk ve PIN politikalarını listeler.\n\nGerekli Yetki (Scope): `routing:read`"
+            "description": "Giden arama kurallarını, önekleri (prefix), kullanılan SIP Trunk ve PIN politikalarını listeler.\n\nAuth Tipi: `api_key` | Gerekli Yetki (Scope): `routing:read`"
           }
         },
         {
@@ -758,7 +797,7 @@
                 "trunks"
               ]
             },
-            "description": "Operatör SIP Trunk tanımlarını, DID numaralarını ve anlık SIP kayıt durumlarını döndürür.\n\nGerekli Yetki (Scope): `routing:read`"
+            "description": "Operatör SIP Trunk tanımlarını, DID numaralarını ve anlık SIP kayıt durumlarını döndürür.\n\nAuth Tipi: `api_key` | Gerekli Yetki (Scope): `routing:read`"
           }
         },
         {
@@ -789,7 +828,7 @@
                 "apply"
               ]
             },
-            "description": "Kullanıcılar, abone grupları, kuyruklar veya arama kuralları üzerinde tek istekle toplu özellik değişikliği uygular.\n\nGerekli Yetki (Scope): `routing:write`",
+            "description": "Kullanıcılar, abone grupları, kuyruklar veya arama kuralları üzerinde tek istekle toplu özellik değişikliği uygular.\n\nAuth Tipi: `api_key` | Gerekli Yetki (Scope): `routing:write`",
             "body": {
               "mode": "raw",
               "raw": "{\n  \"module\": \"users\",\n  \"target_mode\": \"all\",\n  \"changes\": {\n    \"recording_active\": false\n  }\n}"
@@ -823,11 +862,42 @@
                 "inbound-rules"
               ]
             },
-            "description": "Belirtilen DID numarasına gelen çağrıları seçilen kuyruk, dahili veya AI asistana yönlendiren yeni kural oluşturur.\n\nGerekli Yetki (Scope): `routing:write`",
+            "description": "Belirtilen DID numarasına gelen çağrıları seçilen kuyruk, dahili veya AI asistana yönlendiren yeni kural oluşturur.\n\nAuth Tipi: `api_key` | Gerekli Yetki (Scope): `routing:write`",
             "body": {
               "mode": "raw",
               "raw": "{\n  \"did_number\": \"908503607390\",\n  \"destination_type\": \"queue\",\n  \"destination_value\": \"2000\",\n  \"description\": \"Ana Hat -> Satış Kuyruğu\"\n}"
             }
+          }
+        },
+        {
+          "name": "Gelen Arama (DID) Kuralını Silme",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "X-API-Key",
+                "value": "{{api_key}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/inbound-rules/1",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "inbound-rules",
+                "{rule_id}"
+              ]
+            },
+            "description": "Belirtilen kimliğe (rule_id) sahip gelen arama yönlendirme kuralını siler ve dialplanı günceller.\n\nAuth Tipi: `api_key` | Gerekli Yetki (Scope): `routing:delete`"
           }
         },
         {
@@ -857,11 +927,42 @@
                 "outbound-rules"
               ]
             },
-            "description": "Belirtilen önek (prefix) ve SIP Trunk üzerinden dış arama kuralı oluşturur.\n\nGerekli Yetki (Scope): `routing:write`",
+            "description": "Belirtilen önek (prefix) ve SIP Trunk üzerinden dış arama kuralı oluşturur.\n\nAuth Tipi: `api_key` | Gerekli Yetki (Scope): `routing:write`",
             "body": {
               "mode": "raw",
               "raw": "{\n  \"name\": \"Yurtiçi GSM Aramaları\",\n  \"prefix\": \"05\",\n  \"trunk_id\": 1,\n  \"caller_id\": \"908503607390\"\n}"
             }
+          }
+        },
+        {
+          "name": "Giden Arama Kuralını Silme",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "X-API-Key",
+                "value": "{{api_key}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/outbound-rules/1",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "outbound-rules",
+                "{rule_id}"
+              ]
+            },
+            "description": "Belirtilen kimliğe (rule_id) sahip giden arama kuralını siler ve dialplanı yeniden senkronize eder.\n\nAuth Tipi: `api_key` | Gerekli Yetki (Scope): `routing:delete`"
           }
         }
       ]
@@ -896,7 +997,7 @@
                 "contacts"
               ]
             },
-            "description": "Rehberde kayıtlı müşterileri telefon numarası veya isme göre filtreleyerek döndürür.\n\nGerekli Yetki (Scope): `crm:read`"
+            "description": "Rehberde kayıtlı müşterileri telefon numarası veya isme göre filtreleyerek döndürür.\n\nAuth Tipi: `api_key` | Gerekli Yetki (Scope): `crm:read`"
           }
         },
         {
@@ -926,11 +1027,42 @@
                 "contacts"
               ]
             },
-            "description": "Dış CRM veya ERP sisteminden santral rehberine yeni müşteri kartı ekler (Arayan kimliği eşleşmesi için).\n\nGerekli Yetki (Scope): `crm:write`",
+            "description": "Dış CRM veya ERP sisteminden santral rehberine yeni müşteri kartı ekler (Arayan kimliği eşleşmesi için).\n\nAuth Tipi: `api_key` | Gerekli Yetki (Scope): `crm:write`",
             "body": {
               "mode": "raw",
               "raw": "{\n  \"name\": \"Mehmet Demir\",\n  \"phone\": \"05329876543\",\n  \"company\": \"Demir Lojistik A.Ş.\",\n  \"email\": \"mehmet@demirlojistik.com\",\n  \"notes\": \"Kurumsal VIP Müşteri\"\n}"
             }
+          }
+        },
+        {
+          "name": "Rehberden Müşteri / Kişi Kaydını Silme",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "X-API-Key",
+                "value": "{{api_key}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/contacts/512",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "contacts",
+                "{contact_id}"
+              ]
+            },
+            "description": "Belirtilen contact_id değerine sahip müşteri kartını santral rehberinden kalıcı olarak siler.\n\nAuth Tipi: `api_key` | Gerekli Yetki (Scope): `crm:delete`"
           }
         },
         {
@@ -960,7 +1092,7 @@
                 "blacklist"
               ]
             },
-            "description": "Kara listedeki tüm telefon numaralarını ve engellenme nedenlerini döndürür.\n\nGerekli Yetki (Scope): `crm:read`"
+            "description": "Kara listedeki tüm telefon numaralarını ve engellenme nedenlerini döndürür.\n\nAuth Tipi: `api_key` | Gerekli Yetki (Scope): `crm:read`"
           }
         },
         {
@@ -990,7 +1122,7 @@
                 "blacklist"
               ]
             },
-            "description": "Belirtilen telefon numarasını santral kara listesine ekler.\n\nGerekli Yetki (Scope): `crm:write`",
+            "description": "Belirtilen telefon numarasını santral kara listesine ekler.\n\nAuth Tipi: `api_key` | Gerekli Yetki (Scope): `crm:write`",
             "body": {
               "mode": "raw",
               "raw": "{\n  \"phone_number\": \"05320001122\",\n  \"reason\": \"Spam / İstenmeyen Arama\"\n}"
@@ -1024,7 +1156,7 @@
                 "appointments"
               ]
             },
-            "description": "AI Asistan veya temsilciler tarafından oluşturulan tüm randevuları listeler.\n\nGerekli Yetki (Scope): `crm:read`"
+            "description": "AI Asistan veya temsilciler tarafından oluşturulan tüm randevuları listeler.\n\nAuth Tipi: `api_key` | Gerekli Yetki (Scope): `crm:read`"
           }
         },
         {
@@ -1054,7 +1186,7 @@
                 "appointments"
               ]
             },
-            "description": "Takvime yeni bir müşteri randevusu ekler.\n\nGerekli Yetki (Scope): `crm:write`",
+            "description": "Takvime yeni bir müşteri randevusu ekler.\n\nAuth Tipi: `api_key` | Gerekli Yetki (Scope): `crm:write`",
             "body": {
               "mode": "raw",
               "raw": "{\n  \"customer_name\": \"Ayşe Kaya\",\n  \"customer_phone\": \"05421112233\",\n  \"appointment_date\": \"2026-11-15 14:30\",\n  \"notes\": \"Ürün Demo Görüşmesi\"\n}"
@@ -1095,7 +1227,7 @@
                 "send"
               ]
             },
-            "description": "Santrale bağlı resmi WhatsApp Business hattı üzerinden müşteriye anlık bildirim veya mesaj gönderir.\n\nGerekli Yetki (Scope): `ai_omnichannel:write`",
+            "description": "Santrale bağlı resmi WhatsApp Business hattı üzerinden müşteriye anlık bildirim veya mesaj gönderir.\n\nAuth Tipi: `api_key` | Gerekli Yetki (Scope): `ai_omnichannel:write`",
             "body": {
               "mode": "raw",
               "raw": "{\n  \"phone\": \"905321234567\",\n  \"message\": \"Sayın müşterimiz, siparişiniz kargoya verilmiştir.\"\n}"
@@ -1130,7 +1262,7 @@
                 "originate"
               ]
             },
-            "description": "Belirtilen müşteri numarasını doğrudan seçilen AI Sesli Asistan ile arar ve senaryoyu konuşturur.\n\nGerekli Yetki (Scope): `ai_omnichannel:write`",
+            "description": "Belirtilen müşteri numarasını doğrudan seçilen AI Sesli Asistan ile arar ve senaryoyu konuşturur.\n\nAuth Tipi: `api_key` | Gerekli Yetki (Scope): `ai_omnichannel:write`",
             "body": {
               "mode": "raw",
               "raw": "{\n  \"phone_number\": \"05321234567\",\n  \"agent_name\": \"Sales_AI\",\n  \"custom_context\": \"Müşteri adı: Ali Veli, Randevu teyidi için aranıyor.\"\n}"
@@ -1164,7 +1296,7 @@
                 "ai-agents"
               ]
             },
-            "description": "Sistemdeki tüm AI sesli temsilcilerini, kullandıkları dil modellerini ve senaryo talimatlarını döndürür.\n\nGerekli Yetki (Scope): `ai_omnichannel:read`"
+            "description": "Sistemdeki tüm AI sesli temsilcilerini, kullandıkları dil modellerini ve senaryo talimatlarını döndürür.\n\nAuth Tipi: `api_key` | Gerekli Yetki (Scope): `ai_omnichannel:read`"
           }
         }
       ]
@@ -1172,6 +1304,36 @@
     {
       "name": "8. Konferans Odaları, Hızlı Arama, Sesli Posta (Voicemail), Webhook & Sistem Kapasitesi",
       "item": [
+        {
+          "name": "API Sağlık Kontrolü & Anahtar Doğrulama Testi (Ping)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-API-Key",
+                "value": "{{api_key}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/status",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "status"
+              ]
+            },
+            "description": "Gönderilen X-API-Key / Bearer anahtarının geçerliliğini, bağlı müşteri (tenant) kodunu, tanımlı yetki kapsamlarını (scopes) ve santral saatini anlık doğrular.\n\nAuth Tipi: `api_key` | Gerekli Yetki (Scope): `calls:read`"
+          }
+        },
         {
           "name": "Santral Kapasite, Lisans ve Anlık Kanal Sağlığı Sorgulama",
           "request": {
@@ -1200,7 +1362,7 @@
                 "capacity"
               ]
             },
-            "description": "Toplam dahili abone sayısını, çevrimiçi SIP cihazlarını, aktif çağrı kanallarını, kuyrukları, SIP Trunk durumunu ve lisans kapasitesini döndürür.\n\nGerekli Yetki (Scope): `pbx_features:read`"
+            "description": "Toplam dahili abone sayısını, çevrimiçi SIP cihazlarını, aktif çağrı kanallarını, kuyrukları, SIP Trunk durumunu ve lisans kapasitesini döndürür.\n\nAuth Tipi: `api_key` | Gerekli Yetki (Scope): `pbx_features:read`"
           }
         },
         {
@@ -1230,7 +1392,7 @@
                 "conferences"
               ]
             },
-            "description": "Santraldeki tüm konferans odalarını, oda numaralarını ve PIN ayarlarını döndürür.\n\nGerekli Yetki (Scope): `pbx_features:read`"
+            "description": "Santraldeki tüm konferans odalarını, oda numaralarını ve PIN ayarlarını döndürür.\n\nAuth Tipi: `api_key` | Gerekli Yetki (Scope): `pbx_features:read`"
           }
         },
         {
@@ -1260,7 +1422,7 @@
                 "conferences"
               ]
             },
-            "description": "Yeni bir sesli konferans odası oluşturur.\n\nGerekli Yetki (Scope): `pbx_features:write`",
+            "description": "Yeni bir sesli konferans odası oluşturur.\n\nAuth Tipi: `api_key` | Gerekli Yetki (Scope): `pbx_features:write`",
             "body": {
               "mode": "raw",
               "raw": "{\n  \"name\": \"Yönetim Kurulu Konferansı\",\n  \"room_number\": \"3010\",\n  \"pin\": \"1453\"\n}"
@@ -1294,7 +1456,7 @@
                 "speed-dials"
               ]
             },
-            "description": "Tanımlı hızlı arama kodlarını ve hedef numaralarını listeler.\n\nGerekli Yetki (Scope): `pbx_features:read`"
+            "description": "Tanımlı hızlı arama kodlarını ve hedef numaralarını listeler.\n\nAuth Tipi: `api_key` | Gerekli Yetki (Scope): `pbx_features:read`"
           }
         },
         {
@@ -1324,7 +1486,7 @@
                 "voicemails"
               ]
             },
-            "description": "Bırakılan sesli posta mesajlarını, arayan numarayı, süreyi ve ses dosyası bağlantılarını listeler.\n\nGerekli Yetki (Scope): `pbx_features:read`"
+            "description": "Bırakılan sesli posta mesajlarını, arayan numarayı, süreyi ve ses dosyası bağlantılarını listeler.\n\nAuth Tipi: `api_key` | Gerekli Yetki (Scope): `pbx_features:read`"
           }
         },
         {
@@ -1354,7 +1516,7 @@
                 "announcements"
               ]
             },
-            "description": "Karşılama, mesai dışı ve IVR anons dosyalarını listeler.\n\nGerekli Yetki (Scope): `pbx_features:read`"
+            "description": "Karşılama, mesai dışı ve IVR anons dosyalarını listeler.\n\nAuth Tipi: `api_key` | Gerekli Yetki (Scope): `pbx_features:read`"
           }
         },
         {
@@ -1385,11 +1547,2633 @@
                 "subscribe"
               ]
             },
-            "description": "Santralde çağrı başladığında (`call.ringing`), cevaplandığında (`call.answered`), aktarıldığında (`call.transferred`) veya kapandığında (`call.ended`) dış CRM/ERP adresinize (`webhook_url`) anlık HTTP POST bildirimi gönderilmesini sağlar.\n\nGerekli Yetki (Scope): `pbx_features:write`",
+            "description": "Santralde çağrı başladığında (`call.ringing`), cevaplandığında (`call.answered`), aktarıldığında (`call.transferred`) veya kapandığında (`call.ended`) dış CRM/ERP adresinize (`webhook_url`) anlık HTTP POST bildirimi gönderilmesini sağlar.\n\nAuth Tipi: `api_key` | Gerekli Yetki (Scope): `pbx_features:write`",
             "body": {
               "mode": "raw",
               "raw": "{\n  \"webhook_url\": \"https://crm.sirketiniz.com/api/pbx-events\",\n  \"secret\": \"gizli_imza_anahtari_123\",\n  \"events\": [\n    \"call.ringing\",\n    \"call.answered\",\n    \"call.transferred\",\n    \"call.ended\"\n  ]\n}"
             }
+          }
+        }
+      ]
+    },
+    {
+      "name": "9. CTI & CRM Screen Pop (Arayan Tanıma & Otomatik Kart Açma)",
+      "item": [
+        {
+          "name": "Gelen Numarayı CRM'de Sorgula & Screen Pop URL Üret",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-User-ID",
+                "value": "{{user_id}}",
+                "type": "text"
+              },
+              {
+                "key": "X-Tenant-ID",
+                "value": "{{tenant_id}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/cti/lookup",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "cti",
+                "lookup"
+              ]
+            },
+            "description": "Gelen çağrıdaki arayan numarayı (caller_number) santral rehberi ve tanımlı dış CRM sistemlerinde (Zoho, HubSpot, Salesforce, Bitrix24 veya Özel HTTP) sorgular; müşteri özetini ve otomatik açılacak CRM kart URL'sini döndürür.\n\nAuth Tipi: `session` | Gerekli Yetki (Scope): `cti_integration:read`",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"phone\": \"05321234567\",\n  \"did\": \"908503607390\",\n  \"extension\": \"1000\"\n}"
+            }
+          }
+        },
+        {
+          "name": "CTI / CRM Bağlantı & Webhook Testi",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-User-ID",
+                "value": "{{user_id}}",
+                "type": "text"
+              },
+              {
+                "key": "X-Tenant-ID",
+                "value": "{{tenant_id}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/cti/test",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "cti",
+                "test"
+              ]
+            },
+            "description": "Yapılandırılan harici CRM/CTI URL şablonunu veya HTTP sorgu ucunu örnek bir telefon numarasıyla test eder, HTTP yanıt kodu ve gecikme süresini (ms) raporlar.\n\nAuth Tipi: `session` | Gerekli Yetki (Scope): `cti_integration:write`",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"test_phone\": \"05321234567\",\n  \"crm_url\": \"https://crm.sirket.com/api/lookup?phone={phone}\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Tanımlı Hazır CRM Entegrasyonlarını Listele",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-User-ID",
+                "value": "{{user_id}}",
+                "type": "text"
+              },
+              {
+                "key": "X-Tenant-ID",
+                "value": "{{tenant_id}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/settings/crm-integrations",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "settings",
+                "crm-integrations"
+              ]
+            },
+            "description": "Santralde aktif olan Zoho, HubSpot, Salesforce, Bitrix24 ve özel CRM bağlayıcılarını döndürür.\n\nAuth Tipi: `session` | Gerekli Yetki (Scope): `crm_integrations:read`"
+          }
+        },
+        {
+          "name": "CRM Entegrasyonu Ekle / Güncelle",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-User-ID",
+                "value": "{{user_id}}",
+                "type": "text"
+              },
+              {
+                "key": "X-Tenant-ID",
+                "value": "{{tenant_id}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/settings/crm-integrations",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "settings",
+                "crm-integrations"
+              ]
+            },
+            "description": "Yeni bir CRM bağlayıcısı kaydeder veya mevcut bağlayıcının kimlik doğrulama ve alan eşleştirme kurallarını günceller.\n\nAuth Tipi: `session` | Gerekli Yetki (Scope): `crm_integrations:write`",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"provider\": \"hubspot\",\n  \"enabled\": true,\n  \"api_token\": \"pat-eu1-xxxx\",\n  \"auto_log_calls\": true\n}"
+            }
+          }
+        },
+        {
+          "name": "Seçili CRM Bağlayıcısını Canlı Test Et",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-User-ID",
+                "value": "{{user_id}}",
+                "type": "text"
+              },
+              {
+                "key": "X-Tenant-ID",
+                "value": "{{tenant_id}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/settings/crm-integrations/hubspot/test",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "settings",
+                "crm-integrations",
+                "{crm_id}",
+                "test"
+              ]
+            },
+            "description": "Belirtilen CRM entegrasyonunun API token geçerliliğini ve erişilebilirliğini canlı test eder.\n\nAuth Tipi: `session` | Gerekli Yetki (Scope): `crm_integrations:write`",
+            "body": {
+              "mode": "raw",
+              "raw": "{}"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "10. Otomatik Dış Arama (Dialer) & Kampanya Yönetimi API",
+      "item": [
+        {
+          "name": "Dış Arama (Dialer) Kampanyalarını Listele",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-User-ID",
+                "value": "{{user_id}}",
+                "type": "text"
+              },
+              {
+                "key": "X-Tenant-ID",
+                "value": "{{tenant_id}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/settings/dialer/campaigns",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "settings",
+                "dialer",
+                "campaigns"
+              ]
+            },
+            "description": "Tüm aktif, duraklatılmış ve tamamlanmış otomatik dış arama kampanyalarını, ilerleme yüzdelerini ve eşzamanlı kanal limitlerini döndürür.\n\nAuth Tipi: `session` | Gerekli Yetki (Scope): `dialer:read`"
+          }
+        },
+        {
+          "name": "Yeni Dış Arama Kampanyası Oluştur",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-User-ID",
+                "value": "{{user_id}}",
+                "type": "text"
+              },
+              {
+                "key": "X-Tenant-ID",
+                "value": "{{tenant_id}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/settings/dialer/campaigns",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "settings",
+                "dialer",
+                "campaigns"
+              ]
+            },
+            "description": "AI Asistan, ACD Kuyruk veya IVR/Anons hedefli yeni bir otomatik dış arama kampanyası oluşturur.\n\nAuth Tipi: `session` | Gerekli Yetki (Scope): `dialer:write`",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Kasım Yenileme Kampanyası\",\n  \"mode\": \"ai_agent\",\n  \"target_id\": \"Sales_AI\",\n  \"max_concurrent\": 5,\n  \"caller_id\": \"908503607390\",\n  \"retry_limit\": 2,\n  \"retry_delay_minutes\": 30\n}"
+            }
+          }
+        },
+        {
+          "name": "Kampanyaya Aranacak Numara Listesi Yükle (JSON / CSV)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-User-ID",
+                "value": "{{user_id}}",
+                "type": "text"
+              },
+              {
+                "key": "X-Tenant-ID",
+                "value": "{{tenant_id}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/settings/dialer/campaigns/1/upload-list",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "settings",
+                "dialer",
+                "campaigns",
+                "{campaign_id}",
+                "upload-list"
+              ]
+            },
+            "description": "Belirtilen kampanyaya müşteri adı, telefon numarası ve özel değişkenlerle (örn. fatura tutarı, son ödeme tarihi) toplu arama listesi yükler.\n\nAuth Tipi: `session` | Gerekli Yetki (Scope): `dialer:write`",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"records\": [\n    {\n      \"name\": \"Ali Kaya\",\n      \"phone\": \"05321112233\",\n      \"custom_data\": {\n        \"borc\": \"1.250 TL\"\n      }\n    },\n    {\n      \"name\": \"Zeynep Demir\",\n      \"phone\": \"05423334455\",\n      \"custom_data\": {\n        \"borc\": \"890 TL\"\n      }\n    }\n  ]\n}"
+            }
+          }
+        },
+        {
+          "name": "Kampanyayı Başlat / Duraklat / Durdur",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-User-ID",
+                "value": "{{user_id}}",
+                "type": "text"
+              },
+              {
+                "key": "X-Tenant-ID",
+                "value": "{{tenant_id}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/settings/dialer/campaigns/1/control",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "settings",
+                "dialer",
+                "campaigns",
+                "{campaign_id}",
+                "control"
+              ]
+            },
+            "description": "Belirtilen kampanyanın çalışma durumunu `start`, `pause`, `resume` veya `stop` aksiyonlarıyla anlık yönetir.\n\nAuth Tipi: `session` | Gerekli Yetki (Scope): `dialer:write`",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"action\": \"start\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Dış Arama Kampanyasını Sil",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "X-User-ID",
+                "value": "{{user_id}}",
+                "type": "text"
+              },
+              {
+                "key": "X-Tenant-ID",
+                "value": "{{tenant_id}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/settings/dialer/campaigns/1",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "settings",
+                "dialer",
+                "campaigns",
+                "{campaign_id}"
+              ]
+            },
+            "description": "Kampanyayı ve bekleyen arama kuyruğunu kalıcı olarak siler.\n\nAuth Tipi: `session` | Gerekli Yetki (Scope): `dialer:delete`"
+          }
+        },
+        {
+          "name": "Kampanya Arama Kayıtlarını ve Sonuçlarını Çek",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-User-ID",
+                "value": "{{user_id}}",
+                "type": "text"
+              },
+              {
+                "key": "X-Tenant-ID",
+                "value": "{{tenant_id}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/dialer/records?campaign_id=1&status=completed",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "dialer",
+                "records"
+              ]
+            },
+            "description": "Kampanyadaki her numaranın arama sonucunu (ANSWERED, NOANSWER, BUSY, FAILED), deneme sayısını ve AI özetini listeler.\n\nAuth Tipi: `session` | Gerekli Yetki (Scope): `dialer:read`"
+          }
+        }
+      ]
+    },
+    {
+      "name": "11. Omnichannel (WhatsApp, Telegram, Meta, E-Posta) & Ortak Gelen Kutusu API",
+      "item": [
+        {
+          "name": "Omnichannel Sohbet Oturumlarını Listele",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-User-ID",
+                "value": "{{user_id}}",
+                "type": "text"
+              },
+              {
+                "key": "X-Tenant-ID",
+                "value": "{{tenant_id}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/omnichannel/chats?channel=whatsapp&status=open",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "omnichannel",
+                "chats"
+              ]
+            },
+            "description": "WhatsApp, Telegram, Instagram, Facebook Messenger, E-Posta ve Webchat kanallarındaki tüm aktif ve kapalı sohbet oturumlarını listeler.\n\nAuth Tipi: `session` | Gerekli Yetki (Scope): `omnichannel:access`"
+          }
+        },
+        {
+          "name": "Sohbet Oturumunun Mesaj Geçmişini Getir",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-User-ID",
+                "value": "{{user_id}}",
+                "type": "text"
+              },
+              {
+                "key": "X-Tenant-ID",
+                "value": "{{tenant_id}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/omnichannel/chats/sess_101/messages",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "omnichannel",
+                "chats",
+                "{session_id}",
+                "messages"
+              ]
+            },
+            "description": "Belirtilen sohbet oturumundaki tüm müşteri, AI asistan ve temsilci mesajlarını medya ekleriyle kronolojik döndürür.\n\nAuth Tipi: `session` | Gerekli Yetki (Scope): `omnichannel:access`"
+          }
+        },
+        {
+          "name": "Aktif Sohbet Oturumuna Yanıt Gönder",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-User-ID",
+                "value": "{{user_id}}",
+                "type": "text"
+              },
+              {
+                "key": "X-Tenant-ID",
+                "value": "{{tenant_id}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/omnichannel/chats/sess_101/send",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "omnichannel",
+                "chats",
+                "{session_id}",
+                "send"
+              ]
+            },
+            "description": "Oturumun bağlı olduğu kanal (WhatsApp / Telegram / Instagram / E-Posta) üzerinden müşteriye metin veya medya yanıtı gönderir.\n\nAuth Tipi: `session` | Gerekli Yetki (Scope): `omnichannel:access`",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"content\": \"Merhaba, talebiniz işleme alındı. Kargo kodunuz: TR9918273.\",\n  \"sender\": \"agent\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Sohbeti Yapay Zekadan İnsan Temsilciye Devral",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-User-ID",
+                "value": "{{user_id}}",
+                "type": "text"
+              },
+              {
+                "key": "X-Tenant-ID",
+                "value": "{{tenant_id}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/omnichannel/chats/sess_101/takeover",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "omnichannel",
+                "chats",
+                "{session_id}",
+                "takeover"
+              ]
+            },
+            "description": "AI Asistan tarafından yönetilen bir sohbeti insan temsilciye devreder; AI otomatik yanıtlamayı durdurur.\n\nAuth Tipi: `session` | Gerekli Yetki (Scope): `omnichannel:access`",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"agent_id\": \"1000\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Sohbeti Yeniden Yapay Zeka Asistanına Devret",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-User-ID",
+                "value": "{{user_id}}",
+                "type": "text"
+              },
+              {
+                "key": "X-Tenant-ID",
+                "value": "{{tenant_id}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/omnichannel/chats/sess_101/transfer_to_ai",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "omnichannel",
+                "chats",
+                "{session_id}",
+                "transfer_to_ai"
+              ]
+            },
+            "description": "İnsan temsilci müdahalesi tamamlandığında sohbeti tekrar otomatik AI yanıt moduna geçirir.\n\nAuth Tipi: `session` | Gerekli Yetki (Scope): `omnichannel:access`",
+            "body": {
+              "mode": "raw",
+              "raw": "{}"
+            }
+          }
+        },
+        {
+          "name": "WhatsApp Toplu Kampanya / Bilgilendirme Gönderimi",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-User-ID",
+                "value": "{{user_id}}",
+                "type": "text"
+              },
+              {
+                "key": "X-Tenant-ID",
+                "value": "{{tenant_id}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/omnichannel/whatsapp/broadcast",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "omnichannel",
+                "whatsapp",
+                "broadcast"
+              ]
+            },
+            "description": "Birden fazla telefon numarasına resmi Meta WhatsApp Business Cloud API üzerinden kontrollü hızda toplu duyuru veya şablon gönderir.\n\nAuth Tipi: `session` | Gerekli Yetki (Scope): `omnichannel:access`",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"phones\": [\n    \"905321234567\",\n    \"905429876543\"\n  ],\n  \"message\": \"Yeni kampanyamız başladı! Detaylar için yanıtlayın.\",\n  \"account_id\": \"default\"\n}"
+            }
+          }
+        },
+        {
+          "name": "WhatsApp Etkileşimli Hızlı Yanıt Butonları Gönder",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-User-ID",
+                "value": "{{user_id}}",
+                "type": "text"
+              },
+              {
+                "key": "X-Tenant-ID",
+                "value": "{{tenant_id}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/omnichannel/whatsapp/buttons",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "omnichannel",
+                "whatsapp",
+                "buttons"
+              ]
+            },
+            "description": "Müşteriye en fazla 3 adet tıklanabilir Meta Quick-Reply butonu içeren interaktif mesaj gönderir.\n\nAuth Tipi: `session` | Gerekli Yetki (Scope): `omnichannel:access`",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"phone\": \"905321234567\",\n  \"body_text\": \"Size nasıl yardımcı olabiliriz?\",\n  \"buttons\": [\n    \"Fiyat ve Bilgi\",\n    \"Randevu Al\",\n    \"Canlı Temsilci\"\n  ]\n}"
+            }
+          }
+        },
+        {
+          "name": "Meta Onaylı WhatsApp Mesaj Şablonlarını Çek",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-User-ID",
+                "value": "{{user_id}}",
+                "type": "text"
+              },
+              {
+                "key": "X-Tenant-ID",
+                "value": "{{tenant_id}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/omnichannel/whatsapp/templates",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "omnichannel",
+                "whatsapp",
+                "templates"
+              ]
+            },
+            "description": "Meta Business hesabınızda onaylanmış HSM şablonlarını (24 saat penceresi dışı gönderim için) listeler.\n\nAuth Tipi: `session` | Gerekli Yetki (Scope): `omnichannel:access`"
+          }
+        },
+        {
+          "name": "Onaylı WhatsApp Şablon Mesajı Gönder (24 Saat Dışı)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-User-ID",
+                "value": "{{user_id}}",
+                "type": "text"
+              },
+              {
+                "key": "X-Tenant-ID",
+                "value": "{{tenant_id}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/omnichannel/whatsapp/send-template",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "omnichannel",
+                "whatsapp",
+                "send-template"
+              ]
+            },
+            "description": "Meta onaylı bir şablonu dinamik parametrelerle müşteriye iletir.\n\nAuth Tipi: `session` | Gerekli Yetki (Scope): `omnichannel:access`",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"phone\": \"905321234567\",\n  \"template_name\": \"randevu_hatirlatma\",\n  \"language\": \"tr\",\n  \"parameters\": [\n    \"Ahmet Bey\",\n    \"24 Kasım 14:30\"\n  ]\n}"
+            }
+          }
+        },
+        {
+          "name": "Müşteriye Yeni Dış Sohbet / E-Posta Başlat",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-User-ID",
+                "value": "{{user_id}}",
+                "type": "text"
+              },
+              {
+                "key": "X-Tenant-ID",
+                "value": "{{tenant_id}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/omnichannel/chats/compose",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "omnichannel",
+                "chats",
+                "compose"
+              ]
+            },
+            "description": "Mevcut oturum olmadan WhatsApp, Telegram veya E-Posta üzerinden doğrudan yeni bir iletişim oturumu açar.\n\nAuth Tipi: `session` | Gerekli Yetki (Scope): `omnichannel:access`",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"channel\": \"email\",\n  \"to\": \"musteri@firma.com\",\n  \"subject\": \"Teklif Dosyanız\",\n  \"content\": \"Merhaba, talep ettiğiniz teklif ektedir.\"\n}"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "12. Bilgi Bankası (RAG), Canlı Çeviri & Kalite Kontrol (QA) API",
+      "item": [
+        {
+          "name": "Bilgi Bankası (RAG) Kaynaklarını Listele",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-User-ID",
+                "value": "{{user_id}}",
+                "type": "text"
+              },
+              {
+                "key": "X-Tenant-ID",
+                "value": "{{tenant_id}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/rag/sources",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "rag",
+                "sources"
+              ]
+            },
+            "description": "AI sesli ve yazılı asistanların kullandığı tüm indekslenmiş PDF, Word, Web sitesi ve manuel SSS kaynaklarını listeler.\n\nAuth Tipi: `session` | Gerekli Yetki (Scope): `rag_kb:read`"
+          }
+        },
+        {
+          "name": "Web Sitesini Tara ve Bilgi Bankasına İndeksle",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-User-ID",
+                "value": "{{user_id}}",
+                "type": "text"
+              },
+              {
+                "key": "X-Tenant-ID",
+                "value": "{{tenant_id}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/rag/crawl",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "rag",
+                "crawl"
+              ]
+            },
+            "description": "Verilen web sitesi URL'sini otomatik tarar, HTML içeriğini temizleyip anlamsal parçalara (chunks) bölerek RAG bilgi bankasına ekler.\n\nAuth Tipi: `session` | Gerekli Yetki (Scope): `rag_kb:write`",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"url\": \"https://sirketiniz.com/sss\",\n  \"max_pages\": 10\n}"
+            }
+          }
+        },
+        {
+          "name": "Bilgi Bankasına Manuel Doküman / SSS Ekle",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-User-ID",
+                "value": "{{user_id}}",
+                "type": "text"
+              },
+              {
+                "key": "X-Tenant-ID",
+                "value": "{{tenant_id}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/rag/manual",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "rag",
+                "manual"
+              ]
+            },
+            "description": "Fiyat listesi, iade politikası veya ürün teknik verilerini doğrudan metin olarak AI bilgi bankasına ekler.\n\nAuth Tipi: `session` | Gerekli Yetki (Scope): `rag_kb:write`",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"title\": \"2026 Fiyat Listesi\",\n  \"content\": \"Kurumsal paket aylık 4.900 TL + KDV olup 50 dahili ve sınırsız IVR içerir.\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Bilgi Bankasında Anlamsal (Semantic) Sorgu Testi",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-User-ID",
+                "value": "{{user_id}}",
+                "type": "text"
+              },
+              {
+                "key": "X-Tenant-ID",
+                "value": "{{tenant_id}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/rag/search?q=iade+suresi",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "rag",
+                "search"
+              ]
+            },
+            "description": "Verilen müşteri sorusuna karşılık RAG motorunun hangi bilgi parçalarını ve benzerlik skorlarını döndürdüğünü test eder.\n\nAuth Tipi: `session` | Gerekli Yetki (Scope): `rag_kb:read`"
+          }
+        },
+        {
+          "name": "Bilgi Bankası Kaynağını Sil",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "X-User-ID",
+                "value": "{{user_id}}",
+                "type": "text"
+              },
+              {
+                "key": "X-Tenant-ID",
+                "value": "{{tenant_id}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/rag/sources?source_name=fiyat_listesi.pdf",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "rag",
+                "sources"
+              ]
+            },
+            "description": "Belirtilen kaynağa ait tüm vektör/metin parçalarını bilgi bankasından temizler.\n\nAuth Tipi: `session` | Gerekli Yetki (Scope): `rag_kb:delete`"
+          }
+        },
+        {
+          "name": "Gerçek Zamanlı Metin Çevirisi (Çok Dilli Destek)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-User-ID",
+                "value": "{{user_id}}",
+                "type": "text"
+              },
+              {
+                "key": "X-Tenant-ID",
+                "value": "{{tenant_id}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/live-translator/translate-text",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "live-translator",
+                "translate-text"
+              ]
+            },
+            "description": "Müşteri veya temsilci cümlelerini düşük gecikmeyle hedef dile (TR ↔ EN / DE / AR / RU / FR) çevirir.\n\nAuth Tipi: `session` | Gerekli Yetki (Scope): `live_translator:access`",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"text\": \"Siparişinizin teslimat adresini teyit edebilir misiniz?\",\n  \"source_lang\": \"tr\",\n  \"target_lang\": \"en\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Çevrilmiş Metni Doğal Sese Dönüştür (TTS)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-User-ID",
+                "value": "{{user_id}}",
+                "type": "text"
+              },
+              {
+                "key": "X-Tenant-ID",
+                "value": "{{tenant_id}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/live-translator/tts",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "live-translator",
+                "tts"
+              ]
+            },
+            "description": "Hedef dildeki metni canlı çağrıya aktarılabilir doğal insan sesine (audio/mp3) dönüştürür.\n\nAuth Tipi: `session` | Gerekli Yetki (Scope): `live_translator:access`",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"text\": \"Could you please confirm your delivery address?\",\n  \"language\": \"en\",\n  \"voice\": \"nova\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Otomatik Çağrı Kalite Kontrol (QA) Kriterlerini Listele",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-User-ID",
+                "value": "{{user_id}}",
+                "type": "text"
+              },
+              {
+                "key": "X-Tenant-ID",
+                "value": "{{tenant_id}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/qa/questions",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "qa",
+                "questions"
+              ]
+            },
+            "description": "AI Kalite Değerlendirme motorunun her çağrıyı puanlarken kullandığı soru setini ve ağırlıklarını döndürür.\n\nAuth Tipi: `session` | Gerekli Yetki (Scope): `qa:read`"
+          }
+        },
+        {
+          "name": "Yeni Kalite Değerlendirme (QA) Kriteri Ekle",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-User-ID",
+                "value": "{{user_id}}",
+                "type": "text"
+              },
+              {
+                "key": "X-Tenant-ID",
+                "value": "{{tenant_id}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/qa/questions",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "qa",
+                "questions"
+              ]
+            },
+            "description": "Yeni bir denetim sorusu ve puan ağırlığı tanımlar (örn. KVKK aydınlatma metni okundu mu?).\n\nAuth Tipi: `session` | Gerekli Yetki (Scope): `qa:write`",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"question\": \"Temsilci görüşme başında şirket adını belirterek selamlama yaptı mı?\",\n  \"weight\": 15,\n  \"category\": \"Açılış\"\n}"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "13. Müşteri 360°, Geri Arama (Callback) & Kriz Alarmı API",
+      "item": [
+        {
+          "name": "Müşteri 360° Birleşik Zaman Tüneli Sorgula",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-User-ID",
+                "value": "{{user_id}}",
+                "type": "text"
+              },
+              {
+                "key": "X-Tenant-ID",
+                "value": "{{tenant_id}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/workspace/customer-360?phone=05321234567",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "workspace",
+                "customer-360"
+              ]
+            },
+            "description": "Bir telefon numarasına ait tüm sesli çağrıları, WhatsApp/E-Posta sohbetlerini, randevuları, AI duygu geçmişini ve VIP etiketlerini tek zaman tünelinde döndürür.\n\nAuth Tipi: `session` | Gerekli Yetki (Scope): `customer_360:read`"
+          }
+        },
+        {
+          "name": "Müşteri 360° Etiket, VIP Durumu ve Özel Not Güncelle",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-User-ID",
+                "value": "{{user_id}}",
+                "type": "text"
+              },
+              {
+                "key": "X-Tenant-ID",
+                "value": "{{tenant_id}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/workspace/customer-360/meta",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "workspace",
+                "customer-360",
+                "meta"
+              ]
+            },
+            "description": "Müşteri kartına VIP rozeti, risk uyarısı veya temsilciler arası paylaşılan sabit notlar ekler.\n\nAuth Tipi: `session` | Gerekli Yetki (Scope): `customer_360:write`",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"phone\": \"05321234567\",\n  \"tags\": [\n    \"VIP\",\n    \"Kurumsal\"\n  ],\n  \"pinned_note\": \"Öncelikli teknik destek sözleşmesi var.\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Planlı Geri Arama (Callback) Görevlerini Listele",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-User-ID",
+                "value": "{{user_id}}",
+                "type": "text"
+              },
+              {
+                "key": "X-Tenant-ID",
+                "value": "{{tenant_id}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/workspace/callbacks?status=pending",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "workspace",
+                "callbacks"
+              ]
+            },
+            "description": "Bekleyen, zamanı yaklaşan veya tamamlanmış müşteri geri arama görevlerini listeler.\n\nAuth Tipi: `session` | Gerekli Yetki (Scope): `callback_tasks:read`"
+          }
+        },
+        {
+          "name": "Yeni Geri Arama (Callback) Görevi Planla",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-User-ID",
+                "value": "{{user_id}}",
+                "type": "text"
+              },
+              {
+                "key": "X-Tenant-ID",
+                "value": "{{tenant_id}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/workspace/callbacks",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "workspace",
+                "callbacks"
+              ]
+            },
+            "description": "Belirli bir tarih/saatte belirtilen temsilciye hatırlatma çıkacak şekilde müşteri geri arama görevi oluşturur.\n\nAuth Tipi: `session` | Gerekli Yetki (Scope): `callback_tasks:write`",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"customer_name\": \"Mehmet Demir\",\n  \"phone\": \"05321234567\",\n  \"assigned_extension\": \"1000\",\n  \"scheduled_at\": \"2026-11-24T10:30:00\",\n  \"note\": \"Teklif onayı sorulacak\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Geri Arama Görevi Durumunu Güncelle",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "X-User-ID",
+                "value": "{{user_id}}",
+                "type": "text"
+              },
+              {
+                "key": "X-Tenant-ID",
+                "value": "{{tenant_id}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/workspace/callbacks/42",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "workspace",
+                "callbacks",
+                "{task_id}"
+              ]
+            },
+            "description": "Geri arama görevini `completed`, `rescheduled` veya `cancelled` olarak işaretler.\n\nAuth Tipi: `session` | Gerekli Yetki (Scope): `callback_tasks:write`",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"completed\",\n  \"result_note\": \"Müşteri arandı, sipariş onaylandı.\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Geri Arama Görevini Sil",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "X-User-ID",
+                "value": "{{user_id}}",
+                "type": "text"
+              },
+              {
+                "key": "X-Tenant-ID",
+                "value": "{{tenant_id}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/workspace/callbacks/42",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "workspace",
+                "callbacks",
+                "{task_id}"
+              ]
+            },
+            "description": "Belirtilen geri arama görevini siler.\n\nAuth Tipi: `session` | Gerekli Yetki (Scope): `callback_tasks:delete`"
+          }
+        },
+        {
+          "name": "Cevapsız Çağrı Sahiplenme (Missed Claim) Listesi",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-User-ID",
+                "value": "{{user_id}}",
+                "type": "text"
+              },
+              {
+                "key": "X-Tenant-ID",
+                "value": "{{tenant_id}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/workspace/missed-claims",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "workspace",
+                "missed-claims"
+              ]
+            },
+            "description": "Hangi cevapsız çağrının hangi temsilci tarafından sahiplenilip geri arandığını listeler (çift aramayı önler).\n\nAuth Tipi: `session` | Gerekli Yetki (Scope): `callback_tasks:read`"
+          }
+        },
+        {
+          "name": "Cevapsız Çağrıyı Üzerine Al (Claim)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-User-ID",
+                "value": "{{user_id}}",
+                "type": "text"
+              },
+              {
+                "key": "X-Tenant-ID",
+                "value": "{{tenant_id}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/workspace/missed-claims",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "workspace",
+                "missed-claims"
+              ]
+            },
+            "description": "Bir cevapsız çağrıyı temsilci adına kilitler; diğer temsilciler bu çağrının zaten ilgilenildiğini görür.\n\nAuth Tipi: `session` | Gerekli Yetki (Scope): `callback_tasks:write`",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"call_id\": \"aida-1763890123-4918\",\n  \"extension\": \"1000\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Canlı Kriz & Negatif Duygu Alarmlarını Çek",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-User-ID",
+                "value": "{{user_id}}",
+                "type": "text"
+              },
+              {
+                "key": "X-Tenant-ID",
+                "value": "{{tenant_id}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/workspace/crisis-alerts",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "workspace",
+                "crisis-alerts"
+              ]
+            },
+            "description": "Aktif çağrılarda AI duygu analizi tarafından yüksek öfke/kriz skoru tespit edilen görüşmeleri süpervizör müdahalesi için listeler.\n\nAuth Tipi: `session` | Gerekli Yetki (Scope): `crisis_alerts:access`"
+          }
+        }
+      ]
+    },
+    {
+      "name": "14. Kurumsal Raporlar, Wallboard, Süpervizör & Hot-Desking API",
+      "item": [
+        {
+          "name": "Canlı Wallboard KPI ve Kuyruk Metrikleri",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-User-ID",
+                "value": "{{user_id}}",
+                "type": "text"
+              },
+              {
+                "key": "X-Tenant-ID",
+                "value": "{{tenant_id}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/reports/wallboard",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "reports",
+                "wallboard"
+              ]
+            },
+            "description": "Aktif çağrı, kuyrukta bekleyenler, müsait/moladaki temsilci sayıları, günlük SLA % ve ortalama bekleme sürelerini döndürür.\n\nAuth Tipi: `session` | Gerekli Yetki (Scope): `wallboard:access`"
+          }
+        },
+        {
+          "name": "Kuyruk SLA & Cevaplama Hız Dilimleri Raporu",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-User-ID",
+                "value": "{{user_id}}",
+                "type": "text"
+              },
+              {
+                "key": "X-Tenant-ID",
+                "value": "{{tenant_id}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/reports/enterprise/queue-sla?start_date=2026-11-01&end_date=2026-11-23",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "reports",
+                "enterprise",
+                "queue-sla"
+              ]
+            },
+            "description": "0-10 sn, 10-20 sn, 20-30 sn ve 30+ sn dilimlerinde kuyruk cevaplama oranlarını ve terk istatistiklerini döndürür.\n\nAuth Tipi: `session` | Gerekli Yetki (Scope): `reports_queue_sla:access`"
+          }
+        },
+        {
+          "name": "Temsilci Mola & Puantaj Raporu",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-User-ID",
+                "value": "{{user_id}}",
+                "type": "text"
+              },
+              {
+                "key": "X-Tenant-ID",
+                "value": "{{tenant_id}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/reports/enterprise/breaks-attendance?start_date=2026-11-01&end_date=2026-11-23",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "reports",
+                "enterprise",
+                "breaks-attendance"
+              ]
+            },
+            "description": "Her temsilcinin günlük oturum açma/kapama saatlerini, net çalışma süresini ve mola türü bazlı (Yemek, İhtiyaç, Eğitim) toplam dakikalarını döndürür.\n\nAuth Tipi: `session` | Gerekli Yetki (Scope): `reports_breaks_attendance:access`"
+          }
+        },
+        {
+          "name": "Temsilci Performans & AHT / ACW KPI Raporu",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-User-ID",
+                "value": "{{user_id}}",
+                "type": "text"
+              },
+              {
+                "key": "X-Tenant-ID",
+                "value": "{{tenant_id}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/reports/enterprise/agent-kpi-metrics",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "reports",
+                "enterprise",
+                "agent-kpi-metrics"
+              ]
+            },
+            "description": "Temsilci bazında toplam gelen/giden çağrı, ortalama konuşma süresi (AHT), wrap-up süresi ve FCR oranlarını döndürür.\n\nAuth Tipi: `session` | Gerekli Yetki (Scope): `reports_perf:access`"
+          }
+        },
+        {
+          "name": "Omnichannel Kanal & İlk Yanıt SLA Raporu",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-User-ID",
+                "value": "{{user_id}}",
+                "type": "text"
+              },
+              {
+                "key": "X-Tenant-ID",
+                "value": "{{tenant_id}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/reports/enterprise/omnichannel",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "reports",
+                "enterprise",
+                "omnichannel"
+              ]
+            },
+            "description": "WhatsApp, Telegram, Instagram, Facebook ve E-Posta kanalları için ortalama ilk yanıt süresi ve çözüm oranlarını döndürür.\n\nAuth Tipi: `session` | Gerekli Yetki (Scope): `reports_omnichannel:access`"
+          }
+        },
+        {
+          "name": "VoIP & Ses Kalitesi (MOS / Jitter / Paket Kaybı) Raporu",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-User-ID",
+                "value": "{{user_id}}",
+                "type": "text"
+              },
+              {
+                "key": "X-Tenant-ID",
+                "value": "{{tenant_id}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/reports/enterprise/voip-quality",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "reports",
+                "enterprise",
+                "voip-quality"
+              ]
+            },
+            "description": "Çağrı bazlı RTCP/WebRTC MOS skoru, gecikme (RTT), jitter ve paket kaybı metriklerini döndürür.\n\nAuth Tipi: `session` | Gerekli Yetki (Scope): `reports_voip_quality:access`"
+          }
+        },
+        {
+          "name": "Çağrı Sonrası Müşteri Memnuniyet Anketi (CSAT) Raporu",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-User-ID",
+                "value": "{{user_id}}",
+                "type": "text"
+              },
+              {
+                "key": "X-Tenant-ID",
+                "value": "{{tenant_id}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/reports/queue-surveys",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "reports",
+                "queue-surveys"
+              ]
+            },
+            "description": "DTMF tuşlama ile toplanan 1-5 arası memnuniyet anket sonuçlarını kuyruk ve temsilci kırılımında döndürür.\n\nAuth Tipi: `session` | Gerekli Yetki (Scope): `reports_survey:access`"
+          }
+        },
+        {
+          "name": "Operatör Dakika Paketi & Maliyet Tüketim Raporu",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-User-ID",
+                "value": "{{user_id}}",
+                "type": "text"
+              },
+              {
+                "key": "X-Tenant-ID",
+                "value": "{{tenant_id}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/reports/trunk-package-usage",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "reports",
+                "trunk-package-usage"
+              ]
+            },
+            "description": "Her SIP Trunk için tanımlı aylık dakika paketinin ne kadarının tüketildiğini ve kalan dakikayı döndürür.\n\nAuth Tipi: `session` | Gerekli Yetki (Scope): `reports_trunk_minutes:access`"
+          }
+        },
+        {
+          "name": "Özel Rapor Tasarımcısı Dinamik Sorgu Çalıştır",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-User-ID",
+                "value": "{{user_id}}",
+                "type": "text"
+              },
+              {
+                "key": "X-Tenant-ID",
+                "value": "{{tenant_id}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/reports/custom/execute",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "reports",
+                "custom",
+                "execute"
+              ]
+            },
+            "description": "Seçilen veri kaynağı, sütunlar, gruplama ve filtrelerle dinamik kurumsal rapor üretir.\n\nAuth Tipi: `session` | Gerekli Yetki (Scope): `reports_custom_builder:access`",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"dataset\": \"calls\",\n  \"metrics\": [\n    \"count\",\n    \"avg_duration\"\n  ],\n  \"group_by\": \"agent_extension\",\n  \"date_range\": \"last_7_days\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Doğal Dille Yapay Zeka Özel Rapor Oluştur",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-User-ID",
+                "value": "{{user_id}}",
+                "type": "text"
+              },
+              {
+                "key": "X-Tenant-ID",
+                "value": "{{tenant_id}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/reports/custom/ai-generate",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "reports",
+                "custom",
+                "ai-generate"
+              ]
+            },
+            "description": "Türkçe doğal dil isteğini (örn. 'Bu ay 30 saniyeden fazla bekleyip kaçan çağrıları kuyruk bazında listele') otomatik rapor tanımına çevirir.\n\nAuth Tipi: `session` | Gerekli Yetki (Scope): `reports_custom_builder:access`",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"prompt\": \"Son 30 günde en çok çağrı yanıtlayan 5 temsilciyi ortalama konuşma süreleriyle göster\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Bekleyen Temsilci Mola Onay Taleplerini Listele",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-User-ID",
+                "value": "{{user_id}}",
+                "type": "text"
+              },
+              {
+                "key": "X-Tenant-ID",
+                "value": "{{tenant_id}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/supervisor/break-requests",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "supervisor",
+                "break-requests"
+              ]
+            },
+            "description": "Kuyruk eşzamanlı mola kotasına takılan ve süpervizör onayı bekleyen mola taleplerini listeler.\n\nAuth Tipi: `session` | Gerekli Yetki (Scope): `supervisor:agent_status`"
+          }
+        },
+        {
+          "name": "Temsilci Mola Talebini Onayla veya Reddet",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-User-ID",
+                "value": "{{user_id}}",
+                "type": "text"
+              },
+              {
+                "key": "X-Tenant-ID",
+                "value": "{{tenant_id}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/supervisor/break-requests/12/decide",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "supervisor",
+                "break-requests",
+                "{req_id}",
+                "decide"
+              ]
+            },
+            "description": "Bekleyen bir mola talebini `approve` veya `reject` kararıyla sonuçlandırır.\n\nAuth Tipi: `session` | Gerekli Yetki (Scope): `supervisor:agent_status`",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"decision\": \"approve\",\n  \"note\": \"Onaylandı\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Aktif Hot-Desking (Ortak Masa Telefonu) Oturumlarını Listele",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-User-ID",
+                "value": "{{user_id}}",
+                "type": "text"
+              },
+              {
+                "key": "X-Tenant-ID",
+                "value": "{{tenant_id}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/hotdesk/sessions",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "hotdesk",
+                "sessions"
+              ]
+            },
+            "description": "*75 kodu ile fiziksel masa telefonuna oturum açmış tüm kullanıcı-cihaz eşleşmelerini listeler.\n\nAuth Tipi: `session` | Gerekli Yetki (Scope): `users:read`"
+          }
+        },
+        {
+          "name": "Hot-Desking Oturumunu Uzaktan Sonlandır",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "X-User-ID",
+                "value": "{{user_id}}",
+                "type": "text"
+              },
+              {
+                "key": "X-Tenant-ID",
+                "value": "{{tenant_id}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/hotdesk/sessions/1000@192.168.1.50",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "hotdesk",
+                "sessions",
+                "{session_key}"
+              ]
+            },
+            "description": "Bir temsilcinin fiziksel masa telefonundaki Hot-Desk oturumunu yönetici panelinden/API'den kapatır.\n\nAuth Tipi: `session` | Gerekli Yetki (Scope): `users:write`"
+          }
+        }
+      ]
+    },
+    {
+      "name": "15. Çok-Şubeli Santral (Federation), Nornia Connect, Ağ & AI Konfigürasyon API",
+      "item": [
+        {
+          "name": "Santralin Multi-Site Rolünü (Standalone / Hub / Edge) Oku",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-User-ID",
+                "value": "{{user_id}}",
+                "type": "text"
+              },
+              {
+                "key": "X-Tenant-ID",
+                "value": "{{tenant_id}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/federation/node-config",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "federation",
+                "node-config"
+              ]
+            },
+            "description": "Sunucunun dağıtık santral mimarisindeki rolünü, şube kodunu, medya politikasını ve SRST Failover durumunu döndürür.\n\nAuth Tipi: `session` | Gerekli Yetki (Scope): `federation_multisite:read`"
+          }
+        },
+        {
+          "name": "Bağlı Şube (Edge) Santrallerini Listele",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-User-ID",
+                "value": "{{user_id}}",
+                "type": "text"
+              },
+              {
+                "key": "X-Tenant-ID",
+                "value": "{{tenant_id}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/federation/sites",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "federation",
+                "sites"
+              ]
+            },
+            "description": "Merkez Hub'a bağlı tüm şube santrallerinin çevrimiçi sağlık, son heartbeat ve yapılandırma senkronizasyon durumlarını listeler.\n\nAuth Tipi: `session` | Gerekli Yetki (Scope): `federation_multisite:read`"
+          }
+        },
+        {
+          "name": "Şube Santraline Anlık Konfigürasyon Gönder (Push)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-User-ID",
+                "value": "{{user_id}}",
+                "type": "text"
+              },
+              {
+                "key": "X-Tenant-ID",
+                "value": "{{tenant_id}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/federation/sites/ANKARA-01/push-config",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "federation",
+                "sites",
+                "{site_code}",
+                "push-config"
+              ]
+            },
+            "description": "Merkezde yapılan dahili, dialplan veya kural değişikliklerini belirtilen şube santraline anında senkronize eder.\n\nAuth Tipi: `session` | Gerekli Yetki (Scope): `federation_multisite:write`",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"force\": true\n}"
+            }
+          }
+        },
+        {
+          "name": "Nornia Connect (Sıfır-Port Bulut Köprüsü) Tünel Durumu",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-User-ID",
+                "value": "{{user_id}}",
+                "type": "text"
+              },
+              {
+                "key": "X-Tenant-ID",
+                "value": "{{tenant_id}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/settings/ras/status",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "settings",
+                "ras",
+                "status"
+              ]
+            },
+            "description": "HTTPS bulut tüneli, WireGuard SIP Edge bağlantısı, kilitli alt alan adı (FQDN) ve bağlantı gecikmesini döndürür.\n\nAuth Tipi: `session` | Gerekli Yetki (Scope): `ras_settings:read`"
+          }
+        },
+        {
+          "name": "Nornia Connect Bulut Tünelini Yeniden Başlat",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-User-ID",
+                "value": "{{user_id}}",
+                "type": "text"
+              },
+              {
+                "key": "X-Tenant-ID",
+                "value": "{{tenant_id}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/settings/ras/reconnect",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "settings",
+                "ras",
+                "reconnect"
+              ]
+            },
+            "description": "Hub ile olan sıfır-port bulut tünelini ve SIP Edge köprüsünü kesintisiz yeniler.\n\nAuth Tipi: `session` | Gerekli Yetki (Scope): `ras_settings:write`",
+            "body": {
+              "mode": "raw",
+              "raw": "{}"
+            }
+          }
+        },
+        {
+          "name": "Sunucu Ağ Arayüzleri (NIC), IP ve Statik Rotaları Oku",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-User-ID",
+                "value": "{{user_id}}",
+                "type": "text"
+              },
+              {
+                "key": "X-Tenant-ID",
+                "value": "{{tenant_id}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/settings/network/status",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "settings",
+                "network",
+                "status"
+              ]
+            },
+            "description": "Linux ağ kartlarını (enp0s3/eth0), IPv4/CIDR adreslerini, gateway, DNS ve özel SIP/MPLS statik rotalarını döndürür.\n\nAuth Tipi: `session` | Gerekli Yetki (Scope): `server_network:read`"
+          }
+        },
+        {
+          "name": "AI Konfigürasyon Asistanı — Doğal Dilden Değişiklik Planı Üret",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-User-ID",
+                "value": "{{user_id}}",
+                "type": "text"
+              },
+              {
+                "key": "X-Tenant-ID",
+                "value": "{{tenant_id}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/ai-config-assistant/plan",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "ai-config-assistant",
+                "plan"
+              ]
+            },
+            "description": "Türkçe yönetici komutunu (örn. '1020-1025 arası satış dahili aç ve 6000 kuyruğuna ekle') önizlenebilir ve geri alınabilir güvenli bir aksiyon planına çevirir.\n\nAuth Tipi: `session` | Gerekli Yetki (Scope): `ai_config_assistant:write`",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"prompt\": \"Mesai dışı saatlerde 0850 hattına gelen çağrıları AI karşılama asistanına yönlendir\"\n}"
+            }
+          }
+        },
+        {
+          "name": "AI Konfigürasyon Planını Snapshot Alarak Uygula",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-User-ID",
+                "value": "{{user_id}}",
+                "type": "text"
+              },
+              {
+                "key": "X-Tenant-ID",
+                "value": "{{tenant_id}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/ai-config-assistant/apply",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "ai-config-assistant",
+                "apply"
+              ]
+            },
+            "description": "Üretilen konfigürasyon planını otomatik geri yükleme noktası (snapshot) alarak santrale uygular.\n\nAuth Tipi: `session` | Gerekli Yetki (Scope): `ai_config_assistant:write`",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"plan_id\": \"plan_9f82a1\"\n}"
+            }
+          }
+        },
+        {
+          "name": "AI Konfigürasyon Değişikliğini Tek Tıkla Geri Al",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-User-ID",
+                "value": "{{user_id}}",
+                "type": "text"
+              },
+              {
+                "key": "X-Tenant-ID",
+                "value": "{{tenant_id}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/ai-config-assistant/undo/snap_20261123",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "ai-config-assistant",
+                "undo",
+                "{snapshot_id}"
+              ]
+            },
+            "description": "Belirtilen snapshot kimliğine dönerek tüm santral değişikliklerini saniyeler içinde geri alır.\n\nAuth Tipi: `session` | Gerekli Yetki (Scope): `ai_config_assistant:write`",
+            "body": {
+              "mode": "raw",
+              "raw": "{}"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "16. Gelen Kanal Webhook'ları, SIP Hata Ayıklama (PCAP) & Sistem Sağlığı API",
+      "item": [
+        {
+          "name": "WhatsApp Meta Cloud API Webhook Doğrulama (Challenge)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/webhooks/whatsapp?hub.mode=subscribe&hub.verify_token=TOKEN&hub.challenge=12345",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "webhooks",
+                "whatsapp"
+              ]
+            },
+            "description": "Meta Developer Console kurulumunda `hub.verify_token` doğrulaması yaparak `hub.challenge` değerini döndürür.\n\nAuth Tipi: `webhook` | Gerekli Yetki (Scope): `webhook:meta`"
+          }
+        },
+        {
+          "name": "WhatsApp Gelen Mesaj ve Durum Bildirimi Alıcısı",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/webhooks/whatsapp",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "webhooks",
+                "whatsapp"
+              ]
+            },
+            "description": "Meta WhatsApp Business Cloud API'den gelen müşteri mesajlarını, buton tıklamalarını ve teslimat raporlarını (sent/delivered/read) işler.\n\nAuth Tipi: `webhook` | Gerekli Yetki (Scope): `webhook:meta`",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"object\": \"whatsapp_business_account\",\n  \"entry\": [\n    {\n      \"id\": \"WABA_ID\",\n      \"changes\": [\n        {\n          \"field\": \"messages\",\n          \"value\": {\n            \"metadata\": {\n              \"phone_number_id\": \"1391907340666153\"\n            }\n          }\n        }\n      ]\n    }\n  ]\n}"
+            }
+          }
+        },
+        {
+          "name": "Telegram Bot API Webhook Alıcısı",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/webhooks/telegram",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "webhooks",
+                "telegram"
+              ]
+            },
+            "description": "Telegram Bot'a gelen müşteri mesajlarını otomatik olarak Ortak Gelen Kutusu'na ve AI yanıt motoruna yönlendirir.\n\nAuth Tipi: `webhook` | Gerekli Yetki (Scope): `webhook:telegram`",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"update_id\": 891234,\n  \"message\": {\n    \"chat\": {\n      \"id\": 123456789\n    },\n    \"text\": \"Merhaba, destek alabilir miyim?\"\n  }\n}"
+            }
+          }
+        },
+        {
+          "name": "Canlı SIP Paket & Çağrı Akışlarını Listele (Web sngrep)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/sip-debugger/calls",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "sip-debugger",
+                "calls"
+              ]
+            },
+            "description": "UDP/TCP 5060/5061 ve WSS 8089 üzerinden yakalanan SIP oturumlarını Call-ID bazında gruplanmış olarak döndürür.\n\nAuth Tipi: `webhook` | Gerekli Yetki (Scope): `troubleshooting:access`"
+          }
+        },
+        {
+          "name": "Seçili Çağrının Wireshark / sngrep Uyumlu PCAP Dosyasını İndir",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/sip-debugger/calls/aida-1763890123-4918/pcap",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "sip-debugger",
+                "calls",
+                "{call_id}",
+                "pcap"
+              ]
+            },
+            "description": "Belirtilen SIP çağrısının tüm paketlerini Ethernet/IP/UDP başlıklarıyla standart `.pcap` ikili dosyası olarak indirir.\n\nAuth Tipi: `webhook` | Gerekli Yetki (Scope): `troubleshooting:access`"
+          }
+        },
+        {
+          "name": "SIP Trunk / Hedef Sunucu Ping & Gecikme Testi",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/sip-debugger/diagnostics/ping",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "sip-debugger",
+                "diagnostics",
+                "ping"
+              ]
+            },
+            "description": "Operatör SIP sunucusuna veya belirtilen IP/domain adresine ICMP ping atarak RTT gecikme ve paket kaybını ölçer.\n\nAuth Tipi: `webhook` | Gerekli Yetki (Scope): `troubleshooting:access`",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"target\": \"sip.operatortelekom.com.tr\",\n  \"count\": 4\n}"
+            }
+          }
+        },
+        {
+          "name": "Ağ Güzergahı (Traceroute) Analizi",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/sip-debugger/diagnostics/traceroute",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "sip-debugger",
+                "diagnostics",
+                "traceroute"
+              ]
+            },
+            "description": "Santralden operatör SBC veya uzak şubeye kadar tüm ağ atlama noktalarını (hop) ve gecikmelerini raporlar.\n\nAuth Tipi: `webhook` | Gerekli Yetki (Scope): `troubleshooting:access`",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"target\": \"sip.operatortelekom.com.tr\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Santral Donanım, Ağ, FQDN & Lisans Özet Bilgisi",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/system/overview",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "system",
+                "overview"
+              ]
+            },
+            "description": "CPU/RAM/Disk, Asterisk durumu, LAN/WAN/NAT IP bilgileri, aktif FQDN ve donanım kilidi lisans özetini döndürür.\n\nAuth Tipi: `webhook` | Gerekli Yetki (Scope): `system_status:access`"
+          }
+        },
+        {
+          "name": "Santral Sürüm Kodu ve Değişiklik Günlüğü (Changelog)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/version",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "version"
+              ]
+            },
+            "description": "Santralde yüklü güncel yazılım sürümünü (`v3.x.x`), yayın tarihini ve sürüm notlarını döndürür.\n\nAuth Tipi: `webhook` | Gerekli Yetki (Scope): `public`"
           }
         }
       ]

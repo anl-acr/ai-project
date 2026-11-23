@@ -1,10 +1,10 @@
 #!/usr/bin/env node
 /**
- * Nornia Docs — Modül Bazlı Kurumsal PDF Üretici
- * ==============================================
- * `portals/docs-portal/out/` içindeki her `/print/<slug>/` sayfasını yüksek kaliteli
- * vektörel A4 PDF olarak `portals/docs-portal/public/pdfs/<slug>.pdf` ve `out/pdfs/`
- * altına kaydeder. Önce Playwright varsa onu, yoksa yerel Chrome/Chromium ikilisini kullanır.
+ * Nornia Docs — Modül Bazlı Kurumsal PDF Üretici (Otomatik Keşif + Paralel Chrome)
+ * =================================================================================
+ * `portals/docs-portal/out/print/<slug>/` altındaki TÜM menü sayfalarını ve `all`
+ * tam kılavuzunu yüksek kaliteli vektörel A4 PDF olarak `public/pdfs/` ve `out/pdfs/`
+ * altına paralel olarak üretir.
  */
 
 import fs from "fs";
@@ -21,22 +21,10 @@ const __dirname = path.dirname(__filename);
 
 const DOCS_ROOT = path.resolve(__dirname, "../../portals/docs-portal");
 const OUT_DIR = path.join(DOCS_ROOT, "out");
+const PRINT_DIR = path.join(OUT_DIR, "print");
 const PUBLIC_PDF_DIR = path.join(DOCS_ROOT, "public/pdfs");
 const OUT_PDF_DIR = path.join(OUT_DIR, "pdfs");
-
-const SLUGS = [
-  "kurulum-ve-ilk-baslangic",
-  "kullanicilar-ve-numara-plani",
-  "dis-hatlar-ve-arama-kurallari",
-  "arama-akisi-ve-ivr",
-  "cagri-merkezi-ve-acd",
-  "yapay-zeka-suite",
-  "omnichannel-ve-crm",
-  "oto-provizyon-ve-cihazlar",
-  "raporlama-ve-analitik",
-  "ag-guvenlik-ve-merkezi-panel",
-  "all"
-];
+const CONCURRENCY = Number(process.env.PDF_WORKERS || 4);
 
 const MIME = {
   ".html": "text/html; charset=utf-8",
@@ -45,8 +33,10 @@ const MIME = {
   ".json": "application/json; charset=utf-8",
   ".png": "image/png",
   ".jpg": "image/jpeg",
+  ".jpeg": "image/jpeg",
   ".webp": "image/webp",
   ".svg": "image/svg+xml",
+  ".ico": "image/x-icon",
   ".woff2": "font/woff2"
 };
 
@@ -89,75 +79,83 @@ function startStaticServer(rootDir) {
   });
 }
 
+function discoverPrintSlugs() {
+  if (!fs.existsSync(PRINT_DIR)) return [];
+  return fs
+    .readdirSync(PRINT_DIR, { withFileTypes: true })
+    .filter((d) => d.isDirectory() && fs.existsSync(path.join(PRINT_DIR, d.name, "index.html")))
+    .map((d) => d.name)
+    .sort((a, b) => (a === "all" ? 1 : b === "all" ? -1 : a.localeCompare(b)));
+}
+
 async function main() {
-  if (!fs.existsSync(OUT_DIR)) {
+  if (!fs.existsSync(PRINT_DIR)) {
     console.error("[HATA] Önce `cd portals/docs-portal && npm run build` çalıştırılmalıdır.");
     process.exit(1);
   }
 
+  const slugs = discoverPrintSlugs();
+  if (slugs.length === 0) {
+    console.error("[HATA] out/print altında hiç sayfa bulunamadı.");
+    process.exit(1);
+  }
+
+  const chromeBin = findChromeBinary();
+  if (!chromeBin) {
+    console.error("[HATA] Chrome/Chromium bulunamadı.");
+    process.exit(1);
+  }
+
+  // Clean stale PDFs before generating fresh set
+  if (fs.existsSync(PUBLIC_PDF_DIR)) fs.rmSync(PUBLIC_PDF_DIR, { recursive: true, force: true });
+  if (fs.existsSync(OUT_PDF_DIR)) fs.rmSync(OUT_PDF_DIR, { recursive: true, force: true });
   fs.mkdirSync(PUBLIC_PDF_DIR, { recursive: true });
   fs.mkdirSync(OUT_PDF_DIR, { recursive: true });
 
   const { server, port } = await startStaticServer(OUT_DIR);
-  let playwright = null;
-  try {
-    playwright = await import("playwright");
-  } catch (_) {}
+  let doneCount = 0;
 
   try {
-    if (playwright) {
-      const browser = await playwright.chromium.launch({ headless: true });
+    let cursor = 0;
+    const worker = async (workerId) => {
+      const profileDir = `/tmp/nornia-chrome-pdf-${Date.now()}-${workerId}`;
       try {
-        const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
-        for (const slug of SLUGS) {
+        while (cursor < slugs.length) {
+          const slug = slugs[cursor++];
           const targetUrl = `http://127.0.0.1:${port}/print/${slug}/`;
           const pdfName = slug === "all" ? "nornia-kullanim-kilavuzu-tam.pdf" : `${slug}.pdf`;
           const destPublic = path.join(PUBLIC_PDF_DIR, pdfName);
           const destOut = path.join(OUT_PDF_DIR, pdfName);
 
-          console.log(`  → [Playwright] PDF üretiliyor: ${pdfName}`);
-          await page.goto(targetUrl, { waitUntil: "networkidle", timeout: 30000 });
-          await page.waitForTimeout(400);
-          await page.pdf({
-            path: destPublic,
-            format: "A4",
-            printBackground: true,
-            displayHeaderFooter: true,
-            headerTemplate: `<div style="font-size:8px;color:#64748b;width:100%;padding:0 14mm;display:flex;justify-content:space-between;"><span>Nornia Enterprise AI PBX — Kullanım Kılavuzu</span><span>dokuman.nornia.com.tr</span></div>`,
-            footerTemplate: `<div style="font-size:8px;color:#64748b;width:100%;padding:0 14mm;display:flex;justify-content:space-between;"><span>© Nornia Akıllı İletişim Platformu</span><span>Sayfa <span class="pageNumber"></span> / <span class="totalPages"></span></span></div>`,
-            margin: { top: "16mm", bottom: "16mm", left: "12mm", right: "12mm" }
-          });
+          await execFileAsync(
+            chromeBin,
+            [
+              "--headless=new",
+              "--disable-gpu",
+              "--no-sandbox",
+              `--user-data-dir=${profileDir}`,
+              "--print-to-pdf-no-header",
+              `--print-to-pdf=${destPublic}`,
+              targetUrl
+            ],
+            { timeout: slug === "all" ? 90000 : 35000 }
+          );
           fs.copyFileSync(destPublic, destOut);
+          doneCount++;
+          const kb = Math.round(fs.statSync(destPublic).size / 1024);
+          console.log(`  [${String(doneCount).padStart(2, "0")}/${slugs.length}] ${pdfName} (${kb} KB)`);
         }
       } finally {
-        await browser.close();
+        try {
+          fs.rmSync(profileDir, { recursive: true, force: true });
+        } catch (_) {}
       }
-    } else {
-      const chromeBin = findChromeBinary();
-      if (!chromeBin) {
-        console.error("[HATA] Playwright veya Chrome/Chromium bulunamadı.");
-        process.exit(1);
-      }
-      for (const slug of SLUGS) {
-        const targetUrl = `http://127.0.0.1:${port}/print/${slug}/`;
-        const pdfName = slug === "all" ? "nornia-kullanim-kilavuzu-tam.pdf" : `${slug}.pdf`;
-        const destPublic = path.join(PUBLIC_PDF_DIR, pdfName);
-        const destOut = path.join(OUT_PDF_DIR, pdfName);
+    };
 
-        console.log(`  → [Chrome] PDF üretiliyor: ${pdfName}`);
-        await execFileAsync(chromeBin, [
-          "--headless=new",
-          "--disable-gpu",
-          "--no-sandbox",
-          "--user-data-dir=/tmp/nornia-chrome-pdf",
-          "--print-to-pdf-no-header",
-          `--print-to-pdf=${destPublic}`,
-          targetUrl
-        ], { timeout: 30000 });
-        fs.copyFileSync(destPublic, destOut);
-      }
-    }
-    console.log(`[OK] ${SLUGS.length} adet kurumsal PDF üretildi -> ${PUBLIC_PDF_DIR}`);
+    const workers = Array.from({ length: Math.min(CONCURRENCY, slugs.length) }, (_, idx) => worker(idx + 1));
+    await Promise.all(workers);
+
+    console.log(`[OK] ${doneCount} adet kurumsal PDF üretildi -> ${PUBLIC_PDF_DIR}`);
   } finally {
     server.close();
   }

@@ -2,11 +2,11 @@
 /**
  * Nornia Docs — Sıfır Bağımlılıklı Canlı Santral Ekran Görüntüsü Yakalayıcı (Chrome CDP)
  * ======================================================================================
- * Varsayılan hedef: https://app.saphira.com.tr
- * Yerel Google Chrome / Chromium ikilisi + Node.js yerleşik WebSocket (CDP) ile çalışır.
+ * Tüm 48 benzersiz PBX menü ekranını canlı `https://app.nornia.com.tr` üzerinden
+ * 1440×900 1.5x Retina (2160×1350) yüksek kaliteli JPEG olarak yakalar.
  *
  * Kullanım:
- *   PBX_URL="https://app.saphira.com.tr" PBX_USER="anl.acr@gmail.com" PBX_PASS="..." \
+ *   PBX_URL="https://app.nornia.com.tr" PBX_USER="anl.acr@gmail.com" PBX_PASS="test" \
  *     node scripts/portals/capture_pbx_screenshots.mjs
  */
 
@@ -19,31 +19,60 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const PBX_URL = (process.env.PBX_URL || "https://app.nornia.com.tr").replace(/\/+$/, "");
-const PBX_USER = process.env.PBX_USER || "admin";
+const PBX_USER = process.env.PBX_USER || "anl.acr@gmail.com";
 const PBX_PASS = process.env.PBX_PASS || "";
 const OUT_ROOT = path.resolve(__dirname, "../../portals/docs-portal/public/screenshots");
-const CDP_PORT = Number(process.env.CDP_PORT || 9233);
+const CDP_PORT = Number(process.env.CDP_PORT || 9235);
 
 const TARGETS = [
-  { file: "kurulum-ve-ilk-baslangic/02-system-info.png", url: `${PBX_URL}/?tab=sistem-durumu` },
-  { file: "kullanicilar-ve-numara-plani/01-users-list.png", url: `${PBX_URL}/?tab=kullanicilar` },
-  { file: "kullanicilar-ve-numara-plani/02-numbering-plan.png", url: `${PBX_URL}/?tab=ayarlar&subtab=santral-ayarlari` },
-  { file: "dis-hatlar-ve-arama-kurallari/01-trunks.png", url: `${PBX_URL}/?tab=dis-hatlar-sip-trunk` },
-  { file: "dis-hatlar-ve-arama-kurallari/02-inbound-outbound.png", url: `${PBX_URL}/?tab=gelen-arama-kurallari` },
-  { file: "arama-akisi-ve-ivr/01-call-flow.png", url: `${PBX_URL}/?tab=arama-akislari` },
-  { file: "cagri-merkezi-ve-acd/01-call-panel.png", url: `${PBX_URL}/?tab=cagri-merkezi` },
-  { file: "cagri-merkezi-ve-acd/02-wallboard.png", url: `${PBX_URL}/?tab=canli-wallboard` },
-  { file: "cagri-merkezi-ve-acd/03-queues.png", url: `${PBX_URL}/?tab=kuyruklar` },
-  { file: "yapay-zeka-suite/01-ai-agents.png", url: `${PBX_URL}/?tab=yapay-zeka-temsilcileri` },
-  { file: "yapay-zeka-suite/02-rag-kb.png", url: `${PBX_URL}/?tab=bilgi-bankasi` },
-  { file: "yapay-zeka-suite/03-ai-providers.png", url: `${PBX_URL}/?tab=ayarlar&subtab=yapay-zeka-saglayicilari` },
-  { file: "omnichannel-ve-crm/01-omnichannel.png", url: `${PBX_URL}/?tab=coklu-kanal` },
-  { file: "omnichannel-ve-crm/02-channels.png", url: `${PBX_URL}/?tab=ayarlar&subtab=kanal-ayarlari` },
-  { file: "oto-provizyon-ve-cihazlar/01-autoprovision.png", url: `${PBX_URL}/?tab=otomatik-kurulum` },
-  { file: "raporlama-ve-analitik/01-reports-hub.png", url: `${PBX_URL}/?tab=raporlar-pano` },
-  { file: "raporlama-ve-analitik/02-cdr.png", url: `${PBX_URL}/?tab=raporlar-detayli-cagri` },
-  { file: "ag-guvenlik-ve-merkezi-panel/01-security.png", url: `${PBX_URL}/?tab=ayarlar&subtab=rol-ve-yetkiler` },
-  { file: "ag-guvenlik-ve-merkezi-panel/02-sngrep.png", url: `${PBX_URL}/?tab=sorun-inceleme` }
+  { file: "01-system-status.jpg", url: `${PBX_URL}/?tab=sistem-durumu` },
+  { file: "02-dashboard.jpg", url: `${PBX_URL}/?tab=pano` },
+  { file: "03-wallboard.jpg", url: `${PBX_URL}/?tab=canli-wallboard` },
+  { file: "04-realtime-calls.jpg", url: `${PBX_URL}/?tab=canli-cagri-izleme` },
+  { file: "04-call-center.jpg", url: `${PBX_URL}/?tab=cagri-merkezi` },
+  { file: "05-omnichannel.jpg", url: `${PBX_URL}/?tab=coklu-kanal` },
+  { file: "06-api-budgets.jpg", url: `${PBX_URL}/?tab=api-butce-ve-tuketim` },
+  { file: "07-ai-config-assistant.jpg", url: `${PBX_URL}/?tab=ai-konfigurasyon-asistani` },
+  { file: "08-ai-agents.jpg", url: `${PBX_URL}/?tab=yapay-zeka-temsilcileri` },
+  { file: "09-rag-kb.jpg", url: `${PBX_URL}/?tab=bilgi-bankasi` },
+  { file: "10-rule-editor.jpg", url: `${PBX_URL}/?tab=kural-editoru` },
+  { file: "11-users.jpg", url: `${PBX_URL}/?tab=kullanicilar` },
+  { file: "12-announcements.jpg", url: `${PBX_URL}/?tab=anonslar` },
+  { file: "13-acd-queues.jpg", url: `${PBX_URL}/?tab=kuyruklar` },
+  { file: "14-autoprovision.jpg", url: `${PBX_URL}/?tab=otomatik-kurulum` },
+  { file: "15-outbound-rules.jpg", url: `${PBX_URL}/?tab=giden-arama-kurallari` },
+  { file: "16-inbound-rules.jpg", url: `${PBX_URL}/?tab=gelen-arama-kurallari` },
+  { file: "17-call-pickup-groups.jpg", url: `${PBX_URL}/?tab=cagri-toplama-gruplari` },
+  { file: "18-subscriber-groups.jpg", url: `${PBX_URL}/?tab=abone-gruplari` },
+  { file: "19-bulk-config.jpg", url: `${PBX_URL}/?tab=toplu-konfigurasyon` },
+  { file: "20-contacts.jpg", url: `${PBX_URL}/?tab=rehber` },
+  { file: "21-trunks.jpg", url: `${PBX_URL}/?tab=dis-hatlar-sip-trunk` },
+  { file: "22-conferences.jpg", url: `${PBX_URL}/?tab=konferans-odalari` },
+  { file: "23-speed-dial.jpg", url: `${PBX_URL}/?tab=hizli-arama` },
+  { file: "24-blacklist.jpg", url: `${PBX_URL}/?tab=karaliste` },
+  { file: "25-scheduled-reports.jpg", url: `${PBX_URL}/?tab=zamanlanmis-raporlar` },
+  { file: "26-call-flow.jpg", url: `${PBX_URL}/?tab=arama-akislari` },
+  { file: "27-work-hours.jpg", url: `${PBX_URL}/?tab=mesai-ve-tatiller` },
+  { file: "28-dialer.jpg", url: `${PBX_URL}/?tab=dis-arama-dialer` },
+  { file: "29-calendar.jpg", url: `${PBX_URL}/?tab=takvim` },
+  { file: "30-reports-custom-builder.jpg", url: `${PBX_URL}/?tab=ozel-rapor-tasarimcisi` },
+  { file: "31-reports-cdr.jpg", url: `${PBX_URL}/?tab=raporlar-detayli-cagri` },
+  { file: "32-reports-audio.jpg", url: `${PBX_URL}/?tab=raporlar-ses-kayitlari` },
+  { file: "33-reports-qa.jpg", url: `${PBX_URL}/?tab=raporlar-kalite-degerlendirme` },
+  { file: "34-reports-breaks.jpg", url: `${PBX_URL}/?tab=mola-ve-puantaj-raporu` },
+  { file: "35-reports-queue-sla.jpg", url: `${PBX_URL}/?tab=kuyruk-sla-ve-hiz-dilimleri` },
+  { file: "36-reports-voip-quality.jpg", url: `${PBX_URL}/?tab=voip-ses-kalitesi-mos-raporu` },
+  { file: "37-settings-pbx.jpg", url: `${PBX_URL}/?tab=ayarlar&subtab=santral-ayarlari` },
+  { file: "38-settings-ras.jpg", url: `${PBX_URL}/?tab=ayarlar&subtab=nornia-connect` },
+  { file: "39-settings-federation.jpg", url: `${PBX_URL}/?tab=ayarlar&subtab=cok-subeli-santral` },
+  { file: "40-settings-roles.jpg", url: `${PBX_URL}/?tab=ayarlar&subtab=rol-ve-yetkiler` },
+  { file: "41-settings-license.jpg", url: `${PBX_URL}/?tab=ayarlar&subtab=musteri-lisanslari` },
+  { file: "42-settings-ai-providers.jpg", url: `${PBX_URL}/?tab=ayarlar&subtab=yapay-zeka-saglayicilari` },
+  { file: "43-settings-api-management.jpg", url: `${PBX_URL}/?tab=ayarlar&subtab=dis-api-ve-anahtar-yonetimi` },
+  { file: "44-settings-retention.jpg", url: `${PBX_URL}/?tab=ayarlar&subtab=sistem-versiyonu` },
+  { file: "45-event-logs.jpg", url: `${PBX_URL}/?tab=event-logs` },
+  { file: "46-sip-debugger.jpg", url: `${PBX_URL}/?tab=sorun-inceleme` },
+  { file: "47-security.jpg", url: `${PBX_URL}/?tab=security` }
 ];
 
 function findChromeBinary() {
@@ -103,9 +132,9 @@ class CDPClient {
     return res?.result?.value;
   }
 
-  async screenshot(destPath) {
+  async screenshotJpeg(destPath) {
     fs.mkdirSync(path.dirname(destPath), { recursive: true });
-    const res = await this.send("Page.captureScreenshot", { format: "png" });
+    const res = await this.send("Page.captureScreenshot", { format: "jpeg", quality: 90 });
     fs.writeFileSync(destPath, Buffer.from(res.data, "base64"));
   }
 
@@ -142,6 +171,12 @@ async function main() {
     process.exit(1);
   }
 
+  // Clean old screenshot folders so only current crisp JPEGs exist
+  if (fs.existsSync(OUT_ROOT)) {
+    fs.rmSync(OUT_ROOT, { recursive: true, force: true });
+  }
+  fs.mkdirSync(OUT_ROOT, { recursive: true });
+
   const profileDir = `/tmp/nornia-chrome-shot-${Date.now()}`;
   const chrome = spawn(
     chromeBin,
@@ -169,18 +204,14 @@ async function main() {
     await cdp.send("Emulation.setDeviceMetricsOverride", {
       width: 1440,
       height: 900,
-      deviceScaleFactor: 2,
+      deviceScaleFactor: 1.5,
       mobile: false
     });
 
-    // 1. Login ekranı
-    console.log(`[1/3] Giriş ekranı yakalanıyor: ${PBX_URL}/login`);
+    console.log(`[1/2] ${PBX_URL}/login üzerinden ${PBX_USER} ile oturum açılıyor...`);
     await cdp.send("Page.navigate", { url: `${PBX_URL}/login` });
-    await sleep(3200);
-    await cdp.screenshot(path.join(OUT_ROOT, "kurulum-ve-ilk-baslangic/01-login.png"));
+    await sleep(2800);
 
-    // 2. React kontrollü form ile giriş yap
-    console.log(`[2/3] ${PBX_USER} ile oturum açılıyor...`);
     const loginStatus = await cdp.eval(`
       (() => {
         const setVal = (el, val) => {
@@ -200,31 +231,30 @@ async function main() {
       })()
     `);
     console.log("  → Form durumu:", loginStatus);
-    await sleep(5000);
+    await sleep(4500);
 
-    const curPath = await cdp.eval("window.location.href");
     const hasSession = await cdp.eval("Boolean(localStorage.getItem('current_user_id') || sessionStorage.getItem('current_user_id'))");
-    console.log(`  → Oturum sonrası URL: ${curPath} | Oturum: ${hasSession}`);
     if (!hasSession) {
       throw new Error("Giriş başarısız görünüyor (oturum çerezi/storage oluşmadı).");
     }
 
-    // 3. Modül ekran görüntülerini tek tek yakala
-    console.log(`[3/3] ${TARGETS.length} modül ekran görüntüsü yakalanıyor...`);
-    for (const t of TARGETS) {
-      console.log(`  → ${t.file} (${t.url})`);
+    console.log(`[2/2] ${TARGETS.length} menü ekran görüntüsü yakalanıyor...`);
+    for (let i = 0; i < TARGETS.length; i++) {
+      const t = TARGETS[i];
+      process.stdout.write(`  [${String(i + 1).padStart(2, "0")}/${TARGETS.length}] ${t.file} ... `);
       await cdp.send("Page.navigate", { url: t.url });
-      await sleep(3200);
-      // Hassas şifre alanlarını gizle ve açık toast/modal varsa sadeleştir
+      await sleep(2100);
       await cdp.eval(`
         (() => {
           document.querySelectorAll('input[type="password"]').forEach((el) => { el.value = ""; });
         })()
       `);
-      await cdp.screenshot(path.join(OUT_ROOT, t.file));
+      await cdp.screenshotJpeg(path.join(OUT_ROOT, t.file));
+      const sz = Math.round(fs.statSync(path.join(OUT_ROOT, t.file)).size / 1024);
+      console.log(`${sz} KB`);
     }
 
-    console.log(`[OK] Tüm ekran görüntüleri başarıyla kaydedildi -> ${OUT_ROOT}`);
+    console.log(`[OK] Tüm ${TARGETS.length} ekran görüntüsü kaydedildi -> ${OUT_ROOT}`);
   } finally {
     if (cdp) cdp.close();
     try {
